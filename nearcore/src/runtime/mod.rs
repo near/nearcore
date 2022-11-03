@@ -876,32 +876,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(transactions)
     }
 
-    fn num_total_parts(&self) -> usize {
-        let seats = self.genesis_config.num_block_producer_seats;
-        if seats > 1 {
-            seats as usize
-        } else {
-            2
-        }
-    }
-
-    fn num_data_parts(&self) -> usize {
-        let total_parts = self.num_total_parts();
-        if total_parts <= 3 {
-            1
-        } else {
-            (total_parts - 1) / 3
-        }
-    }
-
-    fn get_part_owner(&self, epoch_id: &EpochId, part_id: u64) -> Result<AccountId, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
-        let settlement = epoch_info.block_producers_settlement();
-        let validator_id = settlement[part_id as usize % settlement.len()];
-        Ok(epoch_info.get_validator(validator_id).account_id().clone())
-    }
-
     fn cares_about_shard(
         &self,
         account_id: Option<&AccountId>,
