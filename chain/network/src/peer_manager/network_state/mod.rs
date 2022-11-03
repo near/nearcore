@@ -67,7 +67,7 @@ impl Drop for Runtime {
         let thread = self.thread.take().unwrap();
         // Await for the thread to stop, unless it is the current thread
         // (i.e. nobody waits for it).
-        if std::thread::current().id()!=thread.thread().id() {
+        if std::thread::current().id() != thread.thread().id() {
             thread.join().unwrap();
         }
     }
