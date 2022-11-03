@@ -106,9 +106,14 @@ impl NodeStorage {
     pub fn opener<'a>(
         home_dir: &std::path::Path,
         config: &'a StoreConfig,
-        cold_config: ColdConfig<'a>,
+        #[allow(unused_variables)] cold_config: ColdConfig<'a>,
     ) -> StoreOpener<'a> {
-        StoreOpener::new(home_dir, config, cold_config)
+        StoreOpener::new(
+            home_dir,
+            config,
+            #[cfg(feature = "cold_store")]
+            cold_config,
+        )
     }
 
     /// Initialises an opener for a new temporary test store.
@@ -122,7 +127,12 @@ impl NodeStorage {
     pub fn test_opener() -> (tempfile::TempDir, StoreOpener<'static>) {
         static CONFIG: Lazy<StoreConfig> = Lazy::new(StoreConfig::test_config);
         let dir = tempfile::tempdir().unwrap();
-        let opener = StoreOpener::new(dir.path(), &CONFIG, None);
+        let opener = StoreOpener::new(
+            dir.path(),
+            &CONFIG,
+            #[cfg(feature = "cold_store")]
+            None,
+        );
         (dir, opener)
     }
 
@@ -145,13 +155,13 @@ impl NodeStorage {
         #[cfg(feature = "cold_store")] cold_storage: Option<crate::db::RocksDB>,
         #[cfg(not(feature = "cold_store"))] cold_storage: Option<std::convert::Infallible>,
     ) -> Self {
-        Self {
-            hot_storage: Arc::new(hot_storage),
-            #[cfg(feature = "cold_store")]
-            cold_storage: cold_storage.map(|db| Arc::new(db.into())),
-            #[cfg(not(feature = "cold_store"))]
-            cold_storage: cold_storage.map(|_| unreachable!()),
-        }
+        let hot_storage = Arc::new(hot_storage);
+        #[cfg(feature = "cold_store")]
+        let cold_storage = cold_storage
+            .map(|cold_db| Arc::new(crate::db::ColdDB::new(hot_storage.clone(), cold_db)));
+        #[cfg(not(feature = "cold_store"))]
+        let cold_storage = cold_storage.map(|_| unreachable!());
+        Self { hot_storage, cold_storage }
     }
 
     /// Returns storage for given temperature.
