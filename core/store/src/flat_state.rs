@@ -635,7 +635,6 @@ impl FlatStorageState {
     /// Create a new FlatStorageState for `shard_id` using flat head if it is stored on storage.
     /// We also load all blocks with height between flat head to `latest_block_height`
     /// including those on forks into the returned FlatStorageState.
-    #[cfg(feature = "protocol_feature_flat_state")]
     pub fn new(
         store: Store,
         shard_id: ShardId,
