@@ -1205,34 +1205,45 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_wasm_gas(opcodes)
     }
 
-    pub fn verify_bls12_381(&mut self,
-                                aggregate_signature_ptr: u64,
-                                aggregate_signature_len: u64,
-                                msg_ptr: u64,
-                                msg_len: u64,
-                                pubkeys_ptr: u64,
-                                pubkeys_len: u64) -> Result<u64> {
-        let aggregate_signature = self.get_vec_from_memory_or_register(aggregate_signature_ptr, aggregate_signature_len)?;
+    pub fn verify_bls12_381(
+        &mut self,
+        aggregate_signature_ptr: u64,
+        aggregate_signature_len: u64,
+        msg_ptr: u64,
+        msg_len: u64,
+        pubkeys_ptr: u64,
+        pubkeys_len: u64,
+    ) -> Result<u64> {
+        const PUBKEY_LEN: u64 = 48;
+
+        let aggregate_signature =
+            self.get_vec_from_memory_or_register(aggregate_signature_ptr, aggregate_signature_len)?;
         let message = self.get_vec_from_memory_or_register(msg_ptr, msg_len)?;
         let pubkeys_raw = self.get_vec_from_memory_or_register(pubkeys_ptr, pubkeys_len)?;
 
-        let aggregate_sig = blst::min_pk::Signature::sig_validate(&aggregate_signature, false).unwrap();
+        let aggregate_sig =
+            blst::min_pk::Signature::sig_validate(&aggregate_signature, false).unwrap();
 
         let mut pubkeys: Vec<blst::min_pk::PublicKey> = vec![];
-        for i in 0..pubkeys_len/48 {
-            pubkeys.push(blst::min_pk::PublicKey::key_validate(&pubkeys_raw[((i*48) as usize)..(((i + 1)*48) as usize)]).unwrap());
+        for i in 0..pubkeys_len / PUBKEY_LEN {
+            pubkeys.push(
+                blst::min_pk::PublicKey::key_validate(
+                    &pubkeys_raw[((i * PUBKEY_LEN) as usize)..(((i + 1) * PUBKEY_LEN) as usize)],
+                )
+                .unwrap(),
+            );
         }
 
-        let mut pubkeys2: Vec<&blst::min_pk::PublicKey> = vec![];
+        let mut pubkeys_refs: Vec<&blst::min_pk::PublicKey> = vec![];
         for i in 0..pubkeys.len() {
-            pubkeys2.push(&pubkeys[i]);
+            pubkeys_refs.push(&pubkeys[i]);
         }
 
         Ok(aggregate_sig.fast_aggregate_verify(
             true,
             &message,
             b"BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_",
-            pubkeys2.as_slice()
+            pubkeys_refs.as_slice(),
         ) as u64)
     }
 
