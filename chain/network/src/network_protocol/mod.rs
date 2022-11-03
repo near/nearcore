@@ -39,7 +39,9 @@ use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::views::FinalExecutionOutcomeView;
 use opentelemetry::propagation::{Extractor, Injector, TextMapPropagator};
-use opentelemetry::trace::{SpanContext, SpanId, TraceContextExt, TraceFlags, TraceId, TraceState};
+use opentelemetry::trace::{
+    SpanContext, SpanId, SpanKind, TraceContextExt, TraceFlags, TraceId, TraceState,
+};
 use opentelemetry::{Context, ContextGuard};
 use protobuf::Message as _;
 use std::collections::{HashMap, HashSet};
@@ -264,32 +266,6 @@ pub enum PeerMessage {
     Challenge(Challenge),
 }
 
-/*
-#[derive(Debug, Default)]
-struct NodeTraceContextInjectorExtractor {
-    hash_map: HashMap<String, String>,
-}
-
-impl Injector for NodeTraceContextInjectorExtractor {
-    fn set(&mut self, key: &str, value: String) {
-        tracing::warn!("Injector::set '{}' '{}'", key, value);
-        self.hash_map.set(key, value)
-    }
-}
-
-impl Extractor for NodeTraceContextInjectorExtractor {
-    fn get(&self, key: &str) -> Option<&str> {
-        tracing::warn!("Extractor::get '{}'", key);
-        self.hash_map.get(key).map(|x| &**x)
-    }
-
-    fn keys(&self) -> Vec<&str> {
-        tracing::warn!("Extractor::keys");
-        self.hash_map.keys().map(|x| &**x).collect()
-    }
-}
- */
-
 const NODE_TRACE_ID_HEADER: &str = "x-node-trace-id";
 const NODE_PARENT_ID_HEADER: &str = "x-node-parent-id";
 const NODE_SAMPLING_PRIORITY_HEADER: &str = "x-node-sampling-priority";
@@ -308,6 +284,7 @@ static NODE_HEADER_FIELDS: Lazy<Vec<String>> = Lazy::new(|| {
     ]
 });
 
+#[derive(Debug)]
 enum SamplingPriority {
     UserReject = -1,
     AutoReject = 0,
@@ -375,6 +352,14 @@ impl NodePropagator {
             // Treat the sampling as DEFERRED instead of erroring on extracting the span context
             Err(_) => TRACE_FLAG_DEFERRED,
         };
+        let z: Option<SpanKind> = None;
+        tracing::warn!(
+            rx_trace_id=?trace_id,
+            rx_span_id=?span_id,
+            rx_sampling_priority=?sampling_priority,
+            rx_sampled=?sampled,
+            "extract_span_context"
+        );
 
         let trace_state = TraceState::default();
 
@@ -390,10 +375,10 @@ impl TextMapPropagator for NodePropagator {
         let span_context = span.span_context();
         if span_context.is_valid() {
             tracing::warn!(
-                "injector cx: '{:#?}', trace_id: '{:#?}', span_id: '{:#?}'",
+                tx_trace_id=?span_context.trace_id(),
+                tx_span_id=?span_context.span_id(),
+                "injector cx: '{:#?}'",
                 cx,
-                span_context.trace_id(),
-                span_context.span_id()
             );
             injector.set(
                 NODE_TRACE_ID_HEADER,
@@ -422,8 +407,18 @@ impl TextMapPropagator for NodePropagator {
                 } else {
                     SamplingPriority::AutoReject
                 };
+                tracing::warn!(
+                    tx_trace_id=?span_context.trace_id(),
+                    tx_span_id=?span_context.span_id(),
+                    tx_sampling_priority=?sampling_priority,
+                    "injector cx not deferred");
 
                 injector.set(NODE_SAMPLING_PRIORITY_HEADER, (sampling_priority as i32).to_string());
+            } else {
+                tracing::warn!(
+                    tx_trace_id=?span_context.trace_id(),
+                    tx_span_id=?span_context.span_id(),
+                    "injector cx deferred");
             }
         } else {
             tracing::warn!(
@@ -439,7 +434,11 @@ impl TextMapPropagator for NodePropagator {
             self.extract_span_context(extractor).unwrap_or_else(|_| SpanContext::empty_context());
         tracing::warn!("extracted SpanContext: {:#?}", extracted);
 
-        cx.with_remote_span_context(extracted)
+        let res = cx.with_remote_span_context(extracted);
+        let s = res.span();
+        let cs = s.span_context();
+        tracing::warn!(?cs, "extracted SpanContext");
+        res
     }
 
     fn fields(&self) -> FieldIter<'_> {
@@ -548,7 +547,7 @@ impl PeerMessage {
     pub(crate) fn deserialize_with_remote_context(
         enc: Encoding,
         data: &[u8],
-    ) -> Result<(PeerMessage, Option<ContextGuard>), ParsePeerMessageError> {
+    ) -> Result<(PeerMessage, Option<(ContextGuard, Context)>), ParsePeerMessageError> {
         let _span =
             tracing::trace_span!(target: "network", "deserialize_with_remote_context").entered();
         match enc {
@@ -560,7 +559,7 @@ impl PeerMessage {
                 Ok((res, None))
             }
             Encoding::Proto => {
-                let mut context_guard = None;
+                let mut extra = None;
                 let res1: proto::PeerMessage = proto::PeerMessage::parse_from_bytes(data)
                     .map_err(ParsePeerMessageError::ProtoDecode)?;
                 tracing::warn!("res1: {:#?}", res1);
@@ -570,11 +569,37 @@ impl PeerMessage {
                     tracing::warn!("deserialize headers: {:#?}", headers);
                     if let Ok(headers) = headers {
                         let cx = Span::current().context();
-                        let cx = propagator.extract_with_context(&cx, &headers);
+
+                        let c = Span::current().context();
+                        let cs = c.span();
+                        let span_context = cs.span_context();
+                        tracing::warn!(current_span_context=?span_context, "");
+
+                        let extracted = propagator
+                            .extract_span_context(&headers)
+                            .unwrap_or_else(|_| SpanContext::empty_context());
+                        Span::current().add_link(extracted.clone());
+                        let cx = cx.with_remote_span_context(extracted);
+                        // let cx = propagator.extract_with_context(&cx, &headers);
+                        let cxs = cx.span();
+                        let cx_span_context = cxs.span_context();
+                        tracing::warn!(current_span_with_remote_context=?cx_span_context, "");
+
+                        let c = Span::current().context();
+                        let cs = c.span();
+                        let span_context = cs.span_context();
+                        tracing::warn!(current_span_after_extraction=?span_context, "");
+
                         tracing::warn!("cx: {:#?}", cx);
                         tracing::warn!("attaching context");
-                        context_guard = Some(cx.attach());
+                        let cx2 = cx.clone();
+                        extra = Some((cx.attach(), cx2));
                         tracing::warn!("attached context");
+
+                        let c = Span::current().context();
+                        let cs = c.span();
+                        let span_context = cs.span_context();
+                        tracing::warn!(new_current_span=?span_context, "");
                     } else {
                         tracing::warn!("Failed to parse headers: {:#?}", headers);
                     }
@@ -584,7 +609,7 @@ impl PeerMessage {
                     ParsePeerMessageError::ProtoConv(err)
                 })?;
                 tracing::warn!("res2: {:#?}", res2);
-                Ok((res2, context_guard))
+                Ok((res2, extra))
             }
         }
     }

@@ -13,6 +13,7 @@ use opentelemetry::KeyValue;
 use opentelemetry_semantic_conventions::resource::SERVICE_NAME;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use tracing::level_filters::LevelFilter;
 use tracing::subscriber::DefaultGuard;
@@ -248,6 +249,7 @@ async fn add_opentelemetry_layer<S>(
     opentelemetry_level: OpenTelemetryLevel,
     chain_id: String,
     node_public_key: PublicKey,
+    node_addr: Option<SocketAddr>,
     account_id: Option<AccountId>,
     subscriber: S,
 ) -> (TracingLayer<S>, reload::Handle<LevelFilter, S>)
@@ -258,13 +260,27 @@ where
     let (filter, handle) = reload::Layer::<LevelFilter, S>::new(filter);
 
     let mut resource = vec![
-        KeyValue::new(SERVICE_NAME, "neard"),
         KeyValue::new("chain_id", chain_id),
         KeyValue::new("node_id", node_public_key.to_string()),
     ];
+    let mut service_name = None;
     if let Some(account_id) = account_id {
         resource.push(KeyValue::new("account_id", account_id.to_string()));
+        service_name = Some(format!("neard:{}", account_id));
     }
+    if let Some(ref node_addr) = node_addr {
+        resource.push(KeyValue::new("node_addr", format!("{:?}", node_addr)));
+        if service_name.is_none() {
+            service_name = Some(format!("neard:{:?}", node_addr));
+        }
+    }
+    if let Some(ref node_addr) = node_addr {
+        resource.push(KeyValue::new(SERVICE_NAME, format!("neard:{:?}", node_addr)));
+        if service_name.is_none() {
+            service_name = Some(format!("neard:{:?}", node_public_key));
+        }
+    }
+    resource.push(KeyValue::new(SERVICE_NAME, service_name.unwrap()));
 
     let tracer = opentelemetry_otlp::new_pipeline()
         .tracing()
@@ -359,6 +375,7 @@ pub async fn default_subscriber_with_opentelemetry(
     options: &Options,
     chain_id: String,
     node_public_key: PublicKey,
+    node_addr: Option<SocketAddr>,
     account_id: Option<AccountId>,
 ) -> DefaultSubscriberGuard<impl tracing::Subscriber + Send + Sync> {
     let color_output = use_color_output(options);
@@ -389,6 +406,7 @@ pub async fn default_subscriber_with_opentelemetry(
         options.opentelemetry,
         chain_id,
         node_public_key,
+        node_addr,
         account_id,
         subscriber,
     )

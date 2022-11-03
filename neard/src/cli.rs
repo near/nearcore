@@ -448,6 +448,7 @@ impl RunCmd {
                 o11y_opts,
                 near_config.client_config.chain_id.clone(),
                 near_config.network_config.node_key.public_key().clone(),
+                near_config.network_config.node_addr.clone(),
                 near_config
                     .network_config
                     .validator
