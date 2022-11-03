@@ -366,6 +366,7 @@ impl TrieStorage for TrieMemoryPartialStorage {
     }
 }
 
+/// Storage for reading State nodes and values from DB which caches reads.
 pub struct TrieCachingStorage {
     pub(crate) store: Store,
     pub(crate) shard_uid: ShardUId,
@@ -639,18 +640,19 @@ impl TrieCachingStorage {
     }
 }
 
-pub struct TrieDiskStorage {
+/// Storage for reading State nodes and values from DB.
+pub struct TrieDBStorage {
     pub(crate) store: Store,
     pub(crate) shard_uid: ShardUId,
 }
 
-impl TrieDiskStorage {
+impl TrieDBStorage {
     pub fn new(store: Store, shard_uid: ShardUId) -> Self {
         Self { store, shard_uid }
     }
 }
 
-impl TrieStorage for TrieDiskStorage {
+impl TrieStorage for TrieDBStorage {
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
         read_node_from_db(&self.store, self.shard_uid, hash)
     }

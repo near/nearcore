@@ -201,7 +201,7 @@ mod nodes_counter_tests {
 mod trie_storage_tests {
     use super::*;
     use crate::test_utils::{create_test_store, create_tries};
-    use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieDiskStorage};
+    use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieDBStorage};
     use crate::trie::TrieRefcountChange;
     use crate::{Store, TrieChanges, TrieConfig};
     use assert_matches::assert_matches;
@@ -227,16 +227,16 @@ mod trie_storage_tests {
 
     /// Put item into storage. Check that it is retrieved correctly.
     #[test]
-    fn test_retrieve_disk() {
+    fn test_retrieve_db() {
         let value = vec![1u8];
         let values = vec![value.clone()];
         let shard_uid = ShardUId::single_shard();
         let store = create_store_with_values(&values, shard_uid);
-        let trie_disk_storage = TrieDiskStorage::new(store, shard_uid);
+        let trie_db_storage = TrieDBStorage::new(store, shard_uid);
         let key = hash(&value);
-        assert_eq!(trie_disk_storage.retrieve_raw_bytes(&key).unwrap().as_ref(), value);
+        assert_eq!(trie_db_storage.retrieve_raw_bytes(&key).unwrap().as_ref(), value);
         let wrong_key = hash(&vec![2]);
-        assert_matches!(trie_disk_storage.retrieve_raw_bytes(&wrong_key), Err(_));
+        assert_matches!(trie_db_storage.retrieve_raw_bytes(&wrong_key), Err(_));
     }
 
     /// Put item into storage. Check that getting it from cache returns the correct value.
