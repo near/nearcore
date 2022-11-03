@@ -187,7 +187,7 @@ pub fn exec_fee(
         },
         DeleteKey(_) => cfg.delete_key_cost.exec_fee(),
         DeleteAccount(_) => cfg.delete_account_cost.exec_fee(),
-        Delegate(_) => cfg.delete_account_cost.exec_fee(), // TODO: Add another fee for Delegate action.
+        Delegate(_) => cfg.delegate_cost.exec_fee(),
     }
 }
 
