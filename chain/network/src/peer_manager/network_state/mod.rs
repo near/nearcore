@@ -64,7 +64,12 @@ impl Runtime {
 impl Drop for Runtime {
     fn drop(&mut self) {
         self.stop.notify_one();
-        self.thread.take().unwrap().join().unwrap();
+        let thread = self.thread.take().unwrap();
+        // Await for the thread to stop, unless it is the current thread
+        // (i.e. nobody waits for it).
+        if std::thread::current().id()!=thread.thread().id() {
+            thread.join().unwrap();
+        }
     }
 }
 
