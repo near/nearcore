@@ -712,7 +712,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         latest_block_height: BlockHeight,
         chain_access: &dyn ChainAccessForFlatStorage,
     ) -> FlatStorageStateStatus {
-        let status = store_helper::get_flat_storage_state_status(store, shard_id);
+        let status = store_helper::get_flat_storage_state_status(&self.store, shard_id);
         match &status {
             FlatStorageStateStatus::Ready => {
                 let flat_storage_state = FlatStorageState::new(
