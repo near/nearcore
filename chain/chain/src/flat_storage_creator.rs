@@ -3,7 +3,7 @@ use crossbeam_channel::{unbounded, Receiver, Sender};
 use near_chain_primitives::Error;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockHeight, ShardId};
-use near_store::flat_state::store_helper;
+use near_store::flat_state::{store_helper, FlatStorageStateStatus};
 use std::sync::{Arc, Mutex};
 use tracing::info;
 
@@ -16,32 +16,9 @@ const NUM_PARTS: u64 = 4_000;
 #[allow(unused)]
 const PART_STEP: u64 = 50;
 
-/// Status of flat storage creation for the shard.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum CreationStatus {
-    /// We can't start fetching state on node start, because `FlatStorageDelta`s are not saved to disk by default.
-    /// During this step, we save current chain head, start saving all deltas for blocks after chain head and wait until
-    /// final chain head moves after saved chain head.
-    SavingDeltas,
-    /// We can start fetching state to fill flat storage for some final chain head, because all deltas after it are
-    /// saved to disk. It is done in `NUM_PARTS` / `PART_STEP` steps, during each step we spawn background threads to
-    /// fill some part of state.
-    /// Status contains block hash for which we fetch the shard state and step of fetching state. Progress of each step
-    /// is saved to disk, so if creation is interrupted during some step, it won't repeat previous steps and will start
-    /// from this step again.
-    #[allow(unused)]
-    FetchingState((CryptoHash, u64)),
-    /// Flat storage is initialized but its head is too far away from chain final head. We need to apply deltas until
-    /// the head reaches final head.
-    #[allow(unused)]
-    CatchingUp,
-    /// Flat storage head is the same as chain final head. We can create `FlatStorageState`.
-    Finished,
-}
-
 /// Creates flat storage and tracks creation status for the given shard.
 pub struct FlatStorageShardCreator {
-    pub status: CreationStatus,
+    pub status: FlatStorageStateStatus,
     pub shard_id: ShardId,
     /// Tracks number of traversed state parts during a single step.
     #[allow(unused)]
@@ -55,14 +32,8 @@ pub struct FlatStorageShardCreator {
 }
 
 impl FlatStorageShardCreator {
-    pub fn new(shard_id: ShardId, chain_store: &ChainStore) -> Self {
+    pub fn new(status: FlatStorageStateStatus, shard_id: ShardId) -> Self {
         let (traversed_parts_sender, traversed_parts_receiver) = unbounded();
-        // TODO: replace this placeholder with reading flat storage data and setting correct status. ChainStore will be
-        // used to get flat storage heads and block heights.
-        let status = match store_helper::get_flat_head(chain_store.store(), shard_id) {
-            None => CreationStatus::SavingDeltas,
-            Some(_) => CreationStatus::Finished,
-        };
         Self {
             status,
             shard_id,
@@ -85,34 +56,26 @@ pub struct FlatStorageCreator {
 
 impl FlatStorageCreator {
     pub fn new(runtime_adapter: Arc<dyn RuntimeAdapter>, chain_store: &ChainStore) -> Option<Self> {
-        if !cfg!(feature = "protocol_feature_flat_state") {
-            return None;
-        }
-
         let chain_head = chain_store.head().unwrap();
         let num_shards = runtime_adapter.num_shards(&chain_head.epoch_id).unwrap();
         let start_height = chain_head.height;
-        let shard_creators: Vec<Arc<Mutex<FlatStorageShardCreator>>> = (0..num_shards)
-            .map(|shard_id| {
-                Arc::new(Mutex::new(FlatStorageShardCreator::new(shard_id, chain_store)))
-            })
-            .collect();
+        let mut shard_creators: Vec<Arc<Mutex<FlatStorageShardCreator>>> = vec![];
         let mut creation_needed = false;
-        for shard_creator in shard_creators.iter() {
-            let guard = shard_creator.lock().unwrap();
-            let shard_id = guard.shard_id;
-            info!(target: "chain", %shard_id, "Flat storage creation status: {:?}", guard.status);
-
-            if matches!(guard.status, CreationStatus::Finished) {
-                #[cfg(feature = "protocol_feature_flat_state")]
-                runtime_adapter.create_flat_storage_state_for_shard(
-                    shard_id,
-                    chain_store.head().unwrap().height,
-                    chain_store,
-                );
-            } else {
-                creation_needed = true;
+        for shard_id in 0..num_shards {
+            let status = runtime_adapter.create_flat_storage_state_for_shard(
+                shard_id,
+                chain_store.head().unwrap().height,
+                chain_store,
+            );
+            info!(target: "chain", %shard_id, "Flat storage creation status: {:?}", status);
+            match status {
+                FlatStorageStateStatus::Ready | FlatStorageStateStatus::DontCreate => {}
+                _ => {
+                    creation_needed = true;
+                }
             }
+            shard_creators
+                .push(Arc::new(Mutex::new(FlatStorageShardCreator::new(status, shard_id))));
         }
 
         if creation_needed {
@@ -139,7 +102,7 @@ impl FlatStorageCreator {
 
         let guard = self.shard_creators[shard_id as usize].lock().unwrap();
         match guard.status.clone() {
-            CreationStatus::SavingDeltas => {
+            FlatStorageStateStatus::SavingDeltas => {
                 // Once final head height > start height, we can switch to next step.
                 // Then, ChainStore is used to get state roots, block infos and flat storage creation in the end.
                 Ok(())

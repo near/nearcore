@@ -63,7 +63,7 @@ use near_primitives::time::Clock;
 use near_primitives::utils::MaybeValidated;
 #[cfg(feature = "protocol_feature_flat_state")]
 use near_store::flat_state::ChainAccessForFlatStorage;
-use near_store::flat_state::FlatStorageState;
+use near_store::flat_state::{FlatStorageState, FlatStorageStateStatus};
 
 pub use self::validator_schedule::ValidatorSchedule;
 
@@ -752,13 +752,13 @@ impl RuntimeAdapter for KeyValueRuntime {
         None
     }
 
-    #[cfg(feature = "protocol_feature_flat_state")]
     fn create_flat_storage_state_for_shard(
         &self,
         _shard_id: ShardId,
         _latest_block_height: BlockHeight,
         _chain_access: &dyn ChainAccessForFlatStorage,
-    ) {
+    ) -> FlatStorageStateStatus {
+        FlatStorageStateStatus::DontCreate
     }
 
     fn set_flat_storage_state_for_genesis(

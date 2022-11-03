@@ -446,9 +446,34 @@ struct FlatStorageStateInner {
     deltas: HashMap<CryptoHash, Arc<FlatStateDelta>>,
 }
 
+/// Result of attempt to create flat storage state on runtime.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FlatStorageStateStatus {
+    /// Flat storage state does not exist. We need to start saving `FlatStorageDelta`s to disk.
+    /// During this step, we save current chain head, start saving all deltas for blocks after chain head and wait until
+    /// final chain head moves after saved chain head.
+    SavingDeltas,
+    /// Flat storage state misses key-value pairs. We need to fetch Trie state to fill flat storage for some final chain
+    /// head. It is done in `NUM_PARTS` / `PART_STEP` steps, during each step we spawn background threads to fill some
+    /// part of state.
+    /// Status contains block hash for which we fetch the shard state and step of fetching state. Progress of each step
+    /// is saved to disk, so if creation is interrupted during some step, it won't repeat previous steps and will start
+    /// from this step again.
+    #[allow(unused)]
+    FetchingState((CryptoHash, u64)),
+    /// Flat storage data exists on disk but its head is too far away from chain final head. We need to apply deltas
+    /// until the head reaches final head.
+    #[allow(unused)]
+    CatchingUp,
+    /// Flat storage is ready to use.
+    Ready,
+    /// Flat storage cannot be created.
+    DontCreate,
+}
+
 #[cfg(feature = "protocol_feature_flat_state")]
 pub mod store_helper {
-    use crate::flat_state::{FlatStorageError, KeyForFlatStateDelta};
+    use crate::flat_state::{FlatStorageError, FlatStorageStateStatus, KeyForFlatStateDelta};
     use crate::{FlatStateDelta, Store, StoreUpdate};
     use borsh::BorshSerialize;
     use near_primitives::hash::CryptoHash;
@@ -525,6 +550,18 @@ pub mod store_helper {
             None => Ok(store_update.delete(crate::DBCol::FlatState, &key)),
         }
     }
+
+    pub fn get_flat_storage_state_status(
+        store: &Store,
+        shard_id: ShardId,
+    ) -> FlatStorageStateStatus {
+        // TODO: replace this placeholder with reading flat storage data and setting correct status. ChainStore can be
+        // used to get flat storage heads and block heights.
+        match get_flat_head(store, shard_id) {
+            None => FlatStorageStateStatus::SavingDeltas,
+            Some(_) => FlatStorageStateStatus::Ready,
+        }
+    }
 }
 
 #[cfg(not(feature = "protocol_feature_flat_state"))]
@@ -536,12 +573,18 @@ pub mod store_helper {
     pub fn get_flat_head(_store: &Store, _shard_id: ShardId) -> Option<CryptoHash> {
         None
     }
+
+    pub fn get_flat_storage_state_status(
+        _store: &Store,
+        _shard_id: ShardId,
+    ) -> FlatStorageStateStatus {
+        FlatStorageStateStatus::DontCreate
+    }
 }
 
 // Unfortunately we don't have access to ChainStore inside this file because of package
 // dependencies, so we create this trait that provides the functions that FlatStorageState needs
 // to access chain information
-#[cfg(feature = "protocol_feature_flat_state")]
 pub trait ChainAccessForFlatStorage {
     fn get_block_info(&self, block_hash: &CryptoHash) -> BlockInfo;
     fn get_block_hashes_at_height(&self, block_height: BlockHeight) -> HashSet<CryptoHash>;
@@ -590,8 +633,7 @@ impl FlatStorageStateInner {
 }
 
 impl FlatStorageState {
-    /// Create a new FlatStorageState for `shard_id`.
-    /// Flat head is initialized to be what is stored on storage.
+    /// Create a new FlatStorageState for `shard_id` using flat head if it is stored on storage.
     /// We also load all blocks with height between flat head to `latest_block_height`
     /// including those on forks into the returned FlatStorageState.
     #[cfg(feature = "protocol_feature_flat_state")]
