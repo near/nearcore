@@ -3,7 +3,7 @@ use crate::db::rocksdb::RocksDB;
 use crate::metadata::{
     set_store_metadata, set_store_version, DbKind, DbMetadata, DbVersion, DB_VERSION,
 };
-use crate::{Mode, NodeStorage, StoreConfig};
+use crate::{Mode, NodeStorage, StoreConfig, Temperature};
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreOpenerError {
@@ -152,6 +152,13 @@ struct DBOpener<'a> {
 
     /// Configuration as provided by the user.
     config: &'a StoreConfig,
+
+    /// Temperature of the database.
+    ///
+    /// This affects whether refcount merge operator is configured on reference
+    /// counted column.  It’s important that the value is correct.  RPC and
+    /// Archive databases are considered hot.
+    temp: Temperature,
 }
 
 impl<'a> StoreOpener<'a> {
@@ -159,11 +166,14 @@ impl<'a> StoreOpener<'a> {
     pub(crate) fn new(
         home_dir: &std::path::Path,
         config: &'a StoreConfig,
-        cold_config: super::ColdConfig<'a>,
+        #[cfg(feature = "cold_store")] cold_config: super::ColdConfig<'a>,
     ) -> Self {
         Self {
-            hot: DBOpener::new(home_dir, config, "data"),
-            cold: cold_config.map(|config| ColdDBOpener::new(home_dir, config, "cold-data")),
+            hot: DBOpener::new(home_dir, config, Temperature::Hot),
+            #[cfg(feature = "cold_store")]
+            cold: cold_config.map(|config| ColdDBOpener::new(home_dir, config, Temperature::Cold)),
+            #[cfg(not(feature = "cold_store"))]
+            cold: None,
             expected_kind: None,
             migrator: None,
         }
@@ -449,10 +459,11 @@ impl<'a> DBOpener<'a> {
     ///
     /// The path to the database is resolved based on the path in config with
     /// given home_dir as base directory for resolving relative paths.
-    fn new(home_dir: &std::path::Path, config: &'a StoreConfig, default_path: &str) -> Self {
-        let path =
-            home_dir.join(config.path.as_deref().unwrap_or(std::path::Path::new(default_path)));
-        Self { path, config }
+    fn new(home_dir: &std::path::Path, config: &'a StoreConfig, temp: Temperature) -> Self {
+        let path = if temp == Temperature::Hot { "data" } else { "cold-data" };
+        let path = config.path.as_deref().unwrap_or(std::path::Path::new(path));
+        let path = home_dir.join(path);
+        Self { path, config, temp }
     }
 
     /// Returns version of the database or `None` if it doesn’t exist.
@@ -484,7 +495,7 @@ impl<'a> DBOpener<'a> {
     ///
     /// Use [`Self::create`] to create a new database.
     fn open(&self, mode: Mode, want_version: DbVersion) -> std::io::Result<(RocksDB, DbMetadata)> {
-        let db = RocksDB::open(&self.path, &self.config, mode)?;
+        let db = RocksDB::open(&self.path, &self.config, mode, self.temp)?;
         let metadata = DbMetadata::read(&db)?;
         if want_version != metadata.version {
             let msg = format!("unexpected DbVersion {}; expected {want_version}", metadata.version);
@@ -496,12 +507,12 @@ impl<'a> DBOpener<'a> {
 
     /// Creates a new database.
     fn create(&self) -> std::io::Result<RocksDB> {
-        RocksDB::open(&self.path, &self.config, Mode::Create)
+        RocksDB::open(&self.path, &self.config, Mode::Create, self.temp)
     }
 
     /// Creates a new snapshot for the database.
     fn snapshot(&self) -> Result<Snapshot, SnapshotError> {
-        Snapshot::new(&self.path, &self.config)
+        Snapshot::new(&self.path, &self.config, self.temp)
     }
 }
 
@@ -545,14 +556,6 @@ mod cold_db_opener {
     pub(super) enum OpenerImpl {}
 
     impl OpenerImpl {
-        pub(super) fn new(
-            _home_dir: &std::path::Path,
-            _config: std::convert::Infallible,
-            _default_path: &str,
-        ) -> Self {
-            unreachable!()
-        }
-
         pub(super) fn get_metadata(&self) -> std::io::Result<Option<DbMetadata>> {
             unreachable!()
         }
