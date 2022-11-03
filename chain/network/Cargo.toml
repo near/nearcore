@@ -12,7 +12,6 @@ anyhow.workspace = true
 protobuf-codegen.workspace = true
 
 [dependencies]
-rlimit.workspace = true
 async-trait.workspace = true
 actix.workspace = true
 anyhow.workspace = true
@@ -59,6 +58,7 @@ near-store = { path = "../../core/store" }
 criterion.workspace = true
 pretty_assertions.workspace = true
 tempfile.workspace = true
+rlimit.workspace = true
 
 [features]
 delay_detector = ["delay-detector/delay_detector"]

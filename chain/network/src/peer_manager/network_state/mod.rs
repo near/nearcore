@@ -25,7 +25,7 @@ use near_primitives::types::AccountId;
 use parking_lot::RwLock;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
-use tracing::{debug, trace};
+use tracing::{debug, trace, Instrument};
 
 /// Limit number of pending Peer actors to avoid OOM.
 pub(crate) const LIMIT_PENDING_PEERS: usize = 60;
@@ -41,14 +41,43 @@ const WAIT_ON_TRY_UPDATE_NONCE: time::Duration = time::Duration::seconds(6);
 /// timeout and in case it didn't become a connected peer, broadcast edge removal update.
 const WAIT_PEER_BEFORE_REMOVE: time::Duration = time::Duration::seconds(6);
 
+struct Runtime {
+    handle: tokio::runtime::Handle,
+    stop: Arc<tokio::sync::Notify>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Runtime {
+    fn new() -> Self {
+        let stop = Arc::new(tokio::sync::Notify::new());
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let handle = runtime.handle().clone();
+        let thread = std::thread::spawn({
+            let stop = stop.clone();
+            move || runtime.block_on(stop.notified())
+        });
+        Self { handle, stop, thread: Some(thread) }
+    }
+}
+
+impl Drop for Runtime {
+    fn drop(&mut self) {
+        self.stop.notify_one();
+        self.thread.take().unwrap().join().unwrap();
+    }
+}
+
 pub(crate) struct NetworkState {
-    /// Arbiter for executing mutable operation on NetworkState.
+    /// Dedicated runtime for `NetworkState` which runs in a separate thread.
     /// Async methods of NetworkState are not cancellable,
     /// so calling them from, for example, PeerActor is dangerous because
     /// PeerActor can be stopped at any moment.
     /// WARNING: DO NOT spawn infinite futures/background loops on this arbiter,
     /// as it will be automatically closed only when the NetworkState is dropped.
-    arbiter: actix::ArbiterHandle,
+    runtime: Runtime,
     /// PeerManager config.
     pub config: Arc<config::VerifiedConfig>,
     /// When network state has been constructed.
@@ -88,12 +117,6 @@ pub(crate) struct NetworkState {
     pub txns_since_last_block: AtomicUsize,
 }
 
-impl Drop for NetworkState {
-    fn drop(&mut self) {
-        self.arbiter.stop();
-    }
-}
-
 impl NetworkState {
     pub fn new(
         clock: &time::Clock,
@@ -106,7 +129,7 @@ impl NetworkState {
     ) -> Self {
         let graph = Arc::new(RwLock::new(routing::GraphWithCache::new(config.node_id())));
         Self {
-            arbiter: actix::Arbiter::new().handle(),
+            runtime: Runtime::new(),
             routing_table_addr: routing::Actor::spawn(clock.clone(), store.clone(), graph.clone()),
             graph,
             genesis_id,
@@ -123,6 +146,10 @@ impl NetworkState {
             txns_since_last_block: AtomicUsize::new(0),
             start_time: clock.now(),
         }
+    }
+
+    fn spawn<R:'static + Send>(&self, fut: impl std::future::Future<Output=R> + 'static + Send) -> tokio::task::JoinHandle<R> {
+        self.runtime.handle.spawn(fut.in_current_span())
     }
 
     pub fn propose_edge(&self, peer1: &PeerId, with_nonce: Option<u64>) -> PartialEdgeInfo {
@@ -298,7 +325,7 @@ impl NetworkState {
         self.routing_table_view.add_local_edges(&edges);
         let this = self.clone();
         let clock = clock.clone();
-        self.arbiter.spawn(async move {
+        self.spawn(async move {
             match this
                 .routing_table_addr
                 .send(routing::actor::Message::AddVerifiedEdges { edges }.with_span_context())
@@ -357,9 +384,11 @@ impl NetworkState {
     /// a) there is a peer we should be connected to, but we aren't
     /// b) there is an edge indicating that we should be disconnected from a peer, but we are connected.
     /// Try to resolve the inconsistency.
-    pub fn fix_local_edges(self: &Arc<Self>, clock: &time::Clock) {
+    /// We call this function every FIX_LOCAL_EDGES_INTERVAL from peer_manager_actor.rs.
+    pub async fn fix_local_edges(self: &Arc<Self>, clock: &time::Clock) {
         let local_edges = self.routing_table_view.get_local_edges();
         let tier2 = self.tier2.load();
+        let mut tasks = vec![];
         for edge in local_edges {
             let node_id = self.config.node_id();
             let other_peer = edge.other(&node_id).unwrap();
@@ -368,7 +397,8 @@ impl NetworkState {
                 (Some(conn), EdgeState::Removed) => {
                     let this = self.clone();
                     let conn = conn.clone();
-                    self.arbiter.spawn(async move {
+                    let clock = clock.clone();
+                    tasks.push(self.spawn(async move {
                         conn.send_message(Arc::new(PeerMessage::RequestUpdateNonce(
                             PartialEdgeInfo::new(
                                 &node_id,
@@ -380,12 +410,12 @@ impl NetworkState {
                         // TODO(gprusak): here we should synchronically wait for the RequestUpdateNonce
                         // response (with timeout). Until network round trips are implemented, we just
                         // blindly wait for a while, then check again.
-                        tokio::time::sleep(WAIT_ON_TRY_UPDATE_NONCE.try_into().unwrap()).await;
+                        clock.sleep(WAIT_ON_TRY_UPDATE_NONCE).await;
                         match this.routing_table_view.get_local_edge(&conn.peer_info.id) {
                             Some(edge) if edge.edge_type() == EdgeState::Active => return,
                             _ => conn.stop(None),
                         }
-                    });
+                    }));
                 }
                 // We are not connected to this peer, but routing table contains
                 // information that we do. We should wait and remove that peer
@@ -394,10 +424,10 @@ impl NetworkState {
                     let this = self.clone();
                     let clock = clock.clone();
                     let other_peer = other_peer.clone();
-                    self.arbiter.spawn(async move {
+                    tasks.push(self.spawn(async move {
                         // This edge says this is an connected peer, which is currently not in the set of connected peers.
                         // Wait for some time to let the connection begin or broadcast edge removal instead.
-                        tokio::time::sleep(WAIT_PEER_BEFORE_REMOVE.try_into().unwrap()).await;
+                        clock.sleep(WAIT_PEER_BEFORE_REMOVE).await;
                         if this.tier2.load().ready.contains_key(&other_peer) {
                             return;
                         }
@@ -405,11 +435,12 @@ impl NetworkState {
                         let new_edge =
                             edge.remove_edge(this.config.node_id(), &this.config.node_key);
                         this.add_verified_edges_to_routing_table(&clock, vec![new_edge.clone()]);
-                    });
+                    }));
                 }
                 // OK
                 _ => {}
             }
         }
+        futures_util::future::join_all(tasks).await;
     }
 }

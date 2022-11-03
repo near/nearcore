@@ -222,7 +222,7 @@ impl Actor for PeerManagerActor {
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             loop {
                 interval.tick().await;
-                state.fix_local_edges(&clock);
+                state.fix_local_edges(&clock).await;
             }
         }));
 
