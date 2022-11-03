@@ -450,6 +450,8 @@ impl NetworkState {
                 _ => {}
             }
         }
-        futures_util::future::join_all(tasks).await;
+        for t in tasks {
+            let _ = t.await;
+        }
     }
 }
