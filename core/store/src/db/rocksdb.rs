@@ -9,7 +9,7 @@ use tracing::warn;
 
 use crate::config::Mode;
 use crate::db::{refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database, StatsValue};
-use crate::{metadata, metrics, DBCol, StoreConfig, StoreStatistics};
+use crate::{metadata, metrics, DBCol, StoreConfig, StoreStatistics, Temperature};
 
 mod instance_tracker;
 pub(crate) mod snapshot;
@@ -55,9 +55,18 @@ impl RocksDB {
     /// mode.  In the latter case, the database will not be created if it
     /// doesn’t exist nor any migrations will be performed if the database has
     /// database version different than expected.
-    pub fn open(path: &Path, store_config: &StoreConfig, mode: Mode) -> io::Result<Self> {
+    ///
+    /// `temp` specifies whether the database is cold or hot which affects
+    /// whether refcount merge operator is configured on reference counted
+    /// column.
+    pub fn open(
+        path: &Path,
+        store_config: &StoreConfig,
+        mode: Mode,
+        temp: Temperature,
+    ) -> io::Result<Self> {
         let columns: Vec<DBCol> = DBCol::iter().collect();
-        Self::open_with_columns(path, store_config, mode, &columns)
+        Self::open_with_columns(path, store_config, mode, temp, &columns)
     }
 
     /// Opens the database with given set of column families configured.
@@ -80,11 +89,12 @@ impl RocksDB {
         path: &Path,
         store_config: &StoreConfig,
         mode: Mode,
+        temp: Temperature,
         columns: &[DBCol],
     ) -> io::Result<Self> {
         let counter = instance_tracker::InstanceTracker::try_new(store_config.max_open_files)
             .map_err(other_error)?;
-        let (db, db_opt) = Self::open_db(path, store_config, mode, columns)?;
+        let (db, db_opt) = Self::open_db(path, store_config, mode, temp, columns)?;
         let cf_handles = Self::get_cf_handles(&db, columns);
         Ok(Self { db, db_opt, cf_handles, _instance_tracker: counter })
     }
@@ -94,6 +104,7 @@ impl RocksDB {
         path: &Path,
         store_config: &StoreConfig,
         mode: Mode,
+        temp: Temperature,
         columns: &[DBCol],
     ) -> io::Result<(DB, Options)> {
         let options = rocksdb_options(store_config, mode);
@@ -103,7 +114,7 @@ impl RocksDB {
             .map(|col| {
                 rocksdb::ColumnFamilyDescriptor::new(
                     col_name(col),
-                    rocksdb_column_options(col, store_config),
+                    rocksdb_column_options(col, store_config, temp),
                 )
             })
             .collect::<Vec<_>>();
@@ -408,7 +419,7 @@ fn rocksdb_block_based_options(
     block_opts
 }
 
-fn rocksdb_column_options(col: DBCol, store_config: &StoreConfig) -> Options {
+fn rocksdb_column_options(col: DBCol, store_config: &StoreConfig, temp: Temperature) -> Options {
     let mut opts = Options::default();
     set_compression_options(&mut opts);
     opts.set_level_compaction_dynamic_level_bytes(true);
@@ -434,7 +445,7 @@ fn rocksdb_column_options(col: DBCol, store_config: &StoreConfig) -> Options {
     opts.optimize_level_style_compaction(memtable_memory_budget);
 
     opts.set_target_file_size_base(64 * bytesize::MIB);
-    if col.is_rc() {
+    if temp == Temperature::Hot && col.is_rc() {
         opts.set_merge_operator("refcount merge", RocksDB::refcount_merge, RocksDB::refcount_merge);
         opts.set_compaction_filter("empty value filter", RocksDB::empty_value_compaction_filter);
     }
@@ -482,7 +493,7 @@ impl RocksDB {
         // to read the version without modifying the database before we figure
         // out if there are any necessary migrations to perform.
         let cols = [DBCol::DbVersion];
-        let db = Self::open_with_columns(path, config, Mode::ReadOnly, &cols)?;
+        let db = Self::open_with_columns(path, config, Mode::ReadOnly, Temperature::Hot, &cols)?;
         Some(metadata::DbMetadata::read(&db)).transpose()
     }
 
