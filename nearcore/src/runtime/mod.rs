@@ -46,7 +46,6 @@ use near_primitives::views::{
     AccessKeyInfoView, CallResult, QueryRequest, QueryResponse, QueryResponseKind, ViewApplyState,
     ViewStateResult,
 };
-#[cfg(feature = "protocol_feature_flat_state")]
 use near_store::flat_state::ChainAccessForFlatStorage;
 use near_store::flat_state::{
     store_helper, FlatStateFactory, FlatStorageState, FlatStorageStateStatus,
