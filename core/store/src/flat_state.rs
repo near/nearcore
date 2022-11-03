@@ -27,7 +27,6 @@
 
 #[allow(unused)]
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
-#[cfg(feature = "protocol_feature_flat_state")]
 const BORSH_ERR: &str = "Borsh cannot fail";
 
 #[derive(strum::AsRefStr, Debug)]
@@ -564,13 +563,21 @@ pub mod store_helper {
 
 #[cfg(not(feature = "protocol_feature_flat_state"))]
 pub mod store_helper {
-    use crate::flat_state::FlatStorageStateStatus;
+    use crate::flat_state::{FlatStorageError, FlatStorageStateStatus};
     use crate::Store;
     use near_primitives::hash::CryptoHash;
     use near_primitives::types::ShardId;
 
     pub fn get_flat_head(_store: &Store, _shard_id: ShardId) -> Option<CryptoHash> {
         None
+    }
+
+    pub(crate) fn get_delta(
+        _store: &Store,
+        _shard_id: ShardId,
+        _block_hash: CryptoHash,
+    ) -> Result<Option<Arc<FlatStateDelta>>, FlatStorageError> {
+        Err(FlatStorageError::StorageInternalError)
     }
 
     pub fn get_flat_storage_state_status(
