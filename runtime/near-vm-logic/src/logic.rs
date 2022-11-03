@@ -1205,7 +1205,7 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_wasm_gas(opcodes)
     }
 
-    pub fn verify_bls_signature1(&mut self,
+    pub fn verify_bls12_381(&mut self,
                                 aggregate_signature_ptr: u64,
                                 aggregate_signature_len: u64,
                                 msg_ptr: u64,
