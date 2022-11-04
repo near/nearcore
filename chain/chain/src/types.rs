@@ -380,67 +380,8 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
     /// Amount of tokens minted in given epoch.
     fn get_epoch_minted_amount(&self, epoch_id: &EpochId) -> Result<Balance, Error>;
 
-    // TODO #3488 this likely to be updated
-    /// Data that is necessary for prove Epochs in Epoch Sync.
-    fn get_epoch_sync_data(
-        &self,
-        prev_epoch_last_block_hash: &CryptoHash,
-        epoch_id: &EpochId,
-        next_epoch_id: &EpochId,
-    ) -> Result<
-        (
-            Arc<BlockInfo>,
-            Arc<BlockInfo>,
-            Arc<BlockInfo>,
-            Arc<EpochInfo>,
-            Arc<EpochInfo>,
-            Arc<EpochInfo>,
-        ),
-        Error,
-    >;
-
-    // TODO #3488 this likely to be updated
-    /// Hash that is necessary for prove Epochs in Epoch Sync.
-    fn get_epoch_sync_data_hash(
-        &self,
-        prev_epoch_last_block_hash: &CryptoHash,
-        epoch_id: &EpochId,
-        next_epoch_id: &EpochId,
-    ) -> Result<CryptoHash, Error> {
-        let (
-            prev_epoch_first_block_info,
-            prev_epoch_prev_last_block_info,
-            prev_epoch_last_block_info,
-            prev_epoch_info,
-            cur_epoch_info,
-            next_epoch_info,
-        ) = self.get_epoch_sync_data(prev_epoch_last_block_hash, epoch_id, next_epoch_id)?;
-        Ok(CryptoHash::hash_borsh(&(
-            prev_epoch_first_block_info,
-            prev_epoch_prev_last_block_info,
-            prev_epoch_last_block_info,
-            prev_epoch_info,
-            cur_epoch_info,
-            next_epoch_info,
-        )))
-    }
-
     /// Epoch active protocol version.
     fn get_epoch_protocol_version(&self, epoch_id: &EpochId) -> Result<ProtocolVersion, Error>;
-
-    /// Epoch Manager init procedure that is necessary after Epoch Sync.
-    fn epoch_sync_init_epoch_manager(
-        &self,
-        prev_epoch_first_block_info: BlockInfo,
-        prev_epoch_prev_last_block_info: BlockInfo,
-        prev_epoch_last_block_info: BlockInfo,
-        prev_epoch_id: &EpochId,
-        prev_epoch_info: EpochInfo,
-        epoch_id: &EpochId,
-        epoch_info: EpochInfo,
-        next_epoch_id: &EpochId,
-        next_epoch_info: EpochInfo,
-    ) -> Result<(), Error>;
 
     /// Add proposals for validators.
     fn add_validator_proposals(

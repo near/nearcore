@@ -634,6 +634,40 @@ impl EpochManagerAdapter for KeyValueRuntime {
         })
     }
 
+    fn get_epoch_sync_data(
+        &self,
+        _prev_epoch_last_block_hash: &CryptoHash,
+        _epoch_id: &EpochId,
+        _next_epoch_id: &EpochId,
+    ) -> Result<
+        (
+            Arc<BlockInfo>,
+            Arc<BlockInfo>,
+            Arc<BlockInfo>,
+            Arc<EpochInfo>,
+            Arc<EpochInfo>,
+            Arc<EpochInfo>,
+        ),
+        Error,
+    > {
+        Ok(Default::default())
+    }
+
+    fn epoch_sync_init_epoch_manager(
+        &self,
+        _prev_epoch_first_block_info: BlockInfo,
+        _prev_epoch_last_block_info: BlockInfo,
+        _prev_epoch_prev_last_block_info: BlockInfo,
+        _prev_epoch_id: &EpochId,
+        _prev_epoch_info: EpochInfo,
+        _epoch_id: &EpochId,
+        _epoch_info: EpochInfo,
+        _next_epoch_id: &EpochId,
+        _next_epoch_info: EpochInfo,
+    ) -> Result<(), Error> {
+        Ok(())
+    }
+
     fn verify_block_vrf(
         &self,
         _epoch_id: &EpochId,
@@ -871,21 +905,6 @@ impl RuntimeAdapter for KeyValueRuntime {
             res.push(iter.next().unwrap());
         }
         Ok(res)
-    }
-
-    fn epoch_sync_init_epoch_manager(
-        &self,
-        _prev_epoch_first_block_info: BlockInfo,
-        _prev_epoch_last_block_info: BlockInfo,
-        _prev_epoch_prev_last_block_info: BlockInfo,
-        _prev_epoch_id: &EpochId,
-        _prev_epoch_info: EpochInfo,
-        _epoch_id: &EpochId,
-        _epoch_info: EpochInfo,
-        _next_epoch_id: &EpochId,
-        _next_epoch_info: EpochInfo,
-    ) -> Result<(), Error> {
-        Ok(())
     }
 
     fn add_validator_proposals(
@@ -1268,25 +1287,6 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn get_epoch_minted_amount(&self, _epoch_id: &EpochId) -> Result<Balance, Error> {
         Ok(0)
-    }
-
-    fn get_epoch_sync_data(
-        &self,
-        _prev_epoch_last_block_hash: &CryptoHash,
-        _epoch_id: &EpochId,
-        _next_epoch_id: &EpochId,
-    ) -> Result<
-        (
-            Arc<BlockInfo>,
-            Arc<BlockInfo>,
-            Arc<BlockInfo>,
-            Arc<EpochInfo>,
-            Arc<EpochInfo>,
-            Arc<EpochInfo>,
-        ),
-        Error,
-    > {
-        Ok(Default::default())
     }
 
     fn get_epoch_protocol_version(&self, _epoch_id: &EpochId) -> Result<ProtocolVersion, Error> {
