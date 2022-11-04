@@ -59,7 +59,7 @@ pub use crate::opener::{StoreMigrator, StoreOpener, StoreOpenerError};
 /// In the future, certain parts of the code may need to access hot or cold
 /// storage.  Specifically, querying an old block will require reading it from
 /// the cold storage.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub enum Temperature {
     Hot,
     #[cfg(feature = "cold_store")]
@@ -106,9 +106,14 @@ impl NodeStorage {
     pub fn opener<'a>(
         home_dir: &std::path::Path,
         config: &'a StoreConfig,
-        cold_config: ColdConfig<'a>,
+        #[allow(unused_variables)] cold_config: ColdConfig<'a>,
     ) -> StoreOpener<'a> {
-        StoreOpener::new(home_dir, config, cold_config)
+        StoreOpener::new(
+            home_dir,
+            config,
+            #[cfg(feature = "cold_store")]
+            cold_config,
+        )
     }
 
     /// Initialises an opener for a new temporary test store.
@@ -122,7 +127,12 @@ impl NodeStorage {
     pub fn test_opener() -> (tempfile::TempDir, StoreOpener<'static>) {
         static CONFIG: Lazy<StoreConfig> = Lazy::new(StoreConfig::test_config);
         let dir = tempfile::tempdir().unwrap();
-        let opener = StoreOpener::new(dir.path(), &CONFIG, None);
+        let opener = StoreOpener::new(
+            dir.path(),
+            &CONFIG,
+            #[cfg(feature = "cold_store")]
+            None,
+        );
         (dir, opener)
     }
 
