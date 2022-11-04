@@ -323,6 +323,8 @@ impl PeerActor {
             sender_listen_port: self.network_state.config.node_addr.map(|a| a.port()),
             sender_chain_info: PeerChainInfoV2 {
                 genesis_id: self.network_state.genesis_id.clone(),
+                // do not use the height information in handshake.
+                // TODO: remove `height` from PeerChainInfo
                 height: 0,
                 tracked_shards: chain_info.tracked_shards.clone(),
                 archival: self.network_state.config.archive,

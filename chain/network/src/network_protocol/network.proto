@@ -287,10 +287,6 @@ message BlockResponse {
   Block block = 1;
 }
 
-message LatestBlock {
-  BlockHeader block_header = 1;
-}
-
 // Wrapper of borsh-encoded SignedTransaction
 // https://github.com/near/nearcore/blob/1a4edefd0116f7d1e222bc96569367a02fe64199/core/primitives/src/transaction.rs#L218
 message SignedTransaction {
