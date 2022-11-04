@@ -1196,17 +1196,10 @@ impl ClientActor {
 
         // Check block height to trigger expected shutdown
         if let Ok(head) = self.client.chain.head() {
-            let block = self.client.chain.get_block(&head.last_block_hash).unwrap().clone();
-            let last_final_hash = block.header().last_final_block();
-            let last_final_block_height = self
-                .client
-                .chain
-                .get_block(&last_final_hash)
-                .map_or(0, |block| block.header().height());
             let block_height_to_shutdown =
                 EXPECTED_SHUTDOWN_AT.load(std::sync::atomic::Ordering::Relaxed);
-            if block_height_to_shutdown > 0 && last_final_block_height >= block_height_to_shutdown {
-                info!(target: "client", "Expected shutdown triggered: final block({}) >= ({})", last_final_block_height, block_height_to_shutdown);
+            if block_height_to_shutdown > 0 && head.height >= block_height_to_shutdown {
+                info!(target: "client", "Expected shutdown triggered: head block({}) >= ({})", head.height, block_height_to_shutdown);
                 if let Some(tx) = self.shutdown_signal.take() {
                     let _ = tx.send(()); // Ignore send signal fail, it will send again in next trigger
                 }
