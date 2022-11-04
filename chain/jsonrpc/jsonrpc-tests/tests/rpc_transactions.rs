@@ -1,4 +1,5 @@
 use std::sync::{Arc, Mutex};
+use std::{thread, time};
 
 use actix::{Actor, System};
 use borsh::BorshSerialize;
@@ -94,6 +95,35 @@ fn test_send_tx_commit() {
         let bytes = tx.try_to_vec().unwrap();
         let result = client.broadcast_tx_commit(to_base64(&bytes)).await.unwrap();
         assert_eq!(result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
+    });
+}
+
+/// Test get_recursive_transaction_results (called by get_final_transaction_result)
+/// only returns non-refund receipts
+#[test]
+fn test_refunds_not_in_receipts() {
+    test_with_client!(test_utils::NodeType::Validator, client, async move {
+        let block_hash = client.block(BlockReference::latest()).await.unwrap().header.hash;
+        let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
+        let tx = SignedTransaction::send_money(
+            1,
+            "test1".parse().unwrap(),
+            "test2".parse().unwrap(),
+            &signer,
+            100,
+            block_hash,
+        );
+        let bytes = tx.try_to_vec().unwrap();
+        let result = client.broadcast_tx_commit(to_base64(&bytes)).await.unwrap();
+        thread::sleep(time::Duration::from_secs(5));
+        let tx_status = client.EXPERIMENTAL_tx_status(to_base64(&bytes)).await.unwrap();
+        println!("tx_status: {}", tx_status);
+        // tx_status: {"receipts":[],"receipts_outcome":[],"status":{"SuccessValue":""},"transaction":{"actions":[{"Transfer":{"deposit":"100"}}],"hash":"CCJxornS7GaY1yqdA6nFmPP4nf6NpYPx897N7VMC6rtQ","nonce":1,"public_key":"ed25519:FXXrTXiKWpXj1R6r5fBvMLpstd8gPyrBq3qMByqKVzKF","receiver_id":"test2","signature":"ed25519:HTshF7eXMkxmh2D5ho2PE2YJx7XCRN5RAikXa78b9icJCJJzAoBGzVYdQii2Y73GAoKpHnpw3Ndnjr5SfG9FEYW","signer_id":"test1"},"transaction_outcome":{"block_hash":"B3KrwJXeC1QnVAMQwb3spVH2kNathzC8wrwp73CEfNr7","id":"CCJxornS7GaY1yqdA6nFmPP4nf6NpYPx897N7VMC6rtQ","outcome":{"executor_id":"test2","gas_burnt":0,"logs":[],"metadata":{"gas_profile":null,"version":1},"receipt_ids":[],"status":{"SuccessValue":""},"tokens_burnt":"0"},"proof":[]}}
+        // for receipt in tx_status.get("receipts") {
+        //     // TODO
+        //     let is_refund = receipt.predecessor_id.is_system();
+        //     assert!(!is_refund);
+        // }
     });
 }
 
