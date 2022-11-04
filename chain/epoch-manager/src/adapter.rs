@@ -11,6 +11,7 @@ use near_primitives::{
         validator_stake::ValidatorStake, AccountId, ApprovalStake, Balance, BlockHeight,
         EpochHeight, EpochId, NumShards, ShardId, ValidatorInfoIdentifier,
     },
+    version::ProtocolVersion,
     views::EpochValidatorInfo,
 };
 use near_store::ShardUId;
@@ -154,6 +155,12 @@ pub trait EpochManagerAdapter: Send + Sync {
         &self,
         epoch_id: ValidatorInfoIdentifier,
     ) -> Result<EpochValidatorInfo, Error>;
+
+    /// Amount of tokens minted in given epoch.
+    fn get_epoch_minted_amount(&self, epoch_id: &EpochId) -> Result<Balance, Error>;
+
+    /// Epoch active protocol version.
+    fn get_epoch_protocol_version(&self, epoch_id: &EpochId) -> Result<ProtocolVersion, Error>;
 
     // TODO #3488 this likely to be updated
     /// Data that is necessary for prove Epochs in Epoch Sync.
@@ -534,6 +541,16 @@ impl<T: HasEpochMangerHandle + Send + Sync> EpochManagerAdapter for T {
     ) -> Result<EpochValidatorInfo, Error> {
         let epoch_manager = self.read();
         epoch_manager.get_validator_info(epoch_id).map_err(|e| e.into())
+    }
+
+    fn get_epoch_minted_amount(&self, epoch_id: &EpochId) -> Result<Balance, Error> {
+        let epoch_manager = self.read();
+        Ok(epoch_manager.get_epoch_info(epoch_id)?.minted_amount())
+    }
+
+    fn get_epoch_protocol_version(&self, epoch_id: &EpochId) -> Result<ProtocolVersion, Error> {
+        let epoch_manager = self.read();
+        Ok(epoch_manager.get_epoch_info(epoch_id)?.protocol_version())
     }
 
     // TODO #3488 this likely to be updated

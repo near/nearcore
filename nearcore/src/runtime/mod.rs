@@ -916,16 +916,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         .unwrap_or(self.genesis_config.genesis_height)
     }
 
-    fn get_epoch_minted_amount(&self, epoch_id: &EpochId) -> Result<Balance, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        Ok(epoch_manager.get_epoch_info(epoch_id)?.minted_amount())
-    }
-
-    fn get_epoch_protocol_version(&self, epoch_id: &EpochId) -> Result<ProtocolVersion, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        Ok(epoch_manager.get_epoch_info(epoch_id)?.protocol_version())
-    }
-
     fn add_validator_proposals(
         &self,
         block_header_info: BlockHeaderInfo,
