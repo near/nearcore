@@ -34,9 +34,8 @@ use near_primitives::version::{
     MIN_PROTOCOL_VERSION_NEP_92_FIX,
 };
 use near_primitives::views::{QueryRequest, QueryResponse};
-#[cfg(feature = "protocol_feature_flat_state")]
 use near_store::flat_state::ChainAccessForFlatStorage;
-use near_store::flat_state::FlatStorageState;
+use near_store::flat_state::{FlatStorageState, FlatStorageStateStatus};
 use near_store::{PartialStorage, ShardTries, Store, StoreUpdate, Trie, WrappedTrieChanges};
 
 pub use near_epoch_manager::EpochManagerAdapter;
@@ -289,13 +288,13 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
 
     fn get_flat_storage_state_for_shard(&self, shard_id: ShardId) -> Option<FlatStorageState>;
 
-    #[cfg(feature = "protocol_feature_flat_state")]
-    fn create_flat_storage_state_for_shard(
+    /// Tries to create flat storage state for given shard, returns the status of creation.
+    fn try_create_flat_storage_state_for_shard(
         &self,
         shard_id: ShardId,
         latest_block_height: BlockHeight,
         chain_access: &dyn ChainAccessForFlatStorage,
-    );
+    ) -> FlatStorageStateStatus;
 
     fn set_flat_storage_state_for_genesis(
         &self,

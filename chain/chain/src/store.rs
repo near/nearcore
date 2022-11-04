@@ -47,7 +47,6 @@ use crate::chunks_store::ReadOnlyChunksStore;
 use crate::types::{Block, BlockHeader, LatestKnown};
 use crate::{byzantine_assert, RuntimeAdapter};
 use near_store::db::StoreStatistics;
-#[cfg(feature = "protocol_feature_flat_state")]
 use near_store::flat_state::{BlockInfo, ChainAccessForFlatStorage};
 use std::sync::Arc;
 
@@ -1131,7 +1130,6 @@ impl ChainStoreAccess for ChainStore {
     }
 }
 
-#[cfg(feature = "protocol_feature_flat_state")]
 impl ChainAccessForFlatStorage for ChainStore {
     fn get_block_info(&self, block_hash: &CryptoHash) -> BlockInfo {
         let header = self.get_block_header(block_hash).unwrap();
