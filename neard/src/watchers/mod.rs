@@ -24,6 +24,8 @@ pub(crate) enum WatchConfigError {
     OpenAndRead(#[source] io::Error),
 }
 
+/// Watcher helps to `reload` the change of config
+/// main thread will use `update` method to trigger config watchers to reload the config they watch
 pub(crate) trait Watcher
 where
     Self: Debug + for<'a> Deserialize<'a> + Serialize,
