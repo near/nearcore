@@ -2174,7 +2174,7 @@ mod test {
     use std::time::Duration;
 
     use near_chain::test_utils::{KeyValueRuntime, ValidatorSchedule};
-    use near_chain::{Chain, ChainStore, RuntimeAdapter};
+    use near_chain::{Chain, ChainStore};
     use near_crypto::KeyType;
     use near_network::test_utils::MockPeerManagerAdapter;
     use near_network::types::NetworkRequests;

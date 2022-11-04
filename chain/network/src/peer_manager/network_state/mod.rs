@@ -2,8 +2,8 @@ use crate::accounts_data;
 use crate::client;
 use crate::config;
 use crate::network_protocol::{
-    Edge, EdgeState, PartialEdgeInfo, PeerIdOrHash, PeerMessage, Ping, Pong, RawRoutedMessage,
-    RoutedMessageBody, RoutedMessageV2, RoutingTableUpdate,
+    Edge, EdgeState, PartialEdgeInfo, PeerIdOrHash, PeerInfo, PeerMessage, Ping, Pong,
+    RawRoutedMessage, RoutedMessageBody, RoutedMessageV2, RoutingTableUpdate,
 };
 use crate::peer_manager::connection;
 use crate::peer_manager::peer_manager_actor::Event;
@@ -24,7 +24,8 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::AccountId;
 use parking_lot::RwLock;
-use std::sync::atomic::AtomicUsize;
+use std::net::SocketAddr;
+use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::Arc;
 use tracing::{debug, trace, Instrument};
 
@@ -71,6 +72,27 @@ impl Drop for Runtime {
             thread.join().unwrap();
         }
     }
+}
+
+impl WhitelistNode {
+    pub fn from_peer_info(pi: &PeerInfo) -> anyhow::Result<Self> {
+        Ok(Self {
+            id: pi.id.clone(),
+            addr: if let Some(addr) = pi.addr {
+                addr.clone()
+            } else {
+                anyhow::bail!("addess is missing");
+            },
+            account_id: pi.account_id.clone(),
+        })
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) struct WhitelistNode {
+    id: PeerId,
+    addr: SocketAddr,
+    account_id: Option<AccountId>,
 }
 
 pub(crate) struct NetworkState {
@@ -120,6 +142,16 @@ pub(crate) struct NetworkState {
     /// Shared counter across all PeerActors, which counts number of `RoutedMessageBody::ForwardTx`
     /// messages sincce last block.
     pub txns_since_last_block: AtomicUsize,
+
+    /// Whitelisted nodes, which are allowed to connect even if the connection limit has been
+    /// reached.
+    whitelist_nodes: Vec<WhitelistNode>,
+    /// Maximal allowed number of peer connections.
+    /// It is initialized with config.max_num_peers and is mutable
+    /// only so that it can be changed in tests.
+    /// TODO(gprusak): determine why tests need to change that dynamically
+    /// in the first place.
+    pub max_num_peers: AtomicU32,
 }
 
 impl NetworkState {
@@ -131,6 +163,7 @@ impl NetworkState {
         genesis_id: GenesisId,
         client: Arc<dyn client::Client>,
         peer_manager_addr: Recipient<WithSpanContext<PeerToManagerMsg>>,
+        whitelist_nodes: Vec<WhitelistNode>,
     ) -> Self {
         let graph = Arc::new(RwLock::new(routing::GraphWithCache::new(config.node_id())));
         Self {
@@ -147,6 +180,8 @@ impl NetworkState {
             accounts_data: Arc::new(accounts_data::Cache::new()),
             routing_table_view: RoutingTableView::new(store, config.node_id()),
             routing_table_exchange_helper: Default::default(),
+            whitelist_nodes,
+            max_num_peers: AtomicU32::new(config.max_num_peers),
             config,
             txns_since_last_block: AtomicUsize::new(0),
             start_time: clock.now(),
@@ -185,6 +220,35 @@ impl NetworkState {
                 tracing::error!(target: "network", ?err, "Failed to save peer data");
             }
         }
+    }
+
+    /// is_peer_whitelisted checks whether a peer is a whitelisted node.
+    /// whitelisted nodes are allowed to connect, even if the inbound connections limit has
+    /// been reached. This predicate should be evaluated AFTER the Handshake.
+    pub fn is_peer_whitelisted(&self, peer_info: &PeerInfo) -> bool {
+        self.whitelist_nodes
+            .iter()
+            .filter(|wn| wn.id == peer_info.id)
+            .filter(|wn| Some(wn.addr) == peer_info.addr)
+            .any(|wn| wn.account_id.is_none() || wn.account_id == peer_info.account_id)
+    }
+
+    /// predicate checking whether we should allow an inbound connection from peer_info.
+    pub fn is_inbound_allowed(&self, peer_info: &PeerInfo) -> bool {
+        // Check if we have spare inbound connections capacity.
+        let tier2 = self.tier2.load();
+        if tier2.ready.len() + tier2.outbound_handshakes.len()
+            < self.max_num_peers.load(Ordering::Relaxed) as usize
+            && !self.config.inbound_disabled
+        {
+            return true;
+        }
+        // Whitelisted nodes are allowed to connect, even if the inbound connections limit has
+        // been reached.
+        if self.is_peer_whitelisted(peer_info) {
+            return true;
+        }
+        false
     }
 
     /// Removes the connection from the state.

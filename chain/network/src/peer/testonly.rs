@@ -171,6 +171,7 @@ impl PeerHandle {
                 cfg.chain.genesis_id.clone(),
                 fc,
                 fpm.recipient(),
+                vec![],
             ));
             // WARNING: this is a hack to make PeerActor use a specific nonce
             if let (Some(nonce), tcp::StreamType::Outbound { peer_id }) =

@@ -355,10 +355,37 @@ pub enum Cost {
     /// signer.
     EcrecoverBase,
     /// Estimates `ed25519_verify_base`, which covers the base cost of the host
-    /// function `ed25519_verify` to verify an ED25519 signatures.
+    /// function `ed25519_verify` to verify an ED25519 signature.
+    ///
+    /// Estimation: Use a fixed signature embedded in the test contract and
+    /// verify it `N` times in a loop and divide by `N`. The overhead of other
+    /// costs is negligible compared to the two elliptic curve scalar
+    /// multiplications performed for signature validation.
+    ///
+    /// Note that the multiplication algorithm used is not constant time, i.e.
+    /// it's timing varies depending on the input. Testing with a range of
+    /// random signatures, the difference is +/-10%. Testing with extreme
+    /// inputs, it can be more than 20% faster than a  random case. But it seems
+    /// on the upper end, there is a limit to how many additions and doublings
+    /// need to be performed.
+    /// In conclusion, testing on a single input is okay, if we account for the
+    /// 10-20% variation.
     Ed25519VerifyBase,
     /// Estimates `ed25519_verify_byte`, the cost charged per input byte in calls to the
     /// ed25519_verify host function.
+    ///
+    /// Estimation: Verify a signature for a large message many times, subtract
+    /// the cost estimated for the base and divide the remainder by the total
+    /// bytes the message.
+    ///
+    /// The cost per byte for pure verification is just the cost for hashing.
+    /// This is comparable to the cost for reading values from memory or
+    /// registers, which is currently not subtracted in the estimation.
+    /// Subtracting it would lead to high variance. Instead, one has to take it
+    /// into account that memory overhead is included when mapping the
+    /// estimation to a parameter.
+    /// In the end, the cost should be low enough, compared to the base cost,
+    /// that it does not matter all that much if we overestimate it a bit.
     Ed25519VerifyByte,
     // `storage_write` records a single key-value pair, initially in the
     // prospective changes in-memory hash map, and then once a full block has
