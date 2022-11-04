@@ -215,7 +215,9 @@ pub enum DBCol {
     /// - *Rows*: height (u64)
     /// - *Column type*: empty
     ProcessedBlockHeights,
-    /// Mapping from receipt hash to Receipt.
+    /// Mapping from receipt hash to Receipt. Note that this doesn't store _all_
+    /// receipts. Some receipts are ephemeral and get processed after creation
+    /// without getting into the database at all.
     /// - *Rows*: receipt (CryptoHash)
     /// - *Column type*: Receipt
     Receipts,
@@ -366,6 +368,10 @@ impl DBCol {
     }
 
     /// Whether this column should be copied to the cold storage.
+    ///
+    /// This doesn’t include DbVersion and BlockMisc columns which are present
+    /// int cold database but rather than being copied from hot database are
+    /// maintained separately.
     pub const fn is_cold(&self) -> bool {
         match self {
             DBCol::Block
@@ -387,6 +393,12 @@ impl DBCol {
             | DBCol::Transactions => true,
             _ => false,
         }
+    }
+
+    /// Whether this column exists in cold storage.
+    #[cfg(feature = "cold_store")]
+    pub(crate) const fn is_in_colddb(&self) -> bool {
+        matches!(*self, DBCol::DbVersion | DBCol::BlockMisc) || self.is_cold()
     }
 
     /// Vector of DBKeyType s concatenation of which results in key for the column.

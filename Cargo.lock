@@ -3280,6 +3280,7 @@ dependencies = [
  "rand 0.8.5",
  "rand_xorshift",
  "rayon",
+ "rlimit",
  "serde",
  "smart-default",
  "strum",
@@ -3344,6 +3345,20 @@ version = "0.0.0"
 dependencies = [
  "quote",
  "syn",
+]
+
+[[package]]
+name = "near-ping"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap 3.1.18",
+ "near-network",
+ "near-o11y",
+ "near-primitives",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -3705,6 +3720,7 @@ dependencies = [
  "near-mirror",
  "near-o11y",
  "near-performance-metrics",
+ "near-ping",
  "near-primitives",
  "near-rust-allocator-proxy",
  "near-store",

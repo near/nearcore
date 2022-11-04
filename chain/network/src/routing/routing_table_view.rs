@@ -57,12 +57,6 @@ impl Inner {
         self.route_back.remove(clock, &hash)
     }
 
-    /// Checks whenever edge is newer than the one we already have.
-    /// Works only for local edges.
-    fn is_local_edge_newer(&self, other_peer: &PeerId, nonce: u64) -> bool {
-        self.local_edges.get(other_peer).map_or(0, |x| x.nonce()) < nonce
-    }
-
     /// Get AnnounceAccount for the given AccountId.
     fn get_announce(&mut self, account_id: &AccountId) -> Option<AnnounceAccount> {
         if let Some(announce_account) = self.account_peers.get(account_id) {
@@ -110,12 +104,6 @@ impl RoutingTableView {
             }
         }
         inner.next_hops = next_hops;
-    }
-
-    /// Checks whenever edge is newer than the one we already have.
-    /// Works only for local edges.
-    pub(crate) fn is_local_edge_newer(&self, other_peer: &PeerId, nonce: u64) -> bool {
-        self.0.lock().is_local_edge_newer(other_peer, nonce)
     }
 
     pub(crate) fn reachable_peers(&self) -> usize {
@@ -206,6 +194,10 @@ impl RoutingTableView {
 
     pub(crate) fn get_local_edge(&self, other_peer: &PeerId) -> Option<Edge> {
         self.0.lock().local_edges.get(other_peer).cloned()
+    }
+
+    pub(crate) fn get_local_edges(&self) -> Vec<Edge> {
+        self.0.lock().local_edges.values().cloned().collect()
     }
 
     /// Returns the diff: new local edges added.
