@@ -640,7 +640,10 @@ impl TrieCachingStorage {
     }
 }
 
-/// Storage for reading State nodes and values from DB.
+/// Storage for reading State nodes and values directly from DB.
+///
+/// This `TrieStorage` implementation has no caches, it just goes to DB.
+/// It is useful for background tasks that should not affect chunk processing and block each other.
 pub struct TrieDBStorage {
     pub(crate) store: Store,
     pub(crate) shard_uid: ShardUId,
