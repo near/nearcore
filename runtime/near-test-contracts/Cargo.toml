@@ -3,7 +3,6 @@ name = "near-test-contracts"
 version = "0.0.0"
 publish = false
 authors = ["Near Inc <hello@nearprotocol.com>"]
-# rust-version = intentionally not specified for test contract
 edition = "2021"
 license = "Apache-2.0"
 
