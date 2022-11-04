@@ -487,7 +487,7 @@ impl NetworkState {
                             PartialEdgeInfo::new(
                                 &node_id,
                                 &conn.peer_info.id,
-                                edge.next(),
+                                std::cmp::max(Edge::create_fresh_nonce(&clock), edge.next()),
                                 &this.config.node_key,
                             ),
                         )));

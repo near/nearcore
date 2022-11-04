@@ -707,8 +707,7 @@ impl PeerActor {
                 handshake_spec.partial_edge_info = self.network_state.propose_edge(
                     &self.clock,
                     &handshake_spec.peer_id,
-                    // FIXME !!
-                    Some(edge.next()),
+                    Some(std::cmp::max(edge.next(), Edge::create_fresh_nonce(&self.clock))),
                 );
                 let spec = handshake_spec.clone();
                 ctx.wait(actix::fut::ready(()).then(move |_, act: &mut Self, _| {

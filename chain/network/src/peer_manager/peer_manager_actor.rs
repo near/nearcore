@@ -18,6 +18,7 @@ use crate::stats::metrics;
 use crate::store;
 use crate::tcp;
 use crate::time;
+use crate::types::PartialEdgeInfo;
 use crate::types::{
     ConnectedPeerInfo, FullPeerInfo, GetNetworkInfo, KnownProducer, NetworkInfo, NetworkRequests,
     NetworkResponses, PeerIdOrHash, PeerManagerMessageRequest, PeerManagerMessageResponse,
@@ -475,6 +476,40 @@ impl PeerManagerActor {
             .collect()
     }
 
+    // Go over all the peers that you're connected to, and refresh the connection nonce if needed.
+    // We only have to do it for the outgoing edges (as for incoming we assume that the other node is going to this).
+    fn refresh_peer_nonces(&self) {
+        let tier2 = self.state.tier2.load();
+        let peers_to_refresh = tier2
+            .ready
+            .values()
+            .filter(|connection| {
+                connection
+                    .edge
+                    .load()
+                    .is_edge_older_than(self.clock.now_utc() - REFRESH_NONCE_PERIOD)
+                    && connection.peer_type == PeerType::Outbound
+            })
+            .collect::<Vec<_>>();
+        if peers_to_refresh.len() > 0 {
+            debug!(target:"network", "Refreshing nonces for {:?} peers.", peers_to_refresh.len());
+
+            for peer in peers_to_refresh {
+                let other = &peer.peer_info.id;
+                let nonce = Edge::create_fresh_nonce(&self.clock);
+                self.state.tier2.send_message(
+                    other.clone(),
+                    Arc::new(PeerMessage::RequestUpdateNonce(PartialEdgeInfo::new(
+                        &self.my_peer_id,
+                        other,
+                        nonce,
+                        &self.config.node_key,
+                    ))),
+                );
+            }
+        }
+    }
+
     /// Check if the number of connections (excluding whitelisted ones) exceeds ideal_connections_hi.
     /// If so, constructs a safe set of peers and selects one random peer outside of that set
     /// and sends signal to stop connection to it gracefully.
@@ -630,6 +665,7 @@ impl PeerManagerActor {
         // If there are too many active connections try to remove some connections
         self.maybe_stop_active_connection();
 
+        // Refresh nonces for edges (as old nonces are treated as no longer valid by the graph).
         self.refresh_peer_nonces();
 
         if let Err(err) = self.state.peer_store.remove_expired(&self.clock) {
