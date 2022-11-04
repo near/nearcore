@@ -288,7 +288,8 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
 
     fn get_flat_storage_state_for_shard(&self, shard_id: ShardId) -> Option<FlatStorageState>;
 
-    fn create_flat_storage_state_for_shard(
+    /// Tries to create flat storage state for given shard, returns the status of creation.
+    fn try_create_flat_storage_state_for_shard(
         &self,
         shard_id: ShardId,
         latest_block_height: BlockHeight,

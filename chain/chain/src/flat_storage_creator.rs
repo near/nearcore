@@ -61,7 +61,7 @@ impl FlatStorageCreator {
         let mut shard_creators: Vec<Arc<Mutex<FlatStorageShardCreator>>> = vec![];
         let mut creation_needed = false;
         for shard_id in 0..num_shards {
-            let status = runtime_adapter.create_flat_storage_state_for_shard(
+            let status = runtime_adapter.try_create_flat_storage_state_for_shard(
                 shard_id,
                 chain_store.head().unwrap().height,
                 chain_store,

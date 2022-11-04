@@ -705,7 +705,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         self.flat_state_factory.get_flat_storage_state_for_shard(shard_id)
     }
 
-    fn create_flat_storage_state_for_shard(
+    fn try_create_flat_storage_state_for_shard(
         &self,
         shard_id: ShardId,
         latest_block_height: BlockHeight,
@@ -1871,7 +1871,7 @@ mod test {
             store_update.commit().unwrap();
             let mock_chain = MockChainForFlatStorage::new(0, genesis_hash);
             for shard_id in 0..runtime.num_shards(&EpochId::default()).unwrap() {
-                let status = runtime.create_flat_storage_state_for_shard(
+                let status = runtime.try_create_flat_storage_state_for_shard(
                     shard_id as ShardId,
                     0,
                     &mock_chain,

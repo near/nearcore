@@ -774,7 +774,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         None
     }
 
-    fn create_flat_storage_state_for_shard(
+    fn try_create_flat_storage_state_for_shard(
         &self,
         _shard_id: ShardId,
         _latest_block_height: BlockHeight,
