@@ -14,6 +14,7 @@ pub mod chain;
 pub mod chunks_store;
 pub mod crypto_hash_timer;
 mod doomslug;
+mod flat_storage_creator;
 mod lightclient;
 mod metrics;
 pub mod migrations;
