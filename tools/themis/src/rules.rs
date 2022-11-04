@@ -26,10 +26,18 @@ pub fn has_publish_spec(workspace: &Workspace) -> anyhow::Result<()> {
 
 /// Ensure all crates specify a MSRV
 pub fn has_rust_version(workspace: &Workspace) -> anyhow::Result<()> {
+    let exceptions = [
+        // specifying rust version for test contracts is unnecessary maintenance
+        // overhead since these are never published anyway
+        "near-test-contracts",
+    ];
+
     let outliers: Vec<_> = workspace
         .members
         .iter()
-        .filter(|pkg| pkg.parsed.rust_version.is_none())
+        .filter(|pkg| {
+            pkg.parsed.rust_version.is_none() && !exceptions.contains(&pkg.parsed.name.as_str())
+        })
         .map(|pkg| Outlier { path: pkg.parsed.manifest_path.clone(), found: None, extra: None })
         .collect();
 
