@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 /// Configures logging.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub(crate) struct DynConfig {
-    /// Graceful shutdonw at expected blockheight
+    /// Graceful shutdown at expected blockheight
     pub expected_shutdown: Option<u64>,
 }
 
