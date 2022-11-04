@@ -85,10 +85,19 @@ impl Clock {
         }
     }
 
+    /// Cancellable.
     pub async fn sleep_until(&self, t: Instant) {
         match &self.0 {
             ClockInner::Real => tokio::time::sleep_until(t.into_inner().into()).await,
             ClockInner::Fake(fake) => fake.advance_until(t),
+        }
+    }
+
+    /// Cancellable.
+    pub async fn sleep(&self, d: Duration) {
+        match &self.0 {
+            ClockInner::Real => tokio::time::sleep(d.try_into().unwrap()).await,
+            ClockInner::Fake(fake) => fake.advance(d),
         }
     }
 }
