@@ -2,10 +2,11 @@ use crate::accounts_data;
 use crate::client;
 use crate::config;
 use crate::network_protocol::{
-    Edge, EdgeState, PartialEdgeInfo, PeerIdOrHash, PeerMessage, Ping, Pong, RawRoutedMessage,
-    RoutedMessageBody, RoutedMessageV2, RoutingTableUpdate,
+    Edge, EdgeState, PartialEdgeInfo, PeerIdOrHash, PeerInfo, PeerMessage, Ping, Pong,
+    RawRoutedMessage, RoutedMessageBody, RoutedMessageV2, RoutingTableUpdate,
 };
 use crate::peer_manager::connection;
+use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::peer_store;
 use crate::private_actix::{PeerToManagerMsg, ValidateEdgeList};
 use crate::routing;
@@ -23,9 +24,10 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::AccountId;
 use parking_lot::RwLock;
-use std::sync::atomic::AtomicUsize;
+use std::net::SocketAddr;
+use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::Arc;
-use tracing::{debug, trace};
+use tracing::{debug, trace, Instrument};
 
 /// Limit number of pending Peer actors to avoid OOM.
 pub(crate) const LIMIT_PENDING_PEERS: usize = 60;
@@ -34,9 +36,79 @@ pub(crate) const LIMIT_PENDING_PEERS: usize = 60;
 /// We send these messages multiple times to reduce the chance that they are lost
 const IMPORTANT_MESSAGE_RESENT_COUNT: usize = 3;
 
+/// How much time to wait after we send update nonce request before disconnecting.
+/// This number should be large to handle pair of nodes with high latency.
+const WAIT_ON_TRY_UPDATE_NONCE: time::Duration = time::Duration::seconds(6);
+/// If we see an edge between us and other peer, but this peer is not a current connection, wait this
+/// timeout and in case it didn't become a connected peer, broadcast edge removal update.
+const WAIT_PEER_BEFORE_REMOVE: time::Duration = time::Duration::seconds(6);
+
+struct Runtime {
+    handle: tokio::runtime::Handle,
+    stop: Arc<tokio::sync::Notify>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Runtime {
+    fn new() -> Self {
+        let stop = Arc::new(tokio::sync::Notify::new());
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let handle = runtime.handle().clone();
+        let thread = std::thread::spawn({
+            let stop = stop.clone();
+            move || runtime.block_on(stop.notified())
+        });
+        Self { handle, stop, thread: Some(thread) }
+    }
+}
+
+impl Drop for Runtime {
+    fn drop(&mut self) {
+        self.stop.notify_one();
+        let thread = self.thread.take().unwrap();
+        // Await for the thread to stop, unless it is the current thread
+        // (i.e. nobody waits for it).
+        if std::thread::current().id() != thread.thread().id() {
+            thread.join().unwrap();
+        }
+    }
+}
+
+impl WhitelistNode {
+    pub fn from_peer_info(pi: &PeerInfo) -> anyhow::Result<Self> {
+        Ok(Self {
+            id: pi.id.clone(),
+            addr: if let Some(addr) = pi.addr {
+                addr.clone()
+            } else {
+                anyhow::bail!("addess is missing");
+            },
+            account_id: pi.account_id.clone(),
+        })
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) struct WhitelistNode {
+    id: PeerId,
+    addr: SocketAddr,
+    account_id: Option<AccountId>,
+}
+
 pub(crate) struct NetworkState {
+    /// Dedicated runtime for `NetworkState` which runs in a separate thread.
+    /// Async methods of NetworkState are not cancellable,
+    /// so calling them from, for example, PeerActor is dangerous because
+    /// PeerActor can be stopped at any moment.
+    /// WARNING: DO NOT spawn infinite futures/background loops on this arbiter,
+    /// as it will be automatically closed only when the NetworkState is dropped.
+    /// WARNING: actix actors can be spawned only when actix::System::current() is set.
+    /// DO NOT spawn actors from a task on this runtime.
+    runtime: Runtime,
     /// PeerManager config.
     pub config: Arc<config::VerifiedConfig>,
+    /// When network state has been constructed.
+    pub start_time: time::Instant,
     /// GenesisId of the chain.
     pub genesis_id: GenesisId,
     pub client: Arc<dyn client::Client>,
@@ -70,6 +142,16 @@ pub(crate) struct NetworkState {
     /// Shared counter across all PeerActors, which counts number of `RoutedMessageBody::ForwardTx`
     /// messages sincce last block.
     pub txns_since_last_block: AtomicUsize,
+
+    /// Whitelisted nodes, which are allowed to connect even if the connection limit has been
+    /// reached.
+    whitelist_nodes: Vec<WhitelistNode>,
+    /// Maximal allowed number of peer connections.
+    /// It is initialized with config.max_num_peers and is mutable
+    /// only so that it can be changed in tests.
+    /// TODO(gprusak): determine why tests need to change that dynamically
+    /// in the first place.
+    pub max_num_peers: AtomicU32,
 }
 
 impl NetworkState {
@@ -81,9 +163,11 @@ impl NetworkState {
         genesis_id: GenesisId,
         client: Arc<dyn client::Client>,
         peer_manager_addr: Recipient<WithSpanContext<PeerToManagerMsg>>,
+        whitelist_nodes: Vec<WhitelistNode>,
     ) -> Self {
         let graph = Arc::new(RwLock::new(routing::GraphWithCache::new(config.node_id())));
         Self {
+            runtime: Runtime::new(),
             routing_table_addr: routing::Actor::spawn(clock.clone(), store.clone(), graph.clone()),
             graph,
             genesis_id,
@@ -96,9 +180,19 @@ impl NetworkState {
             accounts_data: Arc::new(accounts_data::Cache::new()),
             routing_table_view: RoutingTableView::new(store, config.node_id()),
             routing_table_exchange_helper: Default::default(),
+            whitelist_nodes,
+            max_num_peers: AtomicU32::new(config.max_num_peers),
             config,
             txns_since_last_block: AtomicUsize::new(0),
+            start_time: clock.now(),
         }
+    }
+
+    fn spawn<R: 'static + Send>(
+        &self,
+        fut: impl std::future::Future<Output = R> + 'static + Send,
+    ) -> tokio::task::JoinHandle<R> {
+        self.runtime.handle.spawn(fut.in_current_span())
     }
 
     pub fn propose_edge(&self, peer1: &PeerId, with_nonce: Option<u64>) -> PartialEdgeInfo {
@@ -128,9 +222,38 @@ impl NetworkState {
         }
     }
 
+    /// is_peer_whitelisted checks whether a peer is a whitelisted node.
+    /// whitelisted nodes are allowed to connect, even if the inbound connections limit has
+    /// been reached. This predicate should be evaluated AFTER the Handshake.
+    pub fn is_peer_whitelisted(&self, peer_info: &PeerInfo) -> bool {
+        self.whitelist_nodes
+            .iter()
+            .filter(|wn| wn.id == peer_info.id)
+            .filter(|wn| Some(wn.addr) == peer_info.addr)
+            .any(|wn| wn.account_id.is_none() || wn.account_id == peer_info.account_id)
+    }
+
+    /// predicate checking whether we should allow an inbound connection from peer_info.
+    pub fn is_inbound_allowed(&self, peer_info: &PeerInfo) -> bool {
+        // Check if we have spare inbound connections capacity.
+        let tier2 = self.tier2.load();
+        if tier2.ready.len() + tier2.outbound_handshakes.len()
+            < self.max_num_peers.load(Ordering::Relaxed) as usize
+            && !self.config.inbound_disabled
+        {
+            return true;
+        }
+        // Whitelisted nodes are allowed to connect, even if the inbound connections limit has
+        // been reached.
+        if self.is_peer_whitelisted(peer_info) {
+            return true;
+        }
+        false
+    }
+
     /// Removes the connection from the state.
     pub fn unregister(
-        &self,
+        self: &Arc<Self>,
         clock: &time::Clock,
         conn: &Arc<connection::Connection>,
         ban_reason: Option<ReasonForBan>,
@@ -143,10 +266,7 @@ impl NetworkState {
         if let Some(edge) = self.routing_table_view.get_local_edge(&peer_id) {
             if edge.edge_type() == EdgeState::Active {
                 let edge_update = edge.remove_edge(self.config.node_id(), &self.config.node_key);
-                self.add_verified_edges_to_routing_table(vec![edge_update.clone()]);
-                self.tier2.broadcast_message(Arc::new(PeerMessage::SyncRoutingTable(
-                    RoutingTableUpdate::from_edges(vec![edge_update]),
-                )));
+                self.add_verified_edges_to_routing_table(clock, vec![edge_update.clone()]);
             }
         }
 
@@ -266,13 +386,42 @@ impl NetworkState {
         }
     }
 
-    pub fn add_verified_edges_to_routing_table(&self, edges: Vec<Edge>) {
+    pub fn add_verified_edges_to_routing_table(
+        self: &Arc<Self>,
+        clock: &time::Clock,
+        edges: Vec<Edge>,
+    ) {
         if edges.is_empty() {
             return;
         }
         self.routing_table_view.add_local_edges(&edges);
-        self.routing_table_addr
-            .do_send(routing::actor::Message::AddVerifiedEdges { edges }.with_span_context());
+        let this = self.clone();
+        let clock = clock.clone();
+        self.spawn(async move {
+            match this
+                .routing_table_addr
+                .send(routing::actor::Message::AddVerifiedEdges { edges }.with_span_context())
+                .await
+            {
+                Ok(routing::actor::Response::AddVerifiedEdgesResponse(mut edges)) => {
+                    this.config.event_sink.push(Event::EdgesVerified(edges.clone()));
+                    // Don't send tombstones during the initial time.
+                    // Most of the network is created during this time, which results
+                    // in us sending a lot of tombstones to peers.
+                    // Later, the amount of new edges is a lot smaller.
+                    if let Some(skip_tombstones_duration) = this.config.skip_tombstones {
+                        if clock.now() < this.start_time + skip_tombstones_duration {
+                            edges.retain(|e| e.edge_type() == EdgeState::Active);
+                            metrics::EDGE_TOMBSTONE_SENDING_SKIPPED.inc();
+                        }
+                    }
+                    this.tier2.broadcast_message(Arc::new(PeerMessage::SyncRoutingTable(
+                        RoutingTableUpdate::from_edges(edges),
+                    )));
+                }
+                _ => tracing::error!(target: "network", "expected AddVerifiedEdgesResponse"),
+            }
+        });
     }
 
     pub fn broadcast_accounts(&self, accounts: Vec<AnnounceAccount>) {
@@ -302,5 +451,71 @@ impl NetworkState {
             })
             .with_span_context(),
         );
+    }
+
+    /// Check for edges indicating that
+    /// a) there is a peer we should be connected to, but we aren't
+    /// b) there is an edge indicating that we should be disconnected from a peer, but we are connected.
+    /// Try to resolve the inconsistency.
+    /// We call this function every FIX_LOCAL_EDGES_INTERVAL from peer_manager_actor.rs.
+    pub async fn fix_local_edges(self: &Arc<Self>, clock: &time::Clock) {
+        let local_edges = self.routing_table_view.get_local_edges();
+        let tier2 = self.tier2.load();
+        let mut tasks = vec![];
+        for edge in local_edges {
+            let node_id = self.config.node_id();
+            let other_peer = edge.other(&node_id).unwrap();
+            match (tier2.ready.get(other_peer), edge.edge_type()) {
+                // This is an active connection, while the edge indicates it shouldn't.
+                (Some(conn), EdgeState::Removed) => {
+                    let this = self.clone();
+                    let conn = conn.clone();
+                    let clock = clock.clone();
+                    tasks.push(self.spawn(async move {
+                        conn.send_message(Arc::new(PeerMessage::RequestUpdateNonce(
+                            PartialEdgeInfo::new(
+                                &node_id,
+                                &conn.peer_info.id,
+                                edge.next(),
+                                &this.config.node_key,
+                            ),
+                        )));
+                        // TODO(gprusak): here we should synchronically wait for the RequestUpdateNonce
+                        // response (with timeout). Until network round trips are implemented, we just
+                        // blindly wait for a while, then check again.
+                        clock.sleep(WAIT_ON_TRY_UPDATE_NONCE).await;
+                        match this.routing_table_view.get_local_edge(&conn.peer_info.id) {
+                            Some(edge) if edge.edge_type() == EdgeState::Active => return,
+                            _ => conn.stop(None),
+                        }
+                    }));
+                }
+                // We are not connected to this peer, but routing table contains
+                // information that we do. We should wait and remove that peer
+                // from routing table
+                (None, EdgeState::Active) => {
+                    let this = self.clone();
+                    let clock = clock.clone();
+                    let other_peer = other_peer.clone();
+                    tasks.push(self.spawn(async move {
+                        // This edge says this is an connected peer, which is currently not in the set of connected peers.
+                        // Wait for some time to let the connection begin or broadcast edge removal instead.
+                        clock.sleep(WAIT_PEER_BEFORE_REMOVE).await;
+                        if this.tier2.load().ready.contains_key(&other_peer) {
+                            return;
+                        }
+                        // Peer is still not connected after waiting a timeout.
+                        let new_edge =
+                            edge.remove_edge(this.config.node_id(), &this.config.node_key);
+                        this.add_verified_edges_to_routing_table(&clock, vec![new_edge.clone()]);
+                    }));
+                }
+                // OK
+                _ => {}
+            }
+        }
+        for t in tasks {
+            let _ = t.await;
+        }
     }
 }

@@ -43,7 +43,7 @@ use std::io;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, warn, Instrument};
 
 /// Maximum number of messages per minute from single peer.
 // TODO(#5453): current limit is way to high due to us sending lots of messages during sync.
@@ -728,6 +728,7 @@ impl PeerActor {
         msg_hash: CryptoHash,
         body: RoutedMessageBody,
     ) -> Result<Option<RoutedMessageBody>, ReasonForBan> {
+        let _span = tracing::trace_span!(target: "network", "receive_routed_message").entered();
         Ok(match body {
             RoutedMessageBody::TxStatusRequest(account_id, tx_hash) => network_state
                 .client
@@ -796,6 +797,7 @@ impl PeerActor {
         conn: &connection::Connection,
         msg: PeerMessage,
     ) {
+        let _span = tracing::trace_span!(target: "network", "receive_message").entered();
         // This is a fancy way to clone the message iff event_sink is non-null.
         // If you have a better idea on how to achieve that, feel free to improve this.
         let message_processed_event = self
@@ -855,7 +857,7 @@ impl PeerActor {
                     tracing::error!(target: "network", "Peer received unexpected type: {:?}", msg);
                     None
                 }
-            })})
+            })}.in_current_span())
             .map(|res, act: &mut PeerActor, ctx| {
                 match res {
                     // TODO(gprusak): make sure that for routed messages we drop routeback info correctly.
@@ -874,6 +876,11 @@ impl PeerActor {
         conn: &connection::Connection,
         peer_msg: PeerMessage,
     ) {
+        let _span = tracing::trace_span!(
+            target: "network",
+            "handle_msg_ready")
+        .entered();
+
         match peer_msg.clone() {
             PeerMessage::Disconnect => {
                 debug!(target: "network", "Disconnect signal. Me: {:?} Peer: {:?}", self.my_node_info.id, self.other_peer_id());
@@ -885,7 +892,7 @@ impl PeerActor {
             }
             PeerMessage::PeersRequest => {
                 ctx.spawn(wrap_future(
-                    self.network_state.peer_manager_addr.send(PeerToManagerMsg::PeersRequest(PeersRequest {}).with_span_context())
+                        self.network_state.peer_manager_addr.send(PeerToManagerMsg::PeersRequest(PeersRequest {}).with_span_context()).in_current_span()
                 ).then(|res, act: &mut PeerActor, _ctx| {
                     if let Ok(peers) = res.map(|f|f.unwrap_peers_request_result()) {
                         if !peers.peers.is_empty() {
@@ -907,13 +914,16 @@ impl PeerActor {
             PeerMessage::RequestUpdateNonce(edge_info) => {
                 ctx.spawn(
                     wrap_future(
-                        self.network_state.peer_manager_addr.send(
-                            PeerToManagerMsg::RequestUpdateNonce(
-                                self.other_peer_id().unwrap().clone(),
-                                edge_info,
+                        self.network_state
+                            .peer_manager_addr
+                            .send(
+                                PeerToManagerMsg::RequestUpdateNonce(
+                                    self.other_peer_id().unwrap().clone(),
+                                    edge_info,
+                                )
+                                .with_span_context(),
                             )
-                            .with_span_context(),
-                        ),
+                            .in_current_span(),
                     )
                     .then(|res, act: &mut PeerActor, ctx| {
                         match res.map(|f| f) {
@@ -935,7 +945,8 @@ impl PeerActor {
                     wrap_future(
                         self.network_state
                             .peer_manager_addr
-                            .send(PeerToManagerMsg::ResponseUpdateNonce(edge).with_span_context()),
+                            .send(PeerToManagerMsg::ResponseUpdateNonce(edge).with_span_context())
+                            .in_current_span(),
                     )
                     .then(|res, act: &mut PeerActor, ctx| {
                         match res {
@@ -966,39 +977,42 @@ impl PeerActor {
                     }));
                 }
                 ctx.spawn(
-                    wrap_future(async move {
-                        // Early exit, if there is no data in the message.
-                        if msg.accounts_data.is_empty() {
-                            return None;
-                        }
-                        // Verify and add the new data to the internal state.
-                        let (new_data, err) =
-                            pms.accounts_data.clone().insert(msg.accounts_data).await;
-                        // Broadcast any new data we have found, even in presence of an error.
-                        // This will prevent a malicious peer from forcing us to re-verify valid
-                        // datasets. See accounts_data::Cache documentation for details.
-                        if new_data.len() > 0 {
-                            let handles: Vec<_> = pms
-                                .tier2
-                                .load()
-                                .ready
-                                .values()
-                                // Do not send the data back.
-                                .filter(|p| peer_id != p.peer_info.id)
-                                .map(|p| p.send_accounts_data(new_data.clone()))
-                                .collect();
-                            futures_util::future::join_all(handles).await;
-                        }
-                        err.map(|err| match err {
-                            accounts_data::Error::InvalidSignature => {
-                                ReasonForBan::InvalidSignature
+                    wrap_future(
+                        async move {
+                            // Early exit, if there is no data in the message.
+                            if msg.accounts_data.is_empty() {
+                                return None;
                             }
-                            accounts_data::Error::DataTooLarge => ReasonForBan::Abusive,
-                            accounts_data::Error::SingleAccountMultipleData => {
-                                ReasonForBan::Abusive
+                            // Verify and add the new data to the internal state.
+                            let (new_data, err) =
+                                pms.accounts_data.clone().insert(msg.accounts_data).await;
+                            // Broadcast any new data we have found, even in presence of an error.
+                            // This will prevent a malicious peer from forcing us to re-verify valid
+                            // datasets. See accounts_data::Cache documentation for details.
+                            if new_data.len() > 0 {
+                                let handles: Vec<_> = pms
+                                    .tier2
+                                    .load()
+                                    .ready
+                                    .values()
+                                    // Do not send the data back.
+                                    .filter(|p| peer_id != p.peer_info.id)
+                                    .map(|p| p.send_accounts_data(new_data.clone()))
+                                    .collect();
+                                futures_util::future::join_all(handles).await;
                             }
-                        })
-                    })
+                            err.map(|err| match err {
+                                accounts_data::Error::InvalidSignature => {
+                                    ReasonForBan::InvalidSignature
+                                }
+                                accounts_data::Error::DataTooLarge => ReasonForBan::Abusive,
+                                accounts_data::Error::SingleAccountMultipleData => {
+                                    ReasonForBan::Abusive
+                                }
+                            })
+                        }
+                        .in_current_span(),
+                    )
                     .map(|ban_reason, act: &mut PeerActor, ctx| {
                         if let Some(ban_reason) = ban_reason {
                             act.stop(ctx, ClosingReason::Ban(ban_reason));
@@ -1073,6 +1087,7 @@ impl PeerActor {
         conn: &connection::Connection,
         rtu: RoutingTableUpdate,
     ) {
+        let _span = tracing::trace_span!(target: "network", "handle_sync_routing_table").entered();
         // Process edges and add new edges to the routing table. Also broadcast new edges.
         let edges = rtu.edges;
         let accounts = rtu.accounts;
@@ -1098,15 +1113,17 @@ impl PeerActor {
         self.network_state
             .validate_edges_and_add_to_routing_table(conn.peer_info.id.clone(), edges);
         ctx.spawn(
-            wrap_future(async move { network_state.client.announce_account(accounts).await }).then(
-                move |res, act: &mut PeerActor, ctx| {
-                    match res {
-                        Err(ban_reason) => act.stop(ctx, ClosingReason::Ban(ban_reason)),
-                        Ok(accounts) => act.network_state.broadcast_accounts(accounts),
-                    }
-                    wrap_future(async {})
-                },
-            ),
+            wrap_future(
+                async move { network_state.client.announce_account(accounts).await }
+                    .in_current_span(),
+            )
+            .then(move |res, act: &mut PeerActor, ctx| {
+                match res {
+                    Err(ban_reason) => act.stop(ctx, ClosingReason::Ban(ban_reason)),
+                    Ok(accounts) => act.network_state.broadcast_accounts(accounts),
+                }
+                wrap_future(async {})
+            }),
         );
     }
 }
@@ -1211,7 +1228,14 @@ impl actix::Handler<stream::Frame> for PeerActor {
     type Result = ();
     #[perf]
     fn handle(&mut self, stream::Frame(msg): stream::Frame, ctx: &mut Self::Context) {
-        let _span = tracing::trace_span!(target: "network", "handle", handler = "bytes").entered();
+        let _span = tracing::trace_span!(
+            target: "network",
+            "handle",
+            handler = "bytes",
+            actor = "PeerActor",
+            msg_len = msg.len(),
+            peer = %self.peer_info)
+        .entered();
         // TODO(#5155) We should change our code to track size of messages received from Peer
         // as long as it travels to PeerManager, etc.
 
