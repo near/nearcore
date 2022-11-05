@@ -310,8 +310,9 @@ impl ActorHandler {
     // Awaits until the accounts_data state matches `want`.
     pub async fn wait_for_accounts_data(&mut self, want: &HashSet<NormalAccountData>) {
         loop {
-            let info = self.actix.addr.send(GetNetworkInfo.with_span_context()).await.unwrap();
-            let got: HashSet<_> = info.tier1_accounts.iter().map(|d| d.into()).collect();
+            let got : HashSet<_> = self.with_state(|s| async move {
+                self.state.accounts_data.load().data.values().map(|d| d.clone().into()).collect()
+            }).await;
             if &got == want {
                 break;
             }
@@ -325,16 +326,7 @@ impl ActorHandler {
     pub async fn wait_for_routing_table(&self, want: &[(PeerId, Vec<PeerId>)]) {
         let mut events = self.events.from_now();
         loop {
-            let resp = self
-                .actix
-                .addr
-                .send(PeerManagerMessageRequest::FetchRoutingTable.with_span_context())
-                .await
-                .unwrap();
-            let got = match resp {
-                PeerManagerMessageResponse::FetchRoutingTable(rt) => rt.next_hops,
-                _ => panic!("bad response"),
-            };
+            let got = self.with_state(|s|async move { s.routing_table_view.info() }).await;
             if test_utils::expected_routing_tables(&got, want) {
                 return;
             }
@@ -344,6 +336,18 @@ impl ActorHandler {
                     _ => None,
                 })
                 .await;
+        }
+    }
+    
+    pub async fn wait_for_account_owner(&self, account: &AccountId) -> PeerId {
+        let mut events = self.events.from_now();
+        loop {
+            let got = self.with_state(|s|async move { s.routing_table_view.account_owner(account) }).await;
+            if let Some(got) = got { return got; }
+            events.recv_until(|ev| match ev {
+                Event::PeerManager(PME::AccountsAdded(_)) => Some(()),
+                _ => None,
+            }).await;
         }
     }
 }

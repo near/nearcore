@@ -111,6 +111,7 @@ pub struct PeerManagerActor {
 pub enum Event {
     ServerStarted,
     RoutedMessageDropped,
+    AccountsAdded(Vec<AnnounceAccount>),
     RoutingTableUpdate { next_hops: Arc<routing::NextHopTable>, pruned_edges: Vec<Edge> },
     EdgesVerified(Vec<Edge>),
     Ping(Ping),

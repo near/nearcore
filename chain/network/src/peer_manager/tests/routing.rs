@@ -358,3 +358,38 @@ async fn fix_local_edges() {
     pm.check_consistency().await;
     drop(conn);
 }
+
+#[tokio::test]
+async fn do_not_block_announce_account_broadcast() {
+    init_test_logger();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
+    let db0 = TestDB::new();
+    let db1 = TestDB::new();
+    let cfg0 = chain.make_config(rng);
+    let cfg1 = chain.make_config(rng);
+    
+    tracing::info!(target:"test", "spawn 2 nodes and announce the account.");
+    let pm0 = start_pm(clock.clock(), db0.clone(), cfg0.clone(), chain.clone()).await;
+    let pm1 = start_pm(clock.clock(), db1.clone(), cfg1.clone(), chain.clone()).await;
+    pm1.connect_to(pm0.peer_info()).await;
+    pm1.announce_account().await;
+    assert_eq!(pm1.cfg.node_id(), pm0.wait_for_account_owner().await);
+    drop(pm0);
+    drop(pm1);
+
+    tracing::info!(target:"test", "spawn 3 nodes and re-announce the account.");
+    // Even though the account was previously announced (pm0 and pm1 have it in DB),
+    // the nodes should allow to let the broadcast through.
+    let pm0 = start_pm(clock.clock(), db0, cfg0, chain.clone()).await;
+    let pm1 = start_pm(clock.clock(), db1, cfg1, chain.clone()).await;
+    let pm2 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
+    pm1.connect_to(pm0.peer_info()).await;
+    pm2.connect_to(pm0.peer_info()).await;
+    pm1.announce_account().await;
+    assert_eq!(pm1.cfg.node_id(), pm2.wait_for_account_owner().await);
+}
+

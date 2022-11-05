@@ -426,6 +426,7 @@ impl NetworkState {
 
     pub fn broadcast_accounts(&self, accounts: Vec<AnnounceAccount>) {
         let new_accounts = self.routing_table_view.add_accounts(accounts);
+        self.config.event_sink.push(Event::AccountsAdded(new_accounts.clone()));
         tracing::debug!(target: "network", account_id = ?self.config.validator.as_ref().map(|v|v.account_id()), ?new_accounts, "Received new accounts");
         if new_accounts.len() > 0 {
             self.tier2.broadcast_message(Arc::new(PeerMessage::SyncRoutingTable(
