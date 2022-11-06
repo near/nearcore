@@ -15,9 +15,8 @@ use crate::testonly::actix::ActixSystem;
 use crate::testonly::fake_client;
 use crate::time;
 use crate::types::PeerIdOrHash;
-use near_crypto::{InMemorySigner, Signature};
+use near_crypto::{Signature};
 use near_o11y::WithSpanContextExt;
-use near_crypto::Signature;
 use near_primitives::network::PeerId;
 use std::sync::Arc;
 

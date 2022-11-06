@@ -2,7 +2,7 @@ use crate::client;
 use crate::config;
 use crate::debug::{DebugStatus, GetDebugStatus};
 use crate::network_protocol::{
-    AccountData, AccountOrPeerIdOrHash, Edge, EdgeState, PeerMessage, Ping, Pong, RawRoutedMessage,
+    AccountData, AccountOrPeerIdOrHash, Edge, PeerMessage, Ping, Pong, RawRoutedMessage,
     RoutedMessageBody, StateResponseInfo, SyncAccountsData,
 };
 use crate::peer::peer_actor::PeerActor;
@@ -35,7 +35,7 @@ use std::cmp::min;
 use std::collections::HashSet;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, warn, Instrument};
 
 /// Ratio between consecutive attempts to establish connection with another peer.
 /// In the kth step node should wait `10 * EXPONENTIAL_BACKOFF_RATIO**k` milliseconds
@@ -192,6 +192,7 @@ impl Actor for PeerManagerActor {
             }
         }));
 
+        let clock = self.clock.clone();
         let state = self.state.clone();
         ctx.spawn(wrap_future(async move {
             let mut interval = tokio::time::interval(FIX_LOCAL_EDGES_INTERVAL.try_into().unwrap());
@@ -508,8 +509,8 @@ impl PeerManagerActor {
                         if state.peer_store.peer_connection_attempt(&clock, &peer_info.id, result).is_err() {
                             error!(target: "network", ?peer_info, "Failed to mark peer as failed.");
                         }
-                    }
-                }.instrument(tracing::trace_span!(target: "network", "monitor_peers_trigger_connect"))));
+                    }.instrument(tracing::trace_span!(target: "network", "monitor_peers_trigger_connect"))
+                }));
             }
         }
 
@@ -632,7 +633,7 @@ impl PeerManagerActor {
     fn handle_msg_network_requests(
         &mut self,
         msg: NetworkRequests,
-        _ctx: &mut Context<Self>,
+        ctx: &mut Context<Self>,
     ) -> NetworkResponses {
         let msg_type: &str = msg.as_ref();
         let _span =
@@ -719,9 +720,9 @@ impl PeerManagerActor {
             }
             NetworkRequests::AnnounceAccount(announce_account) => {
                 let state = self.state.clone();
-                self.state.arbiter.spawn(async move {
-                    state.broadcast_accounts(vec![announce_account]).await;
-                });
+                ctx.spawn(wrap_future(async move {
+                    state.add_accounts(vec![announce_account]).await;
+                }));
                 NetworkResponses::NoResponse
             }
             NetworkRequests::PartialEncodedChunkRequest { target, request, create_time } => {
@@ -855,7 +856,7 @@ impl PeerManagerActor {
     #[perf]
     fn handle_msg_set_adv_options(&mut self, msg: crate::test_utils::SetAdvOptions) {
         if let Some(set_max_peers) = msg.set_max_peers {
-            self.state.max_num_peers.store(set_max_peers as u32);
+            self.state.max_num_peers.store(set_max_peers as u32, Ordering::Relaxed);
         }
     }
 
@@ -895,7 +896,6 @@ impl PeerManagerActor {
             }
         }
     }
-
 }
 
 /// Fetches NetworkInfo, which contains a bunch of stats about the

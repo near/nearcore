@@ -1,9 +1,9 @@
 use crate::accounts_data;
 use crate::client;
 use crate::concurrency;
-use crate::concurrency::atomic_cell::AtomicCell;
 use crate::config;
 use crate::network_protocol::{
+    SignedAccountData,
     Edge, EdgeState, PartialEdgeInfo, PeerIdOrHash, PeerInfo, PeerMessage, Ping, Pong,
     RawRoutedMessage, RoutedMessageBody, RoutedMessageV2, RoutingTableUpdate,
 };
@@ -26,7 +26,7 @@ use near_primitives::types::AccountId;
 use parking_lot::RwLock;
 use rayon::iter::ParallelBridge;
 use std::net::SocketAddr;
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicUsize,AtomicU32,Ordering};
 use std::sync::Arc;
 use tracing::{debug, trace, Instrument};
 
@@ -182,6 +182,14 @@ impl NetworkState {
         }
     }
 
+    /// Spawn a future on the runtime which has the same lifetime as the NetworkState instance.
+    /// In particular if the future contains the NetworkState handler, it will be run until
+    /// completion. It is safe to self.spawn(...).await.unwrap(), since runtime will be kept alive
+    /// by the reference to self.
+    ///
+    /// It should be used to make the public methods cancellable: you spawn the
+    /// noncancellable logic on self.runtime and just await it: in case the call is cancelled,
+    /// the noncancellable logic will be run in the background anyway.
     fn spawn<R: 'static + Send>(
         &self,
         fut: impl std::future::Future<Output = R> + 'static + Send,
@@ -252,81 +260,96 @@ impl NetworkState {
     /// Signature from this node is passed in `edge_info`
     /// Signature from the other node is passed in `full_peer_info.edge_info`.
     pub async fn register(
-        &self,
+        self: &Arc<Self>,
         clock: &time::Clock,
         conn: Arc<connection::Connection>,
     ) -> Result<(), RegisterPeerError> {
-        let peer_info = &conn.peer_info;
-        // Check if this is a blacklisted peer.
-        if peer_info.addr.as_ref().map_or(true, |addr| self.peer_store.is_blacklisted(addr)) {
-            tracing::debug!(target: "network", peer_info = ?peer_info, "Dropping connection from blacklisted peer or unknown address");
-            return Err(RegisterPeerError::Blacklisted);
-        }
-
-        if self.peer_store.is_banned(&peer_info.id) {
-            tracing::debug!(target: "network", id = ?peer_info.id, "Dropping connection from banned peer");
-            return Err(RegisterPeerError::Banned);
-        }
-
-        if conn.peer_type == PeerType::Inbound {
-            if !self.is_inbound_allowed(&peer_info) {
-                // TODO(1896): Gracefully drop inbound connection for other peer.
-                let tier2 = self.tier2.load();
-                tracing::debug!(target: "network",
-                    tier2 = tier2.ready.len(), outgoing_peers = tier2.outbound_handshakes.len(),
-                    max_num_peers = self.max_num_peers.load(),
-                    "Dropping handshake (network at max capacity)."
-                );
-                return Err(RegisterPeerError::ConnectionLimitExceeded);
+        let this = self.clone();
+        let clock = clock.clone();
+        self.spawn(async move {
+            let peer_info = &conn.peer_info;
+            // Check if this is a blacklisted peer.
+            if peer_info.addr.as_ref().map_or(true, |addr| this.peer_store.is_blacklisted(addr)) {
+                tracing::debug!(target: "network", peer_info = ?peer_info, "Dropping connection from blacklisted peer or unknown address");
+                return Err(RegisterPeerError::Blacklisted);
             }
-        }
-        // Verify and broadcast the edge of the connection. Only then insert the new
-        // connection to TIER2 pool.
-        self.add_edges_to_routing_table(&clock, vec![conn.edge.clone()])
-            .await
-            .map_err(|_| RegisterPeerError::InvalidEdge)?;
-        self.tier2.insert_ready(conn.clone()).map_err(RegisterPeerError::PoolError)?;
-        // Best effort write to DB.
-        if let Err(err) = self.peer_store.peer_connected(clock, peer_info) {
-            tracing::error!(target: "network", ?err, "Failed to save peer data");
-        }
-        Ok(())
+
+            if this.peer_store.is_banned(&peer_info.id) {
+                tracing::debug!(target: "network", id = ?peer_info.id, "Dropping connection from banned peer");
+                return Err(RegisterPeerError::Banned);
+            }
+
+            if conn.peer_type == PeerType::Inbound {
+                if !this.is_inbound_allowed(&peer_info) {
+                    // TODO(1896): Gracefully drop inbound connection for other peer.
+                    let tier2 = this.tier2.load();
+                    tracing::debug!(target: "network",
+                        tier2 = tier2.ready.len(), outgoing_peers = tier2.outbound_handshakes.len(),
+                        max_num_peers = this.max_num_peers.load(Ordering::Relaxed),
+                        "Dropping handshake (network at max capacity)."
+                    );
+                    return Err(RegisterPeerError::ConnectionLimitExceeded);
+                }
+            }
+            // Verify and broadcast the edge of the connection. Only then insert the new
+            // connection to TIER2 pool, so that nothing is broadcasted to conn.
+            this.add_edges(&clock, vec![conn.edge.clone()])
+                .await
+                .map_err(|_| RegisterPeerError::InvalidEdge)?;
+            this.tier2.insert_ready(conn.clone()).map_err(RegisterPeerError::PoolError)?;
+            // Best effort write to DB.
+            if let Err(err) = this.peer_store.peer_connected(&clock, peer_info) {
+                tracing::error!(target: "network", ?err, "Failed to save peer data");
+            }
+            Ok(())
+        }).await.unwrap()
     }
 
     /// Removes the connection from the state.
-    pub async fn unregister(
-        &self,
+    /// It is intentionally sunchronous and expected to be called from PeerActor.stopping. 
+    /// If it was async, there would be a risk that the unregister will be cancelled before
+    /// even starting.
+    pub fn unregister(
+        self: &Arc<Self>,
         clock: &time::Clock,
         conn: &Arc<connection::Connection>,
         ban_reason: Option<ReasonForBan>,
     ) {
-        let peer_id = conn.peer_info.id.clone();
-        self.tier2.remove(&peer_id);
+        let this = self.clone();
+        let clock = clock.clone();
+        let conn = conn.clone();
+        self.spawn(async move {
+            let peer_id = conn.peer_info.id.clone();
+            this.tier2.remove(&peer_id);
 
-        // If the last edge we have with this peer represent a connection addition, create the edge
-        // update that represents the connection removal.
-        if let Some(edge) = self.routing_table_view.get_local_edge(&peer_id) {
-            if edge.edge_type() == EdgeState::Active {
-                let edge_update = edge.remove_edge(self.config.node_id(), &self.config.node_key);
-                self.add_edges_to_routing_table(clock, vec![edge_update.clone()]).await.unwrap();
-                self.broadcast_routing_table_update(Arc::new(RoutingTableUpdate::from_edges(
-                    vec![edge_update],
-                )))
-                .await;
+            // If the last edge we have with this peer represent a connection addition, create the edge
+            // update that represents the connection removal.
+            if let Some(edge) = this.routing_table_view.get_local_edge(&peer_id) {
+                if edge.edge_type() == EdgeState::Active {
+                    let edge_update = edge.remove_edge(this.config.node_id(), &this.config.node_key);
+                    this.add_edges(&clock, vec![edge_update.clone()]).await.unwrap();
+                    this.broadcast_routing_table_update(Arc::new(RoutingTableUpdate::from_edges(
+                        vec![edge_update],
+                    )))
+                    .await;
+                }
             }
-        }
 
-        // Save the fact that we are disconnecting to the PeerStore.
-        let res = match ban_reason {
-            Some(ban_reason) => self.peer_store.peer_ban(&clock, &conn.peer_info.id, ban_reason),
-            None => self.peer_store.peer_disconnected(clock, &conn.peer_info.id),
-        };
-        if let Err(err) = res {
-            tracing::error!(target: "network", ?err, "Failed to save peer data");
-        }
+            // Save the fact that we are disconnecting to the PeerStore.
+            let res = match ban_reason {
+                Some(ban_reason) => this.peer_store.peer_ban(&clock, &conn.peer_info.id, ban_reason),
+                None => this.peer_store.peer_disconnected(&clock, &conn.peer_info.id),
+            };
+            if let Err(err) = res {
+                tracing::error!(target: "network", ?err, "Failed to save peer data");
+            }
+        });
     }
 
     async fn broadcast_routing_table_update(&self, rtu: Arc<RoutingTableUpdate>) {
+        if rtu.as_ref()==&RoutingTableUpdate::default() {
+            return;
+        }
         let handles: Vec<_> = self
             .tier2
             .load()
@@ -443,178 +466,217 @@ impl NetworkState {
         }
     }
 
-    pub async fn broadcast_accounts(&self, accounts: Vec<AnnounceAccount>) {
-        let new_accounts = self.routing_table_view.add_accounts(accounts);
-        tracing::debug!(target: "network", account_id = ?self.config.validator.as_ref().map(|v|v.account_id()), ?new_accounts, "Received new accounts");
-        if new_accounts.len() > 0 {
-            self.broadcast_routing_table_update(Arc::new(RoutingTableUpdate::from_accounts(
-                new_accounts.cloned(),
+    pub async fn add_accounts(self: &Arc<NetworkState>, accounts: Vec<AnnounceAccount>) {
+        let this = self.clone();
+        self.spawn(async move {
+            let new_accounts = this.routing_table_view.add_accounts(accounts);
+            tracing::debug!(target: "network", account_id = ?this.config.validator.as_ref().map(|v|v.account_id()), ?new_accounts, "Received new accounts");
+            this.broadcast_routing_table_update(Arc::new(RoutingTableUpdate::from_accounts(
+                new_accounts.clone(),
             )))
             .await;
-
-        }
-        self.config.event_sink.push(Event::AccountsAdded(new_accounts));
+            this.config.event_sink.push(Event::AccountsAdded(new_accounts));
+        }).await.unwrap()
     }
 
     /// Sends list of edges, from peer `peer_id` to check their signatures to `EdgeValidatorActor`.
     /// Bans peer `peer_id` if an invalid edge is found.
     /// `PeerManagerActor` periodically runs `broadcast_validated_edges_trigger`, which gets edges
     /// from `EdgeValidatorActor` concurrent queue and sends edges to be added to `RoutingTableActor`.
-    pub async fn add_edges_to_routing_table(
-        &self,
+    pub async fn add_edges(
+        self: &Arc<Self>,
         clock: &time::Clock,
         mut edges: Vec<Edge>,
     ) -> Result<(), ReasonForBan> {
-        {
-            let graph = self.graph.read();
-            edges.retain(|x| !graph.has(x));
-        }
-        if edges.is_empty() {
-            return Ok(());
-        }
-        // Verify the edges in parallel on rayon.
-        let (edges, ok) = concurrency::rayon::run(move || {
-            concurrency::rayon::try_map(edges.into_iter().par_bridge(), |e| {
-                if e.verify() {
-                    Some(e)
-                } else {
-                    None
-                }
-            })
-        })
-        .await;
-        self.routing_table_view.add_local_edges(&edges);
-
-        let resp = match self
-            .routing_table_addr
-            .send(routing::actor::Message::AddVerifiedEdges { edges }.with_span_context())
-            .await
-        {
-            Ok(resp) => resp,
-            Err(err) => {
-                tracing::error!(target:"network","routing::actor::Actor closed: {err}");
+        let this = self.clone();
+        let clock = clock.clone();
+        self.spawn(async move {
+            {
+                let graph = this.graph.read();
+                edges.retain(|x| !graph.has(x));
+            }
+            if edges.is_empty() {
                 return Ok(());
             }
-        };
-        let mut edges = match resp {
-            routing::actor::Response::AddVerifiedEdges(edges) => edges,
-            _ => panic!("expected AddVerifiedEdges"),
-        };
-        // Don't send tombstones during the initial time.
-        // Most of the network is created during this time, which results
-        // in us sending a lot of tombstones to peers.
-        // Later, the amount of new edges is a lot smaller.
-        if let Some(skip_tombstones_duration) = self.config.skip_tombstones {
-            if clock.now() < self.created_at + skip_tombstones_duration {
-                edges.retain(|edge| edge.edge_type() == EdgeState::Active);
-                metrics::EDGE_TOMBSTONE_SENDING_SKIPPED.inc();
+            // Verify the edges in parallel on rayon.
+            let (edges, ok) = concurrency::rayon::run(move || {
+                concurrency::rayon::try_map(edges.into_iter().par_bridge(), |e| {
+                    if e.verify() {
+                        Some(e)
+                    } else {
+                        None
+                    }
+                })
+            })
+            .await;
+            this.routing_table_view.add_local_edges(&edges);
+
+            let mut edges = match this
+                .routing_table_addr
+                .send(routing::actor::Message::AddVerifiedEdges { edges }.with_span_context())
+                .await
+            {
+                Ok(routing::actor::Response::AddVerifiedEdges(edges)) => edges,
+                Ok(_) => panic!("expected AddVerifiedEdges"),
+                Err(err) => {
+                    tracing::error!(target:"network","routing::actor::Actor closed: {err}");
+                    return Ok(());
+                }
+            };
+            // Don't send tombstones during the initial time.
+            // Most of the network is created during this time, which results
+            // in us sending a lot of tombstones to peers.
+            // Later, the amount of new edges is a lot smaller.
+            if let Some(skip_tombstones_duration) = this.config.skip_tombstones {
+                if clock.now() < this.created_at + skip_tombstones_duration {
+                    edges.retain(|edge| edge.edge_type() == EdgeState::Active);
+                    metrics::EDGE_TOMBSTONE_SENDING_SKIPPED.inc();
+                }
             }
-        }
-        // Broadcast new edges to all other peers.
-        if edges.len() > 0 {
-            self.broadcast_routing_table_update(Arc::new(RoutingTableUpdate::from_edges(edges)))
-                .await;
-        }
-        if !ok {
-            return Err(ReasonForBan::InvalidEdge);
-        }
-        Ok(())
+            // Broadcast new edges to all other peers.
+            this.broadcast_routing_table_update(Arc::new(RoutingTableUpdate::from_edges(edges))).await;
+            if !ok {
+                return Err(ReasonForBan::InvalidEdge);
+            }
+            Ok(())
+        }).await.unwrap()
     }
 
     pub async fn update_routing_table(
-        &self,
+        self: &Arc<Self>,
         prune_unreachable_since: Option<time::Instant>,
         prune_edges_older_than: Option<time::Utc>,
     ) {
-        let resp = match self
-            .routing_table_addr
-            .send(
-                routing::actor::Message::RoutingTableUpdate {
-                    prune_unreachable_since,
-                    prune_edges_older_than,
+        let this = self.clone();
+        self.spawn(async move {
+            let resp = match this
+                .routing_table_addr
+                .send(
+                    routing::actor::Message::RoutingTableUpdate {
+                        prune_unreachable_since,
+                        prune_edges_older_than,
+                    }
+                    .with_span_context(),
+                )
+                .await
+            {
+                Ok(resp) => resp,
+                Err(err) => {
+                    // This can happen only when the PeerManagerActor is being shut down.
+                    tracing::error!(target:"network","routing::actor::Actor: {err}");
+                    return;
                 }
-                .with_span_context(),
-            )
-            .await
-        {
-            Ok(resp) => resp,
-            Err(err) => {
-                // This can happen only when the PeerManagerActor is being shut down.
-                tracing::error!(target:"network","routing::actor::Actor: {err}");
-                return;
+            };
+            match resp {
+                routing::actor::Response::RoutingTableUpdate { pruned_edges, next_hops } => {
+                    this.routing_table_view.update(&pruned_edges, next_hops.clone());
+                    this.config.event_sink.push(Event::RoutingTableUpdate { next_hops, pruned_edges });
+                }
+                _ => panic!("expected RoutingTableUpdateResponse"),
             }
-        };
-        match resp {
-            routing::actor::Response::RoutingTableUpdate { pruned_edges, next_hops } => {
-                self.routing_table_view.update(&pruned_edges, next_hops.clone());
-                self.config.event_sink.push(Event::RoutingTableUpdate { next_hops, pruned_edges });
-            }
-            _ => panic!("expected RoutingTableUpdateResponse"),
-        }
+        }).await.unwrap()
     }
 
+    pub async fn finalize_edge(self: &Arc<Self>, clock: &time::Clock, peer_id: PeerId, edge_info: PartialEdgeInfo) -> Result<Edge,ReasonForBan> {
+        let edge = Edge::build_with_secret_key(
+            self.config.node_id(),
+            peer_id.clone(),
+            edge_info.nonce,
+            &self.config.node_key,
+            edge_info.signature,
+        );
+        self.add_edges(&clock, vec![edge.clone()]).await?;
+        Ok(edge)
+    }
+
+    pub async fn add_accounts_data(self: &Arc<Self>, accounts_data: Vec<Arc<SignedAccountData>>) -> Option<accounts_data::Error> {
+        let this = self.clone();
+        self.spawn(async move {
+            // Verify and add the new data to the internal state.
+            let (new_data, err) = this.accounts_data.clone().insert(accounts_data).await;
+            // Broadcast any new data we have found, even in presence of an error.
+            // This will prevent a malicious peer from forcing us to re-verify valid
+            // datasets. See accounts_data::Cache documentation for details.
+            if new_data.len() > 0 {
+                let tier2 = this.tier2.load();
+                let tasks : Vec<_> = tier2.ready.values()
+                    .map(|p| this.spawn(p.send_accounts_data(new_data.clone())))
+                    .collect();
+                for t in tasks {
+                    t.await.unwrap();
+                }
+            }
+            err
+        }).await.unwrap()
+    }
+    
     /// a) there is a peer we should be connected to, but we aren't
     /// b) there is an edge indicating that we should be disconnected from a peer, but we are connected.
     /// Try to resolve the inconsistency.
     /// We call this function every FIX_LOCAL_EDGES_INTERVAL from peer_manager_actor.rs.
     pub async fn fix_local_edges(self: &Arc<Self>, clock: &time::Clock) {
-        let local_edges = self.routing_table_view.get_local_edges();
-        let tier2 = self.tier2.load();
-        let mut tasks = vec![];
-        for edge in local_edges {
-            let node_id = self.config.node_id();
-            let other_peer = edge.other(&node_id).unwrap();
-            match (tier2.ready.get(other_peer), edge.edge_type()) {
-                // This is an active connection, while the edge indicates it shouldn't.
-                (Some(conn), EdgeState::Removed) => {
-                    let this = self.clone();
-                    let conn = conn.clone();
-                    let clock = clock.clone();
-                    tasks.push(self.spawn(async move {
-                        conn.send_message(Arc::new(PeerMessage::RequestUpdateNonce(
-                            PartialEdgeInfo::new(
-                                &node_id,
-                                &conn.peer_info.id,
-                                edge.next(),
-                                &this.config.node_key,
-                            ),
-                        )));
-                        // TODO(gprusak): here we should synchronically wait for the RequestUpdateNonce
-                        // response (with timeout). Until network round trips are implemented, we just
-                        // blindly wait for a while, then check again.
-                        clock.sleep(WAIT_ON_TRY_UPDATE_NONCE).await;
-                        match this.routing_table_view.get_local_edge(&conn.peer_info.id) {
-                            Some(edge) if edge.edge_type() == EdgeState::Active => return,
-                            _ => conn.stop(None),
+        let this = self.clone();
+        let clock = clock.clone();
+        self.spawn(async move {
+            let local_edges = this.routing_table_view.get_local_edges();
+            let tier2 = this.tier2.load();
+            let mut tasks = vec![];
+            for edge in local_edges {
+                let node_id = this.config.node_id();
+                let other_peer = edge.other(&node_id).unwrap();
+                match (tier2.ready.get(other_peer), edge.edge_type()) {
+                    // This is an active connection, while the edge indicates it shouldn't.
+                    (Some(conn), EdgeState::Removed) => tasks.push(this.spawn({
+                        let this = this.clone();
+                        let conn = conn.clone();
+                        let clock = clock.clone();
+                        async move {
+                            conn.send_message(Arc::new(PeerMessage::RequestUpdateNonce(
+                                PartialEdgeInfo::new(
+                                    &node_id,
+                                    &conn.peer_info.id,
+                                    edge.next(),
+                                    &this.config.node_key,
+                                ),
+                            )));
+                            // TODO(gprusak): here we should synchronically wait for the RequestUpdateNonce
+                            // response (with timeout). Until network round trips are implemented, we just
+                            // blindly wait for a while, then check again.
+                            clock.sleep(WAIT_ON_TRY_UPDATE_NONCE).await;
+                            match this.routing_table_view.get_local_edge(&conn.peer_info.id) {
+                                Some(edge) if edge.edge_type() == EdgeState::Active => return,
+                                _ => conn.stop(None),
+                            }
                         }
-                    }));
-                }
-                // We are not connected to this peer, but routing table contains
-                // information that we do. We should wait and remove that peer
-                // from routing table
-                (None, EdgeState::Active) => {
-                    let this = self.clone();
-                    let clock = clock.clone();
-                    let other_peer = other_peer.clone();
-                    tasks.push(self.spawn(async move {
-                        // This edge says this is an connected peer, which is currently not in the set of connected peers.
-                        // Wait for some time to let the connection begin or broadcast edge removal instead.
-                        clock.sleep(WAIT_PEER_BEFORE_REMOVE).await;
-                        if this.tier2.load().ready.contains_key(&other_peer) {
-                            return;
+                    })),
+                    // We are not connected to this peer, but routing table contains
+                    // information that we do. We should wait and remove that peer
+                    // from routing table
+                    (None, EdgeState::Active) => tasks.push(this.spawn({
+                        let this = this.clone();
+                        let clock = clock.clone();
+                        let other_peer = other_peer.clone();
+                        async move {
+                            // This edge says this is an connected peer, which is currently not in the set of connected peers.
+                            // Wait for some time to let the connection begin or broadcast edge removal instead.
+                            clock.sleep(WAIT_PEER_BEFORE_REMOVE).await;
+                            if this.tier2.load().ready.contains_key(&other_peer) {
+                                return;
+                            }
+                            // Peer is still not connected after waiting a timeout.
+                            // Unwrap is safe, because new_edge is always valid.
+                            let new_edge =
+                                edge.remove_edge(this.config.node_id(), &this.config.node_key);
+                            this.add_edges(&clock, vec![new_edge.clone()]).await.unwrap()
                         }
-                        // Peer is still not connected after waiting a timeout.
-                        let new_edge =
-                            edge.remove_edge(this.config.node_id(), &this.config.node_key);
-                        this.add_verified_edges_to_routing_table(&clock, vec![new_edge.clone()]);
-                    }));
+                    })),
+                    // OK
+                    _ => {}
                 }
-                // OK
-                _ => {}
             }
-        }
-        for t in tasks {
-            let _ = t.await;
-        }
+            for t in tasks {
+                let _ = t.await;
+            }
+        }).await.unwrap()
     }
 }
