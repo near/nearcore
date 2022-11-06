@@ -53,8 +53,8 @@ fn serialize_deserialize() -> anyhow::Result<()> {
     let mut clock = time::FakeClock::default();
 
     let chain = data::Chain::make(&mut clock, &mut rng, 12);
-    let a = data::make_signer(&mut rng);
-    let b = data::make_signer(&mut rng);
+    let a = data::make_secret_key(&mut rng);
+    let b = data::make_secret_key(&mut rng);
     let edge = data::make_edge(&a, &b);
 
     let chunk_hash = chain.blocks[3].chunks()[0].chunk_hash();

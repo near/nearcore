@@ -37,7 +37,7 @@ use std::io;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, warn, Instrument};
 
 /// Maximum number of messages per minute from single peer.
 // TODO(#5453): current limit is way to high due to us sending lots of messages during sync.
@@ -724,6 +724,7 @@ impl PeerActor {
         msg_hash: CryptoHash,
         body: RoutedMessageBody,
     ) -> Result<Option<RoutedMessageBody>, ReasonForBan> {
+        let _span = tracing::trace_span!(target: "network", "receive_routed_message").entered();
         Ok(match body {
             RoutedMessageBody::TxStatusRequest(account_id, tx_hash) => network_state
                 .client
@@ -792,6 +793,7 @@ impl PeerActor {
         conn: &connection::Connection,
         msg: PeerMessage,
     ) {
+        let _span = tracing::trace_span!(target: "network", "receive_message").entered();
         // This is a fancy way to clone the message iff event_sink is non-null.
         // If you have a better idea on how to achieve that, feel free to improve this.
         let message_processed_event = self
@@ -851,7 +853,7 @@ impl PeerActor {
                     tracing::error!(target: "network", "Peer received unexpected type: {:?}", msg);
                     None
                 }
-            })})
+            })}.in_current_span())
             .map(|res, act: &mut PeerActor, ctx| {
                 match res {
                     // TODO(gprusak): make sure that for routed messages we drop routeback info correctly.
@@ -870,6 +872,11 @@ impl PeerActor {
         conn: Arc<connection::Connection>,
         peer_msg: PeerMessage,
     ) {
+        let _span = tracing::trace_span!(
+            target: "network",
+            "handle_msg_ready")
+        .entered();
+
         match peer_msg.clone() {
             PeerMessage::Disconnect => {
                 debug!(target: "network", "Disconnect signal. Me: {:?} Peer: {:?}", self.my_node_info.id, self.other_peer_id());
@@ -1063,15 +1070,19 @@ impl PeerActor {
         conn: Arc<connection::Connection>,
         rtu: RoutingTableUpdate,
     ) {
+        let _span = tracing::trace_span!(target: "network", "handle_sync_routing_table").entered();
         // Process edges and add new edges to the routing table. Also broadcast new edges.
         let edges = rtu.edges;
         let accounts = rtu.accounts;
 
-        // Filter known accounts before validating them.
+        // For every announce we received, we fetch the last announce with the same account_id
+        // that we already broadcasted. Client actor will both verify signatures of the received announces
+        // as well as filter out those which are older than the fetched ones (to avoid overriding
+        // a newer announce with an older one).
         let old = self
             .network_state
             .routing_table_view
-            .get_announces(accounts.iter().map(|a| &a.account_id));
+            .get_broadcasted_announces(accounts.iter().map(|a| &a.account_id));
         let accounts: Vec<(AnnounceAccount, Option<EpochId>)> = accounts
             .into_iter()
             .map(|aa| {
@@ -1210,7 +1221,14 @@ impl actix::Handler<stream::Frame> for PeerActor {
     type Result = ();
     #[perf]
     fn handle(&mut self, stream::Frame(msg): stream::Frame, ctx: &mut Self::Context) {
-        let _span = tracing::trace_span!(target: "network", "handle", handler = "bytes").entered();
+        let _span = tracing::trace_span!(
+            target: "network",
+            "handle",
+            handler = "bytes",
+            actor = "PeerActor",
+            msg_len = msg.len(),
+            peer = %self.peer_info)
+        .entered();
         // TODO(#5155) We should change our code to track size of messages received from Peer
         // as long as it travels to PeerManager, etc.
 

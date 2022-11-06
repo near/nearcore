@@ -17,6 +17,7 @@ use crate::time;
 use crate::types::PeerIdOrHash;
 use near_crypto::{InMemorySigner, Signature};
 use near_o11y::WithSpanContextExt;
+use near_crypto::Signature;
 use near_primitives::network::PeerId;
 use std::sync::Arc;
 
@@ -42,10 +43,6 @@ impl PeerConfig {
     pub fn partial_edge_info(&self, other: &PeerId, nonce: u64) -> PartialEdgeInfo {
         PartialEdgeInfo::new(&self.id(), other, nonce, &self.network.node_key)
     }
-
-    pub fn signer(&self) -> InMemorySigner {
-        InMemorySigner::from_secret_key("node".parse().unwrap(), self.network.node_key.clone())
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,6 +55,7 @@ pub(crate) struct PeerHandle {
     pub cfg: Arc<PeerConfig>,
     actix: ActixSystem<PeerActor>,
     pub events: broadcast::Receiver<Event>,
+    pub edge: Option<Edge>,
 }
 
 impl PeerHandle {
@@ -69,16 +67,20 @@ impl PeerHandle {
             .unwrap();
     }
 
-    pub async fn complete_handshake(&mut self) -> Edge {
-        self.events
-            .recv_until(|ev| match ev {
-                Event::Network(peer_manager_actor::Event::HandshakeCompleted(ev)) => Some(ev.edge),
-                Event::Network(peer_manager_actor::Event::ConnectionClosed(ev)) => {
-                    panic!("handshake failed: {}", ev.reason)
-                }
-                _ => None,
-            })
-            .await
+    pub async fn complete_handshake(&mut self) {
+        self.edge = Some(
+            self.events
+                .recv_until(|ev| match ev {
+                    Event::Network(peer_manager_actor::Event::HandshakeCompleted(ev)) => {
+                        Some(ev.edge)
+                    }
+                    Event::Network(peer_manager_actor::Event::ConnectionClosed(ev)) => {
+                        panic!("handshake failed: {}", ev.reason)
+                    }
+                    _ => None,
+                })
+                .await,
+        );
     }
     pub async fn fail_handshake(&mut self) -> ClosingReason {
         self.events
@@ -144,6 +146,6 @@ impl PeerHandle {
             PeerActor::spawn(clock, stream, cfg.force_encoding, network_state).unwrap()
         })
         .await;
-        Self { actix, cfg: cfg_, events: recv }
+        Self { actix, cfg: cfg_, events: recv, edge: None }
     }
 }
