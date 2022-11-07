@@ -114,16 +114,15 @@ fn test_refunds_not_in_receipts() {
             block_hash,
         );
         let bytes = tx.try_to_vec().unwrap();
-        let result = client.broadcast_tx_commit(to_base64(&bytes)).await.unwrap();
+        client.broadcast_tx_commit(to_base64(&bytes)).await.unwrap();
         thread::sleep(time::Duration::from_secs(5));
         let tx_status = client.EXPERIMENTAL_tx_status(to_base64(&bytes)).await.unwrap();
-        println!("tx_status: {}", tx_status);
-        // tx_status: {"receipts":[],"receipts_outcome":[],"status":{"SuccessValue":""},"transaction":{"actions":[{"Transfer":{"deposit":"100"}}],"hash":"CCJxornS7GaY1yqdA6nFmPP4nf6NpYPx897N7VMC6rtQ","nonce":1,"public_key":"ed25519:FXXrTXiKWpXj1R6r5fBvMLpstd8gPyrBq3qMByqKVzKF","receiver_id":"test2","signature":"ed25519:HTshF7eXMkxmh2D5ho2PE2YJx7XCRN5RAikXa78b9icJCJJzAoBGzVYdQii2Y73GAoKpHnpw3Ndnjr5SfG9FEYW","signer_id":"test1"},"transaction_outcome":{"block_hash":"B3KrwJXeC1QnVAMQwb3spVH2kNathzC8wrwp73CEfNr7","id":"CCJxornS7GaY1yqdA6nFmPP4nf6NpYPx897N7VMC6rtQ","outcome":{"executor_id":"test2","gas_burnt":0,"logs":[],"metadata":{"gas_profile":null,"version":1},"receipt_ids":[],"status":{"SuccessValue":""},"tokens_burnt":"0"},"proof":[]}}
-        // for receipt in tx_status.get("receipts") {
-        //     // TODO
-        //     let is_refund = receipt.predecessor_id.is_system();
-        //     assert!(!is_refund);
-        // }
+        for receipt in tx_status.get("receipts") {
+            if !receipt.as_array().unwrap().is_empty() {
+                let is_not_refund = !receipt.get("predecessor_id").is_none();
+                assert!(is_not_refund);
+            }
+        }
     });
 }
 

@@ -3349,7 +3349,6 @@ impl Chain {
         Ok(FinalExecutionOutcomeView { status, transaction, transaction_outcome, receipts_outcome })
     }
 
-    // TODO try testing this fn directly
     pub fn get_final_transaction_result_with_receipt(
         &self,
         final_outcome: FinalExecutionOutcomeView,
