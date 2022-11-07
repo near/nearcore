@@ -26,8 +26,8 @@ use actix::{Actor, ActorContext, ActorFutureExt, AsyncContext, Context, Handler,
 use lru::LruCache;
 use near_crypto::Signature;
 use near_o11y::{
-    handler_debug_span, log_assert, pretty, OpenTelemetrySpanExt,
-    WithSpanContext, WithSpanContextExt,
+    handler_debug_span, log_assert, pretty, OpenTelemetrySpanExt, WithSpanContext,
+    WithSpanContextExt,
 };
 use near_performance_metrics_macros::perf;
 use near_primitives::hash::CryptoHash;
