@@ -12,22 +12,22 @@ use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::private_actix::{
     PeerToManagerMsg, PeerToManagerMsgResp, PeersRequest, PeersResponse, RegisterPeer,
-    RegisterPeerError, RegisterPeerResponse, SendMessage, Unregister,
+    RegisterPeerError, RegisterPeerResponse, SendMessage,
 };
 use crate::routing::edge::verify_nonce;
 use crate::stats::metrics;
 use crate::tcp;
 use crate::time;
 use crate::types::{
-    Ban, Handshake, HandshakeFailureReason, PeerIdOrHash, PeerMessage, PeerType, ReasonForBan,
+    Handshake, HandshakeFailureReason, PeerIdOrHash, PeerMessage, PeerType, ReasonForBan,
 };
 use actix::fut::future::wrap_future;
 use actix::{Actor, ActorContext, ActorFutureExt, AsyncContext, Context, Handler, Running};
 use lru::LruCache;
 use near_crypto::Signature;
 use near_o11y::{
-    handler_debug_span, log_assert, pretty, OpenTelemetrySpanExt, WithSpanContext,
-    WithSpanContextExt,
+    handler_debug_span, log_assert, pretty, OpenTelemetrySpanExt,
+    WithSpanContext, WithSpanContextExt,
 };
 use near_performance_metrics_macros::perf;
 use near_primitives::hash::CryptoHash;
@@ -37,18 +37,13 @@ use near_primitives::utils::DisplayOption;
 use near_primitives::version::{
     ProtocolVersion, PEER_MIN_ALLOWED_PROTOCOL_VERSION, PROTOCOL_VERSION,
 };
-use opentelemetry::propagation::{Extractor, Injector, TextMapPropagator};
-use opentelemetry::trace::{
-    SpanContext, SpanId, SpanKind, TraceContextExt, TraceFlags, TraceId, TraceState,
-};
-use opentelemetry::{Context as OtlpContext, ContextGuard};
 use parking_lot::Mutex;
 use std::fmt::Debug;
 use std::io;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use tracing::{debug, error, info, warn, Instrument, Span};
+use tracing::{debug, error, info, warn, Instrument};
 
 /// Maximum number of messages per minute from single peer.
 // TODO(#5453): current limit is way to high due to us sending lots of messages during sync.
@@ -267,7 +262,6 @@ impl PeerActor {
     }
 
     fn parse_message(&mut self, msg: &[u8]) -> Result<PeerMessage, ParsePeerMessageError> {
-        let _span = tracing::trace_span!(target: "network", "parse_message").entered();
         if let Some(e) = self.encoding() {
             return PeerMessage::deserialize(e, msg);
         }
@@ -276,25 +270,6 @@ impl PeerActor {
             return Ok(msg);
         }
         return PeerMessage::deserialize(Encoding::Borsh, msg);
-    }
-
-    fn parse_message_with_remote_context(
-        &mut self,
-        msg: &[u8],
-    ) -> Result<(PeerMessage, Option<(ContextGuard, opentelemetry::Context)>), ParsePeerMessageError>
-    {
-        let _span =
-            tracing::trace_span!(target: "network", "parse_message_with_remote_context").entered();
-        if let Some(e) = self.encoding() {
-            return PeerMessage::deserialize_with_remote_context(e, msg);
-        }
-        if let Ok((msg, extra)) = PeerMessage::deserialize_with_remote_context(Encoding::Proto, msg)
-        {
-            tracing::warn!("deserialized, has_guard: {}", extra.is_some());
-            self.protocol_buffers_supported = true;
-            return Ok((msg, extra));
-        }
-        return PeerMessage::deserialize_with_remote_context(Encoding::Borsh, msg);
     }
 
     fn send_message_or_log(&self, msg: &PeerMessage) {
@@ -1249,7 +1224,7 @@ impl actix::Handler<stream::Frame> for PeerActor {
     type Result = ();
     #[perf]
     fn handle(&mut self, stream::Frame(msg): stream::Frame, ctx: &mut Self::Context) {
-        let _span = tracing::trace_span!(
+        let _span = tracing::debug_span!(
             target: "network",
             "handle",
             handler = "bytes",
@@ -1266,34 +1241,13 @@ impl actix::Handler<stream::Frame> for PeerActor {
         }
 
         self.update_stats_on_receiving_message(msg.len());
-        let (mut peer_msg, extra) = match self.parse_message_with_remote_context(&msg) {
-            Ok((msg, extra)) => (msg, extra),
+        let mut peer_msg = match self.parse_message(&msg) {
+            Ok(msg) => msg,
             Err(err) => {
                 debug!(target: "network", "Received invalid data {} from {}: {}", pretty::AbbrBytes(&msg), self.peer_info, err);
                 return;
             }
         };
-        tracing::warn!("parsed, has_guard: {}", extra.is_some());
-
-        let span2 = tracing::trace_span!(
-            target: "network",
-            "handle-with-guard",
-            handler = "bytes",
-            has_guard = (extra.is_some()),
-            actor = "PeerActor")
-        .entered();
-        if extra.is_some() {
-            let cx: OtlpContext = Span::current().context();
-            let synchronized_span = cx.span();
-            let span_context = synchronized_span.span_context();
-            tracing::warn!(?synchronized_span, "");
-            tracing::warn!(?span_context, "");
-            let context = extra.unwrap().1;
-            // span2.set_parent(context);
-
-            span2.add_link(context.span().span_context().clone());
-            // tracing::warn!("Added a link");
-        }
 
         match &peer_msg {
             PeerMessage::Routed(msg) => {

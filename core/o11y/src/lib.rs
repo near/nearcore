@@ -261,14 +261,13 @@ where
         KeyValue::new("chain_id", chain_id),
         KeyValue::new("node_id", node_public_key.to_string()),
     ];
-    let mut service_name = None;
-    if let Some(account_id) = account_id {
+    let service_name = if let Some(account_id) = account_id {
         resource.push(KeyValue::new("account_id", account_id.to_string()));
-        service_name = Some(format!("neard:{}", account_id));
+        format!("neard:{}", account_id)
     } else {
-        service_name = Some(format!("neard:{:?}", node_public_key));
-    }
-    resource.push(KeyValue::new(SERVICE_NAME, service_name.unwrap()));
+        format!("neard:{:?}", node_public_key)
+    };
+    resource.push(KeyValue::new(SERVICE_NAME, service_name));
 
     let tracer = opentelemetry_otlp::new_pipeline()
         .tracing()
