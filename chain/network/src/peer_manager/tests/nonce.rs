@@ -1,10 +1,13 @@
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{Encoding, EDGE_MIN_TIMESTAMP_NONCE};
 use crate::peer;
-use crate::peer_manager;
+use crate::peer_manager::testonly::{ActorHandler, Event};
+use crate::peer_manager::{self, peer_manager_actor};
 use crate::tcp;
 use crate::testonly::make_rng;
 use crate::time;
+use crate::types::Edge;
+use ::time::Duration;
 use near_o11y::testonly::init_test_logger;
 use std::sync::Arc;
 
@@ -74,4 +77,58 @@ async fn test_nonces() {
             peer.fail_handshake().await;
         }
     }
+}
+
+async fn wait_for_edge(actor_handler: &mut ActorHandler) -> Edge {
+    actor_handler
+        .events
+        .recv_until(|ev| match ev {
+            Event::PeerManager(peer_manager_actor::Event::EdgesVerified(ev)) => Some(ev[0].clone()),
+            _ => None,
+        })
+        .await
+}
+
+#[tokio::test]
+/// Create 2 peer managers, that connect to each other.
+/// Verify that the will refresh their nonce after some time.
+async fn test_nonce_refresh() {
+    init_test_logger();
+    let mut rng = make_rng(921853255);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::new(*EDGE_MIN_TIMESTAMP_NONCE + time::Duration::days(2));
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
+    // Start a PeerManager.
+    let pm = peer_manager::testonly::start(
+        clock.clock(),
+        near_store::db::TestDB::new(),
+        chain.make_config(rng),
+        chain.clone(),
+    )
+    .await;
+
+    let mut other_config = chain.make_config(rng);
+    // Make sure that other peer manager has the first one as the boot node, and that it is ready to connect to it.
+    other_config.peer_store.boot_nodes.push(pm.peer_info());
+    other_config.outbound_disabled = false;
+
+    // Start another peer manager.
+    let mut pm2 = peer_manager::testonly::start(
+        clock.clock(),
+        near_store::db::TestDB::new(),
+        other_config,
+        chain.clone(),
+    )
+    .await;
+
+    let edge = wait_for_edge(&mut pm2).await;
+    let start_time = clock.now_utc();
+    // First edge between them should have the nonce equal to the current time.
+    assert_eq!(Edge::nonce_to_utc(edge.nonce()).unwrap().unwrap(), start_time);
+
+    // Advance a clock by 1h - and check that nonce was updated.
+    clock.advance(Duration::HOUR);
+    let edge = wait_for_edge(&mut pm2).await;
+    assert_eq!(Edge::nonce_to_utc(edge.nonce()).unwrap().unwrap(), clock.now_utc());
 }

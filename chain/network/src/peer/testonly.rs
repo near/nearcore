@@ -18,7 +18,6 @@ use crate::testonly::fake_client;
 use crate::time;
 use crate::types::PeerIdOrHash;
 use actix::{Actor, Context, Handler};
-use near_crypto::Signature;
 use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
 use near_primitives::network::PeerId;
 use std::sync::Arc;
