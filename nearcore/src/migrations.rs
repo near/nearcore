@@ -157,6 +157,10 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
             33 => {
                 near_store::migrations::migrate_33_to_34(storage, self.config.client_config.archive)
             }
+            #[cfg(feature = "protocol_feature_flat_state")]
+            34 => {
+                panic!("Trying to use a DB that has no been migrated to flat state. This binary does not support migrating.")
+            }
             DB_VERSION.. => unreachable!(),
         }
     }

@@ -215,7 +215,9 @@ pub enum DBCol {
     /// - *Rows*: height (u64)
     /// - *Column type*: empty
     ProcessedBlockHeights,
-    /// Mapping from receipt hash to Receipt.
+    /// Mapping from receipt hash to Receipt. Note that this doesn't store _all_
+    /// receipts. Some receipts are ephemeral and get processed after creation
+    /// without getting into the database at all.
     /// - *Rows*: receipt (CryptoHash)
     /// - *Column type*: Receipt
     Receipts,

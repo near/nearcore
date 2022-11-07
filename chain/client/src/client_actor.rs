@@ -40,6 +40,7 @@ use near_client_primitives::types::{
     Error, GetNetworkInfo, NetworkInfoResponse, ShardSyncDownload, ShardSyncStatus, Status,
     StatusError, StatusSyncInfo, SyncStatus,
 };
+use near_dyn_configs::EXPECTED_SHUTDOWN_AT;
 #[cfg(feature = "test_features")]
 use near_network::types::NetworkAdversarialMessage;
 use near_network::types::ReasonForBan;
@@ -117,7 +118,7 @@ pub struct ClientActor {
 
     /// Synchronization measure to allow graceful shutdown.
     /// Informs the system when a ClientActor gets dropped.
-    _shutdown_signal: Option<oneshot::Sender<()>>,
+    shutdown_signal: Option<oneshot::Sender<()>>,
 }
 
 /// Blocks the program until given genesis time arrives.
@@ -221,7 +222,7 @@ impl ClientActor {
 
             #[cfg(feature = "sandbox")]
             fastforward_delta: 0,
-            _shutdown_signal: shutdown_signal,
+            shutdown_signal: shutdown_signal,
         })
     }
 }
@@ -1194,6 +1195,18 @@ impl ClientActor {
         // There is a bug in Actix library. While there are messages in mailbox, Actix
         // will prioritize processing messages until mailbox is empty. Execution of any other task
         // scheduled with run_later will be delayed.
+
+        // Check block height to trigger expected shutdown
+        if let Ok(head) = self.client.chain.head() {
+            let block_height_to_shutdown =
+                EXPECTED_SHUTDOWN_AT.load(std::sync::atomic::Ordering::Relaxed);
+            if block_height_to_shutdown > 0 && head.height >= block_height_to_shutdown {
+                info!(target: "client", "Expected shutdown triggered: head block({}) >= ({})", head.height, block_height_to_shutdown);
+                if let Some(tx) = self.shutdown_signal.take() {
+                    let _ = tx.send(()); // Ignore send signal fail, it will send again in next trigger
+                }
+            }
+        }
 
         let _d = delay_detector::DelayDetector::new(|| "client triggers".into());
 

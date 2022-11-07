@@ -61,9 +61,8 @@ use crate::{BlockProcessingArtifact, Provenance};
 use near_primitives::epoch_manager::ShardConfig;
 use near_primitives::time::Clock;
 use near_primitives::utils::MaybeValidated;
-#[cfg(feature = "protocol_feature_flat_state")]
 use near_store::flat_state::ChainAccessForFlatStorage;
-use near_store::flat_state::FlatStorageState;
+use near_store::flat_state::{FlatStorageState, FlatStorageStateStatus};
 
 pub use self::validator_schedule::ValidatorSchedule;
 
@@ -635,6 +634,48 @@ impl EpochManagerAdapter for KeyValueRuntime {
         })
     }
 
+    fn get_epoch_minted_amount(&self, _epoch_id: &EpochId) -> Result<Balance, Error> {
+        Ok(0)
+    }
+
+    fn get_epoch_protocol_version(&self, _epoch_id: &EpochId) -> Result<ProtocolVersion, Error> {
+        Ok(PROTOCOL_VERSION)
+    }
+
+    fn get_epoch_sync_data(
+        &self,
+        _prev_epoch_last_block_hash: &CryptoHash,
+        _epoch_id: &EpochId,
+        _next_epoch_id: &EpochId,
+    ) -> Result<
+        (
+            Arc<BlockInfo>,
+            Arc<BlockInfo>,
+            Arc<BlockInfo>,
+            Arc<EpochInfo>,
+            Arc<EpochInfo>,
+            Arc<EpochInfo>,
+        ),
+        Error,
+    > {
+        Ok(Default::default())
+    }
+
+    fn epoch_sync_init_epoch_manager(
+        &self,
+        _prev_epoch_first_block_info: BlockInfo,
+        _prev_epoch_last_block_info: BlockInfo,
+        _prev_epoch_prev_last_block_info: BlockInfo,
+        _prev_epoch_id: &EpochId,
+        _prev_epoch_info: EpochInfo,
+        _epoch_id: &EpochId,
+        _epoch_info: EpochInfo,
+        _next_epoch_id: &EpochId,
+        _next_epoch_info: EpochInfo,
+    ) -> Result<(), Error> {
+        Ok(())
+    }
+
     fn verify_block_vrf(
         &self,
         _epoch_id: &EpochId,
@@ -775,13 +816,13 @@ impl RuntimeAdapter for KeyValueRuntime {
         None
     }
 
-    #[cfg(feature = "protocol_feature_flat_state")]
-    fn create_flat_storage_state_for_shard(
+    fn try_create_flat_storage_state_for_shard(
         &self,
         _shard_id: ShardId,
         _latest_block_height: BlockHeight,
         _chain_access: &dyn ChainAccessForFlatStorage,
-    ) {
+    ) -> FlatStorageStateStatus {
+        FlatStorageStateStatus::DontCreate
     }
 
     fn set_flat_storage_state_for_genesis(
@@ -872,21 +913,6 @@ impl RuntimeAdapter for KeyValueRuntime {
             res.push(iter.next().unwrap());
         }
         Ok(res)
-    }
-
-    fn epoch_sync_init_epoch_manager(
-        &self,
-        _prev_epoch_first_block_info: BlockInfo,
-        _prev_epoch_last_block_info: BlockInfo,
-        _prev_epoch_prev_last_block_info: BlockInfo,
-        _prev_epoch_id: &EpochId,
-        _prev_epoch_info: EpochInfo,
-        _epoch_id: &EpochId,
-        _epoch_info: EpochInfo,
-        _next_epoch_id: &EpochId,
-        _next_epoch_info: EpochInfo,
-    ) -> Result<(), Error> {
-        Ok(())
     }
 
     fn add_validator_proposals(
@@ -1265,33 +1291,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         } else {
             0
         }
-    }
-
-    fn get_epoch_minted_amount(&self, _epoch_id: &EpochId) -> Result<Balance, Error> {
-        Ok(0)
-    }
-
-    fn get_epoch_sync_data(
-        &self,
-        _prev_epoch_last_block_hash: &CryptoHash,
-        _epoch_id: &EpochId,
-        _next_epoch_id: &EpochId,
-    ) -> Result<
-        (
-            Arc<BlockInfo>,
-            Arc<BlockInfo>,
-            Arc<BlockInfo>,
-            Arc<EpochInfo>,
-            Arc<EpochInfo>,
-            Arc<EpochInfo>,
-        ),
-        Error,
-    > {
-        Ok(Default::default())
-    }
-
-    fn get_epoch_protocol_version(&self, _epoch_id: &EpochId) -> Result<ProtocolVersion, Error> {
-        Ok(PROTOCOL_VERSION)
     }
 
     fn compare_epoch_id(

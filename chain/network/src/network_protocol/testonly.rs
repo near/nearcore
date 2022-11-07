@@ -129,21 +129,21 @@ pub fn make_partial_edge<R: Rng>(rng: &mut R) -> PartialEdgeInfo {
     )
 }
 
-pub fn make_edge(a: &InMemorySigner, b: &InMemorySigner) -> Edge {
-    let (a, b) = if a.public_key < b.public_key { (a, b) } else { (b, a) };
-    let ap = PeerId::new(a.public_key.clone());
-    let bp = PeerId::new(b.public_key.clone());
+pub fn make_edge(a: &SecretKey, b: &SecretKey) -> Edge {
+    let (a, b) = if a.public_key() < b.public_key() { (a, b) } else { (b, a) };
+    let ap = PeerId::new(a.public_key());
+    let bp = PeerId::new(b.public_key());
     let nonce = 1; // Make it an active edge.
     let hash = Edge::build_hash(&ap, &bp, nonce);
-    Edge::new(ap, bp, nonce, a.secret_key.sign(hash.as_ref()), b.secret_key.sign(hash.as_ref()))
+    Edge::new(ap, bp, nonce, a.sign(hash.as_ref()), b.sign(hash.as_ref()))
 }
 
-pub fn make_edge_tombstone(a: &InMemorySigner, b: &InMemorySigner) -> Edge {
-    make_edge(a, b).remove_edge(PeerId::new(a.public_key.clone()), &a.secret_key)
+pub fn make_edge_tombstone(a: &SecretKey, b: &SecretKey) -> Edge {
+    make_edge(a, b).remove_edge(PeerId::new(a.public_key()), &a)
 }
 
 pub fn make_routing_table<R: Rng>(rng: &mut R) -> RoutingTableUpdate {
-    let signers: Vec<_> = (0..7).map(|_| make_signer(rng)).collect();
+    let signers: Vec<_> = (0..7).map(|_| make_secret_key(rng)).collect();
     RoutingTableUpdate {
         accounts: (0..10).map(|_| make_announce_account(rng)).collect(),
         edges: {
