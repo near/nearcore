@@ -110,17 +110,18 @@ impl GraphWithCache {
 
     /// Computes the next hops table, based on the graph. O(|Graph|).
     pub fn next_hops(&self) -> Arc<NextHopTable> {
-        if let Some(rt) = self.cached_next_hops.get() {
-            return Arc::clone(rt);
-        }
-        let _d = delay_detector::DelayDetector::new(|| "routing table update".into());
-        let _next_hops_recalculation = metrics::ROUTING_TABLE_RECALCULATION_HISTOGRAM.start_timer();
-        trace!(target: "network", "Update routing table.");
-        let rt = Arc::new(self.graph.calculate_distance());
-        metrics::ROUTING_TABLE_RECALCULATIONS.inc();
-        metrics::PEER_REACHABLE.set(rt.len() as i64);
-        self.cached_next_hops.set(rt.clone());
-        rt
+        self.cached_next_hops
+            .get_or_init(|| {
+                let _d = delay_detector::DelayDetector::new(|| "routing table update".into());
+                let _next_hops_recalculation =
+                    metrics::ROUTING_TABLE_RECALCULATION_HISTOGRAM.start_timer();
+                trace!(target: "network", "Update routing table.");
+                let rt = Arc::new(self.graph.calculate_distance());
+                metrics::ROUTING_TABLE_RECALCULATIONS.inc();
+                metrics::PEER_REACHABLE.set(rt.len() as i64);
+                rt
+            })
+            .clone()
     }
 
     pub fn remove_adjacent_edges(&mut self, peers: &HashSet<PeerId>) -> Vec<Edge> {
