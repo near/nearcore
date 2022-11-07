@@ -105,6 +105,7 @@ pub struct ClientActor {
 
     block_production_started: bool,
     doomslug_timer_next_attempt: DateTime<Utc>,
+    sync_timer_next_attempt: DateTime<Utc>,
     chunk_request_retry_next_attempt: DateTime<Utc>,
     sync_started: bool,
     state_parts_task_scheduler: Box<dyn Fn(ApplyStatePartsRequest)>,
@@ -205,6 +206,7 @@ impl ClientActor {
             log_summary_timer_next_attempt: now,
             block_production_started: false,
             doomslug_timer_next_attempt: now,
+            sync_timer_next_attempt: now,
             chunk_request_retry_next_attempt: now,
             sync_started: false,
             state_parts_task_scheduler: create_sync_job_scheduler::<ApplyStatePartsRequest>(
@@ -1215,6 +1217,19 @@ impl ClientActor {
 
         let timer = metrics::CHECK_TRIGGERS_TIME.start_timer();
         if self.sync_started {
+            self.sync_timer_next_attempt = self.run_timer(
+                self.sync_wait_period(),
+                self.sync_timer_next_attempt,
+                ctx,
+                |act, _| act.run_sync_step(),
+                "sync",
+            );
+
+            delay = std::cmp::min(
+                delay,
+                self.sync_timer_next_attempt.signed_duration_since(now).to_std().unwrap_or(delay),
+            );
+
             self.doomslug_timer_next_attempt = self.run_timer(
                 self.client.config.doosmslug_step_period,
                 self.doomslug_timer_next_attempt,
@@ -1278,6 +1293,7 @@ impl ClientActor {
             },
             "resend_chunk_requests",
         );
+
         timer.observe_duration();
         core::cmp::min(
             delay,
@@ -1528,8 +1544,7 @@ impl ClientActor {
         }
         self.sync_started = true;
 
-        // Start main sync loop.
-        self.sync(ctx);
+        // Sync loop will be started by check_triggers.
     }
 
     /// Select the block hash we are using to sync state. It will sync with the state before applying the
@@ -1611,32 +1626,37 @@ impl ClientActor {
         now.checked_add_signed(chrono::Duration::from_std(duration).unwrap()).unwrap()
     }
 
+    fn sync_wait_period(&self) -> Duration {
+        if let Ok((needs_syncing, _)) = self.syncing_info() {
+            if !self.needs_syncing(needs_syncing) {
+                // If we don't need syncing - retry the sync call rarely.
+                self.client.config.sync_check_period
+            } else {
+                // If we need syncing - retry the sync call often.
+                self.client.config.sync_step_period
+            }
+        } else {
+            self.client.config.sync_step_period
+        }
+    }
+
     /// Main syncing job responsible for syncing client with other peers.
     /// Runs itself iff it was not ran as reaction for message with results of
     /// finishing state part job
-    fn sync(&mut self, ctx: &mut Context<ClientActor>) {
+    fn run_sync_step(&mut self) {
         let _span = tracing::debug_span!(target: "client", "sync").entered();
         let _d = delay_detector::DelayDetector::new(|| "client sync".into());
-        // Macro to schedule to call this function later if error occurred.
-        macro_rules! unwrap_or_run_later (($obj: expr) => (match $obj {
+
+        macro_rules! unwrap_and_report (($obj: expr) => (match $obj {
             Ok(v) => v,
             Err(err) => {
                 error!(target: "sync", "Sync: Unexpected error: {}", err);
-
-                near_performance_metrics::actix::run_later(
-                    ctx,
-                    self.client.config.sync_step_period, move |act, ctx| {
-                        act.sync(ctx);
-                    }
-                );
                 return;
             }
         }));
 
-        let mut wait_period = self.client.config.sync_step_period;
-
         let currently_syncing = self.client.sync_status.is_syncing();
-        let (needs_syncing, highest_height) = unwrap_or_run_later!(self.syncing_info());
+        let (needs_syncing, highest_height) = unwrap_and_report!(self.syncing_info());
 
         if !self.needs_syncing(needs_syncing) {
             if currently_syncing {
@@ -1649,20 +1669,19 @@ impl ClientActor {
 
                 // Initial transition out of "syncing" state.
                 // Announce this client's account id if their epoch is coming up.
-                let head = unwrap_or_run_later!(self.client.chain.head());
+                let head = unwrap_and_report!(self.client.chain.head());
                 self.check_send_announce_account(head.prev_block_hash);
             }
-            wait_period = self.client.config.sync_check_period;
         } else {
             // Run each step of syncing separately.
-            unwrap_or_run_later!(self.client.header_sync.run(
+            unwrap_and_report!(self.client.header_sync.run(
                 &mut self.client.sync_status,
                 &mut self.client.chain,
                 highest_height,
                 &self.network_info.highest_height_peers
             ));
             // Only body / state sync if header height is close to the latest.
-            let header_head = unwrap_or_run_later!(self.client.chain.header_head());
+            let header_head = unwrap_and_report!(self.client.chain.header_head());
 
             // Sync state if already running sync state or if block sync is too far.
             let sync_state = match self.client.sync_status {
@@ -1671,7 +1690,7 @@ impl ClientActor {
                     >= highest_height
                         .saturating_sub(self.client.config.block_header_fetch_horizon) =>
                 {
-                    unwrap_or_run_later!(self.client.block_sync.run(
+                    unwrap_and_report!(self.client.block_sync.run(
                         &mut self.client.sync_status,
                         &self.client.chain,
                         highest_height,
@@ -1687,14 +1706,14 @@ impl ClientActor {
                             (*sync_hash, shard_sync.clone(), false)
                         }
                         _ => {
-                            let sync_hash = unwrap_or_run_later!(self.find_sync_hash());
+                            let sync_hash = unwrap_and_report!(self.find_sync_hash());
                             (sync_hash, HashMap::default(), true)
                         }
                     };
 
                 let me = self.client.validator_signer.as_ref().map(|x| x.validator_id().clone());
                 let block_header =
-                    unwrap_or_run_later!(self.client.chain.get_block_header(&sync_hash));
+                    unwrap_and_report!(self.client.chain.get_block_header(&sync_hash));
                 let prev_hash = *block_header.prev_hash();
                 let epoch_id =
                     self.client.chain.get_block_header(&sync_hash).unwrap().epoch_id().clone();
@@ -1712,10 +1731,10 @@ impl ClientActor {
                         .collect();
 
                 if !self.client.config.archive && just_enter_state_sync {
-                    unwrap_or_run_later!(self.client.chain.reset_data_pre_state_sync(sync_hash));
+                    unwrap_and_report!(self.client.chain.reset_data_pre_state_sync(sync_hash));
                 }
 
-                match unwrap_or_run_later!(self.client.state_sync.run(
+                match unwrap_and_report!(self.client.state_sync.run(
                     &me,
                     sync_hash,
                     &mut new_shard_sync,
@@ -1750,7 +1769,7 @@ impl ClientActor {
 
                         let mut block_processing_artifacts = BlockProcessingArtifact::default();
 
-                        unwrap_or_run_later!(self.client.chain.reset_heads_post_state_sync(
+                        unwrap_and_report!(self.client.chain.reset_heads_post_state_sync(
                             &me,
                             sync_hash,
                             &mut block_processing_artifacts,
@@ -1768,10 +1787,6 @@ impl ClientActor {
                 }
             }
         }
-
-        near_performance_metrics::actix::run_later(ctx, wait_period, move |act, ctx| {
-            act.sync(ctx);
-        });
     }
 
     /// Print current summary.
