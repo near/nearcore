@@ -261,6 +261,8 @@ where
         KeyValue::new("chain_id", chain_id),
         KeyValue::new("node_id", node_public_key.to_string()),
     ];
+    // Prefer account name as the node name.
+    // Fallback to a node public key if a validator key is unavailable.
     let service_name = if let Some(account_id) = account_id {
         resource.push(KeyValue::new("account_id", account_id.to_string()));
         format!("neard:{}", account_id)
