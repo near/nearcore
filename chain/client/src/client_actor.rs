@@ -1212,7 +1212,7 @@ impl ClientActor {
                 "sync",
             );
 
-            delay = core::cmp::min(
+            delay = std::cmp::min(
                 delay,
                 self.sync_timer_next_attempt.signed_duration_since(now).to_std().unwrap_or(delay),
             );
