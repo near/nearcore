@@ -332,6 +332,8 @@ async fn fix_local_edges() {
         edge1.clone(),
         edge2.clone(),
     ]));
+
+    tracing::info!(target:"test", "waiting for fake edges to be processed");
     conn.send(msg).await;
     let mut got = HashSet::new();
     let want = [&edge1, &edge2].into_iter().cloned().collect();
@@ -343,6 +345,8 @@ async fn fix_local_edges() {
             })
             .await;
     }
+
+    tracing::info!(target:"test","waiting for fake edges to be fixed");
     pm.fix_local_edges(&clock.clock()).await;
     // TODO(gprusak): make fix_local_edges await closing of the connections, so
     // that we don't have to wait for it explicitly here.
@@ -352,6 +356,8 @@ async fn fix_local_edges() {
             _ => None,
         })
         .await;
+
+    tracing::info!(target:"test","checking the consistency");
     pm.check_consistency().await;
     drop(conn);
 }

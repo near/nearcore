@@ -920,7 +920,10 @@ impl PeerActor {
                         {
                             cur_edge.clone()
                         }
-                        _ => match network_state.finalize_edge(&clock,peer_id.clone(),edge_info).await {
+                        _ => match network_state
+                            .finalize_edge(&clock, peer_id.clone(), edge_info)
+                            .await
+                        {
                             Ok(edge) => edge,
                             Err(ban_reason) => {
                                 conn.stop(Some(ban_reason));
@@ -956,7 +959,8 @@ impl PeerActor {
                     }));
                 }
                 // Early exit, if there is no data in the message.
-                if !msg.accounts_data.is_empty() {
+                if msg.accounts_data.is_empty() {
+                    network_state.config.event_sink.push(Event::MessageProcessed(peer_msg));
                     return;
                 }
                 let network_state = self.network_state.clone();
@@ -1050,9 +1054,7 @@ impl PeerActor {
             let network_state = self.network_state.clone();
             let clock = self.clock.clone();
             async move {
-                if let Err(ban_reason) =
-                    network_state.add_edges(&clock, edges).await
-                {
+                if let Err(ban_reason) = network_state.add_edges(&clock, edges).await {
                     conn.stop(Some(ban_reason));
                 }
             }

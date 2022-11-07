@@ -3,9 +3,8 @@ use crate::client;
 use crate::concurrency;
 use crate::config;
 use crate::network_protocol::{
-    SignedAccountData,
     Edge, EdgeState, PartialEdgeInfo, PeerIdOrHash, PeerInfo, PeerMessage, Ping, Pong,
-    RawRoutedMessage, RoutedMessageBody, RoutedMessageV2, RoutingTableUpdate,
+    RawRoutedMessage, RoutedMessageBody, RoutedMessageV2, RoutingTableUpdate, SignedAccountData,
 };
 use crate::peer_manager::connection;
 use crate::peer_manager::peer_manager_actor::Event;
@@ -26,7 +25,7 @@ use near_primitives::types::AccountId;
 use parking_lot::RwLock;
 use rayon::iter::ParallelBridge;
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicUsize,AtomicU32,Ordering};
+use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::Arc;
 use tracing::{debug, trace, Instrument};
 
@@ -306,7 +305,7 @@ impl NetworkState {
     }
 
     /// Removes the connection from the state.
-    /// It is intentionally sunchronous and expected to be called from PeerActor.stopping. 
+    /// It is intentionally sunchronous and expected to be called from PeerActor.stopping.
     /// If it was async, there would be a risk that the unregister will be cancelled before
     /// even starting.
     pub fn unregister(
@@ -326,7 +325,8 @@ impl NetworkState {
             // update that represents the connection removal.
             if let Some(edge) = this.routing_table_view.get_local_edge(&peer_id) {
                 if edge.edge_type() == EdgeState::Active {
-                    let edge_update = edge.remove_edge(this.config.node_id(), &this.config.node_key);
+                    let edge_update =
+                        edge.remove_edge(this.config.node_id(), &this.config.node_key);
                     this.add_edges(&clock, vec![edge_update.clone()]).await.unwrap();
                     this.broadcast_routing_table_update(Arc::new(RoutingTableUpdate::from_edges(
                         vec![edge_update],
@@ -337,7 +337,9 @@ impl NetworkState {
 
             // Save the fact that we are disconnecting to the PeerStore.
             let res = match ban_reason {
-                Some(ban_reason) => this.peer_store.peer_ban(&clock, &conn.peer_info.id, ban_reason),
+                Some(ban_reason) => {
+                    this.peer_store.peer_ban(&clock, &conn.peer_info.id, ban_reason)
+                }
                 None => this.peer_store.peer_disconnected(&clock, &conn.peer_info.id),
             };
             if let Err(err) = res {
@@ -347,7 +349,7 @@ impl NetworkState {
     }
 
     async fn broadcast_routing_table_update(&self, rtu: Arc<RoutingTableUpdate>) {
-        if rtu.as_ref()==&RoutingTableUpdate::default() {
+        if rtu.as_ref() == &RoutingTableUpdate::default() {
             return;
         }
         let handles: Vec<_> = self
@@ -511,35 +513,44 @@ impl NetworkState {
             .await;
             this.routing_table_view.add_local_edges(&edges);
 
-            let mut edges = match this
+            let mut new_edges = match this
                 .routing_table_addr
-                .send(routing::actor::Message::AddVerifiedEdges { edges }.with_span_context())
+                .send(
+                    routing::actor::Message::AddVerifiedEdges { edges: edges.clone() }
+                        .with_span_context(),
+                )
                 .await
             {
-                Ok(routing::actor::Response::AddVerifiedEdges(edges)) => edges,
+                Ok(routing::actor::Response::AddVerifiedEdges(new_edges)) => new_edges,
                 Ok(_) => panic!("expected AddVerifiedEdges"),
                 Err(err) => {
                     tracing::error!(target:"network","routing::actor::Actor closed: {err}");
                     return Ok(());
                 }
             };
+            this.config.event_sink.push(Event::EdgesVerified(edges.clone()));
             // Don't send tombstones during the initial time.
             // Most of the network is created during this time, which results
             // in us sending a lot of tombstones to peers.
             // Later, the amount of new edges is a lot smaller.
             if let Some(skip_tombstones_duration) = this.config.skip_tombstones {
                 if clock.now() < this.created_at + skip_tombstones_duration {
-                    edges.retain(|edge| edge.edge_type() == EdgeState::Active);
+                    new_edges.retain(|edge| edge.edge_type() == EdgeState::Active);
                     metrics::EDGE_TOMBSTONE_SENDING_SKIPPED.inc();
                 }
             }
             // Broadcast new edges to all other peers.
-            this.broadcast_routing_table_update(Arc::new(RoutingTableUpdate::from_edges(edges))).await;
+            this.broadcast_routing_table_update(Arc::new(RoutingTableUpdate::from_edges(
+                new_edges,
+            )))
+            .await;
             if !ok {
                 return Err(ReasonForBan::InvalidEdge);
             }
             Ok(())
-        }).await.unwrap()
+        })
+        .await
+        .unwrap()
     }
 
     pub async fn update_routing_table(
@@ -570,14 +581,23 @@ impl NetworkState {
             match resp {
                 routing::actor::Response::RoutingTableUpdate { pruned_edges, next_hops } => {
                     this.routing_table_view.update(&pruned_edges, next_hops.clone());
-                    this.config.event_sink.push(Event::RoutingTableUpdate { next_hops, pruned_edges });
+                    this.config
+                        .event_sink
+                        .push(Event::RoutingTableUpdate { next_hops, pruned_edges });
                 }
                 _ => panic!("expected RoutingTableUpdateResponse"),
             }
-        }).await.unwrap()
+        })
+        .await
+        .unwrap()
     }
 
-    pub async fn finalize_edge(self: &Arc<Self>, clock: &time::Clock, peer_id: PeerId, edge_info: PartialEdgeInfo) -> Result<Edge,ReasonForBan> {
+    pub async fn finalize_edge(
+        self: &Arc<Self>,
+        clock: &time::Clock,
+        peer_id: PeerId,
+        edge_info: PartialEdgeInfo,
+    ) -> Result<Edge, ReasonForBan> {
         let edge = Edge::build_with_secret_key(
             self.config.node_id(),
             peer_id.clone(),
@@ -589,7 +609,10 @@ impl NetworkState {
         Ok(edge)
     }
 
-    pub async fn add_accounts_data(self: &Arc<Self>, accounts_data: Vec<Arc<SignedAccountData>>) -> Option<accounts_data::Error> {
+    pub async fn add_accounts_data(
+        self: &Arc<Self>,
+        accounts_data: Vec<Arc<SignedAccountData>>,
+    ) -> Option<accounts_data::Error> {
         let this = self.clone();
         self.spawn(async move {
             // Verify and add the new data to the internal state.
@@ -599,7 +622,9 @@ impl NetworkState {
             // datasets. See accounts_data::Cache documentation for details.
             if new_data.len() > 0 {
                 let tier2 = this.tier2.load();
-                let tasks : Vec<_> = tier2.ready.values()
+                let tasks: Vec<_> = tier2
+                    .ready
+                    .values()
                     .map(|p| this.spawn(p.send_accounts_data(new_data.clone())))
                     .collect();
                 for t in tasks {
@@ -607,9 +632,11 @@ impl NetworkState {
                 }
             }
             err
-        }).await.unwrap()
+        })
+        .await
+        .unwrap()
     }
-    
+
     /// a) there is a peer we should be connected to, but we aren't
     /// b) there is an edge indicating that we should be disconnected from a peer, but we are connected.
     /// Try to resolve the inconsistency.
@@ -677,6 +704,8 @@ impl NetworkState {
             for t in tasks {
                 let _ = t.await;
             }
-        }).await.unwrap()
+        })
+        .await
+        .unwrap()
     }
 }
