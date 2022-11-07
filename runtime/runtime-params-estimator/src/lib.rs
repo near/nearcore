@@ -172,6 +172,8 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::Ed25519VerifyBase, ed25519_verify_base),
     #[cfg(feature = "protocol_feature_ed25519_verify")]
     (Cost::Ed25519VerifyByte, ed25519_verify_byte),
+    (Cost::VerifyBls12381Base, verify_bls12381_base),
+    (Cost::VerifyBls12381Byte, verify_bls12381_byte),
     (Cost::AltBn128G1MultiexpBase, alt_bn128g1_multiexp_base),
     (Cost::AltBn128G1MultiexpElement, alt_bn128g1_multiexp_element),
     (Cost::AltBn128G1SumBase, alt_bn128g1_sum_base),
@@ -940,7 +942,15 @@ fn ed25519_verify_base(ctx: &mut EstimatorContext) -> GasCost {
 #[cfg(feature = "protocol_feature_ed25519_verify")]
 // TODO: gas estimation will be calculated later -> setting a placeholder for now
 fn ed25519_verify_byte(ctx: &mut EstimatorContext) -> GasCost {
-    fn_cost(ctx, "ed25519_verify_10k", ExtCosts::ed25519_verify_byte, 960000)
+    fn_cost(ctx, "ed25519_verify_10k", ExtCosts::ed25519_verify_byte, 960_000)
+}
+
+fn verify_bls12381_base(ctx: &mut EstimatorContext) -> GasCost {
+    fn_cost(ctx, "verify_bls12_381_10k", ExtCosts::verify_bls12381_base, 10_000)
+}
+
+fn verify_bls12381_byte(ctx: &mut EstimatorContext) -> GasCost {
+    fn_cost(ctx, "verify_bls12_381_10k", ExtCosts::verify_bls12381_byte, 320_000)
 }
 
 fn alt_bn128g1_multiexp_base(ctx: &mut EstimatorContext) -> GasCost {

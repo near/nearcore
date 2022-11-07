@@ -1214,9 +1214,11 @@ impl<'a> VMLogic<'a> {
         pubkey_ptr: u64,
         pubkey_len: u64,
     ) -> Result<u64> {
+        self.gas_counter.pay_base(verify_bls12381_base)?;
         let signature_raw = self.get_vec_from_memory_or_register(signature_ptr, signature_len)?;
         let message = self.get_vec_from_memory_or_register(msg_ptr, msg_len)?;
         let pubkey_raw = self.get_vec_from_memory_or_register(pubkey_ptr, pubkey_len)?;
+        self.gas_counter.pay_per(verify_bls12381_byte, message.len() as u64)?;
 
         let signature = blst::min_pk::Signature::sig_validate(&signature_raw, false).unwrap();
 
