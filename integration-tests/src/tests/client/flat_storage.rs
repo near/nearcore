@@ -16,45 +16,46 @@ fn test_flat_storage_creation() {
     let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
     let chain_genesis = ChainGenesis::new(&genesis);
     let store = create_test_store();
+
+    // Process some blocks with flat storage.
     {
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(nearcore::NightshadeRuntime::test(
-        Path::new("../../../.."),
-        store.clone(),
-        &genesis,
-    ))];
-    let mut env =
-        TestEnv::builder(chain_genesis.clone()).runtime_adapters(runtimes.clone()).build();
-    for i in 1..4 {
-        env.produce_block(0, i);
-    }
-
-    if cfg!(feature = "protocol_feature_flat_state") {
-        // If chain was initialized from scratch, flat storage state should be created. During block processing, flat
-        // storage head should be moved to block 1.
-        assert_eq!(
-            store_helper::get_flat_storage_state_status(&store, 0),
-            FlatStorageStateStatus::Ready
-        );
-        let expected_flat_storage_head = env.clients[0].chain.get_block_hash_by_height(1).unwrap();
-        assert_eq!(store_helper::get_flat_head(&store, 0), Some(expected_flat_storage_head));
-
-        // Deltas for blocks 0 and 1 should not exist.
-        for i in 0..2 {
-            let block_hash = env.clients[0].chain.get_block_hash_by_height(i).unwrap();
-            assert_eq!(store_helper::get_delta(&store, 0, block_hash), Ok(None));
+        let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(
+            nearcore::NightshadeRuntime::test(Path::new("../../../.."), store.clone(), &genesis),
+        )];
+        let mut env =
+            TestEnv::builder(chain_genesis.clone()).runtime_adapters(runtimes.clone()).build();
+        for i in 1..4 {
+            env.produce_block(0, i);
         }
-        // Deltas for blocks 2 and 3 should still exist, because they come after flat storage head.
-        for i in 2..4 {
-            let block_hash = env.clients[0].chain.get_block_hash_by_height(i).unwrap();
-            assert_matches!(store_helper::get_delta(&store, 0, block_hash), Ok(Some(_)));
+
+        if cfg!(feature = "protocol_feature_flat_state") {
+            // If chain was initialized from scratch, flat storage state should be created. During block processing, flat
+            // storage head should be moved to block 1.
+            assert_eq!(
+                store_helper::get_flat_storage_state_status(&store, 0),
+                FlatStorageStateStatus::Ready
+            );
+            let expected_flat_storage_head =
+                env.clients[0].chain.get_block_hash_by_height(1).unwrap();
+            assert_eq!(store_helper::get_flat_head(&store, 0), Some(expected_flat_storage_head));
+
+            // Deltas for blocks 0 and 1 should not exist.
+            for i in 0..2 {
+                let block_hash = env.clients[0].chain.get_block_hash_by_height(i).unwrap();
+                assert_eq!(store_helper::get_delta(&store, 0, block_hash), Ok(None));
+            }
+            // Deltas for blocks 2 and 3 should still exist, because they come after flat storage head.
+            for i in 2..4 {
+                let block_hash = env.clients[0].chain.get_block_hash_by_height(i).unwrap();
+                assert_matches!(store_helper::get_delta(&store, 0, block_hash), Ok(Some(_)));
+            }
+        } else {
+            assert_eq!(
+                store_helper::get_flat_storage_state_status(&store, 0),
+                FlatStorageStateStatus::DontCreate
+            );
+            assert_eq!(store_helper::get_flat_head(&store, 0), None);
         }
-    } else {
-        assert_eq!(
-            store_helper::get_flat_storage_state_status(&store, 0),
-            FlatStorageStateStatus::DontCreate
-        );
-        assert_eq!(store_helper::get_flat_head(&store, 0), None);
-    }
     }
 
     // Remove flat storage head using low-level disk operation. Flat storage is implemented in such way that its
