@@ -16,6 +16,7 @@ fn test_flat_storage_creation() {
     let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
     let chain_genesis = ChainGenesis::new(&genesis);
     let store = create_test_store();
+    {
     let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(nearcore::NightshadeRuntime::test(
         Path::new("../../../.."),
         store.clone(),
@@ -53,6 +54,7 @@ fn test_flat_storage_creation() {
             FlatStorageStateStatus::DontCreate
         );
         assert_eq!(store_helper::get_flat_head(&store, 0), None);
+    }
     }
 
     // Remove flat storage head using low-level disk operation. Flat storage is implemented in such way that its
