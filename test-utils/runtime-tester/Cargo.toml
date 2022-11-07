@@ -3,8 +3,6 @@ name = "runtime-tester"
 version = "0.0.0"
 authors.workspace = true
 publish = false
-# Please update rust-toolchain.toml as well when changing version here:
-rust-version.workspace = true
 edition.workspace = true
 
 [dependencies]
