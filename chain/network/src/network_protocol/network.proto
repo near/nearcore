@@ -213,23 +213,28 @@ message PeerAddr {
 }
 
 message AccountData {
-  // PeerId of the node owning the account_id.
+  reserved 1;
+
+  // PeerId of the node owning the account_key.
   // Used to route the message over TIER1.
   // TODO(gprusak): it should be possible to add support for routing
   // messages to an account_id directly (for TIER1), instead of routing
   // to a specific peer_id. Then this field won't be necessary.
-  PublicKey peer_id = 5; // optional, will be required eventually.
+  // Unless we use it instead of AnnounceAccount.
+  PublicKey peer_id = 5; // required.
  
-  string account_id = 1; // required
-  // Either address of the node handling the account (if it has a public IP),
-  // or a list of peers known to be connected to the validator.
+  PublicKey account_key = 6; // required.
+
+  // List of nodes which
+  // - are trusted by the validator and
+  // - are connected to the validator directly
+  // - are willing to proxy traffic to the validator.
+  // It may include the validator node itself, if it has a public IP.
   // If empty, the validator explicitly declares that it has no public IP
-  // and the P2P routing should be used instead (discouraged, might be disallowed in the future).
+  // and the TIER2 routing should be used instead (discouraged, might be disallowed in the future).
   repeated PeerAddr proxies = 2;
 
   // Epoch for which this data is valid.
-  // This AccountData should be signed with the account key assigned to
-  // <account_id> for epoch <epoch_id>.
   CryptoHash epoch_id = 3;
   // If there are multiple signed AccountData messages for the same
   // account_id for the same epoch, the one with the most recent timestamp is valid.

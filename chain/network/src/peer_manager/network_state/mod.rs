@@ -285,9 +285,7 @@ impl NetworkState {
                     if !self
                         .accounts_data
                         .load()
-                        .keys
-                        .values()
-                        .any(|key| key == &owned_account.account_key)
+                        .keys.contains(&owned_account.account_key)
                     {
                         return Err(RegisterPeerError::NotTier1Peer);
                     }

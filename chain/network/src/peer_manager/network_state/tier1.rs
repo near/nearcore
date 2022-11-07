@@ -9,6 +9,7 @@ use crate::peer_manager::peer_manager_actor::Event;
 use crate::tcp;
 use crate::time;
 use crate::types::PeerType;
+use near_crypto::PublicKey;
 use near_o11y::log_assert;
 use near_primitives::network::PeerId;
 use near_primitives::types::AccountId;
@@ -27,7 +28,7 @@ impl super::NetworkState {
             return None;
         }
         self.config.validator.as_ref().filter(|cfg| {
-            accounts_data.contains_account_key(cfg.signer.validator_id(), &cfg.signer.public_key())
+            accounts_data.keys.contains(&cfg.signer.public_key())
         })
     }
 
@@ -137,28 +138,21 @@ impl super::NetworkState {
         };
         tracing::info!(target:"network","connected to proxies {my_proxies:?}");
         let now = clock.now_utc();
-        let my_data = self
-            .accounts_data
-            .load()
-            .epochs(&vc.signer.validator_id(), &vc.signer.public_key())
-            .iter()
-            .map(|epoch_id| {
-                // This unwrap is safe, because we did signed a sample payload during
-                // config validation. See config::Config::new().
-                Arc::new(
-                    AccountData {
-                        peer_id: Some(self.config.node_id()),
-                        epoch_id: epoch_id.clone(),
-                        account_id: vc.signer.validator_id().clone(),
-                        timestamp: now,
-                        proxies: my_proxies.clone(),
-                    }
-                    .sign(vc.signer.as_ref())
-                    .unwrap(),
-                )
-            })
-            .collect();
-        let (new_data, err) = self.accounts_data.insert(my_data).await;
+        // This unwrap is safe, because we did signed a sample payload during
+        // config validation. See config::Config::new().
+        let my_data = Arc::new(
+            AccountData {
+                peer_id: self.config.node_id(),
+                account_key: vc.signer.public_key(),
+                proxies: my_proxies.clone(),
+                timestamp: now,
+                //valid_from: now-MAX_CLOCK_SKEW,
+                //valid_until: now+2*MAX_CLOCK_SKEW,
+            }
+            .sign(vc.signer.as_ref())
+            .unwrap(),
+        );
+        let (new_data, err) = self.accounts_data.insert(vec![my_data]).await;
         // Inserting node's own AccountData should never fail.
         if let Some(err) = err {
             panic!("inserting node's own AccountData to self.state.accounts_data: {err}");
@@ -197,9 +191,9 @@ impl super::NetworkState {
         let mut accounts_by_proxy = HashMap::<_, Vec<_>>::new();
         let mut proxies_by_account = HashMap::<_, Vec<_>>::new();
         for d in accounts_data.data.values() {
-            proxies_by_account.entry(&d.account_id).or_default().extend(d.proxies.iter());
+            proxies_by_account.entry(&d.account_key).or_default().extend(d.proxies.iter());
             for p in &d.proxies {
-                accounts_by_proxy.entry(&p.peer_id).or_default().push(&d.account_id);
+                accounts_by_proxy.entry(&p.peer_id).or_default().push(&d.account_key);
             }
         }
 
@@ -210,20 +204,20 @@ impl super::NetworkState {
         ready.reverse();
 
         // Select the oldest TIER1 connection for each account.
-        let mut safe = HashMap::<&AccountId, &PeerId>::new();
+        let mut safe = HashMap::<&PublicKey, &PeerId>::new();
         if validator_cfg.is_some() {
             // TIER1 nodes can also connect to TIER1 proxies.
             for conn in &ready {
                 let peer_id = &conn.peer_info.id;
-                for account_id in accounts_by_proxy.get(peer_id).into_iter().flatten() {
-                    safe.insert(account_id, peer_id);
+                for key in accounts_by_proxy.get(peer_id).into_iter().flatten() {
+                    safe.insert(key, peer_id);
                 }
             }
         }
         // Direct TIER1 connections have priority.
-        for ((_, account_id), key) in accounts_data.keys.iter() {
+        for key in &accounts_data.keys {
             if let Some(conn) = tier1.ready_by_account_key.get(&key) {
-                safe.insert(account_id, &conn.peer_info.id);
+                safe.insert(key, &conn.peer_info.id);
             }
         }
 
@@ -252,13 +246,13 @@ impl super::NetworkState {
         if let Some(vc) = validator_cfg {
             // Try to establish new TIER1 connections to accounts in random order.
             let mut handles = vec![];
-            let mut account_ids: Vec<_> = proxies_by_account.keys().copied().collect();
-            account_ids.shuffle(&mut rand::thread_rng());
-            for account_id in account_ids {
+            let mut account_keys: Vec<_> = proxies_by_account.keys().copied().collect();
+            account_keys.shuffle(&mut rand::thread_rng());
+            for account_key in account_keys {
                 // tier1_establish_proxies() is responsible for connecting to proxies
                 // of this node. tier1_establish_connections() connects only to proxies
                 // of other TIER1 nodes.
-                if account_id == vc.signer.validator_id() {
+                if account_key == &vc.signer.public_key() {
                     continue;
                 }
                 // Bound the number of connections established at a single call to
@@ -266,15 +260,15 @@ impl super::NetworkState {
                 if handles.len() >= tier1_cfg.new_connections_per_attempt {
                     break;
                 }
-                // If we are already connected to some proxy of account_id, then
+                // If we are already connected to some proxy of account_key, then
                 // don't establish another connection.
-                if safe.contains_key(account_id) {
+                if safe.contains_key(account_key) {
                     continue;
                 }
-                // Find addresses of proxies of account_id.
+                // Find addresses of proxies of account_key.
                 let proxies: Vec<&PeerAddr> =
-                    proxies_by_account.get(account_id).into_iter().flatten().map(|x| *x).collect();
-                // Select a random proxy of the account_id and try to connect to it.
+                    proxies_by_account.get(account_key).into_iter().flatten().map(|x| *x).collect();
+                // Select a random proxy of the account_key and try to connect to it.
                 let proxy = proxies.iter().choose(&mut rand::thread_rng());
                 if let Some(proxy) = proxy {
                     let proxy = (*proxy).clone();

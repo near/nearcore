@@ -31,7 +31,7 @@ use crate::network_protocol::SignedAccountData;
 use crate::types::AccountKeys;
 use near_crypto::PublicKey;
 //use near_primitives::network::PeerId;
-use near_primitives::types::{AccountId, EpochId};
+//use near_primitives::types::{AccountId, EpochId};
 use rayon::iter::ParallelBridge;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -51,37 +51,16 @@ pub(crate) enum Error {
 
 #[derive(Clone)]
 pub struct CacheSnapshot {
-    pub keys: Arc<AccountKeys>,
+    pub keys_by_id: Arc<AccountKeys>,
+    pub keys: im::HashSet<PublicKey>,
     /// Current state of knowledge about an account.
-    /// key is the public key of the account in the given epoch.
-    /// It will be used to verify new incoming versions of SignedAccountData
-    /// for this account.
-    pub data: im::HashMap<(EpochId, AccountId), Arc<SignedAccountData>>,
-    /// Indices on data.
-    pub by_account: im::HashMap<AccountId, im::HashMap<EpochId, Arc<SignedAccountData>>>,
+    pub data: im::HashMap<PublicKey, Arc<SignedAccountData>>,
 }
 
 impl CacheSnapshot {
-    /// Finds all `epoch_id` for which the given account key is registered.
-    /// Complexity: O(keys.len()).
-    pub fn epochs(&self, account_id: &AccountId, key: &PublicKey) -> Vec<EpochId> {
-        self.keys
-            .iter()
-            .filter_map(move |((e, a), k)| if a == account_id && k == key { Some(e) } else { None })
-            .cloned()
-            .collect()
-    }
-
-    /// Checks if the key set contains the given account key.
-    /// Complexity: O(keys.len()).
-    pub fn contains_account_key(&self, account_id: &AccountId, key: &PublicKey) -> bool {
-        self.epochs(account_id, key).len() > 0
-    }
-
     fn is_new(&self, d: &SignedAccountData) -> bool {
-        let id = (d.epoch_id.clone(), d.account_id.clone());
-        self.keys.contains_key(&id)
-            && match self.data.get(&id) {
+        self.keys.contains(&d.account_key)
+            && match self.data.get(&d.account_key) {
                 Some(old) if old.timestamp >= d.timestamp => false,
                 _ => true,
             }
@@ -91,11 +70,7 @@ impl CacheSnapshot {
         if !self.is_new(&d) {
             return None;
         }
-        self.data.insert((d.epoch_id.clone(), d.account_id.clone()), d.clone());
-        self.by_account
-            .entry(d.account_id.clone())
-            .or_default()
-            .insert(d.epoch_id.clone(), d.clone());
+        self.data.insert(d.account_key.clone(), d.clone());
         Some(d)
     }
 }
@@ -105,30 +80,29 @@ pub(crate) struct Cache(ArcMutex<CacheSnapshot>);
 impl Cache {
     pub fn new() -> Self {
         Self(ArcMutex::new(CacheSnapshot {
-            keys: Arc::new(AccountKeys::default()),
+            keys_by_id: Arc::new(AccountKeys::default()),
+            keys: im::HashSet::new(),
             data: im::HashMap::new(),
-            by_account: im::HashMap::new(),
         }))
     }
 
     /// Updates the set of important accounts and their public keys.
     /// The AccountData which is no longer important is dropped.
     /// Returns true iff the set of accounts actually changed.
-    pub fn set_keys(&self, keys: Arc<AccountKeys>) -> bool {
+    pub fn set_keys(&self, keys_by_id: Arc<AccountKeys>) -> bool {
         self.0.update(|inner| {
             // Skip further processing if the key set didn't change.
             // NOTE: if T implements Eq, then Arc<T> short circuits equality for x == x.
-            if keys == inner.keys {
+            if keys_by_id == inner.keys_by_id {
                 return false;
             }
-            std::mem::take(&mut inner.by_account);
+            inner.keys_by_id = keys_by_id;
+            inner.keys = keys_by_id.values().cloned().collect();
             for (k, v) in std::mem::take(&mut inner.data) {
-                if keys.contains_key(&k) {
+                if inner.keys.contains(&k) {
                     inner.data.insert(k.clone(), v.clone());
-                    inner.by_account.entry(k.1).or_default().insert(k.0, v);
                 }
             }
-            inner.keys = keys;
             true
         })
     }
@@ -137,14 +111,14 @@ impl Cache {
     /// Returns the verified new data and an optional error.
     /// Note that even if error has been returned the partially validated output is returned
     /// anyway.
-    fn verify(
+    async fn verify(
         &self,
         data: Vec<Arc<SignedAccountData>>,
     ) -> (Vec<Arc<SignedAccountData>>, Option<Error>) {
         // Filter out non-interesting data, so that we never check signatures for valid non-interesting data.
         // Bad peers may force us to check signatures for fake data anyway, but we will ban them after first invalid signature.
         // It locks epochs for reading for a short period.
-        let mut data_and_keys = HashMap::new();
+        let mut new_data = HashMap::new();
         let inner = self.0.load();
         for d in data {
             // There is a limit on the amount of RAM occupied by per-account datasets.
@@ -152,34 +126,30 @@ impl Cache {
             if d.payload().len() > network_protocol::MAX_ACCOUNT_DATA_SIZE_BYTES {
                 return (vec![], Some(Error::DataTooLarge));
             }
-            let id = (d.epoch_id.clone(), d.account_id.clone());
             // We want the communication needed for broadcasting per-account data to be minimal.
             // Therefore broadcasting multiple datasets per account is considered malicious
             // behavior, since all but one are obviously outdated.
-            if data_and_keys.contains_key(&id) {
+            if new_data.contains_key(&d.account_key) {
                 return (vec![], Some(Error::SingleAccountMultipleData));
             }
             // It is fine to broadcast data we already know about.
-            if !inner.is_new(&d) {
-                continue;
-            }
             // It is fine to broadcast account data that we don't care about.
-            let key = match inner.keys.get(&id) {
-                Some(key) => key.clone(),
-                None => continue,
-            };
-            data_and_keys.insert(id, (d, key));
+            if inner.is_new(&d) {
+                new_data.insert(d.account_key.clone(),d);
+            }
         }
 
         // Verify the signatures in parallel.
         // Verification will stop at the first encountered error.
-        let (data, ok) =
-            concurrency::rayon::try_map(data_and_keys.into_values().par_bridge(), |(d, key)| {
-                if d.payload().verify(&key).is_ok() {
-                    return Some(d);
+        let (data, ok) = concurrency::rayon::run(
+            move || concurrency::rayon::try_map(
+                new_data.into_values().par_bridge(),
+                |d| match d.payload().verify(&d.account_key) {
+                    Ok(()) => Some(d),
+                    Err(()) => None,
                 }
-                return None;
-            });
+            )
+        ).await;
         if !ok {
             return (data, Some(Error::InvalidSignature));
         }
@@ -195,7 +165,7 @@ impl Cache {
     ) -> (Vec<Arc<SignedAccountData>>, Option<Error>) {
         let this = self.clone();
         // Execute verification on the rayon threadpool.
-        let (data, err) = concurrency::rayon::run(move || this.verify(data)).await;
+        let (data, err) = this.verify(data).await;
         // Insert the successfully verified data, even if an error has been encountered.
         let inserted =
             self.0.update(|inner| data.into_iter().filter_map(|d| inner.try_insert(d)).collect());
