@@ -173,19 +173,8 @@ impl PeerHandle {
                 fpm.recipient(),
                 vec![],
             ));
-            // WARNING: this is a hack to make PeerActor use a specific nonce
-            if let (Some(nonce), tcp::StreamType::Outbound { peer_id }) =
-                (&cfg.nonce, &stream.type_)
-            {
-                network_state.routing_table_view.add_local_edges(&[Edge::new(
-                    cfg.id(),
-                    peer_id.clone(),
-                    nonce - 1,
-                    Signature::default(),
-                    Signature::default(),
-                )]);
-            }
-            PeerActor::spawn(clock, stream, cfg.force_encoding, network_state).unwrap()
+            PeerActor::spawn_with_nonce(clock, stream, cfg.force_encoding, network_state, cfg.nonce)
+                .unwrap()
         })
         .await;
         Self { actix, cfg: cfg_, events: recv, edge: None }

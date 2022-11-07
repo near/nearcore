@@ -52,7 +52,7 @@ async fn test_nonces() {
         (Some((i64::MAX - 1) as u64), false, "i64 max - 1"),
         (Some(253402300799), false, "Max time"),
         (Some(253402300799 + 2), false, "Over max time"),
-        //(Some(0), false, "Nonce 0"),
+        (Some(0), false, "Nonce 0"),
         (None, true, "Nonce 1"),
     ];
 

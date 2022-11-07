@@ -162,8 +162,20 @@ impl PeerActor {
         force_encoding: Option<Encoding>,
         network_state: Arc<NetworkState>,
     ) -> anyhow::Result<actix::Addr<Self>> {
+        Self::spawn_with_nonce(clock, stream, force_encoding, network_state, None)
+    }
+
+    /// Span peer actor, and make it establish a connection with a given nonce.
+    /// Used mostly for tests.
+    pub(crate) fn spawn_with_nonce(
+        clock: time::Clock,
+        stream: tcp::Stream,
+        force_encoding: Option<Encoding>,
+        network_state: Arc<NetworkState>,
+        nonce: Option<u64>,
+    ) -> anyhow::Result<actix::Addr<Self>> {
         let stream_id = stream.id();
-        match Self::spawn_inner(clock, stream, force_encoding, network_state.clone()) {
+        match Self::spawn_inner(clock, stream, force_encoding, network_state.clone(), nonce) {
             Ok(it) => Ok(it),
             Err(reason) => {
                 network_state.config.event_sink.push(Event::ConnectionClosed(
@@ -179,6 +191,7 @@ impl PeerActor {
         stream: tcp::Stream,
         force_encoding: Option<Encoding>,
         network_state: Arc<NetworkState>,
+        nonce: Option<u64>,
     ) -> Result<actix::Addr<Self>, ClosingReason> {
         let connecting_status = match &stream.type_ {
             tcp::StreamType::Inbound => ConnectingStatus::Inbound(
@@ -194,7 +207,7 @@ impl PeerActor {
                     .start_outbound(peer_id.clone())
                     .map_err(ClosingReason::OutboundNotAllowed)?,
                 handshake_spec: HandshakeSpec {
-                    partial_edge_info: network_state.propose_edge(&clock, peer_id, None),
+                    partial_edge_info: network_state.propose_edge(&clock, peer_id, nonce),
                     protocol_version: PROTOCOL_VERSION,
                     peer_id: peer_id.clone(),
                 },
@@ -428,9 +441,14 @@ impl PeerActor {
                     ));
                     return;
                 }
+                warn!(
+                    "Checking nonce {} {}",
+                    handshake.partial_edge_info.nonce,
+                    self.clock.now_utc()
+                );
                 // Verify if nonce is sane.
                 if let Err(err) = verify_nonce(&self.clock, handshake.partial_edge_info.nonce) {
-                    debug!(target: "network", nonce=?handshake.partial_edge_info.nonce, my_node_id = ?self.my_node_id(), peer_id=?handshake.sender_peer_id, "bad nonce, disconnecting: {err}");
+                    warn!(target: "network", nonce=?handshake.partial_edge_info.nonce, my_node_id = ?self.my_node_id(), peer_id=?handshake.sender_peer_id, "bad nonce, disconnecting: {err}");
                     self.stop(ctx, ClosingReason::HandshakeFailed);
                     return;
                 }
