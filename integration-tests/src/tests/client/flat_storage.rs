@@ -95,5 +95,5 @@ fn test_flat_storage_creation() {
         assert_eq!(store_helper::get_flat_head(&store, 0), None);
     }
 
-    // TODO: support next statuses
+    // TODO: support next statuses once their logic is implemented.
 }
