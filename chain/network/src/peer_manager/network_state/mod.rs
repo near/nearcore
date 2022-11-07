@@ -429,9 +429,10 @@ impl NetworkState {
         tracing::debug!(target: "network", account_id = ?self.config.validator.as_ref().map(|v|v.account_id()), ?new_accounts, "Received new accounts");
         if new_accounts.len() > 0 {
             self.tier2.broadcast_message(Arc::new(PeerMessage::SyncRoutingTable(
-                RoutingTableUpdate::from_accounts(new_accounts),
+                RoutingTableUpdate::from_accounts(new_accounts.clone()),
             )));
         }
+        self.config.event_sink.push(Event::AccountsAdded(new_accounts));
     }
 
     /// Sends list of edges, from peer `peer_id` to check their signatures to `EdgeValidatorActor`.
