@@ -41,8 +41,8 @@ may change over time but the main principle is that a moderately configured,
 cloud-hosted virtual machine suffices.
 
 For our gas computation, we assume the minimum required hardware. Then we define
-10¹⁵ gas to be executed in at most 1s. We commonly use 1 Tgas (= 10¹² gas) in
-conversation, which corresponds to 1ms execution time.
+10<sup>15</sup> gas to be executed in at most 1s. We commonly use 1 Tgas (=
+10<sup>12</sup> gas) in conversation, which corresponds to 1ms execution time.
 
 Obviously, this definition means that a validator running more powerful hardware
 will execute the transactions faster. That is perfectly okay, as far as the
@@ -136,12 +136,15 @@ The second step is action execution. It is charged in `fn apply_action(..)`.
 The execution cost has to cover everything required to apply the action to the
 blockchain's state.
 
-These two steps are done on the same shard for local receipts. For remote
-receipts, it is not clear whether they execute on the same or on different
-shards. So the cost is always charged as if it was executed on two different
-shards. Local receipts are defined as those where the sender account is also the
-receiver, abbreviated as `sir` which stands for "sender is receiver". `send_sir`
-and `send_not_sir` costs can be different.
+These two steps are done on the same shard for local receipts. Local receipts
+are defined as those where the sender account is also the receiver, abbreviated
+as `sir` which stands for "sender is receiver".
+
+For remote receipts, which is any receipt where the sender and receiver accounts
+are different, we charge a different fee since sending between shards is extra
+work. Notably, we charge that extra work even if the accounts are on the same
+shard. In terms of gas costs, each account is conceptually its own shard. This
+makes dynamic resharding possible without user-observable impact.
 
 When the send step is performed, the minimum required gas to start execution of
 that action is known. Thus, if the receipt has not enough gas, it can be aborted
@@ -193,7 +196,7 @@ function calls should define a separate base cost and not charge `wasm_base`.
 Additional host-side costs can be scaled per input byte, such as
 `wasm_sha256_byte`, or costs related to moving data between host and guest, or
 any other cost that is specific to the host function. Each host function must
-clearly defined what its costs are and how they depend on the input.
+clearly define what its costs are and how they depend on the input.
 
 ## Non-gas parameters
 
