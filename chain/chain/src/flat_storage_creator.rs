@@ -10,7 +10,6 @@ use tracing::info;
 /// This struct is responsible for this process for the given shard.
 /// See doc comment on [`FlatStorageStateStatus`] for the details of the process. 
 pub struct FlatStorageShardCreator {
-    /// Status of flat storage creation process.
     pub status: FlatStorageStateStatus,
     pub shard_id: ShardId,
     /// Tracks number of traversed state parts during a single step.
