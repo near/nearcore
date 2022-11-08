@@ -7,7 +7,8 @@ use crate::types::StatusError;
 use actix::Message;
 use chrono::DateTime;
 use near_primitives::views::{
-    CatchupStatusView, ChainProcessingInfo, EpochValidatorInfo, SyncStatusView,
+    CatchupStatusView, ChainProcessingInfo, EpochValidatorInfo, RequestedStatePartsView,
+    SyncStatusView,
 };
 use near_primitives::{
     block_header::ApprovalInner,
@@ -182,6 +183,8 @@ pub enum DebugStatus {
     CatchupStatus,
     // Request for the current state of chain processing (blocks in progress etc).
     ChainProcessingStatus,
+    // The state parts already requested.
+    RequestedStateParts,
 }
 
 impl Message for DebugStatus {
@@ -201,4 +204,6 @@ pub enum DebugStatusResponse {
     ValidatorStatus(ValidatorStatus),
     // Detailed information about chain processing (blocks in progress etc).
     ChainProcessingStatus(ChainProcessingInfo),
+    // The state parts already requested.
+    RequestedStateParts(Vec<RequestedStatePartsView>),
 }

@@ -2969,6 +2969,7 @@ dependencies = [
  "near-chunks",
  "near-client-primitives",
  "near-crypto",
+ "near-dyn-configs",
  "near-network",
  "near-o11y",
  "near-performance-metrics",
@@ -3034,6 +3035,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-dyn-configs"
+version = "0.0.0"
+
+[[package]]
 name = "near-epoch-manager"
 version = "0.0.0"
 dependencies = [
@@ -3065,6 +3070,7 @@ dependencies = [
  "near-chain-configs",
  "near-client",
  "near-crypto",
+ "near-dyn-configs",
  "near-indexer-primitives",
  "near-o11y",
  "near-primitives",
@@ -3220,6 +3226,7 @@ dependencies = [
  "near-client",
  "near-client-primitives",
  "near-crypto",
+ "near-dyn-configs",
  "near-indexer",
  "near-indexer-primitives",
  "near-network",
@@ -3671,6 +3678,7 @@ dependencies = [
  "near-client",
  "near-client-primitives",
  "near-crypto",
+ "near-dyn-configs",
  "near-epoch-manager",
  "near-jsonrpc",
  "near-jsonrpc-primitives",
@@ -3716,6 +3724,7 @@ dependencies = [
  "futures",
  "near-amend-genesis",
  "near-chain-configs",
+ "near-dyn-configs",
  "near-jsonrpc-primitives",
  "near-mirror",
  "near-o11y",

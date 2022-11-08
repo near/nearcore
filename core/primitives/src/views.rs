@@ -417,6 +417,14 @@ pub struct CatchupStatusView {
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct RequestedStatePartsView {
+    // This is the first block of the epoch that was requested
+    pub block_hash: CryptoHash,
+    // All the part ids of the shards that were requested
+    pub shard_requested_parts: HashMap<ShardId, Vec<PartElapsedTimeView>>,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct BlockStatusView {
     pub height: BlockHeight,
     pub hash: CryptoHash,
@@ -431,6 +439,18 @@ impl BlockStatusView {
 impl From<Tip> for BlockStatusView {
     fn from(tip: Tip) -> Self {
         Self { height: tip.height, hash: tip.last_block_hash }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub struct PartElapsedTimeView {
+    pub part_id: u64,
+    pub elapsed_ms: u128,
+}
+
+impl PartElapsedTimeView {
+    pub fn new(part_id: &u64, elapsed_ms: u128) -> PartElapsedTimeView {
+        Self { part_id: part_id.clone(), elapsed_ms }
     }
 }
 
