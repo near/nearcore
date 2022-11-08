@@ -259,7 +259,7 @@ impl NetworkState {
     }
 
     /// Register a direct connection to a new peer. This will be called after successfully
-    /// establishing a connection with another peer. It become part of the connected peers.
+    /// establishing a connection with another peer. It becomes part of the connected peers.
     ///
     /// To build new edge between this pair of nodes both signatures are required.
     /// Signature from this node is passed in `edge_info`
@@ -298,9 +298,10 @@ impl NetworkState {
             }
             // Verify and broadcast the edge of the connection. Only then insert the new
             // connection to TIER2 pool, so that nothing is broadcasted to conn.
+            // TODO(gprusak): consider actually banning the peer for consistency.
             this.add_edges(&clock, vec![conn.edge.clone()])
                 .await
-                .map_err(|_| RegisterPeerError::InvalidEdge)?;
+                .map_err(|_: ReasonForBan| RegisterPeerError::InvalidEdge)?;
             this.tier2.insert_ready(conn.clone()).map_err(RegisterPeerError::PoolError)?;
             // Best effort write to DB.
             if let Err(err) = this.peer_store.peer_connected(&clock, peer_info) {
@@ -311,7 +312,7 @@ impl NetworkState {
     }
 
     /// Removes the connection from the state.
-    /// It is intentionally sunchronous and expected to be called from PeerActor.stopping.
+    /// It is intentionally synchronous and expected to be called from PeerActor.stopping.
     /// If it was async, there would be a risk that the unregister will be cancelled before
     /// even starting.
     pub fn unregister(

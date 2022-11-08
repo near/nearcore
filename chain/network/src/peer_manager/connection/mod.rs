@@ -110,6 +110,19 @@ impl Connection {
         self.addr.do_send(SendMessage { message: msg }.with_span_context());
     }
 
+    async fn send_routing_table_update_inner(
+        self: Arc<Self>,
+        rtus: Vec<Arc<RoutingTableUpdate>>,
+    ) -> Vec<()> {
+        self.send_message(Arc::new(PeerMessage::SyncRoutingTable(RoutingTableUpdate {
+            edges: Edge::deduplicate(
+                rtus.iter().map(|rtu| rtu.edges.iter()).flatten().cloned().collect(),
+            ),
+            accounts: rtus.iter().map(|rtu| rtu.accounts.iter()).flatten().cloned().collect(),
+        })));
+        rtus.iter().map(|_| ()).collect()
+    }
+
     pub fn send_routing_table_update(
         self: &Arc<Self>,
         rtu: Arc<RoutingTableUpdate>,
@@ -120,26 +133,7 @@ impl Connection {
                 .send_routing_table_update_demux
                 .call(rtu, {
                     let this = this.clone();
-                    |rtus: Vec<Arc<RoutingTableUpdate>>| async move {
-                        this.send_message(Arc::new(PeerMessage::SyncRoutingTable(
-                            RoutingTableUpdate {
-                                edges: Edge::deduplicate(
-                                    rtus.iter()
-                                        .map(|rtu| rtu.edges.iter())
-                                        .flatten()
-                                        .cloned()
-                                        .collect(),
-                                ),
-                                accounts: rtus
-                                    .iter()
-                                    .map(|rtu| rtu.accounts.iter())
-                                    .flatten()
-                                    .cloned()
-                                    .collect(),
-                            },
-                        )));
-                        rtus.iter().map(|_| ()).collect()
-                    }
+                    move |rtus| this.send_routing_table_update_inner(rtus)
                 })
                 .await;
             if res.is_err() {
