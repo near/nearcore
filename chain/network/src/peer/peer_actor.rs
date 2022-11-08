@@ -928,30 +928,12 @@ impl PeerActor {
                     .then(|res, act: &mut PeerActor, ctx| {
                         match res.map(|f| f) {
                             Ok(PeerToManagerMsgResp::EdgeUpdate(edge)) => {
-                                act.send_message_or_log(&PeerMessage::ResponseUpdateNonce(*edge));
+                                act.send_message_or_log(&PeerMessage::SyncRoutingTable(
+                                    RoutingTableUpdate::from_edges(vec![*edge]),
+                                ));
                             }
                             Ok(PeerToManagerMsgResp::BanPeer(reason_for_ban)) => {
                                 act.stop(ctx, ClosingReason::Ban(reason_for_ban));
-                            }
-                            _ => {}
-                        }
-                        act.network_state.config.event_sink.push(Event::MessageProcessed(peer_msg));
-                        actix::fut::ready(())
-                    }),
-                );
-            }
-            PeerMessage::ResponseUpdateNonce(edge) => {
-                ctx.spawn(
-                    wrap_future(
-                        self.network_state
-                            .peer_manager_addr
-                            .send(PeerToManagerMsg::ResponseUpdateNonce(edge).with_span_context())
-                            .in_current_span(),
-                    )
-                    .then(|res, act: &mut PeerActor, ctx| {
-                        match res {
-                            Ok(PeerToManagerMsgResp::BanPeer(reason_for_ban)) => {
-                                act.stop(ctx, ClosingReason::Ban(reason_for_ban))
                             }
                             _ => {}
                         }
