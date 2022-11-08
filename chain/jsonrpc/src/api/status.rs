@@ -61,6 +61,9 @@ impl RpcFrom<near_network::debug::DebugStatus>
             near_network::debug::DebugStatus::PeerStore(x) => {
                 near_jsonrpc_primitives::types::status::DebugStatusResponse::PeerStore(x)
             }
+            near_network::debug::DebugStatus::Graph(x) => {
+                near_jsonrpc_primitives::types::status::DebugStatusResponse::NetworkGraph(x)
+            }
         }
     }
 }
