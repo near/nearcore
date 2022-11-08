@@ -2359,7 +2359,44 @@ parameters are estimated similarly.
 has a collection of helpful functions that let you write estimations very
 quickly.</p>
 <h2 id="estimation-metrics"><a class="header" href="#estimation-metrics">Estimation Metrics</a></h2>
-<p>TODO</p>
+<p>Estimation code is generally not concerned with the metric used to estimate gas.
+We use <code>let clock = GasCost::measure();</code> and <code>clock.elapsed()</code> to measure the
+cost in whatever metric has been specified in the CLI argument <code>--metric</code>. But
+when you run estimations and especially when you want to interpret the results,
+you want to understand the metric used. Available metrics are <code>time</code> and
+<code>icount</code>.</p>
+<p>Starting with <code>time</code>, this is a simple wall-clock time measurement. At the end
+of the day, this is what counts in a validator setup. But unfortunately, this
+metrics is very dependent on the specific hardware and what else is running on
+that hardware right now. Dynamic voltage and frequency scaling (DVFS) also plays
+a role here. To a certain degree, all these factors can be controlled. But it
+requires full control over a system (often not the case when running on
+cloud-hosted VMs) and manual labour to set it up.</p>
+<p>The other supported metric <code>icount</code> is much more stable. It uses
+<a href="https://www.qemu.org/">qemu</a> to emulate an x86 CPU. We then insert a custom
+<a href="https://qemu.readthedocs.io/en/latest/devel/tcg-plugins.html">TCG plugin</a>
+(<a href="https://github.com/near/nearcore/blob/08c4a1bd4b16847eb1c2fccee36bf16f6efb71fd/runtime/runtime-params-estimator/emu-cost/counter_plugin/counter.c">counter.c</a>)
+that counts the number of executed x86 instructions. It also intercepts system
+calls and counts the number of bytes seen in <code>sys_read</code>, <code>sys_write</code> and their
+variations. This gives an approximation for IO bytes, as seen on the interface
+between operating system and nearcore. To convert to gas, we use  three
+constants to multiply with instruction count, read bytes, and write bytes.</p>
+<p>We run qemu inside a Docker container, to make sure the qemu and qemu plugin
+versions match with system libraries. Make sure to add <code>--docker</code> when running
+with <code>--metric icount</code>.</p>
+<p>The great thing about <code>icount</code> is how you can run it on different machines and
+it will always return the same result. It is not 100% deterministic but very
+close, so it can usually detect code changes that degrade performance in major
+ways.</p>
+<p>The problem with <code>icount</code> is how unrepresentative it is for real-life
+performance. First, <code>x86</code> instructions are not all equally complex. Second, how
+many of them are executed per cycle depends on instruction level pipelining,
+branch prediction, memory prefetching, and more CPU features like that which are
+just not captured by an emulator like qemu. Third, the time it takes to serve
+bytes in system calls depends less on the sum of all bytes and more on data
+locality and how it can be cached in the OS page cache. But regardless of all
+these inaccuracies, it can still be useful to compare different implementations
+both measured using <code>icount</code>.</p>
 <!-- TODO: how to add a new host function estimation -->
 <!-- TODO: state of IO estimations -->
 <!-- TODO: CE and Warehouse -->
