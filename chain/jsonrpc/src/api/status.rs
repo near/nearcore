@@ -29,6 +29,9 @@ impl RpcFrom<near_client_primitives::debug::DebugStatusResponse>
             near_client_primitives::debug::DebugStatusResponse::CatchupStatus(x) => {
                 near_jsonrpc_primitives::types::status::DebugStatusResponse::CatchupStatus(x)
             }
+            near_client_primitives::debug::DebugStatusResponse::RequestedStateParts(x) => {
+                near_jsonrpc_primitives::types::status::DebugStatusResponse::RequestedStateParts(x)
+            }
             near_client_primitives::debug::DebugStatusResponse::TrackedShards(x) => {
                 near_jsonrpc_primitives::types::status::DebugStatusResponse::TrackedShards(x)
             }

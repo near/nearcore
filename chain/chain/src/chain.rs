@@ -63,6 +63,7 @@ use crate::flat_storage_creator::FlatStorageCreator;
 use crate::lightclient::get_epoch_block_producers_view;
 use crate::migrations::check_if_block_is_first_with_chunk_of_version;
 use crate::missing_chunks::{BlockLike, MissingChunksPool};
+use crate::state_request_tracker::StateRequestTracker;
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, GCMode};
 use crate::types::{
     AcceptedBlock, ApplySplitStateResult, ApplySplitStateResultOrStateChanges,
@@ -459,6 +460,10 @@ pub struct Chain {
     /// was empty and could not hold any records (which it cannot).  It’s
     /// impossible to have non-empty state patch on non-sandbox builds.
     pending_state_patch: SandboxStatePatch,
+
+    /// Used to store state parts already requested along with elapsed time 
+    /// to create the parts. This information is used for debugging
+    pub(crate) requested_state_parts: StateRequestTracker,
 }
 
 impl Drop for Chain {
@@ -522,6 +527,7 @@ impl Chain {
             last_time_head_updated: Clock::instant(),
             flat_storage_creator: None,
             pending_state_patch: Default::default(),
+            requested_state_parts: StateRequestTracker::new(),
         })
     }
 
@@ -672,6 +678,7 @@ impl Chain {
             last_time_head_updated: Clock::instant(),
             flat_storage_creator,
             pending_state_patch: Default::default(),
+            requested_state_parts: StateRequestTracker::new(),
         })
     }
 
@@ -2812,7 +2819,7 @@ impl Chain {
     }
 
     pub fn get_state_response_part(
-        &self,
+        &mut self,
         shard_id: ShardId,
         part_id: u64,
         sync_hash: CryptoHash,
@@ -2851,6 +2858,7 @@ impl Chain {
         if part_id >= num_parts {
             return Err(Error::InvalidStateRequest("part_id out of bound".to_string()));
         }
+        let current_time = Instant::now();
         let state_part = self
             .runtime_adapter
             .obtain_state_part(
@@ -2860,6 +2868,10 @@ impl Chain {
                 PartId::new(part_id, num_parts),
             )
             .log_storage_error("obtain_state_part fail")?;
+
+        let elapsed_ms = current_time.elapsed().as_millis();
+        self.requested_state_parts
+            .save_state_part_elapsed(&sync_hash, &shard_id, &part_id, elapsed_ms);
 
         // Before saving State Part data, we need to make sure we can calculate and save State Header
         self.get_state_response_header(shard_id, sync_hash)?;

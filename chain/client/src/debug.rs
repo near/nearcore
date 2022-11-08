@@ -172,6 +172,9 @@ impl Handler<WithSpanContext<DebugStatus>> for ClientActor {
             DebugStatus::CatchupStatus => {
                 Ok(DebugStatusResponse::CatchupStatus(self.client.get_catchup_status()?))
             }
+            DebugStatus::RequestedStateParts => Ok(DebugStatusResponse::RequestedStateParts(
+                self.client.chain.get_requested_state_parts(),
+            )),
             DebugStatus::ChainProcessingStatus => Ok(DebugStatusResponse::ChainProcessingStatus(
                 self.client.chain.get_chain_processing_info(),
             )),
