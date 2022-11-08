@@ -61,9 +61,8 @@ use crate::{BlockProcessingArtifact, Provenance};
 use near_primitives::epoch_manager::ShardConfig;
 use near_primitives::time::Clock;
 use near_primitives::utils::MaybeValidated;
-#[cfg(feature = "protocol_feature_flat_state")]
 use near_store::flat_state::ChainAccessForFlatStorage;
-use near_store::flat_state::FlatStorageState;
+use near_store::flat_state::{FlatStorageState, FlatStorageStateStatus};
 
 pub use self::validator_schedule::ValidatorSchedule;
 
@@ -429,6 +428,29 @@ impl EpochManagerAdapter for KeyValueRuntime {
         Ok(self.num_shards)
     }
 
+    fn num_total_parts(&self) -> usize {
+        12 + (self.num_shards as usize + 1) % 50
+    }
+
+    fn num_data_parts(&self) -> usize {
+        // Same as in Nightshade Runtime
+        let total_parts = self.num_total_parts();
+        if total_parts <= 3 {
+            1
+        } else {
+            (total_parts - 1) / 3
+        }
+    }
+
+    fn get_part_owner(&self, epoch_id: &EpochId, part_id: u64) -> Result<AccountId, Error> {
+        let validators =
+            &self.get_epoch_block_producers_ordered(epoch_id, &CryptoHash::default())?;
+        // if we don't use data_parts and total_parts as part of the formula here, the part owner
+        //     would not depend on height, and tests wouldn't catch passing wrong height here
+        let idx = part_id as usize + self.num_data_parts() + self.num_total_parts();
+        Ok(validators[idx as usize % validators.len()].0.account_id().clone())
+    }
+
     fn account_id_to_shard_id(
         &self,
         account_id: &AccountId,
@@ -612,6 +634,48 @@ impl EpochManagerAdapter for KeyValueRuntime {
         })
     }
 
+    fn get_epoch_minted_amount(&self, _epoch_id: &EpochId) -> Result<Balance, Error> {
+        Ok(0)
+    }
+
+    fn get_epoch_protocol_version(&self, _epoch_id: &EpochId) -> Result<ProtocolVersion, Error> {
+        Ok(PROTOCOL_VERSION)
+    }
+
+    fn get_epoch_sync_data(
+        &self,
+        _prev_epoch_last_block_hash: &CryptoHash,
+        _epoch_id: &EpochId,
+        _next_epoch_id: &EpochId,
+    ) -> Result<
+        (
+            Arc<BlockInfo>,
+            Arc<BlockInfo>,
+            Arc<BlockInfo>,
+            Arc<EpochInfo>,
+            Arc<EpochInfo>,
+            Arc<EpochInfo>,
+        ),
+        Error,
+    > {
+        Ok(Default::default())
+    }
+
+    fn epoch_sync_init_epoch_manager(
+        &self,
+        _prev_epoch_first_block_info: BlockInfo,
+        _prev_epoch_last_block_info: BlockInfo,
+        _prev_epoch_prev_last_block_info: BlockInfo,
+        _prev_epoch_id: &EpochId,
+        _prev_epoch_info: EpochInfo,
+        _epoch_id: &EpochId,
+        _epoch_info: EpochInfo,
+        _next_epoch_id: &EpochId,
+        _next_epoch_info: EpochInfo,
+    ) -> Result<(), Error> {
+        Ok(())
+    }
+
     fn verify_block_vrf(
         &self,
         _epoch_id: &EpochId,
@@ -752,13 +816,13 @@ impl RuntimeAdapter for KeyValueRuntime {
         None
     }
 
-    #[cfg(feature = "protocol_feature_flat_state")]
-    fn create_flat_storage_state_for_shard(
+    fn try_create_flat_storage_state_for_shard(
         &self,
         _shard_id: ShardId,
         _latest_block_height: BlockHeight,
         _chain_access: &dyn ChainAccessForFlatStorage,
-    ) {
+    ) -> FlatStorageStateStatus {
+        FlatStorageStateStatus::DontCreate
     }
 
     fn set_flat_storage_state_for_genesis(
@@ -767,29 +831,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         _genesis_epoch_id: &EpochId,
     ) -> Result<StoreUpdate, Error> {
         Ok(self.store.store_update())
-    }
-
-    fn num_total_parts(&self) -> usize {
-        12 + (self.num_shards as usize + 1) % 50
-    }
-
-    fn num_data_parts(&self) -> usize {
-        // Same as in Nightshade Runtime
-        let total_parts = self.num_total_parts();
-        if total_parts <= 3 {
-            1
-        } else {
-            (total_parts - 1) / 3
-        }
-    }
-
-    fn get_part_owner(&self, epoch_id: &EpochId, part_id: u64) -> Result<AccountId, Error> {
-        let validators =
-            &self.get_epoch_block_producers_ordered(epoch_id, &CryptoHash::default())?;
-        // if we don't use data_parts and total_parts as part of the formula here, the part owner
-        //     would not depend on height, and tests wouldn't catch passing wrong height here
-        let idx = part_id as usize + self.num_data_parts() + self.num_total_parts();
-        Ok(validators[idx as usize % validators.len()].0.account_id().clone())
     }
 
     fn cares_about_shard(
@@ -872,21 +913,6 @@ impl RuntimeAdapter for KeyValueRuntime {
             res.push(iter.next().unwrap());
         }
         Ok(res)
-    }
-
-    fn epoch_sync_init_epoch_manager(
-        &self,
-        _prev_epoch_first_block_info: BlockInfo,
-        _prev_epoch_last_block_info: BlockInfo,
-        _prev_epoch_prev_last_block_info: BlockInfo,
-        _prev_epoch_id: &EpochId,
-        _prev_epoch_info: EpochInfo,
-        _epoch_id: &EpochId,
-        _epoch_info: EpochInfo,
-        _next_epoch_id: &EpochId,
-        _next_epoch_info: EpochInfo,
-    ) -> Result<(), Error> {
-        Ok(())
     }
 
     fn add_validator_proposals(
@@ -1265,33 +1291,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         } else {
             0
         }
-    }
-
-    fn get_epoch_minted_amount(&self, _epoch_id: &EpochId) -> Result<Balance, Error> {
-        Ok(0)
-    }
-
-    fn get_epoch_sync_data(
-        &self,
-        _prev_epoch_last_block_hash: &CryptoHash,
-        _epoch_id: &EpochId,
-        _next_epoch_id: &EpochId,
-    ) -> Result<
-        (
-            Arc<BlockInfo>,
-            Arc<BlockInfo>,
-            Arc<BlockInfo>,
-            Arc<EpochInfo>,
-            Arc<EpochInfo>,
-            Arc<EpochInfo>,
-        ),
-        Error,
-    > {
-        Ok(Default::default())
-    }
-
-    fn get_epoch_protocol_version(&self, _epoch_id: &EpochId) -> Result<ProtocolVersion, Error> {
-        Ok(PROTOCOL_VERSION)
     }
 
     fn compare_epoch_id(

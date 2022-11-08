@@ -20,7 +20,6 @@ use near_primitives::account::{AccessKey, Account};
 use near_primitives::challenge::ChallengesResult;
 use near_primitives::contract::ContractCode;
 use near_primitives::epoch_manager::block_info::BlockInfo;
-use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::errors::{EpochError, InvalidTxError, RuntimeError, StorageError};
 use near_primitives::hash::{hash, CryptoHash};
@@ -46,9 +45,10 @@ use near_primitives::views::{
     AccessKeyInfoView, CallResult, QueryRequest, QueryResponse, QueryResponseKind, ViewApplyState,
     ViewStateResult,
 };
-#[cfg(feature = "protocol_feature_flat_state")]
 use near_store::flat_state::ChainAccessForFlatStorage;
-use near_store::flat_state::{FlatStateFactory, FlatStorageState};
+use near_store::flat_state::{
+    store_helper, FlatStateFactory, FlatStorageState, FlatStorageStateStatus,
+};
 use near_store::split_state::get_delayed_receipts;
 use near_store::{
     get_genesis_hash, get_genesis_state_roots, set_genesis_hash, set_genesis_state_roots,
@@ -704,16 +704,27 @@ impl RuntimeAdapter for NightshadeRuntime {
         self.flat_state_factory.get_flat_storage_state_for_shard(shard_id)
     }
 
-    #[cfg(feature = "protocol_feature_flat_state")]
-    fn create_flat_storage_state_for_shard(
+    fn try_create_flat_storage_state_for_shard(
         &self,
         shard_id: ShardId,
         latest_block_height: BlockHeight,
         chain_access: &dyn ChainAccessForFlatStorage,
-    ) {
-        let flat_storage_state =
-            FlatStorageState::new(self.store.clone(), shard_id, latest_block_height, chain_access);
-        self.flat_state_factory.add_flat_storage_state_for_shard(shard_id, flat_storage_state)
+    ) -> FlatStorageStateStatus {
+        let status = store_helper::get_flat_storage_state_status(&self.store, shard_id);
+        match &status {
+            FlatStorageStateStatus::Ready => {
+                let flat_storage_state = FlatStorageState::new(
+                    self.store.clone(),
+                    shard_id,
+                    latest_block_height,
+                    chain_access,
+                );
+                self.flat_state_factory
+                    .add_flat_storage_state_for_shard(shard_id, flat_storage_state);
+            }
+            _ => {}
+        }
+        status
     }
 
     fn set_flat_storage_state_for_genesis(
@@ -864,32 +875,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(transactions)
     }
 
-    fn num_total_parts(&self) -> usize {
-        let seats = self.genesis_config.num_block_producer_seats;
-        if seats > 1 {
-            seats as usize
-        } else {
-            2
-        }
-    }
-
-    fn num_data_parts(&self) -> usize {
-        let total_parts = self.num_total_parts();
-        if total_parts <= 3 {
-            1
-        } else {
-            (total_parts - 1) / 3
-        }
-    }
-
-    fn get_part_owner(&self, epoch_id: &EpochId, part_id: u64) -> Result<AccountId, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
-        let settlement = epoch_info.block_producers_settlement();
-        let validator_id = settlement[part_id as usize % settlement.len()];
-        Ok(epoch_info.get_validator(validator_id).account_id().clone())
-    }
-
     fn cares_about_shard(
         &self,
         account_id: Option<&AccountId>,
@@ -929,75 +914,6 @@ impl RuntimeAdapter for NightshadeRuntime {
             Ok(epoch_start_height)
         }())
         .unwrap_or(self.genesis_config.genesis_height)
-    }
-
-    fn get_epoch_minted_amount(&self, epoch_id: &EpochId) -> Result<Balance, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        Ok(epoch_manager.get_epoch_info(epoch_id)?.minted_amount())
-    }
-
-    // TODO #3488 this likely to be updated
-    fn get_epoch_sync_data(
-        &self,
-        prev_epoch_last_block_hash: &CryptoHash,
-        epoch_id: &EpochId,
-        next_epoch_id: &EpochId,
-    ) -> Result<
-        (
-            Arc<BlockInfo>,
-            Arc<BlockInfo>,
-            Arc<BlockInfo>,
-            Arc<EpochInfo>,
-            Arc<EpochInfo>,
-            Arc<EpochInfo>,
-        ),
-        Error,
-    > {
-        let epoch_manager = self.epoch_manager.read();
-        let last_block_info = epoch_manager.get_block_info(prev_epoch_last_block_hash)?;
-        let prev_epoch_id = last_block_info.epoch_id().clone();
-        Ok((
-            epoch_manager.get_block_info(last_block_info.epoch_first_block())?,
-            epoch_manager.get_block_info(last_block_info.prev_hash())?,
-            last_block_info,
-            epoch_manager.get_epoch_info(&prev_epoch_id)?,
-            epoch_manager.get_epoch_info(epoch_id)?,
-            epoch_manager.get_epoch_info(next_epoch_id)?,
-        ))
-    }
-
-    fn get_epoch_protocol_version(&self, epoch_id: &EpochId) -> Result<ProtocolVersion, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        Ok(epoch_manager.get_epoch_info(epoch_id)?.protocol_version())
-    }
-
-    fn epoch_sync_init_epoch_manager(
-        &self,
-        prev_epoch_first_block_info: BlockInfo,
-        prev_epoch_prev_last_block_info: BlockInfo,
-        prev_epoch_last_block_info: BlockInfo,
-        prev_epoch_id: &EpochId,
-        prev_epoch_info: EpochInfo,
-        epoch_id: &EpochId,
-        epoch_info: EpochInfo,
-        next_epoch_id: &EpochId,
-        next_epoch_info: EpochInfo,
-    ) -> Result<(), Error> {
-        let mut epoch_manager = self.epoch_manager.write();
-        epoch_manager
-            .init_after_epoch_sync(
-                prev_epoch_first_block_info,
-                prev_epoch_prev_last_block_info,
-                prev_epoch_last_block_info,
-                prev_epoch_id,
-                prev_epoch_info,
-                epoch_id,
-                epoch_info,
-                next_epoch_id,
-                next_epoch_info,
-            )?
-            .commit()
-            .map_err(|err| err.into())
     }
 
     fn add_validator_proposals(
@@ -1740,13 +1656,11 @@ mod test {
     }
 
     /// Stores chain data for genesis block to initialize flat storage in test environment.
-    #[cfg(feature = "protocol_feature_flat_state")]
     struct MockChainForFlatStorage {
         height_to_hashes: HashMap<BlockHeight, CryptoHash>,
         blocks: HashMap<CryptoHash, flat_state::BlockInfo>,
     }
 
-    #[cfg(feature = "protocol_feature_flat_state")]
     impl ChainAccessForFlatStorage for MockChainForFlatStorage {
         fn get_block_info(&self, block_hash: &CryptoHash) -> flat_state::BlockInfo {
             self.blocks.get(block_hash).unwrap().clone()
@@ -1757,7 +1671,6 @@ mod test {
         }
     }
 
-    #[cfg(feature = "protocol_feature_flat_state")]
     impl MockChainForFlatStorage {
         /// Creates mock chain containing only genesis block data.
         pub fn new(genesis_height: BlockHeight, genesis_hash: CryptoHash) -> Self {
@@ -1886,15 +1799,17 @@ mod test {
                 .set_flat_storage_state_for_genesis(&genesis_hash, &EpochId::default())
                 .unwrap();
             store_update.commit().unwrap();
-            #[cfg(feature = "protocol_feature_flat_state")]
-            {
-                let mock_chain = MockChainForFlatStorage::new(0, genesis_hash);
-                for shard_id in 0..runtime.num_shards(&EpochId::default()).unwrap() {
-                    runtime.create_flat_storage_state_for_shard(
-                        shard_id as ShardId,
-                        0,
-                        &mock_chain,
-                    );
+            let mock_chain = MockChainForFlatStorage::new(0, genesis_hash);
+            for shard_id in 0..runtime.num_shards(&EpochId::default()).unwrap() {
+                let status = runtime.try_create_flat_storage_state_for_shard(
+                    shard_id as ShardId,
+                    0,
+                    &mock_chain,
+                );
+                if cfg!(feature = "protocol_feature_flat_state") {
+                    assert_eq!(status, FlatStorageStateStatus::Ready);
+                } else {
+                    assert_eq!(status, FlatStorageStateStatus::DontCreate);
                 }
             }
 

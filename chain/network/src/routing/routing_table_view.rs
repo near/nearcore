@@ -23,6 +23,12 @@ struct Inner {
 
     /// Maps an account_id to a peer owning it.
     account_peers: LruCache<AccountId, AnnounceAccount>,
+    /// Subset of account_peers, which we have broadcasted to the peers.
+    /// It is used to skip rebroadcasting the same data multiple times.
+    /// It contains less entries than account_peers in case some AnnounceAccounts
+    /// have been loaded from storage without broadcasting.
+    account_peers_broadcasted: LruCache<AccountId, AnnounceAccount>,
+
     /// For each peer, the set of neighbors which are one hop closer to `my_peer_id`.
     /// Alternatively, if we look at the set of all shortest path from `my_peer_id` to peer,
     /// this will be the set of first nodes on all such paths.
@@ -57,16 +63,10 @@ impl Inner {
         self.route_back.remove(clock, &hash)
     }
 
-    /// Checks whenever edge is newer than the one we already have.
-    /// Works only for local edges.
-    fn is_local_edge_newer(&self, other_peer: &PeerId, nonce: u64) -> bool {
-        self.local_edges.get(other_peer).map_or(0, |x| x.nonce()) < nonce
-    }
-
     /// Get AnnounceAccount for the given AccountId.
     fn get_announce(&mut self, account_id: &AccountId) -> Option<AnnounceAccount> {
-        if let Some(announce_account) = self.account_peers.get(account_id) {
-            return Some(announce_account.clone());
+        if let Some(aa) = self.account_peers.get(account_id) {
+            return Some(aa.clone());
         }
         match self.store.get_account_announcement(&account_id) {
             Err(e) => {
@@ -93,6 +93,7 @@ impl RoutingTableView {
         Self(Mutex::new(Inner {
             my_peer_id,
             account_peers: LruCache::new(ANNOUNCE_ACCOUNT_CACHE_SIZE),
+            account_peers_broadcasted: LruCache::new(ANNOUNCE_ACCOUNT_CACHE_SIZE),
             next_hops: Default::default(),
             local_edges: Default::default(),
             route_back: RouteBackCache::default(),
@@ -110,12 +111,6 @@ impl RoutingTableView {
             }
         }
         inner.next_hops = next_hops;
-    }
-
-    /// Checks whenever edge is newer than the one we already have.
-    /// Works only for local edges.
-    pub(crate) fn is_local_edge_newer(&self, other_peer: &PeerId, nonce: u64) -> bool {
-        self.0.lock().is_local_edge_newer(other_peer, nonce)
     }
 
     pub(crate) fn reachable_peers(&self) -> usize {
@@ -149,17 +144,20 @@ impl RoutingTableView {
     }
 
     /// Adds accounts to the routing table.
-    /// Returns the diff: new values that has been added.
+    /// Returns the diff: new values that should be broadcasted.
     /// Note: There is at most one peer id per account id.
     pub(crate) fn add_accounts(&self, aas: Vec<AnnounceAccount>) -> Vec<AnnounceAccount> {
         let mut inner = self.0.lock();
         let mut res = vec![];
         for aa in aas {
-            match inner.get_announce(&aa.account_id) {
-                Some(old) if old.epoch_id == aa.epoch_id => continue,
-                _ => {}
+            // We skip broadcasting stuff that is already broadcasted.
+            if inner.account_peers_broadcasted.get(&aa.account_id).map(|x| &x.epoch_id)
+                == Some(&aa.epoch_id)
+            {
+                continue;
             }
             inner.account_peers.put(aa.account_id.clone(), aa.clone());
+            inner.account_peers_broadcasted.put(aa.account_id.clone(), aa.clone());
             // Add account to store. Best effort
             if let Err(e) = inner.store.set_account_announcement(&aa.account_id, &aa) {
                 tracing::warn!(target: "network", "Error saving announce account to store: {:?}", e);
@@ -195,17 +193,25 @@ impl RoutingTableView {
         self.0.lock().account_peers.iter().map(|(_, v)| v.clone()).collect()
     }
 
-    /// Get AnnounceAccount for the given AccountId.
-    pub(crate) fn get_announces<'a>(
+    /// Get AnnounceAccount for the given AccountIds, that we already broadcasted.
+    pub(crate) fn get_broadcasted_announces<'a>(
         &'a self,
         account_ids: impl Iterator<Item = &'a AccountId>,
     ) -> HashMap<AccountId, AnnounceAccount> {
         let mut inner = self.0.lock();
-        account_ids.filter_map(|id| inner.get_announce(id).map(|a| (id.clone(), a))).collect()
+        account_ids
+            .filter_map(|id| {
+                inner.account_peers_broadcasted.get(id).map(|a| (id.clone(), a.clone()))
+            })
+            .collect()
     }
 
     pub(crate) fn get_local_edge(&self, other_peer: &PeerId) -> Option<Edge> {
         self.0.lock().local_edges.get(other_peer).cloned()
+    }
+
+    pub(crate) fn get_local_edges(&self) -> Vec<Edge> {
+        self.0.lock().local_edges.values().cloned().collect()
     }
 
     /// Returns the diff: new local edges added.

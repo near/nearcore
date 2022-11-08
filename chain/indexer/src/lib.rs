@@ -38,7 +38,9 @@ pub struct InitConfigArgs {
     pub download_genesis: bool,
     /// Specify a custom download URL for the genesis file.
     pub download_genesis_url: Option<String>,
-    /// Download the verified NEAR config file automtically.
+    /// Specify a custom download URL for the records file.
+    pub download_records_url: Option<String>,
+    /// Download the verified NEAR config file automatically.
     pub download_config: bool,
     /// Specify a custom download URL for the config file.
     pub download_config_url: Option<String>,
@@ -155,6 +157,7 @@ pub fn indexer_init_configs(
         params.genesis.as_deref(),
         params.download_genesis,
         params.download_genesis_url.as_deref(),
+        params.download_records_url.as_deref(),
         params.download_config,
         params.download_config_url.as_deref(),
         params.boot_nodes.as_deref(),

@@ -21,6 +21,7 @@ members = [
     "core/account-id/fuzz",
     "core/chain-configs",
     "core/crypto",
+    "core/dyn-configs",
     "core/o11y",
     "core/primitives",
     "core/primitives-core",
@@ -47,6 +48,7 @@ members = [
     "tools/indexer/example",
     "tools/mirror",
     "tools/mock-node",
+    "tools/ping",
     "tools/restaked",
     "tools/rpctypegen/core",
     "tools/rpctypegen/macro",
@@ -237,4 +239,4 @@ opt-level = 3
 [workspace.package]
 edition = "2021"
 authors = ["Near Inc <hello@nearprotocol.com>"]
-rust-version = "1.64.0"
+rust-version = "1.65.0"

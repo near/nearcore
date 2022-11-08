@@ -59,8 +59,8 @@ async fn test_peer_communication(
 
     tracing::info!(target:"test","ReponseUpdateNonce");
     let mut events = inbound.events.from_now();
-    let a = data::make_signer(&mut rng);
-    let b = data::make_signer(&mut rng);
+    let a = data::make_secret_key(&mut rng);
+    let b = data::make_secret_key(&mut rng);
     let want = PeerMessage::ResponseUpdateNonce(data::make_edge(&a, &b));
     outbound.send(want.clone()).await;
     events.recv_until(message_processed(want)).await;
