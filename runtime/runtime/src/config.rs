@@ -125,11 +125,8 @@ pub fn total_send_fees(
                 let delegate_action = &signed_delegate_action.delegate_action;
                 let sender_is_receiver = delegate_action.sender_id == delegate_action.receiver_id;
 
-                // `total_send_fees` is multiplied 2 because the first fee is charged for sending
-                // the inner actions to the tx receiver shard, the second fee is charged for sending
-                // the inner actions from the tx receiver shard to the delegate action receiver shard
                 delegate_cost
-                    + 2 * total_send_fees(
+                    + total_send_fees(
                         config,
                         sender_is_receiver,
                         &delegate_action.get_actions(),
@@ -137,6 +134,36 @@ pub fn total_send_fees(
                         current_protocol_version,
                     )?
             }
+        };
+        result = safe_add_gas(result, delta)?;
+    }
+    Ok(result)
+}
+
+/// Total sum of gas that needs to be burnt to send the inner actions of DelegateAction
+pub fn total_prepaid_send_fees(
+    config: &RuntimeFeesConfig,
+    actions: &[Action],
+    current_protocol_version: ProtocolVersion,
+) -> Result<Gas, IntegerOverflowError> {
+    let mut result = 0;
+
+    for action in actions {
+        use Action::*;
+        let delta = match action {
+            Delegate(signed_delegate_action) => {
+                let delegate_action = &signed_delegate_action.delegate_action;
+                let sender_is_receiver = delegate_action.sender_id == delegate_action.receiver_id;
+
+                total_send_fees(
+                    config,
+                    sender_is_receiver,
+                    &delegate_action.get_actions(),
+                    &delegate_action.receiver_id,
+                    current_protocol_version,
+                )?
+            }
+            _ => 0,
         };
         result = safe_add_gas(result, delta)?;
     }
@@ -210,7 +237,10 @@ pub fn tx_cost(
             current_protocol_version,
         )?,
     )?;
-    let prepaid_gas = total_prepaid_gas(&transaction.actions)?;
+    let prepaid_gas = safe_add_gas(
+        total_prepaid_gas(&transaction.actions)?,
+        total_prepaid_send_fees(config, &transaction.actions, current_protocol_version)?,
+    )?;
     // If signer is equals to receiver the receipt will be processed at the same block as this
     // transaction. Otherwise it will processed in the next block and the gas might be inflated.
     let initial_receipt_hop = if transaction.signer_id == transaction.receiver_id { 0 } else { 1 };

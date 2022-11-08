@@ -32,7 +32,10 @@ use near_vm_errors::{
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::VMContext;
 
-use crate::config::{safe_add_gas, total_prepaid_exec_fees, total_prepaid_gas, RuntimeConfig};
+use crate::config::{
+    safe_add_gas, total_prepaid_exec_fees, total_prepaid_gas, total_prepaid_send_fees,
+    RuntimeConfig,
+};
 use crate::ext::{ExternalError, RuntimeExt};
 use crate::{ActionResult, ApplyState};
 use near_primitives::config::ViewConfig;
@@ -665,8 +668,15 @@ pub(crate) fn apply_delegate_action(
         action_receipt.gas_price,
     );
 
+    let prepaid_send_fees = total_prepaid_send_fees(
+        &apply_state.config.transaction_costs,
+        &action_receipt.actions,
+        apply_state.current_protocol_version,
+    )?;
     let required_gas = receipt_required_gas(apply_state, &new_receipt)?;
     result.gas_used += required_gas;
+    result.gas_used += prepaid_send_fees;
+    result.gas_burnt += prepaid_send_fees;
     result.new_receipts.push(new_receipt);
 
     Ok(())
