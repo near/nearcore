@@ -36,6 +36,8 @@ use near_o11y::{
 use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
 use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::views::EdgeView;
+use near_primitives::views::NetworkGraphView;
 use near_primitives::views::{KnownPeerStateView, PeerStoreView};
 use rand::seq::IteratorRandom;
 use rand::thread_rng;
@@ -1101,19 +1103,6 @@ impl PeerManagerActor {
                     PeerToManagerMsgResp::BanPeer(ReasonForBan::InvalidEdge)
                 }
             }
-            PeerToManagerMsg::ResponseUpdateNonce(edge) => {
-                if edge.other(&self.my_peer_id).is_some() {
-                    if edge.verify() {
-                        self.state
-                            .add_verified_edges_to_routing_table(&self.clock, vec![edge.clone()]);
-                        PeerToManagerMsgResp::Empty
-                    } else {
-                        PeerToManagerMsgResp::BanPeer(ReasonForBan::InvalidEdge)
-                    }
-                } else {
-                    PeerToManagerMsgResp::BanPeer(ReasonForBan::InvalidEdge)
-                }
-            }
         }
     }
 }
@@ -1294,6 +1283,19 @@ impl Handler<GetDebugStatus> for PeerManagerActor {
                 });
                 DebugStatus::PeerStore(PeerStoreView { peer_states: peer_states_view })
             }
+            GetDebugStatus::Graph => DebugStatus::Graph(NetworkGraphView {
+                edges: self
+                    .state
+                    .graph
+                    .read()
+                    .edges()
+                    .iter()
+                    .map(|(_, edge)| {
+                        let key = edge.key();
+                        EdgeView { peer0: key.0.clone(), peer1: key.1.clone(), nonce: edge.nonce() }
+                    })
+                    .collect(),
+            }),
         }
     }
 }

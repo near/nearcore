@@ -77,7 +77,6 @@ impl Handler<WithSpanContext<PeerToManagerMsg>> for FakePeerManagerActor {
                 PeerToManagerMsgResp::RegisterPeer(RegisterPeerResponse::Accept)
             }
             PeerToManagerMsg::RequestUpdateNonce(..) => PeerToManagerMsgResp::Empty,
-            PeerToManagerMsg::ResponseUpdateNonce(..) => PeerToManagerMsgResp::Empty,
             PeerToManagerMsg::PeersRequest(_) => {
                 // PeerActor would panic if we returned a different response.
                 // This also triggers sending a message to the peer.
