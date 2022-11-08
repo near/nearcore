@@ -448,10 +448,13 @@ def compress_and_upload(nodes, src_filename, dst_filename):
     pmap(lambda node: upload_and_extract(node, src_filename, dst_filename),
          nodes)
 
+
 def redownload_neard(nodes, binary_url):
-    pmap(lambda node: node.machine.run(
-        'sudo -u ubuntu -i', input='wget -O /home/ubuntu/neard {}'.format(binary_url)),
-        nodes)
+    pmap(
+        lambda node: node.machine.run('sudo -u ubuntu -i',
+                                      input='wget -O /home/ubuntu/neard {}'.
+                                      format(binary_url)), nodes)
+
 
 # check each of /home/ubuntu/neard and /home/ubuntu/neard.upgrade to see
 # whether the amend-genesis command is avaialable. If it is, then we'll use that
@@ -838,16 +841,17 @@ def create_genesis_file(validator_node_names,
                                increasing_stakes, num_seats, single_shard)
 
 
-def create_and_upload_genesis_file_from_empty_genesis(
-        validator_node_and_stakes,
-        rpc_nodes,
-        chain_id=None,
-        epoch_length=None,
-        num_seats=None):
+def create_and_upload_genesis_file_from_empty_genesis(validator_node_and_stakes,
+                                                      rpc_nodes,
+                                                      chain_id=None,
+                                                      epoch_length=None,
+                                                      num_seats=None):
     node0 = validator_node_and_stakes[0][0]
     node0.machine.run(
-        'rm -rf /home/ubuntu/.near-tmp && mkdir /home/ubuntu/.near-tmp && /home/ubuntu/neard --home /home/ubuntu/.near-tmp init --chain-id {}'.format(chain_id))
-    genesis_config = download_and_read_json(node0, "/home/ubuntu/.near-tmp/genesis.json")
+        'rm -rf /home/ubuntu/.near-tmp && mkdir /home/ubuntu/.near-tmp && /home/ubuntu/neard --home /home/ubuntu/.near-tmp init --chain-id {}'
+        .format(chain_id))
+    genesis_config = download_and_read_json(
+        node0, "/home/ubuntu/.near-tmp/genesis.json")
     records = []
 
     VALIDATOR_BALANCE = (10**2) * ONE_NEAR
@@ -931,7 +935,8 @@ def create_and_upload_genesis_file_from_empty_genesis(
             }
         })
         for i in range(NUM_ACCOUNTS):
-            load_testing_account = load_testing_account_id(validator.account_id, i)
+            load_testing_account = load_testing_account_id(
+                validator.account_id, i)
             logger.info(f'Adding load testing account {load_testing_account}')
             records.append({
                 'Account': {
@@ -1002,6 +1007,7 @@ def download_and_read_json(node, filename):
     with open(tmp_file.name, 'r') as f:
         return json.load(f)
 
+
 def upload_json(node, filename, data):
     tmp_file = tempfile.NamedTemporaryFile(mode='r+', delete=False)
     with open(tmp_file.name, 'w') as f:
@@ -1015,9 +1021,10 @@ def get_node_addr(node, port):
                                            '/home/ubuntu/.near/node_key.json')
     return f'{node_key_json["public_key"]}@{node.ip}:{port}'
 
+
 def get_validator_account_id(node):
-    node_key_json = download_and_read_json(node,
-                                           '/home/ubuntu/.near/validator_key.json')
+    node_key_json = download_and_read_json(
+        node, '/home/ubuntu/.near/validator_key.json')
     return node_key_json["account_id"]
 
 
@@ -1054,14 +1061,14 @@ def update_config_file(config_filename_in, config_filename_out, all_node_pks,
 
 def create_and_upload_config_file_from_default(nodes, chain_id, overrider=None):
     nodes[0].machine.run(
-        'rm -rf /home/ubuntu/.near-tmp && mkdir /home/ubuntu/.near-tmp && /home/ubuntu/neard --home /home/ubuntu/.near-tmp init --chain-id {}'.format(chain_id))
-    config_json = download_and_read_json(nodes[0], '/home/ubuntu/.near-tmp/config.json')
+        'rm -rf /home/ubuntu/.near-tmp && mkdir /home/ubuntu/.near-tmp && /home/ubuntu/neard --home /home/ubuntu/.near-tmp init --chain-id {}'
+        .format(chain_id))
+    config_json = download_and_read_json(nodes[0],
+                                         '/home/ubuntu/.near-tmp/config.json')
     config_json['tracked_shards'] = [0, 1, 2, 3]
     config_json['archive'] = True
     config_json['archival_peer_connections_lower_bound'] = 1
-    node_addresses = [
-        get_node_addr(node, 24567) for node in nodes
-    ]
+    node_addresses = [get_node_addr(node, 24567) for node in nodes]
     config_json['network']['boot_nodes'] = ','.join(node_addresses)
     config_json['network']['skip_sync_wait'] = False
     config_json['rpc']['addr'] = '0.0.0.0:3030'

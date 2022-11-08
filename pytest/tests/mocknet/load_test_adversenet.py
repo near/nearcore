@@ -72,9 +72,11 @@ def check_slow_blocks(initial_metrics, final_metrics):
         f'Number of blocks processing for more than 1s: {slow_process_blocks}')
     return slow_process_blocks == 0
 
+
 def override_config(node, config):
     # Add config here depending on the specific node build.
     pass
+
 
 if __name__ == '__main__':
     logger.info('Starting Load test.')
@@ -83,10 +85,15 @@ if __name__ == '__main__':
     parser.add_argument('--pattern', required=False, default="adversenet-node-")
     parser.add_argument('--epoch-length', type=int, required=False, default=60)
     parser.add_argument('--skip-setup', default=False, action='store_true')
-    parser.add_argument('--skip-reconfigure', default=False, action='store_true')
+    parser.add_argument('--skip-reconfigure',
+                        default=False,
+                        action='store_true')
     parser.add_argument('--num-seats', type=int, required=False, default=100)
     parser.add_argument('--binary-url', required=False)
-    parser.add_argument('--clear-data', required=False, default=False, action='store_true')
+    parser.add_argument('--clear-data',
+                        required=False,
+                        default=False,
+                        action='store_true')
 
     args = parser.parse_args()
 
@@ -96,9 +103,13 @@ if __name__ == '__main__':
     assert epoch_length > 0
 
     all_nodes = mocknet.get_nodes(pattern=pattern)
-    validator_nodes = [node for node in all_nodes if 'validator' in node.instance_name]
+    validator_nodes = [
+        node for node in all_nodes if 'validator' in node.instance_name
+    ]
     logger.info(f'validator_nodes: {validator_nodes}')
-    rpc_nodes = [node for node in all_nodes if 'validator' not in node.instance_name]
+    rpc_nodes = [
+        node for node in all_nodes if 'validator' not in node.instance_name
+    ]
     logger.info(
         f'Starting Load of {chain_id} test using {len(validator_nodes)} validator nodes and {len(rpc_nodes)} RPC nodes.'
     )
@@ -113,12 +124,14 @@ if __name__ == '__main__':
             mocknet.clear_data(all_nodes)
         mocknet.create_and_upload_genesis_file_from_empty_genesis(
             # Give bad validators less stake.
-            [(node, 1 if 'bad' in node.instance_name else 5) for node in validator_nodes],
+            [(node, 1 if 'bad' in node.instance_name else 5)
+             for node in validator_nodes],
             rpc_nodes,
             chain_id,
             epoch_length=epoch_length,
             num_seats=args.num_seats)
-        mocknet.create_and_upload_config_file_from_default(all_nodes, chain_id, override_config)
+        mocknet.create_and_upload_config_file_from_default(
+            all_nodes, chain_id, override_config)
     if args.binary_url:
         mocknet.redownload_neard(all_nodes, args.binary_url)
     mocknet.start_nodes(all_nodes)
