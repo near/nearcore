@@ -282,6 +282,7 @@ impl ViewClientActor {
                 if let Some(start) = start_block_of_window {
                     if block_height == last_block_of_epoch {
                         windows.push(start..block_height + 1);
+                        start_block_of_window = None;
                     }
                 } else {
                     start_block_of_window = Some(block_height);
