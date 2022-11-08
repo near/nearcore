@@ -267,9 +267,9 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
 
     fn store(&self) -> &Store;
 
-    /// Returns trie. Since shard layout may change from epoch to epoch, `shard_id` itself is
-    /// not enough to identify the trie. `prev_hash` is used to identify the epoch the given
-    /// `shard_id` is at.
+    /// Returns trie with non-view cache for given `state_root`. `prev_hash` is used to access flat storage and to
+    /// identify the epoch the given `shard_id` is at.
+    /// Note that `prev_hash` and `state_root` must correspond to the same block.
     fn get_trie_for_shard(
         &self,
         shard_id: ShardId,
@@ -278,7 +278,7 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
         use_flat_storage: bool,
     ) -> Result<Trie, Error>;
 
-    /// Returns trie with view cache
+    /// Same as `get_trie_for_shard` but returns trie with view cache.
     fn get_view_trie_for_shard(
         &self,
         shard_id: ShardId,
