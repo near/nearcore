@@ -41,7 +41,7 @@ use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::views::FinalExecutionOutcomeView;
 use protobuf::Message as _;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::fmt;
 use std::fmt::Debug;
 use std::sync::Arc;
@@ -294,11 +294,7 @@ impl PeerMessage {
                 let mut msg = proto::PeerMessage::from(self);
                 let propagator = NodePropagator::new();
                 let cx = Span::current().context();
-                let mut headers = HashMap::new();
-                propagator.inject_context(&cx, &mut headers);
-                if !headers.is_empty() {
-                    msg.trace_context = NodePropagator::serialize_headers(&headers);
-                }
+                msg.trace_context = propagator.inject_trace_context(&cx);
                 msg.write_to_bytes().unwrap()
             }
         }
@@ -317,16 +313,12 @@ impl PeerMessage {
             Encoding::Proto => {
                 let proto_msg: proto::PeerMessage = proto::PeerMessage::parse_from_bytes(data)
                     .map_err(ParsePeerMessageError::ProtoDecode)?;
-                if !proto_msg.trace_context.is_empty() {
+                if proto_msg.trace_context.is_some() {
                     let propagator = NodePropagator::new();
-                    let headers = NodePropagator::deserialize_headers(&proto_msg.trace_context);
-                    if let Ok(headers) = headers {
-                        let extracted_span_context = propagator.extract_span_context(&headers);
-                        span.clone()
-                            .or_current()
-                            .add_link(extracted_span_context.as_ref().unwrap().clone());
-                    } else {
-                        tracing::warn!("Failed to parse headers: {:#?}", headers);
+                    if let Ok(extracted_span_context) =
+                        propagator.extract_span_context(&proto_msg.trace_context)
+                    {
+                        span.clone().or_current().add_link(extracted_span_context);
                     }
                 }
                 (&proto_msg).try_into().map_err(|err| ParsePeerMessageError::ProtoConv(err))?

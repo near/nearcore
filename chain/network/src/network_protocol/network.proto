@@ -322,6 +322,13 @@ message RoutingSyncV2 {
   bytes borsh = 1;
 }
 
+// Inter-process tracing information.
+message TraceContext {
+  bytes trace_id = 1;
+  bytes span_id = 2;
+  int32 sampling_priority = 3;
+}
+
 // PeerMessage is a wrapper of all message types exchanged between NEAR nodes.
 // The wire format of a single message M consists of len(M)+4 bytes:
 // <len(M)> : 4 bytes : little endian uint32
@@ -335,7 +342,7 @@ message PeerMessage {
   reserved 20,21,22,23,24;
 
   // Inter-process tracing information.
-  bytes trace_context = 26;
+  TraceContext trace_context = 26;
 
   oneof message_type {
     Handshake handshake = 4;

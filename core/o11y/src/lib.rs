@@ -267,7 +267,7 @@ where
         resource.push(KeyValue::new("account_id", account_id.to_string()));
         format!("neard:{}", account_id)
     } else {
-        format!("neard:{:?}", node_public_key)
+        format!("neard:{}", node_public_key)
     };
     resource.push(KeyValue::new(SERVICE_NAME, service_name));
 
