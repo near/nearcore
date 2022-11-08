@@ -461,7 +461,7 @@ pub struct Chain {
     /// impossible to have non-empty state patch on non-sandbox builds.
     pending_state_patch: SandboxStatePatch,
 
-    /// Used to store state parts already requested along with elapsed time 
+    /// Used to store state parts already requested along with elapsed time
     /// to create the parts. This information is used for debugging
     pub(crate) requested_state_parts: StateRequestTracker,
 }
