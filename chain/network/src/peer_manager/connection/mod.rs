@@ -123,12 +123,13 @@ impl Connection {
                     |rtus: Vec<Arc<RoutingTableUpdate>>| async move {
                         this.send_message(Arc::new(PeerMessage::SyncRoutingTable(
                             RoutingTableUpdate {
-                                edges: rtus
-                                    .iter()
-                                    .map(|rtu| rtu.edges.iter())
-                                    .flatten()
-                                    .cloned()
-                                    .collect(),
+                                edges: Edge::deduplicate(
+                                    rtus.iter()
+                                        .map(|rtu| rtu.edges.iter())
+                                        .flatten()
+                                        .cloned()
+                                        .collect(),
+                                ),
                                 accounts: rtus
                                     .iter()
                                     .map(|rtu| rtu.accounts.iter())

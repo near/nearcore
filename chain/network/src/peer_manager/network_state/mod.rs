@@ -494,11 +494,16 @@ impl NetworkState {
     pub async fn add_edges(
         self: &Arc<Self>,
         clock: &time::Clock,
-        mut edges: Vec<Edge>,
+        edges: Vec<Edge>,
     ) -> Result<(), ReasonForBan> {
         let this = self.clone();
         let clock = clock.clone();
         self.spawn(async move {
+            // Deduplicate edges.
+            // TODO(gprusak): sending duplicate edges should be considered a malicious behavior
+            // instead, however that would be backward incompatible, so it can be introduced in
+            // PROTOCOL_VERSION 60 earliest.
+            let mut edges = Edge::deduplicate(edges);
             {
                 let graph = this.graph.read();
                 edges.retain(|x| !graph.has(x));
