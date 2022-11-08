@@ -236,7 +236,6 @@ pub enum PeerMessage {
     /// Contains accounts and edge information.
     SyncRoutingTable(RoutingTableUpdate),
     RequestUpdateNonce(PartialEdgeInfo),
-    ResponseUpdateNonce(Edge),
 
     SyncAccountsData(SyncAccountsData),
 

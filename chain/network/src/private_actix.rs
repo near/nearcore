@@ -22,7 +22,6 @@ pub(crate) enum PeerToManagerMsg {
     PeersRequest(PeersRequest),
     PeersResponse(PeersResponse),
     RequestUpdateNonce(PeerId, PartialEdgeInfo),
-    ResponseUpdateNonce(Edge),
     // PeerRequest
     UpdatePeerInfo(PeerInfo),
 }

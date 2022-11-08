@@ -98,6 +98,8 @@ pub enum ParsePeerMessageError {
     DeprecatedRoutingTableSyncV2,
     #[error("EpochSync is deprecated")]
     DeprecatedEpochSync,
+    #[error("ResponseUpdateNonce is deprecated")]
+    DeprecatedResponseUpdateNonce,
 }
 
 impl TryFrom<&net::PeerMessage> for mem::PeerMessage {
@@ -113,7 +115,9 @@ impl TryFrom<&net::PeerMessage> for mem::PeerMessage {
                 mem::PeerMessage::SyncRoutingTable(rtu.into())
             }
             net::PeerMessage::RequestUpdateNonce(e) => mem::PeerMessage::RequestUpdateNonce(e),
-            net::PeerMessage::ResponseUpdateNonce(e) => mem::PeerMessage::ResponseUpdateNonce(e),
+            net::PeerMessage::_ResponseUpdateNonce => {
+                return Err(Self::Error::DeprecatedResponseUpdateNonce)
+            }
             net::PeerMessage::PeersRequest => mem::PeerMessage::PeersRequest,
             net::PeerMessage::PeersResponse(pis) => mem::PeerMessage::PeersResponse(pis),
             net::PeerMessage::BlockHeadersRequest(bhs) => {
@@ -156,7 +160,6 @@ impl From<&mem::PeerMessage> for net::PeerMessage {
                 net::PeerMessage::SyncRoutingTable(rtu.into())
             }
             mem::PeerMessage::RequestUpdateNonce(e) => net::PeerMessage::RequestUpdateNonce(e),
-            mem::PeerMessage::ResponseUpdateNonce(e) => net::PeerMessage::ResponseUpdateNonce(e),
 
             // This message is not supported, we translate it to an empty RoutingTableUpdate.
             mem::PeerMessage::SyncAccountsData(_) => {

@@ -81,21 +81,10 @@ impl TryFrom<&[u8]> for Secp256K1PublicKey {
     type Error = crate::errors::ParseKeyError;
 
     fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
-        // It is suboptimal, but optimized implementation in Rust standard
-        // library only implements TryFrom for arrays up to 32 elements at
-        // the moment. Once https://github.com/rust-lang/rust/pull/74254
-        // lands, we can use the following impl:
-        //
-        // Ok(Self(data.try_into().map_err(|_| TryFromSliceError(()))?))
-        if data.len() != 64 {
-            return Err(Self::Error::InvalidLength {
-                expected_length: 64,
-                received_length: data.len(),
-            });
-        }
-        let mut public_key = Self([0; 64]);
-        public_key.0.copy_from_slice(data);
-        Ok(public_key)
+        data.try_into().map(Self).map_err(|_| Self::Error::InvalidLength {
+            expected_length: 64,
+            received_length: data.len(),
+        })
     }
 }
 
@@ -151,10 +140,10 @@ impl TryFrom<&[u8]> for ED25519PublicKey {
     type Error = crate::errors::ParseKeyError;
 
     fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
-        Ok(Self(data.try_into().map_err(|_| crate::errors::ParseKeyError::InvalidLength {
+        data.try_into().map(Self).map_err(|_| Self::Error::InvalidLength {
             expected_length: ed25519_dalek::PUBLIC_KEY_LENGTH,
             received_length: data.len(),
-        })?))
+        })
     }
 }
 
@@ -599,21 +588,10 @@ impl TryFrom<&[u8]> for Secp256K1Signature {
     type Error = crate::errors::ParseSignatureError;
 
     fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
-        // It is suboptimal, but optimized implementation in Rust standard
-        // library only implements TryFrom for arrays up to 32 elements at
-        // the moment. Once https://github.com/rust-lang/rust/pull/74254
-        // lands, we can use the following impl:
-        //
-        // Ok(Self(data.try_into().map_err(|_| Self::Error::InvalidLength { expected_length: 65, received_length: data.len() })?))
-        if data.len() != 65 {
-            return Err(Self::Error::InvalidLength {
-                expected_length: 65,
-                received_length: data.len(),
-            });
-        }
-        let mut signature = Self([0; 65]);
-        signature.0.copy_from_slice(data);
-        Ok(signature)
+        Ok(Self(data.try_into().map_err(|_| Self::Error::InvalidLength {
+            expected_length: 65,
+            received_length: data.len(),
+        })?))
     }
 }
 

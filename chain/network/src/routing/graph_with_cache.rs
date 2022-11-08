@@ -3,7 +3,7 @@ use crate::routing;
 use crate::stats::metrics;
 use crate::time;
 use near_primitives::network::PeerId;
-use parking_lot::Mutex;
+use once_cell::sync::OnceCell;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tracing::trace;
@@ -22,7 +22,7 @@ pub struct GraphWithCache {
     edges: HashMap<EdgeKey, Edge>,
     /// Peers of this node, which are on any shortest path to the given node.
     /// Derived from graph.
-    cached_next_hops: Mutex<Option<Arc<NextHopTable>>>,
+    cached_next_hops: OnceCell<Arc<NextHopTable>>,
     // Don't allow edges that are before this time (if set)
     prune_edges_before: Option<time::Utc>,
 }
@@ -32,7 +32,7 @@ impl GraphWithCache {
         Self {
             graph: routing::Graph::new(my_peer_id),
             edges: Default::default(),
-            cached_next_hops: Default::default(),
+            cached_next_hops: OnceCell::new(),
             prune_edges_before: None,
         }
     }
@@ -55,7 +55,7 @@ impl GraphWithCache {
     pub fn set_unreliable_peers(&mut self, unreliable_peers: HashSet<PeerId>) {
         self.graph.set_unreliable_peers(unreliable_peers);
         // Invalidate cache.
-        *self.cached_next_hops.lock() = None;
+        self.cached_next_hops = OnceCell::new();
     }
 
     /// Adds an edge without validating the signatures. O(1).
@@ -79,7 +79,7 @@ impl GraphWithCache {
         }
         self.edges.insert(key.clone(), edge);
         // Invalidate cache.
-        *self.cached_next_hops.lock() = None;
+        self.cached_next_hops = OnceCell::new();
         true
     }
 
@@ -104,23 +104,24 @@ impl GraphWithCache {
             }
         }
         if removed {
-            *self.cached_next_hops.lock() = None;
+            self.cached_next_hops = OnceCell::new();
         }
     }
 
     /// Computes the next hops table, based on the graph. O(|Graph|).
     pub fn next_hops(&self) -> Arc<NextHopTable> {
-        if let Some(rt) = self.cached_next_hops.lock().clone() {
-            return rt;
-        }
-        let _d = delay_detector::DelayDetector::new(|| "routing table update".into());
-        let _next_hops_recalculation = metrics::ROUTING_TABLE_RECALCULATION_HISTOGRAM.start_timer();
-        trace!(target: "network", "Update routing table.");
-        let rt = Arc::new(self.graph.calculate_distance());
-        metrics::ROUTING_TABLE_RECALCULATIONS.inc();
-        metrics::PEER_REACHABLE.set(rt.len() as i64);
-        *self.cached_next_hops.lock() = Some(rt.clone());
-        rt
+        self.cached_next_hops
+            .get_or_init(|| {
+                let _d = delay_detector::DelayDetector::new(|| "routing table update".into());
+                let _next_hops_recalculation =
+                    metrics::ROUTING_TABLE_RECALCULATION_HISTOGRAM.start_timer();
+                trace!(target: "network", "Update routing table.");
+                let rt = Arc::new(self.graph.calculate_distance());
+                metrics::ROUTING_TABLE_RECALCULATIONS.inc();
+                metrics::PEER_REACHABLE.set(rt.len() as i64);
+                rt
+            })
+            .clone()
     }
 
     pub fn remove_adjacent_edges(&mut self, peers: &HashSet<PeerId>) -> Vec<Edge> {
