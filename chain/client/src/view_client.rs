@@ -287,7 +287,7 @@ impl ViewClientActor {
                     start_block_of_window = Some(block_height);
                 }
             } else if let Some(start) = start_block_of_window {
-                windows.push(start..block_height + 1);
+                windows.push(start..block_height);
                 start_block_of_window = None;
             }
         }
