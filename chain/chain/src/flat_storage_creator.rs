@@ -8,7 +8,7 @@ use tracing::info;
 
 /// If we launched a node with enabled flat storage but it doesn't have flat storage data on disk, we have to create it.
 /// This struct is responsible for this process for the given shard.
-/// See doc comment on [`FlatStorageStateStatus`] for the details of the process. 
+/// See doc comment on [`FlatStorageStateStatus`] for the details of the process.
 pub struct FlatStorageShardCreator {
     pub status: FlatStorageStateStatus,
     pub shard_id: ShardId,
