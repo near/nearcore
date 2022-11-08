@@ -97,7 +97,7 @@ impl Cache {
                 return false;
             }
             inner.keys_by_id = keys_by_id;
-            inner.keys = keys_by_id.values().cloned().collect();
+            inner.keys = inner.keys_by_id.values().flatten().cloned().collect();
             for (k, v) in std::mem::take(&mut inner.data) {
                 if inner.keys.contains(&k) {
                     inner.data.insert(k.clone(), v.clone());

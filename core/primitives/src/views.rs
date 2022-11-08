@@ -362,10 +362,9 @@ pub struct Tier1ProxyView {
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct AccountDataView {
-    pub peer_id: Option<PublicKey>,
+    pub peer_id: PublicKey,
     pub proxies: Vec<Tier1ProxyView>,
-    pub account_id: AccountId,
-    pub epoch_id: EpochId,
+    pub account_key: PublicKey,
     pub timestamp: DateTime<chrono::Utc>,
 }
 

@@ -135,7 +135,7 @@ async fn accounts_data_gradual_epoch_change() {
         let mut chain_info = chain.get_chain_info();
         chain_info.tier1_accounts = Arc::new(
             vs.iter()
-                .map(|v| ((e.clone(), v.signer.validator_id().clone()), v.signer.public_key()))
+                .map(|v| (v.signer.validator_id().clone(), v.signer.public_key()))
                 .collect(),
         );
 

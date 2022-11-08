@@ -16,7 +16,7 @@ use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::PartialEncodedChunkWithArcReceipts;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::BlockHeight;
-use near_primitives::types::{AccountId, EpochId, ShardId};
+use near_primitives::types::{AccountId, ShardId};
 use near_primitives::views::{KnownProducerView, NetworkInfoView, PeerInfoView, AccountDataView, Tier1ProxyView };
 use once_cell::sync::OnceCell;
 use std::collections::HashMap;
@@ -117,7 +117,7 @@ impl KnownPeerStatus {
 /// Set of account keys.
 /// This is information which chain pushes to network to implement tier1.
 /// See ChainInfo.
-pub type AccountKeys = HashMap<(EpochId, AccountId), PublicKey>;
+pub type AccountKeys = HashMap<AccountId, Vec<PublicKey>>;
 
 /// Network-relevant data about the chain.
 // TODO(gprusak): it is more like node info, or sth.
@@ -373,13 +373,12 @@ impl From<NetworkInfo> for NetworkInfoView {
                 .tier1_accounts_data
                 .iter()
                 .map(|d|AccountDataView{
-                    peer_id: d.peer_id.as_ref().map(|id|id.public_key().clone()),
+                    peer_id: d.peer_id.public_key().clone(),
                     proxies: d.proxies.iter().map(|p|Tier1ProxyView {
                         addr: p.addr,
                         peer_id: p.peer_id.public_key().clone(),
                     }).collect(),
-                    account_id: d.account_id.clone(),
-                    epoch_id: d.epoch_id.clone(),
+                    account_key: d.account_key.clone(),
                     timestamp: chrono::DateTime::from_utc(
                         chrono::NaiveDateTime::from_timestamp(d.timestamp.unix_timestamp(), 0), chrono::Utc),
                 }).collect(),

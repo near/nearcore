@@ -163,7 +163,6 @@ impl Actor {
         let edges = self.graph.write().remove_adjacent_edges(&peers);
 
         // Store the pruned data in DB.
-        tracing::debug!(target:"dupa", "saving {:?}",edges.iter().map(|e|e.hash()).collect::<Vec<_>>());
         if let Err(e) = self.store.push_component(&peers, &edges) {
             warn!("self.store.push_component(): {}", e);
         }

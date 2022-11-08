@@ -12,7 +12,6 @@ use crate::types::PeerType;
 use near_crypto::PublicKey;
 use near_o11y::log_assert;
 use near_primitives::network::PeerId;
-use near_primitives::types::AccountId;
 use rand::seq::IteratorRandom as _;
 use rand::seq::SliceRandom as _;
 use std::collections::{HashMap, HashSet};
@@ -297,34 +296,21 @@ impl super::NetworkState {
         }
     }
 
-    // Finds a TIER1 connection for the given AccountId.
-    // It is expected to perform <10 lookups total on average,
-    // so the call latency should be negligible wrt sending a TCP packet.
-    // If not, consider precomputing the AccountId -> Connection mapping.
-    pub fn get_tier1_proxy(
-        &self,
-        account_key: &PublicKey,
-    ) -> Option<(PeerId, Arc<connection::Connection>)> {
+    /// Finds a TIER1 connection for the given SignedAccountData.
+    /// It is expected to perform <10 lookups total on average,
+    /// so the call latency should be negligible wrt sending a TCP packet.
+    // TODO(gprusak): If not, consider precomputing the AccountKey -> Connection mapping.
+    pub fn get_tier1_proxy(&self, data: &SignedAccountData) -> Option<Arc<connection::Connection>> { 
+        let tier1 = self.tier1.load();
         // Prefer direct connections.
-        if let Some(res) = self.get_tier1_peer(account_key) {
-            return Some(res);
+        if let Some(conn) = tier1.ready_by_account_key.get(&data.account_key) {
+            return Some(conn.clone());
         }
         // In case there is no direct connection and our node is a TIER1 validator, use a proxy.
         // TODO(gprusak): add a check that our node is actually a TIER1 validator.
-        let tier1 = self.tier1.load();
-        if let Some(conn) = tier1.ready_by_account_key(account_key) {
-            return (conn.peer_info.id, conn);
-        }
-        let accounts_data = self.accounts_data.load();
-        let data = self.accounts_datadata.get(account_key)?;
-            let peer_id = match &data.peer_id {
-                Some(id) => id,
-                None => continue,
-            };
-            for proxy in &data.proxies {
-                if let Some(conn) = tier1.ready.get(&proxy.peer_id) {
-                    return Some((peer_id.clone(), conn.clone()));
-                }
+        for proxy in &data.proxies {
+            if let Some(conn) = tier1.ready.get(&proxy.peer_id) {
+                return Some(conn.clone());
             }
         }
         None

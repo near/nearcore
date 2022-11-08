@@ -468,14 +468,24 @@ impl NetworkState {
     ) -> bool {
         if tcp::Tier::T1.is_allowed_routed(&msg) {
             tracing::debug!(target:"test", "got TIER1 message to send");
-            if let Some((target, conn)) = self.get_tier1_proxy(account_id) {
+            let accounts_data = self.accounts_data.load();
+            for key in accounts_data.keys_by_id.get(account_id).iter().flat_map(|keys|keys.iter()) {
+                let data = match accounts_data.data.get(key) {
+                    Some(data) => data,
+                    None => continue,
+                };
+                let conn = match self.get_tier1_proxy(data) {
+                    Some(conn) => conn,
+                    None => continue,
+                };
                 tracing::debug!(target:"test", "found TIER1 proxy");
                 // TODO(gprusak): in case of PartialEncodedChunk, consider stripping everything
                 // but the header. This will bound the message size
                 conn.send_message(Arc::new(PeerMessage::Routed(self.sign_message(
                     clock,
-                    RawRoutedMessage { target: PeerIdOrHash::PeerId(target), body: msg.clone() },
+                    RawRoutedMessage { target: PeerIdOrHash::PeerId(data.peer_id.clone()), body: msg.clone() },
                 ))));
+                break;
             }
         }
 

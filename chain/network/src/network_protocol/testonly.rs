@@ -238,11 +238,19 @@ pub fn make_epoch_id<R: Rng>(rng: &mut R) -> EpochId {
     EpochId(make_hash(rng))
 }
 
+pub fn make_account_keys(signers: &[InMemoryValidatorSigner]) -> AccountKeys {
+    let account_keys = AccountKeys::new();
+    for s in signers {
+        account_keys.entry(s.validator_id().clone()).or_default().push(s.public_key());
+    }
+    account_keys
+}
+
 pub struct Chain {
     pub genesis_id: GenesisId,
     pub blocks: Vec<Block>,
     pub chunks: HashMap<ChunkHash, ShardChunk>,
-    pub tier1_accounts: Vec<(EpochId, InMemoryValidatorSigner)>,
+    pub tier1_accounts: Vec<InMemoryValidatorSigner>,
 }
 
 impl Chain {
@@ -261,9 +269,7 @@ impl Chain {
                 hash: Default::default(),
             },
             blocks,
-            tier1_accounts: (0..10)
-                .map(|_| (make_epoch_id(rng), make_validator_signer(rng)))
-                .collect(),
+            tier1_accounts: (0..10).map(|_|make_validator_signer(rng)).collect(),
             chunks: chunks.chunks,
         }
     }
@@ -275,14 +281,9 @@ impl Chain {
     pub fn tip(&self) -> &BlockHeader {
         self.blocks.last().unwrap().header()
     }
-
+ 
     pub fn get_tier1_accounts(&self) -> AccountKeys {
-        self.tier1_accounts
-            .iter()
-            .map(|(epoch_id, v)| {
-                ((epoch_id.clone(), v.validator_id().clone()), v.public_key().clone())
-            })
-            .collect()
+        make_account_keys(&self.tier1_accounts)
     }
 
     pub fn get_chain_info(&self) -> ChainInfo {
@@ -323,20 +324,16 @@ impl Chain {
     ) -> Vec<Arc<SignedAccountData>> {
         self.tier1_accounts
             .iter()
-            .map(|(epoch_id, v)| {
-                let peer_id = make_peer_id(rng);
-                Arc::new(
-                    make_account_data(
-                        rng,
-                        clock.now_utc(),
-                        epoch_id.clone(),
-                        v.validator_id().clone(),
-                        peer_id,
-                    )
-                    .sign(v)
-                    .unwrap(),
+            .map(|v| Arc::new(
+                make_account_data(
+                    rng,
+                    clock.now_utc(),
+                    v.public_key(),
+                    make_peer_id(rng),
                 )
-            })
+                .sign(v)
+                .unwrap(),
+            ))
             .collect()
     }
 }
@@ -386,8 +383,7 @@ pub fn make_peer_addr(rng: &mut impl Rng, ip: net::IpAddr) -> PeerAddr {
 pub fn make_account_data(
     rng: &mut impl Rng,
     timestamp: time::Utc,
-    epoch_id: EpochId,
-    account_id: AccountId,
+    account_key: PublicKey,
     peer_id: PeerId,
 ) -> AccountData {
     AccountData {
@@ -407,18 +403,16 @@ pub fn make_account_data(
                 make_peer_addr(rng, ip)
             },
         ],
-        peer_id: Some(peer_id),
-        account_id,
-        epoch_id,
+        peer_id,
+        account_key,
         timestamp,
     }
 }
 
 pub fn make_signed_account_data(rng: &mut impl Rng, clock: &time::Clock) -> SignedAccountData {
     let signer = make_validator_signer(rng);
-    let epoch_id = make_epoch_id(rng);
     let peer_id = make_peer_id(rng);
-    make_account_data(rng, clock.now_utc(), epoch_id, signer.validator_id().clone(), peer_id)
+    make_account_data(rng, clock.now_utc(), signer.public_key(), peer_id)
         .sign(&signer)
         .unwrap()
 }

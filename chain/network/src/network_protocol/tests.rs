@@ -21,9 +21,8 @@ fn bad_account_data_size() {
                 data::make_peer_addr(&mut rng, ip)
             })
             .collect(),
-        account_id: signer.validator_id().clone(),
-        epoch_id: data::make_epoch_id(&mut rng),
-        peer_id: Some(data::make_peer_id(&mut rng)),
+        account_key: signer.public_key(),
+        peer_id: data::make_peer_id(&mut rng),
         timestamp: clock.now_utc(),
     };
     assert!(ad.sign(&signer).is_err());

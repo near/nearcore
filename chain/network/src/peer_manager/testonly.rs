@@ -13,7 +13,7 @@ use crate::test_utils;
 use crate::testonly::actix::ActixSystem;
 use crate::testonly::fake_client;
 use crate::time;
-use crate::types::{
+use crate::types::{ AccountKeys,
     ChainInfo, KnownPeerStatus, PeerManagerMessageRequest, PeerManagerMessageResponse, SetChainInfo,
 };
 use crate::PeerManagerActor;
@@ -99,14 +99,13 @@ pub(crate) fn make_chain_info(
     validators: &[&ActorHandler],
 ) -> ChainInfo {
     // Construct ChainInfo with tier1_accounts set to `validators`.
-    let vs: Vec<_> = validators.iter().map(|pm| pm.cfg.validator.clone().unwrap()).collect();
-    let account_keys = Arc::new(
-        vs.iter()
-            .map(|v| ((epoch_id.clone(), v.signer.validator_id().clone()), v.signer.public_key()))
-            .collect(),
-    );
     let mut chain_info = chain.get_chain_info();
-    chain_info.tier1_accounts = account_keys;
+    let account_keys = AccountKeys::new();
+    for pm in validators {
+        let s = pm.cfg.validator.as_ref().unwrap().signer;
+        account_keys.entry(s.validator_id().clone()).or_default().push(s.public_key());
+    }
+    chain_info.tier1_accounts = Arc::new(account_keys);
     chain_info
 }
 
