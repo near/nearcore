@@ -59,8 +59,8 @@ impl<T1: Packable<Packed = [u8; 32]>, T2: Packable<Packed = [u8; 32]>> Packable 
 
     fn unpack(data: &[u8; 64]) -> Option<Self> {
         // TODO(mina86): Use split_array_ref once stabilised.
-        let d1 = unpack((&data[..32]).try_into().unwrap())?;
-        let d2 = unpack((&data[32..]).try_into().unwrap())?;
+        let d1 = unpack(data[..32].try_into().unwrap())?;
+        let d2 = unpack(data[32..].try_into().unwrap())?;
         Some((d1, d2))
     }
 
@@ -83,9 +83,9 @@ impl<
 
     fn unpack(data: &[u8; 96]) -> Option<Self> {
         // TODO(mina86): Use split_array_ref once stabilised.
-        let d1 = unpack((&data[..32]).try_into().unwrap())?;
-        let d2 = unpack((&data[32..64]).try_into().unwrap())?;
-        let d3 = unpack((&data[64..]).try_into().unwrap())?;
+        let d1 = unpack(data[..32].try_into().unwrap())?;
+        let d2 = unpack(data[32..64].try_into().unwrap())?;
+        let d3 = unpack(data[64..].try_into().unwrap())?;
         Some((d1, d2, d3))
     }
 
