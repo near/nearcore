@@ -1098,19 +1098,6 @@ impl PeerManagerActor {
                     PeerToManagerMsgResp::BanPeer(ReasonForBan::InvalidEdge)
                 }
             }
-            PeerToManagerMsg::ResponseUpdateNonce(edge) => {
-                if edge.other(&self.my_peer_id).is_some() {
-                    if edge.verify() {
-                        self.state
-                            .add_verified_edges_to_routing_table(&self.clock, vec![edge.clone()]);
-                        PeerToManagerMsgResp::Empty
-                    } else {
-                        PeerToManagerMsgResp::BanPeer(ReasonForBan::InvalidEdge)
-                    }
-                } else {
-                    PeerToManagerMsgResp::BanPeer(ReasonForBan::InvalidEdge)
-                }
-            }
         }
     }
 }
