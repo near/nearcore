@@ -45,16 +45,9 @@ impl Chain {
             .requested_state_parts
             .requested_state_parts
             .iter()
-            .map(|(crypto_hash, parts_per_shard)| {
-                let parts_per_shard_copy: HashMap<ShardId, Vec<PartElapsedTimeView>> =
-                    parts_per_shard
-                        .iter()
-                        .map(|(shard_id, part_elapsed)| (shard_id.clone(), part_elapsed.clone()))
-                        .collect();
-                RequestedStatePartsView {
-                    block_hash: crypto_hash.clone(),
-                    shard_requested_parts: parts_per_shard_copy,
-                }
+            .map(|(crypto_hash, parts_per_shard)| RequestedStatePartsView {
+                block_hash: crypto_hash.clone(),
+                shard_requested_parts: parts_per_shard.clone(),
             })
             .collect();
         return result;
