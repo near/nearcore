@@ -83,7 +83,6 @@ fn serialize_deserialize() -> anyhow::Result<()> {
         PeerMessage::LastEdge(edge.clone()),
         PeerMessage::SyncRoutingTable(data::make_routing_table(&mut rng)),
         PeerMessage::RequestUpdateNonce(data::make_partial_edge(&mut rng)),
-        PeerMessage::ResponseUpdateNonce(edge),
         PeerMessage::PeersRequest,
         PeerMessage::PeersResponse((0..5).map(|_| data::make_peer_info(&mut rng)).collect()),
         PeerMessage::BlockHeadersRequest(chain.blocks.iter().map(|b| b.hash().clone()).collect()),
