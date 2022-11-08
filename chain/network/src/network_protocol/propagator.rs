@@ -1,9 +1,9 @@
-const TRACE_FLAG_DEFERRED: TraceFlags = TraceFlags::new(0x02);
-
 use crate::network_protocol::proto::TraceContext;
 use opentelemetry::trace::{SpanContext, SpanId, TraceContextExt, TraceFlags, TraceId, TraceState};
 use opentelemetry::Context;
 use protobuf::MessageField;
+
+const TRACE_FLAG_DEFERRED: TraceFlags = TraceFlags::new(0x02);
 
 #[derive(Debug)]
 enum SamplingPriority {
