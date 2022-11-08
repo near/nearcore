@@ -297,45 +297,26 @@ impl super::NetworkState {
         }
     }
 
-    pub fn get_tier1_peer(
-        &self,
-        account_id: &AccountId,
-    ) -> Option<(PeerId, Arc<connection::Connection>)> {
-        let tier1 = self.tier1.load();
-        let accounts_data = self.accounts_data.load();
-        for data in accounts_data.by_account.get(account_id)?.values() {
-            let peer_id = match &data.peer_id {
-                Some(id) => id,
-                None => continue,
-            };
-            tracing::debug!(target:"test", ?account_id, ?peer_id, "TIER1 peer lookup");
-
-            tracing::debug!(target:"test", "TIER1 connections: {:?}", tier1.ready.keys().collect::<Vec<_>>());
-            if let Some(conn) = tier1.ready.get(peer_id) {
-                tracing::debug!(target:"test", ?peer_id, "got the connection!");
-                return Some((peer_id.clone(), conn.clone()));
-            }
-        }
-        return None;
-    }
-
     // Finds a TIER1 connection for the given AccountId.
     // It is expected to perform <10 lookups total on average,
     // so the call latency should be negligible wrt sending a TCP packet.
     // If not, consider precomputing the AccountId -> Connection mapping.
     pub fn get_tier1_proxy(
         &self,
-        account_id: &AccountId,
+        account_key: &PublicKey,
     ) -> Option<(PeerId, Arc<connection::Connection>)> {
         // Prefer direct connections.
-        if let Some(res) = self.get_tier1_peer(account_id) {
+        if let Some(res) = self.get_tier1_peer(account_key) {
             return Some(res);
         }
         // In case there is no direct connection and our node is a TIER1 validator, use a proxy.
         // TODO(gprusak): add a check that our node is actually a TIER1 validator.
         let tier1 = self.tier1.load();
+        if let Some(conn) = tier1.ready_by_account_key(account_key) {
+            return (conn.peer_info.id, conn);
+        }
         let accounts_data = self.accounts_data.load();
-        for data in accounts_data.by_account.get(account_id)?.values() {
+        let data = self.accounts_datadata.get(account_key)?;
             let peer_id = match &data.peer_id {
                 Some(id) => id,
                 None => continue,
