@@ -291,6 +291,9 @@ impl ViewClientActor {
                 start_block_of_window = None;
             }
         }
+        if let Some(start) = start_block_of_window {
+            windows.push(start..next_epoch_start_height);
+        }
         Ok(windows)
     }
 

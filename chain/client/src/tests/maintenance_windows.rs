@@ -29,7 +29,7 @@ fn test_get_maintenance_windows_for_validator() {
         // block_height: 8 bp: test         cps: [AccountId("test")]
         // block_height: 9 bp: validator    cps: [AccountId("validator")]
         let actor = actor.then(|res| {
-            assert_eq!(res.unwrap().unwrap(), vec![1..2, 3..4, 5..6, 7..8]);
+            assert_eq!(res.unwrap().unwrap(), vec![1..2, 3..4, 5..6, 7..8, 9..10]);
             System::current().stop();
             future::ready(())
         });
