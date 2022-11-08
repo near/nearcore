@@ -62,17 +62,6 @@ macro_rules! common_conversions {
 
 macro_rules! common_conversions_fixed {
     ($ty:ty, $l:literal, $bytes:expr, $what:literal) => {
-        impl ::std::convert::TryFrom<&[u8]> for $ty {
-            type Error = ();
-
-            fn try_from(value: &[u8]) -> Result<Self, ()> {
-                match value.len() {
-                    $l => Self::try_from(::arrayref::array_ref!(value, 0, $l)).or(Err(())),
-                    _ => Err(()),
-                }
-            }
-        }
-
         impl AsRef<[u8; $l]> for $ty {
             fn as_ref(&self) -> &[u8; $l] {
                 ::std::convert::identity::<fn(&$ty) -> &[u8; $l]>($bytes)(self)
