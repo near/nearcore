@@ -109,7 +109,7 @@ Chunk: Ok(
 ```
 
 ```
-Side note: When we're changing the transaction into receipt, we also use this moment to deduct prepaid gas fees and transfered tokens from the 'signer' account.
+Side note: When we're changing the transaction into receipt, we also use this moment to deduct prepaid gas fees and transfered tokens from the 'signer' account. The details on how much gas is charged etc will be in a separate article.
 ```
 
 ## Step 2 - cross shard receipt
@@ -190,7 +190,7 @@ Chunk: Ok(
 Side comment: notice that receipt itself no longer has a ``signer`` field, but a ``predecessor_id`` one.
 ```
 
-Such receipt is magically (we'll explain this magic in a separate article) sent to the destination shard, where it can be executed.
+Such receipt is sent to the destination shard (we'll explain this process in a separate article) where it can be executed.
 
 ## 3. Gas refund.
 
@@ -265,6 +265,7 @@ Chunk: Ok(
 ```
 
 Such gas refunds receipts are a little bit special - as we'll set the predecessor_id to be ``system`` - but the receiver is what we expect (shard0 account).
+(``system`` is a special account that doesn't really belong to any shard - as you can see in this example, the receipt was created within shard1)
 
 
 So putting it all together would look like this:
