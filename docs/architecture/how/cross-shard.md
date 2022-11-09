@@ -271,7 +271,7 @@ So putting it all together would look like this:
 
 ![image](https://user-images.githubusercontent.com/91919554/200617392-00b9fa0c-2f15-40ad-9802-137ca9a5a15d.png)
 
-But wait - NEAR was saying that transfers are happening with 2 blocks - but I here I see that it took 3 blocks. What's wrong?
+But wait - NEAR was saying that transfers are happening with 2 blocks - but here I see that it took 3 blocks. What's wrong?
 
 The image above is a simplification, and reality is a little bit tricker - especially as receipts in a given chunks are actually receipts received as a result from running a PREVIOUS chunk from this shard.
 
