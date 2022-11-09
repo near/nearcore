@@ -3,7 +3,9 @@ use assert_matches::assert_matches;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use near_chain_primitives::Error;
 use near_primitives::types::{BlockHeight, ShardId};
-use near_store::flat_state::{store_helper, FlatStorageStateStatus, NUM_PARTS_IN_ONE_STEP};
+#[cfg(feature = "protocol_feature_flat_state")]
+use near_store::flat_state::store_helper;
+use near_store::flat_state::{FlatStorageStateStatus, NUM_PARTS_IN_ONE_STEP};
 use std::sync::Arc;
 use tracing::info;
 
@@ -11,8 +13,10 @@ use tracing::info;
 /// This struct is responsible for this process for the given shard.
 /// See doc comment on [`FlatStorageStateStatus`] for the details of the process.
 pub struct FlatStorageShardCreator {
+    #[allow(unused)]
     shard_id: ShardId,
     /// Height on top of which this struct was created.
+    #[allow(unused)]
     start_height: BlockHeight,
     #[allow(unused)]
     runtime_adapter: Arc<dyn RuntimeAdapter>,
@@ -141,11 +145,10 @@ impl FlatStorageCreator {
         }
     }
 
-    #[cfg(feature = "protocol_feature_flat_state")]
     pub fn update_status(
         &mut self,
         shard_id: ShardId,
-        chain_store: &ChainStore,
+        #[allow(unused_variables)] chain_store: &ChainStore,
     ) -> Result<(), Error> {
         if shard_id as usize >= self.shard_creators.len() {
             // We can request update for not supported shard if resharding happens. We don't support it yet, so we just
@@ -153,6 +156,7 @@ impl FlatStorageCreator {
             return Ok(());
         }
 
+        #[cfg(feature = "protocol_feature_flat_state")]
         self.shard_creators[shard_id as usize].update_status(chain_store)
     }
 }

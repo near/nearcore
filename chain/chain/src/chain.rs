@@ -2167,7 +2167,6 @@ impl Chain {
                         }
                     });
                 } else {
-                    #[cfg(feature = "protocol_feature_flat_state")]
                     match &mut self.flat_storage_creator {
                         Some(flat_storage_creator) => {
                             flat_storage_creator.update_status(shard_id, &self.store)?;
