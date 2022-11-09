@@ -138,20 +138,22 @@ fn validator_records(
     Ok(records)
 }
 
-fn parse_validators<P: AsRef<Path>>(path: P) -> anyhow::Result<Vec<AccountInfo>> {
-    let validators = std::fs::read_to_string(path.as_ref())
-        .with_context(|| format!("failed reading from {:?}", path.as_ref()))?;
+fn parse_validators(path: &Path) -> anyhow::Result<Vec<AccountInfo>> {
+    let validators = std::fs::read_to_string(path)
+        .with_context(|| format!("failed reading from {}", path.display()))?;
     let validators = serde_json::from_str(&validators)
-        .with_context(|| format!("failed deserializing from {:?}", path.as_ref()))?;
+        .with_context(|| format!("failed deserializing from {}", path.display()))?;
     Ok(validators)
 }
 
-fn parse_extra_records<P: AsRef<Path>>(
-    records_file: P,
+fn parse_extra_records(
+    records_file: &Path,
     num_bytes_account: u64,
 ) -> anyhow::Result<HashMap<AccountId, AccountRecords>> {
     let reader =
-        BufReader::new(File::open(records_file).context("Failed opening --extra-records")?);
+        BufReader::new(File::open(records_file).with_context(|| {
+            format!("Failed opening validators file {}", records_file.display())
+        })?);
     let mut records = HashMap::new();
 
     let mut result = Ok(());
@@ -200,9 +202,9 @@ fn parse_extra_records<P: AsRef<Path>>(
     Ok(records)
 }
 
-fn wanted_records<P: AsRef<Path>>(
+fn wanted_records(
     validators: &[AccountInfo],
-    extra_records: Option<P>,
+    extra_records: Option<&Path>,
     num_bytes_account: u64,
 ) -> anyhow::Result<HashMap<AccountId, AccountRecords>> {
     let mut records = validator_records(validators, num_bytes_account)?;
@@ -244,14 +246,14 @@ pub struct GenesisChanges {
 }
 
 /// Amend a genesis/records file created by `dump-state`.
-pub fn amend_genesis<P: AsRef<Path>>(
-    genesis_file_in: P,
-    genesis_file_out: P,
-    records_file_in: P,
-    records_file_out: P,
-    extra_records: Option<P>,
-    validators: P,
-    shard_layout_file: Option<P>,
+pub fn amend_genesis(
+    genesis_file_in: &Path,
+    genesis_file_out: &Path,
+    records_file_in: &Path,
+    records_file_out: &Path,
+    extra_records: Option<&Path>,
+    validators: &Path,
+    shard_layout_file: Option<&Path>,
     genesis_changes: &GenesisChanges,
     num_bytes_account: u64,
     num_extra_bytes_record: u64,
@@ -259,7 +261,8 @@ pub fn amend_genesis<P: AsRef<Path>>(
     let mut genesis = Genesis::from_file(genesis_file_in, GenesisValidationMode::UnsafeFast);
 
     let shard_layout = if let Some(path) = shard_layout_file {
-        let s = std::fs::read_to_string(path).context("failed reading from --shard-layout-file")?;
+        let s = std::fs::read_to_string(path)
+            .with_context(|| format!("failed reading shard layout file {}", path.display()))?;
         Some(
             serde_json::from_str::<ShardLayout>(&s)
                 .context("failed deserializing --shard-layout-file")?,
@@ -268,11 +271,12 @@ pub fn amend_genesis<P: AsRef<Path>>(
         None
     };
 
-    let reader =
-        BufReader::new(File::open(records_file_in).context("Failed opening --records-file-in")?);
-    let records_out = BufWriter::new(
-        File::create(records_file_out).context("Failed opening --records-file-out")?,
-    );
+    let reader = BufReader::new(File::open(records_file_in).with_context(|| {
+        format!("Failed opening input records file {}", records_file_in.display())
+    })?);
+    let records_out = BufWriter::new(File::create(records_file_out).with_context(|| {
+        format!("Failed opening output records file {}", records_file_out.display())
+    })?);
     let mut records_ser = serde_json::Serializer::new(records_out);
     let mut records_seq = records_ser.serialize_seq(None).unwrap();
 
