@@ -286,7 +286,7 @@ So our image should look more like this:
 
 In this example, the black boxes are representing the 'processing' of the chunk, and red arrows are cross-shard communication.
 
-So when we process Shard 0 from block 1676, we read the transation, and output the receipt - which later magically travels to become the input for shard1 in block 1677.
+So when we process Shard 0 from block 1676, we read the transation, and output the receipt - which later becomes the input for shard1 in block 1677.
 
 But you might still be wondering -- so why didn't we add the Receipt(transfer) to the list of receipts of shard0 1676? 
 
