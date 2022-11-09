@@ -2,7 +2,7 @@
 
 In this article, we'll look deeper into how cross-shard transactions are working on the simple example of user 'shard0' transfering money to user 'shard1'.
 
-These users are on separate shards (shard0 is on shard 0 and shard1 is on shard 1).
+These users are on separate shards (``shard0`` is on shard 0 and ``shard1`` is on shard 1).
 
 Imagine, we call the following command line:
 
@@ -42,7 +42,7 @@ As the first step, we want to change this transaction into a Receipt (a.k.a 'int
 
 The last point above means, that we MUST execute this Transaction to Receipt transition within the shard that the ``signer`` belongs to (as other shards don't know the state that belongs to signer - so they don't know which keys it has).
 
-So actually if we look inside the chunk 0 (where shard0 belongs to) at block B, we'll see the transaction:
+So actually if we look inside the chunk 0 (where ``shard0`` belongs to) at block B, we'll see the transaction:
 
 ```
 Chunk: Ok(
@@ -114,7 +114,7 @@ Side note: When we're changing the transaction into receipt, we also use this mo
 
 ## Step 2 - cross shard receipt
 
-After transaction was changed into the receipt, this receipt must now be sent to the shard where ``receiver`` is (in our example 'shard1' is on shard 1).
+After transaction was changed into the receipt, this receipt must now be sent to the shard where ``receiver`` is (in our example ``shard1`` is on shard 1).
 
 We can actually see this in the chunk of the next block:
 
@@ -194,7 +194,7 @@ Such receipt is sent to the destination shard (we'll explain this process in a s
 
 ## 3. Gas refund.
 
-When shard 1 processes the receipt above, it is then ready to refund the unused gas to the original account (shard0). So it also creates the receipt, and puts it inside the chunk. This time it is in shard1 (as that's where it was executed).
+When shard 1 processes the receipt above, it is then ready to refund the unused gas to the original account (``shard0``). So it also creates the receipt, and puts it inside the chunk. This time it is in shard 1 (as that's where it was executed).
 
 ```
 Chunk: Ok(
@@ -264,8 +264,8 @@ Chunk: Ok(
 )
 ```
 
-Such gas refunds receipts are a little bit special - as we'll set the predecessor_id to be ``system`` - but the receiver is what we expect (shard0 account).
-(``system`` is a special account that doesn't really belong to any shard - as you can see in this example, the receipt was created within shard1)
+Such gas refunds receipts are a little bit special - as we'll set the predecessor_id to be ``system`` - but the receiver is what we expect (``shard0`` account).
+(``system`` is a special account that doesn't really belong to any shard - as you can see in this example, the receipt was created within shard 1)
 
 
 So putting it all together would look like this:
@@ -287,7 +287,7 @@ So our image should look more like this:
 
 In this example, the black boxes are representing the 'processing' of the chunk, and red arrows are cross-shard communication.
 
-So when we process Shard 0 from block 1676, we read the transation, and output the receipt - which later becomes the input for shard1 in block 1677.
+So when we process Shard 0 from block 1676, we read the transation, and output the receipt - which later becomes the input for shard 1 in block 1677.
 
 But you might still be wondering -- so why didn't we add the Receipt(transfer) to the list of receipts of shard0 1676? 
 
