@@ -194,7 +194,7 @@ Such receipt is magically (we'll explain this magic in a separate article) sent 
 
 ## 3. Gas refund.
 
-When shard 1 processes the receipt above, it is then ready to refunt the unused gas to the original account (shard0). So it also creates the receipt, and puts it inside the chunk. This time it is in shard1 (as that's where it was executed).
+When shard 1 processes the receipt above, it is then ready to refund the unused gas to the original account (shard0). So it also creates the receipt, and puts it inside the chunk. This time it is in shard1 (as that's where it was executed).
 
 ```
 Chunk: Ok(
