@@ -1,6 +1,6 @@
 # Rust 🦀
 
-This short chapter collets various useful general resources about the Rust
+This short chapter collects various useful general resources about the Rust
 programming language. If you are already are familiar with Rust, skip this
 chapter. Otherwise, this chapter is for you!
 
