@@ -11,8 +11,7 @@ use crate::peer_manager::connection;
 use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::private_actix::{
-    PeerToManagerMsg, PeerToManagerMsgResp, PeersRequest, PeersResponse, RegisterPeer,
-    RegisterPeerError, RegisterPeerResponse, SendMessage,
+    PeerToManagerMsg, PeersRequest, PeersResponse, RegisterPeerError, SendMessage,
 };
 use crate::routing::edge::verify_nonce;
 use crate::stats::metrics;
@@ -511,6 +510,9 @@ impl PeerActor {
             send_accounts_data_demux: demux::Demux::new(
                 self.network_state.config.accounts_data_broadcast_rate_limit,
             ),
+            send_routing_table_update_demux: demux::Demux::new(
+                self.network_state.config.routing_table_update_rate_limit,
+            ),
         });
 
         let tracker = self.tracker.clone();
@@ -556,14 +558,15 @@ impl PeerActor {
         // decides whether to accept the connection or not: ctx.wait makes
         // the actor event loop poll on the future until it completes before
         // processing any other events.
-        ctx.wait(wrap_future(self.network_state.peer_manager_addr
-                .send(PeerToManagerMsg::RegisterPeer(RegisterPeer {
-                    connection: conn.clone(),
-                }).with_span_context())
-            )
-            .then(move |res, act: &mut PeerActor, ctx| {
-                match res.map(|r|r.unwrap_consolidate_response()) {
-                    Ok(RegisterPeerResponse::Accept) => {
+        ctx.wait(wrap_future({
+            let network_state = self.network_state.clone();
+            let clock = self.clock.clone();
+            let conn = conn.clone();
+            async move { network_state.register(&clock,conn).await }
+        })
+            .map(move |res, act: &mut PeerActor, ctx| {
+                match res {
+                    Ok(()) => {
                         act.peer_info = Some(peer_info).into();
                         act.peer_status = PeerStatus::Ready(conn.clone());
                         // Respond to handshake if it's inbound and connection was consolidated.
@@ -586,8 +589,7 @@ impl PeerActor {
                                 RoutingTableUpdate::from_edges(vec![conn.edge.clone()]),
                             )));
                         }
-                        // Sync the RoutingTable.
-                        act.sync_routing_table();
+
                         // Exchange peers periodically.
                         ctx.spawn(wrap_future({
                             let conn = conn.clone();
@@ -601,22 +603,18 @@ impl PeerActor {
                                 }
                             }
                         }));
+                        // Sync the RoutingTable.
+                        act.sync_routing_table();
                         act.network_state.config.event_sink.push(Event::HandshakeCompleted(HandshakeCompletedEvent{
                             stream_id: act.stream_id,
                             edge: conn.edge.clone(),
                         }));
                     },
-                    Ok(RegisterPeerResponse::Reject(err)) => {
-                        info!(target: "network", "{:?}: Connection with {:?} rejected by PeerManager: {:?}", act.my_node_id(),conn.peer_info.id,err);
+                    Err(err) => {
+                        tracing::info!(target: "network", "{:?}: Connection with {:?} rejected by PeerManager: {:?}", act.my_node_id(),conn.peer_info.id,err);
                         act.stop(ctx,ClosingReason::RejectedByPeerManager(err));
                     }
-                    Err(err) => {
-                        // TODO(gprusak): this shouldn't happen at all.
-                        info!(target: "network", "{:?}: Peer with handshake {:?} wasn't consolidated, disconnecting: {err:?}", act.my_node_id(), handshake);
-                        act.stop(ctx,ClosingReason::HandshakeFailed);
-                    }
-                };
-                actix::fut::ready(())
+                }
             })
         );
     }
@@ -873,7 +871,7 @@ impl PeerActor {
     fn handle_msg_ready(
         &mut self,
         ctx: &mut actix::Context<Self>,
-        conn: &connection::Connection,
+        conn: Arc<connection::Connection>,
         peer_msg: PeerMessage,
     ) {
         let _span = tracing::trace_span!(
@@ -912,35 +910,33 @@ impl PeerActor {
                 self.network_state.config.event_sink.push(Event::MessageProcessed(peer_msg));
             }
             PeerMessage::RequestUpdateNonce(edge_info) => {
-                ctx.spawn(
-                    wrap_future(
-                        self.network_state
-                            .peer_manager_addr
-                            .send(
-                                PeerToManagerMsg::RequestUpdateNonce(
-                                    self.other_peer_id().unwrap().clone(),
-                                    edge_info,
-                                )
-                                .with_span_context(),
-                            )
-                            .in_current_span(),
-                    )
-                    .then(|res, act: &mut PeerActor, ctx| {
-                        match res.map(|f| f) {
-                            Ok(PeerToManagerMsgResp::EdgeUpdate(edge)) => {
-                                act.send_message_or_log(&PeerMessage::SyncRoutingTable(
-                                    RoutingTableUpdate::from_edges(vec![*edge]),
-                                ));
-                            }
-                            Ok(PeerToManagerMsgResp::BanPeer(reason_for_ban)) => {
-                                act.stop(ctx, ClosingReason::Ban(reason_for_ban));
-                            }
-                            _ => {}
+                let clock = self.clock.clone();
+                let network_state = self.network_state.clone();
+                ctx.spawn(wrap_future(async move {
+                    let peer_id = &conn.peer_info.id;
+                    let edge = match network_state.routing_table_view.get_local_edge(peer_id) {
+                        Some(cur_edge)
+                            if cur_edge.edge_type() == EdgeState::Active
+                                && cur_edge.nonce() >= edge_info.nonce =>
+                        {
+                            cur_edge.clone()
                         }
-                        act.network_state.config.event_sink.push(Event::MessageProcessed(peer_msg));
-                        actix::fut::ready(())
-                    }),
-                );
+                        _ => match network_state
+                            .finalize_edge(&clock, peer_id.clone(), edge_info)
+                            .await
+                        {
+                            Ok(edge) => edge,
+                            Err(ban_reason) => {
+                                conn.stop(Some(ban_reason));
+                                return;
+                            }
+                        },
+                    };
+                    conn.send_message(Arc::new(PeerMessage::SyncRoutingTable(
+                        RoutingTableUpdate::from_edges(vec![edge]),
+                    )));
+                    network_state.config.event_sink.push(Event::MessageProcessed(peer_msg));
+                }));
             }
             PeerMessage::SyncRoutingTable(rtu) => {
                 self.handle_sync_routing_table(ctx, conn, rtu);
@@ -1045,7 +1041,7 @@ impl PeerActor {
                                 .event_sink
                                 .push(Event::MessageProcessed(PeerMessage::Routed(msg)));
                         }
-                        _ => self.receive_message(ctx, conn, PeerMessage::Routed(msg.clone())),
+                        _ => self.receive_message(ctx, &conn, PeerMessage::Routed(msg.clone())),
                     }
                 } else {
                     if msg.decrease_ttl() {
@@ -1059,54 +1055,54 @@ impl PeerActor {
                     }
                 }
             }
-            msg => self.receive_message(ctx, conn, msg),
+            msg => self.receive_message(ctx, &conn, msg),
         }
     }
 
     fn handle_sync_routing_table(
-        &mut self,
+        &self,
         ctx: &mut actix::Context<Self>,
-        conn: &connection::Connection,
+        conn: Arc<connection::Connection>,
         rtu: RoutingTableUpdate,
     ) {
         let _span = tracing::trace_span!(target: "network", "handle_sync_routing_table").entered();
         // Process edges and add new edges to the routing table. Also broadcast new edges.
-        let edges = rtu.edges;
-        let accounts = rtu.accounts;
-
-        // For every announce we received, we fetch the last announce with the same account_id
-        // that we already broadcasted. Client actor will both verify signatures of the received announces
-        // as well as filter out those which are older than the fetched ones (to avoid overriding
-        // a newer announce with an older one).
-        let old = self
-            .network_state
-            .routing_table_view
-            .get_broadcasted_announces(accounts.iter().map(|a| &a.account_id));
-        let accounts: Vec<(AnnounceAccount, Option<EpochId>)> = accounts
-            .into_iter()
-            .map(|aa| {
-                let id = aa.account_id.clone();
-                (aa, old.get(&id).map(|old| old.epoch_id.clone()))
-            })
-            .collect();
-
-        // Ask client to validate accounts before accepting them.
-        let network_state = self.network_state.clone();
-        self.network_state
-            .validate_edges_and_add_to_routing_table(conn.peer_info.id.clone(), edges);
-        ctx.spawn(
-            wrap_future(
-                async move { network_state.client.announce_account(accounts).await }
-                    .in_current_span(),
-            )
-            .then(move |res, act: &mut PeerActor, ctx| {
-                match res {
-                    Err(ban_reason) => act.stop(ctx, ClosingReason::Ban(ban_reason)),
-                    Ok(accounts) => act.network_state.broadcast_accounts(accounts),
+        ctx.spawn(wrap_future({
+            let edges = rtu.edges;
+            let conn = conn.clone();
+            let network_state = self.network_state.clone();
+            let clock = self.clock.clone();
+            async move {
+                if let Err(ban_reason) = network_state.add_edges(&clock, edges).await {
+                    conn.stop(Some(ban_reason));
                 }
-                wrap_future(async {})
-            }),
-        );
+            }
+        }));
+        ctx.spawn(wrap_future({
+            let accounts = rtu.accounts;
+            let conn = conn.clone();
+            let network_state = self.network_state.clone();
+            async move {
+                // For every announce we received, we fetch the last announce with the same account_id
+                // that we already broadcasted. Client actor will both verify signatures of the received announces
+                // as well as filter out those which are older than the fetched ones (to avoid overriding
+                // a newer announce with an older one).
+                let old = network_state
+                    .routing_table_view
+                    .get_broadcasted_announces(accounts.iter().map(|a| &a.account_id));
+                let accounts: Vec<(AnnounceAccount, Option<EpochId>)> = accounts
+                    .into_iter()
+                    .map(|aa| {
+                        let id = aa.account_id.clone();
+                        (aa, old.get(&id).map(|old| old.epoch_id.clone()))
+                    })
+                    .collect();
+                match network_state.client.announce_account(accounts).await {
+                    Err(ban_reason) => conn.stop(Some(ban_reason)),
+                    Ok(accounts) => network_state.add_accounts(accounts).await,
+                }
+            }
+        }));
     }
 }
 
@@ -1296,7 +1292,7 @@ impl actix::Handler<stream::Frame> for PeerActor {
                     }
                 }
                 // Handle the message.
-                self.handle_msg_ready(ctx, &conn.clone(), peer_msg);
+                self.handle_msg_ready(ctx, conn.clone(), peer_msg);
             }
         }
     }

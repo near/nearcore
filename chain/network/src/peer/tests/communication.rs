@@ -1,6 +1,7 @@
 use crate::network_protocol::testonly as data;
-use crate::network_protocol::Encoding;
-use crate::network_protocol::{Handshake, HandshakeFailureReason, PeerMessage, RoutedMessageBody};
+use crate::network_protocol::{
+    Encoding, Handshake, HandshakeFailureReason, PartialEdgeInfo, PeerMessage, RoutedMessageBody,
+};
 use crate::peer::testonly::{Event, PeerConfig, PeerHandle};
 use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::tcp;
@@ -18,6 +19,8 @@ async fn test_peer_communication(
     outbound_encoding: Option<Encoding>,
     inbound_encoding: Option<Encoding>,
 ) -> anyhow::Result<()> {
+    tracing::info!("test_peer_communication({outbound_encoding:?},{inbound_encoding:?})");
+
     let mut rng = make_rng(89028037453);
     let mut clock = time::FakeClock::default();
 
@@ -53,7 +56,12 @@ async fn test_peer_communication(
 
     tracing::info!(target:"test","RequestUpdateNonce");
     let mut events = inbound.events.from_now();
-    let want = PeerMessage::RequestUpdateNonce(data::make_partial_edge(&mut rng));
+    let want = PeerMessage::RequestUpdateNonce(PartialEdgeInfo::new(
+        &outbound.cfg.network.node_id(),
+        &inbound.cfg.network.node_id(),
+        15,
+        &outbound.cfg.network.node_key,
+    ));
     outbound.send(want.clone()).await;
     events.recv_until(message_processed(want)).await;
 

@@ -9,7 +9,7 @@ use crate::peer::peer_actor::{ClosingReason, PeerActor};
 use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_manager_actor;
 use crate::peer_manager::peer_store;
-use crate::private_actix::{PeerRequestResult, RegisterPeerResponse, SendMessage};
+use crate::private_actix::{PeerRequestResult, SendMessage};
 use crate::private_actix::{PeerToManagerMsg, PeerToManagerMsgResp};
 use crate::store;
 use crate::tcp;
@@ -73,10 +73,6 @@ impl Handler<WithSpanContext<PeerToManagerMsg>> for FakePeerManagerActor {
         let (_span, msg) = handler_debug_span!(target: "network", msg, msg_type);
         println!("{}: PeerManager message {}", self.cfg.id(), msg_type);
         match msg {
-            PeerToManagerMsg::RegisterPeer(..) => {
-                PeerToManagerMsgResp::RegisterPeer(RegisterPeerResponse::Accept)
-            }
-            PeerToManagerMsg::RequestUpdateNonce(..) => PeerToManagerMsgResp::Empty,
             PeerToManagerMsg::PeersRequest(_) => {
                 // PeerActor would panic if we returned a different response.
                 // This also triggers sending a message to the peer.
