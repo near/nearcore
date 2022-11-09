@@ -1,5 +1,4 @@
 use anyhow::Context;
-pub use cli::PingCommand;
 use near_network::raw::{ConnectError, Connection, ReceivedMessage};
 use near_network::time;
 use near_network::types::HandshakeFailureReason;
@@ -16,6 +15,8 @@ use std::pin::Pin;
 pub mod cli;
 mod csv;
 mod metrics;
+
+pub use cli::PingCommand;
 
 // TODO: also log number of bytes/other messages (like Blocks) received?
 #[derive(Debug, Default)]
