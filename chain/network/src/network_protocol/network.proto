@@ -326,7 +326,9 @@ message TraceContext {
     AutoKeep = 3;
     UserKeep = 4;
   }
+  // 16 bytes representing TraceId: https://docs.rs/opentelemetry/latest/opentelemetry/trace/struct.TraceId.html
   bytes trace_id = 1;
+  // 8 bytes representing SpanId: https://docs.rs/opentelemetry/latest/opentelemetry/trace/struct.SpanId.html
   bytes span_id = 2;
   SamplingPriority sampling_priority = 3;
 }

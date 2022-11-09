@@ -4,7 +4,6 @@ mod borsh_;
 mod borsh_conv;
 mod edge;
 mod peer;
-mod propagator;
 mod proto_conv;
 pub use edge::*;
 pub use peer::*;
@@ -20,7 +19,9 @@ mod _proto {
 
 pub use _proto::network as proto;
 
-use crate::network_protocol::propagator::NodePropagator;
+use crate::network_protocol::proto_conv::trace_context::{
+    extract_span_context, inject_trace_context,
+};
 use crate::time;
 use borsh::{BorshDeserialize as _, BorshSerialize as _};
 use near_crypto::PublicKey;
@@ -286,14 +287,15 @@ pub enum ParsePeerMessageError {
 }
 
 impl PeerMessage {
+    /// Serializes a message in the given encoding.
+    /// If the encoding is `Proto`, then also attaches current Span's context to the message.
     pub(crate) fn serialize(&self, enc: Encoding) -> Vec<u8> {
         match enc {
             Encoding::Borsh => borsh_::PeerMessage::from(self).try_to_vec().unwrap(),
             Encoding::Proto => {
                 let mut msg = proto::PeerMessage::from(self);
-                let propagator = NodePropagator::new();
                 let cx = Span::current().context();
-                msg.trace_context = propagator.inject_trace_context(&cx);
+                msg.trace_context = inject_trace_context(&cx);
                 msg.write_to_bytes().unwrap()
             }
         }
@@ -312,13 +314,8 @@ impl PeerMessage {
             Encoding::Proto => {
                 let proto_msg: proto::PeerMessage = proto::PeerMessage::parse_from_bytes(data)
                     .map_err(ParsePeerMessageError::ProtoDecode)?;
-                if proto_msg.trace_context.is_some() {
-                    let propagator = NodePropagator::new();
-                    if let Ok(extracted_span_context) =
-                        propagator.extract_span_context(&proto_msg.trace_context)
-                    {
-                        span.clone().or_current().add_link(extracted_span_context);
-                    }
+                if let Ok(extracted_span_context) = extract_span_context(&proto_msg.trace_context) {
+                    span.clone().or_current().add_link(extracted_span_context);
                 }
                 (&proto_msg).try_into().map_err(|err| ParsePeerMessageError::ProtoConv(err))?
             }
