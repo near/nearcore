@@ -3013,7 +3013,6 @@ dependencies = [
 name = "near-crypto"
 version = "0.0.0"
 dependencies = [
- "arrayref",
  "blake2",
  "borsh",
  "bs58",
