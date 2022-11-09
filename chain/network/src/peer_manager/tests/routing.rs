@@ -152,7 +152,7 @@ async fn repeated_data_in_sync_routing_table() {
         }
         // Add more data.
         let key = data::make_secret_key(rng);
-        edges_want.insert(data::make_edge(&peer.cfg.network.node_key, &key));
+        edges_want.insert(data::make_edge(&peer.cfg.network.node_key, &key, 1));
         accounts_want.insert(data::make_announce_account(rng));
         // Send all the data created so far. PeerManager is expected to discard the duplicates.
         peer.send(PeerMessage::SyncRoutingTable(RoutingTableUpdate {
@@ -218,8 +218,8 @@ async fn no_edge_broadcast_after_restart() {
 
         // Create a bunch of fresh unreachable edges, then send all the edges created so far.
         let mut fresh_edges: HashSet<_> = [
-            data::make_edge(&data::make_secret_key(rng), &data::make_secret_key(rng)),
-            data::make_edge(&data::make_secret_key(rng), &data::make_secret_key(rng)),
+            data::make_edge(&data::make_secret_key(rng), &data::make_secret_key(rng), 1),
+            data::make_edge(&data::make_secret_key(rng), &data::make_secret_key(rng), 1),
             data::make_edge_tombstone(&data::make_secret_key(rng), &data::make_secret_key(rng)),
         ]
         .into();
@@ -322,7 +322,7 @@ async fn fix_local_edges() {
         .await;
     // TODO(gprusak): the case when the edge is updated via UpdateNondeRequest is not covered yet,
     // as it requires awaiting for the RPC roundtrip which is not implemented yet.
-    let edge1 = data::make_edge(&pm.cfg.node_key, &data::make_secret_key(rng));
+    let edge1 = data::make_edge(&pm.cfg.node_key, &data::make_secret_key(rng), 1);
     let edge2 = conn
         .edge
         .as_ref()

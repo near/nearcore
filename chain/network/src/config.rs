@@ -218,7 +218,7 @@ impl NetworkConfig {
             outbound_disabled: false,
             archive,
             accounts_data_broadcast_rate_limit: demux::RateLimit { qps: 0.1, burst: 1 },
-            routing_table_update_rate_limit: demux::RateLimit { qps: 0.2, burst: 1 },
+            routing_table_update_rate_limit: demux::RateLimit { qps: 0.5, burst: 1 },
             features,
             inbound_disabled: cfg.experimental.inbound_disabled,
             skip_tombstones: if cfg.experimental.skip_sending_tombstones_seconds > 0 {

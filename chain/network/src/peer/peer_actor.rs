@@ -562,7 +562,6 @@ impl PeerActor {
             .map(move |res, act: &mut PeerActor, ctx| {
                 match res {
                     Ok(()) => {
-
                         act.peer_info = Some(peer_info).into();
                         act.peer_status = PeerStatus::Ready(conn.clone());
                         // Respond to handshake if it's inbound and connection was consolidated.
@@ -1041,13 +1040,12 @@ impl PeerActor {
 
     fn handle_sync_routing_table(
         &self,
-        ctx: &mut Context<Self>,
+        ctx: &mut actix::Context<Self>,
         conn: Arc<connection::Connection>,
         rtu: RoutingTableUpdate,
     ) {
         let _span = tracing::trace_span!(target: "network", "handle_sync_routing_table").entered();
         // Process edges and add new edges to the routing table. Also broadcast new edges.
-
         ctx.spawn(wrap_future({
             let edges = rtu.edges;
             let conn = conn.clone();

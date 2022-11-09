@@ -133,7 +133,7 @@ async fn gradual_epoch_change() {
     let vs: Vec<_> = pms.iter().map(|pm| pm.cfg.validator.clone().unwrap()).collect();
 
     // For every order of nodes.
-    for ids in (0..pms.len()).permutations(3) {
+    for ids in (0..pms.len()).permutations(pms.len()) {
         // Construct ChainInfo for a new epoch,
         // with tier1_accounts containing all validators.
         let e = data::make_epoch_id(rng);

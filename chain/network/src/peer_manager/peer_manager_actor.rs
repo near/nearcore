@@ -27,6 +27,8 @@ use near_o11y::{handler_trace_span, OpenTelemetrySpanExt, WithSpanContext, WithS
 use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
 use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::views::EdgeView;
+use near_primitives::views::NetworkGraphView;
 use near_primitives::views::{KnownPeerStateView, PeerStoreView};
 use rand::seq::IteratorRandom;
 use rand::thread_rng;
@@ -179,10 +181,10 @@ impl Actor for PeerManagerActor {
                 tokio::time::interval(UPDATE_ROUTING_TABLE_INTERVAL.try_into().unwrap());
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             loop {
+                interval.tick().await;
                 let _timer = metrics::PEER_MANAGER_TRIGGER_TIME
                     .with_label_values(&["update_routing_table"])
                     .start_timer();
-                interval.tick().await;
                 state
                     .update_routing_table(
                         clock.now().checked_sub(PRUNE_UNREACHABLE_PEERS_AFTER),
@@ -1059,6 +1061,19 @@ impl Handler<GetDebugStatus> for PeerManagerActor {
                 });
                 DebugStatus::PeerStore(PeerStoreView { peer_states: peer_states_view })
             }
+            GetDebugStatus::Graph => DebugStatus::Graph(NetworkGraphView {
+                edges: self
+                    .state
+                    .graph
+                    .read()
+                    .edges()
+                    .iter()
+                    .map(|(_, edge)| {
+                        let key = edge.key();
+                        EdgeView { peer0: key.0.clone(), peer1: key.1.clone(), nonce: edge.nonce() }
+                    })
+                    .collect(),
+            }),
         }
     }
 }

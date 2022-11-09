@@ -134,6 +134,12 @@ expensive integration-tests integration_tests tests::client::chunks_management::
 expensive integration-tests integration_tests tests::client::chunks_management::chunks_recovered_from_full_timeout_too_short --features nightly
 expensive integration-tests integration_tests tests::client::chunks_management::chunks_recovered_from_others
 expensive integration-tests integration_tests tests::client::chunks_management::chunks_recovered_from_others --features nightly
+expensive integration-tests integration_tests tests::client::chunks_management::chunks_recovered_from_full_cop
+expensive integration-tests integration_tests tests::client::chunks_management::chunks_recovered_from_full_cop --features nightly
+expensive integration-tests integration_tests tests::client::chunks_management::chunks_recovered_from_full_timeout_too_short_cop
+expensive integration-tests integration_tests tests::client::chunks_management::chunks_recovered_from_full_timeout_too_short_cop --features nightly
+expensive integration-tests integration_tests tests::client::chunks_management::chunks_recovered_from_others_cop
+expensive integration-tests integration_tests tests::client::chunks_management::chunks_recovered_from_others_cop --features nightly
 expensive integration-tests integration_tests tests::client::process_blocks::test_gc_after_state_sync
 expensive integration-tests integration_tests tests::client::process_blocks::test_gc_after_state_sync --features nightly
 expensive integration-tests integration_tests tests::client::process_blocks::test_process_block_after_state_sync
