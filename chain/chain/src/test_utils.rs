@@ -23,6 +23,8 @@ use near_primitives::block_header::{Approval, ApprovalInner};
 use near_primitives::challenge::ChallengesResult;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
+use near_primitives::epoch_manager::EpochConfig;
+use near_primitives::epoch_manager::ValidatorSelectionConfig;
 use near_primitives::errors::{EpochError, InvalidTxError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
@@ -461,6 +463,34 @@ impl EpochManagerAdapter for KeyValueRuntime {
 
     fn shard_id_to_uid(&self, shard_id: ShardId, _epoch_id: &EpochId) -> Result<ShardUId, Error> {
         Ok(ShardUId { version: 0, shard_id: shard_id as u32 })
+    }
+
+    fn get_block_info(&self, _hash: &CryptoHash) -> Result<Arc<BlockInfo>, Error> {
+        Ok(Default::default())
+    }
+
+    fn get_epoch_config(&self, _epoch_id: &EpochId) -> Result<EpochConfig, Error> {
+        Ok(EpochConfig {
+            epoch_length: 10,
+            num_block_producer_seats: 2,
+            num_block_producer_seats_per_shard: vec![1, 1],
+            avg_hidden_validator_seats_per_shard: vec![1, 1],
+            block_producer_kickout_threshold: 0,
+            chunk_producer_kickout_threshold: 0,
+            validator_max_kickout_stake_perc: 0,
+            online_min_threshold: Ratio::new(1i32, 4i32),
+            online_max_threshold: Ratio::new(3i32, 4i32),
+            fishermen_threshold: 1,
+            minimum_stake_divisor: 1,
+            protocol_upgrade_stake_threshold: Ratio::new(3i32, 4i32),
+            protocol_upgrade_num_epochs: 100,
+            shard_layout: ShardLayout::v1_test(),
+            validator_selection_config: ValidatorSelectionConfig::default(),
+        })
+    }
+
+    fn get_epoch_info(&self, _epoch_id: &EpochId) -> Result<Arc<EpochInfo>, Error> {
+        Ok(Arc::new(EpochInfo::v1_test()))
     }
 
     fn get_shard_layout(&self, _epoch_id: &EpochId) -> Result<ShardLayout, Error> {

@@ -41,6 +41,7 @@ near-telemetry = { path = "../telemetry" }
 near-o11y = { path = "../../core/o11y" }
 near-performance-metrics = { path = "../../utils/near-performance-metrics" }
 near-performance-metrics-macros = { path = "../../utils/near-performance-metrics-macros" }
+near-epoch-manager = { path = "../epoch-manager" }
 delay-detector = { path = "../../tools/delay-detector" }
 
 [dev-dependencies]

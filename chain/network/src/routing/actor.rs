@@ -1,18 +1,11 @@
 use crate::network_protocol::Edge;
-use crate::private_actix::{StopMsg, ValidateEdgeList};
+use crate::private_actix::StopMsg;
 use crate::routing;
-use crate::routing::edge_validator_actor::EdgeValidatorActor;
 use crate::stats::metrics;
 use crate::store;
 use crate::time;
-use actix::{
-    Actor as _, ActorContext as _, ActorFutureExt, Addr, Context, ContextFutureSpawner as _,
-    Running, WrapFuture as _,
-};
-use near_o11y::{
-    handler_debug_span, handler_trace_span, OpenTelemetrySpanExt, WithSpanContext,
-    WithSpanContextExt,
-};
+use actix::{Actor as _, ActorContext as _, Context, Running};
+use near_o11y::{handler_debug_span, handler_trace_span, OpenTelemetrySpanExt, WithSpanContext};
 use near_performance_metrics_macros::perf;
 use near_primitives::network::PeerId;
 use parking_lot::RwLock;
@@ -41,13 +34,6 @@ pub(crate) struct Actor {
     store: store::Store,
     /// Last time a peer was reachable.
     peer_reachable_at: HashMap<PeerId, time::Instant>,
-    /// List of Peers to ban
-    peers_to_ban: Vec<PeerId>,
-    /// EdgeValidatorActor, which is responsible for validating edges.
-    edge_validator_pool: Addr<EdgeValidatorActor>,
-    /// Number of edge validations in progress; We will not update routing table as long as
-    /// this number is non zero.
-    edge_validator_requests_in_progress: u64,
 }
 
 impl Actor {
@@ -57,16 +43,7 @@ impl Actor {
         graph: Arc<RwLock<routing::GraphWithCache>>,
     ) -> Self {
         let my_peer_id = graph.read().my_peer_id();
-        Self {
-            clock,
-            my_peer_id,
-            graph,
-            store,
-            peer_reachable_at: Default::default(),
-            peers_to_ban: Default::default(),
-            edge_validator_requests_in_progress: 0,
-            edge_validator_pool: actix::SyncArbiter::start(4, || EdgeValidatorActor {}),
-        }
+        Self { clock, my_peer_id, graph, store, peer_reachable_at: Default::default() }
     }
 
     pub fn spawn(
@@ -200,7 +177,7 @@ impl Actor {
     /// Should be called periodically.
     pub fn update_routing_table(
         &mut self,
-        mut prune_unreachable_since: Option<time::Instant>,
+        prune_unreachable_since: Option<time::Instant>,
         prune_edges_older_than: Option<time::Utc>,
     ) -> (Arc<routing::NextHopTable>, Vec<Edge>) {
         if let Some(prune_edges_older_than) = prune_edges_older_than {
@@ -214,9 +191,6 @@ impl Actor {
             self.peer_reachable_at.insert(peer.clone(), now);
         }
         // Do not prune if there are edges to validate in flight.
-        if self.edge_validator_requests_in_progress != 0 {
-            prune_unreachable_since = None;
-        }
         let pruned_edges = match prune_unreachable_since {
             None => vec![],
             Some(t) => self.prune_unreachable_peers(t),
@@ -240,7 +214,6 @@ impl actix::Handler<WithSpanContext<StopMsg>> for Actor {
     type Result = ();
     fn handle(&mut self, msg: WithSpanContext<StopMsg>, ctx: &mut Self::Context) -> Self::Result {
         let (_span, _msg) = handler_debug_span!(target: "network", msg);
-        self.edge_validator_pool.do_send(StopMsg {}.with_span_context());
         ctx.stop();
     }
 }
@@ -249,10 +222,6 @@ impl actix::Handler<WithSpanContext<StopMsg>> for Actor {
 #[derive(actix::Message, Debug, strum::IntoStaticStr)]
 #[rtype(result = "Response")]
 pub(crate) enum Message {
-    /// Gets list of edges to validate from another peer.
-    /// Those edges will be filtered, by removing existing edges, and then
-    /// those edges will be sent to `EdgeValidatorActor`.
-    ValidateEdgeList(ValidateEdgeList),
     /// Add verified edges to routing table actor and update stats.
     /// Each edge contains signature of both peers.
     /// We say that the edge is "verified" if and only if we checked that the `signature0` and
@@ -268,15 +237,13 @@ pub(crate) enum Message {
 #[derive(actix::MessageResponse, Debug)]
 pub enum Response {
     Empty,
-    AddVerifiedEdgesResponse(Vec<Edge>),
-    RoutingTableUpdateResponse {
+    AddVerifiedEdges(Vec<Edge>),
+    RoutingTableUpdate {
         /// PeerManager maintains list of local edges. We will notify `PeerManager`
         /// to remove those edges.
         pruned_edges: Vec<Edge>,
         /// Active PeerId that are part of the shortest path to each PeerId.
         next_hops: Arc<routing::NextHopTable>,
-        /// List of peers to ban for sending invalid edges.
-        peers_to_ban: Vec<PeerId>,
     },
 }
 
@@ -284,42 +251,21 @@ impl actix::Handler<WithSpanContext<Message>> for Actor {
     type Result = Response;
 
     #[perf]
-    fn handle(&mut self, msg: WithSpanContext<Message>, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: WithSpanContext<Message>, _ctx: &mut Self::Context) -> Self::Result {
         let msg_type: &str = (&msg.msg).into();
         let (_span, msg) = handler_trace_span!(target: "network", msg, msg_type);
         let _timer =
             metrics::ROUTING_TABLE_MESSAGES_TIME.with_label_values(&[msg_type]).start_timer();
         match msg {
-            // Schedules edges for validation.
-            Message::ValidateEdgeList(mut msg) => {
-                self.edge_validator_requests_in_progress += 1;
-                msg.edges.retain(|x| !self.graph.read().has(x));
-                let peer_id = msg.source_peer_id.clone();
-                self.edge_validator_pool
-                    .send(msg.with_span_context())
-                    .into_actor(self)
-                    .map(move |res, act, _| {
-                        act.edge_validator_requests_in_progress -= 1;
-                        if let Ok(false) = res {
-                            act.peers_to_ban.push(peer_id);
-                        }
-                    })
-                    .spawn(ctx);
-                Response::Empty
-            }
             // Adds verified edges to the graph. Accesses DB.
             Message::AddVerifiedEdges { edges } => {
-                Response::AddVerifiedEdgesResponse(self.add_verified_edges(edges))
+                Response::AddVerifiedEdges(self.add_verified_edges(edges))
             }
             // Recalculates the routing table.
             Message::RoutingTableUpdate { prune_unreachable_since, prune_edges_older_than } => {
                 let (next_hops, pruned_edges) =
                     self.update_routing_table(prune_unreachable_since, prune_edges_older_than);
-                Response::RoutingTableUpdateResponse {
-                    pruned_edges,
-                    next_hops,
-                    peers_to_ban: std::mem::take(&mut self.peers_to_ban),
-                }
+                Response::RoutingTableUpdate { pruned_edges, next_hops }
             }
         }
     }
