@@ -1,4 +1,5 @@
 use crate::{ChainStore, ChainStoreAccess, RuntimeAdapter};
+#[cfg(feature = "protocol_feature_flat_state")]
 use assert_matches::assert_matches;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use near_chain_primitives::Error;
@@ -157,6 +158,8 @@ impl FlatStorageCreator {
         }
 
         #[cfg(feature = "protocol_feature_flat_state")]
-        self.shard_creators[shard_id as usize].update_status(chain_store)
+        self.shard_creators[shard_id as usize].update_status(chain_store)?;
+
+        Ok(())
     }
 }
