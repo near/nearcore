@@ -319,9 +319,16 @@ message RoutingSyncV2 {
 
 // Inter-process tracing information.
 message TraceContext {
+  enum SamplingPriority {
+    UNKNOWN = 0;
+    AutoReject = 1;
+    UserReject = 2;
+    AutoKeep = 3;
+    UserKeep = 4;
+  }
   bytes trace_id = 1;
   bytes span_id = 2;
-  int32 sampling_priority = 3;
+  SamplingPriority sampling_priority = 3;
 }
 
 // PeerMessage is a wrapper of all message types exchanged between NEAR nodes.

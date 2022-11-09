@@ -1,23 +1,15 @@
+use crate::network_protocol::proto::trace_context::SamplingPriority;
 use crate::network_protocol::proto::TraceContext;
 use opentelemetry::trace::{SpanContext, SpanId, TraceContextExt, TraceFlags, TraceId, TraceState};
 use opentelemetry::Context;
-use protobuf::MessageField;
+use protobuf::{EnumOrUnknown, MessageField};
 
 const TRACE_FLAG_DEFERRED: TraceFlags = TraceFlags::new(0x02);
-
-#[derive(Debug)]
-enum SamplingPriority {
-    UserReject = -1,
-    AutoReject = 0,
-    AutoKeep = 1,
-    UserKeep = 2,
-}
 
 #[derive(Debug)]
 pub(crate) enum ExtractError {
     TraceId,
     SpanId,
-    SamplingPriority,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -36,19 +28,6 @@ impl NodePropagator {
         Ok(SpanId::from_bytes(span_id.try_into().map_err(|_| ExtractError::SpanId)?))
     }
 
-    fn extract_sampling_priority(
-        &self,
-        sampling_priority: i32,
-    ) -> Result<SamplingPriority, ExtractError> {
-        match sampling_priority {
-            -1 => Ok(SamplingPriority::UserReject),
-            0 => Ok(SamplingPriority::AutoReject),
-            1 => Ok(SamplingPriority::AutoKeep),
-            2 => Ok(SamplingPriority::UserKeep),
-            _ => Err(ExtractError::SamplingPriority),
-        }
-    }
-
     pub(crate) fn extract_span_context(
         &self,
         trace_context: &MessageField<TraceContext>,
@@ -57,14 +36,13 @@ impl NodePropagator {
         // If we have a trace_id but can't get the parent span, we default it to invalid instead of completely erroring
         // out so that the rest of the spans aren't completely lost
         let span_id = self.extract_span_id(&trace_context.span_id).unwrap_or(SpanId::INVALID);
-        let sampling_priority = self.extract_sampling_priority(trace_context.sampling_priority);
-        let sampled = match sampling_priority {
+        let sampled = match trace_context.sampling_priority.enum_value() {
             Ok(SamplingPriority::UserReject) | Ok(SamplingPriority::AutoReject) => {
                 TraceFlags::default()
             }
             Ok(SamplingPriority::UserKeep) | Ok(SamplingPriority::AutoKeep) => TraceFlags::SAMPLED,
             // Treat the sampling as DEFERRED instead of erring on extracting the span context
-            Err(_) => TRACE_FLAG_DEFERRED,
+            Ok(SamplingPriority::UNKNOWN) | Err(_) => TRACE_FLAG_DEFERRED,
         };
         let trace_state = TraceState::default();
         Ok(SpanContext::new(trace_id, span_id, sampled, true, trace_state))
@@ -87,7 +65,7 @@ impl NodePropagator {
                 } else {
                     SamplingPriority::AutoReject
                 };
-                trace_context.sampling_priority = sampling_priority as i32;
+                trace_context.sampling_priority = EnumOrUnknown::new(sampling_priority);
             }
             MessageField::some(trace_context)
         } else {
