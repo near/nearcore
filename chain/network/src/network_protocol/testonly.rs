@@ -129,17 +129,16 @@ pub fn make_partial_edge<R: Rng>(rng: &mut R) -> PartialEdgeInfo {
     )
 }
 
-pub fn make_edge(a: &SecretKey, b: &SecretKey) -> Edge {
+pub fn make_edge(a: &SecretKey, b: &SecretKey, nonce: u64) -> Edge {
     let (a, b) = if a.public_key() < b.public_key() { (a, b) } else { (b, a) };
     let ap = PeerId::new(a.public_key());
     let bp = PeerId::new(b.public_key());
-    let nonce = 1; // Make it an active edge.
     let hash = Edge::build_hash(&ap, &bp, nonce);
     Edge::new(ap, bp, nonce, a.sign(hash.as_ref()), b.sign(hash.as_ref()))
 }
 
 pub fn make_edge_tombstone(a: &SecretKey, b: &SecretKey) -> Edge {
-    make_edge(a, b).remove_edge(PeerId::new(a.public_key()), &a)
+    make_edge(a, b, 1).remove_edge(PeerId::new(a.public_key()), &a)
 }
 
 pub fn make_routing_table<R: Rng>(rng: &mut R) -> RoutingTableUpdate {
@@ -150,7 +149,7 @@ pub fn make_routing_table<R: Rng>(rng: &mut R) -> RoutingTableUpdate {
             let mut e = vec![];
             for i in 0..signers.len() {
                 for j in 0..i {
-                    e.push(make_edge(&signers[i], &signers[j]));
+                    e.push(make_edge(&signers[i], &signers[j], 1));
                 }
             }
             e
