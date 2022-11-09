@@ -44,7 +44,7 @@ The last point above means, that we MUST execute this Transaction to Receipt tra
 
 So actually if we look inside the chunk 0 (where shard0 belongs to) at block B, we'll see the transaction:
 
-```json
+```
 Chunk: Ok(
     V2(
         ShardChunkV2 {
@@ -118,7 +118,7 @@ After transaction was changed into the receipt, this receipt must now be sent to
 
 We can actually see this in the chunk of the next block:
 
-```json
+```
 Chunk: Ok(
     V2(
         ShardChunkV2 {
@@ -196,7 +196,7 @@ Such receipt is magically (we'll explain this magic in a separate article) sent 
 
 When shard 1 processes the receipt above, it is then ready to refunt the unused gas to the original account (shard0). So it also creates the receipt, and puts it inside the chunk. This time it is in shard1 (as that's where it was executed).
 
-```json
+```
 Chunk: Ok(
     V2(
         ShardChunkV2 {
