@@ -74,7 +74,6 @@ ansi_term = "0.12"
 anyhow = "1.0.62"
 arbitrary = { version = "1", features = ["derive"] }
 arc-swap = "1.5"
-arrayref = "0.3"
 assert_matches = "1.5.0"
 async-recursion = "0.3.2"
 async-trait = "0.1.58"
