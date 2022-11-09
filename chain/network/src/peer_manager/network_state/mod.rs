@@ -335,10 +335,6 @@ impl NetworkState {
                     let edge_update =
                         edge.remove_edge(this.config.node_id(), &this.config.node_key);
                     this.add_edges(&clock, vec![edge_update.clone()]).await.unwrap();
-                    this.broadcast_routing_table_update(Arc::new(RoutingTableUpdate::from_edges(
-                        vec![edge_update],
-                    )))
-                    .await;
                 }
             }
 
@@ -355,18 +351,15 @@ impl NetworkState {
         });
     }
 
-    async fn broadcast_routing_table_update(&self, rtu: Arc<RoutingTableUpdate>) {
+    // TODO(gprusak): eventually, this should be blocking, as it should be up to the caller
+    // whether to wait for the broadcast to finish, or run it in parallel with sth else.
+    fn broadcast_routing_table_update(&self, rtu: Arc<RoutingTableUpdate>) {
         if rtu.as_ref() == &RoutingTableUpdate::default() {
             return;
         }
-        let handles: Vec<_> = self
-            .tier2
-            .load()
-            .ready
-            .values()
-            .map(|conn| conn.send_routing_table_update(rtu.clone()))
-            .collect();
-        futures_util::future::join_all(handles).await;
+        for conn in self.tier2.load().ready.values() {
+            self.spawn(conn.send_routing_table_update(rtu.clone()));
+        }
     }
 
     /// Determine if the given target is referring to us.
@@ -482,8 +475,7 @@ impl NetworkState {
             tracing::debug!(target: "network", account_id = ?this.config.validator.as_ref().map(|v|v.account_id()), ?new_accounts, "Received new accounts");
             this.broadcast_routing_table_update(Arc::new(RoutingTableUpdate::from_accounts(
                 new_accounts.clone(),
-            )))
-            .await;
+            )));
             this.config.event_sink.push(Event::AccountsAdded(new_accounts));
         }).await.unwrap()
     }
@@ -554,8 +546,7 @@ impl NetworkState {
             // Broadcast new edges to all other peers.
             this.broadcast_routing_table_update(Arc::new(RoutingTableUpdate::from_edges(
                 new_edges,
-            )))
-            .await;
+            )));
             if !ok {
                 return Err(ReasonForBan::InvalidEdge);
             }

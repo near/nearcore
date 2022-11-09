@@ -182,10 +182,10 @@ impl Actor for PeerManagerActor {
                 tokio::time::interval(UPDATE_ROUTING_TABLE_INTERVAL.try_into().unwrap());
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             loop {
+                interval.tick().await;
                 let _timer = metrics::PEER_MANAGER_TRIGGER_TIME
                     .with_label_values(&["update_routing_table"])
                     .start_timer();
-                interval.tick().await;
                 state
                     .update_routing_table(
                         clock.now().checked_sub(PRUNE_UNREACHABLE_PEERS_AFTER),

@@ -5,7 +5,6 @@ use near_primitives::borsh::maybestd::sync::Arc;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use once_cell::sync::Lazy;
-use std::collections::HashMap;
 
 // We'd treat all nonces that are below this values as 'old style' (without any expiration time).
 // And all nonces above this value as new style (that would expire after some time).
@@ -251,9 +250,9 @@ impl Edge {
 
     // Returns a single edge with the highest nonce for each key of the input edges.
     pub fn deduplicate<'a>(mut edges: Vec<Edge>) -> Vec<Edge> {
-        edges.sort_by_key(|e| e.nonce());
-        let edges: HashMap<_, _> = edges.iter().map(|e| (e.key(), e)).collect();
-        edges.into_values().cloned().collect()
+        edges.sort_by(|a, b| (b.key(), b.nonce()).cmp(&(a.key(), a.nonce())));
+        edges.dedup_by_key(|e| e.key().clone());
+        edges
     }
 }
 

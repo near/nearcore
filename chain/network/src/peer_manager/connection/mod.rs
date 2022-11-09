@@ -118,7 +118,7 @@ impl Connection {
             edges: Edge::deduplicate(
                 rtus.iter().map(|rtu| rtu.edges.iter()).flatten().cloned().collect(),
             ),
-            accounts: rtus.iter().map(|rtu| rtu.accounts.iter()).flatten().cloned().collect(),
+            accounts: rtus.iter().flat_map(|rtu| rtu.accounts.iter()).cloned().collect(),
         })));
         rtus.iter().map(|_| ()).collect()
     }
