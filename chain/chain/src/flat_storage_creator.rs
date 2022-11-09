@@ -2,20 +2,13 @@ use crate::{ChainStore, ChainStoreAccess, RuntimeAdapter};
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use near_chain_primitives::Error;
 use near_primitives::types::{BlockHeight, ShardId};
-use near_store::flat_state::FlatStorageStateStatus;
+use near_store::flat_state::{FlatStorageStateStatus, NUM_PARTS_IN_ONE_STEP};
 use std::sync::{Arc, Mutex};
 use tracing::info;
 
-/// Number of parts to which we divide shard state for parallel traversal.
-// TODO: consider changing it for different shards, ensure that shard memory usage / `NUM_PARTS` < X MiB.
-#[allow(unused)]
-const NUM_PARTS: u64 = 4_000;
-
-/// Number of traversed parts during a single step of fetching state.
-#[allow(unused)]
-const PART_STEP: u64 = 50;
-
-/// Creates flat storage and tracks creation status for the given shard.
+/// If we launched a node with enabled flat storage but it doesn't have flat storage data on disk, we have to create it.
+/// This struct is responsible for this process for the given shard.
+/// See doc comment on [`FlatStorageStateStatus`] for the details of the process.
 pub struct FlatStorageShardCreator {
     pub status: FlatStorageStateStatus,
     pub shard_id: ShardId,
@@ -83,7 +76,7 @@ impl FlatStorageCreator {
                 shard_creators,
                 runtime_adapter: runtime_adapter.clone(),
                 pool: rayon::ThreadPoolBuilder::new()
-                    .num_threads(PART_STEP as usize)
+                    .num_threads(NUM_PARTS_IN_ONE_STEP as usize)
                     .build()
                     .unwrap(),
             })

@@ -57,14 +57,6 @@ async fn test_peer_communication(
     outbound.send(want.clone()).await;
     events.recv_until(message_processed(want)).await;
 
-    tracing::info!(target:"test","ReponseUpdateNonce");
-    let mut events = inbound.events.from_now();
-    let a = data::make_secret_key(&mut rng);
-    let b = data::make_secret_key(&mut rng);
-    let want = PeerMessage::ResponseUpdateNonce(data::make_edge(&a, &b));
-    outbound.send(want.clone()).await;
-    events.recv_until(message_processed(want)).await;
-
     tracing::info!(target:"test","PeersRequest -> PeersResponse");
     // This test is different from the rest, because we cannot skip sending the response back.
     let mut events = outbound.events.from_now();

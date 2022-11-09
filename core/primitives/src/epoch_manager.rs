@@ -440,6 +440,7 @@ pub mod epoch_info {
     use smart_default::SmartDefault;
     use std::collections::{BTreeMap, HashMap};
 
+    use crate::types::validator_stake::ValidatorStakeV1;
     use crate::{checked_feature, epoch_manager::RngSeed, rand::WeightedIndex};
     use near_primitives_core::{
         hash::hash,
@@ -593,6 +594,40 @@ pub mod epoch_info {
                     protocol_version,
                 })
             }
+        }
+
+        pub fn v1_test() -> Self {
+            Self::V1(EpochInfoV1 {
+                epoch_height: 10,
+                validators: vec![
+                    ValidatorStakeV1 {
+                        account_id: "test".parse().unwrap(),
+                        public_key: "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
+                            .parse()
+                            .unwrap(),
+                        stake: 0,
+                    },
+                    ValidatorStakeV1 {
+                        account_id: "validator".parse().unwrap(),
+                        public_key: "ed25519:9E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
+                            .parse()
+                            .unwrap(),
+                        stake: 0,
+                    },
+                ],
+                validator_to_index: HashMap::new(),
+                block_producers_settlement: vec![0u64, 1u64],
+                chunk_producers_settlement: vec![vec![0u64, 1u64]],
+                hidden_validators_settlement: vec![],
+                fishermen: vec![],
+                fishermen_to_index: HashMap::new(),
+                stake_change: BTreeMap::new(),
+                validator_reward: HashMap::new(),
+                validator_kickout: HashMap::new(),
+                minted_amount: 1,
+                seat_price: 1,
+                protocol_version: 1,
+            })
         }
 
         #[inline]
