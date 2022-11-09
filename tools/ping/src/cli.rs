@@ -48,6 +48,9 @@ pub struct PingCommand {
     /// number of seconds to wait for incoming data before timing out
     #[clap(long)]
     recv_timeout_seconds: Option<u32>,
+    /// Pushgateway address, e.g. http://127.0.0.1:9091
+    #[clap(long)]
+    metrics_gateway_address: Option<String>,
 }
 
 fn display_stats(stats: &mut [(crate::PeerIdentifier, crate::PingStats)], peer_id: &PeerId) {
@@ -212,6 +215,7 @@ impl PingCommand {
                 filter,
                 csv,
                 &mut stats,
+                self.metrics_gateway_address.clone(),
             )
             .await?;
             display_stats(&mut stats, &peer.id);

@@ -3364,6 +3364,8 @@ dependencies = [
  "near-network",
  "near-o11y",
  "near-primitives",
+ "once_cell",
+ "prometheus",
  "tokio",
  "tracing",
 ]
@@ -4235,28 +4237,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8b870d8c151b6f2fb93e84a13146138f05d02ed11c7e7c54f8826aaaf7c9f184"
 
 [[package]]
-name = "ping"
-version = "0.0.0"
-dependencies = [
- "anyhow",
- "bytes",
- "chrono",
- "clap 3.1.18",
- "futures",
- "near-chain",
- "near-chain-configs",
- "near-crypto",
- "near-network",
- "near-network-primitives",
- "near-o11y",
- "near-primitives",
- "near-store",
- "nearcore",
- "tokio",
- "tracing",
-]
-
-[[package]]
 name = "pkg-config"
 version = "0.3.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4381,9 +4361,11 @@ dependencies = [
  "cfg-if 1.0.0",
  "fnv",
  "lazy_static",
+ "libc",
  "memchr",
  "parking_lot 0.12.1",
  "protobuf 2.27.1",
+ "reqwest",
  "thiserror",
 ]
 
