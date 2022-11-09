@@ -664,7 +664,7 @@ pub(crate) fn apply_delegate_action(
         sender_id,
         &delegate_action.receiver_id,
         &actions,
-        &delegate_action.public_key,
+        &action_receipt.signer_public_key,
         action_receipt.gas_price,
     );
 
