@@ -360,9 +360,9 @@ pub enum Cost {
     /// Estimates `ed25519_verify_byte`, the cost charged per input byte in calls to the
     /// ed25519_verify host function.
     Ed25519VerifyByte,
-    VerifyBls12381Base,
-    VerifyBls12381Byte,
-    VerifyBls12381Elements,
+    Bls12381VerifyBase,
+    Bls12381VerifyByte,
+    Bls12381VerifyElements,
     // `storage_write` records a single key-value pair, initially in the
     // prospective changes in-memory hash map, and then once a full block has
     // been processed, in the on-disk trie. If there was already a value

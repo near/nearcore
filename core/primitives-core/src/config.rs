@@ -316,9 +316,9 @@ pub struct ExtCostsConfig {
     #[cfg(feature = "protocol_feature_ed25519_verify")]
     pub ed25519_verify_byte: Gas,
 
-    pub verify_bls12381_base: Gas,
-    pub verify_bls12381_byte: Gas,
-    pub verify_bls12381_elements: Gas,
+    pub bls12381_verify_base: Gas,
+    pub bls12381_verify_byte: Gas,
+    pub bls12381_verify_elements: Gas,
 
     /// Cost of calling ecrecover
     pub ecrecover_base: Gas,
@@ -468,9 +468,9 @@ impl ExtCostsConfig {
             #[cfg(feature = "protocol_feature_ed25519_verify")]
             ed25519_verify_byte: SAFETY_MULTIPLIER * 7157035,
             // Cost per byte is 3542227. There are 64 bytes in a block.
-            verify_bls12381_base: SAFETY_MULTIPLIER * 1091654528810,
-            verify_bls12381_byte: SAFETY_MULTIPLIER * 123267560,
-            verify_bls12381_elements: SAFETY_MULTIPLIER * 58289091437,
+            bls12381_verify_base: SAFETY_MULTIPLIER * 1091654528810,
+            bls12381_verify_byte: SAFETY_MULTIPLIER * 123267560,
+            bls12381_verify_elements: SAFETY_MULTIPLIER * 58289091437,
             ripemd160_block: SAFETY_MULTIPLIER * 226702528,
             ecrecover_base: SAFETY_MULTIPLIER * 1121789875000,
             log_base: SAFETY_MULTIPLIER * 1181104350,
@@ -542,9 +542,9 @@ impl ExtCostsConfig {
             ed25519_verify_base: 0,
             #[cfg(feature = "protocol_feature_ed25519_verify")]
             ed25519_verify_byte: 0,
-            verify_bls12381_base: 0,
-            verify_bls12381_byte: 0,
-            verify_bls12381_elements: 0,
+            bls12381_verify_base: 0,
+            bls12381_verify_byte: 0,
+            bls12381_verify_elements: 0,
             ecrecover_base: 0,
             log_base: 0,
             log_byte: 0,
@@ -618,9 +618,9 @@ pub enum ExtCosts {
     ed25519_verify_base,
     #[cfg(feature = "protocol_feature_ed25519_verify")]
     ed25519_verify_byte,
-    verify_bls12381_base,
-    verify_bls12381_byte,
-    verify_bls12381_elements,
+    bls12381_verify_base,
+    bls12381_verify_byte,
+    bls12381_verify_elements,
     ecrecover_base,
     log_base,
     log_byte,
@@ -706,9 +706,9 @@ impl ExtCosts {
             ed25519_verify_base => config.ed25519_verify_base,
             #[cfg(feature = "protocol_feature_ed25519_verify")]
             ed25519_verify_byte => config.ed25519_verify_byte,
-            verify_bls12381_base => config.verify_bls12381_base,
-            verify_bls12381_byte => config.verify_bls12381_byte,
-            verify_bls12381_elements => config.verify_bls12381_elements,
+            bls12381_verify_base => config.bls12381_verify_base,
+            bls12381_verify_byte => config.bls12381_verify_byte,
+            bls12381_verify_elements => config.bls12381_verify_elements,
             ecrecover_base => config.ecrecover_base,
             log_base => config.log_base,
             log_byte => config.log_byte,

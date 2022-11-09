@@ -110,14 +110,7 @@ imports! {
         pub_key_len: u64,
         pub_key_ptr: u64
     ] -> [u64]>,
-    verify_bls12_381<[
-        signature_ptr: u64,
-        signature_len: u64,
-        msg_ptr: u64,
-        msg_len: u64,
-        pubkey_ptr: u64,
-        pubkey_len: u64] -> [u64]>,
-    verify_aggregate_bls12_381<[
+    bls12_381_aggregate_verify<[
         aggregate_signature_ptr: u64,
         aggregate_signature_len: u64,
         msg_ptr: u64,

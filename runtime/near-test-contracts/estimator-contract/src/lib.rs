@@ -63,16 +63,7 @@ extern "C" {
         pub_key_ptr: u64,
     ) -> u64;
 
-    fn verify_bls12_381(
-        signature_ptr: u64,
-        signature_len: u64,
-        msg_ptr: u64,
-        msg_len: u64,
-        pubkey_ptr: u64,
-        pubkey_len: u64,
-    ) -> u64;
-
-    fn verify_aggregate_bls12_381(aggregate_signature_ptr: u64,
+    fn bls12_381_aggregate_verify(aggregate_signature_ptr: u64,
                                   aggregate_signature_len: u64,
                                   msg_ptr: u64,
                                   msg_len: u64,
@@ -529,13 +520,13 @@ pub unsafe fn ed25519_verify_10k() {
 }
 
 #[no_mangle]
-pub unsafe fn verify_bls12_381_basic_10k() {
+pub unsafe fn bls12_381_verify_basic_10k() {
     let signature_raw: [u8; 96] = [143, 150, 139, 210, 67, 144, 143, 243, 229, 250, 26, 179, 243, 30, 7, 129, 151, 229, 138, 206, 86, 43, 190, 139, 90, 39, 29, 95, 186, 80, 35, 125, 160, 200, 254, 101, 231, 181, 119, 28, 192, 168, 111, 213, 127, 50, 52, 126, 21, 162, 109, 31, 93, 86, 196, 114, 208, 25, 238, 162, 83, 158, 88, 219, 0, 196, 154, 165, 208, 169, 102, 56, 56, 144, 63, 221, 190, 67, 107, 91, 21, 126, 131, 179, 93, 26, 78, 95, 137, 247, 129, 39, 243, 93, 172, 240];
     let message: [u8; 32] = [62, 175, 124, 77, 209, 116, 6, 205, 248, 82, 51, 106, 86, 184, 46, 98, 158, 115, 11, 183, 176, 204, 135, 26, 230, 163, 133, 209, 31, 80, 158, 49];
     let pubkey_raw: [u8; 48] = [136, 95, 173, 134, 150, 18, 44, 138, 66, 16, 51, 22, 78, 106, 113, 217, 173, 179, 136, 41, 51, 190, 186, 44, 20, 220, 173, 155, 253, 75, 173, 179, 11, 73, 48, 108, 89, 167, 167, 131, 123, 114, 224, 41, 147, 245, 164, 173];
 
     for _ in 0..10_000 {
-        verify_aggregate_bls12_381(
+        bls12_381_aggregate_verify(
             signature_raw.as_ptr() as _,
             signature_raw.len() as _,
             message.as_ptr() as _,
@@ -547,7 +538,7 @@ pub unsafe fn verify_bls12_381_basic_10k() {
 }
 
 #[no_mangle]
-pub unsafe fn verify_bls12_381_elements_1000_100() {
+pub unsafe fn bls12_381_verify_elements_1000_100() {
     const PUBKEY_LEN: usize = 48;
     const  N: usize = 1000;
     let msg: [u8; 32] = [0u8; 32];
@@ -561,7 +552,7 @@ pub unsafe fn verify_bls12_381_elements_1000_100() {
     }
 
     for _ in 0..100 {
-        verify_aggregate_bls12_381(
+        bls12_381_aggregate_verify(
             agg_sig.as_ptr() as _,
             agg_sig.len() as _,
             msg.as_ptr() as _,
@@ -573,13 +564,13 @@ pub unsafe fn verify_bls12_381_elements_1000_100() {
 }
 
 #[no_mangle]
-pub unsafe fn verify_bls12_381_bytes_10k_1k() {
+pub unsafe fn bls12_381_verify_bytes_10k_1k() {
     let msg: [u8; 10_000] = [0u8; 10_000];
     let pk: [u8; 48] = [166, 149, 173, 50, 93, 252, 126, 17, 145, 251, 201, 241, 134, 245, 142, 255, 66, 166, 52, 2, 151, 49, 177, 131, 128, 255, 137, 191, 66, 196, 100, 164, 44, 184, 202, 85, 178, 0, 240, 81, 245, 127, 30, 24, 147, 198, 135, 89];
     let agg_sig: [u8; 96] = [183, 122, 244, 212, 141, 224, 103, 62, 142, 101, 53, 117, 106, 114, 106, 158, 28, 34, 157, 5, 29, 202, 198, 96, 225, 73, 61, 183, 9, 241, 210, 54, 176, 187, 43, 6, 254, 200, 169, 135, 88, 32, 105, 199, 105, 145, 119, 178, 16, 165, 49, 177, 79, 1, 12, 100, 168, 93, 197, 15, 240, 139, 174, 91, 103, 229, 145, 95, 165, 183, 119, 40, 43, 158, 230, 235, 45, 38, 226, 5, 158, 232, 29, 2, 119, 217, 158, 84, 2, 117, 2, 180, 125, 213, 51, 68];
 
     for _ in 0..1_000 {
-        verify_aggregate_bls12_381(
+        bls12_381_aggregate_verify(
             agg_sig.as_ptr() as _,
             agg_sig.len() as _,
             msg.as_ptr() as _,

@@ -1205,34 +1205,7 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_wasm_gas(opcodes)
     }
 
-    pub fn verify_bls12_381(
-        &mut self,
-        signature_ptr: u64,
-        signature_len: u64,
-        msg_ptr: u64,
-        msg_len: u64,
-        pubkey_ptr: u64,
-        pubkey_len: u64,
-    ) -> Result<u64> {
-        self.gas_counter.pay_base(verify_bls12381_base)?;
-        let signature_raw = self.get_vec_from_memory_or_register(signature_ptr, signature_len)?;
-        let message = self.get_vec_from_memory_or_register(msg_ptr, msg_len)?;
-        let pubkey_raw = self.get_vec_from_memory_or_register(pubkey_ptr, pubkey_len)?;
-        self.gas_counter.pay_per(verify_bls12381_byte, message.len() as u64)?;
-
-        let signature = blst::min_pk::Signature::sig_validate(&signature_raw, false).unwrap();
-
-        let pubkey = blst::min_pk::PublicKey::key_validate(&pubkey_raw).unwrap();
-
-        Ok(signature.fast_aggregate_verify(
-            true,
-            &message,
-            b"BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_",
-            vec![&pubkey].as_slice(),
-        ) as u64)
-    }
-
-    pub fn verify_aggregate_bls12_381(
+    pub fn bls12_381_aggregate_verify(
         &mut self,
         aggregate_signature_ptr: u64,
         aggregate_signature_len: u64,
@@ -1241,7 +1214,7 @@ impl<'a> VMLogic<'a> {
         pubkeys_ptr: u64,
         pubkeys_len: u64,
     ) -> Result<u64> {
-        self.gas_counter.pay_base(verify_bls12381_base)?;
+        self.gas_counter.pay_base(bls12381_verify_base)?;
         const PUBKEY_LEN: u64 = 48;
 
         let aggregate_signature =
@@ -1250,8 +1223,8 @@ impl<'a> VMLogic<'a> {
         let pubkeys_raw = self.get_vec_from_memory_or_register(pubkeys_ptr, pubkeys_len)?;
         let pubkeys_cnt = (pubkeys_raw.len() as u64) / PUBKEY_LEN;
 
-        self.gas_counter.pay_per(verify_bls12381_byte, message.len() as u64)?;
-        self.gas_counter.pay_per(verify_bls12381_elements, pubkeys_cnt)?;
+        self.gas_counter.pay_per(bls12381_verify_byte, message.len() as u64)?;
+        self.gas_counter.pay_per(bls12381_verify_elements, pubkeys_cnt)?;
 
         let aggregate_sig =
             blst::min_pk::Signature::sig_validate(&aggregate_signature, false).unwrap();
