@@ -24,7 +24,7 @@ But under the hood, the situation is a little bit more complex, as there is actu
 
 ## Internal perspective (Transactions & Receipts)
 
-One important think to remember, is that NEAR is sharded - so in all our designs, we have to assume that each account is on a separate shard (so that the fact that some of them are colocated doesn't give any advantage).
+One important thing to remember, is that NEAR is sharded - so in all our designs, we have to assume that each account is on a separate shard. So that the fact that some of them are colocated doesn't give any advantage.
 
 
 ### Step 1 - Transaction
