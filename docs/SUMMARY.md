@@ -23,6 +23,7 @@
 # Practices
 
 - [Overview](./practices/README.md)
+- [Starting & Setup](./practices/start.md)
 - [Code Style](./practices/style.md)
 - [Documentation](./practices/docs.md)
 - [Tracking Issues](./practices/tracking_issues.md)
