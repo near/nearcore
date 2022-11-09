@@ -4,6 +4,7 @@ use near_crypto::Signature;
 use near_primitives::block_header::{Approval, ApprovalInner, BlockHeader};
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
+use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::epoch_manager::ShardConfig;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
@@ -58,6 +59,12 @@ pub trait EpochManagerAdapter: Send + Sync {
     /// Converts `ShardId` (index of shard in the *current* layout) to
     /// `ShardUId` (`ShardId` + the version of shard layout itself.)
     fn shard_id_to_uid(&self, shard_id: ShardId, epoch_id: &EpochId) -> Result<ShardUId, Error>;
+
+    fn get_block_info(&self, hash: &CryptoHash) -> Result<Arc<BlockInfo>, Error>;
+
+    fn get_epoch_config(&self, epoch_id: &EpochId) -> Result<EpochConfig, Error>;
+
+    fn get_epoch_info(&self, epoch_id: &EpochId) -> Result<Arc<EpochInfo>, Error>;
 
     fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, Error>;
 
@@ -383,6 +390,21 @@ impl<T: HasEpochMangerHandle + Send + Sync> EpochManagerAdapter for T {
         let epoch_manager = self.read();
         let shard_layout = epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?;
         Ok(ShardUId::from_shard_id_and_layout(shard_id, &shard_layout))
+    }
+
+    fn get_block_info(&self, hash: &CryptoHash) -> Result<Arc<BlockInfo>, Error> {
+        let epoch_manager = self.read();
+        Ok(epoch_manager.get_block_info(hash).map_err(Error::from)?.clone())
+    }
+
+    fn get_epoch_config(&self, epoch_id: &EpochId) -> Result<EpochConfig, Error> {
+        let epoch_manager = self.read();
+        Ok(epoch_manager.get_epoch_config(epoch_id).map_err(Error::from)?.clone())
+    }
+
+    fn get_epoch_info(&self, epoch_id: &EpochId) -> Result<Arc<EpochInfo>, Error> {
+        let epoch_manager = self.read();
+        Ok(epoch_manager.get_epoch_info(epoch_id).map_err(Error::from)?.clone())
     }
 
     fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, Error> {
