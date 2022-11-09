@@ -11,6 +11,7 @@
   - [How Epoch Works](./architecture/how/epoch.md)
   - [Transaction Routing](./architecture/how/tx_routing.md)
   - [Transactions And Receipts](./architecture/how/tx_receipts.md)
+  - [Cross shard transactions - deep dive](./architecture/how/cross-shard.md)
   - [Serialization: Borsh, Json, ProtoBuf](./architecture/how/serialization.md)
   - [Proofs](./architecture/how/proofs.md)
 - [Trie](./architecture/trie.md)
