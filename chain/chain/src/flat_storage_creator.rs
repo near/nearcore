@@ -8,6 +8,8 @@ use near_primitives::types::{BlockHeight, ShardId};
 use near_store::flat_state::store_helper;
 use near_store::flat_state::{FlatStorageStateStatus, NUM_PARTS_IN_ONE_STEP};
 use std::sync::Arc;
+#[cfg(feature = "protocol_feature_flat_state")]
+use tracing::debug;
 use tracing::info;
 
 /// If we launched a node with enabled flat storage but it doesn't have flat storage data on disk, we have to create it.
@@ -66,7 +68,7 @@ impl FlatStorageShardCreator {
                             chain_store.get_all_block_hashes_by_height(height)?.iter()
                         {
                             for hash in hashes {
-                                info!(target: "chain", %shard_id, %height, %hash, "Checking delta existence");
+                                debug!(target: "chain", %shard_id, %height, %hash, "Checking delta existence");
                                 assert_matches!(
                                     store_helper::get_delta(
                                         chain_store.store(),
