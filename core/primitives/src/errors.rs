@@ -200,8 +200,6 @@ pub enum ActionsValidationError {
     UnsuitableStakingKey { public_key: PublicKey },
     /// The attached amount of gas in a FunctionCall action has to be a positive number.
     FunctionCallZeroAttachedGas,
-    /// The actions in DelegateAction are searilized incorrectly
-    DelegateActionDeserializeError,
     /// DelegateAction actions contain another DelegateAction
     DelegateActionCantContainNestedOne,
     /// There should be the only one DelegateAction
@@ -322,10 +320,6 @@ impl Display for ActionsValidationError {
             ActionsValidationError::FunctionCallZeroAttachedGas => write!(
                 f,
                 "The attached amount of gas in a FunctionCall action has to be a positive number",
-            ),
-            ActionsValidationError::DelegateActionDeserializeError => write!(
-                f,
-                "Can't deserialize actions in DelegateAction"
             ),
             ActionsValidationError::DelegateActionCantContainNestedOne => write!(
                 f,

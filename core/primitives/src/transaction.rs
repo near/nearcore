@@ -20,6 +20,8 @@ use near_primitives_core::profile::ProfileData;
 
 pub type LogEntry = String;
 
+const ACTION_DELEGATE_NUMBER: u8 = 8;
+
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct Transaction {
@@ -72,6 +74,7 @@ pub enum Action {
     AddKey(AddKeyAction),
     DeleteKey(DeleteKeyAction),
     DeleteAccount(DeleteAccountAction),
+    /// If Action::Delegate is moved, need to change the value of ACTION_DELEGATE_NUMBER constant
     Delegate(SignedDelegateAction),
 }
 
@@ -227,16 +230,20 @@ impl From<DeleteAccountAction> for Action {
 #[derive(Serialize, BorshSerialize, Deserialize, PartialEq, Eq, Clone, Debug)]
 pub struct NonDelegateAction(Action);
 
-const ACTION_DELEGATE_NUMBER: u8 = 8;
-
-impl From<&NonDelegateAction> for Action {
-    fn from(action: &NonDelegateAction) -> Self {
-        action.0.clone()
+impl From<NonDelegateAction> for Action {
+    fn from(action: NonDelegateAction) -> Self {
+        action.0
     }
 }
 
 impl borsh::de::BorshDeserialize for NonDelegateAction {
     fn deserialize(buf: &mut &[u8]) -> ::core::result::Result<Self, borsh::maybestd::io::Error> {
+        if buf.is_empty() {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "Failed to deserialize DelegateAction",
+            ));
+        }
         match buf[0] {
             ACTION_DELEGATE_NUMBER => Err(Error::new(
                 ErrorKind::InvalidInput,
@@ -289,7 +296,7 @@ impl From<SignedDelegateAction> for Action {
 
 impl DelegateAction {
     pub fn get_actions(&self) -> Vec<Action> {
-        self.actions.iter().map(|a| a.into()).collect()
+        self.actions.iter().map(|a| a.clone().into()).collect()
     }
 
     pub fn get_hash(&self) -> CryptoHash {
@@ -632,5 +639,38 @@ mod tests {
         };
         let hashes = outcome.to_hashes();
         assert_eq!(hashes.len(), 3);
+    }
+
+    fn create_delegate_action(actions: Vec<Action>) -> Action {
+        Action::Delegate(SignedDelegateAction {
+            delegate_action: DelegateAction {
+                sender_id: "aaa".parse().unwrap(),
+                receiver_id: "bbb".parse().unwrap(),
+                actions: actions.iter().map(|a| NonDelegateAction(a.clone())).collect(),
+                nonce: 1,
+                max_block_height: 2,
+                public_key: PublicKey::empty(KeyType::ED25519),
+            },
+            signature: Signature::empty(KeyType::ED25519),
+        })
+    }
+
+    #[test]
+    fn test_delegate_action_deserialization() {
+        NonDelegateAction::try_from_slice(Vec::new().as_ref()).expect_err("Expected an error. Buffer is empty");
+
+        let delegate_action = create_delegate_action(Vec::<Action>::new());
+        let serialized_non_delegate_action = create_delegate_action(vec!{delegate_action})
+        .try_to_vec()
+        .expect("Expect ok");
+
+        Action::try_from_slice(&serialized_non_delegate_action)
+            .expect_err("Expected a nested DelegateAction error");
+
+        let serialized_delegate_action = create_delegate_action(vec!{Action::CreateAccount(CreateAccountAction {})})
+        .try_to_vec()
+        .expect("Expect ok");
+        Action::try_from_slice(&serialized_delegate_action)
+        .expect("Expected ok");
     }
 }
