@@ -98,7 +98,8 @@ wasm_ecrecover_base: 3_365_369_625_000
 wasm_ed25519_verify_base: 40_311_888_867
 wasm_ed25519_verify_byte: 423_978_605
 wasm_verify_bls12381_base: 1_215_592_468_049
-wasm_verify_bls12381_byte: 34_684_267_560
+wasm_verify_bls12381_byte: 123_267_560
+wasm_verify_bls12381_elements: 58_289_091_437
 wasm_log_base: 3_543_313_050
 wasm_log_byte: 13_198_791
 wasm_storage_write_base: 64_196_736_000

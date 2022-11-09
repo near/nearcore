@@ -1241,18 +1241,23 @@ impl<'a> VMLogic<'a> {
         pubkeys_ptr: u64,
         pubkeys_len: u64,
     ) -> Result<u64> {
+        self.gas_counter.pay_base(verify_bls12381_base)?;
         const PUBKEY_LEN: u64 = 48;
 
         let aggregate_signature =
             self.get_vec_from_memory_or_register(aggregate_signature_ptr, aggregate_signature_len)?;
         let message = self.get_vec_from_memory_or_register(msg_ptr, msg_len)?;
         let pubkeys_raw = self.get_vec_from_memory_or_register(pubkeys_ptr, pubkeys_len)?;
+        let pubkeys_cnt = (pubkeys_raw.len() as u64) / PUBKEY_LEN;
+
+        self.gas_counter.pay_per(verify_bls12381_byte, message.len() as u64)?;
+        self.gas_counter.pay_per(verify_bls12381_elements, pubkeys_cnt)?;
 
         let aggregate_sig =
             blst::min_pk::Signature::sig_validate(&aggregate_signature, false).unwrap();
 
         let mut pubkeys: Vec<blst::min_pk::PublicKey> = vec![];
-        for i in 0..pubkeys_len / PUBKEY_LEN {
+        for i in 0..pubkeys_cnt {
             pubkeys.push(
                 blst::min_pk::PublicKey::key_validate(
                     &pubkeys_raw[((i * PUBKEY_LEN) as usize)..(((i + 1) * PUBKEY_LEN) as usize)],
@@ -1266,12 +1271,14 @@ impl<'a> VMLogic<'a> {
             pubkeys_refs.push(&pubkeys[i]);
         }
 
-        Ok(aggregate_sig.fast_aggregate_verify(
+        let res = aggregate_sig.fast_aggregate_verify(
             true,
             &message,
             b"BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_",
             pubkeys_refs.as_slice(),
-        ) as u64)
+        ) as u64;
+
+        Ok(res)
     }
 
     // ################

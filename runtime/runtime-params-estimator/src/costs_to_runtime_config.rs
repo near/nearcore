@@ -120,6 +120,7 @@ fn ext_costs_config(cost_table: &CostTable) -> anyhow::Result<ExtCostsConfig> {
         ed25519_verify_byte: get(Cost::Ed25519VerifyByte)?,
         verify_bls12381_base: get(Cost::VerifyBls12381Base)?,
         verify_bls12381_byte: get(Cost::VerifyBls12381Byte)?,
+        verify_bls12381_elements: get(Cost::VerifyBls12381Elements)?,
         log_base: get(Cost::LogBase)?,
         log_byte: get(Cost::LogByte)?,
         storage_write_base: get(Cost::StorageWriteBase)?,

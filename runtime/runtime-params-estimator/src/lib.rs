@@ -127,6 +127,9 @@ pub use crate::qemu::QemuCommandBuilder;
 pub use crate::rocksdb::RocksDBTestConfig;
 
 static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
+    (Cost::VerifyBls12381Base, verify_bls12381_base),
+    (Cost::VerifyBls12381Byte, verify_bls12381_byte),
+    (Cost::VerifyBls12381Elements, verify_bls12381_elements),
     (Cost::ActionReceiptCreation, action_receipt_creation),
     (Cost::ActionSirReceiptCreation, action_sir_receipt_creation),
     (Cost::ActionTransfer, action_transfer),
@@ -172,8 +175,6 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::Ed25519VerifyBase, ed25519_verify_base),
     #[cfg(feature = "protocol_feature_ed25519_verify")]
     (Cost::Ed25519VerifyByte, ed25519_verify_byte),
-    (Cost::VerifyBls12381Base, verify_bls12381_base),
-    (Cost::VerifyBls12381Byte, verify_bls12381_byte),
     (Cost::AltBn128G1MultiexpBase, alt_bn128g1_multiexp_base),
     (Cost::AltBn128G1MultiexpElement, alt_bn128g1_multiexp_element),
     (Cost::AltBn128G1SumBase, alt_bn128g1_sum_base),
@@ -946,11 +947,15 @@ fn ed25519_verify_byte(ctx: &mut EstimatorContext) -> GasCost {
 }
 
 fn verify_bls12381_base(ctx: &mut EstimatorContext) -> GasCost {
-    fn_cost(ctx, "verify_bls12_381_10k", ExtCosts::verify_bls12381_base, 10_000)
+    fn_cost(ctx, "verify_bls12_381_basic_10k", ExtCosts::verify_bls12381_base, 10_000)
 }
 
 fn verify_bls12381_byte(ctx: &mut EstimatorContext) -> GasCost {
-    fn_cost(ctx, "verify_bls12_381_10k", ExtCosts::verify_bls12381_byte, 320_000)
+    fn_cost(ctx, "verify_bls12_381_bytes_10k_1k", ExtCosts::verify_bls12381_byte, 10_000*1000)
+}
+
+fn verify_bls12381_elements(ctx: &mut EstimatorContext) -> GasCost {
+    fn_cost(ctx, "verify_bls12_381_elements_1000_100", ExtCosts::verify_bls12381_elements, 1000 * 100)
 }
 
 fn alt_bn128g1_multiexp_base(ctx: &mut EstimatorContext) -> GasCost {
