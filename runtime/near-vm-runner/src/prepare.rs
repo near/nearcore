@@ -118,7 +118,6 @@ pub fn prepare_contract(original_code: &[u8], config: &VMConfig) -> Result<Vec<u
         near_vm_logic::StackLimiterVersion::V0 => pwasm_12::prepare_contract(original_code, config),
         near_vm_logic::StackLimiterVersion::V1 => ContractModule::init(original_code, config)?
             .standardize_mem()
-            .ensure_no_internal_memory()?
             .inject_gas_metering()?
             .inject_stack_height_metering()?
             .scan_imports()?
@@ -145,7 +144,11 @@ impl<'a> ContractModule<'a> {
 
         let mut tmp = MemorySection::default();
 
-        module.memory_section_mut().unwrap_or(&mut tmp).entries_mut().pop();
+        module.memory_section_mut().unwrap_or(&mut tmp).entries_mut().clear();
+        if let Some(imports) = module.import_section_mut() {
+            imports.entries_mut()
+                .retain(|i| !matches!(i.external(), External::Memory(_)))
+        }
 
         let entry = elements::MemoryType::new(
             config.limit_config.initial_memory_pages,
@@ -160,19 +163,6 @@ impl<'a> ContractModule<'a> {
         ));
 
         Self { module: builder.build(), config }
-    }
-
-    /// Ensures that module doesn't declare internal memories.
-    ///
-    /// In this runtime we only allow wasm module to import memory from the environment.
-    /// Memory section contains declarations of internal linear memories, so if we find one
-    /// we reject such a module.
-    fn ensure_no_internal_memory(self) -> Result<Self, PrepareError> {
-        if self.module.memory_section().map_or(false, |ms| !ms.entries().is_empty()) {
-            Err(PrepareError::InternalMemoryDeclared)
-        } else {
-            Ok(self)
-        }
     }
 
     fn inject_gas_metering(self) -> Result<Self, PrepareError> {
@@ -491,7 +481,7 @@ mod tests {
     fn imports() {
         // nothing can be imported from non-"env" module for now.
         let r =
-            parse_and_prepare_wat(r#"(module (import "another_module" "memory" (memory 1 1)))"#);
+            parse_and_prepare_wat(r#"(module (import "another_module" "gas" (func (param i32))))"#);
         assert_matches!(r, Err(PrepareError::Instantiate));
 
         let r = parse_and_prepare_wat(r#"(module (import "env" "gas" (func (param i32))))"#);
