@@ -190,7 +190,6 @@ impl Actor {
         for peer in next_hops.keys() {
             self.peer_reachable_at.insert(peer.clone(), now);
         }
-        // Do not prune if there are edges to validate in flight.
         let pruned_edges = match prune_unreachable_since {
             None => vec![],
             Some(t) => self.prune_unreachable_peers(t),

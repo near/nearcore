@@ -24,6 +24,7 @@
 # Practices
 
 - [Overview](./practices/README.md)
+- [Rust 🦀](./practices/rust.md)
 - [Code Style](./practices/style.md)
 - [Documentation](./practices/docs.md)
 - [Tracking Issues](./practices/tracking_issues.md)
