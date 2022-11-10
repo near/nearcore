@@ -123,7 +123,6 @@ pub fn total_send_fees(
             Delegate(signed_delegate_action) => {
                 let delegate_cost = cfg.delegate_cost.send_fee(sender_is_receiver);
                 let delegate_action = &signed_delegate_action.delegate_action;
-                let sender_is_receiver = delegate_action.sender_id == delegate_action.receiver_id;
 
                 delegate_cost
                     + total_send_fees(

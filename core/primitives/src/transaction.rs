@@ -20,6 +20,7 @@ use near_primitives_core::profile::ProfileData;
 
 pub type LogEntry = String;
 
+// This is an index number of Action::Delegate in Action enumeration
 const ACTION_DELEGATE_NUMBER: u8 = 8;
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
@@ -74,7 +75,6 @@ pub enum Action {
     AddKey(AddKeyAction),
     DeleteKey(DeleteKeyAction),
     DeleteAccount(DeleteAccountAction),
-    /// If Action::Delegate is moved, need to change the value of ACTION_DELEGATE_NUMBER constant
     Delegate(SignedDelegateAction),
 }
 
@@ -674,12 +674,14 @@ mod tests {
             Err(ErrorKind::InvalidInput)
         );
 
-        let serialized_delegate_action =
-            create_delegate_action(vec![Action::CreateAccount(CreateAccountAction {})])
-                .try_to_vec()
-                .expect("Expect ok");
+        let delegate_action =
+            create_delegate_action(vec![Action::CreateAccount(CreateAccountAction {})]);
+        let serialized_delegate_action = delegate_action.try_to_vec().expect("Expect ok");
 
         // Valid action
-        Action::try_from_slice(&serialized_delegate_action).expect("Expected ok");
+        assert_eq!(
+            Action::try_from_slice(&serialized_delegate_action).expect("Expect ok"),
+            delegate_action
+        );
     }
 }
