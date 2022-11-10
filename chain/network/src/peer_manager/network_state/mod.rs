@@ -4,12 +4,11 @@ use crate::concurrency;
 use crate::config;
 use crate::network_protocol::{
     Edge, EdgeState, PartialEdgeInfo, PeerIdOrHash, PeerInfo, PeerMessage, Ping, Pong,
-    RawRoutedMessage, RoutedMessageBody, RoutedMessageV2, RoutingTableUpdate,
+    RawRoutedMessage, RoutedMessageBody, RoutedMessageV2, RoutingTableUpdate, SignedAccountData,
 };
 use crate::peer_manager::connection;
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::peer_store;
-use crate::private_actix::PeerToManagerMsg;
 use crate::private_actix::RegisterPeerError;
 use crate::routing;
 use crate::routing::routing_table_view::RoutingTableView;
@@ -17,9 +16,8 @@ use crate::stats::metrics;
 use crate::store;
 use crate::time;
 use crate::types::{ChainInfo, PeerType, ReasonForBan};
-use actix::Recipient;
 use arc_swap::ArcSwap;
-use near_o11y::{WithSpanContext, WithSpanContextExt};
+use near_o11y::WithSpanContextExt;
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -114,8 +112,6 @@ pub(crate) struct NetworkState {
     /// GenesisId of the chain.
     pub genesis_id: GenesisId,
     pub client: Arc<dyn client::Client>,
-    /// Address of the peer manager actor.
-    pub peer_manager_addr: Recipient<WithSpanContext<PeerToManagerMsg>>,
     /// RoutingTableActor, responsible for computing routing table, routing table exchange, etc.
     pub routing_table_addr: actix::Addr<routing::Actor>,
 
@@ -162,7 +158,6 @@ impl NetworkState {
         config: Arc<config::VerifiedConfig>,
         genesis_id: GenesisId,
         client: Arc<dyn client::Client>,
-        peer_manager_addr: Recipient<WithSpanContext<PeerToManagerMsg>>,
         whitelist_nodes: Vec<WhitelistNode>,
     ) -> Self {
         let graph = Arc::new(RwLock::new(routing::GraphWithCache::new(config.node_id())));
@@ -172,7 +167,6 @@ impl NetworkState {
             graph,
             genesis_id,
             client,
-            peer_manager_addr,
             chain_info: Default::default(),
             tier2: connection::Pool::new(config.node_id()),
             inbound_handshake_permits: Arc::new(tokio::sync::Semaphore::new(LIMIT_PENDING_PEERS)),
@@ -241,7 +235,7 @@ impl NetworkState {
     }
 
     /// predicate checking whether we should allow an inbound connection from peer_info.
-    pub fn is_inbound_allowed(&self, peer_info: &PeerInfo) -> bool {
+    fn is_inbound_allowed(&self, peer_info: &PeerInfo) -> bool {
         // Check if we have spare inbound connections capacity.
         let tier2 = self.tier2.load();
         if tier2.ready.len() + tier2.outbound_handshakes.len()
@@ -612,70 +606,103 @@ impl NetworkState {
         Ok(edge)
     }
 
-    /// Check for edges indicating that
+    pub async fn add_accounts_data(
+        self: &Arc<Self>,
+        accounts_data: Vec<Arc<SignedAccountData>>,
+    ) -> Option<accounts_data::Error> {
+        let this = self.clone();
+        self.spawn(async move {
+            // Verify and add the new data to the internal state.
+            let (new_data, err) = this.accounts_data.clone().insert(accounts_data).await;
+            // Broadcast any new data we have found, even in presence of an error.
+            // This will prevent a malicious peer from forcing us to re-verify valid
+            // datasets. See accounts_data::Cache documentation for details.
+            if new_data.len() > 0 {
+                let tier2 = this.tier2.load();
+                let tasks: Vec<_> = tier2
+                    .ready
+                    .values()
+                    .map(|p| this.spawn(p.send_accounts_data(new_data.clone())))
+                    .collect();
+                for t in tasks {
+                    t.await.unwrap();
+                }
+            }
+            err
+        })
+        .await
+        .unwrap()
+    }
+
     /// a) there is a peer we should be connected to, but we aren't
     /// b) there is an edge indicating that we should be disconnected from a peer, but we are connected.
     /// Try to resolve the inconsistency.
     /// We call this function every FIX_LOCAL_EDGES_INTERVAL from peer_manager_actor.rs.
     pub async fn fix_local_edges(self: &Arc<Self>, clock: &time::Clock) {
-        let local_edges = self.routing_table_view.get_local_edges();
-        let tier2 = self.tier2.load();
-        let mut tasks = vec![];
-        for edge in local_edges {
-            let node_id = self.config.node_id();
-            let other_peer = edge.other(&node_id).unwrap();
-            match (tier2.ready.get(other_peer), edge.edge_type()) {
-                // This is an active connection, while the edge indicates it shouldn't.
-                (Some(conn), EdgeState::Removed) => {
-                    let this = self.clone();
-                    let conn = conn.clone();
-                    let clock = clock.clone();
-                    tasks.push(self.spawn(async move {
-                        conn.send_message(Arc::new(PeerMessage::RequestUpdateNonce(
-                            PartialEdgeInfo::new(
-                                &node_id,
-                                &conn.peer_info.id,
-                                edge.next(),
-                                &this.config.node_key,
-                            ),
-                        )));
-                        // TODO(gprusak): here we should synchronically wait for the RequestUpdateNonce
-                        // response (with timeout). Until network round trips are implemented, we just
-                        // blindly wait for a while, then check again.
-                        clock.sleep(WAIT_ON_TRY_UPDATE_NONCE).await;
-                        match this.routing_table_view.get_local_edge(&conn.peer_info.id) {
-                            Some(edge) if edge.edge_type() == EdgeState::Active => return,
-                            _ => conn.stop(None),
+        let this = self.clone();
+        let clock = clock.clone();
+        self.spawn(async move {
+            let local_edges = this.routing_table_view.get_local_edges();
+            let tier2 = this.tier2.load();
+            let mut tasks = vec![];
+            for edge in local_edges {
+                let node_id = this.config.node_id();
+                let other_peer = edge.other(&node_id).unwrap();
+                match (tier2.ready.get(other_peer), edge.edge_type()) {
+                    // This is an active connection, while the edge indicates it shouldn't.
+                    (Some(conn), EdgeState::Removed) => tasks.push(this.spawn({
+                        let this = this.clone();
+                        let conn = conn.clone();
+                        let clock = clock.clone();
+                        async move {
+                            conn.send_message(Arc::new(PeerMessage::RequestUpdateNonce(
+                                PartialEdgeInfo::new(
+                                    &node_id,
+                                    &conn.peer_info.id,
+                                    edge.next(),
+                                    &this.config.node_key,
+                                ),
+                            )));
+                            // TODO(gprusak): here we should synchronically wait for the RequestUpdateNonce
+                            // response (with timeout). Until network round trips are implemented, we just
+                            // blindly wait for a while, then check again.
+                            clock.sleep(WAIT_ON_TRY_UPDATE_NONCE).await;
+                            match this.routing_table_view.get_local_edge(&conn.peer_info.id) {
+                                Some(edge) if edge.edge_type() == EdgeState::Active => return,
+                                _ => conn.stop(None),
+                            }
                         }
-                    }));
-                }
-                // We are not connected to this peer, but routing table contains
-                // information that we do. We should wait and remove that peer
-                // from routing table
-                (None, EdgeState::Active) => {
-                    let this = self.clone();
-                    let clock = clock.clone();
-                    let other_peer = other_peer.clone();
-                    tasks.push(self.spawn(async move {
-                        // This edge says this is an connected peer, which is currently not in the set of connected peers.
-                        // Wait for some time to let the connection begin or broadcast edge removal instead.
-                        clock.sleep(WAIT_PEER_BEFORE_REMOVE).await;
-                        if this.tier2.load().ready.contains_key(&other_peer) {
-                            return;
+                    })),
+                    // We are not connected to this peer, but routing table contains
+                    // information that we do. We should wait and remove that peer
+                    // from routing table
+                    (None, EdgeState::Active) => tasks.push(this.spawn({
+                        let this = this.clone();
+                        let clock = clock.clone();
+                        let other_peer = other_peer.clone();
+                        async move {
+                            // This edge says this is an connected peer, which is currently not in the set of connected peers.
+                            // Wait for some time to let the connection begin or broadcast edge removal instead.
+                            clock.sleep(WAIT_PEER_BEFORE_REMOVE).await;
+                            if this.tier2.load().ready.contains_key(&other_peer) {
+                                return;
+                            }
+                            // Peer is still not connected after waiting a timeout.
+                            // Unwrap is safe, because new_edge is always valid.
+                            let new_edge =
+                                edge.remove_edge(this.config.node_id(), &this.config.node_key);
+                            this.add_edges(&clock, vec![new_edge.clone()]).await.unwrap()
                         }
-                        // Peer is still not connected after waiting a timeout.
-                        // Unwrap is safe, because new_edge is always valid.
-                        let new_edge =
-                            edge.remove_edge(this.config.node_id(), &this.config.node_key);
-                        this.add_edges(&clock, vec![new_edge.clone()]).await.unwrap();
-                    }));
+                    })),
+                    // OK
+                    _ => {}
                 }
-                // OK
-                _ => {}
             }
-        }
-        for t in tasks {
-            let _ = t.await;
-        }
+            for t in tasks {
+                let _ = t.await;
+            }
+        })
+        .await
+        .unwrap()
     }
 }
