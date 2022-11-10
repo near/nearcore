@@ -551,6 +551,20 @@ impl EpochManagerAdapter for KeyValueRuntime {
         Ok(epoch_id)
     }
 
+    fn compare_epoch_id(
+        &self,
+        epoch_id: &EpochId,
+        other_epoch_id: &EpochId,
+    ) -> Result<Ordering, Error> {
+        if epoch_id.0 == other_epoch_id.0 {
+            return Ok(Ordering::Equal);
+        }
+        match (self.get_valset_for_epoch(epoch_id), self.get_valset_for_epoch(other_epoch_id)) {
+            (Ok(index1), Ok(index2)) => Ok(index1.cmp(&index2)),
+            _ => Err(Error::EpochOutOfBounds(epoch_id.clone())),
+        }
+    }
+
     fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error> {
         let epoch_id = self.get_epoch_id(block_hash)?;
         match self.get_block_header(&epoch_id.0)? {
@@ -1343,20 +1357,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         current_header.height()*/
         } else {
             0
-        }
-    }
-
-    fn compare_epoch_id(
-        &self,
-        epoch_id: &EpochId,
-        other_epoch_id: &EpochId,
-    ) -> Result<Ordering, Error> {
-        if epoch_id.0 == other_epoch_id.0 {
-            return Ok(Ordering::Equal);
-        }
-        match (self.get_valset_for_epoch(epoch_id), self.get_valset_for_epoch(other_epoch_id)) {
-            (Ok(index1), Ok(index2)) => Ok(index1.cmp(&index2)),
-            _ => Err(Error::EpochOutOfBounds(epoch_id.clone())),
         }
     }
 

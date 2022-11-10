@@ -63,7 +63,6 @@ use node_runtime::{
     validate_transaction, verify_and_charge_transaction, ApplyState, Runtime,
     ValidatorAccountsUpdate,
 };
-use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
@@ -1371,15 +1370,6 @@ impl RuntimeAdapter for NightshadeRuntime {
             Ok(memory_usage) => memory_usage == state_root_node.memory_usage,
             Err(_) => false, // Invalid state_root_node
         }
-    }
-
-    fn compare_epoch_id(
-        &self,
-        epoch_id: &EpochId,
-        other_epoch_id: &EpochId,
-    ) -> Result<Ordering, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        epoch_manager.compare_epoch_id(epoch_id, other_epoch_id).map_err(|e| e.into())
     }
 
     fn chunk_needs_to_be_fetched_from_archival(

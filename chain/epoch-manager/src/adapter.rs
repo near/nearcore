@@ -18,6 +18,7 @@ use near_primitives::types::{
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::EpochValidatorInfo;
 use near_store::ShardUId;
+use std::cmp::Ordering;
 use std::sync::{Arc, RwLockReadGuard, RwLockWriteGuard};
 
 /// A trait that abstracts the interface of the EpochManager.
@@ -105,6 +106,16 @@ pub trait EpochManagerAdapter: Send + Sync {
 
     /// Get [`EpochId`] from a block belonging to the epoch.
     fn get_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, Error>;
+
+    /// Which of the two epochs is earlier.
+    ///
+    /// This is well-defined because finality gadget guarantees that we cannot
+    /// have two different epochs on two forks.
+    fn compare_epoch_id(
+        &self,
+        epoch_id: &EpochId,
+        other_epoch_id: &EpochId,
+    ) -> Result<Ordering, Error>;
 
     /// Get epoch start from a block belonging to the epoch.
     fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error>;
@@ -498,6 +509,15 @@ impl<T: HasEpochMangerHandle + Send + Sync> EpochManagerAdapter for T {
     fn get_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, Error> {
         let epoch_manager = self.read();
         epoch_manager.get_epoch_id(block_hash).map_err(Error::from)
+    }
+
+    fn compare_epoch_id(
+        &self,
+        epoch_id: &EpochId,
+        other_epoch_id: &EpochId,
+    ) -> Result<Ordering, Error> {
+        let epoch_manager = self.read();
+        epoch_manager.compare_epoch_id(epoch_id, other_epoch_id).map_err(|e| e.into())
     }
 
     fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error> {
