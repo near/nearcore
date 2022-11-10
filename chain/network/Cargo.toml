@@ -10,7 +10,6 @@ anyhow.workspace = true
 protobuf-codegen.workspace = true
 
 [dependencies]
-rlimit.workspace = true
 async-trait.workspace = true
 actix.workspace = true
 anyhow.workspace = true
