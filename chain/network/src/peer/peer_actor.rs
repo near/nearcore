@@ -9,7 +9,7 @@ use crate::peer::stream;
 use crate::peer::tracker::Tracker;
 use crate::peer_manager::connection;
 use crate::peer_manager::network_state::NetworkState;
-use crate::peer_manager::peer_manager_actor::Event;
+use crate::peer_manager::peer_manager_actor::{Event, REFRESH_NONCE_PERIOD};
 use crate::private_actix::{
     PeerToManagerMsg, PeerToManagerMsgResp, PeersRequest, PeersResponse, RegisterPeer,
     RegisterPeerError, RegisterPeerResponse, SendMessage,
@@ -570,6 +570,8 @@ impl PeerActor {
             })
         });
 
+        let clock = self.clock.clone();
+
         // Here we stop processing any PeerActor events until PeerManager
         // decides whether to accept the connection or not: ctx.wait makes
         // the actor event loop poll on the future until it completes before
@@ -619,6 +621,35 @@ impl PeerActor {
                                 }
                             }
                         }));
+
+                        // Refresh connection nonces but only if we're outbound. For inbound connection, the other party should 
+                        // take care of nonce refresh.
+                        if act.peer_type == PeerType::Outbound {
+                            ctx.spawn(wrap_future({
+                                let conn = conn.clone();
+                                let network_state = act.network_state.clone();
+                                //let clock = self.clock.clone();
+                                async move {
+                                    let mut interval =
+                                        tokio::time::interval(REFRESH_NONCE_PERIOD.try_into().unwrap());
+                                    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+                                    // Wait a tick here on purpose - as we don't want to refresh nonce immediately after handshake.
+                                    interval.tick().await;
+                                    loop {
+                                        interval.tick().await;
+                                        conn.send_message(Arc::new(
+                                            PeerMessage::RequestUpdateNonce(PartialEdgeInfo::new(
+                                                &network_state.config.node_id(),
+                                                &conn.peer_info.id,
+                                                Edge::create_fresh_nonce(&clock),
+                                                &network_state.config.node_key,
+                                            )
+                                        )));
+                                        
+                                    }
+                                }
+                            }));
+                        }
                         act.network_state.config.event_sink.push(Event::HandshakeCompleted(HandshakeCompletedEvent{
                             stream_id: act.stream_id,
                             edge: conn.edge.load(),
