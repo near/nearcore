@@ -319,22 +319,6 @@ impl AppInfo {
     }
 }
 
-fn push_metrics(metrics_gateway_address: &str, chain_id: &str) {
-    let metric_families = prometheus::gather();
-    match prometheus::push_metrics(
-        "near_ping",
-        prometheus::labels! {
-            "chain_id".to_owned() => chain_id.to_owned(),
-        },
-        &metrics_gateway_address,
-        metric_families,
-        None,
-    ) {
-        Ok(_) => tracing::debug!("Pushed metrics to {}", metrics_gateway_address),
-        Err(err) => tracing::error!("Failed to push metrics: {:#?}", err),
-    }
-}
-
 fn handle_message(
     app_info: &mut AppInfo,
     msg: &ReceivedMessage,
@@ -404,7 +388,6 @@ async fn ping_via_node(
     account_filter: Option<HashSet<AccountId>>,
     mut latencies_csv: Option<crate::csv::LatenciesCsv>,
     ping_stats: &mut Vec<(PeerIdentifier, PingStats)>,
-    metrics_gateway_address: Option<String>,
 ) -> anyhow::Result<()> {
     let mut app_info = AppInfo::new(account_filter);
 
@@ -445,20 +428,6 @@ async fn ping_via_node(
     tokio::pin!(next_ping);
     let next_timeout = tokio::time::sleep(std::time::Duration::ZERO);
     tokio::pin!(next_timeout);
-
-    tracing::error!("TODO !1");
-    let chain_id = chain_id.to_string();
-    let _push_metrics = metrics_gateway_address.map(|url| {
-        tracing::error!("TODO !2");
-        tokio::spawn(async move {
-            tracing::error!("TODO !3");
-            loop {
-                tracing::error!("TODO !4");
-                crate::push_metrics(&url, &chain_id);
-                tokio::time::sleep(std::time::Duration::from_secs(10)).await;
-            }
-        })
-    });
 
     loop {
         let target = app_info.pick_next_target();
