@@ -109,6 +109,21 @@ pub trait EpochManagerAdapter: Send + Sync {
     /// Get epoch start from a block belonging to the epoch.
     fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error>;
 
+    /// Get previous epoch id by hash of previous block.
+    fn get_prev_epoch_id_from_prev_block(
+        &self,
+        prev_block_hash: &CryptoHash,
+    ) -> Result<EpochId, Error>;
+
+    /// _If_ the next epoch will use a new protocol version, returns an
+    /// estimated block height for when the epoch switch occurs.
+    ///
+    /// This is very approximate and is used for logging only.
+    fn get_protocol_upgrade_block_height(
+        &self,
+        block_hash: CryptoHash,
+    ) -> Result<Option<BlockHeight>, EpochError>;
+
     /// Epoch block producers ordered by their order in the proposals.
     /// Returns error if height is outside of known boundaries.
     fn get_epoch_block_producers_ordered(
@@ -488,6 +503,26 @@ impl<T: HasEpochMangerHandle + Send + Sync> EpochManagerAdapter for T {
     fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error> {
         let epoch_manager = self.read();
         epoch_manager.get_epoch_start_height(block_hash).map_err(Error::from)
+    }
+
+    fn get_prev_epoch_id_from_prev_block(
+        &self,
+        prev_block_hash: &CryptoHash,
+    ) -> Result<EpochId, Error> {
+        let epoch_manager = self.read();
+        if epoch_manager.is_next_block_epoch_start(prev_block_hash)? {
+            epoch_manager.get_epoch_id(prev_block_hash).map_err(Error::from)
+        } else {
+            epoch_manager.get_prev_epoch_id(prev_block_hash).map_err(Error::from)
+        }
+    }
+
+    fn get_protocol_upgrade_block_height(
+        &self,
+        block_hash: CryptoHash,
+    ) -> Result<Option<BlockHeight>, EpochError> {
+        let epoch_manager = self.read();
+        epoch_manager.get_protocol_upgrade_block_height(block_hash)
     }
 
     fn get_epoch_block_producers_ordered(

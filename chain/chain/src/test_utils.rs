@@ -559,6 +559,29 @@ impl EpochManagerAdapter for KeyValueRuntime {
         }
     }
 
+    fn get_prev_epoch_id_from_prev_block(
+        &self,
+        prev_block_hash: &CryptoHash,
+    ) -> Result<EpochId, Error> {
+        let mut candidate_hash = *prev_block_hash;
+        loop {
+            let header = self
+                .get_block_header(&candidate_hash)?
+                .ok_or_else(|| Error::DBNotFoundErr(candidate_hash.to_string()))?;
+            candidate_hash = *header.prev_hash();
+            if self.is_next_block_epoch_start(&candidate_hash)? {
+                break Ok(self.get_epoch_and_valset(candidate_hash)?.0);
+            }
+        }
+    }
+
+    fn get_protocol_upgrade_block_height(
+        &self,
+        _block_hash: CryptoHash,
+    ) -> Result<Option<BlockHeight>, EpochError> {
+        Ok(None)
+    }
+
     fn get_epoch_block_producers_ordered(
         &self,
         epoch_id: &EpochId,
@@ -1349,22 +1372,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         unreachable!("get_protocol_config should not be called in KeyValueRuntime");
     }
 
-    fn get_prev_epoch_id_from_prev_block(
-        &self,
-        prev_block_hash: &CryptoHash,
-    ) -> Result<EpochId, Error> {
-        let mut candidate_hash = *prev_block_hash;
-        loop {
-            let header = self
-                .get_block_header(&candidate_hash)?
-                .ok_or_else(|| Error::DBNotFoundErr(candidate_hash.to_string()))?;
-            candidate_hash = *header.prev_hash();
-            if self.is_next_block_epoch_start(&candidate_hash)? {
-                break Ok(self.get_epoch_and_valset(candidate_hash)?.0);
-            }
-        }
-    }
-
     fn will_shard_layout_change_next_epoch(
         &self,
         _parent_hash: &CryptoHash,
@@ -1390,13 +1397,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         _state_split_status: Arc<StateSplitApplyingStatus>,
     ) -> Result<HashMap<ShardUId, StateRoot>, Error> {
         Ok(HashMap::new())
-    }
-
-    fn get_protocol_upgrade_block_height(
-        &self,
-        _block_hash: CryptoHash,
-    ) -> Result<Option<BlockHeight>, EpochError> {
-        Ok(None)
     }
 }
 

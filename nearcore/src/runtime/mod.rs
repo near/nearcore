@@ -21,7 +21,7 @@ use near_primitives::challenge::ChallengesResult;
 use near_primitives::contract::ContractCode;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::EpochConfig;
-use near_primitives::errors::{EpochError, InvalidTxError, RuntimeError, StorageError};
+use near_primitives::errors::{InvalidTxError, RuntimeError, StorageError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
@@ -1423,29 +1423,9 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(ProtocolConfig { genesis_config, runtime_config })
     }
 
-    fn get_prev_epoch_id_from_prev_block(
-        &self,
-        prev_block_hash: &CryptoHash,
-    ) -> Result<EpochId, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        if epoch_manager.is_next_block_epoch_start(prev_block_hash)? {
-            epoch_manager.get_epoch_id(prev_block_hash).map_err(Error::from)
-        } else {
-            epoch_manager.get_prev_epoch_id(prev_block_hash).map_err(Error::from)
-        }
-    }
-
     fn will_shard_layout_change_next_epoch(&self, parent_hash: &CryptoHash) -> Result<bool, Error> {
         let epoch_manager = self.epoch_manager.read();
         Ok(epoch_manager.will_shard_layout_change(parent_hash)?)
-    }
-
-    fn get_protocol_upgrade_block_height(
-        &self,
-        block_hash: CryptoHash,
-    ) -> Result<Option<BlockHeight>, EpochError> {
-        let epoch_manager = self.epoch_manager.read();
-        epoch_manager.get_protocol_upgrade_block_height(block_hash)
     }
 }
 
