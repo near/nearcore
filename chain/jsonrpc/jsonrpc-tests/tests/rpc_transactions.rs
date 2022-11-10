@@ -4,6 +4,7 @@ use std::{thread, time};
 use actix::{Actor, System};
 use borsh::BorshSerialize;
 use futures::{future, FutureExt, TryFutureExt};
+use serde_json::json;
 
 use near_actix_test_utils::run_actix;
 use near_crypto::{InMemorySigner, KeyType};
@@ -115,12 +116,21 @@ fn test_refunds_not_in_receipts() {
         );
         let bytes = tx.try_to_vec().unwrap();
         client.broadcast_tx_commit(to_base64(&bytes)).await.unwrap();
-        thread::sleep(time::Duration::from_secs(5));
-        let tx_status = client.EXPERIMENTAL_tx_status(to_base64(&bytes)).await.unwrap();
-        for receipt in tx_status.get("receipts") {
-            if !receipt.as_array().unwrap().is_empty() {
-                let is_not_refund = !receipt.get("predecessor_id").is_none();
-                assert!(is_not_refund);
+        for _ in 1..10 {
+            // poll every 10 milliseconds for updated tx status
+            thread::sleep(time::Duration::from_millis(10));
+            let tx_status = json!(client.EXPERIMENTAL_tx_status(to_base64(&bytes)).await.unwrap());
+            for receipt in tx_status.get("receipts") {
+                if !receipt.as_array().unwrap().is_empty() {
+                    let receipt_predecessor_id = receipt.get("predecessor_id");
+                    if receipt_predecessor_id.is_some() {
+                        let is_refund =
+                            receipt["predecessor_id"].get("is_system").unwrap().as_bool();
+                        if is_refund.is_some() {
+                            assert!(!is_refund.unwrap());
+                        }
+                    }
+                }
             }
         }
     });
