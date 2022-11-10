@@ -228,7 +228,7 @@ impl From<DeleteAccountAction> for Action {
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, BorshSerialize, Deserialize, PartialEq, Eq, Clone, Debug)]
-pub struct NonDelegateAction(Action);
+pub struct NonDelegateAction(pub Action);
 
 impl From<NonDelegateAction> for Action {
     fn from(action: NonDelegateAction) -> Self {
@@ -657,20 +657,29 @@ mod tests {
 
     #[test]
     fn test_delegate_action_deserialization() {
-        NonDelegateAction::try_from_slice(Vec::new().as_ref()).expect_err("Expected an error. Buffer is empty");
+        // Expected an error. Buffer is empty
+        assert_eq!(
+            NonDelegateAction::try_from_slice(Vec::new().as_ref()).map_err(|e| e.kind()),
+            Err(ErrorKind::InvalidInput)
+        );
 
         let delegate_action = create_delegate_action(Vec::<Action>::new());
-        let serialized_non_delegate_action = create_delegate_action(vec!{delegate_action})
-        .try_to_vec()
-        .expect("Expect ok");
+        let serialized_non_delegate_action =
+            create_delegate_action(vec![delegate_action]).try_to_vec().expect("Expect ok");
 
-        Action::try_from_slice(&serialized_non_delegate_action)
-            .expect_err("Expected a nested DelegateAction error");
+        // Expected a nested DelegateAction error
+        assert_eq!(
+            NonDelegateAction::try_from_slice(&serialized_non_delegate_action)
+                .map_err(|e| e.kind()),
+            Err(ErrorKind::InvalidInput)
+        );
 
-        let serialized_delegate_action = create_delegate_action(vec!{Action::CreateAccount(CreateAccountAction {})})
-        .try_to_vec()
-        .expect("Expect ok");
-        Action::try_from_slice(&serialized_delegate_action)
-        .expect("Expected ok");
+        let serialized_delegate_action =
+            create_delegate_action(vec![Action::CreateAccount(CreateAccountAction {})])
+                .try_to_vec()
+                .expect("Expect ok");
+
+                // Valid action
+        Action::try_from_slice(&serialized_delegate_action).expect("Expected ok");
     }
 }
