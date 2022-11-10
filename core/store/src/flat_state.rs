@@ -861,6 +861,7 @@ mod tests {
             hash(&height.try_to_vec().unwrap())
         }
 
+        /// Build a chain with given set of heights and a function mapping block heights to heights of their parents.
         fn build(
             heights: Vec<BlockHeight>,
             get_parent: fn(BlockHeight) -> Option<BlockHeight>,
