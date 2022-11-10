@@ -797,7 +797,6 @@ impl FlatStorageState {
         block: BlockInfo,
     ) -> Result<StoreUpdate, FlatStorageError> {
         let mut guard = self.0.write().expect(POISONED_LOCK_ERR);
-        tracing::info!(target:"chain", "blocks {:?} prev_hash {:?}", guard.blocks.keys(), block.prev_hash);
         if !guard.blocks.contains_key(&block.prev_hash) {
             return Err(guard.create_block_not_supported_error(block_hash));
         }
@@ -823,7 +822,8 @@ impl FlatStorageState {
 #[cfg(feature = "protocol_feature_flat_state")]
 mod tests {
     use crate::flat_state::{
-        store_helper, BlockInfo, ChainAccessForFlatStorage, FlatStateFactory, FlatStorageState,
+        store_helper, BlockInfo, ChainAccessForFlatStorage, FlatStateFactory, FlatStorageError,
+        FlatStorageState,
     };
     use crate::test_utils::create_test_store;
     use crate::FlatStateDelta;
@@ -852,7 +852,7 @@ mod tests {
         }
 
         fn get_block_hashes_at_height(&self, block_height: BlockHeight) -> HashSet<CryptoHash> {
-            HashSet::from([self.get_block_hash(block_height)])
+            self.height_to_hashes.get(&block_height).cloned().iter().cloned().collect()
         }
     }
 
@@ -861,18 +861,62 @@ mod tests {
             hash(&height.try_to_vec().unwrap())
         }
 
-        // create a chain with no forks with length n
-        fn linear_chain(n: usize) -> MockChain {
-            let hashes: Vec<_> = (0..n).map(|i| MockChain::block_hash(i as BlockHeight)).collect();
-            let height_to_hashes: HashMap<_, _> =
-                hashes.iter().enumerate().map(|(k, v)| (k as BlockHeight, *v)).collect();
-            let blocks = (0..n)
-                .map(|i| {
-                    let prev_hash = if i == 0 { CryptoHash::default() } else { hashes[i - 1] };
-                    (hashes[i], BlockInfo { hash: hashes[i], height: i as BlockHeight, prev_hash })
+        fn build(
+            heights: Vec<BlockHeight>,
+            get_parent: fn(BlockHeight) -> Option<BlockHeight>,
+        ) -> MockChain {
+            let height_to_hashes: HashMap<_, _> = heights
+                .iter()
+                .cloned()
+                .map(|height| (height, MockChain::block_hash(height)))
+                .collect();
+            let blocks = heights
+                .iter()
+                .cloned()
+                .map(|height| {
+                    let hash = height_to_hashes.get(&height).unwrap().clone();
+                    let prev_hash = match get_parent(height) {
+                        None => CryptoHash::default(),
+                        Some(parent_height) => *height_to_hashes.get(&parent_height).unwrap(),
+                    };
+                    (hash, BlockInfo { hash, height, prev_hash })
                 })
                 .collect();
-            MockChain { height_to_hashes, blocks, head_height: n as BlockHeight - 1 }
+            MockChain { height_to_hashes, blocks, head_height: heights.last().unwrap().clone() }
+        }
+
+        // Create a chain with no forks with length n.
+        fn linear_chain(n: usize) -> MockChain {
+            Self::build(
+                (0..n as BlockHeight).collect(),
+                |i| if i == 0 { None } else { Some(i - 1) },
+            )
+        }
+
+        // Create a linear chain of length n where blocks with odd numbers are skipped:
+        // 0 -> 2 -> 4 -> ...
+        fn linear_chain_with_skips(n: usize) -> MockChain {
+            Self::build((0..n as BlockHeight).map(|i| i * 2).collect(), |i| {
+                if i == 0 {
+                    None
+                } else {
+                    Some(i - 2)
+                }
+            })
+        }
+
+        // Create a chain with two forks, where blocks 1 and 2 have a parent block 0, and each next block H
+        // has a parent block H-2:
+        // 0 |-> 1 -> 3 -> 5 -> ...
+        //   --> 2 -> 4 -> 6 -> ...
+        fn chain_with_two_forks(n: usize) -> MockChain {
+            Self::build((0..n as BlockHeight).collect(), |i| {
+                if i == 0 {
+                    None
+                } else {
+                    Some(i.max(2) - 2)
+                }
+            })
         }
 
         fn get_block_hash(&self, height: BlockHeight) -> CryptoHash {
@@ -998,7 +1042,82 @@ mod tests {
         assert_eq!(delta.get(&[5]), Some(Some(ValueRef::new(&[9]))));
     }
 
-    // This test tests some basic use cases for FlatState and FlatStorageState.
+    #[test]
+    fn block_not_supported_errors() {
+        // Create a chain with two forks. Set flat head to be at block 0.
+        let chain = MockChain::chain_with_two_forks(5);
+        let store = create_test_store();
+        let mut store_update = store.store_update();
+        store_helper::set_flat_head(&mut store_update, 0, &chain.get_block_hash(0));
+        for i in 1..5 {
+            store_helper::set_delta(
+                &mut store_update,
+                0,
+                chain.get_block_hash(i),
+                &FlatStateDelta::default(),
+            )
+            .unwrap();
+        }
+        store_update.commit().unwrap();
+
+        let flat_storage_state = FlatStorageState::new(store.clone(), 0, 4, &chain);
+        let flat_state_factory = FlatStateFactory::new(store.clone());
+        flat_state_factory.add_flat_storage_state_for_shard(0, flat_storage_state);
+        let flat_storage_state = flat_state_factory.get_flat_storage_state_for_shard(0).unwrap();
+
+        // Check that flat head can be moved to block 1.
+        let flat_head_hash = chain.get_block_hash(1);
+        assert_eq!(flat_storage_state.update_flat_head(&flat_head_hash), Ok(()));
+        // Check that attempt to move flat head to block 2 results in error because it lays in unreachable fork.
+        let fork_block_hash = chain.get_block_hash(2);
+        assert_eq!(
+            flat_storage_state.update_flat_head(&fork_block_hash),
+            Err(FlatStorageError::BlockNotSupported((flat_head_hash, fork_block_hash)))
+        );
+        // Check that attempt to move flat head to block 0 results in error because it is an unreachable parent.
+        let parent_block_hash = chain.get_block_hash(0);
+        assert_eq!(
+            flat_storage_state.update_flat_head(&parent_block_hash),
+            Err(FlatStorageError::BlockNotSupported((flat_head_hash, parent_block_hash)))
+        );
+        // Check that attempt to move flat head to non-existent block results in the same error.
+        let not_existing_hash = hash(&[1, 2, 3]);
+        assert_eq!(
+            flat_storage_state.update_flat_head(&not_existing_hash),
+            Err(FlatStorageError::BlockNotSupported((flat_head_hash, not_existing_hash)))
+        );
+    }
+
+    #[test]
+    fn skipped_heights() {
+        // Create a linear chain where some heights are skipped.
+        let chain = MockChain::linear_chain_with_skips(5);
+        let store = create_test_store();
+        let mut store_update = store.store_update();
+        store_helper::set_flat_head(&mut store_update, 0, &chain.get_block_hash(0));
+        for i in 1..5 {
+            store_helper::set_delta(
+                &mut store_update,
+                0,
+                chain.get_block_hash(i * 2),
+                &FlatStateDelta::default(),
+            )
+            .unwrap();
+        }
+        store_update.commit().unwrap();
+
+        // Check that flat storage state is created correctly for chain which has skipped heights.
+        let flat_storage_state = FlatStorageState::new(store.clone(), 0, 8, &chain);
+        let flat_state_factory = FlatStateFactory::new(store.clone());
+        flat_state_factory.add_flat_storage_state_for_shard(0, flat_storage_state);
+        let flat_storage_state = flat_state_factory.get_flat_storage_state_for_shard(0).unwrap();
+
+        // Check that flat head can be moved to block 8.
+        let flat_head_hash = chain.get_block_hash(8);
+        assert_eq!(flat_storage_state.update_flat_head(&flat_head_hash), Ok(()));
+    }
+
+    // This test tests basic use cases for FlatState and FlatStorageState.
     // We created a linear chain with no forks, start with flat head at the genesis block, then
     // moves the flat head forward, which checking that flat_state.get_ref() still returns the correct
     // values and the state is being updated in store.
