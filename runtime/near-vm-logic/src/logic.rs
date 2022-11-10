@@ -1227,15 +1227,20 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_per(bls12381_verify_elements, pubkeys_cnt)?;
 
         let aggregate_sig =
-            blst::min_pk::Signature::sig_validate(&aggregate_signature, false).unwrap();
+            match blst::min_pk::Signature::sig_validate(&aggregate_signature, false) {
+                Ok(sig) => sig,
+                Err(err) => return Ok(err as u64),
+            };
 
         let mut pubkeys: Vec<blst::min_pk::PublicKey> = vec![];
         for i in 0..pubkeys_cnt {
             pubkeys.push(
-                blst::min_pk::PublicKey::key_validate(
+                match blst::min_pk::PublicKey::key_validate(
                     &pubkeys_raw[((i * PUBKEY_LEN) as usize)..(((i + 1) * PUBKEY_LEN) as usize)],
-                )
-                .unwrap(),
+                ) {
+                    Ok(pubkey) => pubkey,
+                    Err(err) => return Ok(err as u64),
+                }
             );
         }
 

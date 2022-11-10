@@ -159,13 +159,13 @@ fn test_bls12_381_verify_tampered_signature() {
         &message,
         pubkeys_raw.len() as u64,
         &pubkeys_raw,
-        Ok(0),
+        Ok(2),
         map! {
-            ExtCosts::read_memory_byte: 272,
+            ExtCosts::read_memory_byte: 224,
             ExtCosts::bls12381_verify_base: 1,
             ExtCosts::read_memory_base: 3,
             ExtCosts::bls12381_verify_byte: 32,
-            ExtCosts::bls12381_verify_elements: 3,
+            ExtCosts::bls12381_verify_elements: 2,
         },
     );
 
@@ -184,13 +184,13 @@ fn test_bls12_381_verify_tampered_signature() {
         &message,
         pubkeys_raw.len() as u64,
         &pubkeys_raw,
-        Ok(0),
+        Ok(2),
         map! {
-            ExtCosts::read_memory_byte: 272,
+            ExtCosts::read_memory_byte: 176,
             ExtCosts::bls12381_verify_base: 1,
             ExtCosts::read_memory_base: 3,
             ExtCosts::bls12381_verify_byte: 32,
-            ExtCosts::bls12381_verify_elements: 3,
+            ExtCosts::bls12381_verify_elements: 1,
         },
     );
 
@@ -212,7 +212,7 @@ fn test_bls12_381_verify_tampered_signature() {
         &message,
         pubkeys_raw.len() as u64,
         &pubkeys_raw,
-        Ok(0),
+        Ok(2),
         map! {
             ExtCosts::read_memory_byte: 272,
             ExtCosts::bls12381_verify_base: 1,
@@ -240,13 +240,13 @@ fn test_bls12_381_verify_na_pubkeys_and_na_signature() {
         &message,
         pubkeys_raw.len() as u64,
         &pubkeys_raw,
-        Ok(0),
+        Ok(1),
         map! {
-            ExtCosts::read_memory_byte: 272,
+            ExtCosts::read_memory_byte: 128,
             ExtCosts::bls12381_verify_base: 1,
             ExtCosts::read_memory_base: 3,
             ExtCosts::bls12381_verify_byte: 32,
-            ExtCosts::bls12381_verify_elements: 3,
+            ExtCosts::bls12381_verify_elements: 0,
         },
     );
 }
@@ -301,13 +301,13 @@ fn test_bls12_381_verify_infinity_pubkey() {
         &message,
         pubkeys_raw.len() as u64,
         &pubkeys_raw,
-        Ok(0),
+        Ok(6),
         map! {
-            ExtCosts::read_memory_byte: 272,
+            ExtCosts::read_memory_byte: 320,
             ExtCosts::bls12381_verify_base: 1,
             ExtCosts::read_memory_base: 3,
             ExtCosts::bls12381_verify_byte: 32,
-            ExtCosts::bls12381_verify_elements: 3,
+            ExtCosts::bls12381_verify_elements: 4,
         },
     );
 }
