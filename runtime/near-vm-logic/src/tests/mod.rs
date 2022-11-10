@@ -13,3 +13,4 @@ mod storage_read_write;
 mod storage_usage;
 mod view_method;
 mod vm_logic_builder;
+mod bls12_381_verify;

@@ -31,12 +31,6 @@ extern "C" {
     // ############
     fn random_seed(register_id: u64);
     fn sha256(value_len: u64, value_ptr: u64, register_id: u64);
-    fn bls12_381_aggregate_verify(aggregate_signature_ptr: u64,
-                                  aggregate_signature_len: u64,
-                                  msg_ptr: u64,
-                                  msg_len: u64,
-                                  pubkeys_ptr: u64,
-                                  pubkeys_len: u64) -> u64;
     // #####################
     // # Miscellaneous API #
     // #####################
@@ -235,24 +229,6 @@ pub unsafe fn ext_sha256() {
     let result = vec![0; register_len(0) as usize];
     read_register(0, result.as_ptr() as *const u64 as u64);
     value_return(result.len() as u64, result.as_ptr() as *const u64 as u64);
-}
-
-#[no_mangle]
-pub unsafe fn ext_bls12_381_verify() {
-    let signature_raw: Vec<u8> = vec![143, 150, 139, 210, 67, 144, 143, 243, 229, 250, 26, 179, 243, 30, 7, 129, 151, 229, 138, 206, 86, 43, 190, 139, 90, 39, 29, 95, 186, 80, 35, 125, 160, 200, 254, 101, 231, 181, 119, 28, 192, 168, 111, 213, 127, 50, 52, 126, 21, 162, 109, 31, 93, 86, 196, 114, 208, 25, 238, 162, 83, 158, 88, 219, 0, 196, 154, 165, 208, 169, 102, 56, 56, 144, 63, 221, 190, 67, 107, 91, 21, 126, 131, 179, 93, 26, 78, 95, 137, 247, 129, 39, 243, 93, 172, 240];
-    let message: Vec<u8> = vec![62, 175, 124, 77, 209, 116, 6, 205, 248, 82, 51, 106, 86, 184, 46, 98, 158, 115, 11, 183, 176, 204, 135, 26, 230, 163, 133, 209, 31, 80, 158, 49];
-    let pubkey_raw: Vec<u8> = vec![136, 95, 173, 134, 150, 18, 44, 138, 66, 16, 51, 22, 78, 106, 113, 217, 173, 179, 136, 41, 51, 190, 186, 44, 20, 220, 173, 155, 253, 75, 173, 179, 11, 73, 48, 108, 89, 167, 167, 131, 123, 114, 224, 41, 147, 245, 164, 173];
-
-    let result = bls12_381_aggregate_verify(
-        signature_raw.as_ptr() as _,
-        signature_raw.len() as _,
-        message.as_ptr() as _,
-        message.len() as _,
-        pubkey_raw.as_ptr() as _,
-        pubkey_raw.len() as _,
-    );
-
-    value_return(size_of::<u64>() as u64, &result as *const u64 as u64);
 }
 
 #[no_mangle]

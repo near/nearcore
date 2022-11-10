@@ -192,12 +192,6 @@ def_test_ext!(
     vec![("alice", 100), ("bob", 1)]
 );
 
-def_test_ext!(
-    ext_bls12_381_verify,
-    "ext_bls12_381_verify",
-    &(0u64).to_le_bytes()
-);
-
 #[test]
 pub fn test_out_of_memory() {
     with_vm_variants(|vm_kind: VMKind| {
