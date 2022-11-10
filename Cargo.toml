@@ -147,7 +147,7 @@ parity-wasm_41 = { package = "parity-wasm", version = "0.41" }
 parking_lot = "0.12.1"
 pretty_assertions = "1.2"
 primitive-types = { version = "0.10", default-features = false }
-prometheus = { version = "0.13.3", features = ["push"] }
+prometheus = "0.13.1"
 protobuf = "3.0.1"
 protobuf-codegen = "3.0.1"
 quote = "1.0"

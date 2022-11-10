@@ -3358,6 +3358,7 @@ dependencies = [
 name = "near-ping"
 version = "0.0.0"
 dependencies = [
+ "actix-web",
  "anyhow",
  "chrono",
  "clap 3.1.18",
@@ -4361,11 +4362,9 @@ dependencies = [
  "cfg-if 1.0.0",
  "fnv",
  "lazy_static",
- "libc",
  "memchr",
  "parking_lot 0.12.1",
  "protobuf 2.27.1",
- "reqwest",
  "thiserror",
 ]
 
