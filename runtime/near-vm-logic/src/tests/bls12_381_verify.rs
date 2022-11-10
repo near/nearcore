@@ -140,6 +140,58 @@ fn test_bls12_381_verify_valid() {
 }
 
 #[test]
+fn test_bls12_381_verify_aggregate_valid() {
+    let hex_convert_error_msg = "Error during converting hex string to bytes";
+
+    let signature: Vec<u8> = <Vec<u8>>::from_hex("9712c3edd73a209c742b8250759db12549b3eaf43b5ca61376d9f30e2747dbcf842d8b2ac0901d2a093713e20284a7670fcf6954e9ab93de991bb9b313e664785a075fc285806fa5224c82bde146561b446ccfc706a64b8579513cfc4ff1d930").expect(hex_convert_error_msg);
+    let message: Vec<u8> = <Vec<u8>>::from_hex("abababababababababababababababababababababababababababababababab").expect(hex_convert_error_msg);
+    let pubkeys_raw: Vec<Vec<u8>> = vec![
+        <Vec<u8>>::from_hex("a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a").expect(hex_convert_error_msg),
+        <Vec<u8>>::from_hex("b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81").expect(hex_convert_error_msg),
+        <Vec<u8>>::from_hex("b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f").expect(hex_convert_error_msg),
+    ];
+
+    let mut pubkeys: Vec<blst::min_pk::PublicKey> = vec![];
+    for pubkey in pubkeys_raw {
+        pubkeys.push(
+            blst::min_pk::PublicKey::key_validate(
+                &pubkey.as_slice(),
+            ).expect("Error on public key parsing"),
+        );
+    }
+
+    let mut pubkeys_refs: Vec<&blst::min_pk::PublicKey> = vec![];
+    for i in 0..pubkeys.len() {
+        pubkeys_refs.push(&pubkeys[i]);
+    }
+
+    let agg_pk = match blst::min_pk::AggregatePublicKey::aggregate(&pubkeys_refs, false) {
+        Ok(agg_pk) => agg_pk,
+        Err(_) => panic!("Error on public key aggregation"),
+    };
+
+    let pubkey_aggregate = agg_pk.to_public_key().compress().to_vec();
+
+    check_bls12_381_verify(
+        signature.len() as u64,
+        &signature,
+        message.len() as u64,
+        &message,
+        pubkey_aggregate.len() as u64,
+        &pubkey_aggregate,
+        Ok(0),
+        map! {
+            ExtCosts::read_memory_byte: 176,
+            ExtCosts::bls12381_verify_base: 1,
+            ExtCosts::read_memory_base: 3,
+            ExtCosts::bls12381_verify_byte: 32,
+            ExtCosts::bls12381_verify_elements: 1,
+        },
+    );
+}
+
+
+#[test]
 fn test_bls12_381_verify_tampered_signature() {
     let hex_convert_error_msg = "Error during converting hex string to bytes";
 
