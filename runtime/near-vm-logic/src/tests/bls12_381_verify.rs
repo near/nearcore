@@ -1,3 +1,4 @@
+// the tests from this repo are used https://github.com/ethereum/bls12-381-tests
 use crate::tests::fixtures::get_context;
 use std::collections::HashMap;
 use hex::FromHex;
