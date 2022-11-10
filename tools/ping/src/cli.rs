@@ -200,6 +200,7 @@ impl PingCommand {
                 None
             };
         let runtime = tokio::runtime::Runtime::new().unwrap();
+
         runtime.block_on(async move {
             let mut stats = Vec::new();
             crate::ping_via_node(

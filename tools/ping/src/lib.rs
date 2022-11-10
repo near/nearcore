@@ -1,4 +1,12 @@
+use std::cmp;
+use std::collections::hash_map::Entry;
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::net::SocketAddr;
+use std::pin::Pin;
+
 use anyhow::Context;
+
+pub use cli::PingCommand;
 use near_network::raw::{ConnectError, Connection, ReceivedMessage};
 use near_network::time;
 use near_network::types::HandshakeFailureReason;
@@ -6,17 +14,10 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::types::{AccountId, BlockHeight, EpochId};
 use near_primitives::version::ProtocolVersion;
-use std::cmp;
-use std::collections::hash_map::Entry;
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
-use std::net::SocketAddr;
-use std::pin::Pin;
 
 pub mod cli;
 mod csv;
 mod metrics;
-
-pub use cli::PingCommand;
 
 // TODO: also log number of bytes/other messages (like Blocks) received?
 #[derive(Debug, Default)]
@@ -123,23 +124,15 @@ struct AppInfo {
     requests: BTreeMap<PingTarget, HashMap<Nonce, PingTimes>>,
     timeouts: BTreeSet<PingTimeout>,
     account_filter: Option<HashSet<AccountId>>,
-    metrics_gateway_address: Option<String>,
-    chain_id: String,
 }
 
 impl AppInfo {
-    fn new(
-        chain_id: &str,
-        account_filter: Option<HashSet<AccountId>>,
-        metrics_gateway_address: Option<String>,
-    ) -> Self {
+    fn new(account_filter: Option<HashSet<AccountId>>) -> Self {
         Self {
             stats: HashMap::new(),
             requests: BTreeMap::new(),
             timeouts: BTreeSet::new(),
             account_filter,
-            metrics_gateway_address,
-            chain_id: chain_id.to_string(),
         }
     }
 
@@ -158,7 +151,6 @@ impl AppInfo {
 
         let account_id = self.peer_id_to_account_id(&peer_id);
         crate::metrics::PING_SENT.with_label_values(&[&peer_str(peer_id, account_id)]).inc();
-        self.push_metrics();
 
         match self.stats.entry(peer_id.clone()) {
             Entry::Occupied(mut e) => {
@@ -225,7 +217,7 @@ impl AppInfo {
                         assert!(self.timeouts.remove(&PingTimeout {
                             peer_id: peer_id.clone(),
                             nonce,
-                            timeout: times.timeout
+                            timeout: times.timeout,
                         }));
 
                         let l: std::time::Duration = latency.try_into().unwrap();
@@ -325,22 +317,21 @@ impl AppInfo {
     fn peer_id_to_account_id(&self, peer_id: &PeerId) -> Option<&AccountId> {
         self.stats.get(peer_id).and_then(|s| s.account_id.as_ref())
     }
+}
 
-    fn push_metrics(&self) {
-        let metric_families = prometheus::gather();
-        if let Some(metrics_gateway_address) = &self.metrics_gateway_address {
-            prometheus::push_metrics(
-                "near_ping",
-                prometheus::labels! {
-                    "chain_id".to_owned() => self.chain_id.clone(),
-                },
-                &metrics_gateway_address,
-                metric_families,
-                None,
-            )
-            .unwrap_or_else(|err| tracing::error!("Failed to push metrics: {:#?}", err));
-            tracing::debug!("Pushed metrics to {}", metrics_gateway_address);
-        }
+fn push_metrics(metrics_gateway_address: &str, chain_id: &str) {
+    let metric_families = prometheus::gather();
+    match prometheus::push_metrics(
+        "near_ping",
+        prometheus::labels! {
+            "chain_id".to_owned() => chain_id.to_owned(),
+        },
+        &metrics_gateway_address,
+        metric_families,
+        None,
+    ) {
+        Ok(_) => tracing::debug!("Pushed metrics to {}", metrics_gateway_address),
+        Err(err) => tracing::error!("Failed to push metrics: {:#?}", err),
     }
 }
 
@@ -415,7 +406,7 @@ async fn ping_via_node(
     ping_stats: &mut Vec<(PeerIdentifier, PingStats)>,
     metrics_gateway_address: Option<String>,
 ) -> anyhow::Result<()> {
-    let mut app_info = AppInfo::new(chain_id, account_filter, metrics_gateway_address);
+    let mut app_info = AppInfo::new(account_filter);
 
     app_info.add_peer(&peer_id, None);
 
@@ -426,15 +417,11 @@ async fn ping_via_node(
         chain_id,
         genesis_hash,
         head_height,
-        time::Duration::seconds(recv_timeout_seconds.into()),
-    )
-        .await
-    {
+        time::Duration::seconds(recv_timeout_seconds.into())).await {
         Ok(p) => p,
         Err(ConnectError::HandshakeFailure(reason)) => {
             match reason {
-                HandshakeFailureReason::ProtocolVersionMismatch { version, oldest_supported_version } => anyhow::bail!(
-                    "Received Handshake Failure: {:?}. Try running again with --protocol-version between {} and {}",
+                HandshakeFailureReason::ProtocolVersionMismatch { version, oldest_supported_version } => anyhow::bail!( "Received Handshake Failure: {:?}. Try running again with --protocol-version between {} and {}",
                     reason, oldest_supported_version, version
                 ),
                 HandshakeFailureReason::GenesisMismatch(_) => anyhow::bail!(
@@ -458,6 +445,20 @@ async fn ping_via_node(
     tokio::pin!(next_ping);
     let next_timeout = tokio::time::sleep(std::time::Duration::ZERO);
     tokio::pin!(next_timeout);
+
+    tracing::error!("TODO !1");
+    let chain_id = chain_id.to_string();
+    let _push_metrics = metrics_gateway_address.map(|url| {
+        tracing::error!("TODO !2");
+        tokio::spawn(async move {
+            tracing::error!("TODO !3");
+            loop {
+                tracing::error!("TODO !4");
+                crate::push_metrics(&url, &chain_id);
+                tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+            }
+        })
+    });
 
     loop {
         let target = app_info.pick_next_target();
@@ -495,9 +496,9 @@ async fn ping_via_node(
             _ = &mut next_timeout, if pending_timeout.is_some() => {
                 let t = pending_timeout.unwrap();
                 app_info.pop_timeout(&t);
+                let account_id = app_info.peer_id_to_account_id(&t.peer_id);
+                crate::metrics::PONG_TIMEOUTS.with_label_values(&[&peer_str(&t.peer_id, account_id)]).inc();
                 if let Some(csv) = latencies_csv.as_mut() {
-                    let account_id = app_info.peer_id_to_account_id(&t.peer_id);
-                    crate::metrics::PONG_TIMEOUTS.with_label_values(&[&peer_str(&t.peer_id, account_id)]).inc();
                     result = csv.write_timeout(
                         &t.peer_id,
                         account_id,
