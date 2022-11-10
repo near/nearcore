@@ -1,48 +1,64 @@
 # Cross shard transactions - deep dive
 
-In this article, we'll look deeper into how cross-shard transactions are working on the simple example of user 'shard0' transfering money to user 'shard1'.
+In this article, we'll look deeper into how cross-shard transactions are working
+on the simple example of user 'shard0' transfering money to user 'shard1'.
 
-These users are on separate shards (``shard0`` is on shard 0 and ``shard1`` is on shard 1).
+These users are on separate shards (`shard0` is on shard 0 and `shard1` is on
+shard 1).
 
 Imagine, we call the following command line:
 
-```shell
-NEAR_ENV=local near send shard0 shard1 500 
+```console
+$ NEAR_ENV=local near send shard0 shard1 500
 ```
 
-What happens under the hood? How is this transaction changed into receipts and processed by near?
+What happens under the hood? How is this transaction changed into receipts and
+processed by near?
 
 
 ## From Explorer perspective
-If you look at simple token transfer in explorer (for example: https://explorer.testnet.near.org/transactions/6cNJpNKWP55YrxrgRzc2gi6BM91fo3V6n2vVAo41MvZv), you can see that it is broken into three separate sections:
+If you look at simple token transfer in explorer (for example:
+<https://explorer.testnet.near.org/transactions/6cNJpNKWP55YrxrgRzc2gi6BM91fo3V6n2vVAo41MvZv>),
+you can see that it is broken into three separate sections:
 
 * convert transaction into receipt ( executed in block B )
 * receipt that transfers tokens ( executed in block B+1 )
 * receipt that refunds gas ( executed in block B+2 )
 
-But under the hood, the situation is a little bit more complex, as there is actually one more receipt (that is created after converting the transaction). Let's take a deeper look.
+But under the hood, the situation is a little bit more complex, as there is
+actually one more receipt (that is created after converting the transaction).
+Let's take a deeper look.
 
 ## Internal perspective (Transactions & Receipts)
 
-One important thing to remember, is that NEAR is sharded - so in all our designs, we have to assume that each account is on a separate shard. So that the fact that some of them are colocated doesn't give any advantage.
+One important thing to remember, is that NEAR is sharded - so in all our
+designs, we have to assume that each account is on a separate shard. So that the
+fact that some of them are colocated doesn't give any advantage.
 
 
 ### Step 1 - Transaction
-This is the part that we receive from the user (SignedTransaction) - it has 3 parts:
+This is the part that we receive from the user (SignedTransaction) - it has 3
+parts:
 
 * signer (account + key) who signed the transaction
 * receiver (in which account context should we execute this)
 * payload - a.k.a Actions to execute.
 
 
-As the first step, we want to change this transaction into a Receipt (a.k.a 'internal' message) - but before doing that, we must verify that:
+As the first step, we want to change this transaction into a Receipt (a.k.a
+'internal' message) - but before doing that, we must verify that:
 
-* the message signature matches (that is - that this message was actually signed by this key)
-* that this key is authorized to act on behalf that account (so it is a full access key to this account - or a valid fuction key).
+* the message signature matches (that is - that this message was actually signed
+  by this key)
+* that this key is authorized to act on behalf that account (so it is a full
+  access key to this account - or a valid fuction key).
 
-The last point above means, that we MUST execute this Transaction to Receipt transition within the shard that the ``signer`` belongs to (as other shards don't know the state that belongs to signer - so they don't know which keys it has).
+The last point above means, that we MUST execute this Transaction to Receipt
+transition within the shard that the `signer` belongs to (as other shards don't
+know the state that belongs to signer - so they don't know which keys it has).
 
-So actually if we look inside the chunk 0 (where ``shard0`` belongs to) at block B, we'll see the transaction:
+So actually if we look inside the chunk 0 (where `shard0` belongs to) at block
+B, we'll see the transaction:
 
 ```
 Chunk: Ok(
@@ -108,13 +124,15 @@ Chunk: Ok(
 )
 ```
 
-```
-Side note: When we're changing the transaction into receipt, we also use this moment to deduct prepaid gas fees and transfered tokens from the 'signer' account. The details on how much gas is charged etc will be in a separate article.
-```
+**Side note:** When we're changing the transaction into receipt, we also use
+this moment to deduct prepaid gas fees and transfered tokens from the 'signer'
+account. The details on how much gas is charged etc will be in a separate
+article.
 
 ## Step 2 - cross shard receipt
 
-After transaction was changed into the receipt, this receipt must now be sent to the shard where ``receiver`` is (in our example ``shard1`` is on shard 1).
+After transaction was changed into the receipt, this receipt must now be sent to
+the shard where `receiver` is (in our example `shard1` is on shard 1).
 
 We can actually see this in the chunk of the next block:
 
@@ -186,15 +204,19 @@ Chunk: Ok(
 )
 ```
 
-```
-Side comment: notice that receipt itself no longer has a ``signer`` field, but a ``predecessor_id`` one.
-```
 
-Such receipt is sent to the destination shard (we'll explain this process in a separate article) where it can be executed.
+**Side comment:** notice that receipt itself no longer has a `signer` field, but
+a `predecessor_id` one.
+
+Such receipt is sent to the destination shard (we'll explain this process in a
+separate article) where it can be executed.
 
 ## 3. Gas refund.
 
-When shard 1 processes the receipt above, it is then ready to refund the unused gas to the original account (``shard0``). So it also creates the receipt, and puts it inside the chunk. This time it is in shard 1 (as that's where it was executed).
+When shard 1 processes the receipt above, it is then ready to refund the unused
+gas to the original account (`shard0`). So it also creates the receipt, and puts
+it inside the chunk. This time it is in shard 1 (as that's where it was
+executed).
 
 ```
 Chunk: Ok(
@@ -264,39 +286,53 @@ Chunk: Ok(
 )
 ```
 
-Such gas refunds receipts are a little bit special - as we'll set the predecessor_id to be ``system`` - but the receiver is what we expect (``shard0`` account).
-(``system`` is a special account that doesn't really belong to any shard - as you can see in this example, the receipt was created within shard 1)
+Such gas refunds receipts are a little bit special - as we'll set the
+predecessor_id to be `system` - but the receiver is what we expect (`shard0`
+account). (`system` is a special account that doesn't really belong to any shard
+- as you can see in this example, the receipt was created within shard 1)
 
 
 So putting it all together would look like this:
 
 ![image](https://user-images.githubusercontent.com/91919554/200617392-00b9fa0c-2f15-40ad-9802-137ca9a5a15d.png)
 
-But wait - NEAR was saying that transfers are happening with 2 blocks - but here I see that it took 3 blocks. What's wrong?
+But wait - NEAR was saying that transfers are happening with 2 blocks - but here
+I see that it took 3 blocks. What's wrong?
 
-The image above is a simplification, and reality is a little bit tricker - especially as receipts in a given chunks are actually receipts received as a result from running a PREVIOUS chunk from this shard.
+The image above is a simplification, and reality is a little bit tricker -
+especially as receipts in a given chunks are actually receipts received as a
+result from running a PREVIOUS chunk from this shard.
 
 We'll explain it more in the next section.
 
 # Advanced: What's actually going on?
 
-As you could have read in [tx_receipts.md] - the 'receipts' field in chunk is actually representing 'outgoing' receipts from previous block.
+As you could have read in [tx_receipts.md] - the 'receipts' field in chunk is
+actually representing 'outgoing' receipts from previous block.
 
 So our image should look more like this:
 ![image](https://user-images.githubusercontent.com/91919554/200621066-a5d06f2d-ff43-44ce-a52b-47dc44d6f8ab.png)
 
-In this example, the black boxes are representing the 'processing' of the chunk, and red arrows are cross-shard communication.
+In this example, the black boxes are representing the 'processing' of the chunk,
+and red arrows are cross-shard communication.
 
-So when we process Shard 0 from block 1676, we read the transation, and output the receipt - which later becomes the input for shard 1 in block 1677.
+So when we process Shard 0 from block 1676, we read the transation, and output
+the receipt - which later becomes the input for shard 1 in block 1677.
 
-But you might still be wondering -- so why didn't we add the Receipt(transfer) to the list of receipts of shard0 1676? 
+But you might still be wondering -- so why didn't we add the Receipt(transfer)
+to the list of receipts of shard0 1676?
 
-That's because the shards & blocks are set BEFORE we do any computation. So the more correct image would look like this:
+That's because the shards & blocks are set BEFORE we do any computation. So the
+more correct image would look like this:
 
 ![image](https://user-images.githubusercontent.com/91919554/200621808-1ce78047-6968-4af5-9c2a-805a0f1643fc.png)
 
-Here you can see clearly that chunk processing (black box), is happening AFTER chunk is set.
+Here you can see clearly that chunk processing (black box), is happening AFTER
+chunk is set.
 
-In this example, the blue arrows are showing the part where we persist the result (receipt) into next block's chunk.
+In this example, the blue arrows are showing the part where we persist the
+result (receipt) into next block's chunk.
 
-In the future article, we'll discuss how the actual cross-shard communication works (red arrows) in the picture, and how we could guarantee that a given shard really gets all the red arrows, before is starts processing.
+In the future article, we'll discuss how the actual cross-shard communication
+works (red arrows) in the picture, and how we could guarantee that a given shard
+really gets all the red arrows, before is starts processing.
