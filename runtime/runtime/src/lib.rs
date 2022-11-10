@@ -448,7 +448,6 @@ impl Runtime {
                     state_update,
                     apply_state,
                     action_receipt,
-                    account,
                     account_id,
                     signed_delegate_action,
                     &mut result,

@@ -622,7 +622,6 @@ pub(crate) fn apply_delegate_action(
     state_update: &mut TrieUpdate,
     apply_state: &ApplyState,
     action_receipt: &ActionReceipt,
-    sender: &mut Option<Account>,
     sender_id: &AccountId,
     signed_delegate_action: &SignedDelegateAction,
     result: &mut ActionResult,
@@ -645,12 +644,6 @@ pub(crate) fn apply_delegate_action(
         .into());
         return Ok(());
     }
-    if sender.is_none() {
-        result.result =
-            Err(ActionErrorKind::DelegateActionSenderDoesNotExist { sender_id: sender_id.clone() }
-                .into());
-        return Ok(());
-    };
 
     validate_delegate_action_key(state_update, apply_state, delegate_action, result)?;
     if result.result.is_err() {
@@ -914,7 +907,8 @@ pub(crate) fn check_account_existence(
         | Action::Stake(_)
         | Action::AddKey(_)
         | Action::DeleteKey(_)
-        | Action::DeleteAccount(_) => {
+        | Action::DeleteAccount(_)
+        | Action::Delegate(_) => {
             if account.is_none() {
                 return Err(ActionErrorKind::AccountDoesNotExist {
                     account_id: account_id.clone(),
@@ -922,7 +916,6 @@ pub(crate) fn check_account_existence(
                 .into());
             }
         }
-        Action::Delegate(_) => (),
     };
     Ok(())
 }
@@ -1181,7 +1174,7 @@ mod tests {
         account_id: &AccountId,
         public_key: &PublicKey,
         access_key: &AccessKey,
-    ) -> (TrieUpdate, Account) {
+    ) -> TrieUpdate {
         let tries = create_tries();
         let mut state_update =
             tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
@@ -1194,7 +1187,7 @@ mod tests {
         let (store_update, root) = tries.apply_all(&trie_changes, ShardUId::single_shard());
         store_update.commit().unwrap();
 
-        (tries.new_trie_update(ShardUId::single_shard(), root), account)
+        tries.new_trie_update(ShardUId::single_shard(), root)
     }
 
     #[test]
@@ -1207,13 +1200,12 @@ mod tests {
 
         let apply_state =
             create_apply_state(signed_delegate_action.delegate_action.max_block_height);
-        let (mut state_update, sender) = setup_account(&sender_id, &sender_pub_key, &access_key);
+        let mut state_update = setup_account(&sender_id, &sender_pub_key, &access_key);
 
         apply_delegate_action(
             &mut state_update,
             &apply_state,
             &action_receipt,
-            &mut Some(sender),
             &sender_id,
             &signed_delegate_action,
             &mut result,
@@ -1249,7 +1241,7 @@ mod tests {
 
         let apply_state =
             create_apply_state(signed_delegate_action.delegate_action.max_block_height);
-        let (mut state_update, sender) = setup_account(&sender_id, &sender_pub_key, &access_key);
+        let mut state_update = setup_account(&sender_id, &sender_pub_key, &access_key);
 
         // Corrupt receiver_id. Signature verifycation must fail.
         signed_delegate_action.delegate_action.receiver_id = "www.test.near".parse().unwrap();
@@ -1258,7 +1250,6 @@ mod tests {
             &mut state_update,
             &apply_state,
             &action_receipt,
-            &mut Some(sender),
             &sender_id,
             &signed_delegate_action,
             &mut result,
@@ -1279,13 +1270,12 @@ mod tests {
         // Setup current block as higher than max_block_height. Must fail.
         let apply_state =
             create_apply_state(signed_delegate_action.delegate_action.max_block_height + 1);
-        let (mut state_update, sender) = setup_account(&sender_id, &sender_pub_key, &access_key);
+        let mut state_update = setup_account(&sender_id, &sender_pub_key, &access_key);
 
         apply_delegate_action(
             &mut state_update,
             &apply_state,
             &action_receipt,
-            &mut Some(sender),
             &sender_id,
             &signed_delegate_action,
             &mut result,
@@ -1305,14 +1295,13 @@ mod tests {
 
         let apply_state =
             create_apply_state(signed_delegate_action.delegate_action.max_block_height);
-        let (mut state_update, sender) = setup_account(&sender_id, &sender_pub_key, &access_key);
+        let mut state_update = setup_account(&sender_id, &sender_pub_key, &access_key);
 
         // Use a different sender_id. Must fail.
         apply_delegate_action(
             &mut state_update,
             &apply_state,
             &action_receipt,
-            &mut Some(sender),
             &"www.test.near".parse().unwrap(),
             &signed_delegate_action,
             &mut result,
@@ -1328,24 +1317,17 @@ mod tests {
             .into())
         );
 
-        result = ActionResult::default();
-
         // Sender account doesn't exist. Must fail.
-        apply_delegate_action(
-            &mut state_update,
-            &apply_state,
-            &action_receipt,
-            &mut None,
-            &sender_id,
-            &signed_delegate_action,
-            &mut result,
-        )
-        .expect("Expect ok");
-
         assert_eq!(
-            result.result,
-            Err(ActionErrorKind::DelegateActionSenderDoesNotExist { sender_id: sender_id.clone() }
-                .into())
+            check_account_existence(
+                &Action::Delegate(signed_delegate_action),
+                &mut None,
+                &sender_id,
+                1,
+                false,
+                false
+            ),
+            Err(ActionErrorKind::AccountDoesNotExist { account_id: sender_id.clone() }.into())
         );
     }
 
@@ -1358,7 +1340,7 @@ mod tests {
 
         let apply_state =
             create_apply_state(signed_delegate_action.delegate_action.max_block_height);
-        let (mut state_update, _) = setup_account(&sender_id, &sender_pub_key, &access_key);
+        let mut state_update = setup_account(&sender_id, &sender_pub_key, &access_key);
 
         // Everything is ok
         let mut result = ActionResult::default();
@@ -1413,7 +1395,7 @@ mod tests {
 
         let apply_state =
             create_apply_state(signed_delegate_action.delegate_action.max_block_height);
-        let (mut state_update, _) = setup_account(
+        let mut state_update = setup_account(
             &sender_id,
             &PublicKey::empty(near_crypto::KeyType::ED25519),
             &access_key,
@@ -1451,7 +1433,7 @@ mod tests {
 
         let apply_state =
             create_apply_state(signed_delegate_action.delegate_action.max_block_height);
-        let (mut state_update, _) = setup_account(&sender_id, &sender_pub_key, &access_key);
+        let mut state_update = setup_account(&sender_id, &sender_pub_key, &access_key);
 
         validate_delegate_action_key(
             &mut state_update,
@@ -1479,7 +1461,7 @@ mod tests {
         let access_key = AccessKey { nonce: 19000000, permission: AccessKeyPermission::FullAccess };
 
         let apply_state = create_apply_state(1);
-        let (mut state_update, _) = setup_account(&sender_id, &sender_pub_key, &access_key);
+        let mut state_update = setup_account(&sender_id, &sender_pub_key, &access_key);
 
         validate_delegate_action_key(
             &mut state_update,
@@ -1507,7 +1489,7 @@ mod tests {
         let sender_pub_key = delegate_action.public_key.clone();
 
         let apply_state = create_apply_state(delegate_action.max_block_height);
-        let (mut state_update, _) = setup_account(&sender_id, &sender_pub_key, &access_key);
+        let mut state_update = setup_account(&sender_id, &sender_pub_key, &access_key);
 
         validate_delegate_action_key(
             &mut state_update,

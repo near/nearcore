@@ -679,7 +679,7 @@ mod tests {
                 .try_to_vec()
                 .expect("Expect ok");
 
-                // Valid action
+        // Valid action
         Action::try_from_slice(&serialized_delegate_action).expect("Expected ok");
     }
 }
