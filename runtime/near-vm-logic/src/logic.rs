@@ -1205,6 +1205,41 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_wasm_gas(opcodes)
     }
 
+
+    /// Verify aggregate BLS12-381 signature for given message and
+    /// public keys list (or one aggregate public key)
+    ///
+    /// The length of each public key(include aggregate one) should be 48 bytes and
+    /// the length of the signature is 96 bytes.
+    ///
+    /// In case of providing the list of public keys, all public keys should be written
+    /// in one slice one by one without any separation. `pubkeys_ptr` - the pointer
+    /// to the beginning of this slice and `pubkeys_len` the len of this
+    /// slice in bytes (=48 * PUBLIC_KEYS_CNT).
+    ///
+    /// Returns (0) if the signature verification pass, and the value is more than zero if the
+    /// verification fail.
+    ///
+    /// The next return values are possible:
+    /// 0 -- success
+    /// 1 -- bad encoding
+    /// 2 -- point not on curve
+    /// 3 -- point not in group
+    /// 4 -- aggr type mismatch
+    /// 5 -- verify fail
+    /// 6 -- pk is infinity
+    /// 7 -- bad scalar
+    ///
+    /// # Cost
+    ///
+    /// `input_cost(aggregate_signature_len) + input_cost(msg_len) + input_cost(pubkey_len) +
+    ///  bls12381_verify_base + bls12381_verify_byte * msg_len + bls12381_verify_elements * pubkeys_cnt`
+    ///
+    /// Where `pubkeys_cnt` -- the number of public keys (`pubkeys_len/48`).
+    ///
+    /// The signature_len is a const = 96 bytes. And for signature verification, first,
+    /// the public keys are aggregated into one public key and after that the signature is verified,
+    /// so public keys number and message len influence on cost independently.
     pub fn bls12_381_aggregate_verify(
         &mut self,
         aggregate_signature_ptr: u64,
