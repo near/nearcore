@@ -85,12 +85,12 @@ impl FlatStorageShardCreator {
                     let block_hash = final_head.last_block_hash;
                     let mut store_update = chain_store.store().store_update();
                     store_helper::set_flat_head(&mut store_update, shard_id, &block_hash);
-                    store_helper::set_fetching_step(&mut store_update, shard_id, 0u64);
+                    store_helper::set_fetching_state_step(&mut store_update, shard_id, 0u64);
                     store_update.commit()?;
                 }
                 Ok(())
             }
-            FlatStorageStateStatus::FetchingState((_block_hash, _fetching_step)) => {
+            FlatStorageStateStatus::FetchingState((_block_hash, _fetching_state_step)) => {
                 // TODO: spawn threads and collect results
                 Ok(())
             }

@@ -490,7 +490,7 @@ pub mod store_helper {
     use near_primitives::types::ShardId;
     use std::sync::Arc;
 
-    pub const FETCHING_STEP_KEY_PREFIX: &[u8; 4] = b"STEP";
+    pub const FETCHING_STATE_STEP_KEY_PREFIX: &[u8; 4] = b"STEP";
 
     pub fn get_delta(
         store: &Store,
@@ -562,28 +562,28 @@ pub mod store_helper {
         }
     }
 
-    fn fetching_step_key(shard_id: ShardId) -> Vec<u8> {
-        let mut fetching_step_key = FETCHING_STEP_KEY_PREFIX.to_vec();
-        fetching_step_key.extend_from_slice(&shard_id.try_to_vec().unwrap());
-        fetching_step_key
+    fn fetching_state_step_key(shard_id: ShardId) -> Vec<u8> {
+        let mut fetching_state_step_key = FETCHING_STATE_STEP_KEY_PREFIX.to_vec();
+        fetching_state_step_key.extend_from_slice(&shard_id.try_to_vec().unwrap());
+        fetching_state_step_key
     }
 
-    fn get_fetching_step(store: &Store, shard_id: ShardId) -> Option<u64> {
-        store.get_ser(crate::DBCol::FlatStateMisc, &fetching_step_key(shard_id)).expect(
+    fn get_fetching_state_step(store: &Store, shard_id: ShardId) -> Option<u64> {
+        store.get_ser(crate::DBCol::FlatStateMisc, &fetching_state_step_key(shard_id)).expect(
             format!("Error reading fetching step for flat state for shard {shard_id}").as_str(),
         )
     }
 
-    pub fn set_fetching_step(store_update: &mut StoreUpdate, shard_id: ShardId, value: u64) {
+    pub fn set_fetching_state_step(store_update: &mut StoreUpdate, shard_id: ShardId, value: u64) {
         store_update
-            .set_ser(crate::DBCol::FlatStateMisc, &fetching_step_key(shard_id), &value)
+            .set_ser(crate::DBCol::FlatStateMisc, &fetching_state_step_key(shard_id), &value)
             .expect(
                 format!("Error setting fetching step for shard {shard_id} to {value}").as_str(),
             );
     }
 
     fn get_catchup_status(store: &Store, shard_id: ShardId) -> bool {
-        let mut catchup_status_key = FETCHING_STEP_KEY_PREFIX.to_vec();
+        let mut catchup_status_key = FETCHING_STATE_STEP_KEY_PREFIX.to_vec();
         catchup_status_key.extend_from_slice(&shard_id.try_to_vec().unwrap());
         let status: Option<bool> =
             store.get_ser(crate::DBCol::FlatStateMisc, &catchup_status_key).expect(
@@ -610,8 +610,8 @@ pub mod store_helper {
         match get_flat_head(store, shard_id) {
             None => FlatStorageStateStatus::SavingDeltas,
             Some(block_hash) => {
-                if let Some(fetching_step) = get_fetching_step(store, shard_id) {
-                    FlatStorageStateStatus::FetchingState((block_hash, fetching_step))
+                if let Some(fetching_state_step) = get_fetching_state_step(store, shard_id) {
+                    FlatStorageStateStatus::FetchingState((block_hash, fetching_state_step))
                 } else if get_catchup_status(store, shard_id) {
                     FlatStorageStateStatus::CatchingUp
                 } else {
