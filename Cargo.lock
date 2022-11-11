@@ -3306,7 +3306,6 @@ version = "0.0.0"
 dependencies = [
  "actix",
  "atty",
- "backtrace",
  "bencher",
  "clap 3.1.18",
  "itoa 1.0.2",

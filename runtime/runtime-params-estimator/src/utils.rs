@@ -46,6 +46,7 @@ pub(crate) fn transaction_cost_ext(
     make_transaction: &mut dyn FnMut(&mut TransactionBuilder) -> SignedTransaction,
     block_latency: usize,
 ) -> (GasCost, HashMap<ExtCosts, u64>) {
+    let verbose = ctx.config.debug;
     let measurement_overhead = overhead_per_measured_block(ctx, block_latency);
 
     let mut testbed = ctx.testbed();
@@ -64,6 +65,20 @@ pub(crate) fn transaction_cost_ext(
     };
 
     let measurements = testbed.measure_blocks(blocks, block_latency);
+    if verbose {
+        // prints individual block measurements (without division by number of
+        // inner items) which helps understanding issue with high variance
+        eprint!("|warmup|");
+        for (gas, _ext) in &measurements[..testbed.config.warmup_iters_per_block] {
+            eprint!(" {gas:>#7.2?}");
+        }
+        eprintln!();
+        eprint!("|proper|");
+        for (gas, _ext) in &measurements[testbed.config.warmup_iters_per_block..] {
+            eprint!(" {gas:>#7.2?}");
+        }
+        eprintln!();
+    }
     let measurements =
         measurements.into_iter().skip(testbed.config.warmup_iters_per_block).collect::<Vec<_>>();
 
