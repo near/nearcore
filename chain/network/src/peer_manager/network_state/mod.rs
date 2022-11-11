@@ -106,7 +106,7 @@ pub(crate) struct NetworkState {
     /// DO NOT spawn actors from a task on this runtime.
     runtime: Runtime,
     /// PeerManager config.
-    pub config: Arc<config::VerifiedConfig>,
+    pub config: config::VerifiedConfig,
     /// When network state has been constructed.
     pub created_at: time::Instant,
     /// GenesisId of the chain.
@@ -155,7 +155,7 @@ impl NetworkState {
         clock: &time::Clock,
         store: store::Store,
         peer_store: peer_store::PeerStore,
-        config: Arc<config::VerifiedConfig>,
+        config: config::VerifiedConfig,
         genesis_id: GenesisId,
         client: Arc<dyn client::Client>,
         whitelist_nodes: Vec<WhitelistNode>,
