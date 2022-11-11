@@ -1,6 +1,6 @@
 #![doc = include_str!("../README.md")]
 
-pub use {backtrace, tracing, tracing_appender, tracing_subscriber};
+pub use {tracing, tracing_appender, tracing_subscriber};
 
 use clap::Parser;
 pub use context::*;
@@ -562,7 +562,7 @@ impl<'a> EnvFilterBuilder<'a> {
 ///
 /// This is intended as a printf-debugging aid.
 pub fn print_backtrace() {
-    let bt = backtrace::Backtrace::new();
+    let bt = std::backtrace::Backtrace::force_capture();
     eprintln!("{bt:?}")
 }
 

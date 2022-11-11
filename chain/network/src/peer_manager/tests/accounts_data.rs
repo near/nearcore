@@ -42,10 +42,16 @@ async fn broadcast() {
     )
     .await;
 
-    let take_sync = |ev| match ev {
+    let take_incremental_sync = |ev| match ev {
         peer::testonly::Event::Network(PME::MessageProcessed(PeerMessage::SyncAccountsData(
             msg,
-        ))) => Some(msg),
+        ))) if msg.incremental => Some(msg),
+        _ => None,
+    };
+    let take_full_sync = |ev| match ev {
+        peer::testonly::Event::Network(PME::MessageProcessed(PeerMessage::SyncAccountsData(
+            msg,
+        ))) if !msg.incremental => Some(msg),
         _ => None,
     };
 
@@ -54,10 +60,10 @@ async fn broadcast() {
     tracing::info!(target:"test", "Connect peer, expect initial sync to be empty.");
     let mut peer1 =
         pm.start_inbound(chain.clone(), chain.make_config(rng)).await.handshake(clock).await;
-    let got1 = peer1.events.recv_until(take_sync).await;
+    let got1 = peer1.events.recv_until(take_full_sync).await;
     assert_eq!(got1.accounts_data, vec![]);
 
-    tracing::info!(target:"test", "Send some data. It won't be broadcasted back.");
+    tracing::info!(target:"test", "Send some data.");
     let msg = SyncAccountsData {
         accounts_data: vec![data[0].clone(), data[1].clone()],
         incremental: true,
@@ -70,7 +76,7 @@ async fn broadcast() {
     tracing::info!(target:"test", "Connect another peer and perform initial full sync.");
     let mut peer2 =
         pm.start_inbound(chain.clone(), chain.make_config(rng)).await.handshake(clock).await;
-    let got2 = peer2.events.recv_until(take_sync).await;
+    let got2 = peer2.events.recv_until(take_full_sync).await;
     assert_eq!(got2.accounts_data.as_set(), want.as_set());
 
     tracing::info!(target:"test", "Send a mix of new and old data. Only new data should be broadcasted.");
@@ -81,7 +87,7 @@ async fn broadcast() {
     };
     let want = vec![data[2].clone()];
     peer1.send(PeerMessage::SyncAccountsData(msg)).await;
-    let got2 = peer2.events.recv_until(take_sync).await;
+    let got2 = peer2.events.recv_until(take_incremental_sync).await;
     assert_eq!(got2.accounts_data.as_set(), want.as_set());
 
     tracing::info!(target:"test", "Send a request for a full sync.");
@@ -94,7 +100,7 @@ async fn broadcast() {
             requesting_full_sync: true,
         }))
         .await;
-    let got1 = events.recv_until(take_sync).await;
+    let got1 = events.recv_until(take_full_sync).await;
     assert_eq!(got1.accounts_data.as_set(), want.as_set());
 }
 
