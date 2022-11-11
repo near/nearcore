@@ -21,7 +21,7 @@
 ///    of different machines are not perfectly synchronized, and in extreme
 ///    cases can be totally skewed.
 use once_cell::sync::Lazy;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex};
 pub use time::error;
 
 // TODO: consider wrapping these types to prevent interactions
@@ -103,49 +103,78 @@ impl Clock {
 }
 
 struct FakeClockInner {
+    auto_advance: Duration,
     mono: Instant,
     utc: Utc,
 }
 
+impl FakeClockInner {
+    pub fn now(&mut self) -> Instant {
+        self.advance(self.auto_advance);
+        self.mono
+    }
+    pub fn now_utc(&mut self) -> Utc {
+        self.advance(self.auto_advance);
+        self.utc
+    }
+    pub fn advance_until(&mut self, t: Instant) {
+        if t <= self.mono {
+            return;
+        }
+        let d = t - self.mono;
+        self.mono = t;
+        self.utc += d;
+    }
+    pub fn advance(&mut self, d: Duration) {
+        assert!(d >= Duration::ZERO);
+        self.mono += d;
+        self.utc += d;
+    }
+}
+
 /// TEST-ONLY
 #[derive(Clone)]
-pub struct FakeClock(Arc<RwLock<FakeClockInner>>);
+pub struct FakeClock(Arc<Mutex<FakeClockInner>>);
 
 impl FakeClock {
     /// Constructor of a fake clock. Use it in tests.
-    /// It allows for manually moving the time forward (via advance())
-    /// and arbitrarly setting the UTC time in runtime.
+    /// It support both automatically progressing time 
+    /// (current time moves forward by auto_advance at every clock read)
+    /// and manually moving time forward (via advance()).
+    /// You can also arbitrarly set the UTC time in runtime.
     /// Use FakeClock::clock() when calling prod code from tests.
     // TODO: add support for auto-advancing the clock at each read.
     pub fn new(utc: Utc) -> Self {
-        Self(Arc::new(RwLock::new(FakeClockInner { utc, mono: *FAKE_CLOCK_MONO_START })))
+        Self(Arc::new(Mutex::new(FakeClockInner { 
+            auto_advance: Duration::seconds(1),
+            utc,
+            mono: *FAKE_CLOCK_MONO_START,
+        })))
     }
     pub fn now(&self) -> Instant {
-        self.0.read().unwrap().mono
+        self.0.lock().unwrap().now()
     }
+    
     pub fn now_utc(&self) -> Utc {
-        self.0.read().unwrap().utc
+        self.0.lock().unwrap().now_utc()
+    }
+    
+    pub fn advance_until(&self, t: Instant) {
+        self.0.lock().unwrap().advance_until(t)
+    }
+    pub fn advance(&self, d: Duration) {
+        self.0.lock().unwrap().advance(d)
     }
     pub fn clock(&self) -> Clock {
         Clock(ClockInner::Fake(self.clone()))
-    }
-    pub fn advance_until(&self, t: Instant) {
-        let mut c = self.0.write().unwrap();
-        if t <= c.mono {
-            return;
-        }
-        let d = t - c.mono;
-        c.mono = t;
-        c.utc += d;
-    }
-    pub fn advance(&self, d: Duration) {
-        assert!(d >= Duration::ZERO);
-        let mut c = self.0.write().unwrap();
-        c.mono += d;
-        c.utc += d;
-    }
+    } 
     pub fn set_utc(&self, utc: Utc) {
-        self.0.write().unwrap().utc = utc;
+        self.0.lock().unwrap().utc = utc;
+    }
+    /// Set how much to move forward at every call to now/now_utc.
+    /// Set to Duration::ZERO, if you want to disable auto_advance completely.
+    pub fn set_auto_advance(&self, auto_advance: Duration) {
+        self.0.lock().unwrap().auto_advance = auto_advance;
     }
 }
 
