@@ -22,8 +22,8 @@
 //!    cases can be totally skewed.
 use once_cell::sync::Lazy;
 use std::sync::{Arc, Mutex};
-use tokio::sync::watch; 
 pub use time::error;
+use tokio::sync::watch;
 
 // TODO: consider wrapping these types to prevent interactions
 // with other time libraries, especially to prevent the direct access
@@ -104,30 +104,22 @@ impl Clock {
 }
 
 struct FakeClockInner {
-    auto_advance: Duration,
     mono: watch::Sender<Instant>,
     utc: Utc,
-    /// We need to keep it so that mono.send() always succeeds. 
+    /// We need to keep it so that mono.send() always succeeds.
     _mono_recv: watch::Receiver<Instant>,
 }
 
 impl FakeClockInner {
     pub fn new(utc: Utc) -> Self {
-        let (mono,_mono_recv) = watch::channel(*FAKE_CLOCK_MONO_START);
-        Self {
-            auto_advance: Duration::milliseconds(1),
-            utc,
-            mono,
-            _mono_recv,
-        }
+        let (mono, _mono_recv) = watch::channel(*FAKE_CLOCK_MONO_START);
+        Self { utc, mono, _mono_recv }
     }
 
     pub fn now(&mut self) -> Instant {
-        self.advance(self.auto_advance);
         *self.mono.borrow()
     }
     pub fn now_utc(&mut self) -> Utc {
-        self.advance(self.auto_advance);
         self.utc
     }
     pub fn advance(&mut self, d: Duration) {
@@ -135,7 +127,7 @@ impl FakeClockInner {
             return;
         }
         let now = *self.mono.borrow();
-        self.mono.send(now+d).unwrap();
+        self.mono.send(now + d).unwrap();
         self.utc += d;
     }
     pub fn advance_until(&mut self, t: Instant) {
@@ -154,13 +146,11 @@ pub struct FakeClock(Arc<Mutex<FakeClockInner>>);
 
 impl FakeClock {
     /// Constructor of a fake clock. Use it in tests.
-    /// It support both automatically progressing time 
-    /// (current time moves forward by auto_advance at every clock read)
-    /// and manually moving time forward (via advance()).
+    /// It support manually moving time forward (via advance()).
     /// You can also arbitrarly set the UTC time in runtime.
     /// Use FakeClock::clock() when calling prod code from tests.
     pub fn new(utc: Utc) -> Self {
-        Self(Arc::new(Mutex::new(FakeClockInner::new(utc)))) 
+        Self(Arc::new(Mutex::new(FakeClockInner::new(utc))))
     }
     pub fn now(&self) -> Instant {
         self.0.lock().unwrap().now()
@@ -176,29 +166,24 @@ impl FakeClock {
     }
     pub fn clock(&self) -> Clock {
         Clock(ClockInner::Fake(self.clone()))
-    } 
+    }
     pub fn set_utc(&self, utc: Utc) {
         self.0.lock().unwrap().utc = utc;
-    }
-    /// Set how much to move forward at every call to now/now_utc.
-    /// Set to Duration::ZERO, if you want to disable auto_advance completely.
-    pub fn set_auto_advance(&self, auto_advance: Duration) {
-        self.0.lock().unwrap().auto_advance = auto_advance;
     }
 
     /// Cancel-safe.
     pub async fn sleep(&self, d: Duration) {
         let mut watch = self.0.lock().unwrap().mono.subscribe();
         let t = *watch.borrow() + d;
-        while *watch.borrow()<t {
+        while *watch.borrow() < t {
             watch.changed().await.unwrap();
         }
     }
 
     /// Cancel-safe.
     pub async fn sleep_until(&self, t: Instant) {
-        let mut watch = self.0.lock().unwrap().mono.subscribe(); 
-        while *watch.borrow()<t {
+        let mut watch = self.0.lock().unwrap().mono.subscribe();
+        while *watch.borrow() < t {
             watch.changed().await.unwrap();
         }
     }
@@ -219,16 +204,18 @@ pub struct Interval {
 
 impl Interval {
     pub fn new(next: time::Instant, period: time::Duration) -> Self {
-        Self{next,period}
+        Self { next, period }
     }
-    
+
     /// Cancel-safe.
     pub async fn tick(&mut self, clock: &Clock) {
         clock.sleep_until(self.next).await;
         let now = clock.now();
-        self.next = now + self.period - Duration::nanoseconds(
-            ((now - self.next).whole_nanoseconds() % self.period.whole_nanoseconds()).try_into()
-                .expect("too much time has elapsed since the interval was supposed to tick")
-        );
+        self.next = now + self.period
+            - Duration::nanoseconds(
+                ((now - self.next).whole_nanoseconds() % self.period.whole_nanoseconds())
+                    .try_into()
+                    .expect("too much time has elapsed since the interval was supposed to tick"),
+            );
     }
 }

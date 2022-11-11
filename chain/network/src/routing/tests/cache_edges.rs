@@ -45,7 +45,6 @@ impl RoutingTableTest {
     fn new() -> Self {
         let mut rng = make_rng(87927345);
         let clock = time::FakeClock::default();
-        clock.set_auto_advance(time::Duration::ZERO);
         let me = data::make_peer_id(&mut rng);
         let db = near_store::db::TestDB::new();
 

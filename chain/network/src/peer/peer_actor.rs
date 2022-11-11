@@ -512,7 +512,8 @@ impl PeerActor {
 
         let tracker = self.tracker.clone();
         let clock = self.clock.clone();
-        let mut interval = time::Interval::new(clock.now(), self.network_state.config.peer_stats_period);
+        let mut interval =
+            time::Interval::new(clock.now(), self.network_state.config.peer_stats_period);
         ctx.spawn({
             let conn = conn.clone();
             wrap_future(async move {
@@ -1056,7 +1057,8 @@ impl PeerActor {
         let old = network_state
             .routing_table_view
             .get_broadcasted_announces(rtu.accounts.iter().map(|a| &a.account_id));
-        let accounts: Vec<(AnnounceAccount, Option<EpochId>)> = rtu.accounts
+        let accounts: Vec<(AnnounceAccount, Option<EpochId>)> = rtu
+            .accounts
             .into_iter()
             .map(|aa| {
                 let id = aa.account_id.clone();

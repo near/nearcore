@@ -45,9 +45,12 @@ const EXPONENTIAL_BACKOFF_RATIO: f64 = 1.1;
 /// The initial waiting time between consecutive attempts to establish connection
 const MONITOR_PEERS_INITIAL_DURATION: time::Duration = time::Duration::milliseconds(10);
 /// How often should we update the routing table
-pub(crate) const UPDATE_ROUTING_TABLE_INTERVAL: time::Duration = time::Duration::milliseconds(1_000);
+pub(crate) const UPDATE_ROUTING_TABLE_INTERVAL: time::Duration =
+    time::Duration::milliseconds(1_000);
 /// How often should we check wheter local edges match the connection pool.
-pub(crate) const FIX_LOCAL_EDGES_INTERVAL: time::Duration = time::Duration::seconds(60);
+const FIX_LOCAL_EDGES_INTERVAL: time::Duration = time::Duration::seconds(60);
+/// How often we we will wait for the discrepancy to resolve, before forcing disconnect.
+const FIX_LOCAL_EDGES_TIMEOUT: time::Duration = time::Duration::seconds(6);
 
 /// How often to report bandwidth stats.
 const REPORT_BANDWIDTH_STATS_TRIGGER_INTERVAL: time::Duration =
@@ -177,10 +180,9 @@ impl Actor for PeerManagerActor {
         let state = self.state.clone();
         let clock = self.clock.clone();
         ctx.spawn(wrap_future(async move {
-            let mut interval = time::Interval::new(clock.now(),UPDATE_ROUTING_TABLE_INTERVAL);
+            let mut interval = time::Interval::new(clock.now(), UPDATE_ROUTING_TABLE_INTERVAL);
             loop {
                 interval.tick(&clock).await;
-                tracing::info!(target:"dupa", "{} UPDATE_ROUTING_TABLE", state.config.node_id());
                 let _timer = metrics::PEER_MANAGER_TRIGGER_TIME
                     .with_label_values(&["update_routing_table"])
                     .start_timer();
@@ -196,10 +198,10 @@ impl Actor for PeerManagerActor {
         let clock = self.clock.clone();
         let state = self.state.clone();
         ctx.spawn(wrap_future(async move {
-            let mut interval = time::Interval::new(clock.now(),FIX_LOCAL_EDGES_INTERVAL);
+            let mut interval = time::Interval::new(clock.now(), FIX_LOCAL_EDGES_INTERVAL);
             loop {
                 interval.tick(&clock).await;
-                state.fix_local_edges(&clock).await;
+                state.fix_local_edges(&clock, FIX_LOCAL_EDGES_TIMEOUT).await;
             }
         }));
 
