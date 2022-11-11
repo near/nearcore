@@ -135,15 +135,17 @@ struct AppInfo {
     requests: BTreeMap<PingTarget, HashMap<Nonce, PingTimes>>,
     timeouts: BTreeSet<PingTimeout>,
     account_filter: Option<HashSet<AccountId>>,
+    chain_id: String,
 }
 
 impl AppInfo {
-    fn new(account_filter: Option<HashSet<AccountId>>) -> Self {
+    fn new(account_filter: Option<HashSet<AccountId>>, chain_id: &str) -> Self {
         Self {
             stats: HashMap::new(),
             requests: BTreeMap::new(),
             timeouts: BTreeSet::new(),
             account_filter,
+            chain_id: chain_id.to_owned(),
         }
     }
 
@@ -156,12 +158,14 @@ impl AppInfo {
         None
     }
 
-    fn ping_sent(&mut self, peer_id: &PeerId, nonce: u64) {
+    fn ping_sent(&mut self, peer_id: &PeerId, nonce: u64, chain_id: &str) {
         let timestamp = time::Instant::now();
         let timeout = timestamp + PING_TIMEOUT;
 
         let account_id = self.peer_id_to_account_id(&peer_id);
-        crate::metrics::PING_SENT.with_label_values(&[&peer_str(peer_id, account_id)]).inc();
+        crate::metrics::PING_SENT
+            .with_label_values(&[&chain_id, &peer_str(peer_id, account_id)])
+            .inc();
 
         match self.stats.entry(peer_id.clone()) {
             Entry::Occupied(mut e) => {
@@ -338,10 +342,11 @@ fn handle_message(
 ) -> anyhow::Result<()> {
     match &msg {
         ReceivedMessage::Pong { nonce, source } => {
+            let chain_id = app_info.chain_id.clone(); // Avoid an immutable borrow during a mutable borrow.
             if let Some((latency, account_id)) = app_info.pong_received(source, *nonce, received_at)
             {
                 crate::metrics::PONG_RECEIVED
-                    .with_label_values(&[&peer_str(&source, account_id)])
+                    .with_label_values(&[&chain_id, &peer_str(&source, account_id)])
                     .observe(latency.as_seconds_f64());
                 if let Some(csv) = latencies_csv {
                     csv.write(source, account_id, latency).context("Failed writing to CSV file")?;
@@ -401,7 +406,7 @@ async fn ping_via_node(
     ping_stats: &mut Vec<(PeerIdentifier, PingStats)>,
     prometheus_addr: &str,
 ) -> anyhow::Result<()> {
-    let mut app_info = AppInfo::new(account_filter);
+    let mut app_info = AppInfo::new(account_filter, chain_id);
 
     app_info.add_peer(&peer_id, None);
 
@@ -416,7 +421,8 @@ async fn ping_via_node(
         Ok(p) => p,
         Err(ConnectError::HandshakeFailure(reason)) => {
             match reason {
-                HandshakeFailureReason::ProtocolVersionMismatch { version, oldest_supported_version } => anyhow::bail!( "Received Handshake Failure: {:?}. Try running again with --protocol-version between {} and {}",
+                HandshakeFailureReason::ProtocolVersionMismatch { version, oldest_supported_version } => anyhow::bail!(
+                    "Received Handshake Failure: {:?}. Try running again with --protocol-version between {} and {}",
                     reason, oldest_supported_version, version
                 ),
                 HandshakeFailureReason::GenesisMismatch(_) => anyhow::bail!(
@@ -463,7 +469,7 @@ async fn ping_via_node(
                 if result.is_err() {
                     break;
                 }
-                app_info.ping_sent(&target, nonce);
+                app_info.ping_sent(&target, nonce, &chain_id);
                 nonce += 1;
                 next_ping.as_mut().reset(tokio::time::Instant::now() + std::time::Duration::from_millis(ping_frequency_millis));
             }
@@ -489,7 +495,7 @@ async fn ping_via_node(
                 let t = pending_timeout.unwrap();
                 app_info.pop_timeout(&t);
                 let account_id = app_info.peer_id_to_account_id(&t.peer_id);
-                crate::metrics::PONG_TIMEOUTS.with_label_values(&[&peer_str(&t.peer_id, account_id)]).inc();
+                crate::metrics::PONG_TIMEOUTS.with_label_values(&[&chain_id, &peer_str(&t.peer_id, account_id)]).inc();
                 if let Some(csv) = latencies_csv.as_mut() {
                     result = csv.write_timeout(
                         &t.peer_id,
