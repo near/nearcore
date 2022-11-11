@@ -10,9 +10,10 @@ use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
 use near_store::cold_storage::{test_cold_genesis_update, test_get_store_reads, update_cold_db};
-use near_store::db::TestDB;
+use near_store::db::{ColdDB, TestDB};
 use near_store::{DBCol, NodeStorage, Store, Temperature};
 use nearcore::config::GenesisExt;
+use std::sync::Arc;
 use strum::IntoEnumIterator;
 
 fn check_key(first_store: &Store, second_store: &Store, col: DBCol, key: &[u8]) {
@@ -56,8 +57,6 @@ fn check_iter(
 fn test_storage_after_commit_of_cold_update() {
     init_test_logger();
 
-    let cold_db = TestDB::new();
-
     let epoch_length = 5;
     let max_height = epoch_length * 4;
 
@@ -70,9 +69,12 @@ fn test_storage_after_commit_of_cold_update() {
         .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
         .build();
 
+    // TODO construct cold_db with appropriate hot storage
+    let cold_db = ColdDB::new(TestDB::new(), TestDB::default());
+
     let mut last_hash = *env.clients[0].chain.genesis().hash();
 
-    test_cold_genesis_update(&*cold_db, &env.clients[0].runtime_adapter.store()).unwrap();
+    test_cold_genesis_update(&cold_db, &env.clients[0].runtime_adapter.store()).unwrap();
 
     let state_reads = test_get_store_reads(DBCol::State);
     let state_changes_reads = test_get_store_reads(DBCol::StateChanges);
@@ -129,7 +131,7 @@ fn test_storage_after_commit_of_cold_update() {
         env.process_block(0, block.clone(), Provenance::PRODUCED);
 
         update_cold_db(
-            &*cold_db,
+            &cold_db,
             &env.clients[0].runtime_adapter.store(),
             &env.clients[0]
                 .runtime_adapter
@@ -152,7 +154,7 @@ fn test_storage_after_commit_of_cold_update() {
     // assert that we don't read StateChanges from db again after iter_prefix
     assert_eq!(state_changes_reads, test_get_store_reads(DBCol::StateChanges));
 
-    let cold_store = NodeStorage::new(cold_db).get_store(Temperature::Hot);
+    let cold_store = NodeStorage::new(Arc::new(cold_db)).get_store(Temperature::Hot);
 
     // We still need to filter out one chunk
     let mut no_check_rules: Vec<Box<dyn Fn(DBCol, &Box<[u8]>) -> bool>> = vec![];

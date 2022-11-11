@@ -1,5 +1,5 @@
 use crate::columns::DBKeyType;
-use crate::refcount::add_positive_refcount;
+use crate::db::ColdDB;
 use crate::trie::TrieRefcountChange;
 use crate::{DBCol, DBTransaction, Database, Store, TrieChanges};
 
@@ -40,8 +40,8 @@ struct StoreWithCache<'a> {
 /// 1. add it to `DBCol::is_cold` list
 /// 2. define `DBCol::key_type` for it (if it isn't already defined)
 /// 3. add new clause in `get_keys_from_store` for new key types used for this column (if there are any)
-pub fn update_cold_db(
-    cold_db: &dyn Database,
+pub fn update_cold_db<D: Database>(
+    cold_db: &ColdDB<D>,
     hot_store: &Store,
     shard_layout: &ShardLayout,
     height: &BlockHeight,
@@ -68,8 +68,8 @@ pub fn update_cold_db(
 /// Gets values for given keys in a column from provided hot_store.
 /// Creates a transaction based on that values with set DBOp s.
 /// Writes that transaction to cold_db.
-fn copy_from_store(
-    cold_db: &dyn Database,
+fn copy_from_store<D: Database>(
+    cold_db: &ColdDB<D>,
     hot_store: &mut StoreWithCache,
     col: DBCol,
     keys: Vec<StoreKey>,
@@ -84,30 +84,22 @@ fn copy_from_store(
         // added.
         let data = hot_store.get(col, &key)?;
         if let Some(value) = data {
-            // Database checks col.is_rc() on read and write
-            // And in every way expects rc columns to be written with rc
-            //
             // TODO: As an optimisation, we might consider breaking the
             // abstraction layer.  Since we’re always writing to cold database,
             // rather than using `cold_db: &dyn Database` argument we cloud have
             // `cold_db: &ColdDB` and then some custom function which lets us
             // write raw bytes.
-            if col.is_rc() {
-                transaction.update_refcount(
-                    col,
-                    key,
-                    add_positive_refcount(&value, std::num::NonZeroU32::new(1).unwrap()),
-                );
-            } else {
-                transaction.set(col, key, value);
-            }
+            transaction.set(col, key, value);
         }
     }
     cold_db.write(transaction)?;
     return Ok(());
 }
 
-pub fn test_cold_genesis_update(cold_db: &dyn Database, hot_store: &Store) -> io::Result<()> {
+pub fn test_cold_genesis_update<D: Database>(
+    cold_db: &ColdDB<D>,
+    hot_store: &Store,
+) -> io::Result<()> {
     let mut store_with_cache = StoreWithCache { store: hot_store, cache: StoreCache::new() };
     for col in DBCol::iter() {
         if col.is_cold() {
