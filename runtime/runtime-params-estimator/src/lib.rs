@@ -932,17 +932,15 @@ fn ecrecover_base(ctx: &mut EstimatorContext) -> GasCost {
 }
 
 #[cfg(feature = "protocol_feature_ed25519_verify")]
-// TODO: gas estimation will be calculated later -> setting a placeholder for
 fn ed25519_verify_base(ctx: &mut EstimatorContext) -> GasCost {
     if ctx.cached.ed25519_verify_base.is_none() {
-        let cost = fn_cost(ctx, "ed25519_verify_32b_64", ExtCosts::ed25519_verify_base, 64);
+        let cost = fn_cost(ctx, "ed25519_verify_32b_500", ExtCosts::ed25519_verify_base, 500);
         ctx.cached.ed25519_verify_base = Some(cost);
     }
     ctx.cached.ed25519_verify_base.clone().unwrap()
 }
 
 #[cfg(feature = "protocol_feature_ed25519_verify")]
-// TODO: gas estimation will be calculated later -> setting a placeholder for now
 fn ed25519_verify_byte(ctx: &mut EstimatorContext) -> GasCost {
     let base = ed25519_verify_base(ctx);
     // inside the WASM function, there are 64 calls to `ed25519_verify`.

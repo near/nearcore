@@ -193,7 +193,6 @@ impl ActorHandler {
             cfg: peer::testonly::PeerConfig {
                 network: network_cfg,
                 chain,
-                peers: vec![],
                 force_encoding: Some(Encoding::Proto),
                 nonce: None,
             },
@@ -232,7 +231,6 @@ impl ActorHandler {
             cfg: peer::testonly::PeerConfig {
                 network: network_cfg,
                 chain,
-                peers: vec![],
                 force_encoding: Some(Encoding::Proto),
                 nonce: None,
             },

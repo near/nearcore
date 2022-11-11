@@ -193,6 +193,8 @@ impl Connection {
 #[derive(Clone)]
 pub(crate) struct PoolSnapshot {
     pub me: PeerId,
+    /// Connections which have completed the handshake and are ready
+    /// for transmitting messages.
     pub ready: im::HashMap<PeerId, Arc<Connection>>,
     /// Set of started outbound connections, which are not ready yet.
     /// We need to keep those to prevent a deadlock when 2 peers try
@@ -224,8 +226,6 @@ pub(crate) struct PoolSnapshot {
     /// b. Peer A executes 1 and then attempts 2.
     /// In this scenario A will fail to obtain a permit, because it has already accepted a
     /// connection from B.
-    ///
-    /// TODO(gprusak): cover it with tests.
     pub outbound_handshakes: im::HashSet<PeerId>,
 }
 
