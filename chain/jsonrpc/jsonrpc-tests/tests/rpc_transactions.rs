@@ -139,6 +139,7 @@ fn test_refunds_not_in_receipts() {
                 }
             }
         }
+        assert!(tx_status.get("receipts").unwrap().as_array().is_some());
     });
 }
 
