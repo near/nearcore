@@ -116,19 +116,25 @@ fn test_refunds_not_in_receipts() {
         );
         let bytes = tx.try_to_vec().unwrap();
         client.broadcast_tx_commit(to_base64(&bytes)).await.unwrap();
+        let mut tx_status = json!(client.EXPERIMENTAL_tx_status(to_base64(&bytes)).await.unwrap());
         for _ in 1..10 {
             // poll every 10 milliseconds for updated tx status
             thread::sleep(time::Duration::from_millis(10));
-            let tx_status = json!(client.EXPERIMENTAL_tx_status(to_base64(&bytes)).await.unwrap());
-            for receipt in tx_status.get("receipts") {
-                if !receipt.as_array().unwrap().is_empty() {
-                    let receipt_predecessor_id = receipt.get("predecessor_id");
-                    if receipt_predecessor_id.is_some() {
-                        let is_refund =
-                            receipt["predecessor_id"].get("is_system").unwrap().as_bool();
-                        if is_refund.is_some() {
-                            assert!(!is_refund.unwrap());
-                        }
+            tx_status = json!(client.EXPERIMENTAL_tx_status(to_base64(&bytes)).await.unwrap());
+            let receipts = tx_status.get("receipts");
+            if receipts.is_some() {
+                if !receipts.unwrap().as_array().unwrap().is_empty() {
+                    break;
+                }
+            }
+        }
+        for receipt in tx_status.get("receipts") {
+            if !receipt.as_array().unwrap().is_empty() {
+                let receipt_predecessor_id = receipt.get("predecessor_id");
+                if receipt_predecessor_id.is_some() {
+                    let is_refund = receipt["predecessor_id"].get("is_system").unwrap().as_bool();
+                    if is_refund.is_some() {
+                        assert!(!is_refund.unwrap());
                     }
                 }
             }
