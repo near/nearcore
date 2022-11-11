@@ -49,7 +49,7 @@ pub(crate) const UPDATE_ROUTING_TABLE_INTERVAL: time::Duration =
     time::Duration::milliseconds(1_000);
 /// How often should we check wheter local edges match the connection pool.
 const FIX_LOCAL_EDGES_INTERVAL: time::Duration = time::Duration::seconds(60);
-/// How often we we will wait for the discrepancy to resolve, before forcing disconnect.
+/// How much time we give fix_local_edges() to resolve the discrepancies, before forcing disconnect.
 const FIX_LOCAL_EDGES_TIMEOUT: time::Duration = time::Duration::seconds(6);
 
 /// How often to report bandwidth stats.
