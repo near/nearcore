@@ -8,18 +8,17 @@ use protobuf::{EnumOrUnknown, MessageField};
 /// 0x01 is reserved for `SAMPLED`: https://docs.rs/opentelemetry/latest/opentelemetry/trace/struct.TraceFlags.html#associatedconstant.SAMPLED
 const TRACE_FLAG_DEFERRED: TraceFlags = TraceFlags::new(0x02);
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub(crate) enum ExtractError {
-    // Malformed or invalid TraceId.
+    #[error("Malformed or invalid TraceId")]
     TraceId,
-    // Malformed or invalid SpanId.
+    #[error("Malformed or invalid SpanId")]
     SpanId,
-    // Missing trace_id or span_id.
+    #[error("Missing trace_id or span_id")]
     Empty,
 }
 
 /// Extracts a `SpanContext` from a potentially empty `TraceContext`.
-///
 pub(crate) fn extract_span_context(
     trace_context: &MessageField<TraceContext>,
 ) -> Result<SpanContext, ExtractError> {
