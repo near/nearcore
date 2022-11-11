@@ -69,8 +69,8 @@ impl std::fmt::Debug for Connection {
 
 #[derive(thiserror::Error, Debug)]
 pub enum ConnectError {
-    #[error("IO")]
-    IO(#[source] std::io::Error),
+    #[error(transparent)]
+    IO(std::io::Error),
     #[error("handshake failed {0:?}")]
     HandshakeFailure(HandshakeFailureReason),
     #[error("received unexpected message before the handshake: {0:?}")]
