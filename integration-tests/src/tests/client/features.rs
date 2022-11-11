@@ -2,6 +2,7 @@
 
 mod access_key_nonce_for_implicit_accounts;
 mod account_id_in_function_call_permission;
+mod adversarial_behaviors;
 mod cap_max_gas_price;
 mod chunk_nodes_cache;
 #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
