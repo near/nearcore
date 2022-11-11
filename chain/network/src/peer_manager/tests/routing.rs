@@ -274,7 +274,7 @@ async fn square() {
     let id2 = pm2.cfg.node_id();
     let id3 = pm3.cfg.node_id();
 
-    pm0.wait_for_routing_table(&[
+    pm0.wait_for_routing_table(&mut clock, &[
         (id1.clone(), vec![id1.clone()]),
         (id3.clone(), vec![id3.clone()]),
         (id2.clone(), vec![id1.clone(), id3.clone()]),
@@ -283,19 +283,19 @@ async fn square() {
     tracing::info!(target:"test","stop {id1}");
     drop(pm1);
     tracing::info!(target:"test","wait for {id0} routing table");
-    pm0.wait_for_routing_table(&[
+    pm0.wait_for_routing_table(&mut clock, &[
         (id3.clone(), vec![id3.clone()]),
         (id2.clone(), vec![id3.clone()]),
     ])
     .await;
     tracing::info!(target:"test","wait for {id2} routing table");
-    pm2.wait_for_routing_table(&[
+    pm2.wait_for_routing_table(&mut clock, &[
         (id3.clone(), vec![id3.clone()]),
         (id0.clone(), vec![id3.clone()]),
     ])
     .await;
     tracing::info!(target:"test","wait for {id3} routing table");
-    pm3.wait_for_routing_table(&[
+    pm3.wait_for_routing_table(&mut clock, &[
         (id2.clone(), vec![id2.clone()]),
         (id0.clone(), vec![id0.clone()]),
     ])
@@ -347,6 +347,7 @@ async fn fix_local_edges() {
     }
 
     tracing::info!(target:"test","waiting for fake edges to be fixed");
+    clock.set_auto_advance(network_state::WAIT_PEER_BEFORE_REMOVE);
     pm.fix_local_edges(&clock.clock()).await;
     // TODO(gprusak): make fix_local_edges await closing of the connections, so
     // that we don't have to wait for it explicitly here.

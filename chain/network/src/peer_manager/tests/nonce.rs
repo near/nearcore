@@ -25,6 +25,7 @@ async fn test_nonces() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::new(*EDGE_MIN_TIMESTAMP_NONCE + time::Duration::days(2));
+    clock.set_auto_advance(time::Duration::ZERO);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     // Start a PeerManager and connect a peer to it.

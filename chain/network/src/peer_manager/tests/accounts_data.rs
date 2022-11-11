@@ -196,7 +196,7 @@ async fn rate_limiting() {
     let mut clock = time::FakeClock::default();
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
-    // TODO(gprusak) 10 connections per peer is not much, try to scale up this test 2x (some config
+    // TODO(gprusak): 10 connections per peer is not much, try to scale up this test 2x (some config
     // tweaking might be required).
     let n = 4; // layers
     let m = 5; // peer managers per layer
@@ -214,7 +214,7 @@ async fn rate_limiting() {
             .await,
         );
     }
-    // Construct a 4-layer bipartite graph.
+    tracing::info!(target:"test", "Construct a 4-layer bipartite graph.");
     let mut connections = 0;
     for i in 0..n - 1 {
         for j in 0..m {
@@ -239,7 +239,7 @@ async fn rate_limiting() {
             .collect(),
     );
 
-    // Advance epoch in random order.
+    tracing::info!(target:"test","Advance epoch in random order.");
     pms.shuffle(rng);
     for pm in &mut pms {
         pm.set_chain_info(chain_info.clone()).await;
@@ -249,7 +249,7 @@ async fn rate_limiting() {
     // the total number of SyncAccountsData messages exchanged in the process.
     let events: Vec<_> = pms.iter().map(|pm| pm.events.clone()).collect();
 
-    // Wait for data to arrive.
+    tracing::info!(target:"test","Wait for data to arrive.");
     let want = vs
         .iter()
         .map(|v| NormalAccountData {
@@ -262,7 +262,7 @@ async fn rate_limiting() {
         pm.wait_for_accounts_data(&want).await;
     }
 
-    // Count the SyncAccountsData messages exchanged.
+    tracing::info!(target:"test","Count the SyncAccountsData messages exchanged.");
     let mut msgs = 0;
     for mut es in events {
         while let Some(ev) = es.try_recv() {

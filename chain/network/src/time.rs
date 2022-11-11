@@ -115,7 +115,7 @@ impl FakeClockInner {
     pub fn new(utc: Utc) -> Self {
         let (mono,_mono_recv) = watch::channel(*FAKE_CLOCK_MONO_START);
         Self {
-            auto_advance: Duration::seconds(1),
+            auto_advance: Duration::milliseconds(1),
             utc,
             mono,
             _mono_recv,
@@ -207,5 +207,28 @@ impl FakeClock {
 impl Default for FakeClock {
     fn default() -> FakeClock {
         Self::new(*FAKE_CLOCK_UTC_START)
+    }
+}
+
+/// Interval equivalent to tokio::time::Interval with
+/// MissedTickBehavior::Skip.
+pub struct Interval {
+    next: time::Instant,
+    period: time::Duration,
+}
+
+impl Interval {
+    pub fn new(next: time::Instant, period: time::Duration) -> Self {
+        Self{next,period}
+    }
+    
+    /// Cancel-safe.
+    pub async fn tick(&mut self, clock: &Clock) {
+        clock.sleep_until(self.next).await;
+        let now = clock.now();
+        self.next = now + self.period - Duration::nanoseconds(
+            ((now - self.next).whole_nanoseconds() % self.period.whole_nanoseconds()).try_into()
+                .expect("too much time has elapsed since the interval was supposed to tick")
+        );
     }
 }
