@@ -1,27 +1,28 @@
-/// Time module provides a non-global clock, which should be passed
-/// as an argument to functions which need to read the current time.
-/// In particular try to avoid storing the clock instances in the objects.
-/// Functions which use system clock directly are non-hermetic, which
-/// makes them effectively non-deterministic and hard to test.
-///
-/// Clock provides 2 types of time reads:
-/// 1. now() (aka POSIX CLOCK_MONOTONIC, aka time::Instant)
-///    time as perceived by the machine making the measurement.
-///    The subsequent calls to now() are guaranteed to return monotonic
-///    results. It should be used for measuring the latency of operations
-///    as observed by the machine. The time::Instant itself doesn't
-///    translate to any specific timestamp, so it is not meaningful for
-///    anyone other than the machine doing the measurement.
-/// 2. utc_now() (aka POSIX CLOCK_REALTIME, aka time::Utc)
-///    expected to approximate the (global) UTC time.
-///    There is NO guarantee that the subsequent reads will be monotonic,
-///    as CLOCK_REALTIME it configurable in the OS settings, or can be updated
-///    during NTP sync. Should be used whenever you need to communicate a timestamp
-///    over the network, or store it for later use. Remember that clocks
-///    of different machines are not perfectly synchronized, and in extreme
-///    cases can be totally skewed.
+//! Time module provides a non-global clock, which should be passed
+//! as an argument to functions which need to read the current time.
+//! In particular try to avoid storing the clock instances in the objects.
+//! Functions which use system clock directly are non-hermetic, which
+//! makes them effectively non-deterministic and hard to test.
+//!
+//! Clock provides 2 types of time reads:
+//! 1. now() (aka POSIX CLOCK_MONOTONIC, aka time::Instant)
+//!    time as perceived by the machine making the measurement.
+//!    The subsequent calls to now() are guaranteed to return monotonic
+//!    results. It should be used for measuring the latency of operations
+//!    as observed by the machine. The time::Instant itself doesn't
+//!    translate to any specific timestamp, so it is not meaningful for
+//!    anyone other than the machine doing the measurement.
+//! 2. utc_now() (aka POSIX CLOCK_REALTIME, aka time::Utc)
+//!    expected to approximate the (global) UTC time.
+//!    There is NO guarantee that the subsequent reads will be monotonic,
+//!    as CLOCK_REALTIME it configurable in the OS settings, or can be updated
+//!    during NTP sync. Should be used whenever you need to communicate a timestamp
+//!    over the network, or store it for later use. Remember that clocks
+//!    of different machines are not perfectly synchronized, and in extreme
+//!    cases can be totally skewed.
 use once_cell::sync::Lazy;
 use std::sync::{Arc, Mutex};
+use tokio::sync::watch; 
 pub use time::error;
 
 // TODO: consider wrapping these types to prevent interactions
@@ -89,7 +90,7 @@ impl Clock {
     pub async fn sleep_until(&self, t: Instant) {
         match &self.0 {
             ClockInner::Real => tokio::time::sleep_until(t.into_inner().into()).await,
-            ClockInner::Fake(fake) => fake.advance_until(t),
+            ClockInner::Fake(fake) => fake.sleep_until(t).await,
         }
     }
 
@@ -97,38 +98,53 @@ impl Clock {
     pub async fn sleep(&self, d: Duration) {
         match &self.0 {
             ClockInner::Real => tokio::time::sleep(d.try_into().unwrap()).await,
-            ClockInner::Fake(fake) => fake.advance(d),
+            ClockInner::Fake(fake) => fake.sleep(d).await,
         }
     }
 }
 
 struct FakeClockInner {
     auto_advance: Duration,
-    mono: Instant,
+    mono: watch::Sender<Instant>,
     utc: Utc,
+    /// We need to keep it so that mono.send() always succeeds. 
+    _mono_recv: watch::Receiver<Instant>,
 }
 
 impl FakeClockInner {
+    pub fn new(utc: Utc) -> Self {
+        let (mono,_mono_recv) = watch::channel(*FAKE_CLOCK_MONO_START);
+        Self {
+            auto_advance: Duration::seconds(1),
+            utc,
+            mono,
+            _mono_recv,
+        }
+    }
+
     pub fn now(&mut self) -> Instant {
         self.advance(self.auto_advance);
-        self.mono
+        *self.mono.borrow()
     }
     pub fn now_utc(&mut self) -> Utc {
         self.advance(self.auto_advance);
         self.utc
     }
-    pub fn advance_until(&mut self, t: Instant) {
-        if t <= self.mono {
+    pub fn advance(&mut self, d: Duration) {
+        if d <= Duration::ZERO {
             return;
         }
-        let d = t - self.mono;
-        self.mono = t;
+        let now = *self.mono.borrow();
+        self.mono.send(now+d).unwrap();
         self.utc += d;
     }
-    pub fn advance(&mut self, d: Duration) {
-        assert!(d >= Duration::ZERO);
-        self.mono += d;
-        self.utc += d;
+    pub fn advance_until(&mut self, t: Instant) {
+        let now = *self.mono.borrow();
+        if t <= now {
+            return;
+        }
+        self.mono.send(t).unwrap();
+        self.utc += t - now;
     }
 }
 
@@ -143,27 +159,20 @@ impl FakeClock {
     /// and manually moving time forward (via advance()).
     /// You can also arbitrarly set the UTC time in runtime.
     /// Use FakeClock::clock() when calling prod code from tests.
-    // TODO: add support for auto-advancing the clock at each read.
     pub fn new(utc: Utc) -> Self {
-        Self(Arc::new(Mutex::new(FakeClockInner { 
-            auto_advance: Duration::seconds(1),
-            utc,
-            mono: *FAKE_CLOCK_MONO_START,
-        })))
+        Self(Arc::new(Mutex::new(FakeClockInner::new(utc)))) 
     }
     pub fn now(&self) -> Instant {
         self.0.lock().unwrap().now()
     }
-    
     pub fn now_utc(&self) -> Utc {
         self.0.lock().unwrap().now_utc()
     }
-    
-    pub fn advance_until(&self, t: Instant) {
-        self.0.lock().unwrap().advance_until(t)
-    }
     pub fn advance(&self, d: Duration) {
-        self.0.lock().unwrap().advance(d)
+        self.0.lock().unwrap().advance(d);
+    }
+    pub fn advance_until(&self, t: Instant) {
+        self.0.lock().unwrap().advance_until(t);
     }
     pub fn clock(&self) -> Clock {
         Clock(ClockInner::Fake(self.clone()))
@@ -175,6 +184,23 @@ impl FakeClock {
     /// Set to Duration::ZERO, if you want to disable auto_advance completely.
     pub fn set_auto_advance(&self, auto_advance: Duration) {
         self.0.lock().unwrap().auto_advance = auto_advance;
+    }
+
+    /// Cancel-safe.
+    pub async fn sleep(&self, d: Duration) {
+        let mut watch = self.0.lock().unwrap().mono.subscribe();
+        let t = *watch.borrow() + d;
+        while *watch.borrow()<t {
+            watch.changed().await.unwrap();
+        }
+    }
+
+    /// Cancel-safe.
+    pub async fn sleep_until(&self, t: Instant) {
+        let mut watch = self.0.lock().unwrap().mono.subscribe(); 
+        while *watch.borrow()<t {
+            watch.changed().await.unwrap();
+        }
     }
 }
 
