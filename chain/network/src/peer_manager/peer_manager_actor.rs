@@ -9,8 +9,7 @@ use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
 use crate::peer_manager::network_state::{NetworkState, WhitelistNode};
 use crate::peer_manager::peer_store;
-use crate::private_actix::{PeerRequestResult, PeersRequest, StopMsg};
-use crate::private_actix::{PeerToManagerMsg, PeerToManagerMsgResp, PeersResponse};
+use crate::private_actix::StopMsg;
 use crate::routing;
 use crate::stats::metrics;
 use crate::store;
@@ -255,20 +254,22 @@ impl PeerManagerActor {
             v
         };
         let config = Arc::new(config);
-        Ok(Self::start_in_arbiter(&actix::Arbiter::new().handle(), move |ctx| Self {
+        let arbiter = actix::Arbiter::new().handle();
+        let clock = clock.clone();
+        let state = Arc::new(NetworkState::new(
+            &clock,
+            store.clone(),
+            peer_store,
+            config.clone(),
+            genesis_id,
+            client,
+            whitelist_nodes,
+        ));
+        Ok(Self::start_in_arbiter(&arbiter, move |_ctx| Self {
             my_peer_id: my_peer_id.clone(),
             config: config.clone(),
             started_connect_attempts: false,
-            state: Arc::new(NetworkState::new(
-                &clock,
-                store.clone(),
-                peer_store,
-                config.clone(),
-                genesis_id,
-                client,
-                ctx.address().recipient(),
-                whitelist_nodes,
-            )),
+            state,
             clock,
         }))
     }
@@ -513,8 +514,8 @@ impl PeerManagerActor {
                         if state.peer_store.peer_connection_attempt(&clock, &peer_info.id, result).is_err() {
                             error!(target: "network", ?peer_info, "Failed to mark peer as failed.");
                         }
-                    }
-                }.instrument(tracing::trace_span!(target: "network", "monitor_peers_trigger_connect"))));
+                    }.instrument(tracing::trace_span!(target: "network", "monitor_peers_trigger_connect"))
+                }));
             }
         }
 
@@ -864,24 +865,6 @@ impl PeerManagerActor {
         }
     }
 
-    #[perf]
-    fn handle_msg_peers_request(&self, _msg: PeersRequest) -> PeerRequestResult {
-        let _d = delay_detector::DelayDetector::new(|| "peers request".into());
-        PeerRequestResult {
-            peers: self.state.peer_store.healthy_peers(self.config.max_send_peers as usize),
-        }
-    }
-
-    fn handle_msg_peers_response(&mut self, msg: PeersResponse) {
-        let _d = delay_detector::DelayDetector::new(|| "peers response".into());
-        if let Err(err) = self.state.peer_store.add_indirect_peers(
-            &self.clock,
-            msg.peers.into_iter().filter(|peer_info| peer_info.id != self.my_peer_id),
-        ) {
-            error!(target: "network", ?err, "Fail to update peer store");
-        };
-    }
-
     fn handle_peer_manager_message(
         &mut self,
         msg: PeerManagerMessageRequest,
@@ -915,24 +898,6 @@ impl PeerManagerActor {
             PeerManagerMessageRequest::PingTo { nonce, target } => {
                 self.state.send_ping(&self.clock, nonce, target);
                 PeerManagerMessageResponse::PingTo
-            }
-        }
-    }
-
-    fn handle_peer_to_manager_msg(&mut self, msg: PeerToManagerMsg) -> PeerToManagerMsgResp {
-        match msg {
-            PeerToManagerMsg::PeersRequest(msg) => {
-                PeerToManagerMsgResp::PeersRequest(self.handle_msg_peers_request(msg))
-            }
-            PeerToManagerMsg::PeersResponse(msg) => {
-                self.handle_msg_peers_response(msg);
-                PeerToManagerMsgResp::Empty
-            }
-            PeerToManagerMsg::UpdatePeerInfo(peer_info) => {
-                if let Err(err) = self.state.peer_store.add_direct_peer(&self.clock, peer_info) {
-                    error!(target: "network", ?err, "Fail to update peer store");
-                }
-                PeerToManagerMsgResp::Empty
             }
         }
     }
@@ -1045,21 +1010,6 @@ impl Handler<WithSpanContext<SetChainInfo>> for PeerManagerActor {
             )));
             state.config.event_sink.push(Event::SetChainInfo);
         }.in_current_span()));
-    }
-}
-
-impl Handler<WithSpanContext<PeerToManagerMsg>> for PeerManagerActor {
-    type Result = PeerToManagerMsgResp;
-    fn handle(
-        &mut self,
-        msg: WithSpanContext<PeerToManagerMsg>,
-        _ctx: &mut Self::Context,
-    ) -> Self::Result {
-        let msg_type: &str = (&msg.msg).into();
-        let (_span, msg) = handler_trace_span!(target: "network", msg, msg_type);
-        let _timer =
-            metrics::PEER_MANAGER_MESSAGES_TIME.with_label_values(&[msg_type]).start_timer();
-        self.handle_peer_to_manager_msg(msg)
     }
 }
 
