@@ -16,9 +16,9 @@ use crate::store;
 use crate::tcp;
 use crate::time;
 use crate::types::{
-    ConnectedPeerInfo, FullPeerInfo, GetNetworkInfo, KnownProducer, NetworkInfo, NetworkRequests,
-    NetworkResponses, PeerIdOrHash, PeerManagerMessageRequest, PeerManagerMessageResponse,
-    PeerType, SetChainInfo,
+    ConnectedPeerInfo, GetNetworkInfo, HighestHeightPeerInfo, KnownProducer, NetworkInfo,
+    NetworkRequests, NetworkResponses, PeerIdOrHash, PeerManagerMessageRequest,
+    PeerManagerMessageResponse, PeerType, SetChainInfo,
 };
 use actix::fut::future::wrap_future;
 use actix::{Actor, AsyncContext, Context, Handler, Running};
@@ -366,7 +366,7 @@ impl PeerManagerActor {
                 p.last_block
                     .read()
                     .unwrap()
-                    .map(|x| x.0.saturating_add(UNRELIABLE_PEER_HORIZON) < my_height)
+                    .map(|x| x.height.saturating_add(UNRELIABLE_PEER_HORIZON) < my_height)
                     .unwrap_or(true)
             })
             .map(|p| p.peer_info.id.clone())
@@ -768,7 +768,7 @@ impl PeerManagerActor {
                             let last_block = peer.last_block.read().unwrap();
                             if (peer.archival || !target.only_archival)
                                 && last_block.is_some()
-                                && last_block.unwrap().0 >= target.min_height
+                                && last_block.unwrap().height >= target.min_height
                                 && peer.tracked_shards.contains(&target.shard_id)
                             {
                                 matching_peers.push(peer_id.clone());

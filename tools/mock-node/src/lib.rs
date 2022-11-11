@@ -7,8 +7,8 @@ use near_chain::{Block, BlockHeader, Chain, ChainStoreAccess, Error};
 use near_chain_configs::GenesisConfig;
 use near_client::sync;
 use near_network::types::{
-    FullPeerInfo, NetworkInfo, NetworkRequests, NetworkResponses, PeerManagerMessageRequest,
-    PeerManagerMessageResponse, SetChainInfo,
+    BlockInfo, FullPeerInfo, NetworkInfo, NetworkRequests, NetworkResponses,
+    PeerManagerMessageRequest, PeerManagerMessageResponse, SetChainInfo,
 };
 use near_network::types::{
     PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, PeerInfo,
@@ -224,14 +224,17 @@ impl MockPeerManagerActor {
         // we will add more complicated network config in the future
         let peer = FullPeerInfo {
             peer_info: PeerInfo::random(),
-            chain_info: near_network::types::PeerChainInfoInternal {
+            chain_info: near_network::types::PeerChainInfo {
                 genesis_id: GenesisId {
                     chain_id: genesis_config.chain_id.clone(),
                     hash: *chain.genesis().hash(),
                 },
                 tracked_shards: (0..genesis_config.shard_layout.num_shards()).collect(),
                 archival: false,
-                last_block: Some((network_start_height, start_block_hash)),
+                last_block: Some(BlockInfo {
+                    height: network_start_height,
+                    hash: start_block_hash,
+                }),
             },
         };
         let network_info = NetworkInfo {
@@ -272,7 +275,7 @@ impl MockPeerManagerActor {
         });
         for connected_peer in self.network_info.connected_peers.iter_mut() {
             let peer = &mut connected_peer.full_peer_info;
-            let current_height = peer.chain_info.last_block.unwrap().0;
+            let current_height = peer.chain_info.last_block.unwrap().height;
             if current_height <= self.target_height {
                 if let Ok(block) =
                     self.chain_history_access.retrieve_block_by_height(current_height)
@@ -288,7 +291,8 @@ impl MockPeerManagerActor {
                     if let Ok(next_block) =
                         self.chain_history_access.retrieve_block_by_height(next_height)
                     {
-                        peer.chain_info.last_block = Some((next_height, *next_block.hash()));
+                        peer.chain_info.last_block =
+                            Some(BlockInfo { height: next_height, hash: *next_block.hash() });
                         break;
                     }
                 }

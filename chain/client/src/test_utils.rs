@@ -28,11 +28,11 @@ use near_chunks::test_utils::MockClientAdapterForShardsManager;
 use near_client_primitives::types::Error;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_network::test_utils::MockPeerManagerAdapter;
-use near_network::types::PeerChainInfoInternal;
 use near_network::types::{
     AccountOrPeerIdOrHash, HighestHeightPeerInfo, PartialEncodedChunkRequestMsg,
     PartialEncodedChunkResponseMsg, PeerInfo, PeerType,
 };
+use near_network::types::{BlockInfo, PeerChainInfo};
 use near_network::types::{
     ConnectedPeerInfo, FullPeerInfo, NetworkRecipient, NetworkRequests, NetworkResponses,
     PeerManagerAdapter,
@@ -650,13 +650,16 @@ pub fn setup_mock_all_validators(
                             .map(|(i, peer_info)| ConnectedPeerInfo {
                                 full_peer_info: FullPeerInfo {
                                     peer_info: peer_info.clone(),
-                                    chain_info: PeerChainInfoInternal {
+                                    chain_info: PeerChainInfo {
                                         genesis_id: GenesisId {
                                             chain_id: "unittest".to_string(),
                                             hash: Default::default(),
                                         },
                                         // TODO: add the correct hash here
-                                        last_block: Some((last_height2[i], CryptoHash::default())),
+                                        last_block: Some(BlockInfo {
+                                            height: last_height2[i],
+                                            hash: CryptoHash::default(),
+                                        }),
                                         tracked_shards: vec![],
                                         archival: true,
                                     },

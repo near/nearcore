@@ -31,7 +31,7 @@ use near_client::{
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
 use near_network::test_utils::{wait_or_panic, MockPeerManagerAdapter};
 use near_network::types::{
-    ConnectedPeerInfo, HighestHeightPeerInfo, NetworkInfo, PeerChainInfoInternal,
+    ConnectedPeerInfo, HighestHeightPeerInfo, NetworkInfo, PeerChainInfo,
     PeerManagerMessageRequest, PeerManagerMessageResponse,
 };
 use near_network::types::{FullPeerInfo, NetworkRequests, NetworkResponses};
@@ -1029,7 +1029,7 @@ fn client_sync_headers() {
             SetNetworkInfo(NetworkInfo {
                 connected_peers: vec![ConnectedPeerInfo::from(&FullPeerInfo {
                     peer_info: peer_info2.clone(),
-                    chain_info: PeerChainInfoInternal {
+                    chain_info: PeerChainInfo {
                         genesis_id: Default::default(),
                         height: 5,
                         tracked_shards: vec![],

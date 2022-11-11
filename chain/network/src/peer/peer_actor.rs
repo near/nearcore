@@ -16,7 +16,7 @@ use crate::stats::metrics;
 use crate::tcp;
 use crate::time;
 use crate::types::{
-    Handshake, HandshakeFailureReason, PeerIdOrHash, PeerMessage, PeerType, ReasonForBan,
+    BlockInfo, Handshake, HandshakeFailureReason, PeerIdOrHash, PeerMessage, PeerType, ReasonForBan,
 };
 use actix::fut::future::wrap_future;
 use actix::{Actor, ActorContext, ActorFutureExt, AsyncContext, Context, Handler, Running};
@@ -827,8 +827,8 @@ impl PeerActor {
                 let hash = *block.hash();
                 let height = block.header().height();
                 let mut last_block = conn.last_block.write().unwrap();
-                if last_block.is_none() || last_block.unwrap().0 <= height {
-                    *last_block = Some((height, hash));
+                if last_block.is_none() || last_block.unwrap().height <= height {
+                    *last_block = Some(BlockInfo { height, hash });
                 }
                 let mut tracker = self.tracker.lock();
                 tracker.push_received(hash);

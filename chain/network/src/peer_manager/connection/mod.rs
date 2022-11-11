@@ -2,20 +2,18 @@ use crate::concurrency::arc_mutex::ArcMutex;
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
 use crate::network_protocol::{
-    Edge, PartialEdgeInfo, PeerChainInfoV2, PeerInfo, PeerMessage, RoutingTableUpdate,
-    SignedAccountData, SyncAccountsData,
+    Edge, PeerInfo, PeerMessage, RoutingTableUpdate, SignedAccountData, SyncAccountsData,
 };
 use crate::peer::peer_actor;
 use crate::peer::peer_actor::PeerActor;
 use crate::private_actix::SendMessage;
 use crate::stats::metrics;
 use crate::time;
-use crate::types::{FullPeerInfo, PeerChainInfoInternal, PeerType, ReasonForBan};
+use crate::types::{BlockInfo, FullPeerInfo, PeerChainInfo, PeerType, ReasonForBan};
 use near_o11y::WithSpanContextExt;
 use near_primitives::block::GenesisId;
-use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use near_primitives::types::{BlockHeight, ShardId};
+use near_primitives::types::ShardId;
 use std::collections::{hash_map::Entry, HashMap};
 use std::fmt;
 use std::future::Future;
@@ -56,7 +54,7 @@ pub(crate) struct Connection {
     pub tracked_shards: Vec<ShardId>,
     /// Denote if a node is running in archival mode or not.
     pub archival: bool,
-    pub last_block: RwLock<Option<(BlockHeight, CryptoHash)>>,
+    pub last_block: RwLock<Option<BlockInfo>>,
 
     /// Who started connection. Inbound (other) or Outbound (us).
     pub peer_type: PeerType,
@@ -90,7 +88,7 @@ impl fmt::Debug for Connection {
 
 impl Connection {
     pub fn full_peer_info(&self) -> FullPeerInfo {
-        let chain_info = PeerChainInfoInternal {
+        let chain_info = PeerChainInfo {
             genesis_id: self.genesis_id.clone(),
             last_block: *self.last_block.read().unwrap(),
             tracked_shards: self.tracked_shards.clone(),

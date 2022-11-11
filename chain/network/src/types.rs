@@ -277,7 +277,7 @@ pub enum NetworkRequests {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct FullPeerInfo {
     pub peer_info: PeerInfo,
-    pub chain_info: PeerChainInfoInternal,
+    pub chain_info: PeerChainInfo,
 }
 
 /// These are the information needed for highest height peers. For these peers, we guarantee that
@@ -303,8 +303,8 @@ impl From<&FullPeerInfo> for Option<HighestHeightPeerInfo> {
             Some(HighestHeightPeerInfo {
                 peer_info: p.peer_info.clone(),
                 genesis_id: p.chain_info.genesis_id.clone(),
-                height: p.chain_info.last_block.unwrap().0,
-                hash: p.chain_info.last_block.unwrap().1,
+                height: p.chain_info.last_block.unwrap().height,
+                hash: p.chain_info.last_block.unwrap().hash,
                 tracked_shards: p.chain_info.tracked_shards.clone(),
                 archival: p.chain_info.archival,
             })
@@ -314,15 +314,21 @@ impl From<&FullPeerInfo> for Option<HighestHeightPeerInfo> {
     }
 }
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub struct BlockInfo {
+    pub height: BlockHeight,
+    pub hash: CryptoHash,
+}
+
 /// This is the internal representation of PeerChainInfoV2.
 /// We separate these two structs because PeerChainInfoV2 is part of network protocol, and can't be
 /// modified easily.
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct PeerChainInfoInternal {
+pub struct PeerChainInfo {
     /// Chain Id and hash of genesis block.
     pub genesis_id: GenesisId,
     /// Height and hash of the highest block we've ever received from the peer
-    pub last_block: Option<(BlockHeight, CryptoHash)>,
+    pub last_block: Option<BlockInfo>,
     /// Shards that the peer is tracking.
     pub tracked_shards: Vec<ShardId>,
     /// Denote if a node is running in archival mode or not.
@@ -352,8 +358,8 @@ impl From<&ConnectedPeerInfo> for PeerInfoView {
                 None => "N/A".to_string(),
             },
             account_id: full_peer_info.peer_info.account_id.clone(),
-            height: full_peer_info.chain_info.last_block.map(|x| x.0),
-            block_hash: full_peer_info.chain_info.last_block.map(|x| x.1),
+            height: full_peer_info.chain_info.last_block.map(|x| x.height),
+            block_hash: full_peer_info.chain_info.last_block.map(|x| x.hash),
             tracked_shards: full_peer_info.chain_info.tracked_shards.clone(),
             archival: full_peer_info.chain_info.archival,
             peer_id: full_peer_info.peer_info.id.public_key().clone(),
