@@ -133,11 +133,7 @@ async fn accounts_data_gradual_epoch_change() {
         // with tier1_accounts containing all validators.
         let e = data::make_epoch_id(rng);
         let mut chain_info = chain.get_chain_info();
-        chain_info.tier1_accounts = Arc::new(
-            vs.iter()
-                .map(|v| (v.signer.validator_id().clone(), v.signer.public_key()))
-                .collect(),
-        );
+        chain_info.tier1_accounts = Arc::new(data::make_account_keys(&vs[..]));
 
         let mut want = HashSet::new();
         // Advance epoch in the given order.
