@@ -1,4 +1,4 @@
-use actix_web::{web, App, Error as HttpError, HttpResponse, HttpServer};
+use actix_web::{web, App, HttpServer};
 use anyhow::Context;
 pub use cli::PingCommand;
 use near_network::raw::{ConnectError, Connection, ReceivedMessage};
@@ -8,7 +8,6 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::types::{AccountId, BlockHeight, EpochId};
 use near_primitives::version::ProtocolVersion;
-use prometheus::{Encoder, TextEncoder};
 use std::cmp;
 use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -18,17 +17,6 @@ use std::pin::Pin;
 pub mod cli;
 mod csv;
 mod metrics;
-
-async fn prometheus_handler() -> Result<HttpResponse, HttpError> {
-    let mut buffer = vec![];
-    let encoder = TextEncoder::new();
-    encoder.encode(&prometheus::gather(), &mut buffer).unwrap();
-
-    match String::from_utf8(buffer) {
-        Ok(text) => Ok(HttpResponse::Ok().body(text)),
-        Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
-    }
-}
 
 // TODO: also log number of bytes/other messages (like Blocks) received?
 #[derive(Debug, Default)]
@@ -448,7 +436,9 @@ async fn ping_via_node(
     tokio::pin!(next_timeout);
 
     let server = HttpServer::new(move || {
-        App::new().service(web::resource("/metrics").route(web::get().to(prometheus_handler)))
+        App::new().service(
+            web::resource("/metrics").route(web::get().to(near_jsonrpc::prometheus_handler)),
+        )
     })
     .bind(prometheus_addr)
     .unwrap()
