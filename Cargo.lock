@@ -3037,6 +3037,11 @@ dependencies = [
 [[package]]
 name = "near-dyn-configs"
 version = "0.0.0"
+dependencies = [
+ "near-o11y",
+ "once_cell",
+ "prometheus",
+]
 
 [[package]]
 name = "near-epoch-manager"
