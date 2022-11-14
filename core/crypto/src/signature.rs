@@ -1,4 +1,3 @@
-use std::cmp::Ordering;
 use std::convert::AsRef;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
@@ -68,14 +67,9 @@ fn split_key_type_data(value: &str) -> Result<(KeyType, &str), crate::errors::Pa
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Eq, Ord, PartialEq, PartialOrd, derive_more::AsRef, derive_more::From)]
+#[as_ref(forward)]
 pub struct Secp256K1PublicKey([u8; 64]);
-
-impl From<[u8; 64]> for Secp256K1PublicKey {
-    fn from(data: [u8; 64]) -> Self {
-        Self(data)
-    }
-}
 
 impl TryFrom<&[u8]> for Secp256K1PublicKey {
     type Error = crate::errors::ParseKeyError;
@@ -88,53 +82,15 @@ impl TryFrom<&[u8]> for Secp256K1PublicKey {
     }
 }
 
-impl AsRef<[u8]> for Secp256K1PublicKey {
-    fn as_ref(&self) -> &[u8] {
-        &self.0
-    }
-}
-
 impl std::fmt::Debug for Secp256K1PublicKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         Display::fmt(&Bs58(&self.0), f)
     }
 }
 
-impl From<Secp256K1PublicKey> for [u8; 64] {
-    fn from(pubkey: Secp256K1PublicKey) -> Self {
-        pubkey.0
-    }
-}
-
-impl PartialEq for Secp256K1PublicKey {
-    fn eq(&self, other: &Self) -> bool {
-        self.0[..] == other.0[..]
-    }
-}
-
-impl PartialOrd for Secp256K1PublicKey {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        self.0[..].partial_cmp(&other.0[..])
-    }
-}
-
-impl Eq for Secp256K1PublicKey {}
-
-impl Ord for Secp256K1PublicKey {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.0[..].cmp(&other.0[..])
-    }
-}
-
-#[derive(Clone, derive_more::AsRef)]
+#[derive(Clone, Eq, Ord, PartialEq, PartialOrd, derive_more::AsRef, derive_more::From)]
 #[as_ref(forward)]
 pub struct ED25519PublicKey(pub [u8; ed25519_dalek::PUBLIC_KEY_LENGTH]);
-
-impl From<[u8; ed25519_dalek::PUBLIC_KEY_LENGTH]> for ED25519PublicKey {
-    fn from(data: [u8; ed25519_dalek::PUBLIC_KEY_LENGTH]) -> Self {
-        Self(data)
-    }
-}
 
 impl TryFrom<&[u8]> for ED25519PublicKey {
     type Error = crate::errors::ParseKeyError;
@@ -150,26 +106,6 @@ impl TryFrom<&[u8]> for ED25519PublicKey {
 impl std::fmt::Debug for ED25519PublicKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         Display::fmt(&Bs58(&self.0), f)
-    }
-}
-
-impl PartialEq for ED25519PublicKey {
-    fn eq(&self, other: &Self) -> bool {
-        self.0[..] == other.0[..]
-    }
-}
-
-impl PartialOrd for ED25519PublicKey {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        self.0[..].partial_cmp(&other.0[..])
-    }
-}
-
-impl Eq for ED25519PublicKey {}
-
-impl Ord for ED25519PublicKey {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.0[..].cmp(&other.0[..])
     }
 }
 
@@ -357,7 +293,7 @@ impl From<Secp256K1PublicKey> for PublicKey {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Eq)]
 // This is actually a keypair, because ed25519_dalek api only has keypair.sign
 // From ed25519_dalek doc: The first SECRET_KEY_LENGTH of bytes is the SecretKey
 // The last PUBLIC_KEY_LENGTH of bytes is the public key, in total it's KEYPAIR_LENGTH
@@ -374,8 +310,6 @@ impl std::fmt::Debug for ED25519SecretKey {
         Display::fmt(&Bs58(&self.0[..ed25519_dalek::SECRET_KEY_LENGTH]), f)
     }
 }
-
-impl Eq for ED25519SecretKey {}
 
 /// Secret key container supporting different curves.
 #[derive(Clone, Eq, PartialEq, Debug)]
@@ -528,7 +462,7 @@ const SECP256K1_N_HALF_ONE: U256 =
 
 const SECP256K1_SIGNATURE_LENGTH: usize = 65;
 
-#[derive(Clone, Hash)]
+#[derive(Clone, Eq, PartialEq, Hash, derive_more::From, derive_more::Into)]
 pub struct Secp256K1Signature([u8; SECP256K1_SIGNATURE_LENGTH]);
 
 impl Secp256K1Signature {
@@ -578,12 +512,6 @@ impl Secp256K1Signature {
     }
 }
 
-impl From<[u8; 65]> for Secp256K1Signature {
-    fn from(data: [u8; 65]) -> Self {
-        Self(data)
-    }
-}
-
 impl TryFrom<&[u8]> for Secp256K1Signature {
     type Error = crate::errors::ParseSignatureError;
 
@@ -595,23 +523,9 @@ impl TryFrom<&[u8]> for Secp256K1Signature {
     }
 }
 
-impl Eq for Secp256K1Signature {}
-
-impl PartialEq for Secp256K1Signature {
-    fn eq(&self, other: &Self) -> bool {
-        self.0[..].eq(&other.0[..])
-    }
-}
-
 impl Debug for Secp256K1Signature {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
         Display::fmt(&Bs58(&self.0), f)
-    }
-}
-
-impl From<Secp256K1Signature> for [u8; 65] {
-    fn from(sig: Secp256K1Signature) -> [u8; 65] {
-        sig.0
     }
 }
 
