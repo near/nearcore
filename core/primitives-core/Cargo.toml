@@ -19,7 +19,6 @@ borsh.workspace = true
 bs58.workspace = true
 derive_more.workspace = true
 num-rational.workspace = true
-enum-map.workspace = true
 serde.workspace = true
 serde_repr.workspace = true
 sha2.workspace = true

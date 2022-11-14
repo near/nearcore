@@ -3421,7 +3421,6 @@ dependencies = [
  "borsh",
  "bs58",
  "derive_more",
- "enum-map",
  "near-account-id",
  "num-rational",
  "serde",
