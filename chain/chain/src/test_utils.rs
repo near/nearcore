@@ -589,7 +589,7 @@ impl EpochManagerAdapter for KeyValueRuntime {
         }
     }
 
-    fn get_protocol_upgrade_block_height(
+    fn get_estimated_protocol_upgrade_block_height(
         &self,
         _block_hash: CryptoHash,
     ) -> Result<Option<BlockHeight>, EpochError> {

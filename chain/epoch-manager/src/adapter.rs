@@ -130,7 +130,7 @@ pub trait EpochManagerAdapter: Send + Sync {
     /// estimated block height for when the epoch switch occurs.
     ///
     /// This is very approximate and is used for logging only.
-    fn get_protocol_upgrade_block_height(
+    fn get_estimated_protocol_upgrade_block_height(
         &self,
         block_hash: CryptoHash,
     ) -> Result<Option<BlockHeight>, EpochError>;
@@ -537,7 +537,7 @@ impl<T: HasEpochMangerHandle + Send + Sync> EpochManagerAdapter for T {
         }
     }
 
-    fn get_protocol_upgrade_block_height(
+    fn get_estimated_protocol_upgrade_block_height(
         &self,
         block_hash: CryptoHash,
     ) -> Result<Option<BlockHeight>, EpochError> {
