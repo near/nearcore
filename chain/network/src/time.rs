@@ -104,6 +104,9 @@ impl Clock {
 }
 
 struct FakeClockInner {
+    /// `mono` keeps the current time of the monotonic clock.
+    /// It is wrapped in watch::Sender, so that the value can
+    /// be observed from the clock::sleep() futures.
     mono: watch::Sender<Instant>,
     utc: Utc,
     /// We need to keep it so that mono.send() always succeeds.
@@ -211,10 +214,22 @@ impl Interval {
     pub async fn tick(&mut self, clock: &Clock) {
         clock.sleep_until(self.next).await;
         let now = clock.now();
+        // Implementation of `tokio::time::MissedTickBehavior::Skip`.
+        // Please refer to https://docs.rs/tokio/latest/tokio/time/enum.MissedTickBehavior.html#
+        // for details. In essence, if more than `period` of time passes between consecutive
+        // calls to tick, then the second tick completes immediately and the next one will be
+        // aligned to the original schedule.
         self.next = now + self.period
             - Duration::nanoseconds(
                 ((now - self.next).whole_nanoseconds() % self.period.whole_nanoseconds())
                     .try_into()
+                    // This operation is practically guaranteed not to
+                    // fail, as in order for it to fail, `period` would
+                    // have to be longer than `now - timeout`, and both
+                    // would have to be longer than 584 years.
+                    //
+                    // If it did fail, there's not a good way to pass
+                    // the error along to the user, so we just panic.
                     .expect("too much time has elapsed since the interval was supposed to tick"),
             );
     }
