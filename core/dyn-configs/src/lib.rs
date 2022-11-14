@@ -4,7 +4,7 @@ use near_o11y::metrics::{try_create_int_counter, IntCounter};
 use once_cell::sync::Lazy;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-/// An indicate for dynamic config changes
+/// An indicator for dynamic config changes
 pub static DYN_CONFIG_CHANGE: Lazy<IntCounter> = Lazy::new(|| {
     try_create_int_counter(
         "near_dynamic_config_changes",
