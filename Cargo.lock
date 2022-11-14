@@ -2969,6 +2969,8 @@ dependencies = [
  "near-chunks",
  "near-client-primitives",
  "near-crypto",
+ "near-dyn-configs",
+ "near-epoch-manager",
  "near-network",
  "near-o11y",
  "near-performance-metrics",
@@ -3011,7 +3013,6 @@ dependencies = [
 name = "near-crypto"
 version = "0.0.0"
 dependencies = [
- "arrayref",
  "blake2",
  "borsh",
  "bs58",
@@ -3032,6 +3033,10 @@ dependencies = [
  "tempfile",
  "thiserror",
 ]
+
+[[package]]
+name = "near-dyn-configs"
+version = "0.0.0"
 
 [[package]]
 name = "near-epoch-manager"
@@ -3065,6 +3070,7 @@ dependencies = [
  "near-chain-configs",
  "near-client",
  "near-crypto",
+ "near-dyn-configs",
  "near-indexer-primitives",
  "near-o11y",
  "near-primitives",
@@ -3220,6 +3226,7 @@ dependencies = [
  "near-client",
  "near-client-primitives",
  "near-crypto",
+ "near-dyn-configs",
  "near-indexer",
  "near-indexer-primitives",
  "near-network",
@@ -3280,6 +3287,7 @@ dependencies = [
  "rand 0.8.5",
  "rand_xorshift",
  "rayon",
+ "rlimit",
  "serde",
  "smart-default",
  "strum",
@@ -3298,7 +3306,6 @@ version = "0.0.0"
 dependencies = [
  "actix",
  "atty",
- "backtrace",
  "bencher",
  "clap 3.1.18",
  "itoa 1.0.2",
@@ -3670,6 +3677,7 @@ dependencies = [
  "near-client",
  "near-client-primitives",
  "near-crypto",
+ "near-dyn-configs",
  "near-epoch-manager",
  "near-jsonrpc",
  "near-jsonrpc-primitives",
@@ -3715,6 +3723,7 @@ dependencies = [
  "futures",
  "near-amend-genesis",
  "near-chain-configs",
+ "near-dyn-configs",
  "near-jsonrpc-primitives",
  "near-mirror",
  "near-o11y",

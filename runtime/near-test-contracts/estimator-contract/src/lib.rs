@@ -481,7 +481,7 @@ pub unsafe fn ecrecover_10k() {
 /// we are okay overcharging it.
 #[no_mangle]
 #[cfg(feature = "protocol_feature_ed25519_verify")]
-pub unsafe fn ed25519_verify_32b_64() {
+pub unsafe fn ed25519_verify_32b_500() {
     // private key: OReNDSAXOnl-U6Wki95ut01ehQW_9wcAF_utjzRNreg
     // public key: M4QwJx4Sogjr0KcMI_gsvt-lEU6tgd9GWmgejE_JYlA
     let public_key: [u8; 32] = [
@@ -502,7 +502,7 @@ pub unsafe fn ed25519_verify_32b_64() {
         109, 64, 0, 13, 104, 6,
     ];
 
-    for _ in 0..64 {
+    for _ in 0..500 {
         let result = ed25519_verify(
             signature.len() as _,
             signature.as_ptr() as _,

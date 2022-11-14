@@ -23,6 +23,8 @@ use near_primitives::block_header::{Approval, ApprovalInner};
 use near_primitives::challenge::ChallengesResult;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
+use near_primitives::epoch_manager::EpochConfig;
+use near_primitives::epoch_manager::ValidatorSelectionConfig;
 use near_primitives::errors::{EpochError, InvalidTxError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
@@ -463,6 +465,34 @@ impl EpochManagerAdapter for KeyValueRuntime {
         Ok(ShardUId { version: 0, shard_id: shard_id as u32 })
     }
 
+    fn get_block_info(&self, _hash: &CryptoHash) -> Result<Arc<BlockInfo>, Error> {
+        Ok(Default::default())
+    }
+
+    fn get_epoch_config(&self, _epoch_id: &EpochId) -> Result<EpochConfig, Error> {
+        Ok(EpochConfig {
+            epoch_length: 10,
+            num_block_producer_seats: 2,
+            num_block_producer_seats_per_shard: vec![1, 1],
+            avg_hidden_validator_seats_per_shard: vec![1, 1],
+            block_producer_kickout_threshold: 0,
+            chunk_producer_kickout_threshold: 0,
+            validator_max_kickout_stake_perc: 0,
+            online_min_threshold: Ratio::new(1i32, 4i32),
+            online_max_threshold: Ratio::new(3i32, 4i32),
+            fishermen_threshold: 1,
+            minimum_stake_divisor: 1,
+            protocol_upgrade_stake_threshold: Ratio::new(3i32, 4i32),
+            protocol_upgrade_num_epochs: 100,
+            shard_layout: ShardLayout::v1_test(),
+            validator_selection_config: ValidatorSelectionConfig::default(),
+        })
+    }
+
+    fn get_epoch_info(&self, _epoch_id: &EpochId) -> Result<Arc<EpochInfo>, Error> {
+        Ok(Arc::new(EpochInfo::v1_test()))
+    }
+
     fn get_shard_layout(&self, _epoch_id: &EpochId) -> Result<ShardLayout, Error> {
         Ok(ShardLayout::v0(self.num_shards, 0))
     }
@@ -632,6 +662,48 @@ impl EpochManagerAdapter for KeyValueRuntime {
             epoch_start_height: 0,
             epoch_height: 1,
         })
+    }
+
+    fn get_epoch_minted_amount(&self, _epoch_id: &EpochId) -> Result<Balance, Error> {
+        Ok(0)
+    }
+
+    fn get_epoch_protocol_version(&self, _epoch_id: &EpochId) -> Result<ProtocolVersion, Error> {
+        Ok(PROTOCOL_VERSION)
+    }
+
+    fn get_epoch_sync_data(
+        &self,
+        _prev_epoch_last_block_hash: &CryptoHash,
+        _epoch_id: &EpochId,
+        _next_epoch_id: &EpochId,
+    ) -> Result<
+        (
+            Arc<BlockInfo>,
+            Arc<BlockInfo>,
+            Arc<BlockInfo>,
+            Arc<EpochInfo>,
+            Arc<EpochInfo>,
+            Arc<EpochInfo>,
+        ),
+        Error,
+    > {
+        Ok(Default::default())
+    }
+
+    fn epoch_sync_init_epoch_manager(
+        &self,
+        _prev_epoch_first_block_info: BlockInfo,
+        _prev_epoch_last_block_info: BlockInfo,
+        _prev_epoch_prev_last_block_info: BlockInfo,
+        _prev_epoch_id: &EpochId,
+        _prev_epoch_info: EpochInfo,
+        _epoch_id: &EpochId,
+        _epoch_info: EpochInfo,
+        _next_epoch_id: &EpochId,
+        _next_epoch_info: EpochInfo,
+    ) -> Result<(), Error> {
+        Ok(())
     }
 
     fn verify_block_vrf(
@@ -871,21 +943,6 @@ impl RuntimeAdapter for KeyValueRuntime {
             res.push(iter.next().unwrap());
         }
         Ok(res)
-    }
-
-    fn epoch_sync_init_epoch_manager(
-        &self,
-        _prev_epoch_first_block_info: BlockInfo,
-        _prev_epoch_last_block_info: BlockInfo,
-        _prev_epoch_prev_last_block_info: BlockInfo,
-        _prev_epoch_id: &EpochId,
-        _prev_epoch_info: EpochInfo,
-        _epoch_id: &EpochId,
-        _epoch_info: EpochInfo,
-        _next_epoch_id: &EpochId,
-        _next_epoch_info: EpochInfo,
-    ) -> Result<(), Error> {
-        Ok(())
     }
 
     fn add_validator_proposals(
@@ -1264,33 +1321,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         } else {
             0
         }
-    }
-
-    fn get_epoch_minted_amount(&self, _epoch_id: &EpochId) -> Result<Balance, Error> {
-        Ok(0)
-    }
-
-    fn get_epoch_sync_data(
-        &self,
-        _prev_epoch_last_block_hash: &CryptoHash,
-        _epoch_id: &EpochId,
-        _next_epoch_id: &EpochId,
-    ) -> Result<
-        (
-            Arc<BlockInfo>,
-            Arc<BlockInfo>,
-            Arc<BlockInfo>,
-            Arc<EpochInfo>,
-            Arc<EpochInfo>,
-            Arc<EpochInfo>,
-        ),
-        Error,
-    > {
-        Ok(Default::default())
-    }
-
-    fn get_epoch_protocol_version(&self, _epoch_id: &EpochId) -> Result<ProtocolVersion, Error> {
-        Ok(PROTOCOL_VERSION)
     }
 
     fn compare_epoch_id(

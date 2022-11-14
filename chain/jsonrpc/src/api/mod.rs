@@ -11,6 +11,7 @@ mod chunks;
 mod config;
 mod gas_price;
 mod light_client;
+mod maintenance;
 mod network_info;
 mod query;
 mod receipts;
