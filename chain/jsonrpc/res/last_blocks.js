@@ -224,7 +224,7 @@ function Page() {
     const [expandAll, setExpandAll] = React.useState(false);
     const [hideMissingHeights, setHideMissingHeights] = React.useState(false);
     const updateXarrow = reactXarrow.useXarrow();
-    let blockStatusApiPath = 'debug/api/block_status';
+    let blockStatusApiPath = '../api/block_status';
     const url = new URL(window.location.toString());
     let title = 'Most Recent Blocks';
     if (url.searchParams.has('height')) {
