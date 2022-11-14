@@ -224,7 +224,7 @@ function Page() {
     const [expandAll, setExpandAll] = React.useState(false);
     const [hideMissingHeights, setHideMissingHeights] = React.useState(false);
     const updateXarrow = reactXarrow.useXarrow();
-    let blockStatusApiPath = '/debug/api/block_status';
+    let blockStatusApiPath = 'debug/api/block_status';
     const url = new URL(window.location.toString());
     let title = 'Most Recent Blocks';
     if (url.searchParams.has('height')) {
@@ -235,7 +235,7 @@ function Page() {
     React.useEffect(() => {
         (async () => {
             try {
-                let resp = await fetch('/debug/api/status');
+                let resp = await fetch('debug/api/status');
                 if (resp.status == 405) {
                     throw new Error('Debug not allowed - did you set enable_debug_rpc: true in your config?');
                 } else if (!resp.ok) {
