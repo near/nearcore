@@ -17,6 +17,7 @@ pub static DYN_CONFIG_CHANGE: Lazy<IntCounter> = Lazy::new(|| {
 // shutdown
 pub static EXPECTED_SHUTDOWN_AT: AtomicU64 = AtomicU64::new(0);
 
+/// Reload the dynamic config, and increase the counting metric near_dynamic_config_changes
 pub fn reload(expected_shutdown: Option<u64>) {
     if let Some(expected_shutdown) = expected_shutdown {
         EXPECTED_SHUTDOWN_AT.store(expected_shutdown, Ordering::Relaxed);
