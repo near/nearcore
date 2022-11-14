@@ -334,7 +334,7 @@ impl PeerManagerActor {
             .load()
             .ready
             .values()
-            .filter_map(|p| (&p.full_peer_info()).into())
+            .filter_map(|p| p.full_peer_info().into())
             .collect();
 
         // This finds max height among peers, and returns one peer close to such height.

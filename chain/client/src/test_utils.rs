@@ -672,8 +672,10 @@ pub fn setup_mock_all_validators(
                                 peer_type: PeerType::Outbound,
                             })
                             .collect();
-                        let peers2 =
-                            peers.iter().filter_map(|it| (&it.full_peer_info).into()).collect();
+                        let peers2 = peers
+                            .iter()
+                            .filter_map(|it| it.full_peer_info.clone().into())
+                            .collect();
                         let info = NetworkInfo {
                             connected_peers: peers,
                             num_connected_peers: key_pairs1.len(),

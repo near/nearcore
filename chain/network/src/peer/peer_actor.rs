@@ -45,7 +45,7 @@ const MAX_PEER_MSG_PER_MIN: usize = usize::MAX;
 /// How often to request peers from active peers.
 const REQUEST_PEERS_INTERVAL: time::Duration = time::Duration::seconds(60);
 /// How often to send the latest block to peers.
-const SYNC_LATEST_BLOCK_INTERVAL: time::Duration = time::Duration::seconds(5);
+const SYNC_LATEST_BLOCK_INTERVAL: time::Duration = time::Duration::seconds(60);
 
 /// Maximum number of transaction messages we will accept between block messages.
 /// The purpose of this constant is to ensure we do not spend too much time deserializing and
@@ -617,8 +617,9 @@ impl PeerActor {
                                     tokio::time::interval(SYNC_LATEST_BLOCK_INTERVAL.try_into().unwrap());
                                 interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
                                 loop {
-                                    network_state.client.sync_latest_block(peer_id.clone()).await;
+                                    // the first tick is immediate, so the tick should go sync_latest_block
                                     interval.tick().await;
+                                    network_state.client.sync_latest_block(peer_id.clone()).await;
                                 }
                             }
                         }));

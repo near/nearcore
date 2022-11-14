@@ -241,7 +241,7 @@ impl MockPeerManagerActor {
             connected_peers: vec![(&peer).into()],
             num_connected_peers: 1,
             peer_max_count: 1,
-            highest_height_peers: vec![<&FullPeerInfo as Into<Option<_>>>::into(&peer).unwrap()],
+            highest_height_peers: vec![<FullPeerInfo as Into<Option<_>>>::into(peer).unwrap()],
             sent_bytes_per_sec: 0,
             received_bytes_per_sec: 0,
             known_producers: vec![],
@@ -302,7 +302,7 @@ impl MockPeerManagerActor {
             .network_info
             .connected_peers
             .iter()
-            .filter_map(|it| (&it.full_peer_info).into())
+            .filter_map(|it| it.full_peer_info.clone().into())
             .collect();
         near_performance_metrics::actix::run_later(
             ctx,

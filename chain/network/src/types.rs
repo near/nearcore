@@ -297,15 +297,15 @@ pub struct HighestHeightPeerInfo {
     pub archival: bool,
 }
 
-impl From<&FullPeerInfo> for Option<HighestHeightPeerInfo> {
-    fn from(p: &FullPeerInfo) -> Self {
+impl From<FullPeerInfo> for Option<HighestHeightPeerInfo> {
+    fn from(p: FullPeerInfo) -> Self {
         if p.chain_info.last_block.is_some() {
             Some(HighestHeightPeerInfo {
-                peer_info: p.peer_info.clone(),
-                genesis_id: p.chain_info.genesis_id.clone(),
+                peer_info: p.peer_info,
+                genesis_id: p.chain_info.genesis_id,
                 height: p.chain_info.last_block.unwrap().height,
                 hash: p.chain_info.last_block.unwrap().hash,
-                tracked_shards: p.chain_info.tracked_shards.clone(),
+                tracked_shards: p.chain_info.tracked_shards,
                 archival: p.chain_info.archival,
             })
         } else {
