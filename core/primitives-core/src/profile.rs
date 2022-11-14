@@ -298,25 +298,25 @@ mod test {
     #[test]
     fn test_no_panic_on_overflow() {
         let mut profile_data = ProfileData::new();
-        profile_data.add_action_cost(ActionCosts::function_call, u64::MAX);
-        profile_data.add_action_cost(ActionCosts::function_call, u64::MAX);
+        profile_data.add_action_cost(ActionCosts::add_full_access_key, u64::MAX);
+        profile_data.add_action_cost(ActionCosts::add_full_access_key, u64::MAX);
 
-        let res = profile_data.get_action_cost(ActionCosts::function_call);
+        let res = profile_data.get_action_cost(ActionCosts::add_full_access_key);
         assert_eq!(res, u64::MAX);
     }
 
     #[test]
     fn test_merge() {
         let mut profile_data = ProfileData::new();
-        profile_data.add_action_cost(ActionCosts::function_call, 111);
+        profile_data.add_action_cost(ActionCosts::add_full_access_key, 111);
         profile_data.add_ext_cost(ExtCosts::storage_read_base, 11);
 
         let mut profile_data2 = ProfileData::new();
-        profile_data2.add_action_cost(ActionCosts::function_call, 222);
+        profile_data2.add_action_cost(ActionCosts::add_full_access_key, 222);
         profile_data2.add_ext_cost(ExtCosts::storage_read_base, 22);
 
         profile_data.merge(&profile_data2);
-        assert_eq!(profile_data.get_action_cost(ActionCosts::function_call), 333);
+        assert_eq!(profile_data.get_action_cost(ActionCosts::add_full_access_key), 333);
         assert_eq!(profile_data.get_ext_cost(ExtCosts::storage_read_base), 33);
     }
 }
