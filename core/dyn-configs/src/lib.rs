@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 pub static DYN_CONFIG_CHANGE: Lazy<IntCounter> = Lazy::new(|| {
     try_create_int_counter(
         "near_dynamic_config_changes",
-        "Total number of changes on dynamic configure",
+        "Total number of dynamic configuration changes",
     )
     .unwrap()
 });
