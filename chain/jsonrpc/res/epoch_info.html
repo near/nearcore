@@ -242,7 +242,7 @@
         function request_epoch_info(status_data) {
             $.ajax({
                 type: "GET",
-                url: "debug/api/epoch_info",
+                url: "../api/epoch_info",
                 success: epoch_data => {
                     process_responses(status_data, epoch_data);
                 },
@@ -258,7 +258,7 @@
         $(document).ready(() => {
             $.ajax({
                 type: "GET",
-                url: "debug/api/status",
+                url: "../api/status",
                 success: data => {
                     request_epoch_info(data);
                 },

@@ -172,7 +172,7 @@
             $('span').text("Loading...");
             $.ajax({
                 type: "GET",
-                url: "debug/api/sync_status",
+                url: "../api/sync_status",
                 success: data => {
                     process_sync_status(data);
                 },
@@ -184,7 +184,7 @@
             });
             $.ajax({
                 type: "GET",
-                url: "debug/api/tracked_shards",
+                url: "../api/tracked_shards",
                 success: data => {
                     process_tracked_shards(data);
                 },
@@ -196,7 +196,7 @@
             });
             $.ajax({
                 type: "GET",
-                url: "debug/api/catchup_status",
+                url: "../api/catchup_status",
                 success: data => {
                     process_catchup_status(data);
                 },

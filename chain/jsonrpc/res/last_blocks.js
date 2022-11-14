@@ -235,7 +235,7 @@ function Page() {
     React.useEffect(() => {
         (async () => {
             try {
-                let resp = await fetch('debug/api/status');
+                let resp = await fetch('../api/status');
                 if (resp.status == 405) {
                     throw new Error('Debug not allowed - did you set enable_debug_rpc: true in your config?');
                 } else if (!resp.ok) {
