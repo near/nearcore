@@ -256,7 +256,6 @@ impl PeerActor {
     }
 
     fn parse_message(&mut self, msg: &[u8]) -> Result<PeerMessage, ParsePeerMessageError> {
-        let _span = tracing::trace_span!(target: "network", "parse_message").entered();
         if let Some(e) = self.encoding() {
             return PeerMessage::deserialize(e, msg);
         }
@@ -1174,7 +1173,7 @@ impl actix::Handler<stream::Frame> for PeerActor {
     type Result = ();
     #[perf]
     fn handle(&mut self, stream::Frame(msg): stream::Frame, ctx: &mut Self::Context) {
-        let _span = tracing::trace_span!(
+        let _span = tracing::debug_span!(
             target: "network",
             "handle",
             handler = "bytes",
