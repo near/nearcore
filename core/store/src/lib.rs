@@ -132,9 +132,27 @@ impl NodeStorage {
         let cold_storage = cold_storage.map(|_| unreachable!());
         Self { hot_storage, cold_storage, _phantom: PhantomData {} }
     }
-}
 
-impl<D: Database + 'static> NodeStorage<D> {
+    /// Initialises an opener for a new temporary test store.
+    ///
+    /// As per the name, this is meant for tests only.  The created store will
+    /// use test configuration (which may differ slightly from default config).
+    /// The function **panics** if a temporary directory cannot be created.
+    ///
+    /// Note that the caller must hold the temporary directory returned as first
+    /// element of the tuple while the store is open.
+    pub fn test_opener() -> (tempfile::TempDir, StoreOpener<'static>) {
+        static CONFIG: Lazy<StoreConfig> = Lazy::new(StoreConfig::test_config);
+        let dir = tempfile::tempdir().unwrap();
+        let opener = StoreOpener::new(
+            dir.path(),
+            &CONFIG,
+            #[cfg(feature = "cold_store")]
+                None,
+        );
+        (dir, opener)
+    }
+
     /// Constructs new object backed by given database.
     ///
     /// Note that you most likely don’t want to use this method.  If you’re
@@ -145,9 +163,11 @@ impl<D: Database + 'static> NodeStorage<D> {
     /// possibly [`crate::test_utils::create_test_store`] (depending whether you
     /// need [`NodeStorage`] or [`Store`] object.
     pub fn new(storage: Arc<dyn Database>) -> Self {
-        Self { hot_storage: storage, cold_storage: None, _phantom: PhantomData::<D> {} }
+        Self { hot_storage: storage, cold_storage: None, _phantom: PhantomData {} }
     }
+}
 
+impl<D: Database + 'static> NodeStorage<D> {
     /// Returns storage for given temperature.
     ///
     /// Some data live only in hot and some only in cold storage (which is at
@@ -205,26 +225,6 @@ impl<D: Database + 'static> NodeStorage<D> {
 }
 
 impl<D> NodeStorage<D> {
-    /// Initialises an opener for a new temporary test store.
-    ///
-    /// As per the name, this is meant for tests only.  The created store will
-    /// use test configuration (which may differ slightly from default config).
-    /// The function **panics** if a temporary directory cannot be created.
-    ///
-    /// Note that the caller must hold the temporary directory returned as first
-    /// element of the tuple while the store is open.
-    pub fn test_opener() -> (tempfile::TempDir, StoreOpener<'static>) {
-        static CONFIG: Lazy<StoreConfig> = Lazy::new(StoreConfig::test_config);
-        let dir = tempfile::tempdir().unwrap();
-        let opener = StoreOpener::new(
-            dir.path(),
-            &CONFIG,
-            #[cfg(feature = "cold_store")]
-            None,
-        );
-        (dir, opener)
-    }
-
     /// Returns whether the storage has a cold database.
     pub fn has_cold(&self) -> bool {
         self.cold_storage.is_some()
