@@ -1,4 +1,5 @@
-use near_store::NodeStorage;
+use near_store::{DBCol, NodeStorage, Temperature, FINAL_HEAD_KEY, HEAD_KEY};
+use near_primitives::block::Tip;
 
 use clap::Parser;
 use std::path::Path;
@@ -13,6 +14,7 @@ pub struct ColdStoreCommand {
 #[clap(subcommand_required = true, arg_required_else_help = true)]
 enum SubCommand {
     Open,
+    Head,
 }
 
 impl ColdStoreCommand {
@@ -22,18 +24,34 @@ impl ColdStoreCommand {
             near_chain_configs::GenesisValidationMode::Full,
         )
         .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
+        let opener = NodeStorage::opener(
+            home_dir,
+            &near_config.config.store,
+            near_config.config.cold_store.as_ref(),
+        );
+        let store = opener.open().unwrap_or_else(|e| panic!("Error opening storage: {:#}", e));
         match self.subcmd {
-            SubCommand::Open => check_open(home_dir, near_config),
+            SubCommand::Open => check_open(&store),
+            SubCommand::Head => print_heads(&store),
         }
     }
 }
 
-fn check_open(home_dir: &Path, near_config: nearcore::config::NearConfig) {
-    let opener = NodeStorage::opener(
-        home_dir,
-        &near_config.config.store,
-        near_config.config.cold_store.as_ref(),
-    );
-    let store = opener.open().unwrap_or_else(|e| panic!("Error opening storage: {:#}", e));
+fn check_open(store: &NodeStorage) {
     assert!(store.has_cold());
+}
+
+fn print_heads(store: &NodeStorage) {
+    println!(
+        "HOT HEAD is at {:?}",
+        store.get_store(Temperature::Hot).get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)
+    );
+    println!(
+        "HOT FINAL HEAD is at {:?}",
+        store.get_store(Temperature::Hot).get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)
+    );
+    println!(
+        "COLD HEAD is at {:?}",
+        store.get_store(Temperature::Cold).get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)
+    );
 }
