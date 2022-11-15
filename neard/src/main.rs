@@ -62,7 +62,7 @@ fn main() -> anyhow::Result<()> {
 
     let limit = rlimit::Resource::NOFILE.get().unwrap();
     rlimit::Resource::NOFILE
-        .set(std::cmp::min(limit.1, 1000 + FDS_PER_PEER_MANAGER), limit.1)
+        .set(std::cmp::min(limit.1, limit.0 + FDS_PER_PEER_MANAGER), limit.1)
         .unwrap();
 
     NeardCmd::parse_and_run()
