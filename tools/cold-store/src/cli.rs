@@ -1,5 +1,5 @@
-use near_store::{DBCol, NodeStorage, Temperature, FINAL_HEAD_KEY, HEAD_KEY};
 use near_primitives::block::Tip;
+use near_store::{DBCol, NodeStorage, Temperature, FINAL_HEAD_KEY, HEAD_KEY};
 
 use clap::Parser;
 use std::path::Path;
@@ -13,7 +13,9 @@ pub struct ColdStoreCommand {
 #[derive(Parser)]
 #[clap(subcommand_required = true, arg_required_else_help = true)]
 enum SubCommand {
+    /// Open NodeStorage and check that is has cold storage.
     Open,
+    /// Open NodeStorage and print cold head, hot head and hot final head.
     Head,
 }
 
