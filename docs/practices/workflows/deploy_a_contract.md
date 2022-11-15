@@ -40,16 +40,16 @@ create a contract, contract developer typically uses an SDK for some high-level
 programming language, such as JavaScript, which takes care of producing the
 right `.wasm`.
 
-In this guide, we are interested in how the thing works under the hood, so we'll
+In this guide, we are interested in how things work under the hood, so we'll
 do everything manually, and implement a contract in Rust without any help from
 SDKs.
 
 As we are looking for something simple, let's create a contract with a single
 "method", `hello`, which returns `"hello world"` string. To "define a method", a
 wasm module should export a function. To "return a value", the contract needs to
-interact wit the environment to say "hey, this is the value I am returning".
+interact with the environment to say "hey, this is the value I am returning".
 Such "interractions" are carried through host-functions, which are quite a bit
-like syscalls in traditional operation system.
+like syscalls in traditional operating system.
 
 The set of host functions which the contract can import is defined in
 [`imports.rs`].
@@ -105,10 +105,10 @@ crate-type = ["cdylib"]
 ```
 
 Here, we ask Cargo to build a "C dynamic library". When compiling for wasm,
-this'll give us a `.wasm` module. This ... is just confusing, sorry about that
+this'll give us a `.wasm` module. This is just confusing, sorry about that
 :(
 
-Next, as we really aiming for minimality here, we need to disable optional bits
+Next, as we are aiming for minimalism here, we need to disable optional bits
 of Rust runtime. Namely, we want to make our crate `no_std`, set `panic=abort`
 as our panic strategy and define a panic handler to abort execution.
 
