@@ -332,6 +332,14 @@ static NETWORK_ROUTED_MSG_LATENCY: Lazy<HistogramVec> = Lazy::new(|| {
     )
     .unwrap()
 });
+static NETWORK_ROUTED_MSG_NUM_HOPS: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_network_routed_msg_hops",
+        "Number of peers the routed message travelled through",
+        &["routed", "hops"],
+    )
+    .unwrap()
+});
 
 pub(crate) static CONNECTED_TO_MYSELF: Lazy<IntCounter> = Lazy::new(|| {
     try_create_int_counter(
@@ -341,15 +349,32 @@ pub(crate) static CONNECTED_TO_MYSELF: Lazy<IntCounter> = Lazy::new(|| {
     .unwrap()
 });
 
-// The routed message received its destination. If the timestamp of creation of this message is
+pub(crate) fn record_routed_msg_metrics(clock: &time::Clock, msg: &RoutedMessageV2) {
+    record_routed_msg_latency(clock, msg);
+    record_routed_msg_hops(msg);
+}
+
+// The routed message reached its destination. If the timestamp of creation of this message is
 // known, then update the corresponding latency metric histogram.
-pub(crate) fn record_routed_msg_latency(clock: &time::Clock, msg: &RoutedMessageV2) {
+fn record_routed_msg_latency(clock: &time::Clock, msg: &RoutedMessageV2) {
     if let Some(created_at) = msg.created_at {
         let now = clock.now_utc();
         let duration = now - created_at;
         NETWORK_ROUTED_MSG_LATENCY
             .with_label_values(&[msg.body_variant()])
             .observe(duration.as_seconds_f64());
+    }
+}
+
+// The routed message reached its destination. If the number of hops is known, then update the
+// corresponding metric.
+fn record_routed_msg_hops(msg: &RoutedMessageV2) {
+    // We assume that the number of hops is small.
+    // As long as the number of hops is below 10, this metric will not consume too much memory.
+    if let Some(num_hops) = msg.num_hops {
+        NETWORK_ROUTED_MSG_NUM_HOPS
+            .with_label_values(&[msg.body_variant(), &num_hops.to_string()])
+            .inc();
     }
 }
 
