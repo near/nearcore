@@ -319,4 +319,12 @@ mod test {
         assert_eq!(profile_data.get_action_cost(ActionCosts::add_full_access_key), 333);
         assert_eq!(profile_data.get_ext_cost(ExtCosts::storage_read_base), 33);
     }
+
+    #[test]
+    fn test_profile_len() {
+        let mut indices: Vec<_> = Cost::iter().map(|i| i.profile_index()).collect();
+        indices.sort();
+        indices.dedup();
+        assert_eq!(indices.len(), DataArray::LEN);
+    }
 }
