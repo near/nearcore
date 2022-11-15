@@ -1041,7 +1041,7 @@ fn client_sync_headers() {
                 highest_height_peers: vec![HighestHeightPeerInfo {
                     peer_info: peer_info2,
                     genesis_id: Default::default(),
-                    height: 5,
+                    highest_block_height: 5,
                     tracked_shards: vec![],
                     archival: false,
                 }],

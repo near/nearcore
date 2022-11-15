@@ -287,9 +287,9 @@ pub struct HighestHeightPeerInfo {
     /// Chain Id and hash of genesis block.
     pub genesis_id: GenesisId,
     /// Height and hash of the highest block we've ever received from the peer
-    pub height: BlockHeight,
+    pub highest_block_height: BlockHeight,
     /// Hash of the latest block
-    pub hash: CryptoHash,
+    pub highest_block_hash: CryptoHash,
     /// Shards that the peer is tracking.
     pub tracked_shards: Vec<ShardId>,
     /// Denote if a node is running in archival mode or not.
@@ -302,8 +302,8 @@ impl From<FullPeerInfo> for Option<HighestHeightPeerInfo> {
             Some(HighestHeightPeerInfo {
                 peer_info: p.peer_info,
                 genesis_id: p.chain_info.genesis_id,
-                height: p.chain_info.last_block.unwrap().height,
-                hash: p.chain_info.last_block.unwrap().hash,
+                highest_block_height: p.chain_info.last_block.unwrap().height,
+                highest_block_hash: p.chain_info.last_block.unwrap().hash,
                 tracked_shards: p.chain_info.tracked_shards,
                 archival: p.chain_info.archival,
             })

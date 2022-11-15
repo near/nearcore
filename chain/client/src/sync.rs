@@ -203,7 +203,7 @@ impl HeaderSync {
             };
             self.syncing_peer = None;
             if let Some(peer) = highest_height_peers.choose(&mut thread_rng()).cloned() {
-                if peer.height > header_head.height {
+                if peer.highest_block_height > header_head.height {
                     self.syncing_peer = self.request_headers(chain, peer);
                 }
             }
@@ -270,10 +270,10 @@ impl HeaderSync {
                         match sync_status {
                             SyncStatus::HeaderSync { highest_height, .. } => {
                                 if now > *stalling_ts + self.stall_ban_timeout
-                                    && *highest_height == peer.height
+                                    && *highest_height == peer.highest_block_height
                                 {
                                     warn!(target: "sync", "Sync: ban a fraudulent peer: {}, claimed height: {}",
-                                        peer.peer_info, peer.height);
+                                        peer.peer_info, peer.highest_block_height);
                                     self.network_adapter.do_send(
                                         PeerManagerMessageRequest::NetworkRequests(
                                             NetworkRequests::BanPeer {
@@ -1478,8 +1478,8 @@ mod test {
                     account_id: None,
                 },
                 genesis_id: Default::default(),
-                height: 0,
-                hash: Default::default(),
+                highest_block_height: 0,
+                highest_block_hash: Default::default(),
                 tracked_shards: vec![],
                 archival: false,
             });

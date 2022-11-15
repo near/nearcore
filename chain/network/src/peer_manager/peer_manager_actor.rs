@@ -51,8 +51,6 @@ const MONITOR_PEERS_INITIAL_DURATION: time::Duration = time::Duration::milliseco
 const UPDATE_ROUTING_TABLE_INTERVAL: time::Duration = time::Duration::milliseconds(1_000);
 /// How often should we check wheter local edges match the connection pool.
 const FIX_LOCAL_EDGES_INTERVAL: time::Duration = time::Duration::seconds(60);
-/// How often to send the latest block to peers.
-const SYNC_LATEST_BLOCK_INTERVAL: time::Duration = time::Duration::seconds(60);
 
 /// How often to report bandwidth stats.
 const REPORT_BANDWIDTH_STATS_TRIGGER_INTERVAL: time::Duration =
@@ -194,25 +192,6 @@ impl Actor for PeerManagerActor {
                         clock.now_utc().checked_sub(PRUNE_EDGES_AFTER),
                     )
                     .await;
-            }
-        }));
-
-        // Send latest block periodically
-        ctx.spawn(wrap_future({
-            let state = self.state.clone();
-            async move {
-                let mut interval =
-                    tokio::time::interval(SYNC_LATEST_BLOCK_INTERVAL.try_into().unwrap());
-                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-                loop {
-                    // the first tick is immediate, so the tick should go sync_latest_block
-                    interval.tick().await;
-                    if let Some(chain_info) = state.chain_info.load().as_ref() {
-                        state.tier2.broadcast_message(Arc::new(PeerMessage::Block(
-                            chain_info.block.clone(),
-                        )));
-                    }
-                }
             }
         }));
 
@@ -359,7 +338,7 @@ impl PeerManagerActor {
             .collect();
 
         // This finds max height among peers, and returns one peer close to such height.
-        let max_height = match infos.iter().map(|i| i.height).max() {
+        let max_height = match infos.iter().map(|i| i.highest_block_height).max() {
             Some(height) => height,
             None => return vec![],
         };
@@ -367,7 +346,8 @@ impl PeerManagerActor {
         infos
             .into_iter()
             .filter(|i| {
-                i.height.saturating_add(self.state.config.highest_peer_horizon) >= max_height
+                i.highest_block_height.saturating_add(self.state.config.highest_peer_horizon)
+                    >= max_height
             })
             .collect()
     }
@@ -378,27 +358,29 @@ impl PeerManagerActor {
         // If chain info is not set, that means we haven't received chain info message
         // from chain yet. Return empty set in that case. This should only last for a short period
         // of time.
-        if let Some(chain_info) = self.state.chain_info.load().as_ref() {
-            let my_height = chain_info.block.header().height();
-            // Find all peers whose height is below `highest_peer_horizon` from max height peer(s).
-            // or the ones we don't have height information yet
-            self.state
-                .tier2
-                .load()
-                .ready
-                .values()
-                .filter(|p| {
-                    p.last_block
-                        .load()
-                        .as_ref()
-                        .map(|x| x.height.saturating_add(UNRELIABLE_PEER_HORIZON) < my_height)
-                        .unwrap_or(true)
-                })
-                .map(|p| p.peer_info.id.clone())
-                .collect()
+        let binding = self.state.chain_info.load();
+        let chain_info = if let Some(it) = binding.as_ref() {
+            it
         } else {
-            HashSet::new()
-        }
+            return HashSet::new();
+        };
+        let my_height = chain_info.block.header().height();
+        // Find all peers whose height is below `highest_peer_horizon` from max height peer(s).
+        // or the ones we don't have height information yet
+        self.state
+            .tier2
+            .load()
+            .ready
+            .values()
+            .filter(|p| {
+                p.last_block
+                    .load()
+                    .as_ref()
+                    .map(|x| x.height.saturating_add(UNRELIABLE_PEER_HORIZON) < my_height)
+                    .unwrap_or(true)
+            })
+            .map(|p| p.peer_info.id.clone())
+            .collect()
     }
 
     /// Check if the number of connections (excluding whitelisted ones) exceeds ideal_connections_hi.

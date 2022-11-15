@@ -1499,26 +1499,28 @@ impl ClientActor {
         };
 
         if is_syncing {
-            if peer_info.height <= head.height {
+            if peer_info.highest_block_height <= head.height {
                 info!(target: "client", "Sync: synced at {} [{}], {}, highest height peer: {}",
                       head.height, format_hash(head.last_block_hash),
-                      peer_info.peer_info.id, peer_info.height,
+                      peer_info.peer_info.id, peer_info.highest_block_height,
                 );
                 is_syncing = false;
             }
         } else {
-            if peer_info.height > head.height + self.client.config.sync_height_threshold {
+            if peer_info.highest_block_height
+                > head.height + self.client.config.sync_height_threshold
+            {
                 info!(
                     target: "client",
                     "Sync: height: {}, peer id/height: {}/{}, enabling sync",
                     head.height,
                     peer_info.peer_info.id,
-                    peer_info.height,
+                    peer_info.highest_block_height,
                 );
                 is_syncing = true;
             }
         }
-        Ok((is_syncing, peer_info.height))
+        Ok((is_syncing, peer_info.highest_block_height))
     }
 
     fn needs_syncing(&self, needs_syncing: bool) -> bool {

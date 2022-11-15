@@ -53,6 +53,8 @@ const MAX_TRANSACTIONS_PER_BLOCK_MESSAGE: usize = 1000;
 const ROUTED_MESSAGE_CACHE_SIZE: usize = 1000;
 /// Duplicated messages will be dropped if routed through the same peer multiple times.
 const DROP_DUPLICATED_MESSAGES_PERIOD: time::Duration = time::Duration::milliseconds(50);
+/// How often to send the latest block to peers.
+const SYNC_LATEST_BLOCK_INTERVAL: time::Duration = time::Duration::seconds(60);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConnectionClosedEvent {
@@ -312,26 +314,29 @@ impl PeerActor {
     }
 
     fn send_handshake(&self, spec: HandshakeSpec) {
-        if let Some(chain_info) = self.network_state.chain_info.load().as_ref() {
-            let handshake = Handshake {
-                protocol_version: spec.protocol_version,
-                oldest_supported_version: PEER_MIN_ALLOWED_PROTOCOL_VERSION,
-                sender_peer_id: self.network_state.config.node_id(),
-                target_peer_id: spec.peer_id,
-                sender_listen_port: self.network_state.config.node_addr.map(|a| a.port()),
-                sender_chain_info: PeerChainInfoV2 {
-                    genesis_id: self.network_state.genesis_id.clone(),
-                    // do not use the height information in handshake.
-                    // TODO: remove `height` from PeerChainInfo
-                    height: 0,
-                    tracked_shards: chain_info.tracked_shards.clone(),
-                    archival: self.network_state.config.archive,
-                },
-                partial_edge_info: spec.partial_edge_info,
+        let (height, tracked_shards) =
+            if let Some(chain_info) = self.network_state.chain_info.load().as_ref() {
+                (chain_info.block.header().height(), chain_info.tracked_shards.clone())
+            } else {
+                (0, vec![])
             };
-            let msg = PeerMessage::Handshake(handshake);
-            self.send_message_or_log(&msg);
-        }
+        let handshake = Handshake {
+            protocol_version: spec.protocol_version,
+            oldest_supported_version: PEER_MIN_ALLOWED_PROTOCOL_VERSION,
+            sender_peer_id: self.network_state.config.node_id(),
+            target_peer_id: spec.peer_id,
+            sender_listen_port: self.network_state.config.node_addr.map(|a| a.port()),
+            sender_chain_info: PeerChainInfoV2 {
+                genesis_id: self.network_state.genesis_id.clone(),
+                // TODO: remove `height` from PeerChainInfo
+                height,
+                tracked_shards,
+                archival: self.network_state.config.archive,
+            },
+            partial_edge_info: spec.partial_edge_info,
+        };
+        let msg = PeerMessage::Handshake(handshake);
+        self.send_message_or_log(&msg);
     }
 
     fn stop(&mut self, ctx: &mut Context<PeerActor>, reason: ClosingReason) {
@@ -605,6 +610,25 @@ impl PeerActor {
                                 }
                             }
                         }));
+                        // Send latest block periodically
+                        ctx.spawn(wrap_future({
+                            let conn = conn.clone();
+                            let state = act.network_state.clone();
+                            async move {
+                                let mut interval =
+                                    tokio::time::interval(SYNC_LATEST_BLOCK_INTERVAL.try_into().unwrap());
+                                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                                loop {
+                                    // the first tick is immediate, so the tick should go sync_latest_block
+                                    interval.tick().await;
+                                    if let Some(chain_info) = state.chain_info.load().as_ref() {
+                                        conn.send_message(Arc::new(PeerMessage::Block(
+                                            chain_info.block.clone(),
+                                        )));
+                                    }
+                                }
+                            }
+                        }));
                         // Sync the RoutingTable.
                         act.sync_routing_table();
                         act.network_state.config.event_sink.push(Event::HandshakeCompleted(HandshakeCompletedEvent{
@@ -811,10 +835,13 @@ impl PeerActor {
             PeerMessage::Block(block) => {
                 let hash = *block.hash();
                 let height = block.header().height();
-                let last_block = conn.last_block.load();
-                if last_block.is_none() || last_block.unwrap().height <= height {
-                    conn.last_block.store(Arc::new(Some(BlockInfo { height, hash })));
-                }
+                conn.last_block.rcu(|last_block| {
+                    if last_block.is_none() || last_block.unwrap().height <= height {
+                        Arc::new(Some(BlockInfo { height, hash }))
+                    } else {
+                        last_block.clone()
+                    }
+                });
                 let mut tracker = self.tracker.lock();
                 tracker.push_received(hash);
                 tracker.has_request(&hash)
