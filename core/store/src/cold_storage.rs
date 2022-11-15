@@ -1,10 +1,10 @@
 use crate::columns::DBKeyType;
 use crate::db::ColdDB;
 use crate::trie::TrieRefcountChange;
-use crate::{DBCol, DBTransaction, Database, Store, TrieChanges};
+use crate::{DBCol, DBTransaction, Database, Store, TrieChanges, HEAD_KEY};
 
-use borsh::BorshDeserialize;
-use near_primitives::block::Block;
+use borsh::{BorshDeserialize, BorshSerialize};
+use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ShardChunk;
@@ -92,6 +92,31 @@ fn copy_from_store<D: Database>(
             transaction.set(col, key, value);
         }
     }
+    cold_db.write(transaction)?;
+    return Ok(());
+}
+
+pub fn update_cold_head<D: Database>(
+    cold_db: &ColdDB<D>,
+    hot_store: &Store,
+    height: &BlockHeight,
+) -> io::Result<()> {
+    tracing::debug!(target: "store", "update HEAD of cold db to {}", height);
+
+    let mut store = StoreWithCache { store: hot_store, cache: StoreCache::new() };
+
+    let height_key = height.to_le_bytes();
+    let block_hash_key = store.get_or_err(DBCol::BlockHeight, &height_key)?.as_slice().to_vec();
+
+    let mut transaction = DBTransaction::new();
+    transaction.set(
+        DBCol::BlockMisc,
+        HEAD_KEY.to_vec(),
+        Tip::from_header(
+            &store.get_ser_or_err::<BlockHeader>(DBCol::BlockHeader, &block_hash_key)?,
+        )
+        .try_to_vec()?,
+    );
     cold_db.write(transaction)?;
     return Ok(());
 }
