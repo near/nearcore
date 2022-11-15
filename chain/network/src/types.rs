@@ -455,7 +455,6 @@ pub enum NetworkAdversarialMessage {
     AdvDisableDoomslug,
     AdvGetSavedBlocks,
     AdvCheckStorageConsistency,
-    AdvSetSyncInfo(u64),
 }
 
 pub trait MsgRecipient<M: actix::Message>: Send + Sync + 'static {

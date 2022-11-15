@@ -1352,7 +1352,7 @@ mod test {
 
     use super::*;
     use crate::test_utils::TestEnv;
-    use near_network::types::{PartialEdgeInfo, PeerInfo};
+    use near_network::types::{BlockInfo, FullPeerInfo, PeerInfo};
     use near_primitives::merkle::PartialMerkleTree;
     use near_primitives::types::EpochId;
     use near_primitives::validator_signer::InMemoryValidatorSigner;
@@ -1419,20 +1419,27 @@ mod test {
         let mut sync_status = SyncStatus::NoSync;
         let peer1 = FullPeerInfo {
             peer_info: PeerInfo::random(),
-            chain_info: near_network::types::PeerChainInfoV2 {
+            chain_info: near_network::types::PeerChainInfo {
                 genesis_id: GenesisId {
                     chain_id: "unittest".to_string(),
                     hash: *chain.genesis().hash(),
                 },
-                height: chain2.head().unwrap().height,
                 tracked_shards: vec![],
                 archival: false,
+                last_block: Some(BlockInfo {
+                    height: chain2.head().unwrap().height,
+                    hash: chain2.head().unwrap().last_block_hash,
+                }),
             },
-            partial_edge_info: PartialEdgeInfo::default(),
         };
         let head = chain.head().unwrap();
         assert!(header_sync
-            .run(&mut sync_status, &mut chain, head.height, &[peer1.clone()])
+            .run(
+                &mut sync_status,
+                &mut chain,
+                head.height,
+                &[<FullPeerInfo as Into<Option<_>>>::into(peer1.clone()).unwrap()]
+            )
             .is_ok());
         assert!(sync_status.is_syncing());
         // Check that it queried last block, and then stepped down to genesis block to find common block with the peer.
@@ -1483,7 +1490,7 @@ mod test {
                 tracked_shards: vec![],
                 archival: false,
             });
-            header_sync.syncing_peer.as_mut().unwrap().chain_info.height = highest_height;
+            header_sync.syncing_peer.as_mut().unwrap().highest_block_height = highest_height;
         };
         set_syncing_peer(&mut header_sync);
 
@@ -1637,16 +1644,19 @@ mod test {
         assert_eq!(collected_hashes, expected_hashes.into_iter().collect());
     }
 
-    fn create_peer_infos(num_peers: usize) -> Vec<FullPeerInfo> {
+    fn create_highest_height_peer_infos(num_peers: usize) -> Vec<HighestHeightPeerInfo> {
         (0..num_peers)
-            .map(|_| FullPeerInfo {
+            .map(|_| HighestHeightPeerInfo {
                 peer_info: PeerInfo {
                     id: PeerId::new(PublicKey::empty(KeyType::ED25519)),
                     addr: None,
                     account_id: None,
                 },
-                chain_info: Default::default(),
-                partial_edge_info: Default::default(),
+                genesis_id: Default::default(),
+                highest_block_height: 0,
+                highest_block_hash: Default::default(),
+                tracked_shards: vec![],
+                archival: false,
             })
             .collect()
     }
@@ -1667,7 +1677,7 @@ mod test {
             env.process_block(0, block, Provenance::PRODUCED);
         }
         let block_headers = blocks.iter().map(|b| b.header().clone()).collect::<Vec<_>>();
-        let peer_infos = create_peer_infos(2);
+        let peer_infos = create_highest_height_peer_infos(2);
         let mut challenges = vec![];
         env.clients[1].chain.sync_block_headers(block_headers, &mut challenges).unwrap();
         assert!(challenges.is_empty());
@@ -1746,7 +1756,7 @@ mod test {
             env.process_block(0, block, Provenance::PRODUCED);
         }
         let block_headers = blocks.iter().map(|b| b.header().clone()).collect::<Vec<_>>();
-        let peer_infos = create_peer_infos(2);
+        let peer_infos = create_highest_height_peer_infos(2);
         let mut challenges = vec![];
         env.clients[1].chain.sync_block_headers(block_headers, &mut challenges).unwrap();
         assert!(challenges.is_empty());
@@ -1756,9 +1766,9 @@ mod test {
         // We don't have archival peers, and thus cannot request any blocks
         assert_eq!(requested_block_hashes, HashSet::new());
 
-        let mut peer_infos = create_peer_infos(2);
+        let mut peer_infos = create_highest_height_peer_infos(2);
         for peer in peer_infos.iter_mut() {
-            peer.chain_info.archival = true;
+            peer.archival = true;
         }
         let is_state_sync = block_sync.block_sync(&env.clients[1].chain, &peer_infos).unwrap();
         assert!(!is_state_sync);

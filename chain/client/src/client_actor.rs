@@ -360,12 +360,6 @@ impl Handler<WithSpanContext<NetworkAdversarialMessage>> for ClientActor {
                 chain_store_update.commit().expect("adv method should not fail");
                 None
             }
-            near_network::types::NetworkAdversarialMessage::AdvSetSyncInfo(height) => {
-                info!(target: "adversary", %height, "AdvSetSyncInfo");
-                this.client.adv_sync_height = Some(height);
-                this.client.send_network_chain_info().expect("adv method should not fail");
-                None
-            }
             near_network::types::NetworkAdversarialMessage::AdvGetSavedBlocks => {
                 info!(target: "adversary", "Requested number of saved blocks");
                 let store = this.client.chain.store().store();
