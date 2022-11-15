@@ -148,7 +148,7 @@ impl NodeStorage {
             dir.path(),
             &CONFIG,
             #[cfg(feature = "cold_store")]
-                None,
+            None,
         );
         (dir, opener)
     }
