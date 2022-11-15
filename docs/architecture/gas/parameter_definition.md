@@ -12,10 +12,10 @@ once, check out the list of JSON snapshots generated in this directory:
 
 ## Using Parameters in Code
 
-The introduction on this page already hints at it. Parameter values are
-versioned. In other words, they can change between protocol versions. A nearcore
-binary has to support multiple versions and choose the correct parameter value at
-runtime.
+As the introduction on this page already hints at it, parameter values are
+versioned. In other words, they can change if the protocol version changes. A
+nearcore binary has to support multiple versions and choose the correct
+parameter value at runtime.
 
 To make this easy, there is
 [`RuntimeConfigStore`](https://github.com/near/nearcore/blob/a8964d200b3938a63d389263bc39c1bcd75b1de4/core/primitives/src/runtime/config_store.rs#L43).
