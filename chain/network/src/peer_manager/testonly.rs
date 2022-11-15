@@ -13,13 +13,13 @@ use crate::test_utils;
 use crate::testonly::actix::ActixSystem;
 use crate::testonly::fake_client;
 use crate::time;
-use crate::types::{ AccountKeys,
-    ChainInfo, KnownPeerStatus, PeerManagerMessageRequest, PeerManagerMessageResponse, SetChainInfo,
+use crate::types::{
+    AccountKeys, ChainInfo, KnownPeerStatus, PeerManagerMessageRequest, PeerManagerMessageResponse,
+    SetChainInfo,
 };
 use crate::PeerManagerActor;
 use near_o11y::{WithSpanContext, WithSpanContextExt};
 use near_primitives::network::PeerId;
-use near_primitives::types::EpochId;
 use std::collections::HashSet;
 use std::future::Future;
 use std::pin::Pin;
@@ -93,16 +93,12 @@ pub fn unwrap_sync_accounts_data_processed(ev: Event) -> Option<SyncAccountsData
     }
 }
 
-pub(crate) fn make_chain_info(
-    epoch_id: &EpochId,
-    chain: &data::Chain,
-    validators: &[&ActorHandler],
-) -> ChainInfo {
+pub(crate) fn make_chain_info(chain: &data::Chain, validators: &[&ActorHandler]) -> ChainInfo {
     // Construct ChainInfo with tier1_accounts set to `validators`.
     let mut chain_info = chain.get_chain_info();
-    let account_keys = AccountKeys::new();
+    let mut account_keys = AccountKeys::new();
     for pm in validators {
-        let s = pm.cfg.validator.as_ref().unwrap().signer;
+        let s = &pm.cfg.validator.as_ref().unwrap().signer;
         account_keys.entry(s.validator_id().clone()).or_default().push(s.public_key());
     }
     chain_info.tier1_accounts = Arc::new(account_keys);
@@ -292,10 +288,12 @@ impl ActorHandler {
     pub async fn set_chain_info(&self, chain_info: ChainInfo) {
         let mut events = self.events.from_now();
         self.actix.addr.send(SetChainInfo(chain_info).with_span_context()).await.unwrap();
-        events.recv_until(|ev|match ev {
-            Event::PeerManager(PME::SetChainInfo) => Some(()),
-            _ => None
-        }).await;
+        events
+            .recv_until(|ev| match ev {
+                Event::PeerManager(PME::SetChainInfo) => Some(()),
+                _ => None,
+            })
+            .await;
     }
 
     pub async fn tier1_advertise_proxies(

@@ -26,9 +26,10 @@ impl super::NetworkState {
         if self.config.features.tier1.is_none() {
             return None;
         }
-        self.config.validator.as_ref().filter(|cfg| {
-            accounts_data.keys.contains(&cfg.signer.public_key())
-        })
+        self.config
+            .validator
+            .as_ref()
+            .filter(|cfg| accounts_data.keys.contains(&cfg.signer.public_key()))
     }
 
     /// Tries to connect to ALL trusted proxies from the config, then broadcasts AccountData with
@@ -128,7 +129,9 @@ impl super::NetworkState {
                         Some(conn) if conn.peer_info.addr == Some(proxy.addr) => {
                             connected_proxies.push(proxy.clone());
                         }
-                        Some(conn) => tracing::info!(target:"network", "connected to {}, but got addr {:?}, while want {}",conn.peer_info.id,conn.peer_info.addr,proxy.addr),
+                        Some(conn) => {
+                            tracing::info!(target:"network", "connected to {}, but got addr {:?}, while want {}",conn.peer_info.id,conn.peer_info.addr,proxy.addr)
+                        }
                         _ => {}
                     }
                 }
@@ -300,7 +303,7 @@ impl super::NetworkState {
     /// It is expected to perform <10 lookups total on average,
     /// so the call latency should be negligible wrt sending a TCP packet.
     // TODO(gprusak): If not, consider precomputing the AccountKey -> Connection mapping.
-    pub fn get_tier1_proxy(&self, data: &SignedAccountData) -> Option<Arc<connection::Connection>> { 
+    pub fn get_tier1_proxy(&self, data: &SignedAccountData) -> Option<Arc<connection::Connection>> {
         let tier1 = self.tier1.load();
         // Prefer direct connections.
         if let Some(conn) = tier1.ready_by_account_key.get(&data.account_key) {

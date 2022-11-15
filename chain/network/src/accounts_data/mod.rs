@@ -135,21 +135,21 @@ impl Cache {
             // It is fine to broadcast data we already know about.
             // It is fine to broadcast account data that we don't care about.
             if inner.is_new(&d) {
-                new_data.insert(d.account_key.clone(),d);
+                new_data.insert(d.account_key.clone(), d);
             }
         }
 
         // Verify the signatures in parallel.
         // Verification will stop at the first encountered error.
-        let (data, ok) = concurrency::rayon::run(
-            move || concurrency::rayon::try_map(
-                new_data.into_values().par_bridge(),
-                |d| match d.payload().verify(&d.account_key) {
+        let (data, ok) = concurrency::rayon::run(move || {
+            concurrency::rayon::try_map(new_data.into_values().par_bridge(), |d| {
+                match d.payload().verify(&d.account_key) {
                     Ok(()) => Some(d),
                     Err(()) => None,
                 }
-            )
-        ).await;
+            })
+        })
+        .await;
         if !ok {
             return (data, Some(Error::InvalidSignature));
         }

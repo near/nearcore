@@ -234,12 +234,8 @@ pub fn make_hash<R: Rng>(rng: &mut R) -> CryptoHash {
     CryptoHash::hash_bytes(&rng.gen::<[u8; 19]>())
 }
 
-pub fn make_epoch_id<R: Rng>(rng: &mut R) -> EpochId {
-    EpochId(make_hash(rng))
-}
-
 pub fn make_account_keys(signers: &[InMemoryValidatorSigner]) -> AccountKeys {
-    let account_keys = AccountKeys::new();
+    let mut account_keys = AccountKeys::new();
     for s in signers {
         account_keys.entry(s.validator_id().clone()).or_default().push(s.public_key());
     }
@@ -269,7 +265,7 @@ impl Chain {
                 hash: Default::default(),
             },
             blocks,
-            tier1_accounts: (0..10).map(|_|make_validator_signer(rng)).collect(),
+            tier1_accounts: (0..10).map(|_| make_validator_signer(rng)).collect(),
             chunks: chunks.chunks,
         }
     }
@@ -281,7 +277,7 @@ impl Chain {
     pub fn tip(&self) -> &BlockHeader {
         self.blocks.last().unwrap().header()
     }
- 
+
     pub fn get_tier1_accounts(&self) -> AccountKeys {
         make_account_keys(&self.tier1_accounts)
     }
@@ -324,16 +320,14 @@ impl Chain {
     ) -> Vec<Arc<SignedAccountData>> {
         self.tier1_accounts
             .iter()
-            .map(|v| Arc::new(
-                make_account_data(
-                    rng,
-                    clock.now_utc(),
-                    v.public_key(),
-                    make_peer_id(rng),
+            .map(|v| {
+                let peer_id = make_peer_id(rng);
+                Arc::new(
+                    make_account_data(rng, clock.now_utc(), v.public_key(), peer_id)
+                        .sign(v)
+                        .unwrap(),
                 )
-                .sign(v)
-                .unwrap(),
-            ))
+            })
             .collect()
     }
 }
@@ -412,9 +406,7 @@ pub fn make_account_data(
 pub fn make_signed_account_data(rng: &mut impl Rng, clock: &time::Clock) -> SignedAccountData {
     let signer = make_validator_signer(rng);
     let peer_id = make_peer_id(rng);
-    make_account_data(rng, clock.now_utc(), signer.public_key(), peer_id)
-        .sign(&signer)
-        .unwrap()
+    make_account_data(rng, clock.now_utc(), signer.public_key(), peer_id).sign(&signer).unwrap()
 }
 
 // Accessors for creating malformed SignedAccountData

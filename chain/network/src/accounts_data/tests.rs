@@ -3,27 +3,17 @@ use crate::network_protocol::testonly as data;
 use crate::network_protocol::SignedAccountData;
 use crate::testonly::{assert_is_superset, make_rng, AsSet as _, Rng};
 use crate::time;
-//use crate::types::AccountKeys;
-use near_primitives::types::EpochId;
-use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner as _};
+use near_primitives::validator_signer::InMemoryValidatorSigner;
 use pretty_assertions::assert_eq;
 use std::sync::Arc;
 
-struct Signer {
-    epoch_id: EpochId,
-    signer: InMemoryValidatorSigner,
-}
-
-fn make_account_data(signer: &InMemoryValidatorSigner, rng: &mut Rng, timestamp: time::Utc) -> SignedAccountData {
+fn make_account_data(
+    signer: &InMemoryValidatorSigner,
+    rng: &mut Rng,
+    timestamp: time::Utc,
+) -> SignedAccountData {
     let peer_id = data::make_peer_id(rng);
-    data::make_account_data(
-        rng,
-        timestamp,
-        signer.public_key(),
-        peer_id,
-    )
-    .sign(signer)
-    .unwrap()
+    data::make_account_data(rng, timestamp, signer.public_key(), peer_id).sign(signer).unwrap()
 }
 
 fn unwrap<'a, T: std::hash::Hash + std::cmp::Eq, E: std::fmt::Debug>(
@@ -36,7 +26,7 @@ fn unwrap<'a, T: std::hash::Hash + std::cmp::Eq, E: std::fmt::Debug>(
 }
 
 fn make_signers(rng: &mut Rng, n: usize) -> Vec<InMemoryValidatorSigner> {
-    (0..n).map(|_|data::make_validator_signer(rng)).collect()
+    (0..n).map(|_| data::make_validator_signer(rng)).collect()
 }
 
 #[tokio::test]

@@ -6,7 +6,7 @@ use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::peer_manager::testonly::start as start_pm;
 use crate::peer_manager::testonly::Event;
 use crate::tcp;
-use crate::testonly::{AsSet as _, make_rng, Rng};
+use crate::testonly::{make_rng, AsSet as _, Rng};
 use crate::time;
 use crate::types::{NetworkRequests, NetworkResponses, PeerManagerMessageRequest};
 use near_o11y::testonly::init_test_logger;
@@ -109,22 +109,24 @@ async fn first_proxy_advertisement() {
     )
     .await;
     let mut events = pm.events.from_now();
-    let chain_info = peer_manager::testonly::make_chain_info(&data::make_epoch_id(rng), &chain, &[&pm]);
+    let chain_info = peer_manager::testonly::make_chain_info(&chain, &[&pm]);
     pm.set_chain_info(chain_info).await;
     // TODO(gprusak): The default config constructed via chain.make_config(),
     // currently returns a validator config with its own server addr in the list of TIER1 proxies.
-    // You might want to set it explicitly within this test to not rely on defaults. 
-    let got = events.recv_until(|ev|match ev {
-        // Currently a PeerManager may advertise the same list of proxies for both
-        // multiple (current and next) epochs. That's why Tier1AdvertiseProxies may contain
-        // multiple entries. Any entry would do, so we take the first one.
-        Event::PeerManager(PME::Tier1AdvertiseProxies(data)) => Some(data[0].clone()),
-        _ => None,
-    }).await;
-    assert!(got.proxies.as_set().contains(&PeerAddr{
-        peer_id: pm.cfg.node_id(),
-        addr: pm.cfg.node_addr.unwrap(),
-    }));
+    // You might want to set it explicitly within this test to not rely on defaults.
+    let got = events
+        .recv_until(|ev| match ev {
+            // Currently a PeerManager may advertise the same list of proxies for both
+            // multiple (current and next) epochs. That's why Tier1AdvertiseProxies may contain
+            // multiple entries. Any entry would do, so we take the first one.
+            Event::PeerManager(PME::Tier1AdvertiseProxies(data)) => Some(data[0].clone()),
+            _ => None,
+        })
+        .await;
+    assert!(got
+        .proxies
+        .as_set()
+        .contains(&PeerAddr { peer_id: pm.cfg.node_id(), addr: pm.cfg.node_addr.unwrap() }));
 }
 
 #[tokio::test]
@@ -154,8 +156,7 @@ async fn direct_connections() {
         pms[i - 1].connect_to(&pms[i].peer_info(), tcp::Tier::T2).await;
     }
 
-    let epoch = data::make_epoch_id(rng);
-    let chain_info = peer_manager::testonly::make_chain_info(&epoch, &chain, &pms[..]);
+    let chain_info = peer_manager::testonly::make_chain_info(&chain, &pms[..]);
     for pm in &pms {
         pm.set_chain_info(chain_info.clone()).await;
     }
@@ -227,8 +228,7 @@ async fn proxy_connections() {
     all.extend(proxies.clone());
     all.push(&hub);
 
-    let epoch = data::make_epoch_id(rng);
-    let chain_info = peer_manager::testonly::make_chain_info(&epoch, &chain, &validators[..]);
+    let chain_info = peer_manager::testonly::make_chain_info(&chain, &validators[..]);
     for pm in &all {
         pm.set_chain_info(chain_info.clone()).await;
     }
@@ -253,8 +253,7 @@ async fn account_keys_change() {
     hub.connect_to(&v2.peer_info(), tcp::Tier::T2).await;
 
     // TIER1 nodes in 1st epoch are {v0,v1}.
-    let chain_info =
-        peer_manager::testonly::make_chain_info(&data::make_epoch_id(rng), &chain, &[&v0, &v1]);
+    let chain_info = peer_manager::testonly::make_chain_info(&chain, &[&v0, &v1]);
     for pm in [&v0, &v1, &v2, &hub] {
         pm.set_chain_info(chain_info.clone()).await;
     }
@@ -262,8 +261,7 @@ async fn account_keys_change() {
     test_clique(rng, &[&v0, &v1]).await;
 
     // TIER1 nodes in 2nd epoch are {v0,v2}.
-    let chain_info =
-        peer_manager::testonly::make_chain_info(&data::make_epoch_id(rng), &chain, &[&v0, &v2]);
+    let chain_info = peer_manager::testonly::make_chain_info(&chain, &[&v0, &v2]);
     for pm in [&v0, &v1, &v2, &hub] {
         pm.set_chain_info(chain_info.clone()).await;
     }
@@ -310,14 +308,13 @@ async fn proxy_change() {
     hub.connect_to(&p1.peer_info(), tcp::Tier::T2).await;
     hub.connect_to(&v0.peer_info(), tcp::Tier::T2).await;
     hub.connect_to(&v1.peer_info(), tcp::Tier::T2).await;
-    let epoch = data::make_epoch_id(rng);
     tracing::info!(target:"dupa","p0 = {}",p0cfg.node_id());
     tracing::info!(target:"dupa","hub = {}",hub.cfg.node_id());
 
     tracing::info!(target:"test", "p0 goes down");
     drop(p0);
     tracing::info!(target:"test", "remaining nodes learn that [v0,v1] are TIER1 nodes");
-    let chain_info = peer_manager::testonly::make_chain_info(&epoch, &chain, &[&v0, &v1]);
+    let chain_info = peer_manager::testonly::make_chain_info(&chain, &[&v0, &v1]);
     for pm in [&v0, &v1, &p1, &hub] {
         pm.set_chain_info(chain_info.clone()).await;
     }

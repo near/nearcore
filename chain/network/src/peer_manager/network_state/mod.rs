@@ -282,11 +282,7 @@ impl NetworkState {
                         Some(it) => it,
                         None => return Err(RegisterPeerError::NotTier1Peer),
                     };
-                    if !self
-                        .accounts_data
-                        .load()
-                        .keys.contains(&owned_account.account_key)
-                    {
+                    if !self.accounts_data.load().keys.contains(&owned_account.account_key) {
                         return Err(RegisterPeerError::NotTier1Peer);
                     }
                 }
@@ -346,9 +342,10 @@ impl NetworkState {
             if edge.edge_type() == EdgeState::Active {
                 let edge_update = edge.remove_edge(self.config.node_id(), &self.config.node_key);
                 self.add_edges_to_routing_table(clock, vec![edge_update.clone()]).await.unwrap();
-                self.broadcast_routing_table_update(
-                    Arc::new(RoutingTableUpdate::from_edges(vec![edge_update]))
-                ).await;
+                self.broadcast_routing_table_update(Arc::new(RoutingTableUpdate::from_edges(
+                    vec![edge_update],
+                )))
+                .await;
             }
         }
 
@@ -362,9 +359,13 @@ impl NetworkState {
     }
 
     async fn broadcast_routing_table_update(&self, rtu: Arc<RoutingTableUpdate>) {
-        let handles: Vec<_> = self.tier2.load().ready.values().map(|conn|{
-            conn.send_routing_table_update(rtu.clone())
-        }).collect();
+        let handles: Vec<_> = self
+            .tier2
+            .load()
+            .ready
+            .values()
+            .map(|conn| conn.send_routing_table_update(rtu.clone()))
+            .collect();
         futures_util::future::join_all(handles).await;
     }
 
@@ -469,7 +470,8 @@ impl NetworkState {
         if tcp::Tier::T1.is_allowed_routed(&msg) {
             tracing::debug!(target:"test", "got TIER1 message to send");
             let accounts_data = self.accounts_data.load();
-            for key in accounts_data.keys_by_id.get(account_id).iter().flat_map(|keys|keys.iter()) {
+            for key in accounts_data.keys_by_id.get(account_id).iter().flat_map(|keys| keys.iter())
+            {
                 let data = match accounts_data.data.get(key) {
                     Some(data) => data,
                     None => continue,
@@ -483,7 +485,10 @@ impl NetworkState {
                 // but the header. This will bound the message size
                 conn.send_message(Arc::new(PeerMessage::Routed(self.sign_message(
                     clock,
-                    RawRoutedMessage { target: PeerIdOrHash::PeerId(data.peer_id.clone()), body: msg.clone() },
+                    RawRoutedMessage {
+                        target: PeerIdOrHash::PeerId(data.peer_id.clone()),
+                        body: msg.clone(),
+                    },
                 ))));
                 break;
             }
@@ -521,9 +526,10 @@ impl NetworkState {
         let new_accounts = self.routing_table_view.add_accounts(accounts);
         tracing::debug!(target: "network", account_id = ?self.config.validator.as_ref().map(|v|v.account_id()), ?new_accounts, "Received new accounts");
         if new_accounts.len() > 0 {
-            self.broadcast_routing_table_update(
-                Arc::new(RoutingTableUpdate::from_accounts(new_accounts)),
-            ).await;
+            self.broadcast_routing_table_update(Arc::new(RoutingTableUpdate::from_accounts(
+                new_accounts,
+            )))
+            .await;
         }
     }
 
@@ -583,9 +589,8 @@ impl NetworkState {
         }
         // Broadcast new edges to all other peers.
         if edges.len() > 0 {
-            self.broadcast_routing_table_update(
-                Arc::new(RoutingTableUpdate::from_edges(edges)),
-            ).await;
+            self.broadcast_routing_table_update(Arc::new(RoutingTableUpdate::from_edges(edges)))
+                .await;
         }
         if !ok {
             return Err(ReasonForBan::InvalidEdge);
@@ -675,9 +680,10 @@ impl NetworkState {
                         // Peer is still not connected after waiting a timeout.
                         let new_edge =
                             edge.remove_edge(this.config.node_id(), &this.config.node_key);
-                        this.broadcast_routing_table_update(
-                            Arc::new(RoutingTableUpdate::from_edges(vec![new_edge])),
-                        ).await;
+                        this.broadcast_routing_table_update(Arc::new(
+                            RoutingTableUpdate::from_edges(vec![new_edge]),
+                        ))
+                        .await;
                     });
                 }
                 // OK

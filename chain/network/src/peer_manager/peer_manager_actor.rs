@@ -2,9 +2,8 @@ use crate::client;
 use crate::config;
 use crate::debug::{DebugStatus, GetDebugStatus};
 use crate::network_protocol::{
-    SignedAccountData,
     AccountOrPeerIdOrHash, Edge, PeerIdOrHash, PeerMessage, Ping, Pong, RawRoutedMessage,
-    RoutedMessageBody, StateResponseInfo, SyncAccountsData,
+    RoutedMessageBody, SignedAccountData, StateResponseInfo, SyncAccountsData,
 };
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
@@ -296,7 +295,7 @@ impl PeerManagerActor {
             config: config.clone(),
             started_connect_attempts: false,
             last_peer_outbound_attempt: Default::default(),
-            state, 
+            state,
             clock,
         }))
     }
@@ -585,14 +584,11 @@ impl PeerManagerActor {
         let tier1 = self.state.tier1.load();
         let tier2 = self.state.tier2.load();
         let now = self.clock.now();
-        let connected_peer = |cp:&Arc<connection::Connection>| ConnectedPeerInfo {
+        let connected_peer = |cp: &Arc<connection::Connection>| ConnectedPeerInfo {
             full_peer_info: cp.full_peer_info(),
             received_bytes_per_sec: cp.stats.received_bytes_per_sec.load(Ordering::Relaxed),
             sent_bytes_per_sec: cp.stats.sent_bytes_per_sec.load(Ordering::Relaxed),
-            last_time_peer_requested: cp
-                .last_time_peer_requested
-                .load()
-                .unwrap_or(now),
+            last_time_peer_requested: cp.last_time_peer_requested.load().unwrap_or(now),
             last_time_received_message: cp.last_time_received_message.load(),
             connection_established_time: cp.established_time,
             peer_type: cp.peer_type,
@@ -963,6 +959,7 @@ impl actix::Handler<WithSpanContext<SetChainInfo>> for PeerManagerActor {
         }
         // If the key set didn't change, early exit.
         if !state.accounts_data.set_keys(info.tier1_accounts.clone()) {
+            state.config.event_sink.push(Event::SetChainInfo);
             return;
         }
         let clock = self.clock.clone();
@@ -977,11 +974,13 @@ impl actix::Handler<WithSpanContext<SetChainInfo>> for PeerManagerActor {
             state.tier1_advertise_proxies(&clock).await;
             // The set of tier1 accounts has changed.
             // We might miss some data, so we start a full sync with the tier2 peers.
-            state.tier2.broadcast_message(Arc::new(PeerMessage::SyncAccountsData(SyncAccountsData {
-                incremental: false,
-                requesting_full_sync: true,
-                accounts_data: state.accounts_data.load().data.values().cloned().collect(),
-            })));
+            state.tier2.broadcast_message(Arc::new(PeerMessage::SyncAccountsData(
+                SyncAccountsData {
+                    incremental: false,
+                    requesting_full_sync: true,
+                    accounts_data: state.accounts_data.load().data.values().cloned().collect(),
+                },
+            )));
             state.config.event_sink.push(Event::SetChainInfo);
         }));
     }

@@ -206,11 +206,14 @@ impl NetworkConfig {
                 }
             } else {
                 // TODO(gprusak): use !ip.is_global() instead, once it is stable.
-                if ip.is_loopback() || ip.is_unspecified() || match ip {
-                    std::net::IpAddr::V4(ip) => ip.is_private(),
-                    // TODO(gprusak): use ip.is_unique_local() once stable.
-                    std::net::IpAddr::V6(_) => false, 
-                } {
+                if ip.is_loopback()
+                    || ip.is_unspecified()
+                    || match ip {
+                        std::net::IpAddr::V4(ip) => ip.is_private(),
+                        // TODO(gprusak): use ip.is_unique_local() once stable.
+                        std::net::IpAddr::V6(_) => false,
+                    }
+                {
                     anyhow::bail!("public_addrs: {ip} is not a public IP.");
                 }
             }
@@ -440,7 +443,6 @@ mod test {
     use crate::network_protocol::AccountData;
     use crate::testonly::make_rng;
     use crate::time;
-    use near_primitives::validator_signer::ValidatorSigner;
 
     #[test]
     fn test_network_config() {
@@ -480,9 +482,8 @@ mod test {
                     data::make_peer_addr(&mut rng, ip)
                 })
                 .collect(),
-            account_id: signer.validator_id().clone(),
-            epoch_id: data::make_epoch_id(&mut rng),
-            peer_id: Some(data::make_peer_id(&mut rng)),
+            account_key: signer.public_key(),
+            peer_id: data::make_peer_id(&mut rng),
             timestamp: clock.now_utc(),
         };
         let sad = ad.sign(&signer).unwrap();

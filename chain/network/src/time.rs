@@ -129,14 +129,14 @@ pub struct FakeClock(Arc<Mutex<FakeClockInner>>);
 
 impl FakeClock {
     /// Constructor of a fake clock. Use it in tests.
-    /// It support both automatically progressing time 
+    /// It support both automatically progressing time
     /// (current time moves forward by auto_advance at every clock read)
     /// and manually moving time forward (via advance()).
     /// You can also arbitrarly set the UTC time in runtime.
     /// Use FakeClock::clock() when calling prod code from tests.
     // TODO: add support for auto-advancing the clock at each read.
     pub fn new(utc: Utc) -> Self {
-        Self(Arc::new(Mutex::new(FakeClockInner { 
+        Self(Arc::new(Mutex::new(FakeClockInner {
             auto_advance: Duration::seconds(1),
             utc,
             mono: *FAKE_CLOCK_MONO_START,
@@ -145,11 +145,11 @@ impl FakeClock {
     pub fn now(&self) -> Instant {
         self.0.lock().unwrap().now()
     }
-    
+
     pub fn now_utc(&self) -> Utc {
         self.0.lock().unwrap().now_utc()
     }
-    
+
     pub fn advance_until(&self, t: Instant) {
         self.0.lock().unwrap().advance_until(t)
     }
@@ -158,7 +158,7 @@ impl FakeClock {
     }
     pub fn clock(&self) -> Clock {
         Clock(ClockInner::Fake(self.clone()))
-    } 
+    }
     pub fn set_utc(&self, utc: Utc) {
         self.0.lock().unwrap().utc = utc;
     }

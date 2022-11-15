@@ -712,7 +712,7 @@ impl PeerActor {
                                     accounts_data: act.network_state.accounts_data.load().data.values().cloned().collect(),
                                     incremental: false,
                                     requesting_full_sync: true,
-                                }));   
+                                }));
                             }
                             // Exchange peers periodically.
                             let conn = conn.clone();

@@ -4,6 +4,7 @@ use crate::network_protocol::SyncAccountsData;
 use crate::peer;
 use crate::peer_manager;
 use crate::peer_manager::peer_manager_actor::Event as PME;
+use crate::peer_manager::testonly;
 use crate::tcp;
 use crate::testonly::{make_rng, AsSet as _};
 use crate::time;
@@ -124,16 +125,11 @@ async fn accounts_data_gradual_epoch_change() {
     pms[0].connect_to(&pm1, tcp::Tier::T2).await;
     pms[1].connect_to(&pm2, tcp::Tier::T2).await;
 
-    // Validator configs.
-    let vs: Vec<_> = pms.iter().map(|pm| pm.cfg.validator.clone().unwrap()).collect();
-
     // For every order of nodes.
     for ids in (0..pms.len()).permutations(3) {
-        // Construct ChainInfo for a new epoch,
-        // with tier1_accounts containing all validators.
-        let e = data::make_epoch_id(rng);
-        let mut chain_info = chain.get_chain_info();
-        chain_info.tier1_accounts = Arc::new(data::make_account_keys(&vs[..]));
+        tracing::info!(target:"test", "permutation {ids:?}");
+        clock.advance(time::Duration::hours(1));
+        let chain_info = testonly::make_chain_info(&chain, &pms.iter().collect::<Vec<_>>()[..]);
 
         let mut want = HashSet::new();
         // Advance epoch in the given order.
@@ -146,7 +142,6 @@ async fn accounts_data_gradual_epoch_change() {
             // would be able to connect to B and advertise B as proxy afterwards.
             want.extend(pms[id].tier1_advertise_proxies(&clock.clock()).await);
         }
-
         // Wait for data to arrive.
         for pm in &mut pms {
             pm.wait_for_accounts_data(&want).await;
@@ -211,18 +206,8 @@ async fn accounts_data_rate_limiting() {
         }
     }
 
-    // Validator configs.
-    let vs: Vec<_> = pms.iter().map(|pm| pm.cfg.validator.clone().unwrap()).collect();
-
-    // Construct ChainInfo for a new epoch,
-    // with tier1_accounts containing all validators.
-    let e = data::make_epoch_id(rng);
-    let mut chain_info = chain.get_chain_info();
-    chain_info.tier1_accounts = Arc::new(
-        vs.iter()
-            .map(|v| ((e.clone(), v.signer.validator_id().clone()), v.signer.public_key()))
-            .collect(),
-    );
+    // Construct ChainInfo with tier1_accounts containing all validators.
+    let chain_info = testonly::make_chain_info(&chain, &pms.iter().collect::<Vec<_>>()[..]);
 
     // Advance epoch in random order.
     pms.shuffle(rng);
