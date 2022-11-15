@@ -2,10 +2,12 @@ use crate::broadcast;
 use crate::config;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
-    Encoding, PeerAddr, PeerInfo, PeerMessage, SignedAccountData, SyncAccountsData,
+    EdgeState, Encoding, PeerAddr, PeerInfo, PeerMessage, SignedAccountData, SyncAccountsData,
 };
 use crate::peer;
 use crate::peer::peer_actor::ClosingReason;
+use crate::peer_manager::network_state::NetworkState;
+use crate::peer_manager::peer_manager_actor;
 use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::tcp;
 use crate::test_utils;
@@ -13,42 +15,31 @@ use crate::testonly::actix::ActixSystem;
 use crate::testonly::fake_client;
 use crate::time;
 use crate::types::{
-    ChainInfo, GetNetworkInfo, KnownPeerStatus, PeerManagerMessageRequest,
-    PeerManagerMessageResponse, SetChainInfo,
+    ChainInfo, KnownPeerStatus, NetworkRequests, PeerManagerMessageRequest, SetChainInfo,
 };
 use crate::PeerManagerActor;
-use near_o11y::{WithSpanContext, WithSpanContextExt};
-use near_primitives::network::PeerId;
+use near_o11y::WithSpanContextExt;
+use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::{AccountId, EpochId};
 use std::collections::HashSet;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 
-#[derive(actix::Message, Debug)]
+#[derive(actix::Message)]
 #[rtype("()")]
-struct CheckConsistency;
+struct WithNetworkState(
+    Box<dyn Send + FnOnce(Arc<NetworkState>) -> Pin<Box<dyn Send + 'static + Future<Output = ()>>>>,
+);
 
-impl actix::Handler<WithSpanContext<CheckConsistency>> for PeerManagerActor {
+impl actix::Handler<WithNetworkState> for PeerManagerActor {
     type Result = ();
-    /// Checks internal consistency of the PeerManagerActor.
-    /// This is a partial implementation, add more invariant checks
-    /// if needed.
-    fn handle(&mut self, _: WithSpanContext<CheckConsistency>, _: &mut actix::Context<Self>) {
-        // Check that the set of ready connections matches the PeerStore state.
-        let tier2: HashSet<_> = self.state.tier2.load().ready.keys().cloned().collect();
-        let store: HashSet<_> = self
-            .state
-            .peer_store
-            .dump()
-            .into_iter()
-            .filter_map(|state| {
-                if state.status == KnownPeerStatus::Connected {
-                    Some(state.peer_info.id)
-                } else {
-                    None
-                }
-            })
-            .collect();
-        assert_eq!(tier2, store);
+    fn handle(
+        &mut self,
+        WithNetworkState(f): WithNetworkState,
+        _: &mut Self::Context,
+    ) -> Self::Result {
+        assert!(actix::Arbiter::current().spawn(f(self.state.clone())));
     }
 }
 
@@ -162,11 +153,26 @@ impl ActorHandler {
                     Some(())
                 }
                 Event::PeerManager(PME::ConnectionClosed(ev)) if ev.stream_id == stream_id => {
-                    panic!("PeerManager accepted the handshake")
+                    panic!("PeerManager rejected the handshake")
                 }
                 _ => None,
             })
             .await;
+    }
+
+    pub async fn with_state<R: 'static + Send, Fut: 'static + Send + Future<Output = R>>(
+        &self,
+        f: impl 'static + Send + FnOnce(Arc<NetworkState>) -> Fut,
+    ) -> R {
+        let (send, recv) = tokio::sync::oneshot::channel();
+        self.actix
+            .addr
+            .send(WithNetworkState(Box::new(|s| {
+                Box::pin(async { send.send(f(s).await).ok().unwrap() })
+            })))
+            .await
+            .unwrap();
+        recv.await.unwrap()
     }
 
     pub async fn start_inbound(
@@ -188,7 +194,6 @@ impl ActorHandler {
             cfg: peer::testonly::PeerConfig {
                 network: network_cfg,
                 chain,
-                peers: vec![],
                 force_encoding: Some(Encoding::Proto),
                 nonce: None,
             },
@@ -227,7 +232,6 @@ impl ActorHandler {
             cfg: peer::testonly::PeerConfig {
                 network: network_cfg,
                 chain,
-                peers: vec![],
                 force_encoding: Some(Encoding::Proto),
                 nonce: None,
             },
@@ -249,8 +253,46 @@ impl ActorHandler {
         conn
     }
 
+    /// Checks internal consistency of the PeerManagerActor.
+    /// This is a partial implementation, add more invariant checks
+    /// if needed.
     pub async fn check_consistency(&self) {
-        self.actix.addr.send(CheckConsistency.with_span_context()).await.unwrap();
+        self.with_state(|s| async move {
+            // Check that the set of ready connections matches the PeerStore state.
+            let tier2: HashSet<_> = s.tier2.load().ready.keys().cloned().collect();
+            let store: HashSet<_> = s
+                .peer_store
+                .dump()
+                .into_iter()
+                .filter_map(|state| {
+                    if state.status == KnownPeerStatus::Connected {
+                        Some(state.peer_info.id)
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            assert_eq!(tier2, store);
+
+            // Check that the local_edges of the graph match the TIER2 connection pool.
+            let node_id = s.config.node_id();
+            let local_edges: HashSet<_> = s
+                .routing_table_view
+                .get_local_edges()
+                .iter()
+                .filter_map(|e| match e.edge_type() {
+                    EdgeState::Active => Some(e.other(&node_id).unwrap().clone()),
+                    EdgeState::Removed => None,
+                })
+                .collect();
+            assert_eq!(tier2, local_edges);
+        })
+        .await
+    }
+
+    pub async fn fix_local_edges(&self, clock: &time::Clock, timeout: time::Duration) {
+        let clock = clock.clone();
+        self.with_state(move |s| async move { s.fix_local_edges(&clock, timeout).await }).await
     }
 
     pub async fn set_chain_info(&mut self, chain_info: ChainInfo) {
@@ -263,11 +305,25 @@ impl ActorHandler {
             .await;
     }
 
+    pub async fn announce_account(&self, aa: AnnounceAccount) {
+        self.actix
+            .addr
+            .send(
+                PeerManagerMessageRequest::NetworkRequests(NetworkRequests::AnnounceAccount(aa))
+                    .with_span_context(),
+            )
+            .await
+            .unwrap();
+    }
+
     // Awaits until the accounts_data state matches `want`.
     pub async fn wait_for_accounts_data(&mut self, want: &HashSet<NormalAccountData>) {
         loop {
-            let info = self.actix.addr.send(GetNetworkInfo.with_span_context()).await.unwrap();
-            let got: HashSet<_> = info.tier1_accounts.iter().map(|d| d.into()).collect();
+            let got: HashSet<_> = self
+                .with_state(|s| async move {
+                    s.accounts_data.load().data.values().map(|d| d.into()).collect()
+                })
+                .await;
             if &got == want {
                 break;
             }
@@ -278,25 +334,46 @@ impl ActorHandler {
     }
 
     // Awaits until the routing_table matches `want`.
-    pub async fn wait_for_routing_table(&self, want: &[(PeerId, Vec<PeerId>)]) {
+    pub async fn wait_for_routing_table(
+        &self,
+        clock: &mut time::FakeClock,
+        want: &[(PeerId, Vec<PeerId>)],
+    ) {
         let mut events = self.events.from_now();
         loop {
-            let resp = self
-                .actix
-                .addr
-                .send(PeerManagerMessageRequest::FetchRoutingTable.with_span_context())
-                .await
-                .unwrap();
-            let got = match resp {
-                PeerManagerMessageResponse::FetchRoutingTable(rt) => rt.next_hops,
-                _ => panic!("bad response"),
-            };
+            let got =
+                self.with_state(|s| async move { s.routing_table_view.info().next_hops }).await;
             if test_utils::expected_routing_tables(&got, want) {
                 return;
             }
             events
                 .recv_until(|ev| match ev {
                     Event::PeerManager(PME::RoutingTableUpdate { .. }) => Some(()),
+                    Event::PeerManager(PME::MessageProcessed(PeerMessage::SyncRoutingTable {
+                        ..
+                    })) => {
+                        clock.advance(peer_manager_actor::UPDATE_ROUTING_TABLE_INTERVAL);
+                        None
+                    }
+                    _ => None,
+                })
+                .await;
+        }
+    }
+
+    pub async fn wait_for_account_owner(&self, account: &AccountId) -> PeerId {
+        let mut events = self.events.from_now();
+        loop {
+            let account = account.clone();
+            let got = self
+                .with_state(|s| async move { s.routing_table_view.account_owner(&account).clone() })
+                .await;
+            if let Some(got) = got {
+                return got;
+            }
+            events
+                .recv_until(|ev| match ev {
+                    Event::PeerManager(PME::AccountsAdded(_)) => Some(()),
                     _ => None,
                 })
                 .await;

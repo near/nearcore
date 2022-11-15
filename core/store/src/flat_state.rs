@@ -29,7 +29,7 @@
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 const BORSH_ERR: &str = "Borsh cannot fail";
 
-#[derive(strum::AsRefStr, Debug)]
+#[derive(strum::AsRefStr, Debug, PartialEq, Eq)]
 pub enum FlatStorageError {
     /// This means we can't find a path from `flat_head` to the block. Includes `flat_head` hash and block hash,
     /// respectively.
@@ -328,7 +328,7 @@ pub struct KeyForFlatStateDelta {
 
 /// Delta of the state for some shard and block, stores mapping from keys to value refs or None, if key was removed in
 /// this block.
-#[derive(BorshSerialize, BorshDeserialize, Default, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Default, Debug, PartialEq, Eq)]
 pub struct FlatStateDelta(HashMap<Vec<u8>, Option<ValueRef>>);
 
 impl<const N: usize> From<[(Vec<u8>, Option<ValueRef>); N]> for FlatStateDelta {
@@ -443,22 +443,34 @@ struct FlatStorageStateInner {
     deltas: HashMap<CryptoHash, Arc<FlatStateDelta>>,
 }
 
-/// Result of attempt to create flat storage state on runtime.
+/// Number of parts to which we divide shard state for parallel traversal.
+// TODO: consider changing it for different shards, ensure that shard memory usage / `NUM_PARTS` < X MiB.
+#[allow(unused)]
+const NUM_FETCHED_STATE_PARTS: u64 = 4_000;
+
+/// Number of traversed parts during a single step of fetching state.
+#[allow(unused)]
+pub const NUM_PARTS_IN_ONE_STEP: u64 = 50;
+
+/// If a node has flat storage enabled but it didn't have flat storage data on disk, its creation should be initiated.
+/// Because this is a heavy work requiring ~5h for testnet rpc node and ~10h for testnet archival node, we do it on
+/// background during regular block processing.
+/// This struct reveals what is the current status of creating flat storage data on disk.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FlatStorageStateStatus {
-    /// Flat storage state does not exist. We need to start saving `FlatStorageDelta`s to disk.
+    /// Flat storage state does not exist. We are saving `FlatStorageDelta`s to disk.
     /// During this step, we save current chain head, start saving all deltas for blocks after chain head and wait until
     /// final chain head moves after saved chain head.
     SavingDeltas,
     /// Flat storage state misses key-value pairs. We need to fetch Trie state to fill flat storage for some final chain
-    /// head. It is done in `NUM_PARTS` / `PART_STEP` steps, during each step we spawn background threads to fill some
-    /// part of state.
-    /// Status contains block hash for which we fetch the shard state and step of fetching state. Progress of each step
-    /// is saved to disk, so if creation is interrupted during some step, it won't repeat previous steps and will start
-    /// from this step again.
+    /// head. It is the heaviest step, so it is done in `NUM_FETCHED_STATE_PARTS` / `NUM_PARTS_IN_ONE_STEP` steps.
+    /// During each step we spawn background threads to fill some contiguous range of state keys.
+    /// Status contains block hash for which we fetch the shard state and number of current step. Progress of each step
+    /// is saved to disk, so if creation is interrupted during some step, we don't repeat previous steps, starting from
+    /// the saved step again.
     #[allow(unused)]
     FetchingState((CryptoHash, u64)),
-    /// Flat storage data exists on disk but its head is too far away from chain final head. We need to apply deltas
+    /// Flat storage data exists on disk but its head is too far away from chain final head. We apply deltas from disk
     /// until the head reaches final head.
     #[allow(unused)]
     CatchingUp,
@@ -478,7 +490,9 @@ pub mod store_helper {
     use near_primitives::types::ShardId;
     use std::sync::Arc;
 
-    pub(crate) fn get_delta(
+    pub const FETCHING_STATE_STEP_KEY_PREFIX: &[u8; 4] = b"STEP";
+
+    pub fn get_delta(
         store: &Store,
         shard_id: ShardId,
         block_hash: CryptoHash,
@@ -513,14 +527,14 @@ pub mod store_helper {
             .expect("Error reading flat head from storage")
     }
 
-    pub(crate) fn set_flat_head(
-        store_update: &mut StoreUpdate,
-        shard_id: ShardId,
-        val: &CryptoHash,
-    ) {
+    pub fn set_flat_head(store_update: &mut StoreUpdate, shard_id: ShardId, val: &CryptoHash) {
         store_update
             .set_ser(crate::DBCol::FlatStateMisc, &shard_id.try_to_vec().unwrap(), val)
             .expect("Error writing flat head from storage")
+    }
+
+    pub fn remove_flat_head(store_update: &mut StoreUpdate, shard_id: ShardId) {
+        store_update.delete(crate::DBCol::FlatStateMisc, &shard_id.try_to_vec().unwrap());
     }
 
     pub(crate) fn get_ref(store: &Store, key: &[u8]) -> Result<Option<ValueRef>, FlatStorageError> {
@@ -548,15 +562,62 @@ pub mod store_helper {
         }
     }
 
+    fn fetching_state_step_key(shard_id: ShardId) -> Vec<u8> {
+        let mut fetching_state_step_key = FETCHING_STATE_STEP_KEY_PREFIX.to_vec();
+        fetching_state_step_key.extend_from_slice(&shard_id.try_to_vec().unwrap());
+        fetching_state_step_key
+    }
+
+    fn get_fetching_state_step(store: &Store, shard_id: ShardId) -> Option<u64> {
+        store.get_ser(crate::DBCol::FlatStateMisc, &fetching_state_step_key(shard_id)).expect(
+            format!("Error reading fetching step for flat state for shard {shard_id}").as_str(),
+        )
+    }
+
+    pub fn set_fetching_state_step(store_update: &mut StoreUpdate, shard_id: ShardId, value: u64) {
+        store_update
+            .set_ser(crate::DBCol::FlatStateMisc, &fetching_state_step_key(shard_id), &value)
+            .expect(
+                format!("Error setting fetching step for shard {shard_id} to {value}").as_str(),
+            );
+    }
+
+    fn get_catchup_status(store: &Store, shard_id: ShardId) -> bool {
+        let mut catchup_status_key = FETCHING_STATE_STEP_KEY_PREFIX.to_vec();
+        catchup_status_key.extend_from_slice(&shard_id.try_to_vec().unwrap());
+        let status: Option<bool> =
+            store.get_ser(crate::DBCol::FlatStateMisc, &catchup_status_key).expect(
+                format!("Error reading catchup status for flat state for shard {shard_id}")
+                    .as_str(),
+            );
+        match status {
+            None => false,
+            Some(status) => {
+                assert!(
+                    status,
+                    "Catchup status for flat state for shard {} must be true if stored",
+                    shard_id
+                );
+                true
+            }
+        }
+    }
+
     pub fn get_flat_storage_state_status(
         store: &Store,
         shard_id: ShardId,
     ) -> FlatStorageStateStatus {
-        // TODO: replace this placeholder with reading flat storage data and setting correct status. ChainStore can be
-        // used to get flat storage heads and block heights.
         match get_flat_head(store, shard_id) {
             None => FlatStorageStateStatus::SavingDeltas,
-            Some(_) => FlatStorageStateStatus::Ready,
+            Some(block_hash) => {
+                if let Some(fetching_state_step) = get_fetching_state_step(store, shard_id) {
+                    FlatStorageStateStatus::FetchingState((block_hash, fetching_state_step))
+                } else if get_catchup_status(store, shard_id) {
+                    FlatStorageStateStatus::CatchingUp
+                } else {
+                    FlatStorageStateStatus::Ready
+                }
+            }
         }
     }
 }
@@ -573,7 +634,7 @@ pub mod store_helper {
         None
     }
 
-    pub(crate) fn get_delta(
+    pub fn get_delta(
         _store: &Store,
         _shard_id: ShardId,
         _block_hash: CryptoHash,

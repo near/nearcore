@@ -48,6 +48,9 @@ pub struct PingCommand {
     /// number of seconds to wait for incoming data before timing out
     #[clap(long)]
     recv_timeout_seconds: Option<u32>,
+    /// Listen address for prometheus metrics.
+    #[clap(long, default_value = "0.0.0.0:9000")]
+    prometheus_addr: String,
 }
 
 fn display_stats(stats: &mut [(crate::PeerIdentifier, crate::PingStats)], peer_id: &PeerId) {
@@ -212,6 +215,7 @@ impl PingCommand {
                 filter,
                 csv,
                 &mut stats,
+                &self.prometheus_addr,
             )
             .await?;
             display_stats(&mut stats, &peer.id);

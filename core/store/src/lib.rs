@@ -55,7 +55,7 @@ pub use crate::opener::{StoreMigrator, StoreOpener, StoreOpenerError};
 
 /// Specifies temperature of a storage.
 ///
-/// If note is running in split storage mode, old data that the archival node
+/// If node is running in split storage mode, old data that the archival node
 /// keeps is considered cold.  It’s stored in separate database and accessing it
 /// requires going through the cold storage.  This enum determines temperature
 /// of the data and storage.

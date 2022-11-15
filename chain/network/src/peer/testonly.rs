@@ -2,31 +2,27 @@ use crate::broadcast;
 use crate::config::NetworkConfig;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
-    Edge, PartialEdgeInfo, PeerInfo, PeerMessage, RawRoutedMessage, RoutedMessageBody,
-    RoutedMessageV2,
+    Edge, PartialEdgeInfo, PeerMessage, RawRoutedMessage, RoutedMessageBody, RoutedMessageV2,
 };
 use crate::peer::peer_actor::{ClosingReason, PeerActor};
 use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_manager_actor;
 use crate::peer_manager::peer_store;
-use crate::private_actix::{PeerRequestResult, RegisterPeerResponse, SendMessage};
-use crate::private_actix::{PeerToManagerMsg, PeerToManagerMsgResp};
+use crate::private_actix::SendMessage;
 use crate::store;
 use crate::tcp;
 use crate::testonly::actix::ActixSystem;
 use crate::testonly::fake_client;
 use crate::time;
 use crate::types::PeerIdOrHash;
-use actix::{Actor, Context, Handler};
-use near_crypto::{InMemorySigner, Signature};
-use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
+use near_crypto::Signature;
+use near_o11y::WithSpanContextExt;
 use near_primitives::network::PeerId;
 use std::sync::Arc;
 
 pub struct PeerConfig {
     pub chain: Arc<data::Chain>,
     pub network: NetworkConfig,
-    pub peers: Vec<PeerInfo>,
     pub force_encoding: Option<crate::network_protocol::Encoding>,
     /// If both start_handshake_with and nonce are set, PeerActor
     /// will use this nonce in the handshake.
@@ -46,10 +42,6 @@ impl PeerConfig {
     pub fn partial_edge_info(&self, other: &PeerId, nonce: u64) -> PartialEdgeInfo {
         PartialEdgeInfo::new(&self.id(), other, nonce, &self.network.node_key)
     }
-
-    pub fn signer(&self) -> InMemorySigner {
-        InMemorySigner::from_secret_key("node".parse().unwrap(), self.network.node_key.clone())
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,47 +50,11 @@ pub(crate) enum Event {
     Network(peer_manager_actor::Event),
 }
 
-struct FakePeerManagerActor {
-    cfg: Arc<PeerConfig>,
-}
-
-impl Actor for FakePeerManagerActor {
-    type Context = Context<Self>;
-}
-
-impl Handler<WithSpanContext<PeerToManagerMsg>> for FakePeerManagerActor {
-    type Result = PeerToManagerMsgResp;
-    fn handle(
-        &mut self,
-        msg: WithSpanContext<PeerToManagerMsg>,
-        _ctx: &mut Self::Context,
-    ) -> Self::Result {
-        let msg_type: &str = (&msg.msg).into();
-        let (_span, msg) = handler_debug_span!(target: "network", msg, msg_type);
-        println!("{}: PeerManager message {}", self.cfg.id(), msg_type);
-        match msg {
-            PeerToManagerMsg::RegisterPeer(..) => {
-                PeerToManagerMsgResp::RegisterPeer(RegisterPeerResponse::Accept)
-            }
-            PeerToManagerMsg::RequestUpdateNonce(..) => PeerToManagerMsgResp::Empty,
-            PeerToManagerMsg::ResponseUpdateNonce(..) => PeerToManagerMsgResp::Empty,
-            PeerToManagerMsg::PeersRequest(_) => {
-                // PeerActor would panic if we returned a different response.
-                // This also triggers sending a message to the peer.
-                PeerToManagerMsgResp::PeersRequest(PeerRequestResult {
-                    peers: self.cfg.peers.clone(),
-                })
-            }
-            PeerToManagerMsg::PeersResponse(..) => PeerToManagerMsgResp::Empty,
-            _ => panic!("unsupported message"),
-        }
-    }
-}
-
 pub(crate) struct PeerHandle {
     pub cfg: Arc<PeerConfig>,
     actix: ActixSystem<PeerActor>,
     pub events: broadcast::Receiver<Event>,
+    pub edge: Option<Edge>,
 }
 
 impl PeerHandle {
@@ -110,16 +66,20 @@ impl PeerHandle {
             .unwrap();
     }
 
-    pub async fn complete_handshake(&mut self) -> Edge {
-        self.events
-            .recv_until(|ev| match ev {
-                Event::Network(peer_manager_actor::Event::HandshakeCompleted(ev)) => Some(ev.edge),
-                Event::Network(peer_manager_actor::Event::ConnectionClosed(ev)) => {
-                    panic!("handshake failed: {}", ev.reason)
-                }
-                _ => None,
-            })
-            .await
+    pub async fn complete_handshake(&mut self) {
+        self.edge = Some(
+            self.events
+                .recv_until(|ev| match ev {
+                    Event::Network(peer_manager_actor::Event::HandshakeCompleted(ev)) => {
+                        Some(ev.edge)
+                    }
+                    Event::Network(peer_manager_actor::Event::ConnectionClosed(ev)) => {
+                        panic!("handshake failed: {}", ev.reason)
+                    }
+                    _ => None,
+                })
+                .await,
+        );
     }
     pub async fn fail_handshake(&mut self) -> ClosingReason {
         self.events
@@ -156,7 +116,6 @@ impl PeerHandle {
         let cfg_ = cfg.clone();
         let (send, recv) = broadcast::unbounded_channel();
         let actix = ActixSystem::spawn(move || {
-            let fpm = FakePeerManagerActor { cfg: cfg.clone() }.start();
             let fc = Arc::new(fake_client::Fake { event_sink: send.sink().compose(Event::Client) });
             let store = store::Store::from(near_store::db::TestDB::new());
             let mut network_cfg = cfg.network.clone();
@@ -166,10 +125,9 @@ impl PeerHandle {
                 store.clone(),
                 peer_store::PeerStore::new(&clock, network_cfg.peer_store.clone(), store.clone())
                     .unwrap(),
-                Arc::new(network_cfg.verify().unwrap()),
+                network_cfg.verify().unwrap(),
                 cfg.chain.genesis_id.clone(),
                 fc,
-                fpm.recipient(),
                 vec![],
             ));
             // WARNING: this is a hack to make PeerActor use a specific nonce
@@ -187,6 +145,6 @@ impl PeerHandle {
             PeerActor::spawn(clock, stream, cfg.force_encoding, network_state).unwrap()
         })
         .await;
-        Self { actix, cfg: cfg_, events: recv }
+        Self { actix, cfg: cfg_, events: recv, edge: None }
     }
 }

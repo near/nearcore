@@ -20,9 +20,8 @@ use near_primitives::account::{AccessKey, Account};
 use near_primitives::challenge::ChallengesResult;
 use near_primitives::contract::ContractCode;
 use near_primitives::epoch_manager::block_info::BlockInfo;
-use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::EpochConfig;
-use near_primitives::errors::{EpochError, InvalidTxError, RuntimeError, StorageError};
+use near_primitives::errors::{InvalidTxError, RuntimeError, StorageError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
@@ -64,7 +63,6 @@ use node_runtime::{
     validate_transaction, verify_and_charge_transaction, ApplyState, Runtime,
     ValidatorAccountsUpdate,
 };
-use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
@@ -917,75 +915,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         .unwrap_or(self.genesis_config.genesis_height)
     }
 
-    fn get_epoch_minted_amount(&self, epoch_id: &EpochId) -> Result<Balance, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        Ok(epoch_manager.get_epoch_info(epoch_id)?.minted_amount())
-    }
-
-    // TODO #3488 this likely to be updated
-    fn get_epoch_sync_data(
-        &self,
-        prev_epoch_last_block_hash: &CryptoHash,
-        epoch_id: &EpochId,
-        next_epoch_id: &EpochId,
-    ) -> Result<
-        (
-            Arc<BlockInfo>,
-            Arc<BlockInfo>,
-            Arc<BlockInfo>,
-            Arc<EpochInfo>,
-            Arc<EpochInfo>,
-            Arc<EpochInfo>,
-        ),
-        Error,
-    > {
-        let epoch_manager = self.epoch_manager.read();
-        let last_block_info = epoch_manager.get_block_info(prev_epoch_last_block_hash)?;
-        let prev_epoch_id = last_block_info.epoch_id().clone();
-        Ok((
-            epoch_manager.get_block_info(last_block_info.epoch_first_block())?,
-            epoch_manager.get_block_info(last_block_info.prev_hash())?,
-            last_block_info,
-            epoch_manager.get_epoch_info(&prev_epoch_id)?,
-            epoch_manager.get_epoch_info(epoch_id)?,
-            epoch_manager.get_epoch_info(next_epoch_id)?,
-        ))
-    }
-
-    fn get_epoch_protocol_version(&self, epoch_id: &EpochId) -> Result<ProtocolVersion, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        Ok(epoch_manager.get_epoch_info(epoch_id)?.protocol_version())
-    }
-
-    fn epoch_sync_init_epoch_manager(
-        &self,
-        prev_epoch_first_block_info: BlockInfo,
-        prev_epoch_prev_last_block_info: BlockInfo,
-        prev_epoch_last_block_info: BlockInfo,
-        prev_epoch_id: &EpochId,
-        prev_epoch_info: EpochInfo,
-        epoch_id: &EpochId,
-        epoch_info: EpochInfo,
-        next_epoch_id: &EpochId,
-        next_epoch_info: EpochInfo,
-    ) -> Result<(), Error> {
-        let mut epoch_manager = self.epoch_manager.write();
-        epoch_manager
-            .init_after_epoch_sync(
-                prev_epoch_first_block_info,
-                prev_epoch_prev_last_block_info,
-                prev_epoch_last_block_info,
-                prev_epoch_id,
-                prev_epoch_info,
-                epoch_id,
-                epoch_info,
-                next_epoch_id,
-                next_epoch_info,
-            )?
-            .commit()
-            .map_err(|err| err.into())
-    }
-
     fn add_validator_proposals(
         &self,
         block_header_info: BlockHeaderInfo,
@@ -1443,15 +1372,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
-    fn compare_epoch_id(
-        &self,
-        epoch_id: &EpochId,
-        other_epoch_id: &EpochId,
-    ) -> Result<Ordering, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        epoch_manager.compare_epoch_id(epoch_id, other_epoch_id).map_err(|e| e.into())
-    }
-
     fn chunk_needs_to_be_fetched_from_archival(
         &self,
         chunk_prev_block_hash: &CryptoHash,
@@ -1493,29 +1413,9 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(ProtocolConfig { genesis_config, runtime_config })
     }
 
-    fn get_prev_epoch_id_from_prev_block(
-        &self,
-        prev_block_hash: &CryptoHash,
-    ) -> Result<EpochId, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        if epoch_manager.is_next_block_epoch_start(prev_block_hash)? {
-            epoch_manager.get_epoch_id(prev_block_hash).map_err(Error::from)
-        } else {
-            epoch_manager.get_prev_epoch_id(prev_block_hash).map_err(Error::from)
-        }
-    }
-
     fn will_shard_layout_change_next_epoch(&self, parent_hash: &CryptoHash) -> Result<bool, Error> {
         let epoch_manager = self.epoch_manager.read();
         Ok(epoch_manager.will_shard_layout_change(parent_hash)?)
-    }
-
-    fn get_protocol_upgrade_block_height(
-        &self,
-        block_hash: CryptoHash,
-    ) -> Result<Option<BlockHeight>, EpochError> {
-        let epoch_manager = self.epoch_manager.read();
-        epoch_manager.get_protocol_upgrade_block_height(block_hash)
     }
 }
 
