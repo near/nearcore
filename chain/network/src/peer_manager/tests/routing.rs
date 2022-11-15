@@ -2,6 +2,7 @@ use crate::network_protocol::testonly as data;
 use crate::network_protocol::{Edge, Encoding, Ping, RoutedMessageBody, RoutingTableUpdate};
 use crate::peer;
 use crate::peer_manager;
+use crate::peer_manager::peer_manager_actor;
 use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::peer_manager::testonly::start as start_pm;
 use crate::peer_manager::testonly::Event;
@@ -34,28 +35,13 @@ async fn ttl() {
     let cfg = peer::testonly::PeerConfig {
         network: chain.make_config(rng),
         chain,
-        peers: vec![],
         force_encoding: Some(Encoding::Proto),
         nonce: None,
     };
     let stream = tcp::Stream::connect(&pm.peer_info()).await.unwrap();
     let mut peer = peer::testonly::PeerHandle::start_endpoint(clock.clock(), cfg, stream).await;
     peer.complete_handshake().await;
-    // await for peer manager to compute the routing table.
-    // TODO(gprusak): probably extract it to a separate function when migrating other tests from
-    // integration-tests to near_network.
-    pm.events
-        .recv_until(|ev| match ev {
-            Event::PeerManager(PME::RoutingTableUpdate { next_hops, .. }) => {
-                if next_hops.get(&peer.cfg.id()).map_or(false, |v| v.len() > 0) {
-                    Some(())
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        })
-        .await;
+    pm.wait_for_routing_table(&mut clock, &[(peer.cfg.id(), vec![peer.cfg.id()])]).await;
 
     for ttl in 0..5 {
         let msg = RoutedMessageBody::Ping(Ping { nonce: rng.gen(), source: peer.cfg.id() });
@@ -104,7 +90,6 @@ async fn repeated_data_in_sync_routing_table() {
     let cfg = peer::testonly::PeerConfig {
         network: chain.make_config(rng),
         chain,
-        peers: vec![],
         force_encoding: Some(Encoding::Proto),
         nonce: None,
     };
@@ -211,7 +196,6 @@ async fn no_edge_broadcast_after_restart() {
         let cfg = peer::testonly::PeerConfig {
             network: chain.make_config(rng),
             chain: chain.clone(),
-            peers: vec![],
             force_encoding: Some(Encoding::Proto),
             nonce: None,
         };
@@ -245,12 +229,21 @@ async fn no_edge_broadcast_after_restart() {
         tracing::info!(target: "test", "wait for pruning");
         let mut pruned = HashSet::new();
         while pruned != total_edges {
-            match events.recv().await {
-                Event::PeerManager(PME::RoutingTableUpdate { pruned_edges, .. }) => {
-                    pruned.extend(pruned_edges)
-                }
-                _ => {}
-            }
+            events
+                .recv_until(|ev| match ev {
+                    Event::PeerManager(PME::MessageProcessed(PeerMessage::SyncRoutingTable {
+                        ..
+                    })) => {
+                        clock.advance(peer_manager_actor::UPDATE_ROUTING_TABLE_INTERVAL);
+                        None
+                    }
+                    Event::PeerManager(PME::RoutingTableUpdate { pruned_edges, .. }) => {
+                        pruned.extend(pruned_edges);
+                        Some(())
+                    }
+                    _ => None,
+                })
+                .await;
         }
     }
 }
@@ -277,31 +270,34 @@ async fn square() {
     let id2 = pm2.cfg.node_id();
     let id3 = pm3.cfg.node_id();
 
-    pm0.wait_for_routing_table(&[
-        (id1.clone(), vec![id1.clone()]),
-        (id3.clone(), vec![id3.clone()]),
-        (id2.clone(), vec![id1.clone(), id3.clone()]),
-    ])
+    pm0.wait_for_routing_table(
+        &mut clock,
+        &[
+            (id1.clone(), vec![id1.clone()]),
+            (id3.clone(), vec![id3.clone()]),
+            (id2.clone(), vec![id1.clone(), id3.clone()]),
+        ],
+    )
     .await;
     tracing::info!(target:"test","stop {id1}");
     drop(pm1);
     tracing::info!(target:"test","wait for {id0} routing table");
-    pm0.wait_for_routing_table(&[
-        (id3.clone(), vec![id3.clone()]),
-        (id2.clone(), vec![id3.clone()]),
-    ])
+    pm0.wait_for_routing_table(
+        &mut clock,
+        &[(id3.clone(), vec![id3.clone()]), (id2.clone(), vec![id3.clone()])],
+    )
     .await;
     tracing::info!(target:"test","wait for {id2} routing table");
-    pm2.wait_for_routing_table(&[
-        (id3.clone(), vec![id3.clone()]),
-        (id0.clone(), vec![id3.clone()]),
-    ])
+    pm2.wait_for_routing_table(
+        &mut clock,
+        &[(id3.clone(), vec![id3.clone()]), (id0.clone(), vec![id3.clone()])],
+    )
     .await;
     tracing::info!(target:"test","wait for {id3} routing table");
-    pm3.wait_for_routing_table(&[
-        (id2.clone(), vec![id2.clone()]),
-        (id0.clone(), vec![id0.clone()]),
-    ])
+    pm3.wait_for_routing_table(
+        &mut clock,
+        &[(id2.clone(), vec![id2.clone()]), (id0.clone(), vec![id0.clone()])],
+    )
     .await;
     drop(pm0);
     drop(pm2);
@@ -335,6 +331,8 @@ async fn fix_local_edges() {
         edge1.clone(),
         edge2.clone(),
     ]));
+
+    tracing::info!(target:"test", "waiting for fake edges to be processed");
     conn.send(msg).await;
     let mut got = HashSet::new();
     let want = [&edge1, &edge2].into_iter().cloned().collect();
@@ -346,7 +344,9 @@ async fn fix_local_edges() {
             })
             .await;
     }
-    pm.fix_local_edges(&clock.clock()).await;
+
+    tracing::info!(target:"test","waiting for fake edges to be fixed");
+    pm.fix_local_edges(&clock.clock(), time::Duration::ZERO).await;
     // TODO(gprusak): make fix_local_edges await closing of the connections, so
     // that we don't have to wait for it explicitly here.
     pm.events
@@ -355,6 +355,8 @@ async fn fix_local_edges() {
             _ => None,
         })
         .await;
+
+    tracing::info!(target:"test","checking the consistency");
     pm.check_consistency().await;
     drop(conn);
 }

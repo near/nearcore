@@ -396,7 +396,7 @@
             $('span').text("Loading...");
             $.ajax({
                 type: "GET",
-                url: "/debug/api/validator_status",
+                url: "../api/validator_status",
                 success: data => {
                     process_validator_status(data);
                 },

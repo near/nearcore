@@ -317,6 +317,22 @@ message RoutingSyncV2 {
   bytes borsh = 1;
 }
 
+// Inter-process tracing information.
+message TraceContext {
+  enum SamplingPriority {
+    UNKNOWN = 0;
+    AutoReject = 1;
+    UserReject = 2;
+    AutoKeep = 3;
+    UserKeep = 4;
+  }
+  // 16 bytes representing TraceId: https://docs.rs/opentelemetry/latest/opentelemetry/trace/struct.TraceId.html
+  bytes trace_id = 1;
+  // 8 bytes representing SpanId: https://docs.rs/opentelemetry/latest/opentelemetry/trace/struct.SpanId.html
+  bytes span_id = 2;
+  SamplingPriority sampling_priority = 3;
+}
+
 // PeerMessage is a wrapper of all message types exchanged between NEAR nodes.
 // The wire format of a single message M consists of len(M)+4 bytes:
 // <len(M)> : 4 bytes : little endian uint32
@@ -328,6 +344,9 @@ message PeerMessage {
   reserved 1,2,3;
   // Deprecated fields.
   reserved 9,20,21,22,23,24;
+
+  // Inter-process tracing information.
+  TraceContext trace_context = 26;
 
   oneof message_type {
     Handshake handshake = 4;

@@ -7,6 +7,7 @@ use crate::network_protocol::{
 use crate::peer;
 use crate::peer::peer_actor::ClosingReason;
 use crate::peer_manager::network_state::NetworkState;
+use crate::peer_manager::peer_manager_actor;
 use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::tcp;
 use crate::test_utils;
@@ -193,7 +194,6 @@ impl ActorHandler {
             cfg: peer::testonly::PeerConfig {
                 network: network_cfg,
                 chain,
-                peers: vec![],
                 force_encoding: Some(Encoding::Proto),
                 nonce: None,
             },
@@ -232,7 +232,6 @@ impl ActorHandler {
             cfg: peer::testonly::PeerConfig {
                 network: network_cfg,
                 chain,
-                peers: vec![],
                 force_encoding: Some(Encoding::Proto),
                 nonce: None,
             },
@@ -291,9 +290,9 @@ impl ActorHandler {
         .await
     }
 
-    pub async fn fix_local_edges(&self, clock: &time::Clock) {
+    pub async fn fix_local_edges(&self, clock: &time::Clock, timeout: time::Duration) {
         let clock = clock.clone();
-        self.with_state(|s| async move { s.fix_local_edges(&clock).await }).await
+        self.with_state(move |s| async move { s.fix_local_edges(&clock, timeout).await }).await
     }
 
     pub async fn set_chain_info(&mut self, chain_info: ChainInfo) {
@@ -335,7 +334,11 @@ impl ActorHandler {
     }
 
     // Awaits until the routing_table matches `want`.
-    pub async fn wait_for_routing_table(&self, want: &[(PeerId, Vec<PeerId>)]) {
+    pub async fn wait_for_routing_table(
+        &self,
+        clock: &mut time::FakeClock,
+        want: &[(PeerId, Vec<PeerId>)],
+    ) {
         let mut events = self.events.from_now();
         loop {
             let got =
@@ -346,6 +349,12 @@ impl ActorHandler {
             events
                 .recv_until(|ev| match ev {
                     Event::PeerManager(PME::RoutingTableUpdate { .. }) => Some(()),
+                    Event::PeerManager(PME::MessageProcessed(PeerMessage::SyncRoutingTable {
+                        ..
+                    })) => {
+                        clock.advance(peer_manager_actor::UPDATE_ROUTING_TABLE_INTERVAL);
+                        None
+                    }
                     _ => None,
                 })
                 .await;
