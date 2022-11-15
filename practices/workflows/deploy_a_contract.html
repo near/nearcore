@@ -1,0 +1,391 @@
+<!DOCTYPE HTML>
+<html lang="en" class="sidebar-visible no-js light">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Deploy a Contract - Guide to Nearcore Development</title>
+        <!-- Custom HTML head -->
+        <meta content="text/html; charset=utf-8" http-equiv="Content-Type">
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff" />
+
+        <link rel="icon" href="../../favicon.svg">
+        <link rel="shortcut icon" href="../../favicon.png">
+        <link rel="stylesheet" href="../../css/variables.css">
+        <link rel="stylesheet" href="../../css/general.css">
+        <link rel="stylesheet" href="../../css/chrome.css">
+        <link rel="stylesheet" href="../../css/print.css" media="print">
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../../FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="../../fonts/fonts.css">
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" href="../../highlight.css">
+        <link rel="stylesheet" href="../../tomorrow-night.css">
+        <link rel="stylesheet" href="../../ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+    </head>
+    <body>
+        <!-- Provide site root to javascript -->
+        <script type="text/javascript">
+            var path_to_root = "../../";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "navy" : "light";
+        </script>
+
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script type="text/javascript">
+            try {
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script type="text/javascript">
+            var theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            var html = document.querySelector('html');
+            html.classList.remove('no-js')
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add('js');
+        </script>
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script type="text/javascript">
+            var html = document.querySelector('html');
+            var sidebar = 'hidden';
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            }
+            html.classList.remove('sidebar-visible');
+            html.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <div class="sidebar-scrollbox">
+                <ol class="chapter"><li class="chapter-item expanded affix "><a href="../../index.html">Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">Architecture</li><li class="chapter-item expanded "><a href="../../architecture/index.html"><strong aria-hidden="true">1.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../../architecture/how/index.html"><strong aria-hidden="true">2.</strong> How neard works</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../../architecture/how/sync.html"><strong aria-hidden="true">2.1.</strong> How Sync Works</a></li><li class="chapter-item expanded "><a href="../../architecture/how/gc.html"><strong aria-hidden="true">2.2.</strong> Garbage Collection</a></li><li class="chapter-item expanded "><a href="../../architecture/how/epoch.html"><strong aria-hidden="true">2.3.</strong> How Epoch Works</a></li><li class="chapter-item expanded "><a href="../../architecture/how/tx_routing.html"><strong aria-hidden="true">2.4.</strong> Transaction Routing</a></li><li class="chapter-item expanded "><a href="../../architecture/how/tx_receipts.html"><strong aria-hidden="true">2.5.</strong> Transactions And Receipts</a></li><li class="chapter-item expanded "><a href="../../architecture/how/cross-shard.html"><strong aria-hidden="true">2.6.</strong> Cross shard transactions - deep dive</a></li><li class="chapter-item expanded "><a href="../../architecture/how/serialization.html"><strong aria-hidden="true">2.7.</strong> Serialization: Borsh, Json, ProtoBuf</a></li><li class="chapter-item expanded "><a href="../../architecture/how/proofs.html"><strong aria-hidden="true">2.8.</strong> Proofs</a></li></ol></li><li class="chapter-item expanded "><a href="../../architecture/trie.html"><strong aria-hidden="true">3.</strong> Trie</a></li><li class="chapter-item expanded "><a href="../../architecture/network.html"><strong aria-hidden="true">4.</strong> Network</a></li><li class="chapter-item expanded "><a href="../../architecture/gas/index.html"><strong aria-hidden="true">5.</strong> Gas Cost Parameters</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../../architecture/gas/parameter_definition.html"><strong aria-hidden="true">5.1.</strong> Parameter Definitions</a></li><li class="chapter-item expanded "><a href="../../architecture/gas/gas_profile.html"><strong aria-hidden="true">5.2.</strong> Gas Profile</a></li><li class="chapter-item expanded "><a href="../../architecture/gas/estimator.html"><strong aria-hidden="true">5.3.</strong> Runtime Parameter Estimator</a></li></ol></li><li class="chapter-item expanded "><li class="part-title">Practices</li><li class="chapter-item expanded "><a href="../../practices/index.html"><strong aria-hidden="true">6.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../../practices/rust.html"><strong aria-hidden="true">7.</strong> Rust 🦀</a></li><li class="chapter-item expanded "><a href="../../practices/workflows/index.html"><strong aria-hidden="true">8.</strong> Workflows</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../../practices/workflows/run_a_node.html"><strong aria-hidden="true">8.1.</strong> Run a Node</a></li><li class="chapter-item expanded "><a href="../../practices/workflows/deploy_a_contract.html" class="active"><strong aria-hidden="true">8.2.</strong> Deploy a Contract</a></li></ol></li><li class="chapter-item expanded "><a href="../../practices/style.html"><strong aria-hidden="true">9.</strong> Code Style</a></li><li class="chapter-item expanded "><a href="../../practices/docs.html"><strong aria-hidden="true">10.</strong> Documentation</a></li><li class="chapter-item expanded "><a href="../../practices/tracking_issues.html"><strong aria-hidden="true">11.</strong> Tracking Issues</a></li><li class="chapter-item expanded "><a href="../../practices/fast_builds.html"><strong aria-hidden="true">12.</strong> Fast Builds</a></li><li class="chapter-item expanded "><a href="../../practices/testing/index.html"><strong aria-hidden="true">13.</strong> Testing</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../../practices/testing/python_tests.html"><strong aria-hidden="true">13.1.</strong> Python Tests</a></li></ol></li><li class="chapter-item expanded "><a href="../../practices/protocol_upgrade.html"><strong aria-hidden="true">14.</strong> Protocol Upgrade</a></li><li class="chapter-item expanded affix "><li class="part-title">Misc</li><li class="chapter-item expanded "><a href="../../misc/index.html"><strong aria-hidden="true">15.</strong> Misc</a></li></ol>
+            </div>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle"></div>
+        </nav>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky bordered">
+                    <div class="left-buttons">
+                        <button id="sidebar-toggle" class="icon-button" type="button" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </button>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light (default)</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">Guide to Nearcore Development</h1>
+
+                    <div class="right-buttons">
+                        <a href="../../print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+                        <a href="https://github.com/near/nearcore/tree/master/docs" title="Git repository" aria-label="Git repository">
+                            <i id="git-repository-button" class="fa fa-github"></i>
+                        </a>
+                        <a href="https://github.com/near/nearcore/edit/master/docs/./practices/workflows/deploy_a_contract.md" title="Suggest an edit" aria-label="Suggest an edit">
+                            <i id="git-edit-button" class="fa fa-edit"></i>
+                        </a>
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script type="text/javascript">
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="deploy-a-contract"><a class="header" href="#deploy-a-contract">Deploy a Contract</a></h1>
+<p>In this chapter, we'll learn how to build, deploy, and call a minimal
+smart-contract on our local node.</p>
+<h2 id="preparing-ground"><a class="header" href="#preparing-ground">Preparing Ground</a></h2>
+<p>Let's start with creating a fresh local network with an account we'll deploy a
+contract to. You might want to re-read <a href="./run_a_node.html">how to run a node</a> to
+understand what's going one here:</p>
+<pre><code class="language-console">$ cargo run --profile quick-release -p neard -- init
+$ cargo run --profile quick-release -p neard -- run
+$ NEAR_ENV=local near create-account alice.test.near --masterAccount test.near
+</code></pre>
+<p>As a sanity check, querying the state of <code>alice.test.near</code> account should work:</p>
+<pre><code class="language-console">$ NEAR_ENV=local near state alice.test.near
+Loaded master account test.near key from /home/matklad/.near/validator_key.json with public key = ed25519:7tU4NtFozPWLotcfhbT9KfBbR3TJHPfKJeCri8Me6jU7
+Account alice.test.near
+{
+  amount: '100000000000000000000000000',
+  block_hash: 'EEMiLrk4ZiRzjNJXGdhWPJfKXey667YBnSRoJZicFGy9',
+  block_height: 24,
+  code_hash: '11111111111111111111111111111111',
+  locked: '0',
+  storage_paid_at: 0,
+  storage_usage: 182,
+  formattedAmount: '100'
+}
+</code></pre>
+<h2 id="minimal-contract"><a class="header" href="#minimal-contract">Minimal Contract</a></h2>
+<p>NEAR contracts are <a href="https://webassembly.org">WebAssembly</a> blobs of bytes. To
+create a contract, contract developer typically uses an SDK for some high-level
+programming language, such as JavaScript, which takes care of producing the
+right <code>.wasm</code>.</p>
+<p>In this guide, we are interested in how things work under the hood, so we'll
+do everything manually, and implement a contract in Rust without any help from
+SDKs.</p>
+<p>As we are looking for something simple, let's create a contract with a single
+&quot;method&quot;, <code>hello</code>, which returns <code>&quot;hello world&quot;</code> string. To &quot;define a method&quot;, a
+wasm module should export a function. To &quot;return a value&quot;, the contract needs to
+interact with the environment to say &quot;hey, this is the value I am returning&quot;.
+Such &quot;interractions&quot; are carried through host-functions, which are quite a bit
+like syscalls in traditional operating system.</p>
+<p>The set of host functions which the contract can import is defined in
+<a href="https://github.com/near/nearcore/blob/aeccaaab334275f6d0a62deabd184675bc3c6a23/runtime/near-vm-runner/src/imports.rs#L71-L242"><code>imports.rs</code></a>.</p>
+<p>In this particular case, we need <code>value_return</code> function:</p>
+<pre><code>value_return&lt;[value_len: u64, value_ptr: u64] -&gt; []&gt;
+</code></pre>
+<p>That is, <code>value_return</code> function takes a pointer to slice of bytes, a length of
+the slice, and returns nothing. If the contract calls this function, the slice
+would be considered a result of the function.</p>
+<p>To recap, we want to produce a <code>.wasm</code> file with roughly the following content:</p>
+<pre><code class="language-wasm">(module
+  (import &quot;env&quot; &quot;value_return&quot; (func $value_return (param i64 i64)))
+  (func (export &quot;hello&quot;) ... ))
+</code></pre>
+<h2 id="cargo-boilerplate"><a class="header" href="#cargo-boilerplate">Cargo Boilerplate</a></h2>
+<p>Armed with this knowledge, we can write Rust code to produce the required WASM.
+Before we actually start doing that, some amount of setup code is required.</p>
+<p>Let's start with creating a new crate:</p>
+<pre><code class="language-console">$ cargo new hello-near --lib
+</code></pre>
+<p>To compile to wasm, we also need to add a relevant rustup toolchain:</p>
+<pre><code class="language-console">$ rustup toolchain add wasm32-unknown-unknown
+</code></pre>
+<p>Then, we need to tell Cargo that the final artifact we want to get is a
+WebAssembly module.</p>
+<p>This requires the following cryptic spell in Cargo.toml:</p>
+<pre><code class="language-toml"># hello-near/Cargo.toml
+
+[lib]
+crate-type = [&quot;cdylib&quot;]
+</code></pre>
+<p>Here, we ask Cargo to build a &quot;C dynamic library&quot;. When compiling for wasm,
+this'll give us a <code>.wasm</code> module. This is just confusing, sorry about that
+:(</p>
+<p>Next, as we are aiming for minimalism here, we need to disable optional bits
+of Rust runtime. Namely, we want to make our crate <code>no_std</code>, set <code>panic=abort</code>
+as our panic strategy and define a panic handler to abort execution.</p>
+<pre><code class="language-toml"># hello-near/Cargo.toml
+
+[package]
+name = &quot;hello-near&quot;
+version = &quot;0.1.0&quot;
+edition = &quot;2021&quot;
+
+[lib]
+crate-type = [&quot;cdylib&quot;]
+
+[profile.release]
+panic = &quot;abort&quot;
+</code></pre>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// hello-near/src/lib.rs
+
+#![no_std]
+
+#[panic_handler]
+fn panic_handler(_info: &amp;core::panic::PanicInfo) -&gt; ! {
+    core::arch::wasm32::unreachable()
+}
+<span class="boring">}
+</span></code></pre></pre>
+<p>At this point, we should be able to compile our code to wasm, and it should be
+fairly small. Let's do that:</p>
+<pre><code class="language-console">$ cargo b -r --target wasm32-unknown-unknown
+   Compiling hello-near v0.1.0 (~/hello-near)
+    Finished release [optimized] target(s) in 0.24s
+$ ls target/wasm32-unknown-unknown/release/hello_near.wasm
+.rwxr-xr-x 106 matklad 15 Nov 15:34 target/wasm32-unknown-unknown/release/hello_near.wasm
+</code></pre>
+<p>106 bytes is pretty small! Let's see what's inside. For that, we'll use
+<code>wasm-tools</code> suite of cli utilities.</p>
+<pre><code class="language-console">$ cargo install wasm-tools
+λ wasm-tools print target/wasm32-unknown-unknown/release/hello_near.wasm
+(module
+  (memory (;0;) 16)
+  (global $__stack_pointer (;0;) (mut i32) i32.const 1048576)
+  (global (;1;) i32 i32.const 1048576)
+  (global (;2;) i32 i32.const 1048576)
+  (export &quot;memory&quot; (memory 0))
+  (export &quot;__data_end&quot; (global 1))
+  (export &quot;__heap_base&quot; (global 2))
+)
+</code></pre>
+<h2 id="rust-contract"><a class="header" href="#rust-contract">Rust Contract</a></h2>
+<p>Finally, let's implement an actual contract. We'll need <code>extern &quot;C&quot;</code> block to
+declare <code>value_return</code> import, and a <code>#[no_mangle] extern &quot;C&quot;</code> function to declare <code>hello</code> export:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// hello-near/src/lib.rs
+
+#![no_std]
+
+extern &quot;C&quot; {
+    fn value_return(len: u64, ptr: u64);
+}
+
+#[no_mangle]
+pub extern &quot;C&quot; fn hello() {
+    let msg = &quot;hello world&quot;;
+    unsafe { value_return(msg.len() as u64, msg.as_ptr() as u64) }
+}
+
+#[panic_handler]
+fn panic_handler(_info: &amp;core::panic::PanicInfo) -&gt; ! {
+    core::arch::wasm32::unreachable()
+}
+<span class="boring">}
+</span></code></pre></pre>
+<p>Building and inspecting output shows that it's roughly what we want:</p>
+<pre><code class="language-console">$ cargo b -r --target wasm32-unknown-unknown
+   Compiling hello-near v0.1.0 (/home/matklad/hello-near)
+    Finished release [optimized] target(s) in 0.05s
+$ wasm-tools print target/wasm32-unknown-unknown/release/hello_near.wasm
+(module
+  (type (;0;) (func (param i64 i64)))
+  (type (;1;) (func))
+  (import &quot;env&quot; &quot;value_return&quot;        (; &lt;- Here's our import. ;)
+    (func $value_return (;0;) (type 0)))
+  (func $hello (;1;) (type 1)
+    i64.const 11
+    i32.const 1048576
+    i64.extend_i32_u
+    call $value_return
+  )
+  (memory (;0;) 17)
+  (global $__stack_pointer (;0;) (mut i32) i32.const 1048576)
+  (global (;1;) i32 i32.const 1048587)
+  (global (;2;) i32 i32.const 1048592)
+  (export &quot;memory&quot; (memory 0))
+  (export &quot;hello&quot; (func $hello))      (; &lt;- And export! ;)
+  (export &quot;__data_end&quot; (global 1))
+  (export &quot;__heap_base&quot; (global 2))
+  (data $.rodata (;0;) (i32.const 1048576) &quot;hello world&quot;)
+)
+</code></pre>
+<h2 id="deploying-the-contract"><a class="header" href="#deploying-the-contract">Deploying the Contract</a></h2>
+<p>Now that we have WASM, let's deploy it!</p>
+<pre><code class="language-console">$ NEAR_ENV=local near deploy alice.test.near \
+    ./target/wasm32-unknown-unknown/release/hello_near.wasm
+Loaded master account test.near key from /home/matklad/.near/validator_key.json with public key = ed25519:ChLD1qYic3G9qKyzgFG3PifrJs49CDYeERGsG58yaSoL
+Starting deployment. Account id: alice.test.near, node: http://127.0.0.1:3030, helper: http://localhost:3000, file: ./target/wasm32-unknown-unknown/release/hello_near.wasm
+Transaction Id GDbTLUGeVaddhcdrQScVauYvgGXxSssEPGUSUVAhMWw8
+To see the transaction in the transaction explorer, please open this url in your browser
+http://localhost:9001/transactions/GDbTLUGeVaddhcdrQScVauYvgGXxSssEPGUSUVAhMWw8
+Done deploying to alice.test.near
+</code></pre>
+<p>And, finally, let's call our contract:</p>
+<pre><code class="language-console">$ NEAR_ENV=local $near call alice.test.near hello --accountId alice.test.near
+Scheduling a call: alice.test.near.hello()
+Loaded master account test.near key from /home/matklad/.near/validator_key.json with public key = ed25519:ChLD1qYic3G9qKyzgFG3PifrJs49CDYeERGsG58yaSoL
+Doing account.functionCall()
+Transaction Id 9WMwmTf6pnFMtj1KBqjJtkKvdFXS4kt3DHnYRnbFpJ9e
+To see the transaction in the transaction explorer, please open this url in your browser
+http://localhost:9001/transactions/9WMwmTf6pnFMtj1KBqjJtkKvdFXS4kt3DHnYRnbFpJ9e
+'hello world'
+</code></pre>
+<p>Note that we pass <code>alice.test.near</code> twice: first time to specify which contract
+we are calling, the second time to determine who calls the contract. That is,
+the second account actually spends tokens. In the following example <code>bob</code> spends
+NEAR to call contact deployed to alice account:</p>
+<pre><code class="language-console">$ NEAR_ENV=local $near call alice.test.near hello --accountId bob.test.near
+Scheduling a call: alice.test.near.hello()
+Loaded master account test.near key from /home/matklad/.near/validator_key.json with public key = ed25519:ChLD1qYic3G9qKyzgFG3PifrJs49CDYeERGsG58yaSoL
+Doing account.functionCall()
+Transaction Id 4vQKtP6zmcR4Xaebw8NLF6L5YS96gt5mCxc5BUqUcC41
+To see the transaction in the transaction explorer, please open this url in your browser
+http://localhost:9001/transactions/4vQKtP6zmcR4Xaebw8NLF6L5YS96gt5mCxc5BUqUcC41
+'hello world'
+</code></pre>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../../practices/workflows/run_a_node.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+                            <a rel="next" href="../../practices/style.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../../practices/workflows/run_a_node.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+                    <a rel="next" href="../../practices/style.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+        <script type="text/javascript">
+            window.playground_copyable = true;
+        </script>
+        <script src="../../elasticlunr.min.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../../mark.min.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../../searcher.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../../clipboard.min.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../../highlight.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../../book.js" type="text/javascript" charset="utf-8"></script>
+
+        <!-- Custom JS scripts -->
+    </body>
+</html>
