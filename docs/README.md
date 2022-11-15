@@ -26,4 +26,5 @@ the interesting bits. The chapters are classified into three parts:
   you want to document something and it doesn't cleanly map to a category above,
   just put it in misc!
 
-If you are unsure, start with the next chapter, [Architecture Overview](./architecture/)
+If you are unsure, start with [Architecture Overview](./architecture/) and then
+read [Run a Node](./practices/workflows/run_a_node.md)
