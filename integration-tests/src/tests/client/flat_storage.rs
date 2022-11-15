@@ -2,7 +2,7 @@ use assert_matches::assert_matches;
 use near_chain::{ChainGenesis, RuntimeAdapter};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
-// use near_o11y::testonly::init_test_logger;
+use near_o11y::testonly::init_test_logger;
 use near_primitives_core::types::BlockHeight;
 use near_store::flat_state::{
     store_helper, FetchingStateStatus, FlatStorageStateStatus, NUM_PARTS_IN_ONE_STEP,
@@ -17,7 +17,7 @@ use std::time::Duration;
 /// Check correctness of flat storage creation.
 #[test]
 fn test_flat_storage_creation() {
-    // init_test_logger();
+    init_test_logger();
     let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
     let chain_genesis = ChainGenesis::new(&genesis);
     let store = create_test_store();
