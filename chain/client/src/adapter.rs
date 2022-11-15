@@ -43,13 +43,6 @@ pub struct BlockResponse {
     pub was_requested: bool,
 }
 
-/// Request the latest block
-#[derive(actix::Message, Debug)]
-#[rtype(result = "()")]
-pub struct SyncLatestBlock {
-    pub peer_id: PeerId,
-}
-
 #[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
 pub struct BlockApproval(pub Approval, pub PeerId);
@@ -343,13 +336,6 @@ impl near_network::client::Client for Adapter {
             .send(BlockResponse { block, peer_id, was_requested }.with_span_context())
             .await
         {
-            Ok(()) => {}
-            Err(err) => tracing::error!("mailbox error: {err}"),
-        }
-    }
-
-    async fn sync_latest_block(&self, peer_id: PeerId) {
-        match self.client_addr.send(SyncLatestBlock { peer_id }.with_span_context()).await {
             Ok(()) => {}
             Err(err) => tracing::error!("mailbox error: {err}"),
         }

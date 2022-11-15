@@ -1001,7 +1001,6 @@ pub fn setup_mock_all_validators(
                         | NetworkRequests::BanPeer { .. }
                         | NetworkRequests::TxStatus(_, _, _)
                         | NetworkRequests::Challenge(_) => {}
-                        NetworkRequests::SyncLatestBlock { .. } => {}
                     };
                 }
                 resp

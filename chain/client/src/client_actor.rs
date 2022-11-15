@@ -9,7 +9,6 @@ use crate::adapter::{
     BlockApproval, BlockHeadersResponse, BlockResponse, ProcessTxRequest, ProcessTxResponse,
     RecvChallenge, RecvPartialEncodedChunk, RecvPartialEncodedChunkForward,
     RecvPartialEncodedChunkRequest, RecvPartialEncodedChunkResponse, SetNetworkInfo, StateResponse,
-    SyncLatestBlock,
 };
 use crate::client::{Client, EPOCH_START_INFO_BLOCKS};
 use crate::info::{
@@ -465,34 +464,6 @@ impl Handler<WithSpanContext<BlockResponse>> for ClientActor {
                         }
                     }
                     _ => {}
-                }
-            }
-        })
-    }
-}
-
-impl Handler<WithSpanContext<SyncLatestBlock>> for ClientActor {
-    type Result = ();
-
-    fn handle(
-        &mut self,
-        msg: WithSpanContext<SyncLatestBlock>,
-        ctx: &mut Self::Context,
-    ) -> Self::Result {
-        self.wrap(msg, ctx, "SyncLatestBlock", |this, msg| {
-            // It's important to use the block at head, not header head here, because
-            // the block at header head may be invalid since the full block may not be processed yet
-            match this.client.chain.get_head_block() {
-                Ok(block) => {
-                    this.network_adapter.do_send(
-                        PeerManagerMessageRequest::NetworkRequests(
-                            NetworkRequests::SyncLatestBlock { block, peer_id: msg.peer_id },
-                        )
-                        .with_span_context(),
-                    );
-                }
-                Err(err) => {
-                    warn!(target:"client", error=%err, "Error getting block at head");
                 }
             }
         })

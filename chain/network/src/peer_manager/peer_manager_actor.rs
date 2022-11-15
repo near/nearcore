@@ -51,6 +51,8 @@ const MONITOR_PEERS_INITIAL_DURATION: time::Duration = time::Duration::milliseco
 const UPDATE_ROUTING_TABLE_INTERVAL: time::Duration = time::Duration::milliseconds(1_000);
 /// How often should we check wheter local edges match the connection pool.
 const FIX_LOCAL_EDGES_INTERVAL: time::Duration = time::Duration::seconds(60);
+/// How often to send the latest block to peers.
+const SYNC_LATEST_BLOCK_INTERVAL: time::Duration = time::Duration::seconds(60);
 
 /// How often to report bandwidth stats.
 const REPORT_BANDWIDTH_STATS_TRIGGER_INTERVAL: time::Duration =
@@ -192,6 +194,25 @@ impl Actor for PeerManagerActor {
                         clock.now_utc().checked_sub(PRUNE_EDGES_AFTER),
                     )
                     .await;
+            }
+        }));
+
+        // Send latest block periodically
+        ctx.spawn(wrap_future({
+            let state = self.state.clone();
+            async move {
+                let mut interval =
+                    tokio::time::interval(SYNC_LATEST_BLOCK_INTERVAL.try_into().unwrap());
+                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                loop {
+                    // the first tick is immediate, so the tick should go sync_latest_block
+                    interval.tick().await;
+                    if let Some(chain_info) = state.chain_info.load().as_ref() {
+                        state.tier2.broadcast_message(Arc::new(PeerMessage::Block(
+                            chain_info.block.clone(),
+                        )));
+                    }
+                }
             }
         }));
 
@@ -354,23 +375,30 @@ impl PeerManagerActor {
     // Get peers that are potentially unreliable and we should avoid routing messages through them.
     // Currently we're picking the peers that are too much behind (in comparison to us).
     fn unreliable_peers(&self) -> HashSet<PeerId> {
-        let my_height = self.state.chain_info.load().height;
-        // Find all peers whose height is below `highest_peer_horizon` from max height peer(s).
-        // or the ones we don't have height information yet
-        self.state
-            .tier2
-            .load()
-            .ready
-            .values()
-            .filter(|p| {
-                p.last_block
-                    .read()
-                    .unwrap()
-                    .map(|x| x.height.saturating_add(UNRELIABLE_PEER_HORIZON) < my_height)
-                    .unwrap_or(true)
-            })
-            .map(|p| p.peer_info.id.clone())
-            .collect()
+        // If chain info is not set, that means we haven't received chain info message
+        // from chain yet. Return empty set in that case. This should only last for a short period
+        // of time.
+        if let Some(chain_info) = self.state.chain_info.load().as_ref() {
+            let my_height = chain_info.block.header().height();
+            // Find all peers whose height is below `highest_peer_horizon` from max height peer(s).
+            // or the ones we don't have height information yet
+            self.state
+                .tier2
+                .load()
+                .ready
+                .values()
+                .filter(|p| {
+                    p.last_block
+                        .read()
+                        .unwrap()
+                        .map(|x| x.height.saturating_add(UNRELIABLE_PEER_HORIZON) < my_height)
+                        .unwrap_or(true)
+                })
+                .map(|p| p.peer_info.id.clone())
+                .collect()
+        } else {
+            HashSet::new()
+        }
     }
 
     /// Check if the number of connections (excluding whitelisted ones) exceeds ideal_connections_hi.
@@ -662,10 +690,6 @@ impl PeerManagerActor {
                 self.state.tier2.broadcast_message(Arc::new(PeerMessage::Block(block)));
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::SyncLatestBlock { block, peer_id } => {
-                self.state.tier2.send_message(peer_id, Arc::new(PeerMessage::Block(block)));
-                NetworkResponses::NoResponse
-            }
             NetworkRequests::Approval { approval_message } => {
                 self.state.send_message_to_account(
                     &self.clock,
@@ -955,7 +979,7 @@ impl Handler<WithSpanContext<SetChainInfo>> for PeerManagerActor {
         // just require the caller to await for completion before calling
         // SetChainInfo again. Alternatively we could have an async mutex
         // on the handler.
-        state.chain_info.store(Arc::new(info.clone()));
+        state.chain_info.store(Arc::new(Some(info.clone())));
 
         // If enable_tier1 is false, we skip set_keys() call.
         // This way self.state.accounts_data is always empty, hence no data

@@ -44,8 +44,6 @@ use tracing::{debug, error, info, warn, Instrument};
 const MAX_PEER_MSG_PER_MIN: usize = usize::MAX;
 /// How often to request peers from active peers.
 const REQUEST_PEERS_INTERVAL: time::Duration = time::Duration::seconds(60);
-/// How often to send the latest block to peers.
-const SYNC_LATEST_BLOCK_INTERVAL: time::Duration = time::Duration::seconds(60);
 
 /// Maximum number of transaction messages we will accept between block messages.
 /// The purpose of this constant is to ensure we do not spend too much time deserializing and
@@ -314,25 +312,26 @@ impl PeerActor {
     }
 
     fn send_handshake(&self, spec: HandshakeSpec) {
-        let chain_info = self.network_state.chain_info.load();
-        let handshake = Handshake {
-            protocol_version: spec.protocol_version,
-            oldest_supported_version: PEER_MIN_ALLOWED_PROTOCOL_VERSION,
-            sender_peer_id: self.network_state.config.node_id(),
-            target_peer_id: spec.peer_id,
-            sender_listen_port: self.network_state.config.node_addr.map(|a| a.port()),
-            sender_chain_info: PeerChainInfoV2 {
-                genesis_id: self.network_state.genesis_id.clone(),
-                // do not use the height information in handshake.
-                // TODO: remove `height` from PeerChainInfo
-                height: 0,
-                tracked_shards: chain_info.tracked_shards.clone(),
-                archival: self.network_state.config.archive,
-            },
-            partial_edge_info: spec.partial_edge_info,
-        };
-        let msg = PeerMessage::Handshake(handshake);
-        self.send_message_or_log(&msg);
+        if let Some(chain_info) = self.network_state.chain_info.load().as_ref() {
+            let handshake = Handshake {
+                protocol_version: spec.protocol_version,
+                oldest_supported_version: PEER_MIN_ALLOWED_PROTOCOL_VERSION,
+                sender_peer_id: self.network_state.config.node_id(),
+                target_peer_id: spec.peer_id,
+                sender_listen_port: self.network_state.config.node_addr.map(|a| a.port()),
+                sender_chain_info: PeerChainInfoV2 {
+                    genesis_id: self.network_state.genesis_id.clone(),
+                    // do not use the height information in handshake.
+                    // TODO: remove `height` from PeerChainInfo
+                    height: 0,
+                    tracked_shards: chain_info.tracked_shards.clone(),
+                    archival: self.network_state.config.archive,
+                },
+                partial_edge_info: spec.partial_edge_info,
+            };
+            let msg = PeerMessage::Handshake(handshake);
+            self.send_message_or_log(&msg);
+        }
     }
 
     fn stop(&mut self, ctx: &mut Context<PeerActor>, reason: ClosingReason) {
@@ -608,21 +607,6 @@ impl PeerActor {
                         }));
                         // Sync the RoutingTable.
                         act.sync_routing_table();
-                        // Send latest block periodically
-                        ctx.spawn(wrap_future({
-                            let network_state = act.network_state.clone();
-                            let peer_id = handshake.sender_peer_id.clone();
-                            async move {
-                                let mut interval =
-                                    tokio::time::interval(SYNC_LATEST_BLOCK_INTERVAL.try_into().unwrap());
-                                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-                                loop {
-                                    // the first tick is immediate, so the tick should go sync_latest_block
-                                    interval.tick().await;
-                                    network_state.client.sync_latest_block(peer_id.clone()).await;
-                                }
-                            }
-                        }));
                         act.network_state.config.event_sink.push(Event::HandshakeCompleted(HandshakeCompletedEvent{
                             stream_id: act.stream_id,
                             edge: conn.edge.clone(),

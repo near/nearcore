@@ -131,10 +131,11 @@ pub type AccountKeys = HashMap<(EpochId, AccountId), PublicKey>;
 
 /// Network-relevant data about the chain.
 // TODO(gprusak): it is more like node info, or sth.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct ChainInfo {
     pub tracked_shards: Vec<ShardId>,
-    pub height: BlockHeight,
+    // The lastest block on chain.
+    pub block: Block,
     // Public keys of accounts participating in the BFT consensus
     // (both accounts from current and next epoch are important, that's why
     // the map is indexed by (EpochId,AccountId) pair).
@@ -225,8 +226,6 @@ impl From<NetworkResponses> for PeerManagerMessageResponse {
 pub enum NetworkRequests {
     /// Sends block, either when block was just produced or when requested.
     Block { block: Block },
-    /// Sends block to a specific peer. This is used to update the latest block between peers
-    SyncLatestBlock { block: Block, peer_id: PeerId },
     /// Sends approval.
     Approval { approval_message: ApprovalMessage },
     /// Request block with given hash from given peer.
