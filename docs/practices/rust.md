@@ -30,7 +30,8 @@ Alternatives are:
 * [Programming
   Rust](https://www.amazon.com/Programming-Rust-Fast-Systems-Development/dp/1491927283)
   is an alternative book which moves a bit faster.
-* [Rust for Rustaceans: Idiomatic Programming for Experienced Developers](https://a.co/d/i7zIu3e) excellent book that serves as a next step after becoming intermediate with the language.
+* [Rust for Rustaceans: Idiomatic Programming for Experienced Developers](https://a.co/d/i7zIu3e)
+  excellent book that serves as a next step after becoming intermediate with the language.
 * [Rust By Example](https://doc.rust-lang.org/rust-by-example/) is a great
   resource for learning by doing.
 
