@@ -1,4 +1,6 @@
+use actix_web::{web, App, HttpServer};
 use anyhow::Context;
+pub use cli::PingCommand;
 use near_network::raw::{ConnectError, Connection, ReceivedMessage};
 use near_network::time;
 use near_network::types::HandshakeFailureReason;
@@ -14,8 +16,7 @@ use std::pin::Pin;
 
 pub mod cli;
 mod csv;
-
-pub use cli::PingCommand;
+mod metrics;
 
 // TODO: also log number of bytes/other messages (like Blocks) received?
 #[derive(Debug, Default)]
@@ -122,15 +123,17 @@ struct AppInfo {
     requests: BTreeMap<PingTarget, HashMap<Nonce, PingTimes>>,
     timeouts: BTreeSet<PingTimeout>,
     account_filter: Option<HashSet<AccountId>>,
+    chain_id: String,
 }
 
 impl AppInfo {
-    fn new(account_filter: Option<HashSet<AccountId>>) -> Self {
+    fn new(account_filter: Option<HashSet<AccountId>>, chain_id: &str) -> Self {
         Self {
             stats: HashMap::new(),
             requests: BTreeMap::new(),
             timeouts: BTreeSet::new(),
             account_filter,
+            chain_id: chain_id.to_owned(),
         }
     }
 
@@ -143,9 +146,14 @@ impl AppInfo {
         None
     }
 
-    fn ping_sent(&mut self, peer_id: &PeerId, nonce: u64) {
+    fn ping_sent(&mut self, peer_id: &PeerId, nonce: u64, chain_id: &str) {
         let timestamp = time::Instant::now();
         let timeout = timestamp + PING_TIMEOUT;
+
+        let account_id = self.peer_id_to_account_id(&peer_id);
+        crate::metrics::PING_SENT
+            .with_label_values(&[&chain_id, &peer_str(peer_id, account_id)])
+            .inc();
 
         match self.stats.entry(peer_id.clone()) {
             Entry::Occupied(mut e) => {
@@ -212,7 +220,7 @@ impl AppInfo {
                         assert!(self.timeouts.remove(&PingTimeout {
                             peer_id: peer_id.clone(),
                             nonce,
-                            timeout: times.timeout
+                            timeout: times.timeout,
                         }));
 
                         let l: std::time::Duration = latency.try_into().unwrap();
@@ -322,8 +330,12 @@ fn handle_message(
 ) -> anyhow::Result<()> {
     match &msg {
         ReceivedMessage::Pong { nonce, source } => {
+            let chain_id = app_info.chain_id.clone(); // Avoid an immutable borrow during a mutable borrow.
             if let Some((latency, account_id)) = app_info.pong_received(source, *nonce, received_at)
             {
+                crate::metrics::PONG_RECEIVED
+                    .with_label_values(&[&chain_id, &peer_str(&source, account_id)])
+                    .observe(latency.as_seconds_f64());
                 if let Some(csv) = latencies_csv {
                     csv.write(source, account_id, latency).context("Failed writing to CSV file")?;
                 }
@@ -380,8 +392,9 @@ async fn ping_via_node(
     account_filter: Option<HashSet<AccountId>>,
     mut latencies_csv: Option<crate::csv::LatenciesCsv>,
     ping_stats: &mut Vec<(PeerIdentifier, PingStats)>,
+    prometheus_addr: &str,
 ) -> anyhow::Result<()> {
-    let mut app_info = AppInfo::new(account_filter);
+    let mut app_info = AppInfo::new(account_filter, chain_id);
 
     app_info.add_peer(&peer_id, None);
 
@@ -392,10 +405,7 @@ async fn ping_via_node(
         chain_id,
         genesis_hash,
         head_height,
-        time::Duration::seconds(recv_timeout_seconds.into()),
-    )
-    .await
-    {
+        time::Duration::seconds(recv_timeout_seconds.into())).await {
         Ok(p) => p,
         Err(ConnectError::HandshakeFailure(reason)) => {
             match reason {
@@ -425,6 +435,19 @@ async fn ping_via_node(
     let next_timeout = tokio::time::sleep(std::time::Duration::ZERO);
     tokio::pin!(next_timeout);
 
+    let server = HttpServer::new(move || {
+        App::new().service(
+            web::resource("/metrics").route(web::get().to(near_jsonrpc::prometheus_handler)),
+        )
+    })
+    .bind(prometheus_addr)
+    .unwrap()
+    .workers(1)
+    .shutdown_timeout(3)
+    .disable_signals()
+    .run();
+    tokio::spawn(server);
+
     loop {
         let target = app_info.pick_next_target();
         let pending_timeout = prepare_timeout(next_timeout.as_mut(), &app_info);
@@ -436,7 +459,7 @@ async fn ping_via_node(
                 if result.is_err() {
                     break;
                 }
-                app_info.ping_sent(&target, nonce);
+                app_info.ping_sent(&target, nonce, &chain_id);
                 nonce += 1;
                 next_ping.as_mut().reset(tokio::time::Instant::now() + std::time::Duration::from_millis(ping_frequency_millis));
             }
@@ -461,10 +484,12 @@ async fn ping_via_node(
             _ = &mut next_timeout, if pending_timeout.is_some() => {
                 let t = pending_timeout.unwrap();
                 app_info.pop_timeout(&t);
+                let account_id = app_info.peer_id_to_account_id(&t.peer_id);
+                crate::metrics::PONG_TIMEOUTS.with_label_values(&[&chain_id, &peer_str(&t.peer_id, account_id)]).inc();
                 if let Some(csv) = latencies_csv.as_mut() {
                     result = csv.write_timeout(
                         &t.peer_id,
-                        app_info.peer_id_to_account_id(&t.peer_id)
+                        account_id,
                     )
                     .context("Failed writing to CSV file");
                     if result.is_err() {
