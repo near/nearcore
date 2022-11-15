@@ -150,7 +150,23 @@ changes several parameters
 starting from version 53. To see all parameter values for a specific version at
 once, check out the list of JSON snapshots generated in this directory:
 <a href="https://github.com/near/nearcore/blob/d0dc37bf81f7e7bde9c560403b085fae04108659/core/primitives/src/runtime/snapshots">core/primitives/src/runtime/snapshots</a>.</p>
-<!-- TODO: Runtime Config Store -->
+<h2 id="using-parameters-in-code"><a class="header" href="#using-parameters-in-code">Using Parameters in Code</a></h2>
+<p>As the introduction on this page already hints at it, parameter values are
+versioned. In other words, they can change if the protocol version changes. A
+nearcore binary has to support multiple versions and choose the correct
+parameter value at runtime.</p>
+<p>To make this easy, there is
+<a href="https://github.com/near/nearcore/blob/a8964d200b3938a63d389263bc39c1bcd75b1de4/core/primitives/src/runtime/config_store.rs#L43"><code>RuntimeConfigStore</code></a>.
+It contains a sparse map from protocol versions to complete runtime
+configurations (<code>BTreeMap&lt;ProtocolVersion, Arc&lt;RuntimeConfig&gt;&gt;</code>).
+The runtime then uses <code>store.get_config(protocol_version)</code> to access a runtime
+configuration for a specific version.</p>
+<p>It is crucial to always use this runtime config store. Never hard-code parameter
+values. Never look them up in a different way.</p>
+<p>In practice, this usually translates to a <code>&amp;RuntimeConfig</code> argument for any
+function that depends on parameter values. This config object implicitly defines
+the protocol version. It should therefore not be cached. It should be read from
+the store once per chunk and then passed down to all functions that need it.</p>
 <h2 id="how-to-add-a-new-parameter"><a class="header" href="#how-to-add-a-new-parameter">How to Add a New Parameter</a></h2>
 <p>First and foremost, if you are feeling lost, open a topic in our Zulip chat
 (<a href="https://near.zulipchat.com/#narrow/stream/295306-pagoda.2Fcontract-runtime">pagoda/contract-runtime</a>).
