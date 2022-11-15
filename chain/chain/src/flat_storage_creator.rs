@@ -248,12 +248,12 @@ impl FlatStorageShardCreator {
                         Ok(())
                     }
                     Some(_) => {
-                        // If all state parts for the current step were fetched, increment the fetching state step.
+                        // Mark that we don't wait for new state parts.
                         self.remaining_state_parts = None;
 
                         let mut store_update = chain_store.store().store_update();
                         if next_start_part_id < num_parts {
-                            // If there are still remaining state parts, switch status to the new one.
+                            // If there are still remaining state parts, switch status to the new range of state parts.
                             let new_status = FetchingStateStatus {
                                 part_id: next_start_part_id,
                                 num_parts_in_step,
@@ -266,6 +266,7 @@ impl FlatStorageShardCreator {
                                 new_status,
                             );
                         } else {
+                            // If all parts were fetched, we can start catchup.
                             debug!(target: "chain", %shard_id, %block_hash, "Finished fetching state");
                             store_helper::remove_fetching_state_status(&mut store_update, shard_id);
                             store_helper::start_catchup(&mut store_update, shard_id);

@@ -252,9 +252,10 @@ pub enum DBCol {
     /// - *Column type*: `FlatStateDelta`
     #[cfg(feature = "protocol_feature_flat_state")]
     FlatStateDeltas,
-    /// Miscellaneous data for flat state. Currently stores flat state head for each shard.
-    /// - *Rows*: shard id
-    /// - *Column type*: block hash (CryptoHash)
+    /// Miscellaneous data for flat state. Stores intermediate flat storage creation statuses and flat
+    /// state heads for each shard.
+    /// - *Rows*: Unique key prefix (e.g. `FLAT_STATE_HEAD_KEY_PREFIX`) + ShardId
+    /// - *Column type*: FetchingStateStatus || bool || CryptoHash
     // TODO (#7327): use only during testing, come up with proper format.
     #[cfg(feature = "protocol_feature_flat_state")]
     FlatStateMisc,

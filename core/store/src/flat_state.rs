@@ -503,6 +503,7 @@ pub mod store_helper {
     use near_primitives::types::ShardId;
     use std::sync::Arc;
 
+    pub const FLAT_STATE_HEAD_KEY_PREFIX: &[u8; 4] = b"HEAD";
     pub const FETCHING_STATE_STEP_KEY_PREFIX: &[u8; 4] = b"STEP";
     pub const CATCHUP_KEY_PREFIX: &[u8; 7] = b"CATCHUP";
 
@@ -535,20 +536,26 @@ pub mod store_helper {
         store_update.delete(crate::DBCol::FlatStateDeltas, &key.try_to_vec().unwrap());
     }
 
+    fn flat_head_key(shard_id: ShardId) -> Vec<u8> {
+        let mut fetching_state_step_key = FLAT_STATE_HEAD_KEY_PREFIX.to_vec();
+        fetching_state_step_key.extend_from_slice(&shard_id.try_to_vec().unwrap());
+        fetching_state_step_key
+    }
+
     pub fn get_flat_head(store: &Store, shard_id: ShardId) -> Option<CryptoHash> {
         store
-            .get_ser(crate::DBCol::FlatStateMisc, &shard_id.try_to_vec().unwrap())
+            .get_ser(crate::DBCol::FlatStateMisc, &flat_head_key(shard_id))
             .expect("Error reading flat head from storage")
     }
 
     pub fn set_flat_head(store_update: &mut StoreUpdate, shard_id: ShardId, val: &CryptoHash) {
         store_update
-            .set_ser(crate::DBCol::FlatStateMisc, &shard_id.try_to_vec().unwrap(), val)
+            .set_ser(crate::DBCol::FlatStateMisc, &flat_head_key(shard_id), val)
             .expect("Error writing flat head from storage")
     }
 
     pub fn remove_flat_head(store_update: &mut StoreUpdate, shard_id: ShardId) {
-        store_update.delete(crate::DBCol::FlatStateMisc, &shard_id.try_to_vec().unwrap());
+        store_update.delete(crate::DBCol::FlatStateMisc, &flat_head_key(shard_id));
     }
 
     pub(crate) fn get_ref(store: &Store, key: &[u8]) -> Result<Option<ValueRef>, FlatStorageError> {
