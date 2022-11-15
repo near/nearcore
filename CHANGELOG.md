@@ -67,6 +67,8 @@
   information: [#7711](https://github.com/near/nearcore/pull/7711).
 * Change exporter of tracing information from `opentelemetry-jaeger` to
   `opentelemetry-otlp`: [#7563](https://github.com/near/nearcore/pull/7563).
+* Tracing of requests across processes:
+  [#8004](https://github.com/near/nearcore/pull/8004).
 
 ## 1.29.0 [2022-08-15]
 

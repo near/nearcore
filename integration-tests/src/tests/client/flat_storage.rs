@@ -75,28 +75,39 @@ fn test_flat_storage_creation() {
         &genesis,
     ))];
     let mut env = TestEnv::builder(chain_genesis).runtime_adapters(runtimes.clone()).build();
-    for i in 4..7 {
+    for i in 4..6 {
         env.produce_block(0, i);
     }
 
-    if cfg!(feature = "protocol_feature_flat_state") {
-        // At first, flat storage state should start saving deltas. Deltas for all newly processed blocks should be saved to
-        // disk.
-        assert_eq!(
-            store_helper::get_flat_storage_state_status(&store, 0),
-            FlatStorageStateStatus::SavingDeltas
-        );
-        for i in 4..7 {
-            let block_hash = env.clients[0].chain.get_block_hash_by_height(i).unwrap();
-            assert_matches!(store_helper::get_delta(&store, 0, block_hash), Ok(Some(_)));
-        }
-    } else {
+    if !cfg!(feature = "protocol_feature_flat_state") {
         assert_eq!(
             store_helper::get_flat_storage_state_status(&store, 0),
             FlatStorageStateStatus::DontCreate
         );
         assert_eq!(store_helper::get_flat_head(&store, 0), None);
+        // Stop the test here.
+        return;
     }
+
+    // At first, flat storage state should start saving deltas. Deltas for all newly processed blocks should be saved to
+    // disk.
+    assert_eq!(
+        store_helper::get_flat_storage_state_status(&store, 0),
+        FlatStorageStateStatus::SavingDeltas
+    );
+    for i in 4..6 {
+        let block_hash = env.clients[0].chain.get_block_hash_by_height(i).unwrap();
+        assert_matches!(store_helper::get_delta(&store, 0, block_hash), Ok(Some(_)));
+    }
+
+    // When final head height becomes greater than height on which node started, we must start fetching the state.
+    // We started the node from height 3, and now final head should move to height 4.
+    env.produce_block(0, 6);
+    let final_block_hash = env.clients[0].chain.get_block_hash_by_height(4).unwrap();
+    assert_eq!(
+        store_helper::get_flat_storage_state_status(&store, 0),
+        FlatStorageStateStatus::FetchingState((final_block_hash, 0))
+    );
 
     // TODO: support next statuses once their logic is implemented.
 }

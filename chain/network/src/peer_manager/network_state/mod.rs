@@ -36,13 +36,6 @@ pub(crate) const LIMIT_PENDING_PEERS: usize = 60;
 /// We send these messages multiple times to reduce the chance that they are lost
 const IMPORTANT_MESSAGE_RESENT_COUNT: usize = 3;
 
-/// How much time to wait after we send update nonce request before disconnecting.
-/// This number should be large to handle pair of nodes with high latency.
-const WAIT_ON_TRY_UPDATE_NONCE: time::Duration = time::Duration::seconds(6);
-/// If we see an edge between us and other peer, but this peer is not a current connection, wait this
-/// timeout and in case it didn't become a connected peer, broadcast edge removal update.
-const WAIT_PEER_BEFORE_REMOVE: time::Duration = time::Duration::seconds(6);
-
 struct Runtime {
     handle: tokio::runtime::Handle,
     stop: Arc<tokio::sync::Notify>,
@@ -106,7 +99,7 @@ pub(crate) struct NetworkState {
     /// DO NOT spawn actors from a task on this runtime.
     runtime: Runtime,
     /// PeerManager config.
-    pub config: Arc<config::VerifiedConfig>,
+    pub config: config::VerifiedConfig,
     /// When network state has been constructed.
     pub created_at: time::Instant,
     /// GenesisId of the chain.
@@ -155,7 +148,7 @@ impl NetworkState {
         clock: &time::Clock,
         store: store::Store,
         peer_store: peer_store::PeerStore,
-        config: Arc<config::VerifiedConfig>,
+        config: config::VerifiedConfig,
         genesis_id: GenesisId,
         client: Arc<dyn client::Client>,
         whitelist_nodes: Vec<WhitelistNode>,
@@ -638,7 +631,7 @@ impl NetworkState {
     /// b) there is an edge indicating that we should be disconnected from a peer, but we are connected.
     /// Try to resolve the inconsistency.
     /// We call this function every FIX_LOCAL_EDGES_INTERVAL from peer_manager_actor.rs.
-    pub async fn fix_local_edges(self: &Arc<Self>, clock: &time::Clock) {
+    pub async fn fix_local_edges(self: &Arc<Self>, clock: &time::Clock, timeout: time::Duration) {
         let this = self.clone();
         let clock = clock.clone();
         self.spawn(async move {
@@ -666,7 +659,7 @@ impl NetworkState {
                             // TODO(gprusak): here we should synchronically wait for the RequestUpdateNonce
                             // response (with timeout). Until network round trips are implemented, we just
                             // blindly wait for a while, then check again.
-                            clock.sleep(WAIT_ON_TRY_UPDATE_NONCE).await;
+                            clock.sleep(timeout).await;
                             match this.routing_table_view.get_local_edge(&conn.peer_info.id) {
                                 Some(edge) if edge.edge_type() == EdgeState::Active => return,
                                 _ => conn.stop(None),
@@ -683,7 +676,7 @@ impl NetworkState {
                         async move {
                             // This edge says this is an connected peer, which is currently not in the set of connected peers.
                             // Wait for some time to let the connection begin or broadcast edge removal instead.
-                            clock.sleep(WAIT_PEER_BEFORE_REMOVE).await;
+                            clock.sleep(timeout).await;
                             if this.tier2.load().ready.contains_key(&other_peer) {
                                 return;
                             }

@@ -23,7 +23,10 @@ use crate::types::{
 use actix::fut::future::wrap_future;
 use actix::{Actor, AsyncContext, Context, Handler, Running};
 use anyhow::Context as _;
-use near_o11y::{handler_trace_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
+use near_o11y::{
+    handler_debug_span, handler_trace_span, OpenTelemetrySpanExt, WithSpanContext,
+    WithSpanContextExt,
+};
 use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -45,9 +48,12 @@ const EXPONENTIAL_BACKOFF_RATIO: f64 = 1.1;
 /// The initial waiting time between consecutive attempts to establish connection
 const MONITOR_PEERS_INITIAL_DURATION: time::Duration = time::Duration::milliseconds(10);
 /// How often should we update the routing table
-const UPDATE_ROUTING_TABLE_INTERVAL: time::Duration = time::Duration::milliseconds(1_000);
+pub(crate) const UPDATE_ROUTING_TABLE_INTERVAL: time::Duration =
+    time::Duration::milliseconds(1_000);
 /// How often should we check wheter local edges match the connection pool.
 const FIX_LOCAL_EDGES_INTERVAL: time::Duration = time::Duration::seconds(60);
+/// How much time we give fix_local_edges() to resolve the discrepancies, before forcing disconnect.
+const FIX_LOCAL_EDGES_TIMEOUT: time::Duration = time::Duration::seconds(6);
 
 /// How often to report bandwidth stats.
 const REPORT_BANDWIDTH_STATS_TRIGGER_INTERVAL: time::Duration =
@@ -81,10 +87,6 @@ const PREFER_PREVIOUSLY_CONNECTED_PEER: f64 = 0.6;
 /// Actor that manages peers connections.
 pub struct PeerManagerActor {
     pub(crate) clock: time::Clock,
-    /// Networking configuration.
-    /// TODO(gprusak): this field is duplicated with
-    /// NetworkState.config. Remove it from here.
-    config: Arc<config::VerifiedConfig>,
     /// Peer information for this node.
     my_peer_id: PeerId,
     /// Flag that track whether we started attempts to establish outbound connections.
@@ -133,7 +135,7 @@ impl Actor for PeerManagerActor {
 
     fn started(&mut self, ctx: &mut Self::Context) {
         // Start server if address provided.
-        if let Some(server_addr) = self.config.node_addr {
+        if let Some(server_addr) = self.state.config.node_addr {
             debug!(target: "network", at = ?server_addr, "starting public server");
             let clock = self.clock.clone();
             let state = self.state.clone();
@@ -164,24 +166,24 @@ impl Actor for PeerManagerActor {
         }
 
         // Periodically push network information to client.
-        self.push_network_info_trigger(ctx, self.config.push_info_period);
+        self.push_network_info_trigger(ctx, self.state.config.push_info_period);
 
         // Periodically starts peer monitoring.
-        debug!(target: "network", max_period=?self.config.monitor_peers_max_period, "monitor_peers_trigger");
+        debug!(target: "network",
+               max_period=?self.state.config.monitor_peers_max_period,
+               "monitor_peers_trigger");
         self.monitor_peers_trigger(
             ctx,
             MONITOR_PEERS_INITIAL_DURATION,
-            (MONITOR_PEERS_INITIAL_DURATION, self.config.monitor_peers_max_period),
+            (MONITOR_PEERS_INITIAL_DURATION, self.state.config.monitor_peers_max_period),
         );
 
         let state = self.state.clone();
         let clock = self.clock.clone();
         ctx.spawn(wrap_future(async move {
-            let mut interval =
-                tokio::time::interval(UPDATE_ROUTING_TABLE_INTERVAL.try_into().unwrap());
-            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            let mut interval = time::Interval::new(clock.now(), UPDATE_ROUTING_TABLE_INTERVAL);
             loop {
-                interval.tick().await;
+                interval.tick(&clock).await;
                 let _timer = metrics::PEER_MANAGER_TRIGGER_TIME
                     .with_label_values(&["update_routing_table"])
                     .start_timer();
@@ -197,11 +199,10 @@ impl Actor for PeerManagerActor {
         let clock = self.clock.clone();
         let state = self.state.clone();
         ctx.spawn(wrap_future(async move {
-            let mut interval = tokio::time::interval(FIX_LOCAL_EDGES_INTERVAL.try_into().unwrap());
-            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            let mut interval = time::Interval::new(clock.now(), FIX_LOCAL_EDGES_INTERVAL);
             loop {
-                interval.tick().await;
-                state.fix_local_edges(&clock).await;
+                interval.tick(&clock).await;
+                state.fix_local_edges(&clock, FIX_LOCAL_EDGES_TIMEOUT).await;
             }
         }));
 
@@ -250,21 +251,18 @@ impl PeerManagerActor {
             }
             v
         };
-        let config = Arc::new(config);
         let arbiter = actix::Arbiter::new().handle();
-        let clock = clock.clone();
         let state = Arc::new(NetworkState::new(
             &clock,
             store.clone(),
             peer_store,
-            config.clone(),
+            config,
             genesis_id,
             client,
             whitelist_nodes,
         ));
         Ok(Self::start_in_arbiter(&arbiter, move |_ctx| Self {
             my_peer_id: my_peer_id.clone(),
-            config: config.clone(),
             started_connect_attempts: false,
             state,
             clock,
@@ -321,10 +319,11 @@ impl PeerManagerActor {
             tier2.ready.values().filter(|peer| peer.peer_type == PeerType::Outbound).count()
                 + tier2.outbound_handshakes.len();
 
-        (total_connections < self.config.ideal_connections_lo as usize
+        (total_connections < self.state.config.ideal_connections_lo as usize
             || (total_connections < self.state.max_num_peers.load(Ordering::Relaxed) as usize
-                && potential_outbound_connections < self.config.minimum_outbound_peers as usize))
-            && !self.config.outbound_disabled
+                && potential_outbound_connections
+                    < self.state.config.minimum_outbound_peers as usize))
+            && !self.state.config.outbound_disabled
     }
 
     /// Returns peers close to the highest height
@@ -341,7 +340,8 @@ impl PeerManagerActor {
         infos
             .into_iter()
             .filter(|i| {
-                i.chain_info.height.saturating_add(self.config.highest_peer_horizon) >= max_height
+                i.chain_info.height.saturating_add(self.state.config.highest_peer_horizon)
+                    >= max_height
             })
             .collect()
     }
@@ -394,22 +394,24 @@ impl PeerManagerActor {
         safe_set.extend(whitelisted_peers);
 
         // If there is not enough non-whitelisted peers, return without disconnecting anyone.
-        if tier2.ready.len() - safe_set.len() <= self.config.ideal_connections_hi as usize {
+        if tier2.ready.len() - safe_set.len() <= self.state.config.ideal_connections_hi as usize {
             return;
         }
 
         // If there is not enough outbound peers, add them to the safe set.
         let outbound_peers = filter_peers(&|p| p.peer_type == PeerType::Outbound);
         if outbound_peers.len() + tier2.outbound_handshakes.len()
-            <= self.config.minimum_outbound_peers as usize
+            <= self.state.config.minimum_outbound_peers as usize
         {
             safe_set.extend(outbound_peers);
         }
 
         // If there is not enough archival peers, add them to the safe set.
-        if self.config.archive {
+        if self.state.config.archive {
             let archival_peers = filter_peers(&|p| p.initial_chain_info.archival);
-            if archival_peers.len() <= self.config.archival_peer_connections_lower_bound as usize {
+            if archival_peers.len()
+                <= self.state.config.archival_peer_connections_lower_bound as usize
+            {
                 safe_set.extend(archival_peers);
             }
         }
@@ -420,7 +422,8 @@ impl PeerManagerActor {
             .ready
             .values()
             .filter(|p| {
-                now - p.last_time_received_message.load() < self.config.peer_recent_time_window
+                now - p.last_time_received_message.load()
+                    < self.state.config.peer_recent_time_window
             })
             .cloned()
             .collect();
@@ -428,7 +431,7 @@ impl PeerManagerActor {
         // Sort by established time.
         active_peers.sort_by_key(|p| p.connection_established_time);
         // Saturate safe set with recently active peers.
-        let set_limit = self.config.safe_set_size as usize;
+        let set_limit = self.state.config.safe_set_size as usize;
         for p in active_peers {
             if safe_set.len() >= set_limit {
                 break;
@@ -441,7 +444,7 @@ impl PeerManagerActor {
         if let Some(p) = candidates.choose(&mut rand::thread_rng()) {
             debug!(target: "network", id = ?p.peer_info.id,
                 tier2_len = tier2.ready.len(),
-                ideal_connections_hi = self.config.ideal_connections_hi,
+                ideal_connections_hi = self.state.config.ideal_connections_hi,
                 "Stop active connection"
             );
             p.stop(None);
@@ -484,7 +487,7 @@ impl PeerManagerActor {
                 |peer_state| {
                     // Ignore connecting to ourself
                     self.my_peer_id == peer_state.peer_info.id
-                    || self.config.node_addr == peer_state.peer_info.addr
+                    || self.state.config.node_addr == peer_state.peer_info.addr
                     // Or to peers we are currently trying to connect to
                     || tier2.outbound_handshakes.contains(&peer_state.peer_info.id)
                 },
@@ -1018,7 +1021,7 @@ impl Handler<WithSpanContext<PeerManagerMessageRequest>> for PeerManagerActor {
         ctx: &mut Self::Context,
     ) -> Self::Result {
         let msg_type: &str = (&msg.msg).into();
-        let (_span, msg) = handler_trace_span!(target: "network", msg, msg_type);
+        let (_span, msg) = handler_debug_span!(target: "network", msg, msg_type);
         let _timer =
             metrics::PEER_MANAGER_MESSAGES_TIME.with_label_values(&[(&msg).into()]).start_timer();
         self.handle_peer_manager_message(msg, ctx)
