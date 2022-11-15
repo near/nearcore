@@ -322,7 +322,7 @@ impl Chain {
             .map(|v| {
                 let peer_id = make_peer_id(rng);
                 Arc::new(
-                    make_account_data(rng, clock.now_utc(), v.public_key(), peer_id)
+                    make_account_data(rng, 1, clock.now_utc(), v.public_key(), peer_id)
                         .sign(v)
                         .unwrap(),
                 )
@@ -375,6 +375,7 @@ pub fn make_peer_addr(rng: &mut impl Rng, ip: net::IpAddr) -> PeerAddr {
 
 pub fn make_account_data(
     rng: &mut impl Rng,
+    version: u64,
     timestamp: time::Utc,
     account_key: PublicKey,
     peer_id: PeerId,
@@ -398,6 +399,7 @@ pub fn make_account_data(
         ],
         peer_id,
         account_key,
+        version,
         timestamp,
     }
 }
@@ -405,7 +407,7 @@ pub fn make_account_data(
 pub fn make_signed_account_data(rng: &mut impl Rng, clock: &time::Clock) -> SignedAccountData {
     let signer = make_validator_signer(rng);
     let peer_id = make_peer_id(rng);
-    make_account_data(rng, clock.now_utc(), signer.public_key(), peer_id).sign(&signer).unwrap()
+    make_account_data(rng, 1, clock.now_utc(), signer.public_key(), peer_id).sign(&signer).unwrap()
 }
 
 // Accessors for creating malformed SignedAccountData

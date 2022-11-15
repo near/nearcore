@@ -2,6 +2,7 @@ use crate::blacklist;
 use crate::concurrency::rate;
 use crate::network_protocol::PeerAddr;
 use crate::network_protocol::PeerInfo;
+use crate::peer::peer_actor::NETWORK_MESSAGE_MAX_SIZE_BYTES;
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::peer_store;
 use crate::sink::Sink;
@@ -175,6 +176,11 @@ pub struct NetworkConfig {
     //   * ignoring received deleted edges as well
     pub skip_tombstones: Option<time::Duration>,
 
+    /// Maximal throughput allowed per TIER2 connection.
+    pub tier2_connection_throughput_bytes: rate::Limit,
+    /// Maximal throughput allowed, shared across TIER1 connections.
+    pub tier1_total_throughput_bytes: rate::Limit,
+
     /// TEST-ONLY
     /// TODO(gprusak): make it pub(crate), once all integration tests
     /// are merged into near_network.
@@ -289,6 +295,14 @@ impl NetworkConfig {
             routing_table_update_rate_limit: rate::Limit { qps: 0.5, burst: 1 },
             features,
             inbound_disabled: cfg.experimental.inbound_disabled,
+            tier2_connection_throughput_bytes: rate::Limit {
+                qps: NETWORK_MESSAGE_MAX_SIZE_BYTES as f64,
+                burst: NETWORK_MESSAGE_MAX_SIZE_BYTES as u64,
+            },
+            tier1_total_throughput_bytes: rate::Limit {
+                qps: (20 * bytesize::MIB) as f64,
+                burst: (40 * bytesize::MIB) as u64,
+            },
             skip_tombstones: if cfg.experimental.skip_sending_tombstones_seconds > 0 {
                 Some(time::Duration::seconds(cfg.experimental.skip_sending_tombstones_seconds))
             } else {
@@ -350,8 +364,8 @@ impl NetworkConfig {
             outbound_disabled: false,
             inbound_disabled: false,
             archive: false,
-            accounts_data_broadcast_rate_limit: rate::Limit { qps: 100., burst: 1000000 },
-            routing_table_update_rate_limit: rate::Limit { qps: 100., burst: 1000000 },
+            accounts_data_broadcast_rate_limit: rate::Limit { qps: 100., burst: 1000000000000 },
+            routing_table_update_rate_limit: rate::Limit { qps: 100., burst: 10000000000000 },
             features: Features {
                 tier1: Some(Tier1 {
                     // The tick is triggered manually.
@@ -363,6 +377,11 @@ impl NetworkConfig {
                     enable_outbound: true,
                 }),
             },
+            tier2_connection_throughput_bytes: rate::Limit {
+                qps: 1000000000.,
+                burst: 1000000000000000,
+            },
+            tier1_total_throughput_bytes: rate::Limit { qps: 1000000000., burst: 1000000000000000 },
             skip_tombstones: None,
             event_sink: Sink::null(),
         }
@@ -484,6 +503,7 @@ mod test {
                 .collect(),
             account_key: signer.public_key(),
             peer_id: data::make_peer_id(&mut rng),
+            version: 0,
             timestamp: clock.now_utc(),
         };
         let sad = ad.sign(&signer).unwrap();

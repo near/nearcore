@@ -191,7 +191,7 @@ impl Connection {
                         for d in ds.into_iter().flatten() {
                             match sum.entry(d.account_key.clone()) {
                                 Entry::Occupied(mut x) => {
-                                    if x.get().timestamp < d.timestamp {
+                                    if x.get().version < d.version {
                                         x.insert(d);
                                     }
                                 }

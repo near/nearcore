@@ -335,6 +335,7 @@ impl ActorHandler {
                     s.accounts_data.load().data.values().cloned().collect::<HashSet<_>>()
                 })
                 .await;
+            tracing::info!(target:"dupa","got = {:?}",got);
             if &got == want {
                 break;
             }

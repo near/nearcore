@@ -191,13 +191,7 @@ impl NetworkState {
             accounts_data: Arc::new(accounts_data::Cache::new()),
             routing_table_view: RoutingTableView::new(store, config.node_id()),
             tier1_route_back: Mutex::new(RouteBackCache::default()),
-            tier1_recv_limiter: rate::Limiter::new(
-                clock,
-                rate::Limit {
-                    qps: (20 * bytesize::MIB) as f64,
-                    burst: (40 * bytesize::MIB) as u64,
-                },
-            ),
+            tier1_recv_limiter: rate::Limiter::new(clock, config.tier1_total_throughput_bytes),
             recent_routed_messages: Mutex::new(lru::LruCache::new(
                 RECENT_ROUTED_MESSAGES_CACHE_SIZE,
             )),

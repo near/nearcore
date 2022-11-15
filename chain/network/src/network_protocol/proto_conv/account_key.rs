@@ -30,6 +30,7 @@ impl From<&AccountData> for proto::AccountKeyPayload {
                 peer_id: MF::some((&x.peer_id).into()),
                 account_key: MF::some((&x.account_key).into()),
                 proxies: x.proxies.iter().map(Into::into).collect(),
+                version: x.version,
                 timestamp: MF::some(utc_to_proto(&x.timestamp)),
                 ..Default::default()
             })),
@@ -49,6 +50,7 @@ impl TryFrom<&proto::AccountKeyPayload> for AccountData {
             peer_id: try_from_required(&x.peer_id).map_err(Self::Error::PeerId)?,
             account_key: try_from_required(&x.account_key).map_err(Self::Error::AccountKey)?,
             proxies: try_from_slice(&x.proxies).map_err(Self::Error::Peers)?,
+            version: x.version,
             timestamp: map_from_required(&x.timestamp, utc_from_proto)
                 .map_err(Self::Error::Timestamp)?,
         })

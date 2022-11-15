@@ -51,7 +51,7 @@ const MAX_CLOCK_SKEW: time::Duration = time::Duration::minutes(30);
 
 /// Maximum size of network message in encoded format.
 /// We encode length as `u32`, and therefore maximum size can't be larger than `u32::MAX`.
-const NETWORK_MESSAGE_MAX_SIZE_BYTES: usize = 512 * bytesize::MIB as usize;
+pub(crate) const NETWORK_MESSAGE_MAX_SIZE_BYTES: u32 = 512 * bytesize::MIB as u32;
 
 /// Maximum number of transaction messages we will accept between block messages.
 /// The purpose of this constant is to ensure we do not spend too much time deserializing and
@@ -271,10 +271,7 @@ impl PeerActor {
                     async move {
                         let tier2_limiter = rate::Limiter::new(
                             &clock,
-                            rate::Limit {
-                                qps: NETWORK_MESSAGE_MAX_SIZE_BYTES as f64,
-                                burst: NETWORK_MESSAGE_MAX_SIZE_BYTES as u64,
-                            },
+                            network_state.config.tier2_connection_throughput_bytes,
                         );
                         let mut conn = None;
                         loop {
@@ -406,7 +403,7 @@ impl PeerActor {
         let bytes = msg.serialize(enc);
         // TODO(gprusak): sending a too large message should probably be treated as a bug,
         // since dropping messages may lead to hard-to-debug high-level issues.
-        if bytes.len() > NETWORK_MESSAGE_MAX_SIZE_BYTES {
+        if bytes.len() > NETWORK_MESSAGE_MAX_SIZE_BYTES as usize {
             metrics::MessageDropped::InputTooLong.inc_unknown_msg();
             return;
         }

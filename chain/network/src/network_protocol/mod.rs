@@ -95,6 +95,7 @@ pub struct AccountData {
     pub peer_id: PeerId,
     pub proxies: Vec<PeerAddr>,
     pub account_key: PublicKey,
+    pub version: u64,
     pub timestamp: time::Utc,
 }
 

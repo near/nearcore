@@ -7,6 +7,7 @@ use crate::types::{HandshakeFailureReason, PeerMessage};
 use crate::types::{PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg};
 use anyhow::{bail, Context as _};
 use itertools::Itertools as _;
+use rand::Rng as _;
 
 #[test]
 fn deduplicate_edges() {
@@ -47,6 +48,7 @@ fn bad_account_data_size() {
             .collect(),
         account_key: signer.public_key(),
         peer_id: data::make_peer_id(&mut rng),
+        version: rng.gen(),
         timestamp: clock.now_utc(),
     };
     assert!(ad.sign(&signer).is_err());

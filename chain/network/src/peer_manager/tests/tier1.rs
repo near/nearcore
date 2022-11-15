@@ -138,7 +138,7 @@ async fn direct_connections() {
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     let mut pms = vec![];
-    for _ in 0..1 {
+    for _ in 0..5 {
         pms.push(
             peer_manager::testonly::start(
                 clock.clock(),
@@ -151,16 +151,19 @@ async fn direct_connections() {
     }
     let pms: Vec<_> = pms.iter().collect();
 
-    // Connect peers serially.
+    tracing::info!(target:"test", "Connect peers serially.");
     for i in 1..pms.len() {
         pms[i - 1].connect_to(&pms[i].peer_info(), tcp::Tier::T2).await;
     }
 
+    tracing::info!(target:"test", "Set chain info.");
     let chain_info = peer_manager::testonly::make_chain_info(&chain, &pms[..]);
     for pm in &pms {
         pm.set_chain_info(chain_info.clone()).await;
     }
+    tracing::info!(target:"test", "Establish connections.");
     establish_connections(&clock.clock(), &pms[..]).await;
+    tracing::info!(target:"test", "Test clique.");
     test_clique(rng, &pms[..]).await;
 }
 

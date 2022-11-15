@@ -13,7 +13,7 @@
 //!
 //! Strategy:
 //! - handling of SyncAccountsData should be throttled by PeerActor/PeerManagerActor.
-//! - synchronously select interesting AccountData (i.e. those with never timestamp than any
+//! - synchronously select interesting AccountData (i.e. those with newer version than any
 //!   previously seen for the given (account_id,epoch_id) pair.
 //! - asynchronously verify signatures, until an invalid signature is encountered.
 //! - if any signature is invalid, drop validation of the remaining signature and ban the peer
@@ -59,7 +59,7 @@ impl CacheSnapshot {
     fn is_new(&self, d: &SignedAccountData) -> bool {
         self.keys.contains(&d.account_key)
             && match self.data.get(&d.account_key) {
-                Some(old) if old.timestamp >= d.timestamp => false,
+                Some(old) if old.version >= d.version => false,
                 _ => true,
             }
     }
