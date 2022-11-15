@@ -3,6 +3,7 @@ use crate::config;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{PeerAddr, SyncAccountsData};
 use crate::peer;
+use crate::peer::peer_actor::FDS_PER_PEER;
 use crate::peer_manager;
 use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::peer_manager::testonly::NormalAccountData;
@@ -179,17 +180,12 @@ async fn gradual_epoch_change() {
 #[tokio::test(flavor = "multi_thread")]
 async fn rate_limiting() {
     init_test_logger();
-    // Each actix arbiter (in fact, the underlying tokio runtime) creates 4 file descriptors:
-    // 1. eventfd2()
-    // 2. epoll_create1()
-    // 3. fcntl() duplicating one end of some globally shared socketpair()
-    // 4. fcntl() duplicating epoll socket created in (2)
-    // This gives 5 file descriptors per PeerActor (4 + 1 TCP socket).
-    // PeerManager (together with the whole ActixSystem) creates 13 file descriptors.
-    // The usual default soft limit on the number of file descriptors on linux is 1024.
-    // Here we adjust it appropriately to account for test requirements.
+    // Adjust the file descriptors limit, so that we can create many connection in the test.
+    const MAX_CONNECTIONS: usize = 300;
     let limit = rlimit::Resource::NOFILE.get().unwrap();
-    rlimit::Resource::NOFILE.set(std::cmp::min(limit.1, 3000), limit.1).unwrap();
+    rlimit::Resource::NOFILE
+        .set(std::cmp::min(limit.1, (1000 + 2 * FDS_PER_PEER * MAX_CONNECTIONS) as u64), limit.1)
+        .unwrap();
 
     let mut rng = make_rng(921853233);
     let rng = &mut rng;

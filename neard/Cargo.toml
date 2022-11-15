@@ -21,6 +21,7 @@ once_cell.workspace = true
 openssl-probe.workspace = true
 opentelemetry.workspace = true
 rayon.workspace = true
+rlimit.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 shell-escape.workspace = true
@@ -34,6 +35,7 @@ near-amend-genesis = { path = "../tools/amend-genesis" }
 near-chain-configs = { path = "../core/chain-configs" }
 near-dyn-configs = { path = "../core/dyn-configs" }
 near-jsonrpc-primitives = { path = "../chain/jsonrpc-primitives" }
+near-network = { path = "../chain/network" }
 near-mirror = { path = "../tools/mirror" }
 near-primitives = { path = "../core/primitives" }
 near-performance-metrics = { path = "../utils/near-performance-metrics" }
