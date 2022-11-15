@@ -1,0 +1,19 @@
+[package]
+name = "cold-store-tool"
+version = "0.0.0"
+authors.workspace = true
+publish = false
+edition.workspace = true
+
+[dependencies]
+clap.workspace = true
+
+near-store = { path = "../../core/store"}
+nearcore = { path = "../../nearcore"}
+near-chain-configs = { path = "../../core/chain-configs"}
+
+[features]
+cold_store = [
+    "near-store/cold_store",
+    "nearcore/cold_store",
+]
