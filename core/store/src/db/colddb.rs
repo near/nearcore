@@ -48,14 +48,14 @@ impl<D> ColdDB<D> {
     /// Checks which database columns should be accessed from.
     ///
     /// For columns present in cold database (see [`DBCol::is_in_colddb`],
-    /// returns false.  For [`DBCol::BlockHeader`] returns true.  For other
-    /// (hot) columns logs an error and returns false (i.e. they are still read
-    /// from cold database which will result in empty read).
+    /// returns false.  For [`DBCol::BlockHeader`] and [`DBCol::EpochInfo`]
+    /// returns true.  For other (hot) columns logs an error and returns false
+    /// (i.e. they are still read from cold database which will result in empty
+    /// read).
     fn is_hot_column(col: DBCol) -> bool {
-        if col == DBCol::BlockHeader {
-            // TODO(#3488): Remove this special case once BlockHeader becomes
-            // garbage collected.  This will also allow removal of the `hot`
-            // field from ColdDB.
+        if matches!(col, DBCol::BlockHeader | DBCol::EpochInfo) {
+            // TODO(#3488): Remove BlockHeader from this case once it becomes
+            // garbage collected.
             //
             // Note that at that point it might be beneficial to rather than
             // storing BlockHeader in cold database to translate all accesses to
@@ -129,9 +129,9 @@ impl<D: Database> super::Database for ColdDB<D> {
     /// would be in hot storage.
     fn iter<'a>(&'a self, column: DBCol) -> DBIterator<'a> {
         match column {
-            DBCol::BlockHeader => return self.hot.iter(column),
+            DBCol::BlockHeader | DBCol::EpochInfo => return self.hot.iter(column),
             // Those are the only columns we’re ever iterating over.
-            DBCol::Block | DBCol::ChunkHashesByHeight | DBCol::EpochInfo => (),
+            DBCol::Block | DBCol::ChunkHashesByHeight => (),
             _ => panic!("iter on cold storage is not supported for {column}"),
         }
         let it = self.cold.iter_raw_bytes(column);
@@ -312,7 +312,7 @@ mod test {
     }
 
     fn set(col: DBCol, key: &[u8]) -> DBOp {
-        DBOp::Set { col: col, key: key.to_vec(), value: VALUE.to_vec() }
+        DBOp::Set { col, key: key.to_vec(), value: VALUE.to_vec() }
     }
 
     /// Prettifies raw key for display.
@@ -456,24 +456,20 @@ mod test {
         let db = create_test_db();
 
         let mut ops: Vec<_> = [DBCol::BlockHeader, DBCol::Block, DBCol::EpochInfo]
-            .iter()
-            .map(|col| set(*col, HASH))
+            .into_iter()
+            .map(|col| set(col, HASH))
             .collect();
         ops.push(set(DBCol::ChunkHashesByHeight, HEIGHT_LE));
         db.write(DBTransaction { ops }).unwrap();
 
-        // BlockHeader is special since it’s read from hot database.  Note that
-        // we’re also populating BlockHeader above but that value should not be
-        // read.
-        db.hot
-            .write(DBTransaction {
-                ops: vec![DBOp::Set {
-                    col: DBCol::BlockHeader,
-                    key: HASH.to_vec(),
-                    value: "Hot FooBar".into(),
-                }],
-            })
-            .unwrap();
+        fn hot(col: DBCol) -> DBOp {
+            let value = String::from("Hot FooBar").into();
+            DBOp::Set { col, key: HASH.to_vec(), value }
+        }
+
+        let ops: Vec<_> =
+            [DBCol::BlockHeader, DBCol::Block, DBCol::EpochInfo].into_iter().map(hot).collect();
+        db.hot.write(DBTransaction { ops }).unwrap();
 
         let mut result = Vec::<String>::new();
         for col in [DBCol::BlockHeader, DBCol::Block, DBCol::EpochInfo, DBCol::ChunkHashesByHeight]
@@ -502,7 +498,7 @@ mod test {
         [cold] (11111111111111111111111111111111, FooBar)
         [raw ] (11111111111111111111111111111111, FooBar)
         EpochInfo
-        [cold] (11111111111111111111111111111111, FooBar)
+        [cold] (11111111111111111111111111111111, Hot FooBar)
         [raw ] (11111111111111111111111111111111, FooBar)
         ChunkHashesByHeight
         [cold] (le(42), FooBar)
