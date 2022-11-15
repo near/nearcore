@@ -389,8 +389,8 @@ impl PeerManagerActor {
                 .values()
                 .filter(|p| {
                     p.last_block
-                        .read()
-                        .unwrap()
+                        .load()
+                        .as_ref()
                         .map(|x| x.height.saturating_add(UNRELIABLE_PEER_HORIZON) < my_height)
                         .unwrap_or(true)
                 })
@@ -789,10 +789,10 @@ impl PeerManagerActor {
                     } else {
                         let mut matching_peers = vec![];
                         for (peer_id, peer) in &self.state.tier2.load().ready {
-                            let last_block = peer.last_block.read().unwrap();
+                            let last_block = peer.last_block.load();
                             if (peer.archival || !target.only_archival)
                                 && last_block.is_some()
-                                && last_block.unwrap().height >= target.min_height
+                                && last_block.as_ref().unwrap().height >= target.min_height
                                 && peer.tracked_shards.contains(&target.shard_id)
                             {
                                 matching_peers.push(peer_id.clone());

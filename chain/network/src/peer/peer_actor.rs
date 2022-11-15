@@ -36,7 +36,7 @@ use std::fmt::Debug;
 use std::io;
 use std::net::SocketAddr;
 use std::sync::atomic::Ordering;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use tracing::{debug, error, info, warn, Instrument};
 
 /// Maximum number of messages per minute from single peer.
@@ -499,7 +499,7 @@ impl PeerActor {
             genesis_id: handshake.sender_chain_info.genesis_id.clone(),
             tracked_shards: handshake.sender_chain_info.tracked_shards.clone(),
             archival: handshake.sender_chain_info.archival,
-            last_block: RwLock::new(None),
+            last_block: Default::default(),
             peer_type: self.peer_type,
             stats: self.stats.clone(),
             _peer_connections_metric: metrics::PEER_CONNECTIONS.new_point(&metrics::Connection {
@@ -811,9 +811,9 @@ impl PeerActor {
             PeerMessage::Block(block) => {
                 let hash = *block.hash();
                 let height = block.header().height();
-                let mut last_block = conn.last_block.write().unwrap();
+                let last_block = conn.last_block.load();
                 if last_block.is_none() || last_block.unwrap().height <= height {
-                    *last_block = Some(BlockInfo { height, hash });
+                    conn.last_block.store(Arc::new(Some(BlockInfo { height, hash })));
                 }
                 let mut tracker = self.tracker.lock();
                 tracker.push_received(hash);

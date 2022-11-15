@@ -10,6 +10,7 @@ use crate::private_actix::SendMessage;
 use crate::stats::metrics;
 use crate::time;
 use crate::types::{BlockInfo, FullPeerInfo, PeerChainInfo, PeerType, ReasonForBan};
+use arc_swap::ArcSwap;
 use near_o11y::WithSpanContextExt;
 use near_primitives::block::GenesisId;
 use near_primitives::network::PeerId;
@@ -18,7 +19,7 @@ use std::collections::{hash_map::Entry, HashMap};
 use std::fmt;
 use std::future::Future;
 use std::sync::atomic::AtomicU64;
-use std::sync::{Arc, RwLock, Weak};
+use std::sync::{Arc, Weak};
 
 #[cfg(test)]
 mod tests;
@@ -54,7 +55,7 @@ pub(crate) struct Connection {
     pub tracked_shards: Vec<ShardId>,
     /// Denote if a node is running in archival mode or not.
     pub archival: bool,
-    pub last_block: RwLock<Option<BlockInfo>>,
+    pub last_block: ArcSwap<Option<BlockInfo>>,
 
     /// Who started connection. Inbound (other) or Outbound (us).
     pub peer_type: PeerType,
@@ -90,7 +91,7 @@ impl Connection {
     pub fn full_peer_info(&self) -> FullPeerInfo {
         let chain_info = PeerChainInfo {
             genesis_id: self.genesis_id.clone(),
-            last_block: *self.last_block.read().unwrap(),
+            last_block: self.last_block.load().as_ref().clone(),
             tracked_shards: self.tracked_shards.clone(),
             archival: self.archival,
         };
