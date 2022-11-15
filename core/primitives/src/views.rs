@@ -356,7 +356,7 @@ pub struct KnownProducerView {
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct Tier1ProxyView {
-    pub addr : std::net::SocketAddr,
+    pub addr: std::net::SocketAddr,
     pub peer_id: PublicKey,
 }
 

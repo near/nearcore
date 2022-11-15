@@ -237,7 +237,7 @@ pub fn make_hash<R: Rng>(rng: &mut R) -> CryptoHash {
 pub fn make_account_keys(signers: &[InMemoryValidatorSigner]) -> AccountKeys {
     let mut account_keys = AccountKeys::new();
     for s in signers {
-        account_keys.entry(s.validator_id().clone()).or_default().push(s.public_key());
+        account_keys.entry(s.validator_id().clone()).or_default().insert(s.public_key());
     }
     account_keys
 }

@@ -21,7 +21,7 @@ use near_primitives::views::{
     AccountDataView, KnownProducerView, NetworkInfoView, PeerInfoView, Tier1ProxyView,
 };
 use once_cell::sync::OnceCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -119,7 +119,7 @@ impl KnownPeerStatus {
 /// Set of account keys.
 /// This is information which chain pushes to network to implement tier1.
 /// See ChainInfo.
-pub type AccountKeys = HashMap<AccountId, Vec<PublicKey>>;
+pub type AccountKeys = HashMap<AccountId, HashSet<PublicKey>>;
 
 /// Network-relevant data about the chain.
 // TODO(gprusak): it is more like node info, or sth.
