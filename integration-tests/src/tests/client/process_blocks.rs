@@ -31,11 +31,11 @@ use near_client::{
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
 use near_network::test_utils::{wait_or_panic, MockPeerManagerAdapter};
 use near_network::types::{
-    ConnectedPeerInfo, HighestHeightPeerInfo, NetworkInfo, PeerChainInfo,
+    BlockInfo, ConnectedPeerInfo, HighestHeightPeerInfo, NetworkInfo, PeerChainInfo,
     PeerManagerMessageRequest, PeerManagerMessageResponse,
 };
 use near_network::types::{FullPeerInfo, NetworkRequests, NetworkResponses};
-use near_network::types::{PeerChainInfoV2, PeerInfo, ReasonForBan};
+use near_network::types::{PeerInfo, ReasonForBan};
 use near_o11y::testonly::{init_integration_logger, init_test_logger};
 use near_o11y::WithSpanContextExt;
 use near_primitives::block::{Approval, ApprovalInner};
@@ -1031,7 +1031,7 @@ fn client_sync_headers() {
                     peer_info: peer_info2.clone(),
                     chain_info: PeerChainInfo {
                         genesis_id: Default::default(),
-                        height: 5,
+                        last_block: Some(BlockInfo { height: 5, hash: hash(&[5]) }),
                         tracked_shards: vec![],
                         archival: false,
                     },
@@ -1042,6 +1042,7 @@ fn client_sync_headers() {
                     peer_info: peer_info2,
                     genesis_id: Default::default(),
                     highest_block_height: 5,
+                    highest_block_hash: hash(&[5]),
                     tracked_shards: vec![],
                     archival: false,
                 }],
