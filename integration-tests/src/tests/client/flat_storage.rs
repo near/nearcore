@@ -2,17 +2,22 @@ use assert_matches::assert_matches;
 use near_chain::{ChainGenesis, RuntimeAdapter};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
-use near_o11y::testonly::init_test_logger;
-use near_store::flat_state::{store_helper, FlatStorageStateStatus};
+// use near_o11y::testonly::init_test_logger;
+use near_primitives_core::types::BlockHeight;
+use near_store::flat_state::{
+    store_helper, FetchingStateStatus, FlatStorageStateStatus, NUM_PARTS_IN_ONE_STEP,
+};
 use near_store::test_utils::create_test_store;
 use nearcore::config::GenesisExt;
 use std::path::Path;
 use std::sync::Arc;
+use std::thread;
+use std::time::Duration;
 
 /// Check correctness of flat storage creation.
 #[test]
 fn test_flat_storage_creation() {
-    init_test_logger();
+    // init_test_logger();
     let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
     let chain_genesis = ChainGenesis::new(&genesis);
     let store = create_test_store();
@@ -104,10 +109,52 @@ fn test_flat_storage_creation() {
     // We started the node from height 3, and now final head should move to height 4.
     env.produce_block(0, 6);
     let final_block_hash = env.clients[0].chain.get_block_hash_by_height(4).unwrap();
+    assert_eq!(store_helper::get_flat_head(&store, 0), Some(final_block_hash));
     assert_eq!(
         store_helper::get_flat_storage_state_status(&store, 0),
-        FlatStorageStateStatus::FetchingState((final_block_hash, 0))
+        FlatStorageStateStatus::FetchingState(FetchingStateStatus {
+            part_id: 0,
+            num_parts_in_step: NUM_PARTS_IN_ONE_STEP,
+            num_parts: 1,
+        })
     );
 
-    // TODO: support next statuses once their logic is implemented.
+    // Run chain for a couple of blocks and check that statuses switch to `CatchingUp` and then to `Ready`.
+    // State is being fetched in rayon threads, but we expect it to finish in <30s because state is small and there is
+    // only one state part.
+    const BLOCKS_TIMEOUT: BlockHeight = 30;
+    let start_height = 8;
+    let mut next_height = start_height;
+    let mut was_catching_up = false;
+    while next_height < start_height + BLOCKS_TIMEOUT {
+        println!("producing block {next_height}");
+        env.produce_block(0, next_height);
+        next_height += 1;
+        match store_helper::get_flat_storage_state_status(&store, 0) {
+            FlatStorageStateStatus::FetchingState(..) => {
+                assert!(!was_catching_up, "Flat storage state status inconsistency: it was catching up before fetching state");
+            }
+            FlatStorageStateStatus::CatchingUp => {
+                was_catching_up = true;
+            }
+            FlatStorageStateStatus::Ready => {
+                assert!(
+                    was_catching_up,
+                    "Flat storage state is ready but there was no flat storage catchup observed"
+                );
+                break;
+            }
+            status @ _ => {
+                panic!(
+                    "Unexpected flat storage state status for height {next_height}: {:?}",
+                    status
+                );
+            }
+        }
+        thread::sleep(Duration::from_secs(1));
+    }
+    if next_height == start_height + BLOCKS_TIMEOUT {
+        let status = store_helper::get_flat_storage_state_status(&store, 0);
+        panic!("Apparently, node didn't fetch the whole state in {BLOCKS_TIMEOUT} blocks. Current status: {:?}", status);
+    }
 }
