@@ -51,7 +51,7 @@ This is a thing in its own category, do check it out:
 
 ## Language Mastery
 
-* [Rust for Rustaceans](ttps://nostarch.com/rust-rustaceans) — the book to read
+* [Rust for Rustaceans](https://nostarch.com/rust-rustaceans) — the book to read
   after "The Book".
 * [Tokio docs](https://tokio.rs/tokio/tutorial) explain asynchronous programming
   in Rust (async/await).
