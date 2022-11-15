@@ -1239,7 +1239,11 @@ impl<'a> VMLogic<'a> {
                 .checked_add(fees_config_cfg.data_receipt_creation_config.base_cost.exec_fee())
                 .ok_or(HostError::IntegerOverflow)?;
         }
-        self.gas_counter.pay_action_accumulated(burn_gas, burn_gas, ActionCosts::new_data_receipt_base)
+        self.gas_counter.pay_action_accumulated(
+            burn_gas,
+            burn_gas,
+            ActionCosts::new_data_receipt_base,
+        )
     }
 
     /// A helper function to subtract balance on transfer or attached deposit for promises.
