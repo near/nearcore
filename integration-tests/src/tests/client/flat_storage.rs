@@ -83,6 +83,7 @@ fn test_flat_storage_creation() {
     for i in 4..6 {
         env.produce_block(0, i);
     }
+    assert!(env.clients[0].runtime_adapter.get_flat_storage_state_for_shard(0).is_none());
 
     if !cfg!(feature = "protocol_feature_flat_state") {
         assert_eq!(
@@ -127,7 +128,6 @@ fn test_flat_storage_creation() {
     let mut next_height = start_height;
     let mut was_catching_up = false;
     while next_height < start_height + BLOCKS_TIMEOUT {
-        println!("producing block {next_height}");
         env.produce_block(0, next_height);
         next_height += 1;
         match store_helper::get_flat_storage_state_status(&store, 0) {
@@ -157,4 +157,7 @@ fn test_flat_storage_creation() {
         let status = store_helper::get_flat_storage_state_status(&store, 0);
         panic!("Apparently, node didn't fetch the whole state in {BLOCKS_TIMEOUT} blocks. Current status: {:?}", status);
     }
+
+    // Finally, check that flat storage state was created.
+    assert!(env.clients[0].runtime_adapter.get_flat_storage_state_for_shard(0).is_some());
 }
