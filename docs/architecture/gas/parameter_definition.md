@@ -10,7 +10,27 @@ starting from version 53. To see all parameter values for a specific version at
 once, check out the list of JSON snapshots generated in this directory:
 [core/primitives/src/runtime/snapshots](https://github.com/near/nearcore/blob/d0dc37bf81f7e7bde9c560403b085fae04108659/core/primitives/src/runtime/snapshots).
 
-<!-- TODO: Runtime Config Store -->
+## Using Parameters in Code
+
+The introduction on this page already hints at it. Parameter values are
+versioned. In other words, they can change between protocol versions. A nearcore
+binary has to support multiple versions and choose the correct parameter value at
+runtime.
+
+To make this easy, there is
+[`RuntimeConfigStore`](https://github.com/near/nearcore/blob/a8964d200b3938a63d389263bc39c1bcd75b1de4/core/primitives/src/runtime/config_store.rs#L43).
+It contains a sparse map from protocol versions to complete runtime
+configurations (`BTreeMap<ProtocolVersion, Arc<RuntimeConfig>>`).
+The runtime then uses `store.get_config(protocol_version)` to access a runtime
+configuration for a specific version.
+
+It is crucial to always use this runtime config store. Never hard-code parameter
+values. Never look them up in a different way.
+
+In practice, this usually translates to a `&RuntimeConfig` argument for any
+function that depends on parameter values. This config object implicitly defines
+the protocol version. It should therefore not be cached. It should be read from
+the store once per chunk and then passed down to all functions that need it.
 
 ## How to Add a New Parameter
 
