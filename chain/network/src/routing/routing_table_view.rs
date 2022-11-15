@@ -150,20 +150,11 @@ impl RoutingTableView {
         let mut inner = self.0.lock();
         let mut res = vec![];
         for aa in aas {
-<<<<<<< HEAD
-            // Broadcast should happen iff we don't have the account in cache.
-            // If it was in storage but not in cache, it means that we haven't
-            // included it in the initial sync.
-            match inner.account_peers.get(&aa.account_id) {
-                Some(old) if old.epoch_id == aa.epoch_id => continue,
-                _ => {}
-=======
             // We skip broadcasting stuff that is already broadcasted.
             if inner.account_peers_broadcasted.get(&aa.account_id).map(|x| &x.epoch_id)
                 == Some(&aa.epoch_id)
             {
                 continue;
->>>>>>> origin/master
             }
             inner.account_peers.put(aa.account_id.clone(), aa.clone());
             inner.account_peers_broadcasted.put(aa.account_id.clone(), aa.clone());

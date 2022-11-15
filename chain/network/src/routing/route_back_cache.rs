@@ -344,7 +344,6 @@ mod test {
     #[test]
     fn prefer_evict() {
         let clock = time::FakeClock::default();
-        clock.set_auto_advance(time::Duration::ZERO);
         let mut cache = RouteBackCache::new(3, time::Duration::milliseconds(100), 1);
         let (peer0, hash0) = create_message(0);
         let (peer1, hash1) = create_message(1);
@@ -369,7 +368,6 @@ mod test {
     #[test]
     fn prefer_full() {
         let clock = time::FakeClock::default();
-        clock.set_auto_advance(time::Duration::ZERO);
         let mut cache = RouteBackCache::new(3, time::Duration::milliseconds(100000), 1);
         let (peer0, hash0) = create_message(0);
         let (peer1, hash1) = create_message(1);

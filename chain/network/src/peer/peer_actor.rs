@@ -38,6 +38,7 @@ use std::io;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use tracing::Instrument as _;
 
 /// Maximum number of messages per minute from single peer.
 // TODO(#5453): current limit is way to high due to us sending lots of messages during sync.
@@ -1074,15 +1075,23 @@ impl PeerActor {
                     conn.send_message(Arc::new(PeerMessage::SyncRoutingTable(
                         RoutingTableUpdate::from_edges(vec![edge]),
                     )));
-                    network_state.config.event_sink.push(Event::MessageProcessed(peer_msg));
+                    network_state
+                        .config
+                        .event_sink
+                        .push(Event::MessageProcessed(conn.tier, peer_msg));
                 }));
             }
             PeerMessage::SyncRoutingTable(rtu) => {
                 let clock = self.clock.clone();
+                let conn = conn.clone();
                 let network_state = self.network_state.clone();
                 ctx.spawn(wrap_future(async move {
-                    Self::handle_sync_routing_table(&clock, &network_state, conn, rtu).await;
-                    network_state.config.event_sink.push(Event::MessageProcessed(peer_msg));
+                    Self::handle_sync_routing_table(&clock, &network_state, conn.clone(), rtu)
+                        .await;
+                    network_state
+                        .config
+                        .event_sink
+                        .push(Event::MessageProcessed(conn.tier, peer_msg));
                 }));
             }
             PeerMessage::SyncAccountsData(msg) => {
@@ -1104,7 +1113,10 @@ impl PeerActor {
                 }
                 // Early exit, if there is no data in the message.
                 if msg.accounts_data.is_empty() {
-                    network_state.config.event_sink.push(Event::MessageProcessed(peer_msg));
+                    network_state
+                        .config
+                        .event_sink
+                        .push(Event::MessageProcessed(conn.tier, peer_msg));
                     return;
                 }
                 let network_state = self.network_state.clone();
@@ -1120,7 +1132,10 @@ impl PeerActor {
                             }
                         }));
                     }
-                    network_state.config.event_sink.push(Event::MessageProcessed(peer_msg));
+                    network_state
+                        .config
+                        .event_sink
+                        .push(Event::MessageProcessed(conn.tier, peer_msg));
                 }));
             }
             PeerMessage::Routed(mut msg) => {

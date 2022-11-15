@@ -35,15 +35,17 @@ async fn broadcast() {
     .await;
 
     let take_incremental_sync = |ev| match ev {
-        peer::testonly::Event::Network(PME::MessageProcessed(PeerMessage::SyncAccountsData(
-            msg,
-        ))) if msg.incremental => Some(msg),
+        peer::testonly::Event::Network(PME::MessageProcessed(
+            tcp::Tier::T2,
+            PeerMessage::SyncAccountsData(msg),
+        )) if msg.incremental => Some(msg),
         _ => None,
     };
     let take_full_sync = |ev| match ev {
-        peer::testonly::Event::Network(PME::MessageProcessed(PeerMessage::SyncAccountsData(
-            msg,
-        ))) if !msg.incremental => Some(msg),
+        peer::testonly::Event::Network(PME::MessageProcessed(
+            tcp::Tier::T2,
+            PeerMessage::SyncAccountsData(msg),
+        )) if !msg.incremental => Some(msg),
         _ => None,
     };
 
@@ -60,7 +62,6 @@ async fn broadcast() {
         incremental: true,
         requesting_full_sync: false,
     };
-<<<<<<< HEAD
     let want: HashSet<_> = msg.accounts_data.iter().cloned().collect();
     peer1.send(PeerMessage::SyncAccountsData(msg)).await;
     pm.wait_for_accounts_data(&want).await;

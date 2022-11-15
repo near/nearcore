@@ -29,15 +29,16 @@ use near_o11y::{
 };
 use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
-use near_primitives::network::PeerId;
-use near_primitives::views::{KnownPeerStateView, PeerStoreView};
+use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::views::{EdgeView, KnownPeerStateView, NetworkGraphView, PeerStoreView};
 use rand::seq::IteratorRandom;
 use rand::thread_rng;
 use rand::Rng;
 use std::cmp::min;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use tracing::Instrument as _;
 
 /// Ratio between consecutive attempts to establish connection with another peer.
 /// In the kth step node should wait `10 * EXPONENTIAL_BACKOFF_RATIO**k` milliseconds
@@ -45,7 +46,8 @@ const EXPONENTIAL_BACKOFF_RATIO: f64 = 1.1;
 /// The initial waiting time between consecutive attempts to establish connection
 const MONITOR_PEERS_INITIAL_DURATION: time::Duration = time::Duration::milliseconds(10);
 /// How often should we update the routing table
-pub(crate) = const UPDATE_ROUTING_TABLE_INTERVAL: time::Duration = time::Duration::milliseconds(1_000);
+pub(crate) const UPDATE_ROUTING_TABLE_INTERVAL: time::Duration =
+    time::Duration::milliseconds(1_000);
 /// How often should we check wheter local edges match the connection pool.
 const FIX_LOCAL_EDGES_INTERVAL: time::Duration = time::Duration::seconds(60);
 /// How much time we give fix_local_edges() to resolve the discrepancies, before forcing disconnect.
@@ -137,7 +139,7 @@ impl actix::Actor for PeerManagerActor {
         self.push_network_info_trigger(ctx, self.state.config.push_info_period);
 
         // Periodically starts peer monitoring.
-        tracing::debug!(target: "network", max_period=?self.config.monitor_peers_max_period, "monitor_peers_trigger");
+        tracing::debug!(target: "network", max_period=?self.state.config.monitor_peers_max_period, "monitor_peers_trigger");
         self.monitor_peers_trigger(
             ctx,
             MONITOR_PEERS_INITIAL_DURATION,
@@ -161,7 +163,7 @@ impl actix::Actor for PeerManagerActor {
                     .await;
             }
         }));
-        
+
         let clock = self.clock.clone();
         let state = self.state.clone();
         ctx.spawn(wrap_future(async move {
@@ -216,7 +218,6 @@ impl PeerManagerActor {
             v
         };
         let my_peer_id = config.node_id();
-        let config = Arc::new(config);
         let arbiter = actix::Arbiter::new().handle();
         let clock = clock.clone();
         let state = Arc::new(NetworkState::new(
@@ -297,9 +298,7 @@ impl PeerManagerActor {
         });
         Ok(Self::start_in_arbiter(&arbiter, move |_ctx| Self {
             my_peer_id: my_peer_id.clone(),
-            config: config.clone(),
             started_connect_attempts: false,
-            last_peer_outbound_attempt: Default::default(),
             state,
             clock,
         }))
@@ -515,7 +514,7 @@ impl PeerManagerActor {
 
         self.state.peer_store.unban(&self.clock);
         if let Err(err) = self.state.peer_store.update_connected_peers_last_seen(&self.clock) {
-            error!(target: "network", ?err, "Failed to update peers last seen time.");
+            tracing::error!(target: "network", ?err, "Failed to update peers last seen time.");
         }
 
         if self.is_outbound_bootstrap_needed() {
@@ -544,7 +543,7 @@ impl PeerManagerActor {
                     async move {
                         let result = async {
                             let stream = tcp::Stream::connect(&peer_info, tcp::Tier::T2).await.context("tcp::Stream::connect()")?;
-                            PeerActor::spawn_and_handshake(clock,stream,None,state.clone()).await.context("PeerActor::spawn()")?;
+                            PeerActor::spawn_and_handshake(clock.clone(),stream,None,state.clone()).await.context("PeerActor::spawn()")?;
                             anyhow::Ok(())
                         }.await;
 
@@ -552,7 +551,7 @@ impl PeerManagerActor {
                             tracing::info!(target:"network", ?result, "failed to connect to {peer_info}");
                         }
                         if state.peer_store.peer_connection_attempt(&clock, &peer_info.id, result).is_err() {
-                            error!(target: "network", ?peer_info, "Failed to mark peer as failed.");
+                            tracing::error!(target: "network", ?peer_info, "Failed to mark peer as failed.");
                         }
                     }.instrument(tracing::trace_span!(target: "network", "monitor_peers_trigger_connect"))
                 }));
@@ -990,26 +989,29 @@ impl actix::Handler<WithSpanContext<SetChainInfo>> for PeerManagerActor {
             return;
         }
         let clock = self.clock.clone();
-        ctx.spawn(wrap_future(async move {
-            // This node might have become a TIER1 node due to the change of the key set.
-            // If so we should recompute and readvertise the list of proxies.
-            // This is mostly important in case a node is its own proxy. In all other cases
-            // (when proxies are different nodes) the update of the key set happens asynchronously
-            // and this node won't be able to connect to proxies until it happens (and only the
-            // connected proxies are included in the advertisement). We run tier1_advertise_proxies
-            // periodically in the background anyway to cover those cases.
-            state.tier1_advertise_proxies(&clock).await;
-            // The set of tier1 accounts has changed.
-            // We might miss some data, so we start a full sync with the tier2 peers.
-            state.tier2.broadcast_message(Arc::new(PeerMessage::SyncAccountsData(
-                SyncAccountsData {
-                    incremental: false,
-                    requesting_full_sync: true,
-                    accounts_data: state.accounts_data.load().data.values().cloned().collect(),
-                },
-            )));
-            state.config.event_sink.push(Event::SetChainInfo);
-        }.in_current_span()));
+        ctx.spawn(wrap_future(
+            async move {
+                // This node might have become a TIER1 node due to the change of the key set.
+                // If so we should recompute and readvertise the list of proxies.
+                // This is mostly important in case a node is its own proxy. In all other cases
+                // (when proxies are different nodes) the update of the key set happens asynchronously
+                // and this node won't be able to connect to proxies until it happens (and only the
+                // connected proxies are included in the advertisement). We run tier1_advertise_proxies
+                // periodically in the background anyway to cover those cases.
+                state.tier1_advertise_proxies(&clock).await;
+                // The set of tier1 accounts has changed.
+                // We might miss some data, so we start a full sync with the tier2 peers.
+                state.tier2.broadcast_message(Arc::new(PeerMessage::SyncAccountsData(
+                    SyncAccountsData {
+                        incremental: false,
+                        requesting_full_sync: true,
+                        accounts_data: state.accounts_data.load().data.values().cloned().collect(),
+                    },
+                )));
+                state.config.event_sink.push(Event::SetChainInfo);
+            }
+            .in_current_span(),
+        ));
     }
 }
 

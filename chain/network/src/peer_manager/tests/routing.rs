@@ -2,6 +2,7 @@ use crate::network_protocol::testonly as data;
 use crate::network_protocol::{Edge, Encoding, Ping, RoutedMessageBody, RoutingTableUpdate};
 use crate::peer;
 use crate::peer_manager;
+use crate::peer_manager::peer_manager_actor;
 use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::peer_manager::testonly::start as start_pm;
 use crate::peer_manager::testonly::Event;
@@ -37,7 +38,7 @@ async fn ttl() {
         force_encoding: Some(Encoding::Proto),
         nonce: None,
     };
-    let stream = tcp::Stream::connect(&pm.peer_info()).await.unwrap();
+    let stream = tcp::Stream::connect(&pm.peer_info(), tcp::Tier::T2).await.unwrap();
     let mut peer = peer::testonly::PeerHandle::start_endpoint(clock.clock(), cfg, stream).await;
     peer.complete_handshake().await;
     pm.wait_for_routing_table(&mut clock, &[(peer.cfg.id(), vec![peer.cfg.id()])]).await;
@@ -58,9 +59,10 @@ async fn ttl() {
             let got = peer
                 .events
                 .recv_until(|ev| match ev {
-                    peer::testonly::Event::Network(PME::MessageProcessed(PeerMessage::Routed(
-                        msg,
-                    ))) => Some(msg),
+                    peer::testonly::Event::Network(PME::MessageProcessed(
+                        tcp::Tier::T2,
+                        PeerMessage::Routed(msg),
+                    )) => Some(msg),
                     _ => None,
                 })
                 .await;
@@ -199,7 +201,6 @@ async fn no_edge_broadcast_after_restart() {
             force_encoding: Some(Encoding::Proto),
             nonce: None,
         };
-<<<<<<< HEAD
         let stream = tcp::Stream::connect(&pm.peer_info(), tcp::Tier::T2).await.unwrap();
         let mut peer = peer::testonly::PeerHandle::start_endpoint(clock.clock(), cfg, stream).await;
         peer.complete_handshake().await;
@@ -232,9 +233,10 @@ async fn no_edge_broadcast_after_restart() {
         while pruned != total_edges {
             events
                 .recv_until(|ev| match ev {
-                    Event::PeerManager(PME::MessageProcessed(PeerMessage::SyncRoutingTable {
-                        ..
-                    })) => {
+                    Event::PeerManager(PME::MessageProcessed(
+                        tcp::Tier::T2,
+                        PeerMessage::SyncRoutingTable { .. },
+                    )) => {
                         clock.advance(peer_manager_actor::UPDATE_ROUTING_TABLE_INTERVAL);
                         None
                     }
@@ -377,7 +379,7 @@ async fn do_not_block_announce_account_broadcast() {
     tracing::info!(target:"test", "spawn 2 nodes and announce the account.");
     let pm0 = start_pm(clock.clock(), db0.clone(), chain.make_config(rng), chain.clone()).await;
     let pm1 = start_pm(clock.clock(), db1.clone(), chain.make_config(rng), chain.clone()).await;
-    pm1.connect_to(&pm0.peer_info()).await;
+    pm1.connect_to(&pm0.peer_info(), tcp::Tier::T2).await;
     pm1.announce_account(aa.clone()).await;
     assert_eq!(&aa.peer_id, &pm0.wait_for_account_owner(&aa.account_id).await);
     drop(pm0);
@@ -389,8 +391,8 @@ async fn do_not_block_announce_account_broadcast() {
     let pm0 = start_pm(clock.clock(), db0, chain.make_config(rng), chain.clone()).await;
     let pm1 = start_pm(clock.clock(), db1, chain.make_config(rng), chain.clone()).await;
     let pm2 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
-    pm1.connect_to(&pm0.peer_info()).await;
-    pm2.connect_to(&pm0.peer_info()).await;
+    pm1.connect_to(&pm0.peer_info(), tcp::Tier::T2).await;
+    pm2.connect_to(&pm0.peer_info(), tcp::Tier::T2).await;
     pm1.announce_account(aa.clone()).await;
     assert_eq!(&aa.peer_id, &pm2.wait_for_account_owner(&aa.account_id).await);
 }

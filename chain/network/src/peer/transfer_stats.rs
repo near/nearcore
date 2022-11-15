@@ -83,7 +83,6 @@ mod tests {
     fn test_transfer_stats() {
         let mut ts = TransferStats::default();
         let clock = time::FakeClock::default();
-        clock.set_auto_advance(time::Duration::ZERO);
         assert_eq!(
             ts.minute_stats(&clock.clock()),
             MinuteStats { bytes_per_min: 0, count_per_min: 0 }

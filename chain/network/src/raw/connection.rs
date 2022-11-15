@@ -129,7 +129,7 @@ impl Connection {
         genesis_hash: CryptoHash,
         head_height: BlockHeight,
     ) -> Result<(), ConnectError> {
-        let handshake = PeerMessage::Handshake(Handshake {
+        let handshake = PeerMessage::Tier2Handshake(Handshake {
             protocol_version,
             oldest_supported_version: protocol_version - 2,
             sender_peer_id: self.my_peer_id.clone(),
@@ -149,6 +149,7 @@ impl Connection {
                 1,
                 &self.secret_key,
             ),
+            owned_account: None,
         });
 
         self.write_message(&handshake).await.map_err(ConnectError::IO)?;
@@ -159,7 +160,7 @@ impl Connection {
 
         match message {
             // TODO: maybe check the handshake for sanity
-            PeerMessage::Handshake(_) => {
+            PeerMessage::Tier2Handshake(_) => {
                 tracing::info!(target: "network", "handshake latency: {}", timestamp - start);
             }
             PeerMessage::HandshakeFailure(_peer_info, reason) => {

@@ -2,11 +2,12 @@ use crate::broadcast;
 use crate::config;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
-    Encoding, PeerInfo, PeerMessage, SignedAccountData, SyncAccountsData,
+    EdgeState, Encoding, PeerInfo, PeerMessage, SignedAccountData, SyncAccountsData,
 };
 use crate::peer;
 use crate::peer::peer_actor::ClosingReason;
 use crate::peer_manager::network_state::NetworkState;
+use crate::peer_manager::peer_manager_actor;
 use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::tcp;
 use crate::test_utils;
@@ -14,12 +15,13 @@ use crate::testonly::actix::ActixSystem;
 use crate::testonly::fake_client;
 use crate::time;
 use crate::types::{
-    AccountKeys, ChainInfo, KnownPeerStatus, PeerManagerMessageRequest, PeerManagerMessageResponse,
+    AccountKeys, ChainInfo, KnownPeerStatus, NetworkRequests, PeerManagerMessageRequest,
     SetChainInfo,
 };
 use crate::PeerManagerActor;
-use near_o11y::{WithSpanContext, WithSpanContextExt};
-use near_primitives::network::PeerId;
+use near_o11y::WithSpanContextExt;
+use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::types::AccountId;
 use std::collections::HashSet;
 use std::future::Future;
 use std::pin::Pin;
@@ -312,7 +314,7 @@ impl ActorHandler {
         let clock = clock.clone();
         self.with_state(move |s| async move { s.tier1_advertise_proxies(&clock).await }).await
     }
-    
+
     pub async fn announce_account(&self, aa: AnnounceAccount) {
         self.actix
             .addr
@@ -358,9 +360,10 @@ impl ActorHandler {
             events
                 .recv_until(|ev| match ev {
                     Event::PeerManager(PME::RoutingTableUpdate { .. }) => Some(()),
-                    Event::PeerManager(PME::MessageProcessed(PeerMessage::SyncRoutingTable {
-                        ..
-                    })) => {
+                    Event::PeerManager(PME::MessageProcessed(
+                        _,
+                        PeerMessage::SyncRoutingTable { .. },
+                    )) => {
                         clock.advance(peer_manager_actor::UPDATE_ROUTING_TABLE_INTERVAL);
                         None
                     }

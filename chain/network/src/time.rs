@@ -143,30 +143,6 @@ impl FakeClockInner {
     }
 }
 
-impl FakeClockInner {
-    pub fn now(&mut self) -> Instant {
-        self.advance(self.auto_advance);
-        self.mono
-    }
-    pub fn now_utc(&mut self) -> Utc {
-        self.advance(self.auto_advance);
-        self.utc
-    }
-    pub fn advance_until(&mut self, t: Instant) {
-        if t <= self.mono {
-            return;
-        }
-        let d = t - self.mono;
-        self.mono = t;
-        self.utc += d;
-    }
-    pub fn advance(&mut self, d: Duration) {
-        assert!(d >= Duration::ZERO);
-        self.mono += d;
-        self.utc += d;
-    }
-}
-
 /// TEST-ONLY
 #[derive(Clone)]
 pub struct FakeClock(Arc<Mutex<FakeClockInner>>);

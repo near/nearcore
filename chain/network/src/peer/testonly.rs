@@ -2,7 +2,8 @@ use crate::broadcast;
 use crate::config::NetworkConfig;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
-    Edge, PartialEdgeInfo, PeerIdOrHash, RawRoutedMessage, RoutedMessageBody, RoutedMessageV2,
+    Edge, PartialEdgeInfo, PeerIdOrHash, PeerMessage, RawRoutedMessage, RoutedMessageBody,
+    RoutedMessageV2,
 };
 use crate::peer::peer_actor::{ClosingReason, PeerActor};
 use crate::peer_manager::network_state::NetworkState;
@@ -14,7 +15,7 @@ use crate::tcp;
 use crate::testonly::actix::ActixSystem;
 use crate::testonly::fake_client;
 use crate::time;
-use near_crypto::{InMemorySigner, Signature};
+use near_crypto::Signature;
 use near_o11y::WithSpanContextExt;
 use near_primitives::network::PeerId;
 use std::sync::Arc;
