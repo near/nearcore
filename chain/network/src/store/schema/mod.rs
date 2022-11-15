@@ -96,6 +96,7 @@ impl BorshRepr for KnownPeerStateRepr {
                 .map_err(invalid_data)?,
             last_seen: time::Utc::from_unix_timestamp_nanos(s.last_seen as i128)
                 .map_err(invalid_data)?,
+            last_outbound_attempt: None,
         })
     }
 }

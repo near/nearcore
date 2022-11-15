@@ -30,8 +30,6 @@ use crate::network_protocol;
 use crate::network_protocol::SignedAccountData;
 use crate::types::AccountKeys;
 use near_crypto::PublicKey;
-//use near_primitives::network::PeerId;
-//use near_primitives::types::{AccountId, EpochId};
 use rayon::iter::ParallelBridge;
 use std::collections::HashMap;
 use std::sync::Arc;

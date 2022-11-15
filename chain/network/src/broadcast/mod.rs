@@ -74,7 +74,7 @@ impl<T: Clone + Send> Receiver<T> {
         v
     }
 
-    pub async fn recv_until<U>(&mut self, pred: impl Fn(T) -> Option<U>) -> U {
+    pub async fn recv_until<U>(&mut self, mut pred: impl FnMut(T) -> Option<U>) -> U {
         loop {
             if let Some(u) = pred(self.recv().await) {
                 return u;

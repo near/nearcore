@@ -1,6 +1,11 @@
-use crate::log_config_watcher::{LogConfigWatcher, UpdateBehavior};
+#[cfg(unix)]
+use crate::watchers::Watcher;
+use crate::watchers::{
+    dyn_config_watcher::DynConfig, log_config_watcher::LogConfig, UpdateBehavior,
+};
 use anyhow::Context;
 use clap::{Args, Parser};
+use near_amend_genesis::AmendGenesisCommand;
 use near_chain_configs::GenesisValidationMode;
 use near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofResponse;
 use near_mirror::MirrorCommand;
@@ -9,6 +14,7 @@ use near_o11y::{
     default_subscriber, default_subscriber_with_opentelemetry, BuildEnvFilterError,
     EnvFilterBuilder, OpenTelemetryLevel,
 };
+use near_ping::PingCommand;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::compute_root_from_path;
 use near_primitives::types::{Gas, NumSeats, NumShards};
@@ -94,7 +100,13 @@ impl NeardCmd {
             NeardSubCommand::VerifyProof(cmd) => {
                 cmd.run();
             }
+            NeardSubCommand::Ping(cmd) => {
+                cmd.run()?;
+            }
             NeardSubCommand::Mirror(cmd) => {
+                cmd.run()?;
+            }
+            NeardSubCommand::AmendGenesis(cmd) => {
                 cmd.run()?;
             }
         };
@@ -186,9 +198,16 @@ pub(super) enum NeardSubCommand {
     #[clap(alias = "verify_proof")]
     VerifyProof(VerifyProofSubCommand),
 
+    /// Connects to a NEAR node and sends ping messages to the accounts it sends
+    /// us after the handshake is completed, printing stats to stdout.
+    Ping(PingCommand),
+
     /// Mirror transactions from a source chain to a test chain with state forked
     /// from it, reproducing traffic and state as closely as possible.
     Mirror(MirrorCommand),
+
+    /// Amend a genesis/records file created by `dump-state`.
+    AmendGenesis(AmendGenesisCommand),
 }
 
 #[derive(Parser)]
@@ -211,6 +230,9 @@ pub(super) struct InitCmd {
     /// Specify a custom download URL for the genesis file.
     #[clap(long)]
     download_genesis_url: Option<String>,
+    /// Specify a custom download URL for the records file.
+    #[clap(long)]
+    download_records_url: Option<String>,
     /// Specify a custom download URL for the config file.
     #[clap(long)]
     download_config_url: Option<String>,
@@ -289,6 +311,7 @@ impl InitCmd {
             self.genesis.as_deref(),
             self.download_genesis,
             self.download_genesis_url.as_deref(),
+            self.download_records_url.as_deref(),
             self.download_config,
             self.download_config_url.as_deref(),
             self.boot_nodes.as_deref(),
@@ -464,11 +487,15 @@ async fn wait_for_interrupt_signal(_home_dir: &Path, mut _rx_crash: Receiver<()>
 }
 
 #[cfg(unix)]
+fn update_watchers(home_dir: &Path, behavior: UpdateBehavior) {
+    LogConfig::update(home_dir.join("log_config.json"), &behavior);
+    DynConfig::update(home_dir.join("dyn_config.json"), &behavior);
+}
+
+#[cfg(unix)]
 async fn wait_for_interrupt_signal(home_dir: &Path, mut rx_crash: Receiver<()>) -> &str {
-    let watched_path = home_dir.join("log_config.json");
-    let log_config_watcher = LogConfigWatcher { watched_path };
-    // Apply the logging config file if it exists.
-    log_config_watcher.update(UpdateBehavior::UpdateOnlyIfExists);
+    // Apply all watcher config file if it exists.
+    update_watchers(&home_dir, UpdateBehavior::UpdateOnlyIfExists);
 
     use tokio::signal::unix::{signal, SignalKind};
     let mut sigint = signal(SignalKind::interrupt()).unwrap();
@@ -480,7 +507,7 @@ async fn wait_for_interrupt_signal(home_dir: &Path, mut rx_crash: Receiver<()>) 
              _ = sigint.recv()  => "SIGINT",
              _ = sigterm.recv() => "SIGTERM",
              _ = sighup.recv() => {
-                log_config_watcher.update(UpdateBehavior::UpdateOrReset);
+                update_watchers(&home_dir, UpdateBehavior::UpdateOrReset);
                 continue;
              },
              _ = &mut rx_crash => "ClientActor died",

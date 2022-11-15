@@ -353,7 +353,6 @@ impl PeerActor {
     }
 
     fn parse_message(&mut self, msg: &[u8]) -> Result<PeerMessage, ParsePeerMessageError> {
-        let _span = tracing::trace_span!(target: "network", "parse_message").entered();
         if let Some(e) = self.encoding() {
             return PeerMessage::deserialize(e, msg);
         }
@@ -643,13 +642,12 @@ impl PeerActor {
         let clock = self.clock.clone();
 
         let mut interval =
-            tokio::time::interval(self.network_state.config.peer_stats_period.try_into().unwrap());
-        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            time::Interval::new(clock.now(), self.network_state.config.peer_stats_period);
         ctx.spawn({
             let conn = conn.clone();
             wrap_future(async move {
                 loop {
-                    interval.tick().await;
+                    interval.tick(&clock).await;
                     let sent = tracker.lock().sent_bytes.minute_stats(&clock);
                     let received = tracker.lock().received_bytes.minute_stats(&clock);
                     conn.stats
@@ -692,7 +690,6 @@ impl PeerActor {
             .map(move |res, act: &mut PeerActor, ctx| {
                 match res {
                     Ok(()) => {
-                        tracing::debug!(target:"test", "{}: registered connection to {}",act.network_state.config.node_id(),conn.peer_info.id);
                         act.peer_info = Some(peer_info).into();
                         act.peer_status = PeerStatus::Ready(conn.clone());
                         // Respond to handshake if it's inbound and connection was consolidated.
@@ -715,14 +712,13 @@ impl PeerActor {
                                 }));
                             }
                             // Exchange peers periodically.
+                            let clock = act.clock.clone();
                             let conn = conn.clone();
                             ctx.spawn(wrap_future(async move {
-                                let mut interval =
-                                    tokio::time::interval(REQUEST_PEERS_INTERVAL.try_into().unwrap());
-                                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                                let mut interval = time::Interval::new(clock.now(),REQUEST_PEERS_INTERVAL);
                                 loop {
+                                    interval.tick(&clock).await;
                                     conn.send_message(Arc::new(PeerMessage::PeersRequest));
-                                    interval.tick().await;
                                 }
                             }));
                             // Sync the RoutingTable.
@@ -861,6 +857,7 @@ impl PeerActor {
         msg_hash: CryptoHash,
         body: RoutedMessageBody,
     ) -> Result<Option<RoutedMessageBody>, ReasonForBan> {
+        let _span = tracing::trace_span!(target: "network", "receive_routed_message").entered();
         Ok(match body {
             RoutedMessageBody::TxStatusRequest(account_id, tx_hash) => network_state
                 .client
@@ -929,6 +926,7 @@ impl PeerActor {
         conn: &connection::Connection,
         msg: PeerMessage,
     ) {
+        let _span = tracing::trace_span!(target: "network", "receive_message").entered();
         // This is a fancy way to clone the message iff event_sink is non-null.
         // If you have a better idea on how to achieve that, feel free to improve this.
         let message_processed_event = self
@@ -989,7 +987,7 @@ impl PeerActor {
                     tracing::error!(target: "network", "Peer received unexpected type: {:?}", msg);
                     None
                 }
-            })})
+            })}.in_current_span())
             .map(|res, act: &mut PeerActor, ctx| {
                 match res {
                     // TODO(gprusak): make sure that for routed messages we drop routeback info correctly.
@@ -1008,6 +1006,11 @@ impl PeerActor {
         conn: Arc<connection::Connection>,
         peer_msg: PeerMessage,
     ) {
+        let _span = tracing::trace_span!(
+            target: "network",
+            "handle_msg_ready")
+        .entered();
+
         match peer_msg.clone() {
             PeerMessage::Disconnect => {
                 tracing::debug!(target: "network", "Disconnect signal. Me: {:?} Peer: {:?}", self.my_node_info.id, self.other_peer_id());
@@ -1048,7 +1051,7 @@ impl PeerActor {
             PeerMessage::RequestUpdateNonce(edge_info) => {
                 let clock = self.clock.clone();
                 let network_state = self.network_state.clone();
-                self.network_state.arbiter.spawn(async move {
+                ctx.spawn(wrap_future(async move {
                     let peer_id = &conn.peer_info.id;
                     let edge = match network_state.routing_table_view.get_local_edge(peer_id) {
                         Some(cur_edge)
@@ -1057,41 +1060,32 @@ impl PeerActor {
                         {
                             cur_edge.clone()
                         }
-                        _ => {
-                            let new_edge = Edge::build_with_secret_key(
-                                network_state.config.node_id(),
-                                peer_id.clone(),
-                                edge_info.nonce,
-                                &network_state.config.node_key,
-                                edge_info.signature,
-                            );
-                            if let Err(ban_reason) = network_state
-                                .add_edges_to_routing_table(&clock, vec![new_edge.clone()])
-                                .await
-                            {
+                        _ => match network_state
+                            .finalize_edge(&clock, peer_id.clone(), edge_info)
+                            .await
+                        {
+                            Ok(edge) => edge,
+                            Err(ban_reason) => {
                                 conn.stop(Some(ban_reason));
+                                return;
                             }
-                            new_edge
-                        }
+                        },
                     };
                     conn.send_message(Arc::new(PeerMessage::SyncRoutingTable(
-                        RoutingTableUpdate { accounts: vec![], edges: vec![edge] },
+                        RoutingTableUpdate::from_edges(vec![edge]),
                     )));
-                    network_state
-                        .config
-                        .event_sink
-                        .push(Event::MessageProcessed(tcp::Tier::T2, peer_msg));
-                });
+                    network_state.config.event_sink.push(Event::MessageProcessed(peer_msg));
+                }));
             }
             PeerMessage::SyncRoutingTable(rtu) => {
-                self.handle_sync_routing_table(conn, rtu);
-                self.network_state
-                    .config
-                    .event_sink
-                    .push(Event::MessageProcessed(tcp::Tier::T2, peer_msg));
+                let clock = self.clock.clone();
+                let network_state = self.network_state.clone();
+                ctx.spawn(wrap_future(async move {
+                    Self::handle_sync_routing_table(&clock, &network_state, conn, rtu).await;
+                    network_state.config.event_sink.push(Event::MessageProcessed(peer_msg));
+                }));
             }
             PeerMessage::SyncAccountsData(msg) => {
-                let peer_id = conn.peer_info.id.clone();
                 let network_state = self.network_state.clone();
                 // In case a full sync is requested, immediately send what we got.
                 // It is a microoptimization: we do not send back the data we just received.
@@ -1108,47 +1102,25 @@ impl PeerActor {
                             .collect(),
                     }));
                 }
-                assert!(self.network_state.arbiter.spawn(async move {
-                    async {
-                        // Early exit, if there is no data in the message.
-                        if msg.accounts_data.is_empty() {
-                            return;
-                        }
-                        // Verify and add the new data to the internal state.
-                        let (new_data, err) =
-                            network_state.accounts_data.clone().insert(msg.accounts_data).await;
-                        // Broadcast any new data we have found, even in presence of an error.
-                        // This will prevent a malicious peer from forcing us to re-verify valid
-                        // datasets. See accounts_data::Cache documentation for details.
-                        if new_data.len() > 0 {
-                            let handles: Vec<_> = network_state
-                                .tier2
-                                .load()
-                                .ready
-                                .values()
-                                // Do not send the data back.
-                                .filter(|p| peer_id != p.peer_info.id)
-                                .map(|p| p.send_accounts_data(new_data.clone()))
-                                .collect();
-                            futures_util::future::join_all(handles).await;
-                        }
-                        if let Some(err) = err {
-                            conn.stop(Some(match err {
-                                accounts_data::Error::InvalidSignature => {
-                                    ReasonForBan::InvalidSignature
-                                }
-                                accounts_data::Error::DataTooLarge => ReasonForBan::Abusive,
-                                accounts_data::Error::SingleAccountMultipleData => {
-                                    ReasonForBan::Abusive
-                                }
-                            }));
-                        }
+                // Early exit, if there is no data in the message.
+                if msg.accounts_data.is_empty() {
+                    network_state.config.event_sink.push(Event::MessageProcessed(peer_msg));
+                    return;
+                }
+                let network_state = self.network_state.clone();
+                ctx.spawn(wrap_future(async move {
+                    if let Some(err) = network_state.add_accounts_data(msg.accounts_data).await {
+                        conn.stop(Some(match err {
+                            accounts_data::Error::InvalidSignature => {
+                                ReasonForBan::InvalidSignature
+                            }
+                            accounts_data::Error::DataTooLarge => ReasonForBan::Abusive,
+                            accounts_data::Error::SingleAccountMultipleData => {
+                                ReasonForBan::Abusive
+                            }
+                        }));
                     }
-                    .await;
-                    network_state
-                        .config
-                        .event_sink
-                        .push(Event::MessageProcessed(tcp::Tier::T2, peer_msg));
+                    network_state.config.event_sink.push(Event::MessageProcessed(peer_msg));
                 }));
             }
             PeerMessage::Routed(mut msg) => {
@@ -1253,51 +1225,35 @@ impl PeerActor {
         }
     }
 
-    fn handle_sync_routing_table(
-        &mut self,
+    async fn handle_sync_routing_table(
+        clock: &time::Clock,
+        network_state: &Arc<NetworkState>,
         conn: Arc<connection::Connection>,
         rtu: RoutingTableUpdate,
     ) {
-        // Process edges and add new edges to the routing table. Also broadcast new edges.
-        let edges = rtu.edges;
-        let accounts = rtu.accounts;
-
-        // Filter known accounts before validating them.
-        let old = self
-            .network_state
+        let _span = tracing::trace_span!(target: "network", "handle_sync_routing_table").entered();
+        if let Err(ban_reason) = network_state.add_edges(&clock, rtu.edges).await {
+            conn.stop(Some(ban_reason));
+        }
+        // For every announce we received, we fetch the last announce with the same account_id
+        // that we already broadcasted. Client actor will both verify signatures of the received announces
+        // as well as filter out those which are older than the fetched ones (to avoid overriding
+        // a newer announce with an older one).
+        let old = network_state
             .routing_table_view
-            .get_announces(accounts.iter().map(|a| &a.account_id));
-        let accounts: Vec<(AnnounceAccount, Option<EpochId>)> = accounts
+            .get_broadcasted_announces(rtu.accounts.iter().map(|a| &a.account_id));
+        let accounts: Vec<(AnnounceAccount, Option<EpochId>)> = rtu
+            .accounts
             .into_iter()
             .map(|aa| {
                 let id = aa.account_id.clone();
                 (aa, old.get(&id).map(|old| old.epoch_id.clone()))
             })
             .collect();
-
-        self.network_state.arbiter.spawn({
-            let conn = conn.clone();
-            let network_state = self.network_state.clone();
-            let clock = self.clock.clone();
-            async move {
-                if let Err(ban_reason) =
-                    network_state.add_edges_to_routing_table(&clock, edges).await
-                {
-                    conn.stop(Some(ban_reason));
-                }
-            }
-        });
-        // Ask client to validate accounts before accepting them.
-        self.network_state.arbiter.spawn({
-            let conn = conn.clone();
-            let network_state = self.network_state.clone();
-            async move {
-                match network_state.client.announce_account(accounts).await {
-                    Err(ban_reason) => conn.stop(Some(ban_reason)),
-                    Ok(accounts) => network_state.broadcast_accounts(accounts).await,
-                }
-            }
-        });
+        match network_state.client.announce_account(accounts).await {
+            Err(ban_reason) => conn.stop(Some(ban_reason)),
+            Ok(accounts) => network_state.add_accounts(accounts).await,
+        }
     }
 }
 
@@ -1350,9 +1306,7 @@ impl actix::Actor for PeerActor {
                     Some(ClosingReason::Ban(reason)) => Some(reason),
                     _ => None,
                 };
-                self.network_state.arbiter.spawn(async move {
-                    network_state.unregister(&clock, &conn, ban_reason).await;
-                });
+                network_state.unregister(&clock, &conn, ban_reason);
             }
         }
         actix::Running::Stop
@@ -1406,7 +1360,14 @@ impl actix::Handler<stream::Frame> for PeerActor {
     type Result = ();
     #[perf]
     fn handle(&mut self, stream::Frame(msg): stream::Frame, ctx: &mut Self::Context) {
-        let _span = tracing::trace_span!(target: "network", "handle", handler = "bytes").entered();
+        let _span = tracing::debug_span!(
+            target: "network",
+            "handle",
+            handler = "bytes",
+            actor = "PeerActor",
+            msg_len = msg.len(),
+            peer = %self.peer_info)
+        .entered();
 
         if self.closing_reason.is_some() {
             tracing::warn!(target: "network", "Received message from closing connection {:?}. Ignoring", self.peer_type);

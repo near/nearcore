@@ -20,8 +20,9 @@ use near_chain_configs::{ClientConfig, ProtocolConfigView};
 use near_client_primitives::types::{
     Error, GetBlock, GetBlockError, GetBlockProof, GetBlockProofError, GetBlockProofResponse,
     GetBlockWithMerkleTree, GetChunkError, GetExecutionOutcome, GetExecutionOutcomeError,
-    GetExecutionOutcomesForBlock, GetGasPrice, GetGasPriceError, GetNextLightClientBlockError,
-    GetProtocolConfig, GetProtocolConfigError, GetReceipt, GetReceiptError, GetStateChangesError,
+    GetExecutionOutcomesForBlock, GetGasPrice, GetGasPriceError, GetMaintenanceWindows,
+    GetMaintenanceWindowsError, GetNextLightClientBlockError, GetProtocolConfig,
+    GetProtocolConfigError, GetReceipt, GetReceiptError, GetStateChangesError,
     GetStateChangesWithCauseInBlock, GetStateChangesWithCauseInBlockForTrackedShards,
     GetValidatorInfoError, Query, QueryError, TxStatus, TxStatusError,
 };
@@ -34,6 +35,7 @@ use near_network::types::{
 use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
 use near_performance_metrics_macros::perf;
 use near_primitives::block::{Block, BlockHeader};
+use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, PartialMerkleTree};
 use near_primitives::network::AnnounceAccount;
@@ -43,14 +45,15 @@ use near_primitives::syncing::{
     ShardStateSyncResponseV2,
 };
 use near_primitives::types::{
-    AccountId, BlockId, BlockReference, EpochReference, Finality, MaybeBlockId, ShardId,
-    SyncCheckpoint, TransactionOrReceiptId, ValidatorInfoIdentifier,
+    AccountId, BlockHeight, BlockId, BlockReference, EpochReference, Finality, MaybeBlockId,
+    ShardId, SyncCheckpoint, TransactionOrReceiptId, ValidatorInfoIdentifier,
 };
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
     FinalExecutionOutcomeView, FinalExecutionOutcomeViewEnum, GasPriceView, LightClientBlockView,
-    QueryRequest, QueryResponse, ReceiptView, StateChangesKindsView, StateChangesView,
+    MaintenanceWindowsView, QueryRequest, QueryResponse, ReceiptView, StateChangesKindsView,
+    StateChangesView,
 };
 
 use crate::adapter::{
@@ -244,6 +247,55 @@ impl ViewClientActor {
                 self.chain.get_block(&block_hash).map(Some)
             }
         }
+    }
+
+    /// Returns maintenance windows by account.
+    fn get_maintenance_windows(
+        &self,
+        account_id: AccountId,
+    ) -> Result<MaintenanceWindowsView, near_chain::Error> {
+        let head = self.chain.head()?;
+        let epoch_id = self.runtime_adapter.get_epoch_id(&head.last_block_hash)?;
+        let epoch_info: Arc<EpochInfo> = self.runtime_adapter.get_epoch_info(&epoch_id)?;
+        let num_shards = self.runtime_adapter.num_shards(&epoch_id)?;
+        let cur_block_info = self.runtime_adapter.get_block_info(&head.last_block_hash)?;
+        let next_epoch_start_height =
+            self.runtime_adapter.get_epoch_start_height(cur_block_info.hash())?
+                + self.runtime_adapter.get_epoch_config(&epoch_id)?.epoch_length;
+
+        let mut windows: MaintenanceWindowsView = Vec::new();
+        let mut start_block_of_window: Option<BlockHeight> = None;
+        let last_block_of_epoch = next_epoch_start_height - 1;
+
+        for block_height in head.height..next_epoch_start_height {
+            let bp = epoch_info.sample_block_producer(block_height);
+            let bp = epoch_info.get_validator(bp).account_id().clone();
+            let cps: Vec<AccountId> = (0..num_shards)
+                .into_iter()
+                .map(|shard_id| {
+                    let cp = epoch_info.sample_chunk_producer(block_height, shard_id);
+                    let cp = epoch_info.get_validator(cp).account_id().clone();
+                    cp
+                })
+                .collect();
+            if account_id != bp && !cps.iter().any(|a| *a == account_id) {
+                if let Some(start) = start_block_of_window {
+                    if block_height == last_block_of_epoch {
+                        windows.push(start..block_height + 1);
+                        start_block_of_window = None;
+                    }
+                } else {
+                    start_block_of_window = Some(block_height);
+                }
+            } else if let Some(start) = start_block_of_window {
+                windows.push(start..block_height);
+                start_block_of_window = None;
+            }
+        }
+        if let Some(start) = start_block_of_window {
+            windows.push(start..next_epoch_start_height);
+        }
+        Ok(windows)
     }
 
     fn handle_query(&mut self, msg: Query) -> Result<QueryResponse, QueryError> {
@@ -873,59 +925,53 @@ impl Handler<WithSpanContext<GetExecutionOutcome>> for ViewClientActor {
                     &outcome_proof.block_hash,
                     target_shard_id,
                 )?;
-                match res {
-                    Some((h, target_shard_id)) => {
-                        outcome_proof.block_hash = h;
-                        // Here we assume the number of shards is small so this reconstruction
-                        // should be fast
-                        let outcome_roots = self
-                            .chain
-                            .get_block(&h)?
-                            .chunks()
-                            .iter()
-                            .map(|header| header.outcome_root())
-                            .collect::<Vec<_>>();
-                        if target_shard_id >= (outcome_roots.len() as u64) {
-                            return Err(GetExecutionOutcomeError::InconsistentState {
-                                number_or_shards: outcome_roots.len(),
-                                execution_outcome_shard_id: target_shard_id,
-                            });
-                        }
-                        Ok(GetExecutionOutcomeResponse {
-                            outcome_proof: outcome_proof.into(),
-                            outcome_root_proof: merklize(&outcome_roots).1
-                                [target_shard_id as usize]
-                                .clone(),
-                        })
+                if let Some((h, target_shard_id)) = res {
+                    outcome_proof.block_hash = h;
+                    // Here we assume the number of shards is small so this reconstruction
+                    // should be fast
+                    let outcome_roots = self
+                        .chain
+                        .get_block(&h)?
+                        .chunks()
+                        .iter()
+                        .map(|header| header.outcome_root())
+                        .collect::<Vec<_>>();
+                    if target_shard_id >= (outcome_roots.len() as u64) {
+                        return Err(GetExecutionOutcomeError::InconsistentState {
+                            number_or_shards: outcome_roots.len(),
+                            execution_outcome_shard_id: target_shard_id,
+                        });
                     }
-                    None => Err(GetExecutionOutcomeError::NotConfirmed {
-                        transaction_or_receipt_id: id,
-                    }),
+                    Ok(GetExecutionOutcomeResponse {
+                        outcome_proof: outcome_proof.into(),
+                        outcome_root_proof: merklize(&outcome_roots).1[target_shard_id as usize]
+                            .clone(),
+                    })
+                } else {
+                    Err(GetExecutionOutcomeError::NotConfirmed { transaction_or_receipt_id: id })
                 }
             }
-            Err(e) => match e {
-                near_chain::Error::DBNotFoundErr(_) => {
-                    let head = self.chain.head()?;
-                    let target_shard_id =
-                        self.runtime_adapter.account_id_to_shard_id(&account_id, &head.epoch_id)?;
-                    if self.runtime_adapter.cares_about_shard(
-                        self.validator_account_id.as_ref(),
-                        &head.last_block_hash,
-                        target_shard_id,
-                        true,
-                    ) {
-                        Err(GetExecutionOutcomeError::UnknownTransactionOrReceipt {
-                            transaction_or_receipt_id: id,
-                        })
-                    } else {
-                        Err(GetExecutionOutcomeError::UnavailableShard {
-                            transaction_or_receipt_id: id,
-                            shard_id: target_shard_id,
-                        })
-                    }
+            Err(near_chain::Error::DBNotFoundErr(_)) => {
+                let head = self.chain.head()?;
+                let target_shard_id =
+                    self.runtime_adapter.account_id_to_shard_id(&account_id, &head.epoch_id)?;
+                if self.runtime_adapter.cares_about_shard(
+                    self.validator_account_id.as_ref(),
+                    &head.last_block_hash,
+                    target_shard_id,
+                    true,
+                ) {
+                    Err(GetExecutionOutcomeError::UnknownTransactionOrReceipt {
+                        transaction_or_receipt_id: id,
+                    })
+                } else {
+                    Err(GetExecutionOutcomeError::UnavailableShard {
+                        transaction_or_receipt_id: id,
+                        shard_id: target_shard_id,
+                    })
                 }
-                _ => Err(e.into()),
-            },
+            }
+            Err(err) => Err(err.into()),
         }
     }
 }
@@ -1359,6 +1405,20 @@ impl Handler<WithSpanContext<GetGasPrice>> for ViewClientActor {
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["GetGasPrice"]).start_timer();
         let header = self.maybe_block_id_to_block_header(msg.block_id);
         Ok(GasPriceView { gas_price: header?.gas_price() })
+    }
+}
+
+impl Handler<WithSpanContext<GetMaintenanceWindows>> for ViewClientActor {
+    type Result = Result<MaintenanceWindowsView, GetMaintenanceWindowsError>;
+
+    #[perf]
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<GetMaintenanceWindows>,
+        _ctx: &mut Self::Context,
+    ) -> Self::Result {
+        let (_span, msg) = handler_debug_span!(target: "client", msg);
+        Ok(self.get_maintenance_windows(msg.account_id)?)
     }
 }
 

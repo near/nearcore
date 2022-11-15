@@ -1,5 +1,5 @@
 mod cli;
-mod log_config_watcher;
+mod watchers;
 
 use self::cli::NeardCmd;
 use anyhow::Context;

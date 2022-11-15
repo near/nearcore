@@ -4,6 +4,7 @@ pub mod chunks;
 pub mod config;
 pub mod gas_price;
 pub mod light_client;
+pub mod maintenance;
 pub mod network_info;
 pub mod query;
 pub mod receipts;

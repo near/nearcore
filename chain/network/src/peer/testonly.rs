@@ -14,7 +14,6 @@ use crate::tcp;
 use crate::testonly::actix::ActixSystem;
 use crate::testonly::fake_client;
 use crate::time;
-use crate::types::PeerMessage;
 use near_crypto::{InMemorySigner, Signature};
 use near_o11y::WithSpanContextExt;
 use near_primitives::network::PeerId;
@@ -42,10 +41,6 @@ impl PeerConfig {
     pub fn partial_edge_info(&self, other: &PeerId, nonce: u64) -> PartialEdgeInfo {
         PartialEdgeInfo::new(&self.id(), other, nonce, &self.network.node_key)
     }
-
-    pub fn signer(&self) -> InMemorySigner {
-        InMemorySigner::from_secret_key("node".parse().unwrap(), self.network.node_key.clone())
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,6 +53,7 @@ pub(crate) struct PeerHandle {
     pub cfg: Arc<PeerConfig>,
     actix: ActixSystem<PeerActor>,
     pub events: broadcast::Receiver<Event>,
+    pub edge: Option<Edge>,
 }
 
 impl PeerHandle {
@@ -69,16 +65,20 @@ impl PeerHandle {
             .unwrap();
     }
 
-    pub async fn complete_handshake(&mut self) -> Edge {
-        self.events
-            .recv_until(|ev| match ev {
-                Event::Network(peer_manager_actor::Event::HandshakeCompleted(ev)) => Some(ev.edge),
-                Event::Network(peer_manager_actor::Event::ConnectionClosed(ev)) => {
-                    panic!("handshake failed: {}", ev.reason)
-                }
-                _ => None,
-            })
-            .await
+    pub async fn complete_handshake(&mut self) {
+        self.edge = Some(
+            self.events
+                .recv_until(|ev| match ev {
+                    Event::Network(peer_manager_actor::Event::HandshakeCompleted(ev)) => {
+                        Some(ev.edge)
+                    }
+                    Event::Network(peer_manager_actor::Event::ConnectionClosed(ev)) => {
+                        panic!("handshake failed: {}", ev.reason)
+                    }
+                    _ => None,
+                })
+                .await,
+        );
     }
     pub async fn fail_handshake(&mut self) -> ClosingReason {
         self.events
@@ -124,7 +124,7 @@ impl PeerHandle {
                 store.clone(),
                 peer_store::PeerStore::new(&clock, network_cfg.peer_store.clone(), store.clone())
                     .unwrap(),
-                Arc::new(network_cfg.verify().unwrap()),
+                network_cfg.verify().unwrap(),
                 cfg.chain.genesis_id.clone(),
                 fc,
                 vec![],
@@ -144,6 +144,6 @@ impl PeerHandle {
             PeerActor::spawn(clock, stream, cfg.force_encoding, network_state).unwrap().0
         })
         .await;
-        Self { actix, cfg: cfg_, events: recv }
+        Self { actix, cfg: cfg_, events: recv, edge: None }
     }
 }

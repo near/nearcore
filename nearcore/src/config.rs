@@ -823,6 +823,7 @@ pub fn init_configs(
     genesis: Option<&str>,
     should_download_genesis: bool,
     download_genesis_url: Option<&str>,
+    download_records_url: Option<&str>,
     should_download_config: bool,
     download_config_url: Option<&str>,
     boot_nodes: Option<&str>,
@@ -909,6 +910,19 @@ pub fn init_configs(
             generate_or_load_key(dir, &config.validator_key_file, account_id, None)?;
             generate_or_load_key(dir, &config.node_key_file, Some("node".parse().unwrap()), None)?;
 
+            if let Some(ref filename) = config.genesis_records_file {
+                let records_path = dir.join(filename);
+
+                if let Some(url) = download_records_url {
+                    download_records(&url.to_string(), &records_path)
+                        .context(format!("Failed to download the records file from {}", url))?;
+                } else if should_download_genesis {
+                    let url = get_records_url(&chain_id);
+                    download_records(&url, &records_path)
+                        .context(format!("Failed to download the records file from {}", url))?;
+                }
+            }
+
             // download genesis from s3
             let genesis_path = dir.join("genesis.json");
             let mut genesis_path_str =
@@ -934,7 +948,21 @@ pub fn init_configs(
                 };
             }
 
-            let mut genesis = Genesis::from_file(&genesis_path_str, GenesisValidationMode::Full);
+            let mut genesis = match &config.genesis_records_file {
+                Some(records_file) => {
+                    let records_path = dir.join(records_file);
+                    let records_path_str = records_path
+                        .to_str()
+                        .with_context(|| "Records path must be initialized")?;
+                    Genesis::from_files(
+                        &genesis_path_str,
+                        &records_path_str,
+                        GenesisValidationMode::Full,
+                    )
+                }
+                None => Genesis::from_file(&genesis_path_str, GenesisValidationMode::Full),
+            };
+
             genesis.config.chain_id = chain_id.clone();
 
             genesis.to_file(&dir.join(config.genesis_file));
@@ -1188,6 +1216,13 @@ pub fn get_genesis_url(chain_id: &str) -> String {
     )
 }
 
+pub fn get_records_url(chain_id: &str) -> String {
+    format!(
+        "https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore-deploy/{}/records.json.xz",
+        chain_id,
+    )
+}
+
 pub fn get_config_url(chain_id: &str) -> String {
     format!(
         "https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore-deploy/{}/config.json",
@@ -1200,6 +1235,15 @@ pub fn download_genesis(url: &str, path: &Path) -> Result<(), FileDownloadError>
     let result = run_download_file(url, path);
     if result.is_ok() {
         info!(target: "near", "Saved the genesis file to: {} ...", path.display());
+    }
+    result
+}
+
+pub fn download_records(url: &str, path: &Path) -> Result<(), FileDownloadError> {
+    info!(target: "near", "Downloading records file from: {} ...", url);
+    let result = run_download_file(url, path);
+    if result.is_ok() {
+        info!(target: "near", "Saved the records file to: {} ...", path.display());
     }
     result
 }
@@ -1320,6 +1364,7 @@ fn test_init_config_localnet() {
         false,
         None,
         false,
+        None,
         None,
         false,
         None,

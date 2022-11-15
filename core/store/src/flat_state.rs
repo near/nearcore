@@ -27,10 +27,9 @@
 
 #[allow(unused)]
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
-#[cfg(feature = "protocol_feature_flat_state")]
 const BORSH_ERR: &str = "Borsh cannot fail";
 
-#[derive(strum::AsRefStr, Debug)]
+#[derive(strum::AsRefStr, Debug, PartialEq, Eq)]
 pub enum FlatStorageError {
     /// This means we can't find a path from `flat_head` to the block. Includes `flat_head` hash and block hash,
     /// respectively.
@@ -60,6 +59,7 @@ mod imp {
     use near_primitives::types::ShardId;
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
+    use tracing::debug;
 
     use crate::{Store, StoreUpdate};
 
@@ -219,14 +219,15 @@ mod imp {
                 let flat_storage_state = {
                     let flat_storage_states =
                         self.0.flat_storage_states.lock().expect(POISONED_LOCK_ERR);
-                    // We unwrap here because flat storage state for this shard should already be
-                    // added. If not, it is a bug in our code and we can't keep processing blocks
-                    flat_storage_states
-                        .get(&shard_id)
-                        .unwrap_or_else(|| {
-                            panic!("FlatStorageState for shard {} is not ready", shard_id)
-                        })
-                        .clone()
+                    // It is possible that flat storage state does not exist yet because it is being created in
+                    // background.
+                    match flat_storage_states.get(&shard_id) {
+                        Some(flat_storage_state) => flat_storage_state.clone(),
+                        None => {
+                            debug!(target: "chain", "FlatStorageState is not ready");
+                            return None;
+                        }
+                    }
                 };
                 Some(FlatState {
                     store: self.0.store.clone(),
@@ -317,9 +318,7 @@ use crate::{CryptoHash, Store, StoreUpdate};
 pub use imp::{FlatState, FlatStateFactory};
 use near_primitives::state::ValueRef;
 use near_primitives::types::{BlockHeight, RawStateChangesWithTrieKey, ShardId};
-use std::collections::HashMap;
-#[cfg(feature = "protocol_feature_flat_state")]
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 #[derive(BorshSerialize, BorshDeserialize)]
 pub struct KeyForFlatStateDelta {
@@ -329,7 +328,7 @@ pub struct KeyForFlatStateDelta {
 
 /// Delta of the state for some shard and block, stores mapping from keys to value refs or None, if key was removed in
 /// this block.
-#[derive(BorshSerialize, BorshDeserialize, Default, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Default, Debug, PartialEq, Eq)]
 pub struct FlatStateDelta(HashMap<Vec<u8>, Option<ValueRef>>);
 
 impl<const N: usize> From<[(Vec<u8>, Option<ValueRef>); N]> for FlatStateDelta {
@@ -444,9 +443,46 @@ struct FlatStorageStateInner {
     deltas: HashMap<CryptoHash, Arc<FlatStateDelta>>,
 }
 
+/// Number of parts to which we divide shard state for parallel traversal.
+// TODO: consider changing it for different shards, ensure that shard memory usage / `NUM_PARTS` < X MiB.
+#[allow(unused)]
+const NUM_FETCHED_STATE_PARTS: u64 = 4_000;
+
+/// Number of traversed parts during a single step of fetching state.
+#[allow(unused)]
+pub const NUM_PARTS_IN_ONE_STEP: u64 = 50;
+
+/// If a node has flat storage enabled but it didn't have flat storage data on disk, its creation should be initiated.
+/// Because this is a heavy work requiring ~5h for testnet rpc node and ~10h for testnet archival node, we do it on
+/// background during regular block processing.
+/// This struct reveals what is the current status of creating flat storage data on disk.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FlatStorageStateStatus {
+    /// Flat storage state does not exist. We are saving `FlatStorageDelta`s to disk.
+    /// During this step, we save current chain head, start saving all deltas for blocks after chain head and wait until
+    /// final chain head moves after saved chain head.
+    SavingDeltas,
+    /// Flat storage state misses key-value pairs. We need to fetch Trie state to fill flat storage for some final chain
+    /// head. It is the heaviest step, so it is done in `NUM_FETCHED_STATE_PARTS` / `NUM_PARTS_IN_ONE_STEP` steps.
+    /// During each step we spawn background threads to fill some contiguous range of state keys.
+    /// Status contains block hash for which we fetch the shard state and number of current step. Progress of each step
+    /// is saved to disk, so if creation is interrupted during some step, we don't repeat previous steps, starting from
+    /// the saved step again.
+    #[allow(unused)]
+    FetchingState((CryptoHash, u64)),
+    /// Flat storage data exists on disk but its head is too far away from chain final head. We apply deltas from disk
+    /// until the head reaches final head.
+    #[allow(unused)]
+    CatchingUp,
+    /// Flat storage is ready to use.
+    Ready,
+    /// Flat storage cannot be created.
+    DontCreate,
+}
+
 #[cfg(feature = "protocol_feature_flat_state")]
 pub mod store_helper {
-    use crate::flat_state::{FlatStorageError, KeyForFlatStateDelta};
+    use crate::flat_state::{FlatStorageError, FlatStorageStateStatus, KeyForFlatStateDelta};
     use crate::{FlatStateDelta, Store, StoreUpdate};
     use borsh::BorshSerialize;
     use near_primitives::hash::CryptoHash;
@@ -454,7 +490,9 @@ pub mod store_helper {
     use near_primitives::types::ShardId;
     use std::sync::Arc;
 
-    pub(crate) fn get_delta(
+    pub const FETCHING_STATE_STEP_KEY_PREFIX: &[u8; 4] = b"STEP";
+
+    pub fn get_delta(
         store: &Store,
         shard_id: ShardId,
         block_hash: CryptoHash,
@@ -483,21 +521,20 @@ pub mod store_helper {
         store_update.delete(crate::DBCol::FlatStateDeltas, &key.try_to_vec().unwrap());
     }
 
-    pub(crate) fn get_flat_head(store: &Store, shard_id: ShardId) -> CryptoHash {
+    pub fn get_flat_head(store: &Store, shard_id: ShardId) -> Option<CryptoHash> {
         store
             .get_ser(crate::DBCol::FlatStateMisc, &shard_id.try_to_vec().unwrap())
             .expect("Error reading flat head from storage")
-            .unwrap_or_else(|| panic!("Cannot read flat head for shard {} from storage", shard_id))
     }
 
-    pub(crate) fn set_flat_head(
-        store_update: &mut StoreUpdate,
-        shard_id: ShardId,
-        val: &CryptoHash,
-    ) {
+    pub fn set_flat_head(store_update: &mut StoreUpdate, shard_id: ShardId, val: &CryptoHash) {
         store_update
             .set_ser(crate::DBCol::FlatStateMisc, &shard_id.try_to_vec().unwrap(), val)
             .expect("Error writing flat head from storage")
+    }
+
+    pub fn remove_flat_head(store_update: &mut StoreUpdate, shard_id: ShardId) {
+        store_update.delete(crate::DBCol::FlatStateMisc, &shard_id.try_to_vec().unwrap());
     }
 
     pub(crate) fn get_ref(store: &Store, key: &[u8]) -> Result<Option<ValueRef>, FlatStorageError> {
@@ -524,12 +561,98 @@ pub mod store_helper {
             None => Ok(store_update.delete(crate::DBCol::FlatState, &key)),
         }
     }
+
+    fn fetching_state_step_key(shard_id: ShardId) -> Vec<u8> {
+        let mut fetching_state_step_key = FETCHING_STATE_STEP_KEY_PREFIX.to_vec();
+        fetching_state_step_key.extend_from_slice(&shard_id.try_to_vec().unwrap());
+        fetching_state_step_key
+    }
+
+    fn get_fetching_state_step(store: &Store, shard_id: ShardId) -> Option<u64> {
+        store.get_ser(crate::DBCol::FlatStateMisc, &fetching_state_step_key(shard_id)).expect(
+            format!("Error reading fetching step for flat state for shard {shard_id}").as_str(),
+        )
+    }
+
+    pub fn set_fetching_state_step(store_update: &mut StoreUpdate, shard_id: ShardId, value: u64) {
+        store_update
+            .set_ser(crate::DBCol::FlatStateMisc, &fetching_state_step_key(shard_id), &value)
+            .expect(
+                format!("Error setting fetching step for shard {shard_id} to {value}").as_str(),
+            );
+    }
+
+    fn get_catchup_status(store: &Store, shard_id: ShardId) -> bool {
+        let mut catchup_status_key = FETCHING_STATE_STEP_KEY_PREFIX.to_vec();
+        catchup_status_key.extend_from_slice(&shard_id.try_to_vec().unwrap());
+        let status: Option<bool> =
+            store.get_ser(crate::DBCol::FlatStateMisc, &catchup_status_key).expect(
+                format!("Error reading catchup status for flat state for shard {shard_id}")
+                    .as_str(),
+            );
+        match status {
+            None => false,
+            Some(status) => {
+                assert!(
+                    status,
+                    "Catchup status for flat state for shard {} must be true if stored",
+                    shard_id
+                );
+                true
+            }
+        }
+    }
+
+    pub fn get_flat_storage_state_status(
+        store: &Store,
+        shard_id: ShardId,
+    ) -> FlatStorageStateStatus {
+        match get_flat_head(store, shard_id) {
+            None => FlatStorageStateStatus::SavingDeltas,
+            Some(block_hash) => {
+                if let Some(fetching_state_step) = get_fetching_state_step(store, shard_id) {
+                    FlatStorageStateStatus::FetchingState((block_hash, fetching_state_step))
+                } else if get_catchup_status(store, shard_id) {
+                    FlatStorageStateStatus::CatchingUp
+                } else {
+                    FlatStorageStateStatus::Ready
+                }
+            }
+        }
+    }
+}
+
+#[cfg(not(feature = "protocol_feature_flat_state"))]
+pub mod store_helper {
+    use crate::flat_state::{FlatStateDelta, FlatStorageError, FlatStorageStateStatus};
+    use crate::Store;
+    use near_primitives::hash::CryptoHash;
+    use near_primitives::types::ShardId;
+    use std::sync::Arc;
+
+    pub fn get_flat_head(_store: &Store, _shard_id: ShardId) -> Option<CryptoHash> {
+        None
+    }
+
+    pub fn get_delta(
+        _store: &Store,
+        _shard_id: ShardId,
+        _block_hash: CryptoHash,
+    ) -> Result<Option<Arc<FlatStateDelta>>, FlatStorageError> {
+        Err(FlatStorageError::StorageInternalError)
+    }
+
+    pub fn get_flat_storage_state_status(
+        _store: &Store,
+        _shard_id: ShardId,
+    ) -> FlatStorageStateStatus {
+        FlatStorageStateStatus::DontCreate
+    }
 }
 
 // Unfortunately we don't have access to ChainStore inside this file because of package
 // dependencies, so we create this trait that provides the functions that FlatStorageState needs
 // to access chain information
-#[cfg(feature = "protocol_feature_flat_state")]
 pub trait ChainAccessForFlatStorage {
     fn get_block_info(&self, block_hash: &CryptoHash) -> BlockInfo;
     fn get_block_hashes_at_height(&self, block_height: BlockHeight) -> HashSet<CryptoHash>;
@@ -578,11 +701,9 @@ impl FlatStorageStateInner {
 }
 
 impl FlatStorageState {
-    /// Create a new FlatStorageState for `shard_id`.
-    /// Flat head is initialized to be what is stored on storage.
+    /// Create a new FlatStorageState for `shard_id` using flat head if it is stored on storage.
     /// We also load all blocks with height between flat head to `latest_block_height`
     /// including those on forks into the returned FlatStorageState.
-    #[cfg(feature = "protocol_feature_flat_state")]
     pub fn new(
         store: Store,
         shard_id: ShardId,
@@ -591,7 +712,8 @@ impl FlatStorageState {
         // dependencies, so we pass these functions in to access chain info
         chain_access: &dyn ChainAccessForFlatStorage,
     ) -> Self {
-        let flat_head = store_helper::get_flat_head(&store, shard_id);
+        let flat_head = store_helper::get_flat_head(&store, shard_id)
+            .unwrap_or_else(|| panic!("Cannot read flat head for shard {} from storage", shard_id));
         let flat_head_info = chain_access.get_block_info(&flat_head);
         let flat_head_height = flat_head_info.height;
         let mut blocks = HashMap::from([(

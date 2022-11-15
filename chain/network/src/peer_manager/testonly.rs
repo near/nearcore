@@ -42,35 +42,6 @@ impl actix::Handler<WithNetworkState> for PeerManagerActor {
     }
 }
 
-#[derive(actix::Message, Debug)]
-#[rtype("()")]
-struct CheckConsistency;
-
-impl actix::Handler<WithSpanContext<CheckConsistency>> for PeerManagerActor {
-    type Result = ();
-    /// Checks internal consistency of the PeerManagerActor.
-    /// This is a partial implementation, add more invariant checks
-    /// if needed.
-    fn handle(&mut self, _: WithSpanContext<CheckConsistency>, _: &mut actix::Context<Self>) {
-        // Check that the set of ready connections matches the PeerStore state.
-        let tier2: HashSet<_> = self.state.tier2.load().ready.keys().cloned().collect();
-        let store: HashSet<_> = self
-            .state
-            .peer_store
-            .dump()
-            .into_iter()
-            .filter_map(|state| {
-                if state.status == KnownPeerStatus::Connected {
-                    Some(state.peer_info.id)
-                } else {
-                    None
-                }
-            })
-            .collect();
-        assert_eq!(tier2, store);
-    }
-}
-
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Event {
     Client(fake_client::Event),
@@ -281,8 +252,46 @@ impl ActorHandler {
         conn
     }
 
+    /// Checks internal consistency of the PeerManagerActor.
+    /// This is a partial implementation, add more invariant checks
+    /// if needed.
     pub async fn check_consistency(&self) {
-        self.actix.addr.send(CheckConsistency.with_span_context()).await.unwrap();
+        self.with_state(|s| async move {
+            // Check that the set of ready connections matches the PeerStore state.
+            let tier2: HashSet<_> = s.tier2.load().ready.keys().cloned().collect();
+            let store: HashSet<_> = s
+                .peer_store
+                .dump()
+                .into_iter()
+                .filter_map(|state| {
+                    if state.status == KnownPeerStatus::Connected {
+                        Some(state.peer_info.id)
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            assert_eq!(tier2, store);
+
+            // Check that the local_edges of the graph match the TIER2 connection pool.
+            let node_id = s.config.node_id();
+            let local_edges: HashSet<_> = s
+                .routing_table_view
+                .get_local_edges()
+                .iter()
+                .filter_map(|e| match e.edge_type() {
+                    EdgeState::Active => Some(e.other(&node_id).unwrap().clone()),
+                    EdgeState::Removed => None,
+                })
+                .collect();
+            assert_eq!(tier2, local_edges);
+        })
+        .await
+    }
+
+    pub async fn fix_local_edges(&self, clock: &time::Clock, timeout: time::Duration) {
+        let clock = clock.clone();
+        self.with_state(move |s| async move { s.fix_local_edges(&clock, timeout).await }).await
     }
 
     pub async fn set_chain_info(&self, chain_info: ChainInfo) {
@@ -302,6 +311,17 @@ impl ActorHandler {
     ) -> Vec<Arc<SignedAccountData>> {
         let clock = clock.clone();
         self.with_state(move |s| async move { s.tier1_advertise_proxies(&clock).await }).await
+    }
+    
+    pub async fn announce_account(&self, aa: AnnounceAccount) {
+        self.actix
+            .addr
+            .send(
+                PeerManagerMessageRequest::NetworkRequests(NetworkRequests::AnnounceAccount(aa))
+                    .with_span_context(),
+            )
+            .await
+            .unwrap();
     }
 
     // Awaits until the accounts_data state matches `want`.
@@ -323,25 +343,46 @@ impl ActorHandler {
     }
 
     // Awaits until the routing_table matches `want`.
-    pub async fn wait_for_routing_table(&self, want: &[(PeerId, Vec<PeerId>)]) {
+    pub async fn wait_for_routing_table(
+        &self,
+        clock: &mut time::FakeClock,
+        want: &[(PeerId, Vec<PeerId>)],
+    ) {
         let mut events = self.events.from_now();
         loop {
-            let resp = self
-                .actix
-                .addr
-                .send(PeerManagerMessageRequest::FetchRoutingTable.with_span_context())
-                .await
-                .unwrap();
-            let got = match resp {
-                PeerManagerMessageResponse::FetchRoutingTable(rt) => rt.next_hops,
-                _ => panic!("bad response"),
-            };
+            let got =
+                self.with_state(|s| async move { s.routing_table_view.info().next_hops }).await;
             if test_utils::expected_routing_tables(&got, want) {
                 return;
             }
             events
                 .recv_until(|ev| match ev {
                     Event::PeerManager(PME::RoutingTableUpdate { .. }) => Some(()),
+                    Event::PeerManager(PME::MessageProcessed(PeerMessage::SyncRoutingTable {
+                        ..
+                    })) => {
+                        clock.advance(peer_manager_actor::UPDATE_ROUTING_TABLE_INTERVAL);
+                        None
+                    }
+                    _ => None,
+                })
+                .await;
+        }
+    }
+
+    pub async fn wait_for_account_owner(&self, account: &AccountId) -> PeerId {
+        let mut events = self.events.from_now();
+        loop {
+            let account = account.clone();
+            let got = self
+                .with_state(|s| async move { s.routing_table_view.account_owner(&account).clone() })
+                .await;
+            if let Some(got) = got {
+                return got;
+            }
+            events
+                .recv_until(|ev| match ev {
+                    Event::PeerManager(PME::AccountsAdded(_)) => Some(()),
                     _ => None,
                 })
                 .await;

@@ -126,7 +126,7 @@
         function fetchProducers(epoch_id, producers_callback) {
             $.ajax({
                 type: "GET",
-                url: "/debug/api/epoch_info",
+                url: "../api/epoch_info",
                 success: data => {
                     let epoch_found = false;
                     data.status_response.EpochInfo.forEach(element => {
@@ -166,7 +166,7 @@
             $('span').text("Loading...");
             $.ajax({
                 type: "GET",
-                url: "/debug/api/status",
+                url: "../api/status",
                 success: data => {
 
                     fetchProducers(data.sync_info.epoch_id, (block_producers, chunk_producers) => {
@@ -309,7 +309,7 @@
             $(".tbody-detailed-peer-storage").html("");
             $.ajax({
                 type: "GET",
-                url: "/debug/api/peer_store",
+                url: "../api/peer_store",
                 success: data => {
                     $(".detailed-peer-storage-size").text(data.status_response.PeerStore.peer_states.length);
                     data.status_response.PeerStore.peer_states.forEach(element => {
@@ -321,11 +321,13 @@
                             row.append($("<td>").append(to_human_time(Math.floor(Date.now() / 1000) - element['first_seen'])));
                         row.append($("<td>").append(to_human_time(Math.floor(Date.now() / 1000) - element['last_seen'])));
                         if (element['last_attempt'] != null) {
-                            row.append($("<td>").append(to_human_time(Math.floor(Date.now() / 1000) - element['last_attempt'])));
+                            row.append($("<td>").append(to_human_time(Math.floor(Date.now() / 1000) - element['last_attempt'][0])));
+                            row.append($("<td>").append(element['status'] + " Last attempt: " + element['last_attempt'][1]));
                         } else {
                             row.append($("<td>"));
+                            row.append($("<td>").append(element['status']));
                         }
-                        row.append($("<td>").append(element['status']));
+
                         $(".tbody-detailed-peer-storage").append(row);
                     });
                     $(".detailed-peer-storage-div").show();

@@ -27,6 +27,7 @@ async fn connection_spam_security_test() {
     const PEERS_OVER_LIMIT: usize = 10;
     let mut cfg = chain.make_config(rng);
     cfg.max_num_peers = (LIMIT_PENDING_PEERS + PEERS_OVER_LIMIT) as u32;
+    let mut cfg = chain.make_config(rng);
     // Make sure that connections will never get dropped.
     cfg.handshake_timeout = time::Duration::hours(1);
     let pm = peer_manager::testonly::start(
