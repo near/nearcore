@@ -107,7 +107,7 @@ impl ProfileData {
     }
 
     fn host_gas(&self) -> u64 {
-        ExtCosts::iter().map(|a| self.get_ext_cost(a)).sum()
+        ExtCosts::iter().map(|a| self.get_ext_cost(a)).fold(0, u64::saturating_add)
     }
 
     pub fn action_gas(&self) -> u64 {
@@ -120,7 +120,7 @@ impl ProfileData {
             .collect();
         indices.sort_unstable();
         indices.dedup();
-        indices.into_iter().map(|i| self.data[i]).sum()
+        indices.into_iter().map(|i| self.data[i]).fold(0, u64::saturating_add)
     }
 }
 
