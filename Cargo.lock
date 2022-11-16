@@ -994,6 +994,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cold-store-tool"
+version = "0.0.0"
+dependencies = [
+ "clap 3.1.18",
+ "near-chain-configs",
+ "near-primitives",
+ "near-store",
+ "nearcore",
+]
+
+[[package]]
 name = "combine"
 version = "4.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3729,6 +3740,7 @@ dependencies = [
  "ansi_term",
  "anyhow",
  "clap 3.1.18",
+ "cold-store-tool",
  "futures",
  "near-amend-genesis",
  "near-chain-configs",
