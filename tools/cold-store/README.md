@@ -14,7 +14,7 @@ to recover from them.
 #### Prepare data
 - Run `neard init` / `neard localnet`.  
 - Change your config (`--home-dir`/config.json)
-to not gc larger number of epochs.  
+to not garbage collect larger number of epochs.  
 By default it is 5, 
 but you can change `gc_num_epochs_to_keep` to 1000, for example.  
 Epoch lasts 500 blocks on localnet (as specified in `--home-dir`/genesis.json).
