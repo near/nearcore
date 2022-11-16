@@ -1,4 +1,3 @@
-use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -15,7 +14,7 @@ use near_client_primitives::types::StateSplitApplyingStatus;
 use near_pool::types::PoolIterator;
 use near_primitives::challenge::{ChallengesResult, SlashedValidator};
 use near_primitives::checked_feature;
-use near_primitives::errors::{EpochError, InvalidTxError};
+use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
@@ -545,12 +544,6 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
         state_root: &StateRoot,
     ) -> bool;
 
-    fn compare_epoch_id(
-        &self,
-        epoch_id: &EpochId,
-        other_epoch_id: &EpochId,
-    ) -> Result<Ordering, Error>;
-
     fn chunk_needs_to_be_fetched_from_archival(
         &self,
         chunk_prev_block_hash: &CryptoHash,
@@ -558,17 +551,6 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
     ) -> Result<bool, Error>;
 
     fn get_protocol_config(&self, epoch_id: &EpochId) -> Result<ProtocolConfig, Error>;
-
-    /// Get previous epoch id by hash of previous block.
-    fn get_prev_epoch_id_from_prev_block(
-        &self,
-        prev_block_hash: &CryptoHash,
-    ) -> Result<EpochId, Error>;
-
-    fn get_protocol_upgrade_block_height(
-        &self,
-        block_hash: CryptoHash,
-    ) -> Result<Option<BlockHeight>, EpochError>;
 }
 
 /// The last known / checked height and time when we have processed it.

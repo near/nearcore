@@ -551,12 +551,49 @@ impl EpochManagerAdapter for KeyValueRuntime {
         Ok(epoch_id)
     }
 
+    fn compare_epoch_id(
+        &self,
+        epoch_id: &EpochId,
+        other_epoch_id: &EpochId,
+    ) -> Result<Ordering, Error> {
+        if epoch_id.0 == other_epoch_id.0 {
+            return Ok(Ordering::Equal);
+        }
+        match (self.get_valset_for_epoch(epoch_id), self.get_valset_for_epoch(other_epoch_id)) {
+            (Ok(index1), Ok(index2)) => Ok(index1.cmp(&index2)),
+            _ => Err(Error::EpochOutOfBounds(epoch_id.clone())),
+        }
+    }
+
     fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error> {
         let epoch_id = self.get_epoch_id(block_hash)?;
         match self.get_block_header(&epoch_id.0)? {
             Some(block_header) => Ok(block_header.height()),
             None => Ok(0),
         }
+    }
+
+    fn get_prev_epoch_id_from_prev_block(
+        &self,
+        prev_block_hash: &CryptoHash,
+    ) -> Result<EpochId, Error> {
+        let mut candidate_hash = *prev_block_hash;
+        loop {
+            let header = self
+                .get_block_header(&candidate_hash)?
+                .ok_or_else(|| Error::DBNotFoundErr(candidate_hash.to_string()))?;
+            candidate_hash = *header.prev_hash();
+            if self.is_next_block_epoch_start(&candidate_hash)? {
+                break Ok(self.get_epoch_and_valset(candidate_hash)?.0);
+            }
+        }
+    }
+
+    fn get_estimated_protocol_upgrade_block_height(
+        &self,
+        _block_hash: CryptoHash,
+    ) -> Result<Option<BlockHeight>, EpochError> {
+        Ok(None)
     }
 
     fn get_epoch_block_producers_ordered(
@@ -1323,20 +1360,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         }
     }
 
-    fn compare_epoch_id(
-        &self,
-        epoch_id: &EpochId,
-        other_epoch_id: &EpochId,
-    ) -> Result<Ordering, Error> {
-        if epoch_id.0 == other_epoch_id.0 {
-            return Ok(Ordering::Equal);
-        }
-        match (self.get_valset_for_epoch(epoch_id), self.get_valset_for_epoch(other_epoch_id)) {
-            (Ok(index1), Ok(index2)) => Ok(index1.cmp(&index2)),
-            _ => Err(Error::EpochOutOfBounds(epoch_id.clone())),
-        }
-    }
-
     fn chunk_needs_to_be_fetched_from_archival(
         &self,
         _chunk_prev_block_hash: &CryptoHash,
@@ -1347,22 +1370,6 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn get_protocol_config(&self, _epoch_id: &EpochId) -> Result<ProtocolConfig, Error> {
         unreachable!("get_protocol_config should not be called in KeyValueRuntime");
-    }
-
-    fn get_prev_epoch_id_from_prev_block(
-        &self,
-        prev_block_hash: &CryptoHash,
-    ) -> Result<EpochId, Error> {
-        let mut candidate_hash = *prev_block_hash;
-        loop {
-            let header = self
-                .get_block_header(&candidate_hash)?
-                .ok_or_else(|| Error::DBNotFoundErr(candidate_hash.to_string()))?;
-            candidate_hash = *header.prev_hash();
-            if self.is_next_block_epoch_start(&candidate_hash)? {
-                break Ok(self.get_epoch_and_valset(candidate_hash)?.0);
-            }
-        }
     }
 
     fn will_shard_layout_change_next_epoch(
@@ -1390,13 +1397,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         _state_split_status: Arc<StateSplitApplyingStatus>,
     ) -> Result<HashMap<ShardUId, StateRoot>, Error> {
         Ok(HashMap::new())
-    }
-
-    fn get_protocol_upgrade_block_height(
-        &self,
-        _block_hash: CryptoHash,
-    ) -> Result<Option<BlockHeight>, EpochError> {
-        Ok(None)
     }
 }
 

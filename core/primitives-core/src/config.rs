@@ -578,7 +578,9 @@ impl ExtCostsConfig {
 }
 
 /// Strongly-typed representation of the fees for counting.
-#[derive(Copy, Clone, Hash, PartialEq, Eq, Debug, PartialOrd, Ord, EnumCount, Display)]
+#[derive(
+    Copy, Clone, Hash, PartialEq, Eq, Debug, PartialOrd, Ord, EnumCount, Display, strum::EnumIter,
+)]
 #[allow(non_camel_case_types)]
 pub enum ExtCosts {
     base,
@@ -647,19 +649,27 @@ pub enum ExtCosts {
 }
 
 // Type of an action, used in fees logic.
-#[derive(Copy, Clone, Hash, PartialEq, Eq, Debug, PartialOrd, Ord, EnumCount, Display)]
+#[derive(
+    Copy, Clone, Hash, PartialEq, Eq, Debug, PartialOrd, Ord, EnumCount, Display, strum::EnumIter,
+)]
 #[allow(non_camel_case_types)]
 pub enum ActionCosts {
     create_account,
     delete_account,
-    deploy_contract,
-    function_call,
+    deploy_contract_base,
+    deploy_contract_byte,
+    function_call_base,
+    function_call_byte,
     transfer,
     stake,
-    add_key,
+    add_full_access_key,
+    add_function_call_key_base,
+    add_function_call_key_byte,
     delete_key,
     value_return,
-    new_receipt,
+    new_action_receipt,
+    new_data_receipt_base,
+    new_data_receipt_byte,
 }
 
 impl ExtCosts {

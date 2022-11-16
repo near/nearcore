@@ -1853,7 +1853,7 @@ impl ClientActor {
             validator_epoch_stats,
             self.client
                 .runtime_adapter
-                .get_protocol_upgrade_block_height(head.last_block_hash)
+                .get_estimated_protocol_upgrade_block_height(head.last_block_hash)
                 .unwrap_or(None)
                 .unwrap_or(0),
             statistics,
