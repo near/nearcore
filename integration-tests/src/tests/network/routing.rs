@@ -12,36 +12,6 @@ fn from_boot_nodes() -> anyhow::Result<()> {
 }
 
 #[test]
-fn three_nodes_path() -> anyhow::Result<()> {
-    let mut runner = Runner::new(3, 2);
-
-    runner.push(Action::AddEdge { from: 0, to: 1, force: true });
-    runner.push(Action::AddEdge { from: 1, to: 2, force: true });
-    runner.push(Action::CheckRoutingTable(1, vec![(0, vec![0]), (2, vec![2])]));
-    runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1]), (2, vec![1])]));
-    runner.push(Action::CheckRoutingTable(2, vec![(1, vec![1]), (0, vec![1])]));
-
-    start_test(runner)
-}
-
-#[test]
-fn three_nodes_star() -> anyhow::Result<()> {
-    let mut runner = Runner::new(3, 2);
-
-    runner.push(Action::AddEdge { from: 0, to: 1, force: true });
-    runner.push(Action::AddEdge { from: 1, to: 2, force: true });
-    runner.push(Action::CheckRoutingTable(1, vec![(0, vec![0]), (2, vec![2])]));
-    runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1]), (2, vec![1])]));
-    runner.push(Action::CheckRoutingTable(2, vec![(1, vec![1]), (0, vec![1])]));
-    runner.push(Action::AddEdge { from: 0, to: 2, force: true });
-    runner.push(Action::CheckRoutingTable(1, vec![(0, vec![0]), (2, vec![2])]));
-    runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1]), (2, vec![2])]));
-    runner.push(Action::CheckRoutingTable(2, vec![(1, vec![1]), (0, vec![0])]));
-
-    start_test(runner)
-}
-
-#[test]
 fn join_components() -> anyhow::Result<()> {
     let mut runner = Runner::new(4, 4);
 

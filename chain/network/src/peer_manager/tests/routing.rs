@@ -41,6 +41,98 @@ async fn simple() {
     pm1.wait_for_routing_table(&mut clock, &[(id0.clone(), vec![id0.clone()])]).await;
 }
 
+// test routing for three nodes in a line
+#[tokio::test]
+async fn three_nodes_path() {
+    init_test_logger();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
+    let pm0 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
+    let pm1 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
+    let pm2 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
+
+    pm0.connect_to(&pm1.peer_info()).await;
+    pm1.connect_to(&pm2.peer_info()).await;
+
+    let id0 = pm0.cfg.node_id();
+    let id1 = pm1.cfg.node_id();
+    let id2 = pm2.cfg.node_id();
+
+    pm0.wait_for_routing_table(
+        &mut clock,
+        &[(id1.clone(), vec![id1.clone()]), (id2.clone(), vec![id1.clone()])],
+    )
+    .await;
+    pm1.wait_for_routing_table(
+        &mut clock,
+        &[(id0.clone(), vec![id0.clone()]), (id2.clone(), vec![id2.clone()])],
+    )
+    .await;
+    pm2.wait_for_routing_table(
+        &mut clock,
+        &[(id0.clone(), vec![id1.clone()]), (id1.clone(), vec![id1.clone()])],
+    )
+    .await;
+}
+
+// test routing for three nodes in a line, then for a triangle
+#[tokio::test]
+async fn three_nodes_star() {
+    init_test_logger();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
+    let pm0 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
+    let pm1 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
+    let pm2 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
+
+    pm0.connect_to(&pm1.peer_info()).await;
+    pm1.connect_to(&pm2.peer_info()).await;
+
+    let id0 = pm0.cfg.node_id();
+    let id1 = pm1.cfg.node_id();
+    let id2 = pm2.cfg.node_id();
+
+    pm0.wait_for_routing_table(
+        &mut clock,
+        &[(id1.clone(), vec![id1.clone()]), (id2.clone(), vec![id1.clone()])],
+    )
+    .await;
+    pm1.wait_for_routing_table(
+        &mut clock,
+        &[(id0.clone(), vec![id0.clone()]), (id2.clone(), vec![id2.clone()])],
+    )
+    .await;
+    pm2.wait_for_routing_table(
+        &mut clock,
+        &[(id0.clone(), vec![id1.clone()]), (id1.clone(), vec![id1.clone()])],
+    )
+    .await;
+
+    pm0.connect_to(&pm2.peer_info()).await;
+
+    pm0.wait_for_routing_table(
+        &mut clock,
+        &[(id1.clone(), vec![id1.clone()]), (id2.clone(), vec![id2.clone()])],
+    )
+    .await;
+    pm1.wait_for_routing_table(
+        &mut clock,
+        &[(id0.clone(), vec![id0.clone()]), (id2.clone(), vec![id2.clone()])],
+    )
+    .await;
+    pm2.wait_for_routing_table(
+        &mut clock,
+        &[(id0.clone(), vec![id0.clone()]), (id1.clone(), vec![id1.clone()])],
+    )
+    .await;
+}
+
 // test that TTL is handled property.
 #[tokio::test]
 async fn ttl() {
