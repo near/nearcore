@@ -4121,6 +4121,12 @@ impl Chain {
         self.store.get_block(hash)
     }
 
+    /// Gets the block at chain head
+    pub fn get_head_block(&self) -> Result<Block, Error> {
+        let tip = self.head()?;
+        self.store.get_block(&tip.last_block_hash)
+    }
+
     /// Gets a chunk from hash.
     #[inline]
     pub fn get_chunk(&self, chunk_hash: &ChunkHash) -> Result<Arc<ShardChunk>, Error> {
