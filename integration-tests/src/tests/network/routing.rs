@@ -2,17 +2,6 @@ use crate::tests::network::runner::*;
 use near_network::time;
 
 #[test]
-fn simple() -> anyhow::Result<()> {
-    let mut runner = Runner::new(2, 1);
-
-    runner.push(Action::AddEdge { from: 0, to: 1, force: true });
-    runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1])]));
-    runner.push(Action::CheckRoutingTable(1, vec![(0, vec![0])]));
-
-    start_test(runner)
-}
-
-#[test]
 fn from_boot_nodes() -> anyhow::Result<()> {
     let mut runner = Runner::new(2, 1).use_boot_nodes(vec![0]).enable_outbound();
 
