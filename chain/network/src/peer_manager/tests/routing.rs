@@ -235,12 +235,14 @@ async fn no_edge_broadcast_after_restart() {
 
         // Trigger update_routing_table, which is expected to prune all edges from total_edges.
         // (Since they are unreachable).
-        let mut events = pm.events.from_now(); 
+        let mut events = pm.events.from_now();
         clock.advance(peer_manager_actor::UPDATE_ROUTING_TABLE_INTERVAL);
-        events.recv_until(|ev|match ev {
-            Event::PeerManager(PME::RoutingTableUpdate{..}) => Some(()),
-            _ => None,
-        }).await;
+        events
+            .recv_until(|ev| match ev {
+                Event::PeerManager(PME::RoutingTableUpdate { .. }) => Some(()),
+                _ => None,
+            })
+            .await;
     }
 }
 
