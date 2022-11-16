@@ -3428,7 +3428,7 @@ fn log_validator(account_id: AccountId) {
 }
 <span class="boring">}
 </span></code></pre></pre>
-<p>Note that <code>Option::as_ref</code>, <code>Result::as_ref</code> are great, use do use them!</p>
+<p>Note that <code>Option::as_ref</code>, <code>Result::as_ref</code> are great, do use them!</p>
 <p><strong>Rationale:</strong> readability and churn-resistance. There might be more than one
 <code>AsRef&lt;U&gt;</code> implementation for a given type (with different <code>U</code>s). If a new
 implementation is added, some of the <code>.as_ref()</code> calls might break. See also
