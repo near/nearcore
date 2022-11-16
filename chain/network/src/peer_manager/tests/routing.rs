@@ -160,7 +160,7 @@ async fn wait_for_edges(peer: &mut peer::testonly::PeerHandle, want: &HashSet<Ed
                 PeerMessage::SyncRoutingTable(msg),
             )) => {
                 got.extend(msg.edges);
-                assert!(want.is_superset(&got));
+                assert!(want.is_superset(&got), "want: {:#?}, got: {:#?}", want, got);
             }
             // Ignore other messages.
             _ => {}
