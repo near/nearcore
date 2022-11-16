@@ -119,8 +119,7 @@ impl FlatStorageShardCreator {
         }
         store_update.finish().unwrap();
 
-        progress.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let processed_parts = progress.load(std::sync::atomic::Ordering::Relaxed);
+        let processed_parts = progress.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
 
         debug!(target: "store",
             "Preload subtrie at {hex_prefix} done, \
