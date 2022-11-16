@@ -1,3 +1,4 @@
+use crate::broadcast;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{Edge, Encoding, Ping, RoutedMessageBody, RoutingTableUpdate};
 use crate::peer;
@@ -152,10 +153,13 @@ async fn repeated_data_in_sync_routing_table() {
 
 /// Awaits for SyncRoutingTable messages until all edges from `want` arrive.
 /// Panics if any other edges arrive.
-async fn wait_for_edges(peer: &mut peer::testonly::PeerHandle, want: &HashSet<Edge>) {
+async fn wait_for_edges(
+    mut events: broadcast::Receiver<peer::testonly::Event>,
+    want: &HashSet<Edge>,
+) {
     let mut got = HashSet::new();
     while &got != want {
-        match peer.events.recv().await {
+        match events.recv().await {
             peer::testonly::Event::Network(PME::MessageProcessed(
                 PeerMessage::SyncRoutingTable(msg),
             )) => {
@@ -171,7 +175,9 @@ async fn wait_for_edges(peer: &mut peer::testonly::PeerHandle, want: &HashSet<Ed
 // After each handshake a full sync of routing table is performed with the peer.
 // After a restart, all the edges reside in storage. The node shouldn't broadcast
 // edges which it learned about before the restart.
-// This test takes ~6s because of delays enforced in the PeerManager.
+//
+// TODO(gprusak): This test is quite fragile, because processing edges is not synchronized with
+// recomputing the routing table. Fix that.
 #[tokio::test]
 async fn no_edge_broadcast_after_restart() {
     init_test_logger();
@@ -202,9 +208,10 @@ async fn no_edge_broadcast_after_restart() {
         let stream = tcp::Stream::connect(&pm.peer_info()).await.unwrap();
         let mut peer = peer::testonly::PeerHandle::start_endpoint(clock.clock(), cfg, stream).await;
         peer.complete_handshake().await;
+        pm.wait_for_routing_table(&mut clock, &[(peer.cfg.id(), vec![peer.cfg.id()])]).await;
 
         // Create a bunch of fresh unreachable edges, then send all the edges created so far.
-        let mut fresh_edges: HashSet<_> = [
+        let fresh_edges: HashSet<_> = [
             data::make_edge(&data::make_secret_key(rng), &data::make_secret_key(rng), 1),
             data::make_edge(&data::make_secret_key(rng), &data::make_secret_key(rng), 1),
             data::make_edge_tombstone(&data::make_secret_key(rng), &data::make_secret_key(rng)),
@@ -213,7 +220,8 @@ async fn no_edge_broadcast_after_restart() {
         total_edges.extend(fresh_edges.clone());
         // We capture the events starting here to record all the edge prunnings after the
         // SyncRoutingTable below is processed.
-        let mut events = pm.events.from_now();
+        let mut pm_events = pm.events.from_now();
+        let peer_events = peer.events.from_now();
         peer.send(PeerMessage::SyncRoutingTable(RoutingTableUpdate {
             edges: total_edges.iter().cloned().collect::<Vec<_>>(),
             accounts: vec![],
@@ -222,14 +230,13 @@ async fn no_edge_broadcast_after_restart() {
 
         // Wait for the fresh edges and the connection edge to be broadcasted back.
         tracing::info!(target: "test", "wait_for_edges(<fresh edges>)");
-        fresh_edges.insert(peer.edge.clone().unwrap());
-        wait_for_edges(&mut peer, &fresh_edges).await;
+        wait_for_edges(peer_events, &fresh_edges).await;
 
         // Wait for all the disconnected edges created so far to be saved to storage.
         tracing::info!(target: "test", "wait for pruning");
         let mut pruned = HashSet::new();
         while pruned != total_edges {
-            events
+            pm_events
                 .recv_until(|ev| match ev {
                     Event::PeerManager(PME::MessageProcessed(PeerMessage::SyncRoutingTable {
                         ..
