@@ -377,7 +377,7 @@ impl FlatStorageCreator {
         if creation_needed {
             Some(Self {
                 shard_creators,
-                pool: rayon::ThreadPoolBuilder::new().num_threads(4).build().unwrap(),
+                pool: rayon::ThreadPoolBuilder::new().num_threads(8).build().unwrap(),
             })
         } else {
             None
