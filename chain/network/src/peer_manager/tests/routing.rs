@@ -173,7 +173,10 @@ async fn wait_for_edges(peer: &mut peer::testonly::PeerHandle, want: &HashSet<Ed
 // After each handshake a full sync of routing table is performed with the peer.
 // After a restart, all the edges reside in storage. The node shouldn't broadcast
 // edges which it learned about before the restart.
-// This test takes ~6s because of delays enforced in the PeerManager.
+// 
+// This test is fragile, because the routing table has been implemented
+// in a way that is hard to define, so it doesn't have any reasonable properties to expect and test.
+// Still we want to limit the traffic it generates until we replace it with a reasonable solution.
 #[tokio::test]
 async fn no_edge_broadcast_after_restart() {
     init_test_logger();
@@ -204,6 +207,9 @@ async fn no_edge_broadcast_after_restart() {
         let stream = tcp::Stream::connect(&pm.peer_info()).await.unwrap();
         let mut peer = peer::testonly::PeerHandle::start_endpoint(clock.clock(), cfg, stream).await;
         peer.complete_handshake().await;
+        // Await for the new edge to be received in the initial sync.
+        // It should be the only edge, as all previous edges are in storage.
+        wait_for_edges(&mut peer, &[peer.edge.unwrap().clone()]).await;
 
         // Create a bunch of fresh unreachable edges, then send all the edges created so far.
         let mut fresh_edges: HashSet<_> = [
@@ -224,7 +230,6 @@ async fn no_edge_broadcast_after_restart() {
 
         // Wait for the fresh edges and the connection edge to be broadcasted back.
         tracing::info!(target: "test", "wait_for_edges(<fresh edges>)");
-        fresh_edges.insert(peer.edge.clone().unwrap());
         wait_for_edges(&mut peer, &fresh_edges).await;
 
         // Wait for all the disconnected edges created so far to be saved to storage.

@@ -119,7 +119,7 @@ pub(crate) struct NetworkState {
     /// Peer store that provides read/write access to peers.
     pub peer_store: peer_store::PeerStore,
     /// A graph of the whole NEAR network.
-    pub graph: Arc<RwLock<routing::GraphWithCache>>,
+    pub graph: routing::GraphWithCache,
 
     /// View of the Routing table. It keeps:
     /// - routing information - how to route messages
@@ -187,15 +187,6 @@ impl NetworkState {
         fut: impl std::future::Future<Output = R> + 'static + Send,
     ) -> tokio::task::JoinHandle<R> {
         self.runtime.handle.spawn(fut.in_current_span())
-    }
-
-    pub fn propose_edge(&self, peer1: &PeerId, with_nonce: Option<u64>) -> PartialEdgeInfo {
-        // When we create a new edge we increase the latest nonce by 2 in case we miss a removal
-        // proposal from our partner.
-        let nonce = with_nonce.unwrap_or_else(|| {
-            self.routing_table_view.get_local_edge(peer1).map_or(1, |edge| edge.next())
-        });
-        PartialEdgeInfo::new(&self.config.node_id(), peer1, nonce, &self.config.node_key)
     }
 
     /// Stops peer instance if it is still connected,
@@ -453,150 +444,6 @@ impl NetworkState {
         } else {
             self.send_message_to_peer(clock, msg)
         }
-    }
-
-    pub async fn add_accounts(self: &Arc<NetworkState>, accounts: Vec<AnnounceAccount>) {
-        let this = self.clone();
-        self.spawn(async move {
-            let new_accounts = this.routing_table_view.add_accounts(accounts);
-            tracing::debug!(target: "network", account_id = ?this.config.validator.as_ref().map(|v|v.account_id()), ?new_accounts, "Received new accounts");
-            this.broadcast_routing_table_update(Arc::new(RoutingTableUpdate::from_accounts(
-                new_accounts.clone(),
-            )));
-            this.config.event_sink.push(Event::AccountsAdded(new_accounts));
-        }).await.unwrap()
-    }
-
-    /// Sends list of edges, from peer `peer_id` to check their signatures to `EdgeValidatorActor`.
-    /// Bans peer `peer_id` if an invalid edge is found.
-    /// `PeerManagerActor` periodically runs `broadcast_validated_edges_trigger`, which gets edges
-    /// from `EdgeValidatorActor` concurrent queue and sends edges to be added to `RoutingTableActor`.
-    pub async fn add_edges(
-        self: &Arc<Self>,
-        clock: &time::Clock,
-        edges: Vec<Edge>,
-    ) -> Result<(), ReasonForBan> {
-        let this = self.clone();
-        let clock = clock.clone();
-        self.spawn(async move {
-            // Deduplicate edges.
-            // TODO(gprusak): sending duplicate edges should be considered a malicious behavior
-            // instead, however that would be backward incompatible, so it can be introduced in
-            // PROTOCOL_VERSION 60 earliest.
-            let mut edges = Edge::deduplicate(edges);
-            {
-                let graph = this.graph.read();
-                edges.retain(|x| !graph.has(x));
-            }
-            if edges.is_empty() {
-                return Ok(());
-            }
-            // Verify the edges in parallel on rayon.
-            let (edges, ok) = concurrency::rayon::run(move || {
-                concurrency::rayon::try_map(edges.into_iter().par_bridge(), |e| {
-                    if e.verify() {
-                        Some(e)
-                    } else {
-                        None
-                    }
-                })
-            })
-            .await;
-            this.routing_table_view.add_local_edges(&edges);
-
-            let mut new_edges = match this
-                .routing_table_addr
-                .send(
-                    routing::actor::Message::AddVerifiedEdges { edges: edges.clone() }
-                        .with_span_context(),
-                )
-                .await
-            {
-                Ok(routing::actor::Response::AddVerifiedEdges(new_edges)) => new_edges,
-                Ok(_) => panic!("expected AddVerifiedEdges"),
-                Err(err) => {
-                    tracing::error!(target:"network","routing::actor::Actor closed: {err}");
-                    return Ok(());
-                }
-            };
-            this.config.event_sink.push(Event::EdgesVerified(edges.clone()));
-            // Don't send tombstones during the initial time.
-            // Most of the network is created during this time, which results
-            // in us sending a lot of tombstones to peers.
-            // Later, the amount of new edges is a lot smaller.
-            if let Some(skip_tombstones_duration) = this.config.skip_tombstones {
-                if clock.now() < this.created_at + skip_tombstones_duration {
-                    new_edges.retain(|edge| edge.edge_type() == EdgeState::Active);
-                    metrics::EDGE_TOMBSTONE_SENDING_SKIPPED.inc();
-                }
-            }
-            // Broadcast new edges to all other peers.
-            this.broadcast_routing_table_update(Arc::new(RoutingTableUpdate::from_edges(
-                new_edges,
-            )));
-            if !ok {
-                return Err(ReasonForBan::InvalidEdge);
-            }
-            Ok(())
-        })
-        .await
-        .unwrap()
-    }
-
-    pub async fn update_routing_table(
-        self: &Arc<Self>,
-        prune_unreachable_since: Option<time::Instant>,
-        prune_edges_older_than: Option<time::Utc>,
-    ) {
-        let this = self.clone();
-        self.spawn(async move {
-            let resp = match this
-                .routing_table_addr
-                .send(
-                    routing::actor::Message::RoutingTableUpdate {
-                        prune_unreachable_since,
-                        prune_edges_older_than,
-                    }
-                    .with_span_context(),
-                )
-                .await
-            {
-                Ok(resp) => resp,
-                Err(err) => {
-                    // This can happen only when the PeerManagerActor is being shut down.
-                    tracing::error!(target:"network","routing::actor::Actor: {err}");
-                    return;
-                }
-            };
-            match resp {
-                routing::actor::Response::RoutingTableUpdate { pruned_edges, next_hops } => {
-                    this.routing_table_view.update(&pruned_edges, next_hops.clone());
-                    this.config
-                        .event_sink
-                        .push(Event::RoutingTableUpdate { next_hops, pruned_edges });
-                }
-                _ => panic!("expected RoutingTableUpdateResponse"),
-            }
-        })
-        .await
-        .unwrap()
-    }
-
-    pub async fn finalize_edge(
-        self: &Arc<Self>,
-        clock: &time::Clock,
-        peer_id: PeerId,
-        edge_info: PartialEdgeInfo,
-    ) -> Result<Edge, ReasonForBan> {
-        let edge = Edge::build_with_secret_key(
-            self.config.node_id(),
-            peer_id.clone(),
-            edge_info.nonce,
-            &self.config.node_key,
-            edge_info.signature,
-        );
-        self.add_edges(&clock, vec![edge.clone()]).await?;
-        Ok(edge)
     }
 
     pub async fn add_accounts_data(
