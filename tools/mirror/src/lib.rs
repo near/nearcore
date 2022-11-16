@@ -5,8 +5,8 @@ use near_chain_configs::GenesisValidationMode;
 use near_client::{ClientActor, ViewClientActor};
 use near_client::{ProcessTxRequest, ProcessTxResponse};
 use near_client_primitives::types::{
-    GetBlock, GetBlockError, GetChunk, GetChunkError, GetExecutionOutcome,
-    GetExecutionOutcomeError, GetExecutionOutcomeResponse, Query, QueryError,
+    GetChunk, GetChunkError, GetExecutionOutcome, GetExecutionOutcomeError,
+    GetExecutionOutcomeResponse, Query, QueryError,
 };
 use near_crypto::{PublicKey, SecretKey};
 use near_indexer::{Indexer, StreamerMessage};
@@ -16,7 +16,7 @@ use near_primitives::transaction::{
     Action, AddKeyAction, DeleteKeyAction, SignedTransaction, Transaction,
 };
 use near_primitives::types::{
-    AccountId, BlockHeight, BlockId, BlockReference, Finality, TransactionOrReceiptId,
+    AccountId, BlockHeight, BlockReference, Finality, TransactionOrReceiptId,
 };
 use near_primitives::views::{
     ExecutionStatusView, QueryRequest, QueryResponseKind, SignedTransactionView,
@@ -48,6 +48,7 @@ enum DBCol {
     // and there's no entry in the DB, then the key was present in the genesis
     // state. Otherwise, we map tx nonces according to the values in this column.
     Nonces,
+    AccessKeyOutcomes,
 }
 
 impl DBCol {
@@ -55,8 +56,66 @@ impl DBCol {
         match self {
             Self::Misc => "miscellaneous",
             Self::Nonces => "nonces",
+            Self::AccessKeyOutcomes => "access_key_outcomes",
         }
     }
+}
+
+// TODO: maybe move these type defs to `mod types` or something
+#[derive(BorshDeserialize, BorshSerialize, Clone, Debug, PartialEq, Eq, PartialOrd, Hash)]
+struct TxInfo {
+    hash: CryptoHash,
+    signer_id: AccountId,
+    receiver_id: AccountId,
+}
+
+#[derive(BorshDeserialize, BorshSerialize, Clone, Debug, PartialEq, Eq, PartialOrd, Hash)]
+struct ReceiptInfo {
+    id: CryptoHash,
+    receiver_id: AccountId,
+}
+
+#[derive(BorshDeserialize, BorshSerialize, Clone, Debug, PartialEq, Eq, PartialOrd, Hash)]
+enum ChainObjectId {
+    Tx(TxInfo),
+    Receipt(ReceiptInfo),
+}
+
+// we want a reference to transactions in .queued_blocks that need to have nonces
+// set later. To avoid having the struct be self referential we keep this struct
+// with enough info to look it up later.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct TxRef {
+    source_height: BlockHeight,
+    shard_id: ShardId,
+    tx_idx: usize,
+}
+
+impl std::fmt::Display for TxRef {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "source #{} shard {} tx {}", self.source_height, self.shard_id, self.tx_idx)
+    }
+}
+
+impl PartialOrd for TxRef {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for TxRef {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.source_height
+            .cmp(&other.source_height)
+            .then_with(|| self.tx_idx.cmp(&other.tx_idx))
+            .then_with(|| self.shard_id.cmp(&other.shard_id))
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+enum NonceUpdater {
+    TxRef(TxRef),
+    ChainObjectId(ChainObjectId),
 }
 
 // returns bytes that serve as the key corresponding to this pair in the Nonces column
@@ -64,11 +123,19 @@ fn nonce_col_key(account_id: &AccountId, public_key: &PublicKey) -> Vec<u8> {
     (account_id.clone(), public_key.clone()).try_to_vec().unwrap()
 }
 
-#[derive(Clone, BorshDeserialize, BorshSerialize, Debug, PartialEq, Eq, PartialOrd, Hash)]
-struct TxIds {
-    tx_hash: CryptoHash,
-    signer_id: AccountId,
-    receiver_id: AccountId,
+// this serves a similar purpose to `LatestTargetNonce`. The difference is
+// that this one keeps track of what's in memory. So for example if the last
+// height we sent transactions for was 10, and we have a set of transactions
+// queued up for height 12, one of which is an AddKey for ('foo.near', 'ed25519:...'),
+// then we'lll want to remember that for txs of height > 12 that use that
+// signer id and public key, but we don't want to store that on disk. The `LatestTargetNonce`
+// on disk will only record the transactions/receipts updating the nonce that we actually sent
+// or saw on chain
+
+#[derive(Clone, Debug)]
+struct TargetNonce {
+    nonce: Option<Nonce>,
+    pending_outcomes: HashSet<NonceUpdater>,
 }
 
 // For a given AddKey Action, records the starting nonces of the
@@ -77,46 +144,81 @@ struct TxIds {
 // ignored, and it's set to block_height*1000000, so to generate
 // transactions with valid nonces, we need to map valid source chain
 // nonces to valid target chain nonces.
-#[derive(BorshDeserialize, BorshSerialize, Debug, Default)]
-struct NonceDiff {
-    source_start: Option<Nonce>,
-    target_start: Option<Nonce>,
-    pending_source_txs: HashSet<TxIds>,
+#[derive(BorshDeserialize, BorshSerialize, Debug)]
+struct LatestTargetNonce {
+    nonce: Option<Nonce>,
+    pending_outcomes: HashSet<ChainObjectId>,
 }
 
-#[derive(thiserror::Error, Debug)]
-pub(crate) enum MapNonceError {
-    #[error("Source chain access key not yet on chain")]
-    SourceKeyNotOnChain,
-    #[error("Target chain access key not yet on chain")]
-    TargetKeyNotOnChain,
-    #[error("Nonce arithmetic overflow: {0} + {1}")]
-    AddOverflow(Nonce, Nonce),
-    #[error("Nonce arithmetic overflow: {0} - {1}")]
-    SubOverflow(Nonce, Nonce),
+// TODO: move DB related stuff to its own file and add a way to
+// keep track of updates in memory and write them all in one transaction
+fn read_target_nonce(
+    db: &DB,
+    account_id: &AccountId,
+    public_key: &PublicKey,
+) -> anyhow::Result<Option<LatestTargetNonce>> {
+    let db_key = nonce_col_key(account_id, public_key);
+    Ok(db
+        .get_cf(db.cf_handle(DBCol::Nonces.name()).unwrap(), &db_key)?
+        .map(|v| LatestTargetNonce::try_from_slice(&v).unwrap()))
 }
 
-impl NonceDiff {
-    fn set_source(&mut self, nonce: Nonce) {
-        self.source_start = Some(nonce);
-        self.pending_source_txs.clear();
-    }
+fn put_target_nonce(
+    db: &DB,
+    account_id: &AccountId,
+    public_key: &PublicKey,
+    nonce: &LatestTargetNonce,
+) -> anyhow::Result<()> {
+    tracing::debug!(target: "mirror", "storing {:?} in DB for ({}, {:?})", &nonce, account_id, public_key);
+    let db_key = nonce_col_key(account_id, public_key);
+    db.put_cf(db.cf_handle(DBCol::Nonces.name()).unwrap(), &db_key, &nonce.try_to_vec().unwrap())?;
+    Ok(())
+}
 
-    fn map(&self, nonce: Nonce) -> Result<Nonce, MapNonceError> {
-        let source_start = self.source_start.ok_or(MapNonceError::SourceKeyNotOnChain)?;
-        let target_start = self.target_start.ok_or(MapNonceError::TargetKeyNotOnChain)?;
-        if target_start > source_start {
-            let diff = target_start - source_start;
-            nonce.checked_add(diff).ok_or_else(|| MapNonceError::AddOverflow(nonce, diff))
-        } else {
-            let diff = source_start - target_start;
-            nonce.checked_sub(diff).ok_or_else(|| MapNonceError::SubOverflow(nonce, diff))
-        }
-    }
+fn read_access_key_outcome(
+    db: &DB,
+    id: &ChainObjectId,
+) -> anyhow::Result<Option<HashSet<(AccountId, PublicKey)>>> {
+    Ok(db
+        .get_cf(db.cf_handle(DBCol::AccessKeyOutcomes.name()).unwrap(), &id.try_to_vec().unwrap())?
+        .map(|v| HashSet::try_from_slice(&v).unwrap()))
+}
 
-    fn known(&self) -> bool {
-        self.source_start.is_some() && self.target_start.is_some()
-    }
+fn put_access_key_outcome(
+    db: &DB,
+    id: ChainObjectId,
+    access_keys: HashSet<(AccountId, PublicKey)>,
+) -> anyhow::Result<()> {
+    tracing::debug!(target: "mirror", "storing {:?} in DB for {:?}", &access_keys, &id);
+    Ok(db.put_cf(
+        db.cf_handle(DBCol::AccessKeyOutcomes.name()).unwrap(),
+        &id.try_to_vec().unwrap(),
+        &access_keys.try_to_vec().unwrap(),
+    )?)
+}
+
+fn delete_access_key_outcome(db: &DB, id: &ChainObjectId) -> anyhow::Result<()> {
+    tracing::debug!(target: "mirror", "deleting {:?} from DB", &id);
+    Ok(db.delete_cf(
+        db.cf_handle(DBCol::AccessKeyOutcomes.name()).unwrap(),
+        &id.try_to_vec().unwrap(),
+    )?)
+}
+
+fn set_next_source_height(db: &DB, height: BlockHeight) -> anyhow::Result<()> {
+    // TODO: we should instead save something like the
+    // (block_height, shard_id, idx_in_chunk) of the last
+    // transaction sent. Currently we set next_source_height after
+    // sending all of the transactions in that chunk, so if we get
+    // SIGTERM or something in the middle of sending a batch of
+    // txs, we'll send some that we already sent next time we
+    // start. Not a giant problem but kind of unclean.
+    db.put_cf(
+        db.cf_handle(DBCol::Misc.name()).unwrap(),
+        "next_source_height",
+        height.try_to_vec().unwrap(),
+    )?;
+    Ok(())
 }
 
 struct TxMirror {
@@ -130,7 +232,6 @@ struct TxMirror {
     target_min_block_production_delay: Duration,
     tracked_shards: Vec<ShardId>,
     secret: Option<[u8; crate::secret::SECRET_LEN]>,
-    next_source_height: Option<BlockHeight>,
 }
 
 fn open_db<P: AsRef<Path>>(home: P, config: &NearConfig) -> anyhow::Result<DB> {
@@ -152,28 +253,44 @@ fn open_db<P: AsRef<Path>>(home: P, config: &NearConfig) -> anyhow::Result<DB> {
 // except for the nonce field.
 #[derive(Debug)]
 struct TxAwaitingNonce {
-    source_public: PublicKey,
     source_signer_id: AccountId,
     source_receiver_id: AccountId,
     source_tx_index: usize,
     target_private: SecretKey,
     target_tx: Transaction,
+    nonce_updates: HashSet<(AccountId, PublicKey)>,
+    target_nonce: TargetNonce,
 }
 
 impl TxAwaitingNonce {
     fn new(
         source_tx: &SignedTransactionView,
         source_tx_index: usize,
-        target_tx: Transaction,
+        actions: Vec<Action>,
+        target_nonce: &TargetNonce,
+        ref_hash: &CryptoHash,
+        target_signer_id: AccountId,
+        target_receiver_id: AccountId,
         target_private: SecretKey,
+        target_public_key: PublicKey,
+        nonce_updates: HashSet<(AccountId, PublicKey)>,
     ) -> Self {
+        let mut target_tx = Transaction::new(
+            target_signer_id,
+            target_public_key,
+            target_receiver_id,
+            source_tx.nonce,
+            ref_hash.clone(),
+        );
+        target_tx.actions = actions;
         Self {
-            source_public: source_tx.public_key.clone(),
             source_signer_id: source_tx.signer_id.clone(),
             source_receiver_id: source_tx.receiver_id.clone(),
             source_tx_index,
             target_private,
             target_tx,
+            nonce_updates,
+            target_nonce: target_nonce.clone(),
         }
     }
 }
@@ -187,19 +304,42 @@ struct MappedTx {
     source_receiver_id: AccountId,
     source_tx_index: usize,
     target_tx: SignedTransaction,
+    nonce_updates: HashSet<(AccountId, PublicKey)>,
+    sent_successfully: bool,
 }
 
 impl MappedTx {
     fn new(
         source_tx: &SignedTransactionView,
         source_tx_index: usize,
-        target_tx: SignedTransaction,
+        actions: Vec<Action>,
+        nonce: Nonce,
+        ref_hash: &CryptoHash,
+        target_signer_id: AccountId,
+        target_receiver_id: AccountId,
+        target_secret_key: &SecretKey,
+        target_public_key: PublicKey,
+        nonce_updates: HashSet<(AccountId, PublicKey)>,
     ) -> Self {
+        let mut target_tx = Transaction::new(
+            target_signer_id,
+            target_public_key,
+            target_receiver_id,
+            nonce,
+            ref_hash.clone(),
+        );
+        target_tx.actions = actions;
+        let target_tx = SignedTransaction::new(
+            target_secret_key.sign(&target_tx.get_hash_and_size().0.as_ref()),
+            target_tx,
+        );
         Self {
             source_signer_id: source_tx.signer_id.clone(),
             source_receiver_id: source_tx.receiver_id.clone(),
             source_tx_index,
             target_tx,
+            nonce_updates,
+            sent_successfully: false,
         }
     }
 }
@@ -211,8 +351,6 @@ enum TargetChainTx {
 }
 
 impl TargetChainTx {
-    // For an AwaitingNonce(_), set the nonce and sign the transaction, changing self into Ready(_).
-    // must not be called if self is Ready(_)
     fn set_nonce(&mut self, nonce: Nonce) {
         match self {
             Self::AwaitingNonce(t) => {
@@ -221,19 +359,82 @@ impl TargetChainTx {
                     t.target_private.sign(&t.target_tx.get_hash_and_size().0.as_ref()),
                     t.target_tx.clone(),
                 );
-                tracing::debug!(
-                    target: "mirror", "prepared a transaction for ({:?}, {:?}) that was previously waiting for the access key to appear on chain",
-                    &t.source_signer_id, &t.source_public,
-                );
                 *self = Self::Ready(MappedTx {
                     source_signer_id: t.source_signer_id.clone(),
                     source_receiver_id: t.source_receiver_id.clone(),
                     source_tx_index: t.source_tx_index,
                     target_tx,
+                    nonce_updates: t.nonce_updates.clone(),
+                    sent_successfully: false,
                 });
             }
             Self::Ready(_) => unreachable!(),
-        }
+        };
+    }
+
+    // For an AwaitingNonce(_), set the nonce and sign the transaction, changing self into Ready(_).
+    // must not be called if self is Ready(_)
+    fn try_set_nonce(&mut self, nonce: Option<Nonce>) {
+        let nonce = match self {
+            Self::AwaitingNonce(t) => match std::cmp::max(t.target_nonce.nonce, nonce) {
+                Some(n) => n,
+                None => return,
+            },
+            Self::Ready(_) => unreachable!(),
+        };
+        self.set_nonce(nonce);
+    }
+
+    fn new_ready(
+        source_tx: &SignedTransactionView,
+        source_tx_index: usize,
+        actions: Vec<Action>,
+        nonce: Nonce,
+        ref_hash: &CryptoHash,
+        target_signer_id: AccountId,
+        target_receiver_id: AccountId,
+        target_secret_key: &SecretKey,
+        target_public_key: PublicKey,
+        nonce_updates: HashSet<(AccountId, PublicKey)>,
+    ) -> Self {
+        Self::Ready(MappedTx::new(
+            source_tx,
+            source_tx_index,
+            actions,
+            nonce,
+            &ref_hash,
+            target_signer_id,
+            target_receiver_id,
+            target_secret_key,
+            target_public_key,
+            nonce_updates,
+        ))
+    }
+
+    fn new_awaiting_nonce(
+        source_tx: &SignedTransactionView,
+        source_tx_index: usize,
+        actions: Vec<Action>,
+        target_nonce: &TargetNonce,
+        ref_hash: &CryptoHash,
+        target_signer_id: AccountId,
+        target_receiver_id: AccountId,
+        target_private: SecretKey,
+        target_public_key: PublicKey,
+        nonce_updates: HashSet<(AccountId, PublicKey)>,
+    ) -> Self {
+        Self::AwaitingNonce(TxAwaitingNonce::new(
+            source_tx,
+            source_tx_index,
+            actions,
+            target_nonce,
+            &ref_hash,
+            target_signer_id,
+            target_receiver_id,
+            target_private,
+            target_public_key,
+            nonce_updates,
+        ))
     }
 }
 
@@ -252,12 +453,11 @@ struct MappedBlock {
 async fn account_exists(
     view_client: &Addr<ViewClientActor>,
     account_id: &AccountId,
-    prev_block: &CryptoHash,
 ) -> anyhow::Result<bool> {
     match view_client
         .send(
             Query::new(
-                BlockReference::BlockId(BlockId::Hash(prev_block.clone())),
+                BlockReference::Finality(Finality::None),
                 QueryRequest::ViewAccount { account_id: account_id.clone() },
             )
             .with_span_context(),
@@ -281,16 +481,11 @@ async fn fetch_access_key_nonce(
     view_client: &Addr<ViewClientActor>,
     account_id: &AccountId,
     public_key: &PublicKey,
-    block_hash: Option<&CryptoHash>,
 ) -> anyhow::Result<Option<Nonce>> {
-    let block_ref = match block_hash {
-        Some(h) => BlockReference::BlockId(BlockId::Hash(h.clone())),
-        None => BlockReference::Finality(Finality::None),
-    };
     match view_client
         .send(
             Query::new(
-                block_ref,
+                BlockReference::Finality(Finality::None),
                 QueryRequest::ViewAccessKey {
                     account_id: account_id.clone(),
                     public_key: public_key.clone(),
@@ -298,7 +493,8 @@ async fn fetch_access_key_nonce(
             )
             .with_span_context(),
         )
-        .await?
+        .await
+        .unwrap()
     {
         Ok(res) => match res.kind {
             QueryResponseKind::AccessKey(access_key) => Ok(Some(access_key.nonce)),
@@ -306,29 +502,42 @@ async fn fetch_access_key_nonce(
                 panic!("Received unexpected QueryResponse after Querying Access Key: {:?}", other);
             }
         },
-        Err(_) => Ok(None),
+        Err(e) => match &e {
+            QueryError::UnknownAccessKey { .. } => Ok(None),
+            _ => Err(e.into()),
+        },
     }
 }
 
 #[derive(Clone, Debug)]
 enum TxOutcome {
-    Success(CryptoHash),
-    Pending,
+    Unknown,
+    TxPending(TxInfo),
+    ReceiptPending(ReceiptInfo),
+    Success,
     Failure,
+}
+
+async fn fetch_outcome(
+    view_client: &Addr<ViewClientActor>,
+    id: &ChainObjectId,
+) -> anyhow::Result<TxOutcome> {
+    match id.clone() {
+        ChainObjectId::Tx(id) => fetch_tx_outcome(view_client, id).await,
+        ChainObjectId::Receipt(id) => fetch_receipt_outcome(view_client, id).await,
+    }
 }
 
 async fn fetch_tx_outcome(
     view_client: &Addr<ViewClientActor>,
-    transaction_hash: CryptoHash,
-    signer_id: &AccountId,
-    receiver_id: &AccountId,
+    id: TxInfo,
 ) -> anyhow::Result<TxOutcome> {
-    let receipt_id = match view_client
+    match view_client
         .send(
             GetExecutionOutcome {
                 id: TransactionOrReceiptId::Transaction {
-                    transaction_hash,
-                    sender_id: signer_id.clone(),
+                    transaction_hash: id.hash,
+                    sender_id: id.signer_id.clone(),
                 },
             }
             .with_span_context(),
@@ -338,28 +547,38 @@ async fn fetch_tx_outcome(
     {
         Ok(GetExecutionOutcomeResponse { outcome_proof, .. }) => {
             match outcome_proof.outcome.status {
-                ExecutionStatusView::SuccessReceiptId(id) => id,
+                ExecutionStatusView::SuccessReceiptId(receipt_id) => {
+                    fetch_receipt_outcome(
+                        view_client,
+                        ReceiptInfo { id: receipt_id, receiver_id: id.receiver_id.clone() },
+                    )
+                    .await
+                }
                 ExecutionStatusView::SuccessValue(_) => unreachable!(),
                 ExecutionStatusView::Failure(_) | ExecutionStatusView::Unknown => {
-                    return Ok(TxOutcome::Failure)
+                    Ok(TxOutcome::Failure)
                 }
             }
         }
+        Err(GetExecutionOutcomeError::UnknownTransactionOrReceipt { .. }) => Ok(TxOutcome::Unknown),
         Err(
             GetExecutionOutcomeError::NotConfirmed { .. }
             | GetExecutionOutcomeError::UnknownBlock { .. },
-        ) => return Ok(TxOutcome::Pending),
-        Err(e) => {
-            return Err(e)
-                .with_context(|| format!("failed fetching outcome for tx {}", transaction_hash))
-        }
-    };
+        ) => Ok(TxOutcome::TxPending(id)),
+        Err(e) => Err(e).with_context(|| format!("failed fetching outcome for tx {}", &id.hash)),
+    }
+}
+
+async fn fetch_receipt_outcome(
+    view_client: &Addr<ViewClientActor>,
+    id: ReceiptInfo,
+) -> anyhow::Result<TxOutcome> {
     match view_client
         .send(
             GetExecutionOutcome {
                 id: TransactionOrReceiptId::Receipt {
-                    receipt_id,
-                    receiver_id: receiver_id.clone(),
+                    receipt_id: id.id.clone(),
+                    receiver_id: id.receiver_id.clone(),
                 },
             }
             .with_span_context(),
@@ -370,22 +589,7 @@ async fn fetch_tx_outcome(
         Ok(GetExecutionOutcomeResponse { outcome_proof, .. }) => {
             match outcome_proof.outcome.status {
                 ExecutionStatusView::SuccessReceiptId(_) | ExecutionStatusView::SuccessValue(_) => {
-                    // the view client code actually modifies the outcome's block_hash field to be the
-                    // next block with a new chunk in the relevant shard, so go backwards one block,
-                    // since that's what we'll want to give in the query for AccessKeys
-                    let block = view_client
-                        .send(
-                            GetBlock(BlockReference::BlockId(BlockId::Hash(
-                                outcome_proof.block_hash,
-                            )))
-                            .with_span_context(),
-                        )
-                        .await
-                        .unwrap()
-                        .with_context(|| {
-                            format!("failed fetching block {}", &outcome_proof.block_hash)
-                        })?;
-                    Ok(TxOutcome::Success(block.header.prev_hash))
+                    Ok(TxOutcome::Success)
                 }
                 ExecutionStatusView::Failure(_) | ExecutionStatusView::Unknown => {
                     Ok(TxOutcome::Failure)
@@ -396,23 +600,9 @@ async fn fetch_tx_outcome(
             GetExecutionOutcomeError::NotConfirmed { .. }
             | GetExecutionOutcomeError::UnknownBlock { .. }
             | GetExecutionOutcomeError::UnknownTransactionOrReceipt { .. },
-        ) => Ok(TxOutcome::Pending),
-        Err(e) => {
-            Err(e).with_context(|| format!("failed fetching outcome for receipt {}", &receipt_id))
-        }
+        ) => Ok(TxOutcome::ReceiptPending(id)),
+        Err(e) => Err(e).with_context(|| format!("failed fetching outcome for receipt {}", &id.id)),
     }
-}
-
-async fn block_hash_to_height(
-    view_client: &Addr<ViewClientActor>,
-    hash: &CryptoHash,
-) -> anyhow::Result<BlockHeight> {
-    Ok(view_client
-        .send(GetBlock(BlockReference::BlockId(BlockId::Hash(hash.clone()))).with_span_context())
-        .await
-        .unwrap()?
-        .header
-        .height)
 }
 
 impl TxMirror {
@@ -459,34 +649,21 @@ impl TxMirror {
                 .min_block_production_delay,
             tracked_shards: target_config.config.tracked_shards.clone(),
             secret,
-            next_source_height: None,
         })
     }
 
     fn get_next_source_height(&mut self) -> anyhow::Result<BlockHeight> {
-        if let Some(height) = self.next_source_height {
-            return Ok(height);
-        }
         let height =
             self.db.get_cf(self.db.cf_handle(DBCol::Misc.name()).unwrap(), "next_source_height")?;
         match height {
-            Some(h) => {
-                let height = BlockHeight::try_from_slice(&h).unwrap();
-                self.next_source_height = Some(height);
-                Ok(height)
-            }
+            Some(h) => Ok(BlockHeight::try_from_slice(&h).unwrap()),
             None => Ok(self.target_genesis_height),
         }
     }
 
-    async fn send_transactions(
-        &mut self,
-        block: MappedBlock,
-    ) -> anyhow::Result<Vec<(ShardId, Vec<MappedTx>)>> {
-        let mut sent = vec![];
-        for chunk in block.chunks {
-            let mut txs = vec![];
-            for tx in chunk.txs {
+    async fn send_transactions(&mut self, block: &mut MappedBlock) -> anyhow::Result<()> {
+        for chunk in block.chunks.iter_mut() {
+            for tx in chunk.txs.iter_mut() {
                 match tx {
                     TargetChainTx::Ready(tx) => {
                         match self
@@ -503,15 +680,15 @@ impl TxMirror {
                         {
                             ProcessTxResponse::RequestRouted => {
                                 crate::metrics::TRANSACTIONS_SENT.with_label_values(&["ok"]).inc();
-                                txs.push(tx);
+                                tx.sent_successfully = true;
                             }
                             ProcessTxResponse::InvalidTx(e) => {
                                 // TODO: here if we're getting an error because the tx was already included, it is possible
                                 // that some other instance of this code ran and made progress already. For now we can assume
                                 // only once instance of this code will run, but this is the place to detect if that's not the case.
                                 tracing::error!(
-                                    target: "mirror", "Tried to send an invalid tx from source #{} shard {}: {:?}",
-                                    block.source_height, chunk.shard_id, e
+                                    target: "mirror", "Tried to send an invalid tx for ({}, {:?}) from source #{} shard {} tx {}: {:?}",
+                                    &tx.target_tx.transaction.signer_id, &tx.target_tx.transaction.public_key, block.source_height, chunk.shard_id, tx.source_tx_index, e
                                 );
                                 crate::metrics::TRANSACTIONS_SENT
                                     .with_label_values(&["invalid"])
@@ -530,198 +707,23 @@ impl TxMirror {
                     }
                     TargetChainTx::AwaitingNonce(tx) => {
                         // TODO: here we should just save this transaction for later and send it when it's known
-                        tracing::warn!(target: "mirror", "skipped sending transaction with signer {} because valid target chain nonce not known", &tx.source_signer_id)
+                        tracing::warn!(
+                            target: "mirror", "skipped sending transaction for ({}, {:?}) because valid target chain nonce not known",
+                            &tx.target_tx.signer_id, &tx.target_tx.public_key
+                        );
                     }
                 }
             }
-            sent.push((chunk.shard_id, txs));
-        }
-        Ok(sent)
-    }
-
-    fn read_nonce_diff(
-        &self,
-        account_id: &AccountId,
-        public_key: &PublicKey,
-    ) -> anyhow::Result<Option<NonceDiff>> {
-        let db_key = nonce_col_key(account_id, public_key);
-        // TODO: cache this?
-        Ok(self
-            .db
-            .get_cf(self.db.cf_handle(DBCol::Nonces.name()).unwrap(), &db_key)?
-            .map(|v| NonceDiff::try_from_slice(&v).unwrap()))
-    }
-
-    fn put_nonce_diff(
-        &self,
-        account_id: &AccountId,
-        public_key: &PublicKey,
-        diff: &NonceDiff,
-    ) -> anyhow::Result<()> {
-        tracing::debug!(target: "mirror", "storing {:?} in DB for ({:?}, {:?})", &diff, account_id, public_key);
-        let db_key = nonce_col_key(account_id, public_key);
-        self.db.put_cf(
-            self.db.cf_handle(DBCol::Nonces.name()).unwrap(),
-            &db_key,
-            &diff.try_to_vec().unwrap(),
-        )?;
-        Ok(())
-    }
-
-    // If the access key was present in the genesis records, just
-    // return the same nonce. Otherwise, we need to change the
-    // nonce. So check if we already know what the difference in
-    // nonces is, and if not, try to fetch that info and store it.
-    // `source_signer_id` and `target_signer_id` are the same unless
-    // it's an implicit account
-    async fn map_nonce(
-        &self,
-        source_signer_id: &AccountId,
-        target_signer_id: &AccountId,
-        source_public: &PublicKey,
-        target_public: &PublicKey,
-        nonce: Nonce,
-    ) -> anyhow::Result<Result<Nonce, MapNonceError>> {
-        let mut diff = match self.read_nonce_diff(source_signer_id, source_public)? {
-            Some(m) => m,
-            // If it's not stored in the database, it's an access key that was present in the genesis
-            // records, so we don't need to do anything to the nonce.
-            None => return Ok(Ok(nonce)),
-        };
-        if diff.known() {
-            return Ok(diff.map(nonce));
-        }
-
-        self.update_nonces(
-            source_signer_id,
-            target_signer_id,
-            source_public,
-            target_public,
-            &mut diff,
-        )
-        .await?;
-        Ok(diff.map(nonce))
-    }
-
-    async fn update_nonces(
-        &self,
-        source_signer_id: &AccountId,
-        target_signer_id: &AccountId,
-        source_public: &PublicKey,
-        target_public: &PublicKey,
-        diff: &mut NonceDiff,
-    ) -> anyhow::Result<()> {
-        let mut rewrite = false;
-        if diff.source_start.is_none() {
-            self.update_source_nonce(source_signer_id, source_public, diff).await?;
-            rewrite |= diff.source_start.is_some();
-        }
-        if diff.target_start.is_none() {
-            diff.target_start = fetch_access_key_nonce(
-                &self.target_view_client,
-                target_signer_id,
-                target_public,
-                None,
-            )
-            .await?;
-            rewrite |= diff.target_start.is_some();
-        }
-
-        if rewrite {
-            self.put_nonce_diff(source_signer_id, source_public, diff)?;
         }
         Ok(())
-    }
-
-    async fn update_source_nonce(
-        &self,
-        account_id: &AccountId,
-        public_key: &PublicKey,
-        diff: &mut NonceDiff,
-    ) -> anyhow::Result<()> {
-        let mut block_height = 0;
-        let mut block_hash = CryptoHash::default();
-        let mut failed_txs = Vec::new();
-
-        // first find the earliest block hash where the access key should exist
-        for tx in diff.pending_source_txs.iter() {
-            match fetch_tx_outcome(
-                &self.source_view_client,
-                tx.tx_hash.clone(),
-                &tx.signer_id,
-                &tx.receiver_id,
-            )
-            .await?
-            {
-                TxOutcome::Success(hash) => {
-                    let height =
-                        block_hash_to_height(&self.source_view_client, &hash).await.with_context(
-                            || format!("failed fetching block height of block {}", &hash),
-                        )?;
-                    if &block_hash == &CryptoHash::default() || block_height > height {
-                        block_height = height;
-                        block_hash = hash;
-                    }
-                }
-                TxOutcome::Failure => {
-                    failed_txs.push(tx.clone());
-                }
-                TxOutcome::Pending => {}
-            }
-        }
-        if &block_hash == &CryptoHash::default() {
-            // no need to do this if block_hash is set because set_source() below will clear it
-            for tx in failed_txs.iter() {
-                diff.pending_source_txs.remove(tx);
-            }
-            return Ok(());
-        }
-        let nonce = fetch_access_key_nonce(
-            &self.source_view_client,
-            account_id,
-            public_key,
-            Some(&block_hash),
-        )
-        .await?
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "expected access key to exist for {}, {} after finding successful receipt in {}",
-                &account_id,
-                &public_key,
-                &block_hash
-            )
-        })?;
-        diff.set_source(nonce);
-        Ok(())
-    }
-
-    // we have a situation where nonces need to be mapped (AddKey actions
-    // or implicit account transfers). So store the initial nonce data in the DB.
-    async fn store_source_nonce(
-        &self,
-        tx: &SignedTransactionView,
-        public_key: &PublicKey,
-    ) -> anyhow::Result<()> {
-        // TODO: probably better to use a merge operator here. Not urgent, though.
-        let mut diff = self.read_nonce_diff(&tx.receiver_id, &public_key)?.unwrap_or_default();
-        if diff.source_start.is_some() {
-            return Ok(());
-        }
-        diff.pending_source_txs.insert(TxIds {
-            tx_hash: tx.hash.clone(),
-            signer_id: tx.signer_id.clone(),
-            receiver_id: tx.receiver_id.clone(),
-        });
-        self.update_source_nonce(&tx.receiver_id, &public_key, &mut diff).await?;
-        self.put_nonce_diff(&tx.receiver_id, &public_key, &diff)
     }
 
     async fn map_actions(
         &self,
         tx: &SignedTransactionView,
-        prev_block: &CryptoHash,
-    ) -> anyhow::Result<Vec<Action>> {
+    ) -> anyhow::Result<(Vec<Action>, HashSet<(AccountId, PublicKey)>)> {
         let mut actions = Vec::new();
+        let mut nonce_updates = HashSet::new();
 
         for a in tx.actions.iter() {
             // this try_from() won't fail since the ActionView was constructed from the Action
@@ -729,13 +731,15 @@ impl TxMirror {
 
             match &action {
                 Action::AddKey(add_key) => {
-                    self.store_source_nonce(tx, &add_key.public_key).await?;
+                    let public_key =
+                        crate::key_mapping::map_key(&add_key.public_key, self.secret.as_ref())
+                            .public_key();
+                    let receiver_id =
+                        crate::key_mapping::map_account(&tx.receiver_id, self.secret.as_ref());
 
-                    let replacement =
-                        crate::key_mapping::map_key(&add_key.public_key, self.secret.as_ref());
-
+                    nonce_updates.insert((receiver_id, public_key.clone()));
                     actions.push(Action::AddKey(AddKeyAction {
-                        public_key: replacement.public_key(),
+                        public_key,
                         access_key: add_key.access_key.clone(),
                     }));
                 }
@@ -747,15 +751,19 @@ impl TxMirror {
                     actions.push(Action::DeleteKey(DeleteKeyAction { public_key }));
                 }
                 Action::Transfer(_) => {
-                    if tx.receiver_id.is_implicit()
-                        && !account_exists(&self.source_view_client, &tx.receiver_id, prev_block)
+                    if tx.receiver_id.is_implicit() && tx.actions.len() == 1 {
+                        let target_account =
+                            crate::key_mapping::map_account(&tx.receiver_id, self.secret.as_ref());
+                        if !account_exists(&self.target_view_client, &target_account)
                             .await
                             .with_context(|| {
                                 format!("failed checking existence for account {}", &tx.receiver_id)
                             })?
-                    {
-                        let public_key = crate::key_mapping::implicit_account_key(&tx.receiver_id);
-                        self.store_source_nonce(tx, &public_key).await?;
+                        {
+                            let public_key =
+                                crate::key_mapping::implicit_account_key(&target_account);
+                            nonce_updates.insert((target_account, public_key));
+                        }
                     }
                     actions.push(action);
                 }
@@ -764,7 +772,7 @@ impl TxMirror {
                 _ => actions.push(action),
             };
         }
-        Ok(actions)
+        Ok((actions, nonce_updates))
     }
 
     // fetch the source chain block at `source_height`, and prepare a
@@ -774,20 +782,8 @@ impl TxMirror {
         &self,
         source_height: BlockHeight,
         ref_hash: CryptoHash,
+        tracker: &mut crate::chain_tracker::TxTracker,
     ) -> anyhow::Result<Option<MappedBlock>> {
-        let prev_hash = match self
-            .source_view_client
-            .send(
-                GetBlock(BlockReference::BlockId(BlockId::Height(source_height)))
-                    .with_span_context(),
-            )
-            .await
-            .unwrap()
-        {
-            Ok(b) => b.header.prev_hash,
-            Err(GetBlockError::UnknownBlock { .. }) => return Ok(None),
-            Err(e) => return Err(e.into()),
-        };
         let mut chunks = Vec::new();
         for shard_id in self.tracked_shards.iter() {
             let mut txs = Vec::new();
@@ -815,8 +811,9 @@ impl TxMirror {
             }
 
             let mut num_not_ready = 0;
+
             for (idx, source_tx) in chunk.transactions.into_iter().enumerate() {
-                let actions = self.map_actions(&source_tx, &prev_hash).await?;
+                let (actions, tx_nonce_updates) = self.map_actions(&source_tx).await?;
                 if actions.is_empty() {
                     // If this is a tx containing only stake actions, skip it.
                     continue;
@@ -827,63 +824,68 @@ impl TxMirror {
 
                 let target_signer_id =
                     crate::key_mapping::map_account(&source_tx.signer_id, self.secret.as_ref());
-                match self
-                    .map_nonce(
-                        &source_tx.signer_id,
+                let target_receiver_id =
+                    crate::key_mapping::map_account(&source_tx.receiver_id, self.secret.as_ref());
+
+                let target_nonce = tracker
+                    .next_nonce(
+                        &self.target_view_client,
+                        &self.db,
                         &target_signer_id,
-                        &source_tx.public_key,
                         &public_key,
-                        source_tx.nonce,
+                        source_height,
                     )
-                    .await?
-                {
-                    Ok(nonce) => {
-                        let mut target_tx = Transaction::new(
-                            target_signer_id,
-                            public_key,
-                            crate::key_mapping::map_account(
-                                &source_tx.receiver_id,
-                                self.secret.as_ref(),
-                            ),
-                            nonce,
-                            ref_hash.clone(),
-                        );
-                        target_tx.actions = actions;
-                        let target_tx = SignedTransaction::new(
-                            mapped_key.sign(&target_tx.get_hash_and_size().0.as_ref()),
-                            target_tx,
-                        );
-                        txs.push(TargetChainTx::Ready(MappedTx::new(&source_tx, idx, target_tx)));
-                    }
-                    Err(e) => match e {
-                        MapNonceError::AddOverflow(..)
-                        | MapNonceError::SubOverflow(..)
-                        | MapNonceError::SourceKeyNotOnChain => {
-                            tracing::error!(target: "mirror", "error mapping nonce for ({:?}, {:?}): {:?}", &source_tx.signer_id, &public_key, e);
-                            continue;
-                        }
-                        MapNonceError::TargetKeyNotOnChain => {
-                            let mut target_tx = Transaction::new(
-                                crate::key_mapping::map_account(
-                                    &source_tx.signer_id,
-                                    self.secret.as_ref(),
-                                ),
+                    .await?;
+                if target_nonce.pending_outcomes.is_empty() {
+                    match target_nonce.nonce {
+                        Some(nonce) => {
+                            let target_tx = TargetChainTx::new_ready(
+                                &source_tx,
+                                idx,
+                                actions,
+                                nonce,
+                                &ref_hash,
+                                target_signer_id,
+                                target_receiver_id,
+                                &mapped_key,
                                 public_key,
-                                crate::key_mapping::map_account(
-                                    &source_tx.receiver_id,
-                                    self.secret.as_ref(),
-                                ),
-                                source_tx.nonce,
-                                ref_hash.clone(),
+                                tx_nonce_updates,
                             );
-                            target_tx.actions = actions;
-                            txs.push(TargetChainTx::AwaitingNonce(TxAwaitingNonce::new(
-                                &source_tx, idx, target_tx, mapped_key,
-                            )));
-                            num_not_ready += 1;
+                            txs.push(target_tx);
                         }
-                    },
-                };
+                        None => {
+                            num_not_ready += 1;
+                            let target_tx = TargetChainTx::new_awaiting_nonce(
+                                &source_tx,
+                                idx,
+                                actions,
+                                target_nonce,
+                                &ref_hash,
+                                target_signer_id,
+                                target_receiver_id,
+                                mapped_key,
+                                public_key,
+                                tx_nonce_updates,
+                            );
+                            txs.push(target_tx);
+                        }
+                    }
+                } else {
+                    num_not_ready += 1;
+                    let target_tx = TargetChainTx::new_awaiting_nonce(
+                        &source_tx,
+                        idx,
+                        actions,
+                        target_nonce,
+                        &ref_hash,
+                        target_signer_id,
+                        target_receiver_id,
+                        mapped_key,
+                        public_key,
+                        tx_nonce_updates,
+                    );
+                    txs.push(target_tx);
+                }
             }
             if num_not_ready == 0 {
                 tracing::debug!(
@@ -892,7 +894,7 @@ impl TxMirror {
                 );
             } else {
                 tracing::debug!(
-                    target: "mirror", "prepared {} transacations for source chain #{} shard {} {} of which are \
+                    target: "mirror", "prepared {} transacations for source chain #{} shard {} with {} \
                     still waiting for the corresponding access keys to make it on chain",
                     txs.len(), source_height, shard_id, num_not_ready,
                 );
@@ -924,11 +926,11 @@ impl TxMirror {
 
         for height in start_height..=source_head {
             if let Some(b) = self
-                .fetch_txs(height, ref_hash)
+                .fetch_txs(height, ref_hash, tracker)
                 .await
                 .with_context(|| format!("Can't fetch source #{} transactions", height))?
             {
-                tracker.queue_block(b);
+                tracker.queue_block(b, &self.target_view_client, &self.db).await?;
                 if tracker.num_blocks_queued() > 100 {
                     return Ok(());
                 }
@@ -944,77 +946,6 @@ impl TxMirror {
         Ok(())
     }
 
-    fn set_next_source_height(&mut self, height: BlockHeight) -> anyhow::Result<()> {
-        self.next_source_height = Some(height);
-        // TODO: we should instead save something like the
-        // (block_height, shard_id, idx_in_chunk) of the last
-        // transaction sent. Currently we set next_source_height after
-        // sending all of the transactions in that chunk, so if we get
-        // SIGTERM or something in the middle of sending a batch of
-        // txs, we'll send some that we already sent next time we
-        // start. Not a giant problem but kind of unclean.
-        self.db.put_cf(
-            self.db.cf_handle(DBCol::Misc.name()).unwrap(),
-            "next_source_height",
-            height.try_to_vec().unwrap(),
-        )?;
-        Ok(())
-    }
-
-    // Go through any upcoming batches of transactions that we haven't
-    // been able to set a valid nonce for yet, and see if we can now
-    // do that.
-    async fn set_nonces(
-        &self,
-        tracker: &mut crate::chain_tracker::TxTracker,
-    ) -> anyhow::Result<()> {
-        let next_batch_time = tracker.next_batch_time();
-        let mut txs_ready = Vec::new();
-        let mut keys_mapped = HashSet::new();
-
-        for (source_signer_id, source_public_key) in tracker.pending_access_keys_iter() {
-            let mut diff = self.read_nonce_diff(source_signer_id, source_public_key)?.unwrap();
-            let target_signer_id =
-                crate::key_mapping::map_account(source_signer_id, self.secret.as_ref());
-            let target_public_key =
-                crate::key_mapping::map_key(source_public_key, self.secret.as_ref()).public_key();
-            self.update_nonces(
-                &source_signer_id,
-                &target_signer_id,
-                &source_public_key,
-                &target_public_key,
-                &mut diff,
-            )
-            .await?;
-            if diff.known() {
-                keys_mapped.insert((source_signer_id.clone(), source_public_key.clone()));
-            }
-        }
-        for (tx_ref, tx) in tracker.tx_awaiting_nonce_iter() {
-            if keys_mapped.contains(&(tx.source_signer_id.clone(), tx.source_public.clone())) {
-                let nonce = self
-                    .map_nonce(
-                        &tx.source_signer_id,
-                        &tx.target_tx.signer_id,
-                        &tx.source_public,
-                        &tx.target_tx.public_key,
-                        tx.target_tx.nonce,
-                    )
-                    .await?
-                    .unwrap();
-                txs_ready.push((tx_ref.clone(), nonce));
-            }
-
-            if Instant::now() > next_batch_time - Duration::from_millis(20) {
-                break;
-            }
-        }
-        for (tx_ref, nonce) in txs_ready {
-            tracker.set_tx_nonce(&tx_ref, nonce);
-        }
-        Ok(())
-    }
-
     async fn main_loop(
         &mut self,
         mut tracker: crate::chain_tracker::TxTracker,
@@ -1024,24 +955,20 @@ impl TxMirror {
         loop {
             tokio::select! {
                 // time to send a batch of transactions
-                mapped_block = tracker.next_batch(), if tracker.num_blocks_queued() > 0 => {
-                    let mapped_block = mapped_block.unwrap();
-                    let source_height = mapped_block.source_height;
-                    let sent = self.send_transactions(mapped_block).await?;
-                    tracker.on_txs_sent(&sent, source_height, target_height);
+                mapped_block = tracker.next_batch(&self.target_view_client, &self.db), if tracker.num_blocks_queued() > 0 => {
+                    self.send_transactions(mapped_block?).await?;
+                    tracker.on_txs_sent(&self.target_view_client, &self.db, target_height).await?;
 
                     // now we have one second left until we need to send more transactions. In the
                     // meantime, we might as well prepare some more batches of transactions.
                     // TODO: continue in best effort fashion on error
-                    self.set_next_source_height(source_height+1)?;
                     self.queue_txs(&mut tracker, target_head, true).await?;
                 }
                 msg = self.target_stream.recv() => {
                     let msg = msg.unwrap();
-                    tracker.on_target_block(&msg);
-                    self.set_nonces(&mut tracker).await?;
                     target_head = msg.block.header.hash;
                     target_height = msg.block.header.height;
+                    tracker.on_target_block(&self.target_view_client, &self.db, msg).await?;
                 }
                 // If we don't have any upcoming sets of transactions to send already built, we probably fell behind in the source
                 // chain and can't fetch the transactions. Check if we have them now here.

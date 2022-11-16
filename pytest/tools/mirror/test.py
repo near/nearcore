@@ -147,22 +147,11 @@ def create_forked_chain(config, near_root):
 
     try:
         subprocess.check_output([
-            neard,
-            'amend-genesis',
-            '--genesis-file-in',
-            genesis_file_in,
-            '--records-file-in',
-            records_file_in,
-            '--genesis-file-out',
-            genesis_file_out,
-            '--records-file-out',
-            records_file_out,
-            '--validators',
-            validators_file,
-            '--chain-id',
-            'foonet',
-            '--epoch-length',
-            '20',
+            neard, 'amend-genesis', '--genesis-file-in', genesis_file_in,
+            '--records-file-in', records_file_in, '--genesis-file-out',
+            genesis_file_out, '--records-file-out', records_file_out,
+            '--validators', validators_file, '--chain-id', 'foonet',
+            '--transaction-validity-period', '10000'
         ],
                                 stderr=subprocess.STDOUT)
     except subprocess.CalledProcessError as e:
@@ -224,15 +213,25 @@ def start_mirror(near_root, source_home, target_home, boot_node):
 
 # we'll test out adding an access key and then sending txs signed with it
 # since that hits some codepaths we want to test
-def send_add_access_key(node, creator_key, nonce, block_hash):
-    k = key.Key.from_random('test0')
-    action = transaction.create_full_access_key_action(k.decoded_pk())
-    tx = transaction.sign_and_serialize_transaction('test0', nonce, [action],
-                                                    block_hash, 'test0',
-                                                    creator_key.decoded_pk(),
-                                                    creator_key.decoded_sk())
+def send_add_access_key(node, key, target_key, nonce, block_hash):
+    action = transaction.create_full_access_key_action(target_key.decoded_pk())
+    tx = transaction.sign_and_serialize_transaction(target_key.account_id,
+                                                    nonce, [action], block_hash,
+                                                    key.account_id,
+                                                    key.decoded_pk(),
+                                                    key.decoded_sk())
     node.send_tx(tx)
-    return k
+
+
+def send_delete_access_key(node, key, target_key, nonce, block_hash):
+    action = transaction.create_delete_access_key_action(
+        target_key.decoded_pk())
+    tx = transaction.sign_and_serialize_transaction(target_key.account_id,
+                                                    nonce, [action], block_hash,
+                                                    target_key.account_id,
+                                                    key.decoded_pk(),
+                                                    key.decoded_sk())
+    node.send_tx(tx)
 
 
 def create_subaccount(node, signer_key, nonce, block_hash):
@@ -255,6 +254,17 @@ def create_subaccount(node, signer_key, nonce, block_hash):
     return k
 
 
+def send_transfers(nodes, nonces, block_hash):
+    for sender in range(len(nonces)):
+        receiver = (sender + 1) % len(nonces)
+        receiver_id = nodes[receiver].signer_key.account_id
+
+        tx = transaction.sign_payment_tx(nodes[sender].signer_key, receiver_id,
+                                         300, nonces[sender], block_hash)
+        nodes[sender].send_tx(tx)
+        nonces[sender] += 1
+
+
 # a key that we added with an AddKey tx or implicit account transfer.
 # just for nonce handling convenience
 class AddedKey:
@@ -266,6 +276,10 @@ class AddedKey:
     def send_if_inited(self, node, transfers, block_hash):
         if self.nonce is None:
             self.nonce = node.get_nonce_for_pk(self.key.account_id, self.key.pk)
+            if self.nonce is not None:
+                logger.info(
+                    f'added key {self.key.account_id} {self.key.pk} inited @ {self.nonce}'
+                )
 
         if self.nonce is not None:
             for (receiver_id, amount) in transfers:
@@ -273,6 +287,9 @@ class AddedKey:
                 tx = transaction.sign_payment_tx(self.key, receiver_id, amount,
                                                  self.nonce, block_hash)
                 node.send_tx(tx)
+
+    def inited(self):
+        return self.nonce is not None
 
 
 class ImplicitAccount:
@@ -292,6 +309,9 @@ class ImplicitAccount:
 
     def send_if_inited(self, node, transfers, block_hash):
         self.key.send_if_inited(node, transfers, block_hash)
+
+    def inited(self):
+        return self.key.inited()
 
 
 def count_total_txs(node, min_height=0):
@@ -356,7 +376,7 @@ def main():
                                         num_shards=4,
                                         config=config,
                                         genesis_config_changes=[
-                                            ["epoch_length", 10],
+                                            ["epoch_length", 100],
                                         ],
                                         client_config_changes=config_changes)
 
@@ -368,15 +388,14 @@ def main():
         nodes.append(
             spin_up_node(config, near_root, node_dirs[i], i,
                          boot_node=nodes[0]))
-
-    ctx = utils.TxContext([i for i in range(len(nodes))], nodes)
+    nonces = [2] * len(nodes)
 
     implicit_account1 = ImplicitAccount()
     for height, block_hash in utils.poll_blocks(nodes[0], timeout=TIMEOUT):
         implicit_account1.transfer(nodes[0], nodes[0].signer_key, 10**24,
                                    base58.b58decode(block_hash.encode('utf8')),
-                                   ctx.next_nonce)
-        ctx.next_nonce += 1
+                                   nonces[0])
+        nonces[0] += 1
         break
 
     for height, block_hash in utils.poll_blocks(nodes[0], timeout=TIMEOUT):
@@ -385,7 +404,7 @@ def main():
         implicit_account1.send_if_inited(nodes[0], [('test2', height),
                                                     ('test3', height)],
                                          block_hash_bytes)
-        ctx.send_moar_txs(block_hash, 10, use_routing=False)
+        send_transfers(nodes, nonces, block_hash_bytes)
 
         if height > 12:
             break
@@ -416,27 +435,33 @@ def main():
     restarted = False
 
     subaccount_key = AddedKey(
-        create_subaccount(nodes[0], nodes[0].signer_key, ctx.next_nonce,
+        create_subaccount(nodes[0], nodes[0].signer_key, nonces[0],
                           block_hash_bytes))
-    ctx.next_nonce += 1
+    nonces[0] += 1
 
-    new_key = AddedKey(
-        send_add_access_key(nodes[0], nodes[0].signer_key, ctx.next_nonce,
-                            block_hash_bytes))
-    ctx.next_nonce += 1
+    k = key.Key.from_random('test0')
+    new_key = AddedKey(k)
+    send_add_access_key(nodes[0], nodes[0].signer_key, k, nonces[0],
+                        block_hash_bytes)
+    nonces[0] += 1
 
+    test0_deleted_height = None
+    test0_readded_key = None
+    implicit_added = None
+    implicit_deleted = None
     implicit_account2 = ImplicitAccount()
+
     # here we are gonna send a tiny amount (1 yoctoNEAR) to the implicit account and
     # then wait a bit before properly initializing it. This hits a corner case where the
     # mirror binary needs to properly look for the second tx's outcome to find the starting
     # nonce because the first one failed
     implicit_account2.transfer(nodes[0], nodes[0].signer_key, 1,
-                               block_hash_bytes, ctx.next_nonce)
-    ctx.next_nonce += 1
+                               block_hash_bytes, nonces[0])
+    nonces[0] += 1
     time.sleep(2)
     implicit_account2.transfer(nodes[0], nodes[0].signer_key, 10**24,
-                               block_hash_bytes, ctx.next_nonce)
-    ctx.next_nonce += 1
+                               block_hash_bytes, nonces[0])
+    nonces[0] += 1
 
     for height, block_hash in utils.poll_blocks(nodes[0], timeout=TIMEOUT):
         code = p.poll()
@@ -446,16 +471,20 @@ def main():
 
         block_hash_bytes = base58.b58decode(block_hash.encode('utf8'))
 
-        ctx.send_moar_txs(block_hash, 10, use_routing=False)
+        if test0_deleted_height is None:
+            send_transfers(nodes, nonces, block_hash_bytes)
+        else:
+            send_transfers(nodes[1:], nonces[1:], block_hash_bytes)
 
         implicit_account1.send_if_inited(
             nodes[0], [('test2', height), ('test1', height),
                        (implicit_account2.account_id(), height)],
             block_hash_bytes)
-        implicit_account2.send_if_inited(
-            nodes[1], [('test2', height), ('test0', height),
-                       (implicit_account1.account_id(), height)],
-            block_hash_bytes)
+        if not implicit_deleted:
+            implicit_account2.send_if_inited(
+                nodes[1], [('test2', height), ('test0', height),
+                           (implicit_account1.account_id(), height)],
+                block_hash_bytes)
         new_key.send_if_inited(nodes[2],
                                [('test1', height), ('test2', height),
                                 (implicit_account1.account_id(), height),
@@ -465,6 +494,44 @@ def main():
             nodes[3], [('test3', height),
                        (implicit_account2.account_id(), height)],
             block_hash_bytes)
+
+        if implicit_added is None:
+            if implicit_account2.inited(
+            ) and height - start_source_height >= 15:
+                k = key.Key.from_random(implicit_account2.account_id())
+                implicit_added = AddedKey(k)
+                send_add_access_key(nodes[0], implicit_account2.key.key, k,
+                                    implicit_account2.key.nonce,
+                                    block_hash_bytes)
+                implicit_account2.key.nonce += 1
+        else:
+            implicit_added.send_if_inited(nodes[1], [('test0', height)],
+                                          block_hash_bytes)
+            if implicit_added.inited() and not implicit_deleted:
+                send_delete_access_key(nodes[0], implicit_added.key,
+                                       implicit_account2.key.key,
+                                       implicit_added.nonce, block_hash_bytes)
+                implicit_added.nonce += 1
+                implicit_deleted = True
+
+        if test0_deleted_height is None and new_key.inited(
+        ) and height - start_source_height >= 15:
+            send_delete_access_key(nodes[0], new_key.key, nodes[0].signer_key,
+                                   new_key.nonce + 1, block_hash_bytes)
+            new_key.nonce += 1
+            test0_deleted_height = height
+
+        if test0_readded_key is None and test0_deleted_height is not None and height - test0_deleted_height >= 5:
+            send_add_access_key(nodes[0], new_key.key, nodes[0].signer_key,
+                                new_key.nonce + 1, block_hash_bytes)
+            test0_readded_key = AddedKey(nodes[0].signer_key)
+            new_key.nonce += 1
+
+        if test0_readded_key is not None:
+            test0_readded_key.send_if_inited(
+                nodes[1], [('test3', height),
+                           (implicit_account2.account_id(), height)],
+                block_hash_bytes)
 
         if not restarted and height - start_source_height >= 50:
             logger.info('stopping mirror process')
