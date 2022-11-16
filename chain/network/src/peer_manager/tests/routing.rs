@@ -220,9 +220,6 @@ async fn no_edge_broadcast_after_restart() {
         ]
         .into();
         total_edges.extend(fresh_edges.clone());
-        // We capture the events starting here to record all the edge prunnings after the
-        // SyncRoutingTable below is processed.
-        let mut pm_events = pm.events.from_now();
         let peer_events = peer.events.from_now();
         peer.send(PeerMessage::SyncRoutingTable(RoutingTableUpdate {
             edges: total_edges.iter().cloned().collect::<Vec<_>>(),
@@ -234,26 +231,14 @@ async fn no_edge_broadcast_after_restart() {
         tracing::info!(target: "test", "wait_for_edges(<fresh edges>)");
         wait_for_edges(peer_events, &fresh_edges).await;
 
-        // Wait for all the disconnected edges created so far to be saved to storage.
-        tracing::info!(target: "test", "wait for pruning");
-        let mut pruned = HashSet::new();
-        while pruned != total_edges {
-            pm_events
-                .recv_until(|ev| match ev {
-                    Event::PeerManager(PME::MessageProcessed(PeerMessage::SyncRoutingTable {
-                        ..
-                    })) => {
-                        clock.advance(peer_manager_actor::UPDATE_ROUTING_TABLE_INTERVAL);
-                        None
-                    }
-                    Event::PeerManager(PME::RoutingTableUpdate { pruned_edges, .. }) => {
-                        pruned.extend(pruned_edges);
-                        Some(())
-                    }
-                    _ => None,
-                })
-                .await;
-        }
+        // Trigger update_routing_table, which is expected to prune all edges from total_edges.
+        // (Since they are unreachable).
+        let mut events = pm.events.from_now(); 
+        clock.advance(peer_manager_actor::UPDATE_ROUTING_TABLE_INTERVAL);
+        events.recv_until(|ev|match ev {
+            Event::PeerManager(PME::RoutingTableUpdate{..}) => Some(()),
+            _ => None,
+        }).await;
     }
 }
 
