@@ -9,7 +9,6 @@ use crate::peer::peer_actor::{PeerActor, FDS_PER_PEER};
 use crate::peer_manager::connection;
 use crate::peer_manager::network_state::{NetworkState, WhitelistNode};
 use crate::peer_manager::peer_store;
-use crate::private_actix::StopMsg;
 use crate::routing;
 use crate::stats::metrics;
 use crate::store;
@@ -25,7 +24,6 @@ use actix::{Actor, AsyncContext, Context, Handler, Running};
 use anyhow::Context as _;
 use near_o11y::{
     handler_debug_span, handler_trace_span, OpenTelemetrySpanExt, WithSpanContext,
-    WithSpanContextExt,
 };
 use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
@@ -47,9 +45,6 @@ use tracing::{debug, error, info, warn, Instrument};
 const EXPONENTIAL_BACKOFF_RATIO: f64 = 1.1;
 /// The initial waiting time between consecutive attempts to establish connection
 const MONITOR_PEERS_INITIAL_DURATION: time::Duration = time::Duration::milliseconds(10);
-/// How often should we update the routing table
-pub(crate) const UPDATE_ROUTING_TABLE_INTERVAL: time::Duration =
-    time::Duration::milliseconds(1_000);
 /// How often should we check wheter local edges match the connection pool.
 const FIX_LOCAL_EDGES_INTERVAL: time::Duration = time::Duration::seconds(60);
 /// How much time we give fix_local_edges() to resolve the discrepancies, before forcing disconnect.
@@ -63,11 +58,6 @@ const REPORT_BANDWIDTH_STATS_TRIGGER_INTERVAL: time::Duration =
 const REPORT_BANDWIDTH_THRESHOLD_BYTES: usize = 10_000_000;
 /// If we received more than REPORT_BANDWIDTH_THRESHOLD_COUNT` of messages from given peer it's bandwidth stats will be reported.
 const REPORT_BANDWIDTH_THRESHOLD_COUNT: usize = 10_000;
-/// How long a peer has to be unreachable, until we prune it from the in-memory graph.
-const PRUNE_UNREACHABLE_PEERS_AFTER: time::Duration = time::Duration::hours(1);
-
-/// Remove the edges that were created more that this duration ago.
-const PRUNE_EDGES_AFTER: time::Duration = time::Duration::minutes(30);
 
 /// If a peer is more than these blocks behind (comparing to our current head) - don't route any messages through it.
 /// We are updating the list of unreliable peers every MONITOR_PEER_MAX_DURATION (60 seconds) - so the current
@@ -183,24 +173,6 @@ impl Actor for PeerManagerActor {
             (MONITOR_PEERS_INITIAL_DURATION, self.state.config.monitor_peers_max_period),
         );
 
-        let state = self.state.clone();
-        let clock = self.clock.clone();
-        ctx.spawn(wrap_future(async move {
-            let mut interval = time::Interval::new(clock.now(), UPDATE_ROUTING_TABLE_INTERVAL);
-            loop {
-                interval.tick(&clock).await;
-                let _timer = metrics::PEER_MANAGER_TRIGGER_TIME
-                    .with_label_values(&["update_routing_table"])
-                    .start_timer();
-                state
-                    .update_routing_table(
-                        clock.now().checked_sub(PRUNE_UNREACHABLE_PEERS_AFTER),
-                        clock.now_utc().checked_sub(PRUNE_EDGES_AFTER),
-                    )
-                    .await;
-            }
-        }));
-
         let clock = self.clock.clone();
         let state = self.state.clone();
         ctx.spawn(wrap_future(async move {
@@ -219,7 +191,6 @@ impl Actor for PeerManagerActor {
     fn stopping(&mut self, _ctx: &mut Self::Context) -> Running {
         warn!("PeerManager: stopping");
         self.state.tier2.broadcast_message(Arc::new(PeerMessage::Disconnect));
-        self.state.routing_table_addr.do_send(StopMsg {}.with_span_context());
         Running::Stop
     }
 
@@ -534,7 +505,7 @@ impl PeerManagerActor {
         // Find peers that are not reliable (too much behind) - and make sure that we're not routing messages through them.
         let unreliable_peers = self.unreliable_peers();
         metrics::PEER_UNRELIABLE.set(unreliable_peers.len() as i64);
-        self.state.graph.write().set_unreliable_peers(unreliable_peers);
+        self.state.graph.set_unreliable_peers(unreliable_peers);
 
         let new_interval = min(max_interval, interval * EXPONENTIAL_BACKOFF_RATIO);
 
@@ -1073,8 +1044,7 @@ impl Handler<GetDebugStatus> for PeerManagerActor {
                 edges: self
                     .state
                     .graph
-                    .read()
-                    .edges()
+                    .load()
                     .iter()
                     .map(|(_, edge)| {
                         let key = edge.key();

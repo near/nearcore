@@ -1,17 +1,11 @@
-use crate::network_protocol::Edge;
-use crate::private_actix::StopMsg;
-use crate::routing;
+use crate::network_protocol::{PartialEdgeInfo, Edge, EdgeState, RoutingTableUpdate};
 use crate::stats::metrics;
-use crate::store;
 use crate::time;
-use actix::{Actor as _, ActorContext as _, Context, Running};
-use near_o11y::{handler_debug_span, handler_trace_span, OpenTelemetrySpanExt, WithSpanContext};
-use near_performance_metrics_macros::perf;
-use near_primitives::network::PeerId;
-use parking_lot::RwLock;
-use std::collections::{HashMap, HashSet};
+use crate::types::{ReasonForBan};
+use near_primitives::network::{AnnounceAccount,PeerId};
 use std::sync::Arc;
-use tracing::warn;
+use super::NetworkState;
+use crate::peer_manager::peer_manager_actor::Event;
 
 impl NetworkState {
     pub async fn add_accounts(self: &Arc<NetworkState>, accounts: Vec<AnnounceAccount>) {
@@ -60,33 +54,31 @@ impl NetworkState {
         // TODO(gprusak): sending duplicate edges should be considered a malicious behavior
         // instead, however that would be backward incompatible, so it can be introduced in
         // PROTOCOL_VERSION 60 earliest.
-        let graph = this.graph.load();
-        let mut edges = Edge::deduplicate(edges);
-        edges.retain(|x| !graph.has(x));
-        // Verify the edges in parallel on rayon.
-        let (edges,ok) = concurrency::rayon::run(move || {
-            concurrency::rayon::try_map(es,|e| if e.verify() { Some(e) } else { None })
-        });
+        let (edges,ok) = self.graph.verify(edges).await; 
         let this = self.clone();
         let clock = clock.clone();
-        self.add_edges_demux.call(edges, |edges| async move {
-            let edges = edges.flatten();
+        let _ = self.add_edges_demux.call(edges, |edges:Vec<Vec<Edge>>| async move {
+            let results : Vec<_> = edges.iter().map(|_|()).collect();
+            let edges : Vec<_> = edges.into_iter().flatten().collect();
+            let (mut edges, next_hops) = this.graph.update_routing_table(&clock,edges).await;
             this.routing_table_view.add_local_edges(&edges);
-            let (new_edges,next_hops) = graph.update_routing_table(clock,edges).await;
+            // TODO: pruned_edges are not passed any more
+            this.routing_table_view.update(&[],next_hops);
             // Don't send tombstones during the initial time.
             // Most of the network is created during this time, which results
             // in us sending a lot of tombstones to peers.
             // Later, the amount of new edges is a lot smaller.
             if let Some(skip_tombstones_duration) = this.config.skip_tombstones {
                 if clock.now() < this.created_at + skip_tombstones_duration {
-                    new_edges.retain(|edge| edge.edge_type() == EdgeState::Active);
+                    edges.retain(|edge| edge.edge_type() == EdgeState::Active);
                     metrics::EDGE_TOMBSTONE_SENDING_SKIPPED.inc();
                 }
             }
             // Broadcast new edges to all other peers.
             this.broadcast_routing_table_update(Arc::new(RoutingTableUpdate::from_edges(
-                new_edges,
+                edges,
             )));
+            results
         }).await;
         match ok {
             true => Ok(()),

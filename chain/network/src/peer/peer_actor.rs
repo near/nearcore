@@ -622,7 +622,7 @@ impl PeerActor {
     // Send full RoutingTable.
     fn sync_routing_table(&self) {
         let mut known_edges: Vec<Edge> =
-            self.network_state.graph.read().edges().values().cloned().collect();
+            self.network_state.graph.load().values().cloned().collect();
         if self.network_state.config.skip_tombstones.is_some() {
             known_edges.retain(|edge| edge.removal_info().is_none());
             metrics::EDGE_TOMBSTONE_SENDING_SKIPPED.inc();

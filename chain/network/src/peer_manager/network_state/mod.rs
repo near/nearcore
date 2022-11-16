@@ -1,33 +1,31 @@
 use crate::accounts_data;
 use crate::client;
-use crate::concurrency;
+use crate::concurrency::demux;
 use crate::config;
 use crate::network_protocol::{
-    Edge, EdgeState, PartialEdgeInfo, PeerIdOrHash, PeerInfo, PeerMessage, Ping, Pong,
+    Edge,
+    EdgeState, PartialEdgeInfo, PeerIdOrHash, PeerInfo, PeerMessage, Ping, Pong,
     RawRoutedMessage, RoutedMessageBody, RoutedMessageV2, RoutingTableUpdate, SignedAccountData,
 };
 use crate::peer_manager::connection;
-use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::peer_store;
 use crate::private_actix::RegisterPeerError;
-use crate::routing;
 use crate::routing::routing_table_view::RoutingTableView;
 use crate::stats::metrics;
 use crate::store;
 use crate::time;
 use crate::types::{ChainInfo, PeerType, ReasonForBan};
 use arc_swap::ArcSwap;
-use near_o11y::WithSpanContextExt;
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
-use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::network::{PeerId};
 use near_primitives::types::AccountId;
-use parking_lot::RwLock;
-use rayon::iter::ParallelBridge;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::Arc;
 use tracing::{debug, trace, Instrument};
+
+mod routing;
 
 /// Limit number of pending Peer actors to avoid OOM.
 pub(crate) const LIMIT_PENDING_PEERS: usize = 60;
@@ -35,6 +33,14 @@ pub(crate) const LIMIT_PENDING_PEERS: usize = 60;
 /// Send important messages three times.
 /// We send these messages multiple times to reduce the chance that they are lost
 const IMPORTANT_MESSAGE_RESENT_COUNT: usize = 3;
+
+const ADD_EDGES_RATE : demux::RateLimit = demux::RateLimit { qps: 1., burst: 1, };
+
+/// How long a peer has to be unreachable, until we prune it from the in-memory graph.
+const PRUNE_UNREACHABLE_PEERS_AFTER: time::Duration = time::Duration::hours(1);
+
+/// Remove the edges that were created more that this duration ago.
+const PRUNE_EDGES_AFTER: time::Duration = time::Duration::minutes(30);
 
 struct Runtime {
     handle: tokio::runtime::Handle,
@@ -105,8 +111,6 @@ pub(crate) struct NetworkState {
     /// GenesisId of the chain.
     pub genesis_id: GenesisId,
     pub client: Arc<dyn client::Client>,
-    /// RoutingTableActor, responsible for computing routing table, routing table exchange, etc.
-    pub routing_table_addr: actix::Addr<routing::Actor>,
 
     /// Network-related info about the chain.
     pub chain_info: ArcSwap<ChainInfo>,
@@ -119,7 +123,7 @@ pub(crate) struct NetworkState {
     /// Peer store that provides read/write access to peers.
     pub peer_store: peer_store::PeerStore,
     /// A graph of the whole NEAR network.
-    pub graph: routing::GraphWithCache,
+    pub graph: crate::routing::GraphWithCache,
 
     /// View of the Routing table. It keeps:
     /// - routing information - how to route messages
@@ -141,6 +145,8 @@ pub(crate) struct NetworkState {
     /// TODO(gprusak): determine why tests need to change that dynamically
     /// in the first place.
     pub max_num_peers: AtomicU32,
+
+    add_edges_demux: demux::Demux<Vec<Edge>,()>,
 }
 
 impl NetworkState {
@@ -153,11 +159,13 @@ impl NetworkState {
         client: Arc<dyn client::Client>,
         whitelist_nodes: Vec<WhitelistNode>,
     ) -> Self {
-        let graph = Arc::new(RwLock::new(routing::GraphWithCache::new(config.node_id())));
         Self {
             runtime: Runtime::new(),
-            routing_table_addr: routing::Actor::spawn(clock.clone(), store.clone(), graph.clone()),
-            graph,
+            graph: crate::routing::GraphWithCache::new(crate::routing::GraphConfig {
+                node_id: config.node_id(),
+                prune_unreachable_peers_after: PRUNE_UNREACHABLE_PEERS_AFTER,
+                prune_edges_after: Some(PRUNE_EDGES_AFTER),
+            },store.clone()),
             genesis_id,
             client,
             chain_info: Default::default(),
@@ -171,6 +179,7 @@ impl NetworkState {
             max_num_peers: AtomicU32::new(config.max_num_peers),
             config,
             created_at: clock.now(),
+            add_edges_demux: demux::Demux::new(ADD_EDGES_RATE),
         }
     }
 
