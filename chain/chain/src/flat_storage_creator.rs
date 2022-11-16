@@ -147,6 +147,9 @@ impl FlatStorageShardCreator {
                     // If it holds, deltas for all blocks after final head are saved to disk, because they have bigger
                     // heights than one on which we launched a node. Check that it is true:
                     for height in final_head.height + 1..=chain_store.head()?.height {
+                        // We skip heights for which there are no blocks, because certain heights can be skipped.
+                        // TODO (#8057): make `get_all_block_hashes_by_height` return empty hashmap instead of error
+                        // in such case.
                         for (_, hashes) in chain_store
                             .get_all_block_hashes_by_height(height)
                             .unwrap_or_default()
@@ -253,6 +256,7 @@ impl FlatStorageShardCreator {
                         let mut store_update = chain_store.store().store_update();
                         if next_start_part_id < num_parts {
                             // If there are still remaining state parts, switch status to the new range of state parts.
+                            // We will spawn new rayon tasks on the next status update.
                             let new_status = FetchingStateStatus {
                                 part_id: next_start_part_id,
                                 num_parts_in_step,
