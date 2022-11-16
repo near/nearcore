@@ -208,7 +208,7 @@ async fn no_edge_broadcast_after_restart() {
         let stream = tcp::Stream::connect(&pm.peer_info()).await.unwrap();
         let mut peer = peer::testonly::PeerHandle::start_endpoint(clock.clock(), cfg, stream).await;
         peer.complete_handshake().await;
-        pm.wait_for_routing_table(&mut clock, &[(peer.cfg.id(), vec![peer.cfg.id()])]).await;
+        wait_for_edges(peer.events.clone(), &[peer.edge.clone().unwrap()].into()).await;
 
         // Create a bunch of fresh unreachable edges, then send all the edges created so far.
         let fresh_edges: HashSet<_> = [
