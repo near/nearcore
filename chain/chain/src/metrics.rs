@@ -106,4 +106,6 @@ pub static STATE_PART_ELAPSED: Lazy<HistogramVec> = Lazy::new(|| {
         Some(exponential_buckets(0.001, 1.6, 20).unwrap()),
     )
     .unwrap()
+pub static NUM_INVALID_BLOCKS: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge("near_num_invalid_blocks", "Number of invalid blocks").unwrap()
 });

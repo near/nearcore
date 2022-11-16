@@ -65,7 +65,7 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{DetailedDebugStatus, ValidatorInfo};
 use near_store::DBCol;
 use near_telemetry::TelemetryActor;
-use rand::seq::SliceRandom;
+use rand::seq::{IteratorRandom, SliceRandom};
 use rand::{thread_rng, Rng};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -1481,9 +1481,13 @@ impl ClientActor {
         let head = self.client.chain.head()?;
         let mut is_syncing = self.client.sync_status.is_syncing();
 
-        let peer_info = if let Some(peer_info) =
-            self.network_info.highest_height_peers.choose(&mut thread_rng())
-        {
+        // Only consider peers whose latest block is not invalid blocks
+        let eligible_peers = self
+            .network_info
+            .highest_height_peers
+            .iter()
+            .filter(|p| !self.client.chain.is_block_invalid(&p.hash));
+        let peer_info = if let Some(peer_info) = eligible_peers.choose(&mut thread_rng()) {
             peer_info
         } else {
             if !self.client.config.skip_sync_wait {
