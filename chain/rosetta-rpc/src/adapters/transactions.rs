@@ -180,11 +180,7 @@ async fn get_predecessor_id_from_receipt_hash(
     view_client: &Addr<near_client::ViewClientActor>,
     receipt_id: CryptoHash,
 ) -> Option<AccountId> {
-    let receipt_view = view_client
-        .send(near_client::GetReceipt { receipt_id }.with_span_context())
-        .await
-        .ok()?
-        .ok()?;
+    let receipt_view = view_client.send(near_client::GetReceipt { receipt_id }).await.ok()?.ok()?;
     Some(receipt_view?.predecessor_id)
 }
 
