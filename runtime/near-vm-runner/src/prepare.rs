@@ -117,10 +117,10 @@ pub fn prepare_contract(original_code: &[u8], config: &VMConfig) -> Result<Vec<u
         // See `test_stack_instrumentation_protocol_upgrade` test.
         near_vm_logic::StackLimiterVersion::V0 => pwasm_12::prepare_contract(original_code, config),
         near_vm_logic::StackLimiterVersion::V1 => ContractModule::init(original_code, config)?
+            .scan_imports()?
             .standardize_mem()
             .inject_gas_metering()?
             .inject_stack_height_metering()?
-            .scan_imports()?
             .into_wasm_code(),
     }
 }
@@ -211,6 +211,8 @@ impl<'a> ContractModule<'a> {
                 return Err(PrepareError::Instantiate);
             }
 
+            // TODO: Function type check with Env
+            /*
             let type_idx = match *import.external() {
                 External::Function(ref type_idx) => type_idx,
                 External::Memory(ref memory_type) => {
@@ -223,9 +225,6 @@ impl<'a> ContractModule<'a> {
             let elements::Type::Function(ref _func_ty) =
                 types.get(*type_idx as usize).ok_or(PrepareError::Instantiate)?;
 
-            // TODO: Function type check with Env
-            /*
-
             let ext_func = env
                 .funcs
                 .get(import.field().as_bytes())
@@ -235,17 +234,6 @@ impl<'a> ContractModule<'a> {
             }
             */
         }
-        if let Some(memory_type) = imported_mem_type {
-            // Inspect the module to extract the initial and maximum page count.
-            let limits = memory_type.limits();
-            if limits.initial() != config.limit_config.initial_memory_pages
-                || limits.maximum() != Some(config.limit_config.max_memory_pages)
-            {
-                return Err(PrepareError::Memory);
-            }
-        } else {
-            return Err(PrepareError::Memory);
-        };
         Ok(Self { module, config })
     }
 
@@ -481,7 +469,7 @@ mod tests {
     fn imports() {
         // nothing can be imported from non-"env" module for now.
         let r =
-            parse_and_prepare_wat(r#"(module (import "another_module" "gas" (func (param i32))))"#);
+            parse_and_prepare_wat(r#"(module (import "another_module" "memory" (memory 1 1)))"#);
         assert_matches!(r, Err(PrepareError::Instantiate));
 
         let r = parse_and_prepare_wat(r#"(module (import "env" "gas" (func (param i32))))"#);

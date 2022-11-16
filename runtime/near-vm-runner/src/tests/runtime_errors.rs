@@ -54,7 +54,13 @@ fn test_simple_contract() {
 #[test]
 fn test_multiple_memories() {
     test_builder()
-        .wasm(b"\x00\x61\x73\x6d\x01\x00\x00\x00\x05\x07\x02\x01\x01\x02\x01\x03\x04")
+        .wasm(concat_bytes!(
+            b"\x00\x61\x73\x6d", // wasm header
+            b"\x01\x00\x00\x00", // version 1
+            b"\x05\x07\x02", // memory section with 2 items totalling 7 bytes
+            b"\x01\x01\x02", // first item
+            b"\x01\x03\x04", // second item
+        ))
         .opaque_error()
         .protocol_features(&[
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
