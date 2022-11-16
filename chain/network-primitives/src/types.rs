@@ -258,7 +258,6 @@ pub enum NetworkAdversarialMessage {
     AdvDisableDoomslug,
     AdvGetSavedBlocks,
     AdvCheckStorageConsistency,
-    AdvSetSyncInfo(u64),
 }
 
 #[derive(actix::Message, strum::IntoStaticStr)]

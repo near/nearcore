@@ -16,7 +16,7 @@ use crate::private_actix::{
 use crate::routing::edge::verify_nonce;
 use crate::sink::Sink;
 use crate::stats::metrics;
-use crate::types::{NetworkClientMessages, NetworkClientResponses};
+use crate::types::{BlockInfo, NetworkClientMessages, NetworkClientResponses};
 use actix::{
     Actor, ActorContext, ActorFutureExt, AsyncContext, Context, ContextFutureSpawner, Handler,
     Running, WrapFuture,
@@ -44,7 +44,7 @@ use parking_lot::Mutex;
 use std::fmt::Debug;
 use std::io;
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
@@ -61,6 +61,8 @@ const MAX_TRANSACTIONS_PER_BLOCK_MESSAGE: usize = 1000;
 const ROUTED_MESSAGE_CACHE_SIZE: usize = 1000;
 /// Duplicated messages will be dropped if routed through the same peer multiple times.
 const DROP_DUPLICATED_MESSAGES_PERIOD: time::Duration = time::Duration::milliseconds(50);
+/// How often to send the latest block to peers.
+const SYNC_LATEST_BLOCK_INTERVAL: time::Duration = time::Duration::seconds(60);
 
 // A guard which reports PeerActorStopped event when dropped.
 // Ideally it should rather wrap TcpStream somehow, however the stream
@@ -279,7 +281,10 @@ impl PeerActor {
         // Skip sending block and headers if we received it or header from this peer.
         // Record block requests in tracker.
         match msg {
-            PeerMessage::Block(b) if self.tracker.lock().has_received(b.hash()) => return,
+            // Temporarily disable this check because now the node needs to send block to its
+            // peers to update its height at the peer. In the future we will introduce a new
+            // peer message type for that and then we can enable this check again.
+            //PeerMessage::Block(b) if self.tracker.lock().has_received(b.hash()) => return,
             PeerMessage::BlockRequest(h) => self.tracker.lock().push_request(*h),
             _ => (),
         };
@@ -297,7 +302,12 @@ impl PeerActor {
     }
 
     fn send_handshake(&self, spec: HandshakeSpec) {
-        let chain_info = self.network_state.chain_info.load();
+        let (height, tracked_shards) =
+            if let Some(chain_info) = self.network_state.chain_info.load().as_ref() {
+                (chain_info.block.header().height(), chain_info.tracked_shards.clone())
+            } else {
+                (0, vec![])
+            };
         let msg = Handshake {
             protocol_version: spec.protocol_version,
             oldest_supported_version: PEER_MIN_ALLOWED_PROTOCOL_VERSION,
@@ -306,8 +316,8 @@ impl PeerActor {
             sender_listen_port: self.my_node_info.addr_port(),
             sender_chain_info: PeerChainInfoV2 {
                 genesis_id: spec.genesis_id,
-                height: chain_info.height,
-                tracked_shards: chain_info.tracked_shards.clone(),
+                height,
+                tracked_shards,
                 archival: self.network_state.config.archive,
             },
             partial_edge_info: spec.partial_edge_info,
@@ -481,10 +491,17 @@ impl PeerActor {
         let network_client_msg = match msg {
             PeerMessage::Block(block) => {
                 let block_hash = *block.hash();
-                self.tracker.lock().push_received(block_hash);
+                let height = block.header().height();
                 if let Some(cs) = &self.connection {
-                    cs.chain_height.fetch_max(block.header().height(), Ordering::Relaxed);
+                    cs.last_block.rcu(|last_block| {
+                        if last_block.is_none() || last_block.unwrap().height <= height {
+                            Arc::new(Some(BlockInfo { height, hash: block_hash }))
+                        } else {
+                            last_block.clone()
+                        }
+                    });
                 }
+                self.tracker.lock().push_received(block_hash);
                 NetworkClientMessages::Block(
                     block,
                     peer_id,
@@ -777,9 +794,11 @@ impl PeerActor {
         let connection = Arc::new(connection::Connection {
             addr: ctx.address(),
             peer_info: peer_info.clone(),
-            initial_chain_info: handshake.sender_chain_info.clone(),
-            chain_height: AtomicU64::new(handshake.sender_chain_info.height),
             edge,
+            genesis_id: handshake.sender_chain_info.genesis_id.clone(),
+            tracked_shards: handshake.sender_chain_info.tracked_shards.clone(),
+            archival: handshake.sender_chain_info.archival,
+            last_block: Default::default(),
             peer_type: self.peer_type,
             stats: self.stats.clone(),
             _peer_connections_metric: metrics::PEER_CONNECTIONS.new_point(&metrics::Connection {
@@ -864,6 +883,22 @@ impl PeerActor {
                                 requesting_full_sync: true,
                             }));
                         }
+                        // Send latest block periodically
+                        ctx.spawn({
+                            let conn = connection.clone();
+                            let state = act.network_state.clone();
+                            let mut interval =
+                                tokio::time::interval(SYNC_LATEST_BLOCK_INTERVAL.try_into().unwrap());
+                            async move {
+                                loop {
+                                    // the first tick is immediate, so the tick should go sync_latest_block
+                                    interval.tick().await;
+                                    if let Some(chain_info) = state.chain_info.load().as_ref() {
+                                        conn.send_message(Arc::new(PeerMessage::Block(chain_info.block.clone())));
+                                    }
+                                }
+                            }.into_actor(act)
+                        });
                         actix::fut::ready(())
                     },
                     err => {

@@ -6,17 +6,19 @@ use crate::network_protocol::{SignedAccountData, SyncAccountsData};
 use crate::peer::peer_actor::PeerActor;
 use crate::private_actix::SendMessage;
 use crate::stats::metrics;
-use crate::types::FullPeerInfo;
+use crate::types::{BlockInfo, FullPeerInfo, PeerChainInfo};
+use arc_swap::ArcSwap;
 use near_network_primitives::time;
 use near_network_primitives::types::{
-    Edge, PartialEdgeInfo, PeerChainInfoV2, PeerInfo, PeerManagerRequest,
-    PeerManagerRequestWithContext, PeerType, ReasonForBan,
+    Edge, PeerInfo, PeerManagerRequest, PeerManagerRequestWithContext, PeerType, ReasonForBan,
 };
+use near_primitives::block::GenesisId;
 use near_primitives::network::PeerId;
+use near_primitives::types::ShardId;
 use std::collections::{hash_map::Entry, HashMap};
 use std::fmt;
 use std::future::Future;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Weak};
 use tracing::Span;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
@@ -49,8 +51,13 @@ pub(crate) struct Connection {
 
     pub peer_info: PeerInfo,
     pub edge: Edge,
-    pub initial_chain_info: PeerChainInfoV2,
-    pub chain_height: AtomicU64,
+    /// Chain Id and hash of genesis block.
+    pub genesis_id: GenesisId,
+    /// Shards that the peer is tracking.
+    pub tracked_shards: Vec<ShardId>,
+    /// Denote if a node is running in archival mode or not.
+    pub archival: bool,
+    pub last_block: ArcSwap<Option<BlockInfo>>,
 
     /// Who started connection. Inbound (other) or Outbound (us).
     pub peer_type: PeerType,
@@ -83,20 +90,13 @@ impl fmt::Debug for Connection {
 
 impl Connection {
     pub fn full_peer_info(&self) -> FullPeerInfo {
-        let mut chain_info = self.initial_chain_info.clone();
-        chain_info.height = self.chain_height.load(Ordering::Relaxed);
-        FullPeerInfo {
-            peer_info: self.peer_info.clone(),
-            chain_info,
-            partial_edge_info: PartialEdgeInfo {
-                nonce: self.edge.nonce(),
-                signature: if self.edge.key().0 == self.peer_info.id {
-                    self.edge.signature0().clone()
-                } else {
-                    self.edge.signature1().clone()
-                },
-            },
-        }
+        let chain_info = PeerChainInfo {
+            genesis_id: self.genesis_id.clone(),
+            last_block: self.last_block.load().as_ref().clone(),
+            tracked_shards: self.tracked_shards.clone(),
+            archival: self.archival,
+        };
+        FullPeerInfo { peer_info: self.peer_info.clone(), chain_info }
     }
 
     pub fn ban(&self, ban_reason: ReasonForBan) {

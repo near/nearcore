@@ -6,11 +6,11 @@ use futures::FutureExt;
 use near_crypto::PublicKey;
 use near_network_primitives::time;
 use near_network_primitives::types::{
-    AccountIdOrPeerTrackingShard, AccountOrPeerIdOrHash, KnownProducer, PartialEdgeInfo,
+    AccountIdOrPeerTrackingShard, AccountOrPeerIdOrHash, KnownProducer,
     PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg,
-    PeerChainInfoV2, PeerInfo, PeerType, Ping, Pong, ReasonForBan, StateResponseInfo,
+    PeerInfo, PeerType, Ping, Pong, ReasonForBan, StateResponseInfo,
 };
-use near_primitives::block::{Approval, ApprovalMessage, Block, BlockHeader};
+use near_primitives::block::{Approval, ApprovalMessage, Block, BlockHeader, GenesisId};
 use near_primitives::challenge::Challenge;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
@@ -38,10 +38,11 @@ pub type AccountKeys = HashMap<(EpochId, AccountId), PublicKey>;
 
 /// Network-relevant data about the chain.
 // TODO(gprusak): it is more like node info, or sth.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct ChainInfo {
     pub tracked_shards: Vec<ShardId>,
-    pub height: BlockHeight,
+    // The lastest block on chain.
+    pub block: Block,
     // Public keys of accounts participating in the BFT consensus
     // (both accounts from current and next epoch are important, that's why
     // the map is indexed by (EpochId,AccountId) pair).
@@ -212,12 +213,66 @@ pub enum NetworkRequests {
     Challenge(Challenge),
 }
 
-/// Combines peer address info, chain and edge information.
+/// Combines peer address info, chain.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct FullPeerInfo {
     pub peer_info: PeerInfo,
-    pub chain_info: PeerChainInfoV2,
-    pub partial_edge_info: PartialEdgeInfo,
+    pub chain_info: PeerChainInfo,
+}
+
+/// These are the information needed for highest height peers. For these peers, we guarantee that
+/// the height and hash of the latest block are set.
+#[derive(Debug, Clone)]
+pub struct HighestHeightPeerInfo {
+    pub peer_info: PeerInfo,
+    /// Chain Id and hash of genesis block.
+    pub genesis_id: GenesisId,
+    /// Height and hash of the highest block we've ever received from the peer
+    pub highest_block_height: BlockHeight,
+    /// Hash of the latest block
+    pub highest_block_hash: CryptoHash,
+    /// Shards that the peer is tracking.
+    pub tracked_shards: Vec<ShardId>,
+    /// Denote if a node is running in archival mode or not.
+    pub archival: bool,
+}
+
+impl From<FullPeerInfo> for Option<HighestHeightPeerInfo> {
+    fn from(p: FullPeerInfo) -> Self {
+        if p.chain_info.last_block.is_some() {
+            Some(HighestHeightPeerInfo {
+                peer_info: p.peer_info,
+                genesis_id: p.chain_info.genesis_id,
+                highest_block_height: p.chain_info.last_block.unwrap().height,
+                highest_block_hash: p.chain_info.last_block.unwrap().hash,
+                tracked_shards: p.chain_info.tracked_shards,
+                archival: p.chain_info.archival,
+            })
+        } else {
+            None
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub struct BlockInfo {
+    pub height: BlockHeight,
+    pub hash: CryptoHash,
+}
+
+/// This is the internal representation of PeerChainInfoV2.
+/// We separate these two structs because PeerChainInfoV2 is part of network protocol, and can't be
+/// modified easily.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct PeerChainInfo {
+    /// Chain Id and hash of genesis block.
+    pub genesis_id: GenesisId,
+    /// Height and hash of the highest block we've ever received from the peer
+    pub last_block: Option<BlockInfo>,
+    /// Shards that the peer is tracking.
+    pub tracked_shards: Vec<ShardId>,
+    /// Denote if a node is running in archival mode or not.
+    pub archival: bool,
 }
 
 impl From<&FullPeerInfo> for ConnectedPeerInfo {
@@ -243,7 +298,8 @@ impl From<&ConnectedPeerInfo> for PeerInfoView {
                 None => "N/A".to_string(),
             },
             account_id: full_peer_info.peer_info.account_id.clone(),
-            height: full_peer_info.chain_info.height,
+            height: full_peer_info.chain_info.last_block.map(|x| x.height),
+            block_hash: full_peer_info.chain_info.last_block.map(|x| x.hash),
             tracked_shards: full_peer_info.chain_info.tracked_shards.clone(),
             archival: full_peer_info.chain_info.archival,
             peer_id: full_peer_info.peer_info.id.public_key().clone(),
@@ -289,7 +345,7 @@ pub struct NetworkInfo {
     pub connected_peers: Vec<ConnectedPeerInfo>,
     pub num_connected_peers: usize,
     pub peer_max_count: u32,
-    pub highest_height_peers: Vec<FullPeerInfo>,
+    pub highest_height_peers: Vec<HighestHeightPeerInfo>,
     pub sent_bytes_per_sec: u64,
     pub received_bytes_per_sec: u64,
     /// Accounts of known block and chunk producers from routing table.
