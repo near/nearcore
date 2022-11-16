@@ -614,7 +614,7 @@ impl PeerActor {
                             let state = act.network_state.clone();
                             async move {
                                 let mut interval =
-                                    tokio::time::interval(SYNC_LATEST_BLOCK_INTERVAL.try_into().unwrap());
+                                    time::Interval::new(SYNC_LATEST_BLOCK_INTERVAL.try_into().unwrap());
                                 interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
                                 loop {
                                     // the first tick is immediate, so the tick should go sync_latest_block
