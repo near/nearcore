@@ -98,3 +98,12 @@ pub static BLOCK_MISSING_CHUNKS_DELAY: Lazy<Histogram> = Lazy::new(|| {
     )
     .unwrap()
 });
+pub static STATE_PART_ELAPSED: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_state_part_elapsed_sec",
+        "Time needed to create a state part",
+        &["shard_id"],
+        Some(exponential_buckets(0.001, 1.6, 20).unwrap()),
+    )
+    .unwrap()
+});
