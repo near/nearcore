@@ -151,7 +151,7 @@
         function fetchChainInfo(status_data) {
             $.ajax({
                 type: "GET",
-                url: "/debug/api/chain_processing_status",
+                url: "../api/chain_processing_status",
                 success: data => {
                     onChainInfoFetched(status_data, data);
                 },
@@ -167,7 +167,7 @@
         function fetchStatus() {
             $.ajax({
                 type: "GET",
-                url: "/debug/api/status",
+                url: "../api/status",
                 success: data => {
                     fetchChainInfo(data);
                 },

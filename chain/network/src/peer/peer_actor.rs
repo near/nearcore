@@ -525,13 +525,12 @@ impl PeerActor {
         let tracker = self.tracker.clone();
         let clock = self.clock.clone();
         let mut interval =
-            tokio::time::interval(self.network_state.config.peer_stats_period.try_into().unwrap());
-        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            time::Interval::new(clock.now(), self.network_state.config.peer_stats_period);
         ctx.spawn({
             let conn = conn.clone();
             wrap_future(async move {
                 loop {
-                    interval.tick().await;
+                    interval.tick(&clock).await;
                     let sent = tracker.lock().sent_bytes.minute_stats(&clock);
                     let received = tracker.lock().received_bytes.minute_stats(&clock);
                     conn.stats
@@ -599,13 +598,12 @@ impl PeerActor {
 
                         // Exchange peers periodically.
                         ctx.spawn(wrap_future({
+                            let clock = act.clock.clone();
                             let conn = conn.clone();
                             async move {
-                                let mut interval =
-                                    tokio::time::interval(REQUEST_PEERS_INTERVAL.try_into().unwrap());
-                                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                                let mut interval = time::Interval::new(clock.now(),REQUEST_PEERS_INTERVAL);
                                 loop {
-                                    interval.tick().await;
+                                    interval.tick(&clock).await;
                                     conn.send_message(Arc::new(PeerMessage::PeersRequest));
                                 }
                             }
@@ -975,8 +973,12 @@ impl PeerActor {
                 }));
             }
             PeerMessage::SyncRoutingTable(rtu) => {
-                self.handle_sync_routing_table(ctx, conn, rtu);
-                self.network_state.config.event_sink.push(Event::MessageProcessed(peer_msg));
+                let clock = self.clock.clone();
+                let network_state = self.network_state.clone();
+                ctx.spawn(wrap_future(async move {
+                    Self::handle_sync_routing_table(&clock, &network_state, conn, rtu).await;
+                    network_state.config.event_sink.push(Event::MessageProcessed(peer_msg));
+                }));
             }
             PeerMessage::SyncAccountsData(msg) => {
                 let network_state = self.network_state.clone();
@@ -1076,50 +1078,35 @@ impl PeerActor {
         }
     }
 
-    fn handle_sync_routing_table(
-        &self,
-        ctx: &mut actix::Context<Self>,
+    async fn handle_sync_routing_table(
+        clock: &time::Clock,
+        network_state: &Arc<NetworkState>,
         conn: Arc<connection::Connection>,
         rtu: RoutingTableUpdate,
     ) {
         let _span = tracing::trace_span!(target: "network", "handle_sync_routing_table").entered();
-        // Process edges and add new edges to the routing table. Also broadcast new edges.
-        ctx.spawn(wrap_future({
-            let edges = rtu.edges;
-            let conn = conn.clone();
-            let network_state = self.network_state.clone();
-            let clock = self.clock.clone();
-            async move {
-                if let Err(ban_reason) = network_state.add_edges(&clock, edges).await {
-                    conn.stop(Some(ban_reason));
-                }
-            }
-        }));
-        ctx.spawn(wrap_future({
-            let accounts = rtu.accounts;
-            let conn = conn.clone();
-            let network_state = self.network_state.clone();
-            async move {
-                // For every announce we received, we fetch the last announce with the same account_id
-                // that we already broadcasted. Client actor will both verify signatures of the received announces
-                // as well as filter out those which are older than the fetched ones (to avoid overriding
-                // a newer announce with an older one).
-                let old = network_state
-                    .routing_table_view
-                    .get_broadcasted_announces(accounts.iter().map(|a| &a.account_id));
-                let accounts: Vec<(AnnounceAccount, Option<EpochId>)> = accounts
-                    .into_iter()
-                    .map(|aa| {
-                        let id = aa.account_id.clone();
-                        (aa, old.get(&id).map(|old| old.epoch_id.clone()))
-                    })
-                    .collect();
-                match network_state.client.announce_account(accounts).await {
-                    Err(ban_reason) => conn.stop(Some(ban_reason)),
-                    Ok(accounts) => network_state.add_accounts(accounts).await,
-                }
-            }
-        }));
+        if let Err(ban_reason) = network_state.add_edges(&clock, rtu.edges).await {
+            conn.stop(Some(ban_reason));
+        }
+        // For every announce we received, we fetch the last announce with the same account_id
+        // that we already broadcasted. Client actor will both verify signatures of the received announces
+        // as well as filter out those which are older than the fetched ones (to avoid overriding
+        // a newer announce with an older one).
+        let old = network_state
+            .routing_table_view
+            .get_broadcasted_announces(rtu.accounts.iter().map(|a| &a.account_id));
+        let accounts: Vec<(AnnounceAccount, Option<EpochId>)> = rtu
+            .accounts
+            .into_iter()
+            .map(|aa| {
+                let id = aa.account_id.clone();
+                (aa, old.get(&id).map(|old| old.epoch_id.clone()))
+            })
+            .collect();
+        match network_state.client.announce_account(accounts).await {
+            Err(ban_reason) => conn.stop(Some(ban_reason)),
+            Ok(accounts) => network_state.add_accounts(accounts).await,
+        }
     }
 }
 

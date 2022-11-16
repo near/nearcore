@@ -1137,12 +1137,10 @@ impl ChainAccessForFlatStorage for ChainStore {
     }
 
     fn get_block_hashes_at_height(&self, height: BlockHeight) -> HashSet<CryptoHash> {
-        self.get_all_block_hashes_by_height(height)
-            .unwrap()
-            .values()
-            .flatten()
-            .copied()
-            .collect::<HashSet<_>>()
+        match self.get_all_block_hashes_by_height(height) {
+            Ok(hashes) => hashes.values().flatten().copied().collect::<HashSet<_>>(),
+            Err(_) => Default::default(),
+        }
     }
 }
 
