@@ -691,50 +691,50 @@ impl<'a> core::fmt::Display for Bs58<'a> {
 ///
 /// If the encoded string decodes into a buffer of different length than `N`,
 /// returns error.  Similarly returns error if decoding fails.
-fn decode_bs58<const N: usize>(encoded: &str) -> Result<[u8; N], DecodeDataError> {
+fn decode_bs58<const N: usize>(encoded: &str) -> Result<[u8; N], DecodeBs58Error> {
     let mut buffer = [0u8; N];
     decode_bs58_impl(&mut buffer[..], encoded)?;
     Ok(buffer)
 }
 
-fn decode_bs58_impl(dst: &mut [u8], encoded: &str) -> Result<(), DecodeDataError> {
+fn decode_bs58_impl(dst: &mut [u8], encoded: &str) -> Result<(), DecodeBs58Error> {
     let expected = dst.len();
     match bs58::decode(encoded).into(dst) {
         Ok(received) if received == expected => Ok(()),
-        Ok(received) => Err(DecodeDataError::BadLength { expected, received }),
+        Ok(received) => Err(DecodeBs58Error::BadLength { expected, received }),
         Err(bs58::decode::Error::BufferTooSmall) => {
-            Err(DecodeDataError::BadLength { expected, received: expected + 1 })
+            Err(DecodeBs58Error::BadLength { expected, received: expected + 1 })
         }
-        Err(err) => Err(DecodeDataError::BadData(err.to_string())),
+        Err(err) => Err(DecodeBs58Error::BadData(err.to_string())),
     }
 }
 
-enum DecodeDataError {
+enum DecodeBs58Error {
     BadLength { expected: usize, received: usize },
     BadData(String),
 }
 
-impl std::convert::From<DecodeDataError> for crate::errors::ParseKeyError {
-    fn from(err: DecodeDataError) -> Self {
+impl std::convert::From<DecodeBs58Error> for crate::errors::ParseKeyError {
+    fn from(err: DecodeBs58Error) -> Self {
         match err {
-            DecodeDataError::BadLength { expected, received } => {
+            DecodeBs58Error::BadLength { expected, received } => {
                 crate::errors::ParseKeyError::InvalidLength {
                     expected_length: expected,
                     received_length: received,
                 }
             }
-            DecodeDataError::BadData(error_message) => Self::InvalidData { error_message },
+            DecodeBs58Error::BadData(error_message) => Self::InvalidData { error_message },
         }
     }
 }
 
-impl std::convert::From<DecodeDataError> for crate::errors::ParseSignatureError {
-    fn from(err: DecodeDataError) -> Self {
+impl std::convert::From<DecodeBs58Error> for crate::errors::ParseSignatureError {
+    fn from(err: DecodeBs58Error) -> Self {
         match err {
-            DecodeDataError::BadLength { expected, received } => {
+            DecodeBs58Error::BadLength { expected, received } => {
                 Self::InvalidLength { expected_length: expected, received_length: received }
             }
-            DecodeDataError::BadData(error_message) => Self::InvalidData { error_message },
+            DecodeBs58Error::BadData(error_message) => Self::InvalidData { error_message },
         }
     }
 }
