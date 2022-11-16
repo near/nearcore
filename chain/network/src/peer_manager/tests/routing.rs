@@ -210,6 +210,8 @@ async fn no_edge_broadcast_after_restart() {
         let stream = tcp::Stream::connect(&pm.peer_info()).await.unwrap();
         let mut peer = peer::testonly::PeerHandle::start_endpoint(clock.clock(), cfg, stream).await;
         peer.complete_handshake().await;
+        // Wait for the initial sync, which will contain just 1 edge.
+        // Only incremental sync are guaranteed to not contain already known edges.
         wait_for_edges(peer.events.clone(), &[peer.edge.clone().unwrap()].into()).await;
 
         // Create a bunch of fresh unreachable edges, then send all the edges created so far.
@@ -227,7 +229,7 @@ async fn no_edge_broadcast_after_restart() {
         }))
         .await;
 
-        // Wait for the fresh edges and the connection edge to be broadcasted back.
+        // Wait for the fresh edges to be broadcasted back.
         tracing::info!(target: "test", "wait_for_edges(<fresh edges>)");
         wait_for_edges(peer_events, &fresh_edges).await;
 
