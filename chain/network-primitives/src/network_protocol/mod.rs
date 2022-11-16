@@ -127,20 +127,6 @@ impl FromStr for PeerInfo {
 }
 
 /// Peer chain information.
-/// TODO: Remove in next version
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq, Default)]
-/// Represents `peers` view about chain.
-pub struct PeerChainInfo {
-    /// Chain Id and hash of genesis block.
-    pub genesis_id: GenesisId,
-    /// Last known chain height of the peer.
-    pub height: BlockHeight,
-    /// Shards that the peer is tracking.
-    pub tracked_shards: Vec<ShardId>,
-}
-
-/// Peer chain information.
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq, Default)]
 pub struct PeerChainInfoV2 {
@@ -152,17 +138,6 @@ pub struct PeerChainInfoV2 {
     pub tracked_shards: Vec<ShardId>,
     /// Denote if a node is running in archival mode or not.
     pub archival: bool,
-}
-
-impl From<PeerChainInfo> for PeerChainInfoV2 {
-    fn from(peer_chain_info: PeerChainInfo) -> Self {
-        Self {
-            genesis_id: peer_chain_info.genesis_id,
-            height: peer_chain_info.height,
-            tracked_shards: peer_chain_info.tracked_shards,
-            archival: false,
-        }
-    }
 }
 
 /// Test code that someone become part of our protocol?
