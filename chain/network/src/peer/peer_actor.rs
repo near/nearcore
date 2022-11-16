@@ -610,15 +610,15 @@ impl PeerActor {
                         }));
                         // Send latest block periodically
                         ctx.spawn(wrap_future({
+                            let clock = act.clock.clone();
                             let conn = conn.clone();
                             let state = act.network_state.clone();
                             async move {
                                 let mut interval =
-                                    time::Interval::new(SYNC_LATEST_BLOCK_INTERVAL.try_into().unwrap());
-                                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                                    time::Interval::new(clock.now(), SYNC_LATEST_BLOCK_INTERVAL);
                                 loop {
                                     // the first tick is immediate, so the tick should go sync_latest_block
-                                    interval.tick().await;
+                                    interval.tick(&clock).await;
                                     if let Some(chain_info) = state.chain_info.load().as_ref() {
                                         conn.send_message(Arc::new(PeerMessage::Block(
                                             chain_info.block.clone(),
