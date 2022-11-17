@@ -75,6 +75,7 @@ use crate::{metrics, DoomslugThresholdMode};
 use actix::Message;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use delay_detector::DelayDetector;
+use lru::LruCache;
 use near_client_primitives::types::StateSplitApplyingStatus;
 use near_primitives::shard_layout::{
     account_id_to_shard_id, account_id_to_shard_uid, ShardLayout, ShardUId,
@@ -96,6 +97,9 @@ const MAX_ORPHAN_AGE_SECS: u64 = 300;
 // Orphans for which we will request for missing chunks must satisfy,
 // its NUM_ORPHAN_ANCESTORS_CHECK'th ancestor has been accepted
 pub const NUM_ORPHAN_ANCESTORS_CHECK: u64 = 3;
+
+/// The size of the invalid_blocks in-memory pool
+pub const INVALID_CHUNKS_POOL_SIZE: usize = 5000;
 
 // Maximum number of orphans that we can request missing chunks
 // Note that if there are no forks, the maximum number of orphans we would
@@ -407,6 +411,9 @@ pub fn check_known(
     if chain.blocks_with_missing_chunks.contains(block_hash) {
         return Ok(Err(BlockKnownError::KnownInMissingChunks));
     }
+    if chain.is_block_invalid(block_hash) {
+        return Ok(Err(BlockKnownError::KnownAsInvalid));
+    }
     check_known_store(chain, block_hash)
 }
 
@@ -437,6 +444,8 @@ pub struct Chain {
     apply_chunks_receiver: Receiver<BlockApplyChunksResult>,
     /// Time when head was updated most recently.
     last_time_head_updated: Instant,
+
+    invalid_blocks: LruCache<CryptoHash, ()>,
 
     /// Support for sandbox's patch_state requests.
     ///
@@ -512,6 +521,7 @@ impl Chain {
             apply_chunks_sender: sc,
             apply_chunks_receiver: rc,
             last_time_head_updated: Clock::instant(),
+            invalid_blocks: LruCache::new(INVALID_CHUNKS_POOL_SIZE),
             pending_state_patch: Default::default(),
         })
     }
@@ -685,6 +695,7 @@ impl Chain {
             orphans: OrphanBlockPool::new(),
             blocks_with_missing_chunks: MissingChunksPool::new(),
             blocks_in_processing: BlocksInProcessing::new(),
+            invalid_blocks: LruCache::new(INVALID_CHUNKS_POOL_SIZE),
             genesis: genesis.clone(),
             transaction_validity_period: chain_genesis.transaction_validity_period,
             epoch_length: chain_genesis.epoch_length,
@@ -2110,6 +2121,10 @@ impl Chain {
         let new_head =
             match self.postprocess_block_only(me, &block, block_preprocess_info, apply_results) {
                 Err(err) => {
+                    if err.is_bad_data() {
+                        self.invalid_blocks.put(*block.hash(), ());
+                        metrics::NUM_INVALID_BLOCKS.inc();
+                    }
                     self.blocks_delay_tracker.mark_block_errored(&block_hash, err.to_string());
                     return Err(err);
                 }
@@ -3644,12 +3659,9 @@ impl Chain {
                                     &transaction.transaction.block_hash,
                                     transaction_validity_period,
                                 )
-                                .map_err(|_|
-
-                                    Error::from(Error::InvalidTransactions))?;
-                                }
+                                .map_err(|_| Error::from(Error::InvalidTransactions))?;
                         }
-                    ;
+                    };
 
                     let chunk_inner = chunk.cloned_header().take_inner();
                     let gas_limit = chunk_inner.gas_limit();
@@ -3700,7 +3712,6 @@ impl Chain {
                             true,
                             is_first_block_with_chunk_of_version,
                             state_patch,
-
                         ) {
                             Ok(apply_result) => {
                                 let apply_split_result_or_state_changes =
@@ -3761,7 +3772,6 @@ impl Chain {
                             false,
                             false,
                             state_patch,
-
                         ) {
                             Ok(apply_result) => {
                                 let apply_split_result_or_state_changes =
@@ -4279,6 +4289,11 @@ impl Chain {
     #[inline]
     pub fn is_in_processing(&self, hash: &CryptoHash) -> bool {
         self.blocks_in_processing.contains(hash)
+    }
+
+    #[inline]
+    pub fn is_block_invalid(&self, hash: &CryptoHash) -> bool {
+        self.invalid_blocks.contains(hash)
     }
 
     /// Check if can sync with sync_hash

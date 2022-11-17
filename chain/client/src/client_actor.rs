@@ -1466,9 +1466,16 @@ impl ClientActor {
         let head = self.client.chain.head()?;
         let mut is_syncing = self.client.sync_status.is_syncing();
 
-        let peer_info = if let Some(peer_info) =
-            self.network_info.highest_height_peers.choose(&mut thread_rng())
-        {
+        // Only consider peers whose latest block is not invalid blocks
+        let eligible_peers: Vec<_> = self
+            .network_info
+            .highest_height_peers
+            .iter()
+            .filter(|p| !self.client.chain.is_block_invalid(&p.highest_block_hash))
+            .collect();
+        metrics::PEERS_WITH_INVALID_HASH
+            .set(self.network_info.highest_height_peers.len() as i64 - eligible_peers.len() as i64);
+        let peer_info = if let Some(peer_info) = eligible_peers.choose(&mut thread_rng()) {
             peer_info
         } else {
             if !self.client.config.skip_sync_wait {

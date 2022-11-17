@@ -105,3 +105,6 @@ pub static BLOCKS_DROPPED_BECAUSE_POOL_IS_FULL: Lazy<IntGauge> = Lazy::new(|| {
     )
     .unwrap()
 });
+pub static NUM_INVALID_BLOCKS: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge("near_num_invalid_blocks", "Number of invalid blocks").unwrap()
+});
