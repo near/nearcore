@@ -282,10 +282,7 @@ pub struct SignedDelegateAction {
 #[cfg(not(feature = "protocol_feature_delegate_action"))]
 impl borsh::de::BorshDeserialize for SignedDelegateAction {
     fn deserialize(_buf: &mut &[u8]) -> ::core::result::Result<Self, borsh::maybestd::io::Error> {
-        return Err(Error::new(
-            ErrorKind::InvalidInput,
-            "Delegate action isn't supported",
-        ));
+        return Err(Error::new(ErrorKind::InvalidInput, "Delegate action isn't supported"));
     }
 }
 
@@ -701,7 +698,7 @@ mod tests {
     #[cfg(not(feature = "protocol_feature_delegate_action"))]
     fn test_delegate_action_deserialization() {
         let delegate_action =
-        create_delegate_action(vec![Action::CreateAccount(CreateAccountAction {})]);
+            create_delegate_action(vec![Action::CreateAccount(CreateAccountAction {})]);
         let serialized_delegate_action = delegate_action.try_to_vec().expect("Expect ok");
 
         // Valid action
