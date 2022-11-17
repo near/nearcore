@@ -27,7 +27,9 @@ use near_chain::{
 };
 use near_chain_configs::ClientConfig;
 use near_chunks::ShardsManager;
-use near_network::types::{FullPeerInfo, NetworkRequests, PeerManagerAdapter, ReasonForBan};
+use near_network::types::{
+    HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter, ReasonForBan,
+};
 use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, Tip};
 use near_primitives::challenge::{Challenge, ChallengeBody};
 use near_primitives::hash::CryptoHash;
@@ -79,9 +81,6 @@ pub struct Client {
     pub adv_produce_blocks: bool,
     #[cfg(feature = "test_features")]
     pub adv_produce_blocks_only_valid: bool,
-    /// Controls the height which is broadcasted to other peers.
-    #[cfg(feature = "test_features")]
-    pub adv_sync_height: Option<BlockHeight>,
 
     /// Fast Forward accrued delta height used to calculate fast forwarded timestamps for each block.
     #[cfg(feature = "sandbox")]
@@ -238,8 +237,6 @@ impl Client {
             adv_produce_blocks: false,
             #[cfg(feature = "test_features")]
             adv_produce_blocks_only_valid: false,
-            #[cfg(feature = "test_features")]
-            adv_sync_height: None,
             #[cfg(feature = "sandbox")]
             accrued_fastforward_delta: 0,
             config,
@@ -1933,7 +1930,7 @@ impl Client {
     /// Walks through all the ongoing state syncs for future epochs and processes them
     pub fn run_catchup(
         &mut self,
-        highest_height_peers: &[FullPeerInfo],
+        highest_height_peers: &[HighestHeightPeerInfo],
         state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
         block_catch_up_task_scheduler: &dyn Fn(BlockCatchUpRequest),
         state_split_scheduler: &dyn Fn(StateSplitRequest),
@@ -2195,11 +2192,9 @@ impl Client {
             (0..num_shards).collect()
         };
         let tier1_accounts = self.get_tier1_accounts(&tip)?;
-        let height = tip.height;
-        #[cfg(feature = "test_features")]
-        let height = self.adv_sync_height.unwrap_or(height);
+        let block = self.chain.get_block(&tip.last_block_hash)?;
         self.network_adapter.do_send(
-            SetChainInfo(ChainInfo { height, tracked_shards, tier1_accounts }).with_span_context(),
+            SetChainInfo(ChainInfo { block, tracked_shards, tier1_accounts }).with_span_context(),
         );
         Ok(())
     }
