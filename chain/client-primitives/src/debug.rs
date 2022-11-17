@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use crate::types::StatusError;
 use actix::Message;
 use chrono::DateTime;
+use near_primitives::types::EpochId;
 use near_primitives::views::{
     CatchupStatusView, ChainProcessingInfo, EpochValidatorInfo, RequestedStatePartsView,
     SyncStatusView,
@@ -165,6 +166,8 @@ pub struct ValidatorStatus {
     // Sorted by block height inversely (high to low)
     // The range of heights are controlled by constants in client_actor.rs
     pub production: Vec<(BlockHeight, ProductionAtHeight)>,
+    // Chunk producers that this node has banned.
+    pub banned_chunk_producers: Vec<(EpochId, Vec<AccountId>)>,
 }
 
 // Different debug requests that can be sent by HTML pages, via GET.
