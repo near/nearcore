@@ -125,6 +125,7 @@ nightly = [
   "near-store/nightly",
   "protocol_feature_fix_staking_threshold",
   "protocol_feature_fix_contract_loading_cost",
+  "protocol_feature_delegate_action",
 ]
 nightly_protocol = [
   "near-primitives/nightly_protocol",
