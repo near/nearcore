@@ -28,11 +28,11 @@ use near_chunks::test_utils::MockClientAdapterForShardsManager;
 use near_client_primitives::types::Error;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_network::test_utils::MockPeerManagerAdapter;
-use near_network::types::PartialEdgeInfo;
 use near_network::types::{
-    AccountOrPeerIdOrHash, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg,
-    PeerChainInfoV2, PeerInfo, PeerType,
+    AccountOrPeerIdOrHash, HighestHeightPeerInfo, PartialEncodedChunkRequestMsg,
+    PartialEncodedChunkResponseMsg, PeerInfo, PeerType,
 };
+use near_network::types::{BlockInfo, PeerChainInfo};
 use near_network::types::{
     ConnectedPeerInfo, FullPeerInfo, NetworkRecipient, NetworkRequests, NetworkResponses,
     PeerManagerAdapter,
@@ -650,16 +650,19 @@ pub fn setup_mock_all_validators(
                             .map(|(i, peer_info)| ConnectedPeerInfo {
                                 full_peer_info: FullPeerInfo {
                                     peer_info: peer_info.clone(),
-                                    chain_info: PeerChainInfoV2 {
+                                    chain_info: PeerChainInfo {
                                         genesis_id: GenesisId {
                                             chain_id: "unittest".to_string(),
                                             hash: Default::default(),
                                         },
-                                        height: last_height2[i],
+                                        // TODO: add the correct hash here
+                                        last_block: Some(BlockInfo {
+                                            height: last_height2[i],
+                                            hash: CryptoHash::default(),
+                                        }),
                                         tracked_shards: vec![],
                                         archival: true,
                                     },
-                                    partial_edge_info: PartialEdgeInfo::default(),
                                 },
                                 received_bytes_per_sec: 0,
                                 sent_bytes_per_sec: 0,
@@ -669,7 +672,10 @@ pub fn setup_mock_all_validators(
                                 peer_type: PeerType::Outbound,
                             })
                             .collect();
-                        let peers2 = peers.iter().map(|it| it.full_peer_info.clone()).collect();
+                        let peers2 = peers
+                            .iter()
+                            .filter_map(|it| it.full_peer_info.clone().into())
+                            .collect();
                         let info = NetworkInfo {
                             connected_peers: peers,
                             num_connected_peers: key_pairs1.len(),
@@ -1807,7 +1813,7 @@ pub fn create_chunk(
 /// and the catchup process can't catch up on these blocks yet.
 pub fn run_catchup(
     client: &mut Client,
-    highest_height_peers: &[FullPeerInfo],
+    highest_height_peers: &[HighestHeightPeerInfo],
 ) -> Result<(), Error> {
     let f = |_| {};
     let block_messages = Arc::new(RwLock::new(vec![]));
