@@ -272,10 +272,21 @@ pub struct DelegateAction {
     pub public_key: PublicKey,
 }
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
+#[cfg_attr(feature = "protocol_feature_delegate_action", derive(BorshDeserialize))]
+#[derive(BorshSerialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
 pub struct SignedDelegateAction {
     pub delegate_action: DelegateAction,
     pub signature: Signature,
+}
+
+#[cfg(not(feature = "protocol_feature_delegate_action"))]
+impl borsh::de::BorshDeserialize for SignedDelegateAction {
+    fn deserialize(_buf: &mut &[u8]) -> ::core::result::Result<Self, borsh::maybestd::io::Error> {
+        return Err(Error::new(
+            ErrorKind::InvalidInput,
+            "Delegate action isn't supported",
+        ));
+    }
 }
 
 impl SignedDelegateAction {
