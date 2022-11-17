@@ -33,7 +33,7 @@ use near_network::types::{
 use near_network::types::{
     FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
 };
-use near_network_primitives::types::{PeerChainInfoV2, PeerInfo, ReasonForBan};
+use near_network_primitives::types::{PeerInfo, ReasonForBan};
 use near_o11y::testonly::{init_integration_logger, init_test_logger};
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::block_header::BlockHeader;
