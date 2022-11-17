@@ -92,6 +92,8 @@ pub(crate) enum ClosingReason {
     PeerManager,
     #[error("Received DisconnectMessage from peer")]
     DisconnectMessage,
+    #[error("PeerActor stopped NOT via PeerActor::stop()")]
+    Unknown,
 }
 
 pub(crate) struct PeerActor {
@@ -1143,6 +1145,12 @@ impl actix::Actor for PeerActor {
     }
 
     fn stopping(&mut self, _: &mut Self::Context) -> Running {
+        Running::Stop
+    }
+
+    fn stopped(&mut self, _ctx: &mut Self::Context) {
+        // closing_reason may be None in case the whole actix system is stopped.
+        // It happens a lot in tests.
         metrics::PEER_CONNECTIONS_TOTAL.dec();
         debug!(target: "network", "{:?}: [status = {:?}] Peer {} disconnected.", self.my_node_info.id, self.peer_status, self.peer_info);
         match &self.peer_status {
@@ -1155,23 +1163,19 @@ impl actix::Actor for PeerActor {
                 let network_state = self.network_state.clone();
                 let clock = self.clock.clone();
                 let conn = conn.clone();
-                let ban_reason = match self.closing_reason {
-                    Some(ClosingReason::Ban(reason)) => Some(reason),
-                    _ => None,
-                };
-                network_state.unregister(&clock, &conn, ban_reason);
-            }
-        }
-        Running::Stop
-    }
+                if self.closing_reason == None {
+                    // Due to Actix semantics, sometimes closing reason may be not set.
+                    // But it is only expected to happen in tests.
+                    tracing::error!(target:"network", "closing reason not set. This should happen only in tests.");
+                }
 
-    fn stopped(&mut self, _ctx: &mut Self::Context) {
-        // closing_reason may be None in case the whole actix system is stopped.
-        // It happens a lot in tests.
-        if let Some(reason) = self.closing_reason.take() {
-            self.network_state.config.event_sink.push(Event::ConnectionClosed(
-                ConnectionClosedEvent { stream_id: self.stream_id, reason },
-            ));
+                network_state.unregister(
+                    &clock,
+                    &conn,
+                    self.stream_id,
+                    self.closing_reason.clone().unwrap_or(ClosingReason::Unknown),
+                );
+            }
         }
         actix::Arbiter::current().stop();
     }
