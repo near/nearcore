@@ -4,7 +4,7 @@ use crate::{metrics, Provenance};
 use near_primitives::block::Block;
 use near_primitives::challenge::{ChallengeBody, ChallengesResult};
 use near_primitives::hash::CryptoHash;
-use near_primitives::sharding::{ReceiptProof, StateSyncInfo};
+use near_primitives::sharding::{ReceiptProof, ShardChunkHeader, StateSyncInfo};
 use near_primitives::types::ShardId;
 use once_cell::sync::OnceCell;
 use std::collections::HashMap;
@@ -64,6 +64,7 @@ pub struct BlockProcessingArtifact {
     pub orphans_missing_chunks: Vec<OrphanMissingChunks>,
     pub blocks_missing_chunks: Vec<BlockMissingChunks>,
     pub challenges: Vec<ChallengeBody>,
+    pub invalid_chunks: Vec<ShardChunkHeader>,
 }
 
 /// This struct defines the callback function that will be called after apply chunks are finished

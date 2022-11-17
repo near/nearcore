@@ -4,7 +4,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{
     ChunkHash, PartialEncodedChunkPart, PartialEncodedChunkV2, ReceiptProof, ShardChunkHeader,
 };
-use near_primitives::types::{BlockHeight, BlockHeightDelta, ShardId};
+use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta, ShardId};
 use std::collections::hash_map::Entry::Occupied;
 use tracing::warn;
 
@@ -64,8 +64,10 @@ pub struct EncodedChunksCache {
     incomplete_chunks: HashMap<CryptoHash, HashSet<ChunkHash>>,
     /// A sized cache mapping a block hash to the chunk headers that are ready
     /// to be included when producing the next block after the block
-    block_hash_to_chunk_headers:
-        HashMap<CryptoHash, HashMap<ShardId, (ShardChunkHeader, chrono::DateTime<chrono::Utc>)>>,
+    block_hash_to_chunk_headers: HashMap<
+        CryptoHash,
+        HashMap<ShardId, (ShardChunkHeader, chrono::DateTime<chrono::Utc>, AccountId)>,
+    >,
 }
 
 impl EncodedChunksCacheEntry {
@@ -261,7 +263,12 @@ impl EncodedChunksCache {
     }
 
     /// Insert a chunk header to indicate the chunk header is ready to be included in a block
-    pub fn insert_chunk_header(&mut self, shard_id: ShardId, header: ShardChunkHeader) {
+    pub fn insert_chunk_header(
+        &mut self,
+        shard_id: ShardId,
+        header: ShardChunkHeader,
+        chunk_producer: AccountId,
+    ) {
         let height = header.height_created();
         if height >= self.largest_seen_height.saturating_sub(CHUNK_HEADER_HEIGHT_HORIZON)
             && height <= self.largest_seen_height + MAX_HEIGHTS_AHEAD
@@ -270,7 +277,7 @@ impl EncodedChunksCache {
             self.block_hash_to_chunk_headers
                 .entry(prev_block_hash.clone())
                 .or_insert(HashMap::new())
-                .insert(shard_id, (header, chrono::Utc::now()));
+                .insert(shard_id, (header, chrono::Utc::now(), chunk_producer));
         }
     }
 
@@ -281,19 +288,11 @@ impl EncodedChunksCache {
     pub fn get_chunk_headers_for_block(
         &self,
         prev_block_hash: &CryptoHash,
-    ) -> HashMap<ShardId, (ShardChunkHeader, chrono::DateTime<chrono::Utc>)> {
+    ) -> HashMap<ShardId, (ShardChunkHeader, chrono::DateTime<chrono::Utc>, AccountId)> {
         self.block_hash_to_chunk_headers
             .get(prev_block_hash)
             .cloned()
             .unwrap_or_else(|| HashMap::new())
-    }
-
-    /// Returns number of chunks that are ready to be included in the next block
-    pub fn num_chunks_for_block(&mut self, prev_block_hash: &CryptoHash) -> ShardId {
-        self.block_hash_to_chunk_headers
-            .get(prev_block_hash)
-            .map(|x| x.len() as ShardId)
-            .unwrap_or_else(|| 0)
     }
 }
 
@@ -361,7 +360,7 @@ mod tests {
         let partial_encoded_chunk =
             PartialEncodedChunkV2 { header: header.clone(), parts: vec![], receipts: vec![] };
         cache.merge_in_partial_encoded_chunk(&partial_encoded_chunk);
-        cache.insert_chunk_header(0, header.clone());
+        cache.insert_chunk_header(0, header.clone(), "irrelevant".parse().unwrap());
         assert!(!cache.encoded_chunks.is_empty());
         assert!(!cache.height_map.is_empty());
         let headers = cache.get_chunk_headers_for_block(&CryptoHash::default());

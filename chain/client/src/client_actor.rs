@@ -1012,7 +1012,9 @@ impl ClientActor {
                 self.client.runtime_adapter.get_block_producer(&epoch_id, height)?;
 
             if me == next_block_producer_account {
-                let num_chunks = self.client.shards_mgr.num_chunks_for_block(&head.last_block_hash);
+                let num_chunks =
+                    self.client.prepare_chunks_for_block(&epoch_id, &head.last_block_hash).len()
+                        as u64;
                 let have_all_chunks = head.height == 0
                     || num_chunks == self.client.runtime_adapter.num_shards(&epoch_id).unwrap();
 
