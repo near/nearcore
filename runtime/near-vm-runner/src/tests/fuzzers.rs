@@ -1,16 +1,15 @@
+use crate::internal::wasmparser::{Export, ExternalKind, Parser, Payload, TypeDef};
+use crate::internal::VMKind;
+use crate::runner::VMResult;
 use arbitrary::Arbitrary;
 use bolero::check;
 use core::fmt;
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::version::PROTOCOL_VERSION;
-use near_vm_errors::{FunctionCallError, VMError};
+use near_vm_errors::FunctionCallError;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::{VMConfig, VMContext};
-
-use crate::internal::wasmparser::{Export, ExternalKind, Parser, Payload, TypeDef};
-use crate::internal::VMKind;
-use crate::VMResult;
 
 /// Finds a no-parameter exported function, something like `(func (export "entry-point"))`.
 pub fn find_entry_point(contract: &ContractCode) -> Option<String> {
@@ -46,7 +45,7 @@ pub fn create_context(input: Vec<u8>) -> VMContext {
         signer_account_pk: vec![0, 1, 2, 3, 4],
         predecessor_account_id: "carol".parse().unwrap(),
         input,
-        block_index: 10,
+        block_height: 10,
         block_timestamp: 42,
         epoch_height: 1,
         account_balance: 2u128,
@@ -113,7 +112,7 @@ fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> VMResult {
     let promise_results = vec![];
 
     let method_name = find_entry_point(code).unwrap_or_else(|| "main".to_string());
-    let res = vm_kind.runtime(config).unwrap().run(
+    let mut res = vm_kind.runtime(config).unwrap().run(
         code,
         &method_name,
         &mut fake_external,
@@ -127,17 +126,16 @@ fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> VMResult {
     // Remove the VMError message details as they can differ between runtimes
     // TODO: maybe there's actually things we could check for equality here too?
     match res {
-        VMResult::Ok(err) => VMResult::Ok(err),
-        VMResult::Aborted(mut outcome, _err) => {
-            outcome.logs = vec!["[censored]".to_owned()];
-            VMResult::Aborted(
-                outcome,
-                VMError::FunctionCallError(FunctionCallError::Nondeterministic(
-                    "[censored]".to_owned(),
-                )),
-            )
+        Ok(ref mut outcome) => {
+            if outcome.aborted.is_some() {
+                outcome.logs = vec!["[censored]".to_owned()];
+                outcome.aborted =
+                    Some(FunctionCallError::LinkError { msg: "[censored]".to_owned() });
+            }
         }
+        Err(err) => panic!("fatal error: {err:?}"),
     }
+    res
 }
 
 #[test]
@@ -162,8 +160,38 @@ fn wasmer2_and_wasmtime_agree() {
             Err(_) => return,
         };
         let code = ContractCode::new(module.0.module.to_bytes(), None);
-        let wasmer2 = run_fuzz(&code, VMKind::Wasmer2);
-        let wasmtime = run_fuzz(&code, VMKind::Wasmtime);
+        let wasmer2 = run_fuzz(&code, VMKind::Wasmer2).expect("fatal failure");
+        let wasmtime = run_fuzz(&code, VMKind::Wasmtime).expect("fatal failure");
+        assert_eq!(wasmer2, wasmtime);
         assert_eq!(wasmer2, wasmtime);
     });
+}
+
+#[cfg(all(feature = "wasmer2_vm", target_arch = "x86_64"))]
+#[test]
+fn wasmer2_is_reproducible() {
+    use crate::wasmer2_runner::Wasmer2VM;
+    use near_primitives::hash::CryptoHash;
+    use wasmer_engine::Executable;
+
+    bolero::check!().for_each(|data: &[u8]| {
+        if let Ok(module) = ArbitraryModule::arbitrary(&mut arbitrary::Unstructured::new(data)) {
+            let code = ContractCode::new(module.0.module.to_bytes(), None);
+            let config = VMConfig::test();
+            let mut first_hash = None;
+            for _ in 0..3 {
+                let vm = Wasmer2VM::new(config.clone());
+                let exec = match vm.compile_uncached(&code) {
+                    Ok(e) => e,
+                    Err(_) => return,
+                };
+                let code = exec.serialize().unwrap();
+                let hash = CryptoHash::hash_bytes(&code);
+                match first_hash {
+                    None => first_hash = Some(hash),
+                    Some(h) => assert_eq!(h, hash),
+                }
+            }
+        }
+    })
 }

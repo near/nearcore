@@ -1,19 +1,15 @@
 use std::io;
 use std::path::Path;
-use std::sync::atomic::Ordering;
 
 use ::rocksdb::{
-    BlockBasedOptions, Cache, ColumnFamily, Direction, Env, IteratorMode, Options, ReadOptions,
-    WriteBatch, DB,
+    BlockBasedOptions, Cache, ColumnFamily, Env, IteratorMode, Options, ReadOptions, WriteBatch, DB,
 };
 use strum::IntoEnumIterator;
-use tracing::{error, warn};
-
-use near_primitives::version::DbVersion;
+use tracing::warn;
 
 use crate::config::Mode;
-use crate::db::{refcount, DBIterator, DBOp, DBTransaction, Database, StatsValue};
-use crate::{metrics, DBCol, StoreConfig, StoreStatistics};
+use crate::db::{refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database, StatsValue};
+use crate::{metadata, metrics, DBCol, StoreConfig, StoreStatistics, Temperature};
 
 mod instance_tracker;
 pub(crate) mod snapshot;
@@ -21,7 +17,8 @@ pub(crate) mod snapshot;
 /// List of integer RocskDB properties we’re reading when collecting statistics.
 ///
 /// In the end, they are exported as Prometheus metrics.
-pub const CF_STAT_NAMES: [&'static str; 1] = [::rocksdb::properties::LIVE_SST_FILES_SIZE];
+const CF_PROPERTY_NAMES: [&'static std::ffi::CStr; 1] =
+    [::rocksdb::properties::LIVE_SST_FILES_SIZE];
 
 pub struct RocksDB {
     db: DB,
@@ -32,11 +29,7 @@ pub struct RocksDB {
     /// Rather than accessing this field directly, use [`RocksDB::cf_handle`]
     /// method instead.  It returns `&ColumnFamily` which is what you usually
     /// want.
-    cf_handles: enum_map::EnumMap<DBCol, std::ptr::NonNull<ColumnFamily>>,
-
-    check_free_space_counter: std::sync::atomic::AtomicU16,
-    check_free_space_interval: u16,
-    free_space_threshold: bytesize::ByteSize,
+    cf_handles: enum_map::EnumMap<DBCol, Option<std::ptr::NonNull<ColumnFamily>>>,
 
     // RAII-style of keeping track of the number of instances of RocksDB and
     // counting total sum of max_open_files.
@@ -49,45 +42,86 @@ unsafe impl Send for RocksDB {}
 unsafe impl Sync for RocksDB {}
 
 impl RocksDB {
-    /// Opens the database either in read only or in read/write mode depending
-    /// on the `mode` parameter specified in the store_config.
-    pub fn open(path: &Path, store_config: &StoreConfig, mode: Mode) -> io::Result<RocksDB> {
-        let counter = instance_tracker::InstanceTracker::try_new(store_config.max_open_files)
-            .map_err(other_error)?;
-        let (db, db_opt) = Self::open_db(path, store_config, mode)?;
-        let cf_handles = Self::get_cf_handles(&db);
-
-        Ok(Self {
-            db,
-            db_opt,
-            cf_handles,
-            check_free_space_interval: 256,
-            check_free_space_counter: std::sync::atomic::AtomicU16::new(0),
-            free_space_threshold: bytesize::ByteSize::mb(16),
-            _instance_tracker: counter,
-        })
+    /// Opens the database.
+    ///
+    /// `path` specifies location of the database.  It’s assumed that it has
+    /// been resolved based on configuration in `store_config` and thus path
+    /// configuration in `store_config` is ignored.
+    ///
+    /// `store_config` specifies other storage configuration such open files
+    /// limit or whether to enable collection of statistics.
+    ///
+    /// `mode` specifies whether to open the database in read/write or read-only
+    /// mode.  In the latter case, the database will not be created if it
+    /// doesn’t exist nor any migrations will be performed if the database has
+    /// database version different than expected.
+    ///
+    /// `temp` specifies whether the database is cold or hot which affects
+    /// whether refcount merge operator is configured on reference counted
+    /// column.
+    pub fn open(
+        path: &Path,
+        store_config: &StoreConfig,
+        mode: Mode,
+        temp: Temperature,
+    ) -> io::Result<Self> {
+        let columns: Vec<DBCol> = DBCol::iter().collect();
+        Self::open_with_columns(path, store_config, mode, temp, &columns)
     }
 
-    /// Opens the database with all column families configured.
-    fn open_db(path: &Path, store_config: &StoreConfig, mode: Mode) -> io::Result<(DB, Options)> {
+    /// Opens the database with given set of column families configured.
+    ///
+    /// With cold storage, we will need to be able to configure the database
+    /// with only a subset of columns.  The `columns` argument specifies which
+    /// columns to configure in the database.
+    ///
+    /// Note that RocksDB is weird.  It’s not possible to open database in
+    /// read/write mode without specifying all the column families existing in
+    /// the database.  On the other hand, it’s not possible to open database in
+    /// read-only mode while specifying column families which don’t exist.
+    ///
+    /// Furthermore, note that when opening in read/write mode, we configure
+    /// RocksDB to create missing columns.
+    ///
+    /// With all that, it’s actually quite messy if at some point we’ll end up
+    /// opening cold storage as hot since it’ll create all the missing columns.
+    fn open_with_columns(
+        path: &Path,
+        store_config: &StoreConfig,
+        mode: Mode,
+        temp: Temperature,
+        columns: &[DBCol],
+    ) -> io::Result<Self> {
+        let counter = instance_tracker::InstanceTracker::try_new(store_config.max_open_files)
+            .map_err(other_error)?;
+        let (db, db_opt) = Self::open_db(path, store_config, mode, temp, columns)?;
+        let cf_handles = Self::get_cf_handles(&db, columns);
+        Ok(Self { db, db_opt, cf_handles, _instance_tracker: counter })
+    }
+
+    /// Opens the database with given column families configured.
+    fn open_db(
+        path: &Path,
+        store_config: &StoreConfig,
+        mode: Mode,
+        temp: Temperature,
+        columns: &[DBCol],
+    ) -> io::Result<(DB, Options)> {
         let options = rocksdb_options(store_config, mode);
-        let cf_descriptors = DBCol::iter()
+        let cf_descriptors = columns
+            .iter()
+            .copied()
             .map(|col| {
                 rocksdb::ColumnFamilyDescriptor::new(
                     col_name(col),
-                    rocksdb_column_options(col, store_config),
+                    rocksdb_column_options(col, store_config, temp),
                 )
             })
             .collect::<Vec<_>>();
-        let db = match mode {
-            Mode::ReadOnly => {
-                DB::open_cf_descriptors_read_only(&options, path, cf_descriptors, false)
-            }
-            Mode::ReadWriteExisting | Mode::ReadWrite => {
-                // Difference between the two read-write modes is captured in
-                // options.  See rocksdb_options.
-                DB::open_cf_descriptors(&options, path, cf_descriptors)
-            }
+        let db = if mode.read_only() {
+            DB::open_cf_descriptors_read_only(&options, path, cf_descriptors, false)
+        } else {
+            DB::open_cf_descriptors(&options, path, cf_descriptors)
         }
         .map_err(into_other)?;
         if cfg!(feature = "single_thread_rocksdb") {
@@ -103,119 +137,160 @@ impl RocksDB {
     }
 
     /// Returns mapping from [`DBCol`] to cf handle used with RocksDB calls.
-    fn get_cf_handles(db: &DB) -> enum_map::EnumMap<DBCol, std::ptr::NonNull<ColumnFamily>> {
+    ///
+    /// The mapping is created for column families given in the `columns` list
+    /// only.  All other columns will map to `None`.
+    ///
+    /// ## Safety
+    ///
+    /// This function is safe but using the returned mapping safely requires
+    /// that it does not outlive `db` and that `db` is not modified.  The safety
+    /// relies on `db` returning stable mapping for column families.
+    fn get_cf_handles(
+        db: &DB,
+        columns: &[DBCol],
+    ) -> enum_map::EnumMap<DBCol, Option<std::ptr::NonNull<ColumnFamily>>> {
         let mut cf_handles = enum_map::EnumMap::default();
-        for col in DBCol::iter() {
+        for col in columns.iter().copied() {
             let ptr = db
                 .cf_handle(&col_name(col))
-                .map_or(std::ptr::null(), |cf| cf as *const ColumnFamily);
-            cf_handles[col] = std::ptr::NonNull::new(ptr as *mut ColumnFamily);
+                .and_then(|cf| std::ptr::NonNull::new(cf as *const _ as *mut _))
+                .unwrap_or_else(|| panic!("Missing cf handle for {col}"));
+            cf_handles[col] = Some(ptr);
         }
-        cf_handles.map(|col, ptr| {
-            ptr.unwrap_or_else(|| {
-                panic!("Missing cf handle for {col}");
-            })
-        })
+        cf_handles
     }
 
     /// Returns column family handler to use with RocsDB for given column.
-    fn cf_handle(&self, col: DBCol) -> &ColumnFamily {
-        let ptr = self.cf_handles[col];
-        // SAFETY: The pointers are valid so long as self.db is valid.
-        unsafe { ptr.as_ref() }
+    ///
+    /// If the database has not been setup to access given column, panics if
+    /// debug assertions are enabled or returns an error otherwise.
+    ///
+    /// ## Safety
+    ///
+    /// This function is safe so long as `db` field has not been modified since
+    /// `cf_handles` mapping has been constructed.  We technically should mark
+    /// this function unsafe but to improve ergonomy we didn’t.  This is an
+    /// internal method so hopefully the implementation knows what it’s doing.
+    fn cf_handle(&self, col: DBCol) -> io::Result<&ColumnFamily> {
+        if let Some(ptr) = self.cf_handles[col] {
+            // SAFETY: The pointers are valid so long as self.db is valid.
+            Ok(unsafe { ptr.as_ref() })
+        } else if cfg!(debug_assertions) {
+            panic!("The database instance isn’t setup to access {col}");
+        } else {
+            Err(other_error(format!("{col}: no such column")))
+        }
     }
 
-    fn iter_raw_bytes_impl<'a>(
-        &'a self,
-        col: DBCol,
-        prefix: Option<&'a [u8]>,
-    ) -> RocksDBIterator<'a> {
-        let cf_handle = self.cf_handle(col);
-        let mut read_options = rocksdb_read_options();
-        let mode = if let Some(prefix) = prefix {
-            // prefix_same_as_start doesn’t do anything for us.  It takes effect
-            // only if prefix extractor is configured for the column family
-            // which is something we’re not doing.  Setting this option is
-            // therefore pointless.
-            //     read_options.set_prefix_same_as_start(true);
-
-            // We’re running the iterator in From mode so there’s no need to set
-            // the lower bound.
-            //    read_options.set_iterate_lower_bound(key_prefix);
-
-            // Upper bound is exclusive so if we set it to the next prefix
-            // iterator will stop once keys no longer start with our desired
-            // prefix.
-            if let Some(upper) = next_prefix(prefix) {
-                read_options.set_iterate_upper_bound(upper);
+    /// Returns iterator over all column families and their handles.
+    ///
+    /// This is kind of like iterating over all [`DBCol`] variants and calling
+    /// [`Self::cf_handle`] except this method takes care of properly filtering
+    /// out column families that the database instance isn’t setup to handle.
+    ///
+    /// ## Safety
+    ///
+    /// This function is safe so long as `db` field has not been modified since
+    /// `cf_handles` mapping has been constructed.  We technically should mark
+    /// this function unsafe but to improve ergonomy we didn’t.  This is an
+    /// internal method so hopefully the implementation knows what it’s doing.
+    fn cf_handles(&self) -> impl Iterator<Item = (DBCol, &ColumnFamily)> {
+        self.cf_handles.iter().filter_map(|(col, ptr)| {
+            if let Some(ptr) = *ptr {
+                // SAFETY: The pointers are valid so long as self.db is valid.
+                Some((col, unsafe { ptr.as_ref() }))
+            } else {
+                None
             }
+        })
+    }
 
-            IteratorMode::From(prefix, Direction::Forward)
-        } else {
-            IteratorMode::Start
-        };
-        let iter = self.db.iterator_cf_opt(cf_handle, read_options, mode);
-        RocksDBIterator(Some(iter))
+    fn iter_raw_bytes_prefix<'a>(&'a self, col: DBCol, prefix: &'a [u8]) -> RocksDBIterator<'a> {
+        let cf_handle = self.cf_handle(col).unwrap();
+        let mut read_options = rocksdb_read_options();
+        if !prefix.is_empty() {
+            read_options.set_iterate_range(::rocksdb::PrefixRange(prefix));
+            // Note: prefix_same_as_start doesn’t do anything for us.  It takes
+            // effect only if prefix extractor is configured for the column
+            // family which is something we’re not doing.  Setting this option
+            // is therefore pointless.
+            //     read_options.set_prefix_same_as_start(true);
+        }
+        let iter = self.db.iterator_cf_opt(cf_handle, read_options, IteratorMode::Start);
+        RocksDBIterator(iter)
     }
 }
 
-struct RocksDBIterator<'a>(Option<rocksdb::DBIteratorWithThreadMode<'a, DB>>);
+struct RocksDBIterator<'a>(rocksdb::DBIteratorWithThreadMode<'a, DB>);
 
 impl<'a> Iterator for RocksDBIterator<'a> {
     type Item = io::Result<(Box<[u8]>, Box<[u8]>)>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let iter = self.0.as_mut()?;
-        if let Some(item) = iter.next() {
-            Some(Ok(item))
-        } else {
-            let status = iter.status();
-            self.0 = None;
-            status.err().map(into_other).map(Result::Err)
-        }
+        Some(self.0.next()?.map_err(into_other))
     }
 }
 
 impl<'a> std::iter::FusedIterator for RocksDBIterator<'a> {}
 
+impl RocksDB {
+    /// Returns ranges of keys in a given column family.
+    ///
+    /// In other words, returns the smallest and largest key in the column.  If
+    /// the column is empty, returns `None`.
+    fn get_cf_key_range(
+        &self,
+        cf_handle: &ColumnFamily,
+    ) -> Result<Option<std::ops::RangeInclusive<Box<[u8]>>>, ::rocksdb::Error> {
+        let range = {
+            let mut iter = self.db.iterator_cf(cf_handle, IteratorMode::Start);
+            let start = iter.next().transpose()?;
+            iter.set_mode(IteratorMode::End);
+            let end = iter.next().transpose()?;
+            (start, end)
+        };
+        match range {
+            (Some(start), Some(end)) => Ok(Some(start.0..=end.0)),
+            (None, None) => Ok(None),
+            _ => unreachable!(),
+        }
+    }
+}
+
 impl Database for RocksDB {
-    fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>> {
+    fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
         let timer =
             metrics::DATABASE_OP_LATENCY_HIST.with_label_values(&["get", col.into()]).start_timer();
         let read_options = rocksdb_read_options();
-        let result =
-            self.db.get_cf_opt(self.cf_handle(col), key, &read_options).map_err(into_other)?;
+        let result = self
+            .db
+            .get_pinned_cf_opt(self.cf_handle(col)?, key, &read_options)
+            .map_err(into_other)?
+            .map(DBSlice::from_rocksdb_slice);
         timer.observe_duration();
         Ok(result)
     }
 
     fn iter_raw_bytes<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
-        Box::new(self.iter_raw_bytes_impl(col, None))
+        Box::new(self.iter_raw_bytes_prefix(col, &[]))
     }
 
     fn iter<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
-        refcount::iter_with_rc_logic(col, self.iter_raw_bytes_impl(col, None))
+        refcount::iter_with_rc_logic(col, self.iter_raw_bytes_prefix(col, &[]))
     }
 
     fn iter_prefix<'a>(&'a self, col: DBCol, key_prefix: &'a [u8]) -> DBIterator<'a> {
-        let iter = self.iter_raw_bytes_impl(col, Some(key_prefix));
+        let iter = self.iter_raw_bytes_prefix(col, key_prefix);
         refcount::iter_with_rc_logic(col, iter)
     }
 
     fn write(&self, transaction: DBTransaction) -> io::Result<()> {
-        if let Err(check) = self.pre_write_check() {
-            if check.is_io() {
-                warn!("unable to verify remaing disk space: {:?}, continueing write without verifying (this may result in unrecoverable data loss if disk space is exceeded", check)
-            } else {
-                panic!("{:?}", check)
-            }
-        }
-
         let mut batch = WriteBatch::default();
         for op in transaction.ops {
             match op {
                 DBOp::Set { col, key, value } => {
-                    batch.put_cf(self.cf_handle(col), key, value);
+                    batch.put_cf(self.cf_handle(col)?, key, value);
                 }
                 DBOp::Insert { col, key, value } => {
                     if cfg!(debug_assertions) {
@@ -223,23 +298,21 @@ impl Database for RocksDB {
                             super::assert_no_overwrite(col, &key, &value, &*old_value)
                         }
                     }
-                    batch.put_cf(self.cf_handle(col), key, value);
+                    batch.put_cf(self.cf_handle(col)?, key, value);
                 }
                 DBOp::UpdateRefcount { col, key, value } => {
-                    batch.merge_cf(self.cf_handle(col), key, value);
+                    batch.merge_cf(self.cf_handle(col)?, key, value);
                 }
                 DBOp::Delete { col, key } => {
-                    batch.delete_cf(self.cf_handle(col), key);
+                    batch.delete_cf(self.cf_handle(col)?, key);
                 }
                 DBOp::DeleteAll { col } => {
-                    let cf_handle = self.cf_handle(col);
-                    let opt_first = self.db.iterator_cf(cf_handle, IteratorMode::Start).next();
-                    let opt_last = self.db.iterator_cf(cf_handle, IteratorMode::End).next();
-                    assert_eq!(opt_first.is_some(), opt_last.is_some());
-                    if let (Some((min_key, _)), Some((max_key, _))) = (opt_first, opt_last) {
-                        batch.delete_range_cf(cf_handle, &min_key, &max_key);
+                    let cf_handle = self.cf_handle(col)?;
+                    let range = self.get_cf_key_range(cf_handle).map_err(into_other)?;
+                    if let Some(range) = range {
+                        batch.delete_range_cf(cf_handle, range.start(), range.end());
                         // delete_range_cf deletes ["begin_key", "end_key"), so need one more delete
-                        batch.delete_cf(cf_handle, max_key)
+                        batch.delete_cf(cf_handle, range.end())
                     }
                 }
             }
@@ -247,8 +320,21 @@ impl Database for RocksDB {
         self.db.write(batch).map_err(into_other)
     }
 
+    fn compact(&self) -> io::Result<()> {
+        let none = Option::<&[u8]>::None;
+        for col in DBCol::iter() {
+            self.db.compact_range_cf(self.cf_handle(col)?, none, none);
+        }
+        Ok(())
+    }
+
     fn flush(&self) -> io::Result<()> {
-        self.db.flush().map_err(into_other)
+        // Need to iterator over all CFs because the normal `flush()` only
+        // flushes the default column family.
+        for col in DBCol::iter() {
+            self.db.flush_cf(self.cf_handle(col)?).map_err(into_other)?;
+        }
+        Ok(())
     }
 
     /// Trying to get
@@ -270,39 +356,13 @@ impl Database for RocksDB {
     }
 }
 
-/// Returns lowest value following largest value with given prefix.
-///
-/// In other words, computes upper bound for a prefix scan over list of keys
-/// sorted in lexicographical order.  This means that a prefix scan can be
-/// expressed as range scan over a right-open `[prefix, next_prefix(prefix))`
-/// range.
-///
-/// For example, for prefix `foo` the function returns `fop`.
-///
-/// Returns `None` if there is no value which can follow value with given
-/// prefix.  This happens when prefix consists entirely of `'\xff'` bytes (or is
-/// empty).
-fn next_prefix(prefix: &[u8]) -> Option<Vec<u8>> {
-    let ffs = prefix.iter().rev().take_while(|&&byte| byte == u8::MAX).count();
-    let next = &prefix[..(prefix.len() - ffs)];
-    if next.is_empty() {
-        // Prefix consisted of \xff bytes.  There is no prefix that
-        // follows it.
-        None
-    } else {
-        let mut next = next.to_vec();
-        *next.last_mut().unwrap() += 1;
-        Some(next)
-    }
-}
-
 /// DB level options
 fn rocksdb_options(store_config: &StoreConfig, mode: Mode) -> Options {
     let mut opts = Options::default();
 
     set_compression_options(&mut opts);
-    opts.create_missing_column_families(mode != Mode::ReadOnly);
-    opts.create_if_missing(mode == Mode::ReadWrite);
+    opts.create_missing_column_families(mode.read_write());
+    opts.create_if_missing(mode.can_create());
     opts.set_use_fsync(false);
     opts.set_max_open_files(store_config.max_open_files.try_into().unwrap_or(i32::MAX));
     opts.set_keep_log_file_num(1);
@@ -324,7 +384,7 @@ fn rocksdb_options(store_config: &StoreConfig, mode: Mode) -> Options {
     }
 
     // TODO(mina86): Perhaps enable statistics even in read-only mode?
-    if mode != Mode::ReadOnly && store_config.enable_statistics {
+    if mode.read_write() && store_config.enable_statistics {
         // Rust API doesn't permit choosing stats level. The default stats level
         // is `kExceptDetailedTimers`, which is described as: "Collects all
         // stats except time inside mutex lock AND time spent on compression."
@@ -359,7 +419,7 @@ fn rocksdb_block_based_options(
     block_opts
 }
 
-fn rocksdb_column_options(col: DBCol, store_config: &StoreConfig) -> Options {
+fn rocksdb_column_options(col: DBCol, store_config: &StoreConfig, temp: Temperature) -> Options {
     let mut opts = Options::default();
     set_compression_options(&mut opts);
     opts.set_level_compaction_dynamic_level_bytes(true);
@@ -385,7 +445,7 @@ fn rocksdb_column_options(col: DBCol, store_config: &StoreConfig) -> Options {
     opts.optimize_level_style_compaction(memtable_memory_budget);
 
     opts.set_target_file_size_base(64 * bytesize::MIB);
-    if col.is_rc() {
+    if temp == Temperature::Hot && col.is_rc() {
         opts.set_merge_operator("refcount merge", RocksDB::refcount_merge, RocksDB::refcount_merge);
         opts.set_compaction_filter("empty value filter", RocksDB::empty_value_compaction_filter);
     }
@@ -419,81 +479,41 @@ impl RocksDB {
         instance_tracker::block_until_all_instances_are_dropped();
     }
 
-    /// Returns version of the database state on disk.
-    pub(crate) fn get_version(path: &Path, config: &StoreConfig) -> io::Result<DbVersion> {
-        let value = RocksDB::open(path, config, Mode::ReadOnly)?
-            .get_raw_bytes(DBCol::DbVersion, crate::db::VERSION_KEY)?
-            .ok_or_else(|| {
-                other_error(
-                    "Failed to read database version; \
-                     it’s not a neard database or database is corrupted."
-                        .into(),
-                )
-            })?;
-        serde_json::from_slice(&value).map_err(|_err| {
-            other_error(format!(
-                "Failed to parse database version: {value:?}; \
-                 it’s not a neard database or database is corrupted."
-            ))
-        })
+    /// Returns metadata of the database or `None` if the db doesn’t exist.
+    pub(crate) fn get_metadata(
+        path: &Path,
+        config: &StoreConfig,
+    ) -> io::Result<Option<metadata::DbMetadata>> {
+        if !path.join("CURRENT").is_file() {
+            return Ok(None);
+        }
+        // Specify only DBCol::DbVersion.  It’s ok to open db in read-only mode
+        // without specifying all column families but it’s an error to provide
+        // a descriptor for a column family which doesn’t exist.  This allows us
+        // to read the version without modifying the database before we figure
+        // out if there are any necessary migrations to perform.
+        let cols = [DBCol::DbVersion];
+        let db = Self::open_with_columns(path, config, Mode::ReadOnly, Temperature::Hot, &cols)?;
+        Some(metadata::DbMetadata::read(&db)).transpose()
     }
 
-    /// Checks if there is enough memory left to perform a write. Not having enough memory left can
-    /// lead to difficult to recover from state, thus a PreWriteCheckErr is pretty much
-    /// unrecoverable in most cases.
-    fn pre_write_check(&self) -> Result<(), PreWriteCheckErr> {
-        let counter = self.check_free_space_counter.fetch_add(1, Ordering::Relaxed);
-        if self.check_free_space_interval >= counter {
-            return Ok(());
-        }
-        self.check_free_space_counter.swap(0, Ordering::Relaxed);
-
-        let available = available_space(self.db.path())?;
-
-        if available < 16_u64 * self.free_space_threshold {
-            warn!("remaining disk space is running low ({} left)", available);
-        }
-
-        if available < self.free_space_threshold {
-            Err(PreWriteCheckErr::LowDiskSpace(available))
-        } else {
-            Ok(())
-        }
-    }
-
-    /// Gets every int property in CF_STAT_NAMES for every column in DBCol.
+    /// Gets every int property in CF_PROPERTY_NAMES for every column in DBCol.
     fn get_cf_statistics(&self, result: &mut StoreStatistics) {
-        for stat_name in CF_STAT_NAMES {
-            let mut values = vec![];
-            for col in DBCol::iter() {
-                let size = self.db.property_int_value_cf(self.cf_handle(col), stat_name);
-                if let Ok(Some(value)) = size {
-                    values.push(StatsValue::ColumnValue(col, value as i64));
-                }
-            }
+        for prop_name in CF_PROPERTY_NAMES {
+            let values = self
+                .cf_handles()
+                .filter_map(|(col, handle)| {
+                    let prop = self.db.property_int_value_cf(handle, prop_name);
+                    Some(StatsValue::ColumnValue(col, prop.ok()?? as i64))
+                })
+                .collect::<Vec<_>>();
             if !values.is_empty() {
+                // TODO(mina86): Once const_str_from_utf8 is stabilised we might
+                // be able convert this runtime UTF-8 validation into const.
+                let stat_name = prop_name.to_str().unwrap();
                 result.data.push((stat_name.to_string(), values));
             }
         }
-    }
-}
-
-fn available_space(path: &Path) -> io::Result<bytesize::ByteSize> {
-    let available = fs2::available_space(path)?;
-    Ok(bytesize::ByteSize::b(available))
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum PreWriteCheckErr {
-    #[error("error checking filesystem: {0}")]
-    IO(#[from] io::Error),
-    #[error("low disk memory ({0} available)")]
-    LowDiskSpace(bytesize::ByteSize),
-}
-
-impl PreWriteCheckErr {
-    pub fn is_io(&self) -> bool {
-        matches!(self, PreWriteCheckErr::IO(_))
     }
 }
 
@@ -566,7 +586,7 @@ fn col_name(col: DBCol) -> &'static str {
         DBCol::BlockHeight => "col4",
         DBCol::State => "col5",
         DBCol::ChunkExtra => "col6",
-        DBCol::TransactionResult => "col7",
+        DBCol::_TransactionResult => "col7",
         DBCol::OutgoingReceipts => "col8",
         DBCol::IncomingReceipts => "col9",
         DBCol::Peers => "col10",
@@ -593,14 +613,14 @@ fn col_name(col: DBCol) -> &'static str {
         DBCol::ComponentEdges => "col31",
         DBCol::LastComponentNonce => "col32",
         DBCol::Transactions => "col33",
-        DBCol::ChunkPerHeightShard => "col34",
+        DBCol::_ChunkPerHeightShard => "col34",
         DBCol::StateChanges => "col35",
         DBCol::BlockRefCount => "col36",
         DBCol::TrieChanges => "col37",
         DBCol::BlockMerkleTree => "col38",
         DBCol::ChunkHashesByHeight => "col39",
         DBCol::BlockOrdinal => "col40",
-        DBCol::GCCount => "col41",
+        DBCol::_GCCount => "col41",
         DBCol::OutcomeIds => "col42",
         DBCol::_TransactionRefCount => "col43",
         DBCol::ProcessedBlockHeights => "col44",
@@ -619,26 +639,14 @@ fn col_name(col: DBCol) -> &'static str {
 #[cfg(test)]
 mod tests {
     use crate::db::{Database, StatsValue};
-    use crate::{DBCol, Store, StoreConfig, StoreStatistics};
+    use crate::{DBCol, NodeStorage, StoreStatistics};
 
     use super::*;
 
     #[test]
-    fn test_prewrite_check() {
-        let tmp_dir = tempfile::Builder::new().prefix("prewrite_check").tempdir().unwrap();
-        let store = RocksDB::open(
-            tmp_dir.path(),
-            &StoreConfig::test_config(),
-            crate::config::Mode::ReadWrite,
-        )
-        .unwrap();
-        store.pre_write_check().unwrap()
-    }
-
-    #[test]
     fn rocksdb_merge_sanity() {
-        let (_tmp_dir, opener) = Store::test_opener();
-        let store = opener.open().unwrap();
+        let (_tmp_dir, opener) = NodeStorage::test_opener();
+        let store = opener.open().unwrap().get_store(crate::Temperature::Hot);
         let ptr = (&*store.storage) as *const (dyn Database + 'static);
         let rocksdb = unsafe { &*(ptr as *const RocksDB) };
         assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);
@@ -652,20 +660,20 @@ mod tests {
             store_update.increment_refcount(DBCol::State, &[1], &[1]);
             store_update.commit().unwrap();
         }
-        assert_eq!(store.get(DBCol::State, &[1]).unwrap(), Some(vec![1]));
+        assert_eq!(store.get(DBCol::State, &[1]).unwrap().as_deref(), Some(&[1][..]));
         assert_eq!(
-            rocksdb.get_raw_bytes(DBCol::State, &[1]).unwrap(),
-            Some(vec![1, 2, 0, 0, 0, 0, 0, 0, 0])
+            rocksdb.get_raw_bytes(DBCol::State, &[1]).unwrap().as_deref(),
+            Some(&[1, 2, 0, 0, 0, 0, 0, 0, 0][..])
         );
         {
             let mut store_update = store.store_update();
             store_update.decrement_refcount(DBCol::State, &[1]);
             store_update.commit().unwrap();
         }
-        assert_eq!(store.get(DBCol::State, &[1]).unwrap(), Some(vec![1]));
+        assert_eq!(store.get(DBCol::State, &[1]).unwrap().as_deref(), Some(&[1][..]));
         assert_eq!(
-            rocksdb.get_raw_bytes(DBCol::State, &[1]).unwrap(),
-            Some(vec![1, 1, 0, 0, 0, 0, 0, 0, 0])
+            rocksdb.get_raw_bytes(DBCol::State, &[1]).unwrap().as_deref(),
+            Some(&[1, 1, 0, 0, 0, 0, 0, 0, 0][..])
         );
         {
             let mut store_update = store.store_update();
@@ -675,19 +683,22 @@ mod tests {
         // Refcount goes to 0 -> get() returns None
         assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);
         // Internally there is an empty value
-        assert_eq!(rocksdb.get_raw_bytes(DBCol::State, &[1]).unwrap(), Some(vec![]));
+        assert_eq!(rocksdb.get_raw_bytes(DBCol::State, &[1]).unwrap().as_deref(), Some(&[][..]));
 
         // single_thread_rocksdb makes compact hang forever
         if !cfg!(feature = "single_thread_rocksdb") {
             let none = Option::<&[u8]>::None;
-            let cf = rocksdb.cf_handle(DBCol::State);
+            let cf = rocksdb.cf_handle(DBCol::State).unwrap();
 
             // I’m not sure why but we need to run compaction twice.  If we run
             // it only once, we end up with an empty value for the key.  This is
             // surprising because I assumed that compaction filter would discard
             // empty values.
             rocksdb.db.compact_range_cf(cf, none, none);
-            assert_eq!(rocksdb.get_raw_bytes(DBCol::State, &[1]).unwrap(), Some(vec![]));
+            assert_eq!(
+                rocksdb.get_raw_bytes(DBCol::State, &[1]).unwrap().as_deref(),
+                Some(&[][..])
+            );
             assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);
 
             rocksdb.db.compact_range_cf(cf, none, none);
@@ -723,18 +734,5 @@ mod tests {
                 ]
             }
         );
-    }
-
-    #[test]
-    fn next_prefix() {
-        fn test(want: Option<&[u8]>, arg: &[u8]) {
-            assert_eq!(want, super::next_prefix(arg).as_ref().map(Vec::as_ref));
-        }
-
-        test(None, b"");
-        test(None, b"\xff");
-        test(None, b"\xff\xff\xff\xff");
-        test(Some(b"b"), b"a");
-        test(Some(b"b"), b"a\xff\xff\xff");
     }
 }

@@ -497,7 +497,7 @@ mod tests {
     use crate::qemu::QemuMeasurement;
     use near_primitives::types::Gas;
     use num_rational::Ratio;
-    use num_traits::ToPrimitive;
+    use num_traits::{ToPrimitive, Zero};
 
     #[track_caller]
     fn check_uncertainty(
@@ -740,6 +740,13 @@ mod tests {
             ),
             false,
         );
+
+        if IO_READ_BYTE_COST + IO_WRITE_BYTE_COST == Ratio::zero() || GAS_IN_INSTR == Ratio::zero()
+        {
+            // Relative tolerance only makes sense if two different scalars of the vector cost can be non-zero.
+            // Otherwise, one of the (pos,neg) pair has to be 0.
+            return;
+        }
 
         // Compute relative thresholds based on estimator params
         let rel_base = (IO_WRITE_BYTE_COST * 10) / (GAS_IN_INSTR * 1000 + IO_READ_BYTE_COST * 1000);

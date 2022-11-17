@@ -1,7 +1,7 @@
 use crate::{metrics, rocksdb_metrics, SyncStatus};
 use actix::Addr;
+use itertools::Itertools;
 use near_chain_configs::{ClientConfig, LogSummaryStyle};
-use near_client_primitives::types::ShardSyncStatus;
 use near_network::types::NetworkInfo;
 use near_primitives::block::Tip;
 use near_primitives::network::PeerId;
@@ -14,7 +14,9 @@ use near_primitives::types::{
 };
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::Version;
-use near_primitives::views::{CurrentEpochValidatorInfo, EpochValidatorInfo, ValidatorKickoutView};
+use near_primitives::views::{
+    CatchupStatusView, CurrentEpochValidatorInfo, EpochValidatorInfo, ValidatorKickoutView,
+};
 use near_store::db::StoreStatistics;
 use near_telemetry::{telemetry, TelemetryActor};
 use std::cmp::min;
@@ -82,13 +84,13 @@ impl InfoHelper {
 
     pub fn chunk_processed(&mut self, shard_id: ShardId, gas_used: Gas, balance_burnt: Balance) {
         metrics::TGAS_USAGE_HIST
-            .with_label_values(&[&format!("{}", shard_id)])
+            .with_label_values(&[&shard_id.to_string()])
             .observe(gas_used as f64 / TERAGAS);
         metrics::BALANCE_BURNT.inc_by(balance_burnt as f64);
     }
 
     pub fn chunk_skipped(&mut self, shard_id: ShardId) {
-        metrics::CHUNK_SKIPPED_TOTAL.with_label_values(&[&format!("{}", shard_id)]).inc();
+        metrics::CHUNK_SKIPPED_TOTAL.with_label_values(&[&shard_id.to_string()]).inc();
     }
 
     pub fn block_processed(
@@ -118,6 +120,7 @@ impl InfoHelper {
         &mut self,
         head: &Tip,
         sync_status: &SyncStatus,
+        catchup_status: Vec<CatchupStatusView>,
         node_id: &PeerId,
         network_info: &NetworkInfo,
         validator_info: Option<ValidatorInfoHelper>,
@@ -136,6 +139,8 @@ impl InfoHelper {
         let s = |num| if num == 1 { "" } else { "s" };
 
         let sync_status_log = Some(display_sync_status(sync_status, head));
+
+        let catchup_status_log = display_catchup_status(catchup_status);
 
         let validator_info_log = validator_info.as_ref().map(|info| {
             format!(
@@ -184,6 +189,9 @@ impl InfoHelper {
             paint(ansi_term::Colour::Green, blocks_info_log),
             paint(ansi_term::Colour::Blue, machine_info_log),
         );
+        if catchup_status_log != "" {
+            info!(target:"stats", "Catchups\n{}", catchup_status_log);
+        }
         if let Some(statistics) = statistics {
             rocksdb_metrics::export_stats_as_metrics(statistics);
         }
@@ -305,6 +313,36 @@ fn extra_telemetry_info(client_config: &ClientConfig) -> serde_json::Value {
     })
 }
 
+pub fn display_catchup_status(catchup_status: Vec<CatchupStatusView>) -> String {
+    catchup_status
+        .into_iter()
+        .map(|catchup_status| {
+            let shard_sync_string = catchup_status
+                .shard_sync_status
+                .iter()
+                .sorted_by_key(|x| x.0)
+                .map(|(shard_id, status_string)| format!("Shard {} {}", shard_id, status_string))
+                .join(", ");
+            let block_catchup_string = if catchup_status.blocks_to_catchup.len() == 0 {
+                "done".to_string()
+            } else {
+                catchup_status
+                    .blocks_to_catchup
+                    .iter()
+                    .map(|block_view| format!("{:?}@{:?}", block_view.hash, block_view.height))
+                    .join(", ")
+            };
+            format!(
+                "Sync block {:?}@{:?} \nShard sync status: {}\nNext blocks to catch up: {}",
+                catchup_status.sync_block_hash,
+                catchup_status.sync_block_height,
+                shard_sync_string,
+                block_catchup_string,
+            )
+        })
+        .join("\n")
+}
+
 pub fn display_sync_status(sync_status: &SyncStatus, head: &Tip) -> String {
     metrics::SYNC_STATUS.set(sync_status.repr() as i64);
     match sync_status {
@@ -348,22 +386,7 @@ pub fn display_sync_status(sync_status: &SyncStatus, head: &Tip) -> String {
             let mut shard_statuses: Vec<_> = shard_statuses.iter().collect();
             shard_statuses.sort_by_key(|(shard_id, _)| *shard_id);
             for (shard_id, shard_status) in shard_statuses {
-                write!(
-                    res,
-                    "[{}: {}]",
-                    shard_id,
-                    match shard_status.status {
-                        ShardSyncStatus::StateDownloadHeader => "header",
-                        ShardSyncStatus::StateDownloadParts => "parts",
-                        ShardSyncStatus::StateDownloadScheduling => "scheduling",
-                        ShardSyncStatus::StateDownloadApplying => "applying",
-                        ShardSyncStatus::StateDownloadComplete => "download complete",
-                        ShardSyncStatus::StateSplitScheduling => "split scheduling",
-                        ShardSyncStatus::StateSplitApplying => "split applying",
-                        ShardSyncStatus::StateSyncDone => "done",
-                    }
-                )
-                .unwrap();
+                write!(res, "[{}: {}]", shard_id, shard_status.status.to_string(),).unwrap();
             }
             res
         }
@@ -531,7 +554,6 @@ mod tests {
                 sent_bytes_per_sec: 0,
                 received_bytes_per_sec: 0,
                 known_producers: vec![],
-                peer_counter: 0,
                 tier1_accounts: vec![],
             },
             &config,

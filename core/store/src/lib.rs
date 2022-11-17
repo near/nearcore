@@ -14,49 +14,106 @@ pub use db::{
     LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, TAIL_KEY,
 };
 use near_crypto::PublicKey;
+use near_o11y::pretty;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::contract::ContractCode;
 pub use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{DelayedReceiptIndices, Receipt, ReceivedData};
-use near_primitives::serialize::to_base58;
 pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
-use near_primitives::types::{AccountId, CompiledContractCache, StateRoot};
+use near_primitives::types::{AccountId, CompiledContract, CompiledContractCache, StateRoot};
 
 use crate::db::{
-    refcount, DBIterator, DBOp, DBTransaction, Database, RocksDB, StoreStatistics,
+    refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database, StoreStatistics,
     GENESIS_JSON_HASH_KEY, GENESIS_STATE_ROOTS_KEY,
 };
 pub use crate::trie::iterator::TrieIterator;
 pub use crate::trie::update::{TrieUpdate, TrieUpdateIterator, TrieUpdateValuePtr};
 pub use crate::trie::{
-    estimator, split_state, ApplyStatePartResult, KeyForStateChanges, PartialStorage, ShardTries,
-    Trie, TrieAccess, TrieCache, TrieCacheFactory, TrieCachingStorage, TrieChanges, TrieStorage,
-    WrappedTrieChanges,
+    estimator, split_state, ApplyStatePartResult, KeyForStateChanges, KeyLookupMode, NibbleSlice,
+    PartialStorage, PrefetchApi, RawTrieNode, RawTrieNodeWithSize, ShardTries, Trie, TrieAccess,
+    TrieCache, TrieCachingStorage, TrieChanges, TrieConfig, TrieStorage, WrappedTrieChanges,
 };
+pub use flat_state::FlatStateDelta;
 
+#[cfg(feature = "cold_store")]
+pub mod cold_storage;
 mod columns;
-mod config;
+pub mod config;
 pub mod db;
 pub mod flat_state;
+pub mod metadata;
 mod metrics;
 pub mod migrations;
+mod opener;
 pub mod test_utils;
 mod trie;
 
-pub use crate::config::{Mode, StoreConfig, StoreOpener};
-pub use crate::db::rocksdb::snapshot::{Snapshot, SnapshotError};
+pub use crate::config::{Mode, StoreConfig};
+pub use crate::opener::{StoreMigrator, StoreOpener, StoreOpenerError};
 
+/// Specifies temperature of a storage.
+///
+/// Since currently only hot storage is implemented, this has only one variant.
+/// In the future, certain parts of the code may need to access hot or cold
+/// storage.  Specifically, querying an old block will require reading it from
+/// the cold storage.
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub enum Temperature {
+    Hot,
+    #[cfg(feature = "cold_store")]
+    Cold,
+}
+
+/// Node’s storage holding chain and all other necessary data.
+///
+/// The eventual goal is to implement cold storage at which point this structure
+/// will provide interface to access hot and cold storage.  This is in contrast
+/// to [`Store`] which will abstract access to only one of the temperatures of
+/// the storage.
+pub struct NodeStorage {
+    hot_storage: Arc<dyn Database>,
+    #[cfg(feature = "cold_store")]
+    cold_storage: Option<Arc<crate::db::ColdDB>>,
+    #[cfg(not(feature = "cold_store"))]
+    cold_storage: Option<std::convert::Infallible>,
+}
+
+/// Node’s single storage source.
+///
+/// Currently, this is somewhat equivalent to [`NodeStorage`] in that for given
+/// note storage you can get only a single [`Store`] object.  This will change
+/// as we implement cold storage in which case this structure will provide an
+/// interface to access either hot or cold data.  At that point, [`NodeStorage`]
+/// will map to one of two [`Store`] objects depending on the temperature of the
+/// data.
 #[derive(Clone)]
 pub struct Store {
     storage: Arc<dyn Database>,
 }
 
-impl Store {
-    /// Initialises a new opener with given home directory and store config.
-    pub fn opener<'a>(home_dir: &std::path::Path, config: &'a StoreConfig) -> StoreOpener<'a> {
-        StoreOpener::new(home_dir, config)
+// Those are temporary.  While cold_store feature is stabilised, remove those
+// type aliases and just use the type directly.
+#[cfg(feature = "cold_store")]
+pub type ColdConfig<'a> = Option<&'a StoreConfig>;
+#[cfg(not(feature = "cold_store"))]
+pub type ColdConfig<'a> = Option<std::convert::Infallible>;
+
+impl NodeStorage {
+    /// Initialises a new opener with given home directory and hot and cold
+    /// store config.
+    pub fn opener<'a>(
+        home_dir: &std::path::Path,
+        config: &'a StoreConfig,
+        #[allow(unused_variables)] cold_config: ColdConfig<'a>,
+    ) -> StoreOpener<'a> {
+        StoreOpener::new(
+            home_dir,
+            config,
+            #[cfg(feature = "cold_store")]
+            cold_config,
+        )
     }
 
     /// Initialises an opener for a new temporary test store.
@@ -70,19 +127,125 @@ impl Store {
     pub fn test_opener() -> (tempfile::TempDir, StoreOpener<'static>) {
         static CONFIG: Lazy<StoreConfig> = Lazy::new(StoreConfig::test_config);
         let dir = tempfile::tempdir().unwrap();
-        let opener = Self::opener(dir.path(), &CONFIG);
+        let opener = StoreOpener::new(
+            dir.path(),
+            &CONFIG,
+            #[cfg(feature = "cold_store")]
+            None,
+        );
         (dir, opener)
     }
 
-    pub(crate) fn new(storage: Arc<dyn Database>) -> Store {
-        Store { storage }
+    /// Constructs new object backed by given database.
+    ///
+    /// Note that you most likely don’t want to use this method.  If you’re
+    /// opening an on-disk storage, you want to use [`Self::opener`] instead
+    /// which takes care of opening the on-disk database and applying all the
+    /// necessary configuration.  If you need an in-memory database for testing,
+    /// you want either [`crate::test_utils::create_test_node_storage`] or
+    /// possibly [`crate::test_utils::create_test_store`] (depending whether you
+    /// need [`NodeStorage`] or [`Store`] object.
+    pub fn new(storage: Arc<dyn Database>) -> Self {
+        Self { hot_storage: storage, cold_storage: None }
     }
 
-    pub fn into_inner(self) -> Arc<dyn Database> {
-        self.storage
+    /// Constructs new object backed by given database.
+    fn from_rocksdb(
+        hot_storage: crate::db::RocksDB,
+        #[cfg(feature = "cold_store")] cold_storage: Option<crate::db::RocksDB>,
+        #[cfg(not(feature = "cold_store"))] cold_storage: Option<std::convert::Infallible>,
+    ) -> Self {
+        let hot_storage = Arc::new(hot_storage);
+        #[cfg(feature = "cold_store")]
+        let cold_storage = cold_storage
+            .map(|cold_db| Arc::new(crate::db::ColdDB::new(hot_storage.clone(), cold_db)));
+        #[cfg(not(feature = "cold_store"))]
+        let cold_storage = cold_storage.map(|_| unreachable!());
+        Self { hot_storage, cold_storage }
     }
 
-    pub fn get(&self, column: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>> {
+    /// Returns storage for given temperature.
+    ///
+    /// Some data live only in hot and some only in cold storage (which is at
+    /// the moment not implemented but is planned soon).  Hot data is anything
+    /// at the head of the chain.  Cold data, if node is configured with split
+    /// storage, is anything archival.
+    ///
+    /// Based on block in whose context database access are going to be made,
+    /// you will either need to access hot or cold storage.  Temperature of the
+    /// data is, simplifying slightly, determined based on height of the block.
+    /// Anything above the tail of hot storage is hot and everything else is
+    /// cold.
+    pub fn get_store(&self, temp: Temperature) -> Store {
+        match temp {
+            Temperature::Hot => Store { storage: self.hot_storage.clone() },
+            #[cfg(feature = "cold_store")]
+            Temperature::Cold => Store { storage: self.cold_storage.as_ref().unwrap().clone() },
+        }
+    }
+
+    /// Returns underlying database for given temperature.
+    ///
+    /// With (currently unimplemented) cold storage, this allows accessing
+    /// underlying hot and cold databases directly bypassing any abstractions
+    /// offered by [`NodeStorage`] or [`Store`] interfaces.
+    ///
+    /// This is useful for certain data which only lives in hot storage and
+    /// interfaces which deal with it.  For example, peer store uses hot
+    /// storage’s [`Database`] interface directly.
+    ///
+    /// Note that this is not appropriate for code which only ever accesses hot
+    /// storage but touches information kinds which live in cold storage as
+    /// well.  For example, garbage collection only ever touches hot storage but
+    /// it should go through [`Store`] interface since data it manipulates
+    /// (e.g. blocks) are live in both databases.
+    pub fn _get_inner(&self, temp: Temperature) -> &Arc<dyn Database> {
+        match temp {
+            Temperature::Hot => &self.hot_storage,
+            #[cfg(feature = "cold_store")]
+            Temperature::Cold => todo!(),
+        }
+    }
+
+    /// Returns underlying database for given temperature.
+    ///
+    /// This is like [`Self::get_inner`] but consumes `self` thus avoiding
+    /// `Arc::clone`.
+    pub fn into_inner(self, temp: Temperature) -> Arc<dyn Database> {
+        match temp {
+            Temperature::Hot => self.hot_storage,
+            #[cfg(feature = "cold_store")]
+            Temperature::Cold => self.cold_storage.unwrap(),
+        }
+    }
+
+    /// Returns whether the storage has a cold database.
+    pub fn has_cold(&self) -> bool {
+        self.cold_storage.is_some()
+    }
+
+    /// Reads database metadata and returns whether the storage is archival.
+    pub fn is_archive(&self) -> io::Result<bool> {
+        if self.cold_storage.is_some() {
+            return Ok(true);
+        }
+        Ok(match metadata::DbMetadata::read(self.hot_storage.as_ref())?.kind.unwrap() {
+            metadata::DbKind::RPC => false,
+            metadata::DbKind::Archive => true,
+            #[cfg(feature = "cold_store")]
+            metadata::DbKind::Hot | metadata::DbKind::Cold => unreachable!(),
+        })
+    }
+}
+
+impl Store {
+    /// Fetches value from given column.
+    ///
+    /// If the key does not exist in the column returns `None`.  Otherwise
+    /// returns the data as [`DBSlice`] object.  The object dereferences into
+    /// a slice, for cases when caller doesn’t need to own the value, and
+    /// provides conversion into a vector or an Arc.
+    pub fn get(&self, column: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
         let value = if column.is_rc() {
             self.storage.get_with_rc_stripped(column, key)
         } else {
@@ -92,17 +255,14 @@ impl Store {
             target: "store",
             db_op = "get",
             col = %column,
-            key = %to_base58(key),
-            size = value.as_ref().map(Vec::len)
+            key = %pretty::StorageKey(key),
+            size = value.as_deref().map(<[u8]>::len)
         );
         Ok(value)
     }
 
     pub fn get_ser<T: BorshDeserialize>(&self, column: DBCol, key: &[u8]) -> io::Result<Option<T>> {
-        match self.get(column, key)? {
-            Some(bytes) => Ok(Some(T::try_from_slice(&bytes)?)),
-            None => Ok(None),
-        }
+        self.get(column, key)?.as_deref().map(T::try_from_slice).transpose()
     }
 
     pub fn exists(&self, column: DBCol, key: &[u8]) -> io::Result<bool> {
@@ -181,6 +341,11 @@ impl Store {
         self.storage.flush()
     }
 
+    /// Blocking compaction request if supported by storage.
+    pub fn compact(&self) -> io::Result<()> {
+        self.storage.compact()
+    }
+
     pub fn get_store_statistics(&self) -> Option<StoreStatistics> {
         self.storage.get_store_statistics()
     }
@@ -188,10 +353,13 @@ impl Store {
 
 /// Keeps track of current changes to the database and can commit all of them to the database.
 pub struct StoreUpdate {
-    storage: Arc<dyn Database>,
     transaction: DBTransaction,
-    /// Optionally has reference to the trie to clear cache on the commit.
-    shard_tries: Option<ShardTries>,
+    storage: StoreUpdateStorage,
+}
+
+enum StoreUpdateStorage {
+    DB(Arc<dyn Database>),
+    Tries(ShardTries),
 }
 
 impl StoreUpdate {
@@ -200,16 +368,12 @@ impl StoreUpdate {
         None => panic!(),
     };
 
-    pub(crate) fn new(storage: Arc<dyn Database>) -> Self {
-        StoreUpdate { storage, transaction: DBTransaction::new(), shard_tries: None }
+    pub(crate) fn new(db: Arc<dyn Database>) -> Self {
+        StoreUpdate { transaction: DBTransaction::new(), storage: StoreUpdateStorage::DB(db) }
     }
 
     pub fn new_with_tries(tries: ShardTries) -> Self {
-        StoreUpdate {
-            storage: Arc::clone(&tries.get_store().storage),
-            transaction: DBTransaction::new(),
-            shard_tries: Some(tries),
-        }
+        StoreUpdate { transaction: DBTransaction::new(), storage: StoreUpdateStorage::Tries(tries) }
     }
 
     /// Inserts a new value into the database.
@@ -285,7 +449,7 @@ impl StoreUpdate {
     /// Modifies a value in the database.
     ///
     /// Unlike `insert`, `increment_refcount` or `decrement_refcount`, arbitrary
-    /// modifications are allowed, and extra care must be taken to aviod
+    /// modifications are allowed, and extra care must be taken to avoid
     /// consistency anomalies.
     ///
     /// Must not be used for reference-counted columns; use
@@ -299,7 +463,7 @@ impl StoreUpdate {
     ///
     /// Must not be used for reference-counted columns; use
     /// ['Self::increment_refcount'] or [`Self::decrement_refcount`] instead.
-    pub fn set_ser<T: BorshSerialize>(
+    pub fn set_ser<T: BorshSerialize + ?Sized>(
         &mut self,
         column: DBCol,
         key: &[u8],
@@ -334,39 +498,52 @@ impl StoreUpdate {
         self.transaction.delete_all(column);
     }
 
-    /// Set shard_tries to given object.
+    /// Sets reference to the trie to clear cache on the commit.
     ///
     /// Panics if shard_tries are already set to a different object.
     fn set_shard_tries(&mut self, tries: &ShardTries) {
-        if let Some(our) = &self.shard_tries {
-            assert!(tries.is_same(our));
-        } else {
-            self.shard_tries = Some(tries.clone());
-        }
+        assert!(self.check_compatible_shard_tries(tries));
+        self.storage = StoreUpdateStorage::Tries(tries.clone())
     }
 
     /// Merge another store update into this one.
     ///
-    /// Panics if `self` and `other` both have shard_tries set to different
-    /// objects.
+    /// Panics if `self`’s and `other`’s storage are incompatible.
     pub fn merge(&mut self, other: StoreUpdate) {
-        match (&self.shard_tries, other.shard_tries) {
-            (Some(our), Some(other)) => assert!(our.is_same(&other)),
-            (None, other) => self.shard_tries = other,
-            _ => (),
+        match other.storage {
+            StoreUpdateStorage::Tries(tries) => {
+                assert!(self.check_compatible_shard_tries(&tries));
+                self.storage = StoreUpdateStorage::Tries(tries);
+            }
+            StoreUpdateStorage::DB(other_db) => {
+                let self_db = match &self.storage {
+                    StoreUpdateStorage::Tries(tries) => tries.get_db(),
+                    StoreUpdateStorage::DB(db) => &db,
+                };
+                assert!(same_db(self_db, &other_db));
+            }
         }
         self.transaction.merge(other.transaction)
     }
 
-    pub fn update_cache(&self) -> io::Result<()> {
-        if let Some(tries) = &self.shard_tries {
-            // Note: avoid comparing wide pointers here to work-around
-            // https://github.com/rust-lang/rust/issues/69757
-            let addr = |arc| Arc::as_ptr(arc) as *const u8;
-            assert_eq!(addr(&tries.get_store().storage), addr(&self.storage),);
-            tries.update_cache(&self.transaction)?;
+    /// Verifies that given shard tries are compatible with this object.
+    ///
+    /// The [`ShardTries`] object is compatible if a) this object’s storage is
+    /// a database which is the same as tries’ one or b) this object’s storage
+    /// is the given shard tries.
+    fn check_compatible_shard_tries(&self, tries: &ShardTries) -> bool {
+        match &self.storage {
+            StoreUpdateStorage::DB(db) => same_db(&db, tries.get_db()),
+            StoreUpdateStorage::Tries(our) => our.is_same(tries),
         }
-        Ok(())
+    }
+
+    pub fn update_cache(&self) -> io::Result<()> {
+        if let StoreUpdateStorage::Tries(tries) = &self.storage {
+            tries.update_cache(&self.transaction)
+        } else {
+            Ok(())
+        }
     }
 
     pub fn commit(self) -> io::Result<()> {
@@ -389,29 +566,42 @@ impl StoreUpdate {
             "Transaction overwrites itself: {:?}",
             self
         );
-        self.update_cache()?;
         let _span = tracing::trace_span!(target: "store", "commit").entered();
         for op in &self.transaction.ops {
             match op {
                 DBOp::Insert { col, key, value } => {
-                    tracing::trace!(target: "store", db_op = "insert", col = %col, key = %to_base58(key), size = value.len())
+                    tracing::trace!(target: "store", db_op = "insert", col = %col, key = %pretty::StorageKey(key), size = value.len())
                 }
                 DBOp::Set { col, key, value } => {
-                    tracing::trace!(target: "store", db_op = "set", col = %col, key = %to_base58(key), size = value.len())
+                    tracing::trace!(target: "store", db_op = "set", col = %col, key = %pretty::StorageKey(key), size = value.len())
                 }
                 DBOp::UpdateRefcount { col, key, value } => {
-                    tracing::trace!(target: "store", db_op = "update_rc", col = %col, key = %to_base58(key), size = value.len())
+                    tracing::trace!(target: "store", db_op = "update_rc", col = %col, key = %pretty::StorageKey(key), size = value.len())
                 }
                 DBOp::Delete { col, key } => {
-                    tracing::trace!(target: "store", db_op = "delete", col = %col, key = %to_base58(key))
+                    tracing::trace!(target: "store", db_op = "delete", col = %col, key = %pretty::StorageKey(key))
                 }
                 DBOp::DeleteAll { col } => {
                     tracing::trace!(target: "store", db_op = "delete_all", col = %col)
                 }
             }
         }
-        self.storage.write(self.transaction)
+        let storage = match &self.storage {
+            StoreUpdateStorage::Tries(tries) => {
+                tries.update_cache(&self.transaction)?;
+                tries.get_db()
+            }
+            StoreUpdateStorage::DB(db) => &db,
+        };
+        storage.write(self.transaction)
     }
+}
+
+fn same_db(lhs: &Arc<dyn Database>, rhs: &Arc<dyn Database>) -> bool {
+    // Note: avoid comparing wide pointers here to work-around
+    // https://github.com/rust-lang/rust/issues/69757
+    let addr = |arc| Arc::as_ptr(arc) as *const u8;
+    return addr(lhs) == addr(rhs);
 }
 
 impl fmt::Debug for StoreUpdate {
@@ -419,12 +609,14 @@ impl fmt::Debug for StoreUpdate {
         writeln!(f, "Store Update {{")?;
         for op in self.transaction.ops.iter() {
             match op {
-                DBOp::Insert { col, key, .. } => writeln!(f, "  + {col} {}", to_base58(key))?,
-                DBOp::Set { col, key, .. } => writeln!(f, "  = {col} {}", to_base58(key))?,
-                DBOp::UpdateRefcount { col, key, .. } => {
-                    writeln!(f, "  ± {col} {}", to_base58(key))?
+                DBOp::Insert { col, key, .. } => {
+                    writeln!(f, "  + {col} {}", pretty::StorageKey(key))?
                 }
-                DBOp::Delete { col, key } => writeln!(f, "  - {col} {}", to_base58(key))?,
+                DBOp::Set { col, key, .. } => writeln!(f, "  = {col} {}", pretty::StorageKey(key))?,
+                DBOp::UpdateRefcount { col, key, .. } => {
+                    writeln!(f, "  ± {col} {}", pretty::StorageKey(key))?
+                }
+                DBOp::Delete { col, key } => writeln!(f, "  - {col} {}", pretty::StorageKey(key))?,
                 DBOp::DeleteAll { col } => writeln!(f, "  - {col} (all)")?,
             }
         }
@@ -624,9 +816,9 @@ pub fn set_genesis_hash(store_update: &mut StoreUpdate, genesis_hash: &CryptoHas
         .expect("Borsh cannot fail");
 }
 
-pub fn set_genesis_state_roots(store_update: &mut StoreUpdate, genesis_roots: &Vec<StateRoot>) {
+pub fn set_genesis_state_roots(store_update: &mut StoreUpdate, genesis_roots: &[StateRoot]) {
     store_update
-        .set_ser::<Vec<StateRoot>>(DBCol::BlockMisc, GENESIS_STATE_ROOTS_KEY, genesis_roots)
+        .set_ser(DBCol::BlockMisc, GENESIS_STATE_ROOTS_KEY, genesis_roots)
         .expect("Borsh cannot fail");
 }
 
@@ -645,18 +837,26 @@ impl StoreCompiledContractCache {
 /// Key must take into account VM being used and its configuration, so that
 /// we don't cache non-gas metered binaries, for example.
 impl CompiledContractCache for StoreCompiledContractCache {
-    fn put(&self, key: &CryptoHash, value: Vec<u8>) -> io::Result<()> {
+    fn put(&self, key: &CryptoHash, value: CompiledContract) -> io::Result<()> {
         let mut update = crate::db::DBTransaction::new();
         // We intentionally use `.set` here, rather than `.insert`. We don't yet
         // guarantee deterministic compilation, so, if we happen to compile the
         // same contract concurrently on two threads, the `value`s might differ,
         // but this doesn't matter.
-        update.set(DBCol::CachedContractCode, key.as_ref().to_vec(), value);
+        update.set(DBCol::CachedContractCode, key.as_ref().to_vec(), value.try_to_vec().unwrap());
         self.db.write(update)
     }
 
-    fn get(&self, key: &CryptoHash) -> io::Result<Option<Vec<u8>>> {
-        self.db.get_raw_bytes(DBCol::CachedContractCode, key.as_ref())
+    fn get(&self, key: &CryptoHash) -> io::Result<Option<CompiledContract>> {
+        match self.db.get_raw_bytes(DBCol::CachedContractCode, key.as_ref()) {
+            Ok(Some(bytes)) => Ok(Some(CompiledContract::try_from_slice(&bytes)?)),
+            Ok(None) => Ok(None),
+            Err(err) => Err(err),
+        }
+    }
+
+    fn has(&self, key: &CryptoHash) -> io::Result<bool> {
+        self.db.get_raw_bytes(DBCol::CachedContractCode, key.as_ref()).map(|entry| entry.is_some())
     }
 }
 
@@ -664,7 +864,7 @@ impl CompiledContractCache for StoreCompiledContractCache {
 mod tests {
     use near_primitives::hash::CryptoHash;
 
-    use super::{DBCol, Store};
+    use super::{DBCol, NodeStorage, Store, Temperature};
 
     #[test]
     fn test_no_cache_disabled() {
@@ -681,7 +881,7 @@ mod tests {
             store_update.increment_refcount(DBCol::State, &[3], &[3]);
             store_update.commit().unwrap();
         }
-        assert_eq!(store.get(DBCol::State, &[1]).unwrap(), Some(vec![1]));
+        assert_eq!(store.get(DBCol::State, &[1]).unwrap().as_deref(), Some(&[1][..]));
         {
             let mut store_update = store.store_update();
             store_update.delete_all(DBCol::State);
@@ -692,8 +892,8 @@ mod tests {
 
     #[test]
     fn clear_column_rocksdb() {
-        let (_tmp_dir, opener) = Store::test_opener();
-        test_clear_column(opener.open().unwrap());
+        let (_tmp_dir, opener) = NodeStorage::test_opener();
+        test_clear_column(opener.open().unwrap().get_store(Temperature::Hot));
     }
 
     #[test]
@@ -764,7 +964,8 @@ mod tests {
 
     #[test]
     fn rocksdb_iter_order() {
-        test_iter_order_impl(Store::test_opener().1.open().unwrap());
+        let (_tempdir, opener) = NodeStorage::test_opener();
+        test_iter_order_impl(opener.open().unwrap().get_store(Temperature::Hot));
     }
 
     #[test]
@@ -775,14 +976,19 @@ mod tests {
     /// Check StoreCompiledContractCache implementation.
     #[test]
     fn test_store_compiled_contract_cache() {
-        use near_primitives::types::CompiledContractCache;
+        use near_primitives::types::{CompiledContract, CompiledContractCache};
         use std::str::FromStr;
 
         let store = crate::test_utils::create_test_store();
         let cache = super::StoreCompiledContractCache::new(&store);
         let key = CryptoHash::from_str("75pAU4CJcp8Z9eoXcL6pSU8sRK5vn3NEpgvUrzZwQtr3").unwrap();
+
         assert_eq!(None, cache.get(&key).unwrap());
-        assert_eq!((), cache.put(&key, b"foo".to_vec()).unwrap());
-        assert_eq!(Some(&b"foo"[..]), cache.get(&key).unwrap().as_deref());
+        assert_eq!(false, cache.has(&key).unwrap());
+
+        let record = CompiledContract::Code(b"foo".to_vec());
+        assert_eq!((), cache.put(&key, record.clone()).unwrap());
+        assert_eq!(Some(record), cache.get(&key).unwrap());
+        assert_eq!(true, cache.has(&key).unwrap());
     }
 }

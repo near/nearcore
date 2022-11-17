@@ -309,6 +309,13 @@ pub struct ExtCostsConfig {
     /// Cost of getting ripemd160 per message block
     pub ripemd160_block: Gas,
 
+    /// Cost of getting ed25519 base
+    #[cfg(feature = "protocol_feature_ed25519_verify")]
+    pub ed25519_verify_base: Gas,
+    /// Cost of getting ed25519 per byte
+    #[cfg(feature = "protocol_feature_ed25519_verify")]
+    pub ed25519_verify_byte: Gas,
+
     /// Cost of calling ecrecover
     pub ecrecover_base: Gas,
 
@@ -452,6 +459,10 @@ impl ExtCostsConfig {
             keccak512_base: SAFETY_MULTIPLIER * 1937129412,
             keccak512_byte: SAFETY_MULTIPLIER * 12216567,
             ripemd160_base: SAFETY_MULTIPLIER * 284558362,
+            #[cfg(feature = "protocol_feature_ed25519_verify")]
+            ed25519_verify_base: SAFETY_MULTIPLIER * 1513656750,
+            #[cfg(feature = "protocol_feature_ed25519_verify")]
+            ed25519_verify_byte: SAFETY_MULTIPLIER * 7157035,
             // Cost per byte is 3542227. There are 64 bytes in a block.
             ripemd160_block: SAFETY_MULTIPLIER * 226702528,
             ecrecover_base: SAFETY_MULTIPLIER * 1121789875000,
@@ -520,6 +531,10 @@ impl ExtCostsConfig {
             keccak512_byte: 0,
             ripemd160_base: 0,
             ripemd160_block: 0,
+            #[cfg(feature = "protocol_feature_ed25519_verify")]
+            ed25519_verify_base: 0,
+            #[cfg(feature = "protocol_feature_ed25519_verify")]
+            ed25519_verify_byte: 0,
             ecrecover_base: 0,
             log_base: 0,
             log_byte: 0,
@@ -563,7 +578,9 @@ impl ExtCostsConfig {
 }
 
 /// Strongly-typed representation of the fees for counting.
-#[derive(Copy, Clone, Hash, PartialEq, Eq, Debug, PartialOrd, Ord, EnumCount, Display)]
+#[derive(
+    Copy, Clone, Hash, PartialEq, Eq, Debug, PartialOrd, Ord, EnumCount, Display, strum::EnumIter,
+)]
 #[allow(non_camel_case_types)]
 pub enum ExtCosts {
     base,
@@ -589,6 +606,10 @@ pub enum ExtCosts {
     keccak512_byte,
     ripemd160_base,
     ripemd160_block,
+    #[cfg(feature = "protocol_feature_ed25519_verify")]
+    ed25519_verify_base,
+    #[cfg(feature = "protocol_feature_ed25519_verify")]
+    ed25519_verify_byte,
     ecrecover_base,
     log_base,
     log_byte,
@@ -628,19 +649,27 @@ pub enum ExtCosts {
 }
 
 // Type of an action, used in fees logic.
-#[derive(Copy, Clone, Hash, PartialEq, Eq, Debug, PartialOrd, Ord, EnumCount, Display)]
+#[derive(
+    Copy, Clone, Hash, PartialEq, Eq, Debug, PartialOrd, Ord, EnumCount, Display, strum::EnumIter,
+)]
 #[allow(non_camel_case_types)]
 pub enum ActionCosts {
     create_account,
     delete_account,
-    deploy_contract,
-    function_call,
+    deploy_contract_base,
+    deploy_contract_byte,
+    function_call_base,
+    function_call_byte,
     transfer,
     stake,
-    add_key,
+    add_full_access_key,
+    add_function_call_key_base,
+    add_function_call_key_byte,
     delete_key,
     value_return,
-    new_receipt,
+    new_action_receipt,
+    new_data_receipt_base,
+    new_data_receipt_byte,
 }
 
 impl ExtCosts {
@@ -670,6 +699,10 @@ impl ExtCosts {
             keccak512_byte => config.keccak512_byte,
             ripemd160_base => config.ripemd160_base,
             ripemd160_block => config.ripemd160_block,
+            #[cfg(feature = "protocol_feature_ed25519_verify")]
+            ed25519_verify_base => config.ed25519_verify_base,
+            #[cfg(feature = "protocol_feature_ed25519_verify")]
+            ed25519_verify_byte => config.ed25519_verify_byte,
             ecrecover_base => config.ecrecover_base,
             log_base => config.log_base,
             log_byte => config.log_byte,

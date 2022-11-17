@@ -58,7 +58,7 @@ pub enum Cost {
     ///
     /// Estimation: Measure a transaction that creates an account and transfers
     /// an initial balance to it. Subtract the base cost of creating a receipt.
-    /// (TODO[jakmeier] consider also subtracting transfer fee)
+    // TODO(jakmeier): consider also subtracting transfer fee
     ActionCreateAccount,
     // Deploying a new contract for an account on the blockchain stores the WASM
     // code in the trie. Additionally, it also triggers a compilation of the
@@ -110,8 +110,8 @@ pub enum Cost {
     ///
     /// Estimation: Measure a transaction with only a staking action and
     /// subtract the base cost of creating a sir-receipt.
-    /// (TODO[jakmeier] find out and document the reasoning behind send vs exec
-    /// values in this specific case)
+    // TODO(jakmeier): find out and document the reasoning behind send vs exec
+    // values in this specific case
     ActionStake,
     /// Estimates `action_creation_config.add_key_cost.full_access_cost` which
     /// is charged for every `Action::AddKey` where the key is a full access
@@ -145,14 +145,14 @@ pub enum Cost {
     /// Estimation: Measure a transaction that deletes a full access key and
     /// transfers an initial balance to it. Subtract the base cost of creating a
     /// receipt.
-    /// (TODO[jakmeier] check cost for function call keys with many methods)
+    // TODO(jakmeier): check cost for function call keys with many methods
     ActionDeleteKey,
     /// Estimates `action_creation_config.delete_account_cost` which is charged
     /// for `DeleteAccount` actions, the same value on sending and executing.
     ///
     /// Estimation: Measure a transaction that deletes an existing account.
     /// Subtract the base cost of creating a sir-receipt.
-    /// (TODO[jakmeier] Consider different account states.
+    /// TODO(jakmeier): Consider different account states.
     ActionDeleteAccount,
     /// Estimates `action_creation_config.delegate_cost` which is charged
     /// for `DelegateAction` actions.
@@ -357,7 +357,39 @@ pub enum Cost {
     /// function `ecrecover` to verify an ECDSA signature and extract the
     /// signer.
     EcrecoverBase,
-
+    /// Estimates `ed25519_verify_base`, which covers the base cost of the host
+    /// function `ed25519_verify` to verify an ED25519 signature.
+    ///
+    /// Estimation: Use a fixed signature embedded in the test contract and
+    /// verify it `N` times in a loop and divide by `N`. The overhead of other
+    /// costs is negligible compared to the two elliptic curve scalar
+    /// multiplications performed for signature validation.
+    ///
+    /// Note that the multiplication algorithm used is not constant time, i.e.
+    /// it's timing varies depending on the input. Testing with a range of
+    /// random signatures, the difference is +/-10%. Testing with extreme
+    /// inputs, it can be more than 20% faster than a  random case. But it seems
+    /// on the upper end, there is a limit to how many additions and doublings
+    /// need to be performed.
+    /// In conclusion, testing on a single input is okay, if we account for the
+    /// 10-20% variation.
+    Ed25519VerifyBase,
+    /// Estimates `ed25519_verify_byte`, the cost charged per input byte in calls to the
+    /// ed25519_verify host function.
+    ///
+    /// Estimation: Verify a signature for a large message many times, subtract
+    /// the cost estimated for the base and divide the remainder by the total
+    /// bytes the message.
+    ///
+    /// The cost per byte for pure verification is just the cost for hashing.
+    /// This is comparable to the cost for reading values from memory or
+    /// registers, which is currently not subtracted in the estimation.
+    /// Subtracting it would lead to high variance. Instead, one has to take it
+    /// into account that memory overhead is included when mapping the
+    /// estimation to a parameter.
+    /// In the end, the cost should be low enough, compared to the base cost,
+    /// that it does not matter all that much if we overestimate it a bit.
+    Ed25519VerifyByte,
     // `storage_write` records a single key-value pair, initially in the
     // prospective changes in-memory hash map, and then once a full block has
     // been processed, in the on-disk trie. If there was already a value

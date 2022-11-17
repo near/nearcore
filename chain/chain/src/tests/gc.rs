@@ -13,7 +13,7 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::{NumBlocks, NumShards, StateRoot};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_store::test_utils::{create_test_store, gen_changes};
-use near_store::{ShardTries, StoreUpdate, Trie, WrappedTrieChanges};
+use near_store::{ShardTries, Trie, WrappedTrieChanges};
 use rand::Rng;
 
 fn get_chain(num_shards: NumShards) -> Chain {
@@ -162,13 +162,13 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
     );
     let verbose = false;
 
-    let num_shards = rand::thread_rng().gen_range(1, 3);
+    let num_shards = rand::thread_rng().gen_range(1..3);
 
     // Init Chain 1
     let mut chain1 = get_chain(num_shards);
     let tries1 = chain1.runtime_adapter.get_tries();
     let mut rng = rand::thread_rng();
-    let shard_to_check_trie = rng.gen_range(0, num_shards);
+    let shard_to_check_trie = rng.gen_range(0..num_shards);
     let shard_uid = ShardUId { version: 0, shard_id: shard_to_check_trie as u32 };
     let genesis1 = chain1.get_block_by_height(0).unwrap();
     let mut states1 = vec![];
@@ -197,8 +197,7 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
         .clear_data(tries1.clone(), &GCConfig { gc_blocks_limit: 1000, ..GCConfig::default() })
         .unwrap();
 
-    let mut chain2 = get_chain(num_shards);
-    let tries2 = chain2.runtime_adapter.get_tries();
+    let tries2 = get_chain(num_shards).runtime_adapter.get_tries();
 
     // Find gc_height
     let mut gc_height = simple_chains[0].length - 51;
@@ -231,7 +230,6 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
         assert_eq!(state_root1, state_root2);
 
         for i in start_index..start_index + simple_chain.length {
-            let mut store_update2 = chain2.mut_store().store_update();
             let (block1, state_root1, changes1) = states1[i as usize].clone();
             // Apply to Trie 2 the same changes (changes1) as applied to Trie 1
             let trie_changes2 = tries2
@@ -239,19 +237,17 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
                 .update(changes1[shard_to_check_trie as usize].iter().cloned())
                 .unwrap();
             // i == gc_height is the only height should be processed here
+            let mut update2 = tries2.store_update();
             if block1.header().height() > gc_height || i == gc_height {
-                let mut trie_store_update2 = StoreUpdate::new_with_tries(tries2.clone());
-                tries2.apply_insertions(&trie_changes2, shard_uid, &mut trie_store_update2);
+                tries2.apply_insertions(&trie_changes2, shard_uid, &mut update2);
                 state_root2 = trie_changes2.new_root;
                 assert_eq!(state_root1[shard_to_check_trie as usize], state_root2);
-                store_update2.merge(trie_store_update2);
             } else {
-                let (trie_store_update2, new_root2) = tries2.apply_all(&trie_changes2, shard_uid);
+                let new_root2 = tries2.apply_all(&trie_changes2, shard_uid, &mut update2);
                 state_root2 = new_root2;
-                store_update2.merge(trie_store_update2);
             }
             state_roots2.push(state_root2);
-            store_update2.commit().unwrap();
+            update2.commit().unwrap();
         }
         start_index += simple_chain.length;
     }
@@ -501,14 +497,14 @@ fn test_gc_random_common(runs: u64) {
         let canonical_len = 101;
         let mut chains = vec![SimpleChain { from: 0, length: canonical_len, is_removed: false }];
         for _num_chains in 1..10 {
-            let from = rng.gen_range(0, 50);
-            let len = rng.gen_range(0, 50) + 1;
+            let from = rng.gen_range(0..50);
+            let len = rng.gen_range(0..50) + 1;
             chains.push(SimpleChain {
                 from,
                 length: len,
                 is_removed: from + len < canonical_len - 50,
             });
-            gc_fork_common(chains.clone(), rng.gen_range(0, 20) + 1);
+            gc_fork_common(chains.clone(), rng.gen_range(0..20) + 1);
         }
     }
 }

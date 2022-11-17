@@ -1,0 +1,42 @@
+[package]
+name = "near-mirror"
+version = "0.0.0"
+authors.workspace = true
+publish = false
+edition.workspace = true
+
+[dependencies]
+actix.workspace = true
+anyhow.workspace = true
+borsh.workspace = true
+bs58.workspace = true
+clap.workspace = true
+ed25519-dalek.workspace = true
+hex.workspace = true
+hkdf.workspace = true
+once_cell.workspace = true
+openssl-probe.workspace = true
+rand_core.workspace = true
+rocksdb.workspace = true
+secp256k1.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+strum.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+nearcore = { path = "../../nearcore" }
+near-chain-configs = { path = "../../core/chain-configs" }
+near-dyn-configs = { path = "../../core/dyn-configs" }
+near-client = { path = "../../chain/client" }
+near-client-primitives = { path = "../../chain/client-primitives" }
+near-indexer-primitives = { path = "../../chain/indexer-primitives" }
+near-indexer = { path = "../../chain/indexer" }
+near-network = { path = "../../chain/network" }
+near-primitives = { path = "../../core/primitives" }
+near-primitives-core = { path = "../../core/primitives-core" }
+near-o11y = { path = "../../core/o11y" }
+near-store = { path = "../../core/store" }
+near-crypto = { path = "../../core/crypto" }

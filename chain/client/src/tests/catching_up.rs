@@ -6,19 +6,17 @@ use actix::{Addr, System};
 use borsh::{BorshDeserialize, BorshSerialize};
 use futures::{future, FutureExt};
 
+use crate::adapter::ProcessTxRequest;
 use crate::test_utils::setup_mock_all_validators;
 use crate::{ClientActor, Query, ViewClientActor};
 use near_actix_test_utils::run_actix;
 use near_chain::test_utils::{account_id_to_shard_id, ValidatorSchedule};
 use near_chain_configs::TEST_STATE_SYNC_TIMEOUT;
 use near_crypto::{InMemorySigner, KeyType};
-use near_logger_utils::init_integration_logger;
-use near_network::types::{
-    NetworkClientMessages, NetworkRequests, NetworkResponses, PeerManagerMessageRequest,
-};
-use near_network_primitives::types::{
-    AccountIdOrPeerTrackingShard, AccountOrPeerIdOrHash, PeerInfo,
-};
+use near_network::types::{AccountIdOrPeerTrackingShard, AccountOrPeerIdOrHash, PeerInfo};
+use near_network::types::{NetworkRequests, NetworkResponses, PeerManagerMessageRequest};
+use near_o11y::testonly::init_integration_logger;
+use near_o11y::WithSpanContextExt;
 use near_primitives::hash::{hash as hash_func, CryptoHash};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::ChunkHash;
@@ -72,11 +70,16 @@ fn send_tx(
     block_hash: CryptoHash,
 ) {
     let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
-    connector.do_send(NetworkClientMessages::Transaction {
-        transaction: SignedTransaction::send_money(nonce, from, to, &signer, amount, block_hash),
-        is_forwarded: false,
-        check_only: false,
-    });
+    connector.do_send(
+        ProcessTxRequest {
+            transaction: SignedTransaction::send_money(
+                nonce, from, to, &signer, amount, block_hash,
+            ),
+            is_forwarded: false,
+            check_only: false,
+        }
+        .with_span_context(),
+    );
 }
 
 enum ReceiptsSyncPhases {
@@ -317,30 +320,27 @@ fn test_catchup_receipts_sync_common(wait_till: u64, send: u64, sync_hold: bool)
                             }
                             if block.header().height() == wait_till + 10 {
                                 for i in 0..16 {
-                                    actix::spawn(
-                                        connectors1.write().unwrap()[i]
-                                            .1
-                                            .send(Query::new(
-                                                BlockReference::latest(),
-                                                QueryRequest::ViewAccount {
-                                                    account_id: account_to.clone(),
-                                                },
-                                            ))
-                                            .then(move |res| {
-                                                let res_inner = res.unwrap();
-                                                if let Ok(query_response) = res_inner {
-                                                    if let ViewAccount(view_account_result) =
-                                                        query_response.kind
-                                                    {
-                                                        assert_eq!(
-                                                            view_account_result.amount,
-                                                            1111
-                                                        );
-                                                    }
-                                                }
-                                                future::ready(())
-                                            }),
+                                    let actor = connectors1.write().unwrap()[i].1.send(
+                                        Query::new(
+                                            BlockReference::latest(),
+                                            QueryRequest::ViewAccount {
+                                                account_id: account_to.clone(),
+                                            },
+                                        )
+                                        .with_span_context(),
                                     );
+                                    let actor = actor.then(move |res| {
+                                        let res_inner = res.unwrap();
+                                        if let Ok(query_response) = res_inner {
+                                            if let ViewAccount(view_account_result) =
+                                                query_response.kind
+                                            {
+                                                assert_eq!(view_account_result.amount, 1111);
+                                            }
+                                        }
+                                        future::ready(())
+                                    });
+                                    actix::spawn(actor);
                                 }
                             }
                         }
@@ -516,31 +516,31 @@ fn test_catchup_random_single_part_sync_common(skip_15: bool, non_zero: bool, he
                                     for j in 0..16 {
                                         let amounts1 = amounts.clone();
                                         let validator = validators[j].clone();
-                                        actix::spawn(
-                                            connectors1.write().unwrap()[i]
-                                                .1
-                                                .send(Query::new(
-                                                    BlockReference::latest(),
-                                                    QueryRequest::ViewAccount {
-                                                        account_id: validators[j].clone(),
-                                                    },
-                                                ))
-                                                .then(move |res| {
-                                                    let res_inner = res.unwrap();
-                                                    if let Ok(query_response) = res_inner {
-                                                        if let ViewAccount(view_account_result) =
-                                                            query_response.kind
-                                                        {
-                                                            check_amount(
-                                                                amounts1,
-                                                                validator,
-                                                                view_account_result.amount,
-                                                            );
-                                                        }
-                                                    }
-                                                    future::ready(())
-                                                }),
+                                        let actor = connectors1.write().unwrap()[i].1.send(
+                                            Query::new(
+                                                BlockReference::latest(),
+                                                QueryRequest::ViewAccount {
+                                                    account_id: validators[j].clone(),
+                                                },
+                                            )
+                                            .with_span_context(),
                                         );
+                                        let actor = actor.then(move |res| {
+                                            let res_inner = res.unwrap();
+                                            if let Ok(query_response) = res_inner {
+                                                if let ViewAccount(view_account_result) =
+                                                    query_response.kind
+                                                {
+                                                    check_amount(
+                                                        amounts1,
+                                                        validator,
+                                                        view_account_result.amount,
+                                                    );
+                                                }
+                                            }
+                                            future::ready(())
+                                        });
+                                        actix::spawn(actor);
                                     }
                                 }
                             }

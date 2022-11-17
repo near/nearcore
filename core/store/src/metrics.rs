@@ -1,4 +1,4 @@
-use near_metrics::{
+use near_o11y::metrics::{
     try_create_histogram_vec, try_create_int_counter_vec, try_create_int_gauge_vec, HistogramVec,
     IntCounterVec, IntGaugeVec,
 };
@@ -139,6 +139,78 @@ pub static REVERTED_TRIE_INSERTIONS: Lazy<IntCounterVec> = Lazy::new(|| {
         "near_reverted_trie_insertions",
         "Trie insertions reverted due to GC of forks",
         &["shard_id"],
+    )
+    .unwrap()
+});
+pub static PREFETCH_SENT: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec("near_prefetch_sent", "Prefetch requests sent to DB", &["shard_id"])
+        .unwrap()
+});
+pub static PREFETCH_HITS: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec("near_prefetch_hits", "Prefetched trie keys", &["shard_id"]).unwrap()
+});
+pub static PREFETCH_PENDING: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_prefetch_pending",
+        "Prefetched trie keys that were still pending when main thread needed data",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+pub static PREFETCH_FAIL: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_prefetch_fail",
+        "Prefetching trie key failed with an error",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+pub static PREFETCH_NOT_REQUESTED: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_prefetch_not_requested",
+        "Number of values that had to be fetched without having been prefetched",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+pub static PREFETCH_MEMORY_LIMIT_REACHED: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_prefetch_memory_limit_reached",
+        "Number of values that could not be prefetched due to prefetch staging area size limitations",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+pub static PREFETCH_RETRY: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_prefetch_retries",
+        "Main thread was waiting for prefetched value but had to retry fetch afterwards.",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+pub static PREFETCH_STAGED_BYTES: Lazy<IntGaugeVec> = Lazy::new(|| {
+    try_create_int_gauge_vec(
+        "near_prefetch_staged_bytes",
+        "Upper bound on memory usage for holding prefetched data.",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+pub static PREFETCH_STAGED_SLOTS: Lazy<IntGaugeVec> = Lazy::new(|| {
+    try_create_int_gauge_vec(
+        "near_prefetch_staged_slots",
+        "Number of slots used in staging area.",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+#[cfg(feature = "cold_store")]
+pub static COLD_MIGRATION_READS: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_cold_migration_reads",
+        "Number of get calls to hot store made for every column during copying data to cold storage.",
+        &["col"],
     )
     .unwrap()
 });

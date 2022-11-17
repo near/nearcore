@@ -47,6 +47,15 @@ impl<T: Send + Sync + 'static> Sender<T> {
 }
 
 impl<T: Clone + Send> Receiver<T> {
+    /// Returns a copy of the receiver which ignores all the events until now.
+    // TODO(gprusak): this still doesn't solve
+    // the events being mixed in the stream.
+    // Without actix, awaiting the expected state
+    // should get way easier.
+    pub fn from_now(&self) -> Self {
+        Self { channel: self.channel.clone(), next: self.channel.stream.read().unwrap().len() }
+    }
+
     pub async fn recv(&mut self) -> T {
         self.next += 1;
         let l = self.channel.stream.read().unwrap();
@@ -61,7 +70,7 @@ impl<T: Clone + Send> Receiver<T> {
         v
     }
 
-    pub async fn recv_until<U>(&mut self, pred: impl Fn(T) -> Option<U>) -> U {
+    pub async fn recv_until<U>(&mut self, mut pred: impl FnMut(T) -> Option<U>) -> U {
         loop {
             if let Some(u) = pred(self.recv().await) {
                 return u;

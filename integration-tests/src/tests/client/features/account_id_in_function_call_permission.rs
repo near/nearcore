@@ -1,8 +1,8 @@
 use near_chain::{ChainGenesis, RuntimeAdapter};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
+use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType, Signer};
-use near_network::types::NetworkClientResponses;
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives::errors::{ActionsValidationError, InvalidTxError};
 use near_primitives::hash::CryptoHash;
@@ -69,7 +69,7 @@ fn test_account_id_in_function_call_permission_upgrade() {
         let signed_transaction =
             Transaction { nonce: 10, block_hash: tip.last_block_hash, ..tx.clone() }.sign(&signer);
         let res = env.clients[0].process_tx(signed_transaction, false, false);
-        assert_eq!(res, NetworkClientResponses::ValidTx);
+        assert_eq!(res, ProcessTxResponse::ValidTx);
         for i in 0..3 {
             env.produce_block(0, tip.height + i + 1);
         }
@@ -85,9 +85,58 @@ fn test_account_id_in_function_call_permission_upgrade() {
         let res = env.clients[0].process_tx(signed_transaction, false, false);
         assert_eq!(
             res,
-            NetworkClientResponses::InvalidTx(InvalidTxError::ActionsValidation(
+            ProcessTxResponse::InvalidTx(InvalidTxError::ActionsValidation(
                 ActionsValidationError::InvalidAccountId { account_id: "#".to_string() }
             ))
         )
     };
+}
+
+#[test]
+fn test_very_long_account_id() {
+    let mut env = {
+        let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+        let chain_genesis = ChainGenesis::new(&genesis);
+        TestEnv::builder(chain_genesis)
+            .runtime_adapters(vec![Arc::new(
+                nearcore::NightshadeRuntime::test_with_runtime_config_store(
+                    Path::new("../../../.."),
+                    create_test_store(),
+                    &genesis,
+                    TrackedConfig::new_empty(),
+                    RuntimeConfigStore::new(None),
+                ),
+            ) as Arc<dyn RuntimeAdapter>])
+            .build()
+    };
+
+    let tip = env.clients[0].chain.head().unwrap();
+    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let tx = Transaction {
+        signer_id: "test0".parse().unwrap(),
+        receiver_id: "test0".parse().unwrap(),
+        public_key: signer.public_key(),
+        actions: vec![Action::AddKey(AddKeyAction {
+            public_key: signer.public_key(),
+            access_key: AccessKey {
+                nonce: 1,
+                permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                    allowance: None,
+                    receiver_id: "A".repeat(1024),
+                    method_names: vec![],
+                }),
+            },
+        })],
+        nonce: 0,
+        block_hash: tip.last_block_hash,
+    }
+    .sign(&signer);
+
+    let res = env.clients[0].process_tx(tx, false, false);
+    assert_eq!(
+        res,
+        ProcessTxResponse::InvalidTx(InvalidTxError::ActionsValidation(
+            ActionsValidationError::InvalidAccountId { account_id: "A".repeat(128) }
+        ))
+    )
 }

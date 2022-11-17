@@ -1,14 +1,22 @@
 use std::fmt;
 use std::hash::{Hash, Hasher};
+use std::io::Write;
 
+use borsh::BorshSerialize;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use sha2::Digest;
 
-use crate::borsh::BorshSerialize;
-use crate::logging::pretty_hash;
-
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, derive_more::AsRef, derive_more::AsMut)]
+#[derive(
+    Copy,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    derive_more::AsRef,
+    derive_more::AsMut,
+    arbitrary::Arbitrary,
+)]
 #[as_ref(forward)]
 #[as_mut(forward)]
 pub struct CryptoHash(pub [u8; 32]);
@@ -18,17 +26,47 @@ impl CryptoHash {
         Self([0; 32])
     }
 
+    /// Calculates hash of given bytes.
     pub fn hash_bytes(bytes: &[u8]) -> CryptoHash {
         CryptoHash(sha2::Sha256::digest(bytes).into())
     }
 
-    pub fn hash_borsh<T: BorshSerialize>(value: &T) -> CryptoHash {
+    /// Calculates hash of borsh-serialised representation of an object.
+    ///
+    /// Note that using this function with an array may lead to unexpected
+    /// results.  For example, `CryptoHash::hash_borsh(&[1u32, 2, 3])` hashes
+    /// a representation of a `[u32; 3]` array rather than a slice.  It may be
+    /// cleaner to use [`Self::hash_borsh_iter`] instead.
+    pub fn hash_borsh<T: BorshSerialize>(value: T) -> CryptoHash {
         let mut hasher = sha2::Sha256::default();
-        BorshSerialize::serialize(value, &mut hasher).unwrap();
+        value.serialize(&mut hasher).unwrap();
         CryptoHash(hasher.finalize().into())
     }
 
-    pub fn as_bytes(&self) -> &[u8; 32] {
+    /// Calculates hash of a borsh-serialised representation of list of objects.
+    ///
+    /// This behaves as if it first collected all the items in the iterator into
+    /// a vector and then calculating hash of borsh-serialised representation of
+    /// that vector.
+    ///
+    /// Panics if the iterator lies about its length.
+    pub fn hash_borsh_iter<I>(values: I) -> CryptoHash
+    where
+        I: IntoIterator,
+        I::IntoIter: ExactSizeIterator,
+        I::Item: BorshSerialize,
+    {
+        let iter = values.into_iter();
+        let n = u32::try_from(iter.len()).unwrap();
+        let mut hasher = sha2::Sha256::default();
+        hasher.write_all(&n.to_le_bytes()).unwrap();
+        let count =
+            iter.inspect(|value| BorshSerialize::serialize(&value, &mut hasher).unwrap()).count();
+        assert_eq!(n as usize, count);
+        CryptoHash(hasher.finalize().into())
+    }
+
+    pub const fn as_bytes(&self) -> &[u8; 32] {
         &self.0
     }
 
@@ -173,7 +211,7 @@ impl From<CryptoHash> for [u8; 32] {
 
 impl fmt::Debug for CryptoHash {
     fn fmt(&self, fmtr: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.to_base58_impl(|encoded| write!(fmtr, "{}", pretty_hash(encoded)))
+        fmt::Display::fmt(self, fmtr)
     }
 }
 
@@ -212,6 +250,43 @@ mod tests {
     #[derive(Deserialize, Serialize)]
     struct Struct {
         hash: CryptoHash,
+    }
+
+    #[test]
+    fn test_hash_borsh() {
+        fn value<T: BorshSerialize>(want: &str, value: T) {
+            assert_eq!(want, CryptoHash::hash_borsh(&value).to_string());
+        }
+
+        fn slice<T: BorshSerialize>(want: &str, slice: &[T]) {
+            assert_eq!(want, CryptoHash::hash_borsh(&slice).to_string());
+            iter(want, slice.iter());
+            iter(want, slice);
+        }
+
+        fn iter<I>(want: &str, iter: I)
+        where
+            I: IntoIterator,
+            I::IntoIter: ExactSizeIterator,
+            I::Item: BorshSerialize,
+        {
+            assert_eq!(want, CryptoHash::hash_borsh_iter(iter).to_string());
+        }
+
+        value("CuoNgQBWsXnTqup6FY3UXNz6RRufnYyQVxx8HKZLUaRt", "foo");
+        value("CuoNgQBWsXnTqup6FY3UXNz6RRufnYyQVxx8HKZLUaRt", "foo".as_bytes());
+        value("CuoNgQBWsXnTqup6FY3UXNz6RRufnYyQVxx8HKZLUaRt", &b"foo"[..]);
+        value("CuoNgQBWsXnTqup6FY3UXNz6RRufnYyQVxx8HKZLUaRt", [3, 0, 0, 0, b'f', b'o', b'o']);
+        slice("CuoNgQBWsXnTqup6FY3UXNz6RRufnYyQVxx8HKZLUaRt", "foo".as_bytes());
+        iter(
+            "CuoNgQBWsXnTqup6FY3UXNz6RRufnYyQVxx8HKZLUaRt",
+            "FOO".bytes().map(|ch| u8::try_from(ch.to_ascii_lowercase()).unwrap()),
+        );
+
+        value("3yMApqCuCjXDWPrbjfR5mjCPTHqFG8Pux1TxQrEM35jj", b"foo");
+        value("3yMApqCuCjXDWPrbjfR5mjCPTHqFG8Pux1TxQrEM35jj", [b'f', b'o', b'o']);
+        value("3yMApqCuCjXDWPrbjfR5mjCPTHqFG8Pux1TxQrEM35jj", &[b'f', b'o', b'o']);
+        slice("CuoNgQBWsXnTqup6FY3UXNz6RRufnYyQVxx8HKZLUaRt", &[b'f', b'o', b'o']);
     }
 
     #[test]

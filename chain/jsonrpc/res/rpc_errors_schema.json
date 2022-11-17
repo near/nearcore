@@ -49,8 +49,7 @@
       "subtypes": [
         "CodeDoesNotExist",
         "PrepareError",
-        "WasmerCompileError",
-        "UnsupportedCompiler"
+        "WasmerCompileError"
       ],
       "props": {}
     },
@@ -76,6 +75,13 @@
     },
     "ECRecoverError": {
       "name": "ECRecoverError",
+      "subtypes": [],
+      "props": {
+        "msg": ""
+      }
+    },
+    "Ed25519VerifyInvalidInput": {
+      "name": "Ed25519VerifyInvalidInput",
       "subtypes": [],
       "props": {
         "msg": ""
@@ -147,7 +153,8 @@
         "ContractSizeExceeded",
         "Deprecated",
         "ECRecoverError",
-        "AltBn128InvalidInput"
+        "AltBn128InvalidInput",
+        "Ed25519VerifyInvalidInput"
       ],
       "props": {}
     },
@@ -383,13 +390,6 @@
       "subtypes": [],
       "props": {}
     },
-    "UnsupportedCompiler": {
-      "name": "UnsupportedCompiler",
-      "subtypes": [],
-      "props": {
-        "msg": ""
-      }
-    },
     "ValueLengthExceeded": {
       "name": "ValueLengthExceeded",
       "subtypes": [],
@@ -534,15 +534,6 @@
         "tx_burnt_amount": ""
       }
     },
-    "ContractCallError": {
-      "name": "ContractCallError",
-      "subtypes": [
-        "MethodResolveError",
-        "CompilationError",
-        "ExecutionError"
-      ],
-      "props": {}
-    },
     "CostOverflow": {
       "name": "CostOverflow",
       "subtypes": [],
@@ -596,13 +587,6 @@
       "name": "DepositWithFunctionCall",
       "subtypes": [],
       "props": {}
-    },
-    "ExecutionError": {
-      "name": "ExecutionError",
-      "subtypes": [],
-      "props": {
-        "msg": ""
-      }
     },
     "Expired": {
       "name": "Expired",

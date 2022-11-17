@@ -10,17 +10,18 @@ use near_crypto::{PublicKey, Signer};
 use near_jsonrpc::client::{new_client, JsonRpcClient};
 use near_jsonrpc_client::ChunkId;
 use near_jsonrpc_primitives::errors::ServerError;
-use near_jsonrpc_primitives::types::query::RpcQueryResponse;
+use near_jsonrpc_primitives::types::query::{RpcQueryRequest, RpcQueryResponse};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
-use near_primitives::serialize::{to_base58, to_base64};
+use near_primitives::serialize::to_base64;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockId, BlockReference, MaybeBlockId, ShardId,
 };
 use near_primitives::views::{
     AccessKeyView, AccountView, BlockView, CallResult, ChunkView, ContractCodeView,
-    EpochValidatorInfo, ExecutionOutcomeView, FinalExecutionOutcomeView, ViewStateResult,
+    EpochValidatorInfo, ExecutionOutcomeView, FinalExecutionOutcomeView, QueryRequest,
+    ViewStateResult,
 };
 
 use crate::user::User;
@@ -50,9 +51,9 @@ impl RpcUser {
         self.actix(|client| client.status()).ok()
     }
 
-    pub fn query(&self, path: String, data: &[u8]) -> Result<RpcQueryResponse, String> {
-        let data = to_base58(data);
-        self.actix(move |client| client.query_by_path(path, data).map_err(|err| err.to_string()))
+    pub fn query(&self, request: QueryRequest) -> Result<RpcQueryResponse, String> {
+        let request = RpcQueryRequest { request, block_reference: BlockReference::latest() };
+        self.actix(move |client| client.query(request).map_err(|err| err.to_string()))
     }
 
     pub fn validators(&self, block_id: MaybeBlockId) -> Result<EpochValidatorInfo, String> {
@@ -62,8 +63,8 @@ impl RpcUser {
 
 impl User for RpcUser {
     fn view_account(&self, account_id: &AccountId) -> Result<AccountView, String> {
-        let query_response = self.query(format!("account/{}", account_id), &[])?;
-        match query_response.kind {
+        let query = QueryRequest::ViewAccount { account_id: account_id.clone() };
+        match self.query(query)?.kind {
             near_jsonrpc_primitives::types::query::QueryResponseKind::ViewAccount(account_view) => {
                 Ok(account_view)
             }
@@ -72,8 +73,12 @@ impl User for RpcUser {
     }
 
     fn view_state(&self, account_id: &AccountId, prefix: &[u8]) -> Result<ViewStateResult, String> {
-        let query_response = self.query(format!("contract/{}", account_id), prefix)?;
-        match query_response.kind {
+        let query = QueryRequest::ViewState {
+            account_id: account_id.clone(),
+            prefix: prefix.to_vec().into(),
+            include_proof: false,
+        };
+        match self.query(query)?.kind {
             near_jsonrpc_primitives::types::query::QueryResponseKind::ViewState(
                 view_state_result,
             ) => Ok(view_state_result),
@@ -82,8 +87,8 @@ impl User for RpcUser {
     }
 
     fn view_contract_code(&self, account_id: &AccountId) -> Result<ContractCodeView, String> {
-        let query_response = self.query(format!("code/{}", account_id), &[])?;
-        match query_response.kind {
+        let query = QueryRequest::ViewCode { account_id: account_id.clone() };
+        match self.query(query)?.kind {
             near_jsonrpc_primitives::types::query::QueryResponseKind::ViewCode(
                 contract_code_view,
             ) => Ok(contract_code_view),
@@ -97,8 +102,12 @@ impl User for RpcUser {
         method_name: &str,
         args: &[u8],
     ) -> Result<CallResult, String> {
-        let query_response = self.query(format!("call/{}/{}", account_id, method_name), args)?;
-        match query_response.kind {
+        let query = QueryRequest::CallFunction {
+            account_id: account_id.clone(),
+            method_name: method_name.to_string(),
+            args: args.to_vec().into(),
+        };
+        match self.query(query)?.kind {
             near_jsonrpc_primitives::types::query::QueryResponseKind::CallResult(call_result) => {
                 Ok(call_result)
             }
@@ -185,9 +194,11 @@ impl User for RpcUser {
         account_id: &AccountId,
         public_key: &PublicKey,
     ) -> Result<AccessKeyView, String> {
-        let query_response =
-            self.query(format!("access_key/{}/{}", account_id, public_key), &[])?;
-        match query_response.kind {
+        let query = QueryRequest::ViewAccessKey {
+            account_id: account_id.clone(),
+            public_key: public_key.clone(),
+        };
+        match self.query(query)?.kind {
             near_jsonrpc_primitives::types::query::QueryResponseKind::AccessKey(access_key) => {
                 Ok(access_key)
             }

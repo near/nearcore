@@ -1,4 +1,3 @@
-use arrayref::{array_refs, mut_array_refs};
 use curve25519_dalek::ristretto::CompressedRistretto;
 use curve25519_dalek::traits::VartimeMultiscalarMul;
 
@@ -59,15 +58,17 @@ impl<T1: Packable<Packed = [u8; 32]>, T2: Packable<Packed = [u8; 32]>> Packable 
     type Packed = [u8; 64];
 
     fn unpack(data: &[u8; 64]) -> Option<Self> {
-        let (d1, d2) = array_refs!(data, 32, 32);
-        Some((unpack(d1)?, unpack(d2)?))
+        // TODO(mina86): Use split_array_ref once stabilised.
+        let d1 = unpack(data[..32].try_into().unwrap())?;
+        let d2 = unpack(data[32..].try_into().unwrap())?;
+        Some((d1, d2))
     }
 
     fn pack(&self) -> [u8; 64] {
         let mut res = [0; 64];
-        let (d1, d2) = mut_array_refs!(&mut res, 32, 32);
-        *d1 = self.0.pack();
-        *d2 = self.1.pack();
+        // TODO(mina86): Use split_array_mut once stabilised.
+        *<&mut [u8; 32]>::try_from(&mut res[..32]).unwrap() = self.0.pack();
+        *<&mut [u8; 32]>::try_from(&mut res[32..]).unwrap() = self.1.pack();
         res
     }
 }
@@ -81,16 +82,19 @@ impl<
     type Packed = [u8; 96];
 
     fn unpack(data: &[u8; 96]) -> Option<Self> {
-        let (d1, d2, d3) = array_refs!(data, 32, 32, 32);
-        Some((unpack(d1)?, unpack(d2)?, unpack(d3)?))
+        // TODO(mina86): Use split_array_ref once stabilised.
+        let d1 = unpack(data[..32].try_into().unwrap())?;
+        let d2 = unpack(data[32..64].try_into().unwrap())?;
+        let d3 = unpack(data[64..].try_into().unwrap())?;
+        Some((d1, d2, d3))
     }
 
     fn pack(&self) -> [u8; 96] {
         let mut res = [0; 96];
-        let (d1, d2, d3) = mut_array_refs!(&mut res, 32, 32, 32);
-        *d1 = self.0.pack();
-        *d2 = self.1.pack();
-        *d3 = self.2.pack();
+        // TODO(mina86): Use split_array_mut once stabilised.
+        *<&mut [u8; 32]>::try_from(&mut res[..32]).unwrap() = self.0.pack();
+        *<&mut [u8; 32]>::try_from(&mut res[32..64]).unwrap() = self.1.pack();
+        *<&mut [u8; 32]>::try_from(&mut res[64..]).unwrap() = self.2.pack();
         res
     }
 }

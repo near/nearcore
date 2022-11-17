@@ -4,13 +4,100 @@
 
 ### Protocol Changes
 
+* Stabilize `account_id_in_function_call_permission` feature: enforcing validity
+  of account ids in function call permission.
+* Enable TIER1 peer discovery. Validator nodes are now exchanging the [public addresses
+  set in config](https://github.com/near/nearcore/blob/301fb493ea4f6d9b75d7dac7f2b52d00a1b2b709/chain/network/src/config_json.rs#L162).
+  The TIER1 connections support (direct connections between validators) based on
+  this discovery mechanism will be added soon.
+
 ### Non-protocol Changes
 
-* `network.external_address` field in `config.json` file is
-  deprecated.  In fact it has never been used and only served to
-  confuse everyone [#7300](https://github.com/near/nearcore/pull/7300)
+* `use_db_migration_snapshot` and `db_migration_snapshot_path` options are now
+  deprecated.  If they are set in `config.json` the node will fail if migration
+  needs to be performed.  Use `store.migration_snapshot` instead to configure
+  the behaviour [#7486](https://github.com/near/nearcore/pull/7486)
+* `/status` response has now two more fields: `node_public_key` and
+  `validator_public_key`.  The `node_key` field is now deprecated and should not
+  be used since it confusingly holds validator key.
+* Added `near_peer_message_sent_by_type_bytes` and
+  `near_peer_message_sent_by_type_total` Prometheus metrics measuring
+  size and number of messages sent to peers.
+* `near_peer_message_received_total` Prometheus metric is now deprecated.
+  Instead of it aggregate `near_peer_message_received_by_type_total` metric.
+  For example, to get total rate of received messages use
+  `sum(rate(near_peer_message_received_by_type_total{...}[5m]))`.
+* Added `near_node_protocol_upgrade_voting_start` Prometheus metric whose value
+  is timestamp when voting for the next protocol version starts.
+* Few changes to `view_state` JSON RPC query:
+  - The requset has now an optional `include_proof` argument.  When set to
+    `true`, response’s `proof` will be populated.
+  - The `proof` within each value in `values` list of a `view_state` response is
+    now deprecated and will be removed in the future.  Client code should ignore
+    the field.
+  - The `proof` field directly within `view_state` response is currently always
+    sent even if proof has not been requested.  In the future the field will be
+    skipped in those cases.  Clients should accept responses with this field
+    missing (unless they set `include_proof`).
+* Backtraces on panics are enabled by default, so you no longer need to set
+  `RUST_BACKTRACE=1` environmental variable. To disable backtraces, set
+  `RUST_BACKTRACE=0`.
+* Enable receipt prefetching by default. This feature makes receipt processing
+  faster by parallelizing IO requests, which has been introduced in
+  [#7590](https://github.com/near/nearcore/pull/7590) and enabled by default
+  with [#7661](https://github.com/near/nearcore/pull/7661).
+  Configurable in `config.json` using `store.enable_receipt_prefetching`.
+* neard cmd can now verify proofs from JSON files.
+* In storage configuration, the value `trie_cache_capacities` now is no longer
+  a hard limit but instead sets a memory consumption limit. For large trie nodes,
+  the limits are close to equivalent. For small values, there can now fit more
+  in the cache than previously.
+  [#7749](https://github.com/near/nearcore/pull/7749)
+* New options `store.trie_cache` and `store.view_trie_cache` in `config.json`
+  to set limits on the trie cache. Deprecates the never announced 
+  `store.trie_cache_capacities` option which was mentioned in previous change.
+  [#7578](https://github.com/near/nearcore/pull/7578)
+* Tracing of work across actix workers within a process:
+  [#7866](https://github.com/near/nearcore/pull/7866),
+  [#7819](https://github.com/near/nearcore/pull/7819),
+  [#7773](https://github.com/near/nearcore/pull/7773).
+* Scope of collected tracing information can be configured at run-time:
+  [#7701](https://github.com/near/nearcore/pull/7701).
+* Attach node's `chain_id`, `node_id`, and `account_id` values to tracing
+  information: [#7711](https://github.com/near/nearcore/pull/7711).
+* Change exporter of tracing information from `opentelemetry-jaeger` to
+  `opentelemetry-otlp`: [#7563](https://github.com/near/nearcore/pull/7563).
+* Tracing of requests across processes:
+  [#8004](https://github.com/near/nearcore/pull/8004).
+
+## 1.29.0 [2022-08-15]
+
+### Protocol Changes
+
+* Stabilized `protocol_feature_chunk_only_producers`. Validators will
+  now be assigned to blocks and chunks separately.
+* The validator uptime kickout threshold has been reduced to 80%
+* Edge nonces between peers can now optionally indicate an expiration
+  time
+
+### Non-protocol Changes
+
+* The logic around forwarding chunks to validators is improved
+* Approvals and partial encoded chunks are now sent multiple times,
+  which should reduce stalls due to lost approvals when the network is
+  under high load
+* We now keep a list of "TIER1" accounts (validators) for whom
+  latency/reliability of messages routed through the network is
+  critical
+* /debug HTTP page has been improved
+* Messages aren't routed through peers that are too far behind
+* Log lines printed every 10 seconds are now less expensive to compute
+* message broadcasts have been improved/optimized
+* `network.external_address` field in config.json file is deprecated. In
+  fact it has never been used and only served to confuse everyone
+  [#7300](https://github.com/near/nearcore/pull/7300)
 * Due to increasing state size, improved shard cache for Trie nodes to
-  put more nodes in memory. Requires 3 GB more RAM 
+  put more nodes in memory. Requires 3 GB more RAM
   [#7429](https://github.com/near/nearcore/pull/7429)
 
 ## 1.28.0 [2022-07-27]

@@ -1,12 +1,12 @@
 use super::*;
 
 use crate::config;
+use crate::network_protocol::{
+    Edge, PartialEdgeInfo, PeerInfo, RawRoutedMessage, RoutedMessageBody,
+};
+use crate::time;
 use crate::types::{AccountKeys, ChainInfo, Handshake, RoutingTableUpdate};
 use near_crypto::{InMemorySigner, KeyType, SecretKey};
-use near_network_primitives::time;
-use near_network_primitives::types::{
-    AccountOrPeerIdOrHash, Edge, PartialEdgeInfo, PeerInfo, RawRoutedMessage, RoutedMessageBody,
-};
 use near_primitives::block::{genesis_chunks, Block, BlockHeader, GenesisId};
 use near_primitives::challenge::{BlockDoubleSign, Challenge, ChallengeBody};
 use near_primitives::hash::CryptoHash;
@@ -19,7 +19,7 @@ use near_primitives::sharding::{
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, StateRoot};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version;
 use rand::distributions::Standard;
 use rand::Rng;
 use std::collections::HashMap;
@@ -28,7 +28,7 @@ use std::sync::Arc;
 
 pub fn make_genesis_block(_clock: &time::Clock, chunks: Vec<ShardChunk>) -> Block {
     Block::genesis(
-        PROTOCOL_VERSION,
+        version::PROTOCOL_VERSION,
         chunks.into_iter().map(|c| c.take_header()).collect(),
         // TODO: this should be clock.now(), but Block::genesis has to be migrated
         // from chrono to time first.
@@ -47,22 +47,22 @@ pub fn make_block(
     chunks: Vec<ShardChunk>,
 ) -> Block {
     Block::produce(
-        PROTOCOL_VERSION,                                      // this_epoch_protocol_version
-        PROTOCOL_VERSION,                                      // next_epoch_protocol_version
-        prev.header(),                                         // prev
-        prev.header().height() + 5,                            // height
-        prev.header().block_ordinal() + 1,                     // block_ordinal
+        version::PROTOCOL_VERSION,         // this_epoch_protocol_version
+        version::PROTOCOL_VERSION,         // next_epoch_protocol_version
+        prev.header(),                     // prev
+        prev.header().height() + 5,        // height
+        prev.header().block_ordinal() + 1, // block_ordinal
         chunks.into_iter().map(|c| c.take_header()).collect(), // chunks
-        EpochId::default(),                                    // epoch_id
-        EpochId::default(),                                    // next_epoch_id
-        None,                                                  // epoch_sync_data_hash
-        vec![],                                                // approvals
-        Ratio::from_integer(0),                                // gas_price_adjustment_rate
-        0,                                                     // min_gas_price
-        0,                                                     // max_gas_price
-        Some(0),                                               // minted_amount
-        vec![],                                                // challenges_result
-        vec![],                                                // challenges
+        EpochId::default(),                // epoch_id
+        EpochId::default(),                // next_epoch_id
+        None,                              // epoch_sync_data_hash
+        vec![],                            // approvals
+        Ratio::from_integer(0),            // gas_price_adjustment_rate
+        0,                                 // min_gas_price
+        0,                                 // max_gas_price
+        Some(0),                           // minted_amount
+        vec![],                            // challenges_result
+        vec![],                            // challenges
         signer,
         CryptoHash::default(), // next_bp_hash
         CryptoHash::default(), // block_merkle_root
@@ -129,28 +129,27 @@ pub fn make_partial_edge<R: Rng>(rng: &mut R) -> PartialEdgeInfo {
     )
 }
 
-pub fn make_edge(a: &InMemorySigner, b: &InMemorySigner) -> Edge {
-    let (a, b) = if a.public_key < b.public_key { (a, b) } else { (b, a) };
-    let ap = PeerId::new(a.public_key.clone());
-    let bp = PeerId::new(b.public_key.clone());
-    let nonce = 1; // Make it an active edge.
+pub fn make_edge(a: &SecretKey, b: &SecretKey, nonce: u64) -> Edge {
+    let (a, b) = if a.public_key() < b.public_key() { (a, b) } else { (b, a) };
+    let ap = PeerId::new(a.public_key());
+    let bp = PeerId::new(b.public_key());
     let hash = Edge::build_hash(&ap, &bp, nonce);
-    Edge::new(ap, bp, nonce, a.secret_key.sign(hash.as_ref()), b.secret_key.sign(hash.as_ref()))
+    Edge::new(ap, bp, nonce, a.sign(hash.as_ref()), b.sign(hash.as_ref()))
 }
 
-pub fn make_edge_tombstone(a: &InMemorySigner, b: &InMemorySigner) -> Edge {
-    make_edge(a, b).remove_edge(PeerId::new(a.public_key.clone()), &a.secret_key)
+pub fn make_edge_tombstone(a: &SecretKey, b: &SecretKey) -> Edge {
+    make_edge(a, b, 1).remove_edge(PeerId::new(a.public_key()), &a)
 }
 
 pub fn make_routing_table<R: Rng>(rng: &mut R) -> RoutingTableUpdate {
-    let signers: Vec<_> = (0..7).map(|_| make_signer(rng)).collect();
+    let signers: Vec<_> = (0..7).map(|_| make_secret_key(rng)).collect();
     RoutingTableUpdate {
         accounts: (0..10).map(|_| make_announce_account(rng)).collect(),
         edges: {
             let mut e = vec![];
             for i in 0..signers.len() {
                 for j in 0..i {
-                    e.push(make_edge(&signers[i], &signers[j]));
+                    e.push(make_edge(&signers[i], &signers[j], 1));
                 }
             }
             e
@@ -223,7 +222,7 @@ impl ChunkSet {
             4,                      // num_shards
             1000,                   // initial_gas_limit
             0,                      // genesis_height
-            PROTOCOL_VERSION,
+            version::PROTOCOL_VERSION,
         );
         self.chunks.extend(chunks.iter().map(|c| (c.chunk_hash(), c.clone())));
         chunks
@@ -284,7 +283,7 @@ impl Chain {
     pub fn get_chain_info(&self) -> ChainInfo {
         ChainInfo {
             tracked_shards: Default::default(),
-            height: self.height(),
+            block: self.blocks.last().unwrap().clone(),
             tier1_accounts: Arc::new(self.get_tier1_accounts()),
         }
     }
@@ -340,21 +339,21 @@ pub fn make_handshake<R: Rng>(rng: &mut R, chain: &Chain) -> Handshake {
     let b = make_signer(rng);
     let a_id = PeerId::new(a.public_key);
     let b_id = PeerId::new(b.public_key);
-    Handshake::new(
-        PROTOCOL_VERSION,
-        a_id,
-        b_id,
-        Some(rng.gen()),
-        chain.get_peer_chain_info(),
-        make_partial_edge(rng),
-    )
+    Handshake {
+        protocol_version: version::PROTOCOL_VERSION,
+        oldest_supported_version: version::PEER_MIN_ALLOWED_PROTOCOL_VERSION,
+        sender_peer_id: a_id,
+        target_peer_id: b_id,
+        sender_listen_port: Some(rng.gen()),
+        sender_chain_info: chain.get_peer_chain_info(),
+        partial_edge_info: make_partial_edge(rng),
+    }
 }
 
-pub fn make_routed_message<R: Rng>(rng: &mut R, body: RoutedMessageBody) -> Box<RoutedMessageV2> {
+pub fn make_routed_message<R: Rng>(rng: &mut R, body: RoutedMessageBody) -> RoutedMessageV2 {
     let signer = make_signer(rng);
     let peer_id = PeerId::new(signer.public_key);
-    RawRoutedMessage { target: AccountOrPeerIdOrHash::PeerId(peer_id.clone()), body }.sign(
-        peer_id,
+    RawRoutedMessage { target: PeerIdOrHash::PeerId(peer_id.clone()), body }.sign(
         &signer.secret_key,
         /*ttl=*/ 1,
         None,

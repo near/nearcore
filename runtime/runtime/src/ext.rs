@@ -1,7 +1,3 @@
-use std::sync::Arc;
-
-use tracing::debug;
-
 use near_primitives::contract::ContractCode;
 use near_primitives::errors::{EpochError, StorageError};
 use near_primitives::hash::CryptoHash;
@@ -11,9 +7,9 @@ use near_primitives::types::{
 };
 use near_primitives::utils::create_data_id;
 use near_primitives::version::ProtocolVersion;
-use near_store::{get_code, TrieUpdate, TrieUpdateValuePtr};
+use near_store::{get_code, KeyLookupMode, TrieUpdate, TrieUpdateValuePtr};
 use near_vm_errors::{AnyError, VMLogicError};
-use near_vm_logic::{External, ValuePtr};
+use near_vm_logic::{External, StorageGetMode, ValuePtr};
 
 pub struct RuntimeExt<'a> {
     trie_update: &'a mut TrieUpdate,
@@ -84,13 +80,8 @@ impl<'a> RuntimeExt<'a> {
         self.account_id
     }
 
-    pub fn get_code(
-        &self,
-        code_hash: CryptoHash,
-    ) -> Result<Option<Arc<ContractCode>>, StorageError> {
-        debug!(target:"runtime", "Calling the contract at account {}", self.account_id);
-        let code = || get_code(self.trie_update, self.account_id, Some(code_hash));
-        crate::cache::get_code(code_hash, code)
+    pub fn get_code(&self, code_hash: CryptoHash) -> Result<Option<ContractCode>, StorageError> {
+        get_code(self.trie_update, self.account_id, Some(code_hash))
     }
 
     pub fn create_storage_key(&self, key: &[u8]) -> TrieKey {
@@ -120,10 +111,18 @@ impl<'a> External for RuntimeExt<'a> {
         Ok(())
     }
 
-    fn storage_get<'b>(&'b self, key: &[u8]) -> ExtResult<Option<Box<dyn ValuePtr + 'b>>> {
+    fn storage_get<'b>(
+        &'b self,
+        key: &[u8],
+        mode: StorageGetMode,
+    ) -> ExtResult<Option<Box<dyn ValuePtr + 'b>>> {
         let storage_key = self.create_storage_key(key);
+        let mode = match mode {
+            StorageGetMode::FlatStorage => KeyLookupMode::FlatStorage,
+            StorageGetMode::Trie => KeyLookupMode::Trie,
+        };
         self.trie_update
-            .get_ref(&storage_key)
+            .get_ref(&storage_key, mode)
             .map_err(wrap_storage_error)
             .map(|option| option.map(|ptr| Box::new(RuntimeExtValuePtr(ptr)) as Box<_>))
     }
@@ -136,7 +135,10 @@ impl<'a> External for RuntimeExt<'a> {
 
     fn storage_has_key(&mut self, key: &[u8]) -> ExtResult<bool> {
         let storage_key = self.create_storage_key(key);
-        self.trie_update.get_ref(&storage_key).map(|x| x.is_some()).map_err(wrap_storage_error)
+        self.trie_update
+            .get_ref(&storage_key, KeyLookupMode::FlatStorage)
+            .map(|x| x.is_some())
+            .map_err(wrap_storage_error)
     }
 
     fn storage_remove_subtree(&mut self, prefix: &[u8]) -> ExtResult<()> {

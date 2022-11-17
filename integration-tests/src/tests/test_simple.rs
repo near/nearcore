@@ -1,7 +1,7 @@
 //! Simply starts and runs testnet for a while.
 use crate::node::{create_nodes, sample_two_nodes, Node};
 use crate::test_helpers::{heavy_test, wait};
-use near_logger_utils::init_integration_logger;
+use near_o11y::testonly::init_integration_logger;
 use near_primitives::time::Clock;
 use near_primitives::transaction::SignedTransaction;
 use std::time::Duration;

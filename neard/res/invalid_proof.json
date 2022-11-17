@@ -1,0 +1,151 @@
+{
+    "jsonrpc": "2.0",
+    "result": {
+        "block_header_lite": {
+            "inner_lite": {
+                "block_merkle_root": "CwePvyiYLFqGfruuMAP98HEYZva9g1R4CG8hWQ8cRc8x",
+                "epoch_id": "7CbfSgxDvmShTkWKg7vXPRKbNfWkTTpAQm32pJystEkw",
+                "height": 75984871,
+                "next_bp_hash": "C3qDzKDx99Sq38xkb3DRr4s3mEZvp12fAkGiw1sawFJR",
+                "next_epoch_id": "B179NnZqaiaTmqXA1S9WDPHfiZg2XJzGciQorJf9nLoE",
+                "outcome_root": "6xeVbqxTT5GMEVCyHUpnDkK5tHdZnoNWyidhpU3gWLvS",
+                "prev_state_root": "GM6ujpkBMXquLf42qqzZNSL2z9nJhfLcgyK4kuW7EgM3",
+                "timestamp": 1665478647333841203,
+                "timestamp_nanosec": "1665478647333841203"
+            },
+            "inner_rest_hash": "72JN2ZLn6jQPagcFvPF6xkFviMzgKuGR8GkVFLnD6Cea",
+            "prev_block_hash": "BSdNKe62rKG9DJTB8tvswhTPRoVsbcKE8e3SEKyubVD2"
+        },
+        "block_proof": [
+            {
+                "direction": "Right",
+                "hash": "Fbbike2JLx7uNRfS4GsiStNveRxq1KiuVGB28cjWmMuW"
+            },
+            {
+                "direction": "Right",
+                "hash": "AvmVuDZQji88mDodvRyunVnkj58zh72ZPXBK5ieYg1D3"
+            },
+            {
+                "direction": "Left",
+                "hash": "9YQ2twmSeaZeqQC7f4pJVehEmKsSimZU1Yddeo5b8SAf"
+            },
+            {
+                "direction": "Right",
+                "hash": "9RmQED83eAFqRHc5LwB7TUxdLeimyXzMxG3v2rTZ4RAs"
+            },
+            {
+                "direction": "Right",
+                "hash": "84jBVDoehcRcW2n6phJDsVgaq4bUZcrLQAScsM7Ar4bz"
+            },
+            {
+                "direction": "Right",
+                "hash": "83rP4hif64nhhoW5ho9kWBZLNjBPkf8hiqwfWeU5pSqD"
+            },
+            {
+                "direction": "Left",
+                "hash": "Bie6ib3fmVBcMn44ioZoMEunSFjyZnsrBsH4vrs9UCCL"
+            },
+            {
+                "direction": "Left",
+                "hash": "DANS18qakKBaM7iHQ3xzaWM9YF1DmLtQ6rcKdN8xcSkZ"
+            },
+            {
+                "direction": "Left",
+                "hash": "ENtjwKNBrKd9nbR1amQ7erPnE8GhznE7RXWVCiDZpAvT"
+            },
+            {
+                "direction": "Left",
+                "hash": "8hS18TKPKMaeS1t3n8zQMZdQZpar2sbzxT8SkgWz7YJm"
+            },
+            {
+                "direction": "Left",
+                "hash": "CC4pm4eNYxd8VofwpAZnNgvPNFRhmWbRG65scrJKMMKY"
+            },
+            {
+                "direction": "Left",
+                "hash": "6KL94JaXFbcJRE6QMWJXMzVpFvLRg2yWYNGZpjemGH1F"
+            },
+            {
+                "direction": "Left",
+                "hash": "FSEj5etq1PNJcJ232o9Vx275gPKm7j9BzRXYsWo7EPRV"
+            },
+            {
+                "direction": "Left",
+                "hash": "HStoStAo63gYvsChmoWVB1zQJyKe1MizNMQGEpLyauAq"
+            },
+            {
+                "direction": "Left",
+                "hash": "FhFqLiwhtWNjJmiW1vgQsYbk28HTZuzTAT6PpgASjd9F"
+            },
+            {
+                "direction": "Left",
+                "hash": "44VtmsZ5uvCEYXa8aKnSCQ4VSEG12WatAdP1iRZeFr9i"
+            },
+            {
+                "direction": "Left",
+                "hash": "Cb5LzegmpJsy1hwgjzHZHcS6fD5UBMCWdXvQgAsosVAT"
+            },
+            {
+                "direction": "Left",
+                "hash": "BYk65Mexkx71QChUVbXXVv12S9KP1jrosHPQmEctQ4Ri"
+            },
+            {
+                "direction": "Left",
+                "hash": "9UVUdykWvaFvh3PnfSthmAbBWmSdmftvCfZdDdGUioq"
+            },
+            {
+                "direction": "Left",
+                "hash": "59rbk8LwGtgMcZMB6PDnPkcBmicVK1ft9gitzcKpmPck"
+            },
+            {
+                "direction": "Left",
+                "hash": "CFRnvW612Du9TfKRMxMyvwvghtN1SzQwKRRCAFWKwkL3"
+            }
+        ],
+        "outcome_proof": {
+            "block_hash": "4CVvjzoVdnK3WCuaKBRyApuNwmM3ieNrRJ9c4SFqD1jt",
+            "id": "ALRJ4gpVhbX36dYbVPLLPVX76Kw9j1dMiNxqR8uCkifh",
+            "outcome": {
+                "executor_id": "app.nearcrowd.near",
+                "gas_burnt": 2428325704054,
+                "logs": [],
+                "metadata": {
+                    "gas_profile": null,
+                    "version": 1
+                },
+                "receipt_ids": [
+                    "GRWZpMCdF4A6YgJ4LA3ZC3wHytc6qEkNo4mjHwGSLmTN"
+                ],
+                "status": {
+                    "SuccessReceiptId": "GRWZpMCdF4A6YgJ4LA3ZC3wHytc6qEkNo4mjHwGSLmTN"
+                },
+                "tokens_burnt": "242832570405400000000"
+            },
+            "proof": [
+                {
+                    "direction": "Right",
+                    "hash": "8osbeLw7rbTRZ2gv6ZsyaQSKUEnFdP76cJR7pJBm6YGB"
+                },
+                {
+                    "direction": "Right",
+                    "hash": "8PLiETbZJFxMLa9LPrhvHPiUBEjyy6jAk2sbpvwLxU2R"
+                },
+                {
+                    "direction": "Right",
+                    "hash": "EeDfo2Xzqk6yyY2SANKXc3AB1Lt3FNpA8hAqYRfcDPUX"
+                }
+            ]
+        },
+        "outcome_root_proof": [
+            {
+                "direction": "Right",
+                "hash": "7TfEex3WTm4QwiWYiXxtvL3tbuXEi1HTY8t9qrAEmpKj"
+            },
+            {
+                "direction": "Left",
+                "hash": "kXAGbpnTnzVA6aCb8oYN3S9ppSkVgrve1FQqhTEars8"
+            }
+        ]
+    },
+    "id": "dontcare"
+}

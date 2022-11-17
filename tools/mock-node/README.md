@@ -7,7 +7,7 @@ history from storage.
 ## Quick Start
 
 ```console
-$ cargo run --release -p mock-node -- ~/.near/localnet/node0
+$ cargo run --release -p mock-node -F mock_node -- ~/.near/localnet/node0
 ```
 
 where the `node0` directory contains some pre-generated chain history in storage.
@@ -19,14 +19,14 @@ default booting disk of GCP notes are HDD, so you need to mount a new SSD disk o
 your node and put the mock node's home dir there. See https://cloud.google.com/compute/docs/disks/add-persistent-disk
 for how to attach and mount a new disk to an existing GCP node.
 
-See `$ cargo run -p mock-node -- --help` for the list of available options and their documentation.
+See `$ cargo run -p mock-node -F mock_node -- --help` for the list of available options and their documentation.
 
 ## Examples
 
 #### Replay localnet history
 
 ```console
-$ cargo r -r -p mock-node -- ~/.near/localnet/node0
+$ cargo r -r -p mock-node -F mock_node -- ~/.near/localnet/node0
 ```
 Here we take the home dir of an existing node in a localnet as chain history home dir,
 so the mock network will reproduce the client catching up with the entire history of the localnet from genesis.
@@ -37,7 +37,7 @@ To replay mainnet or testnet history, in most use cases, we want to start replay
 of from genesis block. The following comment replays mainnet history from block height 60925880 to block height 60925900.
 
 ```console
-$ cargo r -r -p mock-node --  ~/.near ~/mock_node_home_dir --start_height 60925880 --target-height 60925900
+$ cargo r -r -p mock-node -F mock_node --  ~/.near ~/mock_node_home_dir --start_height 60925880 --target-height 60925900
 ```
 
 By providing a starting height,
@@ -53,9 +53,9 @@ Note that the start height must be the last block of an epoch.
 Once you have the source dir already set up, you can run the command without `--start_height`,
 
 ```console
-$  cargo r -r -p mock-node --  ~/.near ~/mock_node_home_dir --target-height 60926000
+$  cargo r -r -p mock-node -F mock_node --  ~/.near ~/mock_node_home_dir --target-height 60926000
 ```
-Without `--starting_height`, the binary will not modify the client home dir before starting the mock node. Therefore, 
+Without `--starting_height`, the binary will not modify the client home dir before starting the mock node. Therefore,
 the mock node will start from the chain head stored in the client dir.
 
 ## Mock Network Configuration

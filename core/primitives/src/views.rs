@@ -3,14 +3,18 @@
 //! These types should only change when we cannot avoid this. Thus, when the counterpart internal
 //! type gets changed, the view should preserve the old shape and only re-map the necessary bits
 //! from the source structure in the relevant `From<SourceStruct>` impl.
+use std::collections::HashMap;
 use std::fmt;
+use std::ops::Range;
 use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::DateTime;
+use near_primitives_core::config::ActionCosts;
 use serde::{Deserialize, Serialize};
 
 use near_crypto::{PublicKey, Signature};
+use near_o11y::pretty;
 
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
 use crate::block::{Block, BlockHeader, Tip};
@@ -22,8 +26,8 @@ use crate::challenge::{Challenge, ChallengesResult};
 use crate::contract::ContractCode;
 use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};
-use crate::logging;
-use crate::merkle::MerklePath;
+use crate::merkle::{combine_hash, MerklePath};
+use crate::network::PeerId;
 use crate::profile::Cost;
 use crate::receipt::{ActionReceipt, DataReceipt, DataReceiver, Receipt, ReceiptEnum};
 use crate::serialize::{base64_format, dec_format, option_base64_format};
@@ -32,10 +36,10 @@ use crate::sharding::{
     ShardChunkHeaderV3,
 };
 use crate::transaction::{
-    Action, AddKeyAction, CreateAccountAction, DelegateAction, DeleteAccountAction,
-    DeleteKeyAction, DeployContractAction, ExecutionMetadata, ExecutionOutcome,
-    ExecutionOutcomeWithIdAndProof, ExecutionStatus, FunctionCallAction, SignedDelegateAction,
-    SignedTransaction, StakeAction, TransferAction,
+    Action, AddKeyAction, CreateAccountAction, DelegateAction, DeleteAccountAction, DeleteKeyAction,
+    DeployContractAction, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithIdAndProof,
+    ExecutionStatus, FunctionCallAction, PartialExecutionOutcome, PartialExecutionStatus,
+    SignedDelegateAction,SignedTransaction, StakeAction, TransferAction,
 };
 use crate::types::{
     AccountId, AccountWithPublicKey, Balance, BlockHeight, CompiledContractCache, EpochHeight,
@@ -47,7 +51,6 @@ use crate::version::{ProtocolVersion, Version};
 use validator_stake_view::ValidatorStakeView;
 
 /// A view of the account
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
 pub struct AccountView {
     #[serde(with = "dec_format")]
@@ -62,7 +65,6 @@ pub struct AccountView {
 }
 
 /// A view of the contract code.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct ContractCodeView {
     #[serde(rename = "code_base64", with = "base64_format")]
@@ -135,7 +137,6 @@ impl From<ContractCodeView> for ContractCode {
     }
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
 pub enum AccessKeyPermissionView {
     FunctionCall {
@@ -175,7 +176,6 @@ impl From<AccessKeyPermissionView> for AccessKeyPermission {
     }
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
 pub struct AccessKeyView {
     pub nonce: Nonce,
@@ -194,49 +194,47 @@ impl From<AccessKeyView> for AccessKey {
     }
 }
 
-/// Set of serialized TrieNodes that are encoded in base64. Represent proof of inclusion of some TrieNode in the MerkleTrie.
-pub type TrieProofPath = Vec<String>;
-
 /// Item of the state, key and value are serialized in base64 and proof for inclusion of given state item.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct StateItem {
     #[serde(with = "base64_format")]
     pub key: Vec<u8>,
     #[serde(with = "base64_format")]
     pub value: Vec<u8>,
-    pub proof: TrieProofPath,
+    /// Deprecated, always empty, eventually will be deleted.
+    // TODO(mina86): This was deprecated in 1.30.  Get rid of the field
+    // altogether at 1.33 or something.
+    #[serde(default)]
+    pub proof: Vec<()>,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct ViewStateResult {
     pub values: Vec<StateItem>,
-    pub proof: TrieProofPath,
+    // TODO(mina86): Empty proof (i.e. sending proof when include_proof is not
+    // set in the request) was deprecated in 1.30.  Add
+    // `#[serde(skip(Vec::if_empty))` at 1.33 or something.
+    pub proof: Vec<Arc<[u8]>>,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Default)]
 pub struct CallResult {
     pub result: Vec<u8>,
     pub logs: Vec<String>,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct QueryError {
     pub error: String,
     pub logs: Vec<String>,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct AccessKeyInfoView {
     pub public_key: PublicKey,
     pub access_key: AccessKeyView,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct AccessKeyList {
     pub keys: Vec<AccessKeyInfoView>,
@@ -246,6 +244,17 @@ impl FromIterator<AccessKeyInfoView> for AccessKeyList {
     fn from_iter<I: IntoIterator<Item = AccessKeyInfoView>>(iter: I) -> Self {
         Self { keys: iter.into_iter().collect() }
     }
+}
+
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub struct KnownPeerStateView {
+    pub peer_id: PeerId,
+    pub status: String,
+    pub addr: String,
+    pub first_seen: i64,
+    pub last_seen: i64,
+    pub last_attempt: Option<(i64, String)>,
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
@@ -259,7 +268,6 @@ pub enum QueryResponseKind {
     AccessKeyList(AccessKeyList),
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 #[serde(tag = "request_type", rename_all = "snake_case")]
 pub enum QueryRequest {
@@ -273,6 +281,8 @@ pub enum QueryRequest {
         account_id: AccountId,
         #[serde(rename = "prefix_base64", with = "base64_format")]
         prefix: StoreKey,
+        #[serde(default, skip_serializing_if = "is_false")]
+        include_proof: bool,
     },
     ViewAccessKey {
         account_id: AccountId,
@@ -289,7 +299,10 @@ pub enum QueryRequest {
     },
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+fn is_false(v: &bool) -> bool {
+    !*v
+}
+
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct QueryResponse {
     pub kind: QueryResponseKind,
@@ -297,7 +310,6 @@ pub struct QueryResponse {
     pub block_hash: CryptoHash,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Debug)]
 pub struct StatusSyncInfo {
     pub latest_block_hash: CryptoHash,
@@ -313,19 +325,18 @@ pub struct StatusSyncInfo {
 }
 
 // TODO: add more information to ValidatorInfo
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct ValidatorInfo {
     pub account_id: AccountId,
     pub is_slashed: bool,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct PeerInfoView {
     pub addr: String,
     pub account_id: Option<AccountId>,
-    pub height: BlockHeight,
+    pub height: Option<BlockHeight>,
+    pub block_hash: Option<CryptoHash>,
     pub tracked_shards: Vec<ShardId>,
     pub archival: bool,
     pub peer_id: PublicKey,
@@ -339,7 +350,6 @@ pub struct PeerInfoView {
 
 /// Information about a Producer: its account name, peer_id and a list of connected peers that
 /// the node can use to send message for this producer.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct KnownProducerView {
     pub account_id: AccountId,
@@ -347,7 +357,6 @@ pub struct KnownProducerView {
     pub next_hops: Option<Vec<PublicKey>>,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct NetworkInfoView {
     pub peer_max_count: u32,
@@ -356,7 +365,78 @@ pub struct NetworkInfoView {
     pub known_producers: Vec<KnownProducerView>,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub enum SyncStatusView {
+    /// Initial state. Not enough peers to do anything yet.
+    AwaitingPeers,
+    /// Not syncing / Done syncing.
+    NoSync,
+    /// Syncing using light-client headers to a recent epoch
+    // TODO #3488
+    // Bowen: why do we use epoch ordinal instead of epoch id?
+    EpochSync { epoch_ord: u64 },
+    /// Downloading block headers for fast sync.
+    HeaderSync {
+        start_height: BlockHeight,
+        current_height: BlockHeight,
+        highest_height: BlockHeight,
+    },
+    /// State sync, with different states of state sync for different shards.
+    StateSync(CryptoHash, HashMap<ShardId, ShardSyncDownloadView>),
+    /// Sync state across all shards is done.
+    StateSyncDone,
+    /// Catch up on blocks.
+    BodySync { start_height: BlockHeight, current_height: BlockHeight, highest_height: BlockHeight },
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct PeerStoreView {
+    pub peer_states: Vec<KnownPeerStateView>,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct EdgeView {
+    pub peer0: PeerId,
+    pub peer1: PeerId,
+    pub nonce: u64,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct NetworkGraphView {
+    pub edges: Vec<EdgeView>,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct ShardSyncDownloadView {
+    pub downloads: Vec<DownloadStatusView>,
+    pub status: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct DownloadStatusView {
+    pub error: bool,
+    pub done: bool,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct CatchupStatusView {
+    // This is the first block of the epoch that we are catching up
+    pub sync_block_hash: CryptoHash,
+    pub sync_block_height: BlockHeight,
+    // Status of all shards that need to sync
+    pub shard_sync_status: HashMap<ShardId, String>,
+    // Blocks that we need to catchup, if it is empty, it means catching up is done
+    pub blocks_to_catchup: Vec<BlockStatusView>,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct RequestedStatePartsView {
+    // This is the first block of the epoch that was requested
+    pub block_hash: CryptoHash,
+    // All the part ids of the shards that were requested
+    pub shard_requested_parts: HashMap<ShardId, Vec<PartElapsedTimeView>>,
+}
+
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct BlockStatusView {
     pub height: BlockHeight,
@@ -375,7 +455,18 @@ impl From<Tip> for BlockStatusView {
     }
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub struct PartElapsedTimeView {
+    pub part_id: u64,
+    pub elapsed_ms: u128,
+}
+
+impl PartElapsedTimeView {
+    pub fn new(part_id: &u64, elapsed_ms: u128) -> PartElapsedTimeView {
+        Self { part_id: part_id.clone(), elapsed_ms }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct BlockByChunksView {
     pub height: BlockHeight,
@@ -384,7 +475,6 @@ pub struct BlockByChunksView {
     pub chunk_status: String,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ChainProcessingInfo {
     pub num_blocks_in_processing: usize,
@@ -396,7 +486,6 @@ pub struct ChainProcessingInfo {
     pub floating_chunks_info: Vec<ChunkProcessingInfo>,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Debug)]
 pub struct BlockProcessingInfo {
     pub height: BlockHeight,
@@ -420,17 +509,25 @@ pub struct BlockProcessingInfo {
     pub chunks_info: Vec<Option<ChunkProcessingInfo>>,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub enum BlockProcessingStatus {
     Orphan,
     WaitingForChunks,
     InProcessing,
-    Processed,
+    Accepted,
+    Error(String),
+    Dropped(DroppedReason),
     Unknown,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub enum DroppedReason {
+    // If the node has already processed a block at this height
+    HeightProcessed,
+    // If the block processing pool is full
+    TooManyProcessingBlocks,
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ChunkProcessingInfo {
     pub height_created: BlockHeight,
@@ -450,7 +547,6 @@ pub struct ChunkProcessingInfo {
     pub chunk_parts_collection: Vec<PartCollectionInfo>,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Debug)]
 pub struct PartCollectionInfo {
     pub part_owner: AccountId,
@@ -462,7 +558,6 @@ pub struct PartCollectionInfo {
     pub chunk_received_time: Option<DateTime<chrono::Utc>>,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Debug)]
 pub enum ChunkProcessingStatus {
     NeedToRequest,
@@ -470,19 +565,17 @@ pub enum ChunkProcessingStatus {
     Completed,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Debug)]
 pub struct DetailedDebugStatus {
     pub network_info: NetworkInfoView,
     pub sync_status: String,
+    pub catchup_status: Vec<CatchupStatusView>,
     pub current_head_status: BlockStatusView,
     pub current_header_head_status: BlockStatusView,
     pub block_production_delay_millis: u64,
-    pub chain_processing_info: ChainProcessingInfo,
 }
 
 // TODO: add more information to status.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Debug)]
 pub struct StatusResponse {
     /// Binary version.
@@ -502,7 +595,11 @@ pub struct StatusResponse {
     pub sync_info: StatusSyncInfo,
     /// Validator id of the node
     pub validator_account_id: Option<AccountId>,
+    /// Public key of the validator.
+    pub validator_public_key: Option<PublicKey>,
     /// Public key of the node.
+    pub node_public_key: PublicKey,
+    /// Deprecated; same as `validator_public_key` which you should use instead.
     pub node_key: Option<PublicKey>,
     /// Uptime of the node.
     pub uptime_sec: i64,
@@ -722,7 +819,6 @@ impl From<BlockHeaderView> for BlockHeader {
     }
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, BorshDeserialize, BorshSerialize)]
 pub struct BlockHeaderInnerLiteView {
     pub height: BlockHeight,
@@ -920,7 +1016,6 @@ impl ChunkView {
     }
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub enum ActionView {
     CreateAccount,
@@ -1030,7 +1125,6 @@ impl TryFrom<ActionView> for Action {
     }
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct SignedTransactionView {
     pub signer_id: AccountId,
@@ -1062,7 +1156,6 @@ impl From<SignedTransaction> for SignedTransactionView {
     }
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub enum FinalExecutionStatus {
     /// The execution has not yet started.
@@ -1082,7 +1175,7 @@ impl fmt::Debug for FinalExecutionStatus {
             FinalExecutionStatus::Started => f.write_str("Started"),
             FinalExecutionStatus::Failure(e) => f.write_fmt(format_args!("Failure({:?})", e)),
             FinalExecutionStatus::SuccessValue(v) => {
-                f.write_fmt(format_args!("SuccessValue({})", logging::pretty_utf8(&v)))
+                f.write_fmt(format_args!("SuccessValue({})", pretty::AbbrBytes(v)))
             }
         }
     }
@@ -1094,7 +1187,6 @@ impl Default for FinalExecutionStatus {
     }
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub enum ServerError {
     TxExecutionError(TxExecutionError),
@@ -1102,7 +1194,6 @@ pub enum ServerError {
     Closed,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub enum ExecutionStatusView {
     /// The execution is pending or unknown.
@@ -1122,7 +1213,7 @@ impl fmt::Debug for ExecutionStatusView {
             ExecutionStatusView::Unknown => f.write_str("Unknown"),
             ExecutionStatusView::Failure(e) => f.write_fmt(format_args!("Failure({:?})", e)),
             ExecutionStatusView::SuccessValue(v) => {
-                f.write_fmt(format_args!("SuccessValue({})", logging::pretty_utf8(&v)))
+                f.write_fmt(format_args!("SuccessValue({})", pretty::AbbrBytes(v)))
             }
             ExecutionStatusView::SuccessReceiptId(receipt_id) => {
                 f.write_fmt(format_args!("SuccessReceiptId({})", receipt_id))
@@ -1144,7 +1235,6 @@ impl From<ExecutionStatus> for ExecutionStatusView {
     }
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Clone, Eq, Debug)]
 pub struct CostGasUsed {
     pub cost_category: String,
@@ -1153,7 +1243,6 @@ pub struct CostGasUsed {
     pub gas_used: Gas,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Clone, Eq, Debug)]
 pub struct ExecutionMetadataView {
     pub version: u32,
@@ -1171,28 +1260,53 @@ impl From<ExecutionMetadata> for ExecutionMetadataView {
         let gas_profile = match metadata {
             ExecutionMetadata::V1 => None,
             ExecutionMetadata::V2(profile_data) => {
-                let mut costs: Vec<_> = Cost::ALL
-                    .iter()
-                    .filter(|&cost| profile_data[*cost] > 0)
-                    .map(|&cost| CostGasUsed {
-                        cost_category: match cost {
-                            Cost::ActionCost { .. } => "ACTION_COST",
-                            Cost::ExtCost { .. } => "WASM_HOST_COST",
-                            Cost::WasmInstruction => "WASM_HOST_COST",
-                        }
-                        .to_string(),
-                        cost: match cost {
-                            Cost::ActionCost { action_cost_kind: action_cost } => {
-                                format!("{:?}", action_cost).to_ascii_uppercase()
+                let mut costs: Vec<_> =
+                    Cost::iter()
+                        .filter(|&cost| profile_data[cost] > 0)
+                        .map(|cost| CostGasUsed {
+                            cost_category: match cost {
+                                Cost::ActionCost { .. } => "ACTION_COST",
+                                Cost::ExtCost { .. } => "WASM_HOST_COST",
+                                Cost::WasmInstruction => "WASM_HOST_COST",
                             }
-                            Cost::ExtCost { ext_cost_kind: ext_cost } => {
-                                format!("{:?}", ext_cost).to_ascii_uppercase()
-                            }
-                            Cost::WasmInstruction => "WASM_INSTRUCTION".to_string(),
-                        },
-                        gas_used: profile_data[cost],
-                    })
-                    .collect();
+                            .to_string(),
+                            cost: match cost {
+                                // preserve old behavior that conflated some action
+                                // costs for profile (duplicates are removed afterwards)
+                                Cost::ActionCost {
+                                    action_cost_kind:
+                                        ActionCosts::deploy_contract_base
+                                        | ActionCosts::deploy_contract_byte,
+                                } => "DEPLOY_CONTRACT".to_owned(),
+                                Cost::ActionCost {
+                                    action_cost_kind:
+                                        ActionCosts::function_call_base
+                                        | ActionCosts::function_call_byte,
+                                } => "FUNCTION_CALL".to_owned(),
+                                Cost::ActionCost {
+                                    action_cost_kind:
+                                        ActionCosts::add_full_access_key
+                                        | ActionCosts::add_function_call_key_base
+                                        | ActionCosts::add_function_call_key_byte,
+                                } => "ADD_KEY".to_owned(),
+                                Cost::ActionCost {
+                                    action_cost_kind:
+                                        ActionCosts::new_action_receipt
+                                        | ActionCosts::new_data_receipt_base
+                                        | ActionCosts::new_data_receipt_byte,
+                                } => "NEW_RECEIPT".to_owned(),
+                                // other costs have always been mapped one-to-one
+                                Cost::ActionCost { action_cost_kind: action_cost } => {
+                                    format!("{:?}", action_cost).to_ascii_uppercase()
+                                }
+                                Cost::ExtCost { ext_cost_kind: ext_cost } => {
+                                    format!("{:?}", ext_cost).to_ascii_uppercase()
+                                }
+                                Cost::WasmInstruction => "WASM_INSTRUCTION".to_string(),
+                            },
+                            gas_used: profile_data[cost],
+                        })
+                        .collect();
 
                 // The order doesn't really matter, but the default one is just
                 // historical, which is especially unintuitive, so let's sort
@@ -1204,6 +1318,9 @@ impl From<ExecutionMetadata> for ExecutionMetadataView {
                     lhs.cost_category.cmp(&rhs.cost_category).then(lhs.cost.cmp(&rhs.cost))
                 });
 
+                // need to remove duplicate entries due to cost conflation
+                costs.dedup();
+
                 Some(costs)
             }
         };
@@ -1211,7 +1328,6 @@ impl From<ExecutionMetadata> for ExecutionMetadataView {
     }
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct ExecutionOutcomeView {
     /// Logs from this transaction or receipt.
@@ -1249,6 +1365,41 @@ impl From<ExecutionOutcome> for ExecutionOutcomeView {
     }
 }
 
+impl From<&ExecutionOutcomeView> for PartialExecutionOutcome {
+    fn from(outcome: &ExecutionOutcomeView) -> Self {
+        Self {
+            receipt_ids: outcome.receipt_ids.clone(),
+            gas_burnt: outcome.gas_burnt,
+            tokens_burnt: outcome.tokens_burnt,
+            executor_id: outcome.executor_id.clone(),
+            status: outcome.status.clone().into(),
+        }
+    }
+}
+impl From<ExecutionStatusView> for PartialExecutionStatus {
+    fn from(status: ExecutionStatusView) -> PartialExecutionStatus {
+        match status {
+            ExecutionStatusView::Unknown => PartialExecutionStatus::Unknown,
+            ExecutionStatusView::Failure(_) => PartialExecutionStatus::Failure,
+            ExecutionStatusView::SuccessValue(value) => PartialExecutionStatus::SuccessValue(value),
+            ExecutionStatusView::SuccessReceiptId(id) => {
+                PartialExecutionStatus::SuccessReceiptId(id)
+            }
+        }
+    }
+}
+
+impl ExecutionOutcomeView {
+    // Same behavior as ExecutionOutcomeWithId's to_hashes.
+    pub fn to_hashes(&self, id: CryptoHash) -> Vec<CryptoHash> {
+        let mut result = Vec::with_capacity(2 + self.logs.len());
+        result.push(id);
+        result.push(CryptoHash::hash_borsh(&PartialExecutionOutcome::from(self)));
+        result.extend(self.logs.iter().map(|log| hash(log.as_bytes())));
+        result
+    }
+}
+
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct ExecutionOutcomeWithIdView {
@@ -1269,6 +1420,12 @@ impl From<ExecutionOutcomeWithIdAndProof> for ExecutionOutcomeWithIdView {
     }
 }
 
+impl ExecutionOutcomeWithIdView {
+    pub fn to_hashes(&self) -> Vec<CryptoHash> {
+        self.outcome.to_hashes(self.id)
+    }
+}
+
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug)]
 #[serde(untagged)]
 pub enum FinalExecutionOutcomeViewEnum {
@@ -1276,8 +1433,16 @@ pub enum FinalExecutionOutcomeViewEnum {
     FinalExecutionOutcomeWithReceipt(FinalExecutionOutcomeWithReceiptView),
 }
 
+impl FinalExecutionOutcomeViewEnum {
+    pub fn into_outcome(self) -> FinalExecutionOutcomeView {
+        match self {
+            Self::FinalExecutionOutcome(outcome) => outcome,
+            Self::FinalExecutionOutcomeWithReceipt(outcome) => outcome.final_outcome,
+        }
+    }
+}
+
 /// Final execution outcome of the transaction and all of subsequent the receipts.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct FinalExecutionOutcomeView {
     /// Execution status. Contains the result in case of successful execution.
@@ -1296,17 +1461,13 @@ impl fmt::Debug for FinalExecutionOutcomeView {
             .field("status", &self.status)
             .field("transaction", &self.transaction)
             .field("transaction_outcome", &self.transaction_outcome)
-            .field(
-                "receipts_outcome",
-                &format_args!("{}", logging::pretty_vec(&self.receipts_outcome)),
-            )
+            .field("receipts_outcome", &pretty::Slice(&self.receipts_outcome))
             .finish()
     }
 }
 
 /// Final execution outcome of the transaction and all of subsequent the receipts. Also includes
 /// the generated receipt.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
 pub struct FinalExecutionOutcomeWithReceiptView {
     /// Final outcome view without receipts
@@ -1314,12 +1475,6 @@ pub struct FinalExecutionOutcomeWithReceiptView {
     pub final_outcome: FinalExecutionOutcomeView,
     /// Receipts generated from the transaction
     pub receipts: Vec<ReceiptView>,
-}
-
-impl From<FinalExecutionOutcomeWithReceiptView> for FinalExecutionOutcomeView {
-    fn from(final_outcome_view: FinalExecutionOutcomeWithReceiptView) -> Self {
-        final_outcome_view.final_outcome
-    }
 }
 
 pub mod validator_stake_view {
@@ -1334,7 +1489,6 @@ pub mod validator_stake_view {
 
     pub use super::ValidatorStakeViewV1;
 
-    #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
     #[derive(
         BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, Eq, PartialEq,
     )]
@@ -1363,7 +1517,6 @@ pub mod validator_stake_view {
         }
     }
 
-    #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
     #[derive(
         BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, Eq, PartialEq,
     )]
@@ -1396,7 +1549,6 @@ pub mod validator_stake_view {
     }
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 pub struct ValidatorStakeViewV1 {
     pub account_id: AccountId,
@@ -1405,7 +1557,6 @@ pub struct ValidatorStakeViewV1 {
     pub stake: Balance,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct ReceiptView {
     pub predecessor_id: AccountId,
@@ -1415,14 +1566,12 @@ pub struct ReceiptView {
     pub receipt: ReceiptEnumView,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct DataReceiverView {
     pub data_id: CryptoHash,
     pub receiver_id: AccountId,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub enum ReceiptEnumView {
     Action {
@@ -1517,7 +1666,6 @@ impl TryFrom<ReceiptView> for Receipt {
 }
 
 /// Information about this epoch validators and next epoch validators
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct EpochValidatorInfo {
     /// Validators for the current epoch
@@ -1538,14 +1686,12 @@ pub struct EpochValidatorInfo {
     pub epoch_height: EpochHeight,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct ValidatorKickoutView {
     pub account_id: AccountId,
     pub reason: ValidatorKickoutReason,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct CurrentEpochValidatorInfo {
     pub account_id: AccountId,
@@ -1562,7 +1708,6 @@ pub struct CurrentEpochValidatorInfo {
     pub num_expected_chunks: NumBlocks,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct NextEpochValidatorInfo {
     pub account_id: AccountId,
@@ -1572,7 +1717,6 @@ pub struct NextEpochValidatorInfo {
     pub shards: Vec<ShardId>,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, BorshDeserialize, BorshSerialize)]
 pub struct LightClientBlockView {
     pub prev_block_hash: CryptoHash,
@@ -1597,6 +1741,18 @@ impl From<BlockHeader> for LightClientBlockLiteView {
             inner_rest_hash: hash(&header.inner_rest_bytes()),
             inner_lite: header.into(),
         }
+    }
+}
+impl LightClientBlockLiteView {
+    pub fn hash(&self) -> CryptoHash {
+        let block_header_inner_lite: BlockHeaderInnerLite = self.inner_lite.clone().into();
+        combine_hash(
+            &combine_hash(
+                &hash(&block_header_inner_lite.try_to_vec().unwrap()),
+                &self.inner_rest_hash,
+            ),
+            &self.prev_block_hash,
+        )
     }
 }
 
@@ -1817,3 +1973,6 @@ impl From<StateChangeWithCause> for StateChangeWithCauseView {
 }
 
 pub type StateChangesView = Vec<StateChangeWithCauseView>;
+
+/// Maintenance windows view are a vector of maintenance window.
+pub type MaintenanceWindowsView = Vec<Range<BlockHeight>>;

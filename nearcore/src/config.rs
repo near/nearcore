@@ -183,6 +183,10 @@ fn default_sync_step_period() -> Duration {
     Duration::from_millis(10)
 }
 
+fn default_sync_height_threshold() -> u64 {
+    1
+}
+
 fn default_view_client_threads() -> usize {
     4
 }
@@ -197,10 +201,6 @@ fn default_view_client_throttle_period() -> Duration {
 
 fn default_trie_viewer_state_size_limit() -> Option<u64> {
     Some(50_000)
-}
-
-fn default_use_checkpoints_for_db_migration() -> bool {
-    true
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -254,6 +254,8 @@ pub struct Consensus {
     /// Time between running doomslug timer.
     #[serde(default = "default_doomslug_step_period")]
     pub doomslug_step_period: Duration,
+    #[serde(default = "default_sync_height_threshold")]
+    pub sync_height_threshold: u64,
 }
 
 impl Default for Consensus {
@@ -280,6 +282,7 @@ impl Default for Consensus {
             sync_check_period: default_sync_check_period(),
             sync_step_period: default_sync_step_period(),
             doomslug_step_period: default_doomslug_step_period(),
+            sync_height_threshold: default_sync_height_threshold(),
         }
     }
 }
@@ -302,6 +305,7 @@ pub struct Config {
     pub consensus: Consensus,
     pub tracked_accounts: Vec<AccountId>,
     pub tracked_shards: Vec<ShardId>,
+    #[serde(skip_serializing_if = "is_false")]
     pub archive: bool,
     pub log_summary_style: LogSummaryStyle,
     /// Garbage collection configuration.
@@ -317,17 +321,28 @@ pub struct Config {
     /// If set, overrides value in genesis configuration.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_gas_burnt_view: Option<Gas>,
-    /// Checkpoints let the user recover from interrupted DB migrations.
-    #[serde(default = "default_use_checkpoints_for_db_migration")]
-    pub use_db_migration_snapshot: bool,
-    /// Location of the DB checkpoint for the DB migrations. This can be one of the following:
-    /// * Empty, the checkpoint will be created in the database location, i.e. '$home/data'.
-    /// * Absolute path that points to an existing directory. The checkpoint will be a sub-directory in that directory.
-    /// For example, setting "use_db_migration_snapshot" to "/tmp/" will create a directory "/tmp/db_migration_snapshot" and populate it with the database files.
+    /// Different parameters to configure underlying storage.
+    pub store: near_store::StoreConfig,
+    /// Different parameters to configure underlying cold storage.
+    #[cfg(feature = "cold_store")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cold_store: Option<near_store::StoreConfig>,
+
+    // TODO(mina86): Remove those two altogether at some point.  We need to be
+    // somewhat careful though and make sure that we don’t start silently
+    // ignoring this option without users setting corresponding store option.
+    // For the time being, we’re failing inside of create_db_checkpoint if this
+    // option is set.
+    /// Deprecated; use `store.migration_snapshot` instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub use_db_migration_snapshot: Option<bool>,
+    /// Deprecated; use `store.migration_snapshot` instead.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub db_migration_snapshot_path: Option<PathBuf>,
-    /// Different parameters to configure/optimize underlying storage.
-    pub store: near_store::StoreConfig,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 impl Default for Config {
@@ -355,8 +370,10 @@ impl Default for Config {
             trie_viewer_state_size_limit: default_trie_viewer_state_size_limit(),
             max_gas_burnt_view: None,
             db_migration_snapshot_path: None,
-            use_db_migration_snapshot: true,
+            use_db_migration_snapshot: None,
             store: near_store::StoreConfig::default(),
+            #[cfg(feature = "cold_store")]
+            cold_store: None,
         }
     }
 }
@@ -555,7 +572,7 @@ impl NearConfig {
                 skip_sync_wait: config.network.skip_sync_wait,
                 sync_check_period: config.consensus.sync_check_period,
                 sync_step_period: config.consensus.sync_step_period,
-                sync_height_threshold: 1,
+                sync_height_threshold: config.consensus.sync_height_threshold,
                 header_sync_initial_timeout: config.consensus.header_sync_initial_timeout,
                 header_sync_progress_timeout: config.consensus.header_sync_progress_timeout,
                 header_sync_stall_ban_timeout: config.consensus.header_sync_stall_ban_timeout,
@@ -594,13 +611,8 @@ impl NearConfig {
                 network_key_pair.secret_key,
                 validator_signer.clone(),
                 config.archive,
-                match genesis.config.chain_id.as_ref() {
-                    "mainnet" | "testnet" | "betanet" => {
-                        near_network::config::Features { enable_tier1: false }
-                    }
-                    // shardnet and all test setups.
-                    "shardnet" | _ => near_network::config::Features { enable_tier1: true },
-                },
+                // Enable tier1 (currently tier1 discovery only).
+                near_network::config::Features { enable_tier1: true },
             )?,
             telemetry_config: config.telemetry,
             #[cfg(feature = "json_rpc")]
@@ -802,6 +814,7 @@ pub fn init_configs(
     genesis: Option<&str>,
     should_download_genesis: bool,
     download_genesis_url: Option<&str>,
+    download_records_url: Option<&str>,
     should_download_config: bool,
     download_config_url: Option<&str>,
     boot_nodes: Option<&str>,
@@ -888,6 +901,19 @@ pub fn init_configs(
             generate_or_load_key(dir, &config.validator_key_file, account_id, None)?;
             generate_or_load_key(dir, &config.node_key_file, Some("node".parse().unwrap()), None)?;
 
+            if let Some(ref filename) = config.genesis_records_file {
+                let records_path = dir.join(filename);
+
+                if let Some(url) = download_records_url {
+                    download_records(&url.to_string(), &records_path)
+                        .context(format!("Failed to download the records file from {}", url))?;
+                } else if should_download_genesis {
+                    let url = get_records_url(&chain_id);
+                    download_records(&url, &records_path)
+                        .context(format!("Failed to download the records file from {}", url))?;
+                }
+            }
+
             // download genesis from s3
             let genesis_path = dir.join("genesis.json");
             let mut genesis_path_str =
@@ -913,7 +939,21 @@ pub fn init_configs(
                 };
             }
 
-            let mut genesis = Genesis::from_file(&genesis_path_str, GenesisValidationMode::Full);
+            let mut genesis = match &config.genesis_records_file {
+                Some(records_file) => {
+                    let records_path = dir.join(records_file);
+                    let records_path_str = records_path
+                        .to_str()
+                        .with_context(|| "Records path must be initialized")?;
+                    Genesis::from_files(
+                        &genesis_path_str,
+                        &records_path_str,
+                        GenesisValidationMode::Full,
+                    )
+                }
+                None => Genesis::from_file(&genesis_path_str, GenesisValidationMode::Full),
+            };
+
             genesis.config.chain_id = chain_id.clone();
 
             genesis.to_file(&dir.join(config.genesis_file));
@@ -1167,6 +1207,13 @@ pub fn get_genesis_url(chain_id: &str) -> String {
     )
 }
 
+pub fn get_records_url(chain_id: &str) -> String {
+    format!(
+        "https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore-deploy/{}/records.json.xz",
+        chain_id,
+    )
+}
+
 pub fn get_config_url(chain_id: &str) -> String {
     format!(
         "https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore-deploy/{}/config.json",
@@ -1179,6 +1226,15 @@ pub fn download_genesis(url: &str, path: &Path) -> Result<(), FileDownloadError>
     let result = run_download_file(url, path);
     if result.is_ok() {
         info!(target: "near", "Saved the genesis file to: {} ...", path.display());
+    }
+    result
+}
+
+pub fn download_records(url: &str, path: &Path) -> Result<(), FileDownloadError> {
+    info!(target: "near", "Downloading records file from: {} ...", url);
+    let result = run_download_file(url, path);
+    if result.is_ok() {
+        info!(target: "near", "Saved the records file to: {} ...", path.display());
     }
     result
 }
@@ -1299,6 +1355,7 @@ fn test_init_config_localnet() {
         false,
         None,
         false,
+        None,
         None,
         false,
         None,

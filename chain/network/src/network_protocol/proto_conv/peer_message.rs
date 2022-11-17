@@ -4,14 +4,12 @@ use super::*;
 use crate::network_protocol::proto;
 use crate::network_protocol::proto::peer_message::Message_type as ProtoMT;
 use crate::network_protocol::{PeerMessage, RoutingTableUpdate, SyncAccountsData};
+use crate::network_protocol::{RoutedMessage, RoutedMessageV2};
+use crate::time::error::ComponentRange;
 use borsh::{BorshDeserialize as _, BorshSerialize as _};
-use near_network_primitives::time::error::ComponentRange;
-use near_network_primitives::types::{RoutedMessage, RoutedMessageV2};
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::challenge::Challenge;
-use near_primitives::syncing::{EpochSyncFinalizationResponse, EpochSyncResponse};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::EpochId;
 use protobuf::MessageField as MF;
 use std::sync::Arc;
 
@@ -98,12 +96,6 @@ impl From<&PeerMessage> for proto::PeerMessage {
                         ..Default::default()
                     })
                 }
-                PeerMessage::ResponseUpdateNonce(e) => {
-                    ProtoMT::UpdateNonceResponse(proto::UpdateNonceResponse {
-                        edge: MF::some(e.into()),
-                        ..Default::default()
-                    })
-                }
                 PeerMessage::SyncAccountsData(msg) => {
                     ProtoMT::SyncAccountsData(proto::SyncAccountsData {
                         accounts_data: msg
@@ -155,30 +147,6 @@ impl From<&PeerMessage> for proto::PeerMessage {
                     borsh: r.try_to_vec().unwrap(),
                     ..Default::default()
                 }),
-                PeerMessage::EpochSyncRequest(epoch_id) => {
-                    ProtoMT::EpochSyncRequest(proto::EpochSyncRequest {
-                        epoch_id: MF::some((&epoch_id.0).into()),
-                        ..Default::default()
-                    })
-                }
-                PeerMessage::EpochSyncResponse(esr) => {
-                    ProtoMT::EpochSyncResponse(proto::EpochSyncResponse {
-                        borsh: esr.try_to_vec().unwrap(),
-                        ..Default::default()
-                    })
-                }
-                PeerMessage::EpochSyncFinalizationRequest(epoch_id) => {
-                    ProtoMT::EpochSyncFinalizationRequest(proto::EpochSyncFinalizationRequest {
-                        epoch_id: MF::some((&epoch_id.0).into()),
-                        ..Default::default()
-                    })
-                }
-                PeerMessage::EpochSyncFinalizationResponse(esfr) => {
-                    ProtoMT::EpochSyncFinalizationResponse(proto::EpochSyncFinalizationResponse {
-                        borsh: esfr.try_to_vec().unwrap(),
-                        ..Default::default()
-                    })
-                }
             }),
             ..Default::default()
         }
@@ -188,8 +156,6 @@ impl From<&PeerMessage> for proto::PeerMessage {
 pub type ParseTransactionError = borsh::maybestd::io::Error;
 pub type ParseRoutedError = borsh::maybestd::io::Error;
 pub type ParseChallengeError = borsh::maybestd::io::Error;
-pub type ParseEpochSyncResponseError = borsh::maybestd::io::Error;
-pub type ParseEpochSyncFinalizationResponseError = borsh::maybestd::io::Error;
 
 #[derive(thiserror::Error, Debug)]
 pub enum ParsePeerMessageError {
@@ -223,14 +189,6 @@ pub enum ParsePeerMessageError {
     Routed(ParseRoutedError),
     #[error("challenge: {0}")]
     Challenge(ParseChallengeError),
-    #[error("epoch_sync_request: {0}")]
-    EpochSyncRequest(ParseRequiredError<ParseCryptoHashError>),
-    #[error("epoch_sync_response: {0}")]
-    EpochSyncResponse(ParseEpochSyncResponseError),
-    #[error("epoch_sync_finalization_request: {0}")]
-    EpochSyncFinalizationRequest(ParseRequiredError<ParseCryptoHashError>),
-    #[error("epoch_sync_finalization_response: {0}")]
-    EpochSyncFinalizationResponse(ParseEpochSyncFinalizationResponseError),
     #[error("routed_created_at: {0}")]
     RoutedCreatedAtTimestamp(ComponentRange),
     #[error("sync_accounts_data: {0}")]
@@ -257,9 +215,6 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
             ProtoMT::UpdateNonceRequest(unr) => PeerMessage::RequestUpdateNonce(
                 try_from_required(&unr.partial_edge_info)
                     .map_err(Self::Error::UpdateNonceRequest)?,
-            ),
-            ProtoMT::UpdateNonceResponse(unr) => PeerMessage::ResponseUpdateNonce(
-                try_from_required(&unr.edge).map_err(Self::Error::UpdateNonceResponse)?,
             ),
             ProtoMT::SyncAccountsData(msg) => PeerMessage::SyncAccountsData(SyncAccountsData {
                 accounts_data: try_from_slice(&msg.accounts_data)
@@ -302,25 +257,6 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
             ProtoMT::Challenge(c) => PeerMessage::Challenge(
                 Challenge::try_from_slice(&c.borsh).map_err(Self::Error::Challenge)?,
             ),
-            ProtoMT::EpochSyncRequest(esr) => PeerMessage::EpochSyncRequest(EpochId(
-                try_from_required(&esr.epoch_id).map_err(Self::Error::EpochSyncRequest)?,
-            )),
-            ProtoMT::EpochSyncResponse(esr) => PeerMessage::EpochSyncResponse(Box::new(
-                EpochSyncResponse::try_from_slice(&esr.borsh)
-                    .map_err(Self::Error::EpochSyncResponse)?,
-            )),
-            ProtoMT::EpochSyncFinalizationRequest(esr) => {
-                PeerMessage::EpochSyncFinalizationRequest(EpochId(
-                    try_from_required(&esr.epoch_id)
-                        .map_err(Self::Error::EpochSyncFinalizationRequest)?,
-                ))
-            }
-            ProtoMT::EpochSyncFinalizationResponse(esr) => {
-                PeerMessage::EpochSyncFinalizationResponse(Box::new(
-                    EpochSyncFinalizationResponse::try_from_slice(&esr.borsh)
-                        .map_err(Self::Error::EpochSyncFinalizationResponse)?,
-                ))
-            }
         })
     }
 }

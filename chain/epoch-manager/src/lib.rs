@@ -1,12 +1,7 @@
-use num_rational::Rational64;
-use std::cmp::Ordering;
-use std::collections::{BTreeMap, HashMap, HashSet};
-use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
-
+use crate::proposals::proposals_to_epoch_info;
+use crate::types::EpochInfoAggregator;
 use near_cache::SyncLruCache;
-use primitive_types::U256;
-use tracing::{debug, warn};
-
+use near_chain_configs::GenesisConfig;
 use near_primitives::checked_feature;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::{EpochInfo, EpochSummary};
@@ -15,34 +10,38 @@ use near_primitives::epoch_manager::{
 };
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockChunkValidatorStats, BlockHeight, EpochId,
-    EpochInfoProvider, ShardId, ValidatorId, ValidatorKickoutReason, ValidatorStats,
+    EpochInfoProvider, NumSeats, ShardId, ValidatorId, ValidatorInfoIdentifier,
+    ValidatorKickoutReason, ValidatorStats,
 };
 use near_primitives::version::{ProtocolVersion, UPGRADABILITY_FIX_PROTOCOL_VERSION};
 use near_primitives::views::{
     CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo, ValidatorKickoutView,
 };
 use near_store::{DBCol, Store, StoreUpdate};
+use num_rational::Rational64;
+use primitive_types::U256;
+use std::cmp::Ordering;
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use tracing::{debug, warn};
 
-use crate::proposals::proposals_to_epoch_info;
+pub use crate::adapter::{EpochManagerAdapter, HasEpochMangerHandle};
 pub use crate::reward_calculator::RewardCalculator;
-use crate::types::EpochInfoAggregator;
+pub use crate::reward_calculator::NUM_SECONDS_IN_A_YEAR;
 pub use crate::types::RngSeed;
 
-pub use crate::reward_calculator::NUM_SECONDS_IN_A_YEAR;
-use near_chain::types::ValidatorInfoIdentifier;
-use near_chain_configs::GenesisConfig;
-use near_primitives::shard_layout::ShardLayout;
-
+mod adapter;
 mod proposals;
 mod reward_calculator;
 mod shard_assignment;
 pub mod test_utils;
 #[cfg(test)]
 mod tests;
-mod types;
+pub mod types;
 mod validator_selection;
 
 const EPOCH_CACHE_SIZE: usize = if cfg!(feature = "no_cache") { 1 } else { 50 };
@@ -116,6 +115,7 @@ pub struct EpochManager {
     reward_calculator: RewardCalculator,
     /// Genesis protocol version. Useful when there are protocol upgrades.
     genesis_protocol_version: ProtocolVersion,
+    genesis_num_block_producer_seats: NumSeats,
 
     /// Cache of epoch information.
     epochs_info: SyncLruCache<EpochId, Arc<EpochInfo>>,
@@ -174,11 +174,14 @@ impl EpochManager {
             .get_ser(DBCol::EpochInfo, AGGREGATOR_KEY)
             .map_err(EpochError::from)?
             .unwrap_or_default();
+        let genesis_num_block_producer_seats =
+            config.for_protocol_version(genesis_protocol_version).num_block_producer_seats;
         let mut epoch_manager = EpochManager {
             store,
             config,
             reward_calculator,
             genesis_protocol_version,
+            genesis_num_block_producer_seats,
             epochs_info: SyncLruCache::new(EPOCH_CACHE_SIZE),
             blocks_info: SyncLruCache::new(BLOCK_CACHE_SIZE),
             epoch_id_to_start: SyncLruCache::new(EPOCH_CACHE_SIZE),
@@ -235,7 +238,6 @@ impl EpochManager {
     /// Note that this function doesn't copy info stored in EpochInfoAggregator, so `block_hash` must be
     /// the last block in an epoch in order for the epoch manager to work properly after this function
     /// is called
-    #[cfg(feature = "mock_node")]
     pub fn copy_epoch_info_as_of_block(
         &mut self,
         block_hash: &CryptoHash,
@@ -394,7 +396,7 @@ impl EpochManager {
     /// (set of validators to kickout, set of validators to reward with stats)
     ///
     /// - Slashed validators are ignored (they are handled separately)
-    /// - The total stake of valdiators that will be kicked out will not exceed
+    /// - The total stake of validators that will be kicked out will not exceed
     ///   config.validator_max_kickout_stake_perc of total stake of all validators. This is
     ///   to ensure we don't kick out too many validators in case of network instability.
     /// - A validator is kicked out if he produced too few blocks or chunks

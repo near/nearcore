@@ -2,14 +2,34 @@ use super::*;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::Encoding;
 use crate::testonly::make_rng;
+use crate::time;
 use crate::types::{HandshakeFailureReason, PeerMessage};
+use crate::types::{PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg};
 use anyhow::{bail, Context as _};
-use near_network_primitives::time;
-use near_network_primitives::types::{
-    PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, RoutedMessageBody,
-};
-use near_primitives::syncing::EpochSyncResponse;
-use near_primitives::types::EpochId;
+use itertools::Itertools as _;
+
+#[test]
+fn deduplicate_edges() {
+    let mut rng = make_rng(19385389);
+    let rng = &mut rng;
+    let a = data::make_secret_key(rng);
+    let b = data::make_secret_key(rng);
+    let c = data::make_secret_key(rng);
+    let ab1 = data::make_edge(&a, &b, 1);
+    let ab3 = data::make_edge(&a, &b, 3);
+    let ab5 = data::make_edge(&a, &b, 5);
+    let ac7 = data::make_edge(&a, &c, 7);
+    let ac9 = data::make_edge(&a, &c, 9);
+    let bc1 = data::make_edge(&b, &c, 1);
+    let mut want = vec![ab5.clone(), ac9.clone(), bc1.clone()];
+    want.sort_by_key(|e| e.key().clone());
+    let input = vec![ab1, ab3, ab5, ac7, ac9, bc1];
+    for p in input.iter().permutations(input.len()) {
+        let mut got = Edge::deduplicate(p.into_iter().cloned().collect());
+        got.sort_by_key(|e| e.key().clone());
+        assert_eq!(got, want);
+    }
+}
 
 #[test]
 fn bad_account_data_size() {
@@ -57,28 +77,27 @@ fn serialize_deserialize() -> anyhow::Result<()> {
     let mut clock = time::FakeClock::default();
 
     let chain = data::Chain::make(&mut clock, &mut rng, 12);
-    let a = data::make_signer(&mut rng);
-    let b = data::make_signer(&mut rng);
-    let edge = data::make_edge(&a, &b);
-    let epoch_id = EpochId(chain.blocks[1].hash().clone());
+    let a = data::make_secret_key(&mut rng);
+    let b = data::make_secret_key(&mut rng);
+    let edge = data::make_edge(&a, &b, 1);
 
     let chunk_hash = chain.blocks[3].chunks()[0].chunk_hash();
-    let routed_message1 = data::make_routed_message(
+    let routed_message1 = Box::new(data::make_routed_message(
         &mut rng,
         RoutedMessageBody::PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg {
             chunk_hash: chunk_hash.clone(),
             part_ords: vec![],
             tracking_shards: Default::default(),
         }),
-    );
-    let routed_message2 = data::make_routed_message(
+    ));
+    let routed_message2 = Box::new(data::make_routed_message(
         &mut rng,
         RoutedMessageBody::PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg {
             chunk_hash: chunk_hash.clone(),
             parts: data::make_chunk_parts(chain.chunks[&chunk_hash].clone()),
             receipts: vec![],
         }),
-    );
+    ));
     let msgs = [
         PeerMessage::Handshake(data::make_handshake(&mut rng, &chain)),
         PeerMessage::HandshakeFailure(
@@ -88,7 +107,6 @@ fn serialize_deserialize() -> anyhow::Result<()> {
         PeerMessage::LastEdge(edge.clone()),
         PeerMessage::SyncRoutingTable(data::make_routing_table(&mut rng)),
         PeerMessage::RequestUpdateNonce(data::make_partial_edge(&mut rng)),
-        PeerMessage::ResponseUpdateNonce(edge),
         PeerMessage::PeersRequest,
         PeerMessage::PeersResponse((0..5).map(|_| data::make_peer_info(&mut rng)).collect()),
         PeerMessage::BlockHeadersRequest(chain.blocks.iter().map(|b| b.hash().clone()).collect()),
@@ -100,10 +118,6 @@ fn serialize_deserialize() -> anyhow::Result<()> {
         PeerMessage::Routed(routed_message2),
         PeerMessage::Disconnect,
         PeerMessage::Challenge(data::make_challenge(&mut rng)),
-        PeerMessage::EpochSyncRequest(epoch_id.clone()),
-        PeerMessage::EpochSyncResponse(Box::new(EpochSyncResponse::UpToDate)),
-        PeerMessage::EpochSyncFinalizationRequest(epoch_id),
-        // TODO: EpochSyncFinalizationResponse
     ];
 
     // Check that serialize;deserialize = 1
@@ -111,7 +125,7 @@ fn serialize_deserialize() -> anyhow::Result<()> {
         for m in &msgs {
             (|| {
                 let m2 = PeerMessage::deserialize(enc, &m.serialize(enc))
-                    .with_context(|| format!("{m}"))?;
+                    .with_context(|| m.to_string())?;
                 if *m != m2 {
                     bail!("deserialize(serialize({m}) = {m2}");
                 }

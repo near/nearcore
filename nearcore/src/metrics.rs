@@ -1,4 +1,4 @@
-use near_metrics::{linear_buckets, try_create_histogram_vec, HistogramVec};
+use near_o11y::metrics::{linear_buckets, try_create_histogram_vec, HistogramVec};
 use once_cell::sync::Lazy;
 
 pub static APPLY_CHUNK_DELAY: Lazy<HistogramVec> = Lazy::new(|| {

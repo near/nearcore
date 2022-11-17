@@ -19,10 +19,52 @@ impl RpcFrom<StatusResponse> for RpcStatusResponse {
 }
 
 impl RpcFrom<near_client_primitives::debug::DebugStatusResponse>
-    for near_jsonrpc_primitives::types::status::RpcDebugStatusResponse
+    for near_jsonrpc_primitives::types::status::DebugStatusResponse
 {
-    fn rpc_from(status_response: near_client_primitives::debug::DebugStatusResponse) -> Self {
-        Self { status_response }
+    fn rpc_from(response: near_client_primitives::debug::DebugStatusResponse) -> Self {
+        match response {
+            near_client_primitives::debug::DebugStatusResponse::SyncStatus(x) => {
+                near_jsonrpc_primitives::types::status::DebugStatusResponse::SyncStatus(x)
+            }
+            near_client_primitives::debug::DebugStatusResponse::CatchupStatus(x) => {
+                near_jsonrpc_primitives::types::status::DebugStatusResponse::CatchupStatus(x)
+            }
+            near_client_primitives::debug::DebugStatusResponse::RequestedStateParts(x) => {
+                near_jsonrpc_primitives::types::status::DebugStatusResponse::RequestedStateParts(x)
+            }
+            near_client_primitives::debug::DebugStatusResponse::TrackedShards(x) => {
+                near_jsonrpc_primitives::types::status::DebugStatusResponse::TrackedShards(x)
+            }
+            near_client_primitives::debug::DebugStatusResponse::EpochInfo(x) => {
+                near_jsonrpc_primitives::types::status::DebugStatusResponse::EpochInfo(x)
+            }
+            near_client_primitives::debug::DebugStatusResponse::BlockStatus(x) => {
+                near_jsonrpc_primitives::types::status::DebugStatusResponse::BlockStatus(x)
+            }
+            near_client_primitives::debug::DebugStatusResponse::ValidatorStatus(x) => {
+                near_jsonrpc_primitives::types::status::DebugStatusResponse::ValidatorStatus(x)
+            }
+            near_client_primitives::debug::DebugStatusResponse::ChainProcessingStatus(x) => {
+                near_jsonrpc_primitives::types::status::DebugStatusResponse::ChainProcessingStatus(
+                    x,
+                )
+            }
+        }
+    }
+}
+
+impl RpcFrom<near_network::debug::DebugStatus>
+    for near_jsonrpc_primitives::types::status::DebugStatusResponse
+{
+    fn rpc_from(response: near_network::debug::DebugStatus) -> Self {
+        match response {
+            near_network::debug::DebugStatus::PeerStore(x) => {
+                near_jsonrpc_primitives::types::status::DebugStatusResponse::PeerStore(x)
+            }
+            near_network::debug::DebugStatus::Graph(x) => {
+                near_jsonrpc_primitives::types::status::DebugStatusResponse::NetworkGraph(x)
+            }
+        }
     }
 }
 

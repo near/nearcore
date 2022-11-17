@@ -149,14 +149,13 @@ impl ShardTries {
             }
         }
         let mut new_state_roots = state_roots.clone();
-        let mut store_update = StoreUpdate::new_with_tries(self.clone());
+        let mut store_update = self.store_update();
         for (shard_uid, changes) in changes_by_shard {
             // Here we assume that state_roots contains shard_uid, the caller of this method will guarantee that.
             let trie_changes =
                 self.get_trie_for_shard(shard_uid, state_roots[&shard_uid]).update(changes)?;
-            let (update, state_root) = self.apply_all(&trie_changes, shard_uid);
+            let state_root = self.apply_all(&trie_changes, shard_uid, &mut store_update);
             new_state_roots.insert(shard_uid, state_root);
-            store_update.merge(update);
         }
         Ok((store_update, new_state_roots))
     }
@@ -194,14 +193,13 @@ impl ShardTries {
         updates: HashMap<ShardUId, TrieUpdate>,
     ) -> Result<(StoreUpdate, HashMap<ShardUId, StateRoot>), StorageError> {
         let mut new_state_roots = HashMap::new();
-        let mut merged_store_update = StoreUpdate::new_with_tries(self.clone());
+        let mut store_update = self.store_update();
         for (shard_uid, update) in updates {
             let (trie_changes, _) = update.finalize()?;
-            let (store_update, state_root) = self.apply_all(&trie_changes, shard_uid);
+            let state_root = self.apply_all(&trie_changes, shard_uid, &mut store_update);
             new_state_roots.insert(shard_uid, state_root);
-            merged_store_update.merge(store_update);
         }
-        Ok((merged_store_update, new_state_roots))
+        Ok((store_update, new_state_roots))
     }
 }
 
@@ -422,7 +420,7 @@ mod tests {
     fn test_get_trie_items_for_part() {
         let mut rng = rand::thread_rng();
         let tries = create_tries();
-        let num_parts = rng.gen_range(5, 10);
+        let num_parts = rng.gen_range(5..10);
 
         let changes = gen_larger_changes(&mut rng, 1000);
         let changes = simplify_changes(&changes);
@@ -508,7 +506,7 @@ mod tests {
     fn test_get_delayed_receipts() {
         let mut rng = rand::thread_rng();
         for _ in 0..20 {
-            let memory_limit = bytesize::ByteSize::b(rng.gen_range(200, 1000));
+            let memory_limit = bytesize::ByteSize::b(rng.gen_range(200..1000));
             let all_receipts = gen_receipts(&mut rng, 200);
 
             // push receipt to trie
@@ -523,8 +521,9 @@ mod tests {
             set(&mut trie_update, TrieKey::DelayedReceiptIndices, &delayed_receipt_indices);
             trie_update.commit(StateChangeCause::Resharding);
             let (trie_changes, _) = trie_update.finalize().unwrap();
-            let (store_update, state_root) =
-                tries.apply_all(&trie_changes, ShardUId::single_shard());
+            let mut store_update = tries.store_update();
+            let state_root =
+                tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
             store_update.commit().unwrap();
 
             assert_eq!(
@@ -610,7 +609,7 @@ mod tests {
             let mut start_index = 0;
             for _ in 0..10 {
                 let receipts = gen_receipts(&mut rng, 100);
-                let new_start_index = rng.gen_range(start_index, all_receipts.len() + 1);
+                let new_start_index = rng.gen_range(start_index..all_receipts.len() + 1);
 
                 all_receipts.extend_from_slice(&receipts);
                 state_roots = test_apply_delayed_receipts(
@@ -658,8 +657,9 @@ mod tests {
             );
             trie_update.commit(StateChangeCause::Resharding);
             let (trie_changes, _) = trie_update.finalize().unwrap();
-            let (store_update, state_root) =
-                tries.apply_all(&trie_changes, ShardUId::single_shard());
+            let mut store_update = tries.store_update();
+            let state_root =
+                tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
             store_update.commit().unwrap();
             state_root
         };
@@ -720,7 +720,7 @@ mod tests {
             }
             // remove accounts
             account_ids.shuffle(rng);
-            let remove_count = rng.gen_range(0, 10).min(account_ids.len());
+            let remove_count = rng.gen_range(0..10).min(account_ids.len());
             for account_id in account_ids[0..remove_count].iter() {
                 trie_update.remove(TrieKey::Account { account_id: account_id.clone() });
             }
@@ -734,8 +734,8 @@ mod tests {
                 delayed_receipt_indices.first_index, delayed_receipt_indices.next_available_index
             );
             let next_first_index = rng.gen_range(
-                delayed_receipt_indices.first_index,
-                delayed_receipt_indices.next_available_index + 1,
+                delayed_receipt_indices.first_index
+                    ..delayed_receipt_indices.next_available_index + 1,
             );
             let mut removed_receipts = vec![];
             for index in delayed_receipt_indices.first_index..next_first_index {
@@ -761,8 +761,9 @@ mod tests {
             set(&mut trie_update, TrieKey::DelayedReceiptIndices, &delayed_receipt_indices);
             trie_update.commit(StateChangeCause::Resharding);
             let (trie_changes, state_changes) = trie_update.finalize().unwrap();
-            let (store_update, new_state_root) =
-                tries.apply_all(&trie_changes, ShardUId::single_shard());
+            let mut store_update = tries.store_update();
+            let new_state_root =
+                tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
             store_update.commit().unwrap();
             state_root = new_state_root;
 
@@ -780,7 +781,8 @@ mod tests {
             split_state_roots = trie_changes
                 .iter()
                 .map(|(shard_uid, trie_changes)| {
-                    let (state_update, state_root) = tries.apply_all(trie_changes, *shard_uid);
+                    let mut state_update = tries.store_update();
+                    let state_root = tries.apply_all(trie_changes, *shard_uid, &mut state_update);
                     state_update.commit().unwrap();
                     (*shard_uid, state_root)
                 })

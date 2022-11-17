@@ -15,15 +15,18 @@ pub(crate) const GAS_IN_NS: Ratio<Gas> = Ratio::new_raw(1_000_000, 1);
 // time-based and icount-based metric as measured on 3.2Ghz Core i5.
 pub(crate) const GAS_IN_INSTR: Ratio<Gas> = Ratio::new_raw(1_000_000, 8);
 
-// See runtime/runtime-params-estimator/emu-cost/README.md for the motivation of constant values.
-pub(crate) const IO_READ_BYTE_COST: Ratio<Gas> = Ratio::new_raw(27_000_000, 8);
-pub(crate) const IO_WRITE_BYTE_COST: Ratio<Gas> = Ratio::new_raw(47_000_000, 8);
+// IO bytes as measured on the sys_call level are rather unstable when using
+// RocksDB as storage solution. Measuring it for debugging purposes is still useful
+// but a conversion from total read/written bytes to gas is always going to be inaccurate.
+// Consequently, set both values to 0 such that they do not influence gas costs.
+pub(crate) const IO_READ_BYTE_COST: Ratio<Gas> = Ratio::new_raw(0, 1);
+pub(crate) const IO_WRITE_BYTE_COST: Ratio<Gas> = Ratio::new_raw(0, 1);
 
 /// Measure the cost for running a sha256 Rust implementation (on an arbitrary input).
 ///
 /// This runs outside the WASM runtime and is intended to measure the overall hardware capabilities of the test system.
 /// (The motivation is to stay as close as possible to original estimations done with this code:
-/// https://github.com/near/calibrator/blob/c6fbb170a905fbc630ebd84ebc97f7226ec87ead/src/main.rs#L8-L21)
+/// <https://github.com/near/calibrator/blob/c6fbb170a905fbc630ebd84ebc97f7226ec87ead/src/main.rs#L8-L21>)
 pub(crate) fn sha256_cost(metric: GasMetric, repeats: u64) -> GasCost {
     let cpu = measure_operation(repeats, metric, exec_sha256);
     let cpu_per_rep = cpu / repeats;

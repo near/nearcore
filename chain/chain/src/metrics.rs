@@ -1,4 +1,4 @@
-use near_metrics::{
+use near_o11y::metrics::{
     exponential_buckets, try_create_histogram, try_create_histogram_vec, try_create_int_counter,
     try_create_int_gauge, Histogram, HistogramVec, IntCounter, IntGauge,
 };
@@ -95,6 +95,15 @@ pub static BLOCK_MISSING_CHUNKS_DELAY: Lazy<Histogram> = Lazy::new(|| {
     try_create_histogram(
         "near_block_missing_chunks_delay",
         "How long blocks stay in the missing chunks pool",
+    )
+    .unwrap()
+});
+pub static STATE_PART_ELAPSED: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_state_part_elapsed_sec",
+        "Time needed to create a state part",
+        &["shard_id"],
+        Some(exponential_buckets(0.001, 1.6, 20).unwrap()),
     )
     .unwrap()
 });
