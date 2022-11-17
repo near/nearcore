@@ -23,5 +23,7 @@ thiserror.workspace = true
 near-account-id = { path = "../../core/account-id" }
 near-rpc-error-macro = { path = "../../tools/rpctypegen/macro" }
 
+blst="0.3.10"
+
 [features]
 dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]

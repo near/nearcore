@@ -5,6 +5,7 @@ use crate::receipt_manager::ReceiptManager;
 use crate::types::{PromiseIndex, PromiseResult, ReceiptIndex, ReturnData};
 use crate::utils::split_method_names;
 use crate::{ReceiptMetadata, StorageGetMode, ValuePtr};
+use blst::BLST_ERROR;
 use byteorder::ByteOrder;
 use near_crypto::Secp256K1Signature;
 use near_primitives::checked_feature;
@@ -20,12 +21,11 @@ use near_primitives_core::types::{
     AccountId, Balance, EpochHeight, Gas, ProtocolVersion, StorageUsage,
 };
 use near_primitives_core::types::{GasDistribution, GasWeight};
+use near_vm_errors::HostError::Bls1238VerifyError;
 use near_vm_errors::{Bls12381Error, FunctionCallError, InconsistentStateError};
 use near_vm_errors::{HostError, VMLogicError};
 use std::collections::HashMap;
 use std::mem::size_of;
-use blst::BLST_ERROR;
-use near_vm_errors::HostError::Bls1238VerifyError;
 
 pub type Result<T> = ::std::result::Result<T, VMLogicError>;
 
@@ -1207,7 +1207,6 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_wasm_gas(opcodes)
     }
 
-
     /// Verify aggregate BLS12-381 signature for given message and
     /// public keys list (or one aggregate public key)
     ///
@@ -1256,12 +1255,13 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_per(bls12381_verify_byte, message.len() as u64)?;
         self.gas_counter.pay_per(bls12381_verify_elements, pubkeys_cnt)?;
 
-        let aggregate_sig =
-            match blst::min_pk::Signature::sig_validate(&aggregate_signature, false) {
-                Ok(sig) => sig,
-                Err(err) => return Err(VMLogicError::from(
-                    Bls1238VerifyError(Bls12381Error::from(err as u64)))),
-            };
+        let aggregate_sig = match blst::min_pk::Signature::sig_validate(&aggregate_signature, false)
+        {
+            Ok(sig) => sig,
+            Err(err) => {
+                return Err(VMLogicError::from(Bls1238VerifyError(Bls12381Error::from(err))))
+            }
+        };
 
         let mut pubkeys: Vec<blst::min_pk::PublicKey> = vec![];
         for i in 0..pubkeys_cnt {
@@ -1270,9 +1270,10 @@ impl<'a> VMLogic<'a> {
                     &pubkeys_raw[((i * PUBKEY_LEN) as usize)..(((i + 1) * PUBKEY_LEN) as usize)],
                 ) {
                     Ok(pubkey) => pubkey,
-                    Err(err) => return Err(VMLogicError::from(
-                        Bls1238VerifyError(Bls12381Error::from(err as u64)))),
-                }
+                    Err(err) => {
+                        return Err(VMLogicError::from(Bls1238VerifyError(Bls12381Error::from(err))))
+                    }
+                },
             );
         }
 
@@ -1291,8 +1292,7 @@ impl<'a> VMLogic<'a> {
         match res {
             BLST_ERROR::BLST_SUCCESS => Ok(1),
             BLST_ERROR::BLST_VERIFY_FAIL => Ok(0),
-            err => Err(VMLogicError::from(
-                Bls1238VerifyError(Bls12381Error::from(err as u64))))
+            err => Err(VMLogicError::from(Bls1238VerifyError(Bls12381Error::from(err)))),
         }
     }
 

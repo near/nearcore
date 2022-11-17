@@ -1,5 +1,10 @@
 #![doc = include_str!("../README.md")]
 
+use crate::Bls12381Error::{
+    AggrTypeMismatch, BadEncoding, BadScalar, PkIsInfinity, PointNotInGroup, PointNotOnCurve,
+    Success, VerifyFail,
+};
+use blst::BLST_ERROR;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_account_id::AccountId;
 use near_rpc_error_macro::RpcError;
@@ -7,7 +12,6 @@ use serde::{Deserialize, Serialize};
 use std::any::Any;
 use std::fmt::{self, Error, Formatter};
 use std::io;
-use crate::Bls12381Error::{AggrTypeMismatch, BadEncoding, BadScalar, PkIsInfinity, PointNotInGroup, PointNotOnCurve, UnknownErrorCode, VerifyFail};
 
 /// For bugs in the runtime itself, crash and die is the usual response.
 ///
@@ -201,9 +205,11 @@ pub enum PrepareError {
 }
 
 #[derive(
-Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
+    Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
 )]
+/// Errors that can occur while working with BLS12-381 curve
 pub enum Bls12381Error {
+    Success,
     BadEncoding,
     PointNotOnCurve,
     PointNotInGroup,
@@ -211,20 +217,19 @@ pub enum Bls12381Error {
     VerifyFail,
     PkIsInfinity,
     BadScalar,
-    UnknownErrorCode
 }
 
-impl From<u64> for Bls12381Error {
-    fn from(error_id: u64) -> Self {
-        match error_id {
-            1 => BadEncoding,
-            2 => PointNotOnCurve,
-            3 => PointNotInGroup,
-            4 => AggrTypeMismatch,
-            5 => VerifyFail,
-            6 => PkIsInfinity,
-            7 => BadScalar,
-            _ => UnknownErrorCode,
+impl From<BLST_ERROR> for Bls12381Error {
+    fn from(err: BLST_ERROR) -> Self {
+        match err {
+            BLST_ERROR::BLST_SUCCESS => Success,
+            BLST_ERROR::BLST_BAD_ENCODING => BadEncoding,
+            BLST_ERROR::BLST_POINT_NOT_ON_CURVE => PointNotOnCurve,
+            BLST_ERROR::BLST_POINT_NOT_IN_GROUP => PointNotInGroup,
+            BLST_ERROR::BLST_AGGR_TYPE_MISMATCH => AggrTypeMismatch,
+            BLST_ERROR::BLST_VERIFY_FAIL => VerifyFail,
+            BLST_ERROR::BLST_PK_IS_INFINITY => PkIsInfinity,
+            BLST_ERROR::BLST_BAD_SCALAR => BadScalar,
         }
     }
 }
@@ -255,27 +260,41 @@ pub enum HostError {
     /// Tried to call an empty method name
     EmptyMethodName,
     /// Smart contract panicked
-    GuestPanic { panic_msg: String },
+    GuestPanic {
+        panic_msg: String,
+    },
     /// IntegerOverflow happened during a contract execution
     IntegerOverflow,
     /// `promise_idx` does not correspond to existing promises
-    InvalidPromiseIndex { promise_idx: u64 },
+    InvalidPromiseIndex {
+        promise_idx: u64,
+    },
     /// Actions can only be appended to non-joint promise.
     CannotAppendActionToJointPromise,
     /// Returning joint promise is currently prohibited
     CannotReturnJointPromise,
     /// Accessed invalid promise result index
-    InvalidPromiseResultIndex { result_idx: u64 },
+    InvalidPromiseResultIndex {
+        result_idx: u64,
+    },
     /// Accessed invalid register id
-    InvalidRegisterId { register_id: u64 },
+    InvalidRegisterId {
+        register_id: u64,
+    },
     /// Iterator `iterator_index` was invalidated after its creation by performing a mutable operation on trie
-    IteratorWasInvalidated { iterator_index: u64 },
+    IteratorWasInvalidated {
+        iterator_index: u64,
+    },
     /// Accessed memory outside the bounds
     MemoryAccessViolation,
     /// VM Logic returned an invalid receipt index
-    InvalidReceiptIndex { receipt_index: u64 },
+    InvalidReceiptIndex {
+        receipt_index: u64,
+    },
     /// Iterator index `iterator_index` does not exist
-    InvalidIteratorIndex { iterator_index: u64 },
+    InvalidIteratorIndex {
+        iterator_index: u64,
+    },
     /// VM Logic returned an invalid account id
     InvalidAccountId,
     /// VM Logic returned an invalid method name
@@ -283,33 +302,67 @@ pub enum HostError {
     /// VM Logic provided an invalid public key
     InvalidPublicKey,
     /// `method_name` is not allowed in view calls
-    ProhibitedInView { method_name: String },
+    ProhibitedInView {
+        method_name: String,
+    },
     /// The total number of logs will exceed the limit.
-    NumberOfLogsExceeded { limit: u64 },
+    NumberOfLogsExceeded {
+        limit: u64,
+    },
     /// The storage key length exceeded the limit.
-    KeyLengthExceeded { length: u64, limit: u64 },
+    KeyLengthExceeded {
+        length: u64,
+        limit: u64,
+    },
     /// The storage value length exceeded the limit.
-    ValueLengthExceeded { length: u64, limit: u64 },
+    ValueLengthExceeded {
+        length: u64,
+        limit: u64,
+    },
     /// The total log length exceeded the limit.
-    TotalLogLengthExceeded { length: u64, limit: u64 },
+    TotalLogLengthExceeded {
+        length: u64,
+        limit: u64,
+    },
     /// The maximum number of promises within a FunctionCall exceeded the limit.
-    NumberPromisesExceeded { number_of_promises: u64, limit: u64 },
+    NumberPromisesExceeded {
+        number_of_promises: u64,
+        limit: u64,
+    },
     /// The maximum number of input data dependencies exceeded the limit.
-    NumberInputDataDependenciesExceeded { number_of_input_data_dependencies: u64, limit: u64 },
+    NumberInputDataDependenciesExceeded {
+        number_of_input_data_dependencies: u64,
+        limit: u64,
+    },
     /// The returned value length exceeded the limit.
-    ReturnedValueLengthExceeded { length: u64, limit: u64 },
+    ReturnedValueLengthExceeded {
+        length: u64,
+        limit: u64,
+    },
     /// The contract size for DeployContract action exceeded the limit.
-    ContractSizeExceeded { size: u64, limit: u64 },
+    ContractSizeExceeded {
+        size: u64,
+        limit: u64,
+    },
     /// The host function was deprecated.
-    Deprecated { method_name: String },
+    Deprecated {
+        method_name: String,
+    },
     /// General errors for ECDSA recover.
-    ECRecoverError { msg: String },
+    ECRecoverError {
+        msg: String,
+    },
     /// Invalid input to alt_bn128 familiy of functions (e.g., point which isn't
     /// on the curve).
-    AltBn128InvalidInput { msg: String },
+    AltBn128InvalidInput {
+        msg: String,
+    },
     /// Invalid input to ed25519 signature verification function (e.g. signature cannot be
     /// derived from bytes).
-    Ed25519VerifyInvalidInput { msg: String },
+    Ed25519VerifyInvalidInput {
+        msg: String,
+    },
+    /// Invalid input to BLS12-381 family of functions (e.g. point which isn't on the curve).
     Bls1238VerifyError(Bls12381Error),
 }
 

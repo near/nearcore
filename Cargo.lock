@@ -3556,6 +3556,7 @@ dependencies = [
 name = "near-vm-errors"
 version = "0.0.0"
 dependencies = [
+ "blst",
  "borsh",
  "near-account-id",
  "near-rpc-error-macro",
