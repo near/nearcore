@@ -147,12 +147,12 @@ pub enum ProtocolFeature {
     FixContractLoadingCost,
     #[cfg(feature = "protocol_feature_ed25519_verify")]
     Ed25519Verify,
-    #[cfg(feature = "protocol_feature_delegate_action")]
-    DelegateAction,
     #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
     RejectBlocksWithOutdatedProtocolVersions,
     #[cfg(feature = "shardnet")]
     ShardnetShardLayoutUpgrade,
+    #[cfg(feature = "protocol_feature_delegate_action")]
+    DelegateAction,
 }
 
 /// Both, outgoing and incoming tcp connections to peers, will be rejected if `peer's`
@@ -168,7 +168,7 @@ const STABLE_PROTOCOL_VERSION: ProtocolVersion = 57;
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protocol") {
     // On nightly, pick big enough version to support all features.
-    132
+    133
 } else if cfg!(feature = "shardnet") {
     102
 } else {
@@ -246,8 +246,6 @@ impl ProtocolFeature {
             ProtocolFeature::FixContractLoadingCost => 129,
             #[cfg(feature = "protocol_feature_ed25519_verify")]
             ProtocolFeature::Ed25519Verify => 131,
-            #[cfg(feature = "protocol_feature_delegate_action")]
-            ProtocolFeature::DelegateAction => 132,
             #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
             ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions => {
                 if cfg!(feature = "shardnet") {
@@ -258,6 +256,8 @@ impl ProtocolFeature {
             }
             #[cfg(feature = "shardnet")]
             ProtocolFeature::ShardnetShardLayoutUpgrade => 102,
+            #[cfg(feature = "protocol_feature_delegate_action")]
+            ProtocolFeature::DelegateAction => 133,
         }
     }
 }
