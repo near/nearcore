@@ -15,11 +15,12 @@ security sensitive issues.
    This repository can manually synced with the public nearcore repository using
    the following commands:
 
-       git remote add nearcore-public git@github.com:near/nearcore
-       git remote add nearcore-private git@github.com:near/nearcore-private
-       git fetch nearcore-public
-       git push nearcore-private nearcore-public/master:master
-
+    ```console
+    $ git remote add nearcore-public git@github.com:near/nearcore
+    $ git remote add nearcore-private git@github.com:near/nearcore-private
+    $ git fetch nearcore-public
+    $ git push nearcore-private nearcore-public/master:master
+    ```
 2. All security sensitive issues must be created on this repository.  You must
    also assign one of the `[P-S0, P-S1]` labels to the issue to indicate the severity
    of the issue.  The two criteria to use to help you judge the severity are
