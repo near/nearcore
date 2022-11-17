@@ -109,7 +109,7 @@ pub(crate) struct NetworkState {
     pub routing_table_addr: actix::Addr<routing::Actor>,
 
     /// Network-related info about the chain.
-    pub chain_info: ArcSwap<ChainInfo>,
+    pub chain_info: ArcSwap<Option<ChainInfo>>,
     /// AccountsData for TIER1 accounts.
     pub accounts_data: Arc<accounts_data::Cache>,
     /// Connected peers (inbound and outbound) with their full peer information.
