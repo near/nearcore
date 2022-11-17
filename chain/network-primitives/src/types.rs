@@ -27,9 +27,8 @@ use tokio::net::TcpStream;
 /// Exported types, which are part of network protocol.
 pub use crate::network_protocol::{
     PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg,
-    PeerChainInfo, PeerChainInfoV2, PeerIdOrHash, PeerInfo, Ping, Pong, RoutedMessage,
-    RoutedMessageBody, RoutedMessageV2, StateResponseInfo, StateResponseInfoV1,
-    StateResponseInfoV2,
+    PeerChainInfoV2, PeerIdOrHash, PeerInfo, Ping, Pong, RoutedMessage, RoutedMessageBody,
+    RoutedMessageV2, StateResponseInfo, StateResponseInfoV1, StateResponseInfoV2,
 };
 
 pub use crate::blacklist::{Blacklist, Entry as BlacklistEntry};
@@ -259,7 +258,6 @@ pub enum NetworkAdversarialMessage {
     AdvDisableDoomslug,
     AdvGetSavedBlocks,
     AdvCheckStorageConsistency,
-    AdvSetSyncInfo(u64),
 }
 
 #[derive(actix::Message, strum::IntoStaticStr)]

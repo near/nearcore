@@ -27,12 +27,13 @@ use near_client::{Client, GetBlock, GetBlockWithMerkleTree};
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
 use near_network::test_utils::{wait_or_panic, MockPeerManagerAdapter};
 use near_network::types::{
-    ConnectedPeerInfo, NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse,
+    BlockInfo, ConnectedPeerInfo, HighestHeightPeerInfo, NetworkInfo, PeerChainInfo,
+    PeerManagerMessageRequest, PeerManagerMessageResponse,
 };
 use near_network::types::{
     FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
 };
-use near_network_primitives::types::{PeerChainInfoV2, PeerInfo, ReasonForBan};
+use near_network_primitives::types::{PeerInfo, ReasonForBan};
 use near_o11y::testonly::{init_integration_logger, init_test_logger};
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::block_header::BlockHeader;
@@ -984,25 +985,22 @@ fn client_sync_headers() {
         client.do_send(NetworkClientMessages::NetworkInfo(NetworkInfo {
             connected_peers: vec![ConnectedPeerInfo::from(&FullPeerInfo {
                 peer_info: peer_info2.clone(),
-                chain_info: PeerChainInfoV2 {
+                chain_info: PeerChainInfo {
                     genesis_id: Default::default(),
-                    height: 5,
+                    last_block: Some(BlockInfo { height: 5, hash: hash(&[5]) }),
                     tracked_shards: vec![],
                     archival: false,
                 },
-                partial_edge_info: near_network_primitives::types::PartialEdgeInfo::default(),
             })],
             num_connected_peers: 1,
             peer_max_count: 1,
-            highest_height_peers: vec![FullPeerInfo {
+            highest_height_peers: vec![HighestHeightPeerInfo {
                 peer_info: peer_info2,
-                chain_info: PeerChainInfoV2 {
-                    genesis_id: Default::default(),
-                    height: 5,
-                    tracked_shards: vec![],
-                    archival: false,
-                },
-                partial_edge_info: near_network_primitives::types::PartialEdgeInfo::default(),
+                genesis_id: Default::default(),
+                highest_block_height: 5,
+                highest_block_hash: hash(&[5]),
+                tracked_shards: vec![],
+                archival: false,
             }],
             sent_bytes_per_sec: 0,
             received_bytes_per_sec: 0,

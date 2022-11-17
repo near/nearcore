@@ -335,7 +335,8 @@ pub struct ValidatorInfo {
 pub struct PeerInfoView {
     pub addr: String,
     pub account_id: Option<AccountId>,
-    pub height: BlockHeight,
+    pub height: Option<BlockHeight>,
+    pub block_hash: Option<CryptoHash>,
     pub tracked_shards: Vec<ShardId>,
     pub archival: bool,
     pub peer_id: PublicKey,

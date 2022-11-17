@@ -43,7 +43,7 @@ pub(crate) struct NetworkState {
     pub peer_manager_addr: Recipient<PeerToManagerMsg>,
 
     /// Network-related info about the chain.
-    pub chain_info: ArcSwap<ChainInfo>,
+    pub chain_info: ArcSwap<Option<ChainInfo>>,
     /// AccountsData for TIER1 accounts.
     pub accounts_data: Arc<accounts_data::Cache>,
     /// Connected peers (inbound and outbound) with their full peer information.

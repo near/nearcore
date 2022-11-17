@@ -71,9 +71,12 @@ impl Tracker {
         self.sent_bytes.record(clock, size);
     }
 
+    // TODO: uncomment this once we add a new message type to sync block height
+    /*
     pub(crate) fn has_received(&self, hash: &CryptoHash) -> bool {
         self.received.contains(hash)
     }
+     */
 
     pub(crate) fn push_received(&mut self, hash: CryptoHash) {
         self.received.push(hash);

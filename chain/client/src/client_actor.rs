@@ -339,12 +339,6 @@ impl ClientActor {
                         chain_store_update.commit().expect("adv method should not fail");
                         NetworkClientResponses::NoResponse
                     }
-                    near_network_primitives::types::NetworkAdversarialMessage::AdvSetSyncInfo(height) => {
-                        info!(target: "adversary", %height, "AdvSetSyncInfo");
-                        self.client.adv_sync_height = Some(height);
-                        self.client.send_network_chain_info().expect("adv method should not fail");
-                        NetworkClientResponses::NoResponse
-                    }
                     near_network_primitives::types::NetworkAdversarialMessage::AdvGetSavedBlocks => {
                         info!(target: "adversary", "Requested number of saved blocks");
                         let store = self.client.chain.store().store();
@@ -1470,10 +1464,10 @@ impl ClientActor {
         let head = self.client.chain.head()?;
         let mut is_syncing = self.client.sync_status.is_syncing();
 
-        let full_peer_info = if let Some(full_peer_info) =
+        let peer_info = if let Some(peer_info) =
             self.network_info.highest_height_peers.choose(&mut thread_rng())
         {
-            full_peer_info
+            peer_info
         } else {
             if !self.client.config.skip_sync_wait {
                 warn!(target: "client", "Sync: no peers available, disabling sync");
@@ -1482,28 +1476,28 @@ impl ClientActor {
         };
 
         if is_syncing {
-            if full_peer_info.chain_info.height <= head.height {
+            if peer_info.highest_block_height <= head.height {
                 info!(target: "client", "Sync: synced at {} [{}], {}, highest height peer: {}",
                       head.height, format_hash(head.last_block_hash),
-                      full_peer_info.peer_info.id, full_peer_info.chain_info.height
+                      peer_info.peer_info.id, peer_info.highest_block_height,
                 );
                 is_syncing = false;
             }
         } else {
-            if full_peer_info.chain_info.height
+            if peer_info.highest_block_height
                 > head.height + self.client.config.sync_height_threshold
             {
                 info!(
                     target: "client",
                     "Sync: height: {}, peer id/height: {}/{}, enabling sync",
                     head.height,
-                    full_peer_info.peer_info.id,
-                    full_peer_info.chain_info.height,
+                    peer_info.peer_info.id,
+                    peer_info.highest_block_height,
                 );
                 is_syncing = true;
             }
         }
-        Ok((is_syncing, full_peer_info.chain_info.height))
+        Ok((is_syncing, peer_info.highest_block_height))
     }
 
     fn needs_syncing(&self, needs_syncing: bool) -> bool {
