@@ -21,12 +21,12 @@ security sensitive issues.
     $ git fetch nearcore-public
     $ git push nearcore-private nearcore-public/master:master
     ```
-2. All security sensitive issues must be created on this repository.  You must
-   also assign one of the `[P-S0, P-S1]` labels to the issue to indicate the severity
-   of the issue.  The two criteria to use to help you judge the severity are
-   ease of carrying out the attack and the impact of the attack.  An attack that
-   is easy to do or can have a huge impact should have the `P-S0` label and `P-S1`
-   otherwise.
+2. All security sensitive issues must be created on the private nearcore
+   repository.  You must also assign one of the `[P-S0, P-S1]` labels to the
+   issue to indicate the severity of the issue.  The two criteria to use to help
+   you judge the severity are ease of carrying out the attack and the impact of
+   the attack. An attack that is easy to do or can have a huge impact should
+   have the `P-S0` label and `P-S1` otherwise.
 
 3. All security sensitive pull requests should also be created on this
    repository.  Note that once a PR is approved on the private repository, it
