@@ -92,6 +92,8 @@ pub(crate) enum ClosingReason {
     PeerManager,
     #[error("Received DisconnectMessage from peer")]
     DisconnectMessage,
+    #[error("PeerActor stopped NOT via PeerActor::stop()")]
+    Unknown,
 }
 
 pub(crate) struct PeerActor {
@@ -1143,35 +1145,46 @@ impl actix::Actor for PeerActor {
     }
 
     fn stopping(&mut self, _: &mut Self::Context) -> Running {
-        metrics::PEER_CONNECTIONS_TOTAL.dec();
-        debug!(target: "network", "{:?}: [status = {:?}] Peer {} disconnected.", self.my_node_info.id, self.peer_status, self.peer_info);
-        match &self.peer_status {
-            // If PeerActor is in Connecting state, then
-            // it was not registered in the NewtorkState,
-            // so there is nothing to be done.
-            PeerStatus::Connecting(..) => {}
-            // Clean up the Connection from the NetworkState.
-            PeerStatus::Ready(conn) => {
-                let network_state = self.network_state.clone();
-                let clock = self.clock.clone();
-                let conn = conn.clone();
-                let ban_reason = match self.closing_reason {
-                    Some(ClosingReason::Ban(reason)) => Some(reason),
-                    _ => None,
-                };
-                network_state.unregister(&clock, &conn, ban_reason);
-            }
-        }
         Running::Stop
     }
 
     fn stopped(&mut self, _ctx: &mut Self::Context) {
         // closing_reason may be None in case the whole actix system is stopped.
         // It happens a lot in tests.
-        if let Some(reason) = self.closing_reason.take() {
-            self.network_state.config.event_sink.push(Event::ConnectionClosed(
-                ConnectionClosedEvent { stream_id: self.stream_id, reason },
-            ));
+        metrics::PEER_CONNECTIONS_TOTAL.dec();
+        debug!(target: "network", "{:?}: [status = {:?}] Peer {} disconnected.", self.my_node_info.id, self.peer_status, self.peer_info);
+        if self.closing_reason.is_none() {
+            // Due to Actix semantics, sometimes closing reason may be not set.
+            // But it is only expected to happen in tests.
+            tracing::error!(target:"network", "closing reason not set. This should happen only in tests.");
+        }
+        match &self.peer_status {
+            // If PeerActor is in Connecting state, then
+            // it was not registered in the NewtorkState,
+            // so there is nothing to be done.
+            PeerStatus::Connecting(..) => {
+                // TODO(gprusak): reporting ConnectionClosed event is quite scattered right now and
+                // it is very ugly: it may happen here, in spawn_inner, or in NetworkState::unregister().
+                // Centralize it, once we get rid of actix.
+                self.network_state.config.event_sink.push(Event::ConnectionClosed(
+                    ConnectionClosedEvent {
+                        stream_id: self.stream_id,
+                        reason: self.closing_reason.clone().unwrap_or(ClosingReason::Unknown),
+                    },
+                ));
+            }
+            // Clean up the Connection from the NetworkState.
+            PeerStatus::Ready(conn) => {
+                let network_state = self.network_state.clone();
+                let clock = self.clock.clone();
+                let conn = conn.clone();
+                network_state.unregister(
+                    &clock,
+                    &conn,
+                    self.stream_id,
+                    self.closing_reason.clone().unwrap_or(ClosingReason::Unknown),
+                );
+            }
         }
         actix::Arbiter::current().stop();
     }
