@@ -3,6 +3,7 @@ use crate::network_protocol::testonly as data;
 use crate::network_protocol::{Edge, Encoding, Ping, RoutedMessageBody, RoutingTableUpdate};
 use crate::peer;
 use crate::peer_manager;
+use crate::peer_manager::peer_manager_actor;
 use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::peer_manager::testonly::start as start_pm;
 use crate::peer_manager::testonly::Event;
@@ -156,9 +157,15 @@ async fn join_components() {
     pm0.connect_to(&pm1.peer_info()).await;
     pm2.connect_to(&pm3.peer_info()).await;
 
-    // TODO: figure out why these two checks fail
-    //pm0.wait_for_routing_table(&mut clock, &[(id1.clone(), vec![id1.clone()])]).await;
-    //pm1.wait_for_routing_table(&mut clock, &[(id0.clone(), vec![id0.clone()])]).await;
+    // TODO: Connecting nodes 0 and 1 then waiting for pm0's routing table to update works just fine.
+    // If we connect nodes 2 and 3 in between, pm0.wait_for_routing_table misses the SyncRoutingTable
+    // event which would prompt it to advance the clock. This workaround advancing the clock manually
+    // can be removed if we can improve wait_for_routing_table's behavior.
+    clock.advance(peer_manager_actor::UPDATE_ROUTING_TABLE_INTERVAL);
+
+    pm0.wait_for_routing_table(&mut clock, &[(id1.clone(), vec![id1.clone()])]).await;
+    pm1.wait_for_routing_table(&mut clock, &[(id0.clone(), vec![id0.clone()])]).await;
+
     pm2.wait_for_routing_table(&mut clock, &[(id3.clone(), vec![id3.clone()])]).await;
     pm3.wait_for_routing_table(&mut clock, &[(id2.clone(), vec![id2.clone()])]).await;
 
