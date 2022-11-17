@@ -142,6 +142,11 @@ pub(crate) static PROTOCOL_UPGRADE_BLOCK_HEIGHT: Lazy<IntGauge> = Lazy::new(|| {
     .unwrap()
 });
 
+pub(crate) static PEERS_WITH_INVALID_HASH: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge("near_peers_with_invalid_hash", "Number of peers that are on invalid hash")
+        .unwrap()
+});
+
 pub(crate) static CHUNK_SKIPPED_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
         "near_chunk_skipped_total",
