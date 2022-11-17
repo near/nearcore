@@ -12,7 +12,7 @@ use strum::IntoEnumIterator;
 pub struct DataArray(Box<[u64; Self::LEN]>);
 
 impl DataArray {
-    pub const LEN: usize = if cfg!(feature = "protocol_feature_ed25519_verify") { 72 } else { 70 };
+    pub const LEN: usize = if cfg!(feature = "protocol_feature_ed25519_verify") { 75 } else { 73 };
 }
 
 impl Index<usize> for DataArray {

@@ -971,6 +971,7 @@ fn bls12381_verify_elements(ctx: &mut EstimatorContext) -> GasCost {
 fn alt_bn128g1_multiexp_base(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost(ctx, "alt_bn128_g1_multiexp_1_10", ExtCosts::alt_bn128_g1_multiexp_base, 10)
 }
+
 fn alt_bn128g1_multiexp_element(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost(ctx, "alt_bn128_g1_multiexp_10_10", ExtCosts::alt_bn128_g1_multiexp_element, 10 * 10)
 }
