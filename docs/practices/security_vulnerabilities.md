@@ -1,5 +1,13 @@
 ## Security Vulnerabilities
 
+<blockquote style="background: rgba(255, 200, 0, 0.1); border: 5px solid rgba(255, 200, 0, 0.4);">
+The intended audience of the information presented here are developers working
+on the implementation of NEAR.
+
+Are you a security researcher?  Please report security vulnerabilities to
+security@near.org.
+</blockquote>
+
 As nearcore is open source, all of its issues and pull requests are also
 publicly tracked on github.  However, from time to time, if a security sensitive
 issue is discovered, those cannot be tracked publicly on github.  However, we
