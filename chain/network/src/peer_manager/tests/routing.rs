@@ -1,3 +1,4 @@
+use crate::broadcast;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{Edge, Encoding, Ping, RoutedMessageBody, RoutingTableUpdate};
 use crate::peer;
@@ -152,10 +153,13 @@ async fn repeated_data_in_sync_routing_table() {
 
 /// Awaits for SyncRoutingTable messages until all edges from `want` arrive.
 /// Panics if any other edges arrive.
-async fn wait_for_edges(peer: &mut peer::testonly::PeerHandle, want: &HashSet<Edge>) {
+async fn wait_for_edges(
+    mut events: broadcast::Receiver<peer::testonly::Event>,
+    want: &HashSet<Edge>,
+) {
     let mut got = HashSet::new();
     while &got != want {
-        match peer.events.recv().await {
+        match events.recv().await {
             peer::testonly::Event::Network(PME::MessageProcessed(
                 PeerMessage::SyncRoutingTable(msg),
             )) => {
@@ -217,7 +221,7 @@ async fn no_edge_broadcast_after_restart() {
     tracing::info!(target:"test","peer = {}",peer.cfg.id());
     // Wait for the initial sync, which will contain just 1 edge.
     // Only incremental sync are guaranteed to not contain already known edges.
-    wait_for_edges(peer.events.clone(), &[peer.edge.clone().unwrap()].into(), false).await;
+    wait_for_edges(peer.events.clone(), &[peer.edge.clone().unwrap()].into()).await;
 
     let fresh_edges = make_edges(rng);
     let mut total_edges = stored_edges.clone();
@@ -226,13 +230,12 @@ async fn no_edge_broadcast_after_restart() {
     peer.send(PeerMessage::SyncRoutingTable(RoutingTableUpdate {
         edges: total_edges,
         accounts: vec![],
-        incremental: true,
     }))
     .await;
 
     // Wait for the fresh edges to be broadcasted back.
     tracing::info!(target: "test", "wait_for_edges(<fresh edges>)");
-    wait_for_edges(events, &fresh_edges.into_iter().collect(), true).await;
+    wait_for_edges(events, &fresh_edges.into_iter().collect()).await;
 }
 
 #[tokio::test]
