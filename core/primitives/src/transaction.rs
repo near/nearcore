@@ -667,6 +667,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "protocol_feature_delegate_action")]
     fn test_delegate_action_deserialization() {
         // Expected an error. Buffer is empty
         assert_eq!(
@@ -693,6 +694,20 @@ mod tests {
         assert_eq!(
             Action::try_from_slice(&serialized_delegate_action).expect("Expect ok"),
             delegate_action
+        );
+    }
+
+    #[test]
+    #[cfg(not(feature = "protocol_feature_delegate_action"))]
+    fn test_delegate_action_deserialization() {
+        let delegate_action =
+        create_delegate_action(vec![Action::CreateAccount(CreateAccountAction {})]);
+        let serialized_delegate_action = delegate_action.try_to_vec().expect("Expect ok");
+
+        // Valid action
+        assert_eq!(
+            Action::try_from_slice(&serialized_delegate_action).map_err(|e| e.kind()),
+            Err(ErrorKind::InvalidInput)
         );
     }
 }
