@@ -377,7 +377,7 @@ impl PeerManagerActor {
                     .load()
                     .as_ref()
                     .map(|x| x.height.saturating_add(UNRELIABLE_PEER_HORIZON) < my_height)
-                    .unwrap_or(true)
+                    .unwrap_or(false)
             })
             .map(|p| p.peer_info.id.clone())
             .collect()
