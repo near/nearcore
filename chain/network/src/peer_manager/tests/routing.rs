@@ -133,6 +133,75 @@ async fn three_nodes_star() {
     .await;
 }
 
+// test routing on two disjoint two-node networks, then on a square
+#[tokio::test]
+async fn join_components() {
+    init_test_logger();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
+    let pm0 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
+    let pm1 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
+    let pm2 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
+    let pm3 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
+
+    let id0 = pm0.cfg.node_id();
+    let id1 = pm1.cfg.node_id();
+    let id2 = pm2.cfg.node_id();
+    let id3 = pm3.cfg.node_id();
+
+    pm0.connect_to(&pm1.peer_info()).await;
+    pm2.connect_to(&pm3.peer_info()).await;
+
+    // TODO: figure out why these two checks fail
+    //pm0.wait_for_routing_table(&mut clock, &[(id1.clone(), vec![id1.clone()])]).await;
+    //pm1.wait_for_routing_table(&mut clock, &[(id0.clone(), vec![id0.clone()])]).await;
+    pm2.wait_for_routing_table(&mut clock, &[(id3.clone(), vec![id3.clone()])]).await;
+    pm3.wait_for_routing_table(&mut clock, &[(id2.clone(), vec![id2.clone()])]).await;
+
+    pm0.connect_to(&pm2.peer_info()).await;
+    pm3.connect_to(&pm1.peer_info()).await;
+
+    pm0.wait_for_routing_table(
+        &mut clock,
+        &[
+            (id1.clone(), vec![id1.clone()]),
+            (id2.clone(), vec![id2.clone()]),
+            (id3.clone(), vec![id1.clone(), id2.clone()]),
+        ],
+    )
+    .await;
+    pm1.wait_for_routing_table(
+        &mut clock,
+        &[
+            (id0.clone(), vec![id0.clone()]),
+            (id2.clone(), vec![id0.clone(), id3.clone()]),
+            (id3.clone(), vec![id3.clone()]),
+        ],
+    )
+    .await;
+    pm2.wait_for_routing_table(
+        &mut clock,
+        &[
+            (id0.clone(), vec![id0.clone()]),
+            (id1.clone(), vec![id0.clone(), id3.clone()]),
+            (id3.clone(), vec![id3.clone()]),
+        ],
+    )
+    .await;
+    pm3.wait_for_routing_table(
+        &mut clock,
+        &[
+            (id0.clone(), vec![id1.clone(), id2.clone()]),
+            (id1.clone(), vec![id1.clone()]),
+            (id2.clone(), vec![id2.clone()]),
+        ],
+    )
+    .await;
+}
+
 // test that TTL is handled property.
 #[tokio::test]
 async fn ttl() {

@@ -12,26 +12,6 @@ fn from_boot_nodes() -> anyhow::Result<()> {
 }
 
 #[test]
-fn join_components() -> anyhow::Result<()> {
-    let mut runner = Runner::new(4, 4);
-
-    runner.push(Action::AddEdge { from: 0, to: 1, force: true });
-    runner.push(Action::AddEdge { from: 2, to: 3, force: true });
-    runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1])]));
-    runner.push(Action::CheckRoutingTable(1, vec![(0, vec![0])]));
-    runner.push(Action::CheckRoutingTable(2, vec![(3, vec![3])]));
-    runner.push(Action::CheckRoutingTable(3, vec![(2, vec![2])]));
-    runner.push(Action::AddEdge { from: 0, to: 2, force: true });
-    runner.push(Action::AddEdge { from: 3, to: 1, force: true });
-    runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1]), (2, vec![2]), (3, vec![1, 2])]));
-    runner.push(Action::CheckRoutingTable(3, vec![(1, vec![1]), (2, vec![2]), (0, vec![1, 2])]));
-    runner.push(Action::CheckRoutingTable(1, vec![(0, vec![0]), (3, vec![3]), (2, vec![0, 3])]));
-    runner.push(Action::CheckRoutingTable(2, vec![(0, vec![0]), (3, vec![3]), (1, vec![0, 3])]));
-
-    start_test(runner)
-}
-
-#[test]
 fn account_propagation() -> anyhow::Result<()> {
     let mut runner = Runner::new(3, 2);
 
