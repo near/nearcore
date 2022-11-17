@@ -151,6 +151,24 @@ pub(crate) static CHUNK_SKIPPED_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
     .unwrap()
 });
 
+pub(crate) static CHUNK_PRODUCER_BANNED_FOR_EPOCH: Lazy<IntCounter> = Lazy::new(|| {
+    try_create_int_counter(
+        "near_chunk_producer_banned_for_epoch",
+        "Number of times we have banned a chunk producer for an epoch",
+    )
+    .unwrap()
+});
+
+pub(crate) static CHUNK_DROPPED_BECAUSE_OF_BANNED_CHUNK_PRODUCER: Lazy<IntCounter> =
+    Lazy::new(|| {
+        try_create_int_counter(
+            "near_chunk_dropped_because_of_banned_chunk_producer",
+            "Number of chunks we, as a block producer, 
+                dropped, because the chunk is produced by a banned chunk producer",
+        )
+        .unwrap()
+    });
+
 pub(crate) static PARTIAL_ENCODED_CHUNK_RESPONSE_DELAY: Lazy<Histogram> = Lazy::new(|| {
     try_create_histogram(
         "near_partial_encoded_chunk_response_delay",
