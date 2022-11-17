@@ -36,10 +36,10 @@ use crate::sharding::{
     ShardChunkHeaderV3,
 };
 use crate::transaction::{
-    Action, AddKeyAction, CreateAccountAction, DelegateAction, DeleteAccountAction, DeleteKeyAction,
-    DeployContractAction, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithIdAndProof,
-    ExecutionStatus, FunctionCallAction, PartialExecutionOutcome, PartialExecutionStatus,
-    SignedDelegateAction,SignedTransaction, StakeAction, TransferAction,
+    Action, AddKeyAction, CreateAccountAction, DelegateAction, DeleteAccountAction,
+    DeleteKeyAction, DeployContractAction, ExecutionMetadata, ExecutionOutcome,
+    ExecutionOutcomeWithIdAndProof, ExecutionStatus, FunctionCallAction, PartialExecutionOutcome,
+    PartialExecutionStatus, SignedDelegateAction, SignedTransaction, StakeAction, TransferAction,
 };
 use crate::types::{
     AccountId, AccountWithPublicKey, Balance, BlockHeight, CompiledContractCache, EpochHeight,
