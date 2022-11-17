@@ -36,11 +36,11 @@ security sensitive issues.
    the attack. An attack that is easy to do or can have a huge impact should
    have the `P-S0` label and `P-S1` otherwise.
 
-3. All security sensitive pull requests should also be created on this
-   repository.  Note that once a PR is approved on the private repository, it
-   should not be merged into the private repository.  Instead it should be first
-   merged into the public repository and then the private fork should be updated
-   using the steps above.
+3. All security sensitive pull requests should also be created on the private
+   nearcore repository.  Note that once a PR has been approved on the private
+   repository, it should not be merged into the private repository.  Instead it
+   should be first merged into the public repository and then the private fork
+   should be updated using the steps above.
 
 4. Once work on a security issue is finished, it needs to be deployed to all the
    impacted networks.  Please contact the node team for help with this.
