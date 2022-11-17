@@ -71,7 +71,6 @@ pub enum StateViewerSubCommand {
     /// View trie structure.
     #[clap(alias = "view_trie")]
     ViewTrie(ViewTrieCmd),
-    /// Dump all or a single state part of a shard.
     DumpStateParts(DumpStatePartsCmd),
 }
 
@@ -477,18 +476,12 @@ impl ViewTrieCmd {
 
 #[derive(Parser)]
 pub struct DumpStatePartsCmd {
-    /// Last block of a previous epoch.
     #[clap(long)]
     block_hash: CryptoHash,
-    /// Shard id.
     #[clap(long)]
     shard_id: ShardId,
-    /// State part id. Leave empty to go through every part in the shard.
     #[clap(long)]
     part_id: Option<u64>,
-    /// Where to write the state parts to.
-    #[clap(long)]
-    output_dir: PathBuf,
 }
 
 impl DumpStatePartsCmd {
@@ -500,7 +493,6 @@ impl DumpStatePartsCmd {
             home_dir,
             near_config,
             store,
-            &self.output_dir,
         );
     }
 }

@@ -15,7 +15,6 @@ pub(crate) fn dump_state_parts(
     home_dir: &Path,
     near_config: NearConfig,
     store: Store,
-    output_dir: &Path,
 ) {
     let runtime_adapter: Arc<dyn RuntimeAdapter> =
         Arc::new(NightshadeRuntime::from_config(home_dir, store.clone(), &near_config));
@@ -41,9 +40,7 @@ pub(crate) fn dump_state_parts(
         runtime_adapter.get_state_root_node(shard_id, &sync_prev_hash, &state_root).unwrap();
 
     let num_parts = get_num_state_parts(state_root_node.memory_usage);
-    tracing::debug!(num_parts);
 
-    std::fs::create_dir_all(output_dir).unwrap();
     for part_id in if let Some(part_id) = part_id { part_id..part_id + 1 } else { 0..num_parts } {
         assert!(part_id < num_parts, "part_id: {}, num_parts: {}", part_id, num_parts);
         let state_part = runtime_adapter
@@ -54,14 +51,6 @@ pub(crate) fn dump_state_parts(
                 PartId::new(part_id, num_parts),
             )
             .unwrap();
-        let filename = output_dir.join(format!("state_part_{:06}", part_id));
-        let len = state_part.len();
-        std::fs::write(&filename, state_part).unwrap();
-        tracing::debug!(
-            "part_id: {}, result length: {}, wrote {}",
-            part_id,
-            len,
-            filename.display()
-        );
+        println!("part_id: {}, result length: {}", part_id, state_part.len());
     }
 }
