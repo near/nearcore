@@ -1316,8 +1316,12 @@ impl<'a> VMLogic<'a> {
     /// DataReceipt.
     fn pay_gas_for_new_receipt(&mut self, sir: bool, data_dependencies: &[bool]) -> Result<()> {
         let fees_config_cfg = &self.fees_config;
-        let mut burn_gas = fees_config_cfg.action_receipt_creation_config.send_fee(sir);
-        let mut use_gas = fees_config_cfg.action_receipt_creation_config.exec_fee();
+        self.gas_counter.pay_action_base(
+            &fees_config_cfg.action_receipt_creation_config,
+            sir,
+            ActionCosts::new_action_receipt,
+        )?;
+        let mut burn_gas = 0u64;
         for dep in data_dependencies {
             // Both creation and execution for data receipts are considered burnt gas.
             burn_gas = burn_gas
@@ -1326,8 +1330,11 @@ impl<'a> VMLogic<'a> {
                 .checked_add(fees_config_cfg.data_receipt_creation_config.base_cost.exec_fee())
                 .ok_or(HostError::IntegerOverflow)?;
         }
-        use_gas = use_gas.checked_add(burn_gas).ok_or(HostError::IntegerOverflow)?;
-        self.gas_counter.pay_action_accumulated(burn_gas, use_gas, ActionCosts::new_receipt)
+        self.gas_counter.pay_action_accumulated(
+            burn_gas,
+            burn_gas,
+            ActionCosts::new_data_receipt_base,
+        )
     }
 
     /// A helper function to subtract balance on transfer or attached deposit for promises.
@@ -1703,13 +1710,13 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_action_base(
             &self.fees_config.action_creation_config.deploy_contract_cost,
             sir,
-            ActionCosts::deploy_contract,
+            ActionCosts::deploy_contract_base,
         )?;
         self.gas_counter.pay_action_per_byte(
             &self.fees_config.action_creation_config.deploy_contract_cost_per_byte,
             num_bytes,
             sir,
-            ActionCosts::deploy_contract,
+            ActionCosts::deploy_contract_byte,
         )?;
 
         self.receipt_manager.append_action_deploy_contract(receipt_idx, code)?;
@@ -1824,13 +1831,13 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_action_base(
             &self.fees_config.action_creation_config.function_call_cost,
             sir,
-            ActionCosts::function_call,
+            ActionCosts::function_call_base,
         )?;
         self.gas_counter.pay_action_per_byte(
             &self.fees_config.action_creation_config.function_call_cost_per_byte,
             num_bytes,
             sir,
-            ActionCosts::function_call,
+            ActionCosts::function_call_byte,
         )?;
         // Prepaid gas
         self.gas_counter.prepay_gas(gas)?;
@@ -1981,7 +1988,7 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_action_base(
             &self.fees_config.action_creation_config.add_key_cost.full_access_cost,
             sir,
-            ActionCosts::add_key,
+            ActionCosts::add_full_access_key,
         )?;
 
         self.receipt_manager.append_action_add_key_with_full_access(
@@ -2045,13 +2052,13 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_action_base(
             &self.fees_config.action_creation_config.add_key_cost.function_call_cost,
             sir,
-            ActionCosts::add_key,
+            ActionCosts::add_function_call_key_base,
         )?;
         self.gas_counter.pay_action_per_byte(
             &self.fees_config.action_creation_config.add_key_cost.function_call_cost_per_byte,
             num_bytes,
             sir,
-            ActionCosts::add_key,
+            ActionCosts::add_function_call_key_byte,
         )?;
 
         self.receipt_manager.append_action_add_key_with_function_call(

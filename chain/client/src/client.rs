@@ -6,6 +6,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use lru::LruCache;
 use near_chunks::client::{ClientAdapterForShardsManager, ShardedTransactionPool};
 use near_chunks::logic::{
     cares_about_shard_this_or_next_epoch, decode_encoded_chunk, persist_chunk,
@@ -26,7 +27,9 @@ use near_chain::{
 };
 use near_chain_configs::ClientConfig;
 use near_chunks::ShardsManager;
-use near_network::types::{FullPeerInfo, NetworkRequests, PeerManagerAdapter, ReasonForBan};
+use near_network::types::{
+    HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter, ReasonForBan,
+};
 use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, Tip};
 use near_primitives::challenge::{Challenge, ChallengeBody};
 use near_primitives::hash::CryptoHash;
@@ -58,6 +61,7 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{CatchupStatusView, DroppedReason};
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
+const CHUNK_HEADERS_FOR_INCLUSION_CACHE_SIZE: usize = 2048;
 
 /// The time we wait for the response to a Epoch Sync request before retrying
 // TODO #3488 set 30_000
@@ -77,9 +81,6 @@ pub struct Client {
     pub adv_produce_blocks: bool,
     #[cfg(feature = "test_features")]
     pub adv_produce_blocks_only_valid: bool,
-    /// Controls the height which is broadcasted to other peers.
-    #[cfg(feature = "test_features")]
-    pub adv_sync_height: Option<BlockHeight>,
 
     /// Fast Forward accrued delta height used to calculate fast forwarded timestamps for each block.
     #[cfg(feature = "sandbox")]
@@ -93,6 +94,8 @@ pub struct Client {
     pub shards_mgr: ShardsManager,
     me: Option<AccountId>,
     pub sharded_tx_pool: ShardedTransactionPool,
+    prev_block_to_chunk_headers_ready_for_inclusion:
+        LruCache<CryptoHash, HashMap<ShardId, (ShardChunkHeader, chrono::DateTime<chrono::Utc>)>>,
     /// Network adapter.
     network_adapter: Arc<dyn PeerManagerAdapter>,
     /// Signer for block producer (if present).
@@ -234,8 +237,6 @@ impl Client {
             adv_produce_blocks: false,
             #[cfg(feature = "test_features")]
             adv_produce_blocks_only_valid: false,
-            #[cfg(feature = "test_features")]
-            adv_sync_height: None,
             #[cfg(feature = "sandbox")]
             accrued_fastforward_delta: 0,
             config,
@@ -246,6 +247,9 @@ impl Client {
             shards_mgr,
             me,
             sharded_tx_pool,
+            prev_block_to_chunk_headers_ready_for_inclusion: LruCache::new(
+                CHUNK_HEADERS_FOR_INCLUSION_CACHE_SIZE,
+            ),
             network_adapter,
             validator_signer,
             pending_approvals: lru::LruCache::new(num_block_producer_seats),
@@ -402,6 +406,23 @@ impl Client {
         Ok(false)
     }
 
+    pub fn get_chunk_headers_ready_for_inclusion(
+        &self,
+        prev_block_hash: &CryptoHash,
+    ) -> HashMap<ShardId, (ShardChunkHeader, chrono::DateTime<chrono::Utc>)> {
+        self.prev_block_to_chunk_headers_ready_for_inclusion
+            .peek(prev_block_hash)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    pub fn get_num_chunks_ready_for_inclusion(&self, prev_block_hash: &CryptoHash) -> usize {
+        self.prev_block_to_chunk_headers_ready_for_inclusion
+            .peek(prev_block_hash)
+            .map(|x| x.len())
+            .unwrap_or(0)
+    }
+
     /// Produce block if we are block producer for given `next_height` block height.
     /// Either returns produced block (not applied) or error.
     pub fn produce_block(&mut self, next_height: BlockHeight) -> Result<Option<Block>, Error> {
@@ -464,7 +485,7 @@ impl Client {
             }
         }
 
-        let new_chunks = self.shards_mgr.prepare_chunks(&prev_hash);
+        let new_chunks = self.get_chunk_headers_ready_for_inclusion(&prev_hash);
         debug!(target: "client", "{:?} Producing block at height {}, parent {} @ {}, {} new chunks", validator_signer.validator_id(),
                next_height, prev.height(), format_hash(head.last_block_hash), new_chunks.len());
 
@@ -1137,6 +1158,16 @@ impl Client {
         }
     }
 
+    pub fn on_chunk_header_ready_for_inclusion(&mut self, chunk_header: ShardChunkHeader) {
+        let prev_block_hash = chunk_header.prev_block_hash();
+        self.prev_block_to_chunk_headers_ready_for_inclusion
+            .get_or_insert(prev_block_hash.clone(), || HashMap::new());
+        self.prev_block_to_chunk_headers_ready_for_inclusion
+            .get_mut(prev_block_hash)
+            .unwrap()
+            .insert(chunk_header.shard_id(), (chunk_header, chrono::Utc::now()));
+    }
+
     pub fn sync_block_headers(
         &mut self,
         headers: Vec<BlockHeader>,
@@ -1437,6 +1468,7 @@ impl Client {
             self.runtime_adapter.as_ref(),
         )?;
         persist_chunk(partial_chunk.clone(), Some(shard_chunk), self.chain.mut_store())?;
+        self.on_chunk_header_ready_for_inclusion(encoded_chunk.cloned_header());
         self.shards_mgr.distribute_encoded_chunk(
             partial_chunk,
             encoded_chunk,
@@ -1898,7 +1930,7 @@ impl Client {
     /// Walks through all the ongoing state syncs for future epochs and processes them
     pub fn run_catchup(
         &mut self,
-        highest_height_peers: &[FullPeerInfo],
+        highest_height_peers: &[HighestHeightPeerInfo],
         state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
         block_catch_up_task_scheduler: &dyn Fn(BlockCatchUpRequest),
         state_split_scheduler: &dyn Fn(StateSplitRequest),
@@ -2160,11 +2192,9 @@ impl Client {
             (0..num_shards).collect()
         };
         let tier1_accounts = self.get_tier1_accounts(&tip)?;
-        let height = tip.height;
-        #[cfg(feature = "test_features")]
-        let height = self.adv_sync_height.unwrap_or(height);
+        let block = self.chain.get_block(&tip.last_block_hash)?;
         self.network_adapter.do_send(
-            SetChainInfo(ChainInfo { height, tracked_shards, tier1_accounts }).with_span_context(),
+            SetChainInfo(ChainInfo { block, tracked_shards, tier1_accounts }).with_span_context(),
         );
         Ok(())
     }

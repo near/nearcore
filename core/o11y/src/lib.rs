@@ -1,6 +1,6 @@
 #![doc = include_str!("../README.md")]
 
-pub use {backtrace, tracing, tracing_appender, tracing_subscriber};
+pub use {tracing, tracing_appender, tracing_subscriber};
 
 use clap::Parser;
 pub use context::*;
@@ -258,13 +258,18 @@ where
     let (filter, handle) = reload::Layer::<LevelFilter, S>::new(filter);
 
     let mut resource = vec![
-        KeyValue::new(SERVICE_NAME, "neard"),
         KeyValue::new("chain_id", chain_id),
         KeyValue::new("node_id", node_public_key.to_string()),
     ];
-    if let Some(account_id) = account_id {
+    // Prefer account name as the node name.
+    // Fallback to a node public key if a validator key is unavailable.
+    let service_name = if let Some(account_id) = account_id {
         resource.push(KeyValue::new("account_id", account_id.to_string()));
-    }
+        format!("neard:{}", account_id)
+    } else {
+        format!("neard:{}", node_public_key)
+    };
+    resource.push(KeyValue::new(SERVICE_NAME, service_name));
 
     let tracer = opentelemetry_otlp::new_pipeline()
         .tracing()
@@ -562,7 +567,7 @@ impl<'a> EnvFilterBuilder<'a> {
 ///
 /// This is intended as a printf-debugging aid.
 pub fn print_backtrace() {
-    let bt = backtrace::Backtrace::new();
+    let bt = std::backtrace::Backtrace::force_capture();
     eprintln!("{bt:?}")
 }
 

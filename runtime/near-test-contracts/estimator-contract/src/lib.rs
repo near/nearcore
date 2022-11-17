@@ -482,33 +482,35 @@ pub unsafe fn ecrecover_10k() {
     }
 }
 
-// Function to measure `ed25519_verify_base`. Also measures `base`, `write_register_base`, and
-// `write_register_byte`. However `ed25519_verify_base` computation is more expensive than register writing
-// so we are okay overcharging it. // TODO: validate this
-// Compute ecrecover 10k times.
+/// Function to measure `ed25519_verify_base`. Also measures `base`,
+/// `write_register_base`, and `write_register_byte`. However
+/// `ed25519_verify_base` computation is more expensive than register writing so
+/// we are okay overcharging it.
 #[no_mangle]
 #[cfg(feature = "protocol_feature_ed25519_verify")]
-pub unsafe fn ed25519_verify_10k() {
-    let signature: [u8; 64] = [
-        145, 193, 203, 18, 114, 227, 14, 117, 33, 213, 121, 66, 130, 14, 25, 4, 36, 120, 46, 142,
-        226, 215, 7, 66, 122, 112, 97, 30, 249, 135, 61, 165, 221, 249, 252, 23, 105, 40, 56, 70,
-        31, 152, 236, 141, 154, 122, 207, 20, 75, 118, 79, 90, 168, 6, 221, 122, 213, 29, 126, 196,
-        216, 104, 191, 6,
-    ];
-
+pub unsafe fn ed25519_verify_32b_500() {
+    // private key: OReNDSAXOnl-U6Wki95ut01ehQW_9wcAF_utjzRNreg
+    // public key: M4QwJx4Sogjr0KcMI_gsvt-lEU6tgd9GWmgejE_JYlA
     let public_key: [u8; 32] = [
-        32, 122, 6, 120, 146, 130, 30, 37, 215, 112, 241, 251, 160, 196, 124, 17, 255, 75, 129, 62,
-        84, 22, 46, 206, 158, 184, 57, 224, 118, 35, 26, 182,
+        51, 132, 48, 39, 30, 18, 162, 8, 235, 208, 167, 12, 35, 248, 44, 190, 223, 165, 17, 78,
+        173, 129, 223, 70, 90, 104, 30, 140, 79, 201, 98, 80,
     ];
 
-    // 32 bytes message
+    // 32 bytes message ("kajdlfkjalkfjaklfjdkladjfkljadsk")
     let message: [u8; 32] = [
         107, 97, 106, 100, 108, 102, 107, 106, 97, 108, 107, 102, 106, 97, 107, 108, 102, 106, 100,
         107, 108, 97, 100, 106, 102, 107, 108, 106, 97, 100, 115, 107,
     ];
 
-    for _ in 0..10_000 {
-        ed25519_verify(
+    let signature: [u8; 64] = [
+        149, 193, 241, 158, 225, 107, 146, 130, 116, 224, 233, 136, 232, 153, 211, 60, 115, 141,
+        183, 174, 15, 52, 27, 186, 34, 68, 124, 158, 81, 3, 8, 76, 93, 28, 91, 68, 252, 151, 172,
+        240, 129, 224, 239, 135, 26, 141, 111, 133, 134, 22, 149, 132, 90, 150, 33, 113, 191, 76,
+        109, 64, 0, 13, 104, 6,
+    ];
+
+    for _ in 0..500 {
+        let result = ed25519_verify(
             signature.len() as _,
             signature.as_ptr() as _,
             message.len() as _,
@@ -516,6 +518,45 @@ pub unsafe fn ed25519_verify_10k() {
             public_key.len() as _,
             public_key.as_ptr() as _,
         );
+        // check that result was positive, as negative results could have exited
+        // early and do not reflect the full cost.
+        assert!(result == 1);
+    }
+}
+
+/// Function to measure `ed25519_verify_bytes`.
+#[no_mangle]
+#[cfg(feature = "protocol_feature_ed25519_verify")]
+pub unsafe fn ed25519_verify_16kib_64() {
+    // 16kB bytes message
+    let message = [b'a'; 16384];
+
+    // private key: OReNDSAXOnl-U6Wki95ut01ehQW_9wcAF_utjzRNreg
+    // public key: M4QwJx4Sogjr0KcMI_gsvt-lEU6tgd9GWmgejE_JYlA
+    let public_key: [u8; 32] = [
+        51, 132, 48, 39, 30, 18, 162, 8, 235, 208, 167, 12, 35, 248, 44, 190, 223, 165, 17, 78,
+        173, 129, 223, 70, 90, 104, 30, 140, 79, 201, 98, 80,
+    ];
+
+    let signature: [u8; 64] = [
+        137, 224, 108, 168, 192, 229, 57, 250, 232, 231, 200, 55, 155, 62, 134, 111, 71, 124, 174,
+        95, 190, 201, 113, 11, 86, 70, 91, 98, 228, 43, 233, 215, 135, 6, 42, 252, 28, 247, 101,
+        57, 100, 50, 105, 41, 225, 221, 157, 121, 76, 28, 236, 247, 124, 228, 20, 203, 91, 18, 146,
+        99, 254, 153, 41, 6,
+    ];
+
+    for _ in 0..64 {
+        let result = ed25519_verify(
+            signature.len() as _,
+            signature.as_ptr() as _,
+            message.len() as _,
+            message.as_ptr() as _,
+            public_key.len() as _,
+            public_key.as_ptr() as _,
+        );
+        // check that result was positive, as negative results could have exited
+        // early and do not reflect the full cost.
+        assert!(result == 1);
     }
 }
 

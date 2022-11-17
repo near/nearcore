@@ -59,9 +59,11 @@ use crate::block_processing_utils::{
 };
 use crate::blocks_delay_tracker::BlocksDelayTracker;
 use crate::crypto_hash_timer::CryptoHashTimer;
+use crate::flat_storage_creator::FlatStorageCreator;
 use crate::lightclient::get_epoch_block_producers_view;
 use crate::migrations::check_if_block_is_first_with_chunk_of_version;
 use crate::missing_chunks::{BlockLike, MissingChunksPool};
+use crate::state_request_tracker::StateRequestTracker;
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, GCMode};
 use crate::types::{
     AcceptedBlock, ApplySplitStateResult, ApplySplitStateResultOrStateChanges,
@@ -82,9 +84,9 @@ use near_primitives::shard_layout::{
     account_id_to_shard_id, account_id_to_shard_uid, ShardLayout, ShardUId,
 };
 use near_primitives::version::PROTOCOL_VERSION;
-#[cfg(feature = "protocol_feature_flat_state")]
-use near_store::flat_state::FlatStateDelta;
 use near_store::flat_state::FlatStorageError;
+#[cfg(feature = "protocol_feature_flat_state")]
+use near_store::flat_state::{store_helper, FlatStateDelta};
 use once_cell::sync::OnceCell;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
@@ -442,6 +444,8 @@ pub struct Chain {
     apply_chunks_receiver: Receiver<BlockApplyChunksResult>,
     /// Time when head was updated most recently.
     last_time_head_updated: Instant,
+    /// Used when it is needed to create flat storage in background for some shards.
+    flat_storage_creator: Option<FlatStorageCreator>,
 
     /// Support for sandbox's patch_state requests.
     ///
@@ -456,6 +460,10 @@ pub struct Chain {
     /// was empty and could not hold any records (which it cannot).  It’s
     /// impossible to have non-empty state patch on non-sandbox builds.
     pending_state_patch: SandboxStatePatch,
+
+    /// Used to store state parts already requested along with elapsed time
+    /// to create the parts. This information is used for debugging
+    pub(crate) requested_state_parts: StateRequestTracker,
 }
 
 impl Drop for Chain {
@@ -508,7 +516,7 @@ impl Chain {
             orphans: OrphanBlockPool::new(),
             blocks_with_missing_chunks: MissingChunksPool::new(),
             blocks_in_processing: BlocksInProcessing::new(),
-            genesis: genesis,
+            genesis,
             transaction_validity_period: chain_genesis.transaction_validity_period,
             epoch_length: chain_genesis.epoch_length,
             block_economics_config: BlockEconomicsConfig::from(chain_genesis),
@@ -517,7 +525,9 @@ impl Chain {
             apply_chunks_sender: sc,
             apply_chunks_receiver: rc,
             last_time_head_updated: Clock::instant(),
+            flat_storage_creator: None,
             pending_state_patch: Default::default(),
+            requested_state_parts: StateRequestTracker::new(),
         })
     }
 
@@ -632,15 +642,8 @@ impl Chain {
         };
         store_update.commit()?;
 
-        // set up flat storage
-        #[cfg(feature = "protocol_feature_flat_state")]
-        for shard_id in 0..runtime_adapter.num_shards(&block_head.epoch_id)? {
-            runtime_adapter.create_flat_storage_state_for_shard(
-                shard_id,
-                store.head()?.height,
-                &store,
-            );
-        }
+        // Create flat storage or initiate migration to flat storage.
+        let flat_storage_creator = FlatStorageCreator::new(runtime_adapter.clone(), &store);
 
         info!(target: "chain", "Init: header head @ #{} {}; block head @ #{} {}",
               header_head.height, header_head.last_block_hash,
@@ -673,7 +676,9 @@ impl Chain {
             apply_chunks_sender: sc,
             apply_chunks_receiver: rc,
             last_time_head_updated: Clock::instant(),
+            flat_storage_creator,
             pending_state_patch: Default::default(),
+            requested_state_parts: StateRequestTracker::new(),
         })
     }
 
@@ -2162,9 +2167,12 @@ impl Chain {
                         }
                     });
                 } else {
-                    // TODO (#7327): some error handling code here. Should probably return an error (or panic?)
-                    // here if the flat storage doesn't exist. We don't do that yet because
-                    // flat storage is not fully enabled yet.
+                    match &mut self.flat_storage_creator {
+                        Some(flat_storage_creator) => {
+                            flat_storage_creator.update_status(shard_id, &self.store)?;
+                        }
+                        None => {}
+                    }
                 }
             }
         }
@@ -2811,7 +2819,7 @@ impl Chain {
     }
 
     pub fn get_state_response_part(
-        &self,
+        &mut self,
         shard_id: ShardId,
         part_id: u64,
         sync_hash: CryptoHash,
@@ -2850,6 +2858,7 @@ impl Chain {
         if part_id >= num_parts {
             return Err(Error::InvalidStateRequest("part_id out of bound".to_string()));
         }
+        let current_time = Instant::now();
         let state_part = self
             .runtime_adapter
             .obtain_state_part(
@@ -2859,6 +2868,10 @@ impl Chain {
                 PartId::new(part_id, num_parts),
             )
             .log_storage_error("obtain_state_part fail")?;
+
+        let elapsed_ms = current_time.elapsed().as_millis();
+        self.requested_state_parts
+            .save_state_part_elapsed(&sync_hash, &shard_id, &part_id, elapsed_ms);
 
         // Before saving State Part data, we need to make sure we can calculate and save State Header
         self.get_state_response_header(shard_id, sync_hash)?;
@@ -4101,6 +4114,12 @@ impl Chain {
         self.store.get_block(hash)
     }
 
+    /// Gets the block at chain head
+    pub fn get_head_block(&self) -> Result<Block, Error> {
+        let tip = self.head()?;
+        self.store.get_block(&tip.last_block_hash)
+    }
+
     /// Gets a chunk from hash.
     #[inline]
     pub fn get_chunk(&self, chunk_hash: &ChunkHash) -> Result<Arc<ShardChunk>, Error> {
@@ -4755,13 +4774,20 @@ impl<'a> ChainUpdate<'a> {
         // the delta for the shards that we are tracking this epoch
         #[cfg(feature = "protocol_feature_flat_state")]
         if self.runtime_adapter.cares_about_shard(me.as_ref(), &prev_hash, shard_id, true) {
+            let delta = FlatStateDelta::from_state_changes(&trie_changes.state_changes());
+
             if let Some(chain_flat_storage) =
                 self.runtime_adapter.get_flat_storage_state_for_shard(shard_id)
             {
-                let delta = FlatStateDelta::from_state_changes(&trie_changes.state_changes());
                 let block_info = flat_state::BlockInfo { hash: block_hash, height, prev_hash };
                 let store_update = chain_flat_storage
                     .add_block(&block_hash, delta, block_info)
+                    .map_err(|e| StorageError::from(e))?;
+                self.chain_store_update.merge(store_update);
+            } else {
+                info!(target: "chain", %shard_id, "Add delta for flat storage creation");
+                let mut store_update = self.chain_store_update.store().store_update();
+                store_helper::set_delta(&mut store_update, shard_id, block_hash.clone(), &delta)
                     .map_err(|e| StorageError::from(e))?;
                 self.chain_store_update.merge(store_update);
             }

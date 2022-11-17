@@ -167,9 +167,16 @@ pub enum MethodResolveError {
     strum::IntoStaticStr,
 )]
 pub enum CompilationError {
-    CodeDoesNotExist { account_id: AccountId },
+    CodeDoesNotExist {
+        account_id: AccountId,
+    },
     PrepareError(PrepareError),
-    WasmerCompileError { msg: String },
+    /// This is for defense in depth.
+    /// We expect our runtime-independent preparation code to fully catch all invalid wasms,
+    /// but, if it ever misses something we’ll emit this error
+    WasmerCompileError {
+        msg: String,
+    },
 }
 
 #[derive(

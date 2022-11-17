@@ -11,6 +11,9 @@
   - [How Epoch Works](./architecture/how/epoch.md)
   - [Transaction Routing](./architecture/how/tx_routing.md)
   - [Transactions And Receipts](./architecture/how/tx_receipts.md)
+  - [Cross shard transactions - deep dive](./architecture/how/cross-shard.md)
+  - [Serialization: Borsh, Json, ProtoBuf](./architecture/how/serialization.md)
+  - [Proofs](./architecture/how/proofs.md)
 - [Trie](./architecture/trie.md)
 - [Network](./architecture/network.md)
 - [Gas Cost Parameters](./architecture/gas/README.md)
@@ -21,6 +24,10 @@
 # Practices
 
 - [Overview](./practices/README.md)
+- [Rust 🦀](./practices/rust.md)
+- [Workflows](./practices/workflows/README.md)
+  - [Run a Node](./practices/workflows/run_a_node.md)
+  - [Deploy a Contract](./practices/workflows/deploy_a_contract.md)
 - [Code Style](./practices/style.md)
 - [Documentation](./practices/docs.md)
 - [Tracking Issues](./practices/tracking_issues.md)

@@ -3,6 +3,4 @@ name = "near-stable-hasher"
 version = "0.0.0"
 authors.workspace = true
 edition.workspace = true
-# Please update rust-toolchain.toml as well when changing version here:
-rust-version.workspace = true
 publish = false
