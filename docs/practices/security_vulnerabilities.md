@@ -20,8 +20,8 @@ security sensitive issues.
    this repository is restricted to the set of people who are trusted to work on
    and have knowledge about security sensitive issues pertaining to nearcore.
 
-   This repository can manually synced with the public nearcore repository using
-   the following commands:
+   This repository can be manually synced with the public nearcore repository
+   using the following commands:
 
     ```console
     $ git remote add nearcore-public git@github.com:near/nearcore
@@ -37,10 +37,10 @@ security sensitive issues.
    have the `P-S0` label and `P-S1` otherwise.
 
 3. All security sensitive pull requests should also be created on the private
-   nearcore repository.  Note that once a PR has been approved on the private
-   repository, it should not be merged into the private repository.  Instead it
-   should be first merged into the public repository and then the private fork
-   should be updated using the steps above.
+   nearcore repository.  Note that once a PR has been approved, it should not be
+   merged into the private repository.  Instead it should be first merged into
+   the public repository and then the private fork should be updated using the
+   steps above.
 
 4. Once work on a security issue is finished, it needs to be deployed to all the
    impacted networks.  Please contact the node team for help with this.
