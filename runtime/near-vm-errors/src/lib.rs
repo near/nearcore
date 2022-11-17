@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::any::Any;
 use std::fmt::{self, Error, Formatter};
 use std::io;
+use crate::Bls12381Error::{AggrTypeMismatch, BadEncoding, BadScalar, PkIsInfinity, PointNotInGroup, PointNotOnCurve, UnknownErrorCode, VerifyFail};
 
 /// For bugs in the runtime itself, crash and die is the usual response.
 ///
@@ -200,6 +201,35 @@ pub enum PrepareError {
 }
 
 #[derive(
+Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
+)]
+pub enum Bls12381Error {
+    BadEncoding,
+    PointNotOnCurve,
+    PointNotInGroup,
+    AggrTypeMismatch,
+    VerifyFail,
+    PkIsInfinity,
+    BadScalar,
+    UnknownErrorCode
+}
+
+impl From<u64> for Bls12381Error {
+    fn from(error_id: u64) -> Self {
+        match error_id {
+            1 => BadEncoding,
+            2 => PointNotOnCurve,
+            3 => PointNotInGroup,
+            4 => AggrTypeMismatch,
+            5 => VerifyFail,
+            6 => PkIsInfinity,
+            7 => BadScalar,
+            _ => UnknownErrorCode,
+        }
+    }
+}
+
+#[derive(
     Debug,
     Clone,
     PartialEq,
@@ -280,6 +310,7 @@ pub enum HostError {
     /// Invalid input to ed25519 signature verification function (e.g. signature cannot be
     /// derived from bytes).
     Ed25519VerifyInvalidInput { msg: String },
+    Bls1238VerifyError(Bls12381Error),
 }
 
 #[derive(Debug, PartialEq)]
@@ -485,6 +516,7 @@ impl std::fmt::Display for HostError {
             AltBn128InvalidInput { msg } => write!(f, "AltBn128 invalid input: {}", msg),
             ECRecoverError { msg } => write!(f, "ECDSA recover error: {}", msg),
             Ed25519VerifyInvalidInput { msg } => write!(f, "ED25519 signature verification error: {}", msg),
+            Bls1238VerifyError(bls12_381_error) => write!(f, "BLS12-381 signature verification error: {:?}", bls12_381_error)
         }
     }
 }

@@ -3,7 +3,8 @@ use crate::tests::fixtures::get_context;
 use std::collections::HashMap;
 use hex::FromHex;
 use near_primitives_core::config::ExtCosts;
-use near_vm_errors::{HostError, VMLogicError};
+use near_vm_errors::{Bls12381Error, HostError, VMLogicError};
+use near_vm_errors::HostError::Bls1238VerifyError;
 use crate::map;
 use crate::tests::helpers::assert_costs;
 use crate::tests::vm_logic_builder::VMLogicBuilder;
@@ -77,7 +78,7 @@ fn test_bls12_381_verify_valid() {
         &message,
         pubkeys_raw.len() as u64,
         &pubkeys_raw,
-        Ok(0),
+        Ok(1),
         map! {
             ExtCosts::read_memory_byte: 224,
             ExtCosts::bls12381_verify_base: 1,
@@ -102,7 +103,7 @@ fn test_bls12_381_verify_valid() {
         &message,
         pubkeys_raw.len() as u64,
         &pubkeys_raw,
-        Ok(0),
+        Ok(1),
         map! {
             ExtCosts::read_memory_byte: 176,
             ExtCosts::bls12381_verify_base: 1,
@@ -129,7 +130,7 @@ fn test_bls12_381_verify_valid() {
         &message,
         pubkeys_raw.len() as u64,
         &pubkeys_raw,
-        Ok(0),
+        Ok(1),
         map! {
             ExtCosts::read_memory_byte: 272,
             ExtCosts::bls12381_verify_base: 1,
@@ -180,7 +181,7 @@ fn test_bls12_381_verify_aggregate_valid() {
         &message,
         pubkey_aggregate.len() as u64,
         &pubkey_aggregate,
-        Ok(0),
+        Ok(1),
         map! {
             ExtCosts::read_memory_byte: 176,
             ExtCosts::bls12381_verify_base: 1,
@@ -212,7 +213,7 @@ fn test_bls12_381_verify_tampered_signature() {
         &message,
         pubkeys_raw.len() as u64,
         &pubkeys_raw,
-        Ok(2),
+        Err(Bls1238VerifyError(Bls12381Error::PointNotOnCurve)),
         map! {
             ExtCosts::read_memory_byte: 224,
             ExtCosts::bls12381_verify_base: 1,
@@ -237,7 +238,7 @@ fn test_bls12_381_verify_tampered_signature() {
         &message,
         pubkeys_raw.len() as u64,
         &pubkeys_raw,
-        Ok(2),
+        Err(Bls1238VerifyError(Bls12381Error::PointNotOnCurve)),
         map! {
             ExtCosts::read_memory_byte: 176,
             ExtCosts::bls12381_verify_base: 1,
@@ -265,7 +266,7 @@ fn test_bls12_381_verify_tampered_signature() {
         &message,
         pubkeys_raw.len() as u64,
         &pubkeys_raw,
-        Ok(2),
+        Err(Bls1238VerifyError(Bls12381Error::PointNotOnCurve)),
         map! {
             ExtCosts::read_memory_byte: 272,
             ExtCosts::bls12381_verify_base: 1,
@@ -293,7 +294,7 @@ fn test_bls12_381_verify_na_pubkeys_and_na_signature() {
         &message,
         pubkeys_raw.len() as u64,
         &pubkeys_raw,
-        Ok(1),
+        Err(Bls1238VerifyError(Bls12381Error::BadEncoding)),
         map! {
             ExtCosts::read_memory_byte: 128,
             ExtCosts::bls12381_verify_base: 1,
@@ -321,7 +322,7 @@ fn test_bls12_381_verify_na_pubkeys_and_infinity_signature() {
         &message,
         pubkeys_raw.len() as u64,
         &pubkeys_raw,
-        Ok(4),
+        Err(Bls1238VerifyError(Bls12381Error::AggrTypeMismatch)),
         map! {
             ExtCosts::read_memory_byte: 128,
             ExtCosts::bls12381_verify_base: 1,
@@ -354,7 +355,7 @@ fn test_bls12_381_verify_infinity_pubkey() {
         &message,
         pubkeys_raw.len() as u64,
         &pubkeys_raw,
-        Ok(6),
+        Err(Bls1238VerifyError(Bls12381Error::PkIsInfinity)),
         map! {
             ExtCosts::read_memory_byte: 320,
             ExtCosts::bls12381_verify_base: 1,
@@ -385,7 +386,7 @@ fn test_bls12_381_verify_extra_pubkey() {
         &message,
         pubkeys_raw.len() as u64,
         &pubkeys_raw,
-        Ok(5),
+        Ok(0),
         map! {
             ExtCosts::read_memory_byte: 224,
             ExtCosts::bls12381_verify_base: 1,
@@ -413,7 +414,7 @@ fn test_bls12_381_verify_extra_pubkey() {
         &message,
         pubkeys_raw.len() as u64,
         &pubkeys_raw,
-        Ok(5),
+        Ok(0),
         map! {
             ExtCosts::read_memory_byte: 320,
             ExtCosts::bls12381_verify_base: 1,
@@ -440,7 +441,7 @@ fn test_bls12_381_verify_extra_pubkey() {
         &message,
         pubkeys_raw.len() as u64,
         &pubkeys_raw,
-        Ok(5),
+        Ok(0),
         map! {
             ExtCosts::read_memory_byte: 272,
             ExtCosts::bls12381_verify_base: 1,
