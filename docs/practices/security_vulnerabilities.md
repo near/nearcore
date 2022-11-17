@@ -1,4 +1,4 @@
-## Security sensitive issues
+## Security Vulnerabilities
 
 As nearcore is open source, all of its issues and pull requests are also
 publicly tracked on github.  However, from time to time, if a security sensitive
