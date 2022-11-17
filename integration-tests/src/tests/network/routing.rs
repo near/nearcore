@@ -106,21 +106,6 @@ fn test_drop_after_ttl() -> anyhow::Result<()> {
 }
 
 #[test]
-fn simple_remove() -> anyhow::Result<()> {
-    let mut runner = Runner::new(3, 3);
-
-    runner.push(Action::AddEdge { from: 0, to: 1, force: true });
-    runner.push(Action::AddEdge { from: 1, to: 2, force: true });
-    runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1]), (2, vec![1])]));
-    runner.push(Action::CheckRoutingTable(2, vec![(1, vec![1]), (0, vec![1])]));
-    runner.push(Action::Stop(1));
-    runner.push(Action::CheckRoutingTable(0, vec![]));
-    runner.push(Action::CheckRoutingTable(2, vec![]));
-
-    start_test(runner)
-}
-
-#[test]
 fn blacklist_01() -> anyhow::Result<()> {
     let mut runner = Runner::new(2, 2).add_to_blacklist(0, Some(1)).use_boot_nodes(vec![0]);
 
