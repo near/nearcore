@@ -1,4 +1,5 @@
 use crate::commands::*;
+use crate::dump_state_parts::dump_state_parts;
 use crate::epoch_info;
 use crate::rocksdb_stats::get_rocksdb_stats;
 use clap::{Args, Parser, Subcommand};
@@ -70,6 +71,7 @@ pub enum StateViewerSubCommand {
     /// View trie structure.
     #[clap(alias = "view_trie")]
     ViewTrie(ViewTrieCmd),
+    DumpStateParts(DumpStatePartsCmd),
 }
 
 impl StateViewerSubCommand {
@@ -84,6 +86,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::Peers => peers(store),
             StateViewerSubCommand::State => state(home_dir, near_config, hot),
             StateViewerSubCommand::DumpState(cmd) => cmd.run(home_dir, near_config, hot),
+            StateViewerSubCommand::DumpStateParts(cmd) => cmd.run(home_dir, near_config, hot),
             StateViewerSubCommand::DumpStateRedis(cmd) => cmd.run(home_dir, near_config, hot),
             StateViewerSubCommand::DumpTx(cmd) => cmd.run(home_dir, near_config, hot),
             StateViewerSubCommand::Chain(cmd) => cmd.run(home_dir, near_config, hot),
@@ -468,5 +471,28 @@ impl ViewTrieCmd {
     pub fn run(self, store: Store) {
         let hash = CryptoHash::from_str(&self.hash).unwrap();
         view_trie(store, hash, self.shard_id, self.shard_version, self.max_depth).unwrap();
+    }
+}
+
+#[derive(Parser)]
+pub struct DumpStatePartsCmd {
+    #[clap(long)]
+    block_hash: CryptoHash,
+    #[clap(long)]
+    shard_id: ShardId,
+    #[clap(long)]
+    part_id: Option<u64>,
+}
+
+impl DumpStatePartsCmd {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+        dump_state_parts(
+            self.block_hash,
+            self.shard_id,
+            self.part_id,
+            home_dir,
+            near_config,
+            store,
+        );
     }
 }

@@ -1203,6 +1203,13 @@ impl RuntimeAdapter for NightshadeRuntime {
         state_root: &StateRoot,
         part_id: PartId,
     ) -> Result<Vec<u8>, Error> {
+        let _span = tracing::debug_span!(
+            target: "runtime",
+            "obtain_state_part",
+            shard_id,
+            %block_hash,
+            ?part_id)
+        .entered();
         let epoch_id = self.get_epoch_id(block_hash)?;
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &epoch_id)?;
         let trie = self.tries.get_view_trie_for_shard(shard_uid, state_root.clone());

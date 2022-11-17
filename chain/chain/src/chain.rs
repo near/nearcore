@@ -2824,6 +2824,13 @@ impl Chain {
         part_id: u64,
         sync_hash: CryptoHash,
     ) -> Result<Vec<u8>, Error> {
+        let _span = tracing::debug_span!(
+            target: "sync",
+            "get_state_response_part",
+            shard_id,
+            part_id,
+            %sync_hash)
+        .entered();
         // Check cache
         let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
         if let Ok(Some(state_part)) = self.store.store().get(DBCol::StateParts, &key) {
