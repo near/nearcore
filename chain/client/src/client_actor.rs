@@ -1152,8 +1152,9 @@ impl ClientActor {
                 self.client.runtime_adapter.get_block_producer(&epoch_id, height)?;
 
             if me == next_block_producer_account {
-                let num_chunks =
-                    self.client.get_num_chunks_ready_for_inclusion(&head.last_block_hash);
+                let num_chunks = self
+                    .client
+                    .num_chunk_headers_ready_for_inclusion(&epoch_id, &head.last_block_hash);
                 let have_all_chunks = head.height == 0
                     || num_chunks as u64
                         == self.client.runtime_adapter.num_shards(&epoch_id).unwrap();
@@ -2042,8 +2043,11 @@ impl Handler<WithSpanContext<ShardsManagerResponse>> for ClientActor {
             ShardsManagerResponse::InvalidChunk(encoded_chunk) => {
                 self.client.on_invalid_chunk(encoded_chunk);
             }
-            ShardsManagerResponse::ChunkHeaderReadyForInclusion(chunk_header) => {
-                self.client.on_chunk_header_ready_for_inclusion(chunk_header);
+            ShardsManagerResponse::ChunkHeaderReadyForInclusion {
+                chunk_header,
+                chunk_producer,
+            } => {
+                self.client.on_chunk_header_ready_for_inclusion(chunk_header, chunk_producer);
             }
         }
     }
