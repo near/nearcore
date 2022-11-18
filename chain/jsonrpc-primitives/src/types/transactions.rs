@@ -1,3 +1,4 @@
+use near_primitives::types::Finality;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -80,4 +81,27 @@ impl From<RpcTransactionError> for crate::errors::RpcError {
 
         Self::new_internal_or_handler_error(Some(error_data), error_data_value)
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct RpcBroadcastWaitTransactionRequest {
+    pub signed_transaction: near_primitives::transaction::SignedTransaction,
+    pub rpc_broadcast_wait_type: Option<RpcBroadcastWait>,
+}
+
+#[derive(Debug, Clone)]
+pub struct RpcBroadcastWait {
+    pub finality: Finality,
+    pub wait_type: TxWaitType,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "snake_case")]
+pub enum TxWaitType {
+    /// Waits only for inclusion into the block.
+    Inclusion,
+    /// Waits until all non-refund receipts are executed.
+    Executed,
+    /// Waits until everything has executed and is final.
+    Final,
 }

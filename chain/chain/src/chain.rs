@@ -40,15 +40,15 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
-    AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash,
-    NumBlocks, NumShards, ShardId, StateChangesForSplitStates, StateRoot,
+    AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, EpochId, Finality, Gas,
+    MerkleHash, NumBlocks, NumShards, ShardId, StateChangesForSplitStates, StateRoot,
 };
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::views::{
     BlockStatusView, DroppedReason, ExecutionOutcomeWithIdView, ExecutionStatusView,
     FinalExecutionOutcomeView, FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus,
-    LightClientBlockView, SignedTransactionView,
+    InclusionView, LightClientBlockView, SignedTransactionView,
 };
 #[cfg(feature = "protocol_feature_flat_state")]
 use near_store::{flat_state, StorageError};
@@ -3419,6 +3419,7 @@ impl Chain {
             .receipts_outcome
             .iter()
             .filter_map(|outcome| {
+                // TODO dig into why this case is handled specifically
                 if Some(outcome.id) == receipt_id_from_transaction && is_local_receipt {
                     None
                 } else {
@@ -3432,6 +3433,83 @@ impl Chain {
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(FinalExecutionOutcomeWithReceiptView { final_outcome, receipts })
+    }
+
+    fn get_execution_finality(
+        &self,
+        final_outcome_with_receipts: &FinalExecutionOutcomeWithReceiptView,
+    ) -> Result<Finality, Error> {
+        if !matches!(
+            final_outcome_with_receipts.final_outcome.status,
+            FinalExecutionStatus::Failure(_) | FinalExecutionStatus::SuccessValue(_)
+        ) {
+            // TODO verify this is a valid short-circuit
+            return Ok(Finality::None);
+        }
+
+        // Start with `Final` and downgrade if any receipt is not finalized.
+        let mut finality = Finality::Final;
+
+        // Query final head once, and use it for all receipts. This is to avoid redundancy as this
+        // will be queried at least once.
+        let finality_height = self.final_head()?.height;
+        // Lazily loaded doomslug finality height. This does not need to be queried if all receipts
+        // are finalized.
+        let doomslug_height = OnceCell::<u64>::new();
+
+        for receipt_outcome in &final_outcome_with_receipts.final_outcome.receipts_outcome {
+            let current_block = self.get_block(&receipt_outcome.block_hash)?;
+
+            if !self.is_on_current_chain(current_block.header())? {
+                // TODO is this the right assumption? Seems like this path should be unreachable
+                finality = Finality::None;
+            }
+
+            // The rationale for this check before others is that it is cheap and accounts for
+            // the vast majority of cases.
+            if matches!(finality, Finality::Final)
+                && current_block.header().height() > finality_height
+            {
+                // The rationale for this check before others is that it is cheap and accounts for
+                // the vast majority of cases.
+                finality = Finality::DoomSlug;
+            }
+
+            if matches!(finality, Finality::DoomSlug) {
+                let ds_block_height = doomslug_height
+                    .get_or_try_init::<_, Error>(|| Ok(self.get_doomslug_header()?.height()))?;
+
+                if current_block.header().height() > *ds_block_height {
+                    // If one receipt if not finalized, the tx execution is not final.
+                    finality = Finality::None;
+                    break;
+                }
+            }
+        }
+
+        Ok(finality)
+    }
+
+    /// Return finalized transaction inclusion
+    fn get_transaction_inclusion(
+        &self,
+        transaction_hash: &CryptoHash,
+    ) -> Result<InclusionView, Error> {
+        let transaction = self.store.get_transaction(transaction_hash)?.ok_or_else(|| {
+            Error::DBNotFoundErr(format!("Transaction {} is not found", transaction_hash))
+        })?;
+        let current_block = self.get_block_header(&transaction.transaction.block_hash)?;
+        let on_current_chain = self.is_on_current_chain(&current_block)?;
+        let finality = if on_current_chain && current_block.height() <= self.final_head()?.height {
+            Finality::Final
+        } else if on_current_chain && current_block.height() <= self.get_doomslug_header()?.height()
+        {
+            Finality::DoomSlug
+        } else {
+            Finality::None
+        };
+        let transaction: SignedTransactionView = SignedTransaction::clone(&transaction).into();
+        Ok(InclusionView { transaction, finality })
     }
 
     /// Find a validator to forward transactions to
@@ -4120,6 +4198,10 @@ impl Chain {
             counter *= 2;
         }
         Ok(path)
+    }
+
+    fn get_doomslug_header(&self) -> Result<BlockHeader, Error> {
+        self.get_block_header(&self.head_header()?.last_ds_final_block())
     }
 }
 

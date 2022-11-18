@@ -13,13 +13,14 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::PartialEncodedChunk;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, EpochId, ShardId};
+use near_primitives::types::{AccountId, EpochId, Finality, ShardId};
 use near_primitives::views::FinalExecutionOutcomeView;
 
 /// Transaction status query
 #[derive(actix::Message)]
 #[rtype(result = "Option<Box<FinalExecutionOutcomeView>>")]
 pub(crate) struct TxStatusRequest {
+    pub finality: Finality,
     pub tx_hash: CryptoHash,
     pub signer_account_id: AccountId,
 }
@@ -158,11 +159,13 @@ impl near_network::client::Client for Adapter {
         &self,
         account_id: AccountId,
         tx_hash: CryptoHash,
+        // TODO is breaking this interface okay?
+        finality: Finality,
     ) -> Option<Box<FinalExecutionOutcomeView>> {
         match self
             .view_client_addr
             .send(
-                TxStatusRequest { tx_hash: tx_hash, signer_account_id: account_id }
+                TxStatusRequest { tx_hash: tx_hash, signer_account_id: account_id, finality }
                     .with_span_context(),
             )
             .await

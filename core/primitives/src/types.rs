@@ -23,7 +23,7 @@ pub use near_primitives_core::types::*;
 pub type StateRoot = CryptoHash;
 
 /// Different types of finality.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, arbitrary::Arbitrary)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, arbitrary::Arbitrary)]
 pub enum Finality {
     #[serde(rename = "optimistic")]
     None,

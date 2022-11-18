@@ -45,7 +45,7 @@ use crate::types::{
     AccountId, AccountWithPublicKey, Balance, BlockHeight, CompiledContractCache, EpochHeight,
     EpochId, FunctionArgs, Gas, Nonce, NumBlocks, ShardId, StateChangeCause, StateChangeKind,
     StateChangeValue, StateChangeWithCause, StateChangesRequest, StateRoot, StorageUsage, StoreKey,
-    StoreValue, ValidatorKickoutReason,
+    StoreValue, ValidatorKickoutReason, Finality,
 };
 use crate::version::{ProtocolVersion, Version};
 use validator_stake_view::ValidatorStakeView;
@@ -1146,6 +1146,8 @@ impl From<SignedTransaction> for SignedTransactionView {
 pub enum FinalExecutionStatus {
     /// The execution has not yet started.
     NotStarted,
+    /// The transaction is included in the block but has not started execution.
+    Included,
     /// The execution has started and still going.
     Started,
     /// The execution has failed with the given error.
@@ -1159,6 +1161,7 @@ impl fmt::Debug for FinalExecutionStatus {
         match self {
             FinalExecutionStatus::NotStarted => f.write_str("NotStarted"),
             FinalExecutionStatus::Started => f.write_str("Started"),
+            FinalExecutionStatus::Included => f.write_str("Included"),
             FinalExecutionStatus::Failure(e) => f.write_fmt(format_args!("Failure({:?})", e)),
             FinalExecutionStatus::SuccessValue(v) => {
                 f.write_fmt(format_args!("SuccessValue({})", pretty::AbbrBytes(v)))
@@ -1461,6 +1464,14 @@ pub struct FinalExecutionOutcomeWithReceiptView {
     pub final_outcome: FinalExecutionOutcomeView,
     /// Receipts generated from the transaction
     pub receipts: Vec<ReceiptView>,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq, Clone)]
+pub struct InclusionView {
+    /// Finality of the inclusion.
+    pub finality: Finality,
+    /// Signed Transaction
+    pub transaction: SignedTransactionView,
 }
 
 pub mod validator_stake_view {

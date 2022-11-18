@@ -11,7 +11,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::{ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, EpochId, ShardId};
+use near_primitives::types::{AccountId, EpochId, Finality, ShardId};
 use near_primitives::views::FinalExecutionOutcomeView;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -37,6 +37,7 @@ impl client::Client for Fake {
         &self,
         _account_id: AccountId,
         _tx_hash: CryptoHash,
+        _finality: Finality,
     ) -> Option<Box<FinalExecutionOutcomeView>> {
         unimplemented!();
     }

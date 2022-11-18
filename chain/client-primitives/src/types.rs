@@ -13,15 +13,16 @@ use near_primitives::merkle::{MerklePath, PartialMerkleTree};
 use near_primitives::network::PeerId;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{
-    AccountId, BlockHeight, BlockReference, EpochId, EpochReference, MaybeBlockId, ShardId,
-    TransactionOrReceiptId,
+    AccountId, BlockHeight, BlockReference, EpochId, EpochReference, Finality, MaybeBlockId,
+    ShardId, TransactionOrReceiptId,
 };
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
     BlockView, ChunkView, DownloadStatusView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
-    FinalExecutionOutcomeViewEnum, GasPriceView, LightClientBlockLiteView, LightClientBlockView,
-    MaintenanceWindowsView, QueryRequest, QueryResponse, ReceiptView, ShardSyncDownloadView,
-    StateChangesKindsView, StateChangesRequestView, StateChangesView, SyncStatusView,
+    FinalExecutionOutcomeViewEnum, GasPriceView, InclusionView, LightClientBlockLiteView,
+    LightClientBlockView, MaintenanceWindowsView, QueryRequest, QueryResponse, ReceiptView,
+    ShardSyncDownloadView, StateChangesKindsView, StateChangesRequestView, StateChangesView,
+    SyncStatusView,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 use serde::Serialize;
@@ -588,6 +589,15 @@ pub struct TxStatus {
     pub tx_hash: CryptoHash,
     pub signer_account_id: AccountId,
     pub fetch_receipt: bool,
+    pub finality: Finality,
+}
+
+/// Details of a transaction inclusion. A similar query to [TxStatus] but does not include
+/// transaction result and receipts.
+pub struct TxInclusion {
+    pub tx_hash: CryptoHash,
+    pub signer_account_id: AccountId,
+    pub finality: Finality,
 }
 
 #[derive(Debug)]
@@ -606,6 +616,10 @@ impl From<near_chain_primitives::Error> for TxStatusError {
 
 impl Message for TxStatus {
     type Result = Result<Option<FinalExecutionOutcomeViewEnum>, TxStatusError>;
+}
+
+impl Message for TxInclusion {
+    type Result = Result<Option<InclusionView>, TxStatusError>;
 }
 
 pub struct GetValidatorInfo {

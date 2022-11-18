@@ -24,7 +24,7 @@ use near_client_primitives::types::{
     GetMaintenanceWindowsError, GetNextLightClientBlockError, GetProtocolConfig,
     GetProtocolConfigError, GetReceipt, GetReceiptError, GetStateChangesError,
     GetStateChangesWithCauseInBlock, GetStateChangesWithCauseInBlockForTrackedShards,
-    GetValidatorInfoError, Query, QueryError, TxStatus, TxStatusError,
+    GetValidatorInfoError, Query, QueryError, TxInclusion, TxStatus, TxStatusError,
 };
 #[cfg(feature = "test_features")]
 use near_network::types::NetworkAdversarialMessage;
@@ -51,9 +51,9 @@ use near_primitives::types::{
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
-    FinalExecutionOutcomeView, FinalExecutionOutcomeViewEnum, GasPriceView, LightClientBlockView,
-    MaintenanceWindowsView, QueryRequest, QueryResponse, ReceiptView, StateChangesKindsView,
-    StateChangesView,
+    FinalExecutionOutcomeView, FinalExecutionOutcomeViewEnum, GasPriceView, InclusionView,
+    LightClientBlockView, MaintenanceWindowsView, QueryRequest, QueryResponse, ReceiptView,
+    StateChangesKindsView, StateChangesView,
 };
 
 use crate::adapter::{
@@ -412,11 +412,13 @@ impl ViewClientActor {
         }
     }
 
+    // TODO here
     fn get_tx_status(
         &mut self,
         tx_hash: CryptoHash,
         signer_account_id: AccountId,
         fetch_receipt: bool,
+        finality: Finality,
     ) -> Result<Option<FinalExecutionOutcomeViewEnum>, TxStatusError> {
         {
             let mut request_manager = self.request_manager.write().expect(POISONED_LOCK_ERR);
@@ -648,7 +650,21 @@ impl Handler<WithSpanContext<TxStatus>> for ViewClientActor {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["TxStatus"]).start_timer();
-        self.get_tx_status(msg.tx_hash, msg.signer_account_id, msg.fetch_receipt)
+        self.get_tx_status(msg.tx_hash, msg.signer_account_id, msg.fetch_receipt, msg.finality)
+    }
+}
+
+impl Handler<WithSpanContext<TxInclusion>> for ViewClientActor {
+    type Result = Result<Option<InclusionView>, TxStatusError>;
+
+    #[perf]
+    fn handle(&mut self, msg: WithSpanContext<TxInclusion>, _: &mut Self::Context) -> Self::Result {
+        let (_span, msg) = handler_debug_span!(target: "client", msg);
+        let _timer =
+            metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["TxStatus"]).start_timer();
+        // self.get_tx_status(msg.tx_hash, msg.signer_account_id, msg.finality)
+        // TODO
+        todo!()
     }
 }
 
@@ -1112,8 +1128,8 @@ impl Handler<WithSpanContext<TxStatusRequest>> for ViewClientActor {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["TxStatusRequest"]).start_timer();
-        let TxStatusRequest { tx_hash, signer_account_id } = msg;
-        if let Ok(Some(result)) = self.get_tx_status(tx_hash, signer_account_id, false) {
+        let TxStatusRequest { tx_hash, signer_account_id, finality } = msg;
+        if let Ok(Some(result)) = self.get_tx_status(tx_hash, signer_account_id, false, finality) {
             Some(Box::new(result.into_outcome()))
         } else {
             None
