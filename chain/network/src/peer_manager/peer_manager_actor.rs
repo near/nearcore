@@ -5,7 +5,7 @@ use crate::network_protocol::{
     AccountData, AccountOrPeerIdOrHash, Edge, PeerMessage, Ping, Pong, RawRoutedMessage,
     RoutedMessageBody, StateResponseInfo, SyncAccountsData,
 };
-use crate::peer::peer_actor::{PeerActor, FDS_PER_PEER};
+use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
 use crate::peer_manager::network_state::{NetworkState, WhitelistNode};
 use crate::peer_manager::peer_store;
@@ -77,17 +77,12 @@ const PRUNE_EDGES_AFTER: time::Duration = time::Duration::minutes(30);
 const UNRELIABLE_PEER_HORIZON: u64 = 60;
 
 /// Due to implementation limits of `Graph` in `near-network`, we support up to 128 client.
-pub const MAX_TIER2_PEERS: usize = 128;
+pub const MAX_NUM_PEERS: usize = 128;
 
 /// When picking a peer to connect to, we'll pick from the 'safer peers'
 /// (a.k.a. ones that we've been connected to in the past) with these odds.
 /// Otherwise, we'd pick any peer that we've heard about.
 const PREFER_PREVIOUSLY_CONNECTED_PEER: f64 = 0.6;
-
-/// Maximal number of TIER1 + TIER2 peers.
-const MAX_PEERS: usize = 1000;
-/// PeerManager (together with the whole ActixSystem) creates 13 file descriptors.
-pub const FDS_PER_PEER_MANAGER: u64 = (MAX_PEERS * FDS_PER_PEER + 13) as u64;
 
 /// Actor that manages peers connections.
 pub struct PeerManagerActor {

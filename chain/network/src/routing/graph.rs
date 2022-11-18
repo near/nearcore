@@ -1,4 +1,4 @@
-use crate::peer_manager::peer_manager_actor::MAX_TIER2_PEERS;
+use crate::peer_manager::peer_manager_actor::MAX_NUM_PEERS;
 use near_primitives::network::PeerId;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -163,7 +163,7 @@ impl Graph {
 
         {
             let neighbors = &self.adjacency[self.source_id as usize];
-            for (id, &neighbor) in neighbors.iter().enumerate().take(MAX_TIER2_PEERS) {
+            for (id, &neighbor) in neighbors.iter().enumerate().take(MAX_NUM_PEERS) {
                 if !self.unreliable_peers.contains(&neighbor) {
                     queue.push_back(neighbor);
                 }
@@ -222,7 +222,7 @@ impl Graph {
             let peer_set = neighbors
                 .iter()
                 .enumerate()
-                .take(MAX_TIER2_PEERS)
+                .take(MAX_NUM_PEERS)
                 .filter(|(id, _)| (cur_route & (1u128 << id)) != 0)
                 .map(|(_, &neighbor)| self.id2p[neighbor as usize].clone())
                 .collect();

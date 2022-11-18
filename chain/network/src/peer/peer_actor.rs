@@ -56,14 +56,6 @@ const DROP_DUPLICATED_MESSAGES_PERIOD: time::Duration = time::Duration::millisec
 /// How often to send the latest block to peers.
 const SYNC_LATEST_BLOCK_INTERVAL: time::Duration = time::Duration::seconds(60);
 
-/// Each actix arbiter (in fact, the underlying tokio runtime) creates 4 file descriptors:
-/// 1. eventfd2()
-/// 2. epoll_create1()
-/// 3. fcntl() duplicating one end of some globally shared socketpair()
-/// 4. fcntl() duplicating epoll socket created in (2)
-/// This gives 5 file descriptors per PeerActor (4 + 1 TCP socket).
-pub(crate) const FDS_PER_PEER: usize = 5;
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConnectionClosedEvent {
     pub(crate) stream_id: tcp::StreamId,
