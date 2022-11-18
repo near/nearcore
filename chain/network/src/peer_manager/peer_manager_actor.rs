@@ -16,9 +16,9 @@ use crate::store;
 use crate::tcp;
 use crate::time;
 use crate::types::{
-    ConnectedPeerInfo, FullPeerInfo, GetNetworkInfo, KnownProducer, NetworkInfo, NetworkRequests,
-    NetworkResponses, PeerIdOrHash, PeerManagerMessageRequest, PeerManagerMessageResponse,
-    PeerType, SetChainInfo,
+    ConnectedPeerInfo, GetNetworkInfo, HighestHeightPeerInfo, KnownProducer, NetworkInfo,
+    NetworkRequests, NetworkResponses, PeerIdOrHash, PeerManagerMessageRequest,
+    PeerManagerMessageResponse, PeerType, SetChainInfo,
 };
 use actix::fut::future::wrap_future;
 use actix::{Actor, AsyncContext, Context, Handler, Running};
@@ -332,12 +332,18 @@ impl PeerManagerActor {
     }
 
     /// Returns peers close to the highest height
-    fn highest_height_peers(&self) -> Vec<FullPeerInfo> {
-        let infos: Vec<_> =
-            self.state.tier2.load().ready.values().map(|p| p.full_peer_info()).collect();
+    fn highest_height_peers(&self) -> Vec<HighestHeightPeerInfo> {
+        let infos: Vec<HighestHeightPeerInfo> = self
+            .state
+            .tier2
+            .load()
+            .ready
+            .values()
+            .filter_map(|p| p.full_peer_info().into())
+            .collect();
 
         // This finds max height among peers, and returns one peer close to such height.
-        let max_height = match infos.iter().map(|i| i.chain_info.height).max() {
+        let max_height = match infos.iter().map(|i| i.highest_block_height).max() {
             Some(height) => height,
             None => return vec![],
         };
@@ -345,7 +351,7 @@ impl PeerManagerActor {
         infos
             .into_iter()
             .filter(|i| {
-                i.chain_info.height.saturating_add(self.state.config.highest_peer_horizon)
+                i.highest_block_height.saturating_add(self.state.config.highest_peer_horizon)
                     >= max_height
             })
             .collect()
@@ -354,16 +360,29 @@ impl PeerManagerActor {
     // Get peers that are potentially unreliable and we should avoid routing messages through them.
     // Currently we're picking the peers that are too much behind (in comparison to us).
     fn unreliable_peers(&self) -> HashSet<PeerId> {
-        let my_height = self.state.chain_info.load().height;
+        // If chain info is not set, that means we haven't received chain info message
+        // from chain yet. Return empty set in that case. This should only last for a short period
+        // of time.
+        let binding = self.state.chain_info.load();
+        let chain_info = if let Some(it) = binding.as_ref() {
+            it
+        } else {
+            return HashSet::new();
+        };
+        let my_height = chain_info.block.header().height();
         // Find all peers whose height is below `highest_peer_horizon` from max height peer(s).
+        // or the ones we don't have height information yet
         self.state
             .tier2
             .load()
             .ready
             .values()
             .filter(|p| {
-                p.chain_height.load(Ordering::Relaxed).saturating_add(UNRELIABLE_PEER_HORIZON)
-                    < my_height
+                p.last_block
+                    .load()
+                    .as_ref()
+                    .map(|x| x.height.saturating_add(UNRELIABLE_PEER_HORIZON) < my_height)
+                    .unwrap_or(true)
             })
             .map(|p| p.peer_info.id.clone())
             .collect()
@@ -413,7 +432,7 @@ impl PeerManagerActor {
 
         // If there is not enough archival peers, add them to the safe set.
         if self.state.config.archive {
-            let archival_peers = filter_peers(&|p| p.initial_chain_info.archival);
+            let archival_peers = filter_peers(&|p| p.archival);
             if archival_peers.len()
                 <= self.state.config.archival_peer_connections_lower_bound as usize
             {
@@ -757,9 +776,11 @@ impl PeerManagerActor {
                     } else {
                         let mut matching_peers = vec![];
                         for (peer_id, peer) in &self.state.tier2.load().ready {
-                            if (peer.initial_chain_info.archival || !target.only_archival)
-                                && peer.chain_height.load(Ordering::Relaxed) >= target.min_height
-                                && peer.initial_chain_info.tracked_shards.contains(&target.shard_id)
+                            let last_block = peer.last_block.load();
+                            if (peer.archival || !target.only_archival)
+                                && last_block.is_some()
+                                && last_block.as_ref().unwrap().height >= target.min_height
+                                && peer.tracked_shards.contains(&target.shard_id)
                             {
                                 matching_peers.push(peer_id.clone());
                             }
@@ -945,7 +966,7 @@ impl Handler<WithSpanContext<SetChainInfo>> for PeerManagerActor {
         // just require the caller to await for completion before calling
         // SetChainInfo again. Alternatively we could have an async mutex
         // on the handler.
-        state.chain_info.store(Arc::new(info.clone()));
+        state.chain_info.store(Arc::new(Some(info.clone())));
 
         // If enable_tier1 is false, we skip set_keys() call.
         // This way self.state.accounts_data is always empty, hence no data
