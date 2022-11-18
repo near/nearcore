@@ -1,11 +1,13 @@
 ## Security Vulnerabilities
 
 <blockquote style="background: rgba(255, 200, 0, 0.1); border: 5px solid rgba(255, 200, 0, 0.4);">
+
 The intended audience of the information presented here are developers working
 on the implementation of NEAR.
 
 Are you a security researcher?  Please report security vulnerabilities to
-security@near.org.
+[security@near.org](mailto:security@near.org).
+
 </blockquote>
 
 As nearcore is open source, all of its issues and pull requests are also
