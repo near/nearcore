@@ -1943,6 +1943,10 @@ impl Chain {
                 preprocess_res
             }
             Err(e) => {
+                if e.is_bad_data() {
+                    metrics::NUM_INVALID_BLOCKS.inc();
+                    self.invalid_blocks.put(*block.hash(), ());
+                }
                 preprocess_timer.stop_and_discard();
                 match &e {
                     Error::Orphan => {
