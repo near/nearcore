@@ -42,7 +42,7 @@ async fn ttl() {
     let stream = tcp::Stream::connect(&pm.peer_info()).await.unwrap();
     let mut peer = peer::testonly::PeerHandle::start_endpoint(clock.clock(), cfg, stream).await;
     peer.complete_handshake().await;
-    pm.wait_for_routing_table(&mut clock, &[(peer.cfg.id(), vec![peer.cfg.id()])]).await;
+    pm.wait_for_routing_table(&[(peer.cfg.id(), vec![peer.cfg.id()])]).await;
 
     for ttl in 0..5 {
         let msg = RoutedMessageBody::Ping(Ping { nonce: rng.gen(), source: peer.cfg.id() });
@@ -263,7 +263,6 @@ async fn square() {
     let id3 = pm3.cfg.node_id();
 
     pm0.wait_for_routing_table(
-        &mut clock,
         &[
             (id1.clone(), vec![id1.clone()]),
             (id3.clone(), vec![id3.clone()]),
@@ -275,19 +274,16 @@ async fn square() {
     drop(pm1);
     tracing::info!(target:"test","wait for {id0} routing table");
     pm0.wait_for_routing_table(
-        &mut clock,
         &[(id3.clone(), vec![id3.clone()]), (id2.clone(), vec![id3.clone()])],
     )
     .await;
     tracing::info!(target:"test","wait for {id2} routing table");
     pm2.wait_for_routing_table(
-        &mut clock,
         &[(id3.clone(), vec![id3.clone()]), (id0.clone(), vec![id3.clone()])],
     )
     .await;
     tracing::info!(target:"test","wait for {id3} routing table");
     pm3.wait_for_routing_table(
-        &mut clock,
         &[(id2.clone(), vec![id2.clone()]), (id0.clone(), vec![id0.clone()])],
     )
     .await;

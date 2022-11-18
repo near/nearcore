@@ -336,7 +336,6 @@ impl ActorHandler {
     // Awaits until the routing_table matches `want`.
     pub async fn wait_for_routing_table(
         &self,
-        clock: &mut time::FakeClock,
         want: &[(PeerId, Vec<PeerId>)],
     ) {
         let mut events = self.events.from_now();

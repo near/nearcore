@@ -259,8 +259,8 @@ impl GraphWithCache {
         }).await
     }
 
-    pub fn load(&self) -> Arc<im::HashMap<EdgeKey, Edge>> {
-        self.edges.load_full()
+    pub fn load(&self) -> im::HashMap<EdgeKey, Edge> {
+        self.edges.load().as_ref().clone()
     }
 
     pub async fn update_routing_table(&self, clock: &time::Clock, edges: Vec<Edge>) -> (Vec<Edge>,Arc<NextHopTable>) {
