@@ -1,13 +1,14 @@
+use crate::broadcast;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{Edge, Encoding, Ping, RoutedMessageBody, RoutingTableUpdate};
 use crate::peer;
 use crate::peer_manager;
-use crate::peer_manager::peer_manager_actor;
 use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::peer_manager::testonly::start as start_pm;
 use crate::peer_manager::testonly::Event;
+use crate::store;
 use crate::tcp;
-use crate::testonly::make_rng;
+use crate::testonly::{make_rng, Rng};
 use crate::time;
 use crate::types::PeerMessage;
 use near_o11y::testonly::init_test_logger;
@@ -152,17 +153,20 @@ async fn repeated_data_in_sync_routing_table() {
 
 /// Awaits for SyncRoutingTable messages until all edges from `want` arrive.
 /// Panics if any other edges arrive.
-async fn wait_for_edges(peer: &mut peer::testonly::PeerHandle, want: &HashSet<Edge>) {
+async fn wait_for_edges(
+    mut events: broadcast::Receiver<peer::testonly::Event>,
+    want: &HashSet<Edge>,
+) {
     let mut got = HashSet::new();
     tracing::info!(target: "test", "want edges: {:?}",want.iter().map(|e|e.hash()).collect::<Vec<_>>());
     while &got != want {
-        match peer.events.recv().await {
+        match events.recv().await {
             peer::testonly::Event::Network(PME::MessageProcessed(
                 PeerMessage::SyncRoutingTable(msg),
             )) => {
                 tracing::info!(target: "test", "got edges: {:?}",msg.edges.iter().map(|e|e.hash()).collect::<Vec<_>>());
                 got.extend(msg.edges);
-                assert!(want.is_superset(&got));
+                assert!(want.is_superset(&got), "want: {:#?}, got: {:#?}", want, got);
             }
             // Ignore other messages.
             _ => {}
@@ -171,88 +175,61 @@ async fn wait_for_edges(peer: &mut peer::testonly::PeerHandle, want: &HashSet<Ed
 }
 
 // After each handshake a full sync of routing table is performed with the peer.
-// After a restart, all the edges reside in storage. The node shouldn't broadcast
+// After a restart, some edges reside in storage. The node shouldn't broadcast
 // edges which it learned about before the restart.
-// 
-// This test is fragile, because the routing table has been implemented
-// in a way that is hard to define, so it doesn't have any reasonable properties to expect and test.
-// Still we want to limit the traffic it generates until we replace it with a reasonable solution.
-#[tokio::test]
-async fn no_edge_broadcast_after_restart() {
-    init_test_logger();
-    let mut rng = make_rng(921853233);
-    let rng = &mut rng;
-    let mut clock = time::FakeClock::default();
-    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
-
-    let mut total_edges = HashSet::new();
-    let store = near_store::db::TestDB::new();
-
-    for i in 0..3 {
-        println!("iteration {i}");
-        // Start a PeerManager and connect a peer to it.
-        let pm = peer_manager::testonly::start(
-            clock.clock(),
-            store.clone(),
-            chain.make_config(rng),
-            chain.clone(),
-        )
-        .await;
-        let cfg = peer::testonly::PeerConfig {
-            network: chain.make_config(rng),
-            chain: chain.clone(),
-            force_encoding: Some(Encoding::Proto),
-            nonce: None,
-        };
-        let stream = tcp::Stream::connect(&pm.peer_info()).await.unwrap();
-        let mut peer = peer::testonly::PeerHandle::start_endpoint(clock.clock(), cfg, stream).await;
-        peer.complete_handshake().await;
-        // Await for the new edge to be received in the initial sync.
-        // It should be the only edge, as all previous edges are in storage.
-        wait_for_edges(&mut peer, &[peer.edge.unwrap().clone()]).await;
-
-        // Create a bunch of fresh unreachable edges, then send all the edges created so far.
-        let mut fresh_edges: HashSet<_> = [
+    let make_edges = |rng: &mut Rng| {
+        vec![
             data::make_edge(&data::make_secret_key(rng), &data::make_secret_key(rng), 1),
             data::make_edge(&data::make_secret_key(rng), &data::make_secret_key(rng), 1),
             data::make_edge_tombstone(&data::make_secret_key(rng), &data::make_secret_key(rng)),
         ]
-        .into();
-        total_edges.extend(fresh_edges.clone());
-        // We capture the events starting here to record all the edge prunnings after the
-        // SyncRoutingTable below is processed.
-        let mut events = pm.events.from_now();
-        peer.send(PeerMessage::SyncRoutingTable(RoutingTableUpdate {
-            edges: total_edges.iter().cloned().collect::<Vec<_>>(),
-            accounts: vec![],
-        }))
-        .await;
+    };
 
-        // Wait for the fresh edges and the connection edge to be broadcasted back.
-        tracing::info!(target: "test", "wait_for_edges(<fresh edges>)");
-        wait_for_edges(&mut peer, &fresh_edges).await;
+    // Create a bunch of fresh unreachable edges, then send all the edges created so far.
+    let stored_edges = make_edges(rng);
 
-        // Wait for all the disconnected edges created so far to be saved to storage.
-        tracing::info!(target: "test", "wait for pruning");
-        let mut pruned = HashSet::new();
-        while pruned != total_edges {
-            events
-                .recv_until(|ev| match ev {
-                    Event::PeerManager(PME::MessageProcessed(PeerMessage::SyncRoutingTable {
-                        ..
-                    })) => {
-                        clock.advance(peer_manager_actor::UPDATE_ROUTING_TABLE_INTERVAL);
-                        None
-                    }
-                    Event::PeerManager(PME::RoutingTableUpdate { pruned_edges, .. }) => {
-                        pruned.extend(pruned_edges);
-                        Some(())
-                    }
-                    _ => None,
-                })
-                .await;
+    // We are preparing the initial storage by hand (rather than simulating the restart),
+    // because semantics of the RoutingTable protocol are very poorly defined, and it
+    // is hard to write a solid test for it without literally assuming the implementation details.
+    let store = near_store::db::TestDB::new();
+    {
+        let mut stored_peers = HashSet::new();
+        for e in &stored_edges {
+            stored_peers.insert(e.key().0.clone());
+            stored_peers.insert(e.key().1.clone());
         }
+        let mut store: store::Store = store.clone().into();
+        store.push_component(&stored_peers, &stored_edges).unwrap();
     }
+
+    // Start a PeerManager and connect a peer to it.
+    let pm =
+        peer_manager::testonly::start(clock.clock(), store, chain.make_config(rng), chain.clone())
+            .await;
+    let peer = pm
+        .start_inbound(chain.clone(), chain.make_config(rng))
+        .await
+        .handshake(&clock.clock())
+        .await;
+    tracing::info!(target:"test","pm = {}",pm.cfg.node_id());
+    tracing::info!(target:"test","peer = {}",peer.cfg.id());
+    // Wait for the initial sync, which will contain just 1 edge.
+    // Only incremental sync are guaranteed to not contain already known edges.
+    wait_for_edges(peer.events.clone(), &[peer.edge.clone().unwrap()].into()).await;
+
+    let fresh_edges = make_edges(rng);
+    let mut total_edges = stored_edges.clone();
+    total_edges.extend(fresh_edges.iter().cloned());
+    let events = peer.events.from_now();
+    peer.send(PeerMessage::SyncRoutingTable(RoutingTableUpdate {
+        edges: total_edges,
+        accounts: vec![],
+    }))
+    .await;
+
+    // Wait for the fresh edges to be broadcasted back.
+    tracing::info!(target: "test", "wait_for_edges(<fresh edges>)");
+    wait_for_edges(events, &fresh_edges.into_iter().collect()).await;
 }
 
 #[tokio::test]
