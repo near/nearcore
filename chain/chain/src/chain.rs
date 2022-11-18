@@ -3365,38 +3365,62 @@ impl Chain {
         Ok(results)
     }
 
-    pub fn get_final_transaction_result(
+    fn is_block_final(&self, hash: &CryptoHash, finality: Finality) -> Result<bool, Error> {
+        let check_height = match finality {
+            Finality::Final => Some(self.final_head()?.height),
+            Finality::DoomSlug => Some(self.get_doomslug_header()?.height()),
+            Finality::None => None,
+        };
+
+        if let Some(height) = check_height {
+            Ok(self.get_block_header(&hash)?.height() <= height)
+        } else {
+            Ok(true)
+        }
+    }
+
+    fn get_transaction_result_internal(
         &self,
         transaction_hash: &CryptoHash,
+        finality_check: Finality,
     ) -> Result<FinalExecutionOutcomeView, Error> {
         let mut outcomes = self.get_recursive_transaction_results(transaction_hash)?;
         let mut looking_for_id = *transaction_hash;
         let num_outcomes = outcomes.len();
-        let status = outcomes
-            .iter()
-            .find_map(|outcome_with_id| {
-                if outcome_with_id.id == looking_for_id {
-                    match &outcome_with_id.outcome.status {
-                        ExecutionStatusView::Unknown if num_outcomes == 1 => {
-                            Some(FinalExecutionStatus::NotStarted)
-                        }
-                        ExecutionStatusView::Unknown => Some(FinalExecutionStatus::Started),
-                        ExecutionStatusView::Failure(e) => {
-                            Some(FinalExecutionStatus::Failure(e.clone()))
-                        }
-                        ExecutionStatusView::SuccessValue(v) => {
-                            Some(FinalExecutionStatus::SuccessValue(v.clone()))
-                        }
-                        ExecutionStatusView::SuccessReceiptId(id) => {
-                            looking_for_id = *id;
-                            None
+        let mut status = None;
+        for outcome_with_id in &outcomes {
+            if outcome_with_id.id == looking_for_id {
+                match &outcome_with_id.outcome.status {
+                    ExecutionStatusView::Unknown if num_outcomes == 1 => {
+                        status = Some(FinalExecutionStatus::NotStarted);
+                    }
+                    ExecutionStatusView::Unknown => {
+                        status = Some(FinalExecutionStatus::Started);
+                    }
+                    ExecutionStatusView::Failure(e) => {
+                        if self.is_block_final(&outcome_with_id.block_hash, finality_check)? {
+                            status = Some(FinalExecutionStatus::Failure(e.clone()));
+                        } else {
+                            status = Some(FinalExecutionStatus::Started);
                         }
                     }
-                } else {
-                    None
+                    ExecutionStatusView::SuccessValue(v) => {
+                        if self.is_block_final(&outcome_with_id.block_hash, finality_check)? {
+                            status = Some(FinalExecutionStatus::SuccessValue(v.clone()));
+                        } else {
+                            status = Some(FinalExecutionStatus::Started);
+                        }
+                    }
+                    ExecutionStatusView::SuccessReceiptId(id) => {
+                        looking_for_id = *id;
+                        continue;
+                    }
                 }
-            })
-            .expect("results should resolve to a final outcome");
+                break;
+            }
+        }
+        let status = status.expect("results should resolve to a final outcome");
+
         let receipts_outcome = outcomes.split_off(1);
         let transaction = self.store.get_transaction(transaction_hash)?.ok_or_else(|| {
             Error::DBNotFoundErr(format!("Transaction {} is not found", transaction_hash))
@@ -3404,6 +3428,13 @@ impl Chain {
         let transaction: SignedTransactionView = SignedTransaction::clone(&transaction).into();
         let transaction_outcome = outcomes.pop().unwrap();
         Ok(FinalExecutionOutcomeView { status, transaction, transaction_outcome, receipts_outcome })
+    }
+
+    pub fn get_final_transaction_result(
+        &self,
+        transaction_hash: &CryptoHash,
+    ) -> Result<FinalExecutionOutcomeView, Error> {
+        self.get_transaction_result_internal(transaction_hash, Finality::None)
     }
 
     pub fn get_final_transaction_result_with_receipt(
@@ -3458,18 +3489,16 @@ impl Chain {
         let doomslug_height = OnceCell::<u64>::new();
 
         for receipt_outcome in &final_outcome_with_receipts.final_outcome.receipts_outcome {
-            let current_block = self.get_block(&receipt_outcome.block_hash)?;
+            let current_block = self.get_block_header(&receipt_outcome.block_hash)?;
 
-            if !self.is_on_current_chain(current_block.header())? {
+            if !self.is_on_current_chain(&current_block)? {
                 // TODO is this the right assumption? Seems like this path should be unreachable
                 finality = Finality::None;
             }
 
             // The rationale for this check before others is that it is cheap and accounts for
             // the vast majority of cases.
-            if matches!(finality, Finality::Final)
-                && current_block.header().height() > finality_height
-            {
+            if matches!(finality, Finality::Final) && current_block.height() > finality_height {
                 // The rationale for this check before others is that it is cheap and accounts for
                 // the vast majority of cases.
                 finality = Finality::DoomSlug;
@@ -3479,7 +3508,7 @@ impl Chain {
                 let ds_block_height = doomslug_height
                     .get_or_try_init::<_, Error>(|| Ok(self.get_doomslug_header()?.height()))?;
 
-                if current_block.header().height() > *ds_block_height {
+                if current_block.height() > *ds_block_height {
                     // If one receipt if not finalized, the tx execution is not final.
                     finality = Finality::None;
                     break;
