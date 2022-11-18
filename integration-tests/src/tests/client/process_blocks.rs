@@ -31,10 +31,11 @@ use near_client::{
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
 use near_network::test_utils::{wait_or_panic, MockPeerManagerAdapter};
 use near_network::types::{
-    ConnectedPeerInfo, NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse,
+    BlockInfo, ConnectedPeerInfo, HighestHeightPeerInfo, NetworkInfo, PeerChainInfo,
+    PeerManagerMessageRequest, PeerManagerMessageResponse,
 };
 use near_network::types::{FullPeerInfo, NetworkRequests, NetworkResponses};
-use near_network::types::{PeerChainInfoV2, PeerInfo, ReasonForBan};
+use near_network::types::{PeerInfo, ReasonForBan};
 use near_o11y::testonly::{init_integration_logger, init_test_logger};
 use near_o11y::WithSpanContextExt;
 use near_primitives::block::{Approval, ApprovalInner};
@@ -1028,25 +1029,22 @@ fn client_sync_headers() {
             SetNetworkInfo(NetworkInfo {
                 connected_peers: vec![ConnectedPeerInfo::from(&FullPeerInfo {
                     peer_info: peer_info2.clone(),
-                    chain_info: PeerChainInfoV2 {
+                    chain_info: PeerChainInfo {
                         genesis_id: Default::default(),
-                        height: 5,
+                        last_block: Some(BlockInfo { height: 5, hash: hash(&[5]) }),
                         tracked_shards: vec![],
                         archival: false,
                     },
-                    partial_edge_info: near_network::types::PartialEdgeInfo::default(),
                 })],
                 num_connected_peers: 1,
                 peer_max_count: 1,
-                highest_height_peers: vec![FullPeerInfo {
+                highest_height_peers: vec![HighestHeightPeerInfo {
                     peer_info: peer_info2,
-                    chain_info: PeerChainInfoV2 {
-                        genesis_id: Default::default(),
-                        height: 5,
-                        tracked_shards: vec![],
-                        archival: false,
-                    },
-                    partial_edge_info: near_network::types::PartialEdgeInfo::default(),
+                    genesis_id: Default::default(),
+                    highest_block_height: 5,
+                    highest_block_hash: hash(&[5]),
+                    tracked_shards: vec![],
+                    archival: false,
                 }],
                 sent_bytes_per_sec: 0,
                 received_bytes_per_sec: 0,
@@ -2268,7 +2266,8 @@ fn test_validate_chunk_extra() {
     assert_eq!(accepted_blocks.len(), 1);
 
     // About to produce a block on top of block1. Validate that this chunk is legit.
-    let chunks = env.clients[0].get_chunk_headers_ready_for_inclusion(&block1.hash());
+    let chunks = env.clients[0]
+        .get_chunk_headers_ready_for_inclusion(block1.header().epoch_id(), &block1.hash());
     let chunk_extra =
         env.clients[0].chain.get_chunk_extra(block1.hash(), &ShardUId::single_shard()).unwrap();
     assert!(validate_chunk_with_chunk_extra(

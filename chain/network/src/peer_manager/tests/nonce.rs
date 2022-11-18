@@ -57,7 +57,7 @@ async fn test_nonces() {
     ];
 
     for test in test_cases {
-        println!("Running test {:?}", test.2);
+        tracing::info!(target: "test", "Running test {:?}", test.2);
         let cfg = peer::testonly::PeerConfig {
             network: chain.make_config(rng),
             chain: chain.clone(),

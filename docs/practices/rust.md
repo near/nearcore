@@ -51,16 +51,16 @@ This is a thing in its own category, do check it out:
 
 ## Language Mastery
 
+* [Rust for Rustaceans](https://nostarch.com/rust-rustaceans) — the book to read
+  after "The Book".
 * [Tokio docs](https://tokio.rs/tokio/tutorial) explain asynchronous programming
   in Rust (async/await).
-* [Rustonomicon](https://doc.rust-lang.org/nomicon/) explains `unsafe`. (any
-  resemblance to <https://nomicon.io> is purely coincidental)
 * [Rust API Guidelines](https://rust-lang.github.io/api-guidelines/about.html)
   codify rules for idiomatic Rust APIs. Note that guidelines apply to _semver
   surface_ of libraries, and most of the code in nearcore is not on the semver
   boundary. Still, a lot of insight there!
-* [Rust for Rustaceans](ttps://nostarch.com/rust-rustaceans) -- the book to read
-  after "The Book".
+* [Rustonomicon](https://doc.rust-lang.org/nomicon/) explains `unsafe`. (any
+  resemblance to <https://nomicon.io> is purely coincidental)
 
 ## Selected Blog Posts
 

@@ -975,11 +975,12 @@ impl ShardsManager {
             .collect()
     }
 
+    /// Returns true if we were able to answer the request. This is for testing.
     pub fn process_partial_encoded_chunk_request(
         &mut self,
         request: PartialEncodedChunkRequestMsg,
         route_back: CryptoHash,
-    ) {
+    ) -> bool {
         let _span = tracing::debug_span!(
             target: "chunks",
             "process_partial_encoded_chunk_request",
@@ -1005,8 +1006,10 @@ impl ShardsManager {
                     NetworkRequests::PartialEncodedChunkResponse { route_back, response },
                 )
                 .with_span_context(),
-            )
+            );
+            return true;
         }
+        false
     }
 
     fn prepare_partial_encoded_chunk_response(
@@ -1799,7 +1802,8 @@ impl ShardsManager {
 
         if have_all_parts && self.seals_mgr.should_trust_chunk_producer(&chunk_producer) {
             if self.encoded_chunks.mark_chunk_for_inclusion(&chunk_hash) {
-                self.client_adapter.chunk_header_ready_for_inclusion(header.clone());
+                self.client_adapter
+                    .chunk_header_ready_for_inclusion(header.clone(), chunk_producer);
             }
         }
         // we can safely unwrap here because we already checked that chunk_hash exist in encoded_chunks

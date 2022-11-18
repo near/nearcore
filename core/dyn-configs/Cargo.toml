@@ -11,3 +11,6 @@ repository = "https://github.com/near/nearcore"
 description = "Dynamic configure helpers for the near codebase"
 
 [dependencies]
+once_cell.workspace = true
+prometheus.workspace = true
+near-o11y = { path = "../o11y" }

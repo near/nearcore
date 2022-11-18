@@ -7,11 +7,11 @@ use near_chain::{Block, BlockHeader, Chain, ChainStoreAccess, Error};
 use near_chain_configs::GenesisConfig;
 use near_client::sync;
 use near_network::types::{
-    FullPeerInfo, NetworkInfo, NetworkRequests, NetworkResponses, PeerManagerMessageRequest,
-    PeerManagerMessageResponse, SetChainInfo,
+    BlockInfo, FullPeerInfo, NetworkInfo, NetworkRequests, NetworkResponses,
+    PeerManagerMessageRequest, PeerManagerMessageResponse, SetChainInfo,
 };
 use near_network::types::{
-    PartialEdgeInfo, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, PeerInfo,
+    PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, PeerInfo,
 };
 use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContext};
 use near_performance_metrics::actix::run_later;
@@ -219,26 +219,29 @@ impl MockPeerManagerActor {
         block_production_delay: Duration,
         network_config: &MockNetworkConfig,
     ) -> Self {
+        let start_block_hash = chain.get_block_hash_by_height(network_start_height).unwrap();
         // for now, we only simulate one peer
         // we will add more complicated network config in the future
         let peer = FullPeerInfo {
             peer_info: PeerInfo::random(),
-            chain_info: near_network::types::PeerChainInfoV2 {
+            chain_info: near_network::types::PeerChainInfo {
                 genesis_id: GenesisId {
                     chain_id: genesis_config.chain_id.clone(),
                     hash: *chain.genesis().hash(),
                 },
-                height: network_start_height,
                 tracked_shards: (0..genesis_config.shard_layout.num_shards()).collect(),
                 archival: false,
+                last_block: Some(BlockInfo {
+                    height: network_start_height,
+                    hash: start_block_hash,
+                }),
             },
-            partial_edge_info: PartialEdgeInfo::default(),
         };
         let network_info = NetworkInfo {
             connected_peers: vec![(&peer).into()],
             num_connected_peers: 1,
             peer_max_count: 1,
-            highest_height_peers: vec![peer],
+            highest_height_peers: vec![<FullPeerInfo as Into<Option<_>>>::into(peer).unwrap()],
             sent_bytes_per_sec: 0,
             received_bytes_per_sec: 0,
             known_producers: vec![],
@@ -273,7 +276,7 @@ impl MockPeerManagerActor {
         });
         for connected_peer in self.network_info.connected_peers.iter_mut() {
             let peer = &mut connected_peer.full_peer_info;
-            let current_height = peer.chain_info.height;
+            let current_height = peer.chain_info.last_block.unwrap().height;
             if current_height <= self.target_height {
                 if let Ok(block) =
                     self.chain_history_access.retrieve_block_by_height(current_height)
@@ -284,11 +287,24 @@ impl MockPeerManagerActor {
                         async move { client.block(block, peer_id, false).await }
                     });
                 }
-                peer.chain_info.height = current_height + 1;
+                let next_height = current_height + 1;
+                while next_height <= self.target_height {
+                    if let Ok(next_block) =
+                        self.chain_history_access.retrieve_block_by_height(next_height)
+                    {
+                        peer.chain_info.last_block =
+                            Some(BlockInfo { height: next_height, hash: *next_block.hash() });
+                        break;
+                    }
+                }
             }
         }
-        self.network_info.highest_height_peers =
-            self.network_info.connected_peers.iter().map(|it| it.full_peer_info.clone()).collect();
+        self.network_info.highest_height_peers = self
+            .network_info
+            .connected_peers
+            .iter()
+            .filter_map(|it| it.full_peer_info.clone().into())
+            .collect();
         near_performance_metrics::actix::run_later(
             ctx,
             self.block_production_delay,
