@@ -2265,7 +2265,8 @@ fn test_validate_chunk_extra() {
     assert_eq!(accepted_blocks.len(), 1);
 
     // About to produce a block on top of block1. Validate that this chunk is legit.
-    let chunks = env.clients[0].get_chunk_headers_ready_for_inclusion(&block1.hash());
+    let chunks = env.clients[0]
+        .get_chunk_headers_ready_for_inclusion(block1.header().epoch_id(), &block1.hash());
     let chunk_extra =
         env.clients[0].chain.get_chunk_extra(block1.hash(), &ShardUId::single_shard()).unwrap();
     assert!(validate_chunk_with_chunk_extra(
