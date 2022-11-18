@@ -20,7 +20,7 @@ use near_chain::chain::{
     OrphanMissingChunks, StateSplitRequest, TX_ROUTING_HEIGHT_HORIZON,
 };
 use near_chain::test_utils::format_hash;
-use near_chain::types::LatestKnown;
+use near_chain::types::{ChainConfig, LatestKnown};
 use near_chain::{
     BlockProcessingArtifact, BlockStatus, Chain, ChainGenesis, ChainStoreAccess,
     DoneApplyChunkCallback, Doomslug, DoomslugThresholdMode, Provenance, RuntimeAdapter,
@@ -188,7 +188,10 @@ impl Client {
             runtime_adapter.clone(),
             &chain_genesis,
             doomslug_threshold_mode,
-            !config.archive,
+            ChainConfig {
+                save_trie_changes: !config.archive,
+                background_work_threads: config.client_background_work_threads,
+            },
         )?;
         let me = validator_signer.as_ref().map(|x| x.validator_id().clone());
         let shards_mgr = ShardsManager::new(

@@ -56,7 +56,8 @@ use crate::block_processing_utils::BlockNotInPoolError;
 use crate::chain::Chain;
 use crate::store::ChainStoreAccess;
 use crate::types::{
-    AcceptedBlock, ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo, ChainGenesis,
+    AcceptedBlock, ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo, ChainConfig,
+    ChainGenesis,
 };
 use crate::{BlockHeader, DoomslugThresholdMode, RuntimeAdapter};
 use crate::{BlockProcessingArtifact, Provenance};
@@ -1425,7 +1426,7 @@ pub fn setup_with_tx_validity_period(
             protocol_version: PROTOCOL_VERSION,
         },
         DoomslugThresholdMode::NoApprovals,
-        true,
+        ChainConfig::default(),
     )
     .unwrap();
     let test_account = "test".parse::<AccountId>().unwrap();
@@ -1465,7 +1466,7 @@ pub fn setup_with_validators(
             protocol_version: PROTOCOL_VERSION,
         },
         DoomslugThresholdMode::NoApprovals,
-        true,
+        ChainConfig::default(),
     )
     .unwrap();
     (chain, runtime, signers)

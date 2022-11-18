@@ -380,6 +380,7 @@ mod tests {
     use near_store::test_utils::create_test_store;
 
     use crate::test_utils::KeyValueRuntime;
+    use crate::types::ChainConfig;
     use crate::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 
     use super::*;
@@ -395,7 +396,7 @@ mod tests {
             runtime_adapter.clone(),
             &chain_genesis,
             DoomslugThresholdMode::NoApprovals,
-            true,
+            ChainConfig::default(),
         )
         .unwrap();
         (chain, StoreValidator::new(None, genesis, runtime_adapter, store, false))

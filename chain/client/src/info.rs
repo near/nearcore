@@ -491,6 +491,7 @@ mod tests {
     use super::*;
     use assert_matches::assert_matches;
     use near_chain::test_utils::{KeyValueRuntime, ValidatorSchedule};
+    use near_chain::types::ChainConfig;
     use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
     use near_network::test_utils::peer_id_from_seed;
     use near_primitives::version::PROTOCOL_VERSION;
@@ -539,8 +540,13 @@ mod tests {
             protocol_version: PROTOCOL_VERSION,
         };
         let doomslug_threshold_mode = DoomslugThresholdMode::TwoThirds;
-        let chain =
-            Chain::new(runtime.clone(), &chain_genesis, doomslug_threshold_mode, true).unwrap();
+        let chain = Chain::new(
+            runtime.clone(),
+            &chain_genesis,
+            doomslug_threshold_mode,
+            ChainConfig::default(),
+        )
+        .unwrap();
 
         let telemetry = info_helper.telemetry_info(
             &chain.head().unwrap(),
