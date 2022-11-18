@@ -3033,6 +3033,7 @@ dependencies = [
  "ed25519-dalek",
  "hex-literal",
  "near-account-id",
+ "near-stdx",
  "once_cell",
  "primitive-types",
  "rand 0.7.3",
@@ -3040,7 +3041,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.2",
- "stdx",
  "subtle",
  "tempfile",
  "thiserror",
@@ -3518,6 +3518,10 @@ name = "near-stable-hasher"
 version = "0.0.0"
 
 [[package]]
+name = "near-stdx"
+version = "0.0.0"
+
+[[package]]
 name = "near-store"
 version = "0.0.0"
 dependencies = [
@@ -3538,6 +3542,7 @@ dependencies = [
  "near-crypto",
  "near-o11y",
  "near-primitives",
+ "near-stdx",
  "num_cpus",
  "once_cell",
  "rand 0.8.5",
@@ -3545,7 +3550,6 @@ dependencies = [
  "rocksdb",
  "serde",
  "serde_json",
- "stdx",
  "strum",
  "tempfile",
  "thiserror",
@@ -3607,13 +3611,13 @@ dependencies = [
  "near-o11y",
  "near-primitives",
  "near-primitives-core",
+ "near-stdx",
  "near-vm-errors",
  "ripemd",
  "serde",
  "serde_json",
  "sha2 0.10.2",
  "sha3",
- "stdx",
  "tracing",
  "zeropool-bn",
 ]
@@ -5483,10 +5487,6 @@ name = "static_assertions"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
-
-[[package]]
-name = "stdx"
-version = "0.0.0"
 
 [[package]]
 name = "storage-usage-delta-calculator"

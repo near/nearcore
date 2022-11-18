@@ -1,10 +1,10 @@
 [package]
-name = "stdx"
+name = "near-stdx"
 version = "0.0.0"
 authors.workspace = true
 edition.workspace = true
-publish = false
+publish = true
 
 [dependencies]
 # Absolutely must not depend on any crates from nearcore workspace,
-# and should have as few dependencies as possible otherwise. 
+# and should have as few dependencies as possible otherwise.

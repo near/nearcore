@@ -203,7 +203,7 @@ wat = "1.0.40"
 xshell = "0.2.1"
 xz2 = "0.1.6"
 
-stdx = { path = "utils/stdx" }
+stdx = { package = "near-stdx", path = "utils/stdx" }
 
 [patch.crates-io]
 
