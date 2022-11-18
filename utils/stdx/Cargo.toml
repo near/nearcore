@@ -6,4 +6,5 @@ edition.workspace = true
 publish = false
 
 [dependencies]
-# Must not depend on any crates from nearcore workspace.
+# Absolutely must not depend on any crates from nearcore workspace,
+# and should have as few dependencies as possible otherwise. 
