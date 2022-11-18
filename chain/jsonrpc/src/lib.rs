@@ -10,6 +10,7 @@ use actix_web::HttpRequest;
 use actix_web::{get, http, middleware, web, App, Error as HttpError, HttpResponse, HttpServer};
 use futures::Future;
 use futures::FutureExt;
+use near_client_primitives::types::TxInclusion;
 use near_network::PeerManagerActor;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -317,9 +318,7 @@ impl JsonRpcHandler {
                 process_method_call(request, |params| self.send_tx_sync(params)).await
             }
             "EXPERIMENTAL_broadcast" => {
-                todo!()
-                // TODO continue here
-                // process_method_call(request, |params| self.send_tx_broadcast(params)).await
+                process_method_call(request, |params| self.send_tx_broadcast(params)).await
             }
             "EXPERIMENTAL_changes" => {
                 process_method_call(request, |params| self.changes_in_block_by_type(params)).await
@@ -470,27 +469,26 @@ impl JsonRpcHandler {
     ) -> Result<bool, near_jsonrpc_primitives::types::transactions::RpcTransactionError> {
         timeout(self.polling_config.polling_timeout, async {
             loop {
-                // TODO(optimization): Introduce a view_client method to only get transaction
-                // status without the information about execution outcomes.
-                todo!();
-                // match self.view_client_send(
-                //     TxStatus {
-                //         tx_hash,
-                //         signer_account_id: signer_account_id.clone(),
-                //         fetch_receipt: false,
-                //     })
-                //     .await
-                // {
-                //     Ok(Some(_)) => {
-                //         return Ok(true);
-                //     }
-                //     Err(near_jsonrpc_primitives::types::transactions::RpcTransactionError::UnknownTransaction {
-                //         ..
-                //     }) => {
-                //         return Ok(false);
-                //     }
-                //     _ => {}
-                // }
+                match self.view_client_send(
+                    TxInclusion {
+                        tx_hash,
+                        signer_account_id: signer_account_id.clone(),
+                        // TODO check this, seems like it was previously relying on the tx inclusion
+                        // .. being final, but not certain
+                        finality: Finality::Final,
+                    })
+                    .await
+                {
+                    Ok(Some(_)) => {
+                        return Ok(true);
+                    }
+                    Err(near_jsonrpc_primitives::types::transactions::RpcTransactionError::UnknownTransaction {
+                        ..
+                    }) => {
+                        return Ok(false);
+                    }
+                    _ => {}
+                }
                 sleep(self.polling_config.polling_interval).await;
             }
         })
@@ -675,8 +673,7 @@ impl JsonRpcHandler {
         &self,
         request_data: near_jsonrpc_primitives::types::transactions::RpcBroadcastWaitTransactionRequest,
     ) -> Result<
-        (),
-        // near_jsonrpc_primitives::types::transactions::RpcBroadcastWaitResponse,
+        near_jsonrpc_primitives::types::transactions::RpcBroadcastWaitResponse,
         near_jsonrpc_primitives::types::transactions::RpcTransactionError,
     > {
         // let broadcast_wait_type = request_data.rpc_broadcast_wait_type;

@@ -25,7 +25,7 @@ use near_o11y::WithSpanContextExt;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::time::Utc;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{BlockId, BlockReference, EpochId};
+use near_primitives::types::{BlockId, BlockReference, EpochId, Finality};
 use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
@@ -174,6 +174,7 @@ fn test_execution_outcome_for_chunk() {
                         tx_hash,
                         signer_account_id: "test".parse().unwrap(),
                         fetch_receipt: false,
+                        finality: Finality::Final,
                     }
                     .with_span_context(),
                 )

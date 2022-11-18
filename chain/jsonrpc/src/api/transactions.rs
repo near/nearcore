@@ -1,10 +1,13 @@
+use near_primitives::transaction::SignedTransaction;
+use serde::Deserialize;
 use serde_json::Value;
 
 use near_client_primitives::types::TxStatusError;
 use near_jsonrpc_primitives::errors::RpcParseError;
 use near_jsonrpc_primitives::types::transactions::{
-    RpcBroadcastTransactionRequest, RpcTransactionError, RpcTransactionResponse,
-    RpcTransactionStatusCommonRequest, TransactionInfo,
+    RpcBroadcastTransactionRequest, RpcBroadcastWait, RpcBroadcastWaitTransactionRequest,
+    RpcTransactionError, RpcTransactionResponse, RpcTransactionStatusCommonRequest,
+    TransactionInfo,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::AccountId;
@@ -29,6 +32,16 @@ impl RpcRequest for RpcTransactionStatusCommonRequest {
             let transaction_info = TransactionInfo::Transaction(signed_transaction);
             Ok(Self { transaction_info })
         }
+    }
+}
+
+impl RpcRequest for RpcBroadcastWaitTransactionRequest {
+    fn parse(value: Option<Value>) -> Result<Self, RpcParseError> {
+        #[derive(Deserialize)]
+        struct RpcParams(SignedTransaction, #[serde(default)] Option<RpcBroadcastWait>);
+        let RpcParams(signed_transaction, rpc_broadcast_wait_type) =
+            parse_params::<RpcParams>(value)?;
+        Ok(Self { signed_transaction, rpc_broadcast_wait_type })
     }
 }
 

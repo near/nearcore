@@ -89,10 +89,16 @@ pub struct RpcBroadcastWaitTransactionRequest {
     pub rpc_broadcast_wait_type: Option<RpcBroadcastWait>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct RpcBroadcastWait {
     pub finality: Finality,
     pub wait_type: TxWaitType,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct RpcBroadcastWaitResponse {
+    pub transaction_hash: near_primitives::hash::CryptoHash,
+    pub final_execution_outcome: Option<near_primitives::views::FinalExecutionOutcomeViewEnum>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
