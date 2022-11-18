@@ -3,7 +3,6 @@ mod watchers;
 
 use self::cli::NeardCmd;
 use anyhow::Context;
-use near_network::types::FDS_PER_PEER_MANAGER;
 use near_primitives::version::{Version, PROTOCOL_VERSION};
 use near_store::metadata::DB_VERSION;
 use nearcore::get_default_home;
@@ -60,10 +59,18 @@ fn main() -> anyhow::Result<()> {
     openssl_probe::init_ssl_cert_env_vars();
     near_performance_metrics::process::schedule_printing_performance_stats(Duration::from_secs(60));
 
-    let limit = rlimit::Resource::NOFILE.get().unwrap();
+    // The default FD soft limit in linux is 1024.
+    // We use more than that, for example we support up to 1000 TCP
+    // connections, using 5 FDs per each connection.
+    // We consider 2^16 to be a reasonable limit for this binary,
+    // and we enforce it here. We also set the hard limit to the same value
+    // to prevent the inner logic from trying to bump it further:
+    // FD limit is a global variable, so it shouldn't be modified in an
+    // uncoordinated way.
+    const FD_LIMIT: u64 = 65536;
     rlimit::Resource::NOFILE
-        .set(std::cmp::min(limit.1, limit.0 + FDS_PER_PEER_MANAGER), limit.1)
-        .unwrap();
+        .set(FD_LIMIT, FD_LIMIT)
+        .context(format!("couldn't set the file descriptor limit to {FD_LIMIT}"))?;
 
     NeardCmd::parse_and_run()
 }
