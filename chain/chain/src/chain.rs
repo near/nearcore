@@ -654,7 +654,11 @@ impl Chain {
         store_update.commit()?;
 
         // Create flat storage or initiate migration to flat storage.
-        let flat_storage_creator = FlatStorageCreator::new(runtime_adapter.clone(), &store);
+        let flat_storage_creator = FlatStorageCreator::new(
+            runtime_adapter.clone(),
+            &store,
+            chain_config.background_work_threads,
+        );
 
         info!(target: "chain", "Init: header head @ #{} {}; block head @ #{} {}",
               header_head.height, header_head.last_block_hash,
