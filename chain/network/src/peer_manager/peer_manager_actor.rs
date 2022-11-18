@@ -273,13 +273,10 @@ impl PeerManagerActor {
                     arbiter.spawn({
                         let clock = clock.clone();
                         let state = state.clone();
-                        let mut interval = tokio::time::interval(
-                            cfg.advertise_proxies_interval.try_into().unwrap(),
-                        );
-                        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                        let mut interval = time::Interval::new(clock.now(),cfg.advertise_proxies_interval);
                         async move {
                             loop {
-                                interval.tick().await;
+                                interval.tick(&clock).await;
                                 state.tier1_advertise_proxies(&clock).await;
                             }
                         }
