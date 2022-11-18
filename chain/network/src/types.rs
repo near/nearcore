@@ -16,10 +16,10 @@ use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::PartialEncodedChunkWithArcReceipts;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::BlockHeight;
-use near_primitives::types::{AccountId, EpochId, ShardId};
+use near_primitives::types::{AccountId, ShardId};
 use near_primitives::views::{KnownProducerView, NetworkInfoView, PeerInfoView};
 use once_cell::sync::OnceCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -127,7 +127,7 @@ impl KnownPeerStatus {
 /// Set of account keys.
 /// This is information which chain pushes to network to implement tier1.
 /// See ChainInfo.
-pub type AccountKeys = HashMap<(EpochId, AccountId), PublicKey>;
+pub type AccountKeys = HashMap<AccountId, HashSet<PublicKey>>;
 
 /// Network-relevant data about the chain.
 // TODO(gprusak): it is more like node info, or sth.

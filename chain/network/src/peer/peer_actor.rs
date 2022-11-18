@@ -110,9 +110,6 @@ pub(crate) struct PeerActor {
     peer_addr: SocketAddr,
     /// Peer type.
     peer_type: PeerType,
-    /// OUTBOUND-ONLY: Handshake specification. For outbound connections it is initialized
-    /// in constructor and then can change as HandshakeFailure and LastEdge messages
-    /// are received. For inbound connections, handshake is stateless.
 
     /// Framed wrapper to send messages through the TCP connection.
     framed: stream::FramedStream<PeerActor>,
