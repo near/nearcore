@@ -676,9 +676,9 @@ pub(crate) fn apply_delegate_action(
         apply_state.current_protocol_version,
     )?;
     let required_gas = receipt_required_gas(apply_state, &new_receipt)?;
-    result.gas_used += required_gas;
-    result.gas_used += prepaid_send_fees;
-    result.gas_burnt += prepaid_send_fees;
+    result.gas_used = safe_add_gas(result.gas_used, required_gas)?;
+    result.gas_used = safe_add_gas(result.gas_used, prepaid_send_fees)?;
+    result.gas_burnt = safe_add_gas(result.gas_burnt, prepaid_send_fees)?;
     result.new_receipts.push(new_receipt);
 
     Ok(())
