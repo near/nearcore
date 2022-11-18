@@ -236,6 +236,20 @@ pub struct ChainGenesis {
     pub protocol_version: ProtocolVersion,
 }
 
+pub struct ChainStoreConfig {
+    /// Whether we should save `TrieChanges` on disk or not.
+    pub save_trie_changes: bool,
+    /// Number of threads to execute auxiliary background work.
+    /// Currently used for flat storage background creation.
+    pub background_work_threads: usize,
+}
+
+impl Default for ChainStoreConfig {
+    fn default() -> Self {
+        Self { save_trie_changes: true, background_work_threads: 1 }
+    }
+}
+
 impl ChainGenesis {
     pub fn new(genesis: &Genesis) -> Self {
         Self {
