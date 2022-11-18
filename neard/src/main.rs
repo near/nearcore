@@ -67,10 +67,11 @@ fn main() -> anyhow::Result<()> {
     // to prevent the inner logic from trying to bump it further:
     // FD limit is a global variable, so it shouldn't be modified in an
     // uncoordinated way.
-    const FD_LIMIT: u64 = 1<<15;
-    rlimit::Resource::NOFILE
-        .set(FD_LIMIT, FD_LIMIT)
-        .context(format!("couldn't set the file descriptor limit to {FD_LIMIT}"))?;
+    const FD_LIMIT: u64 = 65536;
+    let (_, hard) = rlimit::Resource::NOFILE.get().context("rlimit::Resource::NOFILE::get()")?;
+    rlimit::Resource::NOFILE.set(FD_LIMIT, FD_LIMIT).context(format!(
+        "couldn't set the file descriptor limit to {FD_LIMIT}, hard limit = {hard}"
+    ))?;
 
     NeardCmd::parse_and_run()
 }
