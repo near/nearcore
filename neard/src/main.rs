@@ -62,12 +62,12 @@ fn main() -> anyhow::Result<()> {
     // The default FD soft limit in linux is 1024.
     // We use more than that, for example we support up to 1000 TCP
     // connections, using 5 FDs per each connection.
-    // We consider 2^16 to be a reasonable limit for this binary,
+    // We consider 65535 to be a reasonable limit for this binary,
     // and we enforce it here. We also set the hard limit to the same value
     // to prevent the inner logic from trying to bump it further:
     // FD limit is a global variable, so it shouldn't be modified in an
     // uncoordinated way.
-    const FD_LIMIT: u64 = 65536;
+    const FD_LIMIT: u64 = 65535;
     let (_, hard) = rlimit::Resource::NOFILE.get().context("rlimit::Resource::NOFILE::get()")?;
     rlimit::Resource::NOFILE.set(FD_LIMIT, FD_LIMIT).context(format!(
         "couldn't set the file descriptor limit to {FD_LIMIT}, hard limit = {hard}"
