@@ -74,7 +74,7 @@ impl super::NetworkState {
         }
         self.tier2.broadcast_message(Arc::new(PeerMessage::SyncAccountsData(SyncAccountsData {
             incremental: true,
-            requesting_full_sync: false,
+            requesting_full_sync: true,
             accounts_data: new_data.clone(),
         })));
         self.config.event_sink.push(Event::Tier1AdvertiseProxies(new_data.clone()));

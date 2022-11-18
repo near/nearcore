@@ -3,7 +3,7 @@ use crate::config;
 use crate::debug::{DebugStatus, GetDebugStatus};
 use crate::network_protocol::{
     AccountOrPeerIdOrHash, Edge, PeerMessage, Ping, Pong, RawRoutedMessage, RoutedMessageBody,
-    SignedAccountData, StateResponseInfo, SyncAccountsData,
+    SignedAccountData, StateResponseInfo,
 };
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
@@ -273,7 +273,8 @@ impl PeerManagerActor {
                     arbiter.spawn({
                         let clock = clock.clone();
                         let state = state.clone();
-                        let mut interval = time::Interval::new(clock.now(),cfg.advertise_proxies_interval);
+                        let mut interval =
+                            time::Interval::new(clock.now(), cfg.advertise_proxies_interval);
                         async move {
                             loop {
                                 interval.tick(&clock).await;
@@ -1003,16 +1004,11 @@ impl actix::Handler<WithSpanContext<SetChainInfo>> for PeerManagerActor {
                 // and this node won't be able to connect to proxies until it happens (and only the
                 // connected proxies are included in the advertisement). We run tier1_advertise_proxies
                 // periodically in the background anyway to cover those cases.
+                //
+                // The set of tier1 accounts has changed, so we might be missing some accounts_data
+                // that our peers know about. tier1_advertise_proxies() has a side effect
+                // of asking peers for a full sync of the accounts_data with the TIER2 peers.
                 state.tier1_advertise_proxies(&clock).await;
-                // The set of tier1 accounts has changed.
-                // We might miss some data, so we start a full sync with the tier2 peers.
-                state.tier2.broadcast_message(Arc::new(PeerMessage::SyncAccountsData(
-                    SyncAccountsData {
-                        incremental: false,
-                        requesting_full_sync: true,
-                        accounts_data: state.accounts_data.load().data.values().cloned().collect(),
-                    },
-                )));
                 state.config.event_sink.push(Event::SetChainInfo);
             }
             .in_current_span(),
