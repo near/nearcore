@@ -8,7 +8,6 @@ use crate::testonly::make_rng;
 use crate::time;
 use near_crypto::Signature;
 use near_primitives::network::PeerId;
-use parking_lot::RwLock;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -17,10 +16,11 @@ fn edge(p0: &PeerId, p1: &PeerId, nonce: u64) -> Edge {
 }
 
 struct RoutingTableTest {
+    me: PeerId,
     clock: time::FakeClock,
     rng: crate::testonly::Rng,
     db: Arc<dyn near_store::db::Database>,
-    graph: Arc<RwLock<routing::GraphWithCache>>,
+    graph: routing::GraphWithCache,
     // This is the system runner attached to the given test's system thread.
     // Allows to create actors within the test.
     _system: actix::SystemRunner,
@@ -38,31 +38,23 @@ impl RoutingTableTest {
         data::make_peer_id(&mut self.rng)
     }
 
-    fn me(&self) -> PeerId {
-        self.graph.read().my_peer_id()
-    }
-
     fn new() -> Self {
         let mut rng = make_rng(87927345);
         let clock = time::FakeClock::default();
         let me = data::make_peer_id(&mut rng);
         let db = near_store::db::TestDB::new();
 
-        let graph = Arc::new(RwLock::new(routing::GraphWithCache::new(me.clone())));
-        Self { rng, clock, graph, db, _system: actix::System::new() }
-    }
-
-    fn new_actor(&self) -> routing::actor::Actor {
-        routing::actor::Actor::new(
-            self.clock.clock(),
-            store::Store::from(self.db.clone()),
-            self.graph.clone(),
-        )
+        let graph = routing::GraphWithCache::new(routing::GraphConfig{
+            node_id: me.clone(),
+            prune_unreachable_peers_after: time::Duration::hours(1000),
+            prune_edges_after: None,
+        }, store::Store::from(db.clone()));
+        Self { me, rng, clock, graph, db, _system: actix::System::new() }
     }
 
     fn check(&mut self, want_mem: &[Edge], want_db: &[Component]) {
         let store = store::Store::from(self.db.clone());
-        let got_mem = self.graph.read().edges().clone();
+        let got_mem = self.graph.load();
         let got_mem: HashMap<_, _> = got_mem.iter().collect();
         let mut want_mem_map = HashMap::new();
         for e in want_mem {
@@ -89,34 +81,28 @@ const SEC: time::Duration = time::Duration::seconds(1);
 #[test]
 fn one_edge() {
     let mut test = RoutingTableTest::new();
-    let mut actor = test.new_actor();
     let p1 = test.make_peer();
     let e1 = edge(&test.me(), &p1, 1);
     let e1v2 = edge(&test.me(), &p1, 2);
 
     // Add an active edge.
-    actor.add_verified_edges(vec![e1.clone()]);
-    test.check(&[e1.clone()], &[]);
-
     // Update RT with pruning. NOOP, since p1 is reachable.
-    actor.update_routing_table(Some(test.clock.now()), None);
+    test.graph.update_routing_table(&test.clock, vec![e1.clone()]);
     test.check(&[e1.clone()], &[]);
 
     // Override with an inactive edge.
-    actor.add_verified_edges(vec![e1v2.clone()]);
+    test.graph.update_routing_table(&test.clock, vec![e1v2.clone()]);
     test.check(&[e1v2.clone()], &[]);
 
-    // After 2s, update RT without pruning.
+    // After 2s, update RT with pruning unreachable for 3s.
+    // NOOP, since p1 is unreachable for 2s.
     test.clock.advance(2 * SEC);
-    actor.update_routing_table(None, None);
-    test.check(&[e1v2.clone()], &[]);
-
-    // Update RT with pruning unreachable for 3s. NOOP, since p1 is unreachable for 2s.
-    actor.update_routing_table(Some(test.clock.now() - 3 * SEC), None);
+    test.graph.update_routing_table(&test.clock, vec![]);
     test.check(&[e1v2.clone()], &[]);
 
     // Update RT with pruning unreachable for 1s. p1 should be moved to DB.
-    actor.update_routing_table(Some(test.clock.now() - SEC), None);
+    test.clock.advance(2 * SEC);
+    actor.update_routing_table(&test.clock, vec![]);
     test.check(&[], &[Component { edges: vec![e1v2.clone()], peers: vec![p1.clone()] }]);
 }
 

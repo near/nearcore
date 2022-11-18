@@ -10,6 +10,7 @@ use crate::network_protocol::{
 use crate::peer::peer_actor::{ClosingReason, ConnectionClosedEvent};
 use crate::peer_manager::connection;
 use crate::peer_manager::peer_store;
+use crate::peer_manager::peer_manager_actor::Event;
 use crate::private_actix::RegisterPeerError;
 use crate::routing::routing_table_view::RoutingTableView;
 use crate::stats::metrics;

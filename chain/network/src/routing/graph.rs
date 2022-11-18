@@ -277,7 +277,7 @@ mod test {
         graph.add_edge(&source, &node0);
 
         assert!(expected_routing_tables(
-            &graph.calculate_distance(),
+            &graph.calculate_distance(&HashSet::new()),
             &[(node0.clone(), vec![node0.clone()])],
         ));
 
@@ -296,7 +296,7 @@ mod test {
         graph.add_edge(&nodes[2], &nodes[1]);
         graph.add_edge(&nodes[1], &nodes[2]);
 
-        assert!(expected_routing_tables(&graph.calculate_distance(), &[]));
+        assert!(expected_routing_tables(&graph.calculate_distance(&HashSet::new()), &[]));
 
         assert_eq!(2, graph.total_active_edges() as usize);
         assert_eq!(2, graph.compute_total_active_edges() as usize);
@@ -315,7 +315,7 @@ mod test {
         graph.add_edge(&source, &nodes[0]);
 
         assert!(expected_routing_tables(
-            &graph.calculate_distance(),
+            &graph.calculate_distance(&HashSet::new()),
             &[
                 (nodes[0].clone(), vec![nodes[0].clone()]),
                 (nodes[1].clone(), vec![nodes[0].clone()]),
@@ -340,7 +340,7 @@ mod test {
         graph.add_edge(&source, &nodes[1]);
 
         assert!(expected_routing_tables(
-            &graph.calculate_distance(),
+            &graph.calculate_distance(&HashSet::new()),
             &[
                 (nodes[0].clone(), vec![nodes[0].clone()]),
                 (nodes[1].clone(), vec![nodes[1].clone()]),
@@ -392,7 +392,7 @@ mod test {
             next_hops.push((node.clone(), target.clone()));
         }
 
-        assert!(expected_routing_tables(&graph.calculate_distance(), &next_hops));
+        assert!(expected_routing_tables(&graph.calculate_distance(&HashSet::new()), &next_hops));
 
         assert_eq!(22, graph.total_active_edges() as usize);
         assert_eq!(22, graph.compute_total_active_edges() as usize);
@@ -421,7 +421,7 @@ mod test {
 
         // Dummy edge.
         graph.add_edge(&nodes[9], &nodes[10]);
-        graph.set_unreliable_peers(HashSet::from([nodes[0].clone()]));
+        let unreliable_peers = HashSet::from([nodes[0].clone()]);
 
         let mut next_hops: Vec<_> =
             (0..3).map(|i| (nodes[i].clone(), vec![nodes[i].clone()])).collect();
@@ -431,7 +431,7 @@ mod test {
             next_hops.push((node.clone(), target.clone()));
         }
 
-        assert!(expected_routing_tables(&graph.calculate_distance(), &next_hops));
+        assert!(expected_routing_tables(&graph.calculate_distance(&unreliable_peers), &next_hops));
 
         assert_eq!(22, graph.total_active_edges() as usize);
         assert_eq!(22, graph.compute_total_active_edges() as usize);
@@ -453,7 +453,7 @@ mod test {
         graph.add_edge(&nodes[3], &nodes[1]);
         graph.add_edge(&nodes[0], &nodes[1]);
 
-        graph.set_unreliable_peers(HashSet::from([nodes[0].clone()]));
+        let unreliable_peers = HashSet::from([nodes[0].clone()]);
 
         let next_hops = vec![
             (nodes[0].clone(), vec![nodes[0].clone()]),
@@ -461,6 +461,6 @@ mod test {
             (nodes[2].clone(), vec![nodes[2].clone()]),
             (nodes[3].clone(), vec![nodes[2].clone()]),
         ];
-        assert!(expected_routing_tables(&graph.calculate_distance(), &next_hops));
+        assert!(expected_routing_tables(&graph.calculate_distance(&unreliable_peers), &next_hops));
     }
 }

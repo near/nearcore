@@ -177,6 +177,14 @@ async fn wait_for_edges(
 // After each handshake a full sync of routing table is performed with the peer.
 // After a restart, some edges reside in storage. The node shouldn't broadcast
 // edges which it learned about before the restart.
+#[tokio::test]
+async fn no_edge_broadcast_after_restart() {
+    init_test_logger();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
     let make_edges = |rng: &mut Rng| {
         vec![
             data::make_edge(&data::make_secret_key(rng), &data::make_secret_key(rng), 1),

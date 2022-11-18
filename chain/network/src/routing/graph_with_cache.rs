@@ -189,7 +189,7 @@ impl Inner {
         trace!(target: "network", "Update routing table.");
 
         let total = edges.len();
-        // load the components BEFORE graph.update_edges
+        // load the components BEFORE updating the edges. 
         // so that result doesn't contain edges we already have in storage.
         // It is especially important for initial full sync with peers, because
         // we broadcast all the returned edges to all connected peers.
