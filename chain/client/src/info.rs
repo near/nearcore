@@ -544,7 +544,7 @@ mod tests {
             runtime.clone(),
             &chain_genesis,
             doomslug_threshold_mode,
-            ChainConfig::default(),
+            ChainConfig::test(),
         )
         .unwrap();
 

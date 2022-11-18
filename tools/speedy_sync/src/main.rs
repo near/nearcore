@@ -239,7 +239,7 @@ fn load_snapshot(load_cmd: LoadCmd) {
         DoomslugThresholdMode::TwoThirds,
         ChainConfig {
             save_trie_changes: !config.client_config.archive,
-            background_work_threads: 1,
+            background_migration_threads: 1,
         },
     )
     .unwrap();

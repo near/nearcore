@@ -396,7 +396,7 @@ mod tests {
             runtime_adapter.clone(),
             &chain_genesis,
             DoomslugThresholdMode::NoApprovals,
-            ChainConfig::default(),
+            ChainConfig::test(),
         )
         .unwrap();
         (chain, StoreValidator::new(None, genesis, runtime_adapter, store, false))

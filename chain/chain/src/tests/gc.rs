@@ -34,7 +34,7 @@ fn get_chain_with_epoch_length_and_num_shards(
         runtime_adapter,
         &chain_genesis,
         DoomslugThresholdMode::NoApprovals,
-        ChainConfig::default(),
+        ChainConfig::test(),
     )
     .unwrap()
 }

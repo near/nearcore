@@ -657,7 +657,7 @@ impl Chain {
         let flat_storage_creator = FlatStorageCreator::new(
             runtime_adapter.clone(),
             &store,
-            chain_config.background_work_threads,
+            chain_config.background_migration_threads,
         );
 
         info!(target: "chain", "Init: header head @ #{} {}; block head @ #{} {}",

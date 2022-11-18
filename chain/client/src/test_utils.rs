@@ -222,7 +222,7 @@ pub fn setup(
         runtime.clone(),
         &chain_genesis,
         doomslug_threshold_mode,
-        ChainConfig { save_trie_changes: !archive, background_work_threads: 1 },
+        ChainConfig { save_trie_changes: !archive, background_migration_threads: 1 },
     )
     .unwrap();
     let genesis_block = chain.get_block(&chain.genesis().hash().clone()).unwrap();
@@ -312,7 +312,7 @@ pub fn setup_only_view(
         runtime.clone(),
         &chain_genesis,
         doomslug_threshold_mode,
-        ChainConfig { save_trie_changes: !archive, background_work_threads: 1 },
+        ChainConfig { save_trie_changes: !archive, background_migration_threads: 1 },
     )
     .unwrap();
 

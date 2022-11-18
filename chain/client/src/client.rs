@@ -190,7 +190,7 @@ impl Client {
             doomslug_threshold_mode,
             ChainConfig {
                 save_trie_changes: !config.archive,
-                background_work_threads: config.client_background_work_threads,
+                background_migration_threads: config.client_background_migration_threads,
             },
         )?;
         let me = validator_signer.as_ref().map(|x| x.validator_id().clone());

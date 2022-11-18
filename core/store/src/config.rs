@@ -83,10 +83,10 @@ pub struct StoreConfig {
     #[serde(skip_serializing_if = "MigrationSnapshot::is_default")]
     pub migration_snapshot: MigrationSnapshot,
 
-    /// Number of threads to execute background work with storage.
+    /// Number of threads to execute storage background migrations.
     /// Needed to create flat storage which need to happen in parallel
     /// with block processing.
-    pub background_work_threads: usize,
+    pub background_migration_threads: usize,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -212,7 +212,7 @@ impl Default for StoreConfig {
 
             // We checked that this number of threads doesn't impact
             // regular block processing significantly.
-            background_work_threads: 8,
+            background_migration_threads: 8,
         }
     }
 }

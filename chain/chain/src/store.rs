@@ -3008,7 +3008,7 @@ mod tests {
             runtime_adapter,
             &chain_genesis,
             DoomslugThresholdMode::NoApprovals,
-            ChainConfig::default(),
+            ChainConfig::test(),
         )
         .unwrap()
     }
