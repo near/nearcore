@@ -11,7 +11,7 @@ impl super::NetworkState {
         &self,
         accounts_data: &accounts_data::CacheSnapshot,
     ) -> Option<&config::ValidatorConfig> {
-        if self.config.features.tier1.is_none() {
+        if self.config.tier1.is_none() {
             return None;
         }
         self.config

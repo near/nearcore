@@ -65,9 +65,7 @@ impl ValidatorConfig {
 }
 
 #[derive(Clone)]
-pub struct Features {
-    pub tier1: Option<Tier1>,
-}
+pub struct Features {}
 
 #[derive(Clone)]
 pub struct Tier1 {
@@ -136,8 +134,8 @@ pub struct NetworkConfig {
     pub accounts_data_broadcast_rate_limit: demux::RateLimit,
     /// Maximal rate at which RoutingTableUpdate can be sent out.
     pub routing_table_update_rate_limit: demux::RateLimit,
-    /// features
-    pub features: Features,
+    /// Config of the TIER1 network.
+    pub tier1: Option<Tier1>,
 
     // Whether to ignore tombstones some time after startup.
     //
@@ -158,7 +156,6 @@ impl NetworkConfig {
         node_key: SecretKey,
         validator_signer: Option<Arc<dyn ValidatorSigner>>,
         archive: bool,
-        features: Features,
     ) -> anyhow::Result<Self> {
         if cfg.public_addrs.len() > MAX_PEER_ADDRS {
             anyhow::bail!(
@@ -258,7 +255,7 @@ impl NetworkConfig {
             archive,
             accounts_data_broadcast_rate_limit: demux::RateLimit { qps: 0.1, burst: 1 },
             routing_table_update_rate_limit: demux::RateLimit { qps: 0.5, burst: 1 },
-            features,
+            tier1: Some(Tier1 { advertise_proxies_interval: time::Duration::minutes(15) }),
             inbound_disabled: cfg.experimental.inbound_disabled,
             skip_tombstones: if cfg.experimental.skip_sending_tombstones_seconds > 0 {
                 Some(time::Duration::seconds(cfg.experimental.skip_sending_tombstones_seconds))
@@ -323,13 +320,11 @@ impl NetworkConfig {
             archive: false,
             accounts_data_broadcast_rate_limit: demux::RateLimit { qps: 100., burst: 1000000 },
             routing_table_update_rate_limit: demux::RateLimit { qps: 100., burst: 1000000 },
-            features: Features {
-                tier1: Some(Tier1 {
-                    // Interval is very large, so that it doesn't happen spontaneously in tests.
-                    // It should rather be triggered manually in tests.
-                    advertise_proxies_interval: time::Duration::hours(1000),
-                }),
-            },
+            tier1: Some(Tier1 {
+                // Interval is very large, so that it doesn't happen spontaneously in tests.
+                // It should rather be triggered manually in tests.
+                advertise_proxies_interval: time::Duration::hours(1000),
+            }),
             skip_tombstones: None,
             event_sink: Sink::null(),
         }

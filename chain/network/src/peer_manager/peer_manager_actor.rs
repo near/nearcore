@@ -268,7 +268,7 @@ impl PeerManagerActor {
             let state = state.clone();
             let clock = clock.clone();
             async move {
-                if let Some(cfg) = state.config.features.tier1.clone() {
+                if let Some(cfg) = state.config.tier1.clone() {
                     // Connect to TIER1 proxies and broadcast the list those connections periodically.
                     arbiter.spawn({
                         let clock = clock.clone();
@@ -985,7 +985,7 @@ impl actix::Handler<WithSpanContext<SetChainInfo>> for PeerManagerActor {
         // If tier1 is not enabled, we skip set_keys() call.
         // This way self.state.accounts_data is always empty, hence no data
         // will be collected or broadcasted.
-        if state.config.features.tier1.is_none() {
+        if state.config.tier1.is_none() {
             state.config.event_sink.push(Event::SetChainInfo);
             return;
         }
