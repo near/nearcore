@@ -597,7 +597,6 @@ pub struct TxStatus {
 pub struct TxInclusion {
     pub tx_hash: CryptoHash,
     pub signer_account_id: AccountId,
-    pub finality: Finality,
 }
 
 #[derive(Debug)]

@@ -3519,14 +3519,15 @@ impl Chain {
         Ok(finality)
     }
 
-    /// Return finalized transaction inclusion
-    fn get_transaction_inclusion(
+    /// Return transaction inclusion with finality of the inclusion.
+    pub fn get_transaction_inclusion(
         &self,
         transaction_hash: &CryptoHash,
-    ) -> Result<InclusionView, Error> {
-        let transaction = self.store.get_transaction(transaction_hash)?.ok_or_else(|| {
-            Error::DBNotFoundErr(format!("Transaction {} is not found", transaction_hash))
-        })?;
+    ) -> Result<Option<InclusionView>, Error> {
+        let transaction = match self.store.get_transaction(transaction_hash)? {
+            Some(tx) => tx,
+            None => return Ok(None),
+        };
         let current_block = self.get_block_header(&transaction.transaction.block_hash)?;
         let on_current_chain = self.is_on_current_chain(&current_block)?;
         let finality = if on_current_chain && current_block.height() <= self.final_head()?.height {
@@ -3538,7 +3539,7 @@ impl Chain {
             Finality::None
         };
         let transaction: SignedTransactionView = SignedTransaction::clone(&transaction).into();
-        Ok(InclusionView { transaction, finality })
+        Ok(Some(InclusionView { transaction, finality }))
     }
 
     /// Find a validator to forward transactions to

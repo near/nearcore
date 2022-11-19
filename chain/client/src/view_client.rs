@@ -661,10 +661,8 @@ impl Handler<WithSpanContext<TxInclusion>> for ViewClientActor {
     fn handle(&mut self, msg: WithSpanContext<TxInclusion>, _: &mut Self::Context) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
         let _timer =
-            metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["TxStatus"]).start_timer();
-        // self.get_tx_status(msg.tx_hash, msg.signer_account_id, msg.finality)
-        // TODO
-        todo!()
+            metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["TxInclusion"]).start_timer();
+        Ok(self.chain.get_transaction_inclusion(&msg.tx_hash)?)
     }
 }
 

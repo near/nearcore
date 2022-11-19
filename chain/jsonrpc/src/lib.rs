@@ -473,13 +473,12 @@ impl JsonRpcHandler {
                     TxInclusion {
                         tx_hash,
                         signer_account_id: signer_account_id.clone(),
-                        // TODO check this, seems like it was previously relying on the tx inclusion
-                        // .. being final, but not certain
-                        finality: Finality::Final,
                     })
                     .await
                 {
                     Ok(Some(_)) => {
+                        // Note: the finality is ignored for this method. This is just checking that
+                        // the tx exists, and not that the tx exists on the finalized chain.
                         return Ok(true);
                     }
                     Err(near_jsonrpc_primitives::types::transactions::RpcTransactionError::UnknownTransaction {
