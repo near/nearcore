@@ -1,11 +1,12 @@
 use actix::Addr;
 use anyhow::Context;
+use async_trait::async_trait;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_chain_configs::GenesisValidationMode;
 use near_client::{ClientActor, ViewClientActor};
 use near_client::{ProcessTxRequest, ProcessTxResponse};
 use near_client_primitives::types::{
-    GetChunk, GetChunkError, GetExecutionOutcome, GetExecutionOutcomeError,
+    GetBlockError, GetChunkError, GetExecutionOutcome, GetExecutionOutcomeError,
     GetExecutionOutcomeResponse, Query, QueryError,
 };
 use near_crypto::{PublicKey, SecretKey};
@@ -35,6 +36,7 @@ pub mod cli;
 mod genesis;
 mod key_mapping;
 mod metrics;
+mod online;
 mod secret;
 
 pub use cli::MirrorCommand;
@@ -221,10 +223,66 @@ fn set_next_source_height(db: &DB, height: BlockHeight) -> anyhow::Result<()> {
     Ok(())
 }
 
-struct TxMirror {
+struct ChunkTxs {
+    shard_id: ShardId,
+    transactions: Vec<SignedTransactionView>,
+}
+
+#[derive(thiserror::Error, Debug)]
+enum ChainError {
+    #[error("block unknown")]
+    UnknownBlock,
+    #[error(transparent)]
+    Other(#[from] anyhow::Error),
+}
+
+impl ChainError {
+    fn other<E: std::error::Error + Send + Sync + 'static>(error: E) -> Self {
+        Self::Other(anyhow::Error::from(error))
+    }
+}
+
+impl From<GetBlockError> for ChainError {
+    fn from(err: GetBlockError) -> Self {
+        match err {
+            GetBlockError::UnknownBlock { .. } => Self::UnknownBlock,
+            _ => Self::other(err),
+        }
+    }
+}
+
+impl From<GetChunkError> for ChainError {
+    fn from(err: GetChunkError) -> Self {
+        match err {
+            GetChunkError::UnknownBlock { .. } => Self::UnknownBlock,
+            _ => Self::other(err),
+        }
+    }
+}
+
+#[async_trait(?Send)]
+trait ChainAccess {
+    async fn init(&self) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    async fn head_height(&self) -> anyhow::Result<BlockHeight>;
+
+    async fn get_txs(
+        &self,
+        height: BlockHeight,
+        shards: &[ShardId],
+    ) -> Result<Vec<ChunkTxs>, ChainError>;
+}
+
+struct TxMirror<T: ChainAccess> {
     target_stream: mpsc::Receiver<StreamerMessage>,
-    source_view_client: Addr<ViewClientActor>,
-    source_client: Addr<ClientActor>,
+    source_chain_access: T,
+    // TODO: separate out the code that uses the target chain clients, and
+    // make it an option to send the transactions to some RPC node.
+    // that way it would be possible to run this code and send transactions with an
+    // old binary not caught up to the current protocol version, since the
+    // transactions we're constructing should stay valid.
     target_view_client: Addr<ViewClientActor>,
     target_client: Addr<ClientActor>,
     db: DB,
@@ -605,9 +663,9 @@ async fn fetch_receipt_outcome(
     }
 }
 
-impl TxMirror {
+impl<T: ChainAccess> TxMirror<T> {
     fn new<P: AsRef<Path>>(
-        source_home: P,
+        source_chain_access: T,
         target_home: P,
         secret: Option<[u8; crate::secret::SECRET_LEN]>,
     ) -> anyhow::Result<Self> {
@@ -618,15 +676,6 @@ impl TxMirror {
                 })?;
         let db =
             open_db(target_home.as_ref(), &target_config).context("failed to open mirror DB")?;
-        let source_config =
-            nearcore::config::load_config(source_home.as_ref(), GenesisValidationMode::UnsafeFast)
-                .with_context(|| {
-                    format!("Error loading source config from {:?}", source_home.as_ref())
-                })?;
-
-        let source_node = nearcore::start_with_config(source_home.as_ref(), source_config.clone())
-            .context("failed to start source chain NEAR node")?;
-
         let target_indexer = Indexer::new(near_indexer::IndexerConfig {
             home_dir: target_home.as_ref().to_path_buf(),
             sync_mode: near_indexer::SyncModeEnum::LatestSynced,
@@ -637,8 +686,7 @@ impl TxMirror {
         let target_stream = target_indexer.streamer();
 
         Ok(Self {
-            source_view_client: source_node.view_client,
-            source_client: source_node.client,
+            source_chain_access,
             target_client,
             target_view_client,
             target_stream,
@@ -784,35 +832,21 @@ impl TxMirror {
         ref_hash: CryptoHash,
         tracker: &mut crate::chain_tracker::TxTracker,
     ) -> anyhow::Result<Option<MappedBlock>> {
-        let mut chunks = Vec::new();
-        for shard_id in self.tracked_shards.iter() {
-            let mut txs = Vec::new();
-
-            let chunk = match self
-                .source_view_client
-                .send(GetChunk::Height(source_height, *shard_id).with_span_context())
-                .await?
-            {
-                Ok(c) => c,
+        let source_chunks =
+            match self.source_chain_access.get_txs(source_height, &self.tracked_shards).await {
+                Ok(x) => x,
                 Err(e) => match e {
-                    GetChunkError::UnknownBlock { .. } => return Ok(None),
-                    GetChunkError::UnknownChunk { .. } => {
-                        tracing::error!(
-                            "Can't fetch source chain shard {} chunk at height {}. Are we tracking all shards?",
-                            shard_id, source_height
-                        );
-                        continue;
-                    }
-                    _ => return Err(e.into()),
+                    ChainError::UnknownBlock => return Ok(None),
+                    ChainError::Other(e) => return Err(e),
                 },
             };
-            if chunk.header.height_included != source_height {
-                continue;
-            }
 
-            let mut num_not_ready = 0;
+        let mut num_not_ready = 0;
+        let mut chunks = Vec::new();
+        for ch in source_chunks {
+            let mut txs = Vec::new();
 
-            for (idx, source_tx) in chunk.transactions.into_iter().enumerate() {
+            for (idx, source_tx) in ch.transactions.into_iter().enumerate() {
                 let (actions, tx_nonce_updates) = self.map_actions(&source_tx).await?;
                 if actions.is_empty() {
                     // If this is a tx containing only stake actions, skip it.
@@ -890,16 +924,16 @@ impl TxMirror {
             if num_not_ready == 0 {
                 tracing::debug!(
                     target: "mirror", "prepared {} transacations for source chain #{} shard {}",
-                    txs.len(), source_height, shard_id
+                    txs.len(), source_height, ch.shard_id
                 );
             } else {
                 tracing::debug!(
                     target: "mirror", "prepared {} transacations for source chain #{} shard {} with {} \
                     still waiting for the corresponding access keys to make it on chain",
-                    txs.len(), source_height, shard_id, num_not_ready,
+                    txs.len(), source_height, ch.shard_id, num_not_ready,
                 );
             }
-            chunks.push(MappedChunk { txs, shard_id: *shard_id });
+            chunks.push(MappedChunk { txs, shard_id: ch.shard_id });
         }
         Ok(Some(MappedBlock { source_height, chunks }))
     }
@@ -917,8 +951,11 @@ impl TxMirror {
         }
 
         let next_batch_time = tracker.next_batch_time();
-        let source_head =
-            self.get_source_height().await.context("can't fetch source chain HEAD")?;
+        let source_head = self
+            .source_chain_access
+            .head_height()
+            .await
+            .context("can't fetch source chain HEAD")?;
         let start_height = match tracker.height_queued() {
             Some(h) => h + 1,
             None => self.get_next_source_height()?,
@@ -979,38 +1016,6 @@ impl TxMirror {
         }
     }
 
-    async fn get_source_height(&self) -> Option<BlockHeight> {
-        self.source_client
-            .send(
-                near_client::Status { is_health_check: false, detailed: false }.with_span_context(),
-            )
-            .await
-            .unwrap()
-            .ok()
-            .map(|s| s.sync_info.latest_block_height)
-    }
-
-    // wait until HEAD moves. We don't really need it to be fully synced.
-    async fn wait_source_ready(&self) {
-        let mut first_height = None;
-        loop {
-            if let Some(head) = self.get_source_height().await {
-                match first_height {
-                    Some(h) => {
-                        if h != head {
-                            return;
-                        }
-                    }
-                    None => {
-                        first_height = Some(head);
-                    }
-                }
-            }
-
-            tokio::time::sleep(Duration::from_millis(500)).await;
-        }
-    }
-
     async fn wait_target_synced(&mut self) -> (BlockHeight, CryptoHash) {
         let msg = self.target_stream.recv().await.unwrap();
         (msg.block.header.height, msg.block.header.hash)
@@ -1019,7 +1024,8 @@ impl TxMirror {
     async fn run(mut self) -> anyhow::Result<()> {
         let mut tracker =
             crate::chain_tracker::TxTracker::new(self.target_min_block_production_delay);
-        self.wait_source_ready().await;
+        self.source_chain_access.init().await?;
+
         let (target_height, target_head) = self.wait_target_synced().await;
 
         self.queue_txs(&mut tracker, target_head, false).await?;
@@ -1033,6 +1039,8 @@ async fn run<P: AsRef<Path>>(
     target_home: P,
     secret: Option<[u8; crate::secret::SECRET_LEN]>,
 ) -> anyhow::Result<()> {
-    let m = TxMirror::new(source_home, target_home, secret)?;
-    m.run().await
+    let source_chain_access = crate::online::ChainAccess::new(source_home)?;
+    let mirror = TxMirror::new(source_chain_access, target_home, secret)?;
+
+    mirror.run().await
 }
