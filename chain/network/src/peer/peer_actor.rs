@@ -1038,7 +1038,7 @@ impl PeerActor {
                     );
                 }
                 if self.network_state.message_for_me(&msg.target) {
-                    metrics::record_routed_msg_latency(&self.clock, &msg);
+                    metrics::record_routed_msg_metrics(&self.clock, &msg);
                     // Handle Ping and Pong message if they are for us without sending to client.
                     // i.e. Return false in case of Ping and Pong
                     match &msg.body {

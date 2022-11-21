@@ -477,6 +477,9 @@ pub struct RoutedMessageV2 {
     pub msg: RoutedMessage,
     /// The time the Routed message was created by `author`.
     pub created_at: Option<time::Utc>,
+    /// Number of peers this routed message travelled through.
+    /// Doesn't include the peers that are the source and the destination of the message.
+    pub num_hops: Option<i32>,
 }
 
 impl std::ops::Deref for RoutedMessageV2 {
@@ -697,6 +700,7 @@ impl RawRoutedMessage {
                 body: self.body,
             },
             created_at: now,
+            num_hops: Some(0),
         }
     }
 }
