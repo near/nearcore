@@ -301,6 +301,10 @@ impl<'a> TrieIterator<'a> {
         path_begin: &[u8],
         path_end: &[u8],
     ) -> Result<Vec<TrieTraversalItem>, StorageError> {
+        let _span = tracing::debug_span!(
+            target: "runtime",
+            "visit_nodes_interval")
+        .entered();
         let path_begin_encoded = NibbleSlice::encode_nibbles(path_begin, true);
         let last_hash =
             self.seek_nibble_slice(NibbleSlice::from_encoded(&path_begin_encoded).0, false)?;

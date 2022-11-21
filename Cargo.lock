@@ -3431,6 +3431,7 @@ dependencies = [
  "smart-default",
  "strum",
  "thiserror",
+ "tracing",
 ]
 
 [[package]]
