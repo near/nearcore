@@ -110,9 +110,6 @@ pub(crate) struct PeerActor {
     peer_addr: SocketAddr,
     /// Peer type.
     peer_type: PeerType,
-    /// OUTBOUND-ONLY: Handshake specification. For outbound connections it is initialized
-    /// in constructor and then can change as HandshakeFailure and LastEdge messages
-    /// are received. For inbound connections, handshake is stateless.
 
     /// Framed wrapper to send messages through the TCP connection.
     framed: stream::FramedStream<PeerActor>,
@@ -1041,7 +1038,7 @@ impl PeerActor {
                     );
                 }
                 if self.network_state.message_for_me(&msg.target) {
-                    metrics::record_routed_msg_latency(&self.clock, &msg);
+                    metrics::record_routed_msg_metrics(&self.clock, &msg);
                     // Handle Ping and Pong message if they are for us without sending to client.
                     // i.e. Return false in case of Ping and Pong
                     match &msg.body {

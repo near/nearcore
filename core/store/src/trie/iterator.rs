@@ -296,11 +296,15 @@ impl<'a> TrieIterator<'a> {
     /// Visits all nodes belonging to the interval [path_begin, path_end) in depth-first search
     /// order and return TrieTraversalItem for each visited node.
     /// Used to generate and apply state parts for state sync.
-    pub(crate) fn visit_nodes_interval(
+    pub fn visit_nodes_interval(
         &mut self,
         path_begin: &[u8],
         path_end: &[u8],
     ) -> Result<Vec<TrieTraversalItem>, StorageError> {
+        let _span = tracing::debug_span!(
+            target: "runtime",
+            "visit_nodes_interval")
+        .entered();
         let path_begin_encoded = NibbleSlice::encode_nibbles(path_begin, true);
         let last_hash =
             self.seek_nibble_slice(NibbleSlice::from_encoded(&path_begin_encoded).0, false)?;

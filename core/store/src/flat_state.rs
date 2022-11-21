@@ -443,14 +443,24 @@ struct FlatStorageStateInner {
     deltas: HashMap<CryptoHash, Arc<FlatStateDelta>>,
 }
 
-/// Number of parts to which we divide shard state for parallel traversal.
-// TODO: consider changing it for different shards, ensure that shard memory usage / `NUM_PARTS` < X MiB.
-#[allow(unused)]
-const NUM_FETCHED_STATE_PARTS: u64 = 4_000;
-
 /// Number of traversed parts during a single step of fetching state.
 #[allow(unused)]
-pub const NUM_PARTS_IN_ONE_STEP: u64 = 50;
+pub const NUM_PARTS_IN_ONE_STEP: u64 = 20;
+
+/// Memory limit for state part being fetched.
+#[allow(unused)]
+pub const STATE_PART_MEMORY_LIMIT: bytesize::ByteSize = bytesize::ByteSize(10 * bytesize::MIB);
+
+/// Current step of fetching state to fill flat storage.
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+pub struct FetchingStateStatus {
+    /// Number of the first state part to be fetched in this step.
+    pub part_id: u64,
+    /// Number of parts fetched in one step.
+    pub num_parts_in_step: u64,
+    /// Total number of state parts.
+    pub num_parts: u64,
+}
 
 /// If a node has flat storage enabled but it didn't have flat storage data on disk, its creation should be initiated.
 /// Because this is a heavy work requiring ~5h for testnet rpc node and ~10h for testnet archival node, we do it on
@@ -463,13 +473,14 @@ pub enum FlatStorageStateStatus {
     /// final chain head moves after saved chain head.
     SavingDeltas,
     /// Flat storage state misses key-value pairs. We need to fetch Trie state to fill flat storage for some final chain
-    /// head. It is the heaviest step, so it is done in `NUM_FETCHED_STATE_PARTS` / `NUM_PARTS_IN_ONE_STEP` steps.
+    /// head. It is the heaviest work, so it is done in multiple steps, see comment for `FetchingStateStatus` for more
+    /// details.
     /// During each step we spawn background threads to fill some contiguous range of state keys.
     /// Status contains block hash for which we fetch the shard state and number of current step. Progress of each step
     /// is saved to disk, so if creation is interrupted during some step, we don't repeat previous steps, starting from
     /// the saved step again.
     #[allow(unused)]
-    FetchingState((CryptoHash, u64)),
+    FetchingState(FetchingStateStatus),
     /// Flat storage data exists on disk but its head is too far away from chain final head. We apply deltas from disk
     /// until the head reaches final head.
     #[allow(unused)]
@@ -482,7 +493,9 @@ pub enum FlatStorageStateStatus {
 
 #[cfg(feature = "protocol_feature_flat_state")]
 pub mod store_helper {
-    use crate::flat_state::{FlatStorageError, FlatStorageStateStatus, KeyForFlatStateDelta};
+    use crate::flat_state::{
+        FetchingStateStatus, FlatStorageError, FlatStorageStateStatus, KeyForFlatStateDelta,
+    };
     use crate::{FlatStateDelta, Store, StoreUpdate};
     use borsh::BorshSerialize;
     use near_primitives::hash::CryptoHash;
@@ -490,7 +503,9 @@ pub mod store_helper {
     use near_primitives::types::ShardId;
     use std::sync::Arc;
 
+    pub const FLAT_STATE_HEAD_KEY_PREFIX: &[u8; 4] = b"HEAD";
     pub const FETCHING_STATE_STEP_KEY_PREFIX: &[u8; 4] = b"STEP";
+    pub const CATCHUP_KEY_PREFIX: &[u8; 7] = b"CATCHUP";
 
     pub fn get_delta(
         store: &Store,
@@ -521,20 +536,26 @@ pub mod store_helper {
         store_update.delete(crate::DBCol::FlatStateDeltas, &key.try_to_vec().unwrap());
     }
 
+    fn flat_head_key(shard_id: ShardId) -> Vec<u8> {
+        let mut fetching_state_step_key = FLAT_STATE_HEAD_KEY_PREFIX.to_vec();
+        fetching_state_step_key.extend_from_slice(&shard_id.try_to_vec().unwrap());
+        fetching_state_step_key
+    }
+
     pub fn get_flat_head(store: &Store, shard_id: ShardId) -> Option<CryptoHash> {
         store
-            .get_ser(crate::DBCol::FlatStateMisc, &shard_id.try_to_vec().unwrap())
+            .get_ser(crate::DBCol::FlatStateMisc, &flat_head_key(shard_id))
             .expect("Error reading flat head from storage")
     }
 
     pub fn set_flat_head(store_update: &mut StoreUpdate, shard_id: ShardId, val: &CryptoHash) {
         store_update
-            .set_ser(crate::DBCol::FlatStateMisc, &shard_id.try_to_vec().unwrap(), val)
+            .set_ser(crate::DBCol::FlatStateMisc, &flat_head_key(shard_id), val)
             .expect("Error writing flat head from storage")
     }
 
     pub fn remove_flat_head(store_update: &mut StoreUpdate, shard_id: ShardId) {
-        store_update.delete(crate::DBCol::FlatStateMisc, &shard_id.try_to_vec().unwrap());
+        store_update.delete(crate::DBCol::FlatStateMisc, &flat_head_key(shard_id));
     }
 
     pub(crate) fn get_ref(store: &Store, key: &[u8]) -> Result<Option<ValueRef>, FlatStorageError> {
@@ -562,31 +583,43 @@ pub mod store_helper {
         }
     }
 
-    fn fetching_state_step_key(shard_id: ShardId) -> Vec<u8> {
+    fn fetching_state_status_key(shard_id: ShardId) -> Vec<u8> {
         let mut fetching_state_step_key = FETCHING_STATE_STEP_KEY_PREFIX.to_vec();
         fetching_state_step_key.extend_from_slice(&shard_id.try_to_vec().unwrap());
         fetching_state_step_key
     }
 
-    fn get_fetching_state_step(store: &Store, shard_id: ShardId) -> Option<u64> {
-        store.get_ser(crate::DBCol::FlatStateMisc, &fetching_state_step_key(shard_id)).expect(
+    fn get_fetching_state_status(store: &Store, shard_id: ShardId) -> Option<FetchingStateStatus> {
+        store.get_ser(crate::DBCol::FlatStateMisc, &fetching_state_status_key(shard_id)).expect(
             format!("Error reading fetching step for flat state for shard {shard_id}").as_str(),
         )
     }
 
-    pub fn set_fetching_state_step(store_update: &mut StoreUpdate, shard_id: ShardId, value: u64) {
+    pub fn set_fetching_state_status(
+        store_update: &mut StoreUpdate,
+        shard_id: ShardId,
+        value: FetchingStateStatus,
+    ) {
         store_update
-            .set_ser(crate::DBCol::FlatStateMisc, &fetching_state_step_key(shard_id), &value)
+            .set_ser(crate::DBCol::FlatStateMisc, &fetching_state_status_key(shard_id), &value)
             .expect(
-                format!("Error setting fetching step for shard {shard_id} to {value}").as_str(),
+                format!("Error setting fetching step for shard {shard_id} to {:?}", value).as_str(),
             );
     }
 
-    fn get_catchup_status(store: &Store, shard_id: ShardId) -> bool {
-        let mut catchup_status_key = FETCHING_STATE_STEP_KEY_PREFIX.to_vec();
+    pub fn remove_fetching_state_status(store_update: &mut StoreUpdate, shard_id: ShardId) {
+        store_update.delete(crate::DBCol::FlatStateMisc, &fetching_state_status_key(shard_id));
+    }
+
+    fn catchup_status_key(shard_id: ShardId) -> Vec<u8> {
+        let mut catchup_status_key = CATCHUP_KEY_PREFIX.to_vec();
         catchup_status_key.extend_from_slice(&shard_id.try_to_vec().unwrap());
+        catchup_status_key
+    }
+
+    fn get_catchup_status(store: &Store, shard_id: ShardId) -> bool {
         let status: Option<bool> =
-            store.get_ser(crate::DBCol::FlatStateMisc, &catchup_status_key).expect(
+            store.get_ser(crate::DBCol::FlatStateMisc, &catchup_status_key(shard_id)).expect(
                 format!("Error reading catchup status for flat state for shard {shard_id}")
                     .as_str(),
             );
@@ -603,15 +636,25 @@ pub mod store_helper {
         }
     }
 
+    pub fn start_catchup(store_update: &mut StoreUpdate, shard_id: ShardId) {
+        store_update
+            .set_ser(crate::DBCol::FlatStateMisc, &catchup_status_key(shard_id), &true)
+            .expect(format!("Error setting catchup status for shard {shard_id}").as_str());
+    }
+
+    pub fn finish_catchup(store_update: &mut StoreUpdate, shard_id: ShardId) {
+        store_update.delete(crate::DBCol::FlatStateMisc, &catchup_status_key(shard_id));
+    }
+
     pub fn get_flat_storage_state_status(
         store: &Store,
         shard_id: ShardId,
     ) -> FlatStorageStateStatus {
         match get_flat_head(store, shard_id) {
             None => FlatStorageStateStatus::SavingDeltas,
-            Some(block_hash) => {
-                if let Some(fetching_state_step) = get_fetching_state_step(store, shard_id) {
-                    FlatStorageStateStatus::FetchingState((block_hash, fetching_state_step))
+            Some(_) => {
+                if let Some(fetching_state_status) = get_fetching_state_status(store, shard_id) {
+                    FlatStorageStateStatus::FetchingState(fetching_state_status)
                 } else if get_catchup_status(store, shard_id) {
                     FlatStorageStateStatus::CatchingUp
                 } else {
