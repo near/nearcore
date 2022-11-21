@@ -263,28 +263,20 @@ impl PeerManagerActor {
             client,
             whitelist_nodes,
         ));
-        arbiter.spawn({
-            let arbiter = arbiter.clone();
-            let state = state.clone();
-            let clock = clock.clone();
-            async move {
-                if let Some(cfg) = state.config.tier1.clone() {
-                    // Connect to TIER1 proxies and broadcast the list those connections periodically.
-                    arbiter.spawn({
-                        let clock = clock.clone();
-                        let state = state.clone();
-                        let mut interval =
-                            time::Interval::new(clock.now(), cfg.advertise_proxies_interval);
-                        async move {
-                            loop {
-                                interval.tick(&clock).await;
-                                state.tier1_advertise_proxies(&clock).await;
-                            }
-                        }
-                    });
+        if let Some(cfg) = state.config.tier1.clone() {
+            // Connect to TIER1 proxies and broadcast the list those connections periodically.
+            arbiter.spawn({
+                let clock = clock.clone();
+                let state = state.clone();
+                let mut interval = time::Interval::new(clock.now(), cfg.advertise_proxies_interval);
+                async move {
+                    loop {
+                        interval.tick(&clock).await;
+                        state.tier1_advertise_proxies(&clock).await;
+                    }
                 }
-            }
-        });
+            });
+        }
         Ok(Self::start_in_arbiter(&arbiter, move |_ctx| Self {
             my_peer_id: my_peer_id.clone(),
             started_connect_attempts: false,

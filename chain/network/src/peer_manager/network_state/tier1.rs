@@ -28,11 +28,8 @@ impl super::NetworkState {
         clock: &time::Clock,
     ) -> Vec<Arc<SignedAccountData>> {
         let accounts_data = self.accounts_data.load();
-        let vc = match self.tier1_validator_config(&accounts_data) {
-            Some(it) => it,
-            None => {
-                return vec![];
-            }
+        let Some(vc) = self.tier1_validator_config(&accounts_data) else {
+            return vec![];
         };
         // TODO(gprusak): for now we just blindly broadcast the static list of proxies, however
         // here we should try to connect to the TIER1 proxies, before broadcasting them.

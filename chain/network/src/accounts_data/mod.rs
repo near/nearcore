@@ -58,6 +58,9 @@ pub struct CacheSnapshot {
     /// Set of account keys allowed on TIER1 network.
     pub keys: im::HashSet<PublicKey>,
     /// Current state of knowledge about an account.
+    /// `data.keys()` is a subset of `keys` at all times,
+    /// as cache is collecting data only about the accounts from `keys`,
+    /// and data about the particular account might be not known at the given moment.
     pub data: im::HashMap<PublicKey, Arc<SignedAccountData>>,
 }
 
@@ -102,11 +105,7 @@ impl Cache {
             }
             inner.keys_by_id = keys_by_id;
             inner.keys = inner.keys_by_id.values().flatten().cloned().collect();
-            for (k, v) in std::mem::take(&mut inner.data) {
-                if inner.keys.contains(&k) {
-                    inner.data.insert(k.clone(), v.clone());
-                }
-            }
+            inner.data.retain(|k, _| inner.keys.contains(k));
             true
         })
     }

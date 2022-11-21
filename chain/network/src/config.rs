@@ -25,6 +25,7 @@ pub const MAX_ROUTES_TO_STORE: usize = 5;
 pub const MAX_PEER_ADDRS: usize = 10;
 
 /// Address of the format "<domain/ip>:<port>" of STUN servers.
+// TODO(gprusak): turn into a proper struct implementing Display and FromStr.
 pub type StunServerAddr = String;
 
 /// ValidatorProxies are nodes with public IP (aka proxies) that this validator trusts to be honest
