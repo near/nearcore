@@ -193,7 +193,7 @@ Conversely, `Client` and `ViewClient` communicates to network through
 This crate is responsible for determining validators and other epoch related
 information such as epoch id for each epoch.
 
-Note: `EpochManager` is constructed in `NightshadeRuntime` rather than in
+**Note**: `EpochManager` is constructed in `NightshadeRuntime` rather than in
 `Chain`, partially because we had this idea of making epoch manager a smart
 contract.
 
