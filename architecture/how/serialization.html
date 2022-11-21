@@ -249,17 +249,16 @@ similar to Borsh, but a little different): RawTrieNode</p>
 <p>If you look into store/src/trie/mod.rs, you’ll be able to find a method called ‘encode_into’:</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>    fn encode_into(&amp;self, out: &amp;mut Vec&lt;u8&gt;) -&gt; Result&lt;(), std::io::Error&gt; {
-        let mut cursor = Cursor::new(out);
+</span>    fn encode_into(&amp;self, out: &amp;mut Vec&lt;u8&gt;) {
         // size in state_parts = size + 8 for RawTrieNodeWithSize + 8 for borsh vector length
         match &amp;self {
             // size &lt;= 1 + 4 + 4 + 32 + key_length + value_length
             RawTrieNode::Leaf(key, value_length, value_hash) =&gt; {
-                cursor.write_u8(LEAF_NODE)?;
-                cursor.write_u32::&lt;LittleEndian&gt;(key.len() as u32)?;
-                cursor.write_all(key)?;
-                cursor.write_u32::&lt;LittleEndian&gt;(*value_length)?;
-                cursor.write_all(value_hash.as_ref())?;
+                out.push(LEAF_NODE);
+                out.extend((key.len() as u32).to_le_bytes());
+                out.extend(key);
+                out.extend((*value_length as u32).to_le_bytes());
+                out.extend(value_hash.as_bytes());
             }
          //... more code
 <span class="boring">}
