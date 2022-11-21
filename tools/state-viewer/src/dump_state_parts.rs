@@ -104,7 +104,6 @@ pub(crate) fn dump_state_parts(
     let mut epoch_manager =
         EpochManager::new_from_genesis_config(store.clone(), &near_config.genesis.config)
             .expect("Failed to start Epoch Manager");
-
     let mut chain_store = ChainStore::new(
         store.clone(),
         near_config.genesis.config.genesis_height,
