@@ -1,6 +1,5 @@
 use crate::concurrency;
 use crate::network_protocol::{Edge, EdgeState};
-use crate::routing;
 use crate::routing::bfs;
 use crate::stats::metrics;
 use crate::store;
@@ -10,7 +9,9 @@ use near_primitives::network::PeerId;
 use rayon::iter::ParallelBridge;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use tracing::trace;
+use parking_lot::Mutex;
+use crate::routing::routing_table_view::RoutingTableView;
+use crate::concurrency::runtime::Runtime;
 
 #[cfg(test)]
 mod tests;
@@ -24,6 +25,13 @@ pub struct GraphConfig {
     pub node_id: PeerId,
     pub prune_unreachable_peers_after: time::Duration,
     pub prune_edges_after: Option<time::Duration>,
+}
+
+#[derive(Default)]
+pub struct GraphSnapshot {
+    pub edges: im::HashMap<EdgeKey,Edge>,
+    pub local_edges: HashMap<PeerId,Edge>,
+    pub next_hops: Arc<NextHopTable>,
 }
 
 struct Inner {
@@ -123,20 +131,17 @@ impl Inner {
     /// And therefore `C_2` component will become unreachable.
     /// TODO(gprusak): this whole algorithm seems to be leaking stuff to storage and never cleaning up.
     /// What is the point of it? What does it actually gives us?
-    async fn load_component(&mut self, now: time::Utc, peer_id: PeerId) {
+    fn load_component(&mut self, now: time::Utc, peer_id: PeerId) {
         if peer_id == self.config.node_id || self.peer_reachable_at.contains_key(&peer_id) {
             return;
         }
-        let mut store = self.store.clone();
-        let edges = tokio::task::spawn_blocking(move || match store.pop_component(&peer_id) {
+        let edges = match self.store.pop_component(&peer_id) {
             Ok(edges) => edges,
             Err(e) => {
                 tracing::warn!("self.store.pop_component({}): {}", peer_id, e);
-                return vec![];
+                return;
             }
-        })
-        .await
-        .unwrap();
+        };
         for e in edges {
             self.update_edge(now, e);
         }
@@ -177,21 +182,18 @@ impl Inner {
         }
     }
 
-    /// update_routing_table
-    /// 1. recomputes the routing table (if needed)
-    /// 2. bumps peer_reachable_at to now() for peers which are still reachable.
-    /// 3. prunes peers which are unreachable `prune_unreachable_since`.
-    /// Returns the new routing table and the pruned edges - adjacent to the pruned peers.
-    /// Should be called periodically.
-    pub async fn update_routing_table(
+    /// 1. Adds edges to the graph.
+    /// 2. Prunes expired edges.
+    /// 3. Prunes unreachable graph components.
+    /// 4. Recomputes GraphSnapshot.
+    /// Returns a subset of `edges`, consisting of edges which were not in the graph before.
+    pub fn update(
         &mut self,
         clock: &time::Clock,
         mut edges: Vec<Edge>,
         unreliable_peers: &HashSet<PeerId>,
-    ) -> (Vec<Edge>, Arc<routing::NextHopTable>) {
+    ) -> (Vec<Edge>, GraphSnapshot) {
         let _next_hops_recalculation = metrics::ROUTING_TABLE_RECALCULATION_HISTOGRAM.start_timer();
-        trace!(target: "network", "Update routing table.");
-
         let total = edges.len();
         // load the components BEFORE updating the edges.
         // so that result doesn't contain edges we already have in storage.
@@ -200,8 +202,8 @@ impl Inner {
         let now = clock.now_utc();
         for edge in &edges {
             let key = edge.key();
-            self.load_component(now, key.0.clone()).await;
-            self.load_component(now, key.1.clone()).await;
+            self.load_component(now, key.0.clone());
+            self.load_component(now, key.1.clone());
         }
         edges.retain(|e| self.update_edge(now, e.clone()));
         // Update metrics after edge update
@@ -212,7 +214,6 @@ impl Inner {
         if let Some(prune_edges_after) = self.config.prune_edges_after {
             self.prune_old_edges(now - prune_edges_after);
         }
-        // TODO(gprusak): this should be on rayon
         let next_hops = Arc::new(self.graph.calculate_distance(unreliable_peers));
 
         // Update peer_reachable_at.
@@ -224,29 +225,51 @@ impl Inner {
         self.prune_unreachable_peers(now - self.config.prune_unreachable_peers_after);
         metrics::ROUTING_TABLE_RECALCULATIONS.inc();
         metrics::PEER_REACHABLE.set(next_hops.len() as i64);
-        (edges, next_hops)
+        
+        let mut local_edges = HashMap::new();
+        for e in self.edges.clone().values() {
+            if let Some(other) = e.other(&self.config.node_id) {
+                local_edges.insert(other.clone(),e.clone());
+            }
+        }
+        (edges, GraphSnapshot {
+            edges: self.edges.clone(),
+            local_edges,
+            next_hops,
+        })
     }
 }
 
-pub struct Graph {
-    inner: tokio::sync::Mutex<Inner>,
-    edges: ArcSwap<im::HashMap<EdgeKey, Edge>>,
+pub(crate) struct Graph {
+    inner: Arc<Mutex<Inner>>,
+    snapshot: ArcSwap<GraphSnapshot>,
     unreliable_peers: ArcSwap<HashSet<PeerId>>,
+    // TODO(gprusak): RoutingTableView consists of a bunch of unrelated stateful features.
+    // It requires a refactor.
+    pub routing_table: RoutingTableView,
+
+    runtime: Runtime,
 }
 
 impl Graph {
-    pub(crate) fn new(config: GraphConfig, store: store::Store) -> Self {
+    pub fn new(config: GraphConfig, store: store::Store) -> Self {
         Self {
-            inner: tokio::sync::Mutex::new(Inner {
+            routing_table: RoutingTableView::new(store.clone()),
+            inner: Arc::new(Mutex::new(Inner {
                 graph: bfs::Graph::new(config.node_id.clone()),
                 config,
                 edges: Default::default(),
                 peer_reachable_at: HashMap::new(),
                 store,
-            }),
-            edges: ArcSwap::default(),
+            })),
             unreliable_peers: ArcSwap::default(),
+            snapshot: ArcSwap::default(),
+            runtime: Runtime::new(),
         }
+    }
+
+    pub fn load(&self) -> Arc<GraphSnapshot> {
+        self.snapshot.load_full()
     }
 
     pub fn set_unreliable_peers(&self, unreliable_peers: HashSet<PeerId>) {
@@ -256,7 +279,7 @@ impl Graph {
     pub async fn verify(&self, edges: Vec<Edge>) -> (Vec<Edge>, bool) {
         let old = self.load();
         let mut edges = Edge::deduplicate(edges);
-        edges.retain(|x| !has(&old, x));
+        edges.retain(|x| !has(&old.edges, x));
         // Verify the edges in parallel on rayon.
         concurrency::rayon::run(move || {
             concurrency::rayon::try_map(edges.into_iter().par_bridge(), |e| {
@@ -270,19 +293,27 @@ impl Graph {
         .await
     }
 
-    pub fn load(&self) -> im::HashMap<EdgeKey, Edge> {
-        self.edges.load().as_ref().clone()
-    }
-
+    /// Adds edges to the graph and recomputes the routing table.
+    /// Returns the edges which were actually new and should be broadcasted.
     pub async fn update(
-        &self,
+        self: &Arc<Self>,
         clock: &time::Clock,
         edges: Vec<Edge>,
-    ) -> (Vec<Edge>, Arc<NextHopTable>) {
-        let mut inner = self.inner.lock().await;
-        let (new_edges, next_hops) =
-            inner.update_routing_table(clock, edges, &*self.unreliable_peers.load()).await;
-        self.edges.store(Arc::new(inner.edges.clone()));
-        (new_edges, next_hops)
+    ) -> Vec<Edge> {
+        // Computation is CPU heavy and accesses DB so we execute it on a dedicated thread.
+        // TODO(gprusak): It would be better to move CPU heavy stuff to rayon and make DB calls async,
+        // but that will require further refactor. Or even better: get rid of the Graph all
+        // together.
+        let this = self.clone();
+        let clock = clock.clone();
+        self.runtime.handle.spawn(async move {
+            let mut inner = this.inner.lock();
+            let (new_edges, snapshot) =
+                inner.update(&clock, edges, &this.unreliable_peers.load());
+            let snapshot = Arc::new(snapshot);
+            this.routing_table.update(snapshot.next_hops.clone());
+            this.snapshot.store(snapshot);
+            new_edges
+        }).await.unwrap()
     }
 }

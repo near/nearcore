@@ -1,4 +1,4 @@
-use crate::network_protocol::{Edge, PeerIdOrHash};
+use crate::network_protocol::{PeerIdOrHash};
 use crate::routing;
 use crate::routing::route_back_cache::RouteBackCache;
 use crate::store;
@@ -20,10 +20,6 @@ const LAST_ROUTED_CACHE_SIZE: usize = 10_000;
 pub(crate) struct RoutingTableView(Mutex<Inner>);
 
 struct Inner {
-    my_peer_id: PeerId,
-    /// Store last update for known edges. This is limited to list of adjacent edges to `my_peer_id`.
-    local_edges: HashMap<PeerId, Edge>,
-
     /// Maps an account_id to a peer owning it.
     account_peers: LruCache<AccountId, AnnounceAccount>,
     /// Subset of account_peers, which we have broadcasted to the peers.
@@ -92,13 +88,11 @@ pub(crate) enum FindRouteError {
 }
 
 impl RoutingTableView {
-    pub fn new(store: store::Store, my_peer_id: PeerId) -> Self {
+    pub fn new(store: store::Store) -> Self {
         Self(Mutex::new(Inner {
-            my_peer_id,
             account_peers: LruCache::new(ANNOUNCE_ACCOUNT_CACHE_SIZE),
             account_peers_broadcasted: LruCache::new(ANNOUNCE_ACCOUNT_CACHE_SIZE),
             next_hops: Default::default(),
-            local_edges: Default::default(),
             route_back: RouteBackCache::default(),
             store,
             find_route_calls: 0,
@@ -106,14 +100,8 @@ impl RoutingTableView {
         }))
     }
 
-    pub(crate) fn update(&self, pruned_edges: &[Edge], next_hops: Arc<routing::NextHopTable>) {
-        let mut inner = self.0.lock();
-        for e in pruned_edges {
-            if let Some(peer_id) = e.other(&inner.my_peer_id) {
-                inner.local_edges.remove(peer_id);
-            }
-        }
-        inner.next_hops = next_hops;
+    pub(crate) fn update(&self, next_hops: Arc<routing::NextHopTable>) {
+        self.0.lock().next_hops = next_hops;
     }
 
     pub(crate) fn reachable_peers(&self) -> usize {
@@ -207,33 +195,6 @@ impl RoutingTableView {
                 inner.account_peers_broadcasted.get(id).map(|a| (id.clone(), a.clone()))
             })
             .collect()
-    }
-
-    pub(crate) fn get_local_edge(&self, other_peer: &PeerId) -> Option<Edge> {
-        self.0.lock().local_edges.get(other_peer).cloned()
-    }
-
-    pub(crate) fn get_local_edges(&self) -> Vec<Edge> {
-        self.0.lock().local_edges.values().cloned().collect()
-    }
-
-    /// Returns the diff: new local edges added.
-    pub(crate) fn add_local_edges(&self, edges: &[Edge]) -> Vec<Edge> {
-        let mut inner = self.0.lock();
-        let mut res = vec![];
-        for edge in edges {
-            let other = match edge.other(&inner.my_peer_id) {
-                Some(other) => other,
-                None => continue,
-            };
-            let old_nonce = inner.local_edges.get(other).map_or(0, |e| e.nonce());
-            if old_nonce >= edge.nonce() {
-                continue;
-            }
-            inner.local_edges.insert(other.clone(), edge.clone());
-            res.push(edge.clone());
-        }
-        res
     }
 }
 

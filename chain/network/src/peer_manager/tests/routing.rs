@@ -334,7 +334,6 @@ async fn fix_local_edges() {
     pm.fix_local_edges(&clock.clock(), time::Duration::ZERO).await;
     // TODO(gprusak): make fix_local_edges await closing of the connections, so
     // that we don't have to wait for it explicitly here.
-    tracing::info!(target:"test", "waiting for connection to close");
     events
         .recv_until(|ev| match ev {
             Event::PeerManager(PME::ConnectionClosed { .. }) => Some(()),

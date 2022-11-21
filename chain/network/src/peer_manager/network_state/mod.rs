@@ -6,12 +6,12 @@ use crate::network_protocol::{
     Edge, EdgeState, PartialEdgeInfo, PeerIdOrHash, PeerInfo, PeerMessage, Ping, Pong,
     RawRoutedMessage, RoutedMessageBody, RoutedMessageV2, SignedAccountData,
 };
+use crate::concurrency::runtime::Runtime;
 use crate::peer::peer_actor::{ClosingReason, ConnectionClosedEvent};
 use crate::peer_manager::connection;
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::peer_store;
 use crate::private_actix::RegisterPeerError;
-use crate::routing::routing_table_view::RoutingTableView;
 use crate::stats::metrics;
 use crate::store;
 use crate::tcp;
@@ -41,37 +41,6 @@ const PRUNE_UNREACHABLE_PEERS_AFTER: time::Duration = time::Duration::hours(1);
 
 /// Remove the edges that were created more that this duration ago.
 const PRUNE_EDGES_AFTER: time::Duration = time::Duration::minutes(30);
-
-struct Runtime {
-    handle: tokio::runtime::Handle,
-    stop: Arc<tokio::sync::Notify>,
-    thread: Option<std::thread::JoinHandle<()>>,
-}
-
-impl Runtime {
-    fn new() -> Self {
-        let stop = Arc::new(tokio::sync::Notify::new());
-        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
-        let handle = runtime.handle().clone();
-        let thread = std::thread::spawn({
-            let stop = stop.clone();
-            move || runtime.block_on(stop.notified())
-        });
-        Self { handle, stop, thread: Some(thread) }
-    }
-}
-
-impl Drop for Runtime {
-    fn drop(&mut self) {
-        self.stop.notify_one();
-        let thread = self.thread.take().unwrap();
-        // Await for the thread to stop, unless it is the current thread
-        // (i.e. nobody waits for it).
-        if std::thread::current().id() != thread.thread().id() {
-            thread.join().unwrap();
-        }
-    }
-}
 
 impl WhitelistNode {
     pub fn from_peer_info(pi: &PeerInfo) -> anyhow::Result<Self> {
@@ -123,14 +92,7 @@ pub(crate) struct NetworkState {
     /// Peer store that provides read/write access to peers.
     pub peer_store: peer_store::PeerStore,
     /// A graph of the whole NEAR network.
-    pub graph: crate::routing::Graph,
-
-    /// View of the Routing table. It keeps:
-    /// - routing information - how to route messages
-    /// - edges adjacent to my_peer_id
-    /// - account id
-    /// Full routing table (that currently includes information about all edges in the graph) is now inside Routing Table.
-    pub routing_table_view: RoutingTableView,
+    pub graph: Arc<crate::routing::Graph>,
 
     /// Shared counter across all PeerActors, which counts number of `RoutedMessageBody::ForwardTx`
     /// messages sincce last block.
@@ -161,14 +123,14 @@ impl NetworkState {
     ) -> Self {
         Self {
             runtime: Runtime::new(),
-            graph: crate::routing::Graph::new(
+            graph: Arc::new(crate::routing::Graph::new(
                 crate::routing::GraphConfig {
                     node_id: config.node_id(),
                     prune_unreachable_peers_after: PRUNE_UNREACHABLE_PEERS_AFTER,
                     prune_edges_after: Some(PRUNE_EDGES_AFTER),
                 },
                 store.clone(),
-            ),
+            )),
             genesis_id,
             client,
             chain_info: Default::default(),
@@ -176,7 +138,6 @@ impl NetworkState {
             inbound_handshake_permits: Arc::new(tokio::sync::Semaphore::new(LIMIT_PENDING_PEERS)),
             peer_store,
             accounts_data: Arc::new(accounts_data::Cache::new()),
-            routing_table_view: RoutingTableView::new(store, config.node_id()),
             txns_since_last_block: AtomicUsize::new(0),
             whitelist_nodes,
             max_num_peers: AtomicU32::new(config.max_num_peers),
@@ -321,7 +282,7 @@ impl NetworkState {
 
             // If the last edge we have with this peer represent a connection addition, create the edge
             // update that represents the connection removal.
-            if let Some(edge) = this.routing_table_view.get_local_edge(&peer_id) {
+            if let Some(edge) = this.graph.load().local_edges.get(&peer_id) {
                 if edge.edge_type() == EdgeState::Active {
                     let edge_update =
                         edge.remove_edge(this.config.node_id(), &this.config.node_key);
@@ -351,7 +312,7 @@ impl NetworkState {
         match target {
             PeerIdOrHash::PeerId(peer_id) => &my_peer_id == peer_id,
             PeerIdOrHash::Hash(hash) => {
-                self.routing_table_view.compare_route_back(*hash, &my_peer_id)
+                self.graph.routing_table.compare_route_back(*hash, &my_peer_id)
             }
         }
     }
@@ -389,12 +350,12 @@ impl NetworkState {
                 return false;
             }
         }
-        match self.routing_table_view.find_route(&clock, &msg.target) {
+        match self.graph.routing_table.find_route(&clock, &msg.target) {
             Ok(peer_id) => {
                 // Remember if we expect a response for this message.
                 if msg.author == my_peer_id && msg.expect_response() {
                     trace!(target: "network", ?msg, "initiate route back");
-                    self.routing_table_view.add_route_back(&clock, msg.hash(), my_peer_id);
+                    self.graph.routing_table.add_route_back(&clock, msg.hash(), my_peer_id);
                 }
                 return self.tier2.send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
             }
@@ -406,7 +367,7 @@ impl NetworkState {
                       account_id = ?self.config.validator.as_ref().map(|v|v.account_id()),
                       to = ?msg.target,
                       reason = ?find_route_error,
-                      known_peers = ?self.routing_table_view.reachable_peers(),
+                      known_peers = ?self.graph.routing_table.reachable_peers(),
                       msg = ?msg.body,
                     "Drop signed message"
                 );
@@ -423,7 +384,7 @@ impl NetworkState {
         account_id: &AccountId,
         msg: RoutedMessageBody,
     ) -> bool {
-        let target = match self.routing_table_view.account_owner(account_id) {
+        let target = match self.graph.routing_table.account_owner(account_id) {
             Some(peer_id) => peer_id,
             None => {
                 // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
@@ -433,7 +394,7 @@ impl NetworkState {
                        to = ?account_id,
                        ?msg,"Drop message: unknown account",
                 );
-                trace!(target: "network", known_peers = ?self.routing_table_view.get_accounts_keys(), "Known peers");
+                trace!(target: "network", known_peers = ?self.graph.routing_table.get_accounts_keys(), "Known peers");
                 return false;
             }
         };
@@ -487,10 +448,11 @@ impl NetworkState {
         let this = self.clone();
         let clock = clock.clone();
         self.spawn(async move {
-            let local_edges = this.routing_table_view.get_local_edges();
+            let graph = this.graph.load();
             let tier2 = this.tier2.load();
             let mut tasks = vec![];
-            for edge in local_edges {
+            for edge in graph.local_edges.values() {
+                let edge = edge.clone();
                 let node_id = this.config.node_id();
                 let other_peer = edge.other(&node_id).unwrap();
                 match (tier2.ready.get(other_peer), edge.edge_type()) {
@@ -512,7 +474,7 @@ impl NetworkState {
                             // response (with timeout). Until network round trips are implemented, we just
                             // blindly wait for a while, then check again.
                             clock.sleep(timeout).await;
-                            match this.routing_table_view.get_local_edge(&conn.peer_info.id) {
+                            match this.graph.load().local_edges.get(&conn.peer_info.id) {
                                 Some(edge) if edge.edge_type() == EdgeState::Active => return,
                                 _ => conn.stop(None),
                             }

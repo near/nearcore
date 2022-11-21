@@ -24,7 +24,7 @@ impl NetworkState {
     pub async fn add_accounts(self: &Arc<NetworkState>, accounts: Vec<AnnounceAccount>) {
         let this = self.clone();
         self.spawn(async move {
-            let new_accounts = this.routing_table_view.add_accounts(accounts);
+            let new_accounts = this.graph.routing_table.add_accounts(accounts);
             tracing::debug!(target: "network", account_id = ?this.config.validator.as_ref().map(|v|v.account_id()), ?new_accounts, "Received new accounts");
             this.broadcast_routing_table_update(RoutingTableUpdate::from_accounts(
                 new_accounts.clone(),
@@ -37,7 +37,7 @@ impl NetworkState {
         // When we create a new edge we increase the latest nonce by 2 in case we miss a removal
         // proposal from our partner.
         let nonce = with_nonce.unwrap_or_else(|| {
-            self.routing_table_view.get_local_edge(peer1).map_or(1, |edge| edge.next())
+            self.graph.load().local_edges.get(peer1).map_or(1, |edge| edge.next())
         });
         PartialEdgeInfo::new(&self.config.node_id(), peer1, nonce, &self.config.node_key)
     }
@@ -75,11 +75,7 @@ impl NetworkState {
             .call(edges, |edges: Vec<Vec<Edge>>| async move {
                 let results: Vec<_> = edges.iter().map(|_| ()).collect();
                 let edges: Vec<_> = edges.into_iter().flatten().collect();
-                let (mut edges, next_hops) = this.graph.update(&clock, edges).await;
-                tracing::info!(target:"dupa","[{}] add_local_edges({edges:?})",this.config.node_id());
-                this.routing_table_view.add_local_edges(&edges);
-                // TODO: pruned_edges are not passed any more
-                this.routing_table_view.update(&[], next_hops);
+                let mut edges = this.graph.update(&clock, edges).await;
                 // Don't send tombstones during the initial time.
                 // Most of the network is created during this time, which results
                 // in us sending a lot of tombstones to peers.

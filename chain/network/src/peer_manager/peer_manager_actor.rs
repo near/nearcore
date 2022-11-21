@@ -589,7 +589,8 @@ impl PeerManagerActor {
                 .sum(),
             known_producers: self
                 .state
-                .routing_table_view
+                .graph
+                .routing_table
                 .get_announce_accounts()
                 .into_iter()
                 .map(|announce_account| KnownProducer {
@@ -597,7 +598,7 @@ impl PeerManagerActor {
                     peer_id: announce_account.peer_id.clone(),
                     // TODO: fill in the address.
                     addr: None,
-                    next_hops: self.state.routing_table_view.view_route(&announce_account.peer_id),
+                    next_hops: self.state.graph.routing_table.view_route(&announce_account.peer_id),
                 })
                 .collect(),
             tier1_accounts: self.state.accounts_data.load().data.values().cloned().collect(),
@@ -887,7 +888,7 @@ impl PeerManagerActor {
             }
             // TEST-ONLY
             PeerManagerMessageRequest::FetchRoutingTable => {
-                PeerManagerMessageResponse::FetchRoutingTable(self.state.routing_table_view.info())
+                PeerManagerMessageResponse::FetchRoutingTable(self.state.graph.routing_table.info())
             }
             // TEST-ONLY
             PeerManagerMessageRequest::PingTo { nonce, target } => {
@@ -1064,8 +1065,9 @@ impl Handler<GetDebugStatus> for PeerManagerActor {
                     .state
                     .graph
                     .load()
-                    .iter()
-                    .map(|(_, edge)| {
+                    .edges
+                    .values()
+                    .map(|edge| {
                         let key = edge.key();
                         EdgeView { peer0: key.0.clone(), peer1: key.1.clone(), nonce: edge.nonce() }
                     })
