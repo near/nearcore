@@ -335,7 +335,9 @@ pub struct ValidatorInfo {
 pub struct PeerInfoView {
     pub addr: String,
     pub account_id: Option<AccountId>,
-    pub height: BlockHeight,
+    pub height: Option<BlockHeight>,
+    pub block_hash: Option<CryptoHash>,
+    pub is_highest_block_invalid: bool,
     pub tracked_shards: Vec<ShardId>,
     pub archival: bool,
     pub peer_id: PublicKey,
@@ -1277,8 +1279,7 @@ impl From<ExecutionMetadata> for ExecutionMetadataView {
                                 Cost::ActionCost {
                                     action_cost_kind:
                                         ActionCosts::new_action_receipt
-                                        | ActionCosts::new_data_receipt_base
-                                        | ActionCosts::new_data_receipt_byte,
+                                        | ActionCosts::new_data_receipt_base,
                                 } => "NEW_RECEIPT".to_owned(),
                                 // other costs have always been mapped one-to-one
                                 Cost::ActionCost { action_cost_kind: action_cost } => {

@@ -22,7 +22,7 @@ pub async fn run(
 ) -> anyhow::Result<()> {
     info!("SYNC start");
     let peers = network.info(&ctx).await?;
-    let target_height = peers.highest_height_peers[0].chain_info.height as i64;
+    let target_height = peers.highest_height_peers[0].highest_block_height as i64;
     info!("SYNC target_height = {}", target_height);
 
     let start_time = time::Instant::now();

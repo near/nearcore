@@ -366,7 +366,11 @@ pub struct FlatStorageCreator {
 }
 
 impl FlatStorageCreator {
-    pub fn new(runtime_adapter: Arc<dyn RuntimeAdapter>, chain_store: &ChainStore) -> Option<Self> {
+    pub fn new(
+        runtime_adapter: Arc<dyn RuntimeAdapter>,
+        chain_store: &ChainStore,
+        num_threads: usize,
+    ) -> Option<Self> {
         let chain_head = chain_store.head().unwrap();
         let num_shards = runtime_adapter.num_shards(&chain_head.epoch_id).unwrap();
         let start_height = chain_head.height;
@@ -395,7 +399,7 @@ impl FlatStorageCreator {
         if creation_needed {
             Some(Self {
                 shard_creators,
-                pool: rayon::ThreadPoolBuilder::new().num_threads(8).build().unwrap(),
+                pool: rayon::ThreadPoolBuilder::new().num_threads(num_threads).build().unwrap(),
             })
         } else {
             None

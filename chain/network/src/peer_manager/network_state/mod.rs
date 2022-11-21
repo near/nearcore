@@ -6,6 +6,7 @@ use crate::network_protocol::{
     Edge, EdgeState, PartialEdgeInfo, PeerIdOrHash, PeerInfo, PeerMessage, Ping, Pong,
     RawRoutedMessage, RoutedMessageBody, RoutedMessageV2, RoutingTableUpdate, SignedAccountData,
 };
+use crate::peer::peer_actor::{ClosingReason, ConnectionClosedEvent};
 use crate::peer_manager::connection;
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::peer_store;
@@ -14,6 +15,7 @@ use crate::routing;
 use crate::routing::routing_table_view::RoutingTableView;
 use crate::stats::metrics;
 use crate::store;
+use crate::tcp;
 use crate::time;
 use crate::types::{ChainInfo, PeerType, ReasonForBan};
 use arc_swap::ArcSwap;
@@ -109,7 +111,7 @@ pub(crate) struct NetworkState {
     pub routing_table_addr: actix::Addr<routing::Actor>,
 
     /// Network-related info about the chain.
-    pub chain_info: ArcSwap<ChainInfo>,
+    pub chain_info: ArcSwap<Option<ChainInfo>>,
     /// AccountsData for TIER1 accounts.
     pub accounts_data: Arc<accounts_data::Cache>,
     /// Connected peers (inbound and outbound) with their full peer information.
@@ -306,7 +308,8 @@ impl NetworkState {
         self: &Arc<Self>,
         clock: &time::Clock,
         conn: &Arc<connection::Connection>,
-        ban_reason: Option<ReasonForBan>,
+        stream_id: tcp::StreamId,
+        reason: ClosingReason,
     ) {
         let this = self.clone();
         let clock = clock.clone();
@@ -326,15 +329,18 @@ impl NetworkState {
             }
 
             // Save the fact that we are disconnecting to the PeerStore.
-            let res = match ban_reason {
-                Some(ban_reason) => {
+            let res = match reason {
+                ClosingReason::Ban(ban_reason) => {
                     this.peer_store.peer_ban(&clock, &conn.peer_info.id, ban_reason)
                 }
-                None => this.peer_store.peer_disconnected(&clock, &conn.peer_info.id),
+                _ => this.peer_store.peer_disconnected(&clock, &conn.peer_info.id),
             };
             if let Err(err) = res {
                 tracing::error!(target: "network", ?err, "Failed to save peer data");
             }
+            this.config
+                .event_sink
+                .push(Event::ConnectionClosed(ConnectionClosedEvent { stream_id, reason }));
         });
     }
 
