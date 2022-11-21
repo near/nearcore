@@ -382,7 +382,6 @@ impl JsonRpcHandler {
         request: Request,
     ) -> Result<Result<Value, RpcError>, Request> {
         Ok(match request.method.as_ref() {
-            "adv_set_weight" => self.adv_set_sync_info(request.params).await,
             "adv_disable_header_sync" => self.adv_disable_header_sync(request.params).await,
             "adv_disable_doomslug" => self.adv_disable_doomslug(request.params).await,
             "adv_produce_blocks" => self.adv_produce_blocks(request.params).await,
@@ -1182,19 +1181,6 @@ impl JsonRpcHandler {
 
 #[cfg(feature = "test_features")]
 impl JsonRpcHandler {
-    async fn adv_set_sync_info(&self, params: Option<Value>) -> Result<Value, RpcError> {
-        let height = crate::api::parse_params::<u64>(params)?;
-        actix::spawn(
-            self.client_addr
-                .send(
-                    near_network::types::NetworkAdversarialMessage::AdvSetSyncInfo(height)
-                        .with_span_context(),
-                )
-                .map(|_| ()),
-        );
-        Ok(Value::String("".to_string()))
-    }
-
     async fn adv_disable_header_sync(&self, _params: Option<Value>) -> Result<Value, RpcError> {
         actix::spawn(
             self.client_addr

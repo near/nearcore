@@ -52,6 +52,7 @@ fn challenges_new_head_prev() {
         &MaybeValidated::from(last_block),
         &Provenance::NONE,
         &mut vec![],
+        &mut vec![],
         Clock::instant(),
         Default::default(),
     ) {

@@ -68,7 +68,7 @@ fn log_validator(account_id: AccountId) {
 }
 ```
 
-Note that `Option::as_ref`, `Result::as_ref` are great, use do use them!
+Note that `Option::as_ref`, `Result::as_ref` are great, do use them!
 
 **Rationale:** readability and churn-resistance. There might be more than one
 `AsRef<U>` implementation for a given type (with different `U`s). If a new
