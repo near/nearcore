@@ -3,6 +3,7 @@
 use crate::ClientActor;
 use actix::{Context, Handler};
 use borsh::BorshSerialize;
+use itertools::Itertools;
 use near_chain::crypto_hash_timer::CryptoHashTimer;
 use near_chain::{near_chain_primitives, ChainStoreAccess, RuntimeAdapter};
 use near_client_primitives::debug::{
@@ -113,19 +114,14 @@ impl BlockProductionTracker {
         block_height: BlockHeight,
         epoch_id: &EpochId,
         num_shards: ShardId,
-        new_chunks: &HashMap<ShardId, (ShardChunkHeader, chrono::DateTime<chrono::Utc>)>,
+        new_chunks: &HashMap<ShardId, (ShardChunkHeader, chrono::DateTime<chrono::Utc>, AccountId)>,
         runtime_adapter: &dyn RuntimeAdapter,
     ) -> Result<Vec<ChunkCollection>, Error> {
         let mut chunk_collection_info = vec![];
         for shard_id in 0..num_shards {
-            if let Some((new_chunk, chunk_time)) = new_chunks.get(&shard_id) {
-                let chunk_producer = runtime_adapter.get_chunk_producer(
-                    epoch_id,
-                    new_chunk.height_created(),
-                    shard_id,
-                )?;
+            if let Some((_, chunk_time, chunk_producer)) = new_chunks.get(&shard_id) {
                 chunk_collection_info.push(ChunkCollection {
-                    chunk_producer,
+                    chunk_producer: chunk_producer.clone(),
                     received_time: Some(chunk_time.clone()),
                     chunk_included: true,
                 });
@@ -618,6 +614,16 @@ impl ClientActor {
             shards: self.client.runtime_adapter.num_shards(&head.epoch_id).unwrap_or_default(),
             approval_history: self.client.doomslug.get_approval_history(),
             production: productions,
+            banned_chunk_producers: self
+                .client
+                .do_not_include_chunks_from
+                .iter()
+                .map(|(k, _)| k.clone())
+                .sorted()
+                .group_by(|(k, _)| k.clone())
+                .into_iter()
+                .map(|(k, vs)| (k, vs.map(|(_, v)| v).collect()))
+                .collect(),
         })
     }
 }
