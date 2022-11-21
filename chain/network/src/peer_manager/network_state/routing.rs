@@ -1,5 +1,5 @@
 use super::NetworkState;
-use crate::network_protocol::{Edge, EdgeState, PartialEdgeInfo, RoutingTableUpdate};
+use crate::network_protocol::{Edge, EdgeState, PartialEdgeInfo, PeerMessage, RoutingTableUpdate};
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::stats::metrics;
 use crate::time;
@@ -8,14 +8,27 @@ use near_primitives::network::{AnnounceAccount, PeerId};
 use std::sync::Arc;
 
 impl NetworkState {
+    // TODO(gprusak): eventually, this should be blocking, as it should be up to the caller
+    // whether to wait for the broadcast to finish, or run it in parallel with sth else.
+    fn broadcast_routing_table_update(&self, mut rtu: RoutingTableUpdate) {
+        if rtu == RoutingTableUpdate::default() {
+            return;
+        }
+        rtu.edges = Edge::deduplicate(rtu.edges);
+        let msg = Arc::new(PeerMessage::SyncRoutingTable(rtu));
+        for conn in self.tier2.load().ready.values() {
+            conn.send_message(msg.clone());
+        }
+    }
+
     pub async fn add_accounts(self: &Arc<NetworkState>, accounts: Vec<AnnounceAccount>) {
         let this = self.clone();
         self.spawn(async move {
             let new_accounts = this.routing_table_view.add_accounts(accounts);
             tracing::debug!(target: "network", account_id = ?this.config.validator.as_ref().map(|v|v.account_id()), ?new_accounts, "Received new accounts");
-            this.broadcast_routing_table_update(Arc::new(RoutingTableUpdate::from_accounts(
+            this.broadcast_routing_table_update(RoutingTableUpdate::from_accounts(
                 new_accounts.clone(),
-            )));
+            ));
             this.config.event_sink.push(Event::AccountsAdded(new_accounts));
         }).await.unwrap()
     }
@@ -77,9 +90,7 @@ impl NetworkState {
                     }
                 }
                 // Broadcast new edges to all other peers.
-                this.broadcast_routing_table_update(Arc::new(RoutingTableUpdate::from_edges(
-                    edges,
-                )));
+                this.broadcast_routing_table_update(RoutingTableUpdate::from_edges(edges));
                 results
             })
             .await;

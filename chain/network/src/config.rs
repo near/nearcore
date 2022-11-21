@@ -115,7 +115,7 @@ pub struct NetworkConfig {
     pub archive: bool,
     /// Maximal rate at which SyncAccountsData can be broadcasted.
     pub accounts_data_broadcast_rate_limit: demux::RateLimit,
-    /// Maximal rate at which RoutingTableUpdate can be sent out.
+    /// Maximal rate at which RoutingTable can be recomputed.
     pub routing_table_update_rate_limit: demux::RateLimit,
     /// features
     pub features: Features,
@@ -218,7 +218,7 @@ impl NetworkConfig {
             outbound_disabled: false,
             archive,
             accounts_data_broadcast_rate_limit: demux::RateLimit { qps: 0.1, burst: 1 },
-            routing_table_update_rate_limit: demux::RateLimit { qps: 0.5, burst: 1 },
+            routing_table_update_rate_limit: demux::RateLimit { qps: 1., burst: 1 },
             features,
             inbound_disabled: cfg.experimental.inbound_disabled,
             skip_tombstones: if cfg.experimental.skip_sending_tombstones_seconds > 0 {
@@ -283,7 +283,7 @@ impl NetworkConfig {
             inbound_disabled: false,
             archive: false,
             accounts_data_broadcast_rate_limit: demux::RateLimit { qps: 100., burst: 1000000 },
-            routing_table_update_rate_limit: demux::RateLimit { qps: 100., burst: 1000000 },
+            routing_table_update_rate_limit: demux::RateLimit { qps: 100., burst: 100 },
             features: Features { enable_tier1: true },
             skip_tombstones: None,
             event_sink: Sink::null(),

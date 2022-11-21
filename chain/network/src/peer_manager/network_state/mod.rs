@@ -4,7 +4,7 @@ use crate::concurrency::demux;
 use crate::config;
 use crate::network_protocol::{
     Edge, EdgeState, PartialEdgeInfo, PeerIdOrHash, PeerInfo, PeerMessage, Ping, Pong,
-    RawRoutedMessage, RoutedMessageBody, RoutedMessageV2, RoutingTableUpdate, SignedAccountData,
+    RawRoutedMessage, RoutedMessageBody, RoutedMessageV2, SignedAccountData,
 };
 use crate::peer::peer_actor::{ClosingReason, ConnectionClosedEvent};
 use crate::peer_manager::connection;
@@ -35,8 +35,6 @@ pub(crate) const LIMIT_PENDING_PEERS: usize = 60;
 /// Send important messages three times.
 /// We send these messages multiple times to reduce the chance that they are lost
 const IMPORTANT_MESSAGE_RESENT_COUNT: usize = 3;
-
-const ADD_EDGES_RATE: demux::RateLimit = demux::RateLimit { qps: 1., burst: 1 };
 
 /// How long a peer has to be unreachable, until we prune it from the in-memory graph.
 const PRUNE_UNREACHABLE_PEERS_AFTER: time::Duration = time::Duration::hours(1);
@@ -182,9 +180,9 @@ impl NetworkState {
             txns_since_last_block: AtomicUsize::new(0),
             whitelist_nodes,
             max_num_peers: AtomicU32::new(config.max_num_peers),
+            add_edges_demux: demux::Demux::new(config.routing_table_update_rate_limit),
             config,
             created_at: clock.now(),
-            add_edges_demux: demux::Demux::new(ADD_EDGES_RATE),
         }
     }
 
@@ -345,17 +343,6 @@ impl NetworkState {
                 .event_sink
                 .push(Event::ConnectionClosed(ConnectionClosedEvent { stream_id, reason }));
         });
-    }
-
-    // TODO(gprusak): eventually, this should be blocking, as it should be up to the caller
-    // whether to wait for the broadcast to finish, or run it in parallel with sth else.
-    fn broadcast_routing_table_update(&self, rtu: Arc<RoutingTableUpdate>) {
-        if rtu.as_ref() == &RoutingTableUpdate::default() {
-            return;
-        }
-        for conn in self.tier2.load().ready.values() {
-            self.spawn(conn.send_routing_table_update(rtu.clone()));
-        }
     }
 
     /// Determine if the given target is referring to us.
