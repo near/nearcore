@@ -76,6 +76,7 @@ impl NetworkState {
                 let results: Vec<_> = edges.iter().map(|_| ()).collect();
                 let edges: Vec<_> = edges.into_iter().flatten().collect();
                 let (mut edges, next_hops) = this.graph.update(&clock, edges).await;
+                tracing::info!(target:"dupa","[{}] add_local_edges({edges:?})",this.config.node_id());
                 this.routing_table_view.add_local_edges(&edges);
                 // TODO: pruned_edges are not passed any more
                 this.routing_table_view.update(&[], next_hops);

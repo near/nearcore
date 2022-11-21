@@ -301,7 +301,7 @@ async fn fix_local_edges() {
     let mut clock = time::FakeClock::default();
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
-    let mut pm =
+    let pm =
         start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
     let conn = pm
         .start_inbound(chain.clone(), chain.make_config(rng))
@@ -322,23 +322,20 @@ async fn fix_local_edges() {
     ]));
 
     tracing::info!(target:"test", "waiting for fake edges to be processed");
-    conn.send(msg).await;
-    let mut got = HashSet::new();
-    let want = [&edge1, &edge2].into_iter().cloned().collect();
-    while !got.is_superset(&want) {
-        pm.events
-            .recv_until(|ev| match ev {
-                Event::PeerManager(PME::EdgesVerified(edges)) => Some(got.extend(edges)),
-                _ => None,
-            })
-            .await;
-    }
+    let mut events = pm.events.from_now();
+    conn.send(msg.clone()).await;
+    events.recv_until(|ev| match ev {
+        Event::PeerManager(PME::MessageProcessed(got)) if got==msg => Some(()),
+        _ => None,
+    }).await;
 
     tracing::info!(target:"test","waiting for fake edges to be fixed");
+    let mut events = pm.events.from_now();
     pm.fix_local_edges(&clock.clock(), time::Duration::ZERO).await;
     // TODO(gprusak): make fix_local_edges await closing of the connections, so
     // that we don't have to wait for it explicitly here.
-    pm.events
+    tracing::info!(target:"test", "waiting for connection to close");
+    events
         .recv_until(|ev| match ev {
             Event::PeerManager(PME::ConnectionClosed { .. }) => Some(()),
             _ => None,
