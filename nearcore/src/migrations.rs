@@ -159,7 +159,9 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
             }
             #[cfg(feature = "protocol_feature_flat_state")]
             34 => {
-                panic!("Trying to use a DB that has no been migrated to flat state. This binary does not support migrating.")
+                tracing::info!(target: "migrations", "Migrating DB version from 34 to 35. Flat storage data will be created on disk.");
+                tracing::info!(target: "migrations", "It will happen in parallel with regular block processing. ETA is 5h for RPC node and 10h for archival node.");
+                Ok(())
             }
             DB_VERSION.. => unreachable!(),
         }
