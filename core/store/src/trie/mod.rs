@@ -399,13 +399,6 @@ impl RawTrieNode {
         }
     }
 
-    #[cfg(test)]
-    fn encode(&self) -> Vec<u8> {
-        let mut out = Vec::new();
-        self.encode_into(&mut out);
-        out
-    }
-
     fn decode(bytes: &[u8]) -> Result<Self, std::io::Error> {
         let mut cursor = Cursor::new(bytes);
         match cursor.read_u8()? {
@@ -1064,25 +1057,39 @@ mod tests {
 
     #[test]
     fn test_encode_decode() {
-        let value = vec![123, 245, 255];
+        fn test(node: RawTrieNode, encoded: &[u8]) {
+            let mut buf = Vec::new();
+            node.encode_into(&mut buf);
+            assert_eq!(encoded, buf.as_slice());
+            assert_eq!(node, RawTrieNode::decode(&buf).unwrap());
+        }
+
         let value_length = 3;
-        let value_hash = hash(&value);
+        let value_hash = CryptoHash::hash_bytes(&[123, 245, 255]);
         let node = RawTrieNode::Leaf(vec![1, 2, 3], value_length, value_hash);
-        let buf = node.encode();
-        let new_node = RawTrieNode::decode(&buf).expect("Failed to deserialize");
-        assert_eq!(node, new_node);
+        let encoded = [
+            0, 3, 0, 0, 0, 1, 2, 3, 3, 0, 0, 0, 194, 40, 8, 24, 64, 219, 69, 132, 86, 52, 110, 175,
+            57, 198, 165, 200, 83, 237, 211, 11, 194, 83, 251, 33, 145, 138, 234, 226, 7, 242, 186,
+            73,
+        ];
+        test(node, &encoded);
 
         let mut children: [Option<CryptoHash>; 16] = Default::default();
         children[3] = Some(Trie::EMPTY_ROOT);
         let node = RawTrieNode::Branch(children, Some((value_length, value_hash)));
-        let buf = node.encode();
-        let new_node = RawTrieNode::decode(&buf).expect("Failed to deserialize");
-        assert_eq!(node, new_node);
+        let encoded = [
+            2, 3, 0, 0, 0, 194, 40, 8, 24, 64, 219, 69, 132, 86, 52, 110, 175, 57, 198, 165, 200,
+            83, 237, 211, 11, 194, 83, 251, 33, 145, 138, 234, 226, 7, 242, 186, 73, 8, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        ];
+        test(node, &encoded);
 
         let node = RawTrieNode::Extension(vec![123, 245, 255], Trie::EMPTY_ROOT);
-        let buf = node.encode();
-        let new_node = RawTrieNode::decode(&buf).expect("Failed to deserialize");
-        assert_eq!(node, new_node);
+        let encoded = [
+            3, 3, 0, 0, 0, 123, 245, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        ];
+        test(node, &encoded);
     }
 
     #[test]
