@@ -1,3 +1,14 @@
+//! Logic for creating flat storage in parallel to chain processing.
+//!
+//! The main struct responsible is `FlatStorageShardCreator`.
+//! After its creation, `update_status` is called periodically, which executes some part of flat storage creation
+//! depending on what the current status is:
+//! `SavingDeltas`: checks if we moved chain final head forward enough to have all flat storage deltas written on disk.
+//! `FetchingState`: spawns threads for fetching some range state parts, waits for receiving results, writes key-value
+//! parts to flat storage column on disk and spawns threads for new range once current range is finished.
+//! `CatchingUp`: moves flat storage head forward, so it may reach chain final head.
+//! `Ready`: flat storage is created and it is up-to-date.
+
 use crate::{ChainStore, ChainStoreAccess, RuntimeAdapter};
 #[cfg(feature = "protocol_feature_flat_state")]
 use assert_matches::assert_matches;
@@ -36,6 +47,7 @@ pub struct FlatStorageShardCreator {
     #[allow(unused)]
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     /// Tracks number of state parts which are not fetched yet during a single step.
+    /// Stores Some(parts) if threads for fetching state were spawned and None otherwise.
     #[allow(unused)]
     remaining_state_parts: Option<u64>,
     /// Used by threads which traverse state parts to tell that traversal is finished.
@@ -49,6 +61,10 @@ pub struct FlatStorageShardCreator {
 }
 
 impl FlatStorageShardCreator {
+    /// Maximal number of blocks which can be caught up during one step.
+    #[cfg(feature = "protocol_feature_flat_state")]
+    const CATCH_UP_BLOCKS: usize = 50;
+
     pub fn new(
         shard_id: ShardId,
         start_height: BlockHeight,
@@ -67,10 +83,10 @@ impl FlatStorageShardCreator {
     }
 
     #[allow(unused)]
-    fn state_part_hex_prefix(path_begin: &[u8]) -> String {
-        let path_prefix = match path_begin.last() {
-            Some(16) => &path_begin[..path_begin.len() - 1],
-            _ => &path_begin,
+    fn nibbles_to_hex(key_nibbles: &[u8]) -> String {
+        let path_prefix = match key_nibbles.last() {
+            Some(16) => &key_nibbles[..key_nibbles.len() - 1],
+            _ => &key_nibbles,
         };
         path_prefix
             .iter()
@@ -92,8 +108,8 @@ impl FlatStorageShardCreator {
         let trie = Trie::new(Box::new(trie_storage), state_root, None);
         let path_begin = trie.find_path_for_part_boundary(part_id.idx, part_id.total).unwrap();
         let path_end = trie.find_path_for_part_boundary(part_id.idx + 1, part_id.total).unwrap();
-        let hex_prefix = Self::state_part_hex_prefix(&path_begin);
-        debug!(target: "store", "Preload state part from {hex_prefix}");
+        let hex_path_begin = Self::nibbles_to_hex(&path_begin);
+        debug!(target: "store", "Preload state part from {hex_path_begin}");
         let mut trie_iter = trie.iter().unwrap();
 
         let mut store_update = BatchedStoreUpdate::new(&store, 10_000_000);
@@ -122,7 +138,7 @@ impl FlatStorageShardCreator {
         let processed_parts = progress.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
 
         debug!(target: "store",
-            "Preload subtrie at {hex_prefix} done, \
+            "Preload subtrie at {hex_path_begin} done, \
             loaded {num_items} state items, \
             proccessed parts: {processed_parts}"
         );
@@ -130,6 +146,8 @@ impl FlatStorageShardCreator {
         result_sender.send(num_items).unwrap();
     }
 
+    /// Checks current flat storage creation status, execute work related to it and possibly switch to next status.
+    /// Creates flat storage when all intermediate steps are finished.
     #[cfg(feature = "protocol_feature_flat_state")]
     pub(crate) fn update_status(
         &mut self,
@@ -142,11 +160,12 @@ impl FlatStorageShardCreator {
         match &current_status {
             FlatStorageStateStatus::SavingDeltas => {
                 let final_head = chain_store.final_head()?;
+                let final_height = final_head.height;
 
-                if final_head.height > self.start_height {
+                if final_height > self.start_height {
                     // If it holds, deltas for all blocks after final head are saved to disk, because they have bigger
                     // heights than one on which we launched a node. Check that it is true:
-                    for height in final_head.height + 1..=chain_store.head()?.height {
+                    for height in final_height + 1..=chain_store.head()?.height {
                         // We skip heights for which there are no blocks, because certain heights can be skipped.
                         // TODO (#8057): make `get_all_block_hashes_by_height` return empty hashmap instead of error
                         // in such case.
@@ -186,7 +205,7 @@ impl FlatStorageShardCreator {
                         num_parts_in_step: NUM_PARTS_IN_ONE_STEP,
                         num_parts: num_state_parts,
                     };
-                    debug!(target: "store", ?status, "Switching status to fetching state");
+                    info!(target: "store", %shard_id, %final_height, ?status, "Switching status to fetching state");
 
                     let mut store_update = chain_store.store().store_update();
                     store_helper::set_flat_head(&mut store_update, shard_id, &block_hash);
@@ -270,7 +289,7 @@ impl FlatStorageShardCreator {
                             );
                         } else {
                             // If all parts were fetched, we can start catchup.
-                            debug!(target: "chain", %shard_id, %block_hash, "Finished fetching state");
+                            info!(target: "chain", %shard_id, %block_hash, "Finished fetching state");
                             store_helper::remove_fetching_state_status(&mut store_update, shard_id);
                             store_helper::start_catchup(&mut store_update, shard_id);
                         }
@@ -289,12 +308,13 @@ impl FlatStorageShardCreator {
 
                 // Merge up to 50 deltas of the next blocks until we reach chain final head.
                 // TODO: consider merging 10 deltas at once to limit memory usage
-                for _ in 0..50 {
+                for _ in 0..Self::CATCH_UP_BLOCKS {
                     let height = chain_store.get_block_height(&flat_head).unwrap();
                     if height > chain_final_head.height {
                         panic!("New flat head moved too far: new head = {flat_head}, height = {height}, final block height = {}", chain_final_head.height);
                     }
-                    if height == chain_final_head.height {
+                    // Stop if we reached chain final head.
+                    if flat_head == chain_final_head.last_block_hash {
                         break;
                     }
                     flat_head = chain_store.get_next_block_hash(&flat_head).unwrap();
@@ -312,19 +332,17 @@ impl FlatStorageShardCreator {
                     store_helper::set_flat_head(&mut store_update, shard_id, &flat_head);
                     merged_delta.apply_to_flat_state(&mut store_update);
 
-                    if height == chain_final_head.height {
+                    if flat_head == chain_final_head.last_block_hash {
                         // If we reached chain final head, we can finish catchup and finally create flat storage.
                         store_helper::finish_catchup(&mut store_update, shard_id);
                         store_update.commit()?;
-                        debug!(target: "chain", %shard_id, %flat_head, %height, "Creating flat storage");
-                        assert_eq!(
-                            self.runtime_adapter.try_create_flat_storage_state_for_shard(
-                                shard_id,
-                                chain_store.head().unwrap().height,
-                                chain_store,
-                            ),
-                            FlatStorageStateStatus::Ready
+                        let status = self.runtime_adapter.try_create_flat_storage_state_for_shard(
+                            shard_id,
+                            chain_store.head().unwrap().height,
+                            chain_store,
                         );
+                        assert_eq!(status, FlatStorageStateStatus::Ready);
+                        info!(target: "chain", %shard_id, %flat_head, %height, "Flat storage creation done");
                     } else {
                         store_update.commit()?;
                     }
