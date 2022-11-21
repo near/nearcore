@@ -1,12 +1,12 @@
 use crate::accounts_data;
 use crate::client;
 use crate::concurrency::demux;
+use crate::concurrency::runtime::Runtime;
 use crate::config;
 use crate::network_protocol::{
     Edge, EdgeState, PartialEdgeInfo, PeerIdOrHash, PeerInfo, PeerMessage, Ping, Pong,
     RawRoutedMessage, RoutedMessageBody, RoutedMessageV2, SignedAccountData,
 };
-use crate::concurrency::runtime::Runtime;
 use crate::peer::peer_actor::{ClosingReason, ConnectionClosedEvent};
 use crate::peer_manager::connection;
 use crate::peer_manager::peer_manager_actor::Event;

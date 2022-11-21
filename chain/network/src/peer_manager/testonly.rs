@@ -277,7 +277,10 @@ impl ActorHandler {
             // Check that the local_edges of the graph match the TIER2 connection pool.
             let node_id = s.config.node_id();
             let local_edges: HashSet<_> = s
-                .graph.load().local_edges.values()
+                .graph
+                .load()
+                .local_edges
+                .values()
                 .filter_map(|e| match e.edge_type() {
                     EdgeState::Active => Some(e.other(&node_id).unwrap().clone()),
                     EdgeState::Removed => None,
@@ -357,7 +360,9 @@ impl ActorHandler {
         loop {
             let account = account.clone();
             let got = self
-                .with_state(|s| async move { s.graph.routing_table.account_owner(&account).clone() })
+                .with_state(
+                    |s| async move { s.graph.routing_table.account_owner(&account).clone() },
+                )
                 .await;
             if let Some(got) = got {
                 return got;

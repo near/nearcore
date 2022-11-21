@@ -301,8 +301,7 @@ async fn fix_local_edges() {
     let mut clock = time::FakeClock::default();
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
-    let pm =
-        start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
+    let pm = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
     let conn = pm
         .start_inbound(chain.clone(), chain.make_config(rng))
         .await
@@ -324,10 +323,12 @@ async fn fix_local_edges() {
     tracing::info!(target:"test", "waiting for fake edges to be processed");
     let mut events = pm.events.from_now();
     conn.send(msg.clone()).await;
-    events.recv_until(|ev| match ev {
-        Event::PeerManager(PME::MessageProcessed(got)) if got==msg => Some(()),
-        _ => None,
-    }).await;
+    events
+        .recv_until(|ev| match ev {
+            Event::PeerManager(PME::MessageProcessed(got)) if got == msg => Some(()),
+            _ => None,
+        })
+        .await;
 
     tracing::info!(target:"test","waiting for fake edges to be fixed");
     let mut events = pm.events.from_now();

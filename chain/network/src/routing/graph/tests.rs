@@ -23,14 +23,8 @@ impl Graph {
         }
         assert_eq!(got_mem, want_mem_map);
 
-        let got_db: HashSet<_> = self
-            .inner
-            .lock()
-            .store
-            .list_components()
-            .into_iter()
-            .map(|c| c.normal())
-            .collect();
+        let got_db: HashSet<_> =
+            self.inner.lock().store.list_components().into_iter().map(|c| c.normal()).collect();
         let want_db: HashSet<_> = want_db.iter().map(|c| c.clone().normal()).collect();
         assert_eq!(got_db, want_db);
     }

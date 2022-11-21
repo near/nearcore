@@ -1100,7 +1100,8 @@ impl PeerActor {
         // as well as filter out those which are older than the fetched ones (to avoid overriding
         // a newer announce with an older one).
         let old = network_state
-            .graph.routing_table
+            .graph
+            .routing_table
             .get_broadcasted_announces(rtu.accounts.iter().map(|a| &a.account_id));
         let accounts: Vec<(AnnounceAccount, Option<EpochId>)> = rtu
             .accounts

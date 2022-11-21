@@ -1,17 +1,17 @@
 use crate::concurrency;
+use crate::concurrency::runtime::Runtime;
 use crate::network_protocol::{Edge, EdgeState};
 use crate::routing::bfs;
+use crate::routing::routing_table_view::RoutingTableView;
 use crate::stats::metrics;
 use crate::store;
 use crate::time;
 use arc_swap::ArcSwap;
 use near_primitives::network::PeerId;
+use parking_lot::Mutex;
 use rayon::iter::ParallelBridge;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use parking_lot::Mutex;
-use crate::routing::routing_table_view::RoutingTableView;
-use crate::concurrency::runtime::Runtime;
 
 #[cfg(test)]
 mod tests;
@@ -29,8 +29,8 @@ pub struct GraphConfig {
 
 #[derive(Default)]
 pub struct GraphSnapshot {
-    pub edges: im::HashMap<EdgeKey,Edge>,
-    pub local_edges: HashMap<PeerId,Edge>,
+    pub edges: im::HashMap<EdgeKey, Edge>,
+    pub local_edges: HashMap<PeerId, Edge>,
     pub next_hops: Arc<NextHopTable>,
 }
 
@@ -225,18 +225,14 @@ impl Inner {
         self.prune_unreachable_peers(now - self.config.prune_unreachable_peers_after);
         metrics::ROUTING_TABLE_RECALCULATIONS.inc();
         metrics::PEER_REACHABLE.set(next_hops.len() as i64);
-        
+
         let mut local_edges = HashMap::new();
         for e in self.edges.clone().values() {
             if let Some(other) = e.other(&self.config.node_id) {
-                local_edges.insert(other.clone(),e.clone());
+                local_edges.insert(other.clone(), e.clone());
             }
         }
-        (edges, GraphSnapshot {
-            edges: self.edges.clone(),
-            local_edges,
-            next_hops,
-        })
+        (edges, GraphSnapshot { edges: self.edges.clone(), local_edges, next_hops })
     }
 }
 
@@ -295,25 +291,25 @@ impl Graph {
 
     /// Adds edges to the graph and recomputes the routing table.
     /// Returns the edges which were actually new and should be broadcasted.
-    pub async fn update(
-        self: &Arc<Self>,
-        clock: &time::Clock,
-        edges: Vec<Edge>,
-    ) -> Vec<Edge> {
+    pub async fn update(self: &Arc<Self>, clock: &time::Clock, edges: Vec<Edge>) -> Vec<Edge> {
         // Computation is CPU heavy and accesses DB so we execute it on a dedicated thread.
         // TODO(gprusak): It would be better to move CPU heavy stuff to rayon and make DB calls async,
         // but that will require further refactor. Or even better: get rid of the Graph all
         // together.
         let this = self.clone();
         let clock = clock.clone();
-        self.runtime.handle.spawn(async move {
-            let mut inner = this.inner.lock();
-            let (new_edges, snapshot) =
-                inner.update(&clock, edges, &this.unreliable_peers.load());
-            let snapshot = Arc::new(snapshot);
-            this.routing_table.update(snapshot.next_hops.clone());
-            this.snapshot.store(snapshot);
-            new_edges
-        }).await.unwrap()
+        self.runtime
+            .handle
+            .spawn(async move {
+                let mut inner = this.inner.lock();
+                let (new_edges, snapshot) =
+                    inner.update(&clock, edges, &this.unreliable_peers.load());
+                let snapshot = Arc::new(snapshot);
+                this.routing_table.update(snapshot.next_hops.clone());
+                this.snapshot.store(snapshot);
+                new_edges
+            })
+            .await
+            .unwrap()
     }
 }
