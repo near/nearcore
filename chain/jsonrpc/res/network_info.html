@@ -105,9 +105,9 @@
 
         function displayHash(peer) {
             if (peer.is_highest_block_invalid) {
-                return peer.block_hash + "(Invalid)"
+                return peer.block_hash + " (INVALID)"
             } else {
-                return peer.block_hash + "(Valid)"
+                return peer.block_hash + " (Valid)"
             }
         }
 
