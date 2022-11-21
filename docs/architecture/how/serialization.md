@@ -30,8 +30,8 @@ message HandshakeFailure {
 }
 ```
 
-Afterwards, such proto file is fed to protoc ‘compiler’ that returns an
-auto-generated code (in our case rust code) - that can be directly imported into
+Afterwards, such a proto file is fed to protoc ‘compiler’ that returns
+auto-generated code (in our case Rust code) - that can be directly imported into
 your library.
 
 The main benefit of protocol buffers is their backwards compatibility (as long
@@ -39,19 +39,19 @@ as you adhere to the rules and don’t reuse the same field ids).
 
 ## Borsh
 
-Borsh is our custom serializer (<https://github.com/near/borsh>), that we use
+Borsh is our custom serializer ([link](https://github.com/near/borsh)), that we use
 mostly for things that have to be hashed.
 
 The main feature of Borsh is that, there are no two binary representations that
 deserialize into the same object.
 
-You can read more on how Borsh serializes the data, by looking at Specification
-tab on <https://borsh.io>
+You can read more on how Borsh serializes the data, by looking at the Specification
+tab on [borsh.io](https://borsh.io).
 
 The biggest pitfall/risk of Borsh, is that any change to the structure, might
-cause previous data to be no longer parseable.
+cause previous data to no longer be parseable.
 
-For example, inserting a new enum ‘in the middle’ :
+For example, inserting a new enum ‘in the middle’:
 
 ```rust
 pub enum MyCar {
@@ -68,7 +68,6 @@ pub enum MyCar {
 }
 ```
 
-
 This is especially tricky if we have conditional compilation:
 
 ```rust
@@ -80,10 +79,10 @@ pub enum MyCar {
 }
 ```
 
-Is such scenario - some of the objects created by binaries with this feature
+Is such a scenario - some of the objects created by binaries with this feature
 enabled, will not be parseable by binaries without this feature.
 
-Also removing and adding fields to structures is also dangerous.
+Removing and adding fields to structures is also dangerous.
 
 Basically - the only ‘safe’ thing that you can do with Borsh - is add a new Enum
 value at the end.
@@ -100,7 +99,6 @@ have to be specified in proto file.
 Borsh - for things that we hash (and currently also for all the things that we
 store on disk - but we might move to proto with this in the future). Look for
 BorshSerialize/BorshDeserialize
-
 
 ## Questions
 
@@ -138,24 +136,24 @@ could lead to some programmatic bugs.
 ## Advanced section - RawTrieNode
 
 But there is one more place in the code, where we use a ‘custom’ encoding (very
-similar to Borsh, but a little different): RawTrieNode
+similar to Borsh, but a little different): RawTrieNode.
 
-If you look into store/src/trie/mod.rs, you’ll be able to find a method called ‘encode_into’:
+If you look into store/src/trie/mod.rs, you’ll be able to find a method called `encode_into`:
 
 ```rust
-    fn encode_into(&self, out: &mut Vec<u8>) -> Result<(), std::io::Error> {
-        let mut cursor = Cursor::new(out);
-        // size in state_parts = size + 8 for RawTrieNodeWithSize + 8 for borsh vector length
-        match &self {
-            // size <= 1 + 4 + 4 + 32 + key_length + value_length
-            RawTrieNode::Leaf(key, value_length, value_hash) => {
-                cursor.write_u8(LEAF_NODE)?;
-                cursor.write_u32::<LittleEndian>(key.len() as u32)?;
-                cursor.write_all(key)?;
-                cursor.write_u32::<LittleEndian>(*value_length)?;
-                cursor.write_all(value_hash.as_ref())?;
-            }
-         //... more code
+fn encode_into(&self, out: &mut Vec<u8>) -> Result<(), std::io::Error> {
+    let mut cursor = Cursor::new(out);
+    // size in state_parts = size + 8 for RawTrieNodeWithSize + 8 for borsh vector length
+    match &self {
+        // size <= 1 + 4 + 4 + 32 + key_length + value_length
+        RawTrieNode::Leaf(key, value_length, value_hash) => {
+            cursor.write_u8(LEAF_NODE)?;
+            cursor.write_u32::<LittleEndian>(key.len() as u32)?;
+            cursor.write_all(key)?;
+            cursor.write_u32::<LittleEndian>(*value_length)?;
+            cursor.write_all(value_hash.as_ref())?;
+        }
+     //... more code
 ```
 
 which is responsible for generating this custom encoding.
@@ -184,6 +182,6 @@ Borsh:
 
 ```
 [8 bits - 0 or 1][32 bytes child][8 bits 0 or 1][8 bits ]
-[1][0x11][0][1]][0x11][0][0]...
+[1][0x11][0][1][0x11][0][0]...
 // Total size: 16 + 32 + 32 = 80 bytes
 ```
