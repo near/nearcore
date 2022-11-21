@@ -431,7 +431,7 @@ impl RawTrieNode {
                 bytes.read_exact(&mut child)?;
                 RawTrieNode::Extension(key, CryptoHash(child))
             }
-            _ => return Err(std::io::Error::new(std::io::ErrorKind::Other, "Wrong type"))
+            _ => return Err(std::io::Error::new(std::io::ErrorKind::Other, "Wrong type")),
         };
         if bytes.is_empty() {
             Ok(node)
