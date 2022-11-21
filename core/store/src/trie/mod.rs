@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::io::{Cursor, Read};
+use std::io::Read;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use byteorder::{LittleEndian, ReadBytesExt};
@@ -338,15 +338,15 @@ const BRANCH_NODE_NO_VALUE: u8 = 1;
 const BRANCH_NODE_WITH_VALUE: u8 = 2;
 const EXTENSION_NODE: u8 = 3;
 
-fn decode_children(cursor: &mut Cursor<&[u8]>) -> Result<[Option<CryptoHash>; 16], std::io::Error> {
+fn decode_children(bytes: &mut &[u8]) -> Result<[Option<CryptoHash>; 16], std::io::Error> {
     let mut children: [Option<CryptoHash>; 16] = Default::default();
-    let bitmap = cursor.read_u16::<LittleEndian>()?;
+    let bitmap = bytes.read_u16::<LittleEndian>()?;
     let mut pos = 1;
     for child in &mut children {
         if bitmap & pos != 0 {
             let mut arr = [0; 32];
-            cursor.read_exact(&mut arr)?;
-            *child = Some(CryptoHash::try_from(&arr[..]).unwrap());
+            bytes.read_exact(&mut arr)?;
+            *child = Some(CryptoHash(arr));
         }
         pos <<= 1;
     }
@@ -399,40 +399,44 @@ impl RawTrieNode {
         }
     }
 
-    fn decode(bytes: &[u8]) -> Result<Self, std::io::Error> {
-        let mut cursor = Cursor::new(bytes);
-        match cursor.read_u8()? {
+    fn decode(mut bytes: &[u8]) -> Result<Self, std::io::Error> {
+        let node = match bytes.read_u8()? {
             LEAF_NODE => {
-                let key_length = cursor.read_u32::<LittleEndian>()?;
+                let key_length = bytes.read_u32::<LittleEndian>()?;
                 let mut key = vec![0; key_length as usize];
-                cursor.read_exact(&mut key)?;
-                let value_length = cursor.read_u32::<LittleEndian>()?;
+                bytes.read_exact(&mut key)?;
+                let value_length = bytes.read_u32::<LittleEndian>()?;
                 let mut arr = [0; 32];
-                cursor.read_exact(&mut arr)?;
+                bytes.read_exact(&mut arr)?;
                 let value_hash = CryptoHash(arr);
-                Ok(RawTrieNode::Leaf(key, value_length, value_hash))
+                RawTrieNode::Leaf(key, value_length, value_hash)
             }
             BRANCH_NODE_NO_VALUE => {
-                let children = decode_children(&mut cursor)?;
-                Ok(RawTrieNode::Branch(children, None))
+                let children = decode_children(&mut bytes)?;
+                RawTrieNode::Branch(children, None)
             }
             BRANCH_NODE_WITH_VALUE => {
-                let value_length = cursor.read_u32::<LittleEndian>()?;
+                let value_length = bytes.read_u32::<LittleEndian>()?;
                 let mut arr = [0; 32];
-                cursor.read_exact(&mut arr)?;
+                bytes.read_exact(&mut arr)?;
                 let value_hash = CryptoHash(arr);
-                let children = decode_children(&mut cursor)?;
-                Ok(RawTrieNode::Branch(children, Some((value_length, value_hash))))
+                let children = decode_children(&mut bytes)?;
+                RawTrieNode::Branch(children, Some((value_length, value_hash)))
             }
             EXTENSION_NODE => {
-                let key_length = cursor.read_u32::<LittleEndian>()?;
+                let key_length = bytes.read_u32::<LittleEndian>()?;
                 let mut key = vec![0; key_length as usize];
-                cursor.read_exact(&mut key)?;
+                bytes.read_exact(&mut key)?;
                 let mut child = [0; 32];
-                cursor.read_exact(&mut child)?;
-                Ok(RawTrieNode::Extension(key, CryptoHash(child)))
+                bytes.read_exact(&mut child)?;
+                RawTrieNode::Extension(key, CryptoHash(child))
             }
-            _ => Err(std::io::Error::new(std::io::ErrorKind::Other, "Wrong type")),
+            _ => return Err(std::io::Error::new(std::io::ErrorKind::Other, "Wrong type")),
+        };
+        if bytes.is_empty() {
+            Ok(node)
+        } else {
+            Err(std::io::Error::new(std::io::ErrorKind::Other, "Spurious data at end"))
         }
     }
 }
@@ -453,10 +457,9 @@ impl RawTrieNodeWithSize {
         if bytes.len() < 8 {
             return Err(std::io::Error::new(std::io::ErrorKind::Other, "Wrong type"));
         }
-        let node = RawTrieNode::decode(&bytes[0..bytes.len() - 8])?;
-        let mut arr: [u8; 8] = Default::default();
-        arr.copy_from_slice(&bytes[bytes.len() - 8..]);
-        let memory_usage = u64::from_le_bytes(arr);
+        let (bytes, memory_usage) = stdx::rsplit_slice(bytes);
+        let node = RawTrieNode::decode(bytes)?;
+        let memory_usage = u64::from_le_bytes(*memory_usage);
         Ok(RawTrieNodeWithSize { node, memory_usage })
     }
 }
@@ -1062,6 +1065,11 @@ mod tests {
             node.encode_into(&mut buf);
             assert_eq!(encoded, buf.as_slice());
             assert_eq!(node, RawTrieNode::decode(&buf).unwrap());
+
+            // Test that adding garbage at the end fails decoding.
+            buf.push(b'!');
+            let got = RawTrieNode::decode(&buf);
+            assert!(got.is_err(), "got: {got:?}");
         }
 
         let value_length = 3;
