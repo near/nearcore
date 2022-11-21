@@ -36,6 +36,7 @@ pub mod cli;
 mod genesis;
 mod key_mapping;
 mod metrics;
+mod offline;
 mod online;
 mod secret;
 
@@ -255,6 +256,15 @@ impl From<GetChunkError> for ChainError {
     fn from(err: GetChunkError) -> Self {
         match err {
             GetChunkError::UnknownBlock { .. } => Self::UnknownBlock,
+            _ => Self::other(err),
+        }
+    }
+}
+
+impl From<near_chain_primitives::Error> for ChainError {
+    fn from(err: near_chain_primitives::Error) -> Self {
+        match err {
+            near_chain_primitives::Error::DBNotFoundErr(_) => Self::UnknownBlock,
             _ => Self::other(err),
         }
     }
@@ -1013,6 +1023,10 @@ impl<T: ChainAccess> TxMirror<T> {
                     self.queue_txs(&mut tracker, target_head, true).await?;
                 }
             };
+            if tracker.finished() {
+                tracing::info!(target: "mirror", "finished sending all transactions");
+                return Ok(());
+            }
         }
     }
 
@@ -1021,9 +1035,11 @@ impl<T: ChainAccess> TxMirror<T> {
         (msg.block.header.height, msg.block.header.hash)
     }
 
-    async fn run(mut self) -> anyhow::Result<()> {
-        let mut tracker =
-            crate::chain_tracker::TxTracker::new(self.target_min_block_production_delay);
+    async fn run(mut self, stop_height: Option<BlockHeight>) -> anyhow::Result<()> {
+        let mut tracker = crate::chain_tracker::TxTracker::new(
+            self.target_min_block_production_delay,
+            stop_height,
+        );
         self.source_chain_access.init().await?;
 
         let (target_height, target_head) = self.wait_target_synced().await;
@@ -1038,9 +1054,16 @@ async fn run<P: AsRef<Path>>(
     source_home: P,
     target_home: P,
     secret: Option<[u8; crate::secret::SECRET_LEN]>,
+    stop_height: Option<BlockHeight>,
+    online_source: bool,
 ) -> anyhow::Result<()> {
-    let source_chain_access = crate::online::ChainAccess::new(source_home)?;
-    let mirror = TxMirror::new(source_chain_access, target_home, secret)?;
-
-    mirror.run().await
+    if !online_source {
+        let source_chain_access = crate::offline::ChainAccess::new(source_home)?;
+        let stop_height = stop_height.unwrap_or(source_chain_access.head_height().await?);
+        TxMirror::new(source_chain_access, target_home, secret)?.run(Some(stop_height)).await
+    } else {
+        TxMirror::new(crate::online::ChainAccess::new(source_home)?, target_home, secret)?
+            .run(stop_height)
+            .await
+    }
 }
