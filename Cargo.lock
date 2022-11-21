@@ -3033,6 +3033,7 @@ dependencies = [
  "ed25519-dalek",
  "hex-literal",
  "near-account-id",
+ "near-stdx",
  "once_cell",
  "primitive-types",
  "rand 0.7.3",
@@ -3517,6 +3518,10 @@ name = "near-stable-hasher"
 version = "0.0.0"
 
 [[package]]
+name = "near-stdx"
+version = "0.0.0"
+
+[[package]]
 name = "near-store"
 version = "0.0.0"
 dependencies = [
@@ -3537,6 +3542,7 @@ dependencies = [
  "near-crypto",
  "near-o11y",
  "near-primitives",
+ "near-stdx",
  "num_cpus",
  "once_cell",
  "rand 0.8.5",
@@ -3605,6 +3611,7 @@ dependencies = [
  "near-o11y",
  "near-primitives",
  "near-primitives-core",
+ "near-stdx",
  "near-vm-errors",
  "ripemd",
  "serde",

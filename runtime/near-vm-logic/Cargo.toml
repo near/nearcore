@@ -23,6 +23,7 @@ ripemd.workspace = true
 serde.workspace = true
 sha2.workspace = true
 sha3.workspace = true
+stdx.workspace = true
 tracing = { workspace = true, optional = true }
 
 near-crypto = { path = "../../core/crypto" }
