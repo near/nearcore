@@ -71,6 +71,7 @@ pub enum StateViewerSubCommand {
     /// View trie structure.
     #[clap(alias = "view_trie")]
     ViewTrie(ViewTrieCmd),
+    /// Dump all or a single state part of a shard.
     DumpStateParts(DumpStatePartsCmd),
 }
 
