@@ -9,11 +9,12 @@ use crate::time;
 use near_crypto::Signature;
 use near_primitives::network::PeerId;
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 impl Graph {
     async fn check(&self, want_mem: &[Edge], want_db: &[Component]) {
         let got_mem = self.load();
-        let got_mem: HashMap<_, _> = got_mem.iter().collect();
+        let got_mem: HashMap<_, _> = got_mem.edges.iter().collect();
         let mut want_mem_map = HashMap::new();
         for e in want_mem {
             if want_mem_map.insert(e.key(), e).is_some() {
@@ -25,7 +26,6 @@ impl Graph {
         let got_db: HashSet<_> = self
             .inner
             .lock()
-            .await
             .store
             .list_components()
             .into_iter()
@@ -69,7 +69,7 @@ async fn one_edge() {
         prune_unreachable_peers_after: time::Duration::seconds(3),
         prune_edges_after: None,
     };
-    let g = Graph::new(cfg.clone(), store());
+    let g = Arc::new(Graph::new(cfg.clone(), store()));
 
     let p1 = data::make_peer_id(rng);
     let e1 = edge(&cfg.node_id, &p1, 1);
@@ -106,7 +106,7 @@ async fn load_component() {
         prune_unreachable_peers_after: time::Duration::seconds(3),
         prune_edges_after: None,
     };
-    let g = Graph::new(cfg.clone(), store());
+    let g = Arc::new(Graph::new(cfg.clone(), store()));
 
     let p1 = data::make_peer_id(rng);
     let p2 = data::make_peer_id(rng);
@@ -143,7 +143,7 @@ async fn components_nonces_are_tracked_in_storage() {
         prune_edges_after: None,
     };
     let store = store();
-    let g = Graph::new(cfg.clone(), store.clone());
+    let g = Arc::new(Graph::new(cfg.clone(), store.clone()));
 
     // Add an inactive edge and prune it.
     let p1 = data::make_peer_id(rng);
@@ -170,7 +170,7 @@ async fn components_nonces_are_tracked_in_storage() {
     // overwritten, but rather a new one should be created.
     // This verifies that the last_component_nonce (which indicates which component IDs have been
     // already utilized) is persistently stored in DB.
-    let g = Graph::new(cfg.clone(), store);
+    let g = Arc::new(Graph::new(cfg.clone(), store));
     let p4 = data::make_peer_id(rng);
     let e4 = edge(&cfg.node_id, &p4, 2);
     g.update(&clock.clock(), vec![e4.clone()]).await;
@@ -219,7 +219,7 @@ async fn expired_edges() {
         prune_unreachable_peers_after: time::Duration::hours(100),
         prune_edges_after: Some(110 * SEC),
     };
-    let g = Graph::new(cfg.clone(), store());
+    let g = Arc::new(Graph::new(cfg.clone(), store()));
 
     let p1 = data::make_peer_id(rng);
     let p2 = data::make_peer_id(rng);

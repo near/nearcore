@@ -113,38 +113,40 @@ impl PeerHandle {
         stream: tcp::Stream,
     ) -> PeerHandle {
         let cfg = Arc::new(cfg);
-        let cfg_ = cfg.clone();
         let (send, recv) = broadcast::unbounded_channel();
-        let actix = ActixSystem::spawn(move || {
-            let fc = Arc::new(fake_client::Fake { event_sink: send.sink().compose(Event::Client) });
-            let store = store::Store::from(near_store::db::TestDB::new());
-            let mut network_cfg = cfg.network.clone();
-            network_cfg.event_sink = send.sink().compose(Event::Network);
-            let network_state = Arc::new(NetworkState::new(
-                &clock,
-                store.clone(),
-                peer_store::PeerStore::new(&clock, network_cfg.peer_store.clone(), store.clone())
-                    .unwrap(),
-                network_cfg.verify().unwrap(),
-                cfg.chain.genesis_id.clone(),
-                fc,
-                vec![],
-            ));
-            // WARNING: this is a hack to make PeerActor use a specific nonce
-            if let (Some(nonce), tcp::StreamType::Outbound { peer_id }) =
-                (&cfg.nonce, &stream.type_)
-            {
-                network_state.routing_table_view.add_local_edges(&[Edge::new(
-                    cfg.id(),
-                    peer_id.clone(),
-                    nonce - 1,
-                    Signature::default(),
-                    Signature::default(),
-                )]);
-            }
-            PeerActor::spawn(clock, stream, cfg.force_encoding, network_state).unwrap()
+        
+        let fc = Arc::new(fake_client::Fake { event_sink: send.sink().compose(Event::Client) });
+        let store = store::Store::from(near_store::db::TestDB::new());
+        let mut network_cfg = cfg.network.clone();
+        network_cfg.event_sink = send.sink().compose(Event::Network);
+        let network_state = Arc::new(NetworkState::new(
+            &clock,
+            store.clone(),
+            peer_store::PeerStore::new(&clock, network_cfg.peer_store.clone(), store.clone())
+                .unwrap(),
+            network_cfg.verify().unwrap(),
+            cfg.chain.genesis_id.clone(),
+            fc,
+            vec![],
+        ));
+        // WARNING: this is a hack to make PeerActor use a specific nonce
+        if let (Some(nonce), tcp::StreamType::Outbound { peer_id }) =
+            (&cfg.nonce, &stream.type_)
+        {
+            network_state.add_edges(&clock,vec![Edge::new(
+                cfg.id(),
+                peer_id.clone(),
+                nonce - 1,
+                Signature::default(),
+                Signature::default(),
+            )]).await.unwrap();
+        }
+        let actix = ActixSystem::spawn({
+            let clock = clock.clone();
+            let cfg = cfg.clone();
+            move || PeerActor::spawn(clock, stream, cfg.force_encoding, network_state).unwrap()
         })
         .await;
-        Self { actix, cfg: cfg_, events: recv, edge: None }
+        Self { actix, cfg, events: recv, edge: None }
     }
 }

@@ -277,9 +277,7 @@ impl ActorHandler {
             // Check that the local_edges of the graph match the TIER2 connection pool.
             let node_id = s.config.node_id();
             let local_edges: HashSet<_> = s
-                .routing_table_view
-                .get_local_edges()
-                .iter()
+                .graph.load().local_edges.values()
                 .filter_map(|e| match e.edge_type() {
                     EdgeState::Active => Some(e.other(&node_id).unwrap().clone()),
                     EdgeState::Removed => None,
@@ -338,7 +336,7 @@ impl ActorHandler {
         let mut events = self.events.from_now();
         loop {
             let got =
-                self.with_state(|s| async move { s.routing_table_view.info().next_hops }).await;
+                self.with_state(|s| async move { s.graph.routing_table.info().next_hops }).await;
             if test_utils::expected_routing_tables(&got, want) {
                 return;
             }
@@ -359,7 +357,7 @@ impl ActorHandler {
         loop {
             let account = account.clone();
             let got = self
-                .with_state(|s| async move { s.routing_table_view.account_owner(&account).clone() })
+                .with_state(|s| async move { s.graph.routing_table.account_owner(&account).clone() })
                 .await;
             if let Some(got) = got {
                 return got;
