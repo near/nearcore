@@ -140,6 +140,7 @@ impl From<&PeerMessage> for proto::PeerMessage {
                 PeerMessage::Routed(r) => ProtoMT::Routed(proto::RoutedMessage {
                     borsh: r.msg.try_to_vec().unwrap(),
                     created_at: MF::from_option(r.created_at.as_ref().map(utc_to_proto)),
+                    num_hops: r.num_hops,
                     ..Default::default()
                 }),
                 PeerMessage::Disconnect => ProtoMT::Disconnect(proto::Disconnect::new()),
@@ -252,6 +253,7 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
                     .map(utc_from_proto)
                     .transpose()
                     .map_err(Self::Error::RoutedCreatedAtTimestamp)?,
+                num_hops: r.num_hops,
             })),
             ProtoMT::Disconnect(_) => PeerMessage::Disconnect,
             ProtoMT::Challenge(c) => PeerMessage::Challenge(

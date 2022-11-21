@@ -319,8 +319,12 @@ fn use_color_output(options: &Options) -> bool {
     match options.color {
         ColorOutput::Always => true,
         ColorOutput::Never => false,
-        ColorOutput::Auto => std::env::var_os("NO_COLOR").is_none() && is_terminal(),
+        ColorOutput::Auto => use_color_auto(),
     }
+}
+
+fn use_color_auto() -> bool {
+    std::env::var_os("NO_COLOR").is_none() && is_terminal()
 }
 
 /// Constructs a subscriber set to the option appropriate for the NEAR code.
