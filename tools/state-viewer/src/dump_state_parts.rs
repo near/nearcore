@@ -53,7 +53,7 @@ pub(crate) fn dump_state_parts(
                 PartId::new(part_id, num_parts),
             )
             .unwrap();
-        let filename = output_dir.join(format!("state_part_{}", part_id));
+        let filename = output_dir.join(format!("state_part_{:06}", part_id));
         let len = state_part.len();
         std::fs::write(filename.clone(), state_part).unwrap();
         tracing::debug!(
