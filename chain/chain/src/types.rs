@@ -237,7 +237,7 @@ pub struct ChainGenesis {
 }
 
 pub struct ChainConfig {
-    /// Whether we should save `TrieChanges` on disk or not.
+    /// Whether to save `TrieChanges` on disk or not.
     pub save_trie_changes: bool,
     /// Number of threads to execute background migration work.
     /// Currently used for flat storage background creation.
