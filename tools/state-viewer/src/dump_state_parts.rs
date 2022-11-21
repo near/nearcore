@@ -41,6 +41,7 @@ pub(crate) fn dump_state_parts(
         runtime_adapter.get_state_root_node(shard_id, &sync_prev_hash, &state_root).unwrap();
 
     let num_parts = get_num_state_parts(state_root_node.memory_usage);
+    tracing::debug!(num_parts);
 
     std::fs::create_dir_all(output_dir).unwrap();
     for part_id in if let Some(part_id) = part_id { part_id..part_id + 1 } else { 0..num_parts } {
