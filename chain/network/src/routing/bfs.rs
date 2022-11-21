@@ -9,8 +9,6 @@ use tracing::warn;
 /// to that are on the shortest path between us as destination `peer`.
 #[derive(Clone)]
 pub struct Graph {
-    /// peer_id of current peer
-    my_peer_id: PeerId,
     /// `id` as integer corresponding to `my_peer_id`.
     /// We use u32 to reduce both improve performance, and reduce memory usage.
     source_id: u32,
@@ -33,7 +31,6 @@ pub struct Graph {
 impl Graph {
     pub fn new(source: PeerId) -> Self {
         let mut res = Self {
-            my_peer_id: source.clone(),
             source_id: 0,
             p2id: HashMap::default(),
             id2p: Vec::default(),
@@ -48,10 +45,6 @@ impl Graph {
         res.used.push(true);
 
         res
-    }
-
-    pub fn my_peer_id(&self) -> &PeerId {
-        &self.my_peer_id
     }
 
     pub fn total_active_edges(&self) -> u64 {
@@ -231,7 +224,7 @@ impl Graph {
 
 #[cfg(test)]
 mod test {
-    use crate::routing::graph::Graph;
+    use super::Graph;
     use crate::test_utils::{expected_routing_tables, random_peer_id};
     use std::collections::HashSet;
     use std::ops::Not;

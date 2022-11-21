@@ -1,14 +1,10 @@
 pub(crate) mod route_back_cache;
 pub mod routing_table_view;
-
 pub(crate) mod edge;
+mod bfs;
 mod graph;
-mod graph_with_cache;
-pub(crate) use graph_with_cache::Config as GraphConfig;
-pub(crate) use graph_with_cache::NextHopTable;
-// for benchmark only
-pub use graph::Graph;
-pub use graph_with_cache::GraphWithCache;
+
+pub(crate) use graph::{Graph,GraphConfig};
 
 #[cfg(test)]
 mod tests;

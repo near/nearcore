@@ -11,6 +11,9 @@ use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+#[cfg(test)]
+mod tests;
+
 const ANNOUNCE_ACCOUNT_CACHE_SIZE: usize = 10_000;
 const LAST_ROUTED_CACHE_SIZE: usize = 10_000;
 

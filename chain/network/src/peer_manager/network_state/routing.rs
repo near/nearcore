@@ -60,7 +60,7 @@ impl NetworkState {
         let _ = self.add_edges_demux.call(edges, |edges:Vec<Vec<Edge>>| async move {
             let results : Vec<_> = edges.iter().map(|_|()).collect();
             let edges : Vec<_> = edges.into_iter().flatten().collect();
-            let (mut edges, next_hops) = this.graph.update_routing_table(&clock,edges).await;
+            let (mut edges, next_hops) = this.graph.update(&clock,edges).await;
             this.routing_table_view.add_local_edges(&edges);
             // TODO: pruned_edges are not passed any more
             this.routing_table_view.update(&[],next_hops);

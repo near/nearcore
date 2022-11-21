@@ -126,7 +126,7 @@ pub(crate) struct NetworkState {
     /// Peer store that provides read/write access to peers.
     pub peer_store: peer_store::PeerStore,
     /// A graph of the whole NEAR network.
-    pub graph: crate::routing::GraphWithCache,
+    pub graph: crate::routing::Graph,
 
     /// View of the Routing table. It keeps:
     /// - routing information - how to route messages
@@ -164,7 +164,7 @@ impl NetworkState {
     ) -> Self {
         Self {
             runtime: Runtime::new(),
-            graph: crate::routing::GraphWithCache::new(crate::routing::GraphConfig {
+            graph: crate::routing::Graph::new(crate::routing::GraphConfig {
                 node_id: config.node_id(),
                 prune_unreachable_peers_after: PRUNE_UNREACHABLE_PEERS_AFTER,
                 prune_edges_after: Some(PRUNE_EDGES_AFTER),

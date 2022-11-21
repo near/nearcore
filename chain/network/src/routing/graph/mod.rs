@@ -11,23 +11,26 @@ use std::sync::Arc;
 use tracing::trace;
 use arc_swap::ArcSwap;
 
+#[cfg(test)]
+mod tests;
+
 // TODO: make it opaque, so that the key.0 < key.1 invariant is protected.
 type EdgeKey = (PeerId, PeerId);
 pub type NextHopTable = HashMap<PeerId, Vec<PeerId>>;
 
-pub struct Config {
+pub struct GraphConfig {
     pub node_id: PeerId,
     pub prune_unreachable_peers_after: time::Duration,    
     pub prune_edges_after: Option<time::Duration>,
 }
 
 struct Inner {
-    config: Config,
+    config: GraphConfig,
 
     /// Current view of the network represented by an undirected graph.
     /// Contains only validated edges.
     /// Nodes are Peers and edges are active connections.
-    graph: routing::Graph,
+    graph: bfs::Graph,
     
     edges: im::HashMap<EdgeKey, Edge>,
     /// Last time a peer was reachable.
@@ -224,17 +227,17 @@ impl Inner {
     }
 }
 
-pub struct GraphWithCache {
+pub struct Graph {
     inner: tokio::sync::Mutex<Inner>,
     edges: ArcSwap<im::HashMap<EdgeKey, Edge>>,
     unreliable_peers: ArcSwap<HashSet<PeerId>>,
 }
 
-impl GraphWithCache {
-    pub(crate) fn new(config: Config, store: store::Store) -> Self {
+impl Graph {
+    pub(crate) fn new(config: GraphConfig, store: store::Store) -> Self {
         Self {
             inner: tokio::sync::Mutex::new(Inner{
-                graph: routing::Graph::new(config.node_id.clone()),
+                graph: bfs::Graph::new(config.node_id.clone()),
                 config,
                 edges: Default::default(),
                 peer_reachable_at: HashMap::new(),
@@ -263,7 +266,7 @@ impl GraphWithCache {
         self.edges.load().as_ref().clone()
     }
 
-    pub async fn update_routing_table(&self, clock: &time::Clock, edges: Vec<Edge>) -> (Vec<Edge>,Arc<NextHopTable>) {
+    pub async fn update(&self, clock: &time::Clock, edges: Vec<Edge>) -> (Vec<Edge>,Arc<NextHopTable>) {
         let mut inner = self.inner.lock().await;
         let (new_edges,next_hops) = inner.update_routing_table(clock, edges, &*self.unreliable_peers.load()).await;
         self.edges.store(Arc::new(inner.edges.clone()));
