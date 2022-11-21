@@ -47,7 +47,6 @@ use crate::chunks_store::ReadOnlyChunksStore;
 use crate::types::{Block, BlockHeader, LatestKnown};
 use crate::{byzantine_assert, RuntimeAdapter};
 use near_store::db::StoreStatistics;
-#[cfg(feature = "protocol_feature_flat_state")]
 use near_store::flat_state::{BlockInfo, ChainAccessForFlatStorage};
 use std::sync::Arc;
 
@@ -257,6 +256,11 @@ pub trait ChainStoreAccess {
         tx_hash: &CryptoHash,
     ) -> Result<Option<Arc<SignedTransaction>>, Error>;
 
+    /// Fetch a receipt by id, if it is stored in the store.
+    ///
+    /// Note that not _all_ receipts are persisted. Some receipts are ephemeral,
+    /// get processed immediately after creation and don't even get to the
+    /// database.
     fn get_receipt(&self, receipt_id: &CryptoHash) -> Result<Option<Arc<Receipt>>, Error>;
 
     fn get_genesis_height(&self) -> BlockHeight;
@@ -1126,7 +1130,6 @@ impl ChainStoreAccess for ChainStore {
     }
 }
 
-#[cfg(feature = "protocol_feature_flat_state")]
 impl ChainAccessForFlatStorage for ChainStore {
     fn get_block_info(&self, block_hash: &CryptoHash) -> BlockInfo {
         let header = self.get_block_header(block_hash).unwrap();
@@ -1134,12 +1137,10 @@ impl ChainAccessForFlatStorage for ChainStore {
     }
 
     fn get_block_hashes_at_height(&self, height: BlockHeight) -> HashSet<CryptoHash> {
-        self.get_all_block_hashes_by_height(height)
-            .unwrap()
-            .values()
-            .flatten()
-            .copied()
-            .collect::<HashSet<_>>()
+        match self.get_all_block_hashes_by_height(height) {
+            Ok(hashes) => hashes.values().flatten().copied().collect::<HashSet<_>>(),
+            Err(_) => Default::default(),
+        }
     }
 }
 

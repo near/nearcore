@@ -1,11 +1,10 @@
+use crate::time;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{KeyType, SecretKey, Signature};
 use near_primitives::borsh::maybestd::sync::Arc;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use once_cell::sync::Lazy;
-
-use crate::time;
 
 // We'd treat all nonces that are below this values as 'old style' (without any expiration time).
 // And all nonces above this value as new style (that would expire after some time).
@@ -247,6 +246,13 @@ impl Edge {
         } else {
             Err(InvalidNonceError::NonceOutOfBoundsError { nonce })
         }
+    }
+
+    // Returns a single edge with the highest nonce for each key of the input edges.
+    pub fn deduplicate<'a>(mut edges: Vec<Edge>) -> Vec<Edge> {
+        edges.sort_by(|a, b| (b.key(), b.nonce()).cmp(&(a.key(), a.nonce())));
+        edges.dedup_by_key(|e| e.key().clone());
+        edges
     }
 }
 

@@ -3,8 +3,6 @@ name = "nearcore"
 version = "0.0.0"
 authors.workspace = true
 publish = false
-# Please update rust-toolchain.toml as well when changing version here:
-rust-version.workspace = true
 edition.workspace = true
 
 [dependencies]
@@ -45,6 +43,7 @@ near-chunks = { path = "../chain/chunks" }
 near-client = { path = "../chain/client" }
 near-client-primitives = {path = "../chain/client-primitives"}
 near-crypto = { path = "../core/crypto" }
+near-dyn-configs = { path = "../core/dyn-configs" }
 near-epoch-manager = { path = "../chain/epoch-manager" }
 near-jsonrpc = { path = "../chain/jsonrpc", optional = true }
 near-mainnet-res = { path = "../utils/mainnet-res" }

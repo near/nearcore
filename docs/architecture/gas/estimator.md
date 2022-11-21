@@ -149,7 +149,49 @@ quickly.
 
 ## Estimation Metrics
 
-TODO
+Estimation code is generally not concerned with the metric used to estimate gas.
+We use `let clock = GasCost::measure();` and `clock.elapsed()` to measure the
+cost in whatever metric has been specified in the CLI argument `--metric`. But
+when you run estimations and especially when you want to interpret the results,
+you want to understand the metric used. Available metrics are `time` and
+`icount`.
+
+Starting with `time`, this is a simple wall-clock time measurement. At the end
+of the day, this is what counts in a validator setup. But unfortunately, this
+metrics is very dependent on the specific hardware and what else is running on
+that hardware right now. Dynamic voltage and frequency scaling (DVFS) also plays
+a role here. To a certain degree, all these factors can be controlled. But it
+requires full control over a system (often not the case when running on
+cloud-hosted VMs) and manual labour to set it up.
+
+The other supported metric `icount` is much more stable. It uses
+[qemu](https://www.qemu.org/) to emulate an x86 CPU. We then insert a custom
+[TCG plugin](https://qemu.readthedocs.io/en/latest/devel/tcg-plugins.html)
+([counter.c](https://github.com/near/nearcore/blob/08c4a1bd4b16847eb1c2fccee36bf16f6efb71fd/runtime/runtime-params-estimator/emu-cost/counter_plugin/counter.c))
+that counts the number of executed x86 instructions. It also intercepts system
+calls and counts the number of bytes seen in `sys_read`, `sys_write` and their
+variations. This gives an approximation for IO bytes, as seen on the interface
+between operating system and nearcore. To convert to gas, we use  three
+constants to multiply with instruction count, read bytes, and write bytes.
+
+We run qemu inside a Docker container, to make sure the qemu and qemu plugin
+versions match with system libraries. Make sure to add `--docker` when running
+with `--metric icount`.
+
+The great thing about `icount` is how you can run it on different machines and
+it will always return the same result. It is not 100% deterministic but very
+close, so it can usually detect code changes that degrade performance in major
+ways.
+
+The problem with `icount` is how unrepresentative it is for real-life
+performance. First, `x86` instructions are not all equally complex. Second, how
+many of them are executed per cycle depends on instruction level pipelining,
+branch prediction, memory prefetching, and more CPU features like that which are
+just not captured by an emulator like qemu. Third, the time it takes to serve
+bytes in system calls depends less on the sum of all bytes and more on data
+locality and how it can be cached in the OS page cache. But regardless of all
+these inaccuracies, it can still be useful to compare different implementations
+both measured using `icount`.
 
 <!-- TODO: how to add a new host function estimation -->
 <!-- TODO: state of IO estimations -->

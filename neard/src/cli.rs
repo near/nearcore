@@ -1,8 +1,14 @@
-use crate::log_config_watcher::{LogConfigWatcher, UpdateBehavior};
+#[cfg(unix)]
+use crate::watchers::Watcher;
+use crate::watchers::{
+    dyn_config_watcher::DynConfig, log_config_watcher::LogConfig, UpdateBehavior,
+};
 use anyhow::Context;
 use clap::{Args, Parser};
 use near_amend_genesis::AmendGenesisCommand;
 use near_chain_configs::GenesisValidationMode;
+#[cfg(feature = "cold_store")]
+use near_cold_store_tool::ColdStoreCommand;
 use near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofResponse;
 use near_mirror::MirrorCommand;
 use near_o11y::tracing_subscriber::EnvFilter;
@@ -105,6 +111,10 @@ impl NeardCmd {
             NeardSubCommand::AmendGenesis(cmd) => {
                 cmd.run()?;
             }
+            #[cfg(feature = "cold_store")]
+            NeardSubCommand::ColdStore(cmd) => {
+                cmd.run(&home_dir);
+            }
         };
         Ok(())
     }
@@ -204,6 +214,10 @@ pub(super) enum NeardSubCommand {
 
     /// Amend a genesis/records file created by `dump-state`.
     AmendGenesis(AmendGenesisCommand),
+
+    #[cfg(feature = "cold_store")]
+    /// Testing tool for cold storage
+    ColdStore(ColdStoreCommand),
 }
 
 #[derive(Parser)]
@@ -483,11 +497,15 @@ async fn wait_for_interrupt_signal(_home_dir: &Path, mut _rx_crash: Receiver<()>
 }
 
 #[cfg(unix)]
+fn update_watchers(home_dir: &Path, behavior: UpdateBehavior) {
+    LogConfig::update(home_dir.join("log_config.json"), &behavior);
+    DynConfig::update(home_dir.join("dyn_config.json"), &behavior);
+}
+
+#[cfg(unix)]
 async fn wait_for_interrupt_signal(home_dir: &Path, mut rx_crash: Receiver<()>) -> &str {
-    let watched_path = home_dir.join("log_config.json");
-    let log_config_watcher = LogConfigWatcher { watched_path };
-    // Apply the logging config file if it exists.
-    log_config_watcher.update(UpdateBehavior::UpdateOnlyIfExists);
+    // Apply all watcher config file if it exists.
+    update_watchers(&home_dir, UpdateBehavior::UpdateOnlyIfExists);
 
     use tokio::signal::unix::{signal, SignalKind};
     let mut sigint = signal(SignalKind::interrupt()).unwrap();
@@ -499,7 +517,7 @@ async fn wait_for_interrupt_signal(home_dir: &Path, mut rx_crash: Receiver<()>) 
              _ = sigint.recv()  => "SIGINT",
              _ = sigterm.recv() => "SIGTERM",
              _ = sighup.recv() => {
-                log_config_watcher.update(UpdateBehavior::UpdateOrReset);
+                update_watchers(&home_dir, UpdateBehavior::UpdateOrReset);
                 continue;
              },
              _ = &mut rx_crash => "ClientActor died",

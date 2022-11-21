@@ -40,6 +40,7 @@ use near_client_primitives::types::{
     Error, GetNetworkInfo, NetworkInfoResponse, ShardSyncDownload, ShardSyncStatus, Status,
     StatusError, StatusSyncInfo, SyncStatus,
 };
+use near_dyn_configs::EXPECTED_SHUTDOWN_AT;
 #[cfg(feature = "test_features")]
 use near_network::types::NetworkAdversarialMessage;
 use near_network::types::ReasonForBan;
@@ -104,6 +105,7 @@ pub struct ClientActor {
 
     block_production_started: bool,
     doomslug_timer_next_attempt: DateTime<Utc>,
+    sync_timer_next_attempt: DateTime<Utc>,
     chunk_request_retry_next_attempt: DateTime<Utc>,
     sync_started: bool,
     state_parts_task_scheduler: Box<dyn Fn(ApplyStatePartsRequest)>,
@@ -116,7 +118,7 @@ pub struct ClientActor {
 
     /// Synchronization measure to allow graceful shutdown.
     /// Informs the system when a ClientActor gets dropped.
-    _shutdown_signal: Option<oneshot::Sender<()>>,
+    shutdown_signal: Option<oneshot::Sender<()>>,
 }
 
 /// Blocks the program until given genesis time arrives.
@@ -204,6 +206,7 @@ impl ClientActor {
             log_summary_timer_next_attempt: now,
             block_production_started: false,
             doomslug_timer_next_attempt: now,
+            sync_timer_next_attempt: now,
             chunk_request_retry_next_attempt: now,
             sync_started: false,
             state_parts_task_scheduler: create_sync_job_scheduler::<ApplyStatePartsRequest>(
@@ -219,7 +222,7 @@ impl ClientActor {
 
             #[cfg(feature = "sandbox")]
             fastforward_delta: 0,
-            _shutdown_signal: shutdown_signal,
+            shutdown_signal: shutdown_signal,
         })
     }
 }
@@ -355,12 +358,6 @@ impl Handler<WithSpanContext<NetworkAdversarialMessage>> for ClientActor {
                     .adv_save_latest_known(height)
                     .expect("adv method should not fail");
                 chain_store_update.commit().expect("adv method should not fail");
-                None
-            }
-            near_network::types::NetworkAdversarialMessage::AdvSetSyncInfo(height) => {
-                info!(target: "adversary", %height, "AdvSetSyncInfo");
-                this.client.adv_sync_height = Some(height);
-                this.client.send_network_chain_info().expect("adv method should not fail");
                 None
             }
             near_network::types::NetworkAdversarialMessage::AdvGetSavedBlocks => {
@@ -1155,8 +1152,9 @@ impl ClientActor {
                 self.client.runtime_adapter.get_block_producer(&epoch_id, height)?;
 
             if me == next_block_producer_account {
-                let num_chunks =
-                    self.client.get_num_chunks_ready_for_inclusion(&head.last_block_hash);
+                let num_chunks = self
+                    .client
+                    .num_chunk_headers_ready_for_inclusion(&epoch_id, &head.last_block_hash);
                 let have_all_chunks = head.height == 0
                     || num_chunks as u64
                         == self.client.runtime_adapter.num_shards(&epoch_id).unwrap();
@@ -1193,6 +1191,18 @@ impl ClientActor {
         // will prioritize processing messages until mailbox is empty. Execution of any other task
         // scheduled with run_later will be delayed.
 
+        // Check block height to trigger expected shutdown
+        if let Ok(head) = self.client.chain.head() {
+            let block_height_to_shutdown =
+                EXPECTED_SHUTDOWN_AT.load(std::sync::atomic::Ordering::Relaxed);
+            if block_height_to_shutdown > 0 && head.height >= block_height_to_shutdown {
+                info!(target: "client", "Expected shutdown triggered: head block({}) >= ({})", head.height, block_height_to_shutdown);
+                if let Some(tx) = self.shutdown_signal.take() {
+                    let _ = tx.send(()); // Ignore send signal fail, it will send again in next trigger
+                }
+            }
+        }
+
         let _d = delay_detector::DelayDetector::new(|| "client triggers".into());
 
         self.try_process_unfinished_blocks();
@@ -1202,6 +1212,19 @@ impl ClientActor {
 
         let timer = metrics::CHECK_TRIGGERS_TIME.start_timer();
         if self.sync_started {
+            self.sync_timer_next_attempt = self.run_timer(
+                self.sync_wait_period(),
+                self.sync_timer_next_attempt,
+                ctx,
+                |act, _| act.run_sync_step(),
+                "sync",
+            );
+
+            delay = std::cmp::min(
+                delay,
+                self.sync_timer_next_attempt.signed_duration_since(now).to_std().unwrap_or(delay),
+            );
+
             self.doomslug_timer_next_attempt = self.run_timer(
                 self.client.config.doosmslug_step_period,
                 self.doomslug_timer_next_attempt,
@@ -1265,6 +1288,7 @@ impl ClientActor {
             },
             "resend_chunk_requests",
         );
+
         timer.observe_duration();
         core::cmp::min(
             delay,
@@ -1458,10 +1482,17 @@ impl ClientActor {
         let head = self.client.chain.head()?;
         let mut is_syncing = self.client.sync_status.is_syncing();
 
-        let full_peer_info = if let Some(full_peer_info) =
-            self.network_info.highest_height_peers.choose(&mut thread_rng())
-        {
-            full_peer_info
+        // Only consider peers whose latest block is not invalid blocks
+        let eligible_peers: Vec<_> = self
+            .network_info
+            .highest_height_peers
+            .iter()
+            .filter(|p| !self.client.chain.is_block_invalid(&p.highest_block_hash))
+            .collect();
+        metrics::PEERS_WITH_INVALID_HASH
+            .set(self.network_info.highest_height_peers.len() as i64 - eligible_peers.len() as i64);
+        let peer_info = if let Some(peer_info) = eligible_peers.choose(&mut thread_rng()) {
+            peer_info
         } else {
             if !self.client.config.skip_sync_wait {
                 warn!(target: "client", "Sync: no peers available, disabling sync");
@@ -1470,28 +1501,28 @@ impl ClientActor {
         };
 
         if is_syncing {
-            if full_peer_info.chain_info.height <= head.height {
+            if peer_info.highest_block_height <= head.height {
                 info!(target: "client", "Sync: synced at {} [{}], {}, highest height peer: {}",
                       head.height, format_hash(head.last_block_hash),
-                      full_peer_info.peer_info.id, full_peer_info.chain_info.height
+                      peer_info.peer_info.id, peer_info.highest_block_height,
                 );
                 is_syncing = false;
             }
         } else {
-            if full_peer_info.chain_info.height
+            if peer_info.highest_block_height
                 > head.height + self.client.config.sync_height_threshold
             {
                 info!(
                     target: "client",
                     "Sync: height: {}, peer id/height: {}/{}, enabling sync",
                     head.height,
-                    full_peer_info.peer_info.id,
-                    full_peer_info.chain_info.height,
+                    peer_info.peer_info.id,
+                    peer_info.highest_block_height,
                 );
                 is_syncing = true;
             }
         }
-        Ok((is_syncing, full_peer_info.chain_info.height))
+        Ok((is_syncing, peer_info.highest_block_height))
     }
 
     fn needs_syncing(&self, needs_syncing: bool) -> bool {
@@ -1515,8 +1546,7 @@ impl ClientActor {
         }
         self.sync_started = true;
 
-        // Start main sync loop.
-        self.sync(ctx);
+        // Sync loop will be started by check_triggers.
     }
 
     /// Select the block hash we are using to sync state. It will sync with the state before applying the
@@ -1598,32 +1628,37 @@ impl ClientActor {
         now.checked_add_signed(chrono::Duration::from_std(duration).unwrap()).unwrap()
     }
 
+    fn sync_wait_period(&self) -> Duration {
+        if let Ok((needs_syncing, _)) = self.syncing_info() {
+            if !self.needs_syncing(needs_syncing) {
+                // If we don't need syncing - retry the sync call rarely.
+                self.client.config.sync_check_period
+            } else {
+                // If we need syncing - retry the sync call often.
+                self.client.config.sync_step_period
+            }
+        } else {
+            self.client.config.sync_step_period
+        }
+    }
+
     /// Main syncing job responsible for syncing client with other peers.
     /// Runs itself iff it was not ran as reaction for message with results of
     /// finishing state part job
-    fn sync(&mut self, ctx: &mut Context<ClientActor>) {
+    fn run_sync_step(&mut self) {
         let _span = tracing::debug_span!(target: "client", "sync").entered();
         let _d = delay_detector::DelayDetector::new(|| "client sync".into());
-        // Macro to schedule to call this function later if error occurred.
-        macro_rules! unwrap_or_run_later (($obj: expr) => (match $obj {
+
+        macro_rules! unwrap_and_report (($obj: expr) => (match $obj {
             Ok(v) => v,
             Err(err) => {
                 error!(target: "sync", "Sync: Unexpected error: {}", err);
-
-                near_performance_metrics::actix::run_later(
-                    ctx,
-                    self.client.config.sync_step_period, move |act, ctx| {
-                        act.sync(ctx);
-                    }
-                );
                 return;
             }
         }));
 
-        let mut wait_period = self.client.config.sync_step_period;
-
         let currently_syncing = self.client.sync_status.is_syncing();
-        let (needs_syncing, highest_height) = unwrap_or_run_later!(self.syncing_info());
+        let (needs_syncing, highest_height) = unwrap_and_report!(self.syncing_info());
 
         if !self.needs_syncing(needs_syncing) {
             if currently_syncing {
@@ -1636,20 +1671,19 @@ impl ClientActor {
 
                 // Initial transition out of "syncing" state.
                 // Announce this client's account id if their epoch is coming up.
-                let head = unwrap_or_run_later!(self.client.chain.head());
+                let head = unwrap_and_report!(self.client.chain.head());
                 self.check_send_announce_account(head.prev_block_hash);
             }
-            wait_period = self.client.config.sync_check_period;
         } else {
             // Run each step of syncing separately.
-            unwrap_or_run_later!(self.client.header_sync.run(
+            unwrap_and_report!(self.client.header_sync.run(
                 &mut self.client.sync_status,
                 &mut self.client.chain,
                 highest_height,
                 &self.network_info.highest_height_peers
             ));
             // Only body / state sync if header height is close to the latest.
-            let header_head = unwrap_or_run_later!(self.client.chain.header_head());
+            let header_head = unwrap_and_report!(self.client.chain.header_head());
 
             // Sync state if already running sync state or if block sync is too far.
             let sync_state = match self.client.sync_status {
@@ -1658,7 +1692,7 @@ impl ClientActor {
                     >= highest_height
                         .saturating_sub(self.client.config.block_header_fetch_horizon) =>
                 {
-                    unwrap_or_run_later!(self.client.block_sync.run(
+                    unwrap_and_report!(self.client.block_sync.run(
                         &mut self.client.sync_status,
                         &self.client.chain,
                         highest_height,
@@ -1674,14 +1708,14 @@ impl ClientActor {
                             (*sync_hash, shard_sync.clone(), false)
                         }
                         _ => {
-                            let sync_hash = unwrap_or_run_later!(self.find_sync_hash());
+                            let sync_hash = unwrap_and_report!(self.find_sync_hash());
                             (sync_hash, HashMap::default(), true)
                         }
                     };
 
                 let me = self.client.validator_signer.as_ref().map(|x| x.validator_id().clone());
                 let block_header =
-                    unwrap_or_run_later!(self.client.chain.get_block_header(&sync_hash));
+                    unwrap_and_report!(self.client.chain.get_block_header(&sync_hash));
                 let prev_hash = *block_header.prev_hash();
                 let epoch_id =
                     self.client.chain.get_block_header(&sync_hash).unwrap().epoch_id().clone();
@@ -1699,10 +1733,10 @@ impl ClientActor {
                         .collect();
 
                 if !self.client.config.archive && just_enter_state_sync {
-                    unwrap_or_run_later!(self.client.chain.reset_data_pre_state_sync(sync_hash));
+                    unwrap_and_report!(self.client.chain.reset_data_pre_state_sync(sync_hash));
                 }
 
-                match unwrap_or_run_later!(self.client.state_sync.run(
+                match unwrap_and_report!(self.client.state_sync.run(
                     &me,
                     sync_hash,
                     &mut new_shard_sync,
@@ -1737,7 +1771,7 @@ impl ClientActor {
 
                         let mut block_processing_artifacts = BlockProcessingArtifact::default();
 
-                        unwrap_or_run_later!(self.client.chain.reset_heads_post_state_sync(
+                        unwrap_and_report!(self.client.chain.reset_heads_post_state_sync(
                             &me,
                             sync_hash,
                             &mut block_processing_artifacts,
@@ -1755,10 +1789,6 @@ impl ClientActor {
                 }
             }
         }
-
-        near_performance_metrics::actix::run_later(ctx, wait_period, move |act, ctx| {
-            act.sync(ctx);
-        });
     }
 
     /// Print current summary.
@@ -1825,7 +1855,7 @@ impl ClientActor {
             validator_epoch_stats,
             self.client
                 .runtime_adapter
-                .get_protocol_upgrade_block_height(head.last_block_hash)
+                .get_estimated_protocol_upgrade_block_height(head.last_block_hash)
                 .unwrap_or(None)
                 .unwrap_or(0),
             statistics,
@@ -2020,8 +2050,11 @@ impl Handler<WithSpanContext<ShardsManagerResponse>> for ClientActor {
             ShardsManagerResponse::InvalidChunk(encoded_chunk) => {
                 self.client.on_invalid_chunk(encoded_chunk);
             }
-            ShardsManagerResponse::ChunkHeaderReadyForInclusion(chunk_header) => {
-                self.client.on_chunk_header_ready_for_inclusion(chunk_header);
+            ShardsManagerResponse::ChunkHeaderReadyForInclusion {
+                chunk_header,
+                chunk_producer,
+            } => {
+                self.client.on_chunk_header_ready_for_inclusion(chunk_header, chunk_producer);
             }
         }
     }

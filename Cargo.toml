@@ -21,6 +21,7 @@ members = [
     "core/account-id/fuzz",
     "core/chain-configs",
     "core/crypto",
+    "core/dyn-configs",
     "core/o11y",
     "core/primitives",
     "core/primitives-core",
@@ -73,13 +74,11 @@ ansi_term = "0.12"
 anyhow = "1.0.62"
 arbitrary = { version = "1", features = ["derive"] }
 arc-swap = "1.5"
-arrayref = "0.3"
 assert_matches = "1.5.0"
 async-recursion = "0.3.2"
 async-trait = "0.1.58"
 atty = "0.2"
 awc = { version = "3", features = ["openssl"] }
-backtrace = "0.3.64"
 base64 = "0.13"
 bencher = "0.1.5"
 bitflags = "1.2"
@@ -238,4 +237,4 @@ opt-level = 3
 [workspace.package]
 edition = "2021"
 authors = ["Near Inc <hello@nearprotocol.com>"]
-rust-version = "1.64.0"
+rust-version = "1.65.0"

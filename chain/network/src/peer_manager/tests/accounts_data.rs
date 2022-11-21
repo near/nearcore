@@ -25,7 +25,7 @@ fn peer_addrs(vc: &config::ValidatorConfig) -> Vec<PeerAddr> {
 }
 
 #[tokio::test]
-async fn accounts_data_broadcast() {
+async fn broadcast() {
     init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
@@ -42,22 +42,28 @@ async fn accounts_data_broadcast() {
     )
     .await;
 
-    let take_sync = |ev| match ev {
+    let take_incremental_sync = |ev| match ev {
         peer::testonly::Event::Network(PME::MessageProcessed(PeerMessage::SyncAccountsData(
             msg,
-        ))) => Some(msg),
+        ))) if msg.incremental => Some(msg),
+        _ => None,
+    };
+    let take_full_sync = |ev| match ev {
+        peer::testonly::Event::Network(PME::MessageProcessed(PeerMessage::SyncAccountsData(
+            msg,
+        ))) if !msg.incremental => Some(msg),
         _ => None,
     };
 
     let data = chain.make_tier1_data(rng, clock);
 
-    // Connect peer, expect initial sync to be empty.
+    tracing::info!(target:"test", "Connect peer, expect initial sync to be empty.");
     let mut peer1 =
         pm.start_inbound(chain.clone(), chain.make_config(rng)).await.handshake(clock).await;
-    let got1 = peer1.events.recv_until(take_sync).await;
+    let got1 = peer1.events.recv_until(take_full_sync).await;
     assert_eq!(got1.accounts_data, vec![]);
 
-    // Send some data. It won't be broadcasted back.
+    tracing::info!(target:"test", "Send some data.");
     let msg = SyncAccountsData {
         accounts_data: vec![data[0].clone(), data[1].clone()],
         incremental: true,
@@ -67,13 +73,13 @@ async fn accounts_data_broadcast() {
     peer1.send(PeerMessage::SyncAccountsData(msg)).await;
     pm.wait_for_accounts_data(&want.iter().map(|d| d.into()).collect()).await;
 
-    // Connect another peer and perform initial full sync.
+    tracing::info!(target:"test", "Connect another peer and perform initial full sync.");
     let mut peer2 =
         pm.start_inbound(chain.clone(), chain.make_config(rng)).await.handshake(clock).await;
-    let got2 = peer2.events.recv_until(take_sync).await;
+    let got2 = peer2.events.recv_until(take_full_sync).await;
     assert_eq!(got2.accounts_data.as_set(), want.as_set());
 
-    // Send a mix of new and old data. Only new data should be broadcasted.
+    tracing::info!(target:"test", "Send a mix of new and old data. Only new data should be broadcasted.");
     let msg = SyncAccountsData {
         accounts_data: vec![data[1].clone(), data[2].clone()],
         incremental: true,
@@ -81,11 +87,12 @@ async fn accounts_data_broadcast() {
     };
     let want = vec![data[2].clone()];
     peer1.send(PeerMessage::SyncAccountsData(msg)).await;
-    let got2 = peer2.events.recv_until(take_sync).await;
+    let got2 = peer2.events.recv_until(take_incremental_sync).await;
     assert_eq!(got2.accounts_data.as_set(), want.as_set());
 
-    // Send a request for a full sync.
+    tracing::info!(target:"test", "Send a request for a full sync.");
     let want = vec![data[0].clone(), data[1].clone(), data[2].clone()];
+    let mut events = peer1.events.from_now();
     peer1
         .send(PeerMessage::SyncAccountsData(SyncAccountsData {
             accounts_data: vec![],
@@ -93,7 +100,7 @@ async fn accounts_data_broadcast() {
             requesting_full_sync: true,
         }))
         .await;
-    let got1 = peer1.events.recv_until(take_sync).await;
+    let got1 = events.recv_until(take_full_sync).await;
     assert_eq!(got1.accounts_data.as_set(), want.as_set());
 }
 
@@ -102,7 +109,7 @@ async fn accounts_data_broadcast() {
 // No matter what the order of shifting into the epoch,
 // all of them should receive all the AccountDatas eventually.
 #[tokio::test]
-async fn accounts_data_gradual_epoch_change() {
+async fn gradual_epoch_change() {
     init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
@@ -132,7 +139,7 @@ async fn accounts_data_gradual_epoch_change() {
     let vs: Vec<_> = pms.iter().map(|pm| pm.cfg.validator.clone().unwrap()).collect();
 
     // For every order of nodes.
-    for ids in (0..pms.len()).permutations(3) {
+    for ids in (0..pms.len()).permutations(pms.len()) {
         // Construct ChainInfo for a new epoch,
         // with tier1_accounts containing all validators.
         let e = data::make_epoch_id(rng);
@@ -170,14 +177,26 @@ async fn accounts_data_gradual_epoch_change() {
 // - 3rd 5 and 4th 5 ...
 // All of them are validators.
 #[tokio::test(flavor = "multi_thread")]
-async fn accounts_data_rate_limiting() {
+async fn rate_limiting() {
     init_test_logger();
+    // Each actix arbiter (in fact, the underlying tokio runtime) creates 4 file descriptors:
+    // 1. eventfd2()
+    // 2. epoll_create1()
+    // 3. fcntl() duplicating one end of some globally shared socketpair()
+    // 4. fcntl() duplicating epoll socket created in (2)
+    // This gives 5 file descriptors per PeerActor (4 + 1 TCP socket).
+    // PeerManager (together with the whole ActixSystem) creates 13 file descriptors.
+    // The usual default soft limit on the number of file descriptors on linux is 1024.
+    // Here we adjust it appropriately to account for test requirements.
+    let limit = rlimit::Resource::NOFILE.get().unwrap();
+    rlimit::Resource::NOFILE.set(std::cmp::min(limit.1, 3000), limit.1).unwrap();
+
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
-    // TODO(gprusak) 10 connections per peer is not much, try to scale up this test 2x (some config
+    // TODO(gprusak): 10 connections per peer is not much, try to scale up this test 2x (some config
     // tweaking might be required).
     let n = 4; // layers
     let m = 5; // peer managers per layer
@@ -195,7 +214,7 @@ async fn accounts_data_rate_limiting() {
             .await,
         );
     }
-    // Construct a 4-layer bipartite graph.
+    tracing::info!(target:"test", "Construct a 4-layer bipartite graph.");
     let mut connections = 0;
     for i in 0..n - 1 {
         for j in 0..m {
@@ -220,7 +239,7 @@ async fn accounts_data_rate_limiting() {
             .collect(),
     );
 
-    // Advance epoch in random order.
+    tracing::info!(target:"test","Advance epoch in random order.");
     pms.shuffle(rng);
     for pm in &mut pms {
         pm.set_chain_info(chain_info.clone()).await;
@@ -230,7 +249,7 @@ async fn accounts_data_rate_limiting() {
     // the total number of SyncAccountsData messages exchanged in the process.
     let events: Vec<_> = pms.iter().map(|pm| pm.events.clone()).collect();
 
-    // Wait for data to arrive.
+    tracing::info!(target:"test","Wait for data to arrive.");
     let want = vs
         .iter()
         .map(|v| NormalAccountData {
@@ -243,7 +262,7 @@ async fn accounts_data_rate_limiting() {
         pm.wait_for_accounts_data(&want).await;
     }
 
-    // Count the SyncAccountsData messages exchanged.
+    tracing::info!(target:"test","Count the SyncAccountsData messages exchanged.");
     let mut msgs = 0;
     for mut es in events {
         while let Some(ev) = es.try_recv() {

@@ -994,6 +994,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cold-store-tool"
+version = "0.0.0"
+dependencies = [
+ "clap 3.1.18",
+ "near-chain-configs",
+ "near-primitives",
+ "near-store",
+ "nearcore",
+]
+
+[[package]]
 name = "combine"
 version = "4.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2969,6 +2980,8 @@ dependencies = [
  "near-chunks",
  "near-client-primitives",
  "near-crypto",
+ "near-dyn-configs",
+ "near-epoch-manager",
  "near-network",
  "near-o11y",
  "near-performance-metrics",
@@ -3011,7 +3024,6 @@ dependencies = [
 name = "near-crypto"
 version = "0.0.0"
 dependencies = [
- "arrayref",
  "blake2",
  "borsh",
  "bs58",
@@ -3031,6 +3043,15 @@ dependencies = [
  "subtle",
  "tempfile",
  "thiserror",
+]
+
+[[package]]
+name = "near-dyn-configs"
+version = "0.0.0"
+dependencies = [
+ "near-o11y",
+ "once_cell",
+ "prometheus",
 ]
 
 [[package]]
@@ -3065,6 +3086,7 @@ dependencies = [
  "near-chain-configs",
  "near-client",
  "near-crypto",
+ "near-dyn-configs",
  "near-indexer-primitives",
  "near-o11y",
  "near-primitives",
@@ -3220,6 +3242,7 @@ dependencies = [
  "near-client",
  "near-client-primitives",
  "near-crypto",
+ "near-dyn-configs",
  "near-indexer",
  "near-indexer-primitives",
  "near-network",
@@ -3280,6 +3303,7 @@ dependencies = [
  "rand 0.8.5",
  "rand_xorshift",
  "rayon",
+ "rlimit",
  "serde",
  "smart-default",
  "strum",
@@ -3298,7 +3322,6 @@ version = "0.0.0"
 dependencies = [
  "actix",
  "atty",
- "backtrace",
  "bencher",
  "clap 3.1.18",
  "itoa 1.0.2",
@@ -3350,12 +3373,16 @@ dependencies = [
 name = "near-ping"
 version = "0.0.0"
 dependencies = [
+ "actix-web",
  "anyhow",
  "chrono",
  "clap 3.1.18",
+ "near-jsonrpc",
  "near-network",
  "near-o11y",
  "near-primitives",
+ "once_cell",
+ "prometheus",
  "tokio",
  "tracing",
 ]
@@ -3670,6 +3697,7 @@ dependencies = [
  "near-client",
  "near-client-primitives",
  "near-crypto",
+ "near-dyn-configs",
  "near-epoch-manager",
  "near-jsonrpc",
  "near-jsonrpc-primitives",
@@ -3712,11 +3740,14 @@ dependencies = [
  "ansi_term",
  "anyhow",
  "clap 3.1.18",
+ "cold-store-tool",
  "futures",
  "near-amend-genesis",
  "near-chain-configs",
+ "near-dyn-configs",
  "near-jsonrpc-primitives",
  "near-mirror",
+ "near-network",
  "near-o11y",
  "near-performance-metrics",
  "near-ping",
@@ -3728,6 +3759,7 @@ dependencies = [
  "openssl-probe",
  "opentelemetry",
  "rayon",
+ "rlimit",
  "rustc_version 0.4.0",
  "serde",
  "serde_json",
@@ -4342,9 +4374,9 @@ dependencies = [
 
 [[package]]
 name = "prometheus"
-version = "0.13.1"
+version = "0.13.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cface98dfa6d645ea4c789839f176e4b072265d085bfcc48eaa8d137f58d3c39"
+checksum = "449811d15fbdf5ceb5c1144416066429cf82316e2ec8ce0c1f6f8a02e7bbcf8c"
 dependencies = [
  "cfg-if 1.0.0",
  "fnv",

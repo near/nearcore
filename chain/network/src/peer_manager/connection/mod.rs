@@ -2,21 +2,23 @@ use crate::concurrency::arc_mutex::ArcMutex;
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
 use crate::network_protocol::{
-    Edge, PartialEdgeInfo, PeerChainInfoV2, PeerInfo, PeerMessage, SignedAccountData,
-    SyncAccountsData,
+    Edge, PeerInfo, PeerMessage, RoutingTableUpdate, SignedAccountData, SyncAccountsData,
 };
 use crate::peer::peer_actor;
 use crate::peer::peer_actor::PeerActor;
 use crate::private_actix::SendMessage;
 use crate::stats::metrics;
 use crate::time;
-use crate::types::{FullPeerInfo, PeerType, ReasonForBan};
+use crate::types::{BlockInfo, FullPeerInfo, PeerChainInfo, PeerType, ReasonForBan};
+use arc_swap::ArcSwap;
 use near_o11y::WithSpanContextExt;
+use near_primitives::block::GenesisId;
 use near_primitives::network::PeerId;
+use near_primitives::types::ShardId;
 use std::collections::{hash_map::Entry, HashMap};
 use std::fmt;
 use std::future::Future;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Weak};
 
 #[cfg(test)]
@@ -47,8 +49,13 @@ pub(crate) struct Connection {
 
     pub peer_info: PeerInfo,
     pub edge: Edge,
-    pub initial_chain_info: PeerChainInfoV2,
-    pub chain_height: AtomicU64,
+    /// Chain Id and hash of genesis block.
+    pub genesis_id: GenesisId,
+    /// Shards that the peer is tracking.
+    pub tracked_shards: Vec<ShardId>,
+    /// Denote if a node is running in archival mode or not.
+    pub archival: bool,
+    pub last_block: ArcSwap<Option<BlockInfo>>,
 
     /// Who started connection. Inbound (other) or Outbound (us).
     pub peer_type: PeerType,
@@ -66,6 +73,7 @@ pub(crate) struct Connection {
 
     /// A helper data structure for limiting reading, reporting stats.
     pub send_accounts_data_demux: demux::Demux<Vec<Arc<SignedAccountData>>, ()>,
+    pub send_routing_table_update_demux: demux::Demux<Arc<RoutingTableUpdate>, ()>,
 }
 
 impl fmt::Debug for Connection {
@@ -81,20 +89,13 @@ impl fmt::Debug for Connection {
 
 impl Connection {
     pub fn full_peer_info(&self) -> FullPeerInfo {
-        let mut chain_info = self.initial_chain_info.clone();
-        chain_info.height = self.chain_height.load(Ordering::Relaxed);
-        FullPeerInfo {
-            peer_info: self.peer_info.clone(),
-            chain_info,
-            partial_edge_info: PartialEdgeInfo {
-                nonce: self.edge.nonce(),
-                signature: if self.edge.key().0 == self.peer_info.id {
-                    self.edge.signature0().clone()
-                } else {
-                    self.edge.signature1().clone()
-                },
-            },
-        }
+        let chain_info = PeerChainInfo {
+            genesis_id: self.genesis_id.clone(),
+            last_block: self.last_block.load().as_ref().clone(),
+            tracked_shards: self.tracked_shards.clone(),
+            archival: self.archival,
+        };
+        FullPeerInfo { peer_info: self.peer_info.clone(), chain_info }
     }
 
     pub fn stop(&self, ban_reason: Option<ReasonForBan>) {
@@ -107,6 +108,41 @@ impl Connection {
         let msg_kind = msg.msg_variant().to_string();
         tracing::trace!(target: "network", ?msg_kind, "Send message");
         self.addr.do_send(SendMessage { message: msg }.with_span_context());
+    }
+
+    async fn send_routing_table_update_inner(
+        self: Arc<Self>,
+        rtus: Vec<Arc<RoutingTableUpdate>>,
+    ) -> Vec<()> {
+        self.send_message(Arc::new(PeerMessage::SyncRoutingTable(RoutingTableUpdate {
+            edges: Edge::deduplicate(
+                rtus.iter().map(|rtu| rtu.edges.iter()).flatten().cloned().collect(),
+            ),
+            accounts: rtus.iter().flat_map(|rtu| rtu.accounts.iter()).cloned().collect(),
+        })));
+        rtus.iter().map(|_| ()).collect()
+    }
+
+    pub fn send_routing_table_update(
+        self: &Arc<Self>,
+        rtu: Arc<RoutingTableUpdate>,
+    ) -> impl Future<Output = ()> {
+        let this = self.clone();
+        async move {
+            let res = this
+                .send_routing_table_update_demux
+                .call(rtu, {
+                    let this = this.clone();
+                    move |rtus| this.send_routing_table_update_inner(rtus)
+                })
+                .await;
+            if res.is_err() {
+                tracing::info!(
+                    "peer {} disconnected, while sending SyncRoutingTable",
+                    this.peer_info.id
+                );
+            }
+        }
     }
 
     pub fn send_accounts_data(
@@ -146,7 +182,7 @@ impl Connection {
                 .await;
             if res.is_err() {
                 tracing::info!(
-                    "peer {} disconnected, while sencing SyncAccountsData",
+                    "peer {} disconnected, while sending SyncAccountsData",
                     this.peer_info.id
                 );
             }
@@ -157,6 +193,8 @@ impl Connection {
 #[derive(Clone)]
 pub(crate) struct PoolSnapshot {
     pub me: PeerId,
+    /// Connections which have completed the handshake and are ready
+    /// for transmitting messages.
     pub ready: im::HashMap<PeerId, Arc<Connection>>,
     /// Set of started outbound connections, which are not ready yet.
     /// We need to keep those to prevent a deadlock when 2 peers try
@@ -188,8 +226,6 @@ pub(crate) struct PoolSnapshot {
     /// b. Peer A executes 1 and then attempts 2.
     /// In this scenario A will fail to obtain a permit, because it has already accepted a
     /// connection from B.
-    ///
-    /// TODO(gprusak): cover it with tests.
     pub outbound_handshakes: im::HashSet<PeerId>,
 }
 
