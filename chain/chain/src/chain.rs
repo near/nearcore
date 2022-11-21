@@ -68,7 +68,7 @@ use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, GCMode};
 use crate::types::{
     AcceptedBlock, ApplySplitStateResult, ApplySplitStateResultOrStateChanges,
     ApplyTransactionResult, Block, BlockEconomicsConfig, BlockHeader, BlockHeaderInfo, BlockStatus,
-    ChainGenesis, Provenance, RuntimeAdapter,
+    ChainConfig, ChainGenesis, Provenance, RuntimeAdapter,
 };
 use crate::validate::{
     validate_challenge, validate_chunk_proofs, validate_chunk_with_chunk_extra,
@@ -545,11 +545,12 @@ impl Chain {
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         chain_genesis: &ChainGenesis,
         doomslug_threshold_mode: DoomslugThresholdMode,
-        save_trie_changes: bool,
+        chain_config: ChainConfig,
     ) -> Result<Chain, Error> {
         // Get runtime initial state and create genesis block out of it.
         let (store, state_roots) = runtime_adapter.genesis_state();
-        let mut store = ChainStore::new(store, chain_genesis.height, save_trie_changes);
+        let mut store =
+            ChainStore::new(store, chain_genesis.height, chain_config.save_trie_changes);
         let genesis_chunks = genesis_chunks(
             state_roots.clone(),
             runtime_adapter.num_shards(&EpochId::default())?,
@@ -653,7 +654,11 @@ impl Chain {
         store_update.commit()?;
 
         // Create flat storage or initiate migration to flat storage.
-        let flat_storage_creator = FlatStorageCreator::new(runtime_adapter.clone(), &store);
+        let flat_storage_creator = FlatStorageCreator::new(
+            runtime_adapter.clone(),
+            &store,
+            chain_config.background_migration_threads,
+        );
 
         info!(target: "chain", "Init: header head @ #{} {}; block head @ #{} {}",
               header_head.height, header_head.last_block_hash,
