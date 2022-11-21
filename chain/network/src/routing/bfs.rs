@@ -134,10 +134,13 @@ impl Graph {
     /// Compute for every node `u` on the graph (other than `source`) which are the neighbors of
     /// `sources` which belong to the shortest path from `source` to `u`. Nodes that are
     /// not connected to `source` will not appear in the result.
-    pub fn calculate_distance(&self, unreliable_peers: &HashSet<PeerId>) -> HashMap<PeerId, Vec<PeerId>> {
+    pub fn calculate_distance(
+        &self,
+        unreliable_peers: &HashSet<PeerId>,
+    ) -> HashMap<PeerId, Vec<PeerId>> {
         // TODO add removal of unreachable nodes
 
-        let unreliable_peers : HashSet<_> =
+        let unreliable_peers: HashSet<_> =
             unreliable_peers.iter().filter_map(|peer_id| self.p2id.get(peer_id).cloned()).collect();
 
         let mut queue = VecDeque::new();

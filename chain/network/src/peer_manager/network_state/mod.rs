@@ -3,14 +3,13 @@ use crate::client;
 use crate::concurrency::demux;
 use crate::config;
 use crate::network_protocol::{
-    Edge,
-    EdgeState, PartialEdgeInfo, PeerIdOrHash, PeerInfo, PeerMessage, Ping, Pong,
+    Edge, EdgeState, PartialEdgeInfo, PeerIdOrHash, PeerInfo, PeerMessage, Ping, Pong,
     RawRoutedMessage, RoutedMessageBody, RoutedMessageV2, RoutingTableUpdate, SignedAccountData,
 };
 use crate::peer::peer_actor::{ClosingReason, ConnectionClosedEvent};
 use crate::peer_manager::connection;
-use crate::peer_manager::peer_store;
 use crate::peer_manager::peer_manager_actor::Event;
+use crate::peer_manager::peer_store;
 use crate::private_actix::RegisterPeerError;
 use crate::routing::routing_table_view::RoutingTableView;
 use crate::stats::metrics;
@@ -21,7 +20,7 @@ use crate::types::{ChainInfo, PeerType, ReasonForBan};
 use arc_swap::ArcSwap;
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
-use near_primitives::network::{PeerId};
+use near_primitives::network::PeerId;
 use near_primitives::types::AccountId;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
@@ -37,7 +36,7 @@ pub(crate) const LIMIT_PENDING_PEERS: usize = 60;
 /// We send these messages multiple times to reduce the chance that they are lost
 const IMPORTANT_MESSAGE_RESENT_COUNT: usize = 3;
 
-const ADD_EDGES_RATE : demux::RateLimit = demux::RateLimit { qps: 1., burst: 1, };
+const ADD_EDGES_RATE: demux::RateLimit = demux::RateLimit { qps: 1., burst: 1 };
 
 /// How long a peer has to be unreachable, until we prune it from the in-memory graph.
 const PRUNE_UNREACHABLE_PEERS_AFTER: time::Duration = time::Duration::hours(1);
@@ -149,7 +148,7 @@ pub(crate) struct NetworkState {
     /// in the first place.
     pub max_num_peers: AtomicU32,
 
-    add_edges_demux: demux::Demux<Vec<Edge>,()>,
+    add_edges_demux: demux::Demux<Vec<Edge>, ()>,
 }
 
 impl NetworkState {
@@ -164,11 +163,14 @@ impl NetworkState {
     ) -> Self {
         Self {
             runtime: Runtime::new(),
-            graph: crate::routing::Graph::new(crate::routing::GraphConfig {
-                node_id: config.node_id(),
-                prune_unreachable_peers_after: PRUNE_UNREACHABLE_PEERS_AFTER,
-                prune_edges_after: Some(PRUNE_EDGES_AFTER),
-            },store.clone()),
+            graph: crate::routing::Graph::new(
+                crate::routing::GraphConfig {
+                    node_id: config.node_id(),
+                    prune_unreachable_peers_after: PRUNE_UNREACHABLE_PEERS_AFTER,
+                    prune_edges_after: Some(PRUNE_EDGES_AFTER),
+                },
+                store.clone(),
+            ),
             genesis_id,
             client,
             chain_info: Default::default(),

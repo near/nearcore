@@ -1,14 +1,14 @@
 use crate::network_protocol::testonly as data;
 use crate::routing;
 use crate::routing::routing_table_view::*;
+use crate::test_utils::{random_epoch_id, random_peer_id};
 use crate::testonly::make_rng;
 use crate::time;
 use crate::types::PeerIdOrHash;
-use rand::seq::SliceRandom;
-use std::sync::Arc;
-use crate::test_utils::{random_epoch_id, random_peer_id};
 use near_crypto::Signature;
 use near_primitives::network::AnnounceAccount;
+use rand::seq::SliceRandom;
+use std::sync::Arc;
 
 #[test]
 fn find_route() {

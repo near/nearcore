@@ -1,15 +1,16 @@
+use crate::concurrency;
 use crate::network_protocol::{Edge, EdgeState};
 use crate::routing;
+use crate::routing::bfs;
 use crate::stats::metrics;
-use crate::time;
 use crate::store;
-use crate::concurrency;
+use crate::time;
+use arc_swap::ArcSwap;
 use near_primitives::network::PeerId;
-use std::collections::{HashMap, HashSet};
 use rayon::iter::ParallelBridge;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tracing::trace;
-use arc_swap::ArcSwap;
 
 #[cfg(test)]
 mod tests;
@@ -18,9 +19,10 @@ mod tests;
 type EdgeKey = (PeerId, PeerId);
 pub type NextHopTable = HashMap<PeerId, Vec<PeerId>>;
 
+#[derive(Clone)]
 pub struct GraphConfig {
     pub node_id: PeerId,
-    pub prune_unreachable_peers_after: time::Duration,    
+    pub prune_unreachable_peers_after: time::Duration,
     pub prune_edges_after: Option<time::Duration>,
 }
 
@@ -31,14 +33,14 @@ struct Inner {
     /// Contains only validated edges.
     /// Nodes are Peers and edges are active connections.
     graph: bfs::Graph,
-    
+
     edges: im::HashMap<EdgeKey, Edge>,
     /// Last time a peer was reachable.
     peer_reachable_at: HashMap<PeerId, time::Instant>,
     store: store::Store,
 }
 
-fn has(set:&im::HashMap<EdgeKey,Edge>, edge: &Edge) -> bool {
+fn has(set: &im::HashMap<EdgeKey, Edge>, edge: &Edge) -> bool {
     set.get(&edge.key()).map_or(false, |x| x.nonce() >= edge.nonce())
 }
 
@@ -51,7 +53,7 @@ impl Inner {
         }
         if let Some(prune_edges_after) = self.config.prune_edges_after {
             // Don't add edges that are older than the limit.
-            if edge.is_edge_older_than(now-prune_edges_after) {
+            if edge.is_edge_older_than(now - prune_edges_after) {
                 return false;
             }
         }
@@ -126,17 +128,17 @@ impl Inner {
             return;
         }
         let mut store = self.store.clone();
-        let edges = tokio::task::spawn_blocking(move || {
-            match store.pop_component(&peer_id) {
-                Ok(edges) => edges,
-                Err(e) => {
-                    tracing::warn!("self.store.pop_component({}): {}", peer_id, e);
-                    return vec![];
-                }
+        let edges = tokio::task::spawn_blocking(move || match store.pop_component(&peer_id) {
+            Ok(edges) => edges,
+            Err(e) => {
+                tracing::warn!("self.store.pop_component({}): {}", peer_id, e);
+                return vec![];
             }
-        }).await.unwrap();
+        })
+        .await
+        .unwrap();
         for e in edges {
-            self.update_edge(now,e);
+            self.update_edge(now, e);
         }
     }
 
@@ -187,12 +189,11 @@ impl Inner {
         mut edges: Vec<Edge>,
         unreliable_peers: &HashSet<PeerId>,
     ) -> (Vec<Edge>, Arc<routing::NextHopTable>) {
-        let _next_hops_recalculation =
-            metrics::ROUTING_TABLE_RECALCULATION_HISTOGRAM.start_timer();
+        let _next_hops_recalculation = metrics::ROUTING_TABLE_RECALCULATION_HISTOGRAM.start_timer();
         trace!(target: "network", "Update routing table.");
 
         let total = edges.len();
-        // load the components BEFORE updating the edges. 
+        // load the components BEFORE updating the edges.
         // so that result doesn't contain edges we already have in storage.
         // It is especially important for initial full sync with peers, because
         // we broadcast all the returned edges to all connected peers.
@@ -202,14 +203,14 @@ impl Inner {
             self.load_component(now, key.0.clone()).await;
             self.load_component(now, key.1.clone()).await;
         }
-        edges.retain(|e| self.update_edge(now,e.clone()));
+        edges.retain(|e| self.update_edge(now, e.clone()));
         // Update metrics after edge update
         metrics::EDGE_UPDATES.inc_by(total as u64);
         metrics::EDGE_ACTIVE.set(self.graph.total_active_edges() as i64);
         metrics::EDGE_TOTAL.set(self.edges.len() as i64);
-        
+
         if let Some(prune_edges_after) = self.config.prune_edges_after {
-            self.prune_old_edges(now-prune_edges_after);
+            self.prune_old_edges(now - prune_edges_after);
         }
         // TODO(gprusak): this should be on rayon
         let next_hops = Arc::new(self.graph.calculate_distance(unreliable_peers));
@@ -220,7 +221,7 @@ impl Inner {
         for peer in next_hops.keys() {
             self.peer_reachable_at.insert(peer.clone(), now);
         }
-        self.prune_unreachable_peers(now-self.config.prune_unreachable_peers_after);
+        self.prune_unreachable_peers(now - self.config.prune_unreachable_peers_after);
         metrics::ROUTING_TABLE_RECALCULATIONS.inc();
         metrics::PEER_REACHABLE.set(next_hops.len() as i64);
         (edges, next_hops)
@@ -236,7 +237,7 @@ pub struct Graph {
 impl Graph {
     pub(crate) fn new(config: GraphConfig, store: store::Store) -> Self {
         Self {
-            inner: tokio::sync::Mutex::new(Inner{
+            inner: tokio::sync::Mutex::new(Inner {
                 graph: bfs::Graph::new(config.node_id.clone()),
                 config,
                 edges: Default::default(),
@@ -252,24 +253,36 @@ impl Graph {
         self.unreliable_peers.store(Arc::new(unreliable_peers));
     }
 
-    pub async fn verify(&self, edges: Vec<Edge>) -> (Vec<Edge>,bool) {
+    pub async fn verify(&self, edges: Vec<Edge>) -> (Vec<Edge>, bool) {
         let old = self.load();
         let mut edges = Edge::deduplicate(edges);
-        edges.retain(|x| !has(&old,x));
+        edges.retain(|x| !has(&old, x));
         // Verify the edges in parallel on rayon.
         concurrency::rayon::run(move || {
-            concurrency::rayon::try_map(edges.into_iter().par_bridge(),|e| if e.verify() { Some(e) } else { None })
-        }).await
+            concurrency::rayon::try_map(edges.into_iter().par_bridge(), |e| {
+                if e.verify() {
+                    Some(e)
+                } else {
+                    None
+                }
+            })
+        })
+        .await
     }
 
     pub fn load(&self) -> im::HashMap<EdgeKey, Edge> {
         self.edges.load().as_ref().clone()
     }
 
-    pub async fn update(&self, clock: &time::Clock, edges: Vec<Edge>) -> (Vec<Edge>,Arc<NextHopTable>) {
+    pub async fn update(
+        &self,
+        clock: &time::Clock,
+        edges: Vec<Edge>,
+    ) -> (Vec<Edge>, Arc<NextHopTable>) {
         let mut inner = self.inner.lock().await;
-        let (new_edges,next_hops) = inner.update_routing_table(clock, edges, &*self.unreliable_peers.load()).await;
+        let (new_edges, next_hops) =
+            inner.update_routing_table(clock, edges, &*self.unreliable_peers.load()).await;
         self.edges.store(Arc::new(inner.edges.clone()));
-        (new_edges,next_hops)
+        (new_edges, next_hops)
     }
 }
