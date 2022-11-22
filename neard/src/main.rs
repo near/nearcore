@@ -3,7 +3,6 @@ mod watchers;
 
 use self::cli::NeardCmd;
 use anyhow::Context;
-use near_network::types::FDS_PER_PEER_MANAGER;
 use near_primitives::version::{Version, PROTOCOL_VERSION};
 use near_store::metadata::DB_VERSION;
 use nearcore::get_default_home;

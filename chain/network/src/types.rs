@@ -29,7 +29,6 @@ pub use crate::network_protocol::{
     PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerIdOrHash, PeerInfo, Ping, Pong,
     StateResponseInfo, StateResponseInfoV1, StateResponseInfoV2,
 };
-pub use crate::peer_manager::peer_manager_actor::FDS_PER_PEER_MANAGER;
 
 /// Number of hops a message is allowed to travel before being dropped.
 /// This is used to avoid infinite loop because of inconsistent view of the network

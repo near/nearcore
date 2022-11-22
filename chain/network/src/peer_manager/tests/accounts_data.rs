@@ -2,7 +2,6 @@ use crate::concurrency::demux;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::SyncAccountsData;
 use crate::peer;
-use crate::peer::peer_actor::FDS_PER_PEER;
 use crate::peer_manager;
 use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::peer_manager::testonly;
@@ -15,6 +14,14 @@ use pretty_assertions::assert_eq;
 use rand::seq::SliceRandom as _;
 use std::collections::HashSet;
 use std::sync::Arc;
+
+/// Each actix arbiter (in fact, the underlying tokio runtime) creates 4 file descriptors:
+/// 1. eventfd2()
+/// 2. epoll_create1()
+/// 3. fcntl() duplicating one end of some globally shared socketpair()
+/// 4. fcntl() duplicating epoll socket created in (2)
+/// This gives 5 file descriptors per PeerActor (4 + 1 TCP socket).
+const FDS_PER_PEER: usize = 5;
 
 #[tokio::test]
 async fn broadcast() {

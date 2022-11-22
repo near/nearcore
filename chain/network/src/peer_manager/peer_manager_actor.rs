@@ -5,7 +5,7 @@ use crate::network_protocol::{
     AccountOrPeerIdOrHash, Edge, PeerMessage, Ping, Pong, RawRoutedMessage, RoutedMessageBody,
     SignedAccountData, StateResponseInfo,
 };
-use crate::peer::peer_actor::{PeerActor, FDS_PER_PEER};
+use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
 use crate::peer_manager::network_state::{NetworkState, WhitelistNode};
 use crate::peer_manager::peer_store;
@@ -71,11 +71,6 @@ pub const MAX_TIER2_PEERS: usize = 128;
 /// (a.k.a. ones that we've been connected to in the past) with these odds.
 /// Otherwise, we'd pick any peer that we've heard about.
 const PREFER_PREVIOUSLY_CONNECTED_PEER: f64 = 0.6;
-
-/// Maximal number of TIER1 + TIER2 peers.
-const MAX_PEERS: usize = 1000;
-/// PeerManager (together with the whole ActixSystem) creates 13 file descriptors.
-pub const FDS_PER_PEER_MANAGER: u64 = (MAX_PEERS * FDS_PER_PEER + 13) as u64;
 
 /// Actor that manages peers connections.
 pub struct PeerManagerActor {
