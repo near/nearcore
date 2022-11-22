@@ -618,10 +618,10 @@ impl TxTracker {
                             tx.try_set_nonce(nonce);
                             match tx {
                                 TargetChainTx::Ready(t) => {
-                                    tracing::info!(target: "mirror", "set nonce for {:?}'s {} to {}", access_key, r, t.target_tx.transaction.nonce);
+                                    tracing::debug!(target: "mirror", "set nonce for {:?}'s {} to {}", access_key, r, t.target_tx.transaction.nonce);
                                 }
                                 _ => {
-                                    tracing::info!(target: "mirror", "Couldn't set nonce for {:?}'s {}", access_key, r);
+                                    tracing::warn!(target: "mirror", "Couldn't set nonce for {:?}'s {}", access_key, r);
                                 }
                             }
                         } else {
@@ -904,10 +904,10 @@ impl TxTracker {
                                     target_tx.try_set_nonce(None);
                                     match target_tx {
                                         TargetChainTx::Ready(t) => {
-                                            tracing::info!(target: "mirror", "After skipping {} setting nonce for {:?}'s {} to {}", tx_ref, &access_key, r, t.target_tx.transaction.nonce);
+                                            tracing::debug!(target: "mirror", "After skipping {} setting nonce for {:?}'s {} to {}", tx_ref, &access_key, r, t.target_tx.transaction.nonce);
                                         }
                                         _ => {
-                                            tracing::info!(target: "mirror", "After skipping {} could not set nonce for {:?}'s {}", tx_ref, &access_key, r);
+                                            tracing::warn!(target: "mirror", "After skipping {} could not set nonce for {:?}'s {}", tx_ref, &access_key, r);
                                         }
                                     }
                                     to_remove.push(r.clone());
