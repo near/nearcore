@@ -21,7 +21,7 @@ The estimator code is part of the nearcore repository in the directory
 [runtime/runtime-params-estimator](https://github.com/near/nearcore/tree/master/runtime/runtime-params-estimator).
 
 For a practical guide on how to run the estimator, please take a look at
-[Running the Estimator](../../practices/workflows/gas_estimations.html) in the
+[Running the Estimator](../../practices/workflows/gas_estimations.md) in the
 workflows chapter.
 
 ## Code Structure
