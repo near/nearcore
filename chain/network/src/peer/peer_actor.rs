@@ -444,14 +444,10 @@ impl PeerActor {
                     ));
                     return;
                 }
-                warn!(
-                    "Checking nonce {} {}",
-                    handshake.partial_edge_info.nonce,
-                    self.clock.now_utc()
-                );
+
                 // Verify if nonce is sane.
                 if let Err(err) = verify_nonce(&self.clock, handshake.partial_edge_info.nonce) {
-                    warn!(target: "network", nonce=?handshake.partial_edge_info.nonce, my_node_id = ?self.my_node_id(), peer_id=?handshake.sender_peer_id, "bad nonce, disconnecting: {err}");
+                    debug!(target: "network", nonce=?handshake.partial_edge_info.nonce, my_node_id = ?self.my_node_id(), peer_id=?handshake.sender_peer_id, "bad nonce, disconnecting: {err}");
                     self.stop(ctx, ClosingReason::HandshakeFailed);
                     return;
                 }
