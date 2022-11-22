@@ -179,9 +179,9 @@ blockchain nodes.
 Two important structs here: `PeerManagerActor` and `Peer`. Peer manager
 orchestrates all the communications from network to other components and from
 other components to network. `Peer` is responsible for low-level network
-communications from and to a given peer. Peer manager runs in one thread while
-each `Peer` runs in its own thread.
-<!--TODO: Maybe add more clarification about what Peer is? -->
+communications from and to a given peer (more details in
+[this article](./network.md#23-peeractor)). Peer manager runs in one thread while each
+`Peer` runs in its own thread.
 
 **Architecture Invariant**: Network communicates to `Client` through
 `NetworkClientMessages` and to `ViewClient` through `NetworkViewClientMessages`.
