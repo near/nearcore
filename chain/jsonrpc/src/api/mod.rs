@@ -91,6 +91,12 @@ fn parse_signed_transaction(
     value: Option<Value>,
 ) -> Result<near_primitives::transaction::SignedTransaction, RpcParseError> {
     let (encoded,) = parse_params::<(String,)>(value)?;
+    decode_signed_transaction(&encoded)
+}
+
+fn decode_signed_transaction(
+    encoded: &str,
+) -> Result<near_primitives::transaction::SignedTransaction, RpcParseError> {
     let bytes = near_primitives::serialize::from_base64(&encoded)
         .map_err(|err| RpcParseError(err.to_string()))?;
     Ok(near_primitives::transaction::SignedTransaction::try_from_slice(&bytes)

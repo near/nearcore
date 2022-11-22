@@ -84,30 +84,40 @@ impl From<RpcTransactionError> for crate::errors::RpcError {
 }
 
 #[derive(Debug, Clone)]
-pub struct RpcBroadcastWaitTransactionRequest {
-    pub signed_transaction: near_primitives::transaction::SignedTransaction,
-    pub rpc_broadcast_wait_type: Option<RpcBroadcastWait>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct RpcBroadcastWait {
+pub struct RpcTransactionExecutionWaitRequest {
+    pub transaction_info: TransactionInfo,
     pub finality: Finality,
     pub wait_type: TxWaitType,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct RpcBroadcastWaitResponse {
-    pub transaction_hash: near_primitives::hash::CryptoHash,
-    pub final_execution_outcome: Option<near_primitives::views::FinalExecutionOutcomeViewEnum>,
+pub struct RpcTransactionExecutionWaitResponse {
+    pub final_execution_outcome: near_primitives::views::FinalExecutionOutcomeViewEnum,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "snake_case")]
 pub enum TxWaitType {
-    /// Waits only for inclusion into the block.
-    Inclusion,
-    /// Waits until all non-refund receipts are executed.
-    Executed,
-    /// Waits until everything has executed and is final.
-    Final,
+    /// Waits until the transaction result value is executed and finalized.
+    /// Note: this does not wait on all execution results, only the tx return value.
+    ExecutionResult,
+    /// Waits until everything has executed and is final, including refund receipts.
+    Full,
+}
+
+impl Default for TxWaitType {
+    fn default() -> Self {
+        Self::Full
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct RpcTransactionInclusionWaitRequest {
+    pub transaction_info: TransactionInfo,
+    pub finality: Finality,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct RpcTransactionInclusionWaitResponse {
+    // TODO what data will be important to return? What block hash/number it was included?
 }

@@ -317,8 +317,11 @@ impl JsonRpcHandler {
             "EXPERIMENTAL_broadcast_tx_sync" => {
                 process_method_call(request, |params| self.send_tx_sync(params)).await
             }
-            "EXPERIMENTAL_broadcast" => {
-                process_method_call(request, |params| self.send_tx_broadcast(params)).await
+            "EXPERIMENTAL_tx_wait" => {
+                process_method_call(request, |params| self.wait_tx_execution(params)).await
+            }
+            "EXPERIMENTAL_tx_inclusion_wait" => {
+                process_method_call(request, |params| self.wait_tx_inclusion(params)).await
             }
             "EXPERIMENTAL_changes" => {
                 process_method_call(request, |params| self.changes_in_block_by_type(params)).await
@@ -668,11 +671,11 @@ impl JsonRpcHandler {
         }
     }
 
-    async fn send_tx_broadcast(
+    async fn wait_tx_execution(
         &self,
-        request_data: near_jsonrpc_primitives::types::transactions::RpcBroadcastWaitTransactionRequest,
+        request_data: near_jsonrpc_primitives::types::transactions::RpcTransactionExecutionWaitRequest,
     ) -> Result<
-        near_jsonrpc_primitives::types::transactions::RpcBroadcastWaitResponse,
+        near_jsonrpc_primitives::types::transactions::RpcTransactionExecutionWaitResponse,
         near_jsonrpc_primitives::types::transactions::RpcTransactionError,
     > {
         // let broadcast_wait_type = request_data.rpc_broadcast_wait_type;
@@ -693,49 +696,29 @@ impl JsonRpcHandler {
         todo!()
     }
 
-    async fn send_tx_inclusion(
+    async fn wait_tx_inclusion(
         &self,
-        request_data: near_jsonrpc_primitives::types::transactions::RpcBroadcastTransactionRequest,
+        request_data: near_jsonrpc_primitives::types::transactions::RpcTransactionInclusionWaitRequest,
     ) -> Result<
-        near_jsonrpc_primitives::types::transactions::RpcBroadcastTxSyncResponse,
+        near_jsonrpc_primitives::types::transactions::RpcTransactionInclusionWaitResponse,
         near_jsonrpc_primitives::types::transactions::RpcTransactionError,
     > {
+        // let broadcast_wait_type = request_data.rpc_broadcast_wait_type;
+        // match broadcast_wait_type {
+        //     near_jsonrpc_primitives::types::transactions::RpcBroadcastWait::None => {
+        //         self.send_tx_async(request_data.signed_transaction.clone());
+        //     },
+        //     near_jsonrpc_primitives::types::transactions::RpcBroadcastWait::Inclusion => {
+        //         self.send_tx_inclusion(request_data.signed_transaction.clone());
+        //     },
+        //     near_jsonrpc_primitives::types::transactions::RpcBroadcastWait::InclusionFinal => {}
+        //     near_jsonrpc_primitives::types::transactions::RpcBroadcastWait::Executed => {}
+        //     near_jsonrpc_primitives::types::transactions::RpcBroadcastWait::ExecutedFinal => {}
+        //     near_jsonrpc_primitives::types::transactions::RpcBroadcastWait::Final => {
+        //         self.send_tx_commit(request_data.signed_transaction.clone());
+        //     }
+        // }
         todo!()
-        // let tx = request_data.signed_transaction;
-        // match self
-        //     .tx_status_fetch(
-        //         near_jsonrpc_primitives::types::transactions::TransactionInfo::Transaction(
-        //             tx.clone(),
-        //         ),
-        //         false,
-        //         near_client_primitives::types::TxStatusWaitFor::Inclusion,
-        //     )
-        //     .await
-        // {
-        //     Ok(outcome) => {
-        //         return Ok(near_jsonrpc_primitives::types::transactions::RpcTransactionResponse {
-        //             final_execution_outcome: outcome,
-        //         });
-        //     }
-        //     Err(err @ near_jsonrpc_primitives::types::transactions::RpcTransactionError::InvalidTransaction {
-        //         ..
-        //     }) => {
-        //         return Err(err);
-        //     }
-        //     _ => {}
-        // }
-        // match self.send_tx(tx.clone(), false).await? {
-        //     NetworkClientResponses::ValidTx | NetworkClientResponses::RequestRouted => {
-        //         self.tx_polling(near_jsonrpc_primitives::types::transactions::TransactionInfo::Transaction(tx),await_for).await
-        //     }
-        //     network_client_response=> {
-        //         Err(
-        //             near_jsonrpc_primitives::types::transactions::RpcTransactionError::from_network_client_responses(
-        //                 network_client_response
-        //             )
-        //         )
-        //     }
-        // }
     }
 
     async fn check_tx(
