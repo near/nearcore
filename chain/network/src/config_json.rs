@@ -158,6 +158,10 @@ pub struct Config {
     /// This setup is not reliable in presence of byzantine peers.
     #[serde(default)]
     pub public_addrs: Vec<PeerAddr>,
+    /// For local tests only (localnet). Allows specifying IPs from private range
+    /// (which are not visible from the public internet) in public_addrs field.
+    #[serde(default)]
+    pub allow_private_ip_in_public_addrs: bool,
     /// List of endpoints of trusted [STUN servers](https://datatracker.ietf.org/doc/html/rfc8489).
     ///
     /// Used only if this node is a validator and public_ips is empty (see
@@ -222,6 +226,7 @@ impl Default for Config {
             monitor_peers_max_period: default_monitor_peers_max_period(),
             peer_expiration_duration: default_peer_expiration_duration(),
             public_addrs: vec![],
+            allow_private_ip_in_public_addrs: false,
             trusted_stun_servers: vec![],
             experimental: Default::default(),
         }

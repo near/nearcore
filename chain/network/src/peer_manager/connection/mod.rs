@@ -159,9 +159,9 @@ impl Connection {
                         let res = ds.iter().map(|_| ()).collect();
                         let mut sum = HashMap::<_, Arc<SignedAccountData>>::new();
                         for d in ds.into_iter().flatten() {
-                            match sum.entry((d.epoch_id.clone(), d.account_id.clone())) {
+                            match sum.entry(d.account_key.clone()) {
                                 Entry::Occupied(mut x) => {
-                                    if x.get().timestamp < d.timestamp {
+                                    if x.get().version < d.version {
                                         x.insert(d);
                                     }
                                 }
