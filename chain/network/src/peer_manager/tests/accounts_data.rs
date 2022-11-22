@@ -185,7 +185,7 @@ async fn rate_limiting() {
     let mut pms = vec![];
     for _ in 0..n * m {
         let mut cfg = chain.make_config(rng);
-        cfg.accounts_data_broadcast_rate_limit = demux::RateLimit { qps: 1., burst: 1 };
+        cfg.accounts_data_broadcast_rate_limit = demux::RateLimit { qps: 0.5, burst: 1 };
         pms.push(
             peer_manager::testonly::start(
                 clock.clock(),
