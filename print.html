@@ -196,17 +196,17 @@ missing bits of history from more up-to-date peer nodes.</p>
 <p>Major components of nearcore:</p>
 <ul>
 <li>
-<p>JSON RPC. This HTTP RPC interface is how <code>neard</code> communicates with
+<p><strong>JSON RPC</strong>. This HTTP RPC interface is how <code>neard</code> communicates with
 non-blockchain outside world. For example, to submit a transaction, some
 client sends an RPC request with it to some node in the network. From that
 node, the transaction propagates through the network, until it is included in
 some block. Similarly, a client can send an HTTP request to a node to learn
-about current state of the blockchain. The JSON RPC interface is documented
+about current state of the blockchain. The <strong>JSON RPC</strong> interface is documented
 <a href="https://docs.near.org/api/rpc/introduction">here</a>.</p>
 </li>
 <li>
-<p>Network. If RPC is aimed &quot;outside&quot; the blockchain, &quot;network&quot; is how peer
-<code>neard</code> nodes communicate with each other within blockchain. RPC carries
+<p><strong>Network</strong>. If RPC is aimed &quot;outside&quot; the blockchain, &quot;network&quot; is how peer
+<code>neard</code> nodes communicate with each other within the blockchain. RPC carries
 requests from users of the blockchain, while network carries various messages
 needed to implement consensus. Two directly connected nodes communicate by
 sending protobuf-encoded messages over TCP. A node also includes logic to
@@ -216,35 +216,35 @@ network participant. From this bootstrap connection, the node learns how to
 communicate with any other node in the network.</p>
 </li>
 <li>
-<p>Client. Somewhat confusingly named, client is the logical state of the
-blockchain. After receiving and decoding a request, both RPC and network
-usually forward it in the parsed form to the client. Internally, client is
-split in two somewhat independent components: chain and runtime.</p>
+<p><strong>Client</strong>. Somewhat confusingly named, <strong>client</strong> is the logical state of the
+blockchain. After receiving and decoding a request, both <strong>RPC</strong> and <strong>network</strong>
+usually forward it in the parsed form to the <strong>client</strong>. Internally, <strong>client</strong> is
+split in two somewhat independent components: <strong>chain</strong> and <strong>runtime</strong>.</p>
 </li>
 <li>
-<p>Chain. The job of chain, in a nutshell, is to determine a global order of
-transactions. Chain builds and maintains the blockchain data structure. This
+<p><strong>Chain</strong>. The job of <strong>chain</strong>, in a nutshell, is to determine a global order of
+transactions. <strong>Chain</strong> builds and maintains the blockchain data structure. This
 includes block and chunk production and processing, consensus, and validator
-selection. However, chain is not responsible for actually applying
+selection. However, <strong>chain</strong> is not responsible for actually applying
 transactions and receipts.</p>
 </li>
 <li>
-<p>Runtime. If chain selects the <em>order</em> of transactions, Runtime applies
-transaction to the state. Chain guarantees that everyone agrees on the order
-and content of transactions, and Runtime guarantees that each transaction is
+<p><strong>Runtime</strong>. If <strong>chain</strong> selects the <em>order</em> of transactions, <strong>Runtime</strong> applies
+transaction to the state. <strong>Chain</strong> guarantees that everyone agrees on the order
+and content of transactions, and <strong>Runtime</strong> guarantees that each transaction is
 fully deterministic. It follows that everyone agrees on the &quot;current state&quot; of
 the blockchain. Some transactions are as simple as &quot;transfer X tokens from
 Alice to Bob&quot;. But a much more powerful class of transactions is supported:
 &quot;run this arbitrary WebAssembly code in the context of the current state of
 the chain&quot;. Running such &quot;smart contract&quot; transactions securely and
-efficiently is a major part of what runtime does. Today, runtime uses a JIT
+efficiently is a major part of what <strong>Runtime</strong> does. Today, <strong>Runtime</strong> uses a JIT
 compiler to do that.</p>
 </li>
 <li>
-<p>Storage. Storage is more of a cross-cutting concern, than an isolated
+<p><strong>Storage</strong>. <strong>Storage</strong> is more of a cross-cutting concern, than an isolated
 component. Many parts of a node want to durably persist various bits of state
 to disk. One notable case is the logical state of the blockchain, and, in
-particular, data associated with each account. Logically, the state of account
+particular, data associated with each account. Logically, the state of an account
 on a chain is a key-value map: <code>HashMap&lt;Vec&lt;u8&gt;, Vec&lt;u8&gt;&gt;</code>. But there is a
 twist: it should be possible to provide a succinct proof that a particular key
 indeed holds a particular value. To allow that internally the state is
@@ -252,12 +252,12 @@ implemented as a persistent (in both senses, &quot;functional&quot; and &quot;on
 merkle-patricia trie.</p>
 </li>
 <li>
-<p>Parameter Estimator. One kind of transaction we support is &quot;run this
+<p><strong>Parameter Estimator</strong>. One kind of transaction we support is &quot;run this
 arbitrary, Turing-complete computation&quot;. To protect from a <code>loop {}</code>
-transaction halting the whole network, runtime implements resource limiting:
+transaction halting the whole network, <strong>Runtime</strong> implements resource limiting:
 each transaction runs with a certain finite amount of &quot;gas&quot;, and each
-operation costs a certain amount of gas to perform. Parameter estimator is
-essentially a set of benchmark used to estimate relative gas costs of
+operation costs a certain amount of gas to perform. <strong>Parameter estimator</strong> is
+essentially a set of benchmarks used to estimate relative gas costs of
 various operations.</p>
 </li>
 </ul>
@@ -273,7 +273,7 @@ implements the public API of a node, which is documented
 contract with the outside world -- the peer-to-peer network.</p>
 <p><code>Runtime::apply</code> in the <code>runtime</code> crate is the entry point for transaction
 processing logic. This is where state transitions actually happen, after chain
-decided that, according to distributed consensus, which transitions need  to
+decided, according to distributed consensus, which transitions need  to
 happen.</p>
 <h2 id="code-map"><a class="header" href="#code-map">Code Map</a></h2>
 <p>This section contains some high-level overview of important crates and data
@@ -290,9 +290,9 @@ structures.</p>
 <code>ChainUpdate::process_block</code> is where most of the block processing logic
 happens.</p>
 <p><strong>Architecture Invariant</strong>: interface between chain and runtime is defined by
-<code>RuntimeAdapter</code>. All invocations of runtime goes through <code>RuntimeAdapter</code></p>
+<code>RuntimeAdapter</code>. All invocations of runtime go through <code>RuntimeAdapter</code></p>
 <p><strong>State update</strong></p>
-<p>The blockchain state can be changed in the following two ways:</p>
+<p>The blockchain state of a node can be changed in the following two ways:</p>
 <ul>
 <li>Applying a chunk. This is how the state is normally updated: through
 <code>Runtime::apply</code>.</li>
@@ -325,6 +325,7 @@ orchestrates all the communications from network to other components and from
 other components to network. <code>Peer</code> is responsible for low-level network
 communications from and to a given peer. Peer manager runs in one thread while
 each <code>Peer</code> runs in its own thread.</p>
+<!--TODO: Maybe add more clarification about what Peer is? -->
 <p><strong>Architecture Invariant</strong>: Network communicates to <code>Client</code> through
 <code>NetworkClientMessages</code> and to <code>ViewClient</code> through <code>NetworkViewClientMessages</code>.
 Conversely, <code>Client</code> and <code>ViewClient</code> communicates to network through
@@ -332,7 +333,7 @@ Conversely, <code>Client</code> and <code>ViewClient</code> communicates to netw
 <h3 id="chainepoch_manager"><a class="header" href="#chainepoch_manager"><code>chain/epoch_manager</code></a></h3>
 <p>This crate is responsible for determining validators and other epoch related
 information such as epoch id for each epoch.</p>
-<p>Note: <code>EpochManager</code> is constructed in <code>NightshadeRuntime</code> rather than in
+<p><strong>Note</strong>: <code>EpochManager</code> is constructed in <code>NightshadeRuntime</code> rather than in
 <code>Chain</code>, partially because we had this idea of making epoch manager a smart
 contract.</p>
 <h3 id="chainjsonrpc"><a class="header" href="#chainjsonrpc"><code>chain/jsonrpc</code></a></h3>
@@ -346,7 +347,7 @@ the other hand, are sent to <code>ClientActor</code> for further processing.</p>
 <h3 id="runtimeruntime"><a class="header" href="#runtimeruntime"><code>runtime/runtime</code></a></h3>
 <p>This crate contains the main entry point to runtime -- <code>Runtime::apply</code>. This
 function takes <code>ApplyState</code>, which contains necessary information passed from
-chain to runtime, and a list of <code>SignedTransaction</code> and a list of <code>Receipt</code>, and
+chain to runtime, a list of <code>SignedTransaction</code> and a list of <code>Receipt</code>, and
 returns a <code>ApplyResult</code>, which includes state changes, execution outcomes, etc.</p>
 <p><strong>Architecture Invariant</strong>: The state update is only finalized at the end of
 <code>apply</code>. During all intermediate steps state changes can be reverted.</p>
@@ -374,8 +375,9 @@ contracts on NEAR.</p>
 <p>As mentioned before, <code>neard</code> is the crate that contains that main entry points.
 All the actors are spawned in <code>start_with_config</code>. It is also worth noting that
 <code>NightshadeRuntime</code> is the struct that implements <code>RuntimeAdapter</code>.</p>
+<!-- TODO: Maybe add RuntimeAdapter mention or explanation in runtime/runtime chapter? -->
 <h3 id="corestoresrcdbrs"><a class="header" href="#corestoresrcdbrs"><code>core/store/src/db.rs</code></a></h3>
-<p>This file contains schema (DBCol) of our internal RocksDB storage - a good
+<p>This file contains the schema (DBCol) of our internal RocksDB storage - a good
 starting point when reading the code base.</p>
 <h2 id="cross-cutting-concerns"><a class="header" href="#cross-cutting-concerns">Cross Cutting Concerns</a></h2>
 <h3 id="observability"><a class="header" href="#observability">Observability</a></h3>
@@ -385,11 +387,11 @@ for light-weight metric output. See the <a href="architecture/./style.html">styl
 more information on the usage.</p>
 <h3 id="testing"><a class="header" href="#testing">Testing</a></h3>
 <p>Rust has built-in support for writing unit tests by marking functions
-with <code>#[test]</code> directive.  Take full advantage of that!  Testing not
-only confirms that what was written works the way it was intended but
-also help during refactoring since the caught unintended behaviour
+with the <code>#[test]</code> directive.  Take full advantage of that!  Testing not
+only confirms that what was written works the way it was intended to but
+also helps during refactoring since it catches unintended behaviour
 changes.</p>
-<p>Not all tests are created equal though and while some can need only
+<p>Not all tests are created equal though and while some may only need
 milliseconds to run, others may run for several seconds or even
 minutes.  Tests that take a long time should be marked as such with an
 <code>expensive_tests</code> feature, for example:</p>
@@ -414,9 +416,9 @@ expensive --timeout=1800 near-client near_client tests::catching_up::test_catchu
 <p>For more details regarding nightly tests see <code>nightly/README.md</code>.</p>
 <p>Note that what counts as a slow test isn’t exactly defined as of now.
 If it takes just a couple seconds than it’s probably fine.  Anything
-slower should probably be classified as expensive test.  In
+slower should probably be classified as an expensive test.  In
 particular, if libtest complains the test takes more than 60 seconds
-than it definitely is.</p>
+than it definitely is and expensive test.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="how-neard-works"><a class="header" href="#how-neard-works">How neard works</a></h1>
 <p>This chapter describes how neard works with a focus on implementation details
 and practical scenarios. To get a better understanding of how the protocol
@@ -428,40 +430,40 @@ the network and sends messages to peers based on different triggers. Neard is
 implemented using an <a href="https://en.wikipedia.org/wiki/Actor_model">actor
 framework</a> called
 <a href="https://docs.rs/actix">actix</a>.</p>
-<p><strong>Note:</strong> Using actix was decided in the early days of the implementation of
+<p><strong>Note</strong>: Using actix was decided in the early days of the implementation of
 nearcore and by no means represents our confidence in actix. On the contrary, we
 have noticed a number of issues with actix and are considering implementing an
 actor framework in house.</p>
 <p>There are several important actors in neard:</p>
 <ul>
 <li>
-<p><code>PeerActor</code> Each peer is represented by one peer actor and runs in a separate
+<p><code>PeerActor</code> - Each peer is represented by one peer actor and runs in a separate
 thread. It is responsible for sending messages to and receiving messages from
 a given peer. After <code>PeerActor</code> receives a message, it will route it to
 <code>ClientActor</code>, <code>ViewClientActor</code>, or <code>PeerManagerActor</code> depending on the type
 of the message.</p>
 </li>
 <li>
-<p><code>PeerManagerActor</code> Peer Manager is responsible for receiving messages to send
+<p><code>PeerManagerActor</code> - Peer Manager is responsible for receiving messages to send
 to the network from either <code>ClientActor</code> or <code>ViewClientActor</code> and routing them to
-the right <code>PeerActor</code> to send the bytes over the wire. It is also responsible to
-handle some types of network messages received and routed through <code>PeerActor</code>.
+the right <code>PeerActor</code> to send the bytes over the wire. It is also responsible for
+handling some types of network messages received and routed through <code>PeerActor</code>.
 For the purpose of this document, we only need to know that <code>PeerManagerActor</code>
-handles <code>RoutedMessage</code>s. For <code>RoutedMessage</code>s, peer manager would decide whether
-they should be routed to <code>ClientActor</code> or <code>ViewClientActor</code>.</p>
+handles <code>RoutedMessage</code>s. Peer manager would decide whether the <code>RoutedMessage</code>s
+should be routed to <code>ClientActor</code> or <code>ViewClientActor</code>.</p>
 </li>
 <li>
-<p><code>ClientActor</code> Client actor is the “core” of neard. It contains all the main
+<p><code>ClientActor</code> - Client actor is the “core” of neard. It contains all the main
 logic including consensus, block and chunk processing, state transition, garbage
 collection, etc. Client actor is single threaded.</p>
 </li>
 <li>
-<p><code>ViewClientActor</code> View client actor can be thought of as a read-only interface
-to client. It only accesses data stored in a node’s storage and does not mutate
+<p><code>ViewClientActor</code> - View client actor can be thought of as a read-only interface
+to <strong>client</strong>. It only accesses data stored in a node’s storage and does not mutate
 any state. It is used for two purposes:</p>
 <ul>
-<li>Answering rpc requests by fetching the relevant piece of data from storage</li>
-<li>Handle some network requests that do not require any changes to the
+<li>Answering RPC requests by fetching the relevant piece of data from storage.</li>
+<li>Handling some network requests that do not require any changes to the
 storage, such as header sync, state sync, and block sync requests.</li>
 </ul>
 <p><code>ViewClientActor</code> runs in four threads by default but this number is configurable.</p>
@@ -485,13 +487,13 @@ apply. It then checks whether it has all the chunks available. If the node is
 not a validator node, it won’t have any chunk parts and therefore won’t have
 the chunks available. If the node is a validator node, it may already have
 chunk parts through chunk parts forwarding from other nodes and therefore may
-have already reconstructed some chunks. Anyways, if the node doesn’t have all
+have already reconstructed some chunks. Regardless, if the node doesn’t have all
 chunks for all shards, it will request them from peers by parts.</li>
 <li>The chunk requests are sent and the node waits for enough chunk parts to be
-received to reconstruct the chunks. For each chunk, 1/3 of all the parts
-(100) is sufficient to reconstruct a chunk. In the meantime, if new blocks
-arrive, they will be put into a <code>OrphanPool</code>, waiting to be processed. If a
-chunk part request is not responded to within <code>chunk_request_retry_period</code>,
+received to reconstruct the chunks. For each chunk, 1/3 of all the parts<!-- TODO: Is 100 the number of all the parts or one third of all the parts? -->
+(100) is sufficient to reconstruct a chunk. If new blocks arrive while waiting
+for chunk parts, they will be put into a <code>OrphanPool</code>, waiting to be processed.
+If a chunk part request is not responded to within <code>chunk_request_retry_period</code>,
 which is set to 400ms by default, then a request for the same chunk part
 would be sent again.</li>
 <li>After all chunks are reconstructed, the node processes the current block by
@@ -499,8 +501,8 @@ applying transactions and receipts from the chunks. Afterwards, it will
 update the head according to the fork choice rule, which only looks at block
 height. In other words, if the newly processed block is of higher height than
 the current head of the node, the head is updated.</li>
-<li>The node checks whether any blocks in the <code>OrphanPool</code> is ready to be
-processed in a BFS manner and processes all of them until none can be
+<li>The node checks whether any blocks in the <code>OrphanPool</code> are ready to be
+processed in a BFS order and processes all of them until none can be
 processed any more. Note that a block is put into the <code>OrphanPool</code> if and
 only if its previous block is not accepted.</li>
 <li>Upon acceptance of a block, the node would check whether it needs to run
@@ -523,7 +525,7 @@ to sync. The synchronization process is done in three steps:</p>
 <ol>
 <li>
 <p>Header sync. The node first identifies the headers it needs to sync through a
-<a href="https://github.com/near/nearcore/blob/279044f09a7e6e5e3f26db4898af3655dae6eda6/chain/client/src/sync.rs#L332"><code>get_locator</code></a>
+<a href="https://github.com/near/nearcore/blob/279044f09a7e6e5e3f26db4898af3655dae6eda6/chain/*client/src/sync.rs#L332"><code>get_locator</code></a>
 calculation. This is essentially an exponential backoff computation that
 tries to identify commonly known headers between the node and its peers. Then
 it would request headers from different peers, at most
@@ -573,37 +575,38 @@ runs again if head has changed (progress is made) or if a timeout (which is
 set to 2s) has happened.</p>
 </li>
 </ol>
-<p><strong>Note:</strong> when a block is received and its height is no more than 500 + the
+<p><strong>Note</strong>: when a block is received and its height is no more than 500 + the
 node’s current head height, then the node would request its previous block
 automatically. This is called orphan sync and helps to speed up the syncing
 process. If, on the other hand, the height is more than 500 + the node’s current
 head height, the block is simply dropped.</p>
+<!-- TODO: Either this note is incorrect or the block processing diagram is. -->
 <h2 id="how-clientactor-works"><a class="header" href="#how-clientactor-works">How <code>ClientActor</code> works</a></h2>
 <p>ClientActor has some periodically running routines that are worth noting:</p>
 <ul>
 <li><a href="https://github.com/near/nearcore/blob/fa78002a1b4119e5efe277c3073b3f333f451ffc/chain/client/src/client_actor.rs#L1198">Doomslug
-timer</a>.
+timer</a> - 
 This routine runs every <code>doosmslug_step_period</code> (set to 100ms by default) and
 updates consensus information. If the node is a validator node, it also sends
 approvals when necessary.</li>
 <li><a href="https://github.com/near/nearcore/blob/fa78002a1b4119e5efe277c3073b3f333f451ffc/chain/client/src/client_actor.rs#L991">Block
-production</a>.
+production</a> - 
 This routine runs every <code>block_production_tracking_delay</code> (which is set to
 100ms by default) and checks if the node should produce a block.</li>
 <li><a href="https://github.com/near/nearcore/blob/fa78002a1b4119e5efe277c3073b3f333f451ffc/chain/client/src/client_actor.rs#L1790">Log
-summary</a>.
+summary</a> - 
 Prints a log line that summarizes block rate, average gas used, the height of
-the node, etc every 10 seconds.</li>
+the node, etc. every 10 seconds.</li>
 <li><a href="https://github.com/near/nearcore/blob/fa78002a1b4119e5efe277c3073b3f333f451ffc/chain/chunks/src/lib.rs#L910">Resend chunk
-requests</a>.
+requests</a> - 
 This routine runs every <code>chunk_request_retry_period</code> (which is set to 400ms).
 It resends the chunk part requests for those that are not yet responded to.</li>
-<li><a href="https://github.com/near/nearcore/blob/fa78002a1b4119e5efe277c3073b3f333f451ffc/chain/client/src/client_actor.rs#L1629">Sync</a>.
+<li><a href="https://github.com/near/nearcore/blob/fa78002a1b4119e5efe277c3073b3f333f451ffc/chain/client/src/client_actor.rs#L1629">Sync</a> - 
 This routine runs every <code>sync_step_period</code> (which is set to 10ms by default)
-and checks whether the node needs to sync from its peers as well as actually
+and checks whether the node needs to sync from its peers and, if needed, also
 starts the syncing process.</li>
 <li><a href="https://github.com/near/nearcore/blob/fa78002a1b4119e5efe277c3073b3f333f451ffc/chain/client/src/client_actor.rs#L1581">Catch
-up</a>.
+up</a> - 
 This routine runs every <code>catchup_step_period</code> (which is set to 100ms by
 default) and runs the catch up process. This only applies if a node validates
 shard A in epoch X and is going to validate a different shard B in epoch X+1.
@@ -627,7 +630,7 @@ Currently 99% of nodes are tracking all the shards: validators have to - as they
 have to validate the chunks from all the shards, and normal nodes mostly also
 track all the shards as this is default.</p>
 <p>But in the future - we will have more and more people tracking only a subset of
-the shards, so the catchup will be more and more important.</p>
+the shards, so the catchup will be increasingly important.</p>
 <h2 id="sync"><a class="header" href="#sync">Sync</a></h2>
 <p>If your node is behind the head - it will start the sync process (this code is
 running periodically in the client_actor and if you’re behind for more than
@@ -650,11 +653,11 @@ epoch - that has to contain additional information about validators.</p>
 db resources.</p>
 <p>We plan to enable it in Q4 2022.</p>
 <p><img src="https://user-images.githubusercontent.com/1711539/195892336-cc117c08-d3ad-43f7-9304-3233b25e8bb1.png" alt="image" /></p>
-<p>notice that in the image above - it is enough to get only ‘last’ header from
+<p>Notice that in the image above - it is enough to only get the ‘last’ header from
 each epoch. For the ‘current’ epoch, we still need to get all the headers.</p>
 <h3 id="step-2-state-sync-normal-node"><a class="header" href="#step-2-state-sync-normal-node">Step 2: State sync [normal node]</a></h3>
 <p>After header sync - if you notice that you’re too far behind (controlled by
-<code>block_fetch_horizon</code> config option) AND that the chain head is in a different
+<code>block_fetch_horizon</code> config option) <strong>AND</strong> that the chain head is in a different
 epoch than your local head - the node will try to do the ‘state sync’.</p>
 <p>The idea of the state sync - is rather than trying to process all the blocks -
 try to ‘jump’ ahead by downloading the freshest state instead - and continue
@@ -665,13 +668,13 @@ the beginning of the epoch - it cannot sync to any random block.</p>
 <p>This step is never run on the archival nodes - as these nodes want to have whole
 history and cannot have any gaps.</p>
 <p><img src="https://user-images.githubusercontent.com/1711539/195892354-cf2befed-98e9-40a2-9b81-b5cf738406e0.png" alt="image" /></p>
-<p>in this case, we can skip processing transactions that are in the blocks 124 - 128, and start from 129 (after sync state finishes)</p>
+<p>In this case, we can skip processing transactions that are in the blocks 124 - 128, and start from 129 (after sync state finishes)</p>
 <h3 id="step-3-block-sync-aka-body-sync-archival-node-normal-node-downloading-blocks"><a class="header" href="#step-3-block-sync-aka-body-sync-archival-node-normal-node-downloading-blocks">Step 3: Block sync (a.k.a Body sync) [archival node, normal node] (“downloading blocks”)</a></h3>
 <p>The final step is to start requesting and processing blocks as soon as possible,
-hoping to catchup with the chain.</p>
-<p>Block sync will request up to 5  (MAX_BLOCK_REQUESTS) blocks at a time - sending
-explicit Network BlockRequest for each one.</p>
-<p>After response (Block) is received - the code will execute the ‘standard’ path
+hoping to catch up with the chain.</p>
+<p>Block sync will request up to 5  (<code>MAX_BLOCK_REQUESTS</code>) blocks at a time - sending
+explicit Network BlockRequests for each one.</p>
+<p>After the response (Block) is received - the code will execute the ‘standard’ path
 that tries to add this block to the chain (see section below).</p>
 <p><img src="https://user-images.githubusercontent.com/1711539/195892370-b177228b-2520-486a-94fc-67a91978cb58.png" alt="image" /></p>
 <p>In this case, we are processing each transaction for each block - until we catch
@@ -685,36 +688,36 @@ broadcasted within the network by the nodes</li>
 in return.</li>
 </ul>
 <p>(in case of broadcasting, the node will automatically reject any Blocks that are
-more than 500 (BLOCK_HORIZON) blocks away from the current HEAD).</p>
+more than 500 (<code>BLOCK_HORIZON</code>) blocks away from the current HEAD).</p>
 <p>When a given block is received, the node checks if it can be added to the
 current chain.</p>
-<p>If block’s “parent” (prev_block) is not in the chain yet - the block gets added
+<p>If block’s “parent” (<code>prev_block</code>) is not in the chain yet - the block gets added
 to the orphan list.</p>
 <p>If the parent is already in the chain - we can try to add the block as the head
 of the chain.</p>
 <p>Before adding the block, we want to download the chunks for the shards that we
 are tracking - so in many cases, we’ll call <code>missing_chunks</code> functions that will
 try to go ahead and request those chunks.</p>
-<p>Note: as the optimization, we’re also sometimes also trying to fetch chunks for
+<p><strong>Note</strong>: as an optimization, we’re also sometimes trying to fetch chunks for
 the blocks that are in the orphan pool – but only if they are not more than 3
-(NUM_ORPHAN_ANCESTORS_CHECK) blocks away from our head.</p>
+(<code>NUM_ORPHAN_ANCESTORS_CHECK</code>) blocks away from our head.</p>
 <p>We also keep a separate job in client_actor that keeps retrying chunk fetching
 from other nodes if the original request fails.</p>
 <p>After all the chunks for a given block are received (we have a separate HashMap
-that checks if how many chunks are missing for each block) - we’re ready to
+that checks how many chunks are missing for each block) - we’re ready to
 process the block and attach it to the chain.</p>
-<p>Afterwards, we look at other entries in the orphan pool - to see if any of them
-is the direct descendant of the block that we just added - and if yes, we repeat
+<p>Afterwards, we look at other entries in the orphan pool to see if any of them
+are a direct descendant of the block that we just added - and if yes, we repeat
 the process.</p>
 <h2 id="catchup"><a class="header" href="#catchup">Catchup</a></h2>
 <h3 id="the-goal-of-catchup"><a class="header" href="#the-goal-of-catchup">The goal of catchup</a></h3>
 <p>Catchup is needed when not all nodes in the network track all shards and nodes
 can change the shard they are tracking during different epochs.</p>
-<p>For example, if a node tracks shard 0 at epoch T and track shard 1 at epoch T+1,
+<p>For example, if a node tracks shard 0 at epoch T and tracks shard 1 at epoch T+1,
 it actually needs to have the state of shard 1 ready before the beginning of
-epoch T+1. How we make sure that in the code is that the node will start
-downloading state for shard 1 at the beginning of epoch T, and apply blocks
-during epoch T to shard 1’s state. Because downloading state can take time, the
+epoch T+1. We make sure this happens by making the node start downloading
+the state for shard 1 at the beginning of epoch T and applying blocks during
+epoch T to shard 1’s state. Because downloading state can take time, the
 node may have already processed some blocks (for shard 0 at this epoch), so when
 the state finishes downloading, the node needs to “catch up” processing these
 blocks for shard 1.</p>
@@ -731,19 +734,19 @@ up, it will continue processing as normal.</p>
 going to care about in epoch T+1 and catching up blocks that have already been
 applied.</p>
 <p>When epoch T starts, the node will start downloading states of shards that it
-will track for epoch T+1 that it is not tracking already. Downloading happens in
+will track for epoch T+1, which it doesn't track already. Downloading happens in
 a different thread so <code>ClientActor</code> can still process new blocks. Before the
 shard states for epoch T+1 are ready, processing new blocks only applies chunks
 for the shards that the node is tracking in epoch T. When the shard states for
-epoch T+1 finishes downloading, the catchup process needs to reprocess the
+epoch T+1 finish downloading, the catchup process needs to reprocess the
 blocks that have already been processed in epoch T to apply the chunks for the
 shards in epoch T+1.</p>
 <p>In other words, there are three modes for applying chunks and two code paths,
 either through the normal <code>process_block</code> (blue) or through <code>catchup_blocks</code>
 (orange). When <code>process_block</code>, either that the shard states for the next epoch
 are ready, corresponding to <code>IsCaughtUp</code> and all shards the node is tracking in
-this epoch or will be tracking in the next epoch will be applied, or that the
-states are not ready, corresponding to <code>NotCaughtup</code> and only the shards for
+this, or will be tracking in the next, epoch will be applied, or when the
+states are not ready, corresponding to <code>NotCaughtUp</code>, then only the shards for
 this epoch will be applied. When <code>catchup_blocks</code>, shards for the next epoch
 will be applied.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -757,7 +760,7 @@ will be applied.</p>
 </span></code></pre></pre>
 <h3 id="how-catchup-works"><a class="header" href="#how-catchup-works">How catchup works</a></h3>
 <p>The catchup process is initiated by <code>process_block</code>, where we check if the block
-is caught up and if we need to download states. The logic works as follows</p>
+is caught up and if we need to download states. The logic works as follows:</p>
 <ul>
 <li>For the first block in an epoch T, we check if the previous block is caught
 up, which signifies if the state of the new epoch is ready. If the previous
@@ -780,15 +783,15 @@ storage to be persisted across different runs.</p>
 <code>ClientActor</code> schedules a call to <code>run_catchup</code> every 100ms. However, the call
 can be delayed if ClientActor has a lot of messages in its actix queue.</p>
 <p>Every time <code>run_catchup</code> is called, it checks the store to see if there are any
-shard states that should be downloaded (iterate_state_sync_infos). If so, it
+shard states that should be downloaded (<code>iterate_state_sync_infos</code>). If so, it
 initiates the syncing process for these shards. After the state is downloaded,
 <code>run_catchup</code> will start to apply blocks that need to be caught up.</p>
 <p>One thing to note is that <code>run_catchup</code> is located at <code>ClientActor</code>, but
-intensive work such as applying state parts and apply blocks is actually
+intensive work such as applying state parts and applying blocks is actually
 offloaded to <code>SyncJobActor</code> in another thread, because we don’t want
 <code>ClientActor</code> to be blocked by this. <code>run_catchup</code> is simply responsible for
 scheduling <code>SyncJobActor</code> to do the intensive job. Note that <code>SyncJobActor</code> is
-state-less, it doesn’t have write access to chain. It will return the changes
+state-less, it doesn’t have write access to the chain. It will return the changes
 that need to be made as part of the response to <code>ClientActor</code>, and <code>ClientActor</code>
 is responsible for applying these changes. This is to ensure only one thread
 (<code>ClientActor</code>) has write access to the chain state. However, this also adds a
@@ -803,7 +806,7 @@ block of an epoch, even when there are no new states to be downloaded for the
 new epoch. This is unnecessary.</p>
 <p>Second, even though <code>run_catchup</code> is scheduled to run every 100ms, the call can
 be delayed if ClientActor has messages in its actix queue. A better way to do
-this is to move the scheduling of run_catchup to check_triggers.</p>
+this is to move the scheduling of <code>run_catchup</code> to <code>check_triggers</code>.</p>
 <p>Third, because of how <code>run_catchup</code> interacts with <code>SyncJobActor</code>, <code>run_catchup</code>
 can catch up at most one block every 100 ms. This is because we don’t want to
 write to <code>ChainStore</code> in multiple threads. However, the changes that catching up
@@ -824,21 +827,21 @@ at most 2 blocks from the chain.</p>
 <p><img src="https://user-images.githubusercontent.com/1711539/195649805-e7997192-be3a-4bf0-992d-d35b2ad80847.png" alt="" /></p>
 <p>In the pictures below, let’s assume that epoch length is 5 and we keep only 3
 epochs (rather than 5 that is currently set in production) - otherwise the image
-becomes too large 😉</p>
-<p>If head is in the middle of the epoch, the <strong>gc_stop</strong> will be set to the first
-block of epoch T-2,  and tail &amp; fork_tail will be sitting at the last block of
+becomes too large 😉.</p>
+<p>If head is in the middle of the epoch, the <code>gc_stop</code> will be set to the first
+block of epoch T-2, and <code>tail</code> &amp; <code>fork_tail</code> will be sitting at the last block of
 epoch T-3.</p>
-<p>(and no GC is happening in this round - as tail is next to gc_stop).</p>
+<p>(and no GC is happening in this round - as tail is next to <code>gc_stop</code>).</p>
 <p><img src="https://user-images.githubusercontent.com/1711539/195649850-95dee667-b88b-4ef6-b08c-77a17b8d4ae2.png" alt="" /></p>
 <p>Next block was accepted on the chain (head jumped ahead), but still no GC
 happening in this round:</p>
 <p><img src="https://user-images.githubusercontent.com/1711539/195649879-e29cc826-dfd8-4cbc-a66d-72e42202d26a.png" alt="" /></p>
-<p>Now interesting things will start happening, once head ‘crosses’ over to the
+<p>Now interesting things will start happening once head ‘crosses’ over to the
 next epoch.</p>
-<p>First, the gc_stop will jump to the beginning of the next epoch.</p>
+<p>First, the <code>gc_stop</code> will jump to the beginning of the next epoch.</p>
 <p><img src="https://user-images.githubusercontent.com/1711539/195649928-0401b221-b6b3-4986-8931-54fbdd1adda0.png" alt="" /></p>
-<p>Then we’ll start the GC of the forks: by first moving the ‘fork_tail’ to match
-the gc_stop and going backwards from there.</p>
+<p>Then we’ll start the GC of the forks: by first moving the <code>fork_tail</code> to match
+the <code>gc_stop</code> and going backwards from there.</p>
 <p><img src="https://user-images.githubusercontent.com/1711539/195649966-dac6a4dd-f04b-4131-887a-58efe89d456a.png" alt="" /></p>
 <p>It will start removing all the blocks that don’t have a successor (a.k.a the tip
 of the fork). And then it will proceed to lower height.</p>
@@ -848,22 +851,23 @@ of the fork). And then it will proceed to lower height.</p>
 <p>In order not to do too much in one go, we’d only remove up to 2 block in each
 run  (that happens after each head update).</p>
 <p>Now, the forks are gone, so we can proceed with GCing of the blocks from
-canonical chain:</p>
+the canonical chain:</p>
 <p><img src="https://user-images.githubusercontent.com/1711539/195650101-dc6953a7-0d55-4db8-a78b-6a52310410b2.png" alt="" /></p>
 <p>Same as before, we’d remove up to 2 blocks in each run:</p>
 <p><img src="https://user-images.githubusercontent.com/1711539/195650127-b30865e1-d9c1-4950-8607-67d82a185b76.png" alt="" /></p>
-<p>Until we catchup to the gc_stop.</p>
-<p>(the original drawings for this document are here:
-<a href="https://docs.google.com/document/d/1BiEuJqm4phwQbi-fjzHMZPzDL-94z9Dqkc3XPNnxKJM/edit?usp=sharing">https://docs.google.com/document/d/1BiEuJqm4phwQbi-fjzHMZPzDL-94z9Dqkc3XPNnxKJM/edit?usp=sharing</a>)</p>
+<p>Until we catch up to the <code>gc_stop</code>.</p>
+<p>(the original drawings for this document are 
+<a href="https://docs.google.com/document/d/1BiEuJqm4phwQbi-fjzHMZPzDL-94z9Dqkc3XPNnxKJM/edit?usp=sharing">here</a>)</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="how-epoch-works"><a class="header" href="#how-epoch-works">How Epoch Works</a></h1>
 <p>This short document will tell you all you need to know about Epochs in NEAR
 protocol.</p>
 <p>You can also find additional information about epochs in
-https://nomicon.io/BlockchainLayer/EpochManager/</p>
+<a href="https://nomicon.io/BlockchainLayer/EpochManager/">nomicon</a>.</p>
 <h2 id="what-is-an-epoch"><a class="header" href="#what-is-an-epoch">What is an Epoch?</a></h2>
-<p>Epoch is a sequence of consecutive blocks - and within one epoch, the set of
-validators is fixed, and validator rotation happens at epoch boundaries.</p>
-<p>Basically almost all the changes that we do - are happening at epoch boundaries:</p>
+<p>Epoch is a sequence of consecutive blocks.
+Within one epoch, the set of validators is fixed, and validator rotation
+happens at epoch boundaries.</p>
+<p>Basically almost all the changes that we do are happening at epoch boundaries:</p>
 <ul>
 <li>sharding changes</li>
 <li>protocol version changes</li>
@@ -872,52 +876,54 @@ validators is fixed, and validator rotation happens at epoch boundaries.</p>
 <li>state sync</li>
 </ul>
 <h2 id="where-does-the-epoch-id-come-from"><a class="header" href="#where-does-the-epoch-id-come-from">Where does the Epoch Id come from?</a></h2>
-<p>EpochId for epoch T+2 is the last hash of the block of epoch T.</p>
+<p><code>EpochId</code> for epoch T+2 is the last hash of the block of epoch T.</p>
 <p><img src="https://user-images.githubusercontent.com/1711539/195907256-c4b1d956-632c-4c11-aa38-17603b1fcc40.png" alt="image" /></p>
-<p>Situation at genesis is interesting. We have three block:</p>
+<p>Situation at genesis is interesting. We have three blocks:</p>
 <p>dummy ← genesis ← first-block</p>
 <h2 id="where-do-we-set-the-epoch-length"><a class="header" href="#where-do-we-set-the-epoch-length">Where do we set the epoch length?</a></h2>
 <p>Epoch length is set in the genesis config. Currently in mainnet it is set to 43200 blocks:</p>
-<pre><code>  &quot;epoch_length&quot;: 43200
+<pre><code class="language-json">  &quot;epoch_length&quot;: 43200
 </code></pre>
+<!-- TODO: Where is this supposed to point to? -->
 <p>See http://go/mainnet-genesis for more details.</p>
 <p>This means that each epoch lasts around 15 hours.</p>
-<p>Important: sometimes there might be ‘troubles’ on the network, that might result
+<p><strong>Important</strong>: sometimes there might be ‘troubles’ on the network, that might result
 in epoch lasting a little bit longer (if we cannot get enough signatures on the
 last blocks of the previous epoch).</p>
-<p>You can read specific details on our nomicon page:
-https://nomicon.io/BlockchainLayer/EpochManager/Epoch</p>
+<p>You can read specific details on our
+<a href="https://nomicon.io/BlockchainLayer/EpochManager/Epoch">nomicon page</a>.</p>
 <h2 id="how-do-we-pick-the-next-validators"><a class="header" href="#how-do-we-pick-the-next-validators">How do we pick the next validators?</a></h2>
-<p>TL;DR: in the last block of the epoch T, we look at the accounts that have
+<p><strong>TL;DR</strong>: in the last block of the epoch T, we look at the accounts that have
 highest stake and we pick them to become validators in <strong>T+2</strong>.</p>
 <p>We are deciding on validators for T+2 (and not T+1) as we want to make sure that
 validators have enough time to prepare for block production and validation (they
 have to download the state of shards etc).</p>
-<p>For more info on how we pick validators - please look on nomicon.</p>
+<p>For more info on how we pick validators please look at
+<a href="https://nomicon.io/Economics/Economic#validator-selection">nomicon</a>.</p>
 <h2 id="epoch-and-sharding"><a class="header" href="#epoch-and-sharding">Epoch and Sharding</a></h2>
 <p>Sharding changes happen only on epoch boundary - that’s why many of the requests
-(like which shard does my account belong to), require also an epoch_id as a
+(like which shard does my account belong to), require also an <code>epoch_id</code> as a
 parameter.</p>
-<p>Currently (April 2022) - we don’t have dynamic sharding yet, so whole chain is
+<p>As of April 2022 we don’t have dynamic sharding yet, so the whole chain is
 simply using 4 shards.</p>
-<p>How can I get more information about current/previous epochs?</p>
+<h3 id="how-can-i-get-more-information-about-currentprevious-epochs"><a class="header" href="#how-can-i-get-more-information-about-currentprevious-epochs">How can I get more information about current/previous epochs?</a></h3>
 <p>We don’t show much information about Epochs in Explorer. Today, you can use
-state_viewer (if you have access to the network database).</p>
+<code>state_viewer</code> (if you have access to the network database).</p>
 <p>At the same time, we’re working on a small debug dashboard, to show you the
 basic information about past epochs - stay tuned.</p>
 <h2 id="technical-details"><a class="header" href="#technical-details">Technical details</a></h2>
 <h3 id="where-do-we-store-epoch-info"><a class="header" href="#where-do-we-store-epoch-info">Where do we store epoch info?</a></h3>
-<p>We use couple columns in database to store epoch information.</p>
+<p>We use a couple columns in the database to store epoch information:</p>
 <ul>
 <li><strong>ColEpochInfo = 11</strong> - is storing the mapping from EpochId to EpochInfo
 structure that contains all the details.</li>
 <li><strong>ColEpochStart = 23</strong> - has a mapping from EpochId to the first block height
 of that epoch.</li>
 <li><strong>ColEpochValidatorInfo = 47</strong> - contains validator statistics (blocks
-produced etc) for each epoch.</li>
+produced etc.) for each epoch.</li>
 </ul>
 <h3 id="how-does-epoch-info-look-like"><a class="header" href="#how-does-epoch-info-look-like">How does epoch info look like?</a></h3>
-<p>Here’s the example epoch info from the localnet node. As you can see below,
+<p>Here’s the example epoch info from a localnet node. As you can see below,
 EpochInfo mostly contains information about who is the validator and in which
 order should they produce the blocks.</p>
 <pre><code>EpochInfo.V3(
@@ -946,7 +952,7 @@ order should they produce the blocks.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="transaction-routing"><a class="header" href="#transaction-routing">Transaction Routing</a></h1>
 <p>We all know that transactions are ‘added’ to the chain - but how do they get
 there?</p>
-<p>Hopefully by the end of this article, the image below would totally make sense.</p>
+<p>Hopefully by the end of this article, the image below should make total sense.</p>
 <p><img src="https://user-images.githubusercontent.com/1711539/196204937-d6828382-16df-42bd-b59b-50eb2e6f07af.png" alt="image" /></p>
 <h2 id="step-1-transaction-creatorauthor"><a class="header" href="#step-1-transaction-creatorauthor">Step 1: Transaction creator/author</a></h2>
 <p>The journey starts with the author of the transaction - who creates the
@@ -961,64 +967,65 @@ private key.</p>
 }
 <span class="boring">}
 </span></code></pre></pre>
-<p>With such payload, they can go ahead and send it as JSON-RPC request to ANY node
-in the system (you can choose between using ‘sync’ or ‘async’ options).</p>
-<p>From now on, you’ll also be able to query the status of the transaction - by
+<p>With such a payload, they can go ahead and send it as a JSON-RPC request to ANY
+node in the system (they can choose between using ‘sync’ or ‘async’ options).</p>
+<p>From now on, they’ll also be able to query the status of the transaction - by
 using the hash of this object.</p>
-<p><strong>Fun fact:</strong> the ‘Transaction’ object also contains some fields to prevent
-attacks: like ‘nonce’ to prevent replay attack, and ‘block_hash’ to limit the
+<p><strong>Fun fact</strong>: the <code>Transaction</code> object also contains some fields to prevent
+attacks: like <code>nonce</code> to prevent replay attack, and <code>block_hash</code> to limit the
 validity of the transaction (it must be added within
-transaction_validity_period (defined in genesis) blocks of block_hash).</p>
+<code>transaction_validity_period</code> (defined in genesis) blocks of <code>block_hash</code>).</p>
 <h2 id="step-2-inside-the-node"><a class="header" href="#step-2-inside-the-node">Step 2: Inside the node</a></h2>
-<p>Our transaction has made it to the node in the system - but most of the nodes
+<p>Our transaction has made it to a node in the system - but most of the nodes
 are not validators - which means that they cannot mutate the chain.</p>
 <p>That’s why the node has to forward it to someone who can - the upcoming
 validator.</p>
-<p>Roughly node does the following steps:</p>
+<p>The node, roughly, does the following steps:</p>
 <ul>
-<li>verify transaction’s metadata - check signatures etc (we want to make sure
+<li>verify transaction’s metadata - check signatures etc. (we want to make sure
 that we don’t forward bogus data)</li>
 <li>forward it to the ‘upcoming’ validator - currently we pick the validators that
 would be a chunk creator in +2, +3, +4 and +8 blocks (this is controlled by
-TX_ROUTING_HEIGHT_HORIZON) - and send the transaction to all of them.</li>
+<code>TX_ROUTING_HEIGHT_HORIZON</code>) - and send the transaction to all of them.</li>
 </ul>
 <h2 id="step-3-en-route-to-validatorproducer"><a class="header" href="#step-3-en-route-to-validatorproducer">Step 3: En-route to validator/producer</a></h2>
 <p>Great, the node knows to send (forward) the transaction to the validator, but
 how does the routing work? How do we know which peer is hosting a validator?</p>
-<p>Each validator is regularly (every config.ttl_account_id_router/2 seconds == 30
+<p>Each validator is regularly (every <code>config.ttl_account_id_router</code>/2 seconds == 30
 minutes in production) broadcasting so called <code>AnnounceAccount</code>, which is
 basically a pair of <code>(account_id, peer_id)</code>, to the whole network. This way each
-node knows which peer_id to send the message to.</p>
+node knows which <code>peer_id</code> to send the message to.</p>
 <p>Then it asks the routing table about the shortest path to the peer, and sends
-the ‘ForwardTx’ message to the peer.</p>
+the <code>ForwardTx</code> message to the peer.</p>
 <h2 id="step-4-chunk-producer"><a class="header" href="#step-4-chunk-producer">Step 4: Chunk producer</a></h2>
-<p>When validator receives such forwarded transaction, it double-checks that it is
-about to produce the block, and if yes, it adds the transaction to the mempool
-(<code>TransactionPool</code>) for this shard, when it waits to be picked up when the chunk
+<p>When a validator receives such a forwarded transaction, it double-checks that it is
+about to produce the block, and if so, it adds the transaction to the mempool
+(<code>TransactionPool</code>) for this shard, where it waits to be picked up when the chunk
 is produced.</p>
 <p>What happens afterwards will be covered in future episodes/articles.</p>
 <h2 id="additional-notes"><a class="header" href="#additional-notes">Additional notes:</a></h2>
 <h3 id="transaction-being-added-multiple-times"><a class="header" href="#transaction-being-added-multiple-times">Transaction being added multiple times</a></h3>
-<p>But such approach means, that we’re forwarding the same transaction to multiple
+<p>But such a approach means, that we’re forwarding the same transaction to multiple
 validators (currently 4) - so can it be added multiple times?</p>
-<p>No: remember that transaction has a concrete hash - that is used as a global
+<p>No. Remember that a transaction has a concrete hash which is used as a global
 identifier. If the validator sees that the transaction is present in the chain,
 it removes it from its local mempool.</p>
 <h3 id="can-transaction-get-lost"><a class="header" href="#can-transaction-get-lost">Can transaction get lost?</a></h3>
-<p>Yes - they can and they do. Sometimes node doesn’t have a path to a given
-validator or it didn’t receive an AnnouceAccount for it, so it doesn’t know
+<p>Yes - they can and they do. Sometimes a node doesn’t have a path to a given
+validator or it didn’t receive an <code>AnnouceAccount</code> for it, so it doesn’t know
 where to forward the message. And if this happens to all 4 validators that we
-try to send to - then the message can be silently dropped.</p>
+try to send to, then the message can be silently dropped.</p>
 <p>We’re working on adding some monitoring to see how often this happens.</p>
-<div style="break-before: page; page-break-before: always;"></div><h1 id="transaction-receipts-adn-chunk-surprises"><a class="header" href="#transaction-receipts-adn-chunk-surprises">Transaction, Receipts adn Chunk Surprises</a></h1>
-<p>We finished the previous article (<a href="architecture/how/./tx_routing.html">Transaction routing</a>) on the
-part, where transaction was successfully added to the soon-to-be block
+<div style="break-before: page; page-break-before: always;"></div><h1 id="transactions-receipts-and-chunk-surprises"><a class="header" href="#transactions-receipts-and-chunk-surprises">Transactions, Receipts and Chunk Surprises</a></h1>
+<p>We finished the previous article (<a href="architecture/how/./tx_routing.html">Transaction routing</a>)
+where a transaction was successfully added to the soon-to-be block
 producer’s mempool.</p>
-<p>In this article, we’ll cover what happens next: how it is changed into a receipt
-and executed, potentially creating even more receipts in the process.</p>
+<p>In this article, we’ll cover what happens next:
+How it is changed into a receipt and executed, potentially creating even
+more receipts in the process.</p>
 <p>First, let’s look at the ‘high level view’:</p>
 <p><img src="https://user-images.githubusercontent.com/1711539/198282472-3883dcc1-77ca-452c-b21e-0a7af1435ede.png" alt="image" /></p>
-<h2 id="transaction-vs-receipt"><a class="header" href="#transaction-vs-receipt">Transaction vs receipt</a></h2>
+<h2 id="transaction-vs-receipt"><a class="header" href="#transaction-vs-receipt">Transaction vs Receipt</a></h2>
 <p>As you can see from the image above:</p>
 <p><strong>Transactions</strong> are ‘external’ communication - they are coming from the
 outside.</p>
@@ -1031,34 +1038,34 @@ contract) - they are created by the block/chunk producers.</p>
 <p>Once a chunk producer is ready to produce a chunk, it will fetch the
 transactions from its mempool, check that they are valid, and if so, prepare to
 process them into receipts.</p>
-<p><strong>Note:</strong> There are additional restrictions (e.g. making sure that we take them in
+<p><strong>Note</strong>: There are additional restrictions (e.g. making sure that we take them in
 the right order, that we don’t take too many, etc.) - that you can see in
 nomicon’s <a href="https://nomicon.io/ChainSpec/Transactions">transaction page</a>.</p>
 <p>You can see this part in explorer:</p>
 <p><img src="https://user-images.githubusercontent.com/1711539/198282561-c97235a1-93a1-4dc8-b6bc-ee9983376b2c.png" alt="image" /></p>
 <h3 id="step-2-sending-receipt-to-the-proper-destination"><a class="header" href="#step-2-sending-receipt-to-the-proper-destination">Step 2: Sending receipt to the proper destination</a></h3>
 <p>Once we have a receipt, we have to send it to the proper destination - by adding
-it to the ‘outgoing_receipt’ list, which will be forwarded to the chunk
+it to the <code>outgoing_receipt</code> list, which will be forwarded to the chunk
 producers from the next block.</p>
-<p><strong>Note:</strong> There is a special case here - if the sender of the receipt is the
-same as the receiver, then the receipt will be added to the ‘local_receipts'
+<p><strong>Note</strong>: There is a special case here - if the sender of the receipt is the
+same as the receiver, then the receipt will be added to the <code>local_receipts</code>
 queue and executed in the same block.</p>
-<h3 id="step-3-when-incoming-receipt-arrives"><a class="header" href="#step-3-when-incoming-receipt-arrives">Step 3: When incoming receipt arrives</a></h3>
-<p>(Note: this happens in the ‘next’ block)</p>
-<p>When chunk producer receives the incoming receipt, it will try to execute its
+<h3 id="step-3-when-an-incoming-receipt-arrives"><a class="header" href="#step-3-when-an-incoming-receipt-arrives">Step 3: When an incoming receipt arrives</a></h3>
+<p>(<strong>Note</strong>: this happens in the ‘next’ block)</p>
+<p>When a chunk producer receives an incoming receipt, it will try to execute its
 actions (creating accounts, executing function calls etc).</p>
 <p>Such actions might generate additional receipts (for example a contract might
 want to call other contracts). All these outputs are added to the outgoing
 receipt queue to be executed in the next block.</p>
-<p>If there is incoming receipt queue is too large to execute in the current chunk,
+<p>If the incoming receipt queue is too large to execute in the current chunk,
 the producer will put the remaining receipts onto the ‘delayed’ queue.</p>
 <h3 id="step-4-profit"><a class="header" href="#step-4-profit">Step 4: Profit</a></h3>
 <p>When all the ‘dependant’ receipts are executed for a given transaction, we can
 consider the transaction to be successful.</p>
 <h3 id="advanced-but-reality-is-more-complex"><a class="header" href="#advanced-but-reality-is-more-complex">[Advanced] But reality is more complex</a></h3>
-<p><strong>Caution:</strong> In the section below, some things are simplified and do not match exactly 
-to how the current code works.</p>
-<p>Let’s quickly also check what’s actually inside a Chunk:</p>
+<p><strong>Caution</strong>: In the section below, some things are simplified and do not match exactly 
+how the current code works.</p>
+<p>Let’s quickly also check what’s inside a Chunk:</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>pub struct ShardChunkV2 {
@@ -1073,7 +1080,7 @@ to how the current code works.</p>
 ones for this chunk, but instead the ‘outgoing’ ones from the previous block.  Why?!?!</p>
 <p>This has to do with performance.</p>
 <h4 id="simple-approach"><a class="header" href="#simple-approach">Simple approach</a></h4>
-<p>First, let’s imagine how the system would look like, if chunk contained things
+<p>First, let’s imagine how the system would look like, if chunks contained things
 that we’d expect:</p>
 <ul>
 <li>list of transactions</li>
@@ -1091,35 +1098,36 @@ can the next chunk producer start creating the next chunk.</p>
 <h4 id="faster-approach"><a class="header" href="#faster-approach">Faster approach</a></h4>
 <p>What if the chunk didn’t contain the ‘output’ state? This changes our ‘mental’ model
 a little bit, as now when we’re singing the chunk, we’d actually be
-verifying the previous chunk - but that’s the topic for the next article (TODO:
-add future link to article about signatures and verification).</p>
+verifying the previous chunk - but that’s the topic for the next article (to be added).</p>
+<!-- TODO: add future link to article about signatures and verification -->
 <p>For now, imagine if the chunk only had:</p>
 <ul>
-<li>list of transactions</li>
-<li>list of incoming receipts</li>
+<li>a list of transactions</li>
+<li>a list of incoming receipts</li>
 </ul>
-<p>In such a case, the chunk producer could send the chunk a lot earlier, and
+<p>In this case, the chunk producer could send the chunk a lot earlier, and
 validators (and chunk producer) could do their processing at the same time:</p>
 <p><img src="https://user-images.githubusercontent.com/1711539/198282641-1e728088-6f2b-4cb9-90c9-5eb09304e72a.png" alt="image" /></p>
-<p>Now the last mystery is: why do we have ‘outgoing’ receipts from previous chunk
-rather than incoming to the current one?</p>
-<p>This is yet another optimization: this way the chunk producer can send out the
+<p>Now the last mystery:
+Why do we have ‘outgoing’ receipts from previous chunks rather than incoming
+to the current one?</p>
+<p>This is yet another optimization. This way the chunk producer can send out the
 chunk a little bit earlier - without having to wait for all the other shards.</p>
-<p>But that’s the topic for another article (TODO: add future link to article about
-chunk fragments etc)</p>
+<p>But that’s a topic for another article (to be added).</p>
+<!-- TODO: add future link to article about chunk fragments etc. -->
 <div style="break-before: page; page-break-before: always;"></div><h1 id="cross-shard-transactions---deep-dive"><a class="header" href="#cross-shard-transactions---deep-dive">Cross shard transactions - deep dive</a></h1>
 <p>In this article, we'll look deeper into how cross-shard transactions are working
-on the simple example of user 'shard0' transfering money to user 'shard1'.</p>
+on the simple example of user <code>shard0</code> transfering money to user <code>shard1</code>.</p>
 <p>These users are on separate shards (<code>shard0</code> is on shard 0 and <code>shard1</code> is on
 shard 1).</p>
-<p>Imagine, we call the following command line:</p>
+<p>Imagine, we run the following command in the command line:</p>
 <pre><code class="language-console">$ NEAR_ENV=local near send shard0 shard1 500
 </code></pre>
 <p>What happens under the hood? How is this transaction changed into receipts and
 processed by near?</p>
 <h2 id="from-explorer-perspective"><a class="header" href="#from-explorer-perspective">From Explorer perspective</a></h2>
-<p>If you look at simple token transfer in explorer (for example:
-<a href="https://explorer.testnet.near.org/transactions/6cNJpNKWP55YrxrgRzc2gi6BM91fo3V6n2vVAo41MvZv">https://explorer.testnet.near.org/transactions/6cNJpNKWP55YrxrgRzc2gi6BM91fo3V6n2vVAo41MvZv</a>),
+<p>If you look at a simple token transfer in explorer
+(<a href="https://explorer.testnet.near.org/transactions/6cNJpNKWP55YrxrgRzc2gi6BM91fo3V6n2vVAo41MvZv">example</a>),
 you can see that it is broken into three separate sections:</p>
 <ul>
 <li>convert transaction into receipt ( executed in block B )</li>
@@ -1130,11 +1138,11 @@ you can see that it is broken into three separate sections:</p>
 actually one more receipt (that is created after converting the transaction).
 Let's take a deeper look.</p>
 <h2 id="internal-perspective-transactions--receipts"><a class="header" href="#internal-perspective-transactions--receipts">Internal perspective (Transactions &amp; Receipts)</a></h2>
-<p>One important thing to remember, is that NEAR is sharded - so in all our
+<p>One important thing to remember is that NEAR is sharded - so in all our
 designs, we have to assume that each account is on a separate shard. So that the
 fact that some of them are colocated doesn't give any advantage.</p>
 <h3 id="step-1---transaction"><a class="header" href="#step-1---transaction">Step 1 - Transaction</a></h3>
-<p>This is the part that we receive from the user (SignedTransaction) - it has 3
+<p>This is the part which we receive from the user (<code>SignedTransaction</code>) - it has 3
 parts:</p>
 <ul>
 <li>signer (account + key) who signed the transaction</li>
@@ -1146,13 +1154,13 @@ parts:</p>
 <ul>
 <li>the message signature matches (that is - that this message was actually signed
 by this key)</li>
-<li>that this key is authorized to act on behalf that account (so it is a full
+<li>that this key is authorized to act on behalf of that account (so it is a full
 access key to this account - or a valid fuction key).</li>
 </ul>
-<p>The last point above means, that we MUST execute this Transaction to Receipt
+<p>The last point above means, that we MUST execute this (Transaction to Receipt)
 transition within the shard that the <code>signer</code> belongs to (as other shards don't
 know the state that belongs to signer - so they don't know which keys it has).</p>
-<p>So actually if we look inside the chunk 0 (where <code>shard0</code> belongs to) at block
+<p>So actually if we look inside the chunk 0 (where <code>shard0</code> belongs) at block
 B, we'll see the transaction:</p>
 <pre><code>Chunk: Ok(
     V2(
@@ -1216,13 +1224,14 @@ B, we'll see the transaction:</p>
     ),
 )
 </code></pre>
-<p><strong>Side note:</strong> When we're changing the transaction into receipt, we also use
+<p><strong>Side note</strong>: When we're changing the transaction into a receipt, we also use
 this moment to deduct prepaid gas fees and transfered tokens from the 'signer'
 account. The details on how much gas is charged etc will be in a separate
 article.</p>
+<!-- TODO: maybe add the link to that article here? -->
 <h2 id="step-2---cross-shard-receipt"><a class="header" href="#step-2---cross-shard-receipt">Step 2 - cross shard receipt</a></h2>
-<p>After transaction was changed into the receipt, this receipt must now be sent to
-the shard where <code>receiver</code> is (in our example <code>shard1</code> is on shard 1).</p>
+<p>After transaction was changed into a receipt, this receipt must now be sent to
+the shard where the <code>receiver</code> is (in our example <code>shard1</code> is on shard 1).</p>
 <p>We can actually see this in the chunk of the next block:</p>
 <pre><code>Chunk: Ok(
     V2(
@@ -1290,10 +1299,11 @@ the shard where <code>receiver</code> is (in our example <code>shard1</code> is 
     ),
 )
 </code></pre>
-<p><strong>Side comment:</strong> notice that receipt itself no longer has a <code>signer</code> field, but
+<p><strong>Side comment</strong>: notice that the receipt itself no longer has a <code>signer</code> field, but
 a <code>predecessor_id</code> one.</p>
-<p>Such receipt is sent to the destination shard (we'll explain this process in a
+<p>Such a receipt is sent to the destination shard (we'll explain this process in a
 separate article) where it can be executed.</p>
+<!-- TODO: maybe add the link to that article here? -->
 <h2 id="3-gas-refund"><a class="header" href="#3-gas-refund">3. Gas refund.</a></h2>
 <p>When shard 1 processes the receipt above, it is then ready to refund the unused
 gas to the original account (<code>shard0</code>). So it also creates the receipt, and puts
@@ -1365,12 +1375,11 @@ executed).</p>
     ),
 )
 </code></pre>
-<p>Such gas refunds receipts are a little bit special - as we'll set the
-predecessor_id to be <code>system</code> - but the receiver is what we expect (<code>shard0</code>
-account). (<code>system</code> is a special account that doesn't really belong to any shard</p>
-<ul>
-<li>as you can see in this example, the receipt was created within shard 1)</li>
-</ul>
+<p>Such gas refund receipts are a little bit special - as we'll set the
+<code>predecessor_id</code> to be <code>system</code> - but the receiver is what we expect (<code>shard0</code>
+account).</p>
+<p><strong>Note</strong>: <code>system</code> is a special account that doesn't really belong to any shard.
+As you can see in this example, the receipt was created within shard 1.</p>
 <p>So putting it all together would look like this:</p>
 <p><img src="https://user-images.githubusercontent.com/91919554/200617392-00b9fa0c-2f15-40ad-9802-137ca9a5a15d.png" alt="image" /></p>
 <p>But wait - NEAR was saying that transfers are happening with 2 blocks - but here
@@ -1380,24 +1389,26 @@ especially as receipts in a given chunks are actually receipts received as a
 result from running a PREVIOUS chunk from this shard.</p>
 <p>We'll explain it more in the next section.</p>
 <h1 id="advanced-whats-actually-going-on"><a class="header" href="#advanced-whats-actually-going-on">Advanced: What's actually going on?</a></h1>
-<p>As you could have read in [tx_receipts.md] - the 'receipts' field in chunk is
-actually representing 'outgoing' receipts from previous block.</p>
-<p>So our image should look more like this:
-<img src="https://user-images.githubusercontent.com/91919554/200621066-a5d06f2d-ff43-44ce-a52b-47dc44d6f8ab.png" alt="image" /></p>
+<p>As you could have read in <a href="architecture/how/./tx_receipts.html">Transactions And Receipts</a> - the
+'receipts' field in the chunk is actually representing 'outgoing' receipts
+from the previous block.</p>
+<p>So our image should look more like this:</p>
+<p><img src="https://user-images.githubusercontent.com/91919554/200621066-a5d06f2d-ff43-44ce-a52b-47dc44d6f8ab.png" alt="image" /></p>
 <p>In this example, the black boxes are representing the 'processing' of the chunk,
 and red arrows are cross-shard communication.</p>
 <p>So when we process Shard 0 from block 1676, we read the transation, and output
 the receipt - which later becomes the input for shard 1 in block 1677.</p>
-<p>But you might still be wondering -- so why didn't we add the Receipt(transfer)
+<p>But you might still be wondering - so why didn't we add the Receipt (transfer)
 to the list of receipts of shard0 1676?</p>
 <p>That's because the shards &amp; blocks are set BEFORE we do any computation. So the
 more correct image would look like this:</p>
 <p><img src="https://user-images.githubusercontent.com/91919554/200621808-1ce78047-6968-4af5-9c2a-805a0f1643fc.png" alt="image" /></p>
-<p>Here you can see clearly that chunk processing (black box), is happening AFTER
-chunk is set.</p>
+<p>Here you can clearly see that chunk processing (black box), is happening AFTER
+the chunk is set.</p>
 <p>In this example, the blue arrows are showing the part where we persist the
 result (receipt) into next block's chunk.</p>
-<p>In the future article, we'll discuss how the actual cross-shard communication
+<!-- TODO: maybe add the link to that article here? -->
+<p>In a future article, we'll discuss how the actual cross-shard communication
 works (red arrows) in the picture, and how we could guarantee that a given shard
 really gets all the red arrows, before is starts processing.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="serialization-borsh-json-protobuf"><a class="header" href="#serialization-borsh-json-protobuf">Serialization: Borsh, Json, ProtoBuf</a></h1>
@@ -1423,21 +1434,21 @@ a .proto file, where you describe the contents of your message.</p>
   GenesisId genesis_id = 3;
 }
 </code></pre>
-<p>Afterwards, such proto file is fed to protoc ‘compiler’ that returns an
-auto-generated code (in our case rust code) - that can be directly imported into
+<p>Afterwards, such a proto file is fed to protoc ‘compiler’ that returns
+auto-generated code (in our case Rust code) - that can be directly imported into
 your library.</p>
 <p>The main benefit of protocol buffers is their backwards compatibility (as long
 as you adhere to the rules and don’t reuse the same field ids).</p>
 <h2 id="borsh"><a class="header" href="#borsh">Borsh</a></h2>
-<p>Borsh is our custom serializer (<a href="https://github.com/near/borsh">https://github.com/near/borsh</a>), that we use
+<p>Borsh is our custom serializer (<a href="https://github.com/near/borsh">link</a>), that we use
 mostly for things that have to be hashed.</p>
 <p>The main feature of Borsh is that, there are no two binary representations that
 deserialize into the same object.</p>
-<p>You can read more on how Borsh serializes the data, by looking at Specification
-tab on <a href="https://borsh.io">https://borsh.io</a></p>
+<p>You can read more on how Borsh serializes the data, by looking at the Specification
+tab on <a href="https://borsh.io">borsh.io</a>.</p>
 <p>The biggest pitfall/risk of Borsh, is that any change to the structure, might
-cause previous data to be no longer parseable.</p>
-<p>For example, inserting a new enum ‘in the middle’ :</p>
+cause previous data to no longer be parseable.</p>
+<p>For example, inserting a new enum ‘in the middle’:</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>pub enum MyCar {
@@ -1465,9 +1476,9 @@ pub enum MyCar {
 }
 <span class="boring">}
 </span></code></pre></pre>
-<p>Is such scenario - some of the objects created by binaries with this feature
+<p>Is such a scenario - some of the objects created by binaries with this feature
 enabled, will not be parseable by binaries without this feature.</p>
-<p>Also removing and adding fields to structures is also dangerous.</p>
+<p>Removing and adding fields to structures is also dangerous.</p>
 <p>Basically - the only ‘safe’ thing that you can do with Borsh - is add a new Enum
 value at the end.</p>
 <h2 id="summary"><a class="header" href="#summary">Summary</a></h2>
@@ -1505,22 +1516,22 @@ message Second {
 could lead to some programmatic bugs.</p>
 <h2 id="advanced-section---rawtrienode"><a class="header" href="#advanced-section---rawtrienode">Advanced section - RawTrieNode</a></h2>
 <p>But there is one more place in the code, where we use a ‘custom’ encoding (very
-similar to Borsh, but a little different): RawTrieNode</p>
-<p>If you look into store/src/trie/mod.rs, you’ll be able to find a method called ‘encode_into’:</p>
+similar to Borsh, but a little different): RawTrieNode.</p>
+<p>If you look into store/src/trie/mod.rs, you’ll be able to find a method called <code>encode_into</code>:</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>    fn encode_into(&amp;self, out: &amp;mut Vec&lt;u8&gt;) {
-        // size in state_parts = size + 8 for RawTrieNodeWithSize + 8 for borsh vector length
-        match &amp;self {
-            // size &lt;= 1 + 4 + 4 + 32 + key_length + value_length
-            RawTrieNode::Leaf(key, value_length, value_hash) =&gt; {
-                out.push(LEAF_NODE);
-                out.extend((key.len() as u32).to_le_bytes());
-                out.extend(key);
-                out.extend((*value_length as u32).to_le_bytes());
-                out.extend(value_hash.as_bytes());
-            }
-         //... more code
+</span>fn encode_into(&amp;self, out: &amp;mut Vec&lt;u8&gt;) {
+    // size in state_parts = size + 8 for RawTrieNodeWithSize + 8 for borsh vector length
+    match &amp;self {
+        // size &lt;= 1 + 4 + 4 + 32 + key_length + value_length
+        RawTrieNode::Leaf(key, value_length, value_hash) =&gt; {
+            out.push(LEAF_NODE);
+            out.extend((key.len() as u32).to_le_bytes());
+            out.extend(key);
+            out.extend((*value_length as u32).to_le_bytes());
+            out.extend(value_hash.as_bytes());
+        }
+     //... more code
 <span class="boring">}
 </span></code></pre></pre>
 <p>which is responsible for generating this custom encoding.</p>
@@ -1542,7 +1553,7 @@ used a different layout.</p>
 </code></pre>
 <p>Borsh:</p>
 <pre><code>[8 bits - 0 or 1][32 bytes child][8 bits 0 or 1][8 bits ]
-[1][0x11][0][1]][0x11][0][0]...
+[1][0x11][0][1][0x11][0][0]...
 // Total size: 16 + 32 + 32 = 80 bytes
 </code></pre>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="proofs"><a class="header" href="#proofs">Proofs</a></h1>

@@ -140,15 +140,16 @@
 
                 <div id="content" class="content">
                     <main>
-                        <h1 id="transaction-receipts-adn-chunk-surprises"><a class="header" href="#transaction-receipts-adn-chunk-surprises">Transaction, Receipts adn Chunk Surprises</a></h1>
-<p>We finished the previous article (<a href="./tx_routing.html">Transaction routing</a>) on the
-part, where transaction was successfully added to the soon-to-be block
+                        <h1 id="transactions-receipts-and-chunk-surprises"><a class="header" href="#transactions-receipts-and-chunk-surprises">Transactions, Receipts and Chunk Surprises</a></h1>
+<p>We finished the previous article (<a href="./tx_routing.html">Transaction routing</a>)
+where a transaction was successfully added to the soon-to-be block
 producer’s mempool.</p>
-<p>In this article, we’ll cover what happens next: how it is changed into a receipt
-and executed, potentially creating even more receipts in the process.</p>
+<p>In this article, we’ll cover what happens next:
+How it is changed into a receipt and executed, potentially creating even
+more receipts in the process.</p>
 <p>First, let’s look at the ‘high level view’:</p>
 <p><img src="https://user-images.githubusercontent.com/1711539/198282472-3883dcc1-77ca-452c-b21e-0a7af1435ede.png" alt="image" /></p>
-<h2 id="transaction-vs-receipt"><a class="header" href="#transaction-vs-receipt">Transaction vs receipt</a></h2>
+<h2 id="transaction-vs-receipt"><a class="header" href="#transaction-vs-receipt">Transaction vs Receipt</a></h2>
 <p>As you can see from the image above:</p>
 <p><strong>Transactions</strong> are ‘external’ communication - they are coming from the
 outside.</p>
@@ -161,34 +162,34 @@ contract) - they are created by the block/chunk producers.</p>
 <p>Once a chunk producer is ready to produce a chunk, it will fetch the
 transactions from its mempool, check that they are valid, and if so, prepare to
 process them into receipts.</p>
-<p><strong>Note:</strong> There are additional restrictions (e.g. making sure that we take them in
+<p><strong>Note</strong>: There are additional restrictions (e.g. making sure that we take them in
 the right order, that we don’t take too many, etc.) - that you can see in
 nomicon’s <a href="https://nomicon.io/ChainSpec/Transactions">transaction page</a>.</p>
 <p>You can see this part in explorer:</p>
 <p><img src="https://user-images.githubusercontent.com/1711539/198282561-c97235a1-93a1-4dc8-b6bc-ee9983376b2c.png" alt="image" /></p>
 <h3 id="step-2-sending-receipt-to-the-proper-destination"><a class="header" href="#step-2-sending-receipt-to-the-proper-destination">Step 2: Sending receipt to the proper destination</a></h3>
 <p>Once we have a receipt, we have to send it to the proper destination - by adding
-it to the ‘outgoing_receipt’ list, which will be forwarded to the chunk
+it to the <code>outgoing_receipt</code> list, which will be forwarded to the chunk
 producers from the next block.</p>
-<p><strong>Note:</strong> There is a special case here - if the sender of the receipt is the
-same as the receiver, then the receipt will be added to the ‘local_receipts'
+<p><strong>Note</strong>: There is a special case here - if the sender of the receipt is the
+same as the receiver, then the receipt will be added to the <code>local_receipts</code>
 queue and executed in the same block.</p>
-<h3 id="step-3-when-incoming-receipt-arrives"><a class="header" href="#step-3-when-incoming-receipt-arrives">Step 3: When incoming receipt arrives</a></h3>
-<p>(Note: this happens in the ‘next’ block)</p>
-<p>When chunk producer receives the incoming receipt, it will try to execute its
+<h3 id="step-3-when-an-incoming-receipt-arrives"><a class="header" href="#step-3-when-an-incoming-receipt-arrives">Step 3: When an incoming receipt arrives</a></h3>
+<p>(<strong>Note</strong>: this happens in the ‘next’ block)</p>
+<p>When a chunk producer receives an incoming receipt, it will try to execute its
 actions (creating accounts, executing function calls etc).</p>
 <p>Such actions might generate additional receipts (for example a contract might
 want to call other contracts). All these outputs are added to the outgoing
 receipt queue to be executed in the next block.</p>
-<p>If there is incoming receipt queue is too large to execute in the current chunk,
+<p>If the incoming receipt queue is too large to execute in the current chunk,
 the producer will put the remaining receipts onto the ‘delayed’ queue.</p>
 <h3 id="step-4-profit"><a class="header" href="#step-4-profit">Step 4: Profit</a></h3>
 <p>When all the ‘dependant’ receipts are executed for a given transaction, we can
 consider the transaction to be successful.</p>
 <h3 id="advanced-but-reality-is-more-complex"><a class="header" href="#advanced-but-reality-is-more-complex">[Advanced] But reality is more complex</a></h3>
-<p><strong>Caution:</strong> In the section below, some things are simplified and do not match exactly 
-to how the current code works.</p>
-<p>Let’s quickly also check what’s actually inside a Chunk:</p>
+<p><strong>Caution</strong>: In the section below, some things are simplified and do not match exactly 
+how the current code works.</p>
+<p>Let’s quickly also check what’s inside a Chunk:</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>pub struct ShardChunkV2 {
@@ -203,7 +204,7 @@ to how the current code works.</p>
 ones for this chunk, but instead the ‘outgoing’ ones from the previous block.  Why?!?!</p>
 <p>This has to do with performance.</p>
 <h4 id="simple-approach"><a class="header" href="#simple-approach">Simple approach</a></h4>
-<p>First, let’s imagine how the system would look like, if chunk contained things
+<p>First, let’s imagine how the system would look like, if chunks contained things
 that we’d expect:</p>
 <ul>
 <li>list of transactions</li>
@@ -221,22 +222,23 @@ can the next chunk producer start creating the next chunk.</p>
 <h4 id="faster-approach"><a class="header" href="#faster-approach">Faster approach</a></h4>
 <p>What if the chunk didn’t contain the ‘output’ state? This changes our ‘mental’ model
 a little bit, as now when we’re singing the chunk, we’d actually be
-verifying the previous chunk - but that’s the topic for the next article (TODO:
-add future link to article about signatures and verification).</p>
+verifying the previous chunk - but that’s the topic for the next article (to be added).</p>
+<!-- TODO: add future link to article about signatures and verification -->
 <p>For now, imagine if the chunk only had:</p>
 <ul>
-<li>list of transactions</li>
-<li>list of incoming receipts</li>
+<li>a list of transactions</li>
+<li>a list of incoming receipts</li>
 </ul>
-<p>In such a case, the chunk producer could send the chunk a lot earlier, and
+<p>In this case, the chunk producer could send the chunk a lot earlier, and
 validators (and chunk producer) could do their processing at the same time:</p>
 <p><img src="https://user-images.githubusercontent.com/1711539/198282641-1e728088-6f2b-4cb9-90c9-5eb09304e72a.png" alt="image" /></p>
-<p>Now the last mystery is: why do we have ‘outgoing’ receipts from previous chunk
-rather than incoming to the current one?</p>
-<p>This is yet another optimization: this way the chunk producer can send out the
+<p>Now the last mystery:
+Why do we have ‘outgoing’ receipts from previous chunks rather than incoming
+to the current one?</p>
+<p>This is yet another optimization. This way the chunk producer can send out the
 chunk a little bit earlier - without having to wait for all the other shards.</p>
-<p>But that’s the topic for another article (TODO: add future link to article about
-chunk fragments etc)</p>
+<p>But that’s a topic for another article (to be added).</p>
+<!-- TODO: add future link to article about chunk fragments etc. -->
 
                     </main>
 

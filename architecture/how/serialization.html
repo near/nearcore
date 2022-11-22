@@ -163,21 +163,21 @@ a .proto file, where you describe the contents of your message.</p>
   GenesisId genesis_id = 3;
 }
 </code></pre>
-<p>Afterwards, such proto file is fed to protoc ‘compiler’ that returns an
-auto-generated code (in our case rust code) - that can be directly imported into
+<p>Afterwards, such a proto file is fed to protoc ‘compiler’ that returns
+auto-generated code (in our case Rust code) - that can be directly imported into
 your library.</p>
 <p>The main benefit of protocol buffers is their backwards compatibility (as long
 as you adhere to the rules and don’t reuse the same field ids).</p>
 <h2 id="borsh"><a class="header" href="#borsh">Borsh</a></h2>
-<p>Borsh is our custom serializer (<a href="https://github.com/near/borsh">https://github.com/near/borsh</a>), that we use
+<p>Borsh is our custom serializer (<a href="https://github.com/near/borsh">link</a>), that we use
 mostly for things that have to be hashed.</p>
 <p>The main feature of Borsh is that, there are no two binary representations that
 deserialize into the same object.</p>
-<p>You can read more on how Borsh serializes the data, by looking at Specification
-tab on <a href="https://borsh.io">https://borsh.io</a></p>
+<p>You can read more on how Borsh serializes the data, by looking at the Specification
+tab on <a href="https://borsh.io">borsh.io</a>.</p>
 <p>The biggest pitfall/risk of Borsh, is that any change to the structure, might
-cause previous data to be no longer parseable.</p>
-<p>For example, inserting a new enum ‘in the middle’ :</p>
+cause previous data to no longer be parseable.</p>
+<p>For example, inserting a new enum ‘in the middle’:</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>pub enum MyCar {
@@ -205,9 +205,9 @@ pub enum MyCar {
 }
 <span class="boring">}
 </span></code></pre></pre>
-<p>Is such scenario - some of the objects created by binaries with this feature
+<p>Is such a scenario - some of the objects created by binaries with this feature
 enabled, will not be parseable by binaries without this feature.</p>
-<p>Also removing and adding fields to structures is also dangerous.</p>
+<p>Removing and adding fields to structures is also dangerous.</p>
 <p>Basically - the only ‘safe’ thing that you can do with Borsh - is add a new Enum
 value at the end.</p>
 <h2 id="summary"><a class="header" href="#summary">Summary</a></h2>
@@ -245,22 +245,22 @@ message Second {
 could lead to some programmatic bugs.</p>
 <h2 id="advanced-section---rawtrienode"><a class="header" href="#advanced-section---rawtrienode">Advanced section - RawTrieNode</a></h2>
 <p>But there is one more place in the code, where we use a ‘custom’ encoding (very
-similar to Borsh, but a little different): RawTrieNode</p>
-<p>If you look into store/src/trie/mod.rs, you’ll be able to find a method called ‘encode_into’:</p>
+similar to Borsh, but a little different): RawTrieNode.</p>
+<p>If you look into store/src/trie/mod.rs, you’ll be able to find a method called <code>encode_into</code>:</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>    fn encode_into(&amp;self, out: &amp;mut Vec&lt;u8&gt;) {
-        // size in state_parts = size + 8 for RawTrieNodeWithSize + 8 for borsh vector length
-        match &amp;self {
-            // size &lt;= 1 + 4 + 4 + 32 + key_length + value_length
-            RawTrieNode::Leaf(key, value_length, value_hash) =&gt; {
-                out.push(LEAF_NODE);
-                out.extend((key.len() as u32).to_le_bytes());
-                out.extend(key);
-                out.extend((*value_length as u32).to_le_bytes());
-                out.extend(value_hash.as_bytes());
-            }
-         //... more code
+</span>fn encode_into(&amp;self, out: &amp;mut Vec&lt;u8&gt;) {
+    // size in state_parts = size + 8 for RawTrieNodeWithSize + 8 for borsh vector length
+    match &amp;self {
+        // size &lt;= 1 + 4 + 4 + 32 + key_length + value_length
+        RawTrieNode::Leaf(key, value_length, value_hash) =&gt; {
+            out.push(LEAF_NODE);
+            out.extend((key.len() as u32).to_le_bytes());
+            out.extend(key);
+            out.extend((*value_length as u32).to_le_bytes());
+            out.extend(value_hash.as_bytes());
+        }
+     //... more code
 <span class="boring">}
 </span></code></pre></pre>
 <p>which is responsible for generating this custom encoding.</p>
@@ -282,7 +282,7 @@ used a different layout.</p>
 </code></pre>
 <p>Borsh:</p>
 <pre><code>[8 bits - 0 or 1][32 bytes child][8 bits 0 or 1][8 bits ]
-[1][0x11][0][1]][0x11][0][0]...
+[1][0x11][0][1][0x11][0][0]...
 // Total size: 16 + 32 + 32 = 80 bytes
 </code></pre>
 

@@ -144,11 +144,12 @@
 <p>This short document will tell you all you need to know about Epochs in NEAR
 protocol.</p>
 <p>You can also find additional information about epochs in
-https://nomicon.io/BlockchainLayer/EpochManager/</p>
+<a href="https://nomicon.io/BlockchainLayer/EpochManager/">nomicon</a>.</p>
 <h2 id="what-is-an-epoch"><a class="header" href="#what-is-an-epoch">What is an Epoch?</a></h2>
-<p>Epoch is a sequence of consecutive blocks - and within one epoch, the set of
-validators is fixed, and validator rotation happens at epoch boundaries.</p>
-<p>Basically almost all the changes that we do - are happening at epoch boundaries:</p>
+<p>Epoch is a sequence of consecutive blocks.
+Within one epoch, the set of validators is fixed, and validator rotation
+happens at epoch boundaries.</p>
+<p>Basically almost all the changes that we do are happening at epoch boundaries:</p>
 <ul>
 <li>sharding changes</li>
 <li>protocol version changes</li>
@@ -157,52 +158,54 @@ validators is fixed, and validator rotation happens at epoch boundaries.</p>
 <li>state sync</li>
 </ul>
 <h2 id="where-does-the-epoch-id-come-from"><a class="header" href="#where-does-the-epoch-id-come-from">Where does the Epoch Id come from?</a></h2>
-<p>EpochId for epoch T+2 is the last hash of the block of epoch T.</p>
+<p><code>EpochId</code> for epoch T+2 is the last hash of the block of epoch T.</p>
 <p><img src="https://user-images.githubusercontent.com/1711539/195907256-c4b1d956-632c-4c11-aa38-17603b1fcc40.png" alt="image" /></p>
-<p>Situation at genesis is interesting. We have three block:</p>
+<p>Situation at genesis is interesting. We have three blocks:</p>
 <p>dummy ← genesis ← first-block</p>
 <h2 id="where-do-we-set-the-epoch-length"><a class="header" href="#where-do-we-set-the-epoch-length">Where do we set the epoch length?</a></h2>
 <p>Epoch length is set in the genesis config. Currently in mainnet it is set to 43200 blocks:</p>
-<pre><code>  &quot;epoch_length&quot;: 43200
+<pre><code class="language-json">  &quot;epoch_length&quot;: 43200
 </code></pre>
+<!-- TODO: Where is this supposed to point to? -->
 <p>See http://go/mainnet-genesis for more details.</p>
 <p>This means that each epoch lasts around 15 hours.</p>
-<p>Important: sometimes there might be ‘troubles’ on the network, that might result
+<p><strong>Important</strong>: sometimes there might be ‘troubles’ on the network, that might result
 in epoch lasting a little bit longer (if we cannot get enough signatures on the
 last blocks of the previous epoch).</p>
-<p>You can read specific details on our nomicon page:
-https://nomicon.io/BlockchainLayer/EpochManager/Epoch</p>
+<p>You can read specific details on our
+<a href="https://nomicon.io/BlockchainLayer/EpochManager/Epoch">nomicon page</a>.</p>
 <h2 id="how-do-we-pick-the-next-validators"><a class="header" href="#how-do-we-pick-the-next-validators">How do we pick the next validators?</a></h2>
-<p>TL;DR: in the last block of the epoch T, we look at the accounts that have
+<p><strong>TL;DR</strong>: in the last block of the epoch T, we look at the accounts that have
 highest stake and we pick them to become validators in <strong>T+2</strong>.</p>
 <p>We are deciding on validators for T+2 (and not T+1) as we want to make sure that
 validators have enough time to prepare for block production and validation (they
 have to download the state of shards etc).</p>
-<p>For more info on how we pick validators - please look on nomicon.</p>
+<p>For more info on how we pick validators please look at
+<a href="https://nomicon.io/Economics/Economic#validator-selection">nomicon</a>.</p>
 <h2 id="epoch-and-sharding"><a class="header" href="#epoch-and-sharding">Epoch and Sharding</a></h2>
 <p>Sharding changes happen only on epoch boundary - that’s why many of the requests
-(like which shard does my account belong to), require also an epoch_id as a
+(like which shard does my account belong to), require also an <code>epoch_id</code> as a
 parameter.</p>
-<p>Currently (April 2022) - we don’t have dynamic sharding yet, so whole chain is
+<p>As of April 2022 we don’t have dynamic sharding yet, so the whole chain is
 simply using 4 shards.</p>
-<p>How can I get more information about current/previous epochs?</p>
+<h3 id="how-can-i-get-more-information-about-currentprevious-epochs"><a class="header" href="#how-can-i-get-more-information-about-currentprevious-epochs">How can I get more information about current/previous epochs?</a></h3>
 <p>We don’t show much information about Epochs in Explorer. Today, you can use
-state_viewer (if you have access to the network database).</p>
+<code>state_viewer</code> (if you have access to the network database).</p>
 <p>At the same time, we’re working on a small debug dashboard, to show you the
 basic information about past epochs - stay tuned.</p>
 <h2 id="technical-details"><a class="header" href="#technical-details">Technical details</a></h2>
 <h3 id="where-do-we-store-epoch-info"><a class="header" href="#where-do-we-store-epoch-info">Where do we store epoch info?</a></h3>
-<p>We use couple columns in database to store epoch information.</p>
+<p>We use a couple columns in the database to store epoch information:</p>
 <ul>
 <li><strong>ColEpochInfo = 11</strong> - is storing the mapping from EpochId to EpochInfo
 structure that contains all the details.</li>
 <li><strong>ColEpochStart = 23</strong> - has a mapping from EpochId to the first block height
 of that epoch.</li>
 <li><strong>ColEpochValidatorInfo = 47</strong> - contains validator statistics (blocks
-produced etc) for each epoch.</li>
+produced etc.) for each epoch.</li>
 </ul>
 <h3 id="how-does-epoch-info-look-like"><a class="header" href="#how-does-epoch-info-look-like">How does epoch info look like?</a></h3>
-<p>Here’s the example epoch info from the localnet node. As you can see below,
+<p>Here’s the example epoch info from a localnet node. As you can see below,
 EpochInfo mostly contains information about who is the validator and in which
 order should they produce the blocks.</p>
 <pre><code>EpochInfo.V3(

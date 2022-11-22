@@ -155,7 +155,7 @@ Currently 99% of nodes are tracking all the shards: validators have to - as they
 have to validate the chunks from all the shards, and normal nodes mostly also
 track all the shards as this is default.</p>
 <p>But in the future - we will have more and more people tracking only a subset of
-the shards, so the catchup will be more and more important.</p>
+the shards, so the catchup will be increasingly important.</p>
 <h2 id="sync"><a class="header" href="#sync">Sync</a></h2>
 <p>If your node is behind the head - it will start the sync process (this code is
 running periodically in the client_actor and if you’re behind for more than
@@ -178,11 +178,11 @@ epoch - that has to contain additional information about validators.</p>
 db resources.</p>
 <p>We plan to enable it in Q4 2022.</p>
 <p><img src="https://user-images.githubusercontent.com/1711539/195892336-cc117c08-d3ad-43f7-9304-3233b25e8bb1.png" alt="image" /></p>
-<p>notice that in the image above - it is enough to get only ‘last’ header from
+<p>Notice that in the image above - it is enough to only get the ‘last’ header from
 each epoch. For the ‘current’ epoch, we still need to get all the headers.</p>
 <h3 id="step-2-state-sync-normal-node"><a class="header" href="#step-2-state-sync-normal-node">Step 2: State sync [normal node]</a></h3>
 <p>After header sync - if you notice that you’re too far behind (controlled by
-<code>block_fetch_horizon</code> config option) AND that the chain head is in a different
+<code>block_fetch_horizon</code> config option) <strong>AND</strong> that the chain head is in a different
 epoch than your local head - the node will try to do the ‘state sync’.</p>
 <p>The idea of the state sync - is rather than trying to process all the blocks -
 try to ‘jump’ ahead by downloading the freshest state instead - and continue
@@ -193,13 +193,13 @@ the beginning of the epoch - it cannot sync to any random block.</p>
 <p>This step is never run on the archival nodes - as these nodes want to have whole
 history and cannot have any gaps.</p>
 <p><img src="https://user-images.githubusercontent.com/1711539/195892354-cf2befed-98e9-40a2-9b81-b5cf738406e0.png" alt="image" /></p>
-<p>in this case, we can skip processing transactions that are in the blocks 124 - 128, and start from 129 (after sync state finishes)</p>
+<p>In this case, we can skip processing transactions that are in the blocks 124 - 128, and start from 129 (after sync state finishes)</p>
 <h3 id="step-3-block-sync-aka-body-sync-archival-node-normal-node-downloading-blocks"><a class="header" href="#step-3-block-sync-aka-body-sync-archival-node-normal-node-downloading-blocks">Step 3: Block sync (a.k.a Body sync) [archival node, normal node] (“downloading blocks”)</a></h3>
 <p>The final step is to start requesting and processing blocks as soon as possible,
-hoping to catchup with the chain.</p>
-<p>Block sync will request up to 5  (MAX_BLOCK_REQUESTS) blocks at a time - sending
-explicit Network BlockRequest for each one.</p>
-<p>After response (Block) is received - the code will execute the ‘standard’ path
+hoping to catch up with the chain.</p>
+<p>Block sync will request up to 5  (<code>MAX_BLOCK_REQUESTS</code>) blocks at a time - sending
+explicit Network BlockRequests for each one.</p>
+<p>After the response (Block) is received - the code will execute the ‘standard’ path
 that tries to add this block to the chain (see section below).</p>
 <p><img src="https://user-images.githubusercontent.com/1711539/195892370-b177228b-2520-486a-94fc-67a91978cb58.png" alt="image" /></p>
 <p>In this case, we are processing each transaction for each block - until we catch
@@ -213,36 +213,36 @@ broadcasted within the network by the nodes</li>
 in return.</li>
 </ul>
 <p>(in case of broadcasting, the node will automatically reject any Blocks that are
-more than 500 (BLOCK_HORIZON) blocks away from the current HEAD).</p>
+more than 500 (<code>BLOCK_HORIZON</code>) blocks away from the current HEAD).</p>
 <p>When a given block is received, the node checks if it can be added to the
 current chain.</p>
-<p>If block’s “parent” (prev_block) is not in the chain yet - the block gets added
+<p>If block’s “parent” (<code>prev_block</code>) is not in the chain yet - the block gets added
 to the orphan list.</p>
 <p>If the parent is already in the chain - we can try to add the block as the head
 of the chain.</p>
 <p>Before adding the block, we want to download the chunks for the shards that we
 are tracking - so in many cases, we’ll call <code>missing_chunks</code> functions that will
 try to go ahead and request those chunks.</p>
-<p>Note: as the optimization, we’re also sometimes also trying to fetch chunks for
+<p><strong>Note</strong>: as an optimization, we’re also sometimes trying to fetch chunks for
 the blocks that are in the orphan pool – but only if they are not more than 3
-(NUM_ORPHAN_ANCESTORS_CHECK) blocks away from our head.</p>
+(<code>NUM_ORPHAN_ANCESTORS_CHECK</code>) blocks away from our head.</p>
 <p>We also keep a separate job in client_actor that keeps retrying chunk fetching
 from other nodes if the original request fails.</p>
 <p>After all the chunks for a given block are received (we have a separate HashMap
-that checks if how many chunks are missing for each block) - we’re ready to
+that checks how many chunks are missing for each block) - we’re ready to
 process the block and attach it to the chain.</p>
-<p>Afterwards, we look at other entries in the orphan pool - to see if any of them
-is the direct descendant of the block that we just added - and if yes, we repeat
+<p>Afterwards, we look at other entries in the orphan pool to see if any of them
+are a direct descendant of the block that we just added - and if yes, we repeat
 the process.</p>
 <h2 id="catchup"><a class="header" href="#catchup">Catchup</a></h2>
 <h3 id="the-goal-of-catchup"><a class="header" href="#the-goal-of-catchup">The goal of catchup</a></h3>
 <p>Catchup is needed when not all nodes in the network track all shards and nodes
 can change the shard they are tracking during different epochs.</p>
-<p>For example, if a node tracks shard 0 at epoch T and track shard 1 at epoch T+1,
+<p>For example, if a node tracks shard 0 at epoch T and tracks shard 1 at epoch T+1,
 it actually needs to have the state of shard 1 ready before the beginning of
-epoch T+1. How we make sure that in the code is that the node will start
-downloading state for shard 1 at the beginning of epoch T, and apply blocks
-during epoch T to shard 1’s state. Because downloading state can take time, the
+epoch T+1. We make sure this happens by making the node start downloading
+the state for shard 1 at the beginning of epoch T and applying blocks during
+epoch T to shard 1’s state. Because downloading state can take time, the
 node may have already processed some blocks (for shard 0 at this epoch), so when
 the state finishes downloading, the node needs to “catch up” processing these
 blocks for shard 1.</p>
@@ -259,19 +259,19 @@ up, it will continue processing as normal.</p>
 going to care about in epoch T+1 and catching up blocks that have already been
 applied.</p>
 <p>When epoch T starts, the node will start downloading states of shards that it
-will track for epoch T+1 that it is not tracking already. Downloading happens in
+will track for epoch T+1, which it doesn't track already. Downloading happens in
 a different thread so <code>ClientActor</code> can still process new blocks. Before the
 shard states for epoch T+1 are ready, processing new blocks only applies chunks
 for the shards that the node is tracking in epoch T. When the shard states for
-epoch T+1 finishes downloading, the catchup process needs to reprocess the
+epoch T+1 finish downloading, the catchup process needs to reprocess the
 blocks that have already been processed in epoch T to apply the chunks for the
 shards in epoch T+1.</p>
 <p>In other words, there are three modes for applying chunks and two code paths,
 either through the normal <code>process_block</code> (blue) or through <code>catchup_blocks</code>
 (orange). When <code>process_block</code>, either that the shard states for the next epoch
 are ready, corresponding to <code>IsCaughtUp</code> and all shards the node is tracking in
-this epoch or will be tracking in the next epoch will be applied, or that the
-states are not ready, corresponding to <code>NotCaughtup</code> and only the shards for
+this, or will be tracking in the next, epoch will be applied, or when the
+states are not ready, corresponding to <code>NotCaughtUp</code>, then only the shards for
 this epoch will be applied. When <code>catchup_blocks</code>, shards for the next epoch
 will be applied.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -285,7 +285,7 @@ will be applied.</p>
 </span></code></pre></pre>
 <h3 id="how-catchup-works"><a class="header" href="#how-catchup-works">How catchup works</a></h3>
 <p>The catchup process is initiated by <code>process_block</code>, where we check if the block
-is caught up and if we need to download states. The logic works as follows</p>
+is caught up and if we need to download states. The logic works as follows:</p>
 <ul>
 <li>For the first block in an epoch T, we check if the previous block is caught
 up, which signifies if the state of the new epoch is ready. If the previous
@@ -308,15 +308,15 @@ storage to be persisted across different runs.</p>
 <code>ClientActor</code> schedules a call to <code>run_catchup</code> every 100ms. However, the call
 can be delayed if ClientActor has a lot of messages in its actix queue.</p>
 <p>Every time <code>run_catchup</code> is called, it checks the store to see if there are any
-shard states that should be downloaded (iterate_state_sync_infos). If so, it
+shard states that should be downloaded (<code>iterate_state_sync_infos</code>). If so, it
 initiates the syncing process for these shards. After the state is downloaded,
 <code>run_catchup</code> will start to apply blocks that need to be caught up.</p>
 <p>One thing to note is that <code>run_catchup</code> is located at <code>ClientActor</code>, but
-intensive work such as applying state parts and apply blocks is actually
+intensive work such as applying state parts and applying blocks is actually
 offloaded to <code>SyncJobActor</code> in another thread, because we don’t want
 <code>ClientActor</code> to be blocked by this. <code>run_catchup</code> is simply responsible for
 scheduling <code>SyncJobActor</code> to do the intensive job. Note that <code>SyncJobActor</code> is
-state-less, it doesn’t have write access to chain. It will return the changes
+state-less, it doesn’t have write access to the chain. It will return the changes
 that need to be made as part of the response to <code>ClientActor</code>, and <code>ClientActor</code>
 is responsible for applying these changes. This is to ensure only one thread
 (<code>ClientActor</code>) has write access to the chain state. However, this also adds a
@@ -331,7 +331,7 @@ block of an epoch, even when there are no new states to be downloaded for the
 new epoch. This is unnecessary.</p>
 <p>Second, even though <code>run_catchup</code> is scheduled to run every 100ms, the call can
 be delayed if ClientActor has messages in its actix queue. A better way to do
-this is to move the scheduling of run_catchup to check_triggers.</p>
+this is to move the scheduling of <code>run_catchup</code> to <code>check_triggers</code>.</p>
 <p>Third, because of how <code>run_catchup</code> interacts with <code>SyncJobActor</code>, <code>run_catchup</code>
 can catch up at most one block every 100 ms. This is because we don’t want to
 write to <code>ChainStore</code> in multiple threads. However, the changes that catching up

@@ -142,17 +142,17 @@
                     <main>
                         <h1 id="cross-shard-transactions---deep-dive"><a class="header" href="#cross-shard-transactions---deep-dive">Cross shard transactions - deep dive</a></h1>
 <p>In this article, we'll look deeper into how cross-shard transactions are working
-on the simple example of user 'shard0' transfering money to user 'shard1'.</p>
+on the simple example of user <code>shard0</code> transfering money to user <code>shard1</code>.</p>
 <p>These users are on separate shards (<code>shard0</code> is on shard 0 and <code>shard1</code> is on
 shard 1).</p>
-<p>Imagine, we call the following command line:</p>
+<p>Imagine, we run the following command in the command line:</p>
 <pre><code class="language-console">$ NEAR_ENV=local near send shard0 shard1 500
 </code></pre>
 <p>What happens under the hood? How is this transaction changed into receipts and
 processed by near?</p>
 <h2 id="from-explorer-perspective"><a class="header" href="#from-explorer-perspective">From Explorer perspective</a></h2>
-<p>If you look at simple token transfer in explorer (for example:
-<a href="https://explorer.testnet.near.org/transactions/6cNJpNKWP55YrxrgRzc2gi6BM91fo3V6n2vVAo41MvZv">https://explorer.testnet.near.org/transactions/6cNJpNKWP55YrxrgRzc2gi6BM91fo3V6n2vVAo41MvZv</a>),
+<p>If you look at a simple token transfer in explorer
+(<a href="https://explorer.testnet.near.org/transactions/6cNJpNKWP55YrxrgRzc2gi6BM91fo3V6n2vVAo41MvZv">example</a>),
 you can see that it is broken into three separate sections:</p>
 <ul>
 <li>convert transaction into receipt ( executed in block B )</li>
@@ -163,11 +163,11 @@ you can see that it is broken into three separate sections:</p>
 actually one more receipt (that is created after converting the transaction).
 Let's take a deeper look.</p>
 <h2 id="internal-perspective-transactions--receipts"><a class="header" href="#internal-perspective-transactions--receipts">Internal perspective (Transactions &amp; Receipts)</a></h2>
-<p>One important thing to remember, is that NEAR is sharded - so in all our
+<p>One important thing to remember is that NEAR is sharded - so in all our
 designs, we have to assume that each account is on a separate shard. So that the
 fact that some of them are colocated doesn't give any advantage.</p>
 <h3 id="step-1---transaction"><a class="header" href="#step-1---transaction">Step 1 - Transaction</a></h3>
-<p>This is the part that we receive from the user (SignedTransaction) - it has 3
+<p>This is the part which we receive from the user (<code>SignedTransaction</code>) - it has 3
 parts:</p>
 <ul>
 <li>signer (account + key) who signed the transaction</li>
@@ -179,13 +179,13 @@ parts:</p>
 <ul>
 <li>the message signature matches (that is - that this message was actually signed
 by this key)</li>
-<li>that this key is authorized to act on behalf that account (so it is a full
+<li>that this key is authorized to act on behalf of that account (so it is a full
 access key to this account - or a valid fuction key).</li>
 </ul>
-<p>The last point above means, that we MUST execute this Transaction to Receipt
+<p>The last point above means, that we MUST execute this (Transaction to Receipt)
 transition within the shard that the <code>signer</code> belongs to (as other shards don't
 know the state that belongs to signer - so they don't know which keys it has).</p>
-<p>So actually if we look inside the chunk 0 (where <code>shard0</code> belongs to) at block
+<p>So actually if we look inside the chunk 0 (where <code>shard0</code> belongs) at block
 B, we'll see the transaction:</p>
 <pre><code>Chunk: Ok(
     V2(
@@ -249,13 +249,14 @@ B, we'll see the transaction:</p>
     ),
 )
 </code></pre>
-<p><strong>Side note:</strong> When we're changing the transaction into receipt, we also use
+<p><strong>Side note</strong>: When we're changing the transaction into a receipt, we also use
 this moment to deduct prepaid gas fees and transfered tokens from the 'signer'
 account. The details on how much gas is charged etc will be in a separate
 article.</p>
+<!-- TODO: maybe add the link to that article here? -->
 <h2 id="step-2---cross-shard-receipt"><a class="header" href="#step-2---cross-shard-receipt">Step 2 - cross shard receipt</a></h2>
-<p>After transaction was changed into the receipt, this receipt must now be sent to
-the shard where <code>receiver</code> is (in our example <code>shard1</code> is on shard 1).</p>
+<p>After transaction was changed into a receipt, this receipt must now be sent to
+the shard where the <code>receiver</code> is (in our example <code>shard1</code> is on shard 1).</p>
 <p>We can actually see this in the chunk of the next block:</p>
 <pre><code>Chunk: Ok(
     V2(
@@ -323,10 +324,11 @@ the shard where <code>receiver</code> is (in our example <code>shard1</code> is 
     ),
 )
 </code></pre>
-<p><strong>Side comment:</strong> notice that receipt itself no longer has a <code>signer</code> field, but
+<p><strong>Side comment</strong>: notice that the receipt itself no longer has a <code>signer</code> field, but
 a <code>predecessor_id</code> one.</p>
-<p>Such receipt is sent to the destination shard (we'll explain this process in a
+<p>Such a receipt is sent to the destination shard (we'll explain this process in a
 separate article) where it can be executed.</p>
+<!-- TODO: maybe add the link to that article here? -->
 <h2 id="3-gas-refund"><a class="header" href="#3-gas-refund">3. Gas refund.</a></h2>
 <p>When shard 1 processes the receipt above, it is then ready to refund the unused
 gas to the original account (<code>shard0</code>). So it also creates the receipt, and puts
@@ -398,12 +400,11 @@ executed).</p>
     ),
 )
 </code></pre>
-<p>Such gas refunds receipts are a little bit special - as we'll set the
-predecessor_id to be <code>system</code> - but the receiver is what we expect (<code>shard0</code>
-account). (<code>system</code> is a special account that doesn't really belong to any shard</p>
-<ul>
-<li>as you can see in this example, the receipt was created within shard 1)</li>
-</ul>
+<p>Such gas refund receipts are a little bit special - as we'll set the
+<code>predecessor_id</code> to be <code>system</code> - but the receiver is what we expect (<code>shard0</code>
+account).</p>
+<p><strong>Note</strong>: <code>system</code> is a special account that doesn't really belong to any shard.
+As you can see in this example, the receipt was created within shard 1.</p>
 <p>So putting it all together would look like this:</p>
 <p><img src="https://user-images.githubusercontent.com/91919554/200617392-00b9fa0c-2f15-40ad-9802-137ca9a5a15d.png" alt="image" /></p>
 <p>But wait - NEAR was saying that transfers are happening with 2 blocks - but here
@@ -413,24 +414,26 @@ especially as receipts in a given chunks are actually receipts received as a
 result from running a PREVIOUS chunk from this shard.</p>
 <p>We'll explain it more in the next section.</p>
 <h1 id="advanced-whats-actually-going-on"><a class="header" href="#advanced-whats-actually-going-on">Advanced: What's actually going on?</a></h1>
-<p>As you could have read in [tx_receipts.md] - the 'receipts' field in chunk is
-actually representing 'outgoing' receipts from previous block.</p>
-<p>So our image should look more like this:
-<img src="https://user-images.githubusercontent.com/91919554/200621066-a5d06f2d-ff43-44ce-a52b-47dc44d6f8ab.png" alt="image" /></p>
+<p>As you could have read in <a href="./tx_receipts.html">Transactions And Receipts</a> - the
+'receipts' field in the chunk is actually representing 'outgoing' receipts
+from the previous block.</p>
+<p>So our image should look more like this:</p>
+<p><img src="https://user-images.githubusercontent.com/91919554/200621066-a5d06f2d-ff43-44ce-a52b-47dc44d6f8ab.png" alt="image" /></p>
 <p>In this example, the black boxes are representing the 'processing' of the chunk,
 and red arrows are cross-shard communication.</p>
 <p>So when we process Shard 0 from block 1676, we read the transation, and output
 the receipt - which later becomes the input for shard 1 in block 1677.</p>
-<p>But you might still be wondering -- so why didn't we add the Receipt(transfer)
+<p>But you might still be wondering - so why didn't we add the Receipt (transfer)
 to the list of receipts of shard0 1676?</p>
 <p>That's because the shards &amp; blocks are set BEFORE we do any computation. So the
 more correct image would look like this:</p>
 <p><img src="https://user-images.githubusercontent.com/91919554/200621808-1ce78047-6968-4af5-9c2a-805a0f1643fc.png" alt="image" /></p>
-<p>Here you can see clearly that chunk processing (black box), is happening AFTER
-chunk is set.</p>
+<p>Here you can clearly see that chunk processing (black box), is happening AFTER
+the chunk is set.</p>
 <p>In this example, the blue arrows are showing the part where we persist the
 result (receipt) into next block's chunk.</p>
-<p>In the future article, we'll discuss how the actual cross-shard communication
+<!-- TODO: maybe add the link to that article here? -->
+<p>In a future article, we'll discuss how the actual cross-shard communication
 works (red arrows) in the picture, and how we could guarantee that a given shard
 really gets all the red arrows, before is starts processing.</p>
 
