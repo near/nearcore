@@ -97,7 +97,6 @@ pub enum Event {
     EdgesVerified(Vec<Edge>),
     Ping(Ping),
     Pong(Pong),
-    SetChainInfo,
     // Reported once a message has been processed.
     // In contrast to typical RPC protocols, many P2P messages do not trigger
     // sending a response at the end of processing.
@@ -933,29 +932,19 @@ impl Handler<WithSpanContext<GetNetworkInfo>> for PeerManagerActor {
 impl actix::Handler<WithSpanContext<SetChainInfo>> for PeerManagerActor {
     type Result = ();
     fn handle(&mut self, msg: WithSpanContext<SetChainInfo>, ctx: &mut Self::Context) {
-        let (_span, info) = handler_trace_span!(target: "network", msg);
+        let (_span, SetChainInfo(info)) = handler_trace_span!(target: "network", msg);
         let _timer =
             metrics::PEER_MANAGER_MESSAGES_TIME.with_label_values(&["SetChainInfo"]).start_timer();
-        let SetChainInfo(info) = info;
-        let state = self.state.clone();
-        // We set state.chain_info and call accounts_data.set_keys
+        // We call self.state.set_chain_info()
         // synchronously, therefore, assuming actix in-order delivery,
         // there will be no race condition between subsequent SetChainInfo
         // calls.
-        state.chain_info.store(Arc::new(Some(info.clone())));
+        if !self.state.set_chain_info(info) {
+            // We early exit in case the set of TIER1 account keys hasn't changed.
+            return;
+        }
 
-        // If tier1 is not enabled, we skip set_keys() call.
-        // This way self.state.accounts_data is always empty, hence no data
-        // will be collected or broadcasted.
-        if state.config.tier1.is_none() {
-            state.config.event_sink.push(Event::SetChainInfo);
-            return;
-        }
-        // If the key set didn't change, early exit.
-        if !state.accounts_data.set_keys(info.tier1_accounts.clone()) {
-            state.config.event_sink.push(Event::SetChainInfo);
-            return;
-        }
+        let state = self.state.clone();
         let clock = self.clock.clone();
         ctx.spawn(wrap_future(
             async move {
@@ -971,7 +960,6 @@ impl actix::Handler<WithSpanContext<SetChainInfo>> for PeerManagerActor {
                 // that our peers know about. tier1_advertise_proxies() has a side effect
                 // of asking peers for a full sync of the accounts_data with the TIER2 peers.
                 state.tier1_advertise_proxies(&clock).await;
-                state.config.event_sink.push(Event::SetChainInfo);
             }
             .in_current_span(),
         ));

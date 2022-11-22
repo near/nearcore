@@ -22,6 +22,7 @@ use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::types::AccountId;
+use parking_lot::Mutex;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -109,7 +110,12 @@ pub(crate) struct NetworkState {
     /// in the first place.
     pub max_num_peers: AtomicU32,
 
+    /// Demultiplexer aggregating calls to add_edges().
     add_edges_demux: demux::Demux<Vec<Edge>, ()>,
+
+    /// Mutex serializing calls to set_chain_info(), which mutates a bunch of stuff non-atomically.
+    /// TODO(gprusak): make it use synchronization primitives in some more canonical way.
+    set_chain_info_mutex: Mutex<()>,
 }
 
 impl NetworkState {
@@ -143,6 +149,7 @@ impl NetworkState {
             whitelist_nodes,
             max_num_peers: AtomicU32::new(config.max_num_peers),
             add_edges_demux: demux::Demux::new(config.routing_table_update_rate_limit),
+            set_chain_info_mutex: Mutex::new(()),
             config,
             created_at: clock.now(),
         }
@@ -512,5 +519,25 @@ impl NetworkState {
         })
         .await
         .unwrap()
+    }
+
+    /// Sets the chain info, and updates the set of TIER1 keys.
+    /// Returns true iff the set of TIER1 keys has changed.
+    pub fn set_chain_info(self: &Arc<Self>, info: ChainInfo) -> bool {
+        let _mutex = self.set_chain_info_mutex.lock();
+
+        // We set state.chain_info and call accounts_data.set_keys
+        // synchronously, therefore, assuming actix in-order delivery,
+        // there will be no race condition between subsequent SetChainInfo
+        // calls.
+        self.chain_info.store(Arc::new(Some(info.clone())));
+
+        // If tier1 is not enabled, we skip set_keys() call.
+        // This way self.state.accounts_data is always empty, hence no data
+        // will be collected or broadcasted.
+        if self.config.tier1.is_none() {
+            return false;
+        }
+        self.accounts_data.set_keys(info.tier1_accounts.clone())
     }
 }

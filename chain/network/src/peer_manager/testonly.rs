@@ -295,15 +295,8 @@ impl ActorHandler {
         self.with_state(move |s| async move { s.fix_local_edges(&clock, timeout).await }).await
     }
 
-    pub async fn set_chain_info(&self, chain_info: ChainInfo) {
-        let mut events = self.events.from_now();
-        self.actix.addr.send(SetChainInfo(chain_info).with_span_context()).await.unwrap();
-        events
-            .recv_until(|ev| match ev {
-                Event::PeerManager(PME::SetChainInfo) => Some(()),
-                _ => None,
-            })
-            .await;
+    pub async fn set_chain_info(&self, chain_info: ChainInfo) -> bool {
+        self.with_state(move |s| async move { s.set_chain_info(chain_info) }).await
     }
 
     pub async fn tier1_advertise_proxies(
