@@ -58,13 +58,17 @@ impl<T: Clone + Send> Receiver<T> {
 
     pub async fn recv(&mut self) -> T {
         self.next += 1;
-        let l = self.channel.stream.read().unwrap();
-        let n = self.channel.notify.notified();
-        let v = if l.len() > self.next - 1 { Some(l[self.next - 1].clone()) } else { None };
-        if let Some(v) = v {
-            return v;
-        }
-        drop(l);
+        let n = {
+            // The lock has to be inside a block without await,
+            // because otherwise recv() is not Send.
+            let l = self.channel.stream.read().unwrap();
+            let n = self.channel.notify.notified();
+            let v = if l.len() > self.next - 1 { Some(l[self.next - 1].clone()) } else { None };
+            if let Some(v) = v {
+                return v;
+            }
+            n
+        };
         n.await;
         let v = self.channel.stream.read().unwrap()[self.next - 1].clone();
         v

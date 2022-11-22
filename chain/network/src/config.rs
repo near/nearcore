@@ -283,7 +283,7 @@ impl NetworkConfig {
             inbound_disabled: false,
             archive: false,
             accounts_data_broadcast_rate_limit: demux::RateLimit { qps: 100., burst: 1000000 },
-            routing_table_update_rate_limit: demux::RateLimit { qps: 100., burst: 100 },
+            routing_table_update_rate_limit: demux::RateLimit { qps: 10., burst: 1 },
             features: Features { enable_tier1: true },
             skip_tombstones: None,
             event_sink: Sink::null(),

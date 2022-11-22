@@ -199,7 +199,7 @@ async fn rate_limiting() {
     let mut pms = vec![];
     for _ in 0..n * m {
         let mut cfg = chain.make_config(rng);
-        cfg.accounts_data_broadcast_rate_limit = demux::RateLimit { qps: 0.5, burst: 1 };
+        cfg.accounts_data_broadcast_rate_limit = demux::RateLimit { qps: 1., burst: 1 };
         pms.push(
             peer_manager::testonly::start(
                 clock.clock(),
@@ -211,15 +211,20 @@ async fn rate_limiting() {
         );
     }
     tracing::info!(target:"test", "Construct a 4-layer bipartite graph.");
+
     let mut connections = 0;
+    let mut tasks = vec![];
     for i in 0..n - 1 {
         for j in 0..m {
             for k in 0..m {
                 let pi = pms[(i + 1) * m + k].peer_info();
-                pms[i * m + j].connect_to(&pi).await;
+                tasks.push(tokio::spawn(pms[i * m + j].connect_to(&pi)));
                 connections += 1;
             }
         }
+    }
+    for t in tasks {
+        t.await.unwrap();
     }
 
     // Validator configs.

@@ -140,24 +140,29 @@ impl ActorHandler {
         }
     }
 
-    pub async fn connect_to(&self, peer_info: &PeerInfo) {
-        let stream = tcp::Stream::connect(peer_info).await.unwrap();
-        let mut events = self.events.from_now();
-        let stream_id = stream.id();
-        self.actix
-            .addr
-            .do_send(PeerManagerMessageRequest::OutboundTcpConnect(stream).with_span_context());
-        events
-            .recv_until(|ev| match &ev {
-                Event::PeerManager(PME::HandshakeCompleted(ev)) if ev.stream_id == stream_id => {
-                    Some(())
-                }
-                Event::PeerManager(PME::ConnectionClosed(ev)) if ev.stream_id == stream_id => {
-                    panic!("PeerManager rejected the handshake")
-                }
-                _ => None,
-            })
-            .await;
+    pub fn connect_to(&self, peer_info: &PeerInfo) -> impl 'static + Send + Future<Output = ()> {
+        let addr = self.actix.addr.clone();
+        let events = self.events.clone();
+        let peer_info = peer_info.clone();
+        async move {
+            let stream = tcp::Stream::connect(&peer_info).await.unwrap();
+            let mut events = events.from_now();
+            let stream_id = stream.id();
+            addr.do_send(PeerManagerMessageRequest::OutboundTcpConnect(stream).with_span_context());
+            events
+                .recv_until(|ev| match &ev {
+                    Event::PeerManager(PME::HandshakeCompleted(ev))
+                        if ev.stream_id == stream_id =>
+                    {
+                        Some(())
+                    }
+                    Event::PeerManager(PME::ConnectionClosed(ev)) if ev.stream_id == stream_id => {
+                        panic!("PeerManager rejected the handshake")
+                    }
+                    _ => None,
+                })
+                .await
+        }
     }
 
     pub async fn with_state<R: 'static + Send, Fut: 'static + Send + Future<Output = R>>(
