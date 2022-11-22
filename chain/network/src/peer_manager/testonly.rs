@@ -339,13 +339,18 @@ impl ActorHandler {
         clock: &mut time::FakeClock,
         want: &[(PeerId, Vec<PeerId>)],
     ) {
-        let mut events = self.events.from_now();
+        //let mut events = self.events.from_now();
         loop {
             let got =
                 self.with_state(|s| async move { s.routing_table_view.info().next_hops }).await;
             if test_utils::expected_routing_tables(&got, want) {
                 return;
             }
+
+            /* TODO: Ideally we'd receive and process the appropriate events, but the desired
+             * interaction between the event stream and the fake clock is flaky for some tests
+             * (e.g. peer_manager::tests::routing::simple) and fails consistently for others
+             * (e.g. peer_manager::tests::routing::simple_remove):
             events
                 .recv_until(|ev| match ev {
                     Event::PeerManager(PME::RoutingTableUpdate { .. }) => Some(()),
@@ -358,6 +363,10 @@ impl ActorHandler {
                     _ => None,
                 })
                 .await;
+            */
+
+            // Workaround simply advancing the FakeClock until the routing table looks right
+            clock.advance(peer_manager_actor::UPDATE_ROUTING_TABLE_INTERVAL);
         }
     }
 
