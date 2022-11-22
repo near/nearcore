@@ -4,7 +4,7 @@ use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
     Edge, PartialEdgeInfo, PeerMessage, RawRoutedMessage, RoutedMessageBody, RoutedMessageV2,
 };
-use crate::peer::peer_actor::{ClosingReason, PeerActor};
+use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_manager_actor;
 use crate::peer_manager::peer_store;
@@ -80,17 +80,6 @@ impl PeerHandle {
                 })
                 .await,
         );
-    }
-    pub async fn fail_handshake(&mut self) -> ClosingReason {
-        self.events
-            .recv_until(|ev| match ev {
-                Event::Network(peer_manager_actor::Event::ConnectionClosed(ev)) => Some(ev.reason),
-                // HandshakeDone means that handshake succeeded locally,
-                // but in case this is an inbound connection, it can still
-                // fail on the other side. Therefore we cannot panic on HandshakeDone.
-                _ => None,
-            })
-            .await
     }
 
     pub fn routed_message(
