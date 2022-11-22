@@ -15,7 +15,6 @@ use crate::stats::metrics;
 use crate::store;
 use crate::tcp;
 use crate::time;
-use crate::types::PartialEdgeInfo;
 use crate::types::{
     ConnectedPeerInfo, GetNetworkInfo, HighestHeightPeerInfo, KnownProducer, NetworkInfo,
     NetworkRequests, NetworkResponses, PeerIdOrHash, PeerManagerMessageRequest,
@@ -68,13 +67,7 @@ const REPORT_BANDWIDTH_THRESHOLD_COUNT: usize = 10_000;
 const PRUNE_UNREACHABLE_PEERS_AFTER: time::Duration = time::Duration::hours(1);
 
 /// Remove the edges that were created more that this duration ago.
-const PRUNE_EDGES_AFTER: time::Duration = time::Duration::minutes(30);
-
-/// How often should we refresh a nonce from a peer.
-/// It should be smaller than PRUNE_EDGES_AFTER.
-// FIXME !
-//pub const REFRESH_NONCE_PERIOD: time::Duration = time::Duration::minutes(10);
-pub const REFRESH_NONCE_PERIOD: time::Duration = time::Duration::seconds(1);
+pub const PRUNE_EDGES_AFTER: time::Duration = time::Duration::minutes(30);
 
 /// If a peer is more than these blocks behind (comparing to our current head) - don't route any messages through it.
 /// We are updating the list of unreliable peers every MONITOR_PEER_MAX_DURATION (60 seconds) - so the current
@@ -621,6 +614,7 @@ impl PeerManagerActor {
                     last_time_received_message: cp.last_time_received_message.load(),
                     connection_established_time: cp.connection_established_time,
                     peer_type: cp.peer_type,
+                    nonce: cp.edge.load().nonce(),
                 })
                 .collect(),
             num_connected_peers: tier2.ready.len(),

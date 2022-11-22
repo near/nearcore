@@ -107,27 +107,34 @@ async fn test_nonce_refresh() {
     )
     .await;
 
-    let mut other_config = chain.make_config(rng);
-    // Make sure that other peer manager has the first one as the boot node, and that it is ready to connect to it.
-    other_config.peer_store.boot_nodes.push(pm.peer_info());
-    other_config.outbound_disabled = false;
-
     // Start another peer manager.
     let mut pm2 = peer_manager::testonly::start(
         clock.clock(),
         near_store::db::TestDB::new(),
-        other_config,
+        chain.make_config(rng),
         chain.clone(),
     )
     .await;
+
+    pm2.connect_to(&pm.peer_info()).await;
 
     let edge = wait_for_edge(&mut pm2).await;
     let start_time = clock.now_utc();
     // First edge between them should have the nonce equal to the current time.
     assert_eq!(Edge::nonce_to_utc(edge.nonce()).unwrap().unwrap(), start_time);
 
-    // Advance a clock by 1h - and check that nonce was updated.
+    // Advance a clock by 1 hour.
     clock.advance(Duration::HOUR);
-    let edge = wait_for_edge(&mut pm2).await;
-    assert_eq!(Edge::nonce_to_utc(edge.nonce()).unwrap().unwrap(), clock.now_utc());
+
+    loop {
+        let edge = wait_for_edge(&mut pm2).await;
+        if Edge::nonce_to_utc(edge.nonce()).unwrap().unwrap() == start_time {
+            tracing::debug!("Still seeing old edge..");
+            //
+            clock.advance(Duration::HOUR);
+        } else {
+            assert_eq!(Edge::nonce_to_utc(edge.nonce()).unwrap().unwrap(), clock.now_utc());
+            break;
+        }
+    }
 }
