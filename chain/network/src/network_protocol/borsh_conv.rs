@@ -128,9 +128,11 @@ impl TryFrom<&net::PeerMessage> for mem::PeerMessage {
             net::PeerMessage::BlockRequest(bh) => mem::PeerMessage::BlockRequest(bh),
             net::PeerMessage::Block(b) => mem::PeerMessage::Block(b),
             net::PeerMessage::Transaction(t) => mem::PeerMessage::Transaction(t),
-            net::PeerMessage::Routed(r) => {
-                mem::PeerMessage::Routed(Box::new(RoutedMessageV2 { msg: *r, created_at: None }))
-            }
+            net::PeerMessage::Routed(r) => mem::PeerMessage::Routed(Box::new(RoutedMessageV2 {
+                msg: *r,
+                created_at: None,
+                num_hops: Some(0),
+            })),
             net::PeerMessage::Disconnect => mem::PeerMessage::Disconnect,
             net::PeerMessage::Challenge(c) => mem::PeerMessage::Challenge(c),
             net::PeerMessage::_HandshakeV2 => return Err(Self::Error::DeprecatedHandshakeV2),

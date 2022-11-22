@@ -23,7 +23,7 @@ impl super::NetworkState {
         &self,
         accounts_data: &accounts_data::CacheSnapshot,
     ) -> Option<&config::ValidatorConfig> {
-        if self.config.features.tier1.is_none() {
+        if self.config.tier1.is_none() {
             return None;
         }
         self.config
@@ -173,7 +173,7 @@ impl super::NetworkState {
         }
         self.tier2.broadcast_message(Arc::new(PeerMessage::SyncAccountsData(SyncAccountsData {
             incremental: true,
-            requesting_full_sync: false,
+            requesting_full_sync: true,
             accounts_data: new_data.clone(),
         })));
         self.config.event_sink.push(Event::Tier1AdvertiseProxies(new_data.clone()));
@@ -183,7 +183,7 @@ impl super::NetworkState {
     /// Closes TIER1 connections from nodes which are not TIER1 any more.
     /// If this node is TIER1, it additionally connects to proxies of other TIER1 nodes.
     pub async fn tier1_connect(self: &Arc<Self>, clock: &time::Clock) {
-        let tier1_cfg = match &self.config.features.tier1 {
+        let tier1_cfg = match &self.config.tier1 {
             Some(it) => it,
             None => return,
         };

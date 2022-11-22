@@ -3,7 +3,7 @@ use crate::config;
 use crate::debug::{DebugStatus, GetDebugStatus};
 use crate::network_protocol::{
     AccountOrPeerIdOrHash, Edge, PeerIdOrHash, PeerMessage, Ping, Pong, RawRoutedMessage,
-    RoutedMessageBody, SignedAccountData, StateResponseInfo, SyncAccountsData,
+    RoutedMessageBody, SignedAccountData, StateResponseInfo,
 };
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
@@ -266,7 +266,7 @@ impl PeerManagerActor {
                         }
                     });
                 }
-                if let Some(cfg) = state.config.features.tier1.clone() {
+                if let Some(cfg) = state.config.tier1.clone() {
                     // Connect to TIER1 proxies and broadcast the list those connections periodically.
                     arbiter.spawn({
                         let clock = clock.clone();
@@ -1001,7 +1001,8 @@ impl actix::Handler<WithSpanContext<SetChainInfo>> for PeerManagerActor {
         // If tier1 is not enabled, we skip set_keys() call.
         // This way self.state.accounts_data is always empty, hence no data
         // will be collected or broadcasted.
-        if state.config.features.tier1.is_none() {
+        if state.config.tier1.is_none() {
+            state.config.event_sink.push(Event::SetChainInfo);
             return;
         }
         // If the key set didn't change, early exit.
@@ -1019,16 +1020,11 @@ impl actix::Handler<WithSpanContext<SetChainInfo>> for PeerManagerActor {
                 // and this node won't be able to connect to proxies until it happens (and only the
                 // connected proxies are included in the advertisement). We run tier1_advertise_proxies
                 // periodically in the background anyway to cover those cases.
+                //
+                // The set of tier1 accounts has changed, so we might be missing some accounts_data
+                // that our peers know about. tier1_advertise_proxies() has a side effect
+                // of asking peers for a full sync of the accounts_data with the TIER2 peers.
                 state.tier1_advertise_proxies(&clock).await;
-                // The set of tier1 accounts has changed.
-                // We might miss some data, so we start a full sync with the tier2 peers.
-                state.tier2.broadcast_message(Arc::new(PeerMessage::SyncAccountsData(
-                    SyncAccountsData {
-                        incremental: false,
-                        requesting_full_sync: true,
-                        accounts_data: state.accounts_data.load().data.values().cloned().collect(),
-                    },
-                )));
                 state.config.event_sink.push(Event::SetChainInfo);
             }
             .in_current_span(),

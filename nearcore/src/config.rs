@@ -606,22 +606,13 @@ impl NearConfig {
                 trie_viewer_state_size_limit: config.trie_viewer_state_size_limit,
                 max_gas_burnt_view: config.max_gas_burnt_view,
                 enable_statistics_export: config.store.enable_statistics_export,
+                client_background_migration_threads: config.store.background_migration_threads,
             },
             network_config: NetworkConfig::new(
                 config.network.clone(),
                 network_key_pair.secret_key,
                 validator_signer.clone(),
                 config.archive,
-                near_network::config::Features {
-                    // Enable tier1.
-                    tier1: Some(near_network::config::Tier1 {
-                        connect_interval: time::Duration::seconds(20),
-                        new_connections_per_attempt: 10,
-                        advertise_proxies_interval: time::Duration::minutes(15),
-                        enable_inbound: config.network.experimental.tier1_enable_inbound,
-                        enable_outbound: config.network.experimental.tier1_enable_outbound,
-                    }),
-                },
             )?,
             telemetry_config: config.telemetry,
             #[cfg(feature = "json_rpc")]

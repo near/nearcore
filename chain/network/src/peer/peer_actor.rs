@@ -1193,7 +1193,7 @@ impl PeerActor {
                         .lock()
                         .put(CryptoHash::hash_borsh(&msg.body), ())
                         .is_none();
-                    metrics::record_routed_msg_latency(&self.clock, &msg, conn.tier, fastest);
+                    metrics::record_routed_msg_metrics(&self.clock, &msg, conn.tier, fastest);
                 }
 
                 // Drop duplicated messages routed within DROP_DUPLICATED_MESSAGES_PERIOD ms

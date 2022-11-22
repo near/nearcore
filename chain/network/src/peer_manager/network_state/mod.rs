@@ -304,7 +304,7 @@ impl NetworkState {
 
             match conn.tier {
                 tcp::Tier::T1 => {
-                    if !this.config.features.tier1.as_ref().map_or(false, |c| c.enable_inbound) {
+                    if !this.config.tier1.as_ref().map_or(false, |c| c.enable_inbound) {
                         return Err(RegisterPeerError::Tier1InboundDisabled);
                     }
                     if conn.peer_type == PeerType::Inbound {

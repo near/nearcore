@@ -211,17 +211,19 @@ async fn rate_limiting() {
     // Construct ChainInfo with tier1_accounts containing all validators.
     let chain_info = testonly::make_chain_info(&chain, &pms.iter().collect::<Vec<_>>()[..]);
 
-    // Advance epoch in random order.
+    clock.advance(time::Duration::hours(1));
+
+    // Capture the event streams now, so that we can compute
+    // the total number of SyncAccountsData messages exchanged in the process.
+    let events: Vec<_> = pms.iter().map(|pm| pm.events.from_now()).collect();
+
+    tracing::info!(target:"test","Advance epoch in random order.");
     pms.shuffle(rng);
     let mut want = HashSet::new();
     for pm in &mut pms {
         pm.set_chain_info(chain_info.clone()).await;
         want.extend(pm.tier1_advertise_proxies(&clock.clock()).await);
     }
-
-    // Capture the event streams at the start, so that we can compute
-    // the total number of SyncAccountsData messages exchanged in the process.
-    let events: Vec<_> = pms.iter().map(|pm| pm.events.clone()).collect();
 
     tracing::info!(target:"test","Wait for data to arrive.");
     for pm in &mut pms {

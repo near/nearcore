@@ -26,6 +26,7 @@ pub const MAX_ROUTES_TO_STORE: usize = 5;
 pub const MAX_PEER_ADDRS: usize = 10;
 
 /// Address of the format "<domain/ip>:<port>" of STUN servers.
+// TODO(gprusak): turn into a proper struct implementing Display and FromStr.
 pub type StunServerAddr = String;
 
 /// ValidatorProxies are nodes with public IP (aka proxies) that this validator trusts to be honest
@@ -63,11 +64,6 @@ impl ValidatorConfig {
     pub fn account_id(&self) -> AccountId {
         self.signer.validator_id().clone()
     }
-}
-
-#[derive(Clone)]
-pub struct Features {
-    pub tier1: Option<Tier1>,
 }
 
 #[derive(Clone)]
@@ -166,8 +162,8 @@ pub struct NetworkConfig {
     pub accounts_data_broadcast_rate_limit: rate::Limit,
     /// Maximal rate at which RoutingTableUpdate can be sent out.
     pub routing_table_update_rate_limit: rate::Limit,
-    /// features
-    pub features: Features,
+    /// Config of the TIER1 network.
+    pub tier1: Option<Tier1>,
 
     // Whether to ignore tombstones some time after startup.
     //
@@ -193,7 +189,6 @@ impl NetworkConfig {
         node_key: SecretKey,
         validator_signer: Option<Arc<dyn ValidatorSigner>>,
         archive: bool,
-        features: Features,
     ) -> anyhow::Result<Self> {
         if cfg.public_addrs.len() > MAX_PEER_ADDRS {
             anyhow::bail!(
@@ -293,7 +288,13 @@ impl NetworkConfig {
             archive,
             accounts_data_broadcast_rate_limit: rate::Limit { qps: 0.1, burst: 1 },
             routing_table_update_rate_limit: rate::Limit { qps: 0.5, burst: 1 },
-            features,
+            tier1: Some(Tier1 {
+                connect_interval: time::Duration::seconds(20),
+                new_connections_per_attempt: 10,
+                advertise_proxies_interval: time::Duration::minutes(15),
+                enable_inbound: cfg.experimental.tier1_enable_inbound,
+                enable_outbound: cfg.experimental.tier1_enable_outbound,
+            }),
             inbound_disabled: cfg.experimental.inbound_disabled,
             tier2_connection_throughput_bytes: rate::Limit {
                 qps: NETWORK_MESSAGE_MAX_SIZE_BYTES as f64,
@@ -364,19 +365,17 @@ impl NetworkConfig {
             outbound_disabled: false,
             inbound_disabled: false,
             archive: false,
-            accounts_data_broadcast_rate_limit: rate::Limit { qps: 100., burst: 1000000000000 },
-            routing_table_update_rate_limit: rate::Limit { qps: 100., burst: 10000000000000 },
-            features: Features {
-                tier1: Some(Tier1 {
-                    // The tick is triggered manually.
-                    // The all feasible connections should be established.
-                    connect_interval: time::Duration::hours(1000),
-                    new_connections_per_attempt: 10000,
-                    advertise_proxies_interval: time::Duration::hours(1000),
-                    enable_inbound: true,
-                    enable_outbound: true,
-                }),
-            },
+            accounts_data_broadcast_rate_limit: rate::Limit { qps: 100., burst: 1000000 },
+            routing_table_update_rate_limit: rate::Limit { qps: 100., burst: 1000000 },
+            tier1: Some(Tier1 {
+                // Interval is very large, so that it doesn't happen spontaneously in tests.
+                // It should rather be triggered manually in tests.
+                connect_interval: time::Duration::hours(1000),
+                new_connections_per_attempt: 10000,
+                advertise_proxies_interval: time::Duration::hours(1000),
+                enable_inbound: true,
+                enable_outbound: true,
+            }),
             tier2_connection_throughput_bytes: rate::Limit {
                 qps: 1000000000.,
                 burst: 1000000000000000,

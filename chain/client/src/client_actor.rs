@@ -11,6 +11,7 @@ use crate::adapter::{
     RecvPartialEncodedChunkRequest, RecvPartialEncodedChunkResponse, SetNetworkInfo, StateResponse,
 };
 use crate::client::{Client, EPOCH_START_INFO_BLOCKS};
+use crate::debug::new_network_info_view;
 use crate::info::{
     display_sync_status, get_validator_epoch_stats, InfoHelper, ValidatorInfoHelper,
 };
@@ -829,7 +830,7 @@ impl Handler<WithSpanContext<Status>> for ClientActor {
         // For now - provide info about last 50 blocks.
         let detailed_debug_status = if msg.detailed {
             Some(DetailedDebugStatus {
-                network_info: self.network_info.clone().into(),
+                network_info: new_network_info_view(&self.client.chain, &self.network_info),
                 sync_status: format!(
                     "{} ({})",
                     self.client.sync_status.as_variant_name().to_string(),
