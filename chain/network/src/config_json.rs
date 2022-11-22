@@ -1,9 +1,16 @@
 use crate::network_protocol::PeerAddr;
+use crate::types::ROUTED_MESSAGE_TTL;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
 /// Time to persist Accounts Id in the router without removing them in seconds.
 pub const TTL_ACCOUNT_ID_ROUTER: u64 = 60 * 60;
+
+/// How much height horizon to give to consider peer up to date.
+pub const HIGHEST_PEER_HORIZON: u64 = 5;
+
+/// Maximum amount of routes to store for each account id.
+pub const MAX_ROUTES_TO_STORE: usize = 5;
 
 /// Maximum number of active peers. Hard limit.
 fn default_max_num_peers() -> u32 {
@@ -35,9 +42,29 @@ fn default_safe_set_size() -> u32 {
 fn default_archival_peer_connections_lower_bound() -> u32 {
     10
 }
+/// Maximum number of peer addresses we should ever send on PeersRequest.
+fn default_max_send_peers() -> u32 {
+    512
+}
 /// Time to persist Accounts Id in the router without removing them in seconds.
 fn default_ttl_account_id_router() -> Duration {
     Duration::from_secs(TTL_ACCOUNT_ID_ROUTER)
+}
+/// Number of hops a message is allowed to travel before being dropped.
+fn default_routed_msg_ttl() -> u8 {
+    ROUTED_MESSAGE_TTL
+}
+fn default_max_routes_to_store() -> usize {
+    MAX_ROUTES_TO_STORE
+}
+fn default_highest_peer_horizon() -> u64 {
+    HIGHEST_PEER_HORIZON
+}
+fn default_push_info_period() -> Duration {
+    Duration::from_millis(100)
+}
+fn default_outbound_disabled() -> bool {
+    false
 }
 /// Period to check on peer status
 fn default_peer_stats_period() -> Duration {
@@ -104,6 +131,9 @@ pub struct Config {
     /// if we are an archival node.
     #[serde(default = "default_archival_peer_connections_lower_bound")]
     pub archival_peer_connections_lower_bound: u32,
+    /// Maximum number of peer addresses we should ever send on PeersRequest.
+    #[serde(default = "default_max_send_peers")]
+    pub max_send_peers: u32,
     /// Handshake timeout.
     pub handshake_timeout: Duration,
     /// Skip waiting for peers before starting node.
@@ -117,6 +147,20 @@ pub struct Config {
     /// Time to persist Accounts Id in the router without removing them in seconds.
     #[serde(default = "default_ttl_account_id_router")]
     pub ttl_account_id_router: Duration,
+    #[serde(default = "default_routed_msg_ttl")]
+    pub routed_message_ttl: u8,
+    /// Maximum number of routes that we should keep track for each Account id in the Routing Table.
+    #[serde(default = "default_max_routes_to_store")]
+    pub max_routes_to_store: usize,
+    /// Height horizon for highest height peers.
+    #[serde(default = "default_highest_peer_horizon")]
+    pub highest_peer_horizon: u64,
+    /// Period between pushing network info to client
+    #[serde(default = "default_push_info_period")]
+    pub push_info_period: Duration,
+    /// Flag to disable outbound connections.
+    #[serde(default = "default_outbound_disabled")]
+    pub outbound_disabled: bool,
     /// Period to check on peer status
     #[serde(default = "default_peer_stats_period")]
     pub peer_stats_period: Duration,
@@ -217,11 +261,17 @@ impl Default for Config {
             peer_recent_time_window: default_peer_recent_time_window(),
             safe_set_size: default_safe_set_size(),
             archival_peer_connections_lower_bound: default_archival_peer_connections_lower_bound(),
+            max_send_peers: default_max_send_peers(),
             handshake_timeout: Duration::from_secs(20),
             skip_sync_wait: false,
             ban_window: Duration::from_secs(3 * 60 * 60),
             blacklist: vec![],
             ttl_account_id_router: default_ttl_account_id_router(),
+            routed_message_ttl: default_routed_msg_ttl(),
+            max_routes_to_store: default_max_routes_to_store(),
+            highest_peer_horizon: default_highest_peer_horizon(),
+            push_info_period: default_push_info_period(),
+            outbound_disabled: default_outbound_disabled(),
             peer_stats_period: default_peer_stats_period(),
             monitor_peers_max_period: default_monitor_peers_max_period(),
             peer_expiration_duration: default_peer_expiration_duration(),

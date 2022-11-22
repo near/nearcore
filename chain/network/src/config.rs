@@ -15,12 +15,6 @@ use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
 
-/// How much height horizon to give to consider peer up to date.
-pub const HIGHEST_PEER_HORIZON: u64 = 5;
-
-/// Maximum amount of routes to store for each account id.
-pub const MAX_ROUTES_TO_STORE: usize = 5;
-
 /// Maximum number of PeerAddts in the ValidatorConfig::endpoints field.
 pub const MAX_PEER_ADDRS: usize = 10;
 
@@ -245,14 +239,14 @@ impl NetworkConfig {
             peer_recent_time_window: cfg.peer_recent_time_window.try_into()?,
             safe_set_size: cfg.safe_set_size,
             archival_peer_connections_lower_bound: cfg.archival_peer_connections_lower_bound,
-            max_send_peers: 512,
+            max_send_peers: cfg.max_send_peers,
             peer_stats_period: cfg.peer_stats_period.try_into()?,
             ttl_account_id_router: cfg.ttl_account_id_router.try_into()?,
-            routed_message_ttl: ROUTED_MESSAGE_TTL,
-            max_routes_to_store: MAX_ROUTES_TO_STORE,
-            highest_peer_horizon: HIGHEST_PEER_HORIZON,
-            push_info_period: time::Duration::milliseconds(100),
-            outbound_disabled: false,
+            routed_message_ttl: cfg.routed_message_ttl,
+            max_routes_to_store: cfg.max_routes_to_store,
+            highest_peer_horizon: cfg.highest_peer_horizon,
+            push_info_period: cfg.push_info_period.try_into()?,
+            outbound_disabled: cfg.outbound_disabled,
             archive,
             accounts_data_broadcast_rate_limit: demux::RateLimit { qps: 0.1, burst: 1 },
             routing_table_update_rate_limit: demux::RateLimit { qps: 0.5, burst: 1 },

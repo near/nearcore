@@ -10,8 +10,6 @@ use anyhow::{anyhow, bail, Context};
 use near_primitives::time::Clock;
 use num_rational::Rational32;
 use serde::{Deserialize, Serialize};
-#[cfg(test)]
-use tempfile::tempdir;
 use tracing::{info, warn};
 
 use near_chain_configs::{
@@ -151,6 +149,10 @@ pub const MAX_INFLATION_RATE: Rational32 = Rational32::new_raw(1, 20);
 pub const PROTOCOL_UPGRADE_STAKE_THRESHOLD: Rational32 = Rational32::new_raw(4, 5);
 
 /// Serde default only supports functions without parameters.
+fn default_log_summary_period() -> Duration {
+    Duration::from_secs(10)
+}
+
 fn default_reduce_wait_for_missing_block() -> Duration {
     Duration::from_millis(REDUCE_DELAY_FOR_MISSING_BLOCKS)
 }
@@ -207,6 +209,9 @@ fn default_trie_viewer_state_size_limit() -> Option<u64> {
 pub struct Consensus {
     /// Minimum number of peers to start syncing.
     pub min_num_peers: usize,
+    /// Interval between printing log summary.
+    #[serde(default = "default_log_summary_period")]
+    pub log_summary_period: Duration,
     /// Duration to check for producing / skipping block.
     pub block_production_tracking_delay: Duration,
     /// Minimum duration before producing block.
@@ -262,6 +267,7 @@ impl Default for Consensus {
     fn default() -> Self {
         Consensus {
             min_num_peers: 3,
+            log_summary_period: default_log_summary_period(),
             block_production_tracking_delay: Duration::from_millis(BLOCK_PRODUCTION_TRACKING_DELAY),
             min_block_production_delay: Duration::from_millis(MIN_BLOCK_PRODUCTION_DELAY),
             max_block_production_delay: Duration::from_millis(MAX_BLOCK_PRODUCTION_DELAY),
@@ -581,7 +587,7 @@ impl NearConfig {
                     .header_sync_expected_height_per_second,
                 state_sync_timeout: config.consensus.state_sync_timeout,
                 min_num_peers: config.consensus.min_num_peers,
-                log_summary_period: Duration::from_secs(10),
+                log_summary_period: config.consensus.log_summary_period,
                 produce_empty_blocks: config.consensus.produce_empty_blocks,
                 epoch_length: genesis.config.epoch_length,
                 num_block_producer_seats: genesis.config.num_block_producer_seats,
@@ -1341,83 +1347,213 @@ pub fn load_test_config(seed: &str, port: u16, genesis: Genesis) -> NearConfig {
     NearConfig::new(config, genesis, signer.into(), validator_signer).unwrap()
 }
 
-#[test]
-fn test_init_config_localnet() {
-    // Check that we can initialize the config with multiple shards.
-    let temp_dir = tempdir().unwrap();
-    init_configs(
-        &temp_dir.path(),
-        Some("localnet"),
-        None,
-        Some("seed1"),
-        3,
-        false,
-        None,
-        false,
-        None,
-        None,
-        false,
-        None,
-        None,
-        None,
-    )
-    .unwrap();
-    let genesis =
-        Genesis::from_file(temp_dir.path().join("genesis.json"), GenesisValidationMode::UnsafeFast);
-    assert_eq!(genesis.config.chain_id, "localnet");
-    assert_eq!(genesis.config.shard_layout.num_shards(), 3);
-    assert_eq!(
-        account_id_to_shard_id(
-            &AccountId::from_str("shard0.test.near").unwrap(),
-            &genesis.config.shard_layout
-        ),
-        0
-    );
-    assert_eq!(
-        account_id_to_shard_id(
-            &AccountId::from_str("shard1.test.near").unwrap(),
-            &genesis.config.shard_layout
-        ),
-        1
-    );
-    assert_eq!(
-        account_id_to_shard_id(
-            &AccountId::from_str("foobar.near").unwrap(),
-            &genesis.config.shard_layout
-        ),
-        2
-    );
-}
+#[cfg(test)]
+mod test {
+    use super::*;
+    use tempfile::tempdir;
 
-/// Tests that loading a config.json file works and results in values being
-/// correctly parsed and defaults being applied correctly applied.
-#[test]
-fn test_config_from_file() {
-    let base = Path::new(env!("CARGO_MANIFEST_DIR"));
-
-    for (has_gc, path) in
-        [(true, "res/example-config-gc.json"), (false, "res/example-config-no-gc.json")]
-    {
-        let path = base.join(path);
-        let data = std::fs::read(path).unwrap();
-        let tmp = tempfile::NamedTempFile::new().unwrap();
-        tmp.as_file().write_all(&data).unwrap();
-
-        let config = Config::from_file(&tmp.into_temp_path()).unwrap();
-
-        // TODO(mina86): We might want to add more checks.  Looking at all
-        // values is probably not worth it but there may be some other defaults
-        // we want to ensure that they happen.
-        let want_gc = if has_gc {
-            GCConfig { gc_blocks_limit: 42, gc_fork_clean_step: 420, gc_num_epochs_to_keep: 24 }
-        } else {
-            GCConfig { gc_blocks_limit: 2, gc_fork_clean_step: 100, gc_num_epochs_to_keep: 5 }
-        };
-        assert_eq!(want_gc, config.gc);
-
-        assert_eq!(
-            vec!["https://explorer.mainnet.near.org/api/nodes".to_string()],
-            config.telemetry.endpoints
+    #[test]
+    fn test_init_config_localnet() {
+        // Check that we can initialize the config with multiple shards.
+        let temp_dir = tempdir().unwrap();
+        init_configs(
+            &temp_dir.path(),
+            Some("localnet"),
+            None,
+            Some("seed1"),
+            3,
+            false,
+            None,
+            false,
+            None,
+            None,
+            false,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        let genesis = Genesis::from_file(
+            temp_dir.path().join("genesis.json"),
+            GenesisValidationMode::UnsafeFast,
         );
+        assert_eq!(genesis.config.chain_id, "localnet");
+        assert_eq!(genesis.config.shard_layout.num_shards(), 3);
+        assert_eq!(
+            account_id_to_shard_id(
+                &AccountId::from_str("shard0.test.near").unwrap(),
+                &genesis.config.shard_layout
+            ),
+            0
+        );
+        assert_eq!(
+            account_id_to_shard_id(
+                &AccountId::from_str("shard1.test.near").unwrap(),
+                &genesis.config.shard_layout
+            ),
+            1
+        );
+        assert_eq!(
+            account_id_to_shard_id(
+                &AccountId::from_str("foobar.near").unwrap(),
+                &genesis.config.shard_layout
+            ),
+            2
+        );
+    }
+
+    /// Tests that loading a config.json file works and results in values being
+    /// correctly parsed and defaults being applied correctly applied.
+    #[test]
+    fn test_config_from_file() {
+        let base = Path::new(env!("CARGO_MANIFEST_DIR"));
+
+        for (has_gc, path) in
+            [(true, "res/example-config-gc.json"), (false, "res/example-config-no-gc.json")]
+        {
+            let path = base.join(path);
+            let data = std::fs::read(path).unwrap();
+            let tmp = tempfile::NamedTempFile::new().unwrap();
+            tmp.as_file().write_all(&data).unwrap();
+
+            let config = Config::from_file(&tmp.into_temp_path()).unwrap();
+
+            // TODO(mina86): We might want to add more checks.  Looking at all
+            // values is probably not worth it but there may be some other defaults
+            // we want to ensure that they happen.
+            let want_gc = if has_gc {
+                GCConfig { gc_blocks_limit: 42, gc_fork_clean_step: 420, gc_num_epochs_to_keep: 24 }
+            } else {
+                GCConfig { gc_blocks_limit: 2, gc_fork_clean_step: 100, gc_num_epochs_to_keep: 5 }
+            };
+            assert_eq!(want_gc, config.gc);
+
+            assert_eq!(
+                vec!["https://explorer.mainnet.near.org/api/nodes".to_string()],
+                config.telemetry.endpoints
+            );
+        }
+    }
+
+    /// Check that value for NearConfig field is configurable from config.json.
+    /// Flow:
+    ///  - Create tempdir and config setup
+    ///  - Create default Config
+    ///  - Change necessary field in default Config
+    ///  - Write Config to config.json in tempdir
+    ///  - Read NearConfig from tempdir
+    ///  - Check that necessary value in NearConfig is correct
+    /// Parameters:
+    ///  fields: Vec<&str> -- path to value that needs to be changed in config. e.g. ["consensus", "log_summary_period"]
+    ///  value: T -- desired value that needs to be assigned. Should be something pretty random.
+    ///  near_config_to_value -- function that returns field that we need to check from NearConfig.
+    fn check_value_is_taken_from_config<
+        T: Serialize + Clone + std::cmp::PartialEq + std::fmt::Debug,
+    >(
+        fields: Vec<&str>,
+        value: T,
+        near_config_to_value: Box<dyn Fn(&NearConfig) -> T>,
+    ) {
+        let temp_dir = tempdir().unwrap();
+        init_configs(
+            &temp_dir.path(),
+            Some("localnet"),
+            None,
+            Some("seed1"),
+            3,
+            false,
+            None,
+            false,
+            None,
+            None,
+            false,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        let default_config = Config::default();
+        let mut config_json = serde_json::to_value(default_config).unwrap();
+        let mut config_json_value = &mut config_json;
+        for f in &fields {
+            config_json_value = &mut config_json_value[f];
+        }
+
+        *config_json_value = serde_json::to_value(&value).unwrap();
+
+        let path = temp_dir.path().join("config.json");
+        let mut file = File::create(path).unwrap();
+        let str = serde_json::to_string_pretty(&config_json).unwrap();
+        file.write_all(str.as_bytes()).unwrap();
+
+        let near_config =
+            load_config(&temp_dir.path(), near_chain_configs::GenesisValidationMode::Full)
+                .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
+
+        assert_eq!(near_config_to_value(&near_config), value);
+    }
+
+    #[test]
+    fn test_log_summary_period() {
+        check_value_is_taken_from_config(
+            vec!["consensus", "log_summary_period"],
+            Duration::from_millis(198345),
+            Box::new(|nc| nc.client_config.log_summary_period),
+        );
+    }
+
+    #[test]
+    fn test_max_send_peers() {
+        check_value_is_taken_from_config(
+            vec!["network", "max_send_peers"],
+            19234,
+            Box::new(|nc| nc.network_config.max_send_peers),
+        )
+    }
+
+    #[test]
+    fn test_routed_message_ttl() {
+        check_value_is_taken_from_config(
+            vec!["network", "routed_message_ttl"],
+            17 as u8,
+            Box::new(|nc| nc.network_config.routed_message_ttl),
+        )
+    }
+
+    #[test]
+    fn test_max_routes_to_store() {
+        check_value_is_taken_from_config(
+            vec!["network", "max_routes_to_store"],
+            1782 as usize,
+            Box::new(|nc| nc.network_config.max_routes_to_store),
+        )
+    }
+
+    #[test]
+    fn test_highest_peer_horizon() {
+        check_value_is_taken_from_config(
+            vec!["network", "highest_peer_horizon"],
+            1791 as u64,
+            Box::new(|nc| nc.network_config.highest_peer_horizon),
+        )
+    }
+
+    #[test]
+    fn test_push_info_period() {
+        check_value_is_taken_from_config(
+            vec!["network", "push_info_period"],
+            Duration::from_millis(19384),
+            Box::new(|nc| nc.network_config.push_info_period.try_into().unwrap()),
+        )
+    }
+
+    #[test]
+    fn test_outbound_disabled() {
+        check_value_is_taken_from_config(
+            vec!["network", "outbound_disabled"],
+            true,
+            Box::new(|nc| nc.network_config.outbound_disabled),
+        )
     }
 }
