@@ -3,7 +3,6 @@ use crate::network_protocol::testonly as data;
 use crate::network_protocol::{Edge, Encoding, Ping, RoutedMessageBody, RoutingTableUpdate};
 use crate::peer;
 use crate::peer_manager;
-use crate::peer_manager::peer_manager_actor;
 use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::peer_manager::testonly::start as start_pm;
 use crate::peer_manager::testonly::Event;
@@ -19,7 +18,7 @@ use rand::Rng as _;
 use std::collections::HashSet;
 use std::sync::Arc;
 
-// test routing for a simple two-node network
+// test routing in a two-node network before and after connecting the nodes
 #[tokio::test]
 async fn simple() {
     init_test_logger();
@@ -28,18 +27,24 @@ async fn simple() {
     let mut clock = time::FakeClock::default();
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
+    tracing::info!(target:"test", "start two nodes");
     let pm0 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
     let pm1 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
 
     let id0 = pm0.cfg.node_id();
     let id1 = pm1.cfg.node_id();
 
+    tracing::info!(target:"test", "wait for {id0} routing table");
     pm0.wait_for_routing_table(&mut clock, &[]).await;
+    tracing::info!(target:"test", "wait for {id1} routing table");
     pm1.wait_for_routing_table(&mut clock, &[]).await;
 
+    tracing::info!(target:"test", "connect the nodes");
     pm0.connect_to(&pm1.peer_info()).await;
 
+    tracing::info!(target:"test", "wait for {id0} routing table");
     pm0.wait_for_routing_table(&mut clock, &[(id1.clone(), vec![id1.clone()])]).await;
+    tracing::info!(target:"test", "wait for {id1} routing table");
     pm1.wait_for_routing_table(&mut clock, &[(id0.clone(), vec![id0.clone()])]).await;
 }
 
@@ -52,6 +57,7 @@ async fn three_nodes_path() {
     let mut clock = time::FakeClock::default();
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
+    tracing::info!(target:"test", "connect three nodes in a line");
     let pm0 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
     let pm1 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
     let pm2 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
@@ -63,16 +69,19 @@ async fn three_nodes_path() {
     let id1 = pm1.cfg.node_id();
     let id2 = pm2.cfg.node_id();
 
+    tracing::info!(target:"test", "wait for {id0} routing table");
     pm0.wait_for_routing_table(
         &mut clock,
         &[(id1.clone(), vec![id1.clone()]), (id2.clone(), vec![id1.clone()])],
     )
     .await;
+    tracing::info!(target:"test", "wait for {id1} routing table");
     pm1.wait_for_routing_table(
         &mut clock,
         &[(id0.clone(), vec![id0.clone()]), (id2.clone(), vec![id2.clone()])],
     )
     .await;
+    tracing::info!(target:"test", "wait for {id2} routing table");
     pm2.wait_for_routing_table(
         &mut clock,
         &[(id0.clone(), vec![id1.clone()]), (id1.clone(), vec![id1.clone()])],
@@ -80,7 +89,7 @@ async fn three_nodes_path() {
     .await;
 }
 
-// test routing for three nodes in a line, then for a triangle
+// test routing for three nodes in a line, then test routing after completing the triangle
 #[tokio::test]
 async fn three_nodes_star() {
     init_test_logger();
@@ -89,6 +98,7 @@ async fn three_nodes_star() {
     let mut clock = time::FakeClock::default();
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
+    tracing::info!(target:"test", "connect three nodes in a line");
     let pm0 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
     let pm1 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
     let pm2 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
@@ -100,34 +110,41 @@ async fn three_nodes_star() {
     let id1 = pm1.cfg.node_id();
     let id2 = pm2.cfg.node_id();
 
+    tracing::info!(target:"test", "wait for {id0} routing table");
     pm0.wait_for_routing_table(
         &mut clock,
         &[(id1.clone(), vec![id1.clone()]), (id2.clone(), vec![id1.clone()])],
     )
     .await;
+    tracing::info!(target:"test", "wait for {id1} routing table");
     pm1.wait_for_routing_table(
         &mut clock,
         &[(id0.clone(), vec![id0.clone()]), (id2.clone(), vec![id2.clone()])],
     )
     .await;
+    tracing::info!(target:"test", "wait for {id2} routing table");
     pm2.wait_for_routing_table(
         &mut clock,
         &[(id0.clone(), vec![id1.clone()]), (id1.clone(), vec![id1.clone()])],
     )
     .await;
 
+    tracing::info!(target:"test", "connect {id0} and {id2}");
     pm0.connect_to(&pm2.peer_info()).await;
 
+    tracing::info!(target:"test", "wait for {id0} routing table");
     pm0.wait_for_routing_table(
         &mut clock,
         &[(id1.clone(), vec![id1.clone()]), (id2.clone(), vec![id2.clone()])],
     )
     .await;
+    tracing::info!(target:"test", "wait for {id1} routing table");
     pm1.wait_for_routing_table(
         &mut clock,
         &[(id0.clone(), vec![id0.clone()]), (id2.clone(), vec![id2.clone()])],
     )
     .await;
+    tracing::info!(target:"test", "wait for {id2} routing table");
     pm2.wait_for_routing_table(
         &mut clock,
         &[(id0.clone(), vec![id0.clone()]), (id1.clone(), vec![id1.clone()])],
@@ -135,7 +152,8 @@ async fn three_nodes_star() {
     .await;
 }
 
-// test routing on two disjoint two-node networks, then on a square
+// test routing in a network with two connected components having two nodes each,
+// then test routing after joining them into a square
 #[tokio::test]
 async fn join_components() {
     init_test_logger();
@@ -144,6 +162,7 @@ async fn join_components() {
     let mut clock = time::FakeClock::default();
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
+    tracing::info!(target:"test", "create two connected components having two nodes each");
     let pm0 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
     let pm1 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
     let pm2 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
@@ -157,21 +176,21 @@ async fn join_components() {
     pm0.connect_to(&pm1.peer_info()).await;
     pm2.connect_to(&pm3.peer_info()).await;
 
-    // TODO: Connecting nodes 0 and 1 then waiting for pm0's routing table to update works just fine.
-    // If we connect nodes 2 and 3 in between, pm0.wait_for_routing_table misses the SyncRoutingTable
-    // event which would prompt it to advance the clock. This workaround advancing the clock manually
-    // can be removed if we can improve wait_for_routing_table's behavior.
-    clock.advance(peer_manager_actor::UPDATE_ROUTING_TABLE_INTERVAL);
-
+    tracing::info!(target:"test", "wait for {id0} routing table");
     pm0.wait_for_routing_table(&mut clock, &[(id1.clone(), vec![id1.clone()])]).await;
+    tracing::info!(target:"test", "wait for {id1} routing table");
     pm1.wait_for_routing_table(&mut clock, &[(id0.clone(), vec![id0.clone()])]).await;
 
+    tracing::info!(target:"test", "wait for {id2} routing table");
     pm2.wait_for_routing_table(&mut clock, &[(id3.clone(), vec![id3.clone()])]).await;
+    tracing::info!(target:"test", "wait for {id3} routing table");
     pm3.wait_for_routing_table(&mut clock, &[(id2.clone(), vec![id2.clone()])]).await;
 
+    tracing::info!(target:"test", "join the two components into a square");
     pm0.connect_to(&pm2.peer_info()).await;
     pm3.connect_to(&pm1.peer_info()).await;
 
+    tracing::info!(target:"test", "wait for {id0} routing table");
     pm0.wait_for_routing_table(
         &mut clock,
         &[
@@ -181,6 +200,7 @@ async fn join_components() {
         ],
     )
     .await;
+    tracing::info!(target:"test", "wait for {id1} routing table");
     pm1.wait_for_routing_table(
         &mut clock,
         &[
@@ -190,6 +210,7 @@ async fn join_components() {
         ],
     )
     .await;
+    tracing::info!(target:"test", "wait for {id2} routing table");
     pm2.wait_for_routing_table(
         &mut clock,
         &[
@@ -199,6 +220,7 @@ async fn join_components() {
         ],
     )
     .await;
+    tracing::info!(target:"test", "wait for {id3} routing table");
     pm3.wait_for_routing_table(
         &mut clock,
         &[
@@ -219,6 +241,7 @@ async fn simple_remove() {
     let mut clock = time::FakeClock::default();
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
+    tracing::info!(target:"test", "connect 3 nodes in a line");
     let pm0 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
     let pm1 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
     let pm2 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
@@ -230,16 +253,19 @@ async fn simple_remove() {
     let id1 = pm1.cfg.node_id();
     let id2 = pm2.cfg.node_id();
 
+    tracing::info!(target:"test", "wait for {id0} routing table");
     pm0.wait_for_routing_table(
         &mut clock,
         &[(id1.clone(), vec![id1.clone()]), (id2.clone(), vec![id1.clone()])],
     )
     .await;
+    tracing::info!(target:"test", "wait for {id1} routing table");
     pm1.wait_for_routing_table(
         &mut clock,
         &[(id0.clone(), vec![id0.clone()]), (id2.clone(), vec![id2.clone()])],
     )
     .await;
+    tracing::info!(target:"test", "wait for {id2} routing table");
     pm2.wait_for_routing_table(
         &mut clock,
         &[(id0.clone(), vec![id1.clone()]), (id1.clone(), vec![id1.clone()])],
@@ -249,9 +275,10 @@ async fn simple_remove() {
     tracing::info!(target:"test","stop {id1}");
     drop(pm1);
 
-    // TODO: figure out why these checks fail
-    //pm0.wait_for_routing_table(&mut clock, &[]).await;
-    //pm2.wait_for_routing_table(&mut clock, &[]).await;
+    tracing::info!(target:"test", "wait for {id0} routing table");
+    pm0.wait_for_routing_table(&mut clock, &[]).await;
+    tracing::info!(target:"test", "wait for {id2} routing table");
+    pm2.wait_for_routing_table(&mut clock, &[]).await;
 }
 
 // test that TTL is handled property.
