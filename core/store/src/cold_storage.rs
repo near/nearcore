@@ -23,6 +23,7 @@ struct StoreWithCache<'a> {
 }
 
 /// Updates provided cold database from provided hot store with information about block at `height`.
+/// Block as `height` has to be final.
 /// Wraps hot store in `StoreWithCache` for optimizing reads.
 ///
 /// First, we read from hot store information necessary
@@ -96,6 +97,12 @@ fn copy_from_store<D: Database>(
     return Ok(());
 }
 
+/// This function sets HEAD key in BlockMisc column to the Tip that reflect provided height.
+/// This function should be used after all of the blocks from genesis to `height` inclusive had been copied.
+///
+/// This method relies on the fact that BlockHeight and BlockHeader are not garbage collectable.
+/// (to construct the Tip we query hot_store for block hash and block header)
+/// If this is to change, caller should be careful about `height` not being garbage collected in hot storage yet.
 pub fn update_cold_head<D: Database>(
     cold_db: &ColdDB<D>,
     hot_store: &Store,
