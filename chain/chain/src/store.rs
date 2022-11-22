@@ -1137,12 +1137,10 @@ impl ChainAccessForFlatStorage for ChainStore {
     }
 
     fn get_block_hashes_at_height(&self, height: BlockHeight) -> HashSet<CryptoHash> {
-        self.get_all_block_hashes_by_height(height)
-            .unwrap()
-            .values()
-            .flatten()
-            .copied()
-            .collect::<HashSet<_>>()
+        match self.get_all_block_hashes_by_height(height) {
+            Ok(hashes) => hashes.values().flatten().copied().collect::<HashSet<_>>(),
+            Err(_) => Default::default(),
+        }
     }
 }
 
@@ -2992,6 +2990,7 @@ mod tests {
     use crate::store::{ChainStoreAccess, GCMode};
     use crate::store_validator::StoreValidator;
     use crate::test_utils::{KeyValueRuntime, ValidatorSchedule};
+    use crate::types::ChainConfig;
     use crate::{Chain, ChainGenesis, DoomslugThresholdMode, RuntimeAdapter};
 
     fn get_chain() -> Chain {
@@ -3005,8 +3004,13 @@ mod tests {
             .block_producers_per_epoch(vec![vec!["test1".parse().unwrap()]]);
         let runtime_adapter =
             Arc::new(KeyValueRuntime::new_with_validators(store, vs, epoch_length));
-        Chain::new(runtime_adapter, &chain_genesis, DoomslugThresholdMode::NoApprovals, true)
-            .unwrap()
+        Chain::new(
+            runtime_adapter,
+            &chain_genesis,
+            DoomslugThresholdMode::NoApprovals,
+            ChainConfig::test(),
+        )
+        .unwrap()
     }
 
     #[test]

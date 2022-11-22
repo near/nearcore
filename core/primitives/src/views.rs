@@ -5,10 +5,12 @@
 //! from the source structure in the relevant `From<SourceStruct>` impl.
 use std::collections::HashMap;
 use std::fmt;
+use std::ops::Range;
 use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::DateTime;
+use near_primitives_core::config::ActionCosts;
 use serde::{Deserialize, Serialize};
 
 use near_crypto::{PublicKey, Signature};
@@ -333,7 +335,9 @@ pub struct ValidatorInfo {
 pub struct PeerInfoView {
     pub addr: String,
     pub account_id: Option<AccountId>,
-    pub height: BlockHeight,
+    pub height: Option<BlockHeight>,
+    pub block_hash: Option<CryptoHash>,
+    pub is_highest_block_invalid: bool,
     pub tracked_shards: Vec<ShardId>,
     pub archival: bool,
     pub peer_id: PublicKey,
@@ -391,6 +395,18 @@ pub enum SyncStatusView {
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct PeerStoreView {
     pub peer_states: Vec<KnownPeerStateView>,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct EdgeView {
+    pub peer0: PeerId,
+    pub peer1: PeerId,
+    pub nonce: u64,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct NetworkGraphView {
+    pub edges: Vec<EdgeView>,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
@@ -1233,28 +1249,52 @@ impl From<ExecutionMetadata> for ExecutionMetadataView {
         let gas_profile = match metadata {
             ExecutionMetadata::V1 => None,
             ExecutionMetadata::V2(profile_data) => {
-                let mut costs: Vec<_> = Cost::ALL
-                    .iter()
-                    .filter(|&cost| profile_data[*cost] > 0)
-                    .map(|&cost| CostGasUsed {
-                        cost_category: match cost {
-                            Cost::ActionCost { .. } => "ACTION_COST",
-                            Cost::ExtCost { .. } => "WASM_HOST_COST",
-                            Cost::WasmInstruction => "WASM_HOST_COST",
-                        }
-                        .to_string(),
-                        cost: match cost {
-                            Cost::ActionCost { action_cost_kind: action_cost } => {
-                                format!("{:?}", action_cost).to_ascii_uppercase()
+                let mut costs: Vec<_> =
+                    Cost::iter()
+                        .filter(|&cost| profile_data[cost] > 0)
+                        .map(|cost| CostGasUsed {
+                            cost_category: match cost {
+                                Cost::ActionCost { .. } => "ACTION_COST",
+                                Cost::ExtCost { .. } => "WASM_HOST_COST",
+                                Cost::WasmInstruction => "WASM_HOST_COST",
                             }
-                            Cost::ExtCost { ext_cost_kind: ext_cost } => {
-                                format!("{:?}", ext_cost).to_ascii_uppercase()
-                            }
-                            Cost::WasmInstruction => "WASM_INSTRUCTION".to_string(),
-                        },
-                        gas_used: profile_data[cost],
-                    })
-                    .collect();
+                            .to_string(),
+                            cost: match cost {
+                                // preserve old behavior that conflated some action
+                                // costs for profile (duplicates are removed afterwards)
+                                Cost::ActionCost {
+                                    action_cost_kind:
+                                        ActionCosts::deploy_contract_base
+                                        | ActionCosts::deploy_contract_byte,
+                                } => "DEPLOY_CONTRACT".to_owned(),
+                                Cost::ActionCost {
+                                    action_cost_kind:
+                                        ActionCosts::function_call_base
+                                        | ActionCosts::function_call_byte,
+                                } => "FUNCTION_CALL".to_owned(),
+                                Cost::ActionCost {
+                                    action_cost_kind:
+                                        ActionCosts::add_full_access_key
+                                        | ActionCosts::add_function_call_key_base
+                                        | ActionCosts::add_function_call_key_byte,
+                                } => "ADD_KEY".to_owned(),
+                                Cost::ActionCost {
+                                    action_cost_kind:
+                                        ActionCosts::new_action_receipt
+                                        | ActionCosts::new_data_receipt_base,
+                                } => "NEW_RECEIPT".to_owned(),
+                                // other costs have always been mapped one-to-one
+                                Cost::ActionCost { action_cost_kind: action_cost } => {
+                                    format!("{:?}", action_cost).to_ascii_uppercase()
+                                }
+                                Cost::ExtCost { ext_cost_kind: ext_cost } => {
+                                    format!("{:?}", ext_cost).to_ascii_uppercase()
+                                }
+                                Cost::WasmInstruction => "WASM_INSTRUCTION".to_string(),
+                            },
+                            gas_used: profile_data[cost],
+                        })
+                        .collect();
 
                 // The order doesn't really matter, but the default one is just
                 // historical, which is especially unintuitive, so let's sort
@@ -1265,6 +1305,9 @@ impl From<ExecutionMetadata> for ExecutionMetadataView {
                 costs.sort_by(|lhs, rhs| {
                     lhs.cost_category.cmp(&rhs.cost_category).then(lhs.cost.cmp(&rhs.cost))
                 });
+
+                // need to remove duplicate entries due to cost conflation
+                costs.dedup();
 
                 Some(costs)
             }
@@ -1918,3 +1961,6 @@ impl From<StateChangeWithCause> for StateChangeWithCauseView {
 }
 
 pub type StateChangesView = Vec<StateChangeWithCauseView>;
+
+/// Maintenance windows view are a vector of maintenance window.
+pub type MaintenanceWindowsView = Vec<Range<BlockHeight>>;

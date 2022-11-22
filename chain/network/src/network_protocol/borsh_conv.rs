@@ -98,6 +98,8 @@ pub enum ParsePeerMessageError {
     DeprecatedRoutingTableSyncV2,
     #[error("EpochSync is deprecated")]
     DeprecatedEpochSync,
+    #[error("ResponseUpdateNonce is deprecated")]
+    DeprecatedResponseUpdateNonce,
 }
 
 impl TryFrom<&net::PeerMessage> for mem::PeerMessage {
@@ -113,7 +115,9 @@ impl TryFrom<&net::PeerMessage> for mem::PeerMessage {
                 mem::PeerMessage::SyncRoutingTable(rtu.into())
             }
             net::PeerMessage::RequestUpdateNonce(e) => mem::PeerMessage::RequestUpdateNonce(e),
-            net::PeerMessage::ResponseUpdateNonce(e) => mem::PeerMessage::ResponseUpdateNonce(e),
+            net::PeerMessage::_ResponseUpdateNonce => {
+                return Err(Self::Error::DeprecatedResponseUpdateNonce)
+            }
             net::PeerMessage::PeersRequest => mem::PeerMessage::PeersRequest,
             net::PeerMessage::PeersResponse(pis) => mem::PeerMessage::PeersResponse(pis),
             net::PeerMessage::BlockHeadersRequest(bhs) => {
@@ -123,9 +127,11 @@ impl TryFrom<&net::PeerMessage> for mem::PeerMessage {
             net::PeerMessage::BlockRequest(bh) => mem::PeerMessage::BlockRequest(bh),
             net::PeerMessage::Block(b) => mem::PeerMessage::Block(b),
             net::PeerMessage::Transaction(t) => mem::PeerMessage::Transaction(t),
-            net::PeerMessage::Routed(r) => {
-                mem::PeerMessage::Routed(Box::new(RoutedMessageV2 { msg: *r, created_at: None }))
-            }
+            net::PeerMessage::Routed(r) => mem::PeerMessage::Routed(Box::new(RoutedMessageV2 {
+                msg: *r,
+                created_at: None,
+                num_hops: Some(0),
+            })),
             net::PeerMessage::Disconnect => mem::PeerMessage::Disconnect,
             net::PeerMessage::Challenge(c) => mem::PeerMessage::Challenge(c),
             net::PeerMessage::_HandshakeV2 => return Err(Self::Error::DeprecatedHandshakeV2),
@@ -156,7 +162,6 @@ impl From<&mem::PeerMessage> for net::PeerMessage {
                 net::PeerMessage::SyncRoutingTable(rtu.into())
             }
             mem::PeerMessage::RequestUpdateNonce(e) => net::PeerMessage::RequestUpdateNonce(e),
-            mem::PeerMessage::ResponseUpdateNonce(e) => net::PeerMessage::ResponseUpdateNonce(e),
 
             // This message is not supported, we translate it to an empty RoutingTableUpdate.
             mem::PeerMessage::SyncAccountsData(_) => {

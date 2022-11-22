@@ -19,9 +19,9 @@ use tracing::info;
 use near_chain_configs::GenesisConfig;
 use near_client::{
     ClientActor, DebugStatus, GetBlock, GetBlockProof, GetChunk, GetExecutionOutcome, GetGasPrice,
-    GetNetworkInfo, GetNextLightClientBlock, GetProtocolConfig, GetReceipt, GetStateChanges,
-    GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered, ProcessTxRequest,
-    ProcessTxResponse, Query, Status, TxStatus, ViewClientActor,
+    GetMaintenanceWindows, GetNetworkInfo, GetNextLightClientBlock, GetProtocolConfig, GetReceipt,
+    GetStateChanges, GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered,
+    ProcessTxRequest, ProcessTxResponse, Query, Status, TxStatus, ViewClientActor,
 };
 pub use near_jsonrpc_client as client;
 use near_jsonrpc_primitives::errors::RpcError;
@@ -346,6 +346,9 @@ impl JsonRpcHandler {
             "EXPERIMENTAL_validators_ordered" => {
                 process_method_call(request, |params| self.validators_ordered(params)).await
             }
+            "EXPERIMENTAL_maintenance_windows" => {
+                process_method_call(request, |params| self.maintenance_windows(params)).await
+            }
             #[cfg(feature = "sandbox")]
             "sandbox_patch_state" => {
                 process_method_call(request, |params| self.sandbox_patch_state(params)).await
@@ -379,7 +382,6 @@ impl JsonRpcHandler {
         request: Request,
     ) -> Result<Result<Value, RpcError>, Request> {
         Ok(match request.method.as_ref() {
-            "adv_set_weight" => self.adv_set_sync_info(request.params).await,
             "adv_disable_header_sync" => self.adv_disable_header_sync(request.params).await,
             "adv_disable_doomslug" => self.adv_disable_doomslug(request.params).await,
             "adv_produce_blocks" => self.adv_produce_blocks(request.params).await,
@@ -796,6 +798,10 @@ impl JsonRpcHandler {
                         .peer_manager_send(near_network::debug::GetDebugStatus::PeerStore)
                         .await?
                         .rpc_into(),
+                    "/debug/api/network_graph" => self
+                        .peer_manager_send(near_network::debug::GetDebugStatus::Graph)
+                        .await?
+                        .rpc_into(),
                     _ => return Ok(None),
                 };
             return Ok(Some(near_jsonrpc_primitives::types::status::RpcDebugStatusResponse {
@@ -1054,6 +1060,22 @@ impl JsonRpcHandler {
         }
         None
     }
+
+    /// Returns the future windows for maintenance in current epoch for the specified account
+    /// In the maintenance windows, the node will not be block producer or chunk producer
+    async fn maintenance_windows(
+        &self,
+        request: near_jsonrpc_primitives::types::maintenance::RpcMaintenanceWindowsRequest,
+    ) -> Result<
+        near_jsonrpc_primitives::types::maintenance::RpcMaintenanceWindowsResponse,
+        near_jsonrpc_primitives::types::maintenance::RpcMaintenanceWindowsError,
+    > {
+        let near_jsonrpc_primitives::types::maintenance::RpcMaintenanceWindowsRequest {
+            account_id,
+        } = request;
+        let windows = self.view_client_send(GetMaintenanceWindows { account_id }).await?;
+        Ok(windows.iter().map(|r| (r.start, r.end)).collect())
+    }
 }
 
 #[cfg(feature = "sandbox")]
@@ -1159,19 +1181,6 @@ impl JsonRpcHandler {
 
 #[cfg(feature = "test_features")]
 impl JsonRpcHandler {
-    async fn adv_set_sync_info(&self, params: Option<Value>) -> Result<Value, RpcError> {
-        let height = crate::api::parse_params::<u64>(params)?;
-        actix::spawn(
-            self.client_addr
-                .send(
-                    near_network::types::NetworkAdversarialMessage::AdvSetSyncInfo(height)
-                        .with_span_context(),
-                )
-                .map(|_| ()),
-        );
-        Ok(Value::String("".to_string()))
-    }
-
     async fn adv_disable_header_sync(&self, _params: Option<Value>) -> Result<Value, RpcError> {
         actix::spawn(
             self.client_addr

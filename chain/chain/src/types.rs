@@ -1,4 +1,3 @@
-use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -15,7 +14,7 @@ use near_client_primitives::types::StateSplitApplyingStatus;
 use near_pool::types::PoolIterator;
 use near_primitives::challenge::{ChallengesResult, SlashedValidator};
 use near_primitives::checked_feature;
-use near_primitives::errors::{EpochError, InvalidTxError};
+use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
@@ -237,6 +236,20 @@ pub struct ChainGenesis {
     pub protocol_version: ProtocolVersion,
 }
 
+pub struct ChainConfig {
+    /// Whether to save `TrieChanges` on disk or not.
+    pub save_trie_changes: bool,
+    /// Number of threads to execute background migration work.
+    /// Currently used for flat storage background creation.
+    pub background_migration_threads: usize,
+}
+
+impl ChainConfig {
+    pub fn test() -> Self {
+        Self { save_trie_changes: true, background_migration_threads: 1 }
+    }
+}
+
 impl ChainGenesis {
     pub fn new(genesis: &Genesis) -> Self {
         Self {
@@ -265,9 +278,9 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
 
     fn store(&self) -> &Store;
 
-    /// Returns trie. Since shard layout may change from epoch to epoch, `shard_id` itself is
-    /// not enough to identify the trie. `prev_hash` is used to identify the epoch the given
-    /// `shard_id` is at.
+    /// Returns trie with non-view cache for given `state_root`. `prev_hash` is used to access flat storage and to
+    /// identify the epoch the given `shard_id` is at.
+    /// Note that `prev_hash` and `state_root` must correspond to the same block.
     fn get_trie_for_shard(
         &self,
         shard_id: ShardId,
@@ -276,7 +289,7 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
         use_flat_storage: bool,
     ) -> Result<Trie, Error>;
 
-    /// Returns trie with view cache
+    /// Same as `get_trie_for_shard` but returns trie with view cache.
     fn get_view_trie_for_shard(
         &self,
         shard_id: ShardId,
@@ -545,12 +558,6 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
         state_root: &StateRoot,
     ) -> bool;
 
-    fn compare_epoch_id(
-        &self,
-        epoch_id: &EpochId,
-        other_epoch_id: &EpochId,
-    ) -> Result<Ordering, Error>;
-
     fn chunk_needs_to_be_fetched_from_archival(
         &self,
         chunk_prev_block_hash: &CryptoHash,
@@ -558,17 +565,6 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
     ) -> Result<bool, Error>;
 
     fn get_protocol_config(&self, epoch_id: &EpochId) -> Result<ProtocolConfig, Error>;
-
-    /// Get previous epoch id by hash of previous block.
-    fn get_prev_epoch_id_from_prev_block(
-        &self,
-        prev_block_hash: &CryptoHash,
-    ) -> Result<EpochId, Error>;
-
-    fn get_protocol_upgrade_block_height(
-        &self,
-        block_hash: CryptoHash,
-    ) -> Result<Option<BlockHeight>, EpochError>;
 }
 
 /// The last known / checked height and time when we have processed it.

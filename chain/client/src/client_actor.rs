@@ -11,6 +11,7 @@ use crate::adapter::{
     RecvPartialEncodedChunkRequest, RecvPartialEncodedChunkResponse, SetNetworkInfo, StateResponse,
 };
 use crate::client::{Client, EPOCH_START_INFO_BLOCKS};
+use crate::debug::new_network_info_view;
 use crate::info::{
     display_sync_status, get_validator_epoch_stats, InfoHelper, ValidatorInfoHelper,
 };
@@ -358,12 +359,6 @@ impl Handler<WithSpanContext<NetworkAdversarialMessage>> for ClientActor {
                     .adv_save_latest_known(height)
                     .expect("adv method should not fail");
                 chain_store_update.commit().expect("adv method should not fail");
-                None
-            }
-            near_network::types::NetworkAdversarialMessage::AdvSetSyncInfo(height) => {
-                info!(target: "adversary", %height, "AdvSetSyncInfo");
-                this.client.adv_sync_height = Some(height);
-                this.client.send_network_chain_info().expect("adv method should not fail");
                 None
             }
             near_network::types::NetworkAdversarialMessage::AdvGetSavedBlocks => {
@@ -834,7 +829,7 @@ impl Handler<WithSpanContext<Status>> for ClientActor {
         // For now - provide info about last 50 blocks.
         let detailed_debug_status = if msg.detailed {
             Some(DetailedDebugStatus {
-                network_info: self.network_info.clone().into(),
+                network_info: new_network_info_view(&self.client.chain, &self.network_info),
                 sync_status: format!(
                     "{} ({})",
                     self.client.sync_status.as_variant_name().to_string(),
@@ -1158,8 +1153,9 @@ impl ClientActor {
                 self.client.runtime_adapter.get_block_producer(&epoch_id, height)?;
 
             if me == next_block_producer_account {
-                let num_chunks =
-                    self.client.get_num_chunks_ready_for_inclusion(&head.last_block_hash);
+                let num_chunks = self
+                    .client
+                    .num_chunk_headers_ready_for_inclusion(&epoch_id, &head.last_block_hash);
                 let have_all_chunks = head.height == 0
                     || num_chunks as u64
                         == self.client.runtime_adapter.num_shards(&epoch_id).unwrap();
@@ -1487,10 +1483,17 @@ impl ClientActor {
         let head = self.client.chain.head()?;
         let mut is_syncing = self.client.sync_status.is_syncing();
 
-        let full_peer_info = if let Some(full_peer_info) =
-            self.network_info.highest_height_peers.choose(&mut thread_rng())
-        {
-            full_peer_info
+        // Only consider peers whose latest block is not invalid blocks
+        let eligible_peers: Vec<_> = self
+            .network_info
+            .highest_height_peers
+            .iter()
+            .filter(|p| !self.client.chain.is_block_invalid(&p.highest_block_hash))
+            .collect();
+        metrics::PEERS_WITH_INVALID_HASH
+            .set(self.network_info.highest_height_peers.len() as i64 - eligible_peers.len() as i64);
+        let peer_info = if let Some(peer_info) = eligible_peers.choose(&mut thread_rng()) {
+            peer_info
         } else {
             if !self.client.config.skip_sync_wait {
                 warn!(target: "client", "Sync: no peers available, disabling sync");
@@ -1499,28 +1502,28 @@ impl ClientActor {
         };
 
         if is_syncing {
-            if full_peer_info.chain_info.height <= head.height {
+            if peer_info.highest_block_height <= head.height {
                 info!(target: "client", "Sync: synced at {} [{}], {}, highest height peer: {}",
                       head.height, format_hash(head.last_block_hash),
-                      full_peer_info.peer_info.id, full_peer_info.chain_info.height
+                      peer_info.peer_info.id, peer_info.highest_block_height,
                 );
                 is_syncing = false;
             }
         } else {
-            if full_peer_info.chain_info.height
+            if peer_info.highest_block_height
                 > head.height + self.client.config.sync_height_threshold
             {
                 info!(
                     target: "client",
                     "Sync: height: {}, peer id/height: {}/{}, enabling sync",
                     head.height,
-                    full_peer_info.peer_info.id,
-                    full_peer_info.chain_info.height,
+                    peer_info.peer_info.id,
+                    peer_info.highest_block_height,
                 );
                 is_syncing = true;
             }
         }
-        Ok((is_syncing, full_peer_info.chain_info.height))
+        Ok((is_syncing, peer_info.highest_block_height))
     }
 
     fn needs_syncing(&self, needs_syncing: bool) -> bool {
@@ -1853,7 +1856,7 @@ impl ClientActor {
             validator_epoch_stats,
             self.client
                 .runtime_adapter
-                .get_protocol_upgrade_block_height(head.last_block_hash)
+                .get_estimated_protocol_upgrade_block_height(head.last_block_hash)
                 .unwrap_or(None)
                 .unwrap_or(0),
             statistics,
@@ -2048,8 +2051,11 @@ impl Handler<WithSpanContext<ShardsManagerResponse>> for ClientActor {
             ShardsManagerResponse::InvalidChunk(encoded_chunk) => {
                 self.client.on_invalid_chunk(encoded_chunk);
             }
-            ShardsManagerResponse::ChunkHeaderReadyForInclusion(chunk_header) => {
-                self.client.on_chunk_header_ready_for_inclusion(chunk_header);
+            ShardsManagerResponse::ChunkHeaderReadyForInclusion {
+                chunk_header,
+                chunk_producer,
+            } => {
+                self.client.on_chunk_header_ready_for_inclusion(chunk_header, chunk_producer);
             }
         }
     }

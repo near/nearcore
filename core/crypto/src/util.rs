@@ -1,4 +1,3 @@
-use arrayref::{array_refs, mut_array_refs};
 use curve25519_dalek::ristretto::CompressedRistretto;
 use curve25519_dalek::traits::VartimeMultiscalarMul;
 
@@ -59,16 +58,12 @@ impl<T1: Packable<Packed = [u8; 32]>, T2: Packable<Packed = [u8; 32]>> Packable 
     type Packed = [u8; 64];
 
     fn unpack(data: &[u8; 64]) -> Option<Self> {
-        let (d1, d2) = array_refs!(data, 32, 32);
+        let (d1, d2) = stdx::split_array::<64, 32, 32>(data);
         Some((unpack(d1)?, unpack(d2)?))
     }
 
     fn pack(&self) -> [u8; 64] {
-        let mut res = [0; 64];
-        let (d1, d2) = mut_array_refs!(&mut res, 32, 32);
-        *d1 = self.0.pack();
-        *d2 = self.1.pack();
-        res
+        stdx::join_array(self.0.pack(), self.1.pack())
     }
 }
 
@@ -81,13 +76,15 @@ impl<
     type Packed = [u8; 96];
 
     fn unpack(data: &[u8; 96]) -> Option<Self> {
-        let (d1, d2, d3) = array_refs!(data, 32, 32, 32);
+        let (d1, d2) = stdx::split_array::<96, 32, 64>(data);
+        let (d2, d3) = stdx::split_array::<64, 32, 32>(d2);
         Some((unpack(d1)?, unpack(d2)?, unpack(d3)?))
     }
 
     fn pack(&self) -> [u8; 96] {
         let mut res = [0; 96];
-        let (d1, d2, d3) = mut_array_refs!(&mut res, 32, 32, 32);
+        let (d1, d2) = stdx::split_array_mut::<96, 32, 64>(&mut res);
+        let (d2, d3) = stdx::split_array_mut::<64, 32, 32>(d2);
         *d1 = self.0.pack();
         *d2 = self.1.pack();
         *d3 = self.2.pack();

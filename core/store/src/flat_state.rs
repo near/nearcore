@@ -29,7 +29,7 @@
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 const BORSH_ERR: &str = "Borsh cannot fail";
 
-#[derive(strum::AsRefStr, Debug)]
+#[derive(strum::AsRefStr, Debug, PartialEq, Eq)]
 pub enum FlatStorageError {
     /// This means we can't find a path from `flat_head` to the block. Includes `flat_head` hash and block hash,
     /// respectively.
@@ -328,7 +328,7 @@ pub struct KeyForFlatStateDelta {
 
 /// Delta of the state for some shard and block, stores mapping from keys to value refs or None, if key was removed in
 /// this block.
-#[derive(BorshSerialize, BorshDeserialize, Default, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Default, Debug, PartialEq, Eq)]
 pub struct FlatStateDelta(HashMap<Vec<u8>, Option<ValueRef>>);
 
 impl<const N: usize> From<[(Vec<u8>, Option<ValueRef>); N]> for FlatStateDelta {
@@ -443,22 +443,45 @@ struct FlatStorageStateInner {
     deltas: HashMap<CryptoHash, Arc<FlatStateDelta>>,
 }
 
-/// Result of attempt to create flat storage state on runtime.
+/// Number of traversed parts during a single step of fetching state.
+#[allow(unused)]
+pub const NUM_PARTS_IN_ONE_STEP: u64 = 20;
+
+/// Memory limit for state part being fetched.
+#[allow(unused)]
+pub const STATE_PART_MEMORY_LIMIT: bytesize::ByteSize = bytesize::ByteSize(10 * bytesize::MIB);
+
+/// Current step of fetching state to fill flat storage.
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+pub struct FetchingStateStatus {
+    /// Number of the first state part to be fetched in this step.
+    pub part_id: u64,
+    /// Number of parts fetched in one step.
+    pub num_parts_in_step: u64,
+    /// Total number of state parts.
+    pub num_parts: u64,
+}
+
+/// If a node has flat storage enabled but it didn't have flat storage data on disk, its creation should be initiated.
+/// Because this is a heavy work requiring ~5h for testnet rpc node and ~10h for testnet archival node, we do it on
+/// background during regular block processing.
+/// This struct reveals what is the current status of creating flat storage data on disk.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FlatStorageStateStatus {
-    /// Flat storage state does not exist. We need to start saving `FlatStorageDelta`s to disk.
+    /// Flat storage state does not exist. We are saving `FlatStorageDelta`s to disk.
     /// During this step, we save current chain head, start saving all deltas for blocks after chain head and wait until
     /// final chain head moves after saved chain head.
     SavingDeltas,
     /// Flat storage state misses key-value pairs. We need to fetch Trie state to fill flat storage for some final chain
-    /// head. It is done in `NUM_PARTS` / `PART_STEP` steps, during each step we spawn background threads to fill some
-    /// part of state.
-    /// Status contains block hash for which we fetch the shard state and step of fetching state. Progress of each step
-    /// is saved to disk, so if creation is interrupted during some step, it won't repeat previous steps and will start
-    /// from this step again.
+    /// head. It is the heaviest work, so it is done in multiple steps, see comment for `FetchingStateStatus` for more
+    /// details.
+    /// During each step we spawn background threads to fill some contiguous range of state keys.
+    /// Status contains block hash for which we fetch the shard state and number of current step. Progress of each step
+    /// is saved to disk, so if creation is interrupted during some step, we don't repeat previous steps, starting from
+    /// the saved step again.
     #[allow(unused)]
-    FetchingState((CryptoHash, u64)),
-    /// Flat storage data exists on disk but its head is too far away from chain final head. We need to apply deltas
+    FetchingState(FetchingStateStatus),
+    /// Flat storage data exists on disk but its head is too far away from chain final head. We apply deltas from disk
     /// until the head reaches final head.
     #[allow(unused)]
     CatchingUp,
@@ -470,7 +493,9 @@ pub enum FlatStorageStateStatus {
 
 #[cfg(feature = "protocol_feature_flat_state")]
 pub mod store_helper {
-    use crate::flat_state::{FlatStorageError, FlatStorageStateStatus, KeyForFlatStateDelta};
+    use crate::flat_state::{
+        FetchingStateStatus, FlatStorageError, FlatStorageStateStatus, KeyForFlatStateDelta,
+    };
     use crate::{FlatStateDelta, Store, StoreUpdate};
     use borsh::BorshSerialize;
     use near_primitives::hash::CryptoHash;
@@ -478,7 +503,11 @@ pub mod store_helper {
     use near_primitives::types::ShardId;
     use std::sync::Arc;
 
-    pub(crate) fn get_delta(
+    pub const FLAT_STATE_HEAD_KEY_PREFIX: &[u8; 4] = b"HEAD";
+    pub const FETCHING_STATE_STEP_KEY_PREFIX: &[u8; 4] = b"STEP";
+    pub const CATCHUP_KEY_PREFIX: &[u8; 7] = b"CATCHUP";
+
+    pub fn get_delta(
         store: &Store,
         shard_id: ShardId,
         block_hash: CryptoHash,
@@ -507,20 +536,26 @@ pub mod store_helper {
         store_update.delete(crate::DBCol::FlatStateDeltas, &key.try_to_vec().unwrap());
     }
 
+    fn flat_head_key(shard_id: ShardId) -> Vec<u8> {
+        let mut fetching_state_step_key = FLAT_STATE_HEAD_KEY_PREFIX.to_vec();
+        fetching_state_step_key.extend_from_slice(&shard_id.try_to_vec().unwrap());
+        fetching_state_step_key
+    }
+
     pub fn get_flat_head(store: &Store, shard_id: ShardId) -> Option<CryptoHash> {
         store
-            .get_ser(crate::DBCol::FlatStateMisc, &shard_id.try_to_vec().unwrap())
+            .get_ser(crate::DBCol::FlatStateMisc, &flat_head_key(shard_id))
             .expect("Error reading flat head from storage")
     }
 
-    pub(crate) fn set_flat_head(
-        store_update: &mut StoreUpdate,
-        shard_id: ShardId,
-        val: &CryptoHash,
-    ) {
+    pub fn set_flat_head(store_update: &mut StoreUpdate, shard_id: ShardId, val: &CryptoHash) {
         store_update
-            .set_ser(crate::DBCol::FlatStateMisc, &shard_id.try_to_vec().unwrap(), val)
+            .set_ser(crate::DBCol::FlatStateMisc, &flat_head_key(shard_id), val)
             .expect("Error writing flat head from storage")
+    }
+
+    pub fn remove_flat_head(store_update: &mut StoreUpdate, shard_id: ShardId) {
+        store_update.delete(crate::DBCol::FlatStateMisc, &flat_head_key(shard_id));
     }
 
     pub(crate) fn get_ref(store: &Store, key: &[u8]) -> Result<Option<ValueRef>, FlatStorageError> {
@@ -548,15 +583,84 @@ pub mod store_helper {
         }
     }
 
+    fn fetching_state_status_key(shard_id: ShardId) -> Vec<u8> {
+        let mut fetching_state_step_key = FETCHING_STATE_STEP_KEY_PREFIX.to_vec();
+        fetching_state_step_key.extend_from_slice(&shard_id.try_to_vec().unwrap());
+        fetching_state_step_key
+    }
+
+    fn get_fetching_state_status(store: &Store, shard_id: ShardId) -> Option<FetchingStateStatus> {
+        store.get_ser(crate::DBCol::FlatStateMisc, &fetching_state_status_key(shard_id)).expect(
+            format!("Error reading fetching step for flat state for shard {shard_id}").as_str(),
+        )
+    }
+
+    pub fn set_fetching_state_status(
+        store_update: &mut StoreUpdate,
+        shard_id: ShardId,
+        value: FetchingStateStatus,
+    ) {
+        store_update
+            .set_ser(crate::DBCol::FlatStateMisc, &fetching_state_status_key(shard_id), &value)
+            .expect(
+                format!("Error setting fetching step for shard {shard_id} to {:?}", value).as_str(),
+            );
+    }
+
+    pub fn remove_fetching_state_status(store_update: &mut StoreUpdate, shard_id: ShardId) {
+        store_update.delete(crate::DBCol::FlatStateMisc, &fetching_state_status_key(shard_id));
+    }
+
+    fn catchup_status_key(shard_id: ShardId) -> Vec<u8> {
+        let mut catchup_status_key = CATCHUP_KEY_PREFIX.to_vec();
+        catchup_status_key.extend_from_slice(&shard_id.try_to_vec().unwrap());
+        catchup_status_key
+    }
+
+    fn get_catchup_status(store: &Store, shard_id: ShardId) -> bool {
+        let status: Option<bool> =
+            store.get_ser(crate::DBCol::FlatStateMisc, &catchup_status_key(shard_id)).expect(
+                format!("Error reading catchup status for flat state for shard {shard_id}")
+                    .as_str(),
+            );
+        match status {
+            None => false,
+            Some(status) => {
+                assert!(
+                    status,
+                    "Catchup status for flat state for shard {} must be true if stored",
+                    shard_id
+                );
+                true
+            }
+        }
+    }
+
+    pub fn start_catchup(store_update: &mut StoreUpdate, shard_id: ShardId) {
+        store_update
+            .set_ser(crate::DBCol::FlatStateMisc, &catchup_status_key(shard_id), &true)
+            .expect(format!("Error setting catchup status for shard {shard_id}").as_str());
+    }
+
+    pub fn finish_catchup(store_update: &mut StoreUpdate, shard_id: ShardId) {
+        store_update.delete(crate::DBCol::FlatStateMisc, &catchup_status_key(shard_id));
+    }
+
     pub fn get_flat_storage_state_status(
         store: &Store,
         shard_id: ShardId,
     ) -> FlatStorageStateStatus {
-        // TODO: replace this placeholder with reading flat storage data and setting correct status. ChainStore can be
-        // used to get flat storage heads and block heights.
         match get_flat_head(store, shard_id) {
             None => FlatStorageStateStatus::SavingDeltas,
-            Some(_) => FlatStorageStateStatus::Ready,
+            Some(_) => {
+                if let Some(fetching_state_status) = get_fetching_state_status(store, shard_id) {
+                    FlatStorageStateStatus::FetchingState(fetching_state_status)
+                } else if get_catchup_status(store, shard_id) {
+                    FlatStorageStateStatus::CatchingUp
+                } else {
+                    FlatStorageStateStatus::Ready
+                }
+            }
         }
     }
 }
@@ -573,7 +677,7 @@ pub mod store_helper {
         None
     }
 
-    pub(crate) fn get_delta(
+    pub fn get_delta(
         _store: &Store,
         _shard_id: ShardId,
         _block_hash: CryptoHash,
@@ -781,7 +885,6 @@ impl FlatStorageState {
         block: BlockInfo,
     ) -> Result<StoreUpdate, FlatStorageError> {
         let mut guard = self.0.write().expect(POISONED_LOCK_ERR);
-        tracing::info!(target:"chain", "blocks {:?} prev_hash {:?}", guard.blocks.keys(), block.prev_hash);
         if !guard.blocks.contains_key(&block.prev_hash) {
             return Err(guard.create_block_not_supported_error(block_hash));
         }
@@ -807,7 +910,8 @@ impl FlatStorageState {
 #[cfg(feature = "protocol_feature_flat_state")]
 mod tests {
     use crate::flat_state::{
-        store_helper, BlockInfo, ChainAccessForFlatStorage, FlatStateFactory, FlatStorageState,
+        store_helper, BlockInfo, ChainAccessForFlatStorage, FlatStateFactory, FlatStorageError,
+        FlatStorageState,
     };
     use crate::test_utils::create_test_store;
     use crate::FlatStateDelta;
@@ -836,7 +940,7 @@ mod tests {
         }
 
         fn get_block_hashes_at_height(&self, block_height: BlockHeight) -> HashSet<CryptoHash> {
-            HashSet::from([self.get_block_hash(block_height)])
+            self.height_to_hashes.get(&block_height).cloned().iter().cloned().collect()
         }
     }
 
@@ -845,18 +949,63 @@ mod tests {
             hash(&height.try_to_vec().unwrap())
         }
 
-        // create a chain with no forks with length n
-        fn linear_chain(n: usize) -> MockChain {
-            let hashes: Vec<_> = (0..n).map(|i| MockChain::block_hash(i as BlockHeight)).collect();
-            let height_to_hashes: HashMap<_, _> =
-                hashes.iter().enumerate().map(|(k, v)| (k as BlockHeight, *v)).collect();
-            let blocks = (0..n)
-                .map(|i| {
-                    let prev_hash = if i == 0 { CryptoHash::default() } else { hashes[i - 1] };
-                    (hashes[i], BlockInfo { hash: hashes[i], height: i as BlockHeight, prev_hash })
+        /// Build a chain with given set of heights and a function mapping block heights to heights of their parents.
+        fn build(
+            heights: Vec<BlockHeight>,
+            get_parent: fn(BlockHeight) -> Option<BlockHeight>,
+        ) -> MockChain {
+            let height_to_hashes: HashMap<_, _> = heights
+                .iter()
+                .cloned()
+                .map(|height| (height, MockChain::block_hash(height)))
+                .collect();
+            let blocks = heights
+                .iter()
+                .cloned()
+                .map(|height| {
+                    let hash = height_to_hashes.get(&height).unwrap().clone();
+                    let prev_hash = match get_parent(height) {
+                        None => CryptoHash::default(),
+                        Some(parent_height) => *height_to_hashes.get(&parent_height).unwrap(),
+                    };
+                    (hash, BlockInfo { hash, height, prev_hash })
                 })
                 .collect();
-            MockChain { height_to_hashes, blocks, head_height: n as BlockHeight - 1 }
+            MockChain { height_to_hashes, blocks, head_height: heights.last().unwrap().clone() }
+        }
+
+        // Create a chain with no forks with length n.
+        fn linear_chain(n: usize) -> MockChain {
+            Self::build(
+                (0..n as BlockHeight).collect(),
+                |i| if i == 0 { None } else { Some(i - 1) },
+            )
+        }
+
+        // Create a linear chain of length n where blocks with odd numbers are skipped:
+        // 0 -> 2 -> 4 -> ...
+        fn linear_chain_with_skips(n: usize) -> MockChain {
+            Self::build((0..n as BlockHeight).map(|i| i * 2).collect(), |i| {
+                if i == 0 {
+                    None
+                } else {
+                    Some(i - 2)
+                }
+            })
+        }
+
+        // Create a chain with two forks, where blocks 1 and 2 have a parent block 0, and each next block H
+        // has a parent block H-2:
+        // 0 |-> 1 -> 3 -> 5 -> ...
+        //   --> 2 -> 4 -> 6 -> ...
+        fn chain_with_two_forks(n: usize) -> MockChain {
+            Self::build((0..n as BlockHeight).collect(), |i| {
+                if i == 0 {
+                    None
+                } else {
+                    Some(i.max(2) - 2)
+                }
+            })
         }
 
         fn get_block_hash(&self, height: BlockHeight) -> CryptoHash {
@@ -982,7 +1131,82 @@ mod tests {
         assert_eq!(delta.get(&[5]), Some(Some(ValueRef::new(&[9]))));
     }
 
-    // This test tests some basic use cases for FlatState and FlatStorageState.
+    #[test]
+    fn block_not_supported_errors() {
+        // Create a chain with two forks. Set flat head to be at block 0.
+        let chain = MockChain::chain_with_two_forks(5);
+        let store = create_test_store();
+        let mut store_update = store.store_update();
+        store_helper::set_flat_head(&mut store_update, 0, &chain.get_block_hash(0));
+        for i in 1..5 {
+            store_helper::set_delta(
+                &mut store_update,
+                0,
+                chain.get_block_hash(i),
+                &FlatStateDelta::default(),
+            )
+            .unwrap();
+        }
+        store_update.commit().unwrap();
+
+        let flat_storage_state = FlatStorageState::new(store.clone(), 0, 4, &chain);
+        let flat_state_factory = FlatStateFactory::new(store.clone());
+        flat_state_factory.add_flat_storage_state_for_shard(0, flat_storage_state);
+        let flat_storage_state = flat_state_factory.get_flat_storage_state_for_shard(0).unwrap();
+
+        // Check that flat head can be moved to block 1.
+        let flat_head_hash = chain.get_block_hash(1);
+        assert_eq!(flat_storage_state.update_flat_head(&flat_head_hash), Ok(()));
+        // Check that attempt to move flat head to block 2 results in error because it lays in unreachable fork.
+        let fork_block_hash = chain.get_block_hash(2);
+        assert_eq!(
+            flat_storage_state.update_flat_head(&fork_block_hash),
+            Err(FlatStorageError::BlockNotSupported((flat_head_hash, fork_block_hash)))
+        );
+        // Check that attempt to move flat head to block 0 results in error because it is an unreachable parent.
+        let parent_block_hash = chain.get_block_hash(0);
+        assert_eq!(
+            flat_storage_state.update_flat_head(&parent_block_hash),
+            Err(FlatStorageError::BlockNotSupported((flat_head_hash, parent_block_hash)))
+        );
+        // Check that attempt to move flat head to non-existent block results in the same error.
+        let not_existing_hash = hash(&[1, 2, 3]);
+        assert_eq!(
+            flat_storage_state.update_flat_head(&not_existing_hash),
+            Err(FlatStorageError::BlockNotSupported((flat_head_hash, not_existing_hash)))
+        );
+    }
+
+    #[test]
+    fn skipped_heights() {
+        // Create a linear chain where some heights are skipped.
+        let chain = MockChain::linear_chain_with_skips(5);
+        let store = create_test_store();
+        let mut store_update = store.store_update();
+        store_helper::set_flat_head(&mut store_update, 0, &chain.get_block_hash(0));
+        for i in 1..5 {
+            store_helper::set_delta(
+                &mut store_update,
+                0,
+                chain.get_block_hash(i * 2),
+                &FlatStateDelta::default(),
+            )
+            .unwrap();
+        }
+        store_update.commit().unwrap();
+
+        // Check that flat storage state is created correctly for chain which has skipped heights.
+        let flat_storage_state = FlatStorageState::new(store.clone(), 0, 8, &chain);
+        let flat_state_factory = FlatStateFactory::new(store.clone());
+        flat_state_factory.add_flat_storage_state_for_shard(0, flat_storage_state);
+        let flat_storage_state = flat_state_factory.get_flat_storage_state_for_shard(0).unwrap();
+
+        // Check that flat head can be moved to block 8.
+        let flat_head_hash = chain.get_block_hash(8);
+        assert_eq!(flat_storage_state.update_flat_head(&flat_head_hash), Ok(()));
+    }
+
+    // This test tests basic use cases for FlatState and FlatStorageState.
     // We created a linear chain with no forks, start with flat head at the genesis block, then
     // moves the flat head forward, which checking that flat_state.get_ref() still returns the correct
     // values and the state is being updated in store.

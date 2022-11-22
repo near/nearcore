@@ -1,5 +1,4 @@
 use crate::util::{Packable, Point, Scalar};
-use arrayref::array_ref;
 use blake2::digest::generic_array::{typenum::U32, GenericArray};
 use blake2::digest::{BlockInput, FixedOutput, Reset, Update, VariableOutput};
 use blake2::VarBlake2b;
@@ -112,7 +111,7 @@ macro_rules! hash_s {
 
 pub fn _prs_result(digest: Hash512) -> Scalar {
     let res = digest.finalize_fixed();
-    Scalar::from_bytes_mod_order_wide(array_ref!(res, 0, 64))
+    Scalar::from_bytes_mod_order_wide((&res[0..64]).try_into().unwrap())
 }
 
 macro_rules! prs {

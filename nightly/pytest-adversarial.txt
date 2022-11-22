@@ -1,7 +1,5 @@
 pytest --timeout=600 adversarial/fork_sync.py
 pytest --timeout=600 adversarial/fork_sync.py --features nightly
-pytest adversarial/wrong_sync_info.py
-pytest adversarial/wrong_sync_info.py --features nightly
 pytest adversarial/malicious_chain.py
 pytest adversarial/malicious_chain.py --features nightly
 pytest adversarial/malicious_chain.py valid_blocks_only

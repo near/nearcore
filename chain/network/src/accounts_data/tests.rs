@@ -3,28 +3,20 @@ use crate::network_protocol::testonly as data;
 use crate::network_protocol::SignedAccountData;
 use crate::testonly::{assert_is_superset, make_rng, AsSet as _, Rng};
 use crate::time;
-use crate::types::AccountKeys;
-use near_primitives::types::EpochId;
-use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner as _};
+use near_primitives::validator_signer::InMemoryValidatorSigner;
 use pretty_assertions::assert_eq;
 use std::sync::Arc;
 
-struct Signer {
-    epoch_id: EpochId,
-    signer: InMemoryValidatorSigner,
-}
-
-impl Signer {
-    fn make_account_data(&self, rng: &mut Rng, timestamp: time::Utc) -> SignedAccountData {
-        data::make_account_data(
-            rng,
-            timestamp,
-            self.epoch_id.clone(),
-            self.signer.validator_id().clone(),
-        )
-        .sign(&self.signer)
+fn make_account_data(
+    rng: &mut Rng,
+    clock: &time::Clock,
+    version: u64,
+    signer: &InMemoryValidatorSigner,
+) -> SignedAccountData {
+    let peer_id = data::make_peer_id(rng);
+    data::make_account_data(rng, version, clock.now_utc(), signer.public_key(), peer_id)
+        .sign(signer)
         .unwrap()
-    }
 }
 
 fn unwrap<'a, T: std::hash::Hash + std::cmp::Eq, E: std::fmt::Debug>(
@@ -36,27 +28,8 @@ fn unwrap<'a, T: std::hash::Hash + std::cmp::Eq, E: std::fmt::Debug>(
     &v.0
 }
 
-fn make_signers(rng: &mut Rng, n: usize) -> Vec<Signer> {
-    (0..n)
-        .map(|_| Signer {
-            epoch_id: data::make_epoch_id(rng),
-            signer: data::make_validator_signer(rng),
-        })
-        .collect()
-}
-
-fn make_account_keys(signers: &[Signer]) -> Arc<AccountKeys> {
-    Arc::new(
-        signers
-            .iter()
-            .map(|s| {
-                (
-                    (s.epoch_id.clone(), s.signer.validator_id().clone()),
-                    s.signer.public_key().clone(),
-                )
-            })
-            .collect(),
-    )
+fn make_signers(rng: &mut Rng, n: usize) -> Vec<InMemoryValidatorSigner> {
+    (0..n).map(|_| data::make_validator_signer(rng)).collect()
 }
 
 #[tokio::test]
@@ -64,11 +37,10 @@ async fn happy_path() {
     let mut rng = make_rng(2947294234);
     let rng = &mut rng;
     let clock = time::FakeClock::default();
-    let now = clock.now_utc();
 
     let signers: Vec<_> = make_signers(rng, 7);
-    let e0 = make_account_keys(&signers[0..5]);
-    let e1 = make_account_keys(&signers[2..7]);
+    let e0 = Arc::new(data::make_account_keys(&signers[0..5]));
+    let e1 = Arc::new(data::make_account_keys(&signers[2..7]));
 
     let cache = Arc::new(Cache::new());
     assert_eq!(cache.load().data.values().count(), 0); // initially empty
@@ -76,17 +48,17 @@ async fn happy_path() {
     assert_eq!(cache.load().data.values().count(), 0); // empty after initial set_keys.
 
     // initial insert
-    let a0 = Arc::new(signers[0].make_account_data(rng, now));
-    let a1 = Arc::new(signers[1].make_account_data(rng, now));
+    let a0 = Arc::new(make_account_data(rng, &clock.clock(), 1, &signers[0]));
+    let a1 = Arc::new(make_account_data(rng, &clock.clock(), 1, &signers[1]));
     let res = cache.clone().insert(vec![a0.clone(), a1.clone()]).await;
     assert_eq!([&a0, &a1].as_set(), unwrap(&res).as_set());
     assert_eq!([&a0, &a1].as_set(), cache.load().data.values().collect());
 
     // entries of various types
-    let a0new = Arc::new(signers[0].make_account_data(rng, now + time::Duration::seconds(1)));
-    let a1old = Arc::new(signers[1].make_account_data(rng, now - time::Duration::seconds(1)));
-    let a2 = Arc::new(signers[2].make_account_data(rng, now));
-    let a5 = Arc::new(signers[5].make_account_data(rng, now));
+    let a0new = Arc::new(make_account_data(rng, &clock.clock(), 2, &signers[0]));
+    let a1old = Arc::new(make_account_data(rng, &clock.clock(), 0, &signers[1]));
+    let a2 = Arc::new(make_account_data(rng, &clock.clock(), 1, &signers[2]));
+    let a5 = Arc::new(make_account_data(rng, &clock.clock(), 1, &signers[5]));
     let res = cache
         .clone()
         .insert(vec![
@@ -123,16 +95,16 @@ async fn data_too_large() {
     let mut rng = make_rng(2947294234);
     let rng = &mut rng;
     let clock = time::FakeClock::default();
-    let now = clock.now_utc();
 
     let signers = make_signers(rng, 3);
-    let e = make_account_keys(&signers);
+    let e = Arc::new(data::make_account_keys(&signers));
 
     let cache = Arc::new(Cache::new());
     cache.set_keys(e);
-    let a0 = Arc::new(signers[0].make_account_data(rng, now));
-    let a1 = Arc::new(signers[1].make_account_data(rng, now));
-    let mut a2_too_large: SignedAccountData = signers[2].make_account_data(rng, now);
+    let a0 = Arc::new(make_account_data(rng, &clock.clock(), 1, &signers[0]));
+    let a1 = Arc::new(make_account_data(rng, &clock.clock(), 1, &signers[1]));
+    let mut a2_too_large: SignedAccountData =
+        make_account_data(rng, &clock.clock(), 1, &signers[2]);
     *a2_too_large.payload_mut() =
         (0..crate::network_protocol::MAX_ACCOUNT_DATA_SIZE_BYTES + 1).map(|_| 17).collect();
     let a2_too_large = Arc::new(a2_too_large);
@@ -158,16 +130,15 @@ async fn invalid_signature() {
     let mut rng = make_rng(2947294234);
     let rng = &mut rng;
     let clock = time::FakeClock::default();
-    let now = clock.now_utc();
 
     let signers = make_signers(rng, 3);
-    let e = make_account_keys(&signers);
+    let e = Arc::new(data::make_account_keys(&signers));
 
     let cache = Arc::new(Cache::new());
     cache.set_keys(e);
-    let a0 = Arc::new(signers[0].make_account_data(rng, now));
-    let mut a1 = signers[1].make_account_data(rng, now);
-    let mut a2_invalid_sig = signers[2].make_account_data(rng, now);
+    let a0 = Arc::new(make_account_data(rng, &clock.clock(), 1, &signers[0]));
+    let mut a1 = make_account_data(rng, &clock.clock(), 1, &signers[1]);
+    let mut a2_invalid_sig = make_account_data(rng, &clock.clock(), 1, &signers[2]);
     *a2_invalid_sig.signature_mut() = a1.signature_mut().clone();
     let a1 = Arc::new(a1);
     let a2_invalid_sig = Arc::new(a2_invalid_sig);
@@ -193,17 +164,16 @@ async fn single_account_multiple_data() {
     let mut rng = make_rng(2947294234);
     let rng = &mut rng;
     let clock = time::FakeClock::default();
-    let now = clock.now_utc();
 
     let signers = make_signers(rng, 3);
-    let e = make_account_keys(&signers);
+    let e = Arc::new(data::make_account_keys(&signers));
 
     let cache = Arc::new(Cache::new());
     cache.set_keys(e);
-    let a0 = Arc::new(signers[0].make_account_data(rng, now));
-    let a1 = Arc::new(signers[1].make_account_data(rng, now));
-    let a2old = Arc::new(signers[2].make_account_data(rng, now));
-    let a2new = Arc::new(signers[2].make_account_data(rng, now + time::Duration::seconds(1)));
+    let a0 = Arc::new(make_account_data(rng, &clock.clock(), 1, &signers[0]));
+    let a1 = Arc::new(make_account_data(rng, &clock.clock(), 1, &signers[1]));
+    let a2old = Arc::new(make_account_data(rng, &clock.clock(), 1, &signers[2]));
+    let a2new = Arc::new(make_account_data(rng, &clock.clock(), 2, &signers[2]));
 
     // 2 entries for the same (epoch_id,account_id) => SingleAccountMultipleData
     let res =

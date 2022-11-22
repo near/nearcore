@@ -58,6 +58,7 @@ members = [
     "tools/themis",
     "utils/mainnet-res",
     "utils/near-cache",
+    "utils/stdx",
 ]
 
 [workspace.metadata.workspaces]
@@ -74,13 +75,11 @@ ansi_term = "0.12"
 anyhow = "1.0.62"
 arbitrary = { version = "1", features = ["derive"] }
 arc-swap = "1.5"
-arrayref = "0.3"
 assert_matches = "1.5.0"
 async-recursion = "0.3.2"
 async-trait = "0.1.58"
 atty = "0.2"
 awc = { version = "3", features = ["openssl"] }
-backtrace = "0.3.64"
 base64 = "0.13"
 bencher = "0.1.5"
 bitflags = "1.2"
@@ -203,6 +202,8 @@ wasmtime = { version = "0.37.0", default-features = false, features = ["cranelif
 wat = "1.0.40"
 xshell = "0.2.1"
 xz2 = "0.1.6"
+
+stdx = { package = "near-stdx", path = "utils/stdx" }
 
 [patch.crates-io]
 
