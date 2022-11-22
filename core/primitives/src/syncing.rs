@@ -224,7 +224,5 @@ pub fn get_num_state_parts(memory_usage: u64) -> u64 {
     // On the other side, it's important to divide any state into
     // several parts to make sure that partitioning always works.
     // TODO #1708
-    let num_parts = memory_usage / STATE_PART_MEMORY_LIMIT.as_u64() + 3;
-    tracing::debug!(target: "sync", memory_usage, num_parts, "get_num_state_parts");
-    num_parts
+    memory_usage / STATE_PART_MEMORY_LIMIT.as_u64() + 3
 }

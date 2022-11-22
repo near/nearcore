@@ -1,7 +1,7 @@
 use crate::commands::*;
 use crate::dump_state_parts::dump_state_parts;
-use crate::epoch_info;
 use crate::rocksdb_stats::get_rocksdb_stats;
+use crate::{dump_state_parts, epoch_info};
 use clap::{Args, Parser, Subcommand};
 use near_chain_configs::{GenesisChangeConfig, GenesisValidationMode};
 use near_primitives::account::id::AccountId;
@@ -71,6 +71,7 @@ pub enum StateViewerSubCommand {
     /// View trie structure.
     #[clap(alias = "view_trie")]
     ViewTrie(ViewTrieCmd),
+    /// Dump all or a single state part of a shard.
     DumpStateParts(DumpStatePartsCmd),
 }
 
@@ -476,23 +477,30 @@ impl ViewTrieCmd {
 
 #[derive(Parser)]
 pub struct DumpStatePartsCmd {
-    #[clap(long)]
-    block_hash: CryptoHash,
+    /// Last block of a previous epoch.
+    #[clap(subcommand)]
+    epoch_selection: dump_state_parts::EpochSelection,
+    /// Shard id.
     #[clap(long)]
     shard_id: ShardId,
+    /// State part id. Leave empty to go through every part in the shard.
     #[clap(long)]
     part_id: Option<u64>,
+    /// Where to write the state parts to.
+    #[clap(long)]
+    output_dir: PathBuf,
 }
 
 impl DumpStatePartsCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
         dump_state_parts(
-            self.block_hash,
+            self.epoch_selection,
             self.shard_id,
             self.part_id,
             home_dir,
             near_config,
             store,
+            &self.output_dir,
         );
     }
 }
