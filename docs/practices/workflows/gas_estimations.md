@@ -3,7 +3,7 @@
 
 This workflow describes how to run the gas estimator byzantine-benchmark suite.
 To learn about its background and purpose, refer to [Runtime Parameter
-Estimator](/architecture/gas/estimator.html) in the architecture chapter.
+Estimator](../../architecture/gas/estimator.html) in the architecture chapter.
 
 Type this in your console to quickly run estimations on a couple of action costs.
 
@@ -78,7 +78,7 @@ Finished in 17.92s, output saved to:
 ```
 
 The difference between the metrics is discussed in the [Estimation
-Metrics](/architecture/gas/estimator.html#estimation-metrics).
+Metrics](../../architecture/gas/estimator.html#estimation-metrics).
 
 You should now be all setup for running estimations on your local machine. Also
 check `cargo run -p runtime-params-estimator --features required -- --help` for
