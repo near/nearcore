@@ -20,7 +20,7 @@ use near_chain::chain::{
     OrphanMissingChunks, StateSplitRequest, TX_ROUTING_HEIGHT_HORIZON,
 };
 use near_chain::test_utils::format_hash;
-use near_chain::types::LatestKnown;
+use near_chain::types::{ChainConfig, LatestKnown};
 use near_chain::{
     BlockProcessingArtifact, BlockStatus, Chain, ChainGenesis, ChainStoreAccess,
     DoneApplyChunkCallback, Doomslug, DoomslugThresholdMode, Provenance, RuntimeAdapter,
@@ -188,7 +188,10 @@ impl Client {
             runtime_adapter.clone(),
             &chain_genesis,
             doomslug_threshold_mode,
-            !config.archive,
+            ChainConfig {
+                save_trie_changes: !config.archive,
+                background_migration_threads: config.client_background_migration_threads,
+            },
         )?;
         let me = validator_signer.as_ref().map(|x| x.validator_id().clone());
         let shards_mgr = ShardsManager::new(
@@ -1704,7 +1707,7 @@ impl Client {
         }
     }
 
-    /// Collects block approvals. Returns false if block approval is invalid.
+    /// Collects block approvals.
     ///
     /// We send the approval to doomslug given the epoch of the current tip iff:
     ///  1. We are the block producer for the target height in the tip's epoch;
@@ -2252,30 +2255,32 @@ impl Client {
         // require some tuning in the future. In particular, if we decide that connecting to
         // block & chunk producers of the next expoch is too expensive, we can postpone it
         // till almost the end of this epoch.
-        let mut accounts = HashMap::new();
+        let mut account_keys = AccountKeys::new();
         for epoch_id in [&tip.epoch_id, &tip.next_epoch_id] {
             // We assume here that calls to get_epoch_chunk_producers and get_epoch_block_producers_ordered
             // are cheaper than block processing (and that they will work with both this and
             // the next epoch). The caching on top of that (in tier1_accounts_cache field) is just
             // a defence in depth, based on the previous experience with expensive
             // RuntimeAdapter::get_validators_info call.
-            accounts.extend(
-                self.runtime_adapter.get_epoch_chunk_producers(epoch_id)?.iter().map(|it| {
-                    ((epoch_id.clone(), it.account_id().clone()), it.public_key().clone())
-                }),
-            );
-            accounts.extend(
-                self.runtime_adapter
-                    .get_epoch_block_producers_ordered(epoch_id, &tip.last_block_hash)?
-                    .iter()
-                    .map(|(it, _)| {
-                        ((epoch_id.clone(), it.account_id().clone()), it.public_key().clone())
-                    }),
-            );
+            for cp in self.runtime_adapter.get_epoch_chunk_producers(epoch_id)? {
+                account_keys
+                    .entry(cp.account_id().clone())
+                    .or_default()
+                    .insert(cp.public_key().clone());
+            }
+            for (bp, _) in self
+                .runtime_adapter
+                .get_epoch_block_producers_ordered(epoch_id, &tip.last_block_hash)?
+            {
+                account_keys
+                    .entry(bp.account_id().clone())
+                    .or_default()
+                    .insert(bp.public_key().clone());
+            }
         }
-        let accounts = Arc::new(accounts);
-        self.tier1_accounts_cache = Some((tip.epoch_id.clone(), accounts.clone()));
-        Ok(accounts)
+        let account_keys = Arc::new(account_keys);
+        self.tier1_accounts_cache = Some((tip.epoch_id.clone(), account_keys.clone()));
+        Ok(account_keys)
     }
 
     /// send_network_chain_info sends ChainInfo to PeerManagerActor.

@@ -37,7 +37,6 @@ async fn ttl() {
         network: chain.make_config(rng),
         chain,
         force_encoding: Some(Encoding::Proto),
-        nonce: None,
     };
     let stream = tcp::Stream::connect(&pm.peer_info()).await.unwrap();
     let mut peer = peer::testonly::PeerHandle::start_endpoint(clock.clock(), cfg, stream).await;
@@ -92,7 +91,6 @@ async fn repeated_data_in_sync_routing_table() {
         network: chain.make_config(rng),
         chain,
         force_encoding: Some(Encoding::Proto),
-        nonce: None,
     };
     let stream = tcp::Stream::connect(&pm.peer_info()).await.unwrap();
     let mut peer = peer::testonly::PeerHandle::start_endpoint(clock.clock(), cfg, stream).await;

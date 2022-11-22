@@ -15,7 +15,6 @@ use crate::testonly::actix::ActixSystem;
 use crate::testonly::fake_client;
 use crate::time;
 use crate::types::PeerIdOrHash;
-use near_crypto::Signature;
 use near_o11y::WithSpanContextExt;
 use near_primitives::network::PeerId;
 use std::sync::Arc;
@@ -24,14 +23,6 @@ pub struct PeerConfig {
     pub chain: Arc<data::Chain>,
     pub network: NetworkConfig,
     pub force_encoding: Option<crate::network_protocol::Encoding>,
-    /// If both start_handshake_with and nonce are set, PeerActor
-    /// will use this nonce in the handshake.
-    /// WARNING: it has to be >0.
-    /// WARNING: currently nonce is decided by a lookup in the RoutingTableView,
-    ///   so to enforce the nonce below, we add an artificial edge to RoutingTableView.
-    ///   Once we switch to generating nonce from timestamp, this field should be deprecated
-    ///   in favor of passing a fake clock.
-    pub nonce: Option<u64>,
 }
 
 impl PeerConfig {
@@ -118,22 +109,6 @@ impl PeerHandle {
             fc,
             vec![],
         ));
-        // WARNING: this is a hack to make PeerActor use a specific nonce
-        if let (Some(nonce), tcp::StreamType::Outbound { peer_id }) = (&cfg.nonce, &stream.type_) {
-            network_state
-                .add_edges(
-                    &clock,
-                    vec![Edge::new(
-                        cfg.id(),
-                        peer_id.clone(),
-                        nonce - 1,
-                        Signature::default(),
-                        Signature::default(),
-                    )],
-                )
-                .await
-                .unwrap();
-        }
         let actix = ActixSystem::spawn({
             let clock = clock.clone();
             let cfg = cfg.clone();

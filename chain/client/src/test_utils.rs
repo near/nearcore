@@ -19,6 +19,7 @@ use near_chain::test_utils::{
     wait_for_all_blocks_in_processing, wait_for_block_in_processing, KeyValueRuntime,
     ValidatorSchedule,
 };
+use near_chain::types::ChainConfig;
 use near_chain::{
     Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Provenance, RuntimeAdapter,
 };
@@ -217,8 +218,13 @@ pub fn setup(
     } else {
         DoomslugThresholdMode::NoApprovals
     };
-    let chain =
-        Chain::new(runtime.clone(), &chain_genesis, doomslug_threshold_mode, !archive).unwrap();
+    let chain = Chain::new(
+        runtime.clone(),
+        &chain_genesis,
+        doomslug_threshold_mode,
+        ChainConfig { save_trie_changes: !archive, background_migration_threads: 1 },
+    )
+    .unwrap();
     let genesis_block = chain.get_block(&chain.genesis().hash().clone()).unwrap();
 
     let signer = Arc::new(InMemoryValidatorSigner::from_seed(
@@ -302,7 +308,13 @@ pub fn setup_only_view(
     } else {
         DoomslugThresholdMode::NoApprovals
     };
-    Chain::new(runtime.clone(), &chain_genesis, doomslug_threshold_mode, !archive).unwrap();
+    Chain::new(
+        runtime.clone(),
+        &chain_genesis,
+        doomslug_threshold_mode,
+        ChainConfig { save_trie_changes: !archive, background_migration_threads: 1 },
+    )
+    .unwrap();
 
     let signer = Arc::new(InMemoryValidatorSigner::from_seed(
         account_id.clone(),

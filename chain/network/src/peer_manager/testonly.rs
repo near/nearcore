@@ -2,7 +2,7 @@ use crate::broadcast;
 use crate::config;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
-    EdgeState, Encoding, PeerAddr, PeerInfo, PeerMessage, SignedAccountData, SyncAccountsData,
+    EdgeState, Encoding, PeerInfo, PeerMessage, SignedAccountData, SyncAccountsData,
 };
 use crate::peer;
 use crate::peer::peer_actor::ClosingReason;
@@ -15,12 +15,13 @@ use crate::testonly::actix::ActixSystem;
 use crate::testonly::fake_client;
 use crate::time;
 use crate::types::{
-    ChainInfo, KnownPeerStatus, NetworkRequests, PeerManagerMessageRequest, SetChainInfo,
+    AccountKeys, ChainInfo, KnownPeerStatus, NetworkRequests, PeerManagerMessageRequest,
+    SetChainInfo,
 };
 use crate::PeerManagerActor;
 use near_o11y::WithSpanContextExt;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::types::{AccountId, EpochId};
+use near_primitives::types::AccountId;
 use std::collections::HashSet;
 use std::future::Future;
 use std::pin::Pin;
@@ -62,21 +63,16 @@ pub fn unwrap_sync_accounts_data_processed(ev: Event) -> Option<SyncAccountsData
     }
 }
 
-#[derive(PartialEq, Eq, Hash)]
-pub struct NormalAccountData {
-    pub epoch_id: EpochId,
-    pub account_id: AccountId,
-    pub peers: Vec<PeerAddr>,
-}
-
-impl From<&Arc<SignedAccountData>> for NormalAccountData {
-    fn from(d: &Arc<SignedAccountData>) -> Self {
-        Self {
-            epoch_id: d.epoch_id.clone(),
-            account_id: d.account_id.clone(),
-            peers: d.peers.clone(),
-        }
+pub(crate) fn make_chain_info(chain: &data::Chain, validators: &[&ActorHandler]) -> ChainInfo {
+    // Construct ChainInfo with tier1_accounts set to `validators`.
+    let mut chain_info = chain.get_chain_info();
+    let mut account_keys = AccountKeys::new();
+    for pm in validators {
+        let s = &pm.cfg.validator.as_ref().unwrap().signer;
+        account_keys.entry(s.validator_id().clone()).or_default().insert(s.public_key());
     }
+    chain_info.tier1_accounts = Arc::new(account_keys);
+    chain_info
 }
 
 pub(crate) struct RawConnection {
@@ -200,7 +196,6 @@ impl ActorHandler {
                 network: network_cfg,
                 chain,
                 force_encoding: Some(Encoding::Proto),
-                nonce: None,
             },
         };
         // Wait until the TCP connection is accepted or rejected.
@@ -238,7 +233,6 @@ impl ActorHandler {
                 network: network_cfg,
                 chain,
                 force_encoding: Some(Encoding::Proto),
-                nonce: None,
             },
         };
         // Wait until the handshake started or connection is closed.
@@ -301,14 +295,23 @@ impl ActorHandler {
         self.with_state(move |s| async move { s.fix_local_edges(&clock, timeout).await }).await
     }
 
-    pub async fn set_chain_info(&mut self, chain_info: ChainInfo) {
+    pub async fn set_chain_info(&self, chain_info: ChainInfo) {
+        let mut events = self.events.from_now();
         self.actix.addr.send(SetChainInfo(chain_info).with_span_context()).await.unwrap();
-        self.events
+        events
             .recv_until(|ev| match ev {
                 Event::PeerManager(PME::SetChainInfo) => Some(()),
                 _ => None,
             })
             .await;
+    }
+
+    pub async fn tier1_advertise_proxies(
+        &self,
+        clock: &time::Clock,
+    ) -> Vec<Arc<SignedAccountData>> {
+        let clock = clock.clone();
+        self.with_state(move |s| async move { s.tier1_advertise_proxies(&clock).await }).await
     }
 
     pub async fn announce_account(&self, aa: AnnounceAccount) {
@@ -323,19 +326,21 @@ impl ActorHandler {
     }
 
     // Awaits until the accounts_data state matches `want`.
-    pub async fn wait_for_accounts_data(&mut self, want: &HashSet<NormalAccountData>) {
+    pub async fn wait_for_accounts_data(&self, want: &HashSet<Arc<SignedAccountData>>) {
+        let mut events = self.events.from_now();
         loop {
-            let got: HashSet<_> = self
-                .with_state(|s| async move {
-                    s.accounts_data.load().data.values().map(|d| d.into()).collect()
+            let got = self
+                .with_state(move |s| async move {
+                    s.accounts_data.load().data.values().cloned().collect::<HashSet<_>>()
                 })
                 .await;
+            tracing::info!(target:"dupa","got = {:?}",got);
             if &got == want {
                 break;
             }
             // It is important that we wait for the next PeerMessage::SyncAccountsData to get
             // PROCESSED, not just RECEIVED. Otherwise we would get a race condition.
-            self.events.recv_until(unwrap_sync_accounts_data_processed).await;
+            events.recv_until(unwrap_sync_accounts_data_processed).await;
         }
     }
 

@@ -29,13 +29,11 @@ async fn test_peer_communication(
         chain: chain.clone(),
         network: chain.make_config(&mut rng),
         force_encoding: inbound_encoding,
-        nonce: None,
     };
     let outbound_cfg = PeerConfig {
         chain: chain.clone(),
         network: chain.make_config(&mut rng),
         force_encoding: outbound_encoding,
-        nonce: None,
     };
     let (outbound_stream, inbound_stream) = tcp::Stream::loopback(inbound_cfg.id()).await;
     let mut inbound = PeerHandle::start_endpoint(clock.clock(), inbound_cfg, inbound_stream).await;
@@ -186,13 +184,11 @@ async fn test_handshake(outbound_encoding: Option<Encoding>, inbound_encoding: O
         network: chain.make_config(&mut rng),
         chain: chain.clone(),
         force_encoding: inbound_encoding,
-        nonce: None,
     };
     let outbound_cfg = PeerConfig {
         network: chain.make_config(&mut rng),
         chain: chain.clone(),
         force_encoding: outbound_encoding,
-        nonce: None,
     };
     let (outbound_stream, inbound_stream) = tcp::Stream::loopback(inbound_cfg.id()).await;
     let inbound = PeerHandle::start_endpoint(clock.clock(), inbound_cfg, inbound_stream).await;

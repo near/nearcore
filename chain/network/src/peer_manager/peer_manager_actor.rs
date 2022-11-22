@@ -2,8 +2,8 @@ use crate::client;
 use crate::config;
 use crate::debug::{DebugStatus, GetDebugStatus};
 use crate::network_protocol::{
-    AccountData, AccountOrPeerIdOrHash, Edge, PeerMessage, Ping, Pong, RawRoutedMessage,
-    RoutedMessageBody, StateResponseInfo, SyncAccountsData,
+    AccountOrPeerIdOrHash, Edge, PeerMessage, Ping, Pong, RawRoutedMessage, RoutedMessageBody,
+    SignedAccountData, StateResponseInfo,
 };
 use crate::peer::peer_actor::{PeerActor, FDS_PER_PEER};
 use crate::peer_manager::connection;
@@ -115,6 +115,8 @@ pub enum Event {
     // actually complete. Currently this event is reported only for some message types,
     // feel free to add support for more.
     MessageProcessed(PeerMessage),
+    // Reported every time a new list of proxies has been constructed.
+    Tier1AdvertiseProxies(Vec<Arc<SignedAccountData>>),
     // Reported when a handshake has been started.
     HandshakeStarted(crate::peer::peer_actor::HandshakeStartedEvent),
     // Reported when a handshake has been successfully completed.
@@ -235,6 +237,20 @@ impl PeerManagerActor {
             client,
             whitelist_nodes,
         ));
+        if let Some(cfg) = state.config.tier1.clone() {
+            // Connect to TIER1 proxies and broadcast the list those connections periodically.
+            arbiter.spawn({
+                let clock = clock.clone();
+                let state = state.clone();
+                let mut interval = time::Interval::new(clock.now(), cfg.advertise_proxies_interval);
+                async move {
+                    loop {
+                        interval.tick(&clock).await;
+                        state.tier1_advertise_proxies(&clock).await;
+                    }
+                }
+            });
+        }
         Ok(Self::start_in_arbiter(&arbiter, move |_ctx| Self {
             my_peer_id: my_peer_id.clone(),
             started_connect_attempts: false,
@@ -919,93 +935,51 @@ impl Handler<WithSpanContext<GetNetworkInfo>> for PeerManagerActor {
     }
 }
 
-impl Handler<WithSpanContext<SetChainInfo>> for PeerManagerActor {
+impl actix::Handler<WithSpanContext<SetChainInfo>> for PeerManagerActor {
     type Result = ();
     fn handle(&mut self, msg: WithSpanContext<SetChainInfo>, ctx: &mut Self::Context) {
         let (_span, info) = handler_trace_span!(target: "network", msg);
         let _timer =
             metrics::PEER_MANAGER_MESSAGES_TIME.with_label_values(&["SetChainInfo"]).start_timer();
-        let now = self.clock.now_utc();
         let SetChainInfo(info) = info;
         let state = self.state.clone();
         // We set state.chain_info and call accounts_data.set_keys
         // synchronously, therefore, assuming actix in-order delivery,
         // there will be no race condition between subsequent SetChainInfo
         // calls.
-        // TODO(gprusak): if we could make handle() async, then we could
-        // just require the caller to await for completion before calling
-        // SetChainInfo again. Alternatively we could have an async mutex
-        // on the handler.
         state.chain_info.store(Arc::new(Some(info.clone())));
 
-        // If enable_tier1 is false, we skip set_keys() call.
+        // If tier1 is not enabled, we skip set_keys() call.
         // This way self.state.accounts_data is always empty, hence no data
         // will be collected or broadcasted.
-        if !state.config.features.enable_tier1 {
+        if state.config.tier1.is_none() {
+            state.config.event_sink.push(Event::SetChainInfo);
             return;
         }
         // If the key set didn't change, early exit.
         if !state.accounts_data.set_keys(info.tier1_accounts.clone()) {
+            state.config.event_sink.push(Event::SetChainInfo);
             return;
         }
-        ctx.spawn(wrap_future(async move {
-            // If the set of keys has changed, and the node is a validator,
-            // we should try to sign data and broadcast it. However, this is
-            // also a trigger for a full sync, so a dedicated broadcast is
-            // not required.
-            //
-            // TODO(gprusak): For dynamic self-IP-discovery, add a STUN daemon which
-            // will add new AccountData and trigger an incremental broadcast.
-            if let Some(vc) = &state.config.validator {
-                let my_account_id = vc.signer.validator_id();
-                let my_public_key = vc.signer.public_key();
-                // TODO(gprusak): STUN servers should be queried periocally by a daemon
-                // so that the my_peers list is always resolved.
-                // Note that currently we will broadcast an empty list.
-                // It won't help us to connect the the validator BUT it
-                // will indicate that a validator is misconfigured, which
-                // is could be useful for debugging. Consider keeping this
-                // behavior for situations when the IPs are not known.
-                let my_peers = match &vc.endpoints {
-                    config::ValidatorEndpoints::TrustedStunServers(_) => vec![],
-                    config::ValidatorEndpoints::PublicAddrs(peer_addrs) => peer_addrs.clone(),
-                };
-                let my_data = info.tier1_accounts.iter().filter_map(|((epoch_id,account_id),key)| {
-                    if account_id != my_account_id{
-                        return None;
-                    }
-                    if key != &my_public_key {
-                        warn!(target: "network", "node's account_id found in TIER1 accounts, but the public keys do not match");
-                        return None;
-                    }
-                    // This unwrap is safe, because we did signed a sample payload during
-                    // config validation. See config::Config::new().
-                    Some(Arc::new(AccountData {
-                        epoch_id: epoch_id.clone(),
-                        account_id: my_account_id.clone(),
-                        timestamp: now,
-                        peers: my_peers.clone(),
-                    }.sign(vc.signer.as_ref()).unwrap()))
-                }).collect();
-                // Insert node's own AccountData should never fail.
-                // We ignore the new data, because we trigger a full sync anyway.
-                if let (_, Some(err)) = state.accounts_data.insert(my_data).await {
-                    panic!("inserting node's own AccountData to self.state.accounts_data: {err}");
-                }
+        let clock = self.clock.clone();
+        ctx.spawn(wrap_future(
+            async move {
+                // This node might have become a TIER1 node due to the change of the key set.
+                // If so we should recompute and readvertise the list of proxies.
+                // This is mostly important in case a node is its own proxy. In all other cases
+                // (when proxies are different nodes) the update of the key set happens asynchronously
+                // and this node won't be able to connect to proxies until it happens (and only the
+                // connected proxies are included in the advertisement). We run tier1_advertise_proxies
+                // periodically in the background anyway to cover those cases.
+                //
+                // The set of tier1 accounts has changed, so we might be missing some accounts_data
+                // that our peers know about. tier1_advertise_proxies() has a side effect
+                // of asking peers for a full sync of the accounts_data with the TIER2 peers.
+                state.tier1_advertise_proxies(&clock).await;
+                state.config.event_sink.push(Event::SetChainInfo);
             }
-            // The set of tier1 accounts has changed.
-            // We might miss some data, so we start a full sync with the connected peers.
-            // TODO(gprusak): add a daemon which does a periodic full sync in case some messages
-            // are lost (at a frequency which makes the additional network load negligible).
-            state.tier2.broadcast_message(Arc::new(PeerMessage::SyncAccountsData(
-                SyncAccountsData {
-                    incremental: false,
-                    requesting_full_sync: true,
-                    accounts_data: state.accounts_data.load().data.values().cloned().collect(),
-                },
-            )));
-            state.config.event_sink.push(Event::SetChainInfo);
-        }.in_current_span()));
+            .in_current_span(),
+        ));
     }
 }
 

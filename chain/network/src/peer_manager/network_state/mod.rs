@@ -28,6 +28,7 @@ use std::sync::Arc;
 use tracing::{debug, trace, Instrument};
 
 mod routing;
+mod tier1;
 
 /// Limit number of pending Peer actors to avoid OOM.
 pub(crate) const LIMIT_PENDING_PEERS: usize = 60;
