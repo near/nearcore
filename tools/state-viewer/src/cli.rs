@@ -477,7 +477,7 @@ impl ViewTrieCmd {
 
 #[derive(Parser)]
 pub struct DumpStatePartsCmd {
-    /// Last block of a previous epoch.
+    /// Selects an epoch. The dump will be of the state at the beginning of this epoch.
     #[clap(subcommand)]
     epoch_selection: dump_state_parts::EpochSelection,
     /// Shard id.

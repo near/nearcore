@@ -16,8 +16,8 @@ use std::sync::Arc;
 
 #[derive(Subcommand, Debug, Clone)]
 pub(crate) enum EpochSelection {
-    /// Last complete epoch.
-    LastComplete,
+    /// Current epoch.
+    Current,
     /// Fetch the given epoch.
     EpochId { epoch_id: String },
     /// Fetch epochs at the given height.
@@ -35,9 +35,8 @@ fn get_epoch_id(
     epoch_manager: &mut EpochManager,
 ) -> EpochId {
     match epoch_selection {
-        EpochSelection::LastComplete => {
-            let last_block_hash = &chain_store.head().unwrap().last_block_hash;
-            epoch_manager.get_prev_epoch_id(last_block_hash).unwrap()
+        EpochSelection::Current => {
+            epoch_manager.get_epoch_id(&chain_store.head().unwrap().last_block_hash).unwrap()
         }
         EpochSelection::EpochId { epoch_id } => EpochId(CryptoHash::from_str(&epoch_id).unwrap()),
         EpochSelection::EpochHeight { epoch_height } => {
@@ -116,7 +115,6 @@ pub(crate) fn dump_state_parts(
     let sync_prev_block = chain_store.get_block(&sync_prev_hash).unwrap();
 
     assert!(runtime_adapter.is_next_block_epoch_start(&sync_prev_hash).unwrap());
-
     assert!(
         shard_id < sync_prev_block.chunks().len() as u64,
         "shard_id: {}, #shards: {}",
@@ -128,7 +126,13 @@ pub(crate) fn dump_state_parts(
         runtime_adapter.get_state_root_node(shard_id, &sync_prev_hash, &state_root).unwrap();
 
     let num_parts = get_num_state_parts(state_root_node.memory_usage);
-    tracing::debug!(epoch_height = epoch.epoch_height(), num_parts);
+    tracing::debug!(
+        epoch_height = epoch.epoch_height(),
+        ?epoch_id,
+        shard_id,
+        num_parts,
+        "Dumping state as seen at the beginning of the specified epoch.",
+    );
 
     std::fs::create_dir_all(output_dir).unwrap();
     for part_id in if let Some(part_id) = part_id { part_id..part_id + 1 } else { 0..num_parts } {
@@ -144,11 +148,6 @@ pub(crate) fn dump_state_parts(
         let filename = output_dir.join(format!("state_part_{:06}", part_id));
         let len = state_part.len();
         std::fs::write(&filename, state_part).unwrap();
-        tracing::debug!(
-            "part_id: {}, result length: {}, wrote {}",
-            part_id,
-            len,
-            filename.display()
-        );
+        tracing::debug!(part_id, part_length = len, ?filename);
     }
 }
