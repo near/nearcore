@@ -119,5 +119,6 @@ pub struct RpcTransactionInclusionWaitRequest {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct RpcTransactionInclusionWaitResponse {
-    // TODO what data will be important to return? What block hash/number it was included?
+    /// Block hash the transaction was included in.
+    pub block_hash: CryptoHash,
 }

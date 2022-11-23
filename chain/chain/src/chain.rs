@@ -3524,8 +3524,9 @@ impl Chain {
         } else {
             Finality::None
         };
+        let block_hash = transaction.transaction.block_hash;
         let transaction: SignedTransactionView = SignedTransaction::clone(&transaction).into();
-        Ok(Some(InclusionView { transaction, finality }))
+        Ok(Some(InclusionView { transaction, finality, block_hash }))
     }
 
     /// Find a validator to forward transactions to

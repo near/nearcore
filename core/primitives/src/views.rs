@@ -1470,6 +1470,8 @@ pub struct FinalExecutionOutcomeWithReceiptView {
 pub struct InclusionView {
     /// Finality of the inclusion.
     pub finality: Finality,
+    /// Block hash of the transaction inclusion.
+    pub block_hash: CryptoHash,
     /// Signed Transaction
     pub transaction: SignedTransactionView,
 }
