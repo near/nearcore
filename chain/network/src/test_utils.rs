@@ -81,7 +81,7 @@ pub fn wait_or_panic(max_wait_ms: u64) {
 ///
 /// ```rust,ignore
 /// use actix::{System, Actor};
-/// use crate::test_utils::WaitOrTimeoutActor;
+/// use near_network::test_utils::WaitOrTimeoutActor;
 /// use std::time::{Instant, Duration};
 ///
 /// near_actix_test_utils::run_actix(async {
