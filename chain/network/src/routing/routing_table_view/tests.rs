@@ -1,7 +1,39 @@
-use crate::routing::routing_table_view::RoutingTableView;
+use crate::network_protocol::testonly as data;
+use crate::routing;
+use crate::routing::routing_table_view::*;
 use crate::test_utils::{random_epoch_id, random_peer_id};
+use crate::testonly::make_rng;
+use crate::time;
+use crate::types::PeerIdOrHash;
 use near_crypto::Signature;
 use near_primitives::network::AnnounceAccount;
+use rand::seq::SliceRandom;
+use std::sync::Arc;
+
+#[test]
+fn find_route() {
+    let mut rng = make_rng(385305732);
+    let clock = time::FakeClock::default();
+    let rng = &mut rng;
+    let store = crate::store::Store::from(near_store::db::TestDB::new());
+
+    // Create a sample NextHopTable.
+    let peers: Vec<_> = (0..10).map(|_| data::make_peer_id(rng)).collect();
+    let mut next_hops = routing::NextHopTable::new();
+    for p in &peers {
+        next_hops.insert(p.clone(), (0..3).map(|_| peers.choose(rng).cloned().unwrap()).collect());
+    }
+    let next_hops = Arc::new(next_hops);
+
+    // Check that RoutingTableView always selects a valid next hop.
+    let rtv = RoutingTableView::new(store);
+    rtv.update(next_hops.clone());
+    for _ in 0..1000 {
+        let p = peers.choose(rng).unwrap();
+        let got = rtv.find_route(&clock.clock(), &PeerIdOrHash::PeerId(p.clone())).unwrap();
+        assert!(next_hops.get(p).unwrap().contains(&got));
+    }
+}
 
 #[test]
 fn announcement_same_epoch() {
@@ -11,7 +43,7 @@ fn announcement_same_epoch() {
     let peer_id1 = random_peer_id();
     let epoch_id0 = random_epoch_id();
 
-    let routing_table = RoutingTableView::new(store, random_peer_id());
+    let routing_table = RoutingTableView::new(store);
 
     let announce0 = AnnounceAccount {
         account_id: "near0".parse().unwrap(),
@@ -52,7 +84,7 @@ fn dont_load_on_build() {
     let epoch_id0 = random_epoch_id();
     let epoch_id1 = random_epoch_id();
 
-    let routing_table = RoutingTableView::new(store.clone(), random_peer_id());
+    let routing_table = RoutingTableView::new(store.clone());
 
     let announce0 = AnnounceAccount {
         account_id: "near0".parse().unwrap(),
@@ -75,7 +107,7 @@ fn dont_load_on_build() {
     assert!(vec![announce0, announce1].iter().all(|announce| { accounts.contains(&announce) }));
     assert_eq!(accounts.len(), 2);
 
-    let routing_table1 = RoutingTableView::new(store, random_peer_id());
+    let routing_table1 = RoutingTableView::new(store);
     assert_eq!(routing_table1.get_announce_accounts().len(), 0);
 }
 
@@ -86,8 +118,8 @@ fn load_from_disk() {
     let peer_id0 = random_peer_id();
     let epoch_id0 = random_epoch_id();
 
-    let routing_table = RoutingTableView::new(store.clone(), random_peer_id());
-    let routing_table1 = RoutingTableView::new(store, random_peer_id());
+    let routing_table = RoutingTableView::new(store.clone());
+    let routing_table1 = RoutingTableView::new(store);
 
     let announce0 = AnnounceAccount {
         account_id: "near0".parse().unwrap(),

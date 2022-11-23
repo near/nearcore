@@ -440,11 +440,11 @@ impl PeerActor {
                 // Check that the received nonce is greater than the current nonce of this connection.
                 // If not (and this is an inbound connection) propose a new nonce.
                 if let Some(last_edge) =
-                    self.network_state.routing_table_view.get_local_edge(&handshake.sender_peer_id)
+                    self.network_state.graph.load().local_edges.get(&handshake.sender_peer_id)
                 {
                     if last_edge.nonce() >= handshake.partial_edge_info.nonce {
                         tracing::debug!(target: "network", "{:?}: Received too low nonce from peer {:?} sending evidence.", self.my_node_id(), self.peer_addr);
-                        self.send_message_or_log(&PeerMessage::LastEdge(last_edge));
+                        self.send_message_or_log(&PeerMessage::LastEdge(last_edge.clone()));
                         return;
                     }
                 }
@@ -515,9 +515,6 @@ impl PeerActor {
             connection_established_time: now,
             send_accounts_data_demux: demux::Demux::new(
                 self.network_state.config.accounts_data_broadcast_rate_limit,
-            ),
-            send_routing_table_update_demux: demux::Demux::new(
-                self.network_state.config.routing_table_update_rate_limit,
             ),
         });
 
@@ -645,12 +642,12 @@ impl PeerActor {
     // Send full RoutingTable.
     fn sync_routing_table(&self) {
         let mut known_edges: Vec<Edge> =
-            self.network_state.graph.read().edges().values().cloned().collect();
+            self.network_state.graph.load().edges.values().cloned().collect();
         if self.network_state.config.skip_tombstones.is_some() {
             known_edges.retain(|edge| edge.removal_info().is_none());
             metrics::EDGE_TOMBSTONE_SENDING_SKIPPED.inc();
         }
-        let known_accounts = self.network_state.routing_table_view.get_announce_accounts();
+        let known_accounts = self.network_state.graph.routing_table.get_announce_accounts();
         self.send_message_or_log(&PeerMessage::SyncRoutingTable(RoutingTableUpdate::new(
             known_edges,
             known_accounts,
@@ -947,7 +944,7 @@ impl PeerActor {
                 let network_state = self.network_state.clone();
                 ctx.spawn(wrap_future(async move {
                     let peer_id = &conn.peer_info.id;
-                    let edge = match network_state.routing_table_view.get_local_edge(peer_id) {
+                    let edge = match network_state.graph.load().local_edges.get(peer_id) {
                         Some(cur_edge)
                             if cur_edge.edge_type() == EdgeState::Active
                                 && cur_edge.nonce() >= edge_info.nonce =>
@@ -1031,7 +1028,7 @@ impl PeerActor {
                 let from = &conn.peer_info.id;
                 if msg.expect_response() {
                     tracing::trace!(target: "network", route_back = ?msg.clone(), "Received peer message that requires response");
-                    self.network_state.routing_table_view.add_route_back(
+                    self.network_state.graph.routing_table.add_route_back(
                         &self.clock,
                         msg.hash(),
                         from.clone(),
@@ -1092,7 +1089,8 @@ impl PeerActor {
         // as well as filter out those which are older than the fetched ones (to avoid overriding
         // a newer announce with an older one).
         let old = network_state
-            .routing_table_view
+            .graph
+            .routing_table
             .get_broadcasted_announces(rtu.accounts.iter().map(|a| &a.account_id));
         let accounts: Vec<(AnnounceAccount, Option<EpochId>)> = rtu
             .accounts
