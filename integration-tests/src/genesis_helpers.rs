@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use tempfile::tempdir;
 
+use near_chain::types::ChainConfig;
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_chain_configs::Genesis;
 use near_primitives::block::{Block, BlockHeader};
@@ -21,7 +22,8 @@ pub fn genesis_header(genesis: &Genesis) -> BlockHeader {
     let chain_genesis = ChainGenesis::new(genesis);
     let runtime = Arc::new(NightshadeRuntime::test(dir.path(), store, genesis));
     let chain =
-        Chain::new(runtime, &chain_genesis, DoomslugThresholdMode::TwoThirds, true).unwrap();
+        Chain::new(runtime, &chain_genesis, DoomslugThresholdMode::TwoThirds, ChainConfig::test())
+            .unwrap();
     chain.genesis().clone()
 }
 
@@ -32,6 +34,7 @@ pub fn genesis_block(genesis: &Genesis) -> Block {
     let chain_genesis = ChainGenesis::new(genesis);
     let runtime = Arc::new(NightshadeRuntime::test(dir.path(), store, genesis));
     let chain =
-        Chain::new(runtime, &chain_genesis, DoomslugThresholdMode::TwoThirds, true).unwrap();
+        Chain::new(runtime, &chain_genesis, DoomslugThresholdMode::TwoThirds, ChainConfig::test())
+            .unwrap();
     chain.get_block(&chain.genesis().hash().clone()).unwrap()
 }

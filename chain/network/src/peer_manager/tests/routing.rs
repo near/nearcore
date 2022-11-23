@@ -37,12 +37,11 @@ async fn ttl() {
         network: chain.make_config(rng),
         chain,
         force_encoding: Some(Encoding::Proto),
-        nonce: None,
     };
     let stream = tcp::Stream::connect(&pm.peer_info()).await.unwrap();
     let mut peer = peer::testonly::PeerHandle::start_endpoint(clock.clock(), cfg, stream).await;
     peer.complete_handshake().await;
-    pm.wait_for_routing_table(&mut clock, &[(peer.cfg.id(), vec![peer.cfg.id()])]).await;
+    pm.wait_for_routing_table(&[(peer.cfg.id(), vec![peer.cfg.id()])]).await;
 
     for ttl in 0..5 {
         let msg = RoutedMessageBody::Ping(Ping { nonce: rng.gen(), source: peer.cfg.id() });
@@ -92,7 +91,6 @@ async fn repeated_data_in_sync_routing_table() {
         network: chain.make_config(rng),
         chain,
         force_encoding: Some(Encoding::Proto),
-        nonce: None,
     };
     let stream = tcp::Stream::connect(&pm.peer_info()).await.unwrap();
     let mut peer = peer::testonly::PeerHandle::start_endpoint(clock.clock(), cfg, stream).await;
@@ -158,11 +156,13 @@ async fn wait_for_edges(
     want: &HashSet<Edge>,
 ) {
     let mut got = HashSet::new();
+    tracing::info!(target: "test", "want edges: {:?}",want.iter().map(|e|e.hash()).collect::<Vec<_>>());
     while &got != want {
         match events.recv().await {
             peer::testonly::Event::Network(PME::MessageProcessed(
                 PeerMessage::SyncRoutingTable(msg),
             )) => {
+                tracing::info!(target: "test", "got edges: {:?}",msg.edges.iter().map(|e|e.hash()).collect::<Vec<_>>());
                 got.extend(msg.edges);
                 assert!(want.is_superset(&got), "want: {:#?}, got: {:#?}", want, got);
             }
@@ -260,34 +260,31 @@ async fn square() {
     let id2 = pm2.cfg.node_id();
     let id3 = pm3.cfg.node_id();
 
-    pm0.wait_for_routing_table(
-        &mut clock,
-        &[
-            (id1.clone(), vec![id1.clone()]),
-            (id3.clone(), vec![id3.clone()]),
-            (id2.clone(), vec![id1.clone(), id3.clone()]),
-        ],
-    )
+    pm0.wait_for_routing_table(&[
+        (id1.clone(), vec![id1.clone()]),
+        (id3.clone(), vec![id3.clone()]),
+        (id2.clone(), vec![id1.clone(), id3.clone()]),
+    ])
     .await;
     tracing::info!(target:"test","stop {id1}");
     drop(pm1);
     tracing::info!(target:"test","wait for {id0} routing table");
-    pm0.wait_for_routing_table(
-        &mut clock,
-        &[(id3.clone(), vec![id3.clone()]), (id2.clone(), vec![id3.clone()])],
-    )
+    pm0.wait_for_routing_table(&[
+        (id3.clone(), vec![id3.clone()]),
+        (id2.clone(), vec![id3.clone()]),
+    ])
     .await;
     tracing::info!(target:"test","wait for {id2} routing table");
-    pm2.wait_for_routing_table(
-        &mut clock,
-        &[(id3.clone(), vec![id3.clone()]), (id0.clone(), vec![id3.clone()])],
-    )
+    pm2.wait_for_routing_table(&[
+        (id3.clone(), vec![id3.clone()]),
+        (id0.clone(), vec![id3.clone()]),
+    ])
     .await;
     tracing::info!(target:"test","wait for {id3} routing table");
-    pm3.wait_for_routing_table(
-        &mut clock,
-        &[(id2.clone(), vec![id2.clone()]), (id0.clone(), vec![id0.clone()])],
-    )
+    pm3.wait_for_routing_table(&[
+        (id2.clone(), vec![id2.clone()]),
+        (id0.clone(), vec![id0.clone()]),
+    ])
     .await;
     drop(pm0);
     drop(pm2);
@@ -302,8 +299,7 @@ async fn fix_local_edges() {
     let mut clock = time::FakeClock::default();
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
-    let mut pm =
-        start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
+    let pm = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
     let conn = pm
         .start_inbound(chain.clone(), chain.make_config(rng))
         .await
@@ -323,23 +319,21 @@ async fn fix_local_edges() {
     ]));
 
     tracing::info!(target:"test", "waiting for fake edges to be processed");
-    conn.send(msg).await;
-    let mut got = HashSet::new();
-    let want = [&edge1, &edge2].into_iter().cloned().collect();
-    while !got.is_superset(&want) {
-        pm.events
-            .recv_until(|ev| match ev {
-                Event::PeerManager(PME::EdgesVerified(edges)) => Some(got.extend(edges)),
-                _ => None,
-            })
-            .await;
-    }
+    let mut events = pm.events.from_now();
+    conn.send(msg.clone()).await;
+    events
+        .recv_until(|ev| match ev {
+            Event::PeerManager(PME::MessageProcessed(got)) if got == msg => Some(()),
+            _ => None,
+        })
+        .await;
 
     tracing::info!(target:"test","waiting for fake edges to be fixed");
+    let mut events = pm.events.from_now();
     pm.fix_local_edges(&clock.clock(), time::Duration::ZERO).await;
     // TODO(gprusak): make fix_local_edges await closing of the connections, so
     // that we don't have to wait for it explicitly here.
-    pm.events
+    events
         .recv_until(|ev| match ev {
             Event::PeerManager(PME::ConnectionClosed { .. }) => Some(()),
             _ => None,

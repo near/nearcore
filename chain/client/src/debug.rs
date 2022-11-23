@@ -5,7 +5,7 @@ use actix::{Context, Handler};
 use borsh::BorshSerialize;
 use itertools::Itertools;
 use near_chain::crypto_hash_timer::CryptoHashTimer;
-use near_chain::{near_chain_primitives, ChainStoreAccess, RuntimeAdapter};
+use near_chain::{near_chain_primitives, Chain, ChainStoreAccess, RuntimeAdapter};
 use near_client_primitives::debug::{
     ApprovalAtHeightStatus, BlockProduction, ChunkCollection, DebugBlockStatusData, DebugStatus,
     DebugStatusResponse, MissedHeightInfo, ProductionAtHeight, ValidatorStatus,
@@ -30,8 +30,10 @@ use std::cmp::{max, min};
 use std::collections::{HashMap, HashSet};
 
 use near_client_primitives::debug::{DebugBlockStatus, DebugChunkStatus};
+use near_network::types::{ConnectedPeerInfo, NetworkInfo, PeerType};
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::time::Clock;
+use near_primitives::views::{KnownProducerView, NetworkInfoView, PeerInfoView};
 
 // Constants for debug requests.
 const DEBUG_BLOCKS_TO_FETCH: u32 = 50;
@@ -625,5 +627,64 @@ impl ClientActor {
                 .map(|(k, vs)| (k, vs.map(|(_, v)| v).collect()))
                 .collect(),
         })
+    }
+}
+fn new_peer_info_view(chain: &Chain, connected_peer_info: &ConnectedPeerInfo) -> PeerInfoView {
+    let full_peer_info = &connected_peer_info.full_peer_info;
+    PeerInfoView {
+        addr: match full_peer_info.peer_info.addr {
+            Some(socket_addr) => socket_addr.to_string(),
+            None => "N/A".to_string(),
+        },
+        account_id: full_peer_info.peer_info.account_id.clone(),
+        height: full_peer_info.chain_info.last_block.map(|x| x.height),
+        block_hash: full_peer_info.chain_info.last_block.map(|x| x.hash),
+        is_highest_block_invalid: full_peer_info
+            .chain_info
+            .last_block
+            .map(|x| chain.is_block_invalid(&x.hash))
+            .unwrap_or_default(),
+        tracked_shards: full_peer_info.chain_info.tracked_shards.clone(),
+        archival: full_peer_info.chain_info.archival,
+        peer_id: full_peer_info.peer_info.id.public_key().clone(),
+        received_bytes_per_sec: connected_peer_info.received_bytes_per_sec,
+        sent_bytes_per_sec: connected_peer_info.sent_bytes_per_sec,
+        last_time_peer_requested_millis: connected_peer_info
+            .last_time_peer_requested
+            .elapsed()
+            .whole_milliseconds() as u64,
+        last_time_received_message_millis: connected_peer_info
+            .last_time_received_message
+            .elapsed()
+            .whole_milliseconds() as u64,
+        connection_established_time_millis: connected_peer_info
+            .connection_established_time
+            .elapsed()
+            .whole_milliseconds() as u64,
+        is_outbound_peer: connected_peer_info.peer_type == PeerType::Outbound,
+    }
+}
+
+pub(crate) fn new_network_info_view(chain: &Chain, network_info: &NetworkInfo) -> NetworkInfoView {
+    NetworkInfoView {
+        peer_max_count: network_info.peer_max_count,
+        num_connected_peers: network_info.num_connected_peers,
+        connected_peers: network_info
+            .connected_peers
+            .iter()
+            .map(|full_peer_info| new_peer_info_view(chain, full_peer_info))
+            .collect::<Vec<_>>(),
+        known_producers: network_info
+            .known_producers
+            .iter()
+            .map(|it| KnownProducerView {
+                account_id: it.account_id.clone(),
+                peer_id: it.peer_id.public_key().clone(),
+                next_hops: it
+                    .next_hops
+                    .as_ref()
+                    .map(|it| it.iter().map(|peer_id| peer_id.public_key().clone()).collect()),
+            })
+            .collect(),
     }
 }

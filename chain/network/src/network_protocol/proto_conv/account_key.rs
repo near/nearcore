@@ -4,20 +4,18 @@ use super::*;
 use crate::network_protocol::proto;
 use crate::network_protocol::proto::account_key_payload::Payload_type as ProtoPT;
 use crate::network_protocol::{AccountData, AccountKeySignedPayload, SignedAccountData};
-use near_primitives::account::id::ParseAccountError;
-use near_primitives::types::EpochId;
 use protobuf::{Message as _, MessageField as MF};
 
 #[derive(thiserror::Error, Debug)]
 pub enum ParseAccountDataError {
     #[error("bad payload type")]
     BadPayloadType,
-    #[error("account_id: {0}")]
-    AccountId(ParseAccountError),
+    #[error("peer_id: {0}")]
+    PeerId(ParseRequiredError<ParsePublicKeyError>),
+    #[error("account_key: {0}")]
+    AccountKey(ParseRequiredError<ParsePublicKeyError>),
     #[error("peers: {0}")]
     Peers(ParseVecError<ParsePeerAddrError>),
-    #[error("epoch_id: {0}")]
-    EpochId(ParseRequiredError<ParseCryptoHashError>),
     #[error("timestamp: {0}")]
     Timestamp(ParseRequiredError<ParseTimestampError>),
 }
@@ -29,9 +27,10 @@ impl From<&AccountData> for proto::AccountKeyPayload {
     fn from(x: &AccountData) -> Self {
         Self {
             payload_type: Some(ProtoPT::AccountData(proto::AccountData {
-                account_id: x.account_id.to_string(),
-                peers: x.peers.iter().map(Into::into).collect(),
-                epoch_id: MF::some((&x.epoch_id.0).into()),
+                peer_id: MF::some((&x.peer_id).into()),
+                account_key: MF::some((&x.account_key).into()),
+                proxies: x.proxies.iter().map(Into::into).collect(),
+                version: x.version,
                 timestamp: MF::some(utc_to_proto(&x.timestamp)),
                 ..Default::default()
             })),
@@ -49,9 +48,10 @@ impl TryFrom<&proto::AccountKeyPayload> for AccountData {
             _ => return Err(Self::Error::BadPayloadType),
         };
         Ok(Self {
-            account_id: x.account_id.clone().try_into().map_err(Self::Error::AccountId)?,
-            peers: try_from_slice(&x.peers).map_err(Self::Error::Peers)?,
-            epoch_id: EpochId(try_from_required(&x.epoch_id).map_err(Self::Error::EpochId)?),
+            peer_id: try_from_required(&x.peer_id).map_err(Self::Error::PeerId)?,
+            account_key: try_from_required(&x.account_key).map_err(Self::Error::AccountKey)?,
+            proxies: try_from_slice(&x.proxies).map_err(Self::Error::Peers)?,
+            version: x.version,
             timestamp: map_from_required(&x.timestamp, utc_from_proto)
                 .map_err(Self::Error::Timestamp)?,
         })
