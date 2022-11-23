@@ -13,16 +13,6 @@ fn simple() -> anyhow::Result<()> {
 }
 
 #[test]
-fn from_boot_nodes() -> anyhow::Result<()> {
-    let mut runner = Runner::new(2, 1).use_boot_nodes(vec![0]).enable_outbound();
-
-    runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1])]));
-    runner.push(Action::CheckRoutingTable(1, vec![(0, vec![0])]));
-
-    start_test(runner)
-}
-
-#[test]
 fn three_nodes_path() -> anyhow::Result<()> {
     let mut runner = Runner::new(3, 2);
 
