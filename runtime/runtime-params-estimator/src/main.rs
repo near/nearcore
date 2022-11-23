@@ -125,6 +125,7 @@ fn main() -> anyhow::Result<()> {
             temp_dir.path().to_path_buf()
         }
     };
+
     if state_dump_path.read_dir()?.next().is_none() {
         // Every created account gets this smart contract deployed, such that
         // any account can be used to perform estimations that require this
@@ -330,7 +331,7 @@ fn main_docker(
         let mut buf = String::new();
         buf.push_str("set -ex;\n");
         buf.push_str("cd /host/nearcore;\n");
-        buf.push_str("cargo build --manifest-path /host/nearcore/Cargo.toml");
+        buf.push_str("CFLAGS='-D__BLST_PORTABLE__' cargo build --manifest-path /host/nearcore/Cargo.toml");
         buf.push_str(" --package runtime-params-estimator --bin runtime-params-estimator");
 
         // Feature "required" is always necessary for accurate measurements.

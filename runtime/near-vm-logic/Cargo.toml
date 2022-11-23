@@ -15,6 +15,7 @@ This crate implements the specification of the interface that Near blockchain ex
 """
 
 [dependencies]
+blst.workspace = true
 bn.workspace = true
 borsh.workspace = true
 byteorder.workspace = true
@@ -31,8 +32,6 @@ near-o11y = { path = "../../core/o11y" }
 near-primitives = { path = "../../core/primitives" }
 near-primitives-core = { path = "../../core/primitives-core" }
 near-vm-errors = { path = "../near-vm-errors" }
-
-blst="0.3.10"
 
 [dev-dependencies]
 hex.workspace = true

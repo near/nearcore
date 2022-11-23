@@ -15,6 +15,7 @@ Error that can occur inside Near Runtime encapsulated in a separate crate. Might
 """
 
 [dependencies]
+blst.workspace = true
 borsh.workspace = true
 serde.workspace = true
 strum.workspace = true
@@ -22,8 +23,6 @@ thiserror.workspace = true
 
 near-account-id = { path = "../../core/account-id" }
 near-rpc-error-macro = { path = "../../tools/rpctypegen/macro" }
-
-blst="0.3.10"
 
 [features]
 dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]

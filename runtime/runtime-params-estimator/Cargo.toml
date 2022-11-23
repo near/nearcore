@@ -11,6 +11,7 @@ required-features = ["costs_counting"]
 
 [dependencies]
 anyhow.workspace = true
+blst.workspace = true
 borsh.workspace = true
 bs58.workspace = true
 bytesize.workspace = true
