@@ -19,7 +19,7 @@ use crate::types::{
     BlockInfo, Handshake, HandshakeFailureReason, PeerIdOrHash, PeerMessage, PeerType, ReasonForBan,
 };
 use actix::fut::future::wrap_future;
-use actix::{Actor, ActorContext, ActorFutureExt, AsyncContext, Context, Handler, Running};
+use actix::{Actor as _, ActorContext as _, ActorFutureExt as _, AsyncContext as _};
 use lru::LruCache;
 use near_crypto::Signature;
 use near_o11y::{handler_debug_span, log_assert, pretty, OpenTelemetrySpanExt, WithSpanContext};
@@ -37,7 +37,7 @@ use std::io;
 use std::net::SocketAddr;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use tracing::{debug, error, info, warn, Instrument};
+use tracing::Instrument as _;
 
 /// Maximum number of messages per minute from single peer.
 // TODO(#5453): current limit is way to high due to us sending lots of messages during sync.
@@ -338,7 +338,7 @@ impl PeerActor {
         self.send_message_or_log(&msg);
     }
 
-    fn stop(&mut self, ctx: &mut Context<PeerActor>, reason: ClosingReason) {
+    fn stop(&mut self, ctx: &mut actix::Context<PeerActor>, reason: ClosingReason) {
         // Only the first call to stop sets the closing_reason.
         if self.closing_reason.is_none() {
             self.closing_reason = Some(reason);
@@ -369,7 +369,7 @@ impl PeerActor {
         ctx: &mut <PeerActor as actix::Actor>::Context,
         handshake: Handshake,
     ) {
-        debug!(target: "network", "{:?}: Received handshake {:?}", self.my_node_info.id, handshake);
+        tracing::debug!(target: "network", "{:?}: Received handshake {:?}", self.my_node_info.id, handshake);
         let cs = match &self.peer_status {
             PeerStatus::Connecting(it) => it,
             _ => panic!("process_handshake called in non-connecting state"),
@@ -377,22 +377,22 @@ impl PeerActor {
         match cs {
             ConnectingStatus::Outbound { handshake_spec: spec, .. } => {
                 if handshake.protocol_version != spec.protocol_version {
-                    warn!(target: "network", "Protocol version mismatch. Disconnecting peer {}", handshake.sender_peer_id);
+                    tracing::warn!(target: "network", "Protocol version mismatch. Disconnecting peer {}", handshake.sender_peer_id);
                     self.stop(ctx, ClosingReason::HandshakeFailed);
                     return;
                 }
                 if handshake.sender_chain_info.genesis_id != self.network_state.genesis_id {
-                    warn!(target: "network", "Genesis mismatch. Disconnecting peer {}", handshake.sender_peer_id);
+                    tracing::warn!(target: "network", "Genesis mismatch. Disconnecting peer {}", handshake.sender_peer_id);
                     self.stop(ctx, ClosingReason::HandshakeFailed);
                     return;
                 }
                 if handshake.sender_peer_id != spec.peer_id {
-                    warn!(target: "network", "PeerId mismatch. Disconnecting peer {}", handshake.sender_peer_id);
+                    tracing::warn!(target: "network", "PeerId mismatch. Disconnecting peer {}", handshake.sender_peer_id);
                     self.stop(ctx, ClosingReason::HandshakeFailed);
                     return;
                 }
                 if handshake.partial_edge_info.nonce != spec.partial_edge_info.nonce {
-                    warn!(target: "network", "Nonce mismatch. Disconnecting peer {}", handshake.sender_peer_id);
+                    tracing::warn!(target: "network", "Nonce mismatch. Disconnecting peer {}", handshake.sender_peer_id);
                     self.stop(ctx, ClosingReason::HandshakeFailed);
                     return;
                 }
@@ -401,7 +401,7 @@ impl PeerActor {
                 if PEER_MIN_ALLOWED_PROTOCOL_VERSION > handshake.protocol_version
                     || handshake.protocol_version > PROTOCOL_VERSION
                 {
-                    debug!(
+                    tracing::debug!(
                         target: "network",
                         version = handshake.protocol_version,
                         "Received connection from node with unsupported PROTOCOL_VERSION.");
@@ -416,7 +416,7 @@ impl PeerActor {
                 }
                 let genesis_id = self.network_state.genesis_id.clone();
                 if handshake.sender_chain_info.genesis_id != genesis_id {
-                    debug!(target: "network", "Received connection from node with different genesis.");
+                    tracing::debug!(target: "network", "Received connection from node with different genesis.");
                     self.send_message_or_log(&PeerMessage::HandshakeFailure(
                         self.my_node_info.clone(),
                         HandshakeFailureReason::GenesisMismatch(genesis_id),
@@ -424,7 +424,7 @@ impl PeerActor {
                     return;
                 }
                 if handshake.target_peer_id != self.my_node_info.id {
-                    debug!(target: "network", "Received handshake from {:?} to {:?} but I am {:?}", handshake.sender_peer_id, handshake.target_peer_id, self.my_node_info.id);
+                    tracing::debug!(target: "network", "Received handshake from {:?} to {:?} but I am {:?}", handshake.sender_peer_id, handshake.target_peer_id, self.my_node_info.id);
                     self.send_message_or_log(&PeerMessage::HandshakeFailure(
                         self.my_node_info.clone(),
                         HandshakeFailureReason::InvalidTarget,
@@ -433,7 +433,7 @@ impl PeerActor {
                 }
                 // Verify if nonce is sane.
                 if let Err(err) = verify_nonce(&self.clock, handshake.partial_edge_info.nonce) {
-                    debug!(target: "network", nonce=?handshake.partial_edge_info.nonce, my_node_id = ?self.my_node_id(), peer_id=?handshake.sender_peer_id, "bad nonce, disconnecting: {err}");
+                    tracing::debug!(target: "network", nonce=?handshake.partial_edge_info.nonce, my_node_id = ?self.my_node_id(), peer_id=?handshake.sender_peer_id, "bad nonce, disconnecting: {err}");
                     self.stop(ctx, ClosingReason::HandshakeFailed);
                     return;
                 }
@@ -443,7 +443,7 @@ impl PeerActor {
                     self.network_state.routing_table_view.get_local_edge(&handshake.sender_peer_id)
                 {
                     if last_edge.nonce() >= handshake.partial_edge_info.nonce {
-                        debug!(target: "network", "{:?}: Received too low nonce from peer {:?} sending evidence.", self.my_node_id(), self.peer_addr);
+                        tracing::debug!(target: "network", "{:?}: Received too low nonce from peer {:?} sending evidence.", self.my_node_id(), self.peer_addr);
                         self.send_message_or_log(&PeerMessage::LastEdge(last_edge));
                         return;
                     }
@@ -458,7 +458,7 @@ impl PeerActor {
             &handshake.sender_peer_id,
             &handshake.partial_edge_info,
         ) {
-            warn!(target: "network", "partial edge with invalid signature, disconnecting");
+            tracing::warn!(target: "network", "partial edge with invalid signature, disconnecting");
             self.stop(ctx, ClosingReason::Ban(ReasonForBan::InvalidSignature));
             return;
         }
@@ -665,7 +665,7 @@ impl PeerActor {
             ) => {
                 match reason {
                     HandshakeFailureReason::GenesisMismatch(genesis) => {
-                        warn!(target: "network", "Attempting to connect to a node ({}) with a different genesis block. Our genesis: {:?}, their genesis: {:?}", peer_info, self.network_state.genesis_id, genesis);
+                        tracing::warn!(target: "network", "Attempting to connect to a node ({}) with a different genesis block. Our genesis: {:?}, their genesis: {:?}", peer_info, self.network_state.genesis_id, genesis);
                         self.stop(ctx, ClosingReason::HandshakeFailed);
                     }
                     HandshakeFailureReason::ProtocolVersionMismatch {
@@ -677,7 +677,7 @@ impl PeerActor {
                         if common_version < oldest_supported_version
                             || common_version < PEER_MIN_ALLOWED_PROTOCOL_VERSION
                         {
-                            warn!(target: "network", "Unable to connect to a node ({}) due to a network protocol version mismatch. Our version: {:?}, their: {:?}", peer_info, (PROTOCOL_VERSION, PEER_MIN_ALLOWED_PROTOCOL_VERSION), (version, oldest_supported_version));
+                            tracing::warn!(target: "network", "Unable to connect to a node ({}) due to a network protocol version mismatch. Our version: {:?}, their: {:?}", peer_info, (PROTOCOL_VERSION, PEER_MIN_ALLOWED_PROTOCOL_VERSION), (version, oldest_supported_version));
                             self.stop(ctx, ClosingReason::HandshakeFailed);
                             return;
                         }
@@ -722,7 +722,7 @@ impl PeerActor {
                     edge.verify();
                 // Disconnect if neighbor sent an invalid edge.
                 if !ok {
-                    info!(target: "network", "{:?}: Peer {:?} sent invalid edge. Disconnect.", self.my_node_id(), self.peer_addr);
+                    tracing::info!(target: "network", "{:?}: Peer {:?} sent invalid edge. Disconnect.", self.my_node_id(), self.peer_addr);
                     self.stop(ctx, ClosingReason::HandshakeFailed);
                     return;
                 }
@@ -913,12 +913,12 @@ impl PeerActor {
 
         match peer_msg.clone() {
             PeerMessage::Disconnect => {
-                debug!(target: "network", "Disconnect signal. Me: {:?} Peer: {:?}", self.my_node_info.id, self.other_peer_id());
+                tracing::debug!(target: "network", "Disconnect signal. Me: {:?} Peer: {:?}", self.my_node_info.id, self.other_peer_id());
                 self.stop(ctx, ClosingReason::DisconnectMessage);
             }
             PeerMessage::Handshake(_) => {
                 // Received handshake after already have seen handshake from this peer.
-                debug!(target: "network", "Duplicate handshake from {}", self.peer_info);
+                tracing::debug!(target: "network", "Duplicate handshake from {}", self.peer_info);
             }
             PeerMessage::PeersRequest => {
                 let peers = self
@@ -1066,7 +1066,7 @@ impl PeerActor {
                         self.network_state.send_message_to_peer(&self.clock, msg);
                     } else {
                         self.network_state.config.event_sink.push(Event::RoutedMessageDropped);
-                        warn!(target: "network", ?msg, ?from, "Message dropped because TTL reached 0.");
+                        tracing::warn!(target: "network", ?msg, ?from, "Message dropped because TTL reached 0.");
                         metrics::ROUTED_MESSAGE_DROPPED
                             .with_label_values(&[msg.body_variant()])
                             .inc();
@@ -1122,7 +1122,7 @@ impl actix::Actor for PeerActor {
             self.network_state.config.handshake_timeout.try_into().unwrap(),
             move |act, ctx| match act.peer_status {
                 PeerStatus::Connecting { .. } => {
-                    info!(target: "network", "Handshake timeout expired for {}", act.peer_info);
+                    tracing::info!(target: "network", "Handshake timeout expired for {}", act.peer_info);
                     act.stop(ctx, ClosingReason::HandshakeFailed);
                 }
                 _ => {}
@@ -1141,15 +1141,15 @@ impl actix::Actor for PeerActor {
             .push(Event::HandshakeStarted(HandshakeStartedEvent { stream_id: self.stream_id }));
     }
 
-    fn stopping(&mut self, _: &mut Self::Context) -> Running {
-        Running::Stop
+    fn stopping(&mut self, _: &mut Self::Context) -> actix::Running {
+        actix::Running::Stop
     }
 
     fn stopped(&mut self, _ctx: &mut Self::Context) {
         // closing_reason may be None in case the whole actix system is stopped.
         // It happens a lot in tests.
         metrics::PEER_CONNECTIONS_TOTAL.dec();
-        debug!(target: "network", "{:?}: [status = {:?}] Peer {} disconnected.", self.my_node_info.id, self.peer_status, self.peer_info);
+        tracing::debug!(target: "network", "{:?}: [status = {:?}] Peer {} disconnected.", self.my_node_info.id, self.peer_status, self.peer_info);
         if self.closing_reason.is_none() {
             // Due to Actix semantics, sometimes closing reason may be not set.
             // But it is only expected to happen in tests.
@@ -1242,7 +1242,7 @@ impl actix::Handler<stream::Frame> for PeerActor {
         let mut peer_msg = match self.parse_message(&msg) {
             Ok(msg) => msg,
             Err(err) => {
-                debug!(target: "network", "Received invalid data {} from {}: {}", pretty::AbbrBytes(&msg), self.peer_info, err);
+                tracing::debug!(target: "network", "Received invalid data {} from {}: {}", pretty::AbbrBytes(&msg), self.peer_info, err);
                 return;
             }
         };
@@ -1255,7 +1255,7 @@ impl actix::Handler<stream::Frame> for PeerActor {
                 // Drop duplicated messages routed within DROP_DUPLICATED_MESSAGES_PERIOD ms
                 if let Some(&t) = self.routed_message_cache.get(&key) {
                     if now <= t + DROP_DUPLICATED_MESSAGES_PERIOD {
-                        debug!(target: "network", "Dropping duplicated message from {} to {:?}", msg.author, msg.target);
+                        tracing::debug!(target: "network", "Dropping duplicated message from {} to {:?}", msg.author, msg.target);
                         return;
                     }
                 }
@@ -1315,7 +1315,7 @@ impl actix::Handler<stream::Frame> for PeerActor {
     }
 }
 
-impl Handler<WithSpanContext<SendMessage>> for PeerActor {
+impl actix::Handler<WithSpanContext<SendMessage>> for PeerActor {
     type Result = ();
 
     #[perf]
