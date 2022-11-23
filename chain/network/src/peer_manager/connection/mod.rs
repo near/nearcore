@@ -2,7 +2,8 @@ use crate::concurrency::arc_mutex::ArcMutex;
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
 use crate::network_protocol::{
-    Edge, PeerInfo, PeerMessage, RoutingTableUpdate, SignedAccountData, SyncAccountsData,
+    Edge, PeerInfo, PeerMessage, RoutingTableUpdate, SignedAccountData, SignedOwnedAccount,
+    SyncAccountsData,
 };
 use crate::peer::peer_actor;
 use crate::peer::peer_actor::PeerActor;
@@ -11,6 +12,7 @@ use crate::stats::metrics;
 use crate::time;
 use crate::types::{BlockInfo, FullPeerInfo, PeerChainInfo, PeerType, ReasonForBan};
 use arc_swap::ArcSwap;
+use near_crypto::PublicKey;
 use near_o11y::WithSpanContextExt;
 use near_primitives::block::GenesisId;
 use near_primitives::network::PeerId;
@@ -49,6 +51,8 @@ pub(crate) struct Connection {
 
     pub peer_info: PeerInfo,
     pub edge: Edge,
+    /// AccountKey ownership proof.
+    pub owned_account: Option<SignedOwnedAccount>,
     /// Chain Id and hash of genesis block.
     pub genesis_id: GenesisId,
     /// Shards that the peer is tracking.
@@ -60,7 +64,7 @@ pub(crate) struct Connection {
     /// Who started connection. Inbound (other) or Outbound (us).
     pub peer_type: PeerType,
     /// Time where the connection was established.
-    pub connection_established_time: time::Instant,
+    pub established_time: time::Instant,
 
     /// Last time requested peers.
     pub last_time_peer_requested: AtomicCell<Option<time::Instant>>,
@@ -82,7 +86,7 @@ impl fmt::Debug for Connection {
             .field("peer_info", &self.peer_info)
             .field("edge", &self.edge)
             .field("peer_type", &self.peer_type)
-            .field("connection_established_time", &self.connection_established_time)
+            .field("established_time", &self.established_time)
             .finish()
     }
 }
@@ -196,6 +200,8 @@ pub(crate) struct PoolSnapshot {
     /// Connections which have completed the handshake and are ready
     /// for transmitting messages.
     pub ready: im::HashMap<PeerId, Arc<Connection>>,
+    /// index on `ready` by Connection.owned_account.account_key.
+    pub ready_by_account_key: im::HashMap<PublicKey, Arc<Connection>>,
     /// Set of started outbound connections, which are not ready yet.
     /// We need to keep those to prevent a deadlock when 2 peers try
     /// to connect to each other at the same time.
@@ -271,6 +277,7 @@ impl Pool {
         Self(Arc::new(ArcMutex::new(PoolSnapshot {
             me,
             ready: im::HashMap::new(),
+            ready_by_account_key: im::HashMap::new(),
             outbound_handshakes: im::HashSet::new(),
         })))
     }
@@ -307,7 +314,15 @@ impl Pool {
                     }
                 }
             }
-            pool.ready.insert(id.clone(), peer);
+
+            if pool.ready.insert(id.clone(), peer.clone()).is_some() {
+                return Err(PoolError::AlreadyConnected);
+            }
+            if let Some(owned_account) = &peer.owned_account {
+                if pool.ready_by_account_key.insert(owned_account.account_key.clone(), peer.clone()).is_some() {
+                    return Err(PoolError::AlreadyConnected);
+                }
+            }
             Ok(())
         })
     }
@@ -328,9 +343,22 @@ impl Pool {
         })
     }
 
-    pub fn remove(&self, peer_id: &PeerId) {
+    pub fn remove(&self, conn: &Arc<Connection>) {
         self.0.update(|pool| {
-            pool.ready.remove(peer_id);
+            match pool.ready.entry(conn.peer_info.id.clone()) {
+                im::hashmap::Entry::Occupied(e) if Arc::ptr_eq(e.get(), conn) => {
+                    e.remove_entry();
+                }
+                _ => {}
+            }
+            if let Some(owned_account) = &conn.owned_account {
+                match pool.ready_by_account_key.entry(owned_account.account_key.clone()) {
+                    im::hashmap::Entry::Occupied(e) if Arc::ptr_eq(e.get(), conn) => {
+                        e.remove_entry();
+                    }
+                    _ => {}
+                }
+            }
         });
     }
 

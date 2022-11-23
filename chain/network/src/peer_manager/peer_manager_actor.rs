@@ -464,7 +464,7 @@ impl PeerManagerActor {
             .collect();
 
         // Sort by established time.
-        active_peers.sort_by_key(|p| p.connection_established_time);
+        active_peers.sort_by_key(|p| p.established_time);
         // Saturate safe set with recently active peers.
         let set_limit = self.state.config.safe_set_size as usize;
         for p in active_peers {
@@ -612,7 +612,7 @@ impl PeerManagerActor {
                         .load()
                         .unwrap_or(self.clock.now()),
                     last_time_received_message: cp.last_time_received_message.load(),
-                    connection_established_time: cp.connection_established_time,
+                    connection_established_time: cp.established_time,
                     peer_type: cp.peer_type,
                 })
                 .collect(),
