@@ -337,6 +337,7 @@ pub struct PeerInfoView {
     pub account_id: Option<AccountId>,
     pub height: Option<BlockHeight>,
     pub block_hash: Option<CryptoHash>,
+    pub is_highest_block_invalid: bool,
     pub tracked_shards: Vec<ShardId>,
     pub archival: bool,
     pub peer_id: PublicKey,

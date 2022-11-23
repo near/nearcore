@@ -29,12 +29,13 @@ use crate::db::{
     refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database, StoreStatistics,
     GENESIS_JSON_HASH_KEY, GENESIS_STATE_ROOTS_KEY,
 };
-pub use crate::trie::iterator::TrieIterator;
+pub use crate::trie::iterator::{TrieIterator, TrieTraversalItem};
 pub use crate::trie::update::{TrieUpdate, TrieUpdateIterator, TrieUpdateValuePtr};
 pub use crate::trie::{
     estimator, split_state, ApplyStatePartResult, KeyForStateChanges, KeyLookupMode, NibbleSlice,
     PartialStorage, PrefetchApi, RawTrieNode, RawTrieNodeWithSize, ShardTries, Trie, TrieAccess,
-    TrieCache, TrieCachingStorage, TrieChanges, TrieConfig, TrieStorage, WrappedTrieChanges,
+    TrieCache, TrieCachingStorage, TrieChanges, TrieConfig, TrieDBStorage, TrieStorage,
+    WrappedTrieChanges,
 };
 pub use flat_state::FlatStateDelta;
 

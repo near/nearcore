@@ -1,9 +1,7 @@
 use crate::concurrency::arc_mutex::ArcMutex;
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
-use crate::network_protocol::{
-    Edge, PeerInfo, PeerMessage, RoutingTableUpdate, SignedAccountData, SyncAccountsData,
-};
+use crate::network_protocol::{Edge, PeerInfo, PeerMessage, SignedAccountData, SyncAccountsData};
 use crate::peer::peer_actor;
 use crate::peer::peer_actor::PeerActor;
 use crate::private_actix::SendMessage;
@@ -73,7 +71,6 @@ pub(crate) struct Connection {
 
     /// A helper data structure for limiting reading, reporting stats.
     pub send_accounts_data_demux: demux::Demux<Vec<Arc<SignedAccountData>>, ()>,
-    pub send_routing_table_update_demux: demux::Demux<Arc<RoutingTableUpdate>, ()>,
 }
 
 impl fmt::Debug for Connection {
@@ -110,41 +107,6 @@ impl Connection {
         self.addr.do_send(SendMessage { message: msg }.with_span_context());
     }
 
-    async fn send_routing_table_update_inner(
-        self: Arc<Self>,
-        rtus: Vec<Arc<RoutingTableUpdate>>,
-    ) -> Vec<()> {
-        self.send_message(Arc::new(PeerMessage::SyncRoutingTable(RoutingTableUpdate {
-            edges: Edge::deduplicate(
-                rtus.iter().map(|rtu| rtu.edges.iter()).flatten().cloned().collect(),
-            ),
-            accounts: rtus.iter().flat_map(|rtu| rtu.accounts.iter()).cloned().collect(),
-        })));
-        rtus.iter().map(|_| ()).collect()
-    }
-
-    pub fn send_routing_table_update(
-        self: &Arc<Self>,
-        rtu: Arc<RoutingTableUpdate>,
-    ) -> impl Future<Output = ()> {
-        let this = self.clone();
-        async move {
-            let res = this
-                .send_routing_table_update_demux
-                .call(rtu, {
-                    let this = this.clone();
-                    move |rtus| this.send_routing_table_update_inner(rtus)
-                })
-                .await;
-            if res.is_err() {
-                tracing::info!(
-                    "peer {} disconnected, while sending SyncRoutingTable",
-                    this.peer_info.id
-                );
-            }
-        }
-    }
-
     pub fn send_accounts_data(
         self: &Arc<Self>,
         data: Vec<Arc<SignedAccountData>>,
@@ -159,9 +121,9 @@ impl Connection {
                         let res = ds.iter().map(|_| ()).collect();
                         let mut sum = HashMap::<_, Arc<SignedAccountData>>::new();
                         for d in ds.into_iter().flatten() {
-                            match sum.entry((d.epoch_id.clone(), d.account_id.clone())) {
+                            match sum.entry(d.account_key.clone()) {
                                 Entry::Occupied(mut x) => {
-                                    if x.get().timestamp < d.timestamp {
+                                    if x.get().version < d.version {
                                         x.insert(d);
                                     }
                                 }

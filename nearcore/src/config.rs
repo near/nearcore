@@ -605,14 +605,13 @@ impl NearConfig {
                 trie_viewer_state_size_limit: config.trie_viewer_state_size_limit,
                 max_gas_burnt_view: config.max_gas_burnt_view,
                 enable_statistics_export: config.store.enable_statistics_export,
+                client_background_migration_threads: config.store.background_migration_threads,
             },
             network_config: NetworkConfig::new(
                 config.network,
                 network_key_pair.secret_key,
                 validator_signer.clone(),
                 config.archive,
-                // Enable tier1 (currently tier1 discovery only).
-                near_network::config::Features { enable_tier1: true },
             )?,
             telemetry_config: config.telemetry,
             #[cfg(feature = "json_rpc")]
