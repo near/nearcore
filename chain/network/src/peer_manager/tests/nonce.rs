@@ -126,13 +126,33 @@ async fn test_nonce_refresh() {
     // Advance a clock by 1 hour.
     clock.advance(Duration::HOUR);
 
+    let new_nonce_utc = clock.now_utc();
+
     loop {
         let edge = wait_for_edge(&mut pm2).await;
         if Edge::nonce_to_utc(edge.nonce()).unwrap().unwrap() == start_time {
             tracing::debug!("Still seeing old edge..");
         } else {
-            assert_eq!(Edge::nonce_to_utc(edge.nonce()).unwrap().unwrap(), clock.now_utc());
+            assert_eq!(Edge::nonce_to_utc(edge.nonce()).unwrap().unwrap(), new_nonce_utc);
             break;
         }
     }
+
+    // Check that the nonces were properly updates on both pm and pm2 states.
+    let pm_peer_info = pm.peer_info().id.clone();
+    let pm2_nonce = pm2
+        .with_state(|s| async move {
+            s.tier2.load().ready.get(&pm_peer_info).unwrap().edge.load().nonce()
+        })
+        .await;
+
+    assert_eq!(Edge::nonce_to_utc(pm2_nonce).unwrap().unwrap(), new_nonce_utc);
+
+    let pm_nonce = pm
+        .with_state(|s| async move {
+            s.tier2.load().ready.get(&pm2.peer_info().id).unwrap().edge.load().nonce()
+        })
+        .await;
+
+    assert_eq!(Edge::nonce_to_utc(pm_nonce).unwrap().unwrap(), new_nonce_utc);
 }

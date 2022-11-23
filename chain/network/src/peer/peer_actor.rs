@@ -573,6 +573,11 @@ impl PeerActor {
             })
         });
 
+        // This time is used to figure out when the first run of the callbacks it run.
+        // It is important that it is set here (rather than calling clock.now() within the future) - as it makes testing a lot easier (and more deterministic).
+
+        let start_time = self.clock.now();
+
         // Here we stop processing any PeerActor events until PeerManager
         // decides whether to accept the connection or not: ctx.wait makes
         // the actor event loop poll on the future until it completes before
@@ -651,7 +656,7 @@ impl PeerActor {
                                 async move {
                                     // How often should we refresh a nonce from a peer.
                                     // It should be smaller than PRUNE_EDGES_AFTER.
-                                    let mut interval = time::Interval::new(clock.now() + PRUNE_EDGES_AFTER / 3, PRUNE_EDGES_AFTER / 3);  
+                                    let mut interval = time::Interval::new(start_time + PRUNE_EDGES_AFTER / 3, PRUNE_EDGES_AFTER / 3);
                                     loop {
                                         interval.tick(&clock).await;
                                         conn.send_message(Arc::new(

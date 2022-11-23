@@ -333,6 +333,20 @@ impl Pool {
             pool.ready.remove(peer_id);
         });
     }
+    /// Update the edge in the pool (if it is newer).
+    pub fn update_edge(&self, new_edge: &Edge) {
+        self.0.update(|pool| {
+            let other = new_edge.other(&pool.me);
+            if let Some(other) = other {
+                if let Some(connection) = pool.ready.get_mut(other) {
+                    let edge = connection.edge.load();
+                    if edge.nonce() < new_edge.nonce() {
+                        connection.edge.store(new_edge.clone());
+                    }
+                }
+            }
+        })
+    }
 
     /// Send message to peer that belongs to our active set
     /// Return whether the message is sent or not.

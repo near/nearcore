@@ -521,7 +521,13 @@ impl NetworkState {
                 })
             })
             .await;
-            this.routing_table_view.add_local_edges(&edges);
+            let new_local_edges = this.routing_table_view.add_local_edges(&edges);
+
+            // Local edge information is also kept in the Connection fields in peers.
+            // Make sure that it gets updated too.
+            for new_edge in new_local_edges {
+                this.tier2.update_edge(&new_edge);
+            }
 
             let mut new_edges = match this
                 .routing_table_addr
@@ -614,6 +620,7 @@ impl NetworkState {
             &self.config.node_key,
             edge_info.signature,
         );
+        self.tier2.update_edge(&edge);
         self.add_edges(&clock, vec![edge.clone()]).await?;
         Ok(edge)
     }
