@@ -1,5 +1,6 @@
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Write};
+use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
 use std::{fmt, io};
@@ -73,12 +74,13 @@ pub enum Temperature {
 /// will provide interface to access hot and cold storage.  This is in contrast
 /// to [`Store`] which will abstract access to only one of the temperatures of
 /// the storage.
-pub struct NodeStorage {
+pub struct NodeStorage<D = crate::db::RocksDB> {
     hot_storage: Arc<dyn Database>,
     #[cfg(feature = "cold_store")]
-    cold_storage: Option<Arc<crate::db::ColdDB>>,
+    cold_storage: Option<Arc<crate::db::ColdDB<D>>>,
     #[cfg(not(feature = "cold_store"))]
     cold_storage: Option<std::convert::Infallible>,
+    _phantom: PhantomData<D>,
 }
 
 /// Node’s single storage source.
@@ -117,6 +119,21 @@ impl NodeStorage {
         )
     }
 
+    /// Constructs new object backed by given database.
+    fn from_rocksdb(
+        hot_storage: crate::db::RocksDB,
+        #[cfg(feature = "cold_store")] cold_storage: Option<crate::db::RocksDB>,
+        #[cfg(not(feature = "cold_store"))] cold_storage: Option<std::convert::Infallible>,
+    ) -> Self {
+        let hot_storage = Arc::new(hot_storage);
+        #[cfg(feature = "cold_store")]
+        let cold_storage = cold_storage
+            .map(|cold_db| Arc::new(crate::db::ColdDB::new(hot_storage.clone(), cold_db)));
+        #[cfg(not(feature = "cold_store"))]
+        let cold_storage = cold_storage.map(|_| unreachable!());
+        Self { hot_storage, cold_storage, _phantom: PhantomData {} }
+    }
+
     /// Initialises an opener for a new temporary test store.
     ///
     /// As per the name, this is meant for tests only.  The created store will
@@ -147,24 +164,11 @@ impl NodeStorage {
     /// possibly [`crate::test_utils::create_test_store`] (depending whether you
     /// need [`NodeStorage`] or [`Store`] object.
     pub fn new(storage: Arc<dyn Database>) -> Self {
-        Self { hot_storage: storage, cold_storage: None }
+        Self { hot_storage: storage, cold_storage: None, _phantom: PhantomData {} }
     }
+}
 
-    /// Constructs new object backed by given database.
-    fn from_rocksdb(
-        hot_storage: crate::db::RocksDB,
-        #[cfg(feature = "cold_store")] cold_storage: Option<crate::db::RocksDB>,
-        #[cfg(not(feature = "cold_store"))] cold_storage: Option<std::convert::Infallible>,
-    ) -> Self {
-        let hot_storage = Arc::new(hot_storage);
-        #[cfg(feature = "cold_store")]
-        let cold_storage = cold_storage
-            .map(|cold_db| Arc::new(crate::db::ColdDB::new(hot_storage.clone(), cold_db)));
-        #[cfg(not(feature = "cold_store"))]
-        let cold_storage = cold_storage.map(|_| unreachable!());
-        Self { hot_storage, cold_storage }
-    }
-
+impl<D: Database + 'static> NodeStorage<D> {
     /// Returns storage for given temperature.
     ///
     /// Some data live only in hot and some only in cold storage (which is at
@@ -219,7 +223,9 @@ impl NodeStorage {
             Temperature::Cold => self.cold_storage.unwrap(),
         }
     }
+}
 
+impl<D> NodeStorage<D> {
     /// Returns whether the storage has a cold database.
     pub fn has_cold(&self) -> bool {
         self.cold_storage.is_some()
@@ -236,6 +242,22 @@ impl NodeStorage {
             #[cfg(feature = "cold_store")]
             metadata::DbKind::Hot | metadata::DbKind::Cold => unreachable!(),
         })
+    }
+
+    #[cfg(feature = "cold_store")]
+    pub fn new_with_cold(hot: Arc<dyn Database>, cold: D) -> Self {
+        Self {
+            hot_storage: hot.clone(),
+            cold_storage: Some(Arc::new(crate::db::ColdDB::<D>::new(hot, cold))),
+            _phantom: PhantomData::<D> {},
+        }
+    }
+
+    #[cfg(feature = "cold_store")]
+    pub fn cold_db(&self) -> io::Result<&Arc<crate::db::ColdDB<D>>> {
+        self.cold_storage
+            .as_ref()
+            .map_or(Err(io::Error::new(io::ErrorKind::NotFound, "ColdDB Not Found")), |c| Ok(c))
     }
 }
 
