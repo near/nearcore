@@ -58,6 +58,7 @@ members = [
     "tools/themis",
     "utils/mainnet-res",
     "utils/near-cache",
+    "utils/stdx",
 ]
 
 [workspace.metadata.workspaces]
@@ -202,6 +203,8 @@ wasmtime = { version = "0.37.0", default-features = false, features = ["cranelif
 wat = "1.0.40"
 xshell = "0.2.1"
 xz2 = "0.1.6"
+
+stdx = { package = "near-stdx", path = "utils/stdx" }
 
 [patch.crates-io]
 

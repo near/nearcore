@@ -90,9 +90,8 @@ wasm_keccak512_byte: 36_649_701
 wasm_ripemd160_base: 853_675_086
 wasm_ripemd160_block: 680_107_584
 wasm_ecrecover_base: 3_365_369_625_000
-# both ed25519_verify_base and ed25519_verify_byte have NON-FINAL numbers (needs fine tuning)
-wasm_ed25519_verify_base: 40_311_888_867
-wasm_ed25519_verify_byte: 423_978_605
+wasm_ed25519_verify_base: 210_000_000_000
+wasm_ed25519_verify_byte: 9_000_000
 wasm_bls12381_verify_base: 1_215_592_468_049
 wasm_bls12381_verify_byte: 123_267_560
 wasm_bls12381_verify_elements: 58_289_091_437

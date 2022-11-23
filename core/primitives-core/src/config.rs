@@ -679,7 +679,6 @@ pub enum ActionCosts {
     add_function_call_key_base,
     add_function_call_key_byte,
     delete_key,
-    value_return,
     new_action_receipt,
     new_data_receipt_base,
     new_data_receipt_byte,

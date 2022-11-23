@@ -2308,7 +2308,11 @@ impl<'a> VMLogic<'a> {
                 )
                 .ok_or(HostError::IntegerOverflow)?;
         }
-        self.gas_counter.pay_action_accumulated(burn_gas, burn_gas, ActionCosts::value_return)?;
+        self.gas_counter.pay_action_accumulated(
+            burn_gas,
+            burn_gas,
+            ActionCosts::new_data_receipt_byte,
+        )?;
         self.return_data = ReturnData::Value(return_val);
         Ok(())
     }
