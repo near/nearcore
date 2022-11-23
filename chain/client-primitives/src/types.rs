@@ -25,7 +25,7 @@ use near_primitives::views::{
     SyncStatusView,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// Combines errors coming from chain, tx pool and block producer.
 #[derive(Debug, thiserror::Error)]
@@ -589,7 +589,23 @@ pub struct TxStatus {
     pub tx_hash: CryptoHash,
     pub signer_account_id: AccountId,
     pub fetch_receipt: bool,
-    pub finality: Finality,
+    pub finality: Option<(Finality, TxWaitType)>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+#[serde(rename_all = "snake_case")]
+pub enum TxWaitType {
+    /// Waits until the transaction result value is executed and finalized.
+    /// Note: this does not wait on all execution results, only the tx return value.
+    ExecutionResult,
+    /// Waits until everything has executed and is final, including refund receipts.
+    Full,
+}
+
+impl Default for TxWaitType {
+    fn default() -> Self {
+        Self::Full
+    }
 }
 
 /// Details of a transaction inclusion. A similar query to [TxStatus] but does not include

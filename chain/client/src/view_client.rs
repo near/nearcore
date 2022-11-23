@@ -24,7 +24,7 @@ use near_client_primitives::types::{
     GetMaintenanceWindowsError, GetNextLightClientBlockError, GetProtocolConfig,
     GetProtocolConfigError, GetReceipt, GetReceiptError, GetStateChangesError,
     GetStateChangesWithCauseInBlock, GetStateChangesWithCauseInBlockForTrackedShards,
-    GetValidatorInfoError, Query, QueryError, TxInclusion, TxStatus, TxStatusError,
+    GetValidatorInfoError, Query, QueryError, TxInclusion, TxStatus, TxStatusError, TxWaitType,
 };
 #[cfg(feature = "test_features")]
 use near_network::types::NetworkAdversarialMessage;
@@ -412,13 +412,13 @@ impl ViewClientActor {
         }
     }
 
-    // TODO here
+    // TODO @4 handle checking for finality in getting status
     fn get_tx_status(
         &mut self,
         tx_hash: CryptoHash,
         signer_account_id: AccountId,
         fetch_receipt: bool,
-        finality: Finality,
+        finality: Option<(Finality, TxWaitType)>,
     ) -> Result<Option<FinalExecutionOutcomeViewEnum>, TxStatusError> {
         {
             let mut request_manager = self.request_manager.write().expect(POISONED_LOCK_ERR);
@@ -1126,8 +1126,8 @@ impl Handler<WithSpanContext<TxStatusRequest>> for ViewClientActor {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["TxStatusRequest"]).start_timer();
-        let TxStatusRequest { tx_hash, signer_account_id, finality } = msg;
-        if let Ok(Some(result)) = self.get_tx_status(tx_hash, signer_account_id, false, finality) {
+        let TxStatusRequest { tx_hash, signer_account_id } = msg;
+        if let Ok(Some(result)) = self.get_tx_status(tx_hash, signer_account_id, false, None) {
             Some(Box::new(result.into_outcome()))
         } else {
             None

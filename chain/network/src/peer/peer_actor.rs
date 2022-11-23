@@ -26,7 +26,7 @@ use near_o11y::{handler_debug_span, log_assert, pretty, OpenTelemetrySpanExt, Wi
 use near_performance_metrics_macros::perf;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::types::{EpochId, Finality};
+use near_primitives::types::EpochId;
 use near_primitives::utils::DisplayOption;
 use near_primitives::version::{
     ProtocolVersion, PEER_MIN_ALLOWED_PROTOCOL_VERSION, PROTOCOL_VERSION,
@@ -758,8 +758,7 @@ impl PeerActor {
         Ok(match body {
             RoutedMessageBody::TxStatusRequest(account_id, tx_hash) => network_state
                 .client
-                // TODO can finality be added to request in backwards-compatible way?
-                .tx_status_request(account_id, tx_hash, Finality::Final)
+                .tx_status_request(account_id, tx_hash)
                 .await
                 .map(|v| RoutedMessageBody::TxStatusResponse(*v)),
             RoutedMessageBody::TxStatusResponse(tx_result) => {

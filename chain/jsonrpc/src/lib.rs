@@ -10,7 +10,7 @@ use actix_web::HttpRequest;
 use actix_web::{get, http, middleware, web, App, Error as HttpError, HttpResponse, HttpServer};
 use futures::Future;
 use futures::FutureExt;
-use near_client_primitives::types::TxInclusion;
+use near_client_primitives::types::{TxInclusion, TxWaitType};
 use near_network::PeerManagerActor;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -32,7 +32,7 @@ use near_o11y::metrics::{prometheus, Encoder, TextEncoder};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeight, Finality};
-use near_primitives::views::FinalExecutionOutcomeViewEnum;
+use near_primitives::views::{FinalExecutionOutcomeViewEnum, InclusionView};
 
 mod api;
 mod metrics;
@@ -308,10 +308,8 @@ impl JsonRpcHandler {
             }
             "status" => process_method_call(request, |_params: ()| self.status()).await,
             "tx" => {
-                process_method_call(request, |params| {
-                    self.tx_status_common(params, false, Finality::Final)
-                })
-                .await
+                process_method_call(request, |params| self.tx_status_common(params, false, None))
+                    .await
             }
             "validators" => process_method_call(request, |params| self.validators(params)).await,
             "EXPERIMENTAL_broadcast_tx_sync" => {
@@ -351,10 +349,8 @@ impl JsonRpcHandler {
                 process_method_call(request, |params| self.receipt(params)).await
             }
             "EXPERIMENTAL_tx_status" => {
-                process_method_call(request, |params| {
-                    self.tx_status_common(params, true, Finality::Final)
-                })
-                .await
+                process_method_call(request, |params| self.tx_status_common(params, true, None))
+                    .await
             }
             "EXPERIMENTAL_validators_ordered" => {
                 process_method_call(request, |params| self.validators_ordered(params)).await
@@ -510,24 +506,17 @@ impl JsonRpcHandler {
         &self,
         tx_info: near_jsonrpc_primitives::types::transactions::TransactionInfo,
         fetch_receipt: bool,
-        finality: Finality,
+        finality: Option<(Finality, TxWaitType)>,
     ) -> Result<
         FinalExecutionOutcomeViewEnum,
         near_jsonrpc_primitives::types::transactions::RpcTransactionError,
     > {
-        let (tx_hash, account_id) = match &tx_info {
-            near_jsonrpc_primitives::types::transactions::TransactionInfo::Transaction(tx) => {
-                (tx.get_hash(), tx.transaction.signer_id.clone())
-            }
-            near_jsonrpc_primitives::types::transactions::TransactionInfo::TransactionId {
-                hash,
-                account_id,
-            } => (*hash, account_id.clone()),
-        };
+        let tx_hash = tx_info.hash();
+        let account_id = tx_info.signer_account_id();
         timeout(self.polling_config.polling_timeout, async {
             loop {
                 let tx_status_result = self.view_client_send(TxStatus {
-                        tx_hash,
+                        tx_hash: *tx_hash,
                         signer_account_id: account_id.clone(),
                         fetch_receipt,
                         finality,
@@ -572,7 +561,7 @@ impl JsonRpcHandler {
     async fn tx_polling(
         &self,
         tx_info: near_jsonrpc_primitives::types::transactions::TransactionInfo,
-        finality: Finality,
+        finality: Option<(Finality, TxWaitType)>,
     ) -> Result<
         near_jsonrpc_primitives::types::transactions::RpcTransactionResponse,
         near_jsonrpc_primitives::types::transactions::RpcTransactionError,
@@ -678,47 +667,57 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::transactions::RpcTransactionExecutionWaitResponse,
         near_jsonrpc_primitives::types::transactions::RpcTransactionError,
     > {
-        // let broadcast_wait_type = request_data.rpc_broadcast_wait_type;
-        // match broadcast_wait_type {
-        //     near_jsonrpc_primitives::types::transactions::RpcBroadcastWait::None => {
-        //         self.send_tx_async(request_data.signed_transaction.clone());
-        //     },
-        //     near_jsonrpc_primitives::types::transactions::RpcBroadcastWait::Inclusion => {
-        //         self.send_tx_inclusion(request_data.signed_transaction.clone());
-        //     },
-        //     near_jsonrpc_primitives::types::transactions::RpcBroadcastWait::InclusionFinal => {}
-        //     near_jsonrpc_primitives::types::transactions::RpcBroadcastWait::Executed => {}
-        //     near_jsonrpc_primitives::types::transactions::RpcBroadcastWait::ExecutedFinal => {}
-        //     near_jsonrpc_primitives::types::transactions::RpcBroadcastWait::Final => {
-        //         self.send_tx_commit(request_data.signed_transaction.clone());
-        //     }
-        // }
+        // TODO @1 handle polling for execution
         todo!()
     }
 
     async fn wait_tx_inclusion(
         &self,
         request_data: near_jsonrpc_primitives::types::transactions::RpcTransactionInclusionWaitRequest,
-    ) -> Result<
-        near_jsonrpc_primitives::types::transactions::RpcTransactionInclusionWaitResponse,
-        near_jsonrpc_primitives::types::transactions::RpcTransactionError,
-    > {
-        // let broadcast_wait_type = request_data.rpc_broadcast_wait_type;
-        // match broadcast_wait_type {
-        //     near_jsonrpc_primitives::types::transactions::RpcBroadcastWait::None => {
-        //         self.send_tx_async(request_data.signed_transaction.clone());
-        //     },
-        //     near_jsonrpc_primitives::types::transactions::RpcBroadcastWait::Inclusion => {
-        //         self.send_tx_inclusion(request_data.signed_transaction.clone());
-        //     },
-        //     near_jsonrpc_primitives::types::transactions::RpcBroadcastWait::InclusionFinal => {}
-        //     near_jsonrpc_primitives::types::transactions::RpcBroadcastWait::Executed => {}
-        //     near_jsonrpc_primitives::types::transactions::RpcBroadcastWait::ExecutedFinal => {}
-        //     near_jsonrpc_primitives::types::transactions::RpcBroadcastWait::Final => {
-        //         self.send_tx_commit(request_data.signed_transaction.clone());
-        //     }
-        // }
-        todo!()
+    ) -> Result<(), near_jsonrpc_primitives::types::transactions::RpcTransactionError> {
+        let tx_hash = request_data.transaction_info.hash();
+        let signer_account_id = request_data.transaction_info.signer_account_id();
+        let request_finality = request_data.finality;
+        timeout(self.polling_config.polling_timeout, async {
+            loop {
+                match self.view_client_send(
+                    TxInclusion {
+                        tx_hash: *tx_hash,
+                        signer_account_id: signer_account_id.clone(),
+                    })
+                    .await
+                {
+                    Ok(Some(InclusionView {finality, ..})) => {
+                        if matches!(request_finality, Finality::Final) && matches!(finality, Finality::Final) {
+                            return Ok(());
+                        } else if matches!(request_finality, Finality::DoomSlug) && matches!(finality, Finality::Final | Finality::DoomSlug) {
+                            return Ok(());
+                        } else if matches!(request_finality, Finality::None){
+                            return Ok(());
+                        }
+                        
+                        // If none of the above finality conditions are met, we keep polling.
+                    }
+                    Err(err @ near_jsonrpc_primitives::types::transactions::RpcTransactionError::UnknownTransaction {
+                        ..
+                    }) => {
+                        return Err(err);
+                    }
+                    _ => {}
+                }
+                sleep(self.polling_config.polling_interval).await;
+            }
+        })
+        .await
+        .map_err(|_| {
+            metrics::RPC_TIMEOUT_TOTAL.inc();
+            tracing::warn!(
+                target: "jsonrpc", "Timeout: wait_tx_inclusion method. tx_hash {:?} signer_account_id {:?}",
+                tx_hash,
+                signer_account_id
+            );
+            near_jsonrpc_primitives::types::transactions::RpcTransactionError::TimeoutError
+        })?
     }
 
     async fn check_tx(
@@ -761,7 +760,7 @@ impl JsonRpcHandler {
                     tx.clone(),
                 ),
                 false,
-                Finality::Final,
+                None,
             )
             .await
         {
@@ -779,7 +778,7 @@ impl JsonRpcHandler {
         }
         match self.send_tx(tx.clone(), false).await? {
             ProcessTxResponse::ValidTx | ProcessTxResponse::RequestRouted => {
-                self.tx_polling(near_jsonrpc_primitives::types::transactions::TransactionInfo::Transaction(tx), Finality::Final).await
+                self.tx_polling(near_jsonrpc_primitives::types::transactions::TransactionInfo::Transaction(tx), None).await
             }
             network_client_response=> {
                 Err(
@@ -925,7 +924,7 @@ impl JsonRpcHandler {
         &self,
         request_data: near_jsonrpc_primitives::types::transactions::RpcTransactionStatusCommonRequest,
         fetch_receipt: bool,
-        finality: Finality,
+        finality: Option<(Finality, TxWaitType)>,
     ) -> Result<
         near_jsonrpc_primitives::types::transactions::RpcTransactionResponse,
         near_jsonrpc_primitives::types::transactions::RpcTransactionError,

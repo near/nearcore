@@ -17,7 +17,7 @@ use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::sharding::{ChunkHash, PartialEncodedChunk};
 use near_primitives::time::Clock;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, EpochId, ShardId, Finality};
+use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::views::FinalExecutionOutcomeView;
 use nearcore::config::NearConfig;
 use rand::seq::SliceRandom;
@@ -257,7 +257,6 @@ impl near_network::client::Client for Network {
         &self,
         _account_id: AccountId,
         _tx_hash: CryptoHash,
-        _finality: Finality,
     ) -> Option<Box<FinalExecutionOutcomeView>> {
         None
     }

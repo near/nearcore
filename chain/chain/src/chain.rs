@@ -3466,6 +3466,7 @@ impl Chain {
         Ok(FinalExecutionOutcomeWithReceiptView { final_outcome, receipts })
     }
 
+    // TODO @3 Resolve if this is actually necessary
     fn get_execution_finality(
         &self,
         final_outcome_with_receipts: &FinalExecutionOutcomeWithReceiptView,

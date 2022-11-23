@@ -1,6 +1,9 @@
-use near_primitives::types::Finality;
+use near_client_primitives::types::TxWaitType;
+use near_primitives::hash::CryptoHash;
+use near_primitives::types::{AccountId, Finality};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::borrow::Borrow;
 
 #[derive(Debug, Clone)]
 pub struct RpcBroadcastTransactionRequest {
@@ -19,6 +22,24 @@ pub enum TransactionInfo {
         hash: near_primitives::hash::CryptoHash,
         account_id: near_primitives::types::AccountId,
     },
+}
+
+impl TransactionInfo {
+    /// Returns reference to the transaction hash.
+    pub fn hash(&self) -> &CryptoHash {
+        match self {
+            TransactionInfo::Transaction(tx) => tx.borrow(),
+            TransactionInfo::TransactionId { hash, .. } => &hash,
+        }
+    }
+
+    /// Returns reference to the signer's account id.
+    pub fn signer_account_id(&self) -> &AccountId {
+        match self {
+            TransactionInfo::Transaction(tx) => &tx.transaction.signer_id,
+            TransactionInfo::TransactionId { account_id, .. } => &account_id,
+        }
+    }
 }
 
 #[derive(thiserror::Error, Debug, Serialize, Deserialize)]
@@ -93,22 +114,6 @@ pub struct RpcTransactionExecutionWaitRequest {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct RpcTransactionExecutionWaitResponse {
     pub final_execution_outcome: near_primitives::views::FinalExecutionOutcomeViewEnum,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "snake_case")]
-pub enum TxWaitType {
-    /// Waits until the transaction result value is executed and finalized.
-    /// Note: this does not wait on all execution results, only the tx return value.
-    ExecutionResult,
-    /// Waits until everything has executed and is final, including refund receipts.
-    Full,
-}
-
-impl Default for TxWaitType {
-    fn default() -> Self {
-        Self::Full
-    }
 }
 
 #[derive(Debug, Clone)]

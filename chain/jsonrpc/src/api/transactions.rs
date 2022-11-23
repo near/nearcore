@@ -1,11 +1,11 @@
 use serde_json::Value;
 
-use near_client_primitives::types::TxStatusError;
+use near_client_primitives::types::{TxStatusError, TxWaitType};
 use near_jsonrpc_primitives::errors::RpcParseError;
 use near_jsonrpc_primitives::types::transactions::{
     RpcBroadcastTransactionRequest, RpcTransactionError, RpcTransactionExecutionWaitRequest,
     RpcTransactionInclusionWaitRequest, RpcTransactionResponse, RpcTransactionStatusCommonRequest,
-    TransactionInfo, TxWaitType,
+    TransactionInfo,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{AccountId, Finality};

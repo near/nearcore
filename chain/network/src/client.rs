@@ -9,7 +9,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::PartialEncodedChunk;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, EpochId, ShardId, Finality};
+use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::views::FinalExecutionOutcomeView;
 
 /// A strongly typed asynchronous API for the Client logic.
@@ -21,7 +21,6 @@ pub trait Client: Send + Sync + 'static {
         &self,
         account_id: AccountId,
         tx_hash: CryptoHash,
-        finality: Finality,
     ) -> Option<Box<FinalExecutionOutcomeView>>;
 
     async fn tx_status_response(&self, tx_result: FinalExecutionOutcomeView);
@@ -92,7 +91,6 @@ impl Client for Noop {
         &self,
         _account_id: AccountId,
         _tx_hash: CryptoHash,
-        _finality: Finality,
     ) -> Option<Box<FinalExecutionOutcomeView>> {
         None
     }
