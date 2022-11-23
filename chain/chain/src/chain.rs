@@ -3365,24 +3365,9 @@ impl Chain {
         Ok(results)
     }
 
-    fn is_block_final(&self, hash: &CryptoHash, finality: Finality) -> Result<bool, Error> {
-        let check_height = match finality {
-            Finality::Final => Some(self.final_head()?.height),
-            Finality::DoomSlug => Some(self.get_doomslug_header()?.height()),
-            Finality::None => None,
-        };
-
-        if let Some(height) = check_height {
-            Ok(self.get_block_header(&hash)?.height() <= height)
-        } else {
-            Ok(true)
-        }
-    }
-
-    fn get_transaction_result_internal(
+    pub fn get_final_transaction_result(
         &self,
         transaction_hash: &CryptoHash,
-        finality_check: Finality,
     ) -> Result<FinalExecutionOutcomeView, Error> {
         let mut outcomes = self.get_recursive_transaction_results(transaction_hash)?;
         let mut looking_for_id = *transaction_hash;
@@ -3398,18 +3383,10 @@ impl Chain {
                         status = Some(FinalExecutionStatus::Started);
                     }
                     ExecutionStatusView::Failure(e) => {
-                        if self.is_block_final(&outcome_with_id.block_hash, finality_check)? {
-                            status = Some(FinalExecutionStatus::Failure(e.clone()));
-                        } else {
-                            status = Some(FinalExecutionStatus::Started);
-                        }
+                        status = Some(FinalExecutionStatus::Failure(e.clone()));
                     }
                     ExecutionStatusView::SuccessValue(v) => {
-                        if self.is_block_final(&outcome_with_id.block_hash, finality_check)? {
-                            status = Some(FinalExecutionStatus::SuccessValue(v.clone()));
-                        } else {
-                            status = Some(FinalExecutionStatus::Started);
-                        }
+                        status = Some(FinalExecutionStatus::SuccessValue(v.clone()));
                     }
                     ExecutionStatusView::SuccessReceiptId(id) => {
                         looking_for_id = *id;
@@ -3428,13 +3405,6 @@ impl Chain {
         let transaction: SignedTransactionView = SignedTransaction::clone(&transaction).into();
         let transaction_outcome = outcomes.pop().unwrap();
         Ok(FinalExecutionOutcomeView { status, transaction, transaction_outcome, receipts_outcome })
-    }
-
-    pub fn get_final_transaction_result(
-        &self,
-        transaction_hash: &CryptoHash,
-    ) -> Result<FinalExecutionOutcomeView, Error> {
-        self.get_transaction_result_internal(transaction_hash, Finality::None)
     }
 
     pub fn get_final_transaction_result_with_receipt(
