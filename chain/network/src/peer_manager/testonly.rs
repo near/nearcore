@@ -7,7 +7,6 @@ use crate::network_protocol::{
 use crate::peer;
 use crate::peer::peer_actor::ClosingReason;
 use crate::peer_manager::network_state::NetworkState;
-use crate::peer_manager::peer_manager_actor;
 use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::tcp;
 use crate::test_utils;
@@ -136,24 +135,29 @@ impl ActorHandler {
         }
     }
 
-    pub async fn connect_to(&self, peer_info: &PeerInfo) {
-        let stream = tcp::Stream::connect(peer_info).await.unwrap();
-        let mut events = self.events.from_now();
-        let stream_id = stream.id();
-        self.actix
-            .addr
-            .do_send(PeerManagerMessageRequest::OutboundTcpConnect(stream).with_span_context());
-        events
-            .recv_until(|ev| match &ev {
-                Event::PeerManager(PME::HandshakeCompleted(ev)) if ev.stream_id == stream_id => {
-                    Some(())
-                }
-                Event::PeerManager(PME::ConnectionClosed(ev)) if ev.stream_id == stream_id => {
-                    panic!("PeerManager rejected the handshake")
-                }
-                _ => None,
-            })
-            .await;
+    pub fn connect_to(&self, peer_info: &PeerInfo) -> impl 'static + Send + Future<Output = ()> {
+        let addr = self.actix.addr.clone();
+        let events = self.events.clone();
+        let peer_info = peer_info.clone();
+        async move {
+            let stream = tcp::Stream::connect(&peer_info).await.unwrap();
+            let mut events = events.from_now();
+            let stream_id = stream.id();
+            addr.do_send(PeerManagerMessageRequest::OutboundTcpConnect(stream).with_span_context());
+            events
+                .recv_until(|ev| match &ev {
+                    Event::PeerManager(PME::HandshakeCompleted(ev))
+                        if ev.stream_id == stream_id =>
+                    {
+                        Some(())
+                    }
+                    Event::PeerManager(PME::ConnectionClosed(ev)) if ev.stream_id == stream_id => {
+                        panic!("PeerManager rejected the handshake")
+                    }
+                    _ => None,
+                })
+                .await
+        }
     }
 
     pub async fn with_state<R: 'static + Send, Fut: 'static + Send + Future<Output = R>>(
@@ -191,7 +195,6 @@ impl ActorHandler {
                 network: network_cfg,
                 chain,
                 force_encoding: Some(Encoding::Proto),
-                nonce: None,
             },
         };
         // Wait until the TCP connection is accepted or rejected.
@@ -229,7 +232,6 @@ impl ActorHandler {
                 network: network_cfg,
                 chain,
                 force_encoding: Some(Encoding::Proto),
-                nonce: None,
             },
         };
         // Wait until the handshake started or connection is closed.
@@ -273,9 +275,10 @@ impl ActorHandler {
             // Check that the local_edges of the graph match the TIER2 connection pool.
             let node_id = s.config.node_id();
             let local_edges: HashSet<_> = s
-                .routing_table_view
-                .get_local_edges()
-                .iter()
+                .graph
+                .load()
+                .local_edges
+                .values()
                 .filter_map(|e| match e.edge_type() {
                     EdgeState::Active => Some(e.other(&node_id).unwrap().clone()),
                     EdgeState::Removed => None,
@@ -291,15 +294,8 @@ impl ActorHandler {
         self.with_state(move |s| async move { s.fix_local_edges(&clock, timeout).await }).await
     }
 
-    pub async fn set_chain_info(&self, chain_info: ChainInfo) {
-        let mut events = self.events.from_now();
-        self.actix.addr.send(SetChainInfo(chain_info).with_span_context()).await.unwrap();
-        events
-            .recv_until(|ev| match ev {
-                Event::PeerManager(PME::SetChainInfo) => Some(()),
-                _ => None,
-            })
-            .await;
+    pub async fn set_chain_info(&self, chain_info: ChainInfo) -> bool {
+        self.with_state(move |s| async move { s.set_chain_info(chain_info) }).await
     }
 
     pub async fn tier1_advertise_proxies(
@@ -341,39 +337,22 @@ impl ActorHandler {
     }
 
     // Awaits until the routing_table matches `want`.
-    pub async fn wait_for_routing_table(
-        &self,
-        clock: &mut time::FakeClock,
-        want: &[(PeerId, Vec<PeerId>)],
-    ) {
-        //let mut events = self.events.from_now();
+    pub async fn wait_for_routing_table(&self, want: &[(PeerId, Vec<PeerId>)]) {
+        let mut events = self.events.from_now();
         loop {
             let got =
-                self.with_state(|s| async move { s.routing_table_view.info().next_hops }).await;
+                self.with_state(|s| async move { s.graph.routing_table.info().next_hops }).await;
             if test_utils::expected_routing_tables(&got, want) {
                 return;
             }
-
-            /* TODO: Ideally we'd receive and process the appropriate events, but the desired
-             * interaction between the event stream and the fake clock is flaky for some tests
-             * (e.g. peer_manager::tests::routing::simple) and fails consistently for others
-             * (e.g. peer_manager::tests::routing::simple_remove):
             events
                 .recv_until(|ev| match ev {
-                    Event::PeerManager(PME::RoutingTableUpdate { .. }) => Some(()),
                     Event::PeerManager(PME::MessageProcessed(PeerMessage::SyncRoutingTable {
                         ..
-                    })) => {
-                        clock.advance(peer_manager_actor::UPDATE_ROUTING_TABLE_INTERVAL);
-                        None
-                    }
+                    })) => Some(()),
                     _ => None,
                 })
                 .await;
-            */
-
-            // Workaround simply advancing the FakeClock until the routing table looks right
-            clock.advance(peer_manager_actor::UPDATE_ROUTING_TABLE_INTERVAL);
         }
     }
 
@@ -382,7 +361,9 @@ impl ActorHandler {
         loop {
             let account = account.clone();
             let got = self
-                .with_state(|s| async move { s.routing_table_view.account_owner(&account).clone() })
+                .with_state(
+                    |s| async move { s.graph.routing_table.account_owner(&account).clone() },
+                )
                 .await;
             if let Some(got) = got {
                 return got;
