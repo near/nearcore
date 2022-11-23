@@ -26,7 +26,7 @@ use parking_lot::Mutex;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::Arc;
-use tracing::{debug, trace, Instrument};
+use tracing::Instrument as _;
 
 mod routing;
 mod tier1;
@@ -353,7 +353,7 @@ impl NetworkState {
         // Check if the message is for myself and don't try to send it in that case.
         if let PeerIdOrHash::PeerId(target) = &msg.target {
             if target == &my_peer_id {
-                debug!(target: "network", account_id = ?self.config.validator.as_ref().map(|v|v.account_id()), ?my_peer_id, ?msg, "Drop signed message to myself");
+                tracing::debug!(target: "network", account_id = ?self.config.validator.as_ref().map(|v|v.account_id()), ?my_peer_id, ?msg, "Drop signed message to myself");
                 metrics::CONNECTED_TO_MYSELF.inc();
                 return false;
             }
@@ -362,7 +362,7 @@ impl NetworkState {
             Ok(peer_id) => {
                 // Remember if we expect a response for this message.
                 if msg.author == my_peer_id && msg.expect_response() {
-                    trace!(target: "network", ?msg, "initiate route back");
+                    tracing::trace!(target: "network", ?msg, "initiate route back");
                     self.graph.routing_table.add_route_back(&clock, msg.hash(), my_peer_id);
                 }
                 return self.tier2.send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
@@ -371,7 +371,7 @@ impl NetworkState {
                 // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
                 metrics::MessageDropped::NoRouteFound.inc(&msg.body);
 
-                debug!(target: "network",
+                tracing::debug!(target: "network",
                       account_id = ?self.config.validator.as_ref().map(|v|v.account_id()),
                       to = ?msg.target,
                       reason = ?find_route_error,
@@ -397,12 +397,12 @@ impl NetworkState {
             None => {
                 // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
                 metrics::MessageDropped::UnknownAccount.inc(&msg);
-                debug!(target: "network",
+                tracing::debug!(target: "network",
                        account_id = ?self.config.validator.as_ref().map(|v|v.account_id()),
                        to = ?account_id,
                        ?msg,"Drop message: unknown account",
                 );
-                trace!(target: "network", known_peers = ?self.graph.routing_table.get_accounts_keys(), "Known peers");
+                tracing::trace!(target: "network", known_peers = ?self.graph.routing_table.get_accounts_keys(), "Known peers");
                 return false;
             }
         };
