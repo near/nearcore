@@ -1,3 +1,4 @@
+use crate::blacklist;
 use crate::broadcast;
 use crate::config::NetworkConfig;
 use crate::network_protocol::testonly as data;
@@ -14,11 +15,11 @@ use crate::time;
 use crate::types::PeerInfo;
 use crate::types::PeerMessage;
 use near_o11y::testonly::init_test_logger;
-use near_primitives::network::PeerId;
 use near_store::db::TestDB;
 use pretty_assertions::assert_eq;
 use rand::Rng as _;
 use std::collections::HashSet;
+use std::net::Ipv4Addr;
 use std::sync::Arc;
 
 fn make_configs(
@@ -26,18 +27,15 @@ fn make_configs(
     rng: &mut Rng,
     num_nodes: usize,
     num_boot_nodes: usize,
+    enable_outbound: bool,
 ) -> Vec<NetworkConfig> {
     let mut cfgs: Vec<_> = (0..num_nodes).map(|_i| chain.make_config(rng)).collect();
     let boot_nodes: Vec<_> = cfgs[0..num_boot_nodes]
         .iter()
-        .map(|c| PeerInfo {
-            id: PeerId::new(c.node_key.public_key()),
-            addr: c.node_addr,
-            account_id: None,
-        })
+        .map(|c| PeerInfo { id: c.node_id(), addr: c.node_addr, account_id: None })
         .collect();
     for config in cfgs.iter_mut() {
-        config.outbound_disabled = false;
+        config.outbound_disabled = !enable_outbound;
         config.peer_store.boot_nodes = boot_nodes.clone();
     }
     cfgs
@@ -53,7 +51,7 @@ async fn from_boot_nodes() {
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     tracing::info!(target:"test", "start two nodes");
-    let cfgs = make_configs(&chain, rng, 2, 1);
+    let cfgs = make_configs(&chain, rng, 2, 1, true);
     let pm0 = start_pm(clock.clock(), TestDB::new(), cfgs[0].clone(), chain.clone()).await;
     let pm1 = start_pm(clock.clock(), TestDB::new(), cfgs[1].clone(), chain.clone()).await;
 
@@ -64,6 +62,84 @@ async fn from_boot_nodes() {
     pm0.wait_for_routing_table(&[(id1.clone(), vec![id1.clone()])]).await;
     tracing::info!(target:"test", "wait for {id1} routing table");
     pm1.wait_for_routing_table(&[(id0.clone(), vec![id0.clone()])]).await;
+}
+
+// test node 0 blacklisting node 1
+#[tokio::test]
+async fn blacklist_01() {
+    init_test_logger();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
+    tracing::info!(target:"test", "start two nodes with 0 blacklisting 1");
+    let mut cfgs = make_configs(&chain, rng, 2, 2, true);
+    cfgs[0].peer_store.blacklist =
+        [blacklist::Entry::from_addr(cfgs[1].node_addr.unwrap())].into_iter().collect();
+
+    let pm0 = start_pm(clock.clock(), TestDB::new(), cfgs[0].clone(), chain.clone()).await;
+    let pm1 = start_pm(clock.clock(), TestDB::new(), cfgs[1].clone(), chain.clone()).await;
+
+    let id0 = pm0.cfg.node_id();
+    let id1 = pm1.cfg.node_id();
+
+    tracing::info!(target:"test", "wait for {id0} routing table");
+    pm0.wait_for_routing_table(&[]).await;
+    tracing::info!(target:"test", "wait for {id1} routing table");
+    pm1.wait_for_routing_table(&[]).await;
+}
+
+// test node 1 blacklisting node 0
+#[tokio::test]
+async fn blacklist_10() {
+    init_test_logger();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
+    tracing::info!(target:"test", "start two nodes with 1 blacklisting 0");
+    let mut cfgs = make_configs(&chain, rng, 2, 2, true);
+    cfgs[1].peer_store.blacklist =
+        [blacklist::Entry::from_addr(cfgs[0].node_addr.unwrap())].into_iter().collect();
+
+    let pm0 = start_pm(clock.clock(), TestDB::new(), cfgs[0].clone(), chain.clone()).await;
+    let pm1 = start_pm(clock.clock(), TestDB::new(), cfgs[1].clone(), chain.clone()).await;
+
+    let id0 = pm0.cfg.node_id();
+    let id1 = pm1.cfg.node_id();
+
+    tracing::info!(target:"test", "wait for {id0} routing table");
+    pm0.wait_for_routing_table(&[]).await;
+    tracing::info!(target:"test", "wait for {id1} routing table");
+    pm1.wait_for_routing_table(&[]).await;
+}
+
+// test node 0 blacklisting all nodes
+#[tokio::test]
+async fn blacklist_all() {
+    init_test_logger();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
+    tracing::info!(target:"test", "start two nodes with 0 blacklisting everything");
+    let mut cfgs = make_configs(&chain, rng, 2, 2, true);
+    cfgs[0].peer_store.blacklist =
+        [blacklist::Entry::from_ip(Ipv4Addr::LOCALHOST.into())].into_iter().collect();
+
+    let pm0 = start_pm(clock.clock(), TestDB::new(), cfgs[0].clone(), chain.clone()).await;
+    let pm1 = start_pm(clock.clock(), TestDB::new(), cfgs[1].clone(), chain.clone()).await;
+
+    let id0 = pm0.cfg.node_id();
+    let id1 = pm1.cfg.node_id();
+
+    tracing::info!(target:"test", "wait for {id0} routing table");
+    pm0.wait_for_routing_table(&[]).await;
+    tracing::info!(target:"test", "wait for {id1} routing table");
+    pm1.wait_for_routing_table(&[]).await;
 }
 
 // test that TTL is handled property.

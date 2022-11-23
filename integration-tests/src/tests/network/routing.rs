@@ -171,39 +171,6 @@ fn simple_remove() -> anyhow::Result<()> {
     start_test(runner)
 }
 
-#[test]
-fn blacklist_01() -> anyhow::Result<()> {
-    let mut runner = Runner::new(2, 2).add_to_blacklist(0, Some(1)).use_boot_nodes(vec![0]);
-
-    runner.push(Action::Wait(time::Duration::milliseconds(100)));
-    runner.push(Action::CheckRoutingTable(1, vec![]));
-    runner.push(Action::CheckRoutingTable(0, vec![]));
-
-    start_test(runner)
-}
-
-#[test]
-fn blacklist_10() -> anyhow::Result<()> {
-    let mut runner = Runner::new(2, 2).add_to_blacklist(1, Some(0)).use_boot_nodes(vec![0]);
-
-    runner.push(Action::Wait(time::Duration::milliseconds(100)));
-    runner.push(Action::CheckRoutingTable(1, vec![]));
-    runner.push(Action::CheckRoutingTable(0, vec![]));
-
-    start_test(runner)
-}
-
-#[test]
-fn blacklist_all() -> anyhow::Result<()> {
-    let mut runner = Runner::new(2, 2).add_to_blacklist(0, None).use_boot_nodes(vec![0]);
-
-    runner.push(Action::Wait(time::Duration::milliseconds(100)));
-    runner.push(Action::CheckRoutingTable(1, vec![]));
-    runner.push(Action::CheckRoutingTable(0, vec![]));
-
-    start_test(runner)
-}
-
 /// Spawn 4 nodes with max peers required equal 2. Connect first three peers in a triangle.
 /// Try to connect peer3 to peer0 and see it fail since first three peer are at max capacity.
 #[test]
