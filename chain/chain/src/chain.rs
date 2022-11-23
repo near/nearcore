@@ -80,7 +80,7 @@ use actix::Message;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use delay_detector::DelayDetector;
 use lru::LruCache;
-use near_client_primitives::types::StateSplitApplyingStatus;
+use near_client_primitives::types::{StateSplitApplyingStatus, TxWaitType};
 use near_primitives::shard_layout::{
     account_id_to_shard_id, account_id_to_shard_uid, ShardLayout, ShardUId,
 };
@@ -3466,58 +3466,57 @@ impl Chain {
         Ok(FinalExecutionOutcomeWithReceiptView { final_outcome, receipts })
     }
 
-    // TODO @3 Resolve if this is actually necessary
-    fn get_execution_finality(
+    pub fn is_execution_finalized(
         &self,
-        final_outcome_with_receipts: &FinalExecutionOutcomeWithReceiptView,
-    ) -> Result<Finality, Error> {
-        if !matches!(
-            final_outcome_with_receipts.final_outcome.status,
-            FinalExecutionStatus::Failure(_) | FinalExecutionStatus::SuccessValue(_)
-        ) {
-            // TODO verify this is a valid short-circuit
-            return Ok(Finality::None);
-        }
+        final_outcome: &FinalExecutionOutcomeView,
+        finality: Finality,
+        tx_wait_type: TxWaitType,
+    ) -> Result<bool, Error> {
+        let finality_height = match finality {
+            Finality::Final => self.final_head()?.height,
+            Finality::DoomSlug => self.get_doomslug_header()?.height(),
+            Finality::None => return Ok(true),
+        };
 
-        // Start with `Final` and downgrade if any receipt is not finalized.
-        let mut finality = Finality::Final;
+        match tx_wait_type {
+            TxWaitType::ExecutionResult => {
+                if !matches!(
+                    final_outcome.status,
+                    FinalExecutionStatus::Failure(_) | FinalExecutionStatus::SuccessValue(_)
+                ) {
+                    // Short circuit if the execution result has not completed yet optimistically.
+                    // TODO explore this.. are other cases possible to hit? Logic elsewhere seems
+                    // ..suspicious that it isn't.
+                    return Ok(false);
+                }
 
-        // Query final head once, and use it for all receipts. This is to avoid redundancy as this
-        // will be queried at least once.
-        let finality_height = self.final_head()?.height;
-        // Lazily loaded doomslug finality height. This does not need to be queried if all receipts
-        // are finalized.
-        let doomslug_height = OnceCell::<u64>::new();
+                let tx_outcome = &final_outcome.transaction_outcome;
+                let current_block = self.get_block_header(&tx_outcome.block_hash)?;
 
-        for receipt_outcome in &final_outcome_with_receipts.final_outcome.receipts_outcome {
-            let current_block = self.get_block_header(&receipt_outcome.block_hash)?;
-
-            if !self.is_on_current_chain(&current_block)? {
-                // TODO is this the right assumption? Seems like this path should be unreachable
-                finality = Finality::None;
-            }
-
-            // The rationale for this check before others is that it is cheap and accounts for
-            // the vast majority of cases.
-            if matches!(finality, Finality::Final) && current_block.height() > finality_height {
-                // The rationale for this check before others is that it is cheap and accounts for
-                // the vast majority of cases.
-                finality = Finality::DoomSlug;
-            }
-
-            if matches!(finality, Finality::DoomSlug) {
-                let ds_block_height = doomslug_height
-                    .get_or_try_init::<_, Error>(|| Ok(self.get_doomslug_header()?.height()))?;
-
-                if current_block.height() > *ds_block_height {
-                    // If one receipt if not finalized, the tx execution is not final.
-                    finality = Finality::None;
-                    break;
+                if self.is_on_current_chain(&current_block)?
+                    && current_block.height() <= finality_height
+                {
+                    Ok(true)
+                } else {
+                    Ok(false)
                 }
             }
-        }
+            TxWaitType::Full => {
+                for receipt_outcome in &final_outcome.receipts_outcome {
+                    let current_block = self.get_block_header(&receipt_outcome.block_hash)?;
 
-        Ok(finality)
+                    if !self.is_on_current_chain(&current_block)?
+                        || current_block.height() > finality_height
+                    {
+                        // A receipt is not on the current chain or finalized yet,
+                        return Ok(false);
+                    }
+                }
+
+                // All receipts were checked to be finalized.
+                Ok(true)
+            }
+        }
     }
 
     /// Return transaction inclusion with finality of the inclusion.

@@ -111,11 +111,6 @@ pub struct RpcTransactionExecutionWaitRequest {
     pub wait_type: TxWaitType,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct RpcTransactionExecutionWaitResponse {
-    pub final_execution_outcome: near_primitives::views::FinalExecutionOutcomeViewEnum,
-}
-
 #[derive(Debug, Clone)]
 pub struct RpcTransactionInclusionWaitRequest {
     pub transaction_info: TransactionInfo,

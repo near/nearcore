@@ -412,7 +412,6 @@ impl ViewClientActor {
         }
     }
 
-    // TODO @4 handle checking for finality in getting status
     fn get_tx_status(
         &mut self,
         tx_hash: CryptoHash,
@@ -442,6 +441,13 @@ impl ViewClientActor {
         ) {
             match self.chain.get_final_transaction_result(&tx_hash) {
                 Ok(tx_result) => {
+                    if let Some((finality, tx_wait_type)) = finality {
+                        // If a finality check is requested, ensure that the execution has finalized
+                        // based on parameters.
+                        if !self.chain.is_execution_finalized(&tx_result, finality, tx_wait_type)? {
+                            return Ok(None);
+                        }
+                    }
                     let res = if fetch_receipt {
                         let final_result =
                             self.chain.get_final_transaction_result_with_receipt(tx_result)?;

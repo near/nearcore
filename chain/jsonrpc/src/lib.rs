@@ -664,11 +664,10 @@ impl JsonRpcHandler {
         &self,
         request_data: near_jsonrpc_primitives::types::transactions::RpcTransactionExecutionWaitRequest,
     ) -> Result<
-        near_jsonrpc_primitives::types::transactions::RpcTransactionExecutionWaitResponse,
+        near_jsonrpc_primitives::types::transactions::RpcTransactionResponse,
         near_jsonrpc_primitives::types::transactions::RpcTransactionError,
     > {
-        // TODO @1 handle polling for execution
-        todo!()
+        self.tx_polling(request_data.transaction_info, Some((request_data.finality, request_data.wait_type))).await
     }
 
     async fn wait_tx_inclusion(
