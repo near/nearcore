@@ -7,7 +7,6 @@ use crate::network_protocol::{
 use crate::peer;
 use crate::peer::peer_actor::ClosingReason;
 use crate::peer_manager::network_state::NetworkState;
-//use crate::peer_manager::peer_manager_actor;
 use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::tcp;
 use crate::test_utils;
@@ -348,7 +347,6 @@ impl ActorHandler {
             }
             events
                 .recv_until(|ev| match ev {
-                    // Event::PeerManager(PME::RoutingTableUpdate { .. }) => Some(()),
                     Event::PeerManager(PME::MessageProcessed(PeerMessage::SyncRoutingTable {
                         ..
                     })) => Some(()),

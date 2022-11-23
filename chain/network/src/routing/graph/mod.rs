@@ -82,6 +82,8 @@ impl Inner {
         }
     }
 
+    /// Removes all edges adjacent to the peers from the set.
+    /// It is used to prune unreachable connected components from the inmem graph.
     fn remove_adjacent_edges(&mut self, peers: &HashSet<PeerId>) -> Vec<Edge> {
         let mut edges = vec![];
         for e in self.edges.clone().values() {
@@ -182,7 +184,7 @@ impl Inner {
         }
     }
 
-    /// 1. Adds edges to the graph.
+    /// 1. Adds edges to the graph (edges are expected to be already validated).
     /// 2. Prunes expired edges.
     /// 3. Prunes unreachable graph components.
     /// 4. Recomputes GraphSnapshot.
@@ -193,7 +195,7 @@ impl Inner {
         mut edges: Vec<Edge>,
         unreliable_peers: &HashSet<PeerId>,
     ) -> (Vec<Edge>, GraphSnapshot) {
-        let _next_hops_recalculation = metrics::ROUTING_TABLE_RECALCULATION_HISTOGRAM.start_timer();
+        let _update_time = metrics::ROUTING_TABLE_RECALCULATION_HISTOGRAM.start_timer();
         let total = edges.len();
         // load the components BEFORE updating the edges.
         // so that result doesn't contain edges we already have in storage.
@@ -207,10 +209,6 @@ impl Inner {
         }
         edges.retain(|e| self.update_edge(now, e.clone()));
         // Update metrics after edge update
-        metrics::EDGE_UPDATES.inc_by(total as u64);
-        metrics::EDGE_ACTIVE.set(self.graph.total_active_edges() as i64);
-        metrics::EDGE_TOTAL.set(self.edges.len() as i64);
-
         if let Some(prune_edges_after) = self.config.prune_edges_after {
             self.prune_old_edges(now - prune_edges_after);
         }
@@ -223,15 +221,17 @@ impl Inner {
             self.peer_reachable_at.insert(peer.clone(), now);
         }
         self.prune_unreachable_peers(now - self.config.prune_unreachable_peers_after);
-        metrics::ROUTING_TABLE_RECALCULATIONS.inc();
-        metrics::PEER_REACHABLE.set(next_hops.len() as i64);
-
         let mut local_edges = HashMap::new();
         for e in self.edges.clone().values() {
             if let Some(other) = e.other(&self.config.node_id) {
                 local_edges.insert(other.clone(), e.clone());
             }
         }
+        metrics::ROUTING_TABLE_RECALCULATIONS.inc();
+        metrics::PEER_REACHABLE.set(next_hops.len() as i64);
+        metrics::EDGE_UPDATES.inc_by(total as u64);
+        metrics::EDGE_ACTIVE.set(self.graph.total_active_edges() as i64);
+        metrics::EDGE_TOTAL.set(self.edges.len() as i64);
         (edges, GraphSnapshot { edges: self.edges.clone(), local_edges, next_hops })
     }
 }

@@ -21,6 +21,8 @@ impl NetworkState {
         }
     }
 
+    /// Adds AnnounceAccounts (without validating them) to the routing table.
+    /// Then it broadcasts all the AnnounceAccounts that haven't been seen before.
     pub async fn add_accounts(self: &Arc<NetworkState>, accounts: Vec<AnnounceAccount>) {
         let this = self.clone();
         self.spawn(async move {
@@ -33,6 +35,8 @@ impl NetworkState {
         }).await.unwrap()
     }
 
+    /// Constructs a partial edge to the given peer with the nonce specified.
+    /// If nonce is None, nonce is selected automatically.
     pub fn propose_edge(&self, peer1: &PeerId, with_nonce: Option<u64>) -> PartialEdgeInfo {
         // When we create a new edge we increase the latest nonce by 2 in case we miss a removal
         // proposal from our partner.
@@ -42,6 +46,8 @@ impl NetworkState {
         PartialEdgeInfo::new(&self.config.node_id(), peer1, nonce, &self.config.node_key)
     }
 
+    /// Constructs an edge from the partial edge constructed by the peer,
+    /// adds it to the graph and then broadcasts it.
     pub async fn finalize_edge(
         self: &Arc<Self>,
         clock: &time::Clock,
@@ -59,6 +65,9 @@ impl NetworkState {
         Ok(edge)
     }
 
+    /// Validates edges, then adds them to the graph and then broadcasts all the edges that
+    /// hasn't been observed before. Returns an error iff any edge was invalid. Even if an
+    /// error was returned some of the valid input edges might have been added to the graph.
     pub async fn add_edges(
         self: &Arc<Self>,
         clock: &time::Clock,
@@ -91,6 +100,13 @@ impl NetworkState {
                 results
             })
             .await;
+        // self.graph.verify() returns a partial result if it encountered an invalid edge:
+        // Edge verification is expensive, and it would be an attack vector if we dropped on the
+        // floor valid edges verified so far: an attacker could prepare a SyncRoutingTable
+        // containing a lot of valid edges, except for the last one, and send it repeatedly to a
+        // node. The node would then validate all the edges every time, then reject the whole set
+        // because just the last edge was invalid. Instead, we accept all the edges verified so
+        // far and return an error only afterwards.
         match ok {
             true => Ok(()),
             false => Err(ReasonForBan::InvalidEdge),
