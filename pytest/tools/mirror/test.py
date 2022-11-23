@@ -376,17 +376,18 @@ def main():
         config_changes[i] = {"tracked_shards": [0, 1, 2, 3], "archive": True}
 
     config = load_config()
-    near_root, node_dirs = init_cluster(num_nodes=NUM_VALIDATORS,
-                                        num_observers=1,
-                                        num_shards=4,
-                                        config=config,
-                                        # set epoch length to a larger number because otherwise there
-                                        # are often problems with validators getting kicked for missing
-                                        # only one block or chunk
-                                        genesis_config_changes=[
-                                            ["epoch_length", 100],
-                                        ],
-                                        client_config_changes=config_changes)
+    near_root, node_dirs = init_cluster(
+        num_nodes=NUM_VALIDATORS,
+        num_observers=1,
+        num_shards=4,
+        config=config,
+        # set epoch length to a larger number because otherwise there
+        # are often problems with validators getting kicked for missing
+        # only one block or chunk
+        genesis_config_changes=[
+            ["epoch_length", 100],
+        ],
+        client_config_changes=config_changes)
 
     nodes = [spin_up_node(config, near_root, node_dirs[0], 0)]
 
