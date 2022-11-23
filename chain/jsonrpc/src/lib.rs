@@ -667,13 +667,20 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::transactions::RpcTransactionResponse,
         near_jsonrpc_primitives::types::transactions::RpcTransactionError,
     > {
-        self.tx_polling(request_data.transaction_info, Some((request_data.finality, request_data.wait_type))).await
+        self.tx_polling(
+            request_data.transaction_info,
+            Some((request_data.finality, request_data.wait_type)),
+        )
+        .await
     }
 
     async fn wait_tx_inclusion(
         &self,
         request_data: near_jsonrpc_primitives::types::transactions::RpcTransactionInclusionWaitRequest,
-    ) -> Result<near_jsonrpc_primitives::types::transactions::RpcTransactionInclusionWaitResponse, near_jsonrpc_primitives::types::transactions::RpcTransactionError> {
+    ) -> Result<
+        near_jsonrpc_primitives::types::transactions::RpcTransactionInclusionWaitResponse,
+        near_jsonrpc_primitives::types::transactions::RpcTransactionError,
+    > {
         let tx_hash = request_data.transaction_info.hash();
         let signer_account_id = request_data.transaction_info.signer_account_id();
         let request_finality = request_data.finality;
@@ -694,7 +701,7 @@ impl JsonRpcHandler {
                         } else if matches!(request_finality, Finality::None){
                             return Ok(near_jsonrpc_primitives::types::transactions::RpcTransactionInclusionWaitResponse { block_hash});
                         }
-                        
+
                         // If none of the above finality conditions are met, we keep polling.
                     }
                     Err(err @ near_jsonrpc_primitives::types::transactions::RpcTransactionError::UnknownTransaction {
