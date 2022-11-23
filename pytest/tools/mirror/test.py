@@ -146,6 +146,11 @@ def create_forked_chain(config, near_root):
         json.dump(validators, f)
 
     try:
+        # we want to set transaction-validity-period to a bigger number
+        # because the mirror code sets the block hash on transactions up to a couple minutes
+        # before sending them, and that can cause problems for the default localnet
+        # setting of transaction_validity_period. Not really worth changing the code since
+        # transaction_validity_period is large on mainnet and testnet anyway
         subprocess.check_output([
             neard, 'amend-genesis', '--genesis-file-in', genesis_file_in,
             '--records-file-in', records_file_in, '--genesis-file-out',
@@ -375,6 +380,9 @@ def main():
                                         num_observers=1,
                                         num_shards=4,
                                         config=config,
+                                        # set epoch length to a larger number because otherwise there
+                                        # are often problems with validators getting kicked for missing
+                                        # only one block or chunk
                                         genesis_config_changes=[
                                             ["epoch_length", 100],
                                         ],
@@ -496,6 +504,11 @@ def main():
             block_hash_bytes)
 
         if implicit_added is None:
+            # wait for 15 blocks after we started to get some "normal" traffic
+            # from this implicit account that's closer to what we usually see from
+            # these (most people aren't adding access keys to implicit accounts much).
+            # then after that we add an access key and delete the original one to test
+            # some more code paths
             if implicit_account2.inited(
             ) and height - start_source_height >= 15:
                 k = key.Key.from_random(implicit_account2.account_id())
