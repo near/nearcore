@@ -130,8 +130,6 @@ async fn test_nonce_refresh() {
         let edge = wait_for_edge(&mut pm2).await;
         if Edge::nonce_to_utc(edge.nonce()).unwrap().unwrap() == start_time {
             tracing::debug!("Still seeing old edge..");
-            //
-            clock.advance(Duration::HOUR);
         } else {
             assert_eq!(Edge::nonce_to_utc(edge.nonce()).unwrap().unwrap(), clock.now_utc());
             break;

@@ -347,7 +347,7 @@ pub struct PeerInfoView {
     pub last_time_received_message_millis: u64,
     pub connection_established_time_millis: u64,
     pub is_outbound_peer: bool,
-    // Connection nonce.
+    /// Connection nonce.
     pub nonce: u64,
 }
 
