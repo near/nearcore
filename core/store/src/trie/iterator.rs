@@ -350,6 +350,7 @@ impl<'a> TrieIterator<'a> {
                 }
             }
         }
+        tracing::debug!(target: "runtime", num_nodes = nodes_list.len());
         Ok(nodes_list)
     }
 }
