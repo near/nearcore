@@ -4,7 +4,7 @@ use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
     Edge, PartialEdgeInfo, PeerMessage, RawRoutedMessage, RoutedMessageBody, RoutedMessageV2,
 };
-use crate::peer::peer_actor::{ClosingReason, PeerActor};
+use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_manager_actor;
 use crate::peer_manager::peer_store;
@@ -23,14 +23,6 @@ pub struct PeerConfig {
     pub chain: Arc<data::Chain>,
     pub network: NetworkConfig,
     pub force_encoding: Option<crate::network_protocol::Encoding>,
-    /// If both start_handshake_with and nonce are set, PeerActor
-    /// will use this nonce in the handshake.
-    /// WARNING: it has to be >0.
-    /// WARNING: currently nonce is decided by a lookup in the RoutingTableView,
-    ///   so to enforce the nonce below, we add an artificial edge to RoutingTableView.
-    ///   Once we switch to generating nonce from timestamp, this field should be deprecated
-    ///   in favor of passing a fake clock.
-    pub nonce: Option<u64>,
 }
 
 impl PeerConfig {
@@ -80,17 +72,6 @@ impl PeerHandle {
                 .await,
         );
     }
-    pub async fn fail_handshake(&mut self) -> ClosingReason {
-        self.events
-            .recv_until(|ev| match ev {
-                Event::Network(peer_manager_actor::Event::ConnectionClosed(ev)) => Some(ev.reason),
-                // HandshakeDone means that handshake succeeded locally,
-                // but in case this is an inbound connection, it can still
-                // fail on the other side. Therefore we cannot panic on HandshakeDone.
-                _ => None,
-            })
-            .await
-    }
 
     pub fn routed_message(
         &self,
@@ -112,27 +93,28 @@ impl PeerHandle {
         stream: tcp::Stream,
     ) -> PeerHandle {
         let cfg = Arc::new(cfg);
-        let cfg_ = cfg.clone();
         let (send, recv) = broadcast::unbounded_channel();
-        let actix = ActixSystem::spawn(move || {
-            let fc = Arc::new(fake_client::Fake { event_sink: send.sink().compose(Event::Client) });
-            let store = store::Store::from(near_store::db::TestDB::new());
-            let mut network_cfg = cfg.network.clone();
-            network_cfg.event_sink = send.sink().compose(Event::Network);
-            let network_state = Arc::new(NetworkState::new(
-                &clock,
-                store.clone(),
-                peer_store::PeerStore::new(&clock, network_cfg.peer_store.clone(), store.clone())
-                    .unwrap(),
-                network_cfg.verify().unwrap(),
-                cfg.chain.genesis_id.clone(),
-                fc,
-                vec![],
-            ));
-            PeerActor::spawn_with_nonce(clock, stream, cfg.force_encoding, network_state, cfg.nonce)
-                .unwrap()
+
+        let fc = Arc::new(fake_client::Fake { event_sink: send.sink().compose(Event::Client) });
+        let store = store::Store::from(near_store::db::TestDB::new());
+        let mut network_cfg = cfg.network.clone();
+        network_cfg.event_sink = send.sink().compose(Event::Network);
+        let network_state = Arc::new(NetworkState::new(
+            &clock,
+            store.clone(),
+            peer_store::PeerStore::new(&clock, network_cfg.peer_store.clone(), store.clone())
+                .unwrap(),
+            network_cfg.verify().unwrap(),
+            cfg.chain.genesis_id.clone(),
+            fc,
+            vec![],
+        ));
+        let actix = ActixSystem::spawn({
+            let clock = clock.clone();
+            let cfg = cfg.clone();
+            move || PeerActor::spawn(clock, stream, cfg.force_encoding, network_state).unwrap()
         })
         .await;
-        Self { actix, cfg: cfg_, events: recv, edge: None }
+        Self { actix, cfg, events: recv, edge: None }
     }
 }
