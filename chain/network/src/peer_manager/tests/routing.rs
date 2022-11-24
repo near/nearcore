@@ -18,6 +18,48 @@ use rand::Rng as _;
 use std::collections::HashSet;
 use std::sync::Arc;
 
+// Awaits until the expected ping is seen in the event stream.
+pub async fn wait_for_ping(events: &mut broadcast::Receiver<Event>, want_ping: Ping) {
+    events
+        .recv_until(|ev| match ev {
+            Event::PeerManager(PME::Ping(ping)) => {
+                if ping == want_ping {
+                    Some(())
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        })
+        .await;
+}
+
+// Awaits until the expected pong is seen in the event stream.
+pub async fn wait_for_pong(events: &mut broadcast::Receiver<Event>, want_pong: Pong) {
+    events
+        .recv_until(|ev| match ev {
+            Event::PeerManager(PME::Pong(pong)) => {
+                if pong == want_pong {
+                    Some(())
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        })
+        .await;
+}
+
+// Awaits until RoutedMessageDropped is seen in the event stream.
+pub async fn wait_for_message_dropped(events: &mut broadcast::Receiver<Event>) {
+    events
+        .recv_until(|ev| match ev {
+            Event::PeerManager(PME::RoutedMessageDropped) => Some(()),
+            _ => None,
+        })
+        .await;
+}
+
 // test ping in a two-node network
 #[tokio::test]
 async fn ping_simple() {
@@ -39,14 +81,18 @@ async fn ping_simple() {
     tracing::info!(target:"test", "wait for {id0} routing table");
     pm0.wait_for_routing_table(&[(id1.clone(), vec![id1.clone()])]).await;
 
+    // capture event streams before pinging
+    let mut pm0_ev = pm0.events.from_now();
+    let mut pm1_ev = pm1.events.from_now();
+
     tracing::info!(target:"test", "send ping from {id0} to {id1}");
     pm0.send_ping(0, id1.clone()).await;
 
     tracing::info!(target:"test", "await ping at {id1}");
-    pm1.wait_for_ping(Ping { nonce: 0, source: id0.clone() }).await;
+    wait_for_ping(&mut pm1_ev, Ping { nonce: 0, source: id0.clone() }).await;
 
     tracing::info!(target:"test", "await pong at {id0}");
-    pm0.wait_for_pong(Pong { nonce: 0, source: id1.clone() }).await;
+    wait_for_pong(&mut pm0_ev, Pong { nonce: 0, source: id1.clone() }).await;
 }
 
 // test ping without a direct connection
@@ -90,14 +136,18 @@ async fn ping_jump() {
     ])
     .await;
 
+    // capture event streams before pinging
+    let mut pm0_ev = pm0.events.from_now();
+    let mut pm2_ev = pm2.events.from_now();
+
     tracing::info!(target:"test", "send ping from {id0} to {id2}");
     pm0.send_ping(0, id2.clone()).await;
 
     tracing::info!(target:"test", "await ping at {id2}");
-    pm2.wait_for_ping(Ping { nonce: 0, source: id0.clone() }).await;
+    wait_for_ping(&mut pm2_ev, Ping { nonce: 0, source: id0.clone() }).await;
 
     tracing::info!(target:"test", "await pong at {id0}");
-    pm0.wait_for_pong(Pong { nonce: 0, source: id2.clone() }).await;
+    wait_for_pong(&mut pm0_ev, Pong { nonce: 0, source: id2.clone() }).await;
 }
 
 // test that ping over an indirect connection with ttl=2 is delivered
@@ -143,14 +193,18 @@ async fn test_dont_drop_after_ttl() {
     ])
     .await;
 
+    // capture event streams before pinging
+    let mut pm0_ev = pm0.events.from_now();
+    let mut pm2_ev = pm2.events.from_now();
+
     tracing::info!(target:"test", "send ping from {id0} to {id2}");
     pm0.send_ping(0, id2.clone()).await;
 
     tracing::info!(target:"test", "await ping at {id2}");
-    pm2.wait_for_ping(Ping { nonce: 0, source: id0.clone() }).await;
+    wait_for_ping(&mut pm2_ev, Ping { nonce: 0, source: id0.clone() }).await;
 
     tracing::info!(target:"test", "await pong at {id0}");
-    pm0.wait_for_pong(Pong { nonce: 0, source: id2.clone() }).await;
+    wait_for_pong(&mut pm0_ev, Pong { nonce: 0, source: id2.clone() }).await;
 }
 
 // test that ping over an indirect connection with ttl=1 is dropped
@@ -196,11 +250,14 @@ async fn test_drop_after_ttl() {
     ])
     .await;
 
+    // capture event stream before pinging
+    let mut pm1_ev = pm1.events.from_now();
+
     tracing::info!(target:"test", "send ping from {id0} to {id2}");
     pm0.send_ping(0, id2.clone()).await;
 
     tracing::info!(target:"test", "await message dropped at {id1}");
-    pm1.wait_for_message_dropped().await;
+    wait_for_message_dropped(&mut pm1_ev).await;
 }
 
 // test dropping behavior for duplicate messages
@@ -244,35 +301,40 @@ async fn test_dropping_duplicate_messages() {
     ])
     .await;
 
+    // capture event streams before pinging
+    let mut pm0_ev = pm0.events.from_now();
+    let mut pm1_ev = pm1.events.from_now();
+    let mut pm2_ev = pm2.events.from_now();
+
     // Send two identical messages. One will be dropped, because the delay between them was less than 50ms.
     tracing::info!(target:"test", "send ping from {id0} to {id2}");
     pm0.send_ping(0, id2.clone()).await;
     tracing::info!(target:"test", "await ping at {id2}");
-    pm2.wait_for_ping(Ping { nonce: 0, source: id0.clone() }).await;
+    wait_for_ping(&mut pm2_ev, Ping { nonce: 0, source: id0.clone() }).await;
     tracing::info!(target:"test", "await pong at {id0}");
-    pm0.wait_for_pong(Pong { nonce: 0, source: id2.clone() }).await;
+    wait_for_pong(&mut pm0_ev, Pong { nonce: 0, source: id2.clone() }).await;
 
     tracing::info!(target:"test", "send ping from {id0} to {id2}");
     pm0.send_ping(0, id2.clone()).await;
     tracing::info!(target:"test", "await message dropped at {id1}");
-    pm1.wait_for_message_dropped().await;
+    wait_for_message_dropped(&mut pm1_ev).await;
 
     // Send two identical messages but with 300ms delay so they don't get dropped.
     tracing::info!(target:"test", "send ping from {id0} to {id2}");
     pm0.send_ping(1, id2.clone()).await;
     tracing::info!(target:"test", "await ping at {id2}");
-    pm2.wait_for_ping(Ping { nonce: 1, source: id0.clone() }).await;
+    wait_for_ping(&mut pm2_ev, Ping { nonce: 1, source: id0.clone() }).await;
     tracing::info!(target:"test", "await pong at {id0}");
-    pm0.wait_for_pong(Pong { nonce: 1, source: id2.clone() }).await;
+    wait_for_pong(&mut pm0_ev, Pong { nonce: 1, source: id2.clone() }).await;
 
     clock.advance(time::Duration::milliseconds(300));
 
     tracing::info!(target:"test", "send ping from {id0} to {id2}");
     pm0.send_ping(1, id2.clone()).await;
     tracing::info!(target:"test", "await ping at {id2}");
-    pm2.wait_for_ping(Ping { nonce: 1, source: id0.clone() }).await;
+    wait_for_ping(&mut pm2_ev, Ping { nonce: 1, source: id0.clone() }).await;
     tracing::info!(target:"test", "await pong at {id0}");
-    pm0.wait_for_pong(Pong { nonce: 1, source: id2.clone() }).await;
+    wait_for_pong(&mut pm0_ev, Pong { nonce: 1, source: id2.clone() }).await;
 }
 
 // test that TTL is handled property.
