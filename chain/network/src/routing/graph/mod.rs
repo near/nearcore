@@ -272,6 +272,9 @@ impl Graph {
         self.unreliable_peers.store(Arc::new(unreliable_peers));
     }
 
+    /// Verifies edge signatures on rayon runtime.
+    /// Since this is expensive it first deduplicates the input edges
+    /// and strips any edges which are already present in the graph.
     pub async fn verify(&self, edges: Vec<Edge>) -> (Vec<Edge>, bool) {
         let old = self.load();
         let mut edges = Edge::deduplicate(edges);
