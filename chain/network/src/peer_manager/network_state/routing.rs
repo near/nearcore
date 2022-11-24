@@ -98,6 +98,14 @@ impl NetworkState {
         if edges.len() == 0 {
             return result;
         }
+
+        // Select local edges (where we are one of the peers) - and update the peer's Connection nonces.
+        for e in &edges {
+            if let Some(_) = e.other(&self.config.node_id()) {
+                self.tier2.update_edge(&e);
+            }
+        }
+
         let this = self.clone();
         let clock = clock.clone();
         let _ = self
@@ -117,6 +125,7 @@ impl NetworkState {
                     }
                 }
                 // Broadcast new edges to all other peers.
+                this.config.event_sink.push(Event::EdgesVerified(edges.clone()));
                 this.broadcast_routing_table_update(RoutingTableUpdate::from_edges(edges));
                 results
             })
