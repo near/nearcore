@@ -131,7 +131,9 @@ async fn test_nonce_refresh() {
 
     pm2.connect_to(&pm.peer_info()).await;
 
+    tracing::error!("Starting wait for edge");
     let edge = wait_for_edge(&mut pm2).await;
+    tracing::error!("Ending wait for edge");
     let start_time = clock.now_utc();
     // First edge between them should have the nonce equal to the current time.
     assert_eq!(Edge::nonce_to_utc(edge.nonce()).unwrap().unwrap(), start_time);

@@ -8,8 +8,8 @@ use crate::network_protocol::{
 use crate::peer::stream;
 use crate::peer::tracker::Tracker;
 use crate::peer_manager::connection;
-use crate::peer_manager::network_state::NetworkState;
-use crate::peer_manager::peer_manager_actor::{Event, PRUNE_EDGES_AFTER};
+use crate::peer_manager::network_state::{NetworkState, PRUNE_EDGES_AFTER};
+use crate::peer_manager::peer_manager_actor::Event;
 use crate::private_actix::{RegisterPeerError, SendMessage};
 use crate::routing::edge::verify_nonce;
 use crate::stats::metrics;

@@ -42,7 +42,7 @@ const IMPORTANT_MESSAGE_RESENT_COUNT: usize = 3;
 const PRUNE_UNREACHABLE_PEERS_AFTER: time::Duration = time::Duration::hours(1);
 
 /// Remove the edges that were created more that this duration ago.
-const PRUNE_EDGES_AFTER: time::Duration = time::Duration::minutes(30);
+pub const PRUNE_EDGES_AFTER: time::Duration = time::Duration::minutes(30);
 
 impl WhitelistNode {
     pub fn from_peer_info(pi: &PeerInfo) -> anyhow::Result<Self> {
