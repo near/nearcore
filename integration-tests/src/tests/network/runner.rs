@@ -7,7 +7,6 @@ use near_client::{start_client, start_view_client};
 use near_crypto::KeyType;
 use near_network::actix::ActixSystem;
 use near_network::blacklist;
-use near_network::broadcast;
 use near_network::config;
 use near_network::tcp;
 use near_network::test_utils::{
@@ -475,8 +474,6 @@ impl Runner {
         network_config.outbound_disabled = config.outbound_disabled;
         network_config.peer_store.boot_nodes = boot_nodes;
         network_config.archive = config.archive;
-        let (send_events, _recv_events) = broadcast::unbounded_channel();
-        network_config.event_sink = send_events.sink();
 
         config.ideal_connections.map(|(lo, hi)| {
             network_config.ideal_connections_lo = lo;
