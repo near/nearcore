@@ -70,7 +70,7 @@ fn compute_function_call_cost(
     let runtime_config = config_store.get_config(protocol_version).as_ref();
     let vm_config = runtime_config.wasm_config.clone();
     let runtime = vm_kind.runtime(vm_config).expect("runtime has not been enabled");
-    let fees = runtime_config.transaction_costs.clone();
+    let fees = runtime_config.fees.clone();
     let mut fake_external = MockedExternal::new();
     let fake_context = create_context(vec![]);
     let promise_results = vec![];

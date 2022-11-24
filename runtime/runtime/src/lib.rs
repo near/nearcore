@@ -49,7 +49,7 @@ use near_store::{
 };
 use near_store::{set_access_key, set_code};
 use near_vm_logic::types::PromiseResult;
-use near_vm_logic::ReturnData;
+use near_vm_logic::{ActionCosts, ReturnData};
 pub use near_vm_runner::with_ext_cost_counter;
 
 use crate::actions::*;
@@ -303,7 +303,7 @@ impl Runtime {
         // println!("enter apply_action");
         let mut result = ActionResult::default();
         let exec_fees = exec_fee(
-            &apply_state.config.transaction_costs,
+            &apply_state.config.fees,
             action,
             &receipt.receiver_id,
             apply_state.current_protocol_version,
@@ -334,7 +334,7 @@ impl Runtime {
         match action {
             Action::CreateAccount(_) => {
                 action_create_account(
-                    &apply_state.config.transaction_costs,
+                    &apply_state.config.fees,
                     &apply_state.config.account_creation_config,
                     account,
                     actor_id,
@@ -390,7 +390,7 @@ impl Runtime {
                     debug_assert!(!is_refund);
                     action_implicit_account_creation_transfer(
                         state_update,
-                        &apply_state.config.transaction_costs,
+                        &apply_state.config.fees,
                         account,
                         actor_id,
                         &receipt.receiver_id,
@@ -422,7 +422,7 @@ impl Runtime {
             }
             Action::DeleteKey(delete_key) => {
                 action_delete_key(
-                    &apply_state.config.transaction_costs,
+                    &apply_state.config.fees,
                     state_update,
                     account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
                     &mut result,
@@ -494,8 +494,7 @@ impl Runtime {
         let mut account = get_account(state_update, account_id)?;
         let mut actor_id = receipt.predecessor_id.clone();
         let mut result = ActionResult::default();
-        let exec_fee =
-            apply_state.config.transaction_costs.action_receipt_creation_config.exec_fee();
+        let exec_fee = apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee();
         result.gas_used = exec_fee;
         result.gas_burnt = exec_fee;
         // Executing actions one by one
@@ -587,7 +586,7 @@ impl Runtime {
                 action_receipt,
                 &mut result,
                 apply_state.current_protocol_version,
-                &apply_state.config.transaction_costs,
+                &apply_state.config.fees,
             )?
         };
         stats.gas_deficit_amount = safe_add_balance(stats.gas_deficit_amount, gas_deficit_amount)?;
@@ -619,8 +618,8 @@ impl Runtime {
 
         // Adding burnt gas reward for function calls if the account exists.
         let receiver_gas_reward = result.gas_burnt_for_function_call
-            * *apply_state.config.transaction_costs.burnt_gas_reward.numer() as u64
-            / *apply_state.config.transaction_costs.burnt_gas_reward.denom() as u64;
+            * *apply_state.config.fees.burnt_gas_reward.numer() as u64
+            / *apply_state.config.fees.burnt_gas_reward.denom() as u64;
         // The balance that the current account should receive as a reward for function call
         // execution.
         let receiver_reward = safe_gas_to_balance(apply_state.gas_price, receiver_gas_reward)?
@@ -756,7 +755,7 @@ impl Runtime {
                 &receipt.receiver_id,
                 current_protocol_version,
             )?,
-            transaction_costs.action_receipt_creation_config.exec_fee(),
+            transaction_costs.fee(ActionCosts::new_action_receipt).exec_fee(),
         )?;
         let deposit_refund = if result.result.is_err() { total_deposit } else { 0 };
         let gas_refund = if result.result.is_err() {
@@ -1361,7 +1360,7 @@ impl Runtime {
         }
 
         check_balance(
-            &apply_state.config.transaction_costs,
+            &apply_state.config.fees,
             &state_update,
             validator_accounts_update,
             incoming_receipts,
@@ -1771,12 +1770,9 @@ mod tests {
         let (runtime, tries, mut root, mut apply_state, _, epoch_info_provider) =
             setup_runtime(initial_balance, initial_locked, 1);
 
-        let receipt_gas_cost = apply_state
-            .config
-            .transaction_costs
-            .action_receipt_creation_config
-            .exec_fee()
-            + apply_state.config.transaction_costs.action_creation_config.transfer_cost.exec_fee();
+        let receipt_gas_cost =
+            apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee()
+                + apply_state.config.fees.fee(ActionCosts::transfer).exec_fee();
         apply_state.gas_limit = Some(receipt_gas_cost * 3);
 
         let n = 40;
@@ -1825,12 +1821,9 @@ mod tests {
         let (runtime, tries, mut root, mut apply_state, _, epoch_info_provider) =
             setup_runtime(initial_balance, initial_locked, 1);
 
-        let receipt_gas_cost = apply_state
-            .config
-            .transaction_costs
-            .action_receipt_creation_config
-            .exec_fee()
-            + apply_state.config.transaction_costs.action_creation_config.transfer_cost.exec_fee();
+        let receipt_gas_cost =
+            apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee()
+                + apply_state.config.fees.fee(ActionCosts::transfer).exec_fee();
 
         let n = 120;
         let receipts = generate_receipts(small_transfer, n);
@@ -1927,7 +1920,7 @@ mod tests {
 
         let receipt_exec_gas_fee = 1000;
         let mut free_config = RuntimeConfig::free();
-        free_config.transaction_costs.action_receipt_creation_config.execution =
+        free_config.fees.action_fees[ActionCosts::new_action_receipt].execution =
             receipt_exec_gas_fee;
         apply_state.config = Arc::new(free_config);
         // This allows us to execute 3 receipts per apply.
@@ -2209,9 +2202,9 @@ mod tests {
         })];
 
         let expected_gas_burnt = safe_add_gas(
-            apply_state.config.transaction_costs.action_receipt_creation_config.exec_fee(),
+            apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
             total_prepaid_exec_fees(
-                &apply_state.config.transaction_costs,
+                &apply_state.config.fees,
                 &actions,
                 &alice_account(),
                 PROTOCOL_VERSION,
@@ -2278,9 +2271,9 @@ mod tests {
         })];
 
         let expected_gas_burnt = safe_add_gas(
-            apply_state.config.transaction_costs.action_receipt_creation_config.exec_fee(),
+            apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
             total_prepaid_exec_fees(
-                &apply_state.config.transaction_costs,
+                &apply_state.config.fees,
                 &actions,
                 &alice_account(),
                 PROTOCOL_VERSION,
