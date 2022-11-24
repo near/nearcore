@@ -10,10 +10,8 @@ use crate::store;
 use crate::tcp;
 use crate::testonly::{make_rng, Rng};
 use crate::time;
-use crate::types::PeerManagerMessageRequest;
 use crate::types::PeerMessage;
 use near_o11y::testonly::init_test_logger;
-use near_o11y::WithSpanContextExt;
 use near_store::db::TestDB;
 use pretty_assertions::assert_eq;
 use rand::Rng as _;
@@ -42,17 +40,64 @@ async fn ping_simple() {
     pm0.wait_for_routing_table(&[(id1.clone(), vec![id1.clone()])]).await;
 
     tracing::info!(target:"test", "send ping from {id0} to {id1}");
-    let msg = PeerManagerMessageRequest::PingTo { nonce: 0, target: id1.clone() };
-    match pm0.actix.addr.send(msg.with_span_context()).await {
-        Ok(_) => (),
-        Err(_) => assert!(false, "could not send ping"),
-    };
+    pm0.send_ping(0, id1.clone()).await;
 
     tracing::info!(target:"test", "await ping at {id1}");
     pm1.wait_for_ping(Ping { nonce: 0, source: id0.clone() }).await;
 
     tracing::info!(target:"test", "await pong at {id0}");
     pm0.wait_for_pong(Pong { nonce: 0, source: id1.clone() }).await;
+}
+
+// test ping without a direct connection
+#[tokio::test]
+async fn ping_jump() {
+    init_test_logger();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
+    tracing::info!(target:"test", "start three nodes");
+    let pm0 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
+    let pm1 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
+    let pm2 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
+
+    let id0 = pm0.cfg.node_id();
+    let id1 = pm1.cfg.node_id();
+    let id2 = pm2.cfg.node_id();
+
+    tracing::info!(target:"test", "connect nodes in a line");
+    pm0.connect_to(&pm1.peer_info()).await;
+    pm1.connect_to(&pm2.peer_info()).await;
+
+    tracing::info!(target:"test", "wait for {id0} routing table");
+    pm0.wait_for_routing_table(&[
+        (id1.clone(), vec![id1.clone()]),
+        (id2.clone(), vec![id1.clone()]),
+    ])
+    .await;
+    tracing::info!(target:"test", "wait for {id1} routing table");
+    pm1.wait_for_routing_table(&[
+        (id0.clone(), vec![id0.clone()]),
+        (id2.clone(), vec![id2.clone()]),
+    ])
+    .await;
+    tracing::info!(target:"test", "wait for {id2} routing table");
+    pm2.wait_for_routing_table(&[
+        (id0.clone(), vec![id1.clone()]),
+        (id1.clone(), vec![id1.clone()]),
+    ])
+    .await;
+
+    tracing::info!(target:"test", "send ping from {id0} to {id2}");
+    pm0.send_ping(0, id2.clone()).await;
+
+    tracing::info!(target:"test", "await ping at {id2}");
+    pm2.wait_for_ping(Ping { nonce: 0, source: id0.clone() }).await;
+
+    tracing::info!(target:"test", "await pong at {id0}");
+    pm0.wait_for_pong(Pong { nonce: 0, source: id2.clone() }).await;
 }
 
 // test that TTL is handled property.

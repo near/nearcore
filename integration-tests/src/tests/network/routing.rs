@@ -84,29 +84,6 @@ fn account_propagation() -> anyhow::Result<()> {
     start_test(runner)
 }
 
-#[test]
-/// Crate 3 nodes connected in a line and try to use Ping.
-fn ping_jump() -> anyhow::Result<()> {
-    let mut runner = Runner::new(3, 2);
-
-    // Add edges
-    runner.push(Action::AddEdge { from: 0, to: 1, force: true });
-    runner.push(Action::AddEdge { from: 1, to: 2, force: true });
-    // Check routing tables and wait for `PeerManager` to update it's routing table
-    runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1]), (2, vec![1])]));
-    runner.push(Action::CheckRoutingTable(1, vec![(0, vec![0]), (2, vec![2])]));
-    runner.push(Action::CheckRoutingTable(2, vec![(0, vec![1]), (1, vec![1])]));
-
-    // Try Pinging from node 0 to 2
-    runner.push(Action::PingTo { source: 0, nonce: 0, target: 2 });
-    // Check whenever Node 2 got message from 0
-    runner.push(Action::CheckPingPong(2, vec![Ping { nonce: 0, source: 0 }], vec![]));
-    // Check whenever Node 0 got reply from 2.
-    runner.push(Action::CheckPingPong(0, vec![], vec![Pong { nonce: 0, source: 2 }]));
-
-    start_test(runner)
-}
-
 /// Test routed messages are not dropped if have enough TTL.
 /// Spawn three nodes and connect them in a line:
 ///
