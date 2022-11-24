@@ -14,15 +14,6 @@ impl<T: Hash + Eq> MultiSet<T> {
     pub fn insert(&mut self, val: T) {
         *self.0.entry(val).or_default() += 1;
     }
-
-    pub fn is_subset(&self, other: &Self) -> bool {
-        for (k, v) in &self.0 {
-            if other.0.get(&k).unwrap_or(&0) < &v {
-                return false;
-            }
-        }
-        true
-    }
 }
 
 impl<T: Hash + Eq> FromIterator<T> for MultiSet<T> {
