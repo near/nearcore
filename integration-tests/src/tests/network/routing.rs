@@ -84,29 +84,6 @@ fn account_propagation() -> anyhow::Result<()> {
     start_test(runner)
 }
 
-/// Test routed messages are dropped if don't have enough TTL.
-/// Spawn three nodes and connect them in a line:
-///
-/// 0 ---- 1 ---- 2
-///
-/// Set routed message ttl to 1, so routed message can't pass through more than 1 edges.
-/// Send Ping from 0 to 2. It should not arrive since there are 2 edges from 0 to 2.
-/// Check none of Ping and Pong arrived.
-#[test]
-fn test_drop_after_ttl() -> anyhow::Result<()> {
-    let mut runner = Runner::new(3, 1).routed_message_ttl(1);
-
-    runner.push(Action::AddEdge { from: 0, to: 1, force: true });
-    runner.push(Action::AddEdge { from: 1, to: 2, force: true });
-    runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1]), (2, vec![1])]));
-    runner.push(Action::PingTo { source: 0, nonce: 0, target: 2 });
-    runner.push(Action::Wait(time::Duration::milliseconds(100)));
-    runner.push(Action::CheckPingPong(2, vec![], vec![]));
-    runner.push(Action::CheckPingPong(0, vec![], vec![]));
-
-    start_test(runner)
-}
-
 #[test]
 fn simple_remove() -> anyhow::Result<()> {
     let mut runner = Runner::new(3, 3);

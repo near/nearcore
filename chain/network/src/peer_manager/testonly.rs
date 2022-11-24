@@ -361,6 +361,17 @@ impl ActorHandler {
             .await;
     }
 
+    // Awaits until the expected message is dropped.
+    pub async fn wait_for_message_dropped(&self) {
+        let mut events = self.events.from_now();
+        events
+            .recv_until(|ev| match ev {
+                Event::PeerManager(PME::RoutedMessageDropped) => Some(()),
+                _ => None,
+            })
+            .await;
+    }
+
     // Awaits until the expected pong is seen.
     pub async fn wait_for_pong(&self, want_pong: Pong) {
         let mut events = self.events.from_now();
