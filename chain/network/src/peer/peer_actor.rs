@@ -1253,6 +1253,7 @@ impl actix::Handler<stream::Frame> for PeerActor {
                 if let Some(&t) = self.routed_message_cache.get(&key) {
                     if now <= t + DROP_DUPLICATED_MESSAGES_PERIOD {
                         tracing::debug!(target: "network", "Dropping duplicated message from {} to {:?}", msg.author, msg.target);
+                        self.network_state.config.event_sink.push(Event::RoutedMessageDropped);
                         return;
                     }
                 }
