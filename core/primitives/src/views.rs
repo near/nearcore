@@ -1472,8 +1472,6 @@ pub struct InclusionView {
     pub finality: Finality,
     /// Block hash of the transaction inclusion.
     pub block_hash: CryptoHash,
-    /// Signed Transaction
-    pub transaction: SignedTransactionView,
 }
 
 pub mod validator_stake_view {

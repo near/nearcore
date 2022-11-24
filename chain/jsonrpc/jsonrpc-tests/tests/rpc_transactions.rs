@@ -12,7 +12,7 @@ use near_o11y::testonly::{init_integration_logger, init_test_logger};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::serialize::to_base64;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::BlockReference;
+use near_primitives::types::{BlockReference, Finality};
 use near_primitives::views::FinalExecutionStatus;
 
 use near_jsonrpc_tests::{self as test_utils, test_with_client};
@@ -48,7 +48,7 @@ fn test_send_tx_async() {
             let tx_hash = tx.get_hash().to_string();
             *tx_hash2_1.lock().unwrap() = Some(tx.get_hash());
             client
-                .broadcast_tx_async(to_base64(&bytes))
+                .broadcast_tx_async(&to_base64(&bytes))
                 .map_ok(move |result| assert_eq!(tx_hash, result))
                 .map(drop)
         }));
@@ -74,6 +74,80 @@ fn test_send_tx_async() {
             2000,
         )
         .start();
+    });
+}
+
+#[test]
+fn test_send_tx_async_wait() {
+    test_with_client!(test_utils::NodeType::Validator, client, async move {
+        let block_hash = client.block(BlockReference::latest()).await.unwrap().header.hash;
+        let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
+        let tx = SignedTransaction::send_money(
+            1,
+            "test1".parse().unwrap(),
+            "test2".parse().unwrap(),
+            &signer,
+            100,
+            block_hash,
+        );
+        let tx_encoded = to_base64(tx.try_to_vec().unwrap());
+
+        let tx_hash = client.broadcast_tx_async(&tx_encoded).await.unwrap();
+        assert_eq!(tx_hash, tx.get_hash().to_string());
+
+        macro_rules! execution_wait {
+            ($finality:expr, $wait_type:expr) => {{
+                let tx_encoded1 = tx_encoded.clone();
+                let wait_client = new_client(&client.server_addr);
+                actix::spawn(async move {
+                    let result = wait_client
+                        .EXPERIMENTAL_tx_wait(&tx_encoded1, $finality, $wait_type)
+                        .await
+                        .unwrap();
+                    assert_eq!(result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
+                })
+            }};
+        }
+
+        macro_rules! inclusion_wait {
+            ($finality:expr) => {{
+                let tx_encoded1 = tx_encoded.clone();
+                let wait_client = new_client(&client.server_addr);
+                actix::spawn(async move {
+                    let result = wait_client
+                        .EXPERIMENTAL_tx_inclusion_wait(&tx_encoded1, $finality)
+                        .await
+                        .unwrap();
+                    result.block_hash
+                })
+            }};
+        }
+
+        // TODO ! This is broken because DB doesn't seem to be updated in these cases
+        // TODO ..need to explore if it's because the data isn't stored on the shard or if
+        // TODO ..testing infra is just mocked (which it seems like)
+        // let f_f_handle = execution_wait!(Finality::Final, "full");
+        // let f_e_handle = execution_wait!(Finality::Final, "execution_result");
+        // let ds_f_handle = execution_wait!(Finality::DoomSlug, "full");
+        let n_f_handle = execution_wait!(Finality::None, "full");
+
+        // TODO ! re-enable tests when fixed
+        // let i_f_hash = inclusion_wait!(Finality::Final).await.unwrap();
+        // let i_ds_hash = inclusion_wait!(Finality::DoomSlug).await.unwrap();
+        // let i_n_hash = inclusion_wait!(Finality::None).await.unwrap();
+
+        // Transaction should be able to be queried now that inclusion has awaited on.
+        // get block hash to verify against
+        // let result = client.tx(tx.get_hash().to_string(), tx.transaction.signer_id).await.unwrap();
+        // assert_eq!(result.transaction_outcome.block_hash, i_f_hash);
+        // assert_eq!(result.transaction_outcome.block_hash, i_ds_hash);
+        // assert_eq!(result.transaction_outcome.block_hash, i_n_hash);
+
+        // Await on all executions to be awaited and status checked
+        // f_f_handle.await.unwrap();
+        // f_e_handle.await.unwrap();
+        // ds_f_handle.await.unwrap();
+        n_f_handle.await.unwrap();
     });
 }
 

@@ -612,6 +612,7 @@ impl Default for TxWaitType {
 /// transaction result and receipts.
 pub struct TxInclusion {
     pub tx_hash: CryptoHash,
+    // TODO ! very likely remove the signer here.
     pub signer_account_id: AccountId,
 }
 

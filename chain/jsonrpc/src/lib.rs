@@ -693,7 +693,7 @@ impl JsonRpcHandler {
                     })
                     .await
                 {
-                    Ok(Some(InclusionView {finality, block_hash, ..})) => {
+                    Ok(Some(InclusionView { finality, block_hash })) => {
                         if matches!(request_finality, Finality::Final) && matches!(finality, Finality::Final) {
                             return Ok(near_jsonrpc_primitives::types::transactions::RpcTransactionInclusionWaitResponse { block_hash});
                         } else if matches!(request_finality, Finality::DoomSlug) && matches!(finality, Finality::Final | Finality::DoomSlug) {

@@ -3464,45 +3464,38 @@ impl Chain {
             Finality::None => return Ok(true),
         };
 
-        match tx_wait_type {
-            TxWaitType::ExecutionResult => {
-                if !matches!(
-                    final_outcome.status,
-                    FinalExecutionStatus::Failure(_) | FinalExecutionStatus::SuccessValue(_)
-                ) {
-                    // Short circuit if the execution result has not completed yet optimistically.
-                    // TODO explore this.. are other cases possible to hit? Logic elsewhere seems
-                    // ..suspicious that it isn't.
+        if !matches!(
+            final_outcome.status,
+            FinalExecutionStatus::Failure(_) | FinalExecutionStatus::SuccessValue(_)
+        ) {
+            // Short circuit if the execution result has not completed yet optimistically.
+            // TODO explore this.. are other cases possible to hit? Logic elsewhere seems
+            // ..suspicious that it isn't.
+            return Ok(false);
+        }
+
+        let tx_outcome = &final_outcome.transaction_outcome;
+        let tx_block = self.get_block_header(&tx_outcome.block_hash)?;
+
+        if tx_block.height() > finality_height || !self.is_on_current_chain(&tx_block)? {
+            return Ok(false);
+        }
+
+        if let TxWaitType::Full = tx_wait_type {
+            for receipt_outcome in &final_outcome.receipts_outcome {
+                let current_block = self.get_block_header(&receipt_outcome.block_hash)?;
+
+                if !self.is_on_current_chain(&current_block)?
+                    || current_block.height() > finality_height
+                {
+                    // A receipt is not on the current chain or finalized yet,
                     return Ok(false);
                 }
-
-                let tx_outcome = &final_outcome.transaction_outcome;
-                let current_block = self.get_block_header(&tx_outcome.block_hash)?;
-
-                if self.is_on_current_chain(&current_block)?
-                    && current_block.height() <= finality_height
-                {
-                    Ok(true)
-                } else {
-                    Ok(false)
-                }
-            }
-            TxWaitType::Full => {
-                for receipt_outcome in &final_outcome.receipts_outcome {
-                    let current_block = self.get_block_header(&receipt_outcome.block_hash)?;
-
-                    if !self.is_on_current_chain(&current_block)?
-                        || current_block.height() > finality_height
-                    {
-                        // A receipt is not on the current chain or finalized yet,
-                        return Ok(false);
-                    }
-                }
-
-                // All receipts were checked to be finalized.
-                Ok(true)
             }
         }
+
+        // All receipts were checked to be finalized.
+        Ok(true)
     }
 
     /// Return transaction inclusion with finality of the inclusion.
@@ -3514,6 +3507,7 @@ impl Chain {
             Some(tx) => tx,
             None => return Ok(None),
         };
+        // TODO ! this block hash is very wrong. It's the hash of the block the tx is built on.
         let current_block = self.get_block_header(&transaction.transaction.block_hash)?;
         let on_current_chain = self.is_on_current_chain(&current_block)?;
         let finality = if on_current_chain && current_block.height() <= self.final_head()?.height {
@@ -3524,9 +3518,7 @@ impl Chain {
         } else {
             Finality::None
         };
-        let block_hash = transaction.transaction.block_hash;
-        let transaction: SignedTransactionView = SignedTransaction::clone(&transaction).into();
-        Ok(Some(InclusionView { transaction, finality, block_hash }))
+        Ok(Some(InclusionView { finality, block_hash: *current_block.hash() }))
     }
 
     /// Find a validator to forward transactions to

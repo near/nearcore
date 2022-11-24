@@ -2,6 +2,8 @@ use std::time::Duration;
 
 use awc::{Client, Connector};
 use futures::{future, future::LocalBoxFuture, FutureExt, TryFutureExt};
+use near_jsonrpc_primitives::types::transactions::RpcTransactionInclusionWaitResponse;
+use near_primitives::types::Finality;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -183,7 +185,7 @@ macro_rules! jsonrpc_client {
 }
 
 jsonrpc_client!(pub struct JsonRpcClient {
-    pub fn broadcast_tx_async(&self, tx: String) -> RpcRequest<String>;
+    pub fn broadcast_tx_async(&self, tx: &str) -> RpcRequest<String>;
     pub fn broadcast_tx_commit(&self, tx: String) -> RpcRequest<FinalExecutionOutcomeView>;
     pub fn status(&self) -> RpcRequest<StatusResponse>;
     #[allow(non_snake_case)]
@@ -194,6 +196,11 @@ jsonrpc_client!(pub struct JsonRpcClient {
     pub fn EXPERIMENTAL_broadcast_tx_sync(&self, tx: String) -> RpcRequest<serde_json::Value>;
     #[allow(non_snake_case)]
     pub fn EXPERIMENTAL_tx_status(&self, tx: String) -> RpcRequest<serde_json::Value>;
+    // TODO check or modify return types
+    #[allow(non_snake_case)]
+    pub fn EXPERIMENTAL_tx_wait(&self, tx: &str, finality: Finality, wait_type: &str) -> RpcRequest<FinalExecutionOutcomeView>;
+    #[allow(non_snake_case)]
+    pub fn EXPERIMENTAL_tx_inclusion_wait(&self, tx: &str, finality: Finality) -> RpcRequest<RpcTransactionInclusionWaitResponse>;
     pub fn health(&self) -> RpcRequest<()>;
     pub fn tx(&self, hash: String, account_id: AccountId) -> RpcRequest<FinalExecutionOutcomeView>;
     pub fn chunk(&self, id: ChunkId) -> RpcRequest<ChunkView>;
