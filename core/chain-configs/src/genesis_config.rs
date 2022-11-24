@@ -11,6 +11,7 @@ use std::{fmt, io};
 
 use anyhow::Context;
 use chrono::{DateTime, Utc};
+use near_primitives::views::RuntimeConfigView;
 use num_rational::Rational32;
 use serde::de::{self, DeserializeSeed, IgnoredAny, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -594,6 +595,7 @@ impl GenesisChangeConfig {
 // Note: this type cannot be placed in primitives/src/view.rs because of `RuntimeConfig` dependency issues.
 // Ideally we should create `RuntimeConfigView`, but given the deeply nested nature and the number of fields inside
 // `RuntimeConfig`, it should be its own endeavor.
+// TODO: This has changed, there is now `RuntimeConfigView`. Reconsider if moving this is possible now.
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ProtocolConfigView {
     /// Current Protocol Version
@@ -636,7 +638,7 @@ pub struct ProtocolConfigView {
     /// Gas price adjustment rate
     pub gas_price_adjustment_rate: Rational32,
     /// Runtime configuration (mostly economics constants).
-    pub runtime_config: RuntimeConfig,
+    pub runtime_config: RuntimeConfigView,
     /// Number of blocks for which a given transaction is valid
     pub transaction_validity_period: NumBlocks,
     /// Protocol treasury rate
@@ -683,7 +685,7 @@ impl From<ProtocolConfig> for ProtocolConfigView {
             online_min_threshold: genesis_config.online_min_threshold,
             online_max_threshold: genesis_config.online_max_threshold,
             gas_price_adjustment_rate: genesis_config.gas_price_adjustment_rate,
-            runtime_config,
+            runtime_config: RuntimeConfigView::from(runtime_config),
             transaction_validity_period: genesis_config.transaction_validity_period,
             protocol_reward_rate: genesis_config.protocol_reward_rate,
             max_inflation_rate: genesis_config.max_inflation_rate,
