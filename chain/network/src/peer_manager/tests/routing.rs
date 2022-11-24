@@ -22,6 +22,16 @@ use std::collections::HashSet;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
 
+// Awaits until a ConnectionClosed event is seen in the event stream.
+pub async fn wait_for_connection_closed(events: &mut broadcast::Receiver<Event>) {
+    events
+        .recv_until(|ev| match ev {
+            Event::PeerManager(PME::ConnectionClosed(_connection_closed_event)) => Some(()),
+            _ => None,
+        })
+        .await;
+}
+
 fn make_configs(
     chain: &data::Chain,
     rng: &mut Rng,
@@ -83,6 +93,9 @@ async fn blacklist_01() {
 
     let id0 = pm0.cfg.node_id();
     let id1 = pm1.cfg.node_id();
+
+    tracing::info!(target:"test", "wait for the connection to be attempted and rejected");
+    wait_for_connection_closed(&mut pm0.events.clone()).await;
 
     tracing::info!(target:"test", "wait for {id0} routing table");
     pm0.wait_for_routing_table(&[]).await;

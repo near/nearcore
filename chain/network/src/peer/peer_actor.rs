@@ -632,6 +632,10 @@ impl PeerActor {
                     },
                     Err(err) => {
                         tracing::info!(target: "network", "{:?}: Connection with {:?} rejected by PeerManager: {:?}", act.my_node_id(),conn.peer_info.id,err);
+                        act.network_state.config.event_sink.push(Event::ConnectionClosed(ConnectionClosedEvent{
+                            stream_id: act.stream_id,
+                            reason: ClosingReason::RejectedByPeerManager(err),
+                        }));
                         act.stop(ctx,ClosingReason::RejectedByPeerManager(err));
                     }
                 }
