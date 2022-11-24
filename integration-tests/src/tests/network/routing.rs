@@ -85,19 +85,6 @@ fn account_propagation() -> anyhow::Result<()> {
 }
 
 #[test]
-fn ping_simple() -> anyhow::Result<()> {
-    let mut runner = Runner::new(2, 2);
-
-    runner.push(Action::AddEdge { from: 0, to: 1, force: true });
-    runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1])]));
-    runner.push(Action::PingTo { source: 0, nonce: 0, target: 1 });
-    runner.push(Action::CheckPingPong(1, vec![Ping { nonce: 0, source: 0 }], vec![]));
-    runner.push(Action::CheckPingPong(0, vec![], vec![Pong { nonce: 0, source: 1 }]));
-
-    start_test(runner)
-}
-
-#[test]
 /// Crate 3 nodes connected in a line and try to use Ping.
 fn ping_jump() -> anyhow::Result<()> {
     let mut runner = Runner::new(3, 2);

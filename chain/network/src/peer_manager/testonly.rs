@@ -14,8 +14,8 @@ use crate::testonly::actix::ActixSystem;
 use crate::testonly::fake_client;
 use crate::time;
 use crate::types::{
-    AccountKeys, ChainInfo, KnownPeerStatus, NetworkRequests, PeerManagerMessageRequest,
-    SetChainInfo,
+    AccountKeys, ChainInfo, KnownPeerStatus, NetworkRequests, PeerManagerMessageRequest, Ping,
+    Pong, SetChainInfo,
 };
 use crate::PeerManagerActor;
 use near_o11y::WithSpanContextExt;
@@ -334,6 +334,40 @@ impl ActorHandler {
             // PROCESSED, not just RECEIVED. Otherwise we would get a race condition.
             events.recv_until(unwrap_sync_accounts_data_processed).await;
         }
+    }
+
+    // Awaits until the expected ping is seen.
+    pub async fn wait_for_ping(&self, want_ping: Ping) {
+        let mut events = self.events.from_now();
+        events
+            .recv_until(|ev| match ev {
+                Event::PeerManager(PME::Ping(ping)) => {
+                    if ping == want_ping {
+                        Some(())
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            })
+            .await;
+    }
+
+    // Awaits until the expected pong is seen.
+    pub async fn wait_for_pong(&self, want_pong: Pong) {
+        let mut events = self.events.from_now();
+        events
+            .recv_until(|ev| match ev {
+                Event::PeerManager(PME::Pong(pong)) => {
+                    if pong == want_pong {
+                        Some(())
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            })
+            .await;
     }
 
     // Awaits until the routing_table matches `want`.
