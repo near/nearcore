@@ -3388,31 +3388,31 @@ impl Chain {
         let mut outcomes = self.get_recursive_transaction_results(transaction_hash)?;
         let mut looking_for_id = *transaction_hash;
         let num_outcomes = outcomes.len();
-        let mut status = None;
-        for outcome_with_id in &outcomes {
-            if outcome_with_id.id == looking_for_id {
-                match &outcome_with_id.outcome.status {
-                    ExecutionStatusView::Unknown if num_outcomes == 1 => {
-                        status = Some(FinalExecutionStatus::NotStarted);
+        let status = outcomes
+            .iter()
+            .find_map(|outcome_with_id| {
+                if outcome_with_id.id == looking_for_id {
+                    match &outcome_with_id.outcome.status {
+                        ExecutionStatusView::Unknown if num_outcomes == 1 => {
+                            Some(FinalExecutionStatus::NotStarted)
+                        }
+                        ExecutionStatusView::Unknown => Some(FinalExecutionStatus::Started),
+                        ExecutionStatusView::Failure(e) => {
+                            Some(FinalExecutionStatus::Failure(e.clone()))
+                        }
+                        ExecutionStatusView::SuccessValue(v) => {
+                            Some(FinalExecutionStatus::SuccessValue(v.clone()))
+                        }
+                        ExecutionStatusView::SuccessReceiptId(id) => {
+                            looking_for_id = *id;
+                            None
+                        }
                     }
-                    ExecutionStatusView::Unknown => {
-                        status = Some(FinalExecutionStatus::Started);
-                    }
-                    ExecutionStatusView::Failure(e) => {
-                        status = Some(FinalExecutionStatus::Failure(e.clone()));
-                    }
-                    ExecutionStatusView::SuccessValue(v) => {
-                        status = Some(FinalExecutionStatus::SuccessValue(v.clone()));
-                    }
-                    ExecutionStatusView::SuccessReceiptId(id) => {
-                        looking_for_id = *id;
-                        continue;
-                    }
+                } else {
+                    None
                 }
-                break;
-            }
-        }
-        let status = status.expect("results should resolve to a final outcome");
+            })
+            .expect("results should resolve to a final outcome");
 
         let receipts_outcome = outcomes.split_off(1);
         let transaction = self.store.get_transaction(transaction_hash)?.ok_or_else(|| {
