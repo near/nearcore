@@ -104,6 +104,7 @@ impl NetworkState {
                     }
                 }
                 // Broadcast new edges to all other peers.
+                this.config.event_sink.push(Event::EdgesAdded(edges.clone()));
                 this.broadcast_routing_table_update(RoutingTableUpdate::from_edges(edges));
                 results
             })
