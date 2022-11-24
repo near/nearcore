@@ -131,20 +131,42 @@ pub(crate) struct TxTracker {
     updater_to_keys: HashMap<NonceUpdater, HashSet<(AccountId, PublicKey)>>,
     nonces: HashMap<(AccountId, PublicKey), NonceInfo>,
     height_queued: Option<BlockHeight>,
+    // the reason we have these (nonempty_height_queued, height_seen, etc) is so that we can
+    // exit after we receive the target block containing the txs we sent for the last source block.
+    // It's a minor thing, but otherwise if we just exit after sending the last source block's txs,
+    // we won't get to see the resulting txs on chain in the debug logs from log_target_block()
+    nonempty_height_queued: Option<BlockHeight>,
+    height_popped: Option<BlockHeight>,
+    height_seen: Option<BlockHeight>,
     send_time: Option<Pin<Box<tokio::time::Sleep>>>,
     // Config value in the target chain, used to judge how long to wait before sending a new batch of txs
     min_block_production_delay: Duration,
     // timestamps in the target chain, used to judge how long to wait before sending a new batch of txs
     recent_block_timestamps: VecDeque<u64>,
+    // last source block we'll be sending transactions for
+    stop_height: Option<BlockHeight>,
 }
 
 impl TxTracker {
-    pub(crate) fn new(min_block_production_delay: Duration) -> Self {
-        Self { min_block_production_delay, ..Default::default() }
+    pub(crate) fn new(
+        min_block_production_delay: Duration,
+        stop_height: Option<BlockHeight>,
+    ) -> Self {
+        Self { min_block_production_delay, stop_height, ..Default::default() }
     }
 
     pub(crate) fn height_queued(&self) -> Option<BlockHeight> {
         self.height_queued
+    }
+
+    pub(crate) fn finished(&self) -> bool {
+        match self.stop_height {
+            Some(_) => {
+                self.height_popped >= self.stop_height
+                    && self.height_seen >= self.nonempty_height_queued
+            }
+            None => false,
+        }
     }
 
     pub(crate) fn num_blocks_queued(&self) -> usize {
@@ -290,6 +312,9 @@ impl TxTracker {
     ) -> anyhow::Result<()> {
         self.height_queued = Some(block.source_height);
         for c in block.chunks.iter() {
+            if !c.txs.is_empty() {
+                self.nonempty_height_queued = Some(block.source_height);
+            }
             for (tx_idx, tx) in c.txs.iter().enumerate() {
                 let tx_ref =
                     TxRef { source_height: block.source_height, shard_id: c.shard_id, tx_idx };
@@ -360,6 +385,7 @@ impl TxTracker {
             self.try_set_nonces(target_view_client, db, access_key, None).await?;
         }
         let block = &mut self.queued_blocks[0];
+        self.height_popped = Some(block.source_height);
         for c in block.chunks.iter_mut() {
             for (tx_idx, tx) in c.txs.iter_mut().enumerate() {
                 match tx {
@@ -671,9 +697,12 @@ impl TxTracker {
         for s in msg.shards {
             if let Some(c) = s.chunk {
                 for tx in c.transactions {
-                    if self.sent_txs.remove(&tx.transaction.hash).is_some() {
+                    if let Some(info) = self.sent_txs.remove(&tx.transaction.hash) {
                         crate::metrics::TRANSACTIONS_INCLUDED.inc();
                         self.remove_tx(&tx);
+                        if Some(info.source_height) > self.height_seen {
+                            self.height_seen = Some(info.source_height);
+                        }
                     }
                     let id = ChainObjectId::Tx(TxInfo {
                         hash: tx.transaction.hash,
