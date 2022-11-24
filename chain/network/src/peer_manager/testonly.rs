@@ -355,9 +355,7 @@ impl ActorHandler {
             }
             events
                 .recv_until(|ev| match ev {
-                    Event::PeerManager(PME::MessageProcessed(PeerMessage::SyncRoutingTable {
-                        ..
-                    })) => Some(()),
+                    Event::PeerManager(PME::EdgesAdded { .. }) => Some(()),
                     _ => None,
                 })
                 .await;
