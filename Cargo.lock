@@ -2344,6 +2344,7 @@ dependencies = [
  "near-performance-metrics",
  "near-primitives",
  "near-primitives-core",
+ "near-stdx",
  "near-store",
  "near-telemetry",
  "near-test-contracts",
