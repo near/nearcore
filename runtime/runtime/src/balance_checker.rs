@@ -15,6 +15,7 @@ use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::version::ProtocolVersion;
 use near_store::{get, get_account, get_postponed_receipt, TrieAccess, TrieUpdate};
+use near_vm_logic::ActionCosts;
 use std::collections::HashSet;
 
 /// Returns delayed receipts with given range of indices.
@@ -45,7 +46,7 @@ fn receipt_cost(
             let mut total_cost = total_deposit(&action_receipt.actions)?;
             if !AccountId::is_system(&receipt.predecessor_id) {
                 let mut total_gas = safe_add_gas(
-                    transaction_costs.action_receipt_creation_config.exec_fee(),
+                    transaction_costs.fee(ActionCosts::new_action_receipt).exec_fee(),
                     total_prepaid_exec_fees(
                         transaction_costs,
                         &action_receipt.actions,
@@ -384,10 +385,10 @@ mod tests {
         let deposit = 500_000_000;
         let gas_price = 100;
         let cfg = RuntimeFeesConfig::test();
-        let exec_gas = cfg.action_receipt_creation_config.exec_fee()
-            + cfg.action_creation_config.transfer_cost.exec_fee();
-        let send_gas = cfg.action_receipt_creation_config.send_fee(false)
-            + cfg.action_creation_config.transfer_cost.send_fee(false);
+        let exec_gas = cfg.fee(ActionCosts::new_action_receipt).exec_fee()
+            + cfg.fee(ActionCosts::transfer).exec_fee();
+        let send_gas = cfg.fee(ActionCosts::new_action_receipt).send_fee(false)
+            + cfg.fee(ActionCosts::transfer).send_fee(false);
         let contract_reward = send_gas as u128 * *cfg.burnt_gas_reward.numer() as u128 * gas_price
             / (*cfg.burnt_gas_reward.denom() as u128);
         let total_validator_reward = send_gas as Balance * gas_price - contract_reward;
