@@ -140,6 +140,10 @@ pub fn total_send_fees(
 }
 
 /// Total sum of gas that needs to be burnt to send the inner actions of DelegateAction
+///
+/// This is only relevant for DelegateAction, where the send fees of the inner actions
+/// need to be prepaid. All other actions burn send fees directly, so calling this function
+/// with other actions will return 0.
 pub fn total_prepaid_send_fees(
     config: &RuntimeFeesConfig,
     actions: &[Action],
@@ -318,6 +322,8 @@ pub fn total_deposit(actions: &[Action]) -> Result<Balance, IntegerOverflowError
     for action in actions {
         let action_balance;
         if let Action::Delegate(signed_delegate_action) = action {
+            // Note, here Relayer pays the deposit but if actions fail, the depeposit is
+            // refunded to Sender of DelegateAction
             let actions = signed_delegate_action.delegate_action.get_actions();
             action_balance = total_deposit(&actions)?;
         } else {

@@ -670,13 +670,22 @@ pub(crate) fn apply_delegate_action(
         action_receipt.gas_price,
     );
 
+    // Note, Relayer prepaid all fees and all things required by actions: attached deposits and attached gas.
+    // If something goes wrong, deposit is refunded to the predecessor, this is sender_id/Sender in DelegateAction.
+    // Gas is refunded to the signer, this is Relayer.
+    // Some contracts refund the deposit. Usually they refund the deposit to the predecessor and this is sender_id/Sender from DelegateAction.
+    // Therefore Relayer should verify DelegateAction before submitting it because it spends the attached deposit.
+
     let prepaid_send_fees = total_prepaid_send_fees(
         &apply_state.config.transaction_costs,
         &action_receipt.actions,
         apply_state.current_protocol_version,
     )?;
     let required_gas = receipt_required_gas(apply_state, &new_receipt)?;
+    // This gas will be burnt by the receiver of the created receipt,
     result.gas_used = safe_add_gas(result.gas_used, required_gas)?;
+    // This gas was prepaid on Relayer shard. Need to burn it because the receipt is goint to be sent.
+    // gas_used is incremented because otherwise the gas will be refunded. Refund function checks only gas_used.
     result.gas_used = safe_add_gas(result.gas_used, prepaid_send_fees)?;
     result.gas_burnt = safe_add_gas(result.gas_burnt, prepaid_send_fees)?;
     result.new_receipts.push(new_receipt);
