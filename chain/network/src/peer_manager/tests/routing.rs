@@ -713,6 +713,13 @@ async fn blacklist_10() {
     let id0 = pm0.cfg.node_id();
     let id1 = pm1.cfg.node_id();
 
+    tracing::info!(target:"test", "wait for the connection to be attempted and rejected");
+    wait_for_connection_closed(
+        &mut pm1.events.clone(),
+        ClosingReason::RejectedByPeerManager(RegisterPeerError::Blacklisted),
+    )
+    .await;
+
     tracing::info!(target:"test", "wait for {id0} routing table");
     pm0.wait_for_routing_table(&[]).await;
     tracing::info!(target:"test", "wait for {id1} routing table");
@@ -738,6 +745,13 @@ async fn blacklist_all() {
 
     let id0 = pm0.cfg.node_id();
     let id1 = pm1.cfg.node_id();
+
+    tracing::info!(target:"test", "wait for the connection to be attempted and rejected");
+    wait_for_connection_closed(
+        &mut pm0.events.clone(),
+        ClosingReason::RejectedByPeerManager(RegisterPeerError::Blacklisted),
+    )
+    .await;
 
     tracing::info!(target:"test", "wait for {id0} routing table");
     pm0.wait_for_routing_table(&[]).await;
