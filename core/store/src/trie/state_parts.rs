@@ -49,9 +49,7 @@ impl Trie {
         let nodes_list = iterator.visit_nodes_interval(&path_begin, &path_end)?;
         tracing::debug!(
             target: "state_parts",
-            num_nodes = nodes_list.len(),
-            path_begin = std::str::from_utf8(&path_begin).unwrap_or(""),
-            path_end = std::str::from_utf8(&path_end).unwrap_or(""));
+            num_nodes = nodes_list.len());
 
         // Extra nodes for compatibility with the previous version of computing state parts
         if part_id.idx + 1 != part_id.total {
