@@ -36,10 +36,12 @@ const WASMER_FEATURES: Features = Features {
     bulk_memory: WASM_FEATURES.bulk_memory,
     multi_value: WASM_FEATURES.multi_value,
     tail_call: WASM_FEATURES.tail_call,
-    module_linking: WASM_FEATURES.module_linking,
     multi_memory: WASM_FEATURES.multi_memory,
     memory64: WASM_FEATURES.memory64,
     exceptions: WASM_FEATURES.exceptions,
+    mutable_global: WASM_FEATURES.mutable_global,
+    saturating_float_to_int: WASM_FEATURES.saturating_float_to_int,
+    sign_extension: WASM_FEATURES.sign_extension,
 };
 
 #[derive(Clone)]
@@ -233,7 +235,7 @@ impl Wasmer2Config {
 //  major version << 6
 //  minor version
 const WASMER2_CONFIG: Wasmer2Config = Wasmer2Config {
-    seed: (1 << 10) | (8 << 6) | 0,
+    seed: (1 << 10) | (9 << 6) | 0,
     engine: WasmerEngine::Universal,
     compiler: WasmerCompiler::Singlepass,
 };

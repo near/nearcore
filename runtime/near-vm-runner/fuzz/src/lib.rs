@@ -2,7 +2,7 @@ use arbitrary::Arbitrary;
 use core::fmt;
 use near_primitives::contract::ContractCode;
 use near_vm_logic::VMContext;
-use near_vm_runner::internal::wasmparser::{Export, ExternalKind, Parser, Payload, TypeDef};
+use near_vm_runner::internal::wasmparser::{Export, ExternalKind, Parser, Payload, Type};
 
 /// Finds a no-parameter exported function, something like `(func (export "entry-point"))`.
 pub fn find_entry_point(contract: &ContractCode) -> Option<String> {
@@ -14,11 +14,11 @@ pub fn find_entry_point(contract: &ContractCode) -> Option<String> {
             Ok(Payload::TypeSection(rdr)) => tys.extend(rdr),
             Ok(Payload::ExportSection(rdr)) => {
                 for export in rdr {
-                    if let Ok(Export { field, kind: ExternalKind::Function, index }) = export {
+                    if let Ok(Export { name, kind: ExternalKind::Func, index }) = export {
                         if let Some(&Ok(ty_index)) = fns.get(index as usize) {
-                            if let Some(Ok(TypeDef::Func(func_type))) = tys.get(ty_index as usize) {
-                                if func_type.params.is_empty() && func_type.returns.is_empty() {
-                                    return Some(field.to_string());
+                            if let Some(Ok(Type::Func(func_type))) = tys.get(ty_index as usize) {
+                                if func_type.params().is_empty() && func_type.results().is_empty() {
+                                    return Some(name.to_string());
                                 }
                             }
                         }

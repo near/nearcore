@@ -410,7 +410,7 @@ pub(crate) mod wasmer2 {
                     if field == stringify!($func) {
                         let args = [$(<$arg_type as Wasmer2Type>::ty()),*];
                         let rets = [$(<$returns as Wasmer2Type>::ty()),*];
-                        let signature = wasmer_types::FunctionTypeRef::new(&args[..], &rets[..]);
+                        let signature = wasmer_types::FunctionType::new(&args[..], &rets[..]);
                         let signature = self.engine.register_signature(signature);
                         return Some(wasmer_vm::Export::Function(ExportFunction {
                             vm_function: VMFunction {
