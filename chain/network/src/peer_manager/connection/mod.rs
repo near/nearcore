@@ -282,6 +282,9 @@ impl Pool {
                 return Err(PoolError::AlreadyConnected);
             }
             if let Some(owned_account) = &peer.owned_account {
+                // Only 1 connection per account key is allowed.
+                // Having 2 peers use the same account key is an invalid setup,
+                // which violates the BFT consensus anyway.
                 if pool.ready_by_account_key.insert(owned_account.account_key.clone(), peer.clone()).is_some() {
                     return Err(PoolError::AlreadyConnected);
                 }

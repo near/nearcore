@@ -98,6 +98,8 @@ pub(crate) enum ClosingReason {
     DisconnectMessage,
     #[error("Peer clock skew exceeded {MAX_CLOCK_SKEW}")]
     TooLargeClockSkew,
+    #[error("owned_account.peer_id doesn't match handshake.sender_peer_id")]
+    OwnedAccountMismatch,
     #[error("PeerActor stopped NOT via PeerActor::stop()")]
     Unknown,
 }
@@ -486,7 +488,7 @@ impl PeerActor {
                 return;
             }
             if owned_account.peer_id != handshake.sender_peer_id {
-                self.stop(ctx, ClosingReason::HandshakeFailed);
+                self.stop(ctx, ClosingReason::OwnedAccountMismatch);
                 return;
             }
             if (owned_account.timestamp - self.clock.now_utc()).abs() >= MAX_CLOCK_SKEW {

@@ -1,6 +1,6 @@
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::PeerMessage;
-use crate::network_protocol::{Encoding, Handshake, PartialEdgeInfo};
+use crate::network_protocol::{Encoding, Handshake, OwnedAccount, PartialEdgeInfo};
 use crate::peer::peer_actor::ClosingReason;
 use crate::peer_manager;
 use crate::peer_manager::connection;
@@ -119,4 +119,67 @@ async fn loop_connection() {
         )),
         reason
     );
+}
+
+#[tokio::test]
+async fn owned_account_mismatch() {
+    init_test_logger();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
+    let pm = peer_manager::testonly::start(
+        clock.clock(),
+        near_store::db::TestDB::new(),
+        chain.make_config(rng),
+        chain.clone(),
+    )
+    .await;
+
+    // An inbound connection pretending to be a loop should be rejected.
+    let stream = tcp::Stream::connect(&pm.peer_info()).await.unwrap();
+    let stream_id = stream.id();
+    let port = stream.local_addr.port();
+    let mut events = pm.events.from_now();
+    let mut stream = Stream::new(Some(Encoding::Proto), stream);
+    let cfg = chain.make_config(rng);
+    let vc = cfg.validator.clone().unwrap();
+    stream
+        .write(&PeerMessage::Tier2Handshake(Handshake {
+            protocol_version: PROTOCOL_VERSION,
+            oldest_supported_version: PROTOCOL_VERSION,
+            sender_peer_id: cfg.node_id(),
+            target_peer_id: pm.cfg.node_id(),
+            sender_listen_port: Some(port),
+            sender_chain_info: chain.get_peer_chain_info(),
+            partial_edge_info: PartialEdgeInfo::new(
+                &cfg.node_id(),
+                &pm.cfg.node_id(),
+                1,
+                &cfg.node_key,
+            ),
+            owned_account: Some(
+                OwnedAccount {
+                    account_key: vc.signer.public_key().clone(),
+                    // random peer_id, different than the expected cfg.node_id().
+                    peer_id: data::make_peer_id(rng),
+                    timestamp: clock.now_utc(),
+                }
+                .sign(vc.signer.as_ref()),
+            ),
+        }))
+        .await;
+    let reason = events
+        .recv_until(|ev| match ev {
+            Event::PeerManager(PME::ConnectionClosed(ev)) if ev.stream_id == stream_id => {
+                Some(ev.reason)
+            }
+            Event::PeerManager(PME::HandshakeCompleted(ev)) if ev.stream_id == stream_id => {
+                panic!("PeerManager accepted the handshake")
+            }
+            _ => None,
+        })
+        .await;
+    assert_eq!(ClosingReason::OwnedAccountMismatch, reason);
 }
