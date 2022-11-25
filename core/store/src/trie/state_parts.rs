@@ -44,9 +44,14 @@ impl Trie {
     fn visit_nodes_for_state_part(&self, part_id: PartId) -> Result<(), StorageError> {
         let path_begin = self.find_path_for_part_boundary(part_id.idx, part_id.total)?;
         let path_end = self.find_path_for_part_boundary(part_id.idx + 1, part_id.total)?;
+
         let mut iterator = self.iter()?;
         let nodes_list = iterator.visit_nodes_interval(&path_begin, &path_end)?;
-        tracing::debug!(target: "state_parts", num_nodes = nodes_list.len());
+        tracing::debug!(
+            target: "state_parts",
+            num_nodes = nodes_list.len(),
+            path_begin = std::str::from_utf8(&path_begin).unwrap_or(""),
+            path_end = std::str::from_utf8(&path_end).unwrap_or(""));
 
         // Extra nodes for compatibility with the previous version of computing state parts
         if part_id.idx + 1 != part_id.total {
