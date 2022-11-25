@@ -66,6 +66,27 @@ fn default_push_info_period() -> Duration {
 fn default_outbound_disabled() -> bool {
     false
 }
+/// qps of maximal rate at which SyncAccountsData can be broadcasted.
+fn default_accounts_data_broadcast_rate_limit_qps() -> f64 {
+    0.5
+}
+/// burst of maximal rate at which SyncAccountsData can be broadcasted.
+fn default_accounts_data_broadcast_rate_limit_burst() -> u64 {
+    1
+}
+/// qps of maximal rate at which RoutingTableUpdate can be sent out.
+fn default_routing_table_update_rate_limit_qps() -> f64 {
+    0.5
+}
+/// burst of maximal rate at which RoutingTableUpdate can be sent out.
+fn default_routing_table_update_rate_limit_burst() -> u64 {
+    1
+}
+/// Tier1 interval between broadcasts of the list of validator's proxies.
+fn default_tier1_advertise_proxies_interval() -> Duration {
+    Duration::from_secs(15 * 60)
+}
+
 /// Period to check on peer status
 fn default_peer_stats_period() -> Duration {
     Duration::from_secs(5)
@@ -161,6 +182,22 @@ pub struct Config {
     /// Flag to disable outbound connections.
     #[serde(default = "default_outbound_disabled")]
     pub outbound_disabled: bool,
+    /// qps for maximal rate at which SyncAccountsData can be broadcasted.
+    #[serde(default = "default_accounts_data_broadcast_rate_limit_qps")]
+    pub accounts_data_broadcast_rate_limit_qps: f64,
+    /// burst for maximal rate at which SyncAccountsData can be broadcasted.
+    #[serde(default = "default_accounts_data_broadcast_rate_limit_burst")]
+    pub accounts_data_broadcast_rate_limit_burst: u64,
+    /// qps for maximal rate at which RoutingTableUpdate can be sent out.
+    #[serde(default = "default_routing_table_update_rate_limit_qps")]
+    pub routing_table_update_rate_limit_qps: f64,
+    /// burst for maximal rate at which RoutingTableUpdate can be sent out.
+    #[serde(default = "default_routing_table_update_rate_limit_burst")]
+    pub routing_table_update_rate_limit_burst: u64,
+    /// Tier1 interval between broadcasts of the list of validator's proxies.
+    #[serde(default = "default_tier1_advertise_proxies_interval")]
+    pub tier1_advertise_proxies_interval: Duration,
+
     /// Period to check on peer status
     #[serde(default = "default_peer_stats_period")]
     pub peer_stats_period: Duration,
@@ -272,6 +309,13 @@ impl Default for Config {
             highest_peer_horizon: default_highest_peer_horizon(),
             push_info_period: default_push_info_period(),
             outbound_disabled: default_outbound_disabled(),
+            accounts_data_broadcast_rate_limit_qps: default_accounts_data_broadcast_rate_limit_qps(
+            ),
+            accounts_data_broadcast_rate_limit_burst:
+                default_accounts_data_broadcast_rate_limit_burst(),
+            routing_table_update_rate_limit_qps: default_routing_table_update_rate_limit_qps(),
+            routing_table_update_rate_limit_burst: default_routing_table_update_rate_limit_burst(),
+            tier1_advertise_proxies_interval: default_tier1_advertise_proxies_interval(),
             peer_stats_period: default_peer_stats_period(),
             monitor_peers_max_period: default_monitor_peers_max_period(),
             peer_expiration_duration: default_peer_expiration_duration(),

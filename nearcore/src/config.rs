@@ -1452,7 +1452,7 @@ mod test {
     >(
         fields: Vec<&str>,
         value: T,
-        near_config_to_value: Box<dyn Fn(&NearConfig) -> T>,
+        near_config_to_value: Box<dyn Fn(NearConfig) -> T>,
     ) {
         let temp_dir = tempdir().unwrap();
         init_configs(
@@ -1491,7 +1491,7 @@ mod test {
             load_config(&temp_dir.path(), near_chain_configs::GenesisValidationMode::Full)
                 .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
 
-        assert_eq!(near_config_to_value(&near_config), value);
+        assert_eq!(near_config_to_value(near_config), value);
     }
 
     #[test]
@@ -1555,5 +1555,44 @@ mod test {
             true,
             Box::new(|nc| nc.network_config.outbound_disabled),
         )
+    }
+
+    #[test]
+    fn test_accounts_data_broadcast_rate_limit() {
+        check_value_is_taken_from_config(
+            vec!["network", "accounts_data_broadcast_rate_limit_qps"],
+            0.125,
+            Box::new(|nc| nc.network_config.accounts_data_broadcast_rate_limit.qps),
+        );
+        check_value_is_taken_from_config(
+            vec!["network", "accounts_data_broadcast_rate_limit_burst"],
+            123,
+            Box::new(|nc| nc.network_config.accounts_data_broadcast_rate_limit.burst),
+        );
+    }
+
+    #[test]
+    fn test_routing_table_update_rate_limit() {
+        check_value_is_taken_from_config(
+            vec!["network", "routing_table_update_rate_limit_qps"],
+            0.125,
+            Box::new(|nc| nc.network_config.routing_table_update_rate_limit.qps),
+        );
+        check_value_is_taken_from_config(
+            vec!["network", "routing_table_update_rate_limit_burst"],
+            123,
+            Box::new(|nc| nc.network_config.routing_table_update_rate_limit.burst),
+        );
+    }
+
+    #[test]
+    fn test_tier1_config() {
+        check_value_is_taken_from_config(
+            vec!["network", "tier1_advertise_proxies_interval"],
+            Duration::from_secs(123),
+            Box::new(|nc| {
+                nc.network_config.tier1.unwrap().advertise_proxies_interval.try_into().unwrap()
+            }),
+        );
     }
 }

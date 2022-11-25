@@ -248,9 +248,17 @@ impl NetworkConfig {
             push_info_period: cfg.push_info_period.try_into()?,
             outbound_disabled: cfg.outbound_disabled,
             archive,
-            accounts_data_broadcast_rate_limit: demux::RateLimit { qps: 0.1, burst: 1 },
-            routing_table_update_rate_limit: demux::RateLimit { qps: 0.5, burst: 1 },
-            tier1: Some(Tier1 { advertise_proxies_interval: time::Duration::minutes(15) }),
+            accounts_data_broadcast_rate_limit: demux::RateLimit {
+                qps: cfg.accounts_data_broadcast_rate_limit_qps,
+                burst: cfg.accounts_data_broadcast_rate_limit_burst,
+            },
+            routing_table_update_rate_limit: demux::RateLimit {
+                qps: cfg.routing_table_update_rate_limit_qps,
+                burst: cfg.routing_table_update_rate_limit_burst,
+            },
+            tier1: Some(Tier1 {
+                advertise_proxies_interval: cfg.tier1_advertise_proxies_interval.try_into()?,
+            }),
             inbound_disabled: cfg.experimental.inbound_disabled,
             skip_tombstones: if cfg.experimental.skip_sending_tombstones_seconds > 0 {
                 Some(time::Duration::seconds(cfg.experimental.skip_sending_tombstones_seconds))
