@@ -106,7 +106,7 @@ impl TryFrom<&net::PeerMessage> for mem::PeerMessage {
     type Error = ParsePeerMessageError;
     fn try_from(x: &net::PeerMessage) -> Result<Self, Self::Error> {
         Ok(match x.clone() {
-            net::PeerMessage::Handshake(h) => mem::PeerMessage::Handshake((&h).into()),
+            net::PeerMessage::Handshake(h) => mem::PeerMessage::Tier2Handshake((&h).into()),
             net::PeerMessage::HandshakeFailure(pi, hfr) => {
                 mem::PeerMessage::HandshakeFailure(pi, (&hfr).into())
             }
@@ -153,7 +153,10 @@ impl TryFrom<&net::PeerMessage> for mem::PeerMessage {
 impl From<&mem::PeerMessage> for net::PeerMessage {
     fn from(x: &mem::PeerMessage) -> Self {
         match x.clone() {
-            mem::PeerMessage::Handshake(h) => net::PeerMessage::Handshake((&h).into()),
+            mem::PeerMessage::Tier1Handshake(_) => {
+                panic!("Tier1Handshake is not supported in Borsh encoding")
+            }
+            mem::PeerMessage::Tier2Handshake(h) => net::PeerMessage::Handshake((&h).into()),
             mem::PeerMessage::HandshakeFailure(pi, hfr) => {
                 net::PeerMessage::HandshakeFailure(pi, (&hfr).into())
             }
