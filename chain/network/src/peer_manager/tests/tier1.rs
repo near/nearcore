@@ -6,7 +6,7 @@ use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::peer_manager::testonly::start as start_pm;
 use crate::peer_manager::testonly::Event;
 use crate::tcp;
-use crate::testonly::{make_rng, AsSet as _, Rng};
+use crate::testonly::{make_rng, Rng};
 use crate::time;
 use crate::types::{NetworkRequests, NetworkResponses, PeerManagerMessageRequest};
 use near_o11y::testonly::init_test_logger;
@@ -108,25 +108,18 @@ async fn first_proxy_advertisement() {
         chain.clone(),
     )
     .await;
-    let mut events = pm.events.from_now();
     let chain_info = peer_manager::testonly::make_chain_info(&chain, &[&pm]);
-    pm.set_chain_info(chain_info).await;
+    tracing::info!(target:"test", "set_chain_info()");
     // TODO(gprusak): The default config constructed via chain.make_config(),
     // currently returns a validator config with its own server addr in the list of TIER1 proxies.
     // You might want to set it explicitly within this test to not rely on defaults.
-    let got = events
-        .recv_until(|ev| match ev {
-            // Currently a PeerManager may advertise the same list of proxies for both
-            // multiple (current and next) epochs. That's why Tier1AdvertiseProxies may contain
-            // multiple entries. Any entry would do, so we take the first one.
-            Event::PeerManager(PME::Tier1AdvertiseProxies(data)) => Some(data[0].clone()),
-            _ => None,
-        })
-        .await;
-    assert!(got
-        .proxies
-        .as_set()
-        .contains(&PeerAddr { peer_id: pm.cfg.node_id(), addr: pm.cfg.node_addr.unwrap() }));
+    pm.set_chain_info(chain_info).await;
+    let got = pm.tier1_advertise_proxies(&clock.clock()).await;
+    tracing::info!(target:"test", "awaiting for Tier1AdvertiseProxies");
+    assert_eq!(
+        got[0].proxies,
+        vec![PeerAddr { peer_id: pm.cfg.node_id(), addr: pm.cfg.node_addr.unwrap() }]
+    );
 }
 
 #[tokio::test]
