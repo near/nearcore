@@ -347,7 +347,7 @@ impl PeerActor {
             },
             partial_edge_info: spec.partial_edge_info,
         };
-        let msg = PeerMessage::Handshake(handshake);
+        let msg = PeerMessage::Tier2Handshake(handshake);
         self.send_message_or_log(&msg);
     }
 
@@ -781,7 +781,7 @@ impl PeerActor {
                     actix::fut::ready(())
                 }));
             }
-            (PeerStatus::Connecting { .. }, PeerMessage::Handshake(msg)) => {
+            (PeerStatus::Connecting { .. }, PeerMessage::Tier2Handshake(msg)) => {
                 self.process_handshake(ctx, msg)
             }
             (_, msg) => {
@@ -962,7 +962,7 @@ impl PeerActor {
                 tracing::debug!(target: "network", "Disconnect signal. Me: {:?} Peer: {:?}", self.my_node_info.id, self.other_peer_id());
                 self.stop(ctx, ClosingReason::DisconnectMessage);
             }
-            PeerMessage::Handshake(_) => {
+            PeerMessage::Tier2Handshake(_) => {
                 // Received handshake after already have seen handshake from this peer.
                 tracing::debug!(target: "network", "Duplicate handshake from {}", self.peer_info);
             }
