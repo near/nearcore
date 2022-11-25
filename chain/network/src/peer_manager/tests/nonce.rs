@@ -9,7 +9,6 @@ use crate::testonly::make_rng;
 use crate::testonly::stream;
 use crate::time;
 use crate::types::Edge;
-use ::time::Duration;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::network::PeerId;
 use near_primitives::version;
@@ -139,7 +138,7 @@ async fn test_nonce_refresh() {
     assert_eq!(Edge::nonce_to_utc(edge.nonce()).unwrap().unwrap(), start_time);
 
     // Advance a clock by 1 hour.
-    clock.advance(Duration::HOUR);
+    clock.advance(time::Duration::HOUR);
 
     let new_nonce_utc = clock.now_utc();
 
