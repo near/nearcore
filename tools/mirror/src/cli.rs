@@ -1,5 +1,6 @@
 use anyhow::Context;
 use clap::Parser;
+use near_primitives::types::BlockHeight;
 use std::cell::Cell;
 use std::path::PathBuf;
 
@@ -15,8 +16,8 @@ enum SubCommand {
     Run(RunCmd),
 }
 
-/// Start two NEAR nodes, one for each chain, and try to mirror
-/// transactions from the source chain to the target chain.
+/// initialize a target chain with genesis records from the source chain, and
+/// then try to mirror transactions from the source chain to the target chain.
 #[derive(Parser)]
 struct RunCmd {
     /// source chain home dir
@@ -35,6 +36,14 @@ struct RunCmd {
     /// that does contain a secret, the mirror will refuse to start
     #[clap(long)]
     no_secret: bool,
+    /// Start a NEAR node for the source chain, instead of only using
+    /// whatever's currently stored in --source-home
+    #[clap(long)]
+    online_source: bool,
+    /// If provided, we will stop after sending transactions coming from
+    /// this height in the source chain
+    #[clap(long)]
+    stop_height: Option<BlockHeight>,
 }
 
 impl RunCmd {
@@ -61,7 +70,14 @@ impl RunCmd {
         let system = new_actix_system(runtime);
         system
             .block_on(async move {
-                actix::spawn(crate::run(self.source_home, self.target_home, secret)).await
+                actix::spawn(crate::run(
+                    self.source_home,
+                    self.target_home,
+                    secret,
+                    self.stop_height,
+                    self.online_source,
+                ))
+                .await
             })
             .unwrap()
     }
