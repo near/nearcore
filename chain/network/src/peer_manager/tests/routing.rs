@@ -759,6 +759,83 @@ async fn blacklist_all() {
     pm1.wait_for_routing_table(&[]).await;
 }
 
+// Spawn 3 nodes with max peers configured to 2, then allow them to connect to each other in a triangle.
+// Spawn a fourth node and see it fail to connect since the first three are at max capacity.
+#[tokio::test]
+async fn max_num_peers_limit() {
+    init_test_logger();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
+    tracing::info!(target:"test", "start three nodes with max_num_peers=2");
+    let mut cfgs = make_configs(&chain, rng, 4, 4, true);
+    for config in cfgs.iter_mut() {
+        config.max_num_peers = 2;
+        config.ideal_connections_lo = 2;
+        config.ideal_connections_hi = 2;
+    }
+
+    let pm0 = start_pm(clock.clock(), TestDB::new(), cfgs[0].clone(), chain.clone()).await;
+    let pm1 = start_pm(clock.clock(), TestDB::new(), cfgs[1].clone(), chain.clone()).await;
+    let pm2 = start_pm(clock.clock(), TestDB::new(), cfgs[2].clone(), chain.clone()).await;
+
+    let id0 = pm0.cfg.node_id();
+    let id1 = pm1.cfg.node_id();
+    let id2 = pm2.cfg.node_id();
+
+    tracing::info!(target:"test", "wait for {id0} routing table");
+    pm0.wait_for_routing_table(&[
+        (id1.clone(), vec![id1.clone()]),
+        (id2.clone(), vec![id2.clone()]),
+    ])
+    .await;
+    tracing::info!(target:"test", "wait for {id1} routing table");
+    pm1.wait_for_routing_table(&[
+        (id0.clone(), vec![id0.clone()]),
+        (id2.clone(), vec![id2.clone()]),
+    ])
+    .await;
+    tracing::info!(target:"test", "wait for {id2} routing table");
+    pm2.wait_for_routing_table(&[
+        (id0.clone(), vec![id0.clone()]),
+        (id1.clone(), vec![id1.clone()]),
+    ])
+    .await;
+
+    let mut pm0_ev = pm0.events.from_now();
+    let mut pm1_ev = pm1.events.from_now();
+    let mut pm2_ev = pm2.events.from_now();
+
+    tracing::info!(target:"test", "start a fourth node");
+    let pm3 = start_pm(clock.clock(), TestDB::new(), cfgs[3].clone(), chain.clone()).await;
+
+    let id3 = pm3.cfg.node_id();
+
+    tracing::info!(target:"test", "wait for {id0} to reject attempted connection");
+    wait_for_connection_closed(
+        &mut pm0_ev,
+        ClosingReason::RejectedByPeerManager(RegisterPeerError::ConnectionLimitExceeded),
+    )
+    .await;
+    tracing::info!(target:"test", "wait for {id1} to reject attempted connection");
+    wait_for_connection_closed(
+        &mut pm1_ev,
+        ClosingReason::RejectedByPeerManager(RegisterPeerError::ConnectionLimitExceeded),
+    )
+    .await;
+    tracing::info!(target:"test", "wait for {id2} to reject attempted connection");
+    wait_for_connection_closed(
+        &mut pm2_ev,
+        ClosingReason::RejectedByPeerManager(RegisterPeerError::ConnectionLimitExceeded),
+    )
+    .await;
+
+    tracing::info!(target:"test", "wait for {id3} routing table");
+    pm3.wait_for_routing_table(&[]).await;
+}
+
 // test that TTL is handled property.
 #[tokio::test]
 async fn ttl() {
