@@ -364,7 +364,18 @@ message PeerMessage {
   TraceContext trace_context = 26;
 
   oneof message_type {
-    Handshake handshake = 4;
+    // Handshakes for TIER1 and TIER2 networks are considered separate,
+    // so that a node binary which doesn't support TIER1 connection won't
+    // be even able to PARSE the handshake. This way we avoid accidental
+    // connections, such that one end thinks it is a TIER2 connection and the
+    // other thinks it is a TIER1 connection. As currently both TIER1 and TIER2
+    // connections are handled by the same PeerActor, both fields use the same
+    // underlying message type. If we ever decide to separate the handshake
+    // implementations, we can copy the Handshake message type defition and
+    // make it evolve differently for TIER1 and TIER2.
+    Handshake tier1_handshake = 27;
+    Handshake tier2_handshake = 4;
+
     HandshakeFailure handshake_failure = 5;
     LastEdge last_edge = 6;
     RoutingTableUpdate sync_routing_table = 7;
