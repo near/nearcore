@@ -1,3 +1,12 @@
+//! State sync is trying to fetch the 'full state' from the peers (which can be multiple GB).
+//! It happens after HeaderSync and before Body Sync (but only if the node sees that it is 'too much behind').
+//! See https://near.github.io/nearcore/architecture/how/sync.html for more detailed information.
+//! Such state can be downloaded only at special heights (currently - at the beginning of the current and previous epochs).
+//!
+//! You can do the state sync for each shard independently.
+//! It starts by fetching a 'header' - that contains basic information about the state (for example its size, how many parts it consists of, hash of the root etc).
+//! Then it tries downloading the rest of the data in 'parts' (usually the part is around 1MB in size).
+
 use near_chain::{near_chain_primitives, Error};
 use std::collections::HashMap;
 use std::ops::Add;
@@ -77,7 +86,6 @@ fn make_account_or_peer_id_or_hash(
 pub struct StateSync {
     network_adapter: Arc<dyn PeerManagerAdapter>,
 
-    state_sync_time: HashMap<ShardId, DateTime<Utc>>,
     last_time_block_requested: Option<DateTime<Utc>>,
 
     last_part_id_requested: HashMap<(AccountOrPeerIdOrHash, ShardId), PendingRequestStatus>,
@@ -97,7 +105,6 @@ impl StateSync {
     pub fn new(network_adapter: Arc<dyn PeerManagerAdapter>, timeout: TimeDuration) -> Self {
         StateSync {
             network_adapter,
-            state_sync_time: Default::default(),
             last_time_block_requested: None,
             last_part_id_requested: Default::default(),
             requested_target: lru::LruCache::new(MAX_PENDING_PART as usize),
@@ -107,7 +114,7 @@ impl StateSync {
         }
     }
 
-    pub fn sync_block_status(
+    fn sync_block_status(
         &mut self,
         prev_hash: &CryptoHash,
         chain: &Chain,
@@ -140,7 +147,7 @@ impl StateSync {
     // and therefore whether the client needs to update its
     // `sync_status`. The second indicates whether state sync is
     // finished, in which case the client will transition to block sync
-    pub fn sync_shards_status(
+    fn sync_shards_status(
         &mut self,
         me: &Option<AccountId>,
         sync_hash: CryptoHash,
@@ -194,10 +201,14 @@ impl StateSync {
             let mut this_done = false;
             match &shard_sync_download.status {
                 ShardSyncStatus::StateDownloadHeader => {
+                    // StateDownloadHeader is the first step. We want to fetch the basic information about the state (its size, hash etc).
+                    // FIXME: why are we looking only on the first index? - ah right, we assume taht download header has only 1.
                     if shard_sync_download.downloads[0].done {
                         let shard_state_header = chain.get_state_header(shard_id, sync_hash)?;
                         let state_num_parts =
                             get_num_state_parts(shard_state_header.state_root_node().memory_usage);
+                        // If the header was downloaded succesfully - move to phase 2 (downloading parts).
+                        // Create the vector with entry for each part.
                         *shard_sync_download = ShardSyncDownload {
                             downloads: vec![
                                 DownloadStatus {
@@ -218,6 +229,7 @@ impl StateSync {
                         let prev = shard_sync_download.downloads[0].prev_update_time;
                         let error = shard_sync_download.downloads[0].error;
                         download_timeout = now - prev > self.timeout;
+                        // Retry in case of timeout or failure.
                         if download_timeout || error {
                             shard_sync_download.downloads[0].run_me.store(true, Ordering::SeqCst);
                             shard_sync_download.downloads[0].error = false;
@@ -229,6 +241,7 @@ impl StateSync {
                     }
                 }
                 ShardSyncStatus::StateDownloadParts => {
+                    // Step 2 - download all the parts (each part is usually around 1MB).
                     let mut parts_done = true;
                     for part_download in shard_sync_download.downloads.iter_mut() {
                         if !part_download.done {
@@ -236,6 +249,7 @@ impl StateSync {
                             let prev = part_download.prev_update_time;
                             let error = part_download.error;
                             let part_timeout = now - prev > self.timeout;
+                            // Retry parts that failed.
                             if part_timeout || error {
                                 download_timeout |= part_timeout;
                                 part_download.run_me.store(true, Ordering::SeqCst);
@@ -247,6 +261,7 @@ impl StateSync {
                             }
                         }
                     }
+                    // If all parts are done - we can move towards scheduling (TODO: why?)
                     if parts_done {
                         *shard_sync_download = ShardSyncDownload {
                             downloads: vec![],
@@ -258,6 +273,8 @@ impl StateSync {
                     let shard_state_header = chain.get_state_header(shard_id, sync_hash)?;
                     let state_num_parts =
                         get_num_state_parts(shard_state_header.state_root_node().memory_usage);
+                    // Now apply all the parts to the chain / runtime.
+                    // TODO: not sure why this has to happen only after all the parts were downloaded.
                     match chain.schedule_apply_state_parts(
                         shard_id,
                         sync_hash,
@@ -280,6 +297,7 @@ impl StateSync {
                     }
                 }
                 ShardSyncStatus::StateDownloadApplying => {
+                    // Keep waiting until our shard is on the list of results (these are set via callback from ClientActor - both for sync and catchup).
                     let result = self.state_parts_apply_results.remove(&shard_id);
                     if let Some(result) = result {
                         match chain.set_state_finalize(shard_id, sync_hash, result) {
@@ -313,12 +331,14 @@ impl StateSync {
                     let state_num_parts =
                         get_num_state_parts(shard_state_header.state_root_node().memory_usage);
                     chain.clear_downloaded_parts(shard_id, sync_hash, state_num_parts)?;
+                    // If the shard layout is changing in this epoch - we have to apply it right now.
                     if split_states {
                         *shard_sync_download = ShardSyncDownload {
                             downloads: vec![],
                             status: ShardSyncStatus::StateSplitScheduling,
                         }
                     } else {
+                        // If there is no layout change - we're done.
                         *shard_sync_download = ShardSyncDownload {
                             downloads: vec![],
                             status: ShardSyncStatus::StateSyncDone,
@@ -640,6 +660,9 @@ impl StateSync {
         Ok(new_shard_sync_download)
     }
 
+    /// The main 'step' function that should be called periodically to check and update the sync process.
+    ///
+    /// Returns the state of the sync.
     pub fn run(
         &mut self,
         me: &Option<AccountId>,
@@ -648,6 +671,7 @@ impl StateSync {
         chain: &mut Chain,
         runtime_adapter: &Arc<dyn RuntimeAdapter>,
         highest_height_peers: &[HighestHeightPeerInfo],
+        // Shards to sync.
         tracking_shards: Vec<ShardId>,
         state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
         state_split_scheduler: &dyn Fn(StateSplitRequest),
@@ -657,6 +681,9 @@ impl StateSync {
         let prev_hash = *chain.get_block_header(&sync_hash)?.prev_hash();
         let now = Clock::utc();
 
+        // FIXME: it checks if the block exists.. but I have no idea why..
+        // seems that we don't really use this block in case of catchup - we use it only for state sync.
+        // Seems it is related to some bug with block getting orphaned after state sync? but not sure.
         let (request_block, have_block) = self.sync_block_status(&prev_hash, chain, now)?;
 
         if tracking_shards.is_empty() {
@@ -684,7 +711,6 @@ impl StateSync {
         )?;
 
         if have_block && all_done {
-            self.state_sync_time.clear();
             return Ok(StateSyncResult::Completed);
         }
 
