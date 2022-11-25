@@ -269,14 +269,14 @@ where
     }
 }
 
+/// Tokens not locked due to staking (=liquid) but reserved for state.
 fn get_liquid_balance_for_storage(
-    mut account: near_primitives::account::Account,
-    runtime_config: &near_primitives::runtime::config::RuntimeConfig,
+    account: &near_primitives::account::Account,
+    storage_amount_per_byte: near_primitives::types::Balance,
 ) -> near_primitives::types::Balance {
-    account.set_amount(0);
-    near_primitives::runtime::get_insufficient_storage_stake(&account, runtime_config)
-        .expect("get_insufficient_storage_stake never fails when state is consistent")
-        .unwrap_or(0)
+    let required_amount =
+        near_primitives::types::Balance::from(account.storage_usage()) * storage_amount_per_byte;
+    required_amount.saturating_sub(account.locked())
 }
 
 pub(crate) struct RosettaAccountBalances {
@@ -292,12 +292,13 @@ impl RosettaAccountBalances {
 
     pub fn from_account<T: Into<near_primitives::account::Account>>(
         account: T,
-        runtime_config: &near_primitives::runtime::config::RuntimeConfig,
+        runtime_config: &near_primitives::views::RuntimeConfigView,
     ) -> Self {
         let account = account.into();
         let amount = account.amount();
         let locked = account.locked();
-        let liquid_for_storage = get_liquid_balance_for_storage(account, runtime_config);
+        let liquid_for_storage =
+            get_liquid_balance_for_storage(&account, runtime_config.storage_amount_per_byte);
 
         Self { liquid_for_storage, liquid: amount.saturating_sub(liquid_for_storage), locked }
     }

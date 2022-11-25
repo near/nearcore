@@ -1,5 +1,6 @@
 //! Settings of the parameters of the runtime.
 
+use near_vm_logic::ActionCosts;
 use num_bigint::BigUint;
 use num_traits::cast::ToPrimitive;
 use num_traits::pow::Pow;
@@ -74,31 +75,34 @@ pub fn total_send_fees(
     receiver_id: &AccountId,
     current_protocol_version: ProtocolVersion,
 ) -> Result<Gas, IntegerOverflowError> {
-    let cfg = &config.action_creation_config;
     let mut result = 0;
 
     for action in actions {
         use Action::*;
         let delta = match action {
-            CreateAccount(_) => cfg.create_account_cost.send_fee(sender_is_receiver),
+            CreateAccount(_) => {
+                config.fee(ActionCosts::create_account).send_fee(sender_is_receiver)
+            }
             DeployContract(DeployContractAction { code }) => {
                 let num_bytes = code.len() as u64;
-                cfg.deploy_contract_cost.send_fee(sender_is_receiver)
-                    + cfg.deploy_contract_cost_per_byte.send_fee(sender_is_receiver) * num_bytes
+                config.fee(ActionCosts::deploy_contract_base).send_fee(sender_is_receiver)
+                    + config.fee(ActionCosts::deploy_contract_byte).send_fee(sender_is_receiver)
+                        * num_bytes
             }
             FunctionCall(FunctionCallAction { method_name, args, .. }) => {
                 let num_bytes = method_name.as_bytes().len() as u64 + args.len() as u64;
-                cfg.function_call_cost.send_fee(sender_is_receiver)
-                    + cfg.function_call_cost_per_byte.send_fee(sender_is_receiver) * num_bytes
+                config.fee(ActionCosts::function_call_base).send_fee(sender_is_receiver)
+                    + config.fee(ActionCosts::function_call_byte).send_fee(sender_is_receiver)
+                        * num_bytes
             }
             Transfer(_) => {
                 // Account for implicit account creation
                 let is_receiver_implicit =
                     is_implicit_account_creation_enabled(current_protocol_version)
                         && receiver_id.is_implicit();
-                transfer_send_fee(cfg, sender_is_receiver, is_receiver_implicit)
+                transfer_send_fee(config, sender_is_receiver, is_receiver_implicit)
             }
-            Stake(_) => cfg.stake_cost.send_fee(sender_is_receiver),
+            Stake(_) => config.fee(ActionCosts::stake).send_fee(sender_is_receiver),
             AddKey(AddKeyAction { access_key, .. }) => match &access_key.permission {
                 AccessKeyPermission::FunctionCall(call_perm) => {
                     let num_bytes = call_perm
@@ -107,19 +111,20 @@ pub fn total_send_fees(
                         // Account for null-terminating characters.
                         .map(|name| name.as_bytes().len() as u64 + 1)
                         .sum::<u64>();
-                    cfg.add_key_cost.function_call_cost.send_fee(sender_is_receiver)
+                    config.fee(ActionCosts::add_function_call_key_base).send_fee(sender_is_receiver)
                         + num_bytes
-                            * cfg
-                                .add_key_cost
-                                .function_call_cost_per_byte
+                            * config
+                                .fee(ActionCosts::add_function_call_key_byte)
                                 .send_fee(sender_is_receiver)
                 }
                 AccessKeyPermission::FullAccess => {
-                    cfg.add_key_cost.full_access_cost.send_fee(sender_is_receiver)
+                    config.fee(ActionCosts::add_full_access_key).send_fee(sender_is_receiver)
                 }
             },
-            DeleteKey(_) => cfg.delete_key_cost.send_fee(sender_is_receiver),
-            DeleteAccount(_) => cfg.delete_account_cost.send_fee(sender_is_receiver),
+            DeleteKey(_) => config.fee(ActionCosts::delete_key).send_fee(sender_is_receiver),
+            DeleteAccount(_) => {
+                config.fee(ActionCosts::delete_account).send_fee(sender_is_receiver)
+            }
         };
         result = safe_add_gas(result, delta)?;
     }
@@ -132,29 +137,28 @@ pub fn exec_fee(
     receiver_id: &AccountId,
     current_protocol_version: ProtocolVersion,
 ) -> Gas {
-    let cfg = &config.action_creation_config;
     use Action::*;
 
     match action {
-        CreateAccount(_) => cfg.create_account_cost.exec_fee(),
+        CreateAccount(_) => config.fee(ActionCosts::create_account).exec_fee(),
         DeployContract(DeployContractAction { code }) => {
             let num_bytes = code.len() as u64;
-            cfg.deploy_contract_cost.exec_fee()
-                + cfg.deploy_contract_cost_per_byte.exec_fee() * num_bytes
+            config.fee(ActionCosts::deploy_contract_base).exec_fee()
+                + config.fee(ActionCosts::deploy_contract_byte).exec_fee() * num_bytes
         }
         FunctionCall(FunctionCallAction { method_name, args, .. }) => {
             let num_bytes = method_name.as_bytes().len() as u64 + args.len() as u64;
-            cfg.function_call_cost.exec_fee()
-                + cfg.function_call_cost_per_byte.exec_fee() * num_bytes
+            config.fee(ActionCosts::function_call_base).exec_fee()
+                + config.fee(ActionCosts::function_call_byte).exec_fee() * num_bytes
         }
         Transfer(_) => {
             // Account for implicit account creation
             let is_receiver_implicit =
                 is_implicit_account_creation_enabled(current_protocol_version)
                     && receiver_id.is_implicit();
-            transfer_exec_fee(cfg, is_receiver_implicit)
+            transfer_exec_fee(config, is_receiver_implicit)
         }
-        Stake(_) => cfg.stake_cost.exec_fee(),
+        Stake(_) => config.fee(ActionCosts::stake).exec_fee(),
         AddKey(AddKeyAction { access_key, .. }) => match &access_key.permission {
             AccessKeyPermission::FunctionCall(call_perm) => {
                 let num_bytes = call_perm
@@ -163,13 +167,15 @@ pub fn exec_fee(
                     // Account for null-terminating characters.
                     .map(|name| name.as_bytes().len() as u64 + 1)
                     .sum::<u64>();
-                cfg.add_key_cost.function_call_cost.exec_fee()
-                    + num_bytes * cfg.add_key_cost.function_call_cost_per_byte.exec_fee()
+                config.fee(ActionCosts::add_function_call_key_base).exec_fee()
+                    + num_bytes * config.fee(ActionCosts::add_function_call_key_byte).exec_fee()
             }
-            AccessKeyPermission::FullAccess => cfg.add_key_cost.full_access_cost.exec_fee(),
+            AccessKeyPermission::FullAccess => {
+                config.fee(ActionCosts::add_full_access_key).exec_fee()
+            }
         },
-        DeleteKey(_) => cfg.delete_key_cost.exec_fee(),
-        DeleteAccount(_) => cfg.delete_account_cost.exec_fee(),
+        DeleteKey(_) => config.fee(ActionCosts::delete_key).exec_fee(),
+        DeleteAccount(_) => config.fee(ActionCosts::delete_account).exec_fee(),
     }
 }
 
@@ -181,7 +187,8 @@ pub fn tx_cost(
     sender_is_receiver: bool,
     current_protocol_version: ProtocolVersion,
 ) -> Result<TransactionCost, IntegerOverflowError> {
-    let mut gas_burnt: Gas = config.action_receipt_creation_config.send_fee(sender_is_receiver);
+    let mut gas_burnt: Gas =
+        config.fee(ActionCosts::new_action_receipt).send_fee(sender_is_receiver);
     gas_burnt = safe_add_gas(
         gas_burnt,
         total_send_fees(
@@ -213,7 +220,7 @@ pub fn tx_cost(
     };
 
     let mut gas_remaining =
-        safe_add_gas(prepaid_gas, config.action_receipt_creation_config.exec_fee())?;
+        safe_add_gas(prepaid_gas, config.fee(ActionCosts::new_action_receipt).exec_fee())?;
     gas_remaining = safe_add_gas(
         gas_remaining,
         total_prepaid_exec_fees(

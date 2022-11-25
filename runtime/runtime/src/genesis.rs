@@ -35,7 +35,7 @@ pub struct StorageComputer<'a> {
 
 impl<'a> StorageComputer<'a> {
     pub fn new(config: &'a RuntimeConfig) -> Self {
-        Self { result: HashMap::new(), config: &config.transaction_costs.storage_usage_config }
+        Self { result: HashMap::new(), config: &config.fees.storage_usage_config }
     }
 
     /// Updates user's storage info based on the StateRecord.
