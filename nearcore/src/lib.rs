@@ -163,11 +163,12 @@ pub fn start_with_config_and_synchronization(
     // `ClientActor` gets dropped.
     shutdown_signal: Option<mpsc::Sender<()>>,
 ) -> anyhow::Result<NearNode> {
-    let store = open_storage(home_dir, &mut config)?;
+    let config_snapshot = config.clone();
+    let storage = open_storage(home_dir, &mut config)?;
 
     let runtime = Arc::new(NightshadeRuntime::from_config(
         home_dir,
-        store.get_store(Temperature::Hot),
+        storage.get_store(Temperature::Hot),
         &config,
     ));
 
