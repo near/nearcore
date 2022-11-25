@@ -135,6 +135,16 @@ impl Edge {
         }
     }
 
+    /// Create a fresh nonce (based on the current time).
+    pub fn create_fresh_nonce(clock: &time::Clock) -> u64 {
+        let mut nonce = clock.now_utc().unix_timestamp() as u64;
+        // Even nonce means that the edge should be removed, so if the timestamp is even, add one to get the odd value.
+        if nonce % 2 == 0 {
+            nonce += 1;
+        }
+        nonce
+    }
+
     /// Create the remove edge change from an added edge change.
     pub fn remove_edge(&self, my_peer_id: PeerId, sk: &SecretKey) -> Edge {
         assert_eq!(self.edge_type(), EdgeState::Active);
