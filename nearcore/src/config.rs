@@ -7,7 +7,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{anyhow, bail, Context};
-use near_network::time;
 use near_primitives::time::Clock;
 use num_rational::Rational32;
 use serde::{Deserialize, Serialize};
