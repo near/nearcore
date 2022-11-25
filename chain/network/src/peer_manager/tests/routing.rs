@@ -1,6 +1,6 @@
 use crate::broadcast;
 use crate::network_protocol::testonly as data;
-use crate::network_protocol::{Edge, Encoding, Ping, RoutedMessageBody, RoutingTableUpdate};
+use crate::network_protocol::{Edge, Encoding, Ping, Pong, RoutedMessageBody, RoutingTableUpdate};
 use crate::peer;
 use crate::peer_manager;
 use crate::peer_manager::peer_manager_actor::Event as PME;
@@ -340,7 +340,6 @@ async fn ping_simple() {
     pm0.send_ping(0, id1.clone()).await;
 
     tracing::info!(target:"test", "await ping at {id1}");
-saketh-are marked this conversation as resolved.
     wait_for_ping(&mut pm1_ev, Ping { nonce: 0, source: id0.clone() }).await;
 
     tracing::info!(target:"test", "await pong at {id0}");
