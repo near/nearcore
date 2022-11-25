@@ -584,6 +584,7 @@ impl PeerManagerActor {
                     last_time_received_message: cp.last_time_received_message.load(),
                     connection_established_time: cp.connection_established_time,
                     peer_type: cp.peer_type,
+                    nonce: cp.edge.load().nonce(),
                 })
                 .collect(),
             num_connected_peers: tier2.ready.len(),
