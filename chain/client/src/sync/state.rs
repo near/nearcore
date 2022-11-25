@@ -1,6 +1,5 @@
-use near_chain::{check_known, near_chain_primitives, ChainStoreAccess, Error};
-use std::cmp::min;
-use std::collections::{HashMap, HashSet};
+use near_chain::{near_chain_primitives, Error};
+use std::collections::HashMap;
 use std::ops::Add;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -9,7 +8,7 @@ use std::time::Duration as TimeDuration;
 use ansi_term::Color::{Purple, Yellow};
 use chrono::{DateTime, Duration};
 use futures::{future, FutureExt};
-use rand::seq::{IteratorRandom, SliceRandom};
+use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
 use tracing::{debug, error, info, warn};
 
@@ -17,20 +16,14 @@ use near_chain::{Chain, RuntimeAdapter};
 use near_network::types::{
     HighestHeightPeerInfo, NetworkRequests, NetworkResponses, PeerManagerAdapter,
 };
-use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
-use near_primitives::network::PeerId;
 use near_primitives::syncing::get_num_state_parts;
 use near_primitives::time::{Clock, Utc};
-use near_primitives::types::validator_stake::ValidatorStake;
-use near_primitives::types::{
-    AccountId, BlockHeight, BlockHeightDelta, EpochId, ShardId, StateRoot,
-};
-use near_primitives::utils::to_timestamp;
+use near_primitives::types::{AccountId, ShardId, StateRoot};
 
 use near_chain::chain::{ApplyStatePartsRequest, StateSplitRequest};
 use near_client_primitives::types::{
-    DownloadStatus, ShardSyncDownload, ShardSyncStatus, StateSplitApplyingStatus, SyncStatus,
+    DownloadStatus, ShardSyncDownload, ShardSyncStatus, StateSplitApplyingStatus,
 };
 use near_network::types::AccountOrPeerIdOrHash;
 use near_network::types::PeerManagerMessageRequest;

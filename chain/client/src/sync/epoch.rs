@@ -1,41 +1,18 @@
-use near_chain::{check_known, near_chain_primitives, ChainStoreAccess, Error};
-use std::cmp::min;
 use std::collections::{HashMap, HashSet};
-use std::ops::Add;
-use std::sync::atomic::{AtomicBool, Ordering};
+
 use std::sync::Arc;
 use std::time::Duration as TimeDuration;
 
-use ansi_term::Color::{Purple, Yellow};
 use chrono::{DateTime, Duration};
-use futures::{future, FutureExt};
-use rand::seq::{IteratorRandom, SliceRandom};
-use rand::{thread_rng, Rng};
-use tracing::{debug, error, info, warn};
 
-use near_chain::{Chain, RuntimeAdapter};
-use near_network::types::{
-    HighestHeightPeerInfo, NetworkRequests, NetworkResponses, PeerManagerAdapter,
-};
-use near_primitives::block::Tip;
+use near_network::types::PeerManagerAdapter;
+
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use near_primitives::syncing::get_num_state_parts;
+
 use near_primitives::time::{Clock, Utc};
 use near_primitives::types::validator_stake::ValidatorStake;
-use near_primitives::types::{
-    AccountId, BlockHeight, BlockHeightDelta, EpochId, ShardId, StateRoot,
-};
-use near_primitives::utils::to_timestamp;
-
-use near_chain::chain::{ApplyStatePartsRequest, StateSplitRequest};
-use near_client_primitives::types::{
-    DownloadStatus, ShardSyncDownload, ShardSyncStatus, StateSplitApplyingStatus, SyncStatus,
-};
-use near_network::types::AccountOrPeerIdOrHash;
-use near_network::types::PeerManagerMessageRequest;
-use near_o11y::WithSpanContextExt;
-use near_primitives::shard_layout::ShardUId;
+use near_primitives::types::EpochId;
 
 /// Helper to keep track of the Epoch Sync
 // TODO #3488
