@@ -4,10 +4,12 @@ use crate::config::NetworkConfig;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{Edge, Encoding, Ping, Pong, RoutedMessageBody, RoutingTableUpdate};
 use crate::peer;
+use crate::peer::peer_actor::{ClosingReason, ConnectionClosedEvent};
 use crate::peer_manager;
 use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::peer_manager::testonly::start as start_pm;
 use crate::peer_manager::testonly::Event;
+use crate::private_actix::RegisterPeerError;
 use crate::store;
 use crate::tcp;
 use crate::testonly::{make_rng, Rng};
@@ -592,11 +594,23 @@ async fn test_dropping_duplicate_messages() {
     wait_for_pong(&mut pm0_ev, Pong { nonce: 1, source: id2.clone() }).await;
 }
 
-// Awaits until a ConnectionClosed event is seen in the event stream.
-pub async fn wait_for_connection_closed(events: &mut broadcast::Receiver<Event>) {
+// Awaits until a ConnectionClosed event with the expected reason is seen in the event stream.
+pub(crate) async fn wait_for_connection_closed(
+    events: &mut broadcast::Receiver<Event>,
+    want_reason: ClosingReason,
+) {
     events
         .recv_until(|ev| match ev {
-            Event::PeerManager(PME::ConnectionClosed(_connection_closed_event)) => Some(()),
+            Event::PeerManager(PME::ConnectionClosed(ConnectionClosedEvent {
+                stream_id: _,
+                reason,
+            })) => {
+                if reason == want_reason {
+                    Some(())
+                } else {
+                    None
+                }
+            }
             _ => None,
         })
         .await;
@@ -667,7 +681,11 @@ async fn blacklist_01() {
     let id1 = pm1.cfg.node_id();
 
     tracing::info!(target:"test", "wait for the connection to be attempted and rejected");
-    wait_for_connection_closed(&mut pm0.events.clone()).await;
+    wait_for_connection_closed(
+        &mut pm0.events.clone(),
+        ClosingReason::RejectedByPeerManager(RegisterPeerError::Blacklisted),
+    )
+    .await;
 
     tracing::info!(target:"test", "wait for {id0} routing table");
     pm0.wait_for_routing_table(&[]).await;
