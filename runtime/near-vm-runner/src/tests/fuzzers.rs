@@ -1,4 +1,4 @@
-use crate::internal::wasmparser::{Export, ExternalKind, Parser, Payload, TypeDef};
+use crate::internal::wasmparser::{Export, ExternalKind, Parser, Payload, Type};
 use crate::internal::VMKind;
 use crate::runner::VMResult;
 use arbitrary::Arbitrary;
@@ -21,11 +21,11 @@ pub fn find_entry_point(contract: &ContractCode) -> Option<String> {
             Ok(Payload::TypeSection(rdr)) => tys.extend(rdr),
             Ok(Payload::ExportSection(rdr)) => {
                 for export in rdr {
-                    if let Ok(Export { field, kind: ExternalKind::Function, index }) = export {
+                    if let Ok(Export { name, kind: ExternalKind::Func, index }) = export {
                         if let Some(&Ok(ty_index)) = fns.get(index as usize) {
-                            if let Some(Ok(TypeDef::Func(func_type))) = tys.get(ty_index as usize) {
-                                if func_type.params.is_empty() && func_type.returns.is_empty() {
-                                    return Some(field.to_string());
+                            if let Some(Ok(Type::Func(func_type))) = tys.get(ty_index as usize) {
+                                if func_type.params().is_empty() && func_type.results().is_empty() {
+                                    return Some(name.to_string());
                                 }
                             }
                         }

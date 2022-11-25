@@ -11,7 +11,6 @@ pub(crate) const WASM_FEATURES: wasmparser::WasmFeatures = wasmparser::WasmFeatu
     // wasmer singlepass compiler requires multi_value return values to be disabled.
     multi_value: false,
     bulk_memory: false,
-    module_linking: false,
     simd: false,
     threads: false,
     tail_call: false,
@@ -19,6 +18,12 @@ pub(crate) const WASM_FEATURES: wasmparser::WasmFeatures = wasmparser::WasmFeatu
     multi_memory: false,
     exceptions: false,
     memory64: false,
+    component_model: false,
+    extended_const: false,
+    mutable_global: true,
+    relaxed_simd: false,
+    saturating_float_to_int: true,
+    sign_extension: true,
 };
 
 /// Decode and validate the provided WebAssembly code with the `wasmparser` crate.
@@ -29,9 +34,10 @@ pub(crate) const WASM_FEATURES: wasmparser::WasmFeatures = wasmparser::WasmFeatu
 fn wasmparser_decode(
     code: &[u8],
 ) -> Result<(Option<u64>, Option<u64>), wasmparser::BinaryReaderError> {
-    use wasmparser::{ImportSectionEntryType, ValidPayload};
-    let mut validator = wasmparser::Validator::new();
-    validator.wasm_features(WASM_FEATURES);
+    use wasmparser::{TypeRef, ValidPayload};
+    let mut validator = wasmparser::Validator::new_with_features(WASM_FEATURES);
+    let mut validator_allocations = Some(Default::default());
+
     let mut function_count = Some(0u64);
     let mut local_count = Some(0u64);
     for payload in wasmparser::Parser::new(0).parse_all(code) {
@@ -42,24 +48,24 @@ fn wasmparser_decode(
             let mut import_section_reader = import_section_reader.clone();
             for _ in 0..import_section_reader.get_count() {
                 match import_section_reader.read()?.ty {
-                    ImportSectionEntryType::Function(_) => {
+                    TypeRef::Func(_) => {
                         function_count = function_count.and_then(|f| f.checked_add(1))
                     }
-                    ImportSectionEntryType::Table(_)
-                    | ImportSectionEntryType::Memory(_)
-                    | ImportSectionEntryType::Event(_)
-                    | ImportSectionEntryType::Global(_)
-                    | ImportSectionEntryType::Module(_)
-                    | ImportSectionEntryType::Instance(_) => {}
+                    TypeRef::Table(_)
+                    | TypeRef::Memory(_)
+                    | TypeRef::Global(_)
+                    | TypeRef::Tag(_) => {}
                 }
             }
         }
 
         match validator.payload(&payload)? {
             ValidPayload::Ok => (),
-            ValidPayload::Submodule(_) => panic!("submodules are not reachable (not enabled)"),
-            ValidPayload::Func(mut validator, body) => {
+            ValidPayload::End(_) => (),
+            ValidPayload::Func(validator, body) => {
+                let mut validator = validator.into_validator(validator_allocations.take().unwrap());
                 validator.validate(&body)?;
+                validator_allocations = Some(validator.into_allocations());
                 function_count = function_count.and_then(|f| f.checked_add(1));
                 // Count the global number of local variables.
                 let mut local_reader = body.get_locals_reader()?;
@@ -68,6 +74,7 @@ fn wasmparser_decode(
                     local_count = local_count.and_then(|l| l.checked_add(count.into()));
                 }
             }
+            ValidPayload::Parser(_) => unreachable!("components are not enabled"),
         }
     }
     Ok((function_count, local_count))

@@ -39,8 +39,8 @@ skip = [
     { name = "digest", version = "=0.9.0" },
     { name = "sha2", version = "=0.9.9" },
 
-    # near-vm-runner and wasmer-compiler-near use 0.78.2
-    { name = "wasmparser", version = "=0.78.2" },
+    # wasmtime uses 0.84.0
+    { name = "wasmparser", version = "=0.84.0" },
     # Wasmer 2.0 uses both region 2.2.0 and 3.0.0 via dependencies
     { name = "region", version = "=2.2.0" },
     # Need this specific version of pwasm-utils for backwards-compatible

@@ -35,7 +35,7 @@ const WASMER_FEATURES: Features = Features {
     bulk_memory: WASM_FEATURES.bulk_memory,
     multi_value: WASM_FEATURES.multi_value,
     tail_call: WASM_FEATURES.tail_call,
-    module_linking: WASM_FEATURES.module_linking,
+    module_linking: false,
     multi_memory: WASM_FEATURES.multi_memory,
     memory64: WASM_FEATURES.memory64,
     exceptions: WASM_FEATURES.exceptions,
