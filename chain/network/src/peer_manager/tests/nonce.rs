@@ -1,11 +1,15 @@
 use crate::network_protocol::testonly as data;
-use crate::network_protocol::{Encoding, EDGE_MIN_TIMESTAMP_NONCE};
-use crate::peer;
+use crate::network_protocol::{
+    Encoding, Handshake, PartialEdgeInfo, PeerMessage, EDGE_MIN_TIMESTAMP_NONCE,
+};
 use crate::peer_manager;
 use crate::tcp;
 use crate::testonly::make_rng;
+use crate::testonly::stream;
 use crate::time;
 use near_o11y::testonly::init_test_logger;
+use near_primitives::network::PeerId;
+use near_primitives::version;
 use std::sync::Arc;
 
 // Nonces must be odd (as even ones are reserved for tombstones).
@@ -27,50 +31,60 @@ async fn test_nonces() {
     let mut clock = time::FakeClock::new(*EDGE_MIN_TIMESTAMP_NONCE + time::Duration::days(2));
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
-    // Start a PeerManager and connect a peer to it.
-    let pm = peer_manager::testonly::start(
-        clock.clock(),
-        near_store::db::TestDB::new(),
-        chain.make_config(rng),
-        chain.clone(),
-    )
-    .await;
-
     let test_cases = [
         // Try to connect with peer with a valid nonce (current timestamp).
-        (Some(to_active_nonce(clock.now_utc())), true, "current timestamp"),
+        (to_active_nonce(clock.now_utc()), true, "current timestamp"),
         // Now try the peer with invalid timestamp (in the past)
-        (Some(to_active_nonce(clock.now_utc() - time::Duration::days(1))), false, "past timestamp"),
+        (to_active_nonce(clock.now_utc() - time::Duration::days(1)), false, "past timestamp"),
         // Now try the peer with invalid timestamp (in the future)
-        (
-            Some(to_active_nonce(clock.now_utc() + time::Duration::days(1))),
-            false,
-            "future timestamp",
-        ),
-        (Some(u64::MAX), false, "u64 max"),
-        (Some(i64::MAX as u64), false, "i64 max"),
-        (Some((i64::MAX - 1) as u64), false, "i64 max - 1"),
-        (Some(253402300799), false, "Max time"),
-        (Some(253402300799 + 2), false, "Over max time"),
+        (to_active_nonce(clock.now_utc() + time::Duration::days(1)), false, "future timestamp"),
+        (u64::MAX, false, "u64 max"),
+        (i64::MAX as u64, false, "i64 max"),
+        ((i64::MAX - 1) as u64, false, "i64 max - 1"),
+        (253402300799, false, "Max time"),
+        (253402300799 + 2, false, "Over max time"),
         //(Some(0), false, "Nonce 0"),
-        (None, true, "Nonce 1"),
+        (1, true, "Nonce 1"),
     ];
 
     for test in test_cases {
         tracing::info!(target: "test", "Running test {:?}", test.2);
-        let cfg = peer::testonly::PeerConfig {
-            network: chain.make_config(rng),
-            chain: chain.clone(),
-            force_encoding: Some(Encoding::Proto),
-            // Connect with nonce equal to unix timestamp
-            nonce: test.0,
-        };
+        // Start a PeerManager and connect a peer to it.
+        let pm = peer_manager::testonly::start(
+            clock.clock(),
+            near_store::db::TestDB::new(),
+            chain.make_config(rng),
+            chain.clone(),
+        )
+        .await;
+
         let stream = tcp::Stream::connect(&pm.peer_info()).await.unwrap();
-        let mut peer = peer::testonly::PeerHandle::start_endpoint(clock.clock(), cfg, stream).await;
+        let mut stream = stream::Stream::new(Some(Encoding::Proto), stream);
+        let peer_key = data::make_secret_key(rng);
+        let peer_id = PeerId::new(peer_key.public_key());
+        let handshake = PeerMessage::Tier2Handshake(Handshake {
+            protocol_version: version::PROTOCOL_VERSION,
+            oldest_supported_version: version::PEER_MIN_ALLOWED_PROTOCOL_VERSION,
+            sender_peer_id: peer_id.clone(),
+            target_peer_id: pm.cfg.node_id(),
+            // we have to set this even if we have no intention of listening since otherwise
+            // the peer will drop our connection
+            sender_listen_port: Some(24567),
+            sender_chain_info: chain.get_peer_chain_info(),
+            partial_edge_info: PartialEdgeInfo::new(&peer_id, &pm.cfg.node_id(), test.0, &peer_key),
+            owned_account: None,
+        });
+        stream.write(&handshake).await;
         if test.1 {
-            peer.complete_handshake().await;
+            match stream.read().await {
+                Ok(PeerMessage::Tier2Handshake { .. }) => {}
+                got => panic!("got = {got:?}, want Handshake"),
+            }
         } else {
-            peer.fail_handshake().await;
+            match stream.read().await {
+                Err(err) if err.kind() == std::io::ErrorKind::UnexpectedEof => {}
+                got => panic!("got = {got:?}, want UnexpectedEof"),
+            }
         }
     }
 }
