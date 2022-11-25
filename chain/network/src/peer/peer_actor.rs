@@ -8,7 +8,7 @@ use crate::network_protocol::{
 use crate::peer::stream;
 use crate::peer::tracker::Tracker;
 use crate::peer_manager::connection;
-use crate::peer_manager::network_state::NetworkState;
+use crate::peer_manager::network_state::{NetworkState, PRUNE_EDGES_AFTER};
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::private_actix::{RegisterPeerError, SendMessage};
 use crate::routing::edge::verify_nonce;
@@ -189,7 +189,7 @@ impl PeerActor {
                     .start_outbound(peer_id.clone())
                     .map_err(ClosingReason::OutboundNotAllowed)?,
                 handshake_spec: HandshakeSpec {
-                    partial_edge_info: network_state.propose_edge(peer_id, None),
+                    partial_edge_info: network_state.propose_edge(&clock, peer_id, None),
                     protocol_version: PROTOCOL_VERSION,
                     peer_id: peer_id.clone(),
                 },
@@ -334,7 +334,7 @@ impl PeerActor {
             },
             partial_edge_info: spec.partial_edge_info,
         };
-        let msg = PeerMessage::Handshake(handshake);
+        let msg = PeerMessage::Tier2Handshake(handshake);
         self.send_message_or_log(&msg);
     }
 
@@ -431,6 +431,7 @@ impl PeerActor {
                     ));
                     return;
                 }
+
                 // Verify if nonce is sane.
                 if let Err(err) = verify_nonce(&self.clock, handshake.partial_edge_info.nonce) {
                     tracing::debug!(target: "network", nonce=?handshake.partial_edge_info.nonce, my_node_id = ?self.my_node_id(), peer_id=?handshake.sender_peer_id, "bad nonce, disconnecting: {err}");
@@ -470,7 +471,7 @@ impl PeerActor {
                 handshake_spec.partial_edge_info.clone()
             }
             ConnectingStatus::Inbound { .. } => {
-                self.network_state.propose_edge(&handshake.sender_peer_id, Some(nonce))
+                self.network_state.propose_edge(&self.clock, &handshake.sender_peer_id, Some(nonce))
             }
         };
         let edge = Edge::new(
@@ -499,7 +500,7 @@ impl PeerActor {
         let conn = Arc::new(connection::Connection {
             addr: ctx.address(),
             peer_info: peer_info.clone(),
-            edge,
+            edge: AtomicCell::new(edge),
             genesis_id: handshake.sender_chain_info.genesis_id.clone(),
             tracked_shards: handshake.sender_chain_info.tracked_shards.clone(),
             archival: handshake.sender_chain_info.archival,
@@ -556,6 +557,11 @@ impl PeerActor {
             })
         });
 
+        // This time is used to figure out when the first run of the callbacks it run.
+        // It is important that it is set here (rather than calling clock.now() within the future) - as it makes testing a lot easier (and more deterministic).
+
+        let start_time = self.clock.now();
+
         // Here we stop processing any PeerActor events until PeerManager
         // decides whether to accept the connection or not: ctx.wait makes
         // the actor event loop poll on the future until it completes before
@@ -588,7 +594,7 @@ impl PeerActor {
                             }));
                             // Only broadcast the new edge from the outbound endpoint.
                             act.network_state.tier2.broadcast_message(Arc::new(PeerMessage::SyncRoutingTable(
-                                RoutingTableUpdate::from_edges(vec![conn.edge.clone()]),
+                                RoutingTableUpdate::from_edges(vec![conn.edge.load()]),
                             )));
                         }
 
@@ -623,11 +629,38 @@ impl PeerActor {
                                 }
                             }
                         }));
+
+                        // Refresh connection nonces but only if we're outbound. For inbound connection, the other party should 
+                        // take care of nonce refresh.
+                        if act.peer_type == PeerType::Outbound {
+                            ctx.spawn(wrap_future({
+                                let conn = conn.clone();
+                                let network_state = act.network_state.clone();
+                                let clock = act.clock.clone();
+                                async move {
+                                    // How often should we refresh a nonce from a peer.
+                                    // It should be smaller than PRUNE_EDGES_AFTER.
+                                    let mut interval = time::Interval::new(start_time + PRUNE_EDGES_AFTER / 3, PRUNE_EDGES_AFTER / 3);
+                                    loop {
+                                        interval.tick(&clock).await;
+                                        conn.send_message(Arc::new(
+                                            PeerMessage::RequestUpdateNonce(PartialEdgeInfo::new(
+                                                &network_state.config.node_id(),
+                                                &conn.peer_info.id,
+                                                Edge::create_fresh_nonce(&clock),
+                                                &network_state.config.node_key,
+                                            )
+                                        )));
+
+                                    }
+                                }
+                            }));
+                        }
                         // Sync the RoutingTable.
                         act.sync_routing_table();
                         act.network_state.config.event_sink.push(Event::HandshakeCompleted(HandshakeCompletedEvent{
                             stream_id: act.stream_id,
-                            edge: conn.edge.clone(),
+                            edge: conn.edge.load(),
                         }));
                     },
                     Err(err) => {
@@ -724,15 +757,18 @@ impl PeerActor {
                     return;
                 }
                 // Recreate the edge with a newer nonce.
-                handshake_spec.partial_edge_info =
-                    self.network_state.propose_edge(&handshake_spec.peer_id, Some(edge.next()));
+                handshake_spec.partial_edge_info = self.network_state.propose_edge(
+                    &self.clock,
+                    &handshake_spec.peer_id,
+                    Some(std::cmp::max(edge.next(), Edge::create_fresh_nonce(&self.clock))),
+                );
                 let spec = handshake_spec.clone();
                 ctx.wait(actix::fut::ready(()).then(move |_, act: &mut Self, _| {
                     act.send_handshake(spec);
                     actix::fut::ready(())
                 }));
             }
-            (PeerStatus::Connecting { .. }, PeerMessage::Handshake(msg)) => {
+            (PeerStatus::Connecting { .. }, PeerMessage::Tier2Handshake(msg)) => {
                 self.process_handshake(ctx, msg)
             }
             (_, msg) => {
@@ -913,7 +949,7 @@ impl PeerActor {
                 tracing::debug!(target: "network", "Disconnect signal. Me: {:?} Peer: {:?}", self.my_node_info.id, self.other_peer_id());
                 self.stop(ctx, ClosingReason::DisconnectMessage);
             }
-            PeerMessage::Handshake(_) => {
+            PeerMessage::Tier2Handshake(_) => {
                 // Received handshake after already have seen handshake from this peer.
                 tracing::debug!(target: "network", "Duplicate handshake from {}", self.peer_info);
             }
@@ -1253,6 +1289,7 @@ impl actix::Handler<stream::Frame> for PeerActor {
                 if let Some(&t) = self.routed_message_cache.get(&key) {
                     if now <= t + DROP_DUPLICATED_MESSAGES_PERIOD {
                         tracing::debug!(target: "network", "Dropping duplicated message from {} to {:?}", msg.author, msg.target);
+                        self.network_state.config.event_sink.push(Event::RoutedMessageDropped);
                         return;
                     }
                 }

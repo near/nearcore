@@ -46,7 +46,7 @@ pub(crate) struct Connection {
     pub addr: actix::Addr<PeerActor>,
 
     pub peer_info: PeerInfo,
-    pub edge: Edge,
+    pub edge: AtomicCell<Edge>,
     /// Chain Id and hash of genesis block.
     pub genesis_id: GenesisId,
     /// Shards that the peer is tracking.
@@ -77,7 +77,7 @@ impl fmt::Debug for Connection {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Connection")
             .field("peer_info", &self.peer_info)
-            .field("edge", &self.edge)
+            .field("edge", &self.edge.load())
             .field("peer_type", &self.peer_type)
             .field("connection_established_time", &self.connection_established_time)
             .finish()
@@ -294,6 +294,20 @@ impl Pool {
         self.0.update(|pool| {
             pool.ready.remove(peer_id);
         });
+    }
+    /// Update the edge in the pool (if it is newer).
+    pub fn update_edge(&self, new_edge: &Edge) {
+        self.0.update(|pool| {
+            let other = new_edge.other(&pool.me);
+            if let Some(other) = other {
+                if let Some(connection) = pool.ready.get_mut(other) {
+                    let edge = connection.edge.load();
+                    if edge.nonce() < new_edge.nonce() {
+                        connection.edge.store(new_edge.clone());
+                    }
+                }
+            }
+        })
     }
 
     /// Send message to peer that belongs to our active set

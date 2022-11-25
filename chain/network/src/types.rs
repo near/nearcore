@@ -333,20 +333,6 @@ pub struct PeerChainInfo {
     pub archival: bool,
 }
 
-impl From<&FullPeerInfo> for ConnectedPeerInfo {
-    fn from(full_peer_info: &FullPeerInfo) -> Self {
-        ConnectedPeerInfo {
-            full_peer_info: full_peer_info.clone(),
-            received_bytes_per_sec: 0,
-            sent_bytes_per_sec: 0,
-            last_time_peer_requested: time::Instant::now(),
-            last_time_received_message: time::Instant::now(),
-            connection_established_time: time::Instant::now(),
-            peer_type: PeerType::Outbound,
-        }
-    }
-}
-
 // Information about the connected peer that is shared with the rest of the system.
 #[derive(Debug, Clone)]
 pub struct ConnectedPeerInfo {
@@ -363,6 +349,8 @@ pub struct ConnectedPeerInfo {
     pub connection_established_time: time::Instant,
     /// Who started connection. Inbound (other) or Outbound (us).
     pub peer_type: PeerType,
+    /// Nonce used for the connection with the peer.
+    pub nonce: u64,
 }
 
 #[derive(Debug, Clone, actix::MessageResponse)]
