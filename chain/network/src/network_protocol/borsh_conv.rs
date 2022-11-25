@@ -151,6 +151,8 @@ impl TryFrom<&net::PeerMessage> for mem::PeerMessage {
     }
 }
 
+// We are working on deprecating Borsh support for network messages altogether,
+// so any new message variants are simply unsupported.
 impl From<&mem::PeerMessage> for net::PeerMessage {
     fn from(x: &mem::PeerMessage) -> Self {
         match x.clone() {

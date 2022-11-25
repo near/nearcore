@@ -6,9 +6,10 @@ use anyhow::{anyhow, Context as AnyhowContext};
 use near_chain::{Block, BlockHeader, Chain, ChainStoreAccess, Error};
 use near_chain_configs::GenesisConfig;
 use near_client::sync;
+use near_network::time;
 use near_network::types::{
-    BlockInfo, FullPeerInfo, NetworkInfo, NetworkRequests, NetworkResponses,
-    PeerManagerMessageRequest, PeerManagerMessageResponse, SetChainInfo,
+    BlockInfo, ConnectedPeerInfo, FullPeerInfo, NetworkInfo, NetworkRequests, NetworkResponses,
+    PeerManagerMessageRequest, PeerManagerMessageResponse, PeerType, SetChainInfo,
 };
 use near_network::types::{
     PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, PeerInfo,
@@ -238,7 +239,16 @@ impl MockPeerManagerActor {
             },
         };
         let network_info = NetworkInfo {
-            connected_peers: vec![(&peer).into()],
+            connected_peers: vec![ConnectedPeerInfo {
+                full_peer_info: peer.clone(),
+                received_bytes_per_sec: 0,
+                sent_bytes_per_sec: 0,
+                last_time_peer_requested: time::Instant::now(),
+                last_time_received_message: time::Instant::now(),
+                connection_established_time: time::Instant::now(),
+                peer_type: PeerType::Outbound,
+                nonce: 1,
+            }],
             num_connected_peers: 1,
             peer_max_count: 1,
             highest_height_peers: vec![<FullPeerInfo as Into<Option<_>>>::into(peer).unwrap()],

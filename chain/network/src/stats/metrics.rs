@@ -279,15 +279,6 @@ pub(crate) static PEER_MANAGER_MESSAGES_TIME: Lazy<HistogramVec> = Lazy::new(|| 
     )
     .unwrap()
 });
-pub(crate) static ROUTING_TABLE_MESSAGES_TIME: Lazy<HistogramVec> = Lazy::new(|| {
-    try_create_histogram_vec(
-        "near_routing_actor_messages_time",
-        "Time that routing table actor spends on handling different types of messages",
-        &["message"],
-        Some(exponential_buckets(0.0001, 2., 15).unwrap()),
-    )
-    .unwrap()
-});
 pub(crate) static ROUTED_MESSAGE_DROPPED: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
         "near_routed_message_dropped",

@@ -16,6 +16,14 @@ use rand::seq::SliceRandom as _;
 use std::collections::HashSet;
 use std::sync::Arc;
 
+/// Each actix arbiter (in fact, the underlying tokio runtime) creates 4 file descriptors:
+/// 1. eventfd2()
+/// 2. epoll_create1()
+/// 3. fcntl() duplicating one end of some globally shared socketpair()
+/// 4. fcntl() duplicating epoll socket created in (2)
+/// This gives 5 file descriptors per PeerActor (4 + 1 TCP socket).
+const FDS_PER_PEER: usize = 5;
+
 #[tokio::test]
 async fn broadcast() {
     init_test_logger();
@@ -161,17 +169,12 @@ async fn gradual_epoch_change() {
 #[tokio::test(flavor = "multi_thread")]
 async fn rate_limiting() {
     init_test_logger();
-    // Each actix arbiter (in fact, the underlying tokio runtime) creates 4 file descriptors:
-    // 1. eventfd2()
-    // 2. epoll_create1()
-    // 3. fcntl() duplicating one end of some globally shared socketpair()
-    // 4. fcntl() duplicating epoll socket created in (2)
-    // This gives 5 file descriptors per PeerActor (4 + 1 TCP socket).
-    // PeerManager (together with the whole ActixSystem) creates 13 file descriptors.
-    // The usual default soft limit on the number of file descriptors on linux is 1024.
-    // Here we adjust it appropriately to account for test requirements.
+    // Adjust the file descriptors limit, so that we can create many connection in the test.
+    const MAX_CONNECTIONS: usize = 300;
     let limit = rlimit::Resource::NOFILE.get().unwrap();
-    rlimit::Resource::NOFILE.set(std::cmp::min(limit.1, 3000), limit.1).unwrap();
+    rlimit::Resource::NOFILE
+        .set(std::cmp::min(limit.1, (1000 + 2 * FDS_PER_PEER * MAX_CONNECTIONS) as u64), limit.1)
+        .unwrap();
 
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
@@ -197,15 +200,20 @@ async fn rate_limiting() {
         );
     }
     tracing::info!(target:"test", "Construct a 4-layer bipartite graph.");
+
     let mut connections = 0;
+    let mut tasks = vec![];
     for i in 0..n - 1 {
         for j in 0..m {
             for k in 0..m {
                 let pi = pms[(i + 1) * m + k].peer_info();
-                pms[i * m + j].connect_to(&pi, tcp::Tier::T2).await;
+                tasks.push(tokio::spawn(pms[i * m + j].connect_to(&pi, tcp::Tier::T2)));
                 connections += 1;
             }
         }
+    }
+    for t in tasks {
+        t.await.unwrap();
     }
 
     // Construct ChainInfo with tier1_accounts containing all validators.

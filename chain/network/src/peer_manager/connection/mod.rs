@@ -2,8 +2,8 @@ use crate::concurrency::arc_mutex::ArcMutex;
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
 use crate::network_protocol::{
-    Edge, PeerInfo, PeerMessage, RoutedMessageBody, RoutingTableUpdate, SignedAccountData,
-    SignedOwnedAccount, SyncAccountsData,
+    Edge, PeerInfo, PeerMessage, RoutedMessageBody, SignedAccountData, SignedOwnedAccount,
+    SyncAccountsData,
 };
 use crate::peer::peer_actor;
 use crate::peer::peer_actor::PeerActor;
@@ -77,7 +77,7 @@ pub(crate) struct Connection {
     pub addr: actix::Addr<PeerActor>,
 
     pub peer_info: PeerInfo,
-    pub edge: Edge,
+    pub edge: AtomicCell<Edge>,
     /// AccountKey ownership proof.
     pub owned_account: Option<SignedOwnedAccount>,
     /// Chain Id and hash of genesis block.
@@ -104,14 +104,13 @@ pub(crate) struct Connection {
 
     /// A helper data structure for limiting reading, reporting stats.
     pub send_accounts_data_demux: demux::Demux<Vec<Arc<SignedAccountData>>, ()>,
-    pub send_routing_table_update_demux: demux::Demux<Arc<RoutingTableUpdate>, ()>,
 }
 
 impl fmt::Debug for Connection {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Connection")
             .field("peer_info", &self.peer_info)
-            .field("edge", &self.edge)
+            .field("edge", &self.edge.load())
             .field("peer_type", &self.peer_type)
             .field("established_time", &self.established_time)
             .finish()
@@ -139,41 +138,6 @@ impl Connection {
         let msg_kind = msg.msg_variant().to_string();
         tracing::trace!(target: "network", ?msg_kind, "Send message");
         self.addr.do_send(SendMessage { message: msg }.with_span_context());
-    }
-
-    async fn send_routing_table_update_inner(
-        self: Arc<Self>,
-        rtus: Vec<Arc<RoutingTableUpdate>>,
-    ) -> Vec<()> {
-        self.send_message(Arc::new(PeerMessage::SyncRoutingTable(RoutingTableUpdate {
-            edges: Edge::deduplicate(
-                rtus.iter().map(|rtu| rtu.edges.iter()).flatten().cloned().collect(),
-            ),
-            accounts: rtus.iter().flat_map(|rtu| rtu.accounts.iter()).cloned().collect(),
-        })));
-        rtus.iter().map(|_| ()).collect()
-    }
-
-    pub fn send_routing_table_update(
-        self: &Arc<Self>,
-        rtu: Arc<RoutingTableUpdate>,
-    ) -> impl Future<Output = ()> {
-        let this = self.clone();
-        async move {
-            let res = this
-                .send_routing_table_update_demux
-                .call(rtu, {
-                    let this = this.clone();
-                    move |rtus| this.send_routing_table_update_inner(rtus)
-                })
-                .await;
-            if res.is_err() {
-                tracing::info!(
-                    "peer {} disconnected, while sending SyncRoutingTable",
-                    this.peer_info.id
-                );
-            }
-        }
     }
 
     pub fn send_accounts_data(
@@ -399,6 +363,20 @@ impl Pool {
                 }
             }
         });
+    }
+    /// Update the edge in the pool (if it is newer).
+    pub fn update_edge(&self, new_edge: &Edge) {
+        self.0.update(|pool| {
+            let other = new_edge.other(&pool.me);
+            if let Some(other) = other {
+                if let Some(connection) = pool.ready.get_mut(other) {
+                    let edge = connection.edge.load();
+                    if edge.nonce() < new_edge.nonce() {
+                        connection.edge.store(new_edge.clone());
+                    }
+                }
+            }
+        })
     }
 
     /// Send message to peer that belongs to our active set

@@ -68,11 +68,3 @@ performance_stats = [
 test_features = []
 
 shardnet = []
-
-[[bench]]
-name = "graph"
-harness = false
-
-[[bench]]
-name = "routing_table_actor"
-harness = false

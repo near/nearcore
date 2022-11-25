@@ -9,8 +9,6 @@ use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
 use crate::peer_manager::network_state::{NetworkState, WhitelistNode};
 use crate::peer_manager::peer_store;
-use crate::private_actix::StopMsg;
-use crate::routing;
 use crate::stats::metrics;
 use crate::store;
 use crate::tcp;
@@ -23,10 +21,7 @@ use crate::types::{
 use actix::fut::future::wrap_future;
 use actix::{Actor as _, AsyncContext as _};
 use anyhow::Context as _;
-use near_o11y::{
-    handler_debug_span, handler_trace_span, OpenTelemetrySpanExt, WithSpanContext,
-    WithSpanContextExt,
-};
+use near_o11y::{handler_debug_span, handler_trace_span, OpenTelemetrySpanExt, WithSpanContext};
 use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -45,9 +40,6 @@ use tracing::Instrument as _;
 const EXPONENTIAL_BACKOFF_RATIO: f64 = 1.1;
 /// The initial waiting time between consecutive attempts to establish connection
 const MONITOR_PEERS_INITIAL_DURATION: time::Duration = time::Duration::milliseconds(10);
-/// How often should we update the routing table
-pub(crate) const UPDATE_ROUTING_TABLE_INTERVAL: time::Duration =
-    time::Duration::milliseconds(1_000);
 /// How often should we check wheter local edges match the connection pool.
 const FIX_LOCAL_EDGES_INTERVAL: time::Duration = time::Duration::seconds(60);
 /// How much time we give fix_local_edges() to resolve the discrepancies, before forcing disconnect.
@@ -61,11 +53,6 @@ const REPORT_BANDWIDTH_STATS_TRIGGER_INTERVAL: time::Duration =
 const REPORT_BANDWIDTH_THRESHOLD_BYTES: usize = 10_000_000;
 /// If we received more than REPORT_BANDWIDTH_THRESHOLD_COUNT` of messages from given peer it's bandwidth stats will be reported.
 const REPORT_BANDWIDTH_THRESHOLD_COUNT: usize = 10_000;
-/// How long a peer has to be unreachable, until we prune it from the in-memory graph.
-const PRUNE_UNREACHABLE_PEERS_AFTER: time::Duration = time::Duration::hours(1);
-
-/// Remove the edges that were created more that this duration ago.
-const PRUNE_EDGES_AFTER: time::Duration = time::Duration::minutes(30);
 
 /// If a peer is more than these blocks behind (comparing to our current head) - don't route any messages through it.
 /// We are updating the list of unreliable peers every MONITOR_PEER_MAX_DURATION (60 seconds) - so the current
@@ -75,7 +62,7 @@ const PRUNE_EDGES_AFTER: time::Duration = time::Duration::minutes(30);
 const UNRELIABLE_PEER_HORIZON: u64 = 60;
 
 /// Due to implementation limits of `Graph` in `near-network`, we support up to 128 client.
-pub const MAX_NUM_PEERS: usize = 128;
+pub const MAX_TIER2_PEERS: usize = 128;
 
 /// When picking a peer to connect to, we'll pick from the 'safer peers'
 /// (a.k.a. ones that we've been connected to in the past) with these odds.
@@ -104,11 +91,9 @@ pub enum Event {
     ServerStarted,
     RoutedMessageDropped,
     AccountsAdded(Vec<AnnounceAccount>),
-    RoutingTableUpdate { next_hops: Arc<routing::NextHopTable>, pruned_edges: Vec<Edge> },
-    EdgesVerified(Vec<Edge>),
+    EdgesAdded(Vec<Edge>),
     Ping(Ping),
     Pong(Pong),
-    SetChainInfo,
     // Reported once a message has been processed.
     // In contrast to typical RPC protocols, many P2P messages do not trigger
     // sending a response at the end of processing.
@@ -139,30 +124,14 @@ impl actix::Actor for PeerManagerActor {
         self.push_network_info_trigger(ctx, self.state.config.push_info_period);
 
         // Periodically starts peer monitoring.
-        tracing::debug!(target: "network", max_period=?self.state.config.monitor_peers_max_period, "monitor_peers_trigger");
+        tracing::debug!(target: "network",
+               max_period=?self.state.config.monitor_peers_max_period,
+               "monitor_peers_trigger");
         self.monitor_peers_trigger(
             ctx,
             MONITOR_PEERS_INITIAL_DURATION,
             (MONITOR_PEERS_INITIAL_DURATION, self.state.config.monitor_peers_max_period),
         );
-
-        let state = self.state.clone();
-        let clock = self.clock.clone();
-        ctx.spawn(wrap_future(async move {
-            let mut interval = time::Interval::new(clock.now(), UPDATE_ROUTING_TABLE_INTERVAL);
-            loop {
-                interval.tick(&clock).await;
-                let _timer = metrics::PEER_MANAGER_TRIGGER_TIME
-                    .with_label_values(&["update_routing_table"])
-                    .start_timer();
-                state
-                    .update_routing_table(
-                        clock.now().checked_sub(PRUNE_UNREACHABLE_PEERS_AFTER),
-                        clock.now_utc().checked_sub(PRUNE_EDGES_AFTER),
-                    )
-                    .await;
-            }
-        }));
 
         let clock = self.clock.clone();
         let state = self.state.clone();
@@ -182,7 +151,6 @@ impl actix::Actor for PeerManagerActor {
     fn stopping(&mut self, _ctx: &mut Self::Context) -> actix::Running {
         tracing::warn!("PeerManager: stopping");
         self.state.tier2.broadcast_message(Arc::new(PeerMessage::Disconnect));
-        self.state.routing_table_addr.do_send(StopMsg {}.with_span_context());
         actix::Running::Stop
     }
 
@@ -587,7 +555,7 @@ impl PeerManagerActor {
         // Find peers that are not reliable (too much behind) - and make sure that we're not routing messages through them.
         let unreliable_peers = self.unreliable_peers();
         metrics::PEER_UNRELIABLE.set(unreliable_peers.len() as i64);
-        self.state.graph.write().set_unreliable_peers(unreliable_peers);
+        self.state.graph.set_unreliable_peers(unreliable_peers);
 
         let new_interval = min(max_interval, interval * EXPONENTIAL_BACKOFF_RATIO);
 
@@ -633,6 +601,7 @@ impl PeerManagerActor {
             last_time_received_message: cp.last_time_received_message.load(),
             connection_established_time: cp.established_time,
             peer_type: cp.peer_type,
+            nonce: cp.edge.load().nonce(),
         };
         NetworkInfo {
             connected_peers: tier2.ready.values().map(connected_peer).collect(),
@@ -652,7 +621,8 @@ impl PeerManagerActor {
                 .sum(),
             known_producers: self
                 .state
-                .routing_table_view
+                .graph
+                .routing_table
                 .get_announce_accounts()
                 .into_iter()
                 .map(|announce_account| KnownProducer {
@@ -660,7 +630,7 @@ impl PeerManagerActor {
                     peer_id: announce_account.peer_id.clone(),
                     // TODO: fill in the address.
                     addr: None,
-                    next_hops: self.state.routing_table_view.view_route(&announce_account.peer_id),
+                    next_hops: self.state.graph.routing_table.view_route(&announce_account.peer_id),
                 })
                 .collect(),
             tier1_accounts_data: self.state.accounts_data.load().data.values().cloned().collect(),
@@ -953,7 +923,7 @@ impl PeerManagerActor {
             }
             // TEST-ONLY
             PeerManagerMessageRequest::FetchRoutingTable => {
-                PeerManagerMessageResponse::FetchRoutingTable(self.state.routing_table_view.info())
+                PeerManagerMessageResponse::FetchRoutingTable(self.state.graph.routing_table.info())
             }
             // TEST-ONLY
             PeerManagerMessageRequest::PingTo { nonce, target } => {
@@ -987,29 +957,19 @@ impl actix::Handler<WithSpanContext<GetNetworkInfo>> for PeerManagerActor {
 impl actix::Handler<WithSpanContext<SetChainInfo>> for PeerManagerActor {
     type Result = ();
     fn handle(&mut self, msg: WithSpanContext<SetChainInfo>, ctx: &mut Self::Context) {
-        let (_span, info) = handler_trace_span!(target: "network", msg);
+        let (_span, SetChainInfo(info)) = handler_trace_span!(target: "network", msg);
         let _timer =
             metrics::PEER_MANAGER_MESSAGES_TIME.with_label_values(&["SetChainInfo"]).start_timer();
-        let SetChainInfo(info) = info;
-        let state = self.state.clone();
-        // We set state.chain_info and call accounts_data.set_keys
+        // We call self.state.set_chain_info()
         // synchronously, therefore, assuming actix in-order delivery,
         // there will be no race condition between subsequent SetChainInfo
         // calls.
-        state.chain_info.store(Arc::new(Some(info.clone())));
+        if !self.state.set_chain_info(info) {
+            // We early exit in case the set of TIER1 account keys hasn't changed.
+            return;
+        }
 
-        // If tier1 is not enabled, we skip set_keys() call.
-        // This way self.state.accounts_data is always empty, hence no data
-        // will be collected or broadcasted.
-        if state.config.tier1.is_none() {
-            state.config.event_sink.push(Event::SetChainInfo);
-            return;
-        }
-        // If the key set didn't change, early exit.
-        if !state.accounts_data.set_keys(info.tier1_accounts.clone()) {
-            state.config.event_sink.push(Event::SetChainInfo);
-            return;
-        }
+        let state = self.state.clone();
         let clock = self.clock.clone();
         ctx.spawn(wrap_future(
             async move {
@@ -1025,7 +985,6 @@ impl actix::Handler<WithSpanContext<SetChainInfo>> for PeerManagerActor {
                 // that our peers know about. tier1_advertise_proxies() has a side effect
                 // of asking peers for a full sync of the accounts_data with the TIER2 peers.
                 state.tier1_advertise_proxies(&clock).await;
-                state.config.event_sink.push(Event::SetChainInfo);
             }
             .in_current_span(),
         ));
@@ -1087,10 +1046,10 @@ impl actix::Handler<GetDebugStatus> for PeerManagerActor {
                 edges: self
                     .state
                     .graph
-                    .read()
-                    .edges()
-                    .iter()
-                    .map(|(_, edge)| {
+                    .load()
+                    .edges
+                    .values()
+                    .map(|edge| {
                         let key = edge.key();
                         EdgeView { peer0: key.0.clone(), peer1: key.1.clone(), nonce: edge.nonce() }
                     })

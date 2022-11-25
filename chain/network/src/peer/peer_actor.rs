@@ -11,7 +11,7 @@ use crate::peer::stream;
 use crate::peer::stream::Scope;
 use crate::peer::tracker::Tracker;
 use crate::peer_manager::connection;
-use crate::peer_manager::network_state::NetworkState;
+use crate::peer_manager::network_state::{NetworkState, PRUNE_EDGES_AFTER};
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::private_actix::{RegisterPeerError, SendMessage};
 use crate::routing::edge::verify_nonce;
@@ -239,7 +239,7 @@ impl PeerActor {
                     }
                 },
                 handshake_spec: HandshakeSpec {
-                    partial_edge_info: network_state.propose_edge(peer_id, None),
+                    partial_edge_info: network_state.propose_edge(&clock, peer_id, None),
                     protocol_version: PROTOCOL_VERSION,
                     tier: *tier,
                     peer_id: peer_id.clone(),
@@ -558,6 +558,7 @@ impl PeerActor {
                     ));
                     return;
                 }
+
                 // Verify if nonce is sane.
                 if let Err(err) = verify_nonce(&self.clock, handshake.partial_edge_info.nonce) {
                     tracing::debug!(target: "network", nonce=?handshake.partial_edge_info.nonce, my_node_id = ?self.my_node_id(), peer_id=?handshake.sender_peer_id, "bad nonce, disconnecting: {err}");
@@ -567,11 +568,11 @@ impl PeerActor {
                 // Check that the received nonce is greater than the current nonce of this connection.
                 // If not (and this is an inbound connection) propose a new nonce.
                 if let Some(last_edge) =
-                    self.network_state.routing_table_view.get_local_edge(&handshake.sender_peer_id)
+                    self.network_state.graph.load().local_edges.get(&handshake.sender_peer_id)
                 {
                     if last_edge.nonce() >= handshake.partial_edge_info.nonce {
                         tracing::debug!(target: "network", "{:?}: Received too low nonce from peer {:?} sending evidence.", self.my_node_id(), self.peer_addr);
-                        self.send_message_or_log(&PeerMessage::LastEdge(last_edge));
+                        self.send_message_or_log(&PeerMessage::LastEdge(last_edge.clone()));
                         return;
                     }
                 }
@@ -601,7 +602,7 @@ impl PeerActor {
                 handshake_spec.partial_edge_info.clone()
             }
             ConnectingStatus::Inbound { .. } => {
-                self.network_state.propose_edge(&handshake.sender_peer_id, Some(nonce))
+                self.network_state.propose_edge(&self.clock, &handshake.sender_peer_id, Some(nonce))
             }
         };
         let edge = Edge::new(
@@ -630,7 +631,7 @@ impl PeerActor {
             tier,
             addr: ctx.address(),
             peer_info: peer_info.clone(),
-            edge,
+            edge: AtomicCell::new(edge),
             owned_account: handshake.owned_account.clone(),
             genesis_id: handshake.sender_chain_info.genesis_id.clone(),
             tracked_shards: handshake.sender_chain_info.tracked_shards.clone(),
@@ -647,9 +648,6 @@ impl PeerActor {
             established_time: now,
             send_accounts_data_demux: demux::Demux::new(
                 self.network_state.config.accounts_data_broadcast_rate_limit,
-            ),
-            send_routing_table_update_demux: demux::Demux::new(
-                self.network_state.config.routing_table_update_rate_limit,
             ),
         });
 
@@ -691,6 +689,11 @@ impl PeerActor {
                 }
             })
         });
+
+        // This time is used to figure out when the first run of the callbacks it run.
+        // It is important that it is set here (rather than calling clock.now() within the future) - as it makes testing a lot easier (and more deterministic).
+
+        let start_time = self.clock.now();
 
         // Here we stop processing any PeerActor events until PeerManager
         // decides whether to accept the connection or not: ctx.wait makes
@@ -755,13 +758,39 @@ impl PeerActor {
                                     }
                                 }
                             }));
+
+                            // Refresh connection nonces but only if we're outbound. For inbound connection, the other party should 
+                            // take care of nonce refresh.
+                            ctx.spawn(wrap_future({
+                                let conn = conn.clone();
+                                let network_state = act.network_state.clone();
+                                let clock = act.clock.clone();
+                                async move {
+                                    // How often should we refresh a nonce from a peer.
+                                    // It should be smaller than PRUNE_EDGES_AFTER.
+                                    let mut interval = time::Interval::new(start_time + PRUNE_EDGES_AFTER / 3, PRUNE_EDGES_AFTER / 3);
+                                    loop {
+                                        interval.tick(&clock).await;
+                                        conn.send_message(Arc::new(
+                                            PeerMessage::RequestUpdateNonce(PartialEdgeInfo::new(
+                                                &network_state.config.node_id(),
+                                                &conn.peer_info.id,
+                                                Edge::create_fresh_nonce(&clock),
+                                                &network_state.config.node_key,
+                                            )
+                                        )));
+
+                                    }
+                                }
+                            }));
+
                             // Sync the RoutingTable.
                             act.sync_routing_table();
                         }
 
                         act.network_state.config.event_sink.push(Event::HandshakeCompleted(HandshakeCompletedEvent{
                             stream_id: act.stream_id,
-                            edge: conn.edge.clone(),
+                            edge: conn.edge.load(),
                             tier: conn.tier,
                         }));
                     },
@@ -777,12 +806,12 @@ impl PeerActor {
     // Send full RoutingTable.
     fn sync_routing_table(&self) {
         let mut known_edges: Vec<Edge> =
-            self.network_state.graph.read().edges().values().cloned().collect();
+            self.network_state.graph.load().edges.values().cloned().collect();
         if self.network_state.config.skip_tombstones.is_some() {
             known_edges.retain(|edge| edge.removal_info().is_none());
             metrics::EDGE_TOMBSTONE_SENDING_SKIPPED.inc();
         }
-        let known_accounts = self.network_state.routing_table_view.get_announce_accounts();
+        let known_accounts = self.network_state.graph.routing_table.get_announce_accounts();
         self.send_message_or_log(&PeerMessage::SyncRoutingTable(RoutingTableUpdate::new(
             known_edges,
             known_accounts,
@@ -865,8 +894,11 @@ impl PeerActor {
                     return;
                 }
                 // Recreate the edge with a newer nonce.
-                handshake_spec.partial_edge_info =
-                    self.network_state.propose_edge(&handshake_spec.peer_id, Some(edge.next()));
+                handshake_spec.partial_edge_info = self.network_state.propose_edge(
+                    &self.clock,
+                    &handshake_spec.peer_id,
+                    Some(std::cmp::max(edge.next(), Edge::create_fresh_nonce(&self.clock))),
+                );
                 let spec = handshake_spec.clone();
                 ctx.wait(actix::fut::ready(()).then(move |_, act: &mut Self, _| {
                     act.send_handshake(spec);
@@ -1095,7 +1127,7 @@ impl PeerActor {
                 let network_state = self.network_state.clone();
                 ctx.spawn(wrap_future(async move {
                     let peer_id = &conn.peer_info.id;
-                    let edge = match network_state.routing_table_view.get_local_edge(peer_id) {
+                    let edge = match network_state.graph.load().local_edges.get(peer_id) {
                         Some(cur_edge)
                             if cur_edge.edge_type() == EdgeState::Active
                                 && cur_edge.nonce() >= edge_info.nonce =>
@@ -1230,7 +1262,7 @@ impl PeerActor {
                             msg.hash(),
                             from.clone(),
                         ),
-                        tcp::Tier::T2 => self.network_state.routing_table_view.add_route_back(
+                        tcp::Tier::T2 => self.network_state.graph.routing_table.add_route_back(
                             &self.clock,
                             msg.hash(),
                             from.clone(),
@@ -1296,7 +1328,8 @@ impl PeerActor {
         // as well as filter out those which are older than the fetched ones (to avoid overriding
         // a newer announce with an older one).
         let old = network_state
-            .routing_table_view
+            .graph
+            .routing_table
             .get_broadcasted_announces(rtu.accounts.iter().map(|a| &a.account_id));
         let accounts: Vec<(AnnounceAccount, Option<EpochId>)> = rtu
             .accounts

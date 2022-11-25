@@ -1,4 +1,3 @@
-use crate::tests::network::multiset::MultiSet;
 use actix::{Actor, Addr};
 use anyhow::{anyhow, bail, Context};
 use near_chain::test_utils::{KeyValueRuntime, ValidatorSchedule};
@@ -8,7 +7,6 @@ use near_client::{start_client, start_view_client};
 use near_crypto::KeyType;
 use near_network::actix::ActixSystem;
 use near_network::blacklist;
-use near_network::broadcast;
 use near_network::config;
 use near_network::tcp;
 use near_network::test_utils::{
@@ -17,10 +15,9 @@ use near_network::test_utils::{
 use near_network::time;
 use near_network::types::NetworkRecipient;
 use near_network::types::{
-    PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, Ping as NetPing,
-    Pong as NetPong, ROUTED_MESSAGE_TTL,
+    PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, ROUTED_MESSAGE_TTL,
 };
-use near_network::{Event, PeerManagerActor};
+use near_network::PeerManagerActor;
 use near_o11y::testonly::init_test_logger;
 use near_o11y::WithSpanContextExt;
 use near_primitives::block::GenesisId;
@@ -130,14 +127,6 @@ pub enum Action {
     },
     CheckRoutingTable(usize, Vec<(usize, Vec<usize>)>),
     CheckAccountId(usize, Vec<usize>),
-    // Send ping from `source` with `nonce` to `target`
-    PingTo {
-        source: usize,
-        target: usize,
-        nonce: u64,
-    },
-    // Check for `source` received pings and pongs.
-    CheckPingPong(usize, Vec<Ping>, Vec<Pong>),
     // Send stop signal to some node.
     Stop(usize),
     // Wait time in milliseconds
@@ -206,36 +195,6 @@ async fn check_account_id(
     Ok(ControlFlow::Break(()))
 }
 
-async fn check_ping_pong(
-    info: &mut RunningInfo,
-    source: usize,
-    want_pings: Vec<Ping>,
-    want_pongs: Vec<Pong>,
-) -> anyhow::Result<ControlFlow> {
-    let want_pings: MultiSet<NetPing> = want_pings
-        .iter()
-        .map(|p| NetPing { nonce: p.nonce, source: info.runner.test_config[p.source].peer_id() })
-        .collect();
-    let want_pongs: MultiSet<NetPong> = want_pongs
-        .iter()
-        .map(|p| NetPong { nonce: p.nonce, source: info.runner.test_config[p.source].peer_id() })
-        .collect();
-    let node: &mut NodeHandle = info.nodes[source].as_mut().unwrap();
-
-    loop {
-        if !node.pings.is_subset(&want_pings) {
-            bail!("got_pings = {:?}, want_pings = {want_pings:?}", node.pings);
-        }
-        if !node.pongs.is_subset(&want_pongs) {
-            bail!("got_pongs = {:?}, want_pongs = {want_pongs:?}", node.pongs);
-        }
-        if node.pings == want_pings && node.pongs == want_pongs {
-            return Ok(ControlFlow::Break(()));
-        }
-        node.consume_event().await;
-    }
-}
-
 impl StateMachine {
     fn new() -> Self {
         Self { actions: vec![] }
@@ -291,16 +250,6 @@ impl StateMachine {
                     Box::pin(check_account_id(info, source, known_validators.clone()))
                 }));
             }
-            Action::PingTo { source, nonce, target } => {
-                self.actions.push(Box::new(move |info: &mut RunningInfo| Box::pin(async move {
-                    debug!(target: "test", num_prev_actions, action = ?action_clone, "runner.rs: Action");
-                    let target = info.runner.test_config[target].peer_id();
-                    info.get_node(source)?.actix.addr.send(PeerManagerMessageRequest::PingTo{
-                        nonce, target,
-                    }.with_span_context()).await?;
-                    Ok(ControlFlow::Break(()))
-                })));
-            }
             Action::Stop(source) => {
                 self.actions.push(Box::new(move |info: &mut RunningInfo| Box::pin(async move {
                     debug!(target: "test", num_prev_actions, action = ?action_clone, "runner.rs: Action");
@@ -314,11 +263,6 @@ impl StateMachine {
                     tokio::time::sleep(t.try_into().unwrap()).await;
                     Ok(ControlFlow::Break(()))
                 })));
-            }
-            Action::CheckPingPong(source, pings, pongs) => {
-                self.actions.push(Box::new(move |info| {
-                    Box::pin(check_ping_pong(info, source, pings.clone(), pongs.clone()))
-                }));
             }
         }
     }
@@ -384,19 +328,6 @@ pub struct Runner {
 
 struct NodeHandle {
     actix: ActixSystem<PeerManagerActor>,
-    events: broadcast::Receiver<Event>,
-    pings: MultiSet<NetPing>,
-    pongs: MultiSet<NetPong>,
-}
-
-impl NodeHandle {
-    async fn consume_event(&mut self) {
-        match self.events.recv().await {
-            Event::Ping(ping) => self.pings.insert(ping),
-            Event::Pong(pong) => self.pongs.insert(pong),
-            _ => {}
-        }
-    }
 }
 
 impl Runner {
@@ -487,14 +418,6 @@ impl Runner {
         self
     }
 
-    /// Set routed message ttl.
-    pub fn routed_message_ttl(mut self, routed_message_ttl: u8) -> Self {
-        self.apply_all(move |test_config| {
-            test_config.routed_message_ttl = routed_message_ttl;
-        });
-        self
-    }
-
     /// Allow message to connect among themselves without triggering new connections.
     pub fn enable_outbound(mut self) -> Self {
         self.apply_all(|test_config| {
@@ -551,8 +474,6 @@ impl Runner {
         network_config.outbound_disabled = config.outbound_disabled;
         network_config.peer_store.boot_nodes = boot_nodes;
         network_config.archive = config.archive;
-        let (send_events, recv_events) = broadcast::unbounded_channel();
-        network_config.event_sink = send_events.sink();
 
         config.ideal_connections.map(|(lo, hi)| {
             network_config.ideal_connections_lo = lo;
@@ -574,9 +495,6 @@ impl Runner {
                 setup_network_node(account_id, validators, chain_genesis, network_config)
             })
             .await,
-            events: recv_events,
-            pings: MultiSet::default(),
-            pongs: MultiSet::default(),
         })
     }
 
