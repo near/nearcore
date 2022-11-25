@@ -7,7 +7,6 @@ use actix_web;
 use anyhow::Context;
 use near_chain::{Chain, ChainGenesis};
 use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
-use near_dyn_configs::{DynConfig, UpdateableConfigs};
 use near_network::time;
 use near_network::types::NetworkRecipient;
 use near_network::PeerManagerActor;
@@ -16,14 +15,12 @@ use near_store::{DBCol, Mode, NodeStorage, StoreOpenerError, Temperature};
 use near_telemetry::TelemetryActor;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tokio::sync::broadcast;
-use tokio::sync::broadcast::Receiver;
+use tokio::sync::mpsc;
 use tracing::{info, trace};
 
 pub mod append_only_map;
 pub mod config;
 mod download_file;
-pub mod dyn_config;
 mod metrics;
 pub mod migrations;
 mod runtime;
@@ -155,23 +152,24 @@ pub struct NearNode {
     pub rpc_servers: Vec<(&'static str, actix_web::dev::ServerHandle)>,
 }
 
-pub fn start_with_config(home_dir: &Path, mut config: NearConfig) -> anyhow::Result<NearNode> {
-    let storage = open_storage(home_dir, &mut config)?;
-    let store = storage.get_store(Temperature::Hot);
-    start_with_config_and_synchronization(home_dir, config, None, store, None, None)
+pub fn start_with_config(home_dir: &Path, config: NearConfig) -> anyhow::Result<NearNode> {
+    start_with_config_and_synchronization(home_dir, config, None)
 }
 
 pub fn start_with_config_and_synchronization(
     home_dir: &Path,
-    config: NearConfig,
+    mut config: NearConfig,
     // 'shutdown_signal' will notify the corresponding `oneshot::Receiver` when an instance of
     // `ClientActor` gets dropped.
-    shutdown_signal: Option<broadcast::Sender<()>>,
-    store: Store,
-    dyn_config: Option<DynConfig>,
-    rx_dyn_configs: Option<Receiver<UpdateableConfigs>>,
+    shutdown_signal: Option<mpsc::Sender<()>>,
 ) -> anyhow::Result<NearNode> {
-    let runtime = Arc::new(NightshadeRuntime::from_config(home_dir, store.clone(), &config));
+    let store = open_storage(home_dir, &mut config)?;
+
+    let runtime = Arc::new(NightshadeRuntime::from_config(
+        home_dir,
+        store.get_store(Temperature::Hot),
+        &config,
+    ));
 
     let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();
     let chain_genesis = ChainGenesis::new(&config.genesis);
@@ -196,21 +194,21 @@ pub fn start_with_config_and_synchronization(
     let (client_actor, client_arbiter_handle) = start_client(
         config.client_config,
         chain_genesis,
-        runtime,
+        runtime.clone(),
         node_id,
         network_adapter.clone(),
         config.validator_signer,
         telemetry,
-        shutdown_signal,
+        shutdown_signal.clone(),
         adv,
-        rx_config_update,
     );
+    let storage = storage.into_inner(near_store::Temperature::Hot);
 
     #[allow(unused_mut)]
     let mut rpc_servers = Vec::new();
     let network_actor = PeerManagerActor::spawn(
         time::Clock::real(),
-        store.storage,
+        storage.clone(),
         config.network_config,
         Arc::new(near_client::adapter::Adapter::new(client_actor.clone(), view_client.clone())),
         genesis_id,

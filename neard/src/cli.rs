@@ -1,17 +1,20 @@
 #[cfg(unix)]
+use crate::watchers::Watcher;
+use crate::watchers::{
+    dyn_config_watcher::DynConfig, log_config_watcher::LogConfig, UpdateBehavior,
+};
 use anyhow::Context;
 use clap::{Args, Parser};
 use near_amend_genesis::AmendGenesisCommand;
 use near_chain_configs::GenesisValidationMode;
 #[cfg(feature = "cold_store")]
 use near_cold_store_tool::ColdStoreCommand;
-use near_dyn_configs::{DynConfigStore, UpdateableConfigs};
 use near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofResponse;
 use near_mirror::MirrorCommand;
 use near_o11y::tracing_subscriber::EnvFilter;
 use near_o11y::{
-    default_subscriber, default_subscriber_with_opentelemetry, set_default_otlp_level,
-    BuildEnvFilterError, EnvFilterBuilder,
+    default_subscriber, default_subscriber_with_opentelemetry, BuildEnvFilterError,
+    EnvFilterBuilder, OpenTelemetryLevel,
 };
 use near_ping::PingCommand;
 use near_primitives::hash::CryptoHash;
@@ -21,14 +24,12 @@ use near_state_parts::cli::StatePartsCommand;
 use near_state_viewer::StateViewerSubCommand;
 use near_store::db::RocksDB;
 use near_store::Mode;
-use near_store::Temperature;
 use serde_json::Value;
 use std::fs::File;
 use std::io::BufReader;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use tokio::sync::broadcast;
-use tokio::sync::broadcast::Receiver;
+use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
 /// NEAR Protocol Node
@@ -390,9 +391,8 @@ impl RunCmd {
         verbose_target: Option<&str>,
         o11y_opts: &near_o11y::Options,
     ) {
-        set_default_otlp_level(o11y_opts);
         // Load configs from home.
-        let mut near_config = nearcore::config::load_config(&home_dir, genesis_validation.clone())
+        let mut near_config = nearcore::config::load_config(&home_dir, genesis_validation)
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
 
         check_release_build(&near_config.client_config.chain_id);
@@ -401,7 +401,7 @@ impl RunCmd {
         near_config.client_config.version = crate::neard_version();
         // Override some parameters from command line.
         if let Some(produce_empty_blocks) = self.produce_empty_blocks {
-            near_config.client_config.consensus.produce_empty_blocks = produce_empty_blocks;
+            near_config.client_config.produce_empty_blocks = produce_empty_blocks;
         }
         if let Some(boot_nodes) = self.boot_nodes {
             if !boot_nodes.is_empty() {
@@ -412,7 +412,7 @@ impl RunCmd {
             }
         }
         if let Some(min_peers) = self.min_peers {
-            near_config.client_config.consensus.min_num_peers = min_peers;
+            near_config.client_config.min_num_peers = min_peers;
         }
         if let Some(network_addr) = self.network_addr {
             near_config.network_config.node_addr = Some(network_addr);
@@ -454,22 +454,9 @@ impl RunCmd {
             }
         }
 
-        let (tx_crash, mut rx_crash) = broadcast::channel::<()>(16);
-        let (tx_dyn_configs, rx_dyn_configs) = broadcast::channel::<UpdateableConfigs>(16);
-        let storage =
-            nearcore::open_storage(home_dir, &mut near_config).expect("storage can not access");
-        let store = storage.get_store(Temperature::Hot);
-
-        let nearcore::config::NearConfig { validator_signer, .. } =
-            nearcore::config::load_config(&home_dir, genesis_validation.clone())
-                .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
-        near_config.validator_signer = validator_signer;
-
         let sys = actix::System::new();
-        let s = store.clone();
-        let config = near_config.clone();
 
-        let _ = sys.block_on(async move {
+        sys.block_on(async move {
             // Initialize the subscriber that takes care of both logging and tracing.
             let _subscriber_guard = default_subscriber_with_opentelemetry(
                 make_env_filter(verbose_target).unwrap(),
@@ -485,79 +472,89 @@ impl RunCmd {
             .await
             .global();
 
-            let updateable_configs = nearcore::dyn_config::read_updateable_configs(home_dir)
-                .unwrap_or_else(|e| panic!("Error reading dynamic configs: {:#}", e));
-            let mut dyn_configs_store = DynConfigStore::new(
-                updateable_configs.clone(),
-                near_config.client_config.consensus.clone(),
-                tx_dyn_configs,
-            );
-
-            let nearcore::NearNode { rpc_servers, .. } =
-                nearcore::start_with_config_and_synchronization(
-                    home_dir,
-                    config,
-                    Some(tx_crash),
-                    s,
-                    updateable_configs.dyn_config,
-                    Some(rx_dyn_configs),
-                )
-                .expect("start_with_config");
-
-            let sig = loop {
-                let sig = wait_for_interrupt_signal(home_dir, &mut rx_crash).await;
-                if sig == "SIGHUP" {
-                    match nearcore::dyn_config::read_updateable_configs(home_dir) {
-                        Ok(updateable_configs) => {
-                            dyn_configs_store.reload(updateable_configs);
-                        }
-                        Err(err) => {
-                            tracing::warn!("Failed to reload dynamic configs: {:#?}", err);
-                        }
-                    };
-                } else {
-                    break sig;
-                }
-            };
+            let sig = wait_for_interrupt_signal(home_dir, near_config).await;
             warn!(target: "neard", "{}, stopping... this may take a few minutes.", sig);
-            futures::future::join_all(rpc_servers.iter().map(|(name, server)| async move {
-                server.stop(true).await;
-                debug!(target: "neard", "{} server stopped", name);
-            }))
-            .await;
+
             actix::System::current().stop();
-            near_o11y::reload(Some("error"), None, Some(near_o11y::OpenTelemetryLevel::OFF))
-                .unwrap();
+
+            // Disable the subscriber to properly shutdown the tracer.
+            near_o11y::reload(Some("error"), None, Some(OpenTelemetryLevel::OFF)).unwrap();
         });
+        sys.run().unwrap();
         info!(target: "neard", "Waiting for RocksDB to gracefully shutdown");
         RocksDB::block_until_all_instances_are_dropped();
     }
 }
 
 #[cfg(not(unix))]
-async fn wait_for_interrupt_signal(_home_dir: &Path, mut _rx_crash: &Receiver<()>) -> &str {
+async fn wait_for_interrupt_signal(_home_dir: &Path, near_config: nearcore::NearConfig) -> &str {
+    let nearcore::NearNode { rpc_servers, .. } =
+        nearcore::start_with_config_and_synchronization(home_dir, near_config, Some(tx))
+            .expect("start_with_config");
+
     // TODO(#6372): Support graceful shutdown on windows.
     tokio::signal::ctrl_c().await.unwrap();
+
+    futures::future::join_all(rpc_servers.iter().map(|(name, server)| async move {
+        server.stop(true).await;
+        debug!(target: "neard", "{} server stopped", name);
+    }))
+    .await;
     "Ctrl+C"
 }
 
 #[cfg(unix)]
-async fn wait_for_interrupt_signal(_home_dir: &Path, rx_crash: &mut Receiver<()>) -> &'static str {
+fn update_watchers(home_dir: &Path, behavior: UpdateBehavior) {
+    LogConfig::update(home_dir.join("log_config.json"), &behavior);
+    DynConfig::update(home_dir.join("dyn_config.json"), &behavior);
+}
+
+#[cfg(unix)]
+async fn wait_for_interrupt_signal(home_dir: &Path, near_config: nearcore::NearConfig) -> &str {
+    let (tx, mut rx_crash) = mpsc::channel::<()>(1);
+
+    let mut near_node =
+        nearcore::start_with_config_and_synchronization(home_dir, near_config, Some(tx.clone()))
+            .expect("start_with_config");
+    let rpc_servers = near_node.rpc_servers.take();
+
+    // Apply all watcher config file if it exists.
+    update_watchers(&home_dir, UpdateBehavior::UpdateOnlyIfExists);
+
     use tokio::signal::unix::{signal, SignalKind};
     let mut sigint = signal(SignalKind::interrupt()).unwrap();
     let mut sigterm = signal(SignalKind::terminate()).unwrap();
     let mut sighup = signal(SignalKind::hangup()).unwrap();
 
-    loop {
+    let output = loop {
         break tokio::select! {
              _ = sigint.recv()  => "SIGINT",
              _ = sigterm.recv() => "SIGTERM",
              _ = sighup.recv() => {
-                "SIGHUP"
+                update_watchers(&home_dir, UpdateBehavior::UpdateOrReset);
+
+                // Key reload may be triggered by modifing config.json, or other possibles
+                // current impl is POC and rely on SIGHUP
+                if let Ok(new_config) = nearcore::config::load_config(&home_dir, GenesisValidationMode::Full) {
+                    let new_signer = new_config.validator_signer;
+                    near_node.update_signer(new_signer).unwrap_or_else(|e| panic!("Reload new signer fail: {:#}", e));
+                } else {
+                    error!("config is incorrect, could not reload the new config");
+                }
+
+                continue;
              },
              _ = rx_crash.recv() => "ClientActor died",
         };
+    };
+    if let Some(rpc_servers) = rpc_servers {
+        futures::future::join_all(rpc_servers.iter().map(|(name, server)| async move {
+            server.stop(true).await;
+            debug!(target: "neard", "{} server stopped", name);
+        }))
+        .await;
     }
+    output
 }
 
 #[derive(Parser)]
@@ -821,7 +818,7 @@ mod tests {
             )
         );
 
-        // Proof with a wrong outcome (as user specified wrong shard).
+        // Proof with a wroing outcome (as user specified wrong shard).
         assert_eq!(
             VerifyProofSubCommand::verify_json(
                 serde_json::from_slice(include_bytes!("../res/invalid_proof.json")).unwrap()

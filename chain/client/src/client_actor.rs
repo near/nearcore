@@ -40,7 +40,7 @@ use near_chunks::logic::cares_about_shard_this_or_next_epoch;
 use near_client_primitives::types::{
     Error, GetNetworkInfo, NetworkInfoResponse, Status, StatusError, StatusSyncInfo, SyncStatus,
 };
-use near_dyn_configs::{DynConfig, UpdateableConfigs};
+use near_dyn_configs::EXPECTED_SHUTDOWN_AT;
 #[cfg(feature = "test_features")]
 use near_network::types::NetworkAdversarialMessage;
 use near_network::types::ReasonForBan;
@@ -71,8 +71,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
-use tokio::sync::broadcast;
-use tokio::sync::broadcast::Receiver;
+use tokio::sync::mpsc;
 use tracing::{debug, error, info, trace, warn};
 
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.
@@ -119,12 +118,7 @@ pub struct ClientActor {
 
     /// Synchronization measure to allow graceful shutdown.
     /// Informs the system when a ClientActor gets dropped.
-    shutdown_signal: Option<broadcast::Sender<()>>,
-
-    dyn_config: Option<DynConfig>,
-    /// `rx_dyn_configs` is a way to get notified about the config being changed
-    /// when the node is running.
-    rx_updateable_configs: Option<Receiver<UpdateableConfigs>>,
+    shutdown_signal: Option<mpsc::Sender<()>>,
 }
 
 /// Blocks the program until given genesis time arrives.
@@ -160,10 +154,8 @@ impl ClientActor {
         enable_doomslug: bool,
         rng_seed: RngSeed,
         ctx: &Context<ClientActor>,
-        shutdown_signal: Option<broadcast::Sender<()>>,
+        shutdown_signal: Option<mpsc::Sender<()>>,
         adv: crate::adversarial::Controls,
-        dyn_config: Option<DynConfig>,
-        rx_updateable_configs: Option<Receiver<UpdateableConfigs>>,
     ) -> Result<Self, Error> {
         let state_parts_arbiter = Arbiter::new();
         let self_addr = ctx.address();
@@ -232,9 +224,7 @@ impl ClientActor {
 
             #[cfg(feature = "sandbox")]
             fastforward_delta: 0,
-            shutdown_signal,
-            dyn_config,
-            rx_updateable_configs,
+            shutdown_signal: shutdown_signal,
         })
     }
 }
@@ -709,7 +699,7 @@ impl Handler<WithSpanContext<Status>> for ClientActor {
                 let elapsed = (now - block_timestamp).to_std().unwrap();
                 if elapsed
                     > Duration::from_millis(
-                        self.client.config.consensus.max_block_production_delay.as_millis() as u64
+                        self.client.config.max_block_production_delay.as_millis() as u64
                             * STATUS_WAIT_TIME_MULTIPLIER,
                     )
                 {
@@ -773,7 +763,6 @@ impl Handler<WithSpanContext<Status>> for ClientActor {
                 block_production_delay_millis: self
                     .client
                     .config
-                    .consensus
                     .min_block_production_delay
                     .as_millis() as u64,
             })
@@ -1121,40 +1110,18 @@ impl ClientActor {
     }
 
     fn check_triggers(&mut self, ctx: &mut Context<ClientActor>) -> Duration {
-        // Check if any of the configs were updated. If they did, the receiver
-        // will contain a clone of the new configs.
-        self.rx_updateable_configs.as_mut().map(|rx_updateable_configs| {
-            while let Ok(updateable_configs) = rx_updateable_configs.try_recv() {
-                if let Some(consensus) = updateable_configs.consensus {
-                    match self.client.update_sync_config() {
-                        Ok(_) => {
-                            self.client.config.consensus = consensus;
-                        }
-                        Err(err) => {
-                            tracing::warn!(target: "client", ?err, "Failed to update sync object configs. Ignoring.");
-                        }
-                    }
-                } else {
-                    tracing::warn!(target: "client", "Consensus config is missing, which is impossible");
-                }
-                self.dyn_config = updateable_configs.dyn_config;
-                tracing::info!(target: "client", "Updated Consensus and DynConfig");
-            }
-        });
         // There is a bug in Actix library. While there are messages in mailbox, Actix
         // will prioritize processing messages until mailbox is empty. Execution of any other task
         // scheduled with run_later will be delayed.
 
         // Check block height to trigger expected shutdown
         if let Ok(head) = self.client.chain.head() {
-            if let Some(dyn_config) = &self.dyn_config {
-                if let Some(block_height_to_shutdown) = dyn_config.expected_shutdown {
-                    if head.height >= block_height_to_shutdown {
-                        info!(target: "client", "Expected shutdown triggered: head block({}) >= ({:?})", head.height, block_height_to_shutdown);
-                        if let Some(tx) = self.shutdown_signal.take() {
-                            let _ = tx.send(()); // Ignore send signal fail, it will send again in next trigger
-                        }
-                    }
+            let block_height_to_shutdown =
+                EXPECTED_SHUTDOWN_AT.load(std::sync::atomic::Ordering::Relaxed);
+            if block_height_to_shutdown > 0 && head.height >= block_height_to_shutdown {
+                info!(target: "client", "Expected shutdown triggered: head block({}) >= ({})", head.height, block_height_to_shutdown);
+                if let Some(tx) = self.shutdown_signal.take() {
+                    let _ = tx.send(()); // Ignore send signal fail, it will send again in next trigger
                 }
             }
         }
@@ -1182,7 +1149,7 @@ impl ClientActor {
             );
 
             self.doomslug_timer_next_attempt = self.run_timer(
-                self.client.config.consensus.doomslug_step_period,
+                self.client.config.doosmslug_step_period,
                 self.doomslug_timer_next_attempt,
                 ctx,
                 |act, ctx| act.try_doomslug_timer(ctx),
@@ -1198,7 +1165,7 @@ impl ClientActor {
         }
         if self.block_production_started {
             self.block_production_next_attempt = self.run_timer(
-                self.client.config.consensus.block_production_tracking_delay,
+                self.client.config.block_production_tracking_delay,
                 self.block_production_next_attempt,
                 ctx,
                 |act, _ctx| act.try_handle_block_production(),
@@ -1206,7 +1173,7 @@ impl ClientActor {
             );
 
             let _ = self.client.check_head_progress_stalled(
-                self.client.config.consensus.max_block_production_delay * HEAD_STALL_MULTIPLIER,
+                self.client.config.max_block_production_delay * HEAD_STALL_MULTIPLIER,
             );
 
             delay = core::cmp::min(
@@ -1234,7 +1201,7 @@ impl ClientActor {
         );
 
         self.chunk_request_retry_next_attempt = self.run_timer(
-            self.client.config.consensus.chunk_request_retry_period,
+            self.client.config.chunk_request_retry_period,
             self.chunk_request_retry_next_attempt,
             ctx,
             |act, _ctx| {
@@ -1466,7 +1433,7 @@ impl ClientActor {
             }
         } else {
             if peer_info.highest_block_height
-                > head.height + self.client.config.consensus.sync_height_threshold
+                > head.height + self.client.config.sync_height_threshold
             {
                 info!(
                     target: "client",
@@ -1488,12 +1455,12 @@ impl ClientActor {
     /// Starts syncing and then switches to either syncing or regular mode.
     fn start_sync(&mut self, ctx: &mut Context<ClientActor>) {
         // Wait for connections reach at least minimum peers unless skipping sync.
-        if self.network_info.num_connected_peers < self.client.config.consensus.min_num_peers
+        if self.network_info.num_connected_peers < self.client.config.min_num_peers
             && !self.client.config.skip_sync_wait
         {
             near_performance_metrics::actix::run_later(
                 ctx,
-                self.client.config.consensus.sync_step_period,
+                self.client.config.sync_step_period,
                 move |act, ctx| {
                     act.start_sync(ctx);
                 },
@@ -1517,7 +1484,7 @@ impl ClientActor {
     fn find_sync_hash(&mut self) -> Result<CryptoHash, near_chain::Error> {
         let header_head = self.client.chain.header_head()?;
         let mut sync_hash = header_head.prev_block_hash;
-        for _ in 0..self.client.config.consensus.state_fetch_horizon {
+        for _ in 0..self.client.config.state_fetch_horizon {
             sync_hash = *self.client.chain.get_block_header(&sync_hash)?.prev_hash();
         }
         let mut epoch_start_sync_hash =
@@ -1553,7 +1520,7 @@ impl ClientActor {
 
         near_performance_metrics::actix::run_later(
             ctx,
-            self.client.config.consensus.catchup_step_period,
+            self.client.config.catchup_step_period,
             move |act, ctx| {
                 act.catchup(ctx);
             },
@@ -1588,13 +1555,13 @@ impl ClientActor {
         if let Ok((needs_syncing, _)) = self.syncing_info() {
             if !self.needs_syncing(needs_syncing) {
                 // If we don't need syncing - retry the sync call rarely.
-                self.client.config.consensus.sync_check_period
+                self.client.config.sync_check_period
             } else {
                 // If we need syncing - retry the sync call often.
-                self.client.config.consensus.sync_step_period
+                self.client.config.sync_step_period
             }
         } else {
-            self.client.config.consensus.sync_step_period
+            self.client.config.sync_step_period
         }
     }
 
@@ -1645,9 +1612,8 @@ impl ClientActor {
             let sync_state = match self.client.sync_status {
                 SyncStatus::StateSync(_, _) => true,
                 _ if header_head.height
-                    >= highest_height.saturating_sub(
-                        self.client.config.consensus.block_header_fetch_horizon,
-                    ) =>
+                    >= highest_height
+                        .saturating_sub(self.client.config.block_header_fetch_horizon) =>
                 {
                     unwrap_and_report!(self.client.block_sync.run(
                         &mut self.client.sync_status,
@@ -2033,10 +1999,8 @@ pub fn start_client(
     network_adapter: Arc<dyn PeerManagerAdapter>,
     validator_signer: Option<Arc<dyn ValidatorSigner>>,
     telemetry_actor: Addr<TelemetryActor>,
-    sender: Option<broadcast::Sender<()>>,
+    sender: Option<mpsc::Sender<()>>,
     adv: crate::adversarial::Controls,
-    dyn_config: Option<DynConfig>,
-    rx_updateable_configs: Option<Receiver<UpdateableConfigs>>,
 ) -> (Addr<ClientActor>, ArbiterHandle) {
     let client_arbiter = Arbiter::new();
     let client_arbiter_handle = client_arbiter.handle();
@@ -2055,8 +2019,6 @@ pub fn start_client(
             ctx,
             sender,
             adv,
-            dyn_config,
-            rx_updateable_configs,
         )
         .unwrap()
     });
