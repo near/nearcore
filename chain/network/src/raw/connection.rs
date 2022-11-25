@@ -9,7 +9,7 @@ use near_crypto::{KeyType, SecretKey};
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use near_primitives::types::{AccountId, BlockHeight, EpochId};
+use near_primitives::types::{AccountId, BlockHeight, EpochId, ShardId};
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 use std::io;
 use std::net::SocketAddr;
@@ -172,6 +172,7 @@ impl Connection {
     }
 
     async fn write_message(&mut self, msg: &PeerMessage) -> io::Result<()> {
+        tracing::debug!(target: "state-parts", ?msg, "write_message");
         let mut msg = msg.serialize(Encoding::Proto);
         let mut buf = (msg.len() as u32).to_le_bytes().to_vec();
         buf.append(&mut msg);
@@ -254,6 +255,26 @@ impl Connection {
     /// Try to send a Ping message to the given target, with the given nonce and ttl
     pub async fn send_ping(&mut self, target: &PeerId, nonce: u64, ttl: u8) -> anyhow::Result<()> {
         let body = RoutedMessageBody::Ping(Ping { nonce, source: self.my_peer_id.clone() });
+        let msg = RawRoutedMessage { target: PeerIdOrHash::PeerId(target.clone()), body }.sign(
+            &self.secret_key,
+            ttl,
+            Some(Utc::now_utc()),
+        );
+
+        self.write_message(&PeerMessage::Routed(Box::new(msg))).await?;
+
+        Ok(())
+    }
+    /// Try to send a StateRequestPart message to the given target, with the given nonce and ttl
+    pub async fn send_state_part_request(
+        &mut self,
+        target: &PeerId,
+        shard_id: ShardId,
+        block_hash: CryptoHash,
+        part_id: u64,
+        ttl: u8,
+    ) -> anyhow::Result<()> {
+        let body = RoutedMessageBody::StateRequestPart(shard_id, block_hash, part_id);
         let msg = RawRoutedMessage { target: PeerIdOrHash::PeerId(target.clone()), body }.sign(
             &self.secret_key,
             ttl,

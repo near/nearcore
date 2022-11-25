@@ -1,0 +1,20 @@
+[package]
+name = "near-state-parts"
+version = "0.0.0"
+authors.workspace = true
+publish = false
+rust-version.workspace = true
+edition = "2021"
+
+[dependencies]
+anyhow.workspace = true
+chrono.workspace = true
+clap.workspace = true
+once_cell.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+near-jsonrpc = { path = "../../chain/jsonrpc" }
+near-network = { path = "../../chain/network" }
+near-o11y = { path = "../../core/o11y" }
+near-primitives = { path = "../../core/primitives" }

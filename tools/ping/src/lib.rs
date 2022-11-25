@@ -400,7 +400,7 @@ async fn ping_via_node(
 
     let mut peer = match Connection::connect(
         peer_addr,
-        peer_id,
+        peer_id.clone(),
         protocol_version,
         chain_id,
         genesis_hash,
@@ -454,7 +454,7 @@ async fn ping_via_node(
 
         tokio::select! {
             _ = &mut next_ping, if target.is_some() => {
-                let target = target.unwrap();
+                let target = peer_id.clone();
                 result = peer.send_ping(&target, nonce, ttl).await.with_context(|| format!("Failed sending ping to {:?}", &target));
                 if result.is_err() {
                     break;
