@@ -236,7 +236,8 @@ pub struct SyncAccountsData {
 #[derive(PartialEq, Eq, Clone, Debug, strum::IntoStaticStr, strum::EnumVariantNames)]
 #[allow(clippy::large_enum_variant)]
 pub enum PeerMessage {
-    Handshake(Handshake),
+    Tier1Handshake(Handshake),
+    Tier2Handshake(Handshake),
     HandshakeFailure(PeerInfo, HandshakeFailureReason),
     /// When a failed nonce is used by some peer, this message is sent back as evidence.
     LastEdge(Edge),
