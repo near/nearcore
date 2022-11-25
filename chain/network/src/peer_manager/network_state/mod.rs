@@ -42,7 +42,7 @@ const IMPORTANT_MESSAGE_RESENT_COUNT: usize = 3;
 const PRUNE_UNREACHABLE_PEERS_AFTER: time::Duration = time::Duration::hours(1);
 
 /// Remove the edges that were created more that this duration ago.
-const PRUNE_EDGES_AFTER: time::Duration = time::Duration::minutes(30);
+pub const PRUNE_EDGES_AFTER: time::Duration = time::Duration::minutes(30);
 
 impl WhitelistNode {
     pub fn from_peer_info(pi: &PeerInfo) -> anyhow::Result<Self> {
@@ -258,7 +258,7 @@ impl NetworkState {
             // Verify and broadcast the edge of the connection. Only then insert the new
             // connection to TIER2 pool, so that nothing is broadcasted to conn.
             // TODO(gprusak): consider actually banning the peer for consistency.
-            this.add_edges(&clock, vec![conn.edge.clone()])
+            this.add_edges(&clock, vec![conn.edge.load()])
                 .await
                 .map_err(|_: ReasonForBan| RegisterPeerError::InvalidEdge)?;
             this.tier2.insert_ready(conn.clone()).map_err(RegisterPeerError::PoolError)?;
@@ -474,7 +474,7 @@ impl NetworkState {
                                 PartialEdgeInfo::new(
                                     &node_id,
                                     &conn.peer_info.id,
-                                    edge.next(),
+                                    std::cmp::max(Edge::create_fresh_nonce(&clock), edge.next()),
                                     &this.config.node_key,
                                 ),
                             )));
