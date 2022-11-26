@@ -1,5 +1,5 @@
 use crate::blacklist;
-use crate::concurrency::demux;
+use crate::concurrency::rate;
 use crate::network_protocol::PeerAddr;
 use crate::network_protocol::PeerInfo;
 use crate::peer_manager::peer_manager_actor::Event;
@@ -58,9 +58,6 @@ impl ValidatorConfig {
         self.signer.validator_id().clone()
     }
 }
-
-#[derive(Clone)]
-pub struct Features {}
 
 #[derive(Clone)]
 pub struct Tier1 {
@@ -126,9 +123,9 @@ pub struct NetworkConfig {
     /// Whether this is an archival node.
     pub archive: bool,
     /// Maximal rate at which SyncAccountsData can be broadcasted.
-    pub accounts_data_broadcast_rate_limit: demux::RateLimit,
-    /// Maximal rate at which RoutingTableUpdate can be sent out.
-    pub routing_table_update_rate_limit: demux::RateLimit,
+    pub accounts_data_broadcast_rate_limit: rate::Limit,
+    /// Maximal rate at which RoutingTable can be recomputed.
+    pub routing_table_update_rate_limit: rate::Limit,
     /// Config of the TIER1 network.
     pub tier1: Option<Tier1>,
 
@@ -321,8 +318,8 @@ impl NetworkConfig {
             outbound_disabled: false,
             inbound_disabled: false,
             archive: false,
-            accounts_data_broadcast_rate_limit: demux::RateLimit { qps: 100., burst: 1000000 },
-            routing_table_update_rate_limit: demux::RateLimit { qps: 100., burst: 1000000 },
+            accounts_data_broadcast_rate_limit: rate::Limit { qps: 100., burst: 1000000 },
+            routing_table_update_rate_limit: rate::Limit { qps: 10., burst: 1 },
             tier1: Some(Tier1 {
                 // Interval is very large, so that it doesn't happen spontaneously in tests.
                 // It should rather be triggered manually in tests.
@@ -366,6 +363,9 @@ impl NetworkConfig {
         self.accounts_data_broadcast_rate_limit
             .validate()
             .context("accounts_Data_broadcast_rate_limit")?;
+        self.routing_table_update_rate_limit
+            .validate()
+            .context("routing_table_update_rate_limit")?;
         Ok(VerifiedConfig { node_id: self.node_id(), inner: self })
     }
 }

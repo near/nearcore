@@ -2,7 +2,6 @@ use crate::{HostError, VMLogicError};
 use near_primitives::types::TrieNodesCount;
 use near_primitives_core::config::ExtCosts::read_cached_trie_node;
 use near_primitives_core::config::ExtCosts::touching_trie_node;
-use near_primitives_core::runtime::fees::Fee;
 use near_primitives_core::{
     config::{ActionCosts, ExtCosts, ExtCostsConfig},
     profile::ProfileData,
@@ -212,48 +211,6 @@ impl GasCounter {
         self.inc_ext_costs_counter(cost, 1);
         self.update_profile_host(cost, base_fee);
         self.burn_gas(base_fee)
-    }
-
-    /// A helper function to pay per byte gas fee for batching an action.
-    /// # Args:
-    /// * `per_byte_fee`: the fee per byte;
-    /// * `num_bytes`: the number of bytes;
-    /// * `sir`: whether the receiver_id is same as the current account ID;
-    /// * `action`: what kind of action is charged for;
-    pub fn pay_action_per_byte(
-        &mut self,
-        per_byte_fee: &Fee,
-        num_bytes: u64,
-        sir: bool,
-        action: ActionCosts,
-    ) -> Result<()> {
-        let burn_gas =
-            num_bytes.checked_mul(per_byte_fee.send_fee(sir)).ok_or(HostError::IntegerOverflow)?;
-        let use_gas = burn_gas
-            .checked_add(
-                num_bytes.checked_mul(per_byte_fee.exec_fee()).ok_or(HostError::IntegerOverflow)?,
-            )
-            .ok_or(HostError::IntegerOverflow)?;
-        self.update_profile_action(action, burn_gas);
-        self.deduct_gas(burn_gas, use_gas)
-    }
-
-    /// A helper function to pay base cost gas fee for batching an action.
-    /// # Args:
-    /// * `base_fee`: base fee for the action;
-    /// * `sir`: whether the receiver_id is same as the current account ID;
-    /// * `action`: what kind of action is charged for;
-    pub fn pay_action_base(
-        &mut self,
-        base_fee: &Fee,
-        sir: bool,
-        action: ActionCosts,
-    ) -> Result<()> {
-        let burn_gas = base_fee.send_fee(sir);
-        let use_gas =
-            burn_gas.checked_add(base_fee.exec_fee()).ok_or(HostError::IntegerOverflow)?;
-        self.update_profile_action(action, burn_gas);
-        self.deduct_gas(burn_gas, use_gas)
     }
 
     /// A helper function to pay base cost gas fee for batching an action.
