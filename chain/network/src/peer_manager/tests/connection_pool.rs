@@ -86,7 +86,7 @@ async fn loop_connection() {
     let mut events = pm.events.from_now();
     let mut stream = Stream::new(Some(Encoding::Proto), stream);
     stream
-        .write(&PeerMessage::Handshake(Handshake {
+        .write(&PeerMessage::Tier2Handshake(Handshake {
             protocol_version: PROTOCOL_VERSION,
             oldest_supported_version: PROTOCOL_VERSION,
             sender_peer_id: pm.cfg.node_id(),

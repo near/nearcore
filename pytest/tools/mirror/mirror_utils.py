@@ -1,8 +1,7 @@
-#!/usr/bin/env python3
-
-import sys, time, base58, random
-import atexit
+import sys
+import time
 import base58
+import atexit
 import json
 import os
 import pathlib
@@ -14,20 +13,12 @@ sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import init_cluster, spin_up_node, load_config
 from configured_logger import logger
-from mocknet import create_genesis_file
 import transaction
 import utils
 import key
 
-# This sets up an environment to test the tools/mirror process. It starts a localnet with a few validators
-# and waits for some blocks to be produced. Then we fork the state and start a new chain from that, and
-# start the mirror process that should mirror transactions from the source chain to the target chain.
-# Halfway through we restart it to make sure that it still works properly when restarted
-
-TIMEOUT = 240
-NUM_VALIDATORS = 4
-TARGET_VALIDATORS = ['foo0', 'foo1', 'foo2']
 MIRROR_DIR = 'test-mirror'
+TIMEOUT = 240
 
 
 def mkdir_clean(dirname):
@@ -42,7 +33,7 @@ def dot_near():
     return pathlib.Path.home() / '.near'
 
 
-def ordinal_to_port(port, ordinal):
+def ordinal_to_addr(port, ordinal):
     return f'0.0.0.0:{port + 10 + ordinal}'
 
 
@@ -51,7 +42,11 @@ def copy_genesis(home):
     shutil.copy(dot_near() / 'test0/forked/records.json', home / 'records.json')
 
 
-def init_target_dir(neard, home, ordinal, validator_account=None):
+def init_target_dir(neard,
+                    home,
+                    ordinal,
+                    boot_node_home,
+                    validator_account=None):
     mkdir_clean(home)
 
     try:
@@ -66,8 +61,11 @@ def init_target_dir(neard, home, ordinal, validator_account=None):
     with open(home / 'config.json', 'r') as f:
         config = json.load(f)
         config['genesis_records_file'] = 'records.json'
-        config['network']['addr'] = ordinal_to_port(24567, ordinal)
-        config['rpc']['addr'] = ordinal_to_port(3030, ordinal)
+        config['network']['addr'] = ordinal_to_addr(24567, ordinal)
+        if boot_node_home is not None:
+            config['network']['boot_nodes'] = read_addr_pk(boot_node_home)
+        config['rpc']['addr'] = ordinal_to_addr(3030, ordinal)
+
     with open(home / 'config.json', 'w') as f:
         json.dump(config, f)
 
@@ -75,20 +73,31 @@ def init_target_dir(neard, home, ordinal, validator_account=None):
         os.remove(home / 'validator_key.json')
 
 
-def init_target_dirs(neard):
-    ordinal = NUM_VALIDATORS + 1
+def init_target_dirs(neard, last_ordinal, target_validators):
+    ordinal = last_ordinal + 1
     dirs = []
 
-    for account_id in TARGET_VALIDATORS:
+    for i in range(len(target_validators)):
+        account_id = target_validators[i]
+        if i > 0:
+            boot_node_home = dirs[0]
+        else:
+            boot_node_home = None
         home = dot_near() / f'test_target_{account_id}'
         dirs.append(home)
-        init_target_dir(neard, home, ordinal, validator_account=account_id)
+        init_target_dir(neard,
+                        home,
+                        ordinal,
+                        boot_node_home,
+                        validator_account=account_id)
         ordinal += 1
 
     return dirs
 
 
-def create_forked_chain(config, near_root):
+def create_forked_chain(config, near_root, source_node_homes,
+                        target_validators):
+    mkdir_clean(dot_near() / MIRROR_DIR)
     binary_name = config.get('binary_name', 'neard')
     neard = os.path.join(near_root, binary_name)
     try:
@@ -115,12 +124,23 @@ def create_forked_chain(config, near_root):
     except subprocess.CalledProcessError as e:
         sys.exit(f'"mirror prepare" command failed: output: {e.stdout}')
 
-    dirs = init_target_dirs(neard)
+    os.rename(source_node_homes[-1], dot_near() / f'{MIRROR_DIR}/source')
+    ordinal = len(source_node_homes) - 1
+    with open(dot_near() / f'{MIRROR_DIR}/source/config.json', 'r') as f:
+        config = json.load(f)
+        config['network']['boot_nodes'] = read_addr_pk(source_node_homes[0])
+        config['network']['addr'] = ordinal_to_addr(24567, ordinal)
+        config['rpc']['addr'] = ordinal_to_addr(3030, ordinal)
+    with open(dot_near() / f'{MIRROR_DIR}/source/config.json', 'w') as f:
+        json.dump(config, f)
+
+    dirs = init_target_dirs(neard, ordinal, target_validators)
 
     target_dir = dot_near() / f'{MIRROR_DIR}/target'
     init_target_dir(neard,
                     target_dir,
-                    NUM_VALIDATORS + 1 + len(dirs),
+                    len(source_node_homes) + len(dirs),
+                    dirs[0],
                     validator_account=None)
     shutil.copy(dot_near() / 'test0/output/mirror-secret.json',
                 target_dir / 'mirror-secret.json')
@@ -166,20 +186,19 @@ def create_forked_chain(config, near_root):
         copy_genesis(d)
     copy_genesis(target_dir)
 
-    return [str(d) for d in dirs], target_dir
+    return [str(d) for d in dirs]
 
 
-def init_mirror_dir(home, source_boot_node):
-    mkdir_clean(dot_near() / MIRROR_DIR)
-    os.rename(home, dot_near() / f'{MIRROR_DIR}/source')
-    ordinal = NUM_VALIDATORS
-    with open(dot_near() / f'{MIRROR_DIR}/source/config.json', 'r') as f:
+def read_addr_pk(home):
+    with open(os.path.join(home, 'config.json'), 'r') as f:
         config = json.load(f)
-        config['network']['boot_nodes'] = source_boot_node.addr_with_pk()
-        config['network']['addr'] = ordinal_to_port(24567, ordinal)
-        config['rpc']['addr'] = ordinal_to_port(3030, ordinal)
-    with open(dot_near() / f'{MIRROR_DIR}/source/config.json', 'w') as f:
-        json.dump(config, f)
+        addr = config['network']['addr']
+
+    with open(os.path.join(home, 'node_key.json'), 'r') as f:
+        k = json.load(f)
+        public_key = k['public_key']
+
+    return f'{public_key}@{addr}'
 
 
 def mirror_cleanup(process):
@@ -191,29 +210,66 @@ def mirror_cleanup(process):
         logger.error('can\'t kill mirror process')
 
 
-def start_mirror(near_root, source_home, target_home, boot_node):
-    env = os.environ.copy()
-    env["RUST_LOG"] = "actix_web=warn,mio=warn,tokio_util=warn,actix_server=warn,actix_http=warn," + env.get(
-        "RUST_LOG", "debug")
-    with open(dot_near() / f'{MIRROR_DIR}/stdout', 'ab') as stdout, \
-        open(dot_near() / f'{MIRROR_DIR}/stderr', 'ab') as stderr:
-        process = subprocess.Popen([
-            os.path.join(near_root, 'neard'), 'mirror', 'run', "--source-home",
-            source_home, "--target-home", target_home, '--secret-file',
-            target_home / 'mirror-secret.json'
-        ],
-                                   stdin=subprocess.DEVNULL,
-                                   stdout=stdout,
-                                   stderr=stderr,
-                                   env=env)
-    logger.info("Started mirror process")
-    atexit.register(mirror_cleanup, process)
-    with open(target_home / 'config.json', 'r') as f:
-        config = json.load(f)
-        config['network']['boot_nodes'] = boot_node.addr_with_pk()
-    with open(target_home / 'config.json', 'w') as f:
-        json.dump(config, f)
-    return process
+# helper class so we can pass restart_once() as a callback to send_traffic()
+class MirrorProcess:
+
+    def __init__(self, near_root, source_home, online_source):
+        self.online_source = online_source
+        self.source_home = source_home
+        self.neard = os.path.join(near_root, 'neard')
+        self.start()
+        self.start_time = time.time()
+        self.restarted = False
+
+    def start(self):
+        env = os.environ.copy()
+        env["RUST_LOG"] = "actix_web=warn,mio=warn,tokio_util=warn,actix_server=warn,actix_http=warn," + env.get(
+            "RUST_LOG", "debug")
+        with open(dot_near() / f'{MIRROR_DIR}/stdout', 'ab') as stdout, \
+            open(dot_near() / f'{MIRROR_DIR}/stderr', 'ab') as stderr:
+            args = [
+                self.neard, 'mirror', 'run', "--source-home", self.source_home,
+                "--target-home",
+                dot_near() / f'{MIRROR_DIR}/target/', '--secret-file',
+                dot_near() / f'{MIRROR_DIR}/target/mirror-secret.json'
+            ]
+            if self.online_source:
+                args.append('--online-source')
+            self.process = subprocess.Popen(args,
+                                            stdin=subprocess.DEVNULL,
+                                            stdout=stdout,
+                                            stderr=stderr,
+                                            env=env)
+        logger.info("Started mirror process")
+        atexit.register(mirror_cleanup, self.process)
+
+    def restart(self):
+        logger.info('stopping mirror process')
+        self.process.terminate()
+        self.process.wait()
+        with open(dot_near() / f'{MIRROR_DIR}/stderr', 'ab') as stderr:
+            stderr.write(
+                b'<><><><><><><><><><><><> restarting <><><><><><><><><><><><><><><><><><><><>\n'
+            )
+            stderr.write(
+                b'<><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><>\n'
+            )
+            stderr.write(
+                b'<><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><>\n'
+            )
+        self.start()
+
+    # meant to be used in the callback to send_traffic(). restarts the process once after 30 seconds
+    def restart_once(self):
+        code = self.process.poll()
+        if code is not None:
+            assert code == 0
+            return False
+
+        if not self.restarted and time.time() - self.start_time > 30:
+            self.restart()
+            self.restarted = True
+        return True
 
 
 # we'll test out adding an access key and then sending txs signed with it
@@ -257,17 +313,6 @@ def create_subaccount(node, signer_key, nonce, block_hash):
                                                     signer_key.decoded_sk())
     node.send_tx(tx)
     return k
-
-
-def send_transfers(nodes, nonces, block_hash):
-    for sender in range(len(nonces)):
-        receiver = (sender + 1) % len(nonces)
-        receiver_id = nodes[receiver].signer_key.account_id
-
-        tx = transaction.sign_payment_tx(nodes[sender].signer_key, receiver_id,
-                                         300, nonces[sender], block_hash)
-        nodes[sender].send_tx(tx)
-        nonces[sender] += 1
 
 
 # a key that we added with an AddKey tx or implicit account transfer.
@@ -338,15 +383,13 @@ def count_total_txs(node, min_height=0):
             return total
 
 
-def check_num_txs(source_node, target_node, start_time, end_source_height):
-    with open(os.path.join(target_node.node_dir, 'genesis.json'), 'r') as f:
+def allowed_run_time(target_node_dir, start_time, end_source_height):
+    with open(os.path.join(target_node_dir, 'genesis.json'), 'r') as f:
         genesis_height = json.load(f)['genesis_height']
-    with open(os.path.join(target_node.node_dir, 'config.json'), 'r') as f:
+    with open(os.path.join(target_node_dir, 'config.json'), 'r') as f:
         delay = json.load(f)['consensus']['min_block_production_delay']
         block_delay = 10**9 * int(delay['secs']) + int(delay['nanos'])
         block_delay = block_delay / 10**9
-
-    total_source_txs = count_total_txs(source_node, min_height=genesis_height)
 
     # start_time is the time the mirror binary was started. Give it 20 seconds to
     # sync and then 50% more than min_block_production_delay for each block between
@@ -354,30 +397,54 @@ def check_num_txs(source_node, target_node, start_time, end_source_height):
     # like this but there's no real strong guarantee on when the transactions should
     # make it on chain, so this is some kind of reasonable timeout
 
-    total_time_allowed = 20 + (end_source_height -
-                               genesis_height) * block_delay * 1.5
-    time_elapsed = time.time() - start_time
-    if time_elapsed < total_time_allowed:
-        time_left = total_time_allowed - time_elapsed
-        logger.info(
-            f'waiting for {int(time_left)} seconds to allow transactions to make it to the target chain'
-        )
-        time.sleep(time_left)
+    return 20 + (end_source_height - genesis_height) * block_delay * 1.5
 
+
+def check_num_txs(source_node, target_node):
+    with open(os.path.join(target_node.node_dir, 'genesis.json'), 'r') as f:
+        genesis_height = json.load(f)['genesis_height']
+
+    total_source_txs = count_total_txs(source_node, min_height=genesis_height)
     total_target_txs = count_total_txs(target_node)
     assert total_source_txs == total_target_txs, (total_source_txs,
                                                   total_target_txs)
     logger.info(f'all {total_source_txs} transactions mirrored')
 
 
-def main():
+# keeps info initialized during start_source_chain() for use in send_traffic()
+class TrafficData:
+
+    def __init__(self, num_accounts):
+        self.nonces = [2] * num_accounts
+        self.implicit_account = None
+
+    def send_transfers(self, nodes, block_hash, skip_senders=None):
+        for sender in range(len(self.nonces)):
+            if skip_senders is not None and sender in skip_senders:
+                continue
+            receiver = (sender + 1) % len(self.nonces)
+            receiver_id = nodes[receiver].signer_key.account_id
+
+            tx = transaction.sign_payment_tx(nodes[sender].signer_key,
+                                             receiver_id, 300,
+                                             self.nonces[sender], block_hash)
+            nodes[sender].send_tx(tx)
+            self.nonces[sender] += 1
+
+
+def start_source_chain(config,
+                       num_source_validators=3,
+                       target_validators=['foo0', 'foo1', 'foo2']):
+    # for now we need at least 2 because we're sending traffic for source_nodes[1].signer_key
+    # Could fix that but for now this assert is fine
+    assert num_source_validators >= 2
     config_changes = {}
-    for i in range(NUM_VALIDATORS + 1):
+    for i in range(num_source_validators + 1):
         config_changes[i] = {"tracked_shards": [0, 1, 2, 3], "archive": True}
 
     config = load_config()
-    near_root, node_dirs = init_cluster(
-        num_nodes=NUM_VALIDATORS,
+    near_root, source_node_dirs = init_cluster(
+        num_nodes=num_source_validators,
         num_observers=1,
         num_shards=4,
         config=config,
@@ -389,70 +456,63 @@ def main():
         ],
         client_config_changes=config_changes)
 
-    nodes = [spin_up_node(config, near_root, node_dirs[0], 0)]
+    source_nodes = [spin_up_node(config, near_root, source_node_dirs[0], 0)]
 
-    init_mirror_dir(node_dirs[NUM_VALIDATORS], nodes[0])
+    for i in range(1, num_source_validators):
+        source_nodes.append(
+            spin_up_node(config,
+                         near_root,
+                         source_node_dirs[i],
+                         i,
+                         boot_node=source_nodes[0]))
+    traffic_data = TrafficData(len(source_nodes))
 
-    for i in range(1, NUM_VALIDATORS):
-        nodes.append(
-            spin_up_node(config, near_root, node_dirs[i], i,
-                         boot_node=nodes[0]))
-    nonces = [2] * len(nodes)
-
-    implicit_account1 = ImplicitAccount()
-    for height, block_hash in utils.poll_blocks(nodes[0], timeout=TIMEOUT):
-        implicit_account1.transfer(nodes[0], nodes[0].signer_key, 10**24,
-                                   base58.b58decode(block_hash.encode('utf8')),
-                                   nonces[0])
-        nonces[0] += 1
+    traffic_data.implicit_account = ImplicitAccount()
+    for height, block_hash in utils.poll_blocks(source_nodes[0],
+                                                timeout=TIMEOUT):
+        traffic_data.implicit_account.transfer(
+            source_nodes[0], source_nodes[0].signer_key, 10**24,
+            base58.b58decode(block_hash.encode('utf8')), traffic_data.nonces[0])
+        traffic_data.nonces[0] += 1
         break
 
-    for height, block_hash in utils.poll_blocks(nodes[0], timeout=TIMEOUT):
+    for height, block_hash in utils.poll_blocks(source_nodes[0],
+                                                timeout=TIMEOUT):
         block_hash_bytes = base58.b58decode(block_hash.encode('utf8'))
 
-        implicit_account1.send_if_inited(nodes[0], [('test2', height),
-                                                    ('test3', height)],
-                                         block_hash_bytes)
-        send_transfers(nodes, nonces, block_hash_bytes)
+        traffic_data.implicit_account.send_if_inited(source_nodes[0],
+                                                     [('test2', height),
+                                                      ('test3', height)],
+                                                     block_hash_bytes)
+        traffic_data.send_transfers(source_nodes, block_hash_bytes)
 
         if height > 12:
             break
 
-    nodes[0].kill()
-    target_node_dirs, target_observer_dir = create_forked_chain(
-        config, near_root)
-    nodes[0].start(boot_node=nodes[1])
+    source_nodes[0].kill()
+    target_node_dirs = create_forked_chain(config, near_root, source_node_dirs,
+                                           target_validators)
+    source_nodes[0].start(boot_node=source_nodes[1])
+    return near_root, source_nodes, target_node_dirs, traffic_data
 
-    ordinal = NUM_VALIDATORS + 1
-    target_nodes = [
-        spin_up_node(config, near_root, target_node_dirs[0], ordinal)
-    ]
-    for i in range(1, len(target_node_dirs)):
-        ordinal += 1
-        target_nodes.append(
-            spin_up_node(config,
-                         near_root,
-                         target_node_dirs[i],
-                         ordinal,
-                         boot_node=target_nodes[0]))
 
-    p = start_mirror(near_root,
-                     dot_near() / f'{MIRROR_DIR}/source/', target_observer_dir,
-                     target_nodes[0])
-    start_time = time.time()
-    start_source_height = nodes[0].get_latest_block().height
-    restarted = False
+# callback will be called once for every iteration of the utils.poll_blocks()
+# loop, and we break if it returns False
+def send_traffic(near_root, source_nodes, traffic_data, callback):
+    tip = source_nodes[1].get_latest_block()
+    block_hash_bytes = base58.b58decode(tip.hash.encode('utf8'))
+    start_source_height = tip.height
 
     subaccount_key = AddedKey(
-        create_subaccount(nodes[0], nodes[0].signer_key, nonces[0],
-                          block_hash_bytes))
-    nonces[0] += 1
+        create_subaccount(source_nodes[1], source_nodes[0].signer_key,
+                          traffic_data.nonces[0], block_hash_bytes))
+    traffic_data.nonces[0] += 1
 
     k = key.Key.from_random('test0')
     new_key = AddedKey(k)
-    send_add_access_key(nodes[0], nodes[0].signer_key, k, nonces[0],
-                        block_hash_bytes)
-    nonces[0] += 1
+    send_add_access_key(source_nodes[1], source_nodes[0].signer_key, k,
+                        traffic_data.nonces[0], block_hash_bytes)
+    traffic_data.nonces[0] += 1
 
     test0_deleted_height = None
     test0_readded_key = None
@@ -464,44 +524,45 @@ def main():
     # then wait a bit before properly initializing it. This hits a corner case where the
     # mirror binary needs to properly look for the second tx's outcome to find the starting
     # nonce because the first one failed
-    implicit_account2.transfer(nodes[0], nodes[0].signer_key, 1,
-                               block_hash_bytes, nonces[0])
-    nonces[0] += 1
+    implicit_account2.transfer(source_nodes[1], source_nodes[0].signer_key, 1,
+                               block_hash_bytes, traffic_data.nonces[0])
+    traffic_data.nonces[0] += 1
     time.sleep(2)
-    implicit_account2.transfer(nodes[0], nodes[0].signer_key, 10**24,
-                               block_hash_bytes, nonces[0])
-    nonces[0] += 1
+    implicit_account2.transfer(source_nodes[1], source_nodes[0].signer_key,
+                               10**24, block_hash_bytes, traffic_data.nonces[0])
+    traffic_data.nonces[0] += 1
 
-    for height, block_hash in utils.poll_blocks(nodes[0], timeout=TIMEOUT):
-        code = p.poll()
-        if code is not None:
-            assert code == 0
+    for height, block_hash in utils.poll_blocks(source_nodes[1],
+                                                timeout=TIMEOUT):
+        if not callback():
             break
-
         block_hash_bytes = base58.b58decode(block_hash.encode('utf8'))
 
         if test0_deleted_height is None:
-            send_transfers(nodes, nonces, block_hash_bytes)
+            traffic_data.send_transfers(source_nodes, block_hash_bytes)
         else:
-            send_transfers(nodes[1:], nonces[1:], block_hash_bytes)
+            traffic_data.send_transfers(source_nodes,
+                                        block_hash_bytes,
+                                        skip_senders=set([0]))
 
-        implicit_account1.send_if_inited(
-            nodes[0], [('test2', height), ('test1', height),
-                       (implicit_account2.account_id(), height)],
+        traffic_data.implicit_account.send_if_inited(
+            source_nodes[1], [('test2', height), ('test1', height),
+                              (implicit_account2.account_id(), height)],
             block_hash_bytes)
         if not implicit_deleted:
             implicit_account2.send_if_inited(
-                nodes[1], [('test2', height), ('test0', height),
-                           (implicit_account1.account_id(), height)],
+                source_nodes[1],
+                [('test2', height), ('test0', height),
+                 (traffic_data.implicit_account.account_id(), height)],
                 block_hash_bytes)
-        new_key.send_if_inited(nodes[2],
-                               [('test1', height), ('test2', height),
-                                (implicit_account1.account_id(), height),
-                                (implicit_account2.account_id(), height)],
-                               block_hash_bytes)
+        new_key.send_if_inited(
+            source_nodes[1],
+            [('test1', height), ('test2', height),
+             (traffic_data.implicit_account.account_id(), height),
+             (implicit_account2.account_id(), height)], block_hash_bytes)
         subaccount_key.send_if_inited(
-            nodes[3], [('test3', height),
-                       (implicit_account2.account_id(), height)],
+            source_nodes[1], [('test3', height),
+                              (implicit_account2.account_id(), height)],
             block_hash_bytes)
 
         if implicit_added is None:
@@ -514,15 +575,15 @@ def main():
             ) and height - start_source_height >= 15:
                 k = key.Key.from_random(implicit_account2.account_id())
                 implicit_added = AddedKey(k)
-                send_add_access_key(nodes[0], implicit_account2.key.key, k,
-                                    implicit_account2.key.nonce,
+                send_add_access_key(source_nodes[1], implicit_account2.key.key,
+                                    k, implicit_account2.key.nonce,
                                     block_hash_bytes)
                 implicit_account2.key.nonce += 1
         else:
-            implicit_added.send_if_inited(nodes[1], [('test0', height)],
+            implicit_added.send_if_inited(source_nodes[1], [('test0', height)],
                                           block_hash_bytes)
             if implicit_added.inited() and not implicit_deleted:
-                send_delete_access_key(nodes[0], implicit_added.key,
+                send_delete_access_key(source_nodes[1], implicit_added.key,
                                        implicit_account2.key.key,
                                        implicit_added.nonce, block_hash_bytes)
                 implicit_added.nonce += 1
@@ -530,51 +591,24 @@ def main():
 
         if test0_deleted_height is None and new_key.inited(
         ) and height - start_source_height >= 15:
-            send_delete_access_key(nodes[0], new_key.key, nodes[0].signer_key,
+            send_delete_access_key(source_nodes[1], new_key.key,
+                                   source_nodes[0].signer_key,
                                    new_key.nonce + 1, block_hash_bytes)
             new_key.nonce += 1
             test0_deleted_height = height
 
         if test0_readded_key is None and test0_deleted_height is not None and height - test0_deleted_height >= 5:
-            send_add_access_key(nodes[0], new_key.key, nodes[0].signer_key,
-                                new_key.nonce + 1, block_hash_bytes)
-            test0_readded_key = AddedKey(nodes[0].signer_key)
+            send_add_access_key(source_nodes[1], new_key.key,
+                                source_nodes[0].signer_key, new_key.nonce + 1,
+                                block_hash_bytes)
+            test0_readded_key = AddedKey(source_nodes[0].signer_key)
             new_key.nonce += 1
 
         if test0_readded_key is not None:
             test0_readded_key.send_if_inited(
-                nodes[1], [('test3', height),
-                           (implicit_account2.account_id(), height)],
+                source_nodes[1], [('test3', height),
+                                  (implicit_account2.account_id(), height)],
                 block_hash_bytes)
-
-        if not restarted and height - start_source_height >= 50:
-            logger.info('stopping mirror process')
-            p.terminate()
-            p.wait()
-            with open(dot_near() / f'{MIRROR_DIR}/stderr', 'ab') as stderr:
-                stderr.write(
-                    b'<><><><><><><><><><><><> restarting <><><><><><><><><><><><><><><><><><><><>\n'
-                )
-                stderr.write(
-                    b'<><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><>\n'
-                )
-                stderr.write(
-                    b'<><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><>\n'
-                )
-            p = start_mirror(near_root,
-                             dot_near() / f'{MIRROR_DIR}/source/',
-                             target_observer_dir, target_nodes[0])
-            restarted = True
 
         if height - start_source_height >= 100:
             break
-
-    time.sleep(5)
-    # we don't need these anymore
-    for node in nodes[1:]:
-        node.kill()
-    check_num_txs(nodes[0], target_nodes[0], start_time, height)
-
-
-if __name__ == '__main__':
-    main()

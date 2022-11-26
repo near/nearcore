@@ -39,7 +39,7 @@ fn test_deploy_max_size_contract() {
     let max_transaction_size = config.wasm_config.limit_config.max_transaction_size;
     let contract_size = max_contract_size.min(max_transaction_size - tx_overhead);
     // Enough token to store contract + 1 NEAR for account
-    let token_balance = config.storage_amount_per_byte * contract_size as u128 + ONE_NEAR;
+    let token_balance = config.storage_amount_per_byte() * contract_size as u128 + ONE_NEAR;
 
     // Create test account
     let transaction_result = node_user

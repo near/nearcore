@@ -12,6 +12,7 @@ use near_primitives::types::{AccountId, AccountInfo, Balance};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_tries;
 use near_store::ShardTries;
+use near_vm_logic::ActionCosts;
 use node_runtime::{ApplyState, Runtime};
 use random_config::random_config;
 use std::collections::{HashMap, HashSet};
@@ -53,9 +54,9 @@ impl StandaloneRuntime {
         let mut runtime_config = random_config();
         // Bumping costs to avoid inflation overflows.
         runtime_config.wasm_config.limit_config.max_total_prepaid_gas = 10u64.pow(15);
-        runtime_config.transaction_costs.action_receipt_creation_config.execution =
+        runtime_config.fees.action_fees[ActionCosts::new_action_receipt].execution =
             runtime_config.wasm_config.limit_config.max_total_prepaid_gas / 64;
-        runtime_config.transaction_costs.data_receipt_creation_config.base_cost.execution =
+        runtime_config.fees.action_fees[ActionCosts::new_data_receipt_base].execution =
             runtime_config.wasm_config.limit_config.max_total_prepaid_gas / 64;
 
         let runtime = Runtime::new();
