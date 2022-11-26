@@ -68,7 +68,7 @@ fn default_outbound_disabled() -> bool {
 }
 /// qps of maximal rate at which SyncAccountsData can be broadcasted.
 fn default_accounts_data_broadcast_rate_limit_qps() -> f64 {
-    0.5
+    0.1
 }
 /// burst of maximal rate at which SyncAccountsData can be broadcasted.
 fn default_accounts_data_broadcast_rate_limit_burst() -> u64 {
@@ -76,7 +76,7 @@ fn default_accounts_data_broadcast_rate_limit_burst() -> u64 {
 }
 /// qps of maximal rate at which RoutingTableUpdate can be sent out.
 fn default_routing_table_update_rate_limit_qps() -> f64 {
-    0.5
+    1.
 }
 /// burst of maximal rate at which RoutingTableUpdate can be sent out.
 fn default_routing_table_update_rate_limit_burst() -> u64 {
