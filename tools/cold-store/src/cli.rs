@@ -46,7 +46,6 @@ impl ColdStoreCommand {
             store.get_store(Temperature::Hot),
             &near_config,
         ));
-        // Anything useful in several commands should be initialized before this line
         match self.subcmd {
             SubCommand::Open => check_open(&store),
             SubCommand::Head => print_heads(&store),
@@ -114,7 +113,8 @@ fn copy_next_block(store: &NodeStorage, config: &NearConfig, hot_runtime: &Arc<N
         Temperature::Hot,
         DBCol::BlockHeight,
         &cold_head_height.to_le_bytes(),
-    ).unwrap_or_else(||panic!("No block hash in hot storage for height {}", cold_head_height));
+    )
+    .unwrap_or_else(|| panic!("No block hash in hot storage for height {}", cold_head_height));
 
     // For copying block we need to have shard_layout.
     // For that we need epoch_id.
