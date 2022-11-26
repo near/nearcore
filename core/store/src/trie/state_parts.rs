@@ -12,7 +12,7 @@ use crate::trie::{
 };
 use crate::{PartialStorage, StorageError, Trie, TrieChanges};
 use near_primitives::contract::ContractCode;
-use near_primitives::state_record::is_contract_code_key;
+use near_primitives::state_record::{is_contract_code_key, StateRecord};
 
 impl Trie {
     /// Computes the set of trie nodes for a state part.
@@ -34,6 +34,18 @@ impl Trie {
         Ok(trie_nodes)
     }
 
+    fn get_first_item_state_record(&self, nodes_list: &[TrieTraversalItem]) -> Option<StateRecord> {
+        if let Some(item) = nodes_list.get(0) {
+            let TrieTraversalItem { hash, key } = item;
+            if let Some(key) = key {
+                if let Ok(value) = self.storage.retrieve_raw_bytes(&hash) {
+                    return StateRecord::from_raw_key_value(key.clone(), value.to_vec());
+                }
+            }
+        }
+        return None;
+    }
+
     /// Assume we lay out all trie nodes in dfs order visiting children after the parent.
     /// We take all node sizes (memory_usage_direct()) and take all nodes intersecting with
     /// [size_start, size_end) interval, also all nodes necessary to prove it and some
@@ -49,7 +61,9 @@ impl Trie {
         let nodes_list = iterator.visit_nodes_interval(&path_begin, &path_end)?;
         tracing::debug!(
             target: "state_parts",
-            num_nodes = nodes_list.len());
+            num_nodes = nodes_list.len(),
+            first_state_record = ?self.get_first_item_state_record(&nodes_list),
+        );
 
         // Extra nodes for compatibility with the previous version of computing state parts
         if part_id.idx + 1 != part_id.total {
