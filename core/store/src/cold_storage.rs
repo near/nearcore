@@ -22,6 +22,14 @@ struct StoreWithCache<'a> {
     cache: StoreCache,
 }
 
+struct BatchTransaction {
+    transaction: DBTransaction,
+    /// Size of all values keys and values in `transaction` in bytes.
+    size: usize,
+    /// Threshold size, after which write is triggered.
+    max_size: usize,
+}
+
 /// Updates provided cold database from provided hot store with information about block at `height`.
 /// Block as `height` has to be final.
 /// Wraps hot store in `StoreWithCache` for optimizing reads.
@@ -136,6 +144,27 @@ pub fn update_cold_head<D: Database>(
     return Ok(());
 }
 
+/// Copies all contents of all cold columns from `hot_store` to `cold_db`.
+/// Does it column by column, and because columns can be huge, writes in batches.
+/// Threshold batch size is specified by `max_batch_size`.
+pub fn copy_all_data_to_cold<D: Database>(
+    cold_db: &ColdDB<D>,
+    hot_store: &Store,
+    max_batch_size: usize,
+) -> io::Result<()> {
+    for col in DBCol::iter() {
+        if col.is_cold() {
+            let mut transaction = BatchTransaction::new(max_batch_size);
+            for result in hot_store.iter(col) {
+                let (key, value) = result?;
+                transaction.set(cold_db, col, key.to_vec(), value.to_vec())?;
+            }
+            transaction.write(cold_db)?;
+        }
+    }
+    Ok(())
+}
+
 pub fn test_cold_genesis_update<D: Database>(
     cold_db: &ColdDB<D>,
     hot_store: &Store,
@@ -156,6 +185,10 @@ pub fn test_cold_genesis_update<D: Database>(
 
 pub fn test_get_store_reads(column: DBCol) -> u64 {
     crate::metrics::COLD_MIGRATION_READS.with_label_values(&[<&str>::from(column)]).get()
+}
+
+pub fn test_get_store_initial_writes(column: DBCol) -> u64 {
+    crate::metrics::COLD_MIGRATION_INITIAL_WRITES.with_label_values(&[<&str>::from(column)]).get()
 }
 
 /// Returns HashMap from DBKeyType to possible keys of that type for provided height.
@@ -393,6 +426,47 @@ impl StoreWithCache<'_> {
             (DBCol::State, join_two_keys(shard_uid_key, op.hash().as_bytes())),
             Some(op.payload().to_vec()),
         );
+    }
+}
+
+impl BatchTransaction {
+    pub fn new(batch_size: usize) -> Self {
+        Self { transaction: DBTransaction::new(), size: 0, max_size: batch_size }
+    }
+
+    /// Adds a set DBOp to `self.transaction`. Updates `self.size`.
+    /// If `self.size` becomes too big, calls for write.
+    pub fn set<D: Database>(
+        &mut self,
+        cold_db: &ColdDB<D>,
+        col: DBCol,
+        key: Vec<u8>,
+        value: Vec<u8>,
+    ) -> io::Result<()> {
+        self.size += key.len() + value.len();
+        self.transaction.set(col, key, value);
+
+        if self.size > self.max_size {
+            self.write(cold_db)?;
+        }
+        Ok(())
+    }
+
+    /// Writes `self.transaction` and replaces it with new empty DBTransaction.
+    /// Sets `self.size` to 0.
+    pub fn write<D: Database>(&mut self, cold_db: &ColdDB<D>) -> io::Result<()> {
+        if !self.transaction.ops.is_empty() {
+            let _span = tracing::debug_span!(target: "store", "write of initial cold db transaction", size=self.size, batch_size=self.max_size);
+
+            crate::metrics::COLD_MIGRATION_INITIAL_WRITES
+                .with_label_values(&[<&str>::from(self.transaction.ops[0].col())])
+                .inc();
+
+            cold_db.write(std::mem::replace(&mut self.transaction, DBTransaction::new()))?;
+
+            self.size = 0;
+        }
+        Ok(())
     }
 }
 
