@@ -208,8 +208,9 @@ impl fmt::Debug for OutboundHandshakePermit {
 impl Drop for OutboundHandshakePermit {
     fn drop(&mut self) {
         if let Some(pool) = self.1.upgrade() {
-            pool.update(|pool| {
+            pool.update(|mut pool| {
                 pool.outbound_handshakes.remove(&self.0);
+                ((), pool)
             });
         }
     }
@@ -242,7 +243,7 @@ impl Pool {
     }
 
     pub fn insert_ready(&self, peer: Arc<Connection>) -> Result<(), PoolError> {
-        self.0.update(move |pool| {
+        self.0.try_update(move |mut pool| {
             let id = &peer.peer_info.id;
             if id == &pool.me {
                 return Err(PoolError::LoopConnection);
@@ -270,12 +271,12 @@ impl Pool {
                 }
             }
             pool.ready.insert(id.clone(), peer);
-            Ok(())
+            Ok(((),pool))
         })
     }
 
     pub fn start_outbound(&self, peer_id: PeerId) -> Result<OutboundHandshakePermit, PoolError> {
-        self.0.update(move |pool| {
+        self.0.try_update(move |mut pool| {
             if peer_id == pool.me {
                 return Err(PoolError::LoopConnection);
             }
@@ -286,13 +287,14 @@ impl Pool {
                 return Err(PoolError::AlreadyStartedConnecting);
             }
             pool.outbound_handshakes.insert(peer_id.clone());
-            Ok(OutboundHandshakePermit(peer_id, Arc::downgrade(&self.0)))
+            Ok((OutboundHandshakePermit(peer_id, Arc::downgrade(&self.0)), pool))
         })
     }
 
     pub fn remove(&self, peer_id: &PeerId) {
-        self.0.update(|pool| {
+        self.0.update(|mut pool| {
             pool.ready.remove(peer_id);
+            ((), pool)
         });
     }
     /// Update the edge in the pool (if it is newer).
@@ -300,10 +302,12 @@ impl Pool {
         let pool = self.load();
         let Some(other) = new_edge.other(&pool.me) else { return };
         let Some(conn) = pool.ready.get(other) else { return };
-        conn.edge.update(|e| {
-            if e.nonce() < new_edge.nonce() {
-                *e = new_edge.clone();
+        // Returns an error if the current edge is not older than new_edge.
+        let _ = conn.edge.try_update(|e| {
+            if e.nonce() >= new_edge.nonce() {
+                return Err(());
             }
+            Ok(((), new_edge.clone()))
         });
     }
 
