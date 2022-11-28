@@ -1223,23 +1223,21 @@ impl<'a> VMLogic<'a> {
     /// pay for the content transmitted through the dependency upon the actual creation of the
     /// DataReceipt.
     fn pay_gas_for_new_receipt(&mut self, sir: bool, data_dependencies: &[bool]) -> Result<()> {
-        self.pay_action_base(ActionCosts::new_action_receipt, sir)?;
-        let mut burn_gas = 0u64;
+        let fees_config_cfg = &self.fees_config;
+        let mut burn_gas = fees_config_cfg.fee(ActionCosts::new_action_receipt).send_fee(sir);
+        let mut use_gas = fees_config_cfg.fee(ActionCosts::new_action_receipt).exec_fee();
         for dep in data_dependencies {
             // Both creation and execution for data receipts are considered burnt gas.
             burn_gas = burn_gas
-                .checked_add(
-                    self.fees_config.fee(ActionCosts::new_data_receipt_base).send_fee(*dep),
-                )
+                .checked_add(fees_config_cfg.fee(ActionCosts::new_data_receipt_base).send_fee(*dep))
                 .ok_or(HostError::IntegerOverflow)?
-                .checked_add(self.fees_config.fee(ActionCosts::new_data_receipt_base).exec_fee())
+                .checked_add(fees_config_cfg.fee(ActionCosts::new_data_receipt_base).exec_fee())
                 .ok_or(HostError::IntegerOverflow)?;
         }
-        self.gas_counter.pay_action_accumulated(
-            burn_gas,
-            burn_gas,
-            ActionCosts::new_data_receipt_base,
-        )
+        use_gas = use_gas.checked_add(burn_gas).ok_or(HostError::IntegerOverflow)?;
+        // This should go to `new_data_receipt_base` and `new_action_receipt` in parts.
+        // But we have to keep charing these two together unless we make a protocol change.
+        self.gas_counter.pay_action_accumulated(burn_gas, use_gas, ActionCosts::new_action_receipt)
     }
 
     /// A helper function to subtract balance on transfer or attached deposit for promises.

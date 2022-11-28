@@ -1,4 +1,5 @@
 use crate::accounts_data;
+use crate::concurrency::arc_mutex::ArcMutex;
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
 use crate::concurrency::rate;
@@ -631,7 +632,7 @@ impl PeerActor {
             tier,
             addr: ctx.address(),
             peer_info: peer_info.clone(),
-            edge: AtomicCell::new(edge),
+            edge: ArcMutex::new(edge),
             owned_account: handshake.owned_account.clone(),
             genesis_id: handshake.sender_chain_info.genesis_id.clone(),
             tracked_shards: handshake.sender_chain_info.tracked_shards.clone(),
@@ -790,7 +791,7 @@ impl PeerActor {
 
                         act.network_state.config.event_sink.push(Event::HandshakeCompleted(HandshakeCompletedEvent{
                             stream_id: act.stream_id,
-                            edge: conn.edge.load(),
+                            edge: conn.edge.load().as_ref().clone(),
                             tier: conn.tier,
                         }));
                     },
