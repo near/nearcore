@@ -3610,6 +3610,7 @@ dependencies = [
  "borsh",
  "byteorder",
  "ed25519-dalek",
+ "expect-test",
  "hex",
  "near-account-id",
  "near-crypto",

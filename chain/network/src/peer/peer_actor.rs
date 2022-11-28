@@ -1,4 +1,5 @@
 use crate::accounts_data;
+use crate::concurrency::arc_mutex::ArcMutex;
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
 use crate::network_protocol::{
@@ -157,20 +158,8 @@ impl PeerActor {
         force_encoding: Option<Encoding>,
         network_state: Arc<NetworkState>,
     ) -> anyhow::Result<actix::Addr<Self>> {
-        Self::spawn_with_nonce(clock, stream, force_encoding, network_state, None)
-    }
-
-    /// Span peer actor, and make it establish a connection with a given nonce.
-    /// Used mostly for tests.
-    pub(crate) fn spawn_with_nonce(
-        clock: time::Clock,
-        stream: tcp::Stream,
-        force_encoding: Option<Encoding>,
-        network_state: Arc<NetworkState>,
-        nonce: Option<u64>,
-    ) -> anyhow::Result<actix::Addr<Self>> {
         let stream_id = stream.id();
-        match Self::spawn_inner(clock, stream, force_encoding, network_state.clone(), nonce) {
+        match Self::spawn_inner(clock, stream, force_encoding, network_state.clone()) {
             Ok(it) => Ok(it),
             Err(reason) => {
                 network_state.config.event_sink.push(Event::ConnectionClosed(
@@ -186,7 +175,6 @@ impl PeerActor {
         stream: tcp::Stream,
         force_encoding: Option<Encoding>,
         network_state: Arc<NetworkState>,
-        nonce: Option<u64>,
     ) -> Result<actix::Addr<Self>, ClosingReason> {
         let connecting_status = match &stream.type_ {
             tcp::StreamType::Inbound => ConnectingStatus::Inbound(
@@ -202,7 +190,7 @@ impl PeerActor {
                     .start_outbound(peer_id.clone())
                     .map_err(ClosingReason::OutboundNotAllowed)?,
                 handshake_spec: HandshakeSpec {
-                    partial_edge_info: network_state.propose_edge(&clock, peer_id, nonce),
+                    partial_edge_info: network_state.propose_edge(&clock, peer_id, None),
                     protocol_version: PROTOCOL_VERSION,
                     peer_id: peer_id.clone(),
                 },
@@ -347,7 +335,7 @@ impl PeerActor {
             },
             partial_edge_info: spec.partial_edge_info,
         };
-        let msg = PeerMessage::Handshake(handshake);
+        let msg = PeerMessage::Tier2Handshake(handshake);
         self.send_message_or_log(&msg);
     }
 
@@ -513,7 +501,7 @@ impl PeerActor {
         let conn = Arc::new(connection::Connection {
             addr: ctx.address(),
             peer_info: peer_info.clone(),
-            edge: AtomicCell::new(edge),
+            edge: ArcMutex::new(edge),
             genesis_id: handshake.sender_chain_info.genesis_id.clone(),
             tracked_shards: handshake.sender_chain_info.tracked_shards.clone(),
             archival: handshake.sender_chain_info.archival,
@@ -605,10 +593,6 @@ impl PeerActor {
                                 incremental: false,
                                 requesting_full_sync: true,
                             }));
-                            // Only broadcast the new edge from the outbound endpoint.
-                            act.network_state.tier2.broadcast_message(Arc::new(PeerMessage::SyncRoutingTable(
-                                RoutingTableUpdate::from_edges(vec![conn.edge.load()]),
-                            )));
                         }
 
                         // Exchange peers periodically.
@@ -673,7 +657,7 @@ impl PeerActor {
                         act.sync_routing_table();
                         act.network_state.config.event_sink.push(Event::HandshakeCompleted(HandshakeCompletedEvent{
                             stream_id: act.stream_id,
-                            edge: conn.edge.load(),
+                            edge: conn.edge.load().as_ref().clone(),
                         }));
                     },
                     Err(err) => {
@@ -781,7 +765,7 @@ impl PeerActor {
                     actix::fut::ready(())
                 }));
             }
-            (PeerStatus::Connecting { .. }, PeerMessage::Handshake(msg)) => {
+            (PeerStatus::Connecting { .. }, PeerMessage::Tier2Handshake(msg)) => {
                 self.process_handshake(ctx, msg)
             }
             (_, msg) => {
@@ -962,7 +946,7 @@ impl PeerActor {
                 tracing::debug!(target: "network", "Disconnect signal. Me: {:?} Peer: {:?}", self.my_node_info.id, self.other_peer_id());
                 self.stop(ctx, ClosingReason::DisconnectMessage);
             }
-            PeerMessage::Handshake(_) => {
+            PeerMessage::Tier2Handshake(_) => {
                 // Received handshake after already have seen handshake from this peer.
                 tracing::debug!(target: "network", "Duplicate handshake from {}", self.peer_info);
             }
@@ -1302,6 +1286,7 @@ impl actix::Handler<stream::Frame> for PeerActor {
                 if let Some(&t) = self.routed_message_cache.get(&key) {
                     if now <= t + DROP_DUPLICATED_MESSAGES_PERIOD {
                         tracing::debug!(target: "network", "Dropping duplicated message from {} to {:?}", msg.author, msg.target);
+                        self.network_state.config.event_sink.push(Event::RoutedMessageDropped);
                         return;
                     }
                 }
