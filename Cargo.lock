@@ -3532,6 +3532,7 @@ dependencies = [
  "near-jsonrpc",
  "near-network",
  "near-o11y",
+ "near-ping",
  "near-primitives",
  "once_cell",
  "tokio",
