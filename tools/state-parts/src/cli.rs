@@ -6,7 +6,7 @@ use std::str::FromStr;
 
 #[derive(Parser)]
 pub struct StatePartsCommand {
-    /// block_hash defining the epoch, state of which we are requesting.
+    /// The hash of the first block of an epoch of which we are requesting state.
     #[clap(long)]
     block_hash: CryptoHash,
 
