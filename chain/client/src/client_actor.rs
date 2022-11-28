@@ -71,7 +71,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
-use tokio::sync::mpsc;
+use tokio::sync::oneshot;
 use tracing::{debug, error, info, trace, warn};
 
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.
@@ -118,7 +118,7 @@ pub struct ClientActor {
 
     /// Synchronization measure to allow graceful shutdown.
     /// Informs the system when a ClientActor gets dropped.
-    shutdown_signal: Option<mpsc::Sender<()>>,
+    shutdown_signal: Option<oneshot::Sender<()>>,
 }
 
 /// Blocks the program until given genesis time arrives.
@@ -154,7 +154,7 @@ impl ClientActor {
         enable_doomslug: bool,
         rng_seed: RngSeed,
         ctx: &Context<ClientActor>,
-        shutdown_signal: Option<mpsc::Sender<()>>,
+        shutdown_signal: Option<oneshot::Sender<()>>,
         adv: crate::adversarial::Controls,
     ) -> Result<Self, Error> {
         let state_parts_arbiter = Arbiter::new();
@@ -1999,7 +1999,7 @@ pub fn start_client(
     network_adapter: Arc<dyn PeerManagerAdapter>,
     validator_signer: Option<Arc<dyn ValidatorSigner>>,
     telemetry_actor: Addr<TelemetryActor>,
-    sender: Option<mpsc::Sender<()>>,
+    sender: Option<oneshot::Sender<()>>,
     adv: crate::adversarial::Controls,
 ) -> (Addr<ClientActor>, ArbiterHandle) {
     let client_arbiter = Arbiter::new();
