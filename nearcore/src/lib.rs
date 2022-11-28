@@ -11,14 +11,13 @@ use near_network::time;
 use near_network::types::NetworkRecipient;
 use near_network::PeerManagerActor;
 use near_primitives::block::GenesisId;
-use near_primitives::validator_signer::ValidatorSigner;
 #[cfg(feature = "performance_stats")]
 use near_rust_allocator_proxy::reset_memory_usage_max;
 use near_store::{DBCol, Mode, NodeStorage, StoreOpenerError, Temperature};
 use near_telemetry::TelemetryActor;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tokio::sync::mpsc;
+use tokio::sync::oneshot;
 use tracing::{info, trace};
 
 pub mod append_only_map;
@@ -148,69 +147,11 @@ fn open_storage(home_dir: &Path, near_config: &mut NearConfig) -> anyhow::Result
     Ok(storage)
 }
 
-pub struct NearNode<'a> {
-    pub home_dir: &'a Path,
-    pub config_snapshot: NearConfig,
-    pub storage: Arc<dyn near_store::db::Database>,
-    pub runtime: Arc<runtime::NightshadeRuntime>,
+pub struct NearNode {
     pub client: Addr<ClientActor>,
     pub view_client: Addr<ViewClientActor>,
     pub arbiters: Vec<ArbiterHandle>,
-    pub rpc_servers: Option<Vec<(&'static str, actix_web::dev::ServerHandle)>>,
-    pub shutdown_signal: Option<mpsc::Sender<()>>,
-}
-
-impl<'a> NearNode<'a> {
-    pub fn update_signer(
-        &mut self,
-        new_signer: Option<Arc<dyn ValidatorSigner>>,
-    ) -> anyhow::Result<()> {
-        self.config_snapshot.validator_signer = new_signer;
-        let runtime = Arc::new(NightshadeRuntime::from_config(
-            self.home_dir,
-            near_store::Store { storage: self.storage.clone() },
-            &self.config_snapshot,
-        ));
-        let chain_genesis = ChainGenesis::new(&self.config_snapshot.genesis);
-        let node_id = self.config_snapshot.network_config.node_id();
-        let network_adapter: Arc<NetworkRecipient<Addr<PeerManagerActor>>> =
-            Arc::new(NetworkRecipient::default());
-        let adv =
-            near_client::adversarial::Controls::new(self.config_snapshot.client_config.archive);
-
-        let view_client = start_view_client(
-            self.config_snapshot
-                .validator_signer
-                .as_ref()
-                .map(|signer| signer.validator_id().clone()),
-            chain_genesis.clone(),
-            runtime.clone(),
-            network_adapter.clone(),
-            self.config_snapshot.client_config.clone(),
-            adv.clone(),
-        );
-        let (client_actor, client_arbiter_handle) = start_client(
-            self.config_snapshot.client_config.clone(),
-            chain_genesis,
-            runtime.clone(),
-            node_id,
-            network_adapter.clone(),
-            self.config_snapshot.validator_signer.clone(),
-            TelemetryActor::new(self.config_snapshot.telemetry_config.clone()).start(),
-            self.shutdown_signal.clone(),
-            adv,
-        );
-
-        self.view_client = view_client;
-        self.client = client_actor;
-        self.arbiters = vec![client_arbiter_handle];
-
-        // TODO: update clients for rpc_servers will implement later on
-
-        trace!(target: "diagnostic", key="log", "Reload NEAR validator signer");
-
-        Ok(())
-    }
+    pub rpc_servers: Vec<(&'static str, actix_web::dev::ServerHandle)>,
 }
 
 pub fn start_with_config(home_dir: &Path, config: NearConfig) -> anyhow::Result<NearNode> {
@@ -222,14 +163,13 @@ pub fn start_with_config_and_synchronization(
     mut config: NearConfig,
     // 'shutdown_signal' will notify the corresponding `oneshot::Receiver` when an instance of
     // `ClientActor` gets dropped.
-    shutdown_signal: Option<mpsc::Sender<()>>,
+    shutdown_signal: Option<oneshot::Sender<()>>,
 ) -> anyhow::Result<NearNode> {
-    let config_snapshot = config.clone();
-    let storage = open_storage(home_dir, &mut config)?;
+    let store = open_storage(home_dir, &mut config)?;
 
     let runtime = Arc::new(NightshadeRuntime::from_config(
         home_dir,
-        storage.get_store(Temperature::Hot),
+        store.get_store(Temperature::Hot),
         &config,
     ));
 
@@ -256,21 +196,20 @@ pub fn start_with_config_and_synchronization(
     let (client_actor, client_arbiter_handle) = start_client(
         config.client_config,
         chain_genesis,
-        runtime.clone(),
+        runtime,
         node_id,
         network_adapter.clone(),
         config.validator_signer,
         telemetry,
-        shutdown_signal.clone(),
+        shutdown_signal,
         adv,
     );
-    let storage = storage.into_inner(near_store::Temperature::Hot);
 
     #[allow(unused_mut)]
     let mut rpc_servers = Vec::new();
     let network_actor = PeerManagerActor::spawn(
         time::Clock::real(),
-        storage.clone(),
+        store.into_inner(near_store::Temperature::Hot),
         config.network_config,
         Arc::new(near_client::adapter::Adapter::new(client_actor.clone(), view_client.clone())),
         genesis_id,
@@ -312,15 +251,10 @@ pub fn start_with_config_and_synchronization(
     reset_memory_usage_max();
 
     Ok(NearNode {
-        home_dir,
-        storage,
-        runtime,
-        config_snapshot,
         client: client_actor,
         view_client,
-        rpc_servers: Some(rpc_servers),
+        rpc_servers,
         arbiters: vec![client_arbiter_handle],
-        shutdown_signal,
     })
 }
 

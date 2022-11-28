@@ -93,7 +93,7 @@ pub struct NodeStorage<D = crate::db::RocksDB> {
 /// data.
 #[derive(Clone)]
 pub struct Store {
-    pub storage: Arc<dyn Database>,
+    storage: Arc<dyn Database>,
 }
 
 // Those are temporary.  While cold_store feature is stabilised, remove those

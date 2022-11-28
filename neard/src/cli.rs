@@ -28,7 +28,8 @@ use std::fs::File;
 use std::io::BufReader;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use tokio::sync::mpsc;
+use tokio::sync::oneshot;
+use tokio::sync::oneshot::Receiver;
 use tracing::{debug, error, info, warn};
 
 /// NEAR Protocol Node
@@ -447,6 +448,7 @@ impl RunCmd {
             }
         }
 
+        let (tx, rx) = oneshot::channel::<()>();
         let sys = actix::System::new();
 
         sys.block_on(async move {
@@ -465,9 +467,17 @@ impl RunCmd {
             .await
             .global();
 
-            let sig = wait_for_interrupt_signal(home_dir, near_config).await;
-            warn!(target: "neard", "{}, stopping... this may take a few minutes.", sig);
+            let nearcore::NearNode { rpc_servers, .. } =
+                nearcore::start_with_config_and_synchronization(home_dir, near_config, Some(tx))
+                    .expect("start_with_config");
 
+            let sig = wait_for_interrupt_signal(home_dir, rx).await;
+            warn!(target: "neard", "{}, stopping... this may take a few minutes.", sig);
+            futures::future::join_all(rpc_servers.iter().map(|(name, server)| async move {
+                server.stop(true).await;
+                debug!(target: "neard", "{} server stopped", name);
+            }))
+            .await;
             actix::System::current().stop();
 
             // Disable the subscriber to properly shutdown the tracer.
@@ -480,19 +490,9 @@ impl RunCmd {
 }
 
 #[cfg(not(unix))]
-async fn wait_for_interrupt_signal(_home_dir: &Path, near_config: nearcore::NearConfig) -> &str {
-    let nearcore::NearNode { rpc_servers, .. } =
-        nearcore::start_with_config_and_synchronization(home_dir, near_config, Some(tx))
-            .expect("start_with_config");
-
+async fn wait_for_interrupt_signal(_home_dir: &Path, mut _rx_crash: Receiver<()>) -> &str {
     // TODO(#6372): Support graceful shutdown on windows.
     tokio::signal::ctrl_c().await.unwrap();
-
-    futures::future::join_all(rpc_servers.iter().map(|(name, server)| async move {
-        server.stop(true).await;
-        debug!(target: "neard", "{} server stopped", name);
-    }))
-    .await;
     "Ctrl+C"
 }
 
@@ -503,14 +503,7 @@ fn update_watchers(home_dir: &Path, behavior: UpdateBehavior) {
 }
 
 #[cfg(unix)]
-async fn wait_for_interrupt_signal(home_dir: &Path, near_config: nearcore::NearConfig) -> &str {
-    let (tx, mut rx_crash) = mpsc::channel::<()>(1);
-
-    let mut near_node =
-        nearcore::start_with_config_and_synchronization(home_dir, near_config, Some(tx.clone()))
-            .expect("start_with_config");
-    let rpc_servers = near_node.rpc_servers.take();
-
+async fn wait_for_interrupt_signal(home_dir: &Path, mut rx_crash: Receiver<()>) -> &str {
     // Apply all watcher config file if it exists.
     update_watchers(&home_dir, UpdateBehavior::UpdateOnlyIfExists);
 
@@ -519,35 +512,17 @@ async fn wait_for_interrupt_signal(home_dir: &Path, near_config: nearcore::NearC
     let mut sigterm = signal(SignalKind::terminate()).unwrap();
     let mut sighup = signal(SignalKind::hangup()).unwrap();
 
-    let output = loop {
+    loop {
         break tokio::select! {
              _ = sigint.recv()  => "SIGINT",
              _ = sigterm.recv() => "SIGTERM",
              _ = sighup.recv() => {
                 update_watchers(&home_dir, UpdateBehavior::UpdateOrReset);
-
-                // Key reload may be triggered by modifing config.json, or other possibles
-                // current impl is POC and rely on SIGHUP
-                if let Ok(new_config) = nearcore::config::load_config(&home_dir, GenesisValidationMode::Full) {
-                    let new_signer = new_config.validator_signer;
-                    near_node.update_signer(new_signer).unwrap_or_else(|e| panic!("Reload new signer fail: {:#}", e));
-                } else {
-                    error!("config is incorrect, could not reload the new config");
-                }
-
                 continue;
              },
-             _ = rx_crash.recv() => "ClientActor died",
+             _ = &mut rx_crash => "ClientActor died",
         };
-    };
-    if let Some(rpc_servers) = rpc_servers {
-        futures::future::join_all(rpc_servers.iter().map(|(name, server)| async move {
-            server.stop(true).await;
-            debug!(target: "neard", "{} server stopped", name);
-        }))
-        .await;
     }
-    output
 }
 
 #[derive(Parser)]
