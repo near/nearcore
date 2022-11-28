@@ -16,7 +16,7 @@ use crate::info::{
     display_sync_status, get_validator_epoch_stats, InfoHelper, ValidatorInfoHelper,
 };
 use crate::metrics::PARTIAL_ENCODED_CHUNK_RESPONSE_DELAY;
-use crate::sync::{StateSync, StateSyncResult};
+use crate::sync::state::{StateSync, StateSyncResult};
 use crate::{metrics, StatusResponse};
 use actix::dev::SendError;
 use actix::{Actor, Addr, Arbiter, AsyncContext, Context, Handler, Message};

@@ -1,9 +1,7 @@
 use crate::concurrency::arc_mutex::ArcMutex;
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
-use crate::network_protocol::{
-    Edge, PeerInfo, PeerMessage, RoutingTableUpdate, SignedAccountData, SyncAccountsData,
-};
+use crate::network_protocol::{Edge, PeerInfo, PeerMessage, SignedAccountData, SyncAccountsData};
 use crate::peer::peer_actor;
 use crate::peer::peer_actor::PeerActor;
 use crate::private_actix::SendMessage;
@@ -48,7 +46,7 @@ pub(crate) struct Connection {
     pub addr: actix::Addr<PeerActor>,
 
     pub peer_info: PeerInfo,
-    pub edge: Edge,
+    pub edge: ArcMutex<Edge>,
     /// Chain Id and hash of genesis block.
     pub genesis_id: GenesisId,
     /// Shards that the peer is tracking.
@@ -73,14 +71,13 @@ pub(crate) struct Connection {
 
     /// A helper data structure for limiting reading, reporting stats.
     pub send_accounts_data_demux: demux::Demux<Vec<Arc<SignedAccountData>>, ()>,
-    pub send_routing_table_update_demux: demux::Demux<Arc<RoutingTableUpdate>, ()>,
 }
 
 impl fmt::Debug for Connection {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Connection")
             .field("peer_info", &self.peer_info)
-            .field("edge", &self.edge)
+            .field("edge", &self.edge.load())
             .field("peer_type", &self.peer_type)
             .field("connection_established_time", &self.connection_established_time)
             .finish()
@@ -110,41 +107,6 @@ impl Connection {
         self.addr.do_send(SendMessage { message: msg }.with_span_context());
     }
 
-    async fn send_routing_table_update_inner(
-        self: Arc<Self>,
-        rtus: Vec<Arc<RoutingTableUpdate>>,
-    ) -> Vec<()> {
-        self.send_message(Arc::new(PeerMessage::SyncRoutingTable(RoutingTableUpdate {
-            edges: Edge::deduplicate(
-                rtus.iter().map(|rtu| rtu.edges.iter()).flatten().cloned().collect(),
-            ),
-            accounts: rtus.iter().flat_map(|rtu| rtu.accounts.iter()).cloned().collect(),
-        })));
-        rtus.iter().map(|_| ()).collect()
-    }
-
-    pub fn send_routing_table_update(
-        self: &Arc<Self>,
-        rtu: Arc<RoutingTableUpdate>,
-    ) -> impl Future<Output = ()> {
-        let this = self.clone();
-        async move {
-            let res = this
-                .send_routing_table_update_demux
-                .call(rtu, {
-                    let this = this.clone();
-                    move |rtus| this.send_routing_table_update_inner(rtus)
-                })
-                .await;
-            if res.is_err() {
-                tracing::info!(
-                    "peer {} disconnected, while sending SyncRoutingTable",
-                    this.peer_info.id
-                );
-            }
-        }
-    }
-
     pub fn send_accounts_data(
         self: &Arc<Self>,
         data: Vec<Arc<SignedAccountData>>,
@@ -159,9 +121,9 @@ impl Connection {
                         let res = ds.iter().map(|_| ()).collect();
                         let mut sum = HashMap::<_, Arc<SignedAccountData>>::new();
                         for d in ds.into_iter().flatten() {
-                            match sum.entry((d.epoch_id.clone(), d.account_id.clone())) {
+                            match sum.entry(d.account_key.clone()) {
                                 Entry::Occupied(mut x) => {
-                                    if x.get().timestamp < d.timestamp {
+                                    if x.get().version < d.version {
                                         x.insert(d);
                                     }
                                 }
@@ -246,8 +208,9 @@ impl fmt::Debug for OutboundHandshakePermit {
 impl Drop for OutboundHandshakePermit {
     fn drop(&mut self) {
         if let Some(pool) = self.1.upgrade() {
-            pool.update(|pool| {
+            pool.update(|mut pool| {
                 pool.outbound_handshakes.remove(&self.0);
+                ((), pool)
             });
         }
     }
@@ -280,7 +243,7 @@ impl Pool {
     }
 
     pub fn insert_ready(&self, peer: Arc<Connection>) -> Result<(), PoolError> {
-        self.0.update(move |pool| {
+        self.0.try_update(move |mut pool| {
             let id = &peer.peer_info.id;
             if id == &pool.me {
                 return Err(PoolError::LoopConnection);
@@ -308,12 +271,12 @@ impl Pool {
                 }
             }
             pool.ready.insert(id.clone(), peer);
-            Ok(())
+            Ok(((),pool))
         })
     }
 
     pub fn start_outbound(&self, peer_id: PeerId) -> Result<OutboundHandshakePermit, PoolError> {
-        self.0.update(move |pool| {
+        self.0.try_update(move |mut pool| {
             if peer_id == pool.me {
                 return Err(PoolError::LoopConnection);
             }
@@ -324,13 +287,27 @@ impl Pool {
                 return Err(PoolError::AlreadyStartedConnecting);
             }
             pool.outbound_handshakes.insert(peer_id.clone());
-            Ok(OutboundHandshakePermit(peer_id, Arc::downgrade(&self.0)))
+            Ok((OutboundHandshakePermit(peer_id, Arc::downgrade(&self.0)), pool))
         })
     }
 
     pub fn remove(&self, peer_id: &PeerId) {
-        self.0.update(|pool| {
+        self.0.update(|mut pool| {
             pool.ready.remove(peer_id);
+            ((), pool)
+        });
+    }
+    /// Update the edge in the pool (if it is newer).
+    pub fn update_edge(&self, new_edge: &Edge) {
+        let pool = self.load();
+        let Some(other) = new_edge.other(&pool.me) else { return };
+        let Some(conn) = pool.ready.get(other) else { return };
+        // Returns an error if the current edge is not older than new_edge.
+        let _ = conn.edge.try_update(|e| {
+            if e.nonce() >= new_edge.nonce() {
+                return Err(());
+            }
+            Ok(((), new_edge.clone()))
         });
     }
 

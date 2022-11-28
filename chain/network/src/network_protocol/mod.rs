@@ -37,7 +37,7 @@ use near_primitives::sharding::{
 };
 use near_primitives::syncing::{ShardStateSyncResponse, ShardStateSyncResponseV1};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, EpochId};
+use near_primitives::types::AccountId;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::views::FinalExecutionOutcomeView;
@@ -92,9 +92,10 @@ impl std::str::FromStr for PeerAddr {
 
 #[derive(PartialEq, Eq, Debug, Hash)]
 pub struct AccountData {
-    pub peers: Vec<PeerAddr>,
-    pub account_id: AccountId,
-    pub epoch_id: EpochId,
+    pub peer_id: PeerId,
+    pub proxies: Vec<PeerAddr>,
+    pub account_key: PublicKey,
+    pub version: u64,
     pub timestamp: time::Utc,
 }
 
@@ -115,9 +116,9 @@ impl AccountData {
     /// consistute a cleaner never-panicking interface.
     pub fn sign(self, signer: &dyn ValidatorSigner) -> anyhow::Result<SignedAccountData> {
         assert_eq!(
-            &self.account_id,
-            signer.validator_id(),
-            "AccountData.account_id doesn't match the signer's account_id"
+            self.account_key,
+            signer.public_key(),
+            "AccountData.account_key doesn't match the signer's account_key"
         );
         let payload = proto::AccountKeyPayload::from(&self).write_to_bytes().unwrap();
         if payload.len() > MAX_ACCOUNT_DATA_SIZE_BYTES {
@@ -135,7 +136,7 @@ impl AccountData {
     }
 }
 
-#[derive(PartialEq, Eq, Debug, Hash)]
+#[derive(Clone, PartialEq, Eq, Debug, Hash)]
 pub struct AccountKeySignedPayload {
     payload: Vec<u8>,
     signature: near_crypto::Signature,
@@ -235,7 +236,8 @@ pub struct SyncAccountsData {
 #[derive(PartialEq, Eq, Clone, Debug, strum::IntoStaticStr, strum::EnumVariantNames)]
 #[allow(clippy::large_enum_variant)]
 pub enum PeerMessage {
-    Handshake(Handshake),
+    Tier1Handshake(Handshake),
+    Tier2Handshake(Handshake),
     HandshakeFailure(PeerInfo, HandshakeFailureReason),
     /// When a failed nonce is used by some peer, this message is sent back as evidence.
     LastEdge(Edge),

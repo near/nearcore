@@ -5,13 +5,16 @@ use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType};
 use near_o11y::testonly::init_test_logger;
+use near_primitives::block::Tip;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
-use near_store::cold_storage::{test_cold_genesis_update, test_get_store_reads, update_cold_db};
-use near_store::db::TestDB;
-use near_store::{DBCol, NodeStorage, Store, Temperature};
+use near_store::cold_storage::{
+    test_cold_genesis_update, test_get_store_reads, update_cold_db, update_cold_head,
+};
+use near_store::test_utils::create_test_node_storage_with_cold;
+use near_store::{DBCol, Store, Temperature, HEAD_KEY};
 use nearcore::config::GenesisExt;
 use strum::IntoEnumIterator;
 
@@ -56,8 +59,6 @@ fn check_iter(
 fn test_storage_after_commit_of_cold_update() {
     init_test_logger();
 
-    let cold_db = TestDB::new();
-
     let epoch_length = 5;
     let max_height = epoch_length * 4;
 
@@ -70,9 +71,13 @@ fn test_storage_after_commit_of_cold_update() {
         .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
         .build();
 
+    // TODO construct cold_db with appropriate hot storage
+    let store = create_test_node_storage_with_cold();
+
     let mut last_hash = *env.clients[0].chain.genesis().hash();
 
-    test_cold_genesis_update(&*cold_db, &env.clients[0].runtime_adapter.store()).unwrap();
+    test_cold_genesis_update(&*store.cold_db().unwrap(), &env.clients[0].runtime_adapter.store())
+        .unwrap();
 
     let state_reads = test_get_store_reads(DBCol::State);
     let state_changes_reads = test_get_store_reads(DBCol::StateChanges);
@@ -129,7 +134,7 @@ fn test_storage_after_commit_of_cold_update() {
         env.process_block(0, block.clone(), Provenance::PRODUCED);
 
         update_cold_db(
-            &*cold_db,
+            &*store.cold_db().unwrap(),
             &env.clients[0].runtime_adapter.store(),
             &env.clients[0]
                 .runtime_adapter
@@ -152,8 +157,6 @@ fn test_storage_after_commit_of_cold_update() {
     // assert that we don't read StateChanges from db again after iter_prefix
     assert_eq!(state_changes_reads, test_get_store_reads(DBCol::StateChanges));
 
-    let cold_store = NodeStorage::new(cold_db).get_store(Temperature::Hot);
-
     // We still need to filter out one chunk
     let mut no_check_rules: Vec<Box<dyn Fn(DBCol, &Box<[u8]>) -> bool>> = vec![];
     no_check_rules.push(Box::new(move |col, value| -> bool {
@@ -170,7 +173,7 @@ fn test_storage_after_commit_of_cold_update() {
         if col.is_cold() {
             let num_checks = check_iter(
                 &env.clients[0].runtime_adapter.store(),
-                &cold_store,
+                &store.get_store(Temperature::Cold),
                 col,
                 &no_check_rules,
             );
@@ -181,5 +184,41 @@ fn test_storage_after_commit_of_cold_update() {
                     || num_checks > 0
             );
         }
+    }
+}
+
+/// Producing 10 * 5 blocks and updating HEAD of cold storage after each one.
+/// After every update checking that HEAD of cold db and FINAL_HEAD of hot store are equal.
+#[test]
+fn test_cold_db_head_update() {
+    init_test_logger();
+
+    let epoch_length = 5;
+    let max_height = epoch_length * 10;
+
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+
+    genesis.config.epoch_length = epoch_length;
+    let mut chain_genesis = ChainGenesis::test();
+    chain_genesis.epoch_length = epoch_length;
+    let mut env = TestEnv::builder(chain_genesis)
+        .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
+        .build();
+
+    let store = create_test_node_storage_with_cold();
+
+    for h in 1..max_height {
+        env.produce_block(0, h);
+        update_cold_head(&*store.cold_db().unwrap(), &env.clients[0].runtime_adapter.store(), &h)
+            .unwrap();
+
+        assert_eq!(
+            &store.get_store(Temperature::Cold).get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY).unwrap(),
+            &env.clients[0]
+                .runtime_adapter
+                .store()
+                .get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)
+                .unwrap()
+        );
     }
 }

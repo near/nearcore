@@ -1,5 +1,11 @@
+use super::config::{AccountCreationConfig, RuntimeConfig};
+use near_primitives_core::config::VMConfig;
 use near_primitives_core::parameter::{FeeParameter, Parameter};
+use near_primitives_core::runtime::fees::{RuntimeFeesConfig, StorageUsageConfig};
+use num_rational::Rational;
+use serde::de::DeserializeOwned;
 use serde_json::json;
+use std::any::Any;
 use std::collections::BTreeMap;
 
 pub(crate) struct ParameterTable {
@@ -31,6 +37,10 @@ pub(crate) enum InvalidConfigError {
     NoOldValueExists(Parameter, String),
     #[error("expected old value `{1}` but found `{2}` for parameter `{0}` in config diff")]
     WrongOldValue(Parameter, String, String),
+    #[error("expected a value for `{0}` but found none")]
+    MissingParameter(Parameter),
+    #[error("expected a value of type `{2}` for `{1}` but could not parse it from `{3}`")]
+    WrongValueType(#[source] serde_json::Error, Parameter, &'static str, String),
 }
 
 impl std::str::FromStr for ParameterTable {
@@ -46,27 +56,48 @@ impl std::str::FromStr for ParameterTable {
     }
 }
 
-impl ParameterTable {
-    /// Transforms parameters stored in the table into a JSON representation of `RuntimeConfig`.
-    pub(crate) fn runtime_config_json(&self) -> serde_json::Value {
-        let storage_amount_per_byte = self.get(Parameter::StorageAmountPerByte);
-        let transaction_costs = self.transaction_costs_json();
-        json!({
-            "storage_amount_per_byte": storage_amount_per_byte,
-            "transaction_costs": transaction_costs,
-            "wasm_config": {
-                "ext_costs": self.json_map(Parameter::ext_costs(), "wasm_"),
-                "grow_mem_cost": self.get(Parameter::WasmGrowMemCost),
-                "regular_op_cost": self.get(Parameter::WasmRegularOpCost),
-                "limit_config": self.json_map(Parameter::vm_limits(), ""),
+impl TryFrom<&ParameterTable> for RuntimeConfig {
+    type Error = InvalidConfigError;
+
+    fn try_from(params: &ParameterTable) -> Result<Self, Self::Error> {
+        Ok(RuntimeConfig {
+            fees: RuntimeFeesConfig {
+                action_fees: enum_map::enum_map! {
+                    action_cost => params.fee(action_cost)
+                },
+                burnt_gas_reward: Rational::new(
+                    params.get_parsed(Parameter::BurntGasRewardNumerator)?,
+                    params.get_parsed(Parameter::BurntGasRewardDenominator)?,
+                ),
+                pessimistic_gas_price_inflation_ratio: Rational::new(
+                    params.get_parsed(Parameter::PessimisticGasPriceInflationNumerator)?,
+                    params.get_parsed(Parameter::PessimisticGasPriceInflationDenominator)?,
+                ),
+                storage_usage_config: StorageUsageConfig {
+                    storage_amount_per_byte: params.get_u128(Parameter::StorageAmountPerByte)?,
+                    num_bytes_account: params.get_parsed(Parameter::StorageNumBytesAccount)?,
+                    num_extra_bytes_record: params
+                        .get_parsed(Parameter::StorageNumExtraBytesRecord)?,
+                },
             },
-            "account_creation_config": {
-                "min_allowed_top_level_account_length": self.get(Parameter::MinAllowedTopLevelAccountLength),
-                "registrar_account_id": self.get(Parameter::RegistrarAccountId),
-            }
+            wasm_config: VMConfig {
+                ext_costs: serde_json::from_value(params.json_map(Parameter::ext_costs(), "wasm_"))
+                    .map_err(InvalidConfigError::WrongStructure)?,
+                grow_mem_cost: params.get_parsed(Parameter::WasmGrowMemCost)?,
+                regular_op_cost: params.get_parsed(Parameter::WasmRegularOpCost)?,
+                limit_config: serde_json::from_value(params.json_map(Parameter::vm_limits(), ""))
+                    .map_err(InvalidConfigError::WrongStructure)?,
+            },
+            account_creation_config: AccountCreationConfig {
+                min_allowed_top_level_account_length: params
+                    .get_parsed(Parameter::MinAllowedTopLevelAccountLength)?,
+                registrar_account_id: params.get_parsed(Parameter::RegistrarAccountId)?,
+            },
         })
     }
+}
 
+impl ParameterTable {
     pub(crate) fn apply_diff(
         &mut self,
         diff: ParameterTableDiff,
@@ -103,44 +134,6 @@ impl ParameterTable {
         Ok(())
     }
 
-    fn transaction_costs_json(&self) -> serde_json::Value {
-        json!( {
-            "action_receipt_creation_config": self.fee_json(FeeParameter::ActionReceiptCreation),
-            "data_receipt_creation_config": {
-                "base_cost": self.fee_json(FeeParameter::DataReceiptCreationBase),
-                "cost_per_byte": self.fee_json(FeeParameter::DataReceiptCreationPerByte),
-            },
-            "action_creation_config": {
-                "create_account_cost": self.fee_json(FeeParameter::ActionCreateAccount),
-                "deploy_contract_cost": self.fee_json(FeeParameter::ActionDeployContract),
-                "deploy_contract_cost_per_byte": self.fee_json(FeeParameter::ActionDeployContractPerByte),
-                "function_call_cost": self.fee_json(FeeParameter::ActionFunctionCall),
-                "function_call_cost_per_byte": self.fee_json(FeeParameter::ActionFunctionCallPerByte),
-                "transfer_cost": self.fee_json(FeeParameter::ActionTransfer),
-                "stake_cost": self.fee_json(FeeParameter::ActionStake),
-                "add_key_cost": {
-                    "full_access_cost": self.fee_json(FeeParameter::ActionAddFullAccessKey),
-                    "function_call_cost": self.fee_json(FeeParameter::ActionAddFunctionCallKey),
-                    "function_call_cost_per_byte": self.fee_json(FeeParameter::ActionAddFunctionCallKeyPerByte),
-                },
-                "delete_key_cost": self.fee_json(FeeParameter::ActionDeleteKey),
-                "delete_account_cost": self.fee_json(FeeParameter::ActionDeleteAccount),
-            },
-            "storage_usage_config": {
-                "num_bytes_account": self.get(Parameter::StorageNumBytesAccount),
-                "num_extra_bytes_record": self.get(Parameter::StorageNumExtraBytesRecord),
-            },
-            "burnt_gas_reward": [
-                self.get(Parameter::BurntGasRewardNumerator),
-                self.get(Parameter::BurntGasRewardDenominator)
-            ],
-            "pessimistic_gas_price_inflation_ratio": [
-                self.get(Parameter::PessimisticGasPriceInflationNumerator),
-                self.get(Parameter::PessimisticGasPriceInflationDenominator)
-            ]
-        })
-    }
-
     fn json_map(
         &self,
         params: impl Iterator<Item = &'static Parameter>,
@@ -159,6 +152,46 @@ impl ParameterTable {
 
     fn get(&self, key: Parameter) -> Option<&serde_json::Value> {
         self.parameters.get(&key)
+    }
+
+    /// Access action fee by `ActionCosts`.
+    fn fee(
+        &self,
+        cost: near_primitives_core::config::ActionCosts,
+    ) -> near_primitives_core::runtime::fees::Fee {
+        let json = self.fee_json(FeeParameter::from(cost));
+        serde_json::from_value::<near_primitives_core::runtime::fees::Fee>(json)
+            .expect("just constructed a Fee JSON")
+    }
+
+    /// Read and parse a parameter from the `ParameterTable`.
+    fn get_parsed<T: DeserializeOwned + Any>(
+        &self,
+        key: Parameter,
+    ) -> Result<T, InvalidConfigError> {
+        let value = self.parameters.get(&key).ok_or(InvalidConfigError::MissingParameter(key))?;
+        serde_json::from_value(value.clone()).map_err(|parse_err| {
+            InvalidConfigError::WrongValueType(
+                parse_err,
+                key,
+                std::any::type_name::<T>(),
+                value.to_string(),
+            )
+        })
+    }
+
+    /// Read and parse a parameter from the `ParameterTable`.
+    fn get_u128(&self, key: Parameter) -> Result<u128, InvalidConfigError> {
+        let value = self.parameters.get(&key).ok_or(InvalidConfigError::MissingParameter(key))?;
+
+        near_primitives_core::serialize::dec_format::deserialize(value).map_err(|parse_err| {
+            InvalidConfigError::WrongValueType(
+                parse_err,
+                key,
+                std::any::type_name::<u128>(),
+                value.to_string(),
+            )
+        })
     }
 
     fn fee_json(&self, key: FeeParameter) -> serde_json::Value {
