@@ -1,5 +1,5 @@
 mod cli;
-mod log_config_watcher;
+mod watchers;
 
 use self::cli::NeardCmd;
 use anyhow::Context;
@@ -58,6 +58,20 @@ fn main() -> anyhow::Result<()> {
     // (sending telemetry and downloading genesis)
     openssl_probe::init_ssl_cert_env_vars();
     near_performance_metrics::process::schedule_printing_performance_stats(Duration::from_secs(60));
+
+    // The default FD soft limit in linux is 1024.
+    // We use more than that, for example we support up to 1000 TCP
+    // connections, using 5 FDs per each connection.
+    // We consider 65535 to be a reasonable limit for this binary,
+    // and we enforce it here. We also set the hard limit to the same value
+    // to prevent the inner logic from trying to bump it further:
+    // FD limit is a global variable, so it shouldn't be modified in an
+    // uncoordinated way.
+    const FD_LIMIT: u64 = 65535;
+    let (_, hard) = rlimit::Resource::NOFILE.get().context("rlimit::Resource::NOFILE::get()")?;
+    rlimit::Resource::NOFILE.set(FD_LIMIT, FD_LIMIT).context(format!(
+        "couldn't set the file descriptor limit to {FD_LIMIT}, hard limit = {hard}"
+    ))?;
 
     NeardCmd::parse_and_run()
 }

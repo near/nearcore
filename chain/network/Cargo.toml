@@ -3,8 +3,6 @@ name = "near-network"
 version = "0.0.0"
 authors.workspace = true
 edition.workspace = true
-# Please update rust-toolchain.toml as well when changing version here:
-rust-version.workspace = true
 publish = false
 
 [build-dependencies]
@@ -58,6 +56,7 @@ near-store = { path = "../../core/store" }
 criterion.workspace = true
 pretty_assertions.workspace = true
 tempfile.workspace = true
+rlimit.workspace = true
 
 [features]
 delay_detector = ["delay-detector/delay_detector"]
@@ -68,11 +67,3 @@ performance_stats = [
 test_features = []
 
 shardnet = []
-
-[[bench]]
-name = "graph"
-harness = false
-
-[[bench]]
-name = "routing_table_actor"
-harness = false

@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::io::{Cursor, Read};
+use std::io::Read;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use byteorder::{LittleEndian, ReadBytesExt};
@@ -17,12 +17,13 @@ use near_primitives::types::{StateRoot, StateRootNode};
 
 use crate::flat_state::FlatState;
 pub use crate::trie::config::TrieConfig;
+pub(crate) use crate::trie::config::DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT;
 use crate::trie::insert_delete::NodesStorage;
 use crate::trie::iterator::TrieIterator;
 pub use crate::trie::nibble_slice::NibbleSlice;
 pub use crate::trie::prefetching_trie_storage::PrefetchApi;
 pub use crate::trie::shard_tries::{KeyForStateChanges, ShardTries, WrappedTrieChanges};
-pub use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieStorage};
+pub use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieDBStorage, TrieStorage};
 use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieRecordingStorage};
 use crate::StorageError;
 pub use near_primitives::types::TrieNodesCount;
@@ -337,15 +338,15 @@ const BRANCH_NODE_NO_VALUE: u8 = 1;
 const BRANCH_NODE_WITH_VALUE: u8 = 2;
 const EXTENSION_NODE: u8 = 3;
 
-fn decode_children(cursor: &mut Cursor<&[u8]>) -> Result<[Option<CryptoHash>; 16], std::io::Error> {
+fn decode_children(bytes: &mut &[u8]) -> Result<[Option<CryptoHash>; 16], std::io::Error> {
     let mut children: [Option<CryptoHash>; 16] = Default::default();
-    let bitmap = cursor.read_u16::<LittleEndian>()?;
+    let bitmap = bytes.read_u16::<LittleEndian>()?;
     let mut pos = 1;
     for child in &mut children {
         if bitmap & pos != 0 {
             let mut arr = [0; 32];
-            cursor.read_exact(&mut arr)?;
-            *child = Some(CryptoHash::try_from(&arr[..]).unwrap());
+            bytes.read_exact(&mut arr)?;
+            *child = Some(CryptoHash(arr));
         }
         pos <<= 1;
     }
@@ -398,47 +399,44 @@ impl RawTrieNode {
         }
     }
 
-    #[cfg(test)]
-    fn encode(&self) -> Vec<u8> {
-        let mut out = Vec::new();
-        self.encode_into(&mut out);
-        out
-    }
-
-    fn decode(bytes: &[u8]) -> Result<Self, std::io::Error> {
-        let mut cursor = Cursor::new(bytes);
-        match cursor.read_u8()? {
+    fn decode(mut bytes: &[u8]) -> Result<Self, std::io::Error> {
+        let node = match bytes.read_u8()? {
             LEAF_NODE => {
-                let key_length = cursor.read_u32::<LittleEndian>()?;
+                let key_length = bytes.read_u32::<LittleEndian>()?;
                 let mut key = vec![0; key_length as usize];
-                cursor.read_exact(&mut key)?;
-                let value_length = cursor.read_u32::<LittleEndian>()?;
+                bytes.read_exact(&mut key)?;
+                let value_length = bytes.read_u32::<LittleEndian>()?;
                 let mut arr = [0; 32];
-                cursor.read_exact(&mut arr)?;
+                bytes.read_exact(&mut arr)?;
                 let value_hash = CryptoHash(arr);
-                Ok(RawTrieNode::Leaf(key, value_length, value_hash))
+                RawTrieNode::Leaf(key, value_length, value_hash)
             }
             BRANCH_NODE_NO_VALUE => {
-                let children = decode_children(&mut cursor)?;
-                Ok(RawTrieNode::Branch(children, None))
+                let children = decode_children(&mut bytes)?;
+                RawTrieNode::Branch(children, None)
             }
             BRANCH_NODE_WITH_VALUE => {
-                let value_length = cursor.read_u32::<LittleEndian>()?;
+                let value_length = bytes.read_u32::<LittleEndian>()?;
                 let mut arr = [0; 32];
-                cursor.read_exact(&mut arr)?;
+                bytes.read_exact(&mut arr)?;
                 let value_hash = CryptoHash(arr);
-                let children = decode_children(&mut cursor)?;
-                Ok(RawTrieNode::Branch(children, Some((value_length, value_hash))))
+                let children = decode_children(&mut bytes)?;
+                RawTrieNode::Branch(children, Some((value_length, value_hash)))
             }
             EXTENSION_NODE => {
-                let key_length = cursor.read_u32::<LittleEndian>()?;
+                let key_length = bytes.read_u32::<LittleEndian>()?;
                 let mut key = vec![0; key_length as usize];
-                cursor.read_exact(&mut key)?;
+                bytes.read_exact(&mut key)?;
                 let mut child = [0; 32];
-                cursor.read_exact(&mut child)?;
-                Ok(RawTrieNode::Extension(key, CryptoHash(child)))
+                bytes.read_exact(&mut child)?;
+                RawTrieNode::Extension(key, CryptoHash(child))
             }
-            _ => Err(std::io::Error::new(std::io::ErrorKind::Other, "Wrong type")),
+            _ => return Err(std::io::Error::new(std::io::ErrorKind::Other, "Wrong type")),
+        };
+        if bytes.is_empty() {
+            Ok(node)
+        } else {
+            Err(std::io::Error::new(std::io::ErrorKind::Other, "Spurious data at end"))
         }
     }
 }
@@ -459,10 +457,9 @@ impl RawTrieNodeWithSize {
         if bytes.len() < 8 {
             return Err(std::io::Error::new(std::io::ErrorKind::Other, "Wrong type"));
         }
-        let node = RawTrieNode::decode(&bytes[0..bytes.len() - 8])?;
-        let mut arr: [u8; 8] = Default::default();
-        arr.copy_from_slice(&bytes[bytes.len() - 8..]);
-        let memory_usage = u64::from_le_bytes(arr);
+        let (bytes, memory_usage) = stdx::rsplit_slice(bytes);
+        let node = RawTrieNode::decode(bytes)?;
+        let memory_usage = u64::from_le_bytes(*memory_usage);
         Ok(RawTrieNodeWithSize { node, memory_usage })
     }
 }
@@ -496,6 +493,16 @@ pub struct TrieRefcountChange {
     /// Reference count difference which will be added to the total refcount if it corresponds to
     /// insertion and subtracted from it in the case of deletion.
     rc: std::num::NonZeroU32,
+}
+
+impl TrieRefcountChange {
+    pub fn hash(&self) -> &CryptoHash {
+        &self.trie_node_or_value_hash
+    }
+
+    pub fn payload(&self) -> &[u8] {
+        self.trie_node_or_value.as_slice()
+    }
 }
 
 ///
@@ -532,6 +539,10 @@ pub struct TrieChanges {
 impl TrieChanges {
     pub fn empty(old_root: StateRoot) -> Self {
         TrieChanges { old_root, new_root: old_root, insertions: vec![], deletions: vec![] }
+    }
+
+    pub fn insertions(&self) -> &[TrieRefcountChange] {
+        self.insertions.as_slice()
     }
 }
 
@@ -896,17 +907,23 @@ impl Trie {
         key: &[u8],
         mode: KeyLookupMode,
     ) -> Result<Option<ValueRef>, StorageError> {
+        let key_nibbles = NibbleSlice::new(key.clone());
+        let result = self.lookup(key_nibbles);
+
+        // For now, to test correctness, flat storage does double the work and
+        // compares the results. This needs to be changed when the features is
+        // stabilized.
         #[cfg(feature = "protocol_feature_flat_state")]
         {
             let is_delayed = is_delayed_receipt_key(key);
             if matches!(mode, KeyLookupMode::FlatStorage) && !is_delayed {
                 if let Some(flat_state) = &self.flat_state {
-                    return flat_state.get_ref(&key);
+                    let flat_result = flat_state.get_ref(&key);
+                    assert_eq!(result, flat_result);
                 }
             }
         }
-        let key = NibbleSlice::new(key);
-        self.lookup(key)
+        result
     }
 
     pub fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, StorageError> {
@@ -1043,25 +1060,44 @@ mod tests {
 
     #[test]
     fn test_encode_decode() {
-        let value = vec![123, 245, 255];
+        fn test(node: RawTrieNode, encoded: &[u8]) {
+            let mut buf = Vec::new();
+            node.encode_into(&mut buf);
+            assert_eq!(encoded, buf.as_slice());
+            assert_eq!(node, RawTrieNode::decode(&buf).unwrap());
+
+            // Test that adding garbage at the end fails decoding.
+            buf.push(b'!');
+            let got = RawTrieNode::decode(&buf);
+            assert!(got.is_err(), "got: {got:?}");
+        }
+
         let value_length = 3;
-        let value_hash = hash(&value);
+        let value_hash = CryptoHash::hash_bytes(&[123, 245, 255]);
         let node = RawTrieNode::Leaf(vec![1, 2, 3], value_length, value_hash);
-        let buf = node.encode();
-        let new_node = RawTrieNode::decode(&buf).expect("Failed to deserialize");
-        assert_eq!(node, new_node);
+        let encoded = [
+            0, 3, 0, 0, 0, 1, 2, 3, 3, 0, 0, 0, 194, 40, 8, 24, 64, 219, 69, 132, 86, 52, 110, 175,
+            57, 198, 165, 200, 83, 237, 211, 11, 194, 83, 251, 33, 145, 138, 234, 226, 7, 242, 186,
+            73,
+        ];
+        test(node, &encoded);
 
         let mut children: [Option<CryptoHash>; 16] = Default::default();
         children[3] = Some(Trie::EMPTY_ROOT);
         let node = RawTrieNode::Branch(children, Some((value_length, value_hash)));
-        let buf = node.encode();
-        let new_node = RawTrieNode::decode(&buf).expect("Failed to deserialize");
-        assert_eq!(node, new_node);
+        let encoded = [
+            2, 3, 0, 0, 0, 194, 40, 8, 24, 64, 219, 69, 132, 86, 52, 110, 175, 57, 198, 165, 200,
+            83, 237, 211, 11, 194, 83, 251, 33, 145, 138, 234, 226, 7, 242, 186, 73, 8, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        ];
+        test(node, &encoded);
 
         let node = RawTrieNode::Extension(vec![123, 245, 255], Trie::EMPTY_ROOT);
-        let buf = node.encode();
-        let new_node = RawTrieNode::decode(&buf).expect("Failed to deserialize");
-        assert_eq!(node, new_node);
+        let encoded = [
+            3, 3, 0, 0, 0, 123, 245, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        ];
+        test(node, &encoded);
     }
 
     #[test]

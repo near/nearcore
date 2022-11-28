@@ -52,6 +52,27 @@
   a hard limit but instead sets a memory consumption limit. For large trie nodes,
   the limits are close to equivalent. For small values, there can now fit more
   in the cache than previously.
+  [#7749](https://github.com/near/nearcore/pull/7749)
+* New options `store.trie_cache` and `store.view_trie_cache` in `config.json`
+  to set limits on the trie cache. Deprecates the never announced 
+  `store.trie_cache_capacities` option which was mentioned in previous change.
+  [#7578](https://github.com/near/nearcore/pull/7578)
+* New option `store.background_migration_threads` in `config.json`. Defines 
+  number of threads to execute background migrations of storage. Currently used
+  for flat storage migration. Set to 8 by default, can be reduced if it slows down
+  block processing too much or increased if you want to speed up migration.
+* Tracing of work across actix workers within a process:
+  [#7866](https://github.com/near/nearcore/pull/7866),
+  [#7819](https://github.com/near/nearcore/pull/7819),
+  [#7773](https://github.com/near/nearcore/pull/7773).
+* Scope of collected tracing information can be configured at run-time:
+  [#7701](https://github.com/near/nearcore/pull/7701).
+* Attach node's `chain_id`, `node_id`, and `account_id` values to tracing
+  information: [#7711](https://github.com/near/nearcore/pull/7711).
+* Change exporter of tracing information from `opentelemetry-jaeger` to
+  `opentelemetry-otlp`: [#7563](https://github.com/near/nearcore/pull/7563).
+* Tracing of requests across processes:
+  [#8004](https://github.com/near/nearcore/pull/8004).
 
 ## 1.29.0 [2022-08-15]
 

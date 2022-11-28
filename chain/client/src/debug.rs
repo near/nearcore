@@ -3,11 +3,12 @@
 use crate::ClientActor;
 use actix::{Context, Handler};
 use borsh::BorshSerialize;
+use itertools::Itertools;
 use near_chain::crypto_hash_timer::CryptoHashTimer;
-use near_chain::{near_chain_primitives, ChainStoreAccess, RuntimeAdapter};
+use near_chain::{near_chain_primitives, Chain, ChainStoreAccess, RuntimeAdapter};
 use near_client_primitives::debug::{
-    ApprovalAtHeightStatus, BlockProduction, ChunkCollection, DebugStatus, DebugStatusResponse,
-    ProductionAtHeight, ValidatorStatus,
+    ApprovalAtHeightStatus, BlockProduction, ChunkCollection, DebugBlockStatusData, DebugStatus,
+    DebugStatusResponse, MissedHeightInfo, ProductionAtHeight, ValidatorStatus,
 };
 use near_client_primitives::types::Error;
 use near_client_primitives::{
@@ -29,8 +30,10 @@ use std::cmp::{max, min};
 use std::collections::{HashMap, HashSet};
 
 use near_client_primitives::debug::{DebugBlockStatus, DebugChunkStatus};
+use near_network::types::{ConnectedPeerInfo, NetworkInfo, PeerType};
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::time::Clock;
+use near_primitives::views::{KnownProducerView, NetworkInfoView, PeerInfoView};
 
 // Constants for debug requests.
 const DEBUG_BLOCKS_TO_FETCH: u32 = 50;
@@ -113,19 +116,14 @@ impl BlockProductionTracker {
         block_height: BlockHeight,
         epoch_id: &EpochId,
         num_shards: ShardId,
-        new_chunks: &HashMap<ShardId, (ShardChunkHeader, chrono::DateTime<chrono::Utc>)>,
+        new_chunks: &HashMap<ShardId, (ShardChunkHeader, chrono::DateTime<chrono::Utc>, AccountId)>,
         runtime_adapter: &dyn RuntimeAdapter,
     ) -> Result<Vec<ChunkCollection>, Error> {
         let mut chunk_collection_info = vec![];
         for shard_id in 0..num_shards {
-            if let Some((new_chunk, chunk_time)) = new_chunks.get(&shard_id) {
-                let chunk_producer = runtime_adapter.get_chunk_producer(
-                    epoch_id,
-                    new_chunk.height_created(),
-                    shard_id,
-                )?;
+            if let Some((_, chunk_time, chunk_producer)) = new_chunks.get(&shard_id) {
                 chunk_collection_info.push(ChunkCollection {
-                    chunk_producer,
+                    chunk_producer: chunk_producer.clone(),
                     received_time: Some(chunk_time.clone()),
                     chunk_included: true,
                 });
@@ -163,8 +161,8 @@ impl Handler<WithSpanContext<DebugStatus>> for ClientActor {
             DebugStatus::EpochInfo => {
                 Ok(DebugStatusResponse::EpochInfo(self.get_recent_epoch_info()?))
             }
-            DebugStatus::BlockStatus => {
-                Ok(DebugStatusResponse::BlockStatus(self.get_last_blocks_info()?))
+            DebugStatus::BlockStatus(height) => {
+                Ok(DebugStatusResponse::BlockStatus(self.get_last_blocks_info(height)?))
             }
             DebugStatus::ValidatorStatus => {
                 Ok(DebugStatusResponse::ValidatorStatus(self.get_validator_status()?))
@@ -172,6 +170,12 @@ impl Handler<WithSpanContext<DebugStatus>> for ClientActor {
             DebugStatus::CatchupStatus => {
                 Ok(DebugStatusResponse::CatchupStatus(self.client.get_catchup_status()?))
             }
+            DebugStatus::RequestedStateParts => Ok(DebugStatusResponse::RequestedStateParts(
+                self.client.chain.get_requested_state_parts(),
+            )),
+            DebugStatus::ChainProcessingStatus => Ok(DebugStatusResponse::ChainProcessingStatus(
+                self.client.chain.get_chain_processing_info(),
+            )),
         }
     }
 }
@@ -382,87 +386,127 @@ impl ClientActor {
 
     fn get_last_blocks_info(
         &mut self,
-    ) -> Result<Vec<DebugBlockStatus>, near_chain_primitives::Error> {
+        starting_height: Option<BlockHeight>,
+    ) -> Result<DebugBlockStatusData, near_chain_primitives::Error> {
         let head = self.client.chain.head()?;
+        let header_head = self.client.chain.header_head()?;
 
-        let mut blocks_debug: Vec<DebugBlockStatus> = Vec::new();
-        let mut last_block_hash = head.last_block_hash;
-        let mut last_block_timestamp: u64 = 0;
-        let mut last_block_height = head.height + 1;
-
+        let mut blocks: HashMap<CryptoHash, DebugBlockStatus> = HashMap::new();
+        let mut missed_heights: Vec<MissedHeightInfo> = Vec::new();
+        let mut last_epoch_id = head.epoch_id.clone();
         let initial_gas_price = self.client.chain.genesis_block().header().gas_price();
 
-        // Fetch last 50 blocks (we can fetch more blocks in the future if needed)
-        for _ in 0..DEBUG_BLOCKS_TO_FETCH {
-            let block = match self.client.chain.get_block(&last_block_hash) {
-                Ok(block) => block,
-                Err(_) => break,
+        let mut height_to_fetch = starting_height.unwrap_or(header_head.height);
+        let min_height_to_fetch =
+            max(height_to_fetch as i64 - DEBUG_BLOCKS_TO_FETCH as i64, 0) as u64;
+        let mut block_hashes_to_force_fetch = HashSet::new();
+        while height_to_fetch > min_height_to_fetch || !block_hashes_to_force_fetch.is_empty() {
+            let block_hashes = if height_to_fetch > min_height_to_fetch {
+                let block_hashes: Vec<CryptoHash> = self
+                    .client
+                    .chain
+                    .store()
+                    .get_all_header_hashes_by_height(height_to_fetch)?
+                    .into_iter()
+                    .collect();
+                if block_hashes.is_empty() {
+                    missed_heights.push(MissedHeightInfo {
+                        block_height: height_to_fetch,
+                        block_producer: self
+                            .client
+                            .runtime_adapter
+                            .get_block_producer(&last_epoch_id, height_to_fetch)
+                            .ok(),
+                    });
+                }
+                height_to_fetch -= 1;
+                block_hashes
+            } else {
+                let block_hashes = block_hashes_to_force_fetch.iter().cloned().collect();
+                block_hashes_to_force_fetch.clear();
+                block_hashes
             };
-            // If there is a gap - and some blocks were not produced - make sure to report this
-            // (and mention who was supposed to be a block producer).
-            for height in (block.header().height() + 1..last_block_height).rev() {
+            for block_hash in block_hashes {
+                if blocks.contains_key(&block_hash) {
+                    continue;
+                }
+                let block_header = self.client.chain.get_block_header(&block_hash)?;
+                let block = self.client.chain.get_block(&block_hash).ok();
+                let is_on_canonical_chain =
+                    match self.client.chain.get_block_by_height(block_header.height()) {
+                        Ok(block) => block.hash() == &block_hash,
+                        Err(_) => false,
+                    };
+
                 let block_producer = self
                     .client
                     .runtime_adapter
-                    .get_block_producer(block.header().epoch_id(), height)
+                    .get_block_producer(block_header.epoch_id(), block_header.height())
                     .ok();
-                blocks_debug.push(DebugBlockStatus {
-                    block_hash: CryptoHash::default(),
-                    block_height: height,
-                    block_producer,
-                    chunks: vec![],
-                    processing_time_ms: None,
-                    timestamp_delta: 0,
-                    gas_price_ratio: 1.0,
-                });
+
+                let chunks = match &block {
+                    Some(block) => block
+                        .chunks()
+                        .iter()
+                        .map(|chunk| DebugChunkStatus {
+                            shard_id: chunk.shard_id(),
+                            chunk_hash: chunk.chunk_hash(),
+                            chunk_producer: self
+                                .client
+                                .runtime_adapter
+                                .get_chunk_producer(
+                                    block_header.epoch_id(),
+                                    block_header.height(),
+                                    chunk.shard_id(),
+                                )
+                                .ok(),
+                            gas_used: chunk.gas_used(),
+                            processing_time_ms: CryptoHashTimer::get_timer_value(
+                                chunk.chunk_hash().0,
+                            )
+                            .map(|s| s.as_millis() as u64),
+                        })
+                        .collect(),
+                    None => vec![],
+                };
+
+                blocks.insert(
+                    block_hash,
+                    DebugBlockStatus {
+                        block_hash,
+                        prev_block_hash: *block_header.prev_hash(),
+                        block_height: block_header.height(),
+                        block_producer,
+                        full_block_missing: block.is_none(),
+                        is_on_canonical_chain,
+                        chunks,
+                        processing_time_ms: CryptoHashTimer::get_timer_value(block_hash)
+                            .map(|s| s.as_millis() as u64),
+                        block_timestamp: block_header.raw_timestamp(),
+                        gas_price_ratio: block_header.gas_price() as f64 / initial_gas_price as f64,
+                    },
+                );
+                // TODO(robin): using last epoch id when iterating in reverse height direction is
+                // not a good idea for calculating producer of missing heights. Revisit this.
+                last_epoch_id = block_header.epoch_id().clone();
+                if let Some(prev_height) = block_header.prev_height() {
+                    if block_header.height() != prev_height + 1 {
+                        // This block was produced using a Skip approval; make sure to fetch the
+                        // previous block even if it's very far back so we can better understand
+                        // the skip.
+                        // TODO(robin): A better heuristic can be used to determine how far back
+                        // to fetch additional blocks.
+                        block_hashes_to_force_fetch.insert(*block_header.prev_hash());
+                    }
+                }
             }
-
-            let block_producer = self
-                .client
-                .runtime_adapter
-                .get_block_producer(block.header().epoch_id(), block.header().height())
-                .ok();
-
-            let chunks = block
-                .chunks()
-                .iter()
-                .map(|chunk| DebugChunkStatus {
-                    shard_id: chunk.shard_id(),
-                    chunk_hash: chunk.chunk_hash(),
-                    chunk_producer: self
-                        .client
-                        .runtime_adapter
-                        .get_chunk_producer(
-                            block.header().epoch_id(),
-                            block.header().height(),
-                            chunk.shard_id(),
-                        )
-                        .ok(),
-                    gas_used: chunk.gas_used(),
-                    processing_time_ms: CryptoHashTimer::get_timer_value(chunk.chunk_hash().0)
-                        .map(|s| s.as_millis() as u64),
-                })
-                .collect();
-
-            blocks_debug.push(DebugBlockStatus {
-                block_hash: last_block_hash,
-                block_height: block.header().height(),
-                block_producer: block_producer,
-                chunks,
-                processing_time_ms: CryptoHashTimer::get_timer_value(last_block_hash)
-                    .map(|s| s.as_millis() as u64),
-                timestamp_delta: if last_block_timestamp > 0 {
-                    last_block_timestamp.saturating_sub(block.header().raw_timestamp())
-                } else {
-                    0
-                },
-                gas_price_ratio: block.header().gas_price() as f64 / initial_gas_price as f64,
-            });
-            last_block_hash = block.header().prev_hash().clone();
-            last_block_timestamp = block.header().raw_timestamp();
-            last_block_height = block.header().height();
         }
-        Ok(blocks_debug)
+        Ok(DebugBlockStatusData {
+            head: head.last_block_hash,
+            header_head: header_head.last_block_hash,
+            missed_heights,
+            blocks: blocks.into_values().collect(),
+        })
     }
 
     /// Returns debugging information about the validator - including things like which approvals were received, which blocks/chunks will be
@@ -572,6 +616,76 @@ impl ClientActor {
             shards: self.client.runtime_adapter.num_shards(&head.epoch_id).unwrap_or_default(),
             approval_history: self.client.doomslug.get_approval_history(),
             production: productions,
+            banned_chunk_producers: self
+                .client
+                .do_not_include_chunks_from
+                .iter()
+                .map(|(k, _)| k.clone())
+                .sorted()
+                .group_by(|(k, _)| k.clone())
+                .into_iter()
+                .map(|(k, vs)| (k, vs.map(|(_, v)| v).collect()))
+                .collect(),
         })
+    }
+}
+fn new_peer_info_view(chain: &Chain, connected_peer_info: &ConnectedPeerInfo) -> PeerInfoView {
+    let full_peer_info = &connected_peer_info.full_peer_info;
+    PeerInfoView {
+        addr: match full_peer_info.peer_info.addr {
+            Some(socket_addr) => socket_addr.to_string(),
+            None => "N/A".to_string(),
+        },
+        account_id: full_peer_info.peer_info.account_id.clone(),
+        height: full_peer_info.chain_info.last_block.map(|x| x.height),
+        block_hash: full_peer_info.chain_info.last_block.map(|x| x.hash),
+        is_highest_block_invalid: full_peer_info
+            .chain_info
+            .last_block
+            .map(|x| chain.is_block_invalid(&x.hash))
+            .unwrap_or_default(),
+        tracked_shards: full_peer_info.chain_info.tracked_shards.clone(),
+        archival: full_peer_info.chain_info.archival,
+        peer_id: full_peer_info.peer_info.id.public_key().clone(),
+        received_bytes_per_sec: connected_peer_info.received_bytes_per_sec,
+        sent_bytes_per_sec: connected_peer_info.sent_bytes_per_sec,
+        last_time_peer_requested_millis: connected_peer_info
+            .last_time_peer_requested
+            .elapsed()
+            .whole_milliseconds() as u64,
+        last_time_received_message_millis: connected_peer_info
+            .last_time_received_message
+            .elapsed()
+            .whole_milliseconds() as u64,
+        connection_established_time_millis: connected_peer_info
+            .connection_established_time
+            .elapsed()
+            .whole_milliseconds() as u64,
+        is_outbound_peer: connected_peer_info.peer_type == PeerType::Outbound,
+        nonce: connected_peer_info.nonce,
+    }
+}
+
+pub(crate) fn new_network_info_view(chain: &Chain, network_info: &NetworkInfo) -> NetworkInfoView {
+    NetworkInfoView {
+        peer_max_count: network_info.peer_max_count,
+        num_connected_peers: network_info.num_connected_peers,
+        connected_peers: network_info
+            .connected_peers
+            .iter()
+            .map(|full_peer_info| new_peer_info_view(chain, full_peer_info))
+            .collect::<Vec<_>>(),
+        known_producers: network_info
+            .known_producers
+            .iter()
+            .map(|it| KnownProducerView {
+                account_id: it.account_id.clone(),
+                peer_id: it.peer_id.public_key().clone(),
+                next_hops: it
+                    .next_hops
+                    .as_ref()
+                    .map(|it| it.iter().map(|peer_id| peer_id.public_key().clone()).collect()),
+            })
+            .collect(),
     }
 }

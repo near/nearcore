@@ -8,7 +8,6 @@ use chrono::DateTime;
 use near_primitives::time::Utc;
 
 use near_chain_configs::ProtocolConfigView;
-use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
 use near_primitives::network::PeerId;
@@ -21,8 +20,8 @@ use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
     BlockView, ChunkView, DownloadStatusView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
     FinalExecutionOutcomeViewEnum, GasPriceView, LightClientBlockLiteView, LightClientBlockView,
-    QueryRequest, QueryResponse, ReceiptView, ShardSyncDownloadView, StateChangesKindsView,
-    StateChangesRequestView, StateChangesView, SyncStatusView,
+    MaintenanceWindowsView, QueryRequest, QueryResponse, ReceiptView, ShardSyncDownloadView,
+    StateChangesKindsView, StateChangesRequestView, StateChangesView, SyncStatusView,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 use serde::Serialize;
@@ -595,9 +594,14 @@ pub struct TxStatus {
 pub enum TxStatusError {
     ChainError(near_chain_primitives::Error),
     MissingTransaction(CryptoHash),
-    InvalidTx(InvalidTxError),
     InternalError(String),
     TimeoutError,
+}
+
+impl From<near_chain_primitives::Error> for TxStatusError {
+    fn from(error: near_chain_primitives::Error) -> Self {
+        Self::ChainError(error)
+    }
 }
 
 impl Message for TxStatus {
@@ -883,6 +887,31 @@ impl From<near_chain_primitives::Error> for GetProtocolConfigError {
         match error {
             near_chain_primitives::Error::IOErr(error) => Self::IOError(error.to_string()),
             near_chain_primitives::Error::DBNotFoundErr(s) => Self::UnknownBlock(s),
+            _ => Self::Unreachable(error.to_string()),
+        }
+    }
+}
+
+pub struct GetMaintenanceWindows {
+    pub account_id: AccountId,
+}
+
+impl Message for GetMaintenanceWindows {
+    type Result = Result<MaintenanceWindowsView, GetMaintenanceWindowsError>;
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum GetMaintenanceWindowsError {
+    #[error("IO Error: {0}")]
+    IOError(String),
+    #[error("It is a bug if you receive this error type, please, report this incident: https://github.com/near/nearcore/issues/new/choose. Details: {0}")]
+    Unreachable(String),
+}
+
+impl From<near_chain_primitives::Error> for GetMaintenanceWindowsError {
+    fn from(error: near_chain_primitives::Error) -> Self {
+        match error {
+            near_chain_primitives::Error::IOErr(error) => Self::IOError(error.to_string()),
             _ => Self::Unreachable(error.to_string()),
         }
     }

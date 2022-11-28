@@ -8,10 +8,10 @@ use near_chunks::{
     CHUNK_REQUEST_SWITCH_TO_OTHERS_MS,
 };
 use near_client::test_utils::setup_mock_all_validators;
-use near_client::{ClientActor, GetBlock, ViewClientActor};
+use near_client::{ClientActor, GetBlock, ProcessTxRequest, ViewClientActor};
 use near_network::types::PeerManagerMessageRequest;
 use near_network::types::{AccountIdOrPeerTrackingShard, PeerInfo};
-use near_network::types::{NetworkClientMessages, NetworkRequests, NetworkResponses};
+use near_network::types::{NetworkRequests, NetworkResponses};
 use near_o11y::testonly::init_test_logger;
 use near_o11y::WithSpanContextExt;
 use near_primitives::hash::CryptoHash;
@@ -252,7 +252,7 @@ impl Test {
             let block_hash = res.unwrap().unwrap().header.hash;
             let connectors_ = connectors.write().unwrap();
             connectors_[0].0.do_send(
-                NetworkClientMessages::Transaction {
+                ProcessTxRequest {
                     transaction: SignedTransaction::empty(block_hash),
                     is_forwarded: false,
                     check_only: false,
@@ -260,7 +260,7 @@ impl Test {
                 .with_span_context(),
             );
             connectors_[1].0.do_send(
-                NetworkClientMessages::Transaction {
+                ProcessTxRequest {
                     transaction: SignedTransaction::empty(block_hash),
                     is_forwarded: false,
                     check_only: false,
@@ -268,7 +268,7 @@ impl Test {
                 .with_span_context(),
             );
             connectors_[2].0.do_send(
-                NetworkClientMessages::Transaction {
+                ProcessTxRequest {
                     transaction: SignedTransaction::empty(block_hash),
                     is_forwarded: false,
                     check_only: false,
@@ -425,6 +425,7 @@ fn chunks_produced_and_distributed_one_val_shard_cop() {
 
 /// `test4` can't talk to `test1`, so it'll fetch the chunk for first shard from `cop1`.
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn chunks_recovered_from_others_cop() {
     Test {
         validator_groups: 1,
@@ -439,6 +440,7 @@ fn chunks_recovered_from_others_cop() {
 /// `test4` can't talk neither to `cop1` nor to `test1`, so it can't fetch chunk
 /// from chunk producers and has to reconstruct it.
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 #[should_panic]
 fn chunks_recovered_from_full_timeout_too_short_cop() {
     Test {
@@ -453,6 +455,7 @@ fn chunks_recovered_from_full_timeout_too_short_cop() {
 
 /// Same as above, but with longer block production timeout which should allow for full reconstruction.
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn chunks_recovered_from_full_cop() {
     Test {
         validator_groups: 4,

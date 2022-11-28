@@ -5,7 +5,7 @@
 //!
 //! Example usage:
 //! `
-//! let d = Demux::new(RateLimit(10.,1));
+//! let d = Demux::new(rate::Limit(10.,1));
 //! ...
 //! let res = d.call(arg,|inout| async {
 //!   // Process all inout[i].arg together.
@@ -17,6 +17,7 @@
 //! of the provided handlers will be executed asynchronously
 //! (other handlers will be dropped).
 //!
+use crate::concurrency::rate;
 use crate::time;
 use futures::future::BoxFuture;
 use futures::FutureExt;
@@ -46,33 +47,6 @@ where
 {
     fn wrap(self) -> BoxAsyncFn<Arg, Res> {
         Box::new(move |a: Arg| self(a).boxed())
-    }
-}
-/// Config of a rate limiter algorithm, which behaves like a semaphore
-/// - with maximal capacity `burst`
-/// - with a new ticket added automatically every 1/qps seconds (qps stands for "queries per
-///   second")
-/// In case of large load, semaphore will be empty most of the time,
-/// letting through requests at frequency `qps`.
-/// In case a number of requests come after a period of inactivity, semaphore will immediately
-/// let through up to `burst` requests, before going into the previous mode.
-#[derive(Copy, Clone)]
-pub struct RateLimit {
-    pub burst: u64,
-    pub qps: f64,
-}
-
-impl RateLimit {
-    // TODO(gprusak): consider having a constructor for RateLimit which enforces validation
-    // and getters for fields, so that they cannot be modified after construction.
-    pub fn validate(&self) -> anyhow::Result<()> {
-        if self.qps <= 0. {
-            anyhow::bail!("qps has to be >0");
-        }
-        if self.burst <= 0 {
-            anyhow::bail!("burst has to be >0");
-        }
-        Ok(())
     }
 }
 
@@ -129,7 +103,7 @@ impl<Arg: 'static + Send, Res: 'static + Send> Demux<Arg, Res> {
 
     // Spawns a subroutine performing the demultiplexing.
     // Panics if rl is not valid.
-    pub fn new(rl: RateLimit) -> Demux<Arg, Res> {
+    pub fn new(rl: rate::Limit) -> Demux<Arg, Res> {
         rl.validate().unwrap();
         let (send, mut recv): (Stream<Arg, Res>, _) = mpsc::unbounded_channel();
         // TODO(gprusak): this task should be running as long as Demux object exists.

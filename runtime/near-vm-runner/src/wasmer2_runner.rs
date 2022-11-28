@@ -278,11 +278,17 @@ impl Wasmer2VM {
 
         self.engine
             .validate(&prepared_code)
-            .map_err(|e| CompilationError::WasmerCompileError { msg: e.to_string() })?;
+            .map_err(|err| {
+                tracing::error!(?err, "wasmer failed to validate the prepared code (this is defense-in-depth, the error was recovered from but should be reported to pagoda)");
+                CompilationError::WasmerCompileError { msg: err.to_string() }
+            })?;
         let executable = self
             .engine
             .compile_universal(&prepared_code, &self)
-            .map_err(|e| CompilationError::WasmerCompileError { msg: e.to_string() })?;
+            .map_err(|err| {
+                tracing::error!(?err, "wasmer failed to compile the prepared code (this is defense-in-depth, the error was recovered from but should be reported to pagoda)");
+                CompilationError::WasmerCompileError { msg: err.to_string() }
+            })?;
         Ok(executable)
     }
 

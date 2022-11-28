@@ -3,8 +3,6 @@ name = "runtime-params-estimator"
 version = "0.0.0"
 authors.workspace = true
 publish = false
-# Please update rust-toolchain.toml as well when changing version here:
-rust-version.workspace = true
 edition.workspace = true
 
 [[bin]]
@@ -19,6 +17,7 @@ bytesize.workspace = true
 cfg-if.workspace = true
 chrono.workspace = true
 clap.workspace = true
+enum-map.workspace = true
 hex.workspace = true
 indicatif.workspace = true
 libc.workspace = true

@@ -9,6 +9,7 @@ use assert_matches::assert_matches;
 use futures::{future, FutureExt};
 use near_chain::test_utils::ValidatorSchedule;
 use near_chunks::test_utils::MockClientAdapterForShardsManager;
+use near_primitives::config::ActionCosts;
 use near_primitives::num_rational::{Ratio, Rational32};
 
 use near_actix_test_utils::run_actix;
@@ -24,16 +25,18 @@ use near_chunks::{ChunkStatus, ShardsManager};
 use near_client::test_utils::{
     create_chunk_on_height, setup_client, setup_mock, setup_mock_all_validators, TestEnv,
 };
-use near_client::{Client, GetBlock, GetBlockWithMerkleTree};
+use near_client::{
+    BlockApproval, BlockResponse, Client, GetBlock, GetBlockWithMerkleTree, ProcessTxRequest,
+    ProcessTxResponse, SetNetworkInfo,
+};
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
 use near_network::test_utils::{wait_or_panic, MockPeerManagerAdapter};
 use near_network::types::{
-    ConnectedPeerInfo, NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse,
+    BlockInfo, ConnectedPeerInfo, HighestHeightPeerInfo, NetworkInfo, PeerChainInfo,
+    PeerManagerMessageRequest, PeerManagerMessageResponse, PeerType,
 };
-use near_network::types::{
-    FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
-};
-use near_network::types::{PeerChainInfoV2, PeerInfo, ReasonForBan};
+use near_network::types::{FullPeerInfo, NetworkRequests, NetworkResponses};
+use near_network::types::{PeerInfo, ReasonForBan};
 use near_o11y::testonly::{init_integration_logger, init_test_logger};
 use near_o11y::WithSpanContextExt;
 use near_primitives::block::{Approval, ApprovalInner};
@@ -326,7 +329,7 @@ fn produce_blocks_with_tx() {
         let actor = actor.then(move |res| {
             let block_hash = res.unwrap().unwrap().header.hash;
             client.do_send(
-                NetworkClientMessages::Transaction {
+                ProcessTxRequest {
                     transaction: SignedTransaction::empty(block_hash),
                     is_forwarded: false,
                     check_only: false,
@@ -403,7 +406,7 @@ fn receive_network_block() {
                 None,
             );
             client.do_send(
-                NetworkClientMessages::Block(block, PeerInfo::random().id, false)
+                BlockResponse { block, peer_id: PeerInfo::random().id, was_requested: false }
                     .with_span_context(),
             );
             future::ready(())
@@ -486,8 +489,12 @@ fn produce_block_with_approvals() {
                 None,
             );
             client.do_send(
-                NetworkClientMessages::Block(block.clone(), PeerInfo::random().id, false)
-                    .with_span_context(),
+                BlockResponse {
+                    block: block.clone(),
+                    peer_id: PeerInfo::random().id,
+                    was_requested: false,
+                }
+                .with_span_context(),
             );
 
             for i in 3..11 {
@@ -505,10 +512,7 @@ fn produce_block_with_approvals() {
                     10, // the height at which "test1" is producing
                     &signer,
                 );
-                client.do_send(
-                    NetworkClientMessages::BlockApproval(approval, PeerInfo::random().id)
-                        .with_span_context(),
-                );
+                client.do_send(BlockApproval(approval, PeerInfo::random().id).with_span_context());
             }
 
             future::ready(())
@@ -559,11 +563,11 @@ fn produce_block_with_approvals_arrived_early() {
                                 for (i, (client, _)) in conns.iter().enumerate() {
                                     if i > 0 {
                                         client.do_send(
-                                            NetworkClientMessages::Block(
-                                                block.clone(),
-                                                PeerInfo::random().id,
-                                                false,
-                                            )
+                                            BlockResponse {
+                                                block: block.clone(),
+                                                peer_id: PeerInfo::random().id,
+                                                was_requested: false,
+                                            }
                                             .with_span_context(),
                                         )
                                     }
@@ -584,11 +588,11 @@ fn produce_block_with_approvals_arrived_early() {
                             if approval_counter == 3 {
                                 let block = block_holder.read().unwrap().clone().unwrap();
                                 conns[0].0.do_send(
-                                    NetworkClientMessages::Block(
-                                        block,
-                                        PeerInfo::random().id,
-                                        false,
-                                    )
+                                    BlockResponse {
+                                        block: block,
+                                        peer_id: PeerInfo::random().id,
+                                        was_requested: false,
+                                    }
                                     .with_span_context(),
                                 );
                             }
@@ -702,8 +706,12 @@ fn invalid_blocks_common(is_requested: bool) {
             block.mut_header().get_mut().inner_rest.chunk_mask = vec![];
             block.mut_header().get_mut().init();
             client.do_send(
-                NetworkClientMessages::Block(block.clone(), PeerInfo::random().id, is_requested)
-                    .with_span_context(),
+                BlockResponse {
+                    block: block.clone(),
+                    peer_id: PeerInfo::random().id,
+                    was_requested: is_requested,
+                }
+                .with_span_context(),
             );
 
             // Send blocks with invalid protocol version
@@ -714,11 +722,11 @@ fn invalid_blocks_common(is_requested: bool) {
                     PROTOCOL_VERSION - 1;
                 block.mut_header().get_mut().init();
                 client.do_send(
-                    NetworkClientMessages::Block(
-                        block.clone(),
-                        PeerInfo::random().id,
-                        is_requested,
-                    )
+                    BlockResponse {
+                        block: block.clone(),
+                        peer_id: PeerInfo::random().id,
+                        was_requested: is_requested,
+                    }
                     .with_span_context(),
                 );
             }
@@ -740,26 +748,34 @@ fn invalid_blocks_common(is_requested: bool) {
             };
             block.set_chunks(chunks);
             client.do_send(
-                NetworkClientMessages::Block(block.clone(), PeerInfo::random().id, is_requested)
-                    .with_span_context(),
+                BlockResponse {
+                    block: block.clone(),
+                    peer_id: PeerInfo::random().id,
+                    was_requested: is_requested,
+                }
+                .with_span_context(),
             );
 
             // Send proper block.
             let block2 = valid_block;
             client.do_send(
-                NetworkClientMessages::Block(block2.clone(), PeerInfo::random().id, is_requested)
-                    .with_span_context(),
+                BlockResponse {
+                    block: block2.clone(),
+                    peer_id: PeerInfo::random().id,
+                    was_requested: is_requested,
+                }
+                .with_span_context(),
             );
             if is_requested {
                 let mut block3 = block2;
                 block3.mut_header().get_mut().inner_rest.chunk_headers_root = hash(&[1]);
                 block3.mut_header().get_mut().init();
                 client.do_send(
-                    NetworkClientMessages::Block(
-                        block3.clone(),
-                        PeerInfo::random().id,
-                        is_requested,
-                    )
+                    BlockResponse {
+                        block: block3.clone(),
+                        peer_id: PeerInfo::random().id,
+                        was_requested: is_requested,
+                    }
                     .with_span_context(),
                 );
             }
@@ -872,11 +888,11 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
                                 for (i, (client, _)) in conns.clone().into_iter().enumerate() {
                                     if i != block_producer_idx {
                                         client.do_send(
-                                            NetworkClientMessages::Block(
-                                                block_mut.clone(),
-                                                PeerInfo::random().id,
-                                                false,
-                                            )
+                                            BlockResponse {
+                                                block: block_mut.clone(),
+                                                peer_id: PeerInfo::random().id,
+                                                was_requested: false,
+                                            }
                                             .with_span_context(),
                                         )
                                     }
@@ -1011,28 +1027,34 @@ fn client_sync_headers() {
             }),
         );
         client.do_send(
-            NetworkClientMessages::NetworkInfo(NetworkInfo {
-                connected_peers: vec![ConnectedPeerInfo::from(&FullPeerInfo {
-                    peer_info: peer_info2.clone(),
-                    chain_info: PeerChainInfoV2 {
-                        genesis_id: Default::default(),
-                        height: 5,
-                        tracked_shards: vec![],
-                        archival: false,
+            SetNetworkInfo(NetworkInfo {
+                connected_peers: vec![ConnectedPeerInfo {
+                    full_peer_info: FullPeerInfo {
+                        peer_info: peer_info2.clone(),
+                        chain_info: PeerChainInfo {
+                            genesis_id: Default::default(),
+                            last_block: Some(BlockInfo { height: 5, hash: hash(&[5]) }),
+                            tracked_shards: vec![],
+                            archival: false,
+                        },
                     },
-                    partial_edge_info: near_network::types::PartialEdgeInfo::default(),
-                })],
+                    received_bytes_per_sec: 0,
+                    sent_bytes_per_sec: 0,
+                    last_time_peer_requested: near_network::time::Instant::now(),
+                    last_time_received_message: near_network::time::Instant::now(),
+                    connection_established_time: near_network::time::Instant::now(),
+                    peer_type: PeerType::Outbound,
+                    nonce: 1,
+                }],
                 num_connected_peers: 1,
                 peer_max_count: 1,
-                highest_height_peers: vec![FullPeerInfo {
+                highest_height_peers: vec![HighestHeightPeerInfo {
                     peer_info: peer_info2,
-                    chain_info: PeerChainInfoV2 {
-                        genesis_id: Default::default(),
-                        height: 5,
-                        tracked_shards: vec![],
-                        archival: false,
-                    },
-                    partial_edge_info: near_network::types::PartialEdgeInfo::default(),
+                    genesis_id: Default::default(),
+                    highest_block_height: 5,
+                    highest_block_hash: hash(&[5]),
+                    tracked_shards: vec![],
+                    archival: false,
                 }],
                 sent_bytes_per_sec: 0,
                 received_bytes_per_sec: 0,
@@ -1071,7 +1093,7 @@ fn test_process_invalid_tx() {
     }
     assert_eq!(
         env.clients[0].process_tx(tx, false, false),
-        NetworkClientResponses::InvalidTx(InvalidTxError::Expired)
+        ProcessTxResponse::InvalidTx(InvalidTxError::Expired)
     );
     let tx2 = SignedTransaction::new(
         Signature::empty(KeyType::ED25519),
@@ -1086,7 +1108,7 @@ fn test_process_invalid_tx() {
     );
     assert_eq!(
         env.clients[0].process_tx(tx2, false, false),
-        NetworkClientResponses::InvalidTx(InvalidTxError::Expired)
+        ProcessTxResponse::InvalidTx(InvalidTxError::Expired)
     );
 }
 
@@ -1838,13 +1860,12 @@ fn test_gas_price_change() {
     init_test_logger();
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let target_num_tokens_left = NEAR_BASE / 10 + 1;
-    let transaction_costs = RuntimeConfig::test().transaction_costs;
+    let transaction_costs = RuntimeConfig::test().fees;
 
-    let send_money_total_gas =
-        transaction_costs.action_creation_config.transfer_cost.send_fee(false)
-            + transaction_costs.action_receipt_creation_config.send_fee(false)
-            + transaction_costs.action_creation_config.transfer_cost.exec_fee()
-            + transaction_costs.action_receipt_creation_config.exec_fee();
+    let send_money_total_gas = transaction_costs.fee(ActionCosts::transfer).send_fee(false)
+        + transaction_costs.fee(ActionCosts::new_action_receipt).send_fee(false)
+        + transaction_costs.fee(ActionCosts::transfer).exec_fee()
+        + transaction_costs.fee(ActionCosts::new_action_receipt).exec_fee();
     let min_gas_price = target_num_tokens_left / send_money_total_gas as u128;
     let gas_limit = 1000000000000;
     let gas_price_adjustment_rate = Ratio::new(1, 10);
@@ -2128,27 +2149,6 @@ fn test_sync_hash_validity() {
     }
 }
 
-/// Only process one block per height
-/// Temporarily disable this test because the is_height_processed check is moved to client actor
-/// TODO (Min): refactor client actor receive_block code to move it to client
-#[ignore]
-#[test]
-fn test_not_process_height_twice() {
-    let mut env = TestEnv::builder(ChainGenesis::test()).build();
-    let block = env.clients[0].produce_block(1).unwrap().unwrap();
-    let mut invalid_block = block.clone();
-    env.process_block(0, block, Provenance::PRODUCED);
-    let validator_signer =
-        InMemoryValidatorSigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
-    let proposals =
-        vec![ValidatorStake::new("test1".parse().unwrap(), PublicKey::empty(KeyType::ED25519), 0)];
-    invalid_block.mut_header().get_mut().inner_rest.validator_proposals = proposals;
-    invalid_block.mut_header().resign(&validator_signer);
-    let accepted_blocks =
-        env.clients[0].process_block_test(invalid_block.into(), Provenance::NONE).unwrap();
-    assert!(accepted_blocks.is_empty());
-}
-
 #[test]
 fn test_block_height_processed_orphan() {
     let mut env = TestEnv::builder(ChainGenesis::test()).build();
@@ -2274,7 +2274,8 @@ fn test_validate_chunk_extra() {
     assert_eq!(accepted_blocks.len(), 1);
 
     // About to produce a block on top of block1. Validate that this chunk is legit.
-    let chunks = env.clients[0].shards_mgr.prepare_chunks(block1.hash());
+    let chunks = env.clients[0]
+        .get_chunk_headers_ready_for_inclusion(block1.header().epoch_id(), &block1.hash());
     let chunk_extra =
         env.clients[0].chain.get_chunk_extra(block1.hash(), &ShardUId::single_shard()).unwrap();
     assert!(validate_chunk_with_chunk_extra(
@@ -2655,10 +2656,9 @@ fn test_execution_metadata() {
     let config = RuntimeConfigStore::test().get_config(PROTOCOL_VERSION).clone();
 
     // Total costs for creating a function call receipt.
-    let expected_receipt_cost = config.transaction_costs.action_receipt_creation_config.execution
-        + config.transaction_costs.action_creation_config.function_call_cost.exec_fee()
-        + config.transaction_costs.action_creation_config.function_call_cost_per_byte.exec_fee()
-            * "main".len() as u64;
+    let expected_receipt_cost = config.fees.fee(ActionCosts::new_action_receipt).execution
+        + config.fees.fee(ActionCosts::function_call_base).exec_fee()
+        + config.fees.fee(ActionCosts::function_call_byte).exec_fee() * "main".len() as u64;
 
     // Profile for what's happening *inside* wasm vm during function call.
     let expected_profile = serde_json::json!([

@@ -10,10 +10,9 @@ use crate::test_helpers::heavy_test;
 use near_actix_test_utils::run_actix;
 use near_chain::Block;
 use near_chain_configs::Genesis;
-use near_client::{ClientActor, GetBlock};
+use near_client::{BlockResponse, ClientActor, GetBlock, ProcessTxRequest};
 use near_crypto::{InMemorySigner, KeyType};
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeoutActor};
-use near_network::types::NetworkClientMessages;
 use near_network::types::PeerInfo;
 use near_o11y::testonly::init_integration_logger;
 use near_o11y::WithSpanContextExt;
@@ -89,8 +88,12 @@ fn add_blocks(
         );
         block_merkle_tree.insert(*block.hash());
         let _ = client.do_send(
-            NetworkClientMessages::Block(block.clone(), PeerInfo::random().id, false)
-                .with_span_context(),
+            BlockResponse {
+                block: block.clone(),
+                peer_id: PeerInfo::random().id,
+                was_requested: false,
+            }
+            .with_span_context(),
         );
         blocks.push(block);
         prev = &blocks[blocks.len() - 1];
@@ -105,11 +108,11 @@ fn setup_configs() -> (Genesis, Block, NearConfig, NearConfig) {
 
     let (port1, port2) = (open_port(), open_port());
     let mut near1 = load_test_config("test1", port1, genesis.clone());
-    near1.network_config.boot_nodes = convert_boot_nodes(vec![("test2", port2)]);
+    near1.network_config.peer_store.boot_nodes = convert_boot_nodes(vec![("test2", port2)]);
     near1.client_config.min_num_peers = 1;
     near1.client_config.epoch_sync_enabled = false;
     let mut near2 = load_test_config("test2", port2, genesis.clone());
-    near2.network_config.boot_nodes = convert_boot_nodes(vec![("test1", port1)]);
+    near2.network_config.peer_store.boot_nodes = convert_boot_nodes(vec![("test1", port1)]);
     near2.client_config.min_num_peers = 1;
     near2.client_config.epoch_sync_enabled = false;
     (genesis, genesis_block, near1, near2)
@@ -241,12 +244,12 @@ fn sync_state_stake_change() {
 
         let (port1, port2) = (open_port(), open_port());
         let mut near1 = load_test_config("test1", port1, genesis.clone());
-        near1.network_config.boot_nodes = convert_boot_nodes(vec![("test2", port2)]);
+        near1.network_config.peer_store.boot_nodes = convert_boot_nodes(vec![("test2", port2)]);
         near1.client_config.min_num_peers = 0;
         near1.client_config.min_block_production_delay = Duration::from_millis(200);
         near1.client_config.epoch_sync_enabled = false;
         let mut near2 = load_test_config("test2", port2, genesis.clone());
-        near2.network_config.boot_nodes = convert_boot_nodes(vec![("test1", port1)]);
+        near2.network_config.peer_store.boot_nodes = convert_boot_nodes(vec![("test1", port1)]);
         near2.client_config.min_block_production_delay = Duration::from_millis(200);
         near2.client_config.min_num_peers = 1;
         near2.client_config.skip_sync_wait = false;
@@ -277,7 +280,7 @@ fn sync_state_stake_change() {
             actix::spawn(
                 client1
                     .send(
-                        NetworkClientMessages::Transaction {
+                        ProcessTxRequest {
                             transaction: unstake_transaction,
                             is_forwarded: false,
                             check_only: false,

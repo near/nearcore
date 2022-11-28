@@ -3,13 +3,12 @@ name = "near-mirror"
 version = "0.0.0"
 authors.workspace = true
 publish = false
-# Please update rust-toolchain.toml as well when changing version here:
-rust-version.workspace = true
 edition.workspace = true
 
 [dependencies]
 actix.workspace = true
 anyhow.workspace = true
+async-trait.workspace = true
 borsh.workspace = true
 bs58.workspace = true
 clap.workspace = true
@@ -31,6 +30,8 @@ tracing.workspace = true
 
 nearcore = { path = "../../nearcore" }
 near-chain-configs = { path = "../../core/chain-configs" }
+near-chain = { path = "../../chain/chain" }
+near-chain-primitives = { path = "../../chain/chain-primitives" }
 near-client = { path = "../../chain/client" }
 near-client-primitives = { path = "../../chain/client-primitives" }
 near-indexer-primitives = { path = "../../chain/indexer-primitives" }

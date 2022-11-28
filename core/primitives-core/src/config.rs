@@ -5,6 +5,13 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use strum::{Display, EnumCount};
 
+/// Dynamic configuration parameters required for the WASM runtime to
+/// execute a smart contract.
+///
+/// This (`VMConfig`) and `RuntimeFeesConfig` combined are sufficient to define
+/// protocol specific behavior of the contract runtime. The former contains
+/// configuration for the WASM runtime specifically, while the latter contains
+/// configuration for the transaction runtime and WASM runtime.
 #[derive(Clone, Debug, Hash, Serialize, Deserialize, PartialEq, Eq)]
 pub struct VMConfig {
     /// Costs for runtime externals
@@ -128,7 +135,7 @@ pub enum StackLimiterVersion {
 }
 
 impl StackLimiterVersion {
-    fn v0() -> StackLimiterVersion {
+    pub fn v0() -> StackLimiterVersion {
         StackLimiterVersion::V0
     }
 }
@@ -578,7 +585,9 @@ impl ExtCostsConfig {
 }
 
 /// Strongly-typed representation of the fees for counting.
-#[derive(Copy, Clone, Hash, PartialEq, Eq, Debug, PartialOrd, Ord, EnumCount, Display)]
+#[derive(
+    Copy, Clone, Hash, PartialEq, Eq, Debug, PartialOrd, Ord, EnumCount, Display, strum::EnumIter,
+)]
 #[allow(non_camel_case_types)]
 pub enum ExtCosts {
     base,
@@ -647,19 +656,37 @@ pub enum ExtCosts {
 }
 
 // Type of an action, used in fees logic.
-#[derive(Copy, Clone, Hash, PartialEq, Eq, Debug, PartialOrd, Ord, EnumCount, Display)]
+#[derive(
+    Copy,
+    Clone,
+    Hash,
+    PartialEq,
+    Eq,
+    Debug,
+    PartialOrd,
+    Ord,
+    EnumCount,
+    Display,
+    strum::EnumIter,
+    enum_map::Enum,
+)]
 #[allow(non_camel_case_types)]
 pub enum ActionCosts {
     create_account,
     delete_account,
-    deploy_contract,
-    function_call,
+    deploy_contract_base,
+    deploy_contract_byte,
+    function_call_base,
+    function_call_byte,
     transfer,
     stake,
-    add_key,
+    add_full_access_key,
+    add_function_call_key_base,
+    add_function_call_key_byte,
     delete_key,
-    value_return,
-    new_receipt,
+    new_action_receipt,
+    new_data_receipt_base,
+    new_data_receipt_byte,
 }
 
 impl ExtCosts {

@@ -5,6 +5,7 @@ use clap::Parser;
 use genesis_populate::GenesisBuilder;
 use near_chain_configs::GenesisValidationMode;
 use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::views::RuntimeConfigView;
 use near_vm_runner::internal::VMKind;
 use replay::ReplayCmd;
 use runtime_params_estimator::config::{Config, GasMetric};
@@ -147,6 +148,7 @@ fn main() -> anyhow::Result<()> {
             None,
             false,
             None,
+            None,
             false,
             None,
             None,
@@ -156,10 +158,11 @@ fn main() -> anyhow::Result<()> {
 
         let near_config = nearcore::load_config(&state_dump_path, GenesisValidationMode::Full)
             .context("Error loading config")?;
-        let store = near_store::NodeStorage::opener(&state_dump_path, &near_config.config.store)
-            .open()
-            .unwrap()
-            .get_store(near_store::Temperature::Hot);
+        let store =
+            near_store::NodeStorage::opener(&state_dump_path, &near_config.config.store, None)
+                .open()
+                .unwrap()
+                .get_store(near_store::Temperature::Hot);
         GenesisBuilder::from_config_and_store(&state_dump_path, near_config, store)
             .add_additional_accounts(cli_args.additional_accounts_num)
             .add_additional_accounts_contract(contract_code.to_vec())
@@ -197,7 +200,8 @@ fn main() -> anyhow::Result<()> {
         println!("Generated RuntimeConfig:\n");
         println!("{:#?}", runtime_config);
 
-        let str = serde_json::to_string_pretty(&runtime_config)
+        let config_view = RuntimeConfigView::from(runtime_config);
+        let str = serde_json::to_string_pretty(&config_view)
             .expect("Failed serializing the runtime config");
 
         let output_path = state_dump_path.join("runtime_config.json");
@@ -305,6 +309,7 @@ fn main_docker(
     json_output: bool,
     debug: bool,
 ) -> anyhow::Result<()> {
+    let profile = if full { "release" } else { "quick-release" };
     exec("docker --version").context("please install `docker`")?;
 
     let project_root = project_root();
@@ -339,15 +344,17 @@ fn main_docker(
         #[cfg(feature = "nightly_protocol")]
         buf.push_str(",nightly_protocol");
 
-        buf.push_str(" --release;");
+        buf.push_str(" --profile ");
+        buf.push_str(profile);
+        buf.push_str(";");
 
         let mut qemu_cmd_builder = QemuCommandBuilder::default();
 
         if debug {
             qemu_cmd_builder = qemu_cmd_builder.plugin_log(true).print_on_every_close(true);
         }
-        let mut qemu_cmd =
-            qemu_cmd_builder.build("/host/nearcore/target/release/runtime-params-estimator")?;
+        let mut qemu_cmd = qemu_cmd_builder
+            .build(&format!("/host/nearcore/target/{profile}/runtime-params-estimator"))?;
 
         qemu_cmd.args(&["--home", "/.near"]);
         buf.push_str(&format!("{:?}", qemu_cmd));
@@ -402,10 +409,6 @@ fn main_docker(
     // pipe, everything else goes to stderr.
     if debug_shell || !json_output {
         cmd.args(&["--interactive", "--tty"]);
-    }
-    if full {
-        cmd.args(&["--env", "CARGO_PROFILE_RELEASE_LTO=fat"])
-            .args(&["--env", "CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1"]);
     }
     cmd.arg(tagged_image);
 

@@ -4,8 +4,6 @@ version = "0.0.0"
 license = "MIT OR Apache-2.0"
 authors.workspace = true
 publish = false
-# Please update rust-toolchain.toml as well when changing version here:
-rust-version.workspace = true
 edition.workspace = true
 
 [dependencies]
@@ -48,6 +46,7 @@ sandbox = ["near-vm-logic/sandbox", "near-vm-runner/sandbox"]
 
 [dev-dependencies]
 assert_matches.workspace = true
+enum-map.workspace = true
 indicatif.workspace = true
 rayon.workspace = true
 serde_json.workspace = true

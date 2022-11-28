@@ -9,13 +9,12 @@ use byteorder::ByteOrder;
 use near_crypto::Secp256K1Signature;
 use near_primitives::checked_feature;
 use near_primitives::config::ViewConfig;
+use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::version::is_implicit_account_creation_enabled;
 use near_primitives_core::config::ExtCosts::*;
 use near_primitives_core::config::{ActionCosts, ExtCosts, VMConfig};
 use near_primitives_core::profile::ProfileData;
-use near_primitives_core::runtime::fees::{
-    transfer_exec_fee, transfer_send_fee, RuntimeFeesConfig,
-};
+use near_primitives_core::runtime::fees::{transfer_exec_fee, transfer_send_fee};
 use near_primitives_core::types::{
     AccountId, Balance, EpochHeight, Gas, ProtocolVersion, StorageUsage,
 };
@@ -33,7 +32,7 @@ pub struct VMLogic<'a> {
     ext: &'a mut dyn External,
     /// Part of Context API and Economics API that was extracted from the receipt.
     context: VMContext,
-    /// Parameters of Wasm and economic parameters.
+    /// All gas and economic parameters required during contract execution.
     config: &'a VMConfig,
     /// Fees for creating (async) actions on runtime.
     fees_config: &'a RuntimeFeesConfig,
@@ -1122,54 +1121,75 @@ impl<'a> VMLogic<'a> {
     }
 
     /// Verify an ED25519 signature given a message and a public key.
-    /// # Returns
-    /// - 1 meaning the boolean expression true to encode that the signature was properly verified
-    /// - 0 meaning the boolean expression false to encode that the signature failed to be verified
+    ///
+    /// Returns a bool indicating success (1) or failure (0) as a `u64`.
+    ///
+    /// # Errors
+    ///
+    /// * If the public key's size is not equal to 32, or signature size is not
+    ///   equal to 64, returns [HostError::Ed25519VerifyInvalidInput].
+    /// * If any of the signature, message or public key arguments are out of
+    ///   memory bounds, returns [`HostError::MemoryAccessViolation`]
     ///
     /// # Cost
     ///
-    /// Each input can either be in memory or in a register. Set the length of the input to `u64::MAX`
-    /// to declare that the input is a register number and not a pointer.
-    /// Each input has a gas cost input_cost(num_bytes) that depends on whether it is from memory
-    /// or from a register. It is either read_memory_base + num_bytes * read_memory_byte in the
-    /// former case or read_register_base + num_bytes * read_register_byte in the latter. This function
-    /// is labeled as `input_cost` below.
+    /// Each input can either be in memory or in a register. Set the length of
+    /// the input to `u64::MAX` to declare that the input is a register number
+    /// and not a pointer. Each input has a gas cost input_cost(num_bytes) that
+    /// depends on whether it is from memory or from a register. It is either
+    /// read_memory_base + num_bytes * read_memory_byte in the former case or
+    /// read_register_base + num_bytes * read_register_byte in the latter. This
+    /// function is labeled as `input_cost` below.
     ///
-    /// `input_cost(num_bytes_signature) + input_cost(num_bytes_message) + input_cost(num_bytes_public_key) +
-    ///  ed25519_verify_base + ed25519_verify_byte * num_bytes_message`
+    /// `input_cost(num_bytes_signature) + input_cost(num_bytes_message) +
+    ///  input_cost(num_bytes_public_key) + ed25519_verify_base +
+    ///  ed25519_verify_byte * num_bytes_message`
     #[cfg(feature = "protocol_feature_ed25519_verify")]
     pub fn ed25519_verify(
         &mut self,
-        sig_len: u64,
-        sig_ptr: u64,
-        msg_len: u64,
-        msg_ptr: u64,
-        pub_key_len: u64,
-        pub_key_ptr: u64,
+        signature_len: u64,
+        signature_ptr: u64,
+        message_len: u64,
+        message_ptr: u64,
+        public_key_len: u64,
+        public_key_ptr: u64,
     ) -> Result<u64> {
-        use ed25519_dalek::{PublicKey, Signature, Verifier, SIGNATURE_LENGTH};
+        use ed25519_dalek::Verifier;
 
         self.gas_counter.pay_base(ed25519_verify_base)?;
-        if sig_len != SIGNATURE_LENGTH as u64 {
-            return Err(VMLogicError::HostError(HostError::Ed25519VerifyInvalidInput {
-                msg: "invalid signature length".to_string(),
-            }));
-        }
-        let msg = self.get_vec_from_memory_or_register(msg_ptr, msg_len)?;
-        let signature_array = self.get_vec_from_memory_or_register(sig_ptr, sig_len)?;
-        let signature = Signature::from_bytes(&signature_array).map_err(|e| {
-            VMLogicError::HostError(HostError::Ed25519VerifyInvalidInput { msg: e.to_string() })
-        })?;
-        let num_bytes = msg.len();
-        self.gas_counter.pay_per(ed25519_verify_byte, num_bytes as _)?;
 
-        let pub_key_array = self.get_vec_from_memory_or_register(pub_key_ptr, pub_key_len)?;
-        let pub_key = PublicKey::from_bytes(&pub_key_array).map_err(|e| {
-            VMLogicError::HostError(HostError::Ed25519VerifyInvalidInput { msg: e.to_string() })
-        })?;
-        match pub_key.verify(&msg, &signature) {
-            Err(_) => Ok(0),
-            Ok(()) => Ok(1),
+        let signature: ed25519_dalek::Signature = {
+            let vec = self.get_vec_from_memory_or_register(signature_ptr, signature_len)?;
+            if vec.len() != ed25519_dalek::SIGNATURE_LENGTH {
+                return Err(VMLogicError::HostError(HostError::Ed25519VerifyInvalidInput {
+                    msg: "invalid signature length".to_string(),
+                }));
+            }
+            match ed25519_dalek::Signature::from_bytes(&vec) {
+                Ok(signature) => signature,
+                Err(_) => return Ok(false as u64),
+            }
+        };
+
+        let message = self.get_vec_from_memory_or_register(message_ptr, message_len)?;
+        self.gas_counter.pay_per(ed25519_verify_byte, message.len() as u64)?;
+
+        let public_key: ed25519_dalek::PublicKey = {
+            let vec = self.get_vec_from_memory_or_register(public_key_ptr, public_key_len)?;
+            if vec.len() != ed25519_dalek::PUBLIC_KEY_LENGTH {
+                return Err(VMLogicError::HostError(HostError::Ed25519VerifyInvalidInput {
+                    msg: "invalid public key length".to_string(),
+                }));
+            }
+            match ed25519_dalek::PublicKey::from_bytes(&vec) {
+                Ok(public_key) => public_key,
+                Err(_) => return Ok(false as u64),
+            }
+        };
+
+        match public_key.verify(&message, &signature) {
+            Err(_) => Ok(false as u64),
+            Ok(()) => Ok(true as u64),
         }
     }
 
@@ -1204,18 +1224,20 @@ impl<'a> VMLogic<'a> {
     /// DataReceipt.
     fn pay_gas_for_new_receipt(&mut self, sir: bool, data_dependencies: &[bool]) -> Result<()> {
         let fees_config_cfg = &self.fees_config;
-        let mut burn_gas = fees_config_cfg.action_receipt_creation_config.send_fee(sir);
-        let mut use_gas = fees_config_cfg.action_receipt_creation_config.exec_fee();
+        let mut burn_gas = fees_config_cfg.fee(ActionCosts::new_action_receipt).send_fee(sir);
+        let mut use_gas = fees_config_cfg.fee(ActionCosts::new_action_receipt).exec_fee();
         for dep in data_dependencies {
             // Both creation and execution for data receipts are considered burnt gas.
             burn_gas = burn_gas
-                .checked_add(fees_config_cfg.data_receipt_creation_config.base_cost.send_fee(*dep))
+                .checked_add(fees_config_cfg.fee(ActionCosts::new_data_receipt_base).send_fee(*dep))
                 .ok_or(HostError::IntegerOverflow)?
-                .checked_add(fees_config_cfg.data_receipt_creation_config.base_cost.exec_fee())
+                .checked_add(fees_config_cfg.fee(ActionCosts::new_data_receipt_base).exec_fee())
                 .ok_or(HostError::IntegerOverflow)?;
         }
         use_gas = use_gas.checked_add(burn_gas).ok_or(HostError::IntegerOverflow)?;
-        self.gas_counter.pay_action_accumulated(burn_gas, use_gas, ActionCosts::new_receipt)
+        // This should go to `new_data_receipt_base` and `new_action_receipt` in parts.
+        // But we have to keep charing these two together unless we make a protocol change.
+        self.gas_counter.pay_action_accumulated(burn_gas, use_gas, ActionCosts::new_action_receipt)
     }
 
     /// A helper function to subtract balance on transfer or attached deposit for promises.
@@ -1536,11 +1558,7 @@ impl<'a> VMLogic<'a> {
         }
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
-        self.gas_counter.pay_action_base(
-            &self.fees_config.action_creation_config.create_account_cost,
-            sir,
-            ActionCosts::create_account,
-        )?;
+        self.pay_action_base(ActionCosts::create_account, sir)?;
 
         self.receipt_manager.append_action_create_account(receipt_idx)?;
         Ok(())
@@ -1588,17 +1606,8 @@ impl<'a> VMLogic<'a> {
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
         let num_bytes = code.len() as u64;
-        self.gas_counter.pay_action_base(
-            &self.fees_config.action_creation_config.deploy_contract_cost,
-            sir,
-            ActionCosts::deploy_contract,
-        )?;
-        self.gas_counter.pay_action_per_byte(
-            &self.fees_config.action_creation_config.deploy_contract_cost_per_byte,
-            num_bytes,
-            sir,
-            ActionCosts::deploy_contract,
-        )?;
+        self.pay_action_base(ActionCosts::deploy_contract_base, sir)?;
+        self.pay_action_per_byte(ActionCosts::deploy_contract_byte, num_bytes, sir)?;
 
         self.receipt_manager.append_action_deploy_contract(receipt_idx, code)?;
         Ok(())
@@ -1709,17 +1718,8 @@ impl<'a> VMLogic<'a> {
 
         // Input can't be large enough to overflow
         let num_bytes = method_name.len() as u64 + arguments.len() as u64;
-        self.gas_counter.pay_action_base(
-            &self.fees_config.action_creation_config.function_call_cost,
-            sir,
-            ActionCosts::function_call,
-        )?;
-        self.gas_counter.pay_action_per_byte(
-            &self.fees_config.action_creation_config.function_call_cost_per_byte,
-            num_bytes,
-            sir,
-            ActionCosts::function_call,
-        )?;
+        self.pay_action_base(ActionCosts::function_call_base, sir)?;
+        self.pay_action_per_byte(ActionCosts::function_call_byte, num_bytes, sir)?;
         // Prepaid gas
         self.gas_counter.prepay_gas(gas)?;
 
@@ -1771,10 +1771,8 @@ impl<'a> VMLogic<'a> {
             is_implicit_account_creation_enabled(self.current_protocol_version)
                 && receiver_id.is_implicit();
 
-        let send_fee =
-            transfer_send_fee(&self.fees_config.action_creation_config, sir, is_receiver_implicit);
-        let exec_fee =
-            transfer_exec_fee(&self.fees_config.action_creation_config, is_receiver_implicit);
+        let send_fee = transfer_send_fee(self.fees_config, sir, is_receiver_implicit);
+        let exec_fee = transfer_exec_fee(self.fees_config, is_receiver_implicit);
         let burn_gas = send_fee;
         let use_gas = burn_gas.checked_add(exec_fee).ok_or(HostError::IntegerOverflow)?;
         self.gas_counter.pay_action_accumulated(burn_gas, use_gas, ActionCosts::transfer)?;
@@ -1820,13 +1818,7 @@ impl<'a> VMLogic<'a> {
         let public_key = self.get_vec_from_memory_or_register(public_key_ptr, public_key_len)?;
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
-
-        self.gas_counter.pay_action_base(
-            &self.fees_config.action_creation_config.stake_cost,
-            sir,
-            ActionCosts::stake,
-        )?;
-
+        self.pay_action_base(ActionCosts::stake, sir)?;
         self.receipt_manager.append_action_stake(receipt_idx, amount, public_key)?;
         Ok(())
     }
@@ -1865,13 +1857,7 @@ impl<'a> VMLogic<'a> {
         let public_key = self.get_vec_from_memory_or_register(public_key_ptr, public_key_len)?;
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
-
-        self.gas_counter.pay_action_base(
-            &self.fees_config.action_creation_config.add_key_cost.full_access_cost,
-            sir,
-            ActionCosts::add_key,
-        )?;
-
+        self.pay_action_base(ActionCosts::add_full_access_key, sir)?;
         self.receipt_manager.append_action_add_key_with_full_access(
             receipt_idx,
             public_key,
@@ -1930,17 +1916,8 @@ impl<'a> VMLogic<'a> {
 
         // +1 is to account for null-terminating characters.
         let num_bytes = method_names.iter().map(|v| v.len() as u64 + 1).sum::<u64>();
-        self.gas_counter.pay_action_base(
-            &self.fees_config.action_creation_config.add_key_cost.function_call_cost,
-            sir,
-            ActionCosts::add_key,
-        )?;
-        self.gas_counter.pay_action_per_byte(
-            &self.fees_config.action_creation_config.add_key_cost.function_call_cost_per_byte,
-            num_bytes,
-            sir,
-            ActionCosts::add_key,
-        )?;
+        self.pay_action_base(ActionCosts::add_function_call_key_base, sir)?;
+        self.pay_action_per_byte(ActionCosts::add_function_call_key_byte, num_bytes, sir)?;
 
         self.receipt_manager.append_action_add_key_with_function_call(
             receipt_idx,
@@ -1986,13 +1963,7 @@ impl<'a> VMLogic<'a> {
         let public_key = self.get_vec_from_memory_or_register(public_key_ptr, public_key_len)?;
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
-
-        self.gas_counter.pay_action_base(
-            &self.fees_config.action_creation_config.delete_key_cost,
-            sir,
-            ActionCosts::delete_key,
-        )?;
-
+        self.pay_action_base(ActionCosts::delete_key, sir)?;
         self.receipt_manager.append_action_delete_key(receipt_idx, public_key)?;
         Ok(())
     }
@@ -2030,11 +2001,7 @@ impl<'a> VMLogic<'a> {
             self.read_and_parse_account_id(beneficiary_id_ptr, beneficiary_id_len)?;
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
-        self.gas_counter.pay_action_base(
-            &self.fees_config.action_creation_config.delete_account_cost,
-            sir,
-            ActionCosts::delete_account,
-        )?;
+        self.pay_action_base(ActionCosts::delete_account, sir)?;
 
         self.receipt_manager.append_action_delete_account(receipt_idx, beneficiary_id)?;
         Ok(())
@@ -2167,7 +2134,6 @@ impl<'a> VMLogic<'a> {
             }
             .into());
         }
-        let data_cfg = &self.fees_config.data_receipt_creation_config;
         for data_receiver in &self.context.output_data_receivers {
             let sir = data_receiver == &self.context.current_account_id;
             // We deduct for execution here too, because if we later have an OR combinator
@@ -2179,17 +2145,23 @@ impl<'a> VMLogic<'a> {
             // The gas here is considered burnt, cause we'll prepay for it upfront.
             burn_gas = burn_gas
                 .checked_add(
-                    data_cfg
-                        .cost_per_byte
+                    self.fees_config
+                        .fee(ActionCosts::new_data_receipt_byte)
                         .send_fee(sir)
-                        .checked_add(data_cfg.cost_per_byte.exec_fee())
+                        .checked_add(
+                            self.fees_config.fee(ActionCosts::new_data_receipt_byte).exec_fee(),
+                        )
                         .ok_or(HostError::IntegerOverflow)?
                         .checked_mul(num_bytes)
                         .ok_or(HostError::IntegerOverflow)?,
                 )
                 .ok_or(HostError::IntegerOverflow)?;
         }
-        self.gas_counter.pay_action_accumulated(burn_gas, burn_gas, ActionCosts::value_return)?;
+        self.gas_counter.pay_action_accumulated(
+            burn_gas,
+            burn_gas,
+            ActionCosts::new_data_receipt_byte,
+        )?;
         self.return_data = ReturnData::Value(return_val);
         Ok(())
     }
@@ -2791,6 +2763,33 @@ impl<'a> VMLogic<'a> {
         let new_burn_gas = self.gas_counter.burnt_gas();
         let new_used_gas = self.gas_counter.used_gas();
         self.gas_counter.process_gas_limit(new_burn_gas, new_used_gas)
+    }
+
+    /// A helper function to pay base cost gas fee for batching an action.
+    pub fn pay_action_base(&mut self, action: ActionCosts, sir: bool) -> Result<()> {
+        let base_fee = self.fees_config.fee(action);
+        let burn_gas = base_fee.send_fee(sir);
+        let use_gas =
+            burn_gas.checked_add(base_fee.exec_fee()).ok_or(HostError::IntegerOverflow)?;
+        self.gas_counter.pay_action_accumulated(burn_gas, use_gas, action)
+    }
+
+    /// A helper function to pay per byte gas fee for batching an action.
+    pub fn pay_action_per_byte(
+        &mut self,
+        action: ActionCosts,
+        num_bytes: u64,
+        sir: bool,
+    ) -> Result<()> {
+        let per_byte_fee = self.fees_config.fee(action);
+        let burn_gas =
+            num_bytes.checked_mul(per_byte_fee.send_fee(sir)).ok_or(HostError::IntegerOverflow)?;
+        let use_gas = burn_gas
+            .checked_add(
+                num_bytes.checked_mul(per_byte_fee.exec_fee()).ok_or(HostError::IntegerOverflow)?,
+            )
+            .ok_or(HostError::IntegerOverflow)?;
+        self.gas_counter.pay_action_accumulated(burn_gas, use_gas, action)
     }
 
     /// VM independent setup before loading the executable.

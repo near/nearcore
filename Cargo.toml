@@ -21,6 +21,7 @@ members = [
     "core/account-id/fuzz",
     "core/chain-configs",
     "core/crypto",
+    "core/dyn-configs",
     "core/o11y",
     "core/primitives",
     "core/primitives-core",
@@ -47,14 +48,17 @@ members = [
     "tools/indexer/example",
     "tools/mirror",
     "tools/mock-node",
+    "tools/ping",
     "tools/restaked",
     "tools/rpctypegen/core",
     "tools/rpctypegen/macro",
     "tools/state-viewer",
+    "tools/speedy_sync",
     "tools/storage-usage-delta-calculator",
     "tools/themis",
     "utils/mainnet-res",
     "utils/near-cache",
+    "utils/stdx",
 ]
 
 [workspace.metadata.workspaces]
@@ -71,13 +75,11 @@ ansi_term = "0.12"
 anyhow = "1.0.62"
 arbitrary = { version = "1", features = ["derive"] }
 arc-swap = "1.5"
-arrayref = "0.3"
 assert_matches = "1.5.0"
 async-recursion = "0.3.2"
 async-trait = "0.1.58"
 atty = "0.2"
 awc = { version = "3", features = ["openssl"] }
-backtrace = "0.3.64"
 base64 = "0.13"
 bencher = "0.1.5"
 bitflags = "1.2"
@@ -201,18 +203,29 @@ wat = "1.0.40"
 xshell = "0.2.1"
 xz2 = "0.1.6"
 
+stdx = { package = "near-stdx", path = "utils/stdx" }
+
 [patch.crates-io]
 
 # Note that "bench" profile inherits from "release" profile and
 # "test" profile inherits from "dev" profile.
 # https://doc.rust-lang.org/cargo/reference/profiles.html#test
 
+[profile.dev]
+panic = 'abort'
+
 [profile.release]
 overflow-checks = true
 panic = 'abort'
+lto = "fat"
+codegen-units = 1
 
-[profile.dev]
-panic = 'abort'
+# A much faster to compile version of `release`.
+[profile.quick-release]
+inherits = "release"
+lto = false
+codegen-units = 16
+
 
 # Compile some dependencies with optimizations to speed up tests.
 [profile.dev.package.hex]
@@ -227,4 +240,4 @@ opt-level = 3
 [workspace.package]
 edition = "2021"
 authors = ["Near Inc <hello@nearprotocol.com>"]
-rust-version = "1.64.0"
+rust-version = "1.65.0"

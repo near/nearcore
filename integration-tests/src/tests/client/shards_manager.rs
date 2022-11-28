@@ -38,7 +38,7 @@ fn test_prepare_partial_encoded_chunk_response() {
         part_ords: (0..env.clients[0].runtime_adapter.num_total_parts() as u64).collect(),
         tracking_shards: Some(0u64).into_iter().collect(),
     };
-    let res = Some(env.get_partial_encoded_chunk_response(0, request.clone()));
+    let res = env.get_partial_encoded_chunk_response(0, request.clone());
 
     // Make the same request but this time call directly to ShardsManager and
     // get the request from a PartialEncodedChunk object.

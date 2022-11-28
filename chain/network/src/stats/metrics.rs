@@ -277,15 +277,6 @@ pub(crate) static PEER_MANAGER_MESSAGES_TIME: Lazy<HistogramVec> = Lazy::new(|| 
     )
     .unwrap()
 });
-pub(crate) static ROUTING_TABLE_MESSAGES_TIME: Lazy<HistogramVec> = Lazy::new(|| {
-    try_create_histogram_vec(
-        "near_routing_actor_messages_time",
-        "Time that routing table actor spends on handling different types of messages",
-        &["message"],
-        Some(exponential_buckets(0.0001, 2., 15).unwrap()),
-    )
-    .unwrap()
-});
 pub(crate) static ROUTED_MESSAGE_DROPPED: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
         "near_routed_message_dropped",
@@ -332,6 +323,14 @@ static NETWORK_ROUTED_MSG_LATENCY: Lazy<HistogramVec> = Lazy::new(|| {
     )
     .unwrap()
 });
+static NETWORK_ROUTED_MSG_NUM_HOPS: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_network_routed_msg_hops",
+        "Number of peers the routed message travelled through",
+        &["routed", "hops"],
+    )
+    .unwrap()
+});
 
 pub(crate) static CONNECTED_TO_MYSELF: Lazy<IntCounter> = Lazy::new(|| {
     try_create_int_counter(
@@ -341,15 +340,36 @@ pub(crate) static CONNECTED_TO_MYSELF: Lazy<IntCounter> = Lazy::new(|| {
     .unwrap()
 });
 
-// The routed message received its destination. If the timestamp of creation of this message is
+pub(crate) fn record_routed_msg_metrics(clock: &time::Clock, msg: &RoutedMessageV2) {
+    record_routed_msg_latency(clock, msg);
+    record_routed_msg_hops(msg);
+}
+
+// The routed message reached its destination. If the timestamp of creation of this message is
 // known, then update the corresponding latency metric histogram.
-pub(crate) fn record_routed_msg_latency(clock: &time::Clock, msg: &RoutedMessageV2) {
+fn record_routed_msg_latency(clock: &time::Clock, msg: &RoutedMessageV2) {
     if let Some(created_at) = msg.created_at {
         let now = clock.now_utc();
         let duration = now - created_at;
         NETWORK_ROUTED_MSG_LATENCY
             .with_label_values(&[msg.body_variant()])
             .observe(duration.as_seconds_f64());
+    }
+}
+
+// The routed message reached its destination. If the number of hops is known, then update the
+// corresponding metric.
+fn record_routed_msg_hops(msg: &RoutedMessageV2) {
+    const MAX_NUM_HOPS: i32 = 20;
+    // We assume that the number of hops is small.
+    // As long as the number of hops is below 10, this metric will not consume too much memory.
+    if let Some(num_hops) = msg.num_hops {
+        if num_hops >= 0 {
+            let num_hops = if num_hops > MAX_NUM_HOPS { MAX_NUM_HOPS } else { num_hops };
+            NETWORK_ROUTED_MSG_NUM_HOPS
+                .with_label_values(&[msg.body_variant(), &num_hops.to_string()])
+                .inc();
+        }
     }
 }
 

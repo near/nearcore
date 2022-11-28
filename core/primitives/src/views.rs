@@ -5,10 +5,14 @@
 //! from the source structure in the relevant `From<SourceStruct>` impl.
 use std::collections::HashMap;
 use std::fmt;
+use std::ops::Range;
 use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::DateTime;
+use near_primitives_core::config::{ActionCosts, VMConfig};
+use near_primitives_core::runtime::fees::Fee;
+use num_rational::Rational;
 use serde::{Deserialize, Serialize};
 
 use near_crypto::{PublicKey, Signature};
@@ -24,11 +28,11 @@ use crate::challenge::{Challenge, ChallengesResult};
 use crate::contract::ContractCode;
 use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};
-use crate::logging;
 use crate::merkle::{combine_hash, MerklePath};
 use crate::network::PeerId;
 use crate::profile::Cost;
 use crate::receipt::{ActionReceipt, DataReceipt, DataReceiver, Receipt, ReceiptEnum};
+use crate::runtime::config::RuntimeConfig;
 use crate::serialize::{base64_format, dec_format, option_base64_format};
 use crate::sharding::{
     ChunkHash, ShardChunk, ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderInnerV2,
@@ -253,7 +257,7 @@ pub struct KnownPeerStateView {
     pub addr: String,
     pub first_seen: i64,
     pub last_seen: i64,
-    pub last_attempt: Option<i64>,
+    pub last_attempt: Option<(i64, String)>,
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
@@ -334,7 +338,9 @@ pub struct ValidatorInfo {
 pub struct PeerInfoView {
     pub addr: String,
     pub account_id: Option<AccountId>,
-    pub height: BlockHeight,
+    pub height: Option<BlockHeight>,
+    pub block_hash: Option<CryptoHash>,
+    pub is_highest_block_invalid: bool,
     pub tracked_shards: Vec<ShardId>,
     pub archival: bool,
     pub peer_id: PublicKey,
@@ -344,6 +350,8 @@ pub struct PeerInfoView {
     pub last_time_received_message_millis: u64,
     pub connection_established_time_millis: u64,
     pub is_outbound_peer: bool,
+    /// Connection nonce.
+    pub nonce: u64,
 }
 
 /// Information about a Producer: its account name, peer_id and a list of connected peers that
@@ -393,6 +401,18 @@ pub struct PeerStoreView {
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct EdgeView {
+    pub peer0: PeerId,
+    pub peer1: PeerId,
+    pub nonce: u64,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct NetworkGraphView {
+    pub edges: Vec<EdgeView>,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct ShardSyncDownloadView {
     pub downloads: Vec<DownloadStatusView>,
     pub status: String,
@@ -416,6 +436,14 @@ pub struct CatchupStatusView {
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct RequestedStatePartsView {
+    // This is the first block of the epoch that was requested
+    pub block_hash: CryptoHash,
+    // All the part ids of the shards that were requested
+    pub shard_requested_parts: HashMap<ShardId, Vec<PartElapsedTimeView>>,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct BlockStatusView {
     pub height: BlockHeight,
     pub hash: CryptoHash,
@@ -430,6 +458,18 @@ impl BlockStatusView {
 impl From<Tip> for BlockStatusView {
     fn from(tip: Tip) -> Self {
         Self { height: tip.height, hash: tip.last_block_hash }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub struct PartElapsedTimeView {
+    pub part_id: u64,
+    pub elapsed_ms: u128,
+}
+
+impl PartElapsedTimeView {
+    pub fn new(part_id: &u64, elapsed_ms: u128) -> PartElapsedTimeView {
+        Self { part_id: part_id.clone(), elapsed_ms }
     }
 }
 
@@ -480,8 +520,18 @@ pub enum BlockProcessingStatus {
     Orphan,
     WaitingForChunks,
     InProcessing,
-    Processed,
+    Accepted,
+    Error(String),
+    Dropped(DroppedReason),
     Unknown,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub enum DroppedReason {
+    // If the node has already processed a block at this height
+    HeightProcessed,
+    // If the block processing pool is full
+    TooManyProcessingBlocks,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -529,7 +579,6 @@ pub struct DetailedDebugStatus {
     pub current_head_status: BlockStatusView,
     pub current_header_head_status: BlockStatusView,
     pub block_production_delay_millis: u64,
-    pub chain_processing_info: ChainProcessingInfo,
 }
 
 // TODO: add more information to status.
@@ -1203,28 +1252,52 @@ impl From<ExecutionMetadata> for ExecutionMetadataView {
         let gas_profile = match metadata {
             ExecutionMetadata::V1 => None,
             ExecutionMetadata::V2(profile_data) => {
-                let mut costs: Vec<_> = Cost::ALL
-                    .iter()
-                    .filter(|&cost| profile_data[*cost] > 0)
-                    .map(|&cost| CostGasUsed {
-                        cost_category: match cost {
-                            Cost::ActionCost { .. } => "ACTION_COST",
-                            Cost::ExtCost { .. } => "WASM_HOST_COST",
-                            Cost::WasmInstruction => "WASM_HOST_COST",
-                        }
-                        .to_string(),
-                        cost: match cost {
-                            Cost::ActionCost { action_cost_kind: action_cost } => {
-                                format!("{:?}", action_cost).to_ascii_uppercase()
+                let mut costs: Vec<_> =
+                    Cost::iter()
+                        .filter(|&cost| profile_data[cost] > 0)
+                        .map(|cost| CostGasUsed {
+                            cost_category: match cost {
+                                Cost::ActionCost { .. } => "ACTION_COST",
+                                Cost::ExtCost { .. } => "WASM_HOST_COST",
+                                Cost::WasmInstruction => "WASM_HOST_COST",
                             }
-                            Cost::ExtCost { ext_cost_kind: ext_cost } => {
-                                format!("{:?}", ext_cost).to_ascii_uppercase()
-                            }
-                            Cost::WasmInstruction => "WASM_INSTRUCTION".to_string(),
-                        },
-                        gas_used: profile_data[cost],
-                    })
-                    .collect();
+                            .to_string(),
+                            cost: match cost {
+                                // preserve old behavior that conflated some action
+                                // costs for profile (duplicates are removed afterwards)
+                                Cost::ActionCost {
+                                    action_cost_kind:
+                                        ActionCosts::deploy_contract_base
+                                        | ActionCosts::deploy_contract_byte,
+                                } => "DEPLOY_CONTRACT".to_owned(),
+                                Cost::ActionCost {
+                                    action_cost_kind:
+                                        ActionCosts::function_call_base
+                                        | ActionCosts::function_call_byte,
+                                } => "FUNCTION_CALL".to_owned(),
+                                Cost::ActionCost {
+                                    action_cost_kind:
+                                        ActionCosts::add_full_access_key
+                                        | ActionCosts::add_function_call_key_base
+                                        | ActionCosts::add_function_call_key_byte,
+                                } => "ADD_KEY".to_owned(),
+                                Cost::ActionCost {
+                                    action_cost_kind:
+                                        ActionCosts::new_action_receipt
+                                        | ActionCosts::new_data_receipt_base,
+                                } => "NEW_RECEIPT".to_owned(),
+                                // other costs have always been mapped one-to-one
+                                Cost::ActionCost { action_cost_kind: action_cost } => {
+                                    format!("{:?}", action_cost).to_ascii_uppercase()
+                                }
+                                Cost::ExtCost { ext_cost_kind: ext_cost } => {
+                                    format!("{:?}", ext_cost).to_ascii_uppercase()
+                                }
+                                Cost::WasmInstruction => "WASM_INSTRUCTION".to_string(),
+                            },
+                            gas_used: profile_data[cost],
+                        })
+                        .collect();
 
                 // The order doesn't really matter, but the default one is just
                 // historical, which is especially unintuitive, so let's sort
@@ -1235,6 +1308,9 @@ impl From<ExecutionMetadata> for ExecutionMetadataView {
                 costs.sort_by(|lhs, rhs| {
                     lhs.cost_category.cmp(&rhs.cost_category).then(lhs.cost.cmp(&rhs.cost))
                 });
+
+                // need to remove duplicate entries due to cost conflation
+                costs.dedup();
 
                 Some(costs)
             }
@@ -1376,10 +1452,7 @@ impl fmt::Debug for FinalExecutionOutcomeView {
             .field("status", &self.status)
             .field("transaction", &self.transaction)
             .field("transaction_outcome", &self.transaction_outcome)
-            .field(
-                "receipts_outcome",
-                &format_args!("{}", logging::pretty_vec(&self.receipts_outcome)),
-            )
+            .field("receipts_outcome", &pretty::Slice(&self.receipts_outcome))
             .finish()
     }
 }
@@ -1891,3 +1964,240 @@ impl From<StateChangeWithCause> for StateChangeWithCauseView {
 }
 
 pub type StateChangesView = Vec<StateChangeWithCauseView>;
+
+/// Maintenance windows view are a vector of maintenance window.
+pub type MaintenanceWindowsView = Vec<Range<BlockHeight>>;
+
+/// View that preserves JSON format of the runtime config.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct RuntimeConfigView {
+    /// Amount of yN per byte required to have on the account.  See
+    /// <https://nomicon.io/Economics/README.html#state-stake> for details.
+    #[serde(with = "dec_format")]
+    pub storage_amount_per_byte: Balance,
+    /// Costs of different actions that need to be performed when sending and
+    /// processing transaction and receipts.
+    pub transaction_costs: RuntimeFeesConfigView,
+    /// Config of wasm operations.
+    ///
+    /// TODO: This should be refactored to `VMConfigView` to detach the config
+    /// format from RPC output.
+    pub wasm_config: VMConfig,
+    /// Config that defines rules for account creation.
+    pub account_creation_config: AccountCreationConfigView,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct RuntimeFeesConfigView {
+    /// Describes the cost of creating an action receipt, `ActionReceipt`, excluding the actual cost
+    /// of actions.
+    /// - `send` cost is burned when a receipt is created using `promise_create` or
+    ///     `promise_batch_create`
+    /// - `exec` cost is burned when the receipt is being executed.
+    pub action_receipt_creation_config: Fee,
+    /// Describes the cost of creating a data receipt, `DataReceipt`.
+    pub data_receipt_creation_config: DataReceiptCreationConfigView,
+    /// Describes the cost of creating a certain action, `Action`. Includes all variants.
+    pub action_creation_config: ActionCreationConfigView,
+    /// Describes fees for storage.
+    pub storage_usage_config: StorageUsageConfigView,
+
+    /// Fraction of the burnt gas to reward to the contract account for execution.
+    pub burnt_gas_reward: Rational,
+
+    /// Pessimistic gas price inflation ratio.
+    pub pessimistic_gas_price_inflation_ratio: Rational,
+}
+
+/// The structure describes configuration for creation of new accounts.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct AccountCreationConfigView {
+    /// The minimum length of the top-level account ID that is allowed to be created by any account.
+    pub min_allowed_top_level_account_length: u8,
+    /// The account ID of the account registrar. This account ID allowed to create top-level
+    /// accounts of any valid length.
+    pub registrar_account_id: AccountId,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
+pub struct DataReceiptCreationConfigView {
+    /// Base cost of creating a data receipt.
+    /// Both `send` and `exec` costs are burned when a new receipt has input dependencies. The gas
+    /// is charged for each input dependency. The dependencies are specified when a receipt is
+    /// created using `promise_then` and `promise_batch_then`.
+    /// NOTE: Any receipt with output dependencies will produce data receipts. Even if it fails.
+    /// Even if the last action is not a function call (in case of success it will return empty
+    /// value).
+    pub base_cost: Fee,
+    /// Additional cost per byte sent.
+    /// Both `send` and `exec` costs are burned when a function call finishes execution and returns
+    /// `N` bytes of data to every output dependency. For each output dependency the cost is
+    /// `(send(sir) + exec()) * N`.
+    pub cost_per_byte: Fee,
+}
+
+/// Describes the cost of creating a specific action, `Action`. Includes all variants.
+#[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
+pub struct ActionCreationConfigView {
+    /// Base cost of creating an account.
+    pub create_account_cost: Fee,
+
+    /// Base cost of deploying a contract.
+    pub deploy_contract_cost: Fee,
+    /// Cost per byte of deploying a contract.
+    pub deploy_contract_cost_per_byte: Fee,
+
+    /// Base cost of calling a function.
+    pub function_call_cost: Fee,
+    /// Cost per byte of method name and arguments of calling a function.
+    pub function_call_cost_per_byte: Fee,
+
+    /// Base cost of making a transfer.
+    pub transfer_cost: Fee,
+
+    /// Base cost of staking.
+    pub stake_cost: Fee,
+
+    /// Base cost of adding a key.
+    pub add_key_cost: AccessKeyCreationConfigView,
+
+    /// Base cost of deleting a key.
+    pub delete_key_cost: Fee,
+
+    /// Base cost of deleting an account.
+    pub delete_account_cost: Fee,
+}
+
+/// Describes the cost of creating an access key.
+#[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
+pub struct AccessKeyCreationConfigView {
+    /// Base cost of creating a full access access-key.
+    pub full_access_cost: Fee,
+    /// Base cost of creating an access-key restricted to specific functions.
+    pub function_call_cost: Fee,
+    /// Cost per byte of method_names of creating a restricted access-key.
+    pub function_call_cost_per_byte: Fee,
+}
+
+/// Describes cost of storage per block
+#[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
+pub struct StorageUsageConfigView {
+    /// Number of bytes for an account record, including rounding up for account id.
+    pub num_bytes_account: u64,
+    /// Additional number of bytes for a k/v record
+    pub num_extra_bytes_record: u64,
+}
+
+impl From<RuntimeConfig> for RuntimeConfigView {
+    fn from(config: RuntimeConfig) -> Self {
+        Self {
+            storage_amount_per_byte: config.storage_amount_per_byte(),
+            transaction_costs: RuntimeFeesConfigView {
+                action_receipt_creation_config: config
+                    .fees
+                    .fee(ActionCosts::new_action_receipt)
+                    .clone(),
+                data_receipt_creation_config: DataReceiptCreationConfigView {
+                    base_cost: config.fees.fee(ActionCosts::new_data_receipt_base).clone(),
+                    cost_per_byte: config.fees.fee(ActionCosts::new_data_receipt_byte).clone(),
+                },
+                action_creation_config: ActionCreationConfigView {
+                    create_account_cost: config.fees.fee(ActionCosts::create_account).clone(),
+                    deploy_contract_cost: config
+                        .fees
+                        .fee(ActionCosts::deploy_contract_base)
+                        .clone(),
+                    deploy_contract_cost_per_byte: config
+                        .fees
+                        .fee(ActionCosts::deploy_contract_byte)
+                        .clone(),
+                    function_call_cost: config.fees.fee(ActionCosts::function_call_base).clone(),
+                    function_call_cost_per_byte: config
+                        .fees
+                        .fee(ActionCosts::function_call_byte)
+                        .clone(),
+                    transfer_cost: config.fees.fee(ActionCosts::transfer).clone(),
+                    stake_cost: config.fees.fee(ActionCosts::stake).clone(),
+                    add_key_cost: AccessKeyCreationConfigView {
+                        full_access_cost: config.fees.fee(ActionCosts::add_full_access_key).clone(),
+                        function_call_cost: config
+                            .fees
+                            .fee(ActionCosts::add_function_call_key_base)
+                            .clone(),
+                        function_call_cost_per_byte: config
+                            .fees
+                            .fee(ActionCosts::add_function_call_key_byte)
+                            .clone(),
+                    },
+                    delete_key_cost: config.fees.fee(ActionCosts::delete_key).clone(),
+                    delete_account_cost: config.fees.fee(ActionCosts::delete_account).clone(),
+                },
+                storage_usage_config: StorageUsageConfigView {
+                    num_bytes_account: config.fees.storage_usage_config.num_bytes_account,
+                    num_extra_bytes_record: config.fees.storage_usage_config.num_extra_bytes_record,
+                },
+                burnt_gas_reward: config.fees.burnt_gas_reward,
+                pessimistic_gas_price_inflation_ratio: config
+                    .fees
+                    .pessimistic_gas_price_inflation_ratio,
+            },
+            wasm_config: config.wasm_config,
+            account_creation_config: AccountCreationConfigView {
+                min_allowed_top_level_account_length: config
+                    .account_creation_config
+                    .min_allowed_top_level_account_length,
+                registrar_account_id: config.account_creation_config.registrar_account_id,
+            },
+        }
+    }
+}
+
+// reverse direction: rosetta adapter uses this, also we use to test that all fields are present in view (TODO)
+impl From<RuntimeConfigView> for RuntimeConfig {
+    fn from(config: RuntimeConfigView) -> Self {
+        Self {
+            fees: near_primitives_core::runtime::fees::RuntimeFeesConfig {
+                storage_usage_config: near_primitives_core::runtime::fees::StorageUsageConfig {
+                    storage_amount_per_byte: config.storage_amount_per_byte,
+                    num_bytes_account: config
+                        .transaction_costs
+                        .storage_usage_config
+                        .num_bytes_account,
+                    num_extra_bytes_record: config
+                        .transaction_costs
+                        .storage_usage_config
+                        .num_extra_bytes_record,
+                },
+                burnt_gas_reward: config.transaction_costs.burnt_gas_reward,
+                pessimistic_gas_price_inflation_ratio: config
+                    .transaction_costs
+                    .pessimistic_gas_price_inflation_ratio,
+                action_fees: enum_map::enum_map! {
+                    ActionCosts::create_account => config.transaction_costs.action_creation_config.create_account_cost.clone(),
+                    ActionCosts::delete_account => config.transaction_costs.action_creation_config.delete_account_cost.clone(),
+                    ActionCosts::deploy_contract_base => config.transaction_costs.action_creation_config.deploy_contract_cost.clone(),
+                    ActionCosts::deploy_contract_byte => config.transaction_costs.action_creation_config.deploy_contract_cost_per_byte.clone(),
+                    ActionCosts::function_call_base => config.transaction_costs.action_creation_config.function_call_cost.clone(),
+                    ActionCosts::function_call_byte => config.transaction_costs.action_creation_config.function_call_cost_per_byte.clone(),
+                    ActionCosts::transfer => config.transaction_costs.action_creation_config.transfer_cost.clone(),
+                    ActionCosts::stake => config.transaction_costs.action_creation_config.stake_cost.clone(),
+                    ActionCosts::add_full_access_key => config.transaction_costs.action_creation_config.add_key_cost.full_access_cost.clone(),
+                    ActionCosts::add_function_call_key_base => config.transaction_costs.action_creation_config.add_key_cost.function_call_cost.clone(),
+                    ActionCosts::add_function_call_key_byte => config.transaction_costs.action_creation_config.add_key_cost.function_call_cost_per_byte.clone(),
+                    ActionCosts::delete_key => config.transaction_costs.action_creation_config.delete_key_cost.clone(),
+                    ActionCosts::new_action_receipt => config.transaction_costs.action_receipt_creation_config.clone(),
+                    ActionCosts::new_data_receipt_base => config.transaction_costs.data_receipt_creation_config.base_cost.clone(),
+                    ActionCosts::new_data_receipt_byte => config.transaction_costs.data_receipt_creation_config.cost_per_byte.clone(),
+
+                },
+            },
+            wasm_config: config.wasm_config,
+            account_creation_config: crate::runtime::config::AccountCreationConfig {
+                min_allowed_top_level_account_length: config
+                    .account_creation_config
+                    .min_allowed_top_level_account_length,
+                registrar_account_id: config.account_creation_config.registrar_account_id,
+            },
+        }
+    }
+}

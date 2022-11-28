@@ -233,7 +233,13 @@ pub struct TrieCache(pub(crate) Arc<Mutex<TrieCacheInner>>);
 
 impl TrieCache {
     pub fn new(config: &TrieConfig, shard_uid: ShardUId, is_view: bool) -> Self {
-        let total_size_limit = config.shard_cache_total_size_limit(shard_uid, is_view);
+        let cache_config =
+            if is_view { &config.view_shard_cache_config } else { &config.shard_cache_config };
+        let total_size_limit = cache_config
+            .per_shard_max_bytes
+            .get(&shard_uid)
+            .copied()
+            .unwrap_or(cache_config.default_max_bytes);
         let queue_capacity = config.deletions_queue_capacity();
         Self(Arc::new(Mutex::new(TrieCacheInner::new(
             queue_capacity,
@@ -360,6 +366,7 @@ impl TrieStorage for TrieMemoryPartialStorage {
     }
 }
 
+/// Storage for reading State nodes and values from DB which caches reads.
 pub struct TrieCachingStorage {
     pub(crate) store: Store,
     pub(crate) shard_uid: ShardUId,
@@ -610,21 +617,52 @@ impl TrieStorage for TrieCachingStorage {
     }
 }
 
+fn read_node_from_db(
+    store: &Store,
+    shard_uid: ShardUId,
+    hash: &CryptoHash,
+) -> Result<Arc<[u8]>, StorageError> {
+    let key = TrieCachingStorage::get_key_from_shard_uid_and_hash(shard_uid, hash);
+    let val = store
+        .get(DBCol::State, key.as_ref())
+        .map_err(|_| StorageError::StorageInternalError)?
+        .ok_or_else(|| StorageError::StorageInconsistentState("Trie node missing".to_string()))?;
+    Ok(val.into())
+}
+
 impl TrieCachingStorage {
     fn read_from_db(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
-        let key = Self::get_key_from_shard_uid_and_hash(self.shard_uid, hash);
-        let val = self
-            .store
-            .get(DBCol::State, key.as_ref())
-            .map_err(|_| StorageError::StorageInternalError)?
-            .ok_or_else(|| {
-                StorageError::StorageInconsistentState("Trie node missing".to_string())
-            })?;
-        Ok(val.into())
+        read_node_from_db(&self.store, self.shard_uid, hash)
     }
 
     pub fn prefetch_api(&self) -> &Option<PrefetchApi> {
         &self.prefetch_api
+    }
+}
+
+/// Storage for reading State nodes and values directly from DB.
+///
+/// This `TrieStorage` implementation has no caches, it just goes to DB.
+/// It is useful for background tasks that should not affect chunk processing and block each other.
+pub struct TrieDBStorage {
+    pub(crate) store: Store,
+    pub(crate) shard_uid: ShardUId,
+}
+
+impl TrieDBStorage {
+    #[allow(unused)]
+    pub fn new(store: Store, shard_uid: ShardUId) -> Self {
+        Self { store, shard_uid }
+    }
+}
+
+impl TrieStorage for TrieDBStorage {
+    fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
+        read_node_from_db(&self.store, self.shard_uid, hash)
+    }
+
+    fn get_trie_nodes_count(&self) -> TrieNodesCount {
+        unimplemented!();
     }
 }
 
@@ -664,7 +702,10 @@ mod bounded_queue_tests {
 #[cfg(test)]
 mod trie_cache_tests {
     use crate::trie::trie_storage::TrieCacheInner;
+    use crate::{StoreConfig, TrieCache, TrieConfig};
     use near_primitives::hash::hash;
+    use near_primitives::shard_layout::ShardUId;
+    use near_primitives::types::ShardId;
 
     fn put_value(cache: &mut TrieCacheInner, value: &[u8]) {
         cache.put(hash(value), value.into());
@@ -732,5 +773,41 @@ mod trie_cache_tests {
         assert!(!cache.cache.contains(&hash(&[1, 2, 3])));
         assert!(!cache.cache.contains(&hash(&[2, 3, 4])));
         assert!(cache.cache.contains(&hash(&[3, 4, 5])));
+    }
+
+    /// Check that setting from `StoreConfig` are applied.
+    #[test]
+    fn test_trie_config() {
+        let mut store_config = StoreConfig::default();
+
+        const DEFAULT_SIZE: u64 = 1;
+        const S0_SIZE: u64 = 2;
+        const DEFAULT_VIEW_SIZE: u64 = 3;
+        const S0_VIEW_SIZE: u64 = 4;
+
+        let s0 = ShardUId::single_shard();
+        store_config.trie_cache.default_max_bytes = DEFAULT_SIZE;
+        store_config.trie_cache.per_shard_max_bytes.insert(s0, S0_SIZE);
+        store_config.view_trie_cache.default_max_bytes = DEFAULT_VIEW_SIZE;
+        store_config.view_trie_cache.per_shard_max_bytes.insert(s0, S0_VIEW_SIZE);
+        let trie_config = TrieConfig::from_store_config(&store_config);
+
+        check_cache_size(&trie_config, 1, false, DEFAULT_SIZE);
+        check_cache_size(&trie_config, 0, false, S0_SIZE);
+        check_cache_size(&trie_config, 1, true, DEFAULT_VIEW_SIZE);
+        check_cache_size(&trie_config, 0, true, S0_VIEW_SIZE);
+    }
+
+    #[track_caller]
+    fn check_cache_size(
+        trie_config: &TrieConfig,
+        shard_id: ShardId,
+        is_view: bool,
+        expected_size: u64,
+    ) {
+        let shard_uid = ShardUId { version: 0, shard_id: shard_id as u32 };
+        let trie_cache = TrieCache::new(&trie_config, shard_uid, is_view);
+        assert_eq!(expected_size, trie_cache.0.lock().unwrap().total_size_limit,);
+        assert_eq!(is_view, trie_cache.0.lock().unwrap().is_view,);
     }
 }

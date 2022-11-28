@@ -19,6 +19,12 @@ pub fn create_test_node_storage() -> NodeStorage {
     NodeStorage::new(TestDB::new())
 }
 
+/// Creates an in-memory node storage with ColdDB<TestDB>
+#[cfg(feature = "cold_store")]
+pub fn create_test_node_storage_with_cold() -> NodeStorage<TestDB> {
+    NodeStorage::new_with_cold(TestDB::new(), TestDB::default())
+}
+
 /// Creates an in-memory database.
 pub fn create_test_store() -> Store {
     create_test_node_storage().get_store(crate::Temperature::Hot)

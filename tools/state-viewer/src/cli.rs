@@ -1,6 +1,7 @@
 use crate::commands::*;
-use crate::epoch_info;
+use crate::dump_state_parts::dump_state_parts;
 use crate::rocksdb_stats::get_rocksdb_stats;
+use crate::{dump_state_parts, epoch_info};
 use clap::{Args, Parser, Subcommand};
 use near_chain_configs::{GenesisChangeConfig, GenesisValidationMode};
 use near_primitives::account::id::AccountId;
@@ -70,19 +71,23 @@ pub enum StateViewerSubCommand {
     /// View trie structure.
     #[clap(alias = "view_trie")]
     ViewTrie(ViewTrieCmd),
+    /// Dump all or a single state part of a shard.
+    DumpStateParts(DumpStatePartsCmd),
 }
 
 impl StateViewerSubCommand {
     pub fn run(self, home_dir: &Path, genesis_validation: GenesisValidationMode, mode: Mode) {
         let near_config = load_config(home_dir, genesis_validation)
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
-        let store_opener = near_store::NodeStorage::opener(home_dir, &near_config.config.store);
+        let store_opener =
+            near_store::NodeStorage::opener(home_dir, &near_config.config.store, None);
         let store = store_opener.open_in_mode(mode).unwrap();
         let hot = store.get_store(near_store::Temperature::Hot);
         match self {
             StateViewerSubCommand::Peers => peers(store),
             StateViewerSubCommand::State => state(home_dir, near_config, hot),
             StateViewerSubCommand::DumpState(cmd) => cmd.run(home_dir, near_config, hot),
+            StateViewerSubCommand::DumpStateParts(cmd) => cmd.run(home_dir, near_config, hot),
             StateViewerSubCommand::DumpStateRedis(cmd) => cmd.run(home_dir, near_config, hot),
             StateViewerSubCommand::DumpTx(cmd) => cmd.run(home_dir, near_config, hot),
             StateViewerSubCommand::Chain(cmd) => cmd.run(home_dir, near_config, hot),
@@ -467,5 +472,35 @@ impl ViewTrieCmd {
     pub fn run(self, store: Store) {
         let hash = CryptoHash::from_str(&self.hash).unwrap();
         view_trie(store, hash, self.shard_id, self.shard_version, self.max_depth).unwrap();
+    }
+}
+
+#[derive(Parser)]
+pub struct DumpStatePartsCmd {
+    /// Selects an epoch. The dump will be of the state at the beginning of this epoch.
+    #[clap(subcommand)]
+    epoch_selection: dump_state_parts::EpochSelection,
+    /// Shard id.
+    #[clap(long)]
+    shard_id: ShardId,
+    /// State part id. Leave empty to go through every part in the shard.
+    #[clap(long)]
+    part_id: Option<u64>,
+    /// Where to write the state parts to.
+    #[clap(long)]
+    output_dir: PathBuf,
+}
+
+impl DumpStatePartsCmd {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+        dump_state_parts(
+            self.epoch_selection,
+            self.shard_id,
+            self.part_id,
+            home_dir,
+            near_config,
+            store,
+            &self.output_dir,
+        );
     }
 }

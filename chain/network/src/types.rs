@@ -9,19 +9,16 @@ use futures::future::BoxFuture;
 use futures::FutureExt;
 use near_crypto::PublicKey;
 use near_o11y::WithSpanContext;
-use near_primitives::block::{Approval, ApprovalMessage, Block, BlockHeader};
+use near_primitives::block::{ApprovalMessage, Block, GenesisId};
 use near_primitives::challenge::Challenge;
-use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::sharding::{PartialEncodedChunk, PartialEncodedChunkWithArcReceipts};
+use near_primitives::sharding::PartialEncodedChunkWithArcReceipts;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::BlockHeight;
-use near_primitives::types::{AccountId, EpochId, ShardId};
-use near_primitives::views::FinalExecutionOutcomeView;
-use near_primitives::views::{KnownProducerView, NetworkInfoView, PeerInfoView};
+use near_primitives::types::{AccountId, ShardId};
 use once_cell::sync::OnceCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -29,8 +26,8 @@ use std::sync::Arc;
 /// Exported types, which are part of network protocol.
 pub use crate::network_protocol::{
     Edge, PartialEdgeInfo, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
-    PartialEncodedChunkResponseMsg, PeerChainInfo, PeerChainInfoV2, PeerIdOrHash, PeerInfo, Ping,
-    Pong, StateResponseInfo, StateResponseInfoV1, StateResponseInfoV2,
+    PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerIdOrHash, PeerInfo, Ping, Pong,
+    StateResponseInfo, StateResponseInfoV1, StateResponseInfoV2,
 };
 
 /// Number of hops a message is allowed to travel before being dropped.
@@ -84,9 +81,15 @@ pub struct Ban {
 /// Status of the known peers.
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub enum KnownPeerStatus {
+    /// We got information about this peer from someone, but we didn't
+    /// verify them yet. This peer might not exist, invalid IP etc.
+    /// Also the peers that we failed to connect to, will be marked as 'Unknown'.
     Unknown,
+    /// We know that this peer exists - we were connected to it, or it was provided as boot node.
     NotConnected,
+    /// We're currently connected to this peer.
     Connected,
+    /// We banned this peer for some reason. Once the ban time is over, it will move to 'NotConnected' state.
     Banned(ReasonForBan, time::Utc),
 }
 
@@ -97,6 +100,9 @@ pub struct KnownPeerState {
     pub status: KnownPeerStatus,
     pub first_seen: time::Utc,
     pub last_seen: time::Utc,
+    // Last time we tried to connect to this peer.
+    // This data is not persisted in storage.
+    pub last_outbound_attempt: Option<(time::Utc, Result<(), String>)>,
 }
 
 impl KnownPeerState {
@@ -106,6 +112,7 @@ impl KnownPeerState {
             status: KnownPeerStatus::Unknown,
             first_seen: now,
             last_seen: now,
+            last_outbound_attempt: None,
         }
     }
 }
@@ -119,14 +126,15 @@ impl KnownPeerStatus {
 /// Set of account keys.
 /// This is information which chain pushes to network to implement tier1.
 /// See ChainInfo.
-pub type AccountKeys = HashMap<(EpochId, AccountId), PublicKey>;
+pub type AccountKeys = HashMap<AccountId, HashSet<PublicKey>>;
 
 /// Network-relevant data about the chain.
 // TODO(gprusak): it is more like node info, or sth.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct ChainInfo {
     pub tracked_shards: Vec<ShardId>,
-    pub height: BlockHeight,
+    // The lastest block on chain.
+    pub block: Block,
     // Public keys of accounts participating in the BFT consensus
     // (both accounts from current and next epoch are important, that's why
     // the map is indexed by (EpochId,AccountId) pair).
@@ -164,22 +172,6 @@ pub enum PeerManagerMessageRequest {
         nonce: u64,
         target: PeerId,
     },
-}
-
-/// Messages from PeerManager to Peer
-#[derive(actix::Message, Debug)]
-#[rtype(result = "()")]
-pub enum PeerManagerRequest {
-    BanPeer(ReasonForBan),
-    UnregisterPeer,
-}
-
-/// Messages from PeerManager to Peer with a tracing Context.
-#[derive(actix::Message, Debug)]
-#[rtype(result = "()")]
-pub struct PeerManagerRequestWithContext {
-    pub msg: PeerManagerRequest,
-    pub context: opentelemetry::Context,
 }
 
 impl PeerManagerMessageRequest {
@@ -279,58 +271,66 @@ pub enum NetworkRequests {
     Challenge(Challenge),
 }
 
-/// Combines peer address info, chain and edge information.
+/// Combines peer address info, chain.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct FullPeerInfo {
     pub peer_info: PeerInfo,
-    pub chain_info: PeerChainInfoV2,
-    pub partial_edge_info: PartialEdgeInfo,
+    pub chain_info: PeerChainInfo,
 }
 
-impl From<&FullPeerInfo> for ConnectedPeerInfo {
-    fn from(full_peer_info: &FullPeerInfo) -> Self {
-        ConnectedPeerInfo {
-            full_peer_info: full_peer_info.clone(),
-            received_bytes_per_sec: 0,
-            sent_bytes_per_sec: 0,
-            last_time_peer_requested: time::Instant::now(),
-            last_time_received_message: time::Instant::now(),
-            connection_established_time: time::Instant::now(),
-            peer_type: PeerType::Outbound,
+/// These are the information needed for highest height peers. For these peers, we guarantee that
+/// the height and hash of the latest block are set.
+#[derive(Debug, Clone)]
+pub struct HighestHeightPeerInfo {
+    pub peer_info: PeerInfo,
+    /// Chain Id and hash of genesis block.
+    pub genesis_id: GenesisId,
+    /// Height and hash of the highest block we've ever received from the peer
+    pub highest_block_height: BlockHeight,
+    /// Hash of the latest block
+    pub highest_block_hash: CryptoHash,
+    /// Shards that the peer is tracking.
+    pub tracked_shards: Vec<ShardId>,
+    /// Denote if a node is running in archival mode or not.
+    pub archival: bool,
+}
+
+impl From<FullPeerInfo> for Option<HighestHeightPeerInfo> {
+    fn from(p: FullPeerInfo) -> Self {
+        if p.chain_info.last_block.is_some() {
+            Some(HighestHeightPeerInfo {
+                peer_info: p.peer_info,
+                genesis_id: p.chain_info.genesis_id,
+                highest_block_height: p.chain_info.last_block.unwrap().height,
+                highest_block_hash: p.chain_info.last_block.unwrap().hash,
+                tracked_shards: p.chain_info.tracked_shards,
+                archival: p.chain_info.archival,
+            })
+        } else {
+            None
         }
     }
 }
 
-impl From<&ConnectedPeerInfo> for PeerInfoView {
-    fn from(connected_peer_info: &ConnectedPeerInfo) -> Self {
-        let full_peer_info = &connected_peer_info.full_peer_info;
-        PeerInfoView {
-            addr: match full_peer_info.peer_info.addr {
-                Some(socket_addr) => socket_addr.to_string(),
-                None => "N/A".to_string(),
-            },
-            account_id: full_peer_info.peer_info.account_id.clone(),
-            height: full_peer_info.chain_info.height,
-            tracked_shards: full_peer_info.chain_info.tracked_shards.clone(),
-            archival: full_peer_info.chain_info.archival,
-            peer_id: full_peer_info.peer_info.id.public_key().clone(),
-            received_bytes_per_sec: connected_peer_info.received_bytes_per_sec,
-            sent_bytes_per_sec: connected_peer_info.sent_bytes_per_sec,
-            last_time_peer_requested_millis: connected_peer_info
-                .last_time_peer_requested
-                .elapsed()
-                .whole_milliseconds() as u64,
-            last_time_received_message_millis: connected_peer_info
-                .last_time_received_message
-                .elapsed()
-                .whole_milliseconds() as u64,
-            connection_established_time_millis: connected_peer_info
-                .connection_established_time
-                .elapsed()
-                .whole_milliseconds() as u64,
-            is_outbound_peer: connected_peer_info.peer_type == PeerType::Outbound,
-        }
-    }
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub struct BlockInfo {
+    pub height: BlockHeight,
+    pub hash: CryptoHash,
+}
+
+/// This is the internal representation of PeerChainInfoV2.
+/// We separate these two structs because PeerChainInfoV2 is part of network protocol, and can't be
+/// modified easily.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct PeerChainInfo {
+    /// Chain Id and hash of genesis block.
+    pub genesis_id: GenesisId,
+    /// Height and hash of the highest block we've ever received from the peer
+    pub last_block: Option<BlockInfo>,
+    /// Shards that the peer is tracking.
+    pub tracked_shards: Vec<ShardId>,
+    /// Denote if a node is running in archival mode or not.
+    pub archival: bool,
 }
 
 // Information about the connected peer that is shared with the rest of the system.
@@ -349,6 +349,8 @@ pub struct ConnectedPeerInfo {
     pub connection_established_time: time::Instant,
     /// Who started connection. Inbound (other) or Outbound (us).
     pub peer_type: PeerType,
+    /// Nonce used for the connection with the peer.
+    pub nonce: u64,
 }
 
 #[derive(Debug, Clone, actix::MessageResponse)]
@@ -356,38 +358,12 @@ pub struct NetworkInfo {
     pub connected_peers: Vec<ConnectedPeerInfo>,
     pub num_connected_peers: usize,
     pub peer_max_count: u32,
-    pub highest_height_peers: Vec<FullPeerInfo>,
+    pub highest_height_peers: Vec<HighestHeightPeerInfo>,
     pub sent_bytes_per_sec: u64,
     pub received_bytes_per_sec: u64,
     /// Accounts of known block and chunk producers from routing table.
     pub known_producers: Vec<KnownProducer>,
     pub tier1_accounts: Vec<Arc<SignedAccountData>>,
-}
-
-impl From<NetworkInfo> for NetworkInfoView {
-    fn from(network_info: NetworkInfo) -> Self {
-        NetworkInfoView {
-            peer_max_count: network_info.peer_max_count,
-            num_connected_peers: network_info.num_connected_peers,
-            connected_peers: network_info
-                .connected_peers
-                .iter()
-                .map(|full_peer_info| full_peer_info.into())
-                .collect::<Vec<_>>(),
-            known_producers: network_info
-                .known_producers
-                .iter()
-                .map(|it| KnownProducerView {
-                    account_id: it.account_id.clone(),
-                    peer_id: it.peer_id.public_key().clone(),
-                    next_hops: it
-                        .next_hops
-                        .as_ref()
-                        .map(|it| it.iter().map(|peer_id| peer_id.public_key().clone()).collect()),
-                })
-                .collect(),
-        }
-    }
 }
 
 #[derive(Debug, actix::MessageResponse)]
@@ -397,67 +373,16 @@ pub enum NetworkResponses {
     RouteNotFound,
 }
 
-#[derive(actix::Message, Debug, strum::AsRefStr, strum::IntoStaticStr)]
-// TODO(#1313): Use Box
-#[allow(clippy::large_enum_variant)]
-#[rtype(result = "NetworkClientResponses")]
-pub enum NetworkClientMessages {
-    #[cfg(feature = "test_features")]
-    Adversarial(crate::types::NetworkAdversarialMessage),
-
-    /// Received transaction.
-    Transaction {
-        transaction: SignedTransaction,
-        /// Whether the transaction is forwarded from other nodes.
-        is_forwarded: bool,
-        /// Whether the transaction needs to be submitted.
-        check_only: bool,
-    },
-    /// Received block, possibly requested.
-    Block(Block, PeerId, bool),
-    /// Received list of headers for syncing.
-    BlockHeaders(Vec<BlockHeader>, PeerId),
-    /// Block approval.
-    BlockApproval(Approval, PeerId),
-    /// State response.
-    StateResponse(StateResponseInfo),
-
-    /// Request chunk parts and/or receipts.
-    PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg, CryptoHash),
-    /// Response to a request for  chunk parts and/or receipts.
-    PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg, std::time::Instant),
-    /// Information about chunk such as its header, some subset of parts and/or incoming receipts
-    PartialEncodedChunk(PartialEncodedChunk),
-    /// Forwarding parts to those tracking the shard (so they don't need to send requests)
-    PartialEncodedChunkForward(PartialEncodedChunkForwardMsg),
-
-    /// A challenge to invalidate the block.
-    Challenge(Challenge),
-
-    NetworkInfo(NetworkInfo),
-}
-
-// TODO(#1313): Use Box
-#[derive(Eq, PartialEq, Debug, actix::MessageResponse)]
-#[allow(clippy::large_enum_variant)]
-pub enum NetworkClientResponses {
-    /// Adv controls.
-    #[cfg(feature = "test_features")]
-    AdvResult(u64),
-
-    /// No response.
-    NoResponse,
-    /// Valid transaction inserted into mempool as response to Transaction.
-    ValidTx,
-    /// Invalid transaction inserted into mempool as response to Transaction.
-    InvalidTx(InvalidTxError),
-    /// The request is routed to other shards
-    RequestRouted,
-    /// The node being queried does not track the shard needed and therefore cannot provide userful
-    /// response.
-    DoesNotTrackShard,
-    /// Ban peer for malicious behavior.
-    Ban { ban_reason: ReasonForBan },
+#[cfg(feature = "test_features")]
+#[derive(actix::Message, Debug)]
+#[rtype(result = "Option<u64>")]
+pub enum NetworkAdversarialMessage {
+    AdvProduceBlocks(u64, bool),
+    AdvSwitchToHeight(u64),
+    AdvDisableHeaderSync,
+    AdvDisableDoomslug,
+    AdvGetSavedBlocks,
+    AdvCheckStorageConsistency,
 }
 
 pub trait MsgRecipient<M: actix::Message>: Send + Sync + 'static {
@@ -479,7 +404,6 @@ where
         actix::Addr::do_send(self, msg)
     }
 }
-
 pub trait PeerManagerAdapter:
     MsgRecipient<WithSpanContext<PeerManagerMessageRequest>>
     + MsgRecipient<WithSpanContext<SetChainInfo>>
@@ -542,8 +466,6 @@ mod tests {
         assert_size!(HandshakeFailureReason);
         assert_size!(NetworkRequests);
         assert_size!(NetworkResponses);
-        assert_size!(NetworkClientMessages);
-        assert_size!(NetworkClientResponses);
         assert_size!(Handshake);
         assert_size!(Ping);
         assert_size!(Pong);
@@ -635,58 +557,4 @@ pub struct AccountIdOrPeerTrackingShard {
     pub only_archival: bool,
     /// Only send messages to peers whose latest chain height is no less `min_height`
     pub min_height: BlockHeight,
-}
-
-#[derive(actix::Message, strum::IntoStaticStr)]
-#[rtype(result = "NetworkViewClientResponses")]
-pub enum NetworkViewClientMessages {
-    #[cfg(feature = "test_features")]
-    Adversarial(NetworkAdversarialMessage),
-
-    /// Transaction status query
-    TxStatus { tx_hash: CryptoHash, signer_account_id: AccountId },
-    /// Transaction status response
-    TxStatusResponse(Box<FinalExecutionOutcomeView>),
-    /// Request a block.
-    BlockRequest(CryptoHash),
-    /// Request headers.
-    BlockHeadersRequest(Vec<CryptoHash>),
-    /// State request header.
-    StateRequestHeader { shard_id: ShardId, sync_hash: CryptoHash },
-    /// State request part.
-    StateRequestPart { shard_id: ShardId, sync_hash: CryptoHash, part_id: u64 },
-    /// Account announcements that needs to be validated before being processed.
-    /// They are paired with last epoch id known to this announcement, in order to accept only
-    /// newer announcements.
-    AnnounceAccount(Vec<(AnnounceAccount, Option<EpochId>)>),
-}
-
-#[derive(Debug, actix::MessageResponse)]
-pub enum NetworkViewClientResponses {
-    /// Transaction execution outcome
-    TxStatus(Box<FinalExecutionOutcomeView>),
-    /// Block response.
-    Block(Box<Block>),
-    /// Headers response.
-    BlockHeaders(Vec<BlockHeader>),
-    /// Response to state request.
-    StateResponse(Box<StateResponseInfo>),
-    /// Valid announce accounts.
-    AnnounceAccount(Vec<AnnounceAccount>),
-    /// Ban peer for malicious behavior.
-    Ban { ban_reason: ReasonForBan },
-    /// Response not needed
-    NoResponse,
-}
-
-#[cfg(feature = "test_features")]
-#[derive(Debug)]
-pub enum NetworkAdversarialMessage {
-    AdvProduceBlocks(u64, bool),
-    AdvSwitchToHeight(u64),
-    AdvDisableHeaderSync,
-    AdvDisableDoomslug,
-    AdvGetSavedBlocks,
-    AdvCheckStorageConsistency,
-    AdvSetSyncInfo(u64),
 }

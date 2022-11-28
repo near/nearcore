@@ -97,7 +97,7 @@ impl Cmd {
         let near_config =
             download_configs(&cmd.chain_id, home_dir).context("Failed to initialize configs")?;
 
-        info!("#boot nodes = {}", near_config.network_config.boot_nodes.len());
+        info!("#boot nodes = {}", near_config.network_config.peer_store.boot_nodes.len());
         // Dropping Runtime is blocking, while futures should never be blocking.
         // Tokio has a runtime check which panics if you drop tokio Runtime from a future executed
         // on another Tokio runtime.

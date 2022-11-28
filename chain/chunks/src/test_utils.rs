@@ -318,6 +318,26 @@ impl ChunkTestFixture {
             receipts: Vec::new(),
         })
     }
+
+    pub fn count_chunk_completion_messages(&self) -> usize {
+        let mut chunks_completed = 0;
+        while let Some(message) = self.mock_client_adapter.pop() {
+            if let ShardsManagerResponse::ChunkCompleted { .. } = message {
+                chunks_completed += 1;
+            }
+        }
+        chunks_completed
+    }
+
+    pub fn count_chunk_ready_for_inclusion_messages(&self) -> usize {
+        let mut chunks_ready = 0;
+        while let Some(message) = self.mock_client_adapter.pop() {
+            if let ShardsManagerResponse::ChunkHeaderReadyForInclusion { .. } = message {
+                chunks_ready += 1;
+            }
+        }
+        chunks_ready
+    }
 }
 
 /// `num_bp` is number of block producers

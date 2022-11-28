@@ -1,15 +1,18 @@
+use crate::config::{ActionCosts, ExtCosts};
+use borsh::{BorshDeserialize, BorshSerialize};
 use std::fmt;
 use std::ops::{Index, IndexMut};
+use strum::IntoEnumIterator;
 
-use borsh::{BorshDeserialize, BorshSerialize};
-
-use crate::config::{ActionCosts, ExtCosts};
-
+/// Serialization format to store profiles in the database.
+///
+/// This is not part of the protocol but archival nodes still rely on this not
+/// changing to answer old tx-status requests with a gas profile.
 #[derive(Clone, PartialEq, Eq)]
 pub struct DataArray(Box<[u64; Self::LEN]>);
 
 impl DataArray {
-    pub const LEN: usize = Cost::ALL.len();
+    pub const LEN: usize = if cfg!(feature = "protocol_feature_ed25519_verify") { 72 } else { 70 };
 }
 
 impl Index<usize> for DataArray {
@@ -44,7 +47,7 @@ impl BorshSerialize for DataArray {
 }
 
 /// Profile of gas consumption.
-/// When add new cost, the new cost should also be append to Cost::ALL
+/// When add new cost, the new cost should also be append to profile_index
 #[derive(Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct ProfileData {
     data: DataArray,
@@ -91,14 +94,11 @@ impl ProfileData {
     /// with the help on the VM side, so we don't want to have profiling logic
     /// there both for simplicity and efficiency reasons.
     pub fn compute_wasm_instruction_cost(&mut self, total_gas_burnt: u64) {
-        let mut value = total_gas_burnt;
-        for cost in Cost::ALL {
-            value = value.saturating_sub(self[*cost]);
-        }
-        self[Cost::WasmInstruction] = value
+        self[Cost::WasmInstruction] =
+            total_gas_burnt.saturating_sub(self.action_gas()).saturating_sub(self.host_gas());
     }
 
-    pub fn get_action_cost(&self, action: ActionCosts) -> u64 {
+    fn get_action_cost(&self, action: ActionCosts) -> u64 {
         self[Cost::ActionCost { action_cost_kind: action }]
     }
 
@@ -106,26 +106,21 @@ impl ProfileData {
         self[Cost::ExtCost { ext_cost_kind: ext }]
     }
 
-    pub fn host_gas(&self) -> u64 {
-        let mut host_gas = 0u64;
-        for cost in Cost::ALL {
-            match cost {
-                Cost::ExtCost { ext_cost_kind: e } => host_gas += self.get_ext_cost(*e),
-                _ => {}
-            }
-        }
-        host_gas
+    fn host_gas(&self) -> u64 {
+        ExtCosts::iter().map(|a| self.get_ext_cost(a)).fold(0, u64::saturating_add)
     }
 
     pub fn action_gas(&self) -> u64 {
-        let mut action_gas = 0u64;
-        for cost in Cost::ALL {
-            match cost {
-                Cost::ActionCost { action_cost_kind: a } => action_gas += self.get_action_cost(*a),
-                _ => {}
-            }
-        }
-        action_gas
+        // TODO(#8033): Temporary hack to work around multiple action costs
+        // mapping to the same profile entry. Can be removed as soon as inner
+        // tracking of profile is tracked by parameter or when the profile is
+        // more detail, which ever happens first.
+        let mut indices: Vec<_> = ActionCosts::iter()
+            .map(|action_cost_kind| Cost::ActionCost { action_cost_kind }.profile_index())
+            .collect();
+        indices.sort_unstable();
+        indices.dedup();
+        indices.into_iter().map(|i| self.data[i]).fold(0, u64::saturating_add)
     }
 }
 
@@ -138,33 +133,23 @@ impl fmt::Debug for ProfileData {
         writeln!(f, "------------------------------")?;
         writeln!(f, "Action gas: {}", action_gas)?;
         writeln!(f, "------ Host functions --------")?;
-        for cost in Cost::ALL {
-            match cost {
-                Cost::ExtCost { ext_cost_kind: e } => {
-                    let d = self.get_ext_cost(*e);
-                    if d != 0 {
-                        writeln!(
-                            f,
-                            "{} -> {} [{}% host]",
-                            e,
-                            d,
-                            Ratio::new(d * 100, core::cmp::max(host_gas, 1)).to_integer(),
-                        )?;
-                    }
-                }
-                _ => {}
+        for cost in ExtCosts::iter() {
+            let d = self.get_ext_cost(cost);
+            if d != 0 {
+                writeln!(
+                    f,
+                    "{} -> {} [{}% host]",
+                    cost,
+                    d,
+                    Ratio::new(d * 100, core::cmp::max(host_gas, 1)).to_integer(),
+                )?;
             }
         }
         writeln!(f, "------ Actions --------")?;
-        for cost in Cost::ALL {
-            match cost {
-                Cost::ActionCost { action_cost_kind: a } => {
-                    let d = self.get_action_cost(*a);
-                    if d != 0 {
-                        writeln!(f, "{} -> {}", a, d)?;
-                    }
-                }
-                _ => {}
+        for cost in ActionCosts::iter() {
+            let d = self.get_action_cost(cost);
+            if d != 0 {
+                writeln!(f, "{} -> {}", cost, d)?;
             }
         }
         writeln!(f, "------------------------------")?;
@@ -180,96 +165,37 @@ pub enum Cost {
 }
 
 impl Cost {
-    pub const ALL: &'static [Cost] = &[
-        // ActionCost is unlikely to have new ones, so have it at first
-        Cost::ActionCost { action_cost_kind: ActionCosts::create_account },
-        Cost::ActionCost { action_cost_kind: ActionCosts::delete_account },
-        Cost::ActionCost { action_cost_kind: ActionCosts::deploy_contract },
-        Cost::ActionCost { action_cost_kind: ActionCosts::function_call },
-        Cost::ActionCost { action_cost_kind: ActionCosts::transfer },
-        Cost::ActionCost { action_cost_kind: ActionCosts::stake },
-        Cost::ActionCost { action_cost_kind: ActionCosts::add_key },
-        Cost::ActionCost { action_cost_kind: ActionCosts::delete_key },
-        Cost::ActionCost { action_cost_kind: ActionCosts::value_return },
-        Cost::ActionCost { action_cost_kind: ActionCosts::new_receipt },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::base },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::contract_loading_base },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::contract_loading_bytes },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::read_memory_base },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::read_memory_byte },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::write_memory_base },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::write_memory_byte },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::read_register_base },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::read_register_byte },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::write_register_base },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::write_register_byte },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::utf8_decoding_base },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::utf8_decoding_byte },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::utf16_decoding_base },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::utf16_decoding_byte },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::sha256_base },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::sha256_byte },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::keccak256_base },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::keccak256_byte },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::keccak512_base },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::keccak512_byte },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::ripemd160_base },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::ripemd160_block },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::ecrecover_base },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::log_base },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::log_byte },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::storage_write_base },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::storage_write_key_byte },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::storage_write_value_byte },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::storage_write_evicted_byte },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::storage_read_base },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::storage_read_key_byte },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::storage_read_value_byte },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::storage_remove_base },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::storage_remove_key_byte },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::storage_remove_ret_value_byte },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::storage_has_key_base },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::storage_has_key_byte },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::storage_iter_create_prefix_base },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::storage_iter_create_prefix_byte },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::storage_iter_create_range_base },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::storage_iter_create_from_byte },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::storage_iter_create_to_byte },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::storage_iter_next_base },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::storage_iter_next_key_byte },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::storage_iter_next_value_byte },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::touching_trie_node },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::read_cached_trie_node },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::promise_and_base },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::promise_and_per_promise },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::promise_return },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::validator_stake_base },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::validator_total_stake_base },
-        Cost::WasmInstruction,
-        Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_multiexp_base },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_multiexp_element },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_pairing_check_base },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_pairing_check_element },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_sum_base },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_sum_element },
-        #[cfg(feature = "protocol_feature_ed25519_verify")]
-        Cost::ExtCost { ext_cost_kind: ExtCosts::ed25519_verify_base },
-        #[cfg(feature = "protocol_feature_ed25519_verify")]
-        Cost::ExtCost { ext_cost_kind: ExtCosts::ed25519_verify_byte },
-    ];
+    pub fn iter() -> impl Iterator<Item = Self> {
+        let actions =
+            ActionCosts::iter().map(|action_cost_kind| Cost::ActionCost { action_cost_kind });
+        let ext = ExtCosts::iter().map(|ext_cost_kind| Cost::ExtCost { ext_cost_kind });
+        let op = std::iter::once(Cost::WasmInstruction);
+        actions.chain(ext).chain(op)
+    }
 
-    pub fn index(self) -> usize {
+    /// Entry in DataArray inside the gas profile.
+    ///
+    /// Entries can be shared by multiple costs.
+    ///
+    /// TODO: Remove after completing all of #8033.
+    pub fn profile_index(self) -> usize {
+        // make sure to increase `DataArray::LEN` when adding a new index
         match self {
             Cost::ActionCost { action_cost_kind: ActionCosts::create_account } => 0,
             Cost::ActionCost { action_cost_kind: ActionCosts::delete_account } => 1,
-            Cost::ActionCost { action_cost_kind: ActionCosts::deploy_contract } => 2,
-            Cost::ActionCost { action_cost_kind: ActionCosts::function_call } => 3,
+            Cost::ActionCost { action_cost_kind: ActionCosts::deploy_contract_base } => 2,
+            Cost::ActionCost { action_cost_kind: ActionCosts::deploy_contract_byte } => 2,
+            Cost::ActionCost { action_cost_kind: ActionCosts::function_call_base } => 3,
+            Cost::ActionCost { action_cost_kind: ActionCosts::function_call_byte } => 3,
             Cost::ActionCost { action_cost_kind: ActionCosts::transfer } => 4,
             Cost::ActionCost { action_cost_kind: ActionCosts::stake } => 5,
-            Cost::ActionCost { action_cost_kind: ActionCosts::add_key } => 6,
+            Cost::ActionCost { action_cost_kind: ActionCosts::add_full_access_key } => 6,
+            Cost::ActionCost { action_cost_kind: ActionCosts::add_function_call_key_base } => 6,
+            Cost::ActionCost { action_cost_kind: ActionCosts::add_function_call_key_byte } => 6,
             Cost::ActionCost { action_cost_kind: ActionCosts::delete_key } => 7,
-            Cost::ActionCost { action_cost_kind: ActionCosts::value_return } => 8,
-            Cost::ActionCost { action_cost_kind: ActionCosts::new_receipt } => 9,
+            Cost::ActionCost { action_cost_kind: ActionCosts::new_data_receipt_byte } => 8,
+            Cost::ActionCost { action_cost_kind: ActionCosts::new_action_receipt } => 9,
+            Cost::ActionCost { action_cost_kind: ActionCosts::new_data_receipt_base } => 9,
             Cost::ExtCost { ext_cost_kind: ExtCosts::base } => 10,
             Cost::ExtCost { ext_cost_kind: ExtCosts::contract_loading_base } => 11,
             Cost::ExtCost { ext_cost_kind: ExtCosts::contract_loading_bytes } => 12,
@@ -342,13 +268,13 @@ impl Index<Cost> for ProfileData {
     type Output = u64;
 
     fn index(&self, index: Cost) -> &Self::Output {
-        &self.data[index.index()]
+        &self.data[index.profile_index()]
     }
 }
 
 impl IndexMut<Cost> for ProfileData {
     fn index_mut(&mut self, index: Cost) -> &mut Self::Output {
-        &mut self.data[index.index()]
+        &mut self.data[index.profile_index()]
     }
 }
 
@@ -371,25 +297,33 @@ mod test {
     #[test]
     fn test_no_panic_on_overflow() {
         let mut profile_data = ProfileData::new();
-        profile_data.add_action_cost(ActionCosts::function_call, u64::MAX);
-        profile_data.add_action_cost(ActionCosts::function_call, u64::MAX);
+        profile_data.add_action_cost(ActionCosts::add_full_access_key, u64::MAX);
+        profile_data.add_action_cost(ActionCosts::add_full_access_key, u64::MAX);
 
-        let res = profile_data.get_action_cost(ActionCosts::function_call);
+        let res = profile_data.get_action_cost(ActionCosts::add_full_access_key);
         assert_eq!(res, u64::MAX);
     }
 
     #[test]
     fn test_merge() {
         let mut profile_data = ProfileData::new();
-        profile_data.add_action_cost(ActionCosts::function_call, 111);
+        profile_data.add_action_cost(ActionCosts::add_full_access_key, 111);
         profile_data.add_ext_cost(ExtCosts::storage_read_base, 11);
 
         let mut profile_data2 = ProfileData::new();
-        profile_data2.add_action_cost(ActionCosts::function_call, 222);
+        profile_data2.add_action_cost(ActionCosts::add_full_access_key, 222);
         profile_data2.add_ext_cost(ExtCosts::storage_read_base, 22);
 
         profile_data.merge(&profile_data2);
-        assert_eq!(profile_data.get_action_cost(ActionCosts::function_call), 333);
+        assert_eq!(profile_data.get_action_cost(ActionCosts::add_full_access_key), 333);
         assert_eq!(profile_data.get_ext_cost(ExtCosts::storage_read_base), 33);
+    }
+
+    #[test]
+    fn test_profile_len() {
+        let mut indices: Vec<_> = Cost::iter().map(|i| i.profile_index()).collect();
+        indices.sort();
+        indices.dedup();
+        assert_eq!(indices.len(), DataArray::LEN);
     }
 }

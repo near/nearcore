@@ -23,6 +23,8 @@ use near_primitives::block_header::{Approval, ApprovalInner};
 use near_primitives::challenge::ChallengesResult;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
+use near_primitives::epoch_manager::EpochConfig;
+use near_primitives::epoch_manager::ValidatorSelectionConfig;
 use near_primitives::errors::{EpochError, InvalidTxError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
@@ -54,16 +56,16 @@ use crate::block_processing_utils::BlockNotInPoolError;
 use crate::chain::Chain;
 use crate::store::ChainStoreAccess;
 use crate::types::{
-    AcceptedBlock, ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo, ChainGenesis,
+    AcceptedBlock, ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo, ChainConfig,
+    ChainGenesis,
 };
 use crate::{BlockHeader, DoomslugThresholdMode, RuntimeAdapter};
 use crate::{BlockProcessingArtifact, Provenance};
 use near_primitives::epoch_manager::ShardConfig;
 use near_primitives::time::Clock;
 use near_primitives::utils::MaybeValidated;
-#[cfg(feature = "protocol_feature_flat_state")]
 use near_store::flat_state::ChainAccessForFlatStorage;
-use near_store::flat_state::FlatStorageState;
+use near_store::flat_state::{FlatStorageState, FlatStorageStateStatus};
 
 pub use self::validator_schedule::ValidatorSchedule;
 
@@ -71,6 +73,10 @@ pub use self::validator_schedule::ValidatorSchedule;
 /// Returns true if there are new blocks that are ready
 pub fn wait_for_all_blocks_in_processing(chain: &mut Chain) -> bool {
     chain.blocks_in_processing.wait_for_all_blocks()
+}
+
+pub fn is_block_in_processing(chain: &Chain, block_hash: &CryptoHash) -> bool {
+    chain.blocks_in_processing.contains(block_hash)
 }
 
 pub fn wait_for_block_in_processing(
@@ -425,6 +431,29 @@ impl EpochManagerAdapter for KeyValueRuntime {
         Ok(self.num_shards)
     }
 
+    fn num_total_parts(&self) -> usize {
+        12 + (self.num_shards as usize + 1) % 50
+    }
+
+    fn num_data_parts(&self) -> usize {
+        // Same as in Nightshade Runtime
+        let total_parts = self.num_total_parts();
+        if total_parts <= 3 {
+            1
+        } else {
+            (total_parts - 1) / 3
+        }
+    }
+
+    fn get_part_owner(&self, epoch_id: &EpochId, part_id: u64) -> Result<AccountId, Error> {
+        let validators =
+            &self.get_epoch_block_producers_ordered(epoch_id, &CryptoHash::default())?;
+        // if we don't use data_parts and total_parts as part of the formula here, the part owner
+        //     would not depend on height, and tests wouldn't catch passing wrong height here
+        let idx = part_id as usize + self.num_data_parts() + self.num_total_parts();
+        Ok(validators[idx as usize % validators.len()].0.account_id().clone())
+    }
+
     fn account_id_to_shard_id(
         &self,
         account_id: &AccountId,
@@ -435,6 +464,34 @@ impl EpochManagerAdapter for KeyValueRuntime {
 
     fn shard_id_to_uid(&self, shard_id: ShardId, _epoch_id: &EpochId) -> Result<ShardUId, Error> {
         Ok(ShardUId { version: 0, shard_id: shard_id as u32 })
+    }
+
+    fn get_block_info(&self, _hash: &CryptoHash) -> Result<Arc<BlockInfo>, Error> {
+        Ok(Default::default())
+    }
+
+    fn get_epoch_config(&self, _epoch_id: &EpochId) -> Result<EpochConfig, Error> {
+        Ok(EpochConfig {
+            epoch_length: 10,
+            num_block_producer_seats: 2,
+            num_block_producer_seats_per_shard: vec![1, 1],
+            avg_hidden_validator_seats_per_shard: vec![1, 1],
+            block_producer_kickout_threshold: 0,
+            chunk_producer_kickout_threshold: 0,
+            validator_max_kickout_stake_perc: 0,
+            online_min_threshold: Ratio::new(1i32, 4i32),
+            online_max_threshold: Ratio::new(3i32, 4i32),
+            fishermen_threshold: 1,
+            minimum_stake_divisor: 1,
+            protocol_upgrade_stake_threshold: Ratio::new(3i32, 4i32),
+            protocol_upgrade_num_epochs: 100,
+            shard_layout: ShardLayout::v1_test(),
+            validator_selection_config: ValidatorSelectionConfig::default(),
+        })
+    }
+
+    fn get_epoch_info(&self, _epoch_id: &EpochId) -> Result<Arc<EpochInfo>, Error> {
+        Ok(Arc::new(EpochInfo::v1_test()))
     }
 
     fn get_shard_layout(&self, _epoch_id: &EpochId) -> Result<ShardLayout, Error> {
@@ -495,12 +552,49 @@ impl EpochManagerAdapter for KeyValueRuntime {
         Ok(epoch_id)
     }
 
+    fn compare_epoch_id(
+        &self,
+        epoch_id: &EpochId,
+        other_epoch_id: &EpochId,
+    ) -> Result<Ordering, Error> {
+        if epoch_id.0 == other_epoch_id.0 {
+            return Ok(Ordering::Equal);
+        }
+        match (self.get_valset_for_epoch(epoch_id), self.get_valset_for_epoch(other_epoch_id)) {
+            (Ok(index1), Ok(index2)) => Ok(index1.cmp(&index2)),
+            _ => Err(Error::EpochOutOfBounds(epoch_id.clone())),
+        }
+    }
+
     fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error> {
         let epoch_id = self.get_epoch_id(block_hash)?;
         match self.get_block_header(&epoch_id.0)? {
             Some(block_header) => Ok(block_header.height()),
             None => Ok(0),
         }
+    }
+
+    fn get_prev_epoch_id_from_prev_block(
+        &self,
+        prev_block_hash: &CryptoHash,
+    ) -> Result<EpochId, Error> {
+        let mut candidate_hash = *prev_block_hash;
+        loop {
+            let header = self
+                .get_block_header(&candidate_hash)?
+                .ok_or_else(|| Error::DBNotFoundErr(candidate_hash.to_string()))?;
+            candidate_hash = *header.prev_hash();
+            if self.is_next_block_epoch_start(&candidate_hash)? {
+                break Ok(self.get_epoch_and_valset(candidate_hash)?.0);
+            }
+        }
+    }
+
+    fn get_estimated_protocol_upgrade_block_height(
+        &self,
+        _block_hash: CryptoHash,
+    ) -> Result<Option<BlockHeight>, EpochError> {
+        Ok(None)
     }
 
     fn get_epoch_block_producers_ordered(
@@ -606,6 +700,48 @@ impl EpochManagerAdapter for KeyValueRuntime {
             epoch_start_height: 0,
             epoch_height: 1,
         })
+    }
+
+    fn get_epoch_minted_amount(&self, _epoch_id: &EpochId) -> Result<Balance, Error> {
+        Ok(0)
+    }
+
+    fn get_epoch_protocol_version(&self, _epoch_id: &EpochId) -> Result<ProtocolVersion, Error> {
+        Ok(PROTOCOL_VERSION)
+    }
+
+    fn get_epoch_sync_data(
+        &self,
+        _prev_epoch_last_block_hash: &CryptoHash,
+        _epoch_id: &EpochId,
+        _next_epoch_id: &EpochId,
+    ) -> Result<
+        (
+            Arc<BlockInfo>,
+            Arc<BlockInfo>,
+            Arc<BlockInfo>,
+            Arc<EpochInfo>,
+            Arc<EpochInfo>,
+            Arc<EpochInfo>,
+        ),
+        Error,
+    > {
+        Ok(Default::default())
+    }
+
+    fn epoch_sync_init_epoch_manager(
+        &self,
+        _prev_epoch_first_block_info: BlockInfo,
+        _prev_epoch_last_block_info: BlockInfo,
+        _prev_epoch_prev_last_block_info: BlockInfo,
+        _prev_epoch_id: &EpochId,
+        _prev_epoch_info: EpochInfo,
+        _epoch_id: &EpochId,
+        _epoch_info: EpochInfo,
+        _next_epoch_id: &EpochId,
+        _next_epoch_info: EpochInfo,
+    ) -> Result<(), Error> {
+        Ok(())
     }
 
     fn verify_block_vrf(
@@ -748,13 +884,13 @@ impl RuntimeAdapter for KeyValueRuntime {
         None
     }
 
-    #[cfg(feature = "protocol_feature_flat_state")]
-    fn create_flat_storage_state_for_shard(
+    fn try_create_flat_storage_state_for_shard(
         &self,
         _shard_id: ShardId,
         _latest_block_height: BlockHeight,
         _chain_access: &dyn ChainAccessForFlatStorage,
-    ) {
+    ) -> FlatStorageStateStatus {
+        FlatStorageStateStatus::DontCreate
     }
 
     fn set_flat_storage_state_for_genesis(
@@ -763,29 +899,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         _genesis_epoch_id: &EpochId,
     ) -> Result<StoreUpdate, Error> {
         Ok(self.store.store_update())
-    }
-
-    fn num_total_parts(&self) -> usize {
-        12 + (self.num_shards as usize + 1) % 50
-    }
-
-    fn num_data_parts(&self) -> usize {
-        // Same as in Nightshade Runtime
-        let total_parts = self.num_total_parts();
-        if total_parts <= 3 {
-            1
-        } else {
-            (total_parts - 1) / 3
-        }
-    }
-
-    fn get_part_owner(&self, epoch_id: &EpochId, part_id: u64) -> Result<AccountId, Error> {
-        let validators =
-            &self.get_epoch_block_producers_ordered(epoch_id, &CryptoHash::default())?;
-        // if we don't use data_parts and total_parts as part of the formula here, the part owner
-        //     would not depend on height, and tests wouldn't catch passing wrong height here
-        let idx = part_id as usize + self.num_data_parts() + self.num_total_parts();
-        Ok(validators[idx as usize % validators.len()].0.account_id().clone())
     }
 
     fn cares_about_shard(
@@ -868,21 +981,6 @@ impl RuntimeAdapter for KeyValueRuntime {
             res.push(iter.next().unwrap());
         }
         Ok(res)
-    }
-
-    fn epoch_sync_init_epoch_manager(
-        &self,
-        _prev_epoch_first_block_info: BlockInfo,
-        _prev_epoch_last_block_info: BlockInfo,
-        _prev_epoch_prev_last_block_info: BlockInfo,
-        _prev_epoch_id: &EpochId,
-        _prev_epoch_info: EpochInfo,
-        _epoch_id: &EpochId,
-        _epoch_info: EpochInfo,
-        _next_epoch_id: &EpochId,
-        _next_epoch_info: EpochInfo,
-    ) -> Result<(), Error> {
-        Ok(())
     }
 
     fn add_validator_proposals(
@@ -1263,47 +1361,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         }
     }
 
-    fn get_epoch_minted_amount(&self, _epoch_id: &EpochId) -> Result<Balance, Error> {
-        Ok(0)
-    }
-
-    fn get_epoch_sync_data(
-        &self,
-        _prev_epoch_last_block_hash: &CryptoHash,
-        _epoch_id: &EpochId,
-        _next_epoch_id: &EpochId,
-    ) -> Result<
-        (
-            Arc<BlockInfo>,
-            Arc<BlockInfo>,
-            Arc<BlockInfo>,
-            Arc<EpochInfo>,
-            Arc<EpochInfo>,
-            Arc<EpochInfo>,
-        ),
-        Error,
-    > {
-        Ok(Default::default())
-    }
-
-    fn get_epoch_protocol_version(&self, _epoch_id: &EpochId) -> Result<ProtocolVersion, Error> {
-        Ok(PROTOCOL_VERSION)
-    }
-
-    fn compare_epoch_id(
-        &self,
-        epoch_id: &EpochId,
-        other_epoch_id: &EpochId,
-    ) -> Result<Ordering, Error> {
-        if epoch_id.0 == other_epoch_id.0 {
-            return Ok(Ordering::Equal);
-        }
-        match (self.get_valset_for_epoch(epoch_id), self.get_valset_for_epoch(other_epoch_id)) {
-            (Ok(index1), Ok(index2)) => Ok(index1.cmp(&index2)),
-            _ => Err(Error::EpochOutOfBounds(epoch_id.clone())),
-        }
-    }
-
     fn chunk_needs_to_be_fetched_from_archival(
         &self,
         _chunk_prev_block_hash: &CryptoHash,
@@ -1314,22 +1371,6 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn get_protocol_config(&self, _epoch_id: &EpochId) -> Result<ProtocolConfig, Error> {
         unreachable!("get_protocol_config should not be called in KeyValueRuntime");
-    }
-
-    fn get_prev_epoch_id_from_prev_block(
-        &self,
-        prev_block_hash: &CryptoHash,
-    ) -> Result<EpochId, Error> {
-        let mut candidate_hash = *prev_block_hash;
-        loop {
-            let header = self
-                .get_block_header(&candidate_hash)?
-                .ok_or_else(|| Error::DBNotFoundErr(candidate_hash.to_string()))?;
-            candidate_hash = *header.prev_hash();
-            if self.is_next_block_epoch_start(&candidate_hash)? {
-                break Ok(self.get_epoch_and_valset(candidate_hash)?.0);
-            }
-        }
     }
 
     fn will_shard_layout_change_next_epoch(
@@ -1358,13 +1399,6 @@ impl RuntimeAdapter for KeyValueRuntime {
     ) -> Result<HashMap<ShardUId, StateRoot>, Error> {
         Ok(HashMap::new())
     }
-
-    fn get_protocol_upgrade_block_height(
-        &self,
-        _block_hash: CryptoHash,
-    ) -> Result<Option<BlockHeight>, EpochError> {
-        Ok(None)
-    }
 }
 
 pub fn setup() -> (Chain, Arc<KeyValueRuntime>, Arc<InMemoryValidatorSigner>) {
@@ -1392,7 +1426,7 @@ pub fn setup_with_tx_validity_period(
             protocol_version: PROTOCOL_VERSION,
         },
         DoomslugThresholdMode::NoApprovals,
-        true,
+        ChainConfig::test(),
     )
     .unwrap();
     let test_account = "test".parse::<AccountId>().unwrap();
@@ -1432,7 +1466,7 @@ pub fn setup_with_validators(
             protocol_version: PROTOCOL_VERSION,
         },
         DoomslugThresholdMode::NoApprovals,
-        true,
+        ChainConfig::test(),
     )
     .unwrap();
     (chain, runtime, signers)

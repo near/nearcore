@@ -1,4 +1,3 @@
-use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -15,10 +14,8 @@ use near_client_primitives::types::StateSplitApplyingStatus;
 use near_pool::types::PoolIterator;
 use near_primitives::challenge::{ChallengesResult, SlashedValidator};
 use near_primitives::checked_feature;
-use near_primitives::epoch_manager::block_info::BlockInfo;
-use near_primitives::epoch_manager::epoch_info::EpochInfo;
-use near_primitives::errors::{EpochError, InvalidTxError};
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::errors::InvalidTxError;
+use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
@@ -34,9 +31,8 @@ use near_primitives::version::{
     MIN_PROTOCOL_VERSION_NEP_92_FIX,
 };
 use near_primitives::views::{QueryRequest, QueryResponse};
-#[cfg(feature = "protocol_feature_flat_state")]
 use near_store::flat_state::ChainAccessForFlatStorage;
-use near_store::flat_state::FlatStorageState;
+use near_store::flat_state::{FlatStorageState, FlatStorageStateStatus};
 use near_store::{PartialStorage, ShardTries, Store, StoreUpdate, Trie, WrappedTrieChanges};
 
 pub use near_epoch_manager::EpochManagerAdapter;
@@ -240,6 +236,20 @@ pub struct ChainGenesis {
     pub protocol_version: ProtocolVersion,
 }
 
+pub struct ChainConfig {
+    /// Whether to save `TrieChanges` on disk or not.
+    pub save_trie_changes: bool,
+    /// Number of threads to execute background migration work.
+    /// Currently used for flat storage background creation.
+    pub background_migration_threads: usize,
+}
+
+impl ChainConfig {
+    pub fn test() -> Self {
+        Self { save_trie_changes: true, background_migration_threads: 1 }
+    }
+}
+
 impl ChainGenesis {
     pub fn new(genesis: &Genesis) -> Self {
         Self {
@@ -268,9 +278,9 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
 
     fn store(&self) -> &Store;
 
-    /// Returns trie. Since shard layout may change from epoch to epoch, `shard_id` itself is
-    /// not enough to identify the trie. `prev_hash` is used to identify the epoch the given
-    /// `shard_id` is at.
+    /// Returns trie with non-view cache for given `state_root`. `prev_hash` is used to access flat storage and to
+    /// identify the epoch the given `shard_id` is at.
+    /// Note that `prev_hash` and `state_root` must correspond to the same block.
     fn get_trie_for_shard(
         &self,
         shard_id: ShardId,
@@ -279,7 +289,7 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
         use_flat_storage: bool,
     ) -> Result<Trie, Error>;
 
-    /// Returns trie with view cache
+    /// Same as `get_trie_for_shard` but returns trie with view cache.
     fn get_view_trie_for_shard(
         &self,
         shard_id: ShardId,
@@ -289,13 +299,13 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
 
     fn get_flat_storage_state_for_shard(&self, shard_id: ShardId) -> Option<FlatStorageState>;
 
-    #[cfg(feature = "protocol_feature_flat_state")]
-    fn create_flat_storage_state_for_shard(
+    /// Tries to create flat storage state for given shard, returns the status of creation.
+    fn try_create_flat_storage_state_for_shard(
         &self,
         shard_id: ShardId,
         latest_block_height: BlockHeight,
         chain_access: &dyn ChainAccessForFlatStorage,
-    );
+    ) -> FlatStorageStateStatus;
 
     fn set_flat_storage_state_for_genesis(
         &self,
@@ -340,13 +350,6 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
         current_protocol_version: ProtocolVersion,
     ) -> Result<Vec<SignedTransaction>, Error>;
 
-    fn num_total_parts(&self) -> usize;
-
-    fn num_data_parts(&self) -> usize;
-
-    /// Returns `account_id` that suppose to have the `part_id`.
-    fn get_part_owner(&self, epoch_id: &EpochId, part_id: u64) -> Result<AccountId, Error>;
-
     /// Returns true if the shard layout will change in the next epoch
     /// Current epoch is the epoch of the block after `parent_hash`
     fn will_shard_layout_change_next_epoch(&self, parent_hash: &CryptoHash) -> Result<bool, Error>;
@@ -384,70 +387,6 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
 
     /// Get the block height for which garbage collection should not go over
     fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> BlockHeight;
-
-    /// Amount of tokens minted in given epoch.
-    fn get_epoch_minted_amount(&self, epoch_id: &EpochId) -> Result<Balance, Error>;
-
-    // TODO #3488 this likely to be updated
-    /// Data that is necessary for prove Epochs in Epoch Sync.
-    fn get_epoch_sync_data(
-        &self,
-        prev_epoch_last_block_hash: &CryptoHash,
-        epoch_id: &EpochId,
-        next_epoch_id: &EpochId,
-    ) -> Result<
-        (
-            Arc<BlockInfo>,
-            Arc<BlockInfo>,
-            Arc<BlockInfo>,
-            Arc<EpochInfo>,
-            Arc<EpochInfo>,
-            Arc<EpochInfo>,
-        ),
-        Error,
-    >;
-
-    // TODO #3488 this likely to be updated
-    /// Hash that is necessary for prove Epochs in Epoch Sync.
-    fn get_epoch_sync_data_hash(
-        &self,
-        prev_epoch_last_block_hash: &CryptoHash,
-        epoch_id: &EpochId,
-        next_epoch_id: &EpochId,
-    ) -> Result<CryptoHash, Error> {
-        let (
-            prev_epoch_first_block_info,
-            prev_epoch_prev_last_block_info,
-            prev_epoch_last_block_info,
-            prev_epoch_info,
-            cur_epoch_info,
-            next_epoch_info,
-        ) = self.get_epoch_sync_data(prev_epoch_last_block_hash, epoch_id, next_epoch_id)?;
-        let mut data = prev_epoch_first_block_info.try_to_vec().unwrap();
-        data.extend(prev_epoch_prev_last_block_info.try_to_vec().unwrap());
-        data.extend(prev_epoch_last_block_info.try_to_vec().unwrap());
-        data.extend(prev_epoch_info.try_to_vec().unwrap());
-        data.extend(cur_epoch_info.try_to_vec().unwrap());
-        data.extend(next_epoch_info.try_to_vec().unwrap());
-        Ok(hash(data.as_slice()))
-    }
-
-    /// Epoch active protocol version.
-    fn get_epoch_protocol_version(&self, epoch_id: &EpochId) -> Result<ProtocolVersion, Error>;
-
-    /// Epoch Manager init procedure that is necessary after Epoch Sync.
-    fn epoch_sync_init_epoch_manager(
-        &self,
-        prev_epoch_first_block_info: BlockInfo,
-        prev_epoch_prev_last_block_info: BlockInfo,
-        prev_epoch_last_block_info: BlockInfo,
-        prev_epoch_id: &EpochId,
-        prev_epoch_info: EpochInfo,
-        epoch_id: &EpochId,
-        epoch_info: EpochInfo,
-        next_epoch_id: &EpochId,
-        next_epoch_info: EpochInfo,
-    ) -> Result<(), Error>;
 
     /// Add proposals for validators.
     fn add_validator_proposals(
@@ -619,12 +558,6 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
         state_root: &StateRoot,
     ) -> bool;
 
-    fn compare_epoch_id(
-        &self,
-        epoch_id: &EpochId,
-        other_epoch_id: &EpochId,
-    ) -> Result<Ordering, Error>;
-
     fn chunk_needs_to_be_fetched_from_archival(
         &self,
         chunk_prev_block_hash: &CryptoHash,
@@ -632,17 +565,6 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
     ) -> Result<bool, Error>;
 
     fn get_protocol_config(&self, epoch_id: &EpochId) -> Result<ProtocolConfig, Error>;
-
-    /// Get previous epoch id by hash of previous block.
-    fn get_prev_epoch_id_from_prev_block(
-        &self,
-        prev_block_hash: &CryptoHash,
-    ) -> Result<EpochId, Error>;
-
-    fn get_protocol_upgrade_block_height(
-        &self,
-        block_hash: CryptoHash,
-    ) -> Result<Option<BlockHeight>, EpochError>;
 }
 
 /// The last known / checked height and time when we have processed it.
