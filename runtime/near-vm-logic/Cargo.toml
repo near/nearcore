@@ -23,6 +23,7 @@ ripemd.workspace = true
 serde.workspace = true
 sha2.workspace = true
 sha3.workspace = true
+stdx.workspace = true
 tracing = { workspace = true, optional = true }
 
 near-crypto = { path = "../../core/crypto" }
@@ -35,6 +36,7 @@ near-vm-errors = { path = "../near-vm-errors" }
 [dev-dependencies]
 hex.workspace = true
 serde_json = { workspace = true, features = ["preserve_order"] }
+expect-test.workspace = true
 
 [features]
 default = []

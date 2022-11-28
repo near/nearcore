@@ -994,6 +994,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cold-store-tool"
+version = "0.0.0"
+dependencies = [
+ "clap 3.1.18",
+ "near-chain-configs",
+ "near-primitives",
+ "near-store",
+ "nearcore",
+]
+
+[[package]]
 name = "combine"
 version = "4.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3022,6 +3033,7 @@ dependencies = [
  "ed25519-dalek",
  "hex-literal",
  "near-account-id",
+ "near-stdx",
  "once_cell",
  "primitive-types",
  "rand 0.7.3",
@@ -3221,17 +3233,19 @@ version = "0.0.0"
 dependencies = [
  "actix",
  "anyhow",
+ "async-trait",
  "borsh",
  "bs58",
  "clap 3.1.18",
  "ed25519-dalek",
  "hex",
  "hkdf",
+ "near-chain",
  "near-chain-configs",
+ "near-chain-primitives",
  "near-client",
  "near-client-primitives",
  "near-crypto",
- "near-dyn-configs",
  "near-indexer",
  "near-indexer-primitives",
  "near-network",
@@ -3402,6 +3416,7 @@ dependencies = [
  "chrono",
  "derive_more",
  "easy-ext",
+ "enum-map",
  "hex",
  "insta",
  "near-crypto",
@@ -3419,6 +3434,7 @@ dependencies = [
  "smart-default",
  "strum",
  "thiserror",
+ "tracing",
 ]
 
 [[package]]
@@ -3430,6 +3446,7 @@ dependencies = [
  "borsh",
  "bs58",
  "derive_more",
+ "enum-map",
  "near-account-id",
  "num-rational",
  "serde",
@@ -3506,6 +3523,10 @@ name = "near-stable-hasher"
 version = "0.0.0"
 
 [[package]]
+name = "near-stdx"
+version = "0.0.0"
+
+[[package]]
 name = "near-store"
 version = "0.0.0"
 dependencies = [
@@ -3526,6 +3547,7 @@ dependencies = [
  "near-crypto",
  "near-o11y",
  "near-primitives",
+ "near-stdx",
  "num_cpus",
  "once_cell",
  "rand 0.8.5",
@@ -3588,12 +3610,14 @@ dependencies = [
  "borsh",
  "byteorder",
  "ed25519-dalek",
+ "expect-test",
  "hex",
  "near-account-id",
  "near-crypto",
  "near-o11y",
  "near-primitives",
  "near-primitives-core",
+ "near-stdx",
  "near-vm-errors",
  "ripemd",
  "serde",
@@ -3729,12 +3753,14 @@ dependencies = [
  "ansi_term",
  "anyhow",
  "clap 3.1.18",
+ "cold-store-tool",
  "futures",
  "near-amend-genesis",
  "near-chain-configs",
  "near-dyn-configs",
  "near-jsonrpc-primitives",
  "near-mirror",
+ "near-network",
  "near-o11y",
  "near-performance-metrics",
  "near-ping",
@@ -3746,6 +3772,7 @@ dependencies = [
  "openssl-probe",
  "opentelemetry",
  "rayon",
+ "rlimit",
  "rustc_version 0.4.0",
  "serde",
  "serde_json",
@@ -3777,6 +3804,7 @@ dependencies = [
  "assert_matches",
  "borsh",
  "byteorder",
+ "enum-map",
  "hex",
  "indicatif",
  "near-chain-configs",
@@ -4898,6 +4926,7 @@ dependencies = [
  "cfg-if 1.0.0",
  "chrono",
  "clap 3.1.18",
+ "enum-map",
  "genesis-populate",
  "hex",
  "indicatif",

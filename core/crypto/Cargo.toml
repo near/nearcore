@@ -25,6 +25,7 @@ rand = "0.7"
 secp256k1.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+stdx.workspace = true
 subtle.workspace = true
 thiserror.workspace = true
 
