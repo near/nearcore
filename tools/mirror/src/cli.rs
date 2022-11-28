@@ -70,6 +70,11 @@ impl RunCmd {
         let system = new_actix_system(runtime);
         system
             .block_on(async move {
+                let _subscriber_guard = near_o11y::default_subscriber(
+                    near_o11y::EnvFilterBuilder::from_env().finish().unwrap(),
+                    &near_o11y::Options::default(),
+                )
+                .global();
                 actix::spawn(crate::run(
                     self.source_home,
                     self.target_home,
