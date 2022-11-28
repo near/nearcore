@@ -13,25 +13,11 @@ pub mod cli;
 
 struct AppInfo {
     pub requests_sent: HashMap<u64, time::Instant>,
-    /*
-    chain_id: String,
-    peer_addr: SocketAddr,
-    peer_id: PeerId,
-
-     */
 }
 
 impl AppInfo {
     fn new(_chain_id: &str, _peer_addr: &SocketAddr, _peer_id: &PeerId) -> Self {
-        Self {
-            requests_sent: HashMap::new(),
-            /*
-            chain_id: chain_id.to_owned(),
-            peer_addr: peer_addr.clone(),
-            peer_id: peer_id.clone(),
-
-             */
-        }
+        Self { requests_sent: HashMap::new() }
     }
 }
 

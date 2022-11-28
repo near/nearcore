@@ -177,7 +177,6 @@ impl Connection {
     }
 
     async fn write_message(&mut self, msg: &PeerMessage) -> io::Result<()> {
-        tracing::debug!(target: "state-parts", ?msg, "write_message");
         let mut msg = msg.serialize(Encoding::Proto);
         let mut buf = (msg.len() as u32).to_le_bytes().to_vec();
         buf.append(&mut msg);

@@ -14,6 +14,7 @@ pub struct StatePartsCommand {
     #[clap(long)]
     shard_id: ShardId,
 
+    /// Chain id of the peer.
     #[clap(long)]
     chain_id: String,
 
@@ -48,9 +49,12 @@ pub struct StatePartsCommand {
     #[clap(long)]
     recv_timeout_seconds: Option<u32>,
 
+    /// Starting part id for the state requests.
     #[clap(long, default_value = "0")]
     start_part_id: u64,
 
+    /// Number of parts in the state of the shard.
+    /// Assuming the tool doesn't have a valid DB and can't determine the number automatically.
     #[clap(long)]
     num_parts: u64,
 }

@@ -1283,7 +1283,6 @@ impl actix::Handler<stream::Frame> for PeerActor {
 
         match &peer_msg {
             PeerMessage::Routed(msg) => {
-                tracing::debug!(target: "state-parts", ?msg);
                 let key = (msg.author.clone(), msg.target.clone(), msg.signature.clone());
                 let now = self.clock.now();
                 // Drop duplicated messages routed within DROP_DUPLICATED_MESSAGES_PERIOD ms

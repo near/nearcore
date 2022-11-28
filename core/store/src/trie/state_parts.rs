@@ -49,8 +49,7 @@ impl Trie {
         let nodes_list = iterator.visit_nodes_interval(&path_begin, &path_end)?;
         tracing::debug!(
             target: "state_parts",
-            num_nodes = nodes_list.len(),
-        );
+            num_nodes = nodes_list.len());
 
         // Extra nodes for compatibility with the previous version of computing state parts
         if part_id.idx + 1 != part_id.total {
@@ -690,40 +689,6 @@ mod tests {
 
     #[test]
     fn test_get_trie_nodes_for_part() {
-        let mut rng = rand::thread_rng();
-        for _ in 0..20 {
-            let tries = create_tries();
-            let trie_changes = gen_changes(&mut rng, 10);
-
-            let state_root = test_populate_trie(
-                &tries,
-                &Trie::EMPTY_ROOT,
-                ShardUId::single_shard(),
-                trie_changes.clone(),
-            );
-            let trie = tries.get_trie_for_shard(ShardUId::single_shard(), state_root);
-
-            for _ in 0..10 {
-                // Test that creating and validating are consistent
-                let num_parts: u64 = rng.gen_range(1..10);
-                let part_id = rng.gen_range(0..num_parts);
-                let trie_nodes =
-                    trie.get_trie_nodes_for_part(PartId::new(part_id, num_parts)).unwrap();
-                let trie_nodes2 =
-                    trie.get_trie_nodes_for_part_old(PartId::new(part_id, num_parts)).unwrap();
-                assert_eq!(trie_nodes, trie_nodes2);
-                Trie::validate_trie_nodes_for_part(
-                    trie.get_root(),
-                    PartId::new(part_id, num_parts),
-                    trie_nodes,
-                )
-                .expect("validate ok");
-            }
-        }
-    }
-
-    #[test]
-    fn test_get_trie_nodes_for_part_2() {
         let mut rng = rand::thread_rng();
         for _ in 0..20 {
             let tries = create_tries();

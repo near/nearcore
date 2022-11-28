@@ -2868,11 +2868,9 @@ impl Chain {
         .entered();
         // Check cache
         let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
-        /*
         if let Ok(Some(state_part)) = self.store.store().get(DBCol::StateParts, &key) {
             return Ok(state_part.into());
         }
-         */
 
         let sync_block = self
             .get_block(&sync_hash)
@@ -4412,13 +4410,11 @@ impl Chain {
         // Do not replace with `get_block_header`.
         let sync_block = self.get_block(sync_hash)?;
         // The Epoch of sync_hash may be either the current one or the previous one
-        tracing::debug!(target: "state-parts", sync_hash=?sync_hash, head_epoch_id=?head.epoch_id.0, sync_block_epoch_id=?sync_block.header().epoch_id().0, sync_block_next_epoch_id=?sync_block.header().next_epoch_id().0);
         if head.epoch_id == *sync_block.header().epoch_id()
             || head.epoch_id == *sync_block.header().next_epoch_id()
         {
             let prev_hash = *sync_block.header().prev_hash();
             // If sync_hash is not on the Epoch boundary, it's malicious behavior
-            tracing::debug!(target: "state-parts", sync_hash=?sync_hash, ?prev_hash, is_next_block_epoch_start=self.runtime_adapter.is_next_block_epoch_start(&prev_hash).unwrap());
             self.runtime_adapter.is_next_block_epoch_start(&prev_hash)
         } else {
             Ok(false) // invalid Epoch of sync_hash, possible malicious behavior
