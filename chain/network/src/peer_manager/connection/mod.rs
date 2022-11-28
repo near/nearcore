@@ -210,7 +210,7 @@ impl Drop for OutboundHandshakePermit {
         if let Some(pool) = self.1.upgrade() {
             pool.update(|mut pool| {
                 pool.outbound_handshakes.remove(&self.0);
-                ((),pool)
+                ((), pool)
             });
         }
     }
@@ -287,14 +287,14 @@ impl Pool {
                 return Err(PoolError::AlreadyStartedConnecting);
             }
             pool.outbound_handshakes.insert(peer_id.clone());
-            Ok((OutboundHandshakePermit(peer_id, Arc::downgrade(&self.0)),pool))
+            Ok((OutboundHandshakePermit(peer_id, Arc::downgrade(&self.0)), pool))
         })
     }
 
     pub fn remove(&self, peer_id: &PeerId) {
         self.0.update(|mut pool| {
             pool.ready.remove(peer_id);
-            ((),pool)
+            ((), pool)
         });
     }
     /// Update the edge in the pool (if it is newer).
@@ -302,10 +302,12 @@ impl Pool {
         let pool = self.load();
         let Some(other) = new_edge.other(&pool.me) else { return };
         let Some(conn) = pool.ready.get(other) else { return };
-        conn.edge.update(|e| {
-            if e.nonce() < new_edge.nonce() {
-                *e = new_edge.clone();
+        // Returns an error if the current edge is not older than new_edge.
+        let _ = conn.edge.try_update(|e| {
+            if e.nonce() >= new_edge.nonce() {
+                return Err(());
             }
+            Ok(((), new_edge.clone()))
         });
     }
 
