@@ -258,7 +258,7 @@ impl NetworkState {
             // Verify and broadcast the edge of the connection. Only then insert the new
             // connection to TIER2 pool, so that nothing is broadcasted to conn.
             // TODO(gprusak): consider actually banning the peer for consistency.
-            this.add_edges(&clock, vec![conn.edge.load()])
+            this.add_edges(&clock, vec![conn.edge.load().as_ref().clone()])
                 .await
                 .map_err(|_: ReasonForBan| RegisterPeerError::InvalidEdge)?;
             this.tier2.insert_ready(conn.clone()).map_err(RegisterPeerError::PoolError)?;
