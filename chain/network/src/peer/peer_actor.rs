@@ -158,20 +158,8 @@ impl PeerActor {
         force_encoding: Option<Encoding>,
         network_state: Arc<NetworkState>,
     ) -> anyhow::Result<actix::Addr<Self>> {
-        Self::spawn_with_nonce(clock, stream, force_encoding, network_state, None)
-    }
-
-    /// Span peer actor, and make it establish a connection with a given nonce.
-    /// Used mostly for tests.
-    pub(crate) fn spawn_with_nonce(
-        clock: time::Clock,
-        stream: tcp::Stream,
-        force_encoding: Option<Encoding>,
-        network_state: Arc<NetworkState>,
-        nonce: Option<u64>,
-    ) -> anyhow::Result<actix::Addr<Self>> {
         let stream_id = stream.id();
-        match Self::spawn_inner(clock, stream, force_encoding, network_state.clone(), nonce) {
+        match Self::spawn_inner(clock, stream, force_encoding, network_state.clone()) {
             Ok(it) => Ok(it),
             Err(reason) => {
                 network_state.config.event_sink.push(Event::ConnectionClosed(
@@ -187,7 +175,6 @@ impl PeerActor {
         stream: tcp::Stream,
         force_encoding: Option<Encoding>,
         network_state: Arc<NetworkState>,
-        nonce: Option<u64>,
     ) -> Result<actix::Addr<Self>, ClosingReason> {
         let connecting_status = match &stream.type_ {
             tcp::StreamType::Inbound => ConnectingStatus::Inbound(
@@ -203,7 +190,7 @@ impl PeerActor {
                     .start_outbound(peer_id.clone())
                     .map_err(ClosingReason::OutboundNotAllowed)?,
                 handshake_spec: HandshakeSpec {
-                    partial_edge_info: network_state.propose_edge(&clock, peer_id, nonce),
+                    partial_edge_info: network_state.propose_edge(&clock, peer_id, None),
                     protocol_version: PROTOCOL_VERSION,
                     peer_id: peer_id.clone(),
                 },
@@ -1299,6 +1286,7 @@ impl actix::Handler<stream::Frame> for PeerActor {
                 if let Some(&t) = self.routed_message_cache.get(&key) {
                     if now <= t + DROP_DUPLICATED_MESSAGES_PERIOD {
                         tracing::debug!(target: "network", "Dropping duplicated message from {} to {:?}", msg.author, msg.target);
+                        self.network_state.config.event_sink.push(Event::RoutedMessageDropped);
                         return;
                     }
                 }
