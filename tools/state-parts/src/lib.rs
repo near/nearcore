@@ -49,7 +49,7 @@ fn handle_message(
             let duration = app_info
                 .requests_sent
                 .get(&part_id)
-                .map(|sent| sent.elapsed() - received_at.elapsed());
+                .map(|sent| (sent.elapsed() - received_at.elapsed()).as_seconds_f64());
             tracing::info!(
                 shard_id,
                 ?sync_hash,
