@@ -627,7 +627,7 @@ impl PeerActor {
                             }
                         }));
 
-                        // Refresh connection nonces but only if we're outbound. For inbound connection, the other party should 
+                        // Refresh connection nonces but only if we're outbound. For inbound connection, the other party should
                         // take care of nonce refresh.
                         if act.peer_type == PeerType::Outbound {
                             ctx.spawn(wrap_future({
