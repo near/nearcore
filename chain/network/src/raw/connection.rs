@@ -3,6 +3,7 @@ use crate::network_protocol::{
     PeerMessage, Ping, RawRoutedMessage, RoutedMessageBody,
 };
 use crate::time::{Duration, Instant, Utc};
+use crate::types::StateResponseInfo;
 use bytes::buf::{Buf, BufMut};
 use bytes::BytesMut;
 use near_crypto::{KeyType, SecretKey};
@@ -35,6 +36,7 @@ pub struct Connection {
 pub enum ReceivedMessage {
     AnnounceAccounts(Vec<(AccountId, PeerId, EpochId)>),
     Pong { nonce: u64, source: PeerId },
+    VersionedStateResponse(StateResponseInfo),
 }
 
 impl TryFrom<PeerMessage> for ReceivedMessage {
@@ -46,6 +48,9 @@ impl TryFrom<PeerMessage> for ReceivedMessage {
             PeerMessage::Routed(r) => match &r.body {
                 RoutedMessageBody::Pong(p) => {
                     Ok(Self::Pong { nonce: p.nonce, source: p.source.clone() })
+                }
+                RoutedMessageBody::VersionedStateResponse(state_response_info) => {
+                    Ok(Self::VersionedStateResponse(state_response_info.clone()))
                 }
                 _ => Err(()),
             },

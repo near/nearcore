@@ -6,11 +6,13 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::types::{AccountId, BlockHeight, ShardId};
 use near_primitives::version::ProtocolVersion;
+use std::collections::HashMap;
 use std::net::SocketAddr;
 
 pub mod cli;
 
 struct AppInfo {
+    pub requests_sent: HashMap<u64, time::Instant>,
     /*
     chain_id: String,
     peer_addr: SocketAddr,
@@ -22,6 +24,7 @@ struct AppInfo {
 impl AppInfo {
     fn new(_chain_id: &str, _peer_addr: &SocketAddr, _peer_id: &PeerId) -> Self {
         Self {
+            requests_sent: HashMap::new(),
             /*
             chain_id: chain_id.to_owned(),
             peer_addr: peer_addr.clone(),
@@ -33,11 +36,29 @@ impl AppInfo {
 }
 
 fn handle_message(
-    _app_info: &mut AppInfo,
+    app_info: &mut AppInfo,
     msg: &ReceivedMessage,
-    _received_at: time::Instant,
+    received_at: time::Instant,
 ) -> anyhow::Result<()> {
     match &msg {
+        ReceivedMessage::VersionedStateResponse(response) => {
+            let shard_id = response.shard_id();
+            let sync_hash = response.sync_hash();
+            let state_response = response.clone().take_state_response();
+            let part_id = state_response.part_id().unwrap();
+            let duration = app_info
+                .requests_sent
+                .get(&part_id)
+                .map(|sent| sent.elapsed() - received_at.elapsed());
+            tracing::info!(
+                shard_id,
+                ?sync_hash,
+                part_id,
+                ?duration,
+                "Received VersionedStateResponse"
+            );
+            app_info.requests_sent.remove(&part_id);
+        }
         _ => {}
     };
     Ok(())
@@ -70,7 +91,10 @@ async fn state_parts_from_node(
     ttl: u8,
     request_frequency_millis: u64,
     recv_timeout_seconds: u32,
+    start_part_id: u64,
+    num_parts: u64,
 ) -> anyhow::Result<()> {
+    assert!(start_part_id < num_parts && num_parts > 0, "{}/{}", start_part_id, num_parts);
     let mut app_info = AppInfo::new(chain_id, &peer_addr, &peer_id);
 
     let mut peer = match Connection::connect(
@@ -108,18 +132,20 @@ async fn state_parts_from_node(
     tokio::pin!(next_request);
 
     let mut result = Ok(());
+    let mut part_id = start_part_id;
     loop {
         tokio::select! {
             _ = &mut next_request => {
                 let target = peer_id.clone();
-                let part_id = 0;
                 tracing::info!(target: "state-parts", ?target, shard_id, ?block_hash, part_id, ttl, "Sending a request");
                 result = peer.send_state_part_request(&target, shard_id, block_hash, part_id, ttl).await.with_context(|| format!("Failed sending State Part Request to {:?}", &target));
+                app_info.requests_sent.insert(part_id, time::Instant::now());
                 tracing::info!(target: "state-parts", ?result);
                 if result.is_err() {
                     break;
                 }
                 next_request.as_mut().reset(tokio::time::Instant::now() + std::time::Duration::from_millis(request_frequency_millis));
+                part_id = (part_id + 1) % num_parts;
             }
             res = peer.recv() => {
                 let (msg, first_byte_time) = match res {

@@ -344,6 +344,7 @@ fn handle_message(
         ReceivedMessage::AnnounceAccounts(a) => {
             app_info.add_announce_accounts(a);
         }
+        _ => {}
     };
     Ok(())
 }

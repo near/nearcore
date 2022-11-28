@@ -12,7 +12,7 @@ use crate::trie::{
 };
 use crate::{PartialStorage, StorageError, Trie, TrieChanges};
 use near_primitives::contract::ContractCode;
-use near_primitives::state_record::{is_contract_code_key, StateRecord};
+use near_primitives::state_record::is_contract_code_key;
 
 impl Trie {
     /// Computes the set of trie nodes for a state part.

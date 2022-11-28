@@ -16,30 +16,43 @@ pub struct StatePartsCommand {
 
     #[clap(long)]
     chain_id: String,
+
     #[clap(long)]
     /// genesis hash to use in the Handshake we send. This must be provided if --chain-id
     /// is not one of "mainnet", "testnet" or "shardnet"
     genesis_hash: Option<String>,
+
     #[clap(long)]
     /// head height to use in the Handshake we send. This must be provided if --chain-id
     /// is not one of "mainnet", "testnet" or "shardnet"
     head_height: Option<u64>,
+
     /// Protocol version to advertise in our handshake
     #[clap(long)]
     protocol_version: Option<u32>,
+
     /// node public key and socket address in the format {pub key}@{socket addr}. e.g.:
     /// ed25519:7PGseFbWxvYVgZ89K1uTJKYoKetWs7BJtbyXDzfbAcqX@127.0.0.1:24567
     #[clap(long)]
     peer: String,
+
     /// ttl to set on our Routed messages
     #[clap(long, default_value = "100")]
     ttl: u8,
+
     /// milliseconds to wait between sending state part requests
     #[clap(long, default_value = "1000")]
     request_frequency_millis: u64,
+
     /// number of seconds to wait for incoming data before timing out
     #[clap(long)]
     recv_timeout_seconds: Option<u32>,
+
+    #[clap(long, default_value = "0")]
+    start_part_id: u64,
+
+    #[clap(long)]
+    num_parts: u64,
 }
 
 struct ChainInfo {
@@ -122,6 +135,8 @@ impl StatePartsCommand {
                 self.ttl,
                 self.request_frequency_millis,
                 self.recv_timeout_seconds.unwrap_or(5),
+                self.start_part_id,
+                self.num_parts,
             )
             .await?;
             Ok(())
