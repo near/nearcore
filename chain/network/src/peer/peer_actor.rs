@@ -1,4 +1,5 @@
 use crate::accounts_data;
+use crate::concurrency::arc_mutex::ArcMutex;
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
 use crate::network_protocol::{
@@ -500,7 +501,7 @@ impl PeerActor {
         let conn = Arc::new(connection::Connection {
             addr: ctx.address(),
             peer_info: peer_info.clone(),
-            edge: AtomicCell::new(edge),
+            edge: ArcMutex::new(edge),
             genesis_id: handshake.sender_chain_info.genesis_id.clone(),
             tracked_shards: handshake.sender_chain_info.tracked_shards.clone(),
             archival: handshake.sender_chain_info.archival,
@@ -592,10 +593,6 @@ impl PeerActor {
                                 incremental: false,
                                 requesting_full_sync: true,
                             }));
-                            // Only broadcast the new edge from the outbound endpoint.
-                            act.network_state.tier2.broadcast_message(Arc::new(PeerMessage::SyncRoutingTable(
-                                RoutingTableUpdate::from_edges(vec![conn.edge.load()]),
-                            )));
                         }
 
                         // Exchange peers periodically.
@@ -660,7 +657,7 @@ impl PeerActor {
                         act.sync_routing_table();
                         act.network_state.config.event_sink.push(Event::HandshakeCompleted(HandshakeCompletedEvent{
                             stream_id: act.stream_id,
-                            edge: conn.edge.load(),
+                            edge: conn.edge.load().as_ref().clone(),
                         }));
                     },
                     Err(err) => {
