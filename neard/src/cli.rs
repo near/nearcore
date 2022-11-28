@@ -516,6 +516,7 @@ async fn wait_for_interrupt_signal(home_dir: &Path, near_config: nearcore::NearC
     let mut near_node =
         nearcore::start_with_config_and_synchronization(home_dir, near_config, Some(tx.clone()))
             .expect("start_with_config");
+    let rpc_servers = near_node.rpc_servers.take();
 
     // Apply all watcher config file if it exists.
     update_watchers(&home_dir, UpdateBehavior::UpdateOnlyIfExists);
@@ -536,20 +537,23 @@ async fn wait_for_interrupt_signal(home_dir: &Path, near_config: nearcore::NearC
                 // current impl is POC and rely on SIGHUP
                 if let Ok(new_config) = nearcore::config::load_config(&home_dir, GenesisValidationMode::Full) {
                     let new_signer = new_config.validator_signer;
-                    near_node.update_signer(new_signer).await.unwrap_or_else(|e| panic!("Reload new signer fail: {:#}", e));
+                    near_node.update_signer(new_signer).unwrap_or_else(|e| panic!("Reload new signer fail: {:#}", e));
                 } else {
                     error!("config is incorrect, could not reload the new config");
                 }
+
                 continue;
              },
              _ = rx_crash.recv() => "ClientActor died",
         };
     };
-    futures::future::join_all(near_node.rpc_servers.iter().map(|(name, server)| async move {
-        server.stop(true).await;
-        debug!(target: "neard", "{} server stopped", name);
-    }))
-    .await;
+    if let Some(rpc_servers) = rpc_servers {
+        futures::future::join_all(rpc_servers.iter().map(|(name, server)| async move {
+            server.stop(true).await;
+            debug!(target: "neard", "{} server stopped", name);
+        }))
+        .await;
+    }
     output
 }
 
