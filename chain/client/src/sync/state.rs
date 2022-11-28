@@ -608,6 +608,8 @@ impl StateSync {
                 );
             }
             ShardSyncStatus::StateDownloadParts => {
+                // We'll select all the 'highest' peers + validators as candidates (exluding those that gave us timeout in the past).
+                // And for each one of them, we'll ask for up to 16 (MAX_STATE_PART_REQUEST) parts.
                 let possible_targets_sampler =
                     SamplerLimited::new(possible_targets, MAX_STATE_PART_REQUEST);
 
