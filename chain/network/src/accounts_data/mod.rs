@@ -97,17 +97,17 @@ impl Cache {
     /// The AccountData which is no longer important is dropped.
     /// Returns true iff the set of accounts actually changed.
     pub fn set_keys(&self, keys_by_id: Arc<AccountKeys>) -> bool {
-        self.0.update(|inner| {
+        self.0.try_update(|mut inner| {
             // Skip further processing if the key set didn't change.
             // NOTE: if T implements Eq, then Arc<T> short circuits equality for x == x.
             if keys_by_id == inner.keys_by_id {
-                return false;
+                return Err(());
             }
             inner.keys_by_id = keys_by_id;
             inner.keys = inner.keys_by_id.values().flatten().cloned().collect();
             inner.data.retain(|k, _| inner.keys.contains(k));
-            true
-        })
+            Ok(((),inner))
+        }).is_ok()
     }
 
     /// Selects new data and verifies the signatures.
@@ -170,8 +170,10 @@ impl Cache {
         // Execute verification on the rayon threadpool.
         let (data, err) = this.verify(data).await;
         // Insert the successfully verified data, even if an error has been encountered.
-        let inserted =
-            self.0.update(|inner| data.into_iter().filter_map(|d| inner.try_insert(d)).collect());
+        let inserted = self.0.update(|mut inner| {
+            let inserted = data.into_iter().filter_map(|d| inner.try_insert(d)).collect();
+            (inserted,inner)
+        });
         // Return the inserted data.
         (inserted, err)
     }
