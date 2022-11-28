@@ -34,18 +34,6 @@ impl Trie {
         Ok(trie_nodes)
     }
 
-    fn get_first_item_state_record(&self, nodes_list: &[TrieTraversalItem]) -> Option<StateRecord> {
-        if let Some(item) = nodes_list.get(0) {
-            let TrieTraversalItem { hash, key } = item;
-            if let Some(key) = key {
-                if let Ok(value) = self.storage.retrieve_raw_bytes(&hash) {
-                    return StateRecord::from_raw_key_value(key.clone(), value.to_vec());
-                }
-            }
-        }
-        return None;
-    }
-
     /// Assume we lay out all trie nodes in dfs order visiting children after the parent.
     /// We take all node sizes (memory_usage_direct()) and take all nodes intersecting with
     /// [size_start, size_end) interval, also all nodes necessary to prove it and some
@@ -62,7 +50,6 @@ impl Trie {
         tracing::debug!(
             target: "state_parts",
             num_nodes = nodes_list.len(),
-            first_state_record = ?self.get_first_item_state_record(&nodes_list),
         );
 
         // Extra nodes for compatibility with the previous version of computing state parts
@@ -703,6 +690,40 @@ mod tests {
 
     #[test]
     fn test_get_trie_nodes_for_part() {
+        let mut rng = rand::thread_rng();
+        for _ in 0..20 {
+            let tries = create_tries();
+            let trie_changes = gen_changes(&mut rng, 10);
+
+            let state_root = test_populate_trie(
+                &tries,
+                &Trie::EMPTY_ROOT,
+                ShardUId::single_shard(),
+                trie_changes.clone(),
+            );
+            let trie = tries.get_trie_for_shard(ShardUId::single_shard(), state_root);
+
+            for _ in 0..10 {
+                // Test that creating and validating are consistent
+                let num_parts: u64 = rng.gen_range(1..10);
+                let part_id = rng.gen_range(0..num_parts);
+                let trie_nodes =
+                    trie.get_trie_nodes_for_part(PartId::new(part_id, num_parts)).unwrap();
+                let trie_nodes2 =
+                    trie.get_trie_nodes_for_part_old(PartId::new(part_id, num_parts)).unwrap();
+                assert_eq!(trie_nodes, trie_nodes2);
+                Trie::validate_trie_nodes_for_part(
+                    trie.get_root(),
+                    PartId::new(part_id, num_parts),
+                    trie_nodes,
+                )
+                .expect("validate ok");
+            }
+        }
+    }
+
+    #[test]
+    fn test_get_trie_nodes_for_part_2() {
         let mut rng = rand::thread_rng();
         for _ in 0..20 {
             let tries = create_tries();
