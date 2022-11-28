@@ -156,14 +156,12 @@ pub struct NearNode<'a> {
     pub client: Addr<ClientActor>,
     pub view_client: Addr<ViewClientActor>,
     pub arbiters: Vec<ArbiterHandle>,
-    pub rpc_servers: Vec<(&'static str, actix_web::dev::ServerHandle)>,
+    pub rpc_servers: Option<Vec<(&'static str, actix_web::dev::ServerHandle)>>,
     pub shutdown_signal: Option<mpsc::Sender<()>>,
-    pub network_adapter: Arc<NetworkRecipient<Addr<PeerManagerActor>>>,
-    pub network_actor: Addr<PeerManagerActor>,
 }
 
 impl<'a> NearNode<'a> {
-    pub async fn update_signer(
+    pub fn update_signer(
         &mut self,
         new_signer: Option<Arc<dyn ValidatorSigner>>,
     ) -> anyhow::Result<()> {
@@ -174,8 +172,9 @@ impl<'a> NearNode<'a> {
             &self.config_snapshot,
         ));
         let chain_genesis = ChainGenesis::new(&self.config_snapshot.genesis);
-
         let node_id = self.config_snapshot.network_config.node_id();
+        let network_adapter: Arc<NetworkRecipient<Addr<PeerManagerActor>>> =
+            Arc::new(NetworkRecipient::default());
         let adv =
             near_client::adversarial::Controls::new(self.config_snapshot.client_config.archive);
 
@@ -186,7 +185,7 @@ impl<'a> NearNode<'a> {
                 .map(|signer| signer.validator_id().clone()),
             chain_genesis.clone(),
             runtime.clone(),
-            self.network_adapter.clone(),
+            network_adapter.clone(),
             self.config_snapshot.client_config.clone(),
             adv.clone(),
         );
@@ -195,53 +194,18 @@ impl<'a> NearNode<'a> {
             chain_genesis,
             runtime.clone(),
             node_id,
-            self.network_adapter.clone(),
+            network_adapter.clone(),
             self.config_snapshot.validator_signer.clone(),
             TelemetryActor::new(self.config_snapshot.telemetry_config.clone()).start(),
             self.shutdown_signal.clone(),
             adv,
         );
 
-        for (_, server) in self.rpc_servers.iter() {
-            server.stop(true).await;
-        }
-
-        // TODO update network state for network_actor
-
-        self.rpc_servers = vec![];
-
-        let chain_genesis = ChainGenesis::new(&self.config_snapshot.genesis);
-        let genesis_block = Chain::make_genesis_block(&*self.runtime, &chain_genesis)?;
-
-        #[cfg(feature = "json_rpc")]
-        if let Some(rpc_config) = &self.config_snapshot.rpc_config {
-            self.rpc_servers.extend(near_jsonrpc::start_http(
-                rpc_config.clone(),
-                self.config_snapshot.genesis.config.clone(),
-                self.client.clone(),
-                self.view_client.clone(),
-                Some(self.network_actor.clone()),
-            ));
-        }
-
-        #[cfg(feature = "rosetta_rpc")]
-        if let Some(rosetta_rpc_config) = &self.config_snapshot.rosetta_rpc_config {
-            self.rpc_servers.push((
-                "Rosetta RPC",
-                near_rosetta_rpc::start_rosetta_rpc(
-                    rosetta_rpc_config.clone(),
-                    self.config_snapshot.genesis.clone(),
-                    genesis_block.header().hash(),
-                    self.client.clone(),
-                    self.view_client.clone(),
-                ),
-            ));
-        }
-        self.rpc_servers.shrink_to_fit();
-
         self.view_client = view_client;
         self.client = client_actor;
         self.arbiters = vec![client_arbiter_handle];
+
+        // TODO: update clients for rpc_servers will implement later on
 
         trace!(target: "diagnostic", key="log", "Reload NEAR validator signer");
 
@@ -278,8 +242,7 @@ pub fn start_with_config_and_synchronization(
     };
 
     let node_id = config.network_config.node_id();
-    let network_adapter: Arc<NetworkRecipient<Addr<PeerManagerActor>>> =
-        Arc::new(NetworkRecipient::default());
+    let network_adapter = Arc::new(NetworkRecipient::default());
     let adv = near_client::adversarial::Controls::new(config.client_config.archive);
 
     let view_client = start_view_client(
@@ -355,11 +318,9 @@ pub fn start_with_config_and_synchronization(
         config_snapshot,
         client: client_actor,
         view_client,
-        rpc_servers,
+        rpc_servers: Some(rpc_servers),
         arbiters: vec![client_arbiter_handle],
         shutdown_signal,
-        network_adapter,
-        network_actor,
     })
 }
 
