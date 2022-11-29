@@ -4,7 +4,9 @@ use crate::tests::helpers::*;
 use crate::tests::vm_logic_builder::VMLogicBuilder;
 use crate::types::Gas;
 use crate::{VMConfig, VMLogic};
+use borsh::BorshSerialize;
 use expect_test::expect;
+use near_account_id::AccountId;
 use near_primitives::config::ActionCosts;
 use near_primitives::runtime::fees::Fee;
 use near_primitives::transaction::{Action, FunctionCallAction};
@@ -243,7 +245,8 @@ fn check_action_gas_exceeds_limit(
         execution: 1, // exec part is `used`, make it small
     };
     let mut logic_builder = VMLogicBuilder::default().max_gas_burnt(gas_limit).gas_fee(cost, fee);
-    let mut logic = logic_builder.build_with_prepaid_gas(gas_attached);
+    let output_receivers = vec!["alice.test".parse().unwrap()];
+    let mut logic = logic_builder.build_with_output_receivers(gas_attached, output_receivers);
 
     let result = exercise_action(&mut logic);
     assert!(result.is_err(), "expected out-of-gas error for {cost:?} but was ok");
@@ -286,7 +289,8 @@ fn check_action_gas_exceeds_attached(
         execution: gas_attached / num_action_paid + 1,
     };
     let mut logic_builder = VMLogicBuilder::default().max_gas_burnt(gas_limit).gas_fee(cost, fee);
-    let mut logic = logic_builder.build_with_prepaid_gas(gas_attached);
+    let output_receivers = vec!["alice.test".parse().unwrap()];
+    let mut logic = logic_builder.build_with_output_receivers(gas_attached, output_receivers);
 
     let result = exercise_action(&mut logic);
     assert!(result.is_err(), "expected out-of-gas error for {cost:?} but was ok");
@@ -350,6 +354,332 @@ fn create_promise_dependency(logic: &mut VMLogic) -> Result<(), VMLogicError> {
     Ok(())
 }
 
+#[test]
+fn out_of_gas_new_data_receipt_byte() {
+    check_action_gas_exceeds_limit(ActionCosts::new_data_receipt_byte, 11, value_return);
+
+    // expect to burn it all because send + exec fees are fully paid upfront
+    check_action_gas_exceeds_attached(
+        ActionCosts::new_data_receipt_byte,
+        11,
+        expect!["10000000000000 burnt 10000000000000 used"],
+        value_return,
+    );
+
+    // value return will pay for the cost of returned data dependency bytes, if there are any.
+    fn value_return(logic: &mut VMLogic) -> Result<(), VMLogicError> {
+        let value: &[u8; 11] = b"lorem ipsum";
+        logic.value_return(11, value.as_ptr() as u64)?;
+        Ok(())
+    }
+}
+
+#[test]
+fn out_of_gas_create_account() {
+    check_action_gas_exceeds_limit(ActionCosts::create_account, 1, create_account);
+
+    check_action_gas_exceeds_attached(
+        ActionCosts::create_account,
+        1,
+        expect!["116969114801 burnt 10000000000000 used"],
+        create_account,
+    );
+
+    fn create_account(logic: &mut VMLogic) -> Result<(), VMLogicError> {
+        let account_id = "rick.test";
+        let idx = promise_batch_create(logic, account_id)?;
+        logic.promise_batch_action_create_account(idx)?;
+        Ok(())
+    }
+}
+
+#[test]
+fn out_of_gas_delete_account() {
+    check_action_gas_exceeds_limit(ActionCosts::delete_account, 1, delete_account);
+
+    check_action_gas_exceeds_attached(
+        ActionCosts::delete_account,
+        1,
+        expect!["125349193370 burnt 10000000000000 used"],
+        delete_account,
+    );
+
+    fn delete_account(logic: &mut VMLogic) -> Result<(), VMLogicError> {
+        let beneficiary_account_id = "alice.test";
+        let deleted_account_id = "bob.test";
+        let idx = promise_batch_create(logic, deleted_account_id)?;
+        logic.promise_batch_action_delete_account(
+            idx,
+            beneficiary_account_id.len() as _,
+            beneficiary_account_id.as_ptr() as _,
+        )?;
+        Ok(())
+    }
+}
+
+#[test]
+fn out_of_gas_deploy_contract_base() {
+    check_action_gas_exceeds_limit(ActionCosts::deploy_contract_base, 1, deploy_contract);
+
+    check_action_gas_exceeds_attached(
+        ActionCosts::deploy_contract_base,
+        1,
+        expect!["119677812659 burnt 10000000000000 used"],
+        deploy_contract,
+    );
+}
+
+#[test]
+fn out_of_gas_deploy_contract_byte() {
+    check_action_gas_exceeds_limit(ActionCosts::deploy_contract_byte, 26, deploy_contract);
+
+    check_action_gas_exceeds_attached(
+        ActionCosts::deploy_contract_byte,
+        26,
+        expect!["304443562909 burnt 10000000000000 used"],
+        deploy_contract,
+    );
+}
+
+fn deploy_contract(logic: &mut VMLogic) -> Result<(), VMLogicError> {
+    let account_id = "rick.test";
+    let idx = promise_batch_create(logic, account_id)?;
+    let code = b"lorem ipsum with length 26";
+    logic.promise_batch_action_deploy_contract(idx, code.len() as u64, code.as_ptr() as u64)?;
+    Ok(())
+}
+
+#[test]
+fn out_of_gas_function_call_base() {
+    check_action_gas_exceeds_limit(ActionCosts::function_call_base, 1, cross_contract_call);
+    check_action_gas_exceeds_limit(
+        ActionCosts::function_call_base,
+        1,
+        cross_contract_call_gas_weight,
+    );
+
+    check_action_gas_exceeds_attached(
+        ActionCosts::function_call_base,
+        1,
+        expect!["125011579049 burnt 10000000000000 used"],
+        cross_contract_call,
+    );
+    check_action_gas_exceeds_attached(
+        ActionCosts::function_call_base,
+        1,
+        expect!["125011579049 burnt 10000000000000 used"],
+        cross_contract_call_gas_weight,
+    );
+}
+
+#[test]
+fn out_of_gas_function_call_byte() {
+    check_action_gas_exceeds_limit(ActionCosts::function_call_byte, 40, cross_contract_call);
+    check_action_gas_exceeds_limit(
+        ActionCosts::function_call_byte,
+        40,
+        cross_contract_call_gas_weight,
+    );
+
+    check_action_gas_exceeds_attached(
+        ActionCosts::function_call_byte,
+        40,
+        expect!["2444873079439 burnt 10000000000000 used"],
+        cross_contract_call,
+    );
+    check_action_gas_exceeds_attached(
+        ActionCosts::function_call_byte,
+        40,
+        expect!["2444873079439 burnt 10000000000000 used"],
+        cross_contract_call_gas_weight,
+    );
+}
+
+fn cross_contract_call(logic: &mut VMLogic) -> Result<(), VMLogicError> {
+    let account_id = "rick.test";
+    let idx = promise_batch_create(logic, account_id)?;
+    let arg = b"lorem ipsum with length 26";
+    let name = b"fn_with_len_14";
+    let attached_balance = &1u128;
+    let gas = 1; // attaching very little gas so it doesn't cause gas exceeded on its own
+    logic.promise_batch_action_function_call(
+        idx,
+        name.len() as u64,
+        name.as_ptr() as u64,
+        arg.len() as u64,
+        arg.as_ptr() as u64,
+        attached_balance as *const u128 as u64,
+        gas,
+    )?;
+    Ok(())
+}
+
+fn cross_contract_call_gas_weight(logic: &mut VMLogic) -> Result<(), VMLogicError> {
+    let account_id = "rick.test";
+    let idx = promise_batch_create(logic, account_id)?;
+    let arg = b"lorem ipsum with length 26";
+    let name = b"fn_with_len_14";
+    let attached_balance = &1u128;
+    let gas = 1; // attaching very little gas so it doesn't cause gas exceeded on its own
+    let gas_weight = 1;
+    logic.promise_batch_action_function_call_weight(
+        idx,
+        name.len() as u64,
+        name.as_ptr() as u64,
+        arg.len() as u64,
+        arg.as_ptr() as u64,
+        attached_balance as *const u128 as u64,
+        gas,
+        gas_weight,
+    )?;
+    Ok(())
+}
+
+#[test]
+fn out_of_gas_transfer() {
+    check_action_gas_exceeds_limit(ActionCosts::transfer, 1, promise_transfer);
+
+    check_action_gas_exceeds_attached(
+        ActionCosts::transfer,
+        1,
+        expect!["119935181141 burnt 10000000000000 used"],
+        promise_transfer,
+    );
+
+    fn promise_transfer(logic: &mut VMLogic) -> Result<(), VMLogicError> {
+        let account_id = "alice.test";
+        let idx = promise_batch_create(logic, account_id)?;
+        let attached_balance = &1u128;
+        logic.promise_batch_action_transfer(idx, attached_balance as *const u128 as u64)?;
+        Ok(())
+    }
+}
+
+#[test]
+fn out_of_gas_stake() {
+    check_action_gas_exceeds_limit(ActionCosts::stake, 1, promise_stake);
+
+    check_action_gas_exceeds_attached(
+        ActionCosts::stake,
+        1,
+        expect!["122375106518 burnt 10000000000000 used"],
+        promise_stake,
+    );
+
+    fn promise_stake(logic: &mut VMLogic) -> Result<(), VMLogicError> {
+        let account_id = "pool.test";
+        let idx = promise_batch_create(logic, account_id)?;
+        let attached_balance = &1u128;
+        let pk = test_pk();
+        logic.promise_batch_action_stake(
+            idx,
+            attached_balance as *const u128 as u64,
+            pk.len() as u64,
+            pk.as_ptr() as u64,
+        )?;
+        Ok(())
+    }
+}
+
+#[test]
+fn out_of_gas_add_full_access_key() {
+    check_action_gas_exceeds_limit(ActionCosts::add_full_access_key, 1, promise_full_access_key);
+
+    check_action_gas_exceeds_attached(
+        ActionCosts::add_full_access_key,
+        1,
+        expect!["119999803802 burnt 10000000000000 used"],
+        promise_full_access_key,
+    );
+
+    fn promise_full_access_key(logic: &mut VMLogic) -> Result<(), VMLogicError> {
+        let account_id = "alice.test";
+        let idx = promise_batch_create(logic, account_id)?;
+        let pk = test_pk();
+        let nonce = 0;
+        logic.promise_batch_action_add_key_with_full_access(
+            idx,
+            pk.len() as u64,
+            pk.as_ptr() as u64,
+            nonce,
+        )?;
+        Ok(())
+    }
+}
+
+#[test]
+fn out_of_gas_add_function_call_key_base() {
+    check_action_gas_exceeds_limit(
+        ActionCosts::add_function_call_key_base,
+        1,
+        promise_function_key,
+    );
+
+    check_action_gas_exceeds_attached(
+        ActionCosts::add_function_call_key_base,
+        1,
+        expect!["133982421242 burnt 10000000000000 used"],
+        promise_function_key,
+    );
+}
+
+#[test]
+fn out_of_gas_add_function_call_key_byte() {
+    check_action_gas_exceeds_limit(
+        ActionCosts::add_function_call_key_byte,
+        7,
+        promise_function_key,
+    );
+
+    check_action_gas_exceeds_attached(
+        ActionCosts::add_function_call_key_byte,
+        7,
+        expect!["236200046312 burnt 10000000000000 used"],
+        promise_function_key,
+    );
+}
+
+fn promise_function_key(logic: &mut VMLogic) -> Result<(), VMLogicError> {
+    let account_id = "alice.test";
+    let idx = promise_batch_create(logic, account_id)?;
+    let allowance = &1u128;
+    let pk = test_pk();
+    let nonce = 0;
+    let methods = b"foo,baz";
+    logic.promise_batch_action_add_key_with_function_call(
+        idx,
+        pk.len() as u64,
+        pk.as_ptr() as u64,
+        nonce,
+        allowance as *const u128 as u64,
+        account_id.len() as u64,
+        account_id.as_ptr() as u64,
+        methods.len() as u64,
+        methods.as_ptr() as u64,
+    )?;
+    Ok(())
+}
+
+#[test]
+fn out_of_gas_delete_key() {
+    check_action_gas_exceeds_limit(ActionCosts::delete_key, 1, promise_delete_key);
+
+    check_action_gas_exceeds_attached(
+        ActionCosts::delete_key,
+        1,
+        expect!["119999803802 burnt 10000000000000 used"],
+        promise_delete_key,
+    );
+
+    fn promise_delete_key(logic: &mut VMLogic) -> Result<(), VMLogicError> {
+        let account_id = "alice.test";
+        let idx = promise_batch_create(logic, account_id)?;
+        let pk = test_pk();
+        logic.promise_batch_action_delete_key(idx, pk.len() as u64, pk.as_ptr() as u64)?;
+        Ok(())
+    }
+}
+
 impl VMLogicBuilder {
     fn max_gas_burnt(mut self, max_gas_burnt: Gas) -> Self {
         self.config.limit_config.max_gas_burnt = max_gas_burnt;
@@ -366,10 +696,30 @@ impl VMLogicBuilder {
         context.prepaid_gas = prepaid_gas;
         self.build(context)
     }
+
+    fn build_with_output_receivers(
+        &mut self,
+        prepaid_gas: Gas,
+        output_data_receivers: Vec<AccountId>,
+    ) -> VMLogic<'_> {
+        let mut context = get_context(vec![], false);
+        context.prepaid_gas = prepaid_gas;
+        context.output_data_receivers = output_data_receivers;
+        self.build(context)
+    }
 }
 
 /// Given the limit in gas, compute the corresponding limit in wasm ops for use
 /// with [`VMLogic::gas`] function.
 fn op_limit(gas_limit: Gas) -> u32 {
     (gas_limit / (VMConfig::test().regular_op_cost as u64)) as u32
+}
+
+fn test_pk() -> Vec<u8> {
+    let pk = "ed25519:22W5rKuvbMRphnDoCj6nfrWhRKvh9Xf9SWXfGHaeXGde"
+        .parse::<near_crypto::PublicKey>()
+        .unwrap()
+        .try_to_vec()
+        .unwrap();
+    pk
 }
