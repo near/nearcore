@@ -3,8 +3,9 @@ use crate::concurrency::arc_mutex::ArcMutex;
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
 use crate::network_protocol::{
-    Edge, EdgeState, Encoding, ParsePeerMessageError, PartialEdgeInfo, PeerChainInfoV2, PeerInfo,
-    RawRoutedMessage, RoutedMessageBody, RoutingTableUpdate, SyncAccountsData,
+    Edge, EdgeState, Encoding, OwnedAccount, ParsePeerMessageError, PartialEdgeInfo,
+    PeerChainInfoV2, PeerIdOrHash, PeerInfo, RawRoutedMessage, RoutedMessageBody,
+    RoutingTableUpdate, SyncAccountsData,
 };
 use crate::peer::stream;
 use crate::peer::tracker::Tracker;
@@ -17,7 +18,7 @@ use crate::stats::metrics;
 use crate::tcp;
 use crate::time;
 use crate::types::{
-    BlockInfo, Handshake, HandshakeFailureReason, PeerIdOrHash, PeerMessage, PeerType, ReasonForBan,
+    BlockInfo, Handshake, HandshakeFailureReason, PeerMessage, PeerType, ReasonForBan,
 };
 use actix::fut::future::wrap_future;
 use actix::{Actor as _, ActorContext as _, ActorFutureExt as _, AsyncContext as _};
@@ -45,6 +46,9 @@ use tracing::Instrument as _;
 const MAX_PEER_MSG_PER_MIN: usize = usize::MAX;
 /// How often to request peers from active peers.
 const REQUEST_PEERS_INTERVAL: time::Duration = time::Duration::seconds(60);
+
+/// Maximal allowed UTC clock skew between this node and the peer.
+const MAX_CLOCK_SKEW: time::Duration = time::Duration::minutes(30);
 
 /// Maximum number of transaction messages we will accept between block messages.
 /// The purpose of this constant is to ensure we do not spend too much time deserializing and
@@ -93,6 +97,10 @@ pub(crate) enum ClosingReason {
     PeerManager,
     #[error("Received DisconnectMessage from peer")]
     DisconnectMessage,
+    #[error("Peer clock skew exceeded {MAX_CLOCK_SKEW}")]
+    TooLargeClockSkew,
+    #[error("owned_account.peer_id doesn't match handshake.sender_peer_id")]
+    OwnedAccountMismatch,
     #[error("PeerActor stopped NOT via PeerActor::stop()")]
     Unknown,
 }
@@ -334,6 +342,14 @@ impl PeerActor {
                 archival: self.network_state.config.archive,
             },
             partial_edge_info: spec.partial_edge_info,
+            owned_account: self.network_state.config.validator.as_ref().map(|vc| {
+                OwnedAccount {
+                    account_key: vc.signer.public_key().clone(),
+                    peer_id: self.network_state.config.node_id(),
+                    timestamp: self.clock.now_utc(),
+                }
+                .sign(vc.signer.as_ref())
+            }),
         };
         let msg = PeerMessage::Tier2Handshake(handshake);
         self.send_message_or_log(&msg);
@@ -453,6 +469,22 @@ impl PeerActor {
             }
         }
 
+        // Verify that handshake.owned_account is valid.
+        if let Some(owned_account) = &handshake.owned_account {
+            if let Err(_) = owned_account.payload().verify(&owned_account.account_key) {
+                self.stop(ctx, ClosingReason::Ban(ReasonForBan::InvalidSignature));
+                return;
+            }
+            if owned_account.peer_id != handshake.sender_peer_id {
+                self.stop(ctx, ClosingReason::OwnedAccountMismatch);
+                return;
+            }
+            if (owned_account.timestamp - self.clock.now_utc()).abs() >= MAX_CLOCK_SKEW {
+                self.stop(ctx, ClosingReason::TooLargeClockSkew);
+                return;
+            }
+        }
+
         // Verify that the received partial edge is valid.
         // WARNING: signature is verified against the 2nd argument.
         if !Edge::partial_verify(
@@ -502,6 +534,7 @@ impl PeerActor {
             addr: ctx.address(),
             peer_info: peer_info.clone(),
             edge: ArcMutex::new(edge),
+            owned_account: handshake.owned_account.clone(),
             genesis_id: handshake.sender_chain_info.genesis_id.clone(),
             tracked_shards: handshake.sender_chain_info.tracked_shards.clone(),
             archival: handshake.sender_chain_info.archival,
@@ -514,7 +547,7 @@ impl PeerActor {
             }),
             last_time_peer_requested: AtomicCell::new(None),
             last_time_received_message: AtomicCell::new(now),
-            connection_established_time: now,
+            established_time: now,
             send_accounts_data_demux: demux::Demux::new(
                 self.network_state.config.accounts_data_broadcast_rate_limit,
             ),
@@ -1180,11 +1213,15 @@ impl actix::Actor for PeerActor {
         // closing_reason may be None in case the whole actix system is stopped.
         // It happens a lot in tests.
         metrics::PEER_CONNECTIONS_TOTAL.dec();
-        tracing::debug!(target: "network", "{:?}: [status = {:?}] Peer {} disconnected.", self.my_node_info.id, self.peer_status, self.peer_info);
-        if self.closing_reason.is_none() {
-            // Due to Actix semantics, sometimes closing reason may be not set.
-            // But it is only expected to happen in tests.
-            tracing::error!(target:"network", "closing reason not set. This should happen only in tests.");
+        match &self.closing_reason {
+            None => {
+                // Due to Actix semantics, sometimes closing reason may be not set.
+                // But it is only expected to happen in tests.
+                tracing::error!(target:"network", "closing reason not set. This should happen only in tests.");
+            }
+            Some(reason) => {
+                tracing::info!(target: "network", "{:?}: Peer {} disconnected, reason: {reason}", self.my_node_info.id, self.peer_info);
+            }
         }
         match &self.peer_status {
             // If PeerActor is in Connecting state, then
@@ -1331,7 +1368,7 @@ impl actix::Handler<stream::Frame> for PeerActor {
                 // case when our peer doesn't use that logic yet.
                 if let Some(skip_tombstones) = self.network_state.config.skip_tombstones {
                     if let PeerMessage::SyncRoutingTable(routing_table) = &mut peer_msg {
-                        if conn.connection_established_time + skip_tombstones > self.clock.now() {
+                        if conn.established_time + skip_tombstones > self.clock.now() {
                             routing_table
                                 .edges
                                 .retain(|edge| edge.edge_type() == EdgeState::Active);
