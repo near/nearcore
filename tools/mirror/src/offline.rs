@@ -1,14 +1,33 @@
-use crate::{ChainError, ChunkTxs};
+use crate::{ChainError, SourceBlock};
 use anyhow::Context;
 use async_trait::async_trait;
-use near_chain::{ChainStore, ChainStoreAccess};
+use near_chain::{ChainStore, ChainStoreAccess, RuntimeAdapter};
 use near_chain_configs::GenesisValidationMode;
-use near_primitives::types::BlockHeight;
+use near_crypto::PublicKey;
+use near_epoch_manager::EpochManagerAdapter;
+use near_primitives::block::BlockHeader;
+use near_primitives::hash::CryptoHash;
+use near_primitives::receipt::Receipt;
+use near_primitives::types::{AccountId, BlockHeight, TransactionOrReceiptId};
+use near_primitives::views::{
+    AccessKeyPermissionView, ExecutionOutcomeWithIdView, QueryRequest, QueryResponseKind,
+    ReceiptView,
+};
 use near_primitives_core::types::ShardId;
+use nearcore::NightshadeRuntime;
 use std::path::Path;
+
+fn is_on_current_chain(
+    chain: &ChainStore,
+    header: &BlockHeader,
+) -> Result<bool, near_chain_primitives::Error> {
+    let chain_header = chain.get_block_header_by_height(header.height())?;
+    Ok(chain_header.hash() == header.hash())
+}
 
 pub(crate) struct ChainAccess {
     chain: ChainStore,
+    runtime: NightshadeRuntime,
 }
 
 impl ChainAccess {
@@ -24,25 +43,26 @@ impl ChainAccess {
             .with_context(|| format!("Error opening store in {:?}", home.as_ref()))?
             .get_store(near_store::Temperature::Hot);
         let chain = ChainStore::new(
-            store,
+            store.clone(),
             config.genesis.config.genesis_height,
             !config.client_config.archive,
         );
-        Ok(Self { chain })
+        let runtime = NightshadeRuntime::from_config(home.as_ref(), store, &config);
+        Ok(Self { chain, runtime })
     }
 }
 
 #[async_trait(?Send)]
 impl crate::ChainAccess for ChainAccess {
-    async fn head_height(&self) -> anyhow::Result<BlockHeight> {
-        Ok(self.chain.head().context("Could not fetch chain head")?.height)
+    async fn head_height(&self) -> Result<BlockHeight, ChainError> {
+        Ok(self.chain.head()?.height)
     }
 
     async fn get_txs(
         &self,
         height: BlockHeight,
         shards: &[ShardId],
-    ) -> Result<Vec<ChunkTxs>, ChainError> {
+    ) -> Result<Vec<SourceBlock>, ChainError> {
         let block_hash = self.chain.get_block_hash_by_height(height)?;
         let block = self
             .chain
@@ -67,11 +87,74 @@ impl crate::ChainAccess for ChainAccess {
                     continue;
                 }
             };
-            chunks.push(ChunkTxs {
+            chunks.push(SourceBlock {
                 shard_id: chunk.shard_id(),
                 transactions: chunk.transactions().iter().map(|t| t.clone().into()).collect(),
+                receipts: chunk.receipts().iter().map(|t| t.clone().into()).collect(),
             })
         }
         Ok(chunks)
+    }
+
+    async fn get_outcome(
+        &self,
+        id: TransactionOrReceiptId,
+    ) -> Result<ExecutionOutcomeWithIdView, ChainError> {
+        let id = match id {
+            TransactionOrReceiptId::Receipt { receipt_id, .. } => receipt_id,
+            TransactionOrReceiptId::Transaction { transaction_hash, .. } => transaction_hash,
+        };
+        let outcomes = self.chain.get_outcomes_by_id(&id)?;
+        // this implements the same logic as in Chain::get_execution_outcome(). We will rewrite
+        // that here because it makes more sense for us to have just the ChainStore and not the Chain,
+        // since we're just reading data, not doing any protocol related stuff
+        outcomes
+            .into_iter()
+            .find(|outcome| match self.chain.get_block_header(&outcome.block_hash) {
+                Ok(header) => is_on_current_chain(&self.chain, &header).unwrap_or(false),
+                Err(_) => false,
+            })
+            .map(Into::into)
+            .ok_or(ChainError::Unknown)
+    }
+
+    async fn get_receipt(&self, id: &CryptoHash) -> Result<ReceiptView, ChainError> {
+        self.chain.get_receipt(id)?.map(|r| Receipt::clone(&r).into()).ok_or(ChainError::Unknown)
+    }
+
+    async fn get_full_access_keys(
+        &self,
+        account_id: &AccountId,
+        block_hash: &CryptoHash,
+    ) -> Result<Vec<PublicKey>, ChainError> {
+        let mut ret = Vec::new();
+        let header = self.chain.get_block_header(block_hash)?;
+        let shard_id = self.runtime.account_id_to_shard_id(account_id, header.epoch_id())?;
+        let shard_uid = self.runtime.shard_id_to_uid(shard_id, header.epoch_id())?;
+        let chunk_extra = self.chain.get_chunk_extra(header.hash(), &shard_uid)?;
+        match self
+            .runtime
+            .query(
+                shard_uid,
+                chunk_extra.state_root(),
+                header.height(),
+                header.raw_timestamp(),
+                header.prev_hash(),
+                header.hash(),
+                header.epoch_id(),
+                &QueryRequest::ViewAccessKeyList { account_id: account_id.clone() },
+            )?
+            .kind
+        {
+            QueryResponseKind::AccessKeyList(l) => {
+                for k in l.keys {
+                    if k.access_key.permission == AccessKeyPermissionView::FullAccess {
+                        ret.push(k.public_key);
+                    }
+                }
+            }
+            _ => unreachable!(),
+        }
+        Ok(ret)
     }
 }

@@ -1,6 +1,6 @@
 use crate::{
-    ChainObjectId, LatestTargetNonce, MappedBlock, MappedTx, NonceUpdater, ReceiptInfo,
-    TargetChainTx, TargetNonce, TxInfo, TxOutcome, TxRef,
+    ChainObjectId, LatestTargetNonce, MappedBlock, MappedTx, MappedTxProvenance, NonceUpdater,
+    ReceiptInfo, TargetChainTx, TargetNonce, TxInfo, TxOutcome, TxRef,
 };
 use actix::Addr;
 use near_client::ViewClientActor;
@@ -27,7 +27,7 @@ use std::time::{Duration, Instant};
 struct TxSendInfo {
     sent_at: Instant,
     source_height: BlockHeight,
-    source_tx_index: usize,
+    provenance: MappedTxProvenance,
     source_shard_id: ShardId,
     source_signer_id: AccountId,
     source_receiver_id: AccountId,
@@ -59,7 +59,7 @@ impl TxSendInfo {
         Self {
             source_height,
             source_shard_id: source_shard_id,
-            source_tx_index: tx.source_tx_index,
+            provenance: tx.provenance,
             source_signer_id: tx.source_signer_id.clone(),
             source_receiver_id: tx.source_receiver_id.clone(),
             target_signer_id,
@@ -400,7 +400,7 @@ impl TxTracker {
                             TargetChainTx::Ready(t) => {
                                 tracing::debug!(
                                     target: "mirror", "Prepared {} for ({}, {:?}) with nonce {} even though there are still pending outcomes that may affect the access key",
-                                    &tx_ref, &t.target_tx.transaction.signer_id, &t.target_tx.transaction.public_key, t.target_tx.transaction.nonce
+                                    &t.provenance, &t.target_tx.transaction.signer_id, &t.target_tx.transaction.public_key, t.target_tx.transaction.nonce
                                 );
                                 self.nonces
                                     .get_mut(&(
@@ -414,7 +414,7 @@ impl TxTracker {
                             TargetChainTx::AwaitingNonce(t) => {
                                 tracing::warn!(
                                     target: "mirror", "Could not prepare {} for ({}, {:?}). Nonce unknown",
-                                    &tx_ref, &t.target_tx.signer_id, &t.target_tx.public_key,
+                                    &t.provenance, &t.target_tx.signer_id, &t.target_tx.public_key,
                                 );
                             }
                         };
@@ -508,14 +508,14 @@ impl TxTracker {
                         if let Some(info) = self.sent_txs.get(&tx.transaction.hash) {
                             write!(
                             log_message,
-                            "source #{}{} tx #{} signer: \"{}\"{} receiver: \"{}\"{} actions: <{}> sent {:?} ago @ target #{}\n",
+                            "source #{}{} {} signer: \"{}\"{} receiver: \"{}\"{} actions: <{}> sent {:?} ago @ target #{}\n",
                             info.source_height,
                             if s.shard_id == info.source_shard_id {
                                 String::new()
                             } else {
                                 format!(" (source shard {})", info.source_shard_id)
                             },
-                            info.source_tx_index,
+                            info.provenance,
                             info.source_signer_id,
                             info.target_signer_id.as_ref().map_or(String::new(), |s| format!(" (mapped to \"{}\")", s)),
                             info.source_receiver_id,
@@ -751,6 +751,15 @@ impl TxTracker {
             return Ok(());
         }
 
+        if matches!(
+            &tx.provenance,
+            MappedTxProvenance::ReceiptAddKey(_) | MappedTxProvenance::TxAddKey(_)
+        ) {
+            tracing::debug!(
+                target: "mirror", "Successfully sent transaction {} for {} @ source #{} to add extra keys: {:?}",
+                &hash, &tx.target_tx.transaction.receiver_id, tx_ref.source_height, &tx.target_tx.transaction.actions,
+            );
+        }
         let access_key = (
             tx.target_tx.transaction.signer_id.clone(),
             tx.target_tx.transaction.public_key.clone(),

@@ -3,11 +3,12 @@ use anyhow::Context;
 use async_trait::async_trait;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_chain_configs::GenesisValidationMode;
+use near_chain_primitives::error::QueryError as RuntimeQueryError;
 use near_client::{ClientActor, ViewClientActor};
 use near_client::{ProcessTxRequest, ProcessTxResponse};
 use near_client_primitives::types::{
     GetBlockError, GetChunkError, GetExecutionOutcome, GetExecutionOutcomeError,
-    GetExecutionOutcomeResponse, Query, QueryError,
+    GetExecutionOutcomeResponse, GetReceiptError, Query, QueryError,
 };
 use near_crypto::{PublicKey, SecretKey};
 use near_indexer::{Indexer, StreamerMessage};
@@ -20,7 +21,8 @@ use near_primitives::types::{
     AccountId, BlockHeight, BlockReference, Finality, TransactionOrReceiptId,
 };
 use near_primitives::views::{
-    ExecutionStatusView, QueryRequest, QueryResponseKind, SignedTransactionView,
+    AccessKeyView, ActionView, ExecutionOutcomeWithIdView, ExecutionStatusView, QueryRequest,
+    QueryResponseKind, ReceiptEnumView, ReceiptView, SignedTransactionView,
 };
 use near_primitives_core::types::{Nonce, ShardId};
 use nearcore::config::NearConfig;
@@ -224,15 +226,16 @@ fn set_next_source_height(db: &DB, height: BlockHeight) -> anyhow::Result<()> {
     Ok(())
 }
 
-struct ChunkTxs {
+struct SourceBlock {
     shard_id: ShardId,
     transactions: Vec<SignedTransactionView>,
+    receipts: Vec<ReceiptView>,
 }
 
 #[derive(thiserror::Error, Debug)]
 enum ChainError {
-    #[error("block unknown")]
-    UnknownBlock,
+    #[error("unknown")]
+    Unknown,
     #[error(transparent)]
     Other(#[from] anyhow::Error),
 }
@@ -246,7 +249,7 @@ impl ChainError {
 impl From<GetBlockError> for ChainError {
     fn from(err: GetBlockError) -> Self {
         match err {
-            GetBlockError::UnknownBlock { .. } => Self::UnknownBlock,
+            GetBlockError::UnknownBlock { .. } => Self::Unknown,
             _ => Self::other(err),
         }
     }
@@ -255,7 +258,7 @@ impl From<GetBlockError> for ChainError {
 impl From<GetChunkError> for ChainError {
     fn from(err: GetChunkError) -> Self {
         match err {
-            GetChunkError::UnknownBlock { .. } => Self::UnknownBlock,
+            GetChunkError::UnknownBlock { .. } => Self::Unknown,
             _ => Self::other(err),
         }
     }
@@ -264,7 +267,52 @@ impl From<GetChunkError> for ChainError {
 impl From<near_chain_primitives::Error> for ChainError {
     fn from(err: near_chain_primitives::Error) -> Self {
         match err {
-            near_chain_primitives::Error::DBNotFoundErr(_) => Self::UnknownBlock,
+            near_chain_primitives::Error::DBNotFoundErr(_) => Self::Unknown,
+            _ => Self::other(err),
+        }
+    }
+}
+
+impl From<GetExecutionOutcomeError> for ChainError {
+    fn from(err: GetExecutionOutcomeError) -> Self {
+        match err {
+            GetExecutionOutcomeError::UnknownBlock { .. }
+            | GetExecutionOutcomeError::UnknownTransactionOrReceipt { .. }
+            | GetExecutionOutcomeError::NotConfirmed { .. } => Self::Unknown,
+            _ => Self::other(err),
+        }
+    }
+}
+
+impl From<GetReceiptError> for ChainError {
+    fn from(err: GetReceiptError) -> Self {
+        match err {
+            GetReceiptError::UnknownReceipt(_) => Self::Unknown,
+            _ => Self::other(err),
+        }
+    }
+}
+
+impl From<QueryError> for ChainError {
+    fn from(err: QueryError) -> Self {
+        match err {
+            QueryError::UnavailableShard { .. }
+            | QueryError::UnknownAccount { .. }
+            | QueryError::NoContractCode { .. }
+            | QueryError::UnknownAccessKey { .. }
+            | QueryError::GarbageCollectedBlock { .. }
+            | QueryError::UnknownBlock { .. } => Self::Unknown,
+            _ => Self::other(err),
+        }
+    }
+}
+
+impl From<RuntimeQueryError> for ChainError {
+    fn from(err: RuntimeQueryError) -> Self {
+        match err {
+            RuntimeQueryError::UnknownAccount { .. }
+            | RuntimeQueryError::NoContractCode { .. }
+            | RuntimeQueryError::UnknownAccessKey { .. } => Self::Unknown,
             _ => Self::other(err),
         }
     }
@@ -276,13 +324,59 @@ trait ChainAccess {
         Ok(())
     }
 
-    async fn head_height(&self) -> anyhow::Result<BlockHeight>;
+    async fn head_height(&self) -> Result<BlockHeight, ChainError>;
 
     async fn get_txs(
         &self,
         height: BlockHeight,
         shards: &[ShardId],
-    ) -> Result<Vec<ChunkTxs>, ChainError>;
+    ) -> Result<Vec<SourceBlock>, ChainError>;
+
+    async fn get_outcome(
+        &self,
+        id: TransactionOrReceiptId,
+    ) -> Result<ExecutionOutcomeWithIdView, ChainError>;
+
+    // for transactions with the same signer and receiver, we
+    // want the receipt that results from applying it, if successful,
+    // since that receipt doesn't show up if you just look through
+    // the receipts in the next block.
+    // If the tx wasn't successful, just returns None
+    async fn get_tx_receipt_id(
+        &self,
+        tx_hash: &CryptoHash,
+        signer_id: &AccountId,
+    ) -> Result<Option<CryptoHash>, ChainError> {
+        match self
+            .get_outcome(TransactionOrReceiptId::Transaction {
+                transaction_hash: tx_hash.clone(),
+                sender_id: signer_id.clone(),
+            })
+            .await?
+            .outcome
+            .status
+        {
+            ExecutionStatusView::SuccessReceiptId(id) => Ok(Some(id)),
+            ExecutionStatusView::Failure(_) | ExecutionStatusView::Unknown => Ok(None),
+            ExecutionStatusView::SuccessValue(_) => unreachable!(),
+        }
+    }
+
+    async fn get_receipt(&self, id: &CryptoHash) -> Result<ReceiptView, ChainError>;
+
+    // returns all public keys with full permissions for the given account
+    async fn get_full_access_keys(
+        &self,
+        account_id: &AccountId,
+        block_hash: &CryptoHash,
+    ) -> Result<Vec<PublicKey>, ChainError>;
+}
+
+fn execution_status_good(status: &ExecutionStatusView) -> bool {
+    matches!(
+        status,
+        ExecutionStatusView::SuccessReceiptId(_) | ExecutionStatusView::SuccessValue(_)
+    )
 }
 
 struct TxMirror<T: ChainAccess> {
@@ -315,6 +409,23 @@ fn open_db<P: AsRef<Path>>(home: P, config: &NearConfig) -> anyhow::Result<DB> {
     Ok(DB::open_cf_descriptors(&options, db_path, cf_descriptors)?)
 }
 
+#[derive(Clone, Copy, Debug)]
+enum MappedTxProvenance {
+    SourceTxIndex(usize),
+    TxAddKey(usize),
+    ReceiptAddKey(usize),
+}
+
+impl std::fmt::Display for MappedTxProvenance {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::SourceTxIndex(idx) => write!(f, "tx #{}", idx),
+            Self::TxAddKey(idx) => write!(f, "extra AddKey for tx #{}", idx),
+            Self::ReceiptAddKey(idx) => write!(f, "extra AddKey for receipt #{}", idx),
+        }
+    }
+}
+
 // a transaction that's almost prepared, except that we don't yet know
 // what nonce to use because the public key was added in an AddKey
 // action that we haven't seen on chain yet. The target_tx field is complete
@@ -323,8 +434,8 @@ fn open_db<P: AsRef<Path>>(home: P, config: &NearConfig) -> anyhow::Result<DB> {
 struct TxAwaitingNonce {
     source_signer_id: AccountId,
     source_receiver_id: AccountId,
-    source_tx_index: usize,
-    target_private: SecretKey,
+    provenance: MappedTxProvenance,
+    target_secret_key: SecretKey,
     target_tx: Transaction,
     nonce_updates: HashSet<(AccountId, PublicKey)>,
     target_nonce: TargetNonce,
@@ -332,30 +443,31 @@ struct TxAwaitingNonce {
 
 impl TxAwaitingNonce {
     fn new(
-        source_tx: &SignedTransactionView,
-        source_tx_index: usize,
+        source_signer_id: AccountId,
+        source_receiver_id: AccountId,
+        target_signer_id: AccountId,
+        target_receiver_id: AccountId,
+        target_secret_key: SecretKey,
+        target_public_key: PublicKey,
         actions: Vec<Action>,
         target_nonce: &TargetNonce,
         ref_hash: &CryptoHash,
-        target_signer_id: AccountId,
-        target_receiver_id: AccountId,
-        target_private: SecretKey,
-        target_public_key: PublicKey,
+        provenance: MappedTxProvenance,
         nonce_updates: HashSet<(AccountId, PublicKey)>,
     ) -> Self {
         let mut target_tx = Transaction::new(
             target_signer_id,
             target_public_key,
             target_receiver_id,
-            source_tx.nonce,
+            0,
             ref_hash.clone(),
         );
         target_tx.actions = actions;
         Self {
-            source_signer_id: source_tx.signer_id.clone(),
-            source_receiver_id: source_tx.receiver_id.clone(),
-            source_tx_index,
-            target_private,
+            source_signer_id,
+            source_receiver_id,
+            provenance,
+            target_secret_key,
             target_tx,
             nonce_updates,
             target_nonce: target_nonce.clone(),
@@ -370,7 +482,7 @@ impl TxAwaitingNonce {
 struct MappedTx {
     source_signer_id: AccountId,
     source_receiver_id: AccountId,
-    source_tx_index: usize,
+    provenance: MappedTxProvenance,
     target_tx: SignedTransaction,
     nonce_updates: HashSet<(AccountId, PublicKey)>,
     sent_successfully: bool,
@@ -378,15 +490,16 @@ struct MappedTx {
 
 impl MappedTx {
     fn new(
-        source_tx: &SignedTransactionView,
-        source_tx_index: usize,
-        actions: Vec<Action>,
-        nonce: Nonce,
-        ref_hash: &CryptoHash,
+        source_signer_id: AccountId,
+        source_receiver_id: AccountId,
         target_signer_id: AccountId,
         target_receiver_id: AccountId,
         target_secret_key: &SecretKey,
         target_public_key: PublicKey,
+        actions: Vec<Action>,
+        nonce: Nonce,
+        ref_hash: &CryptoHash,
+        provenance: MappedTxProvenance,
         nonce_updates: HashSet<(AccountId, PublicKey)>,
     ) -> Self {
         let mut target_tx = Transaction::new(
@@ -402,9 +515,9 @@ impl MappedTx {
             target_tx,
         );
         Self {
-            source_signer_id: source_tx.signer_id.clone(),
-            source_receiver_id: source_tx.receiver_id.clone(),
-            source_tx_index,
+            source_signer_id,
+            source_receiver_id,
+            provenance,
             target_tx,
             nonce_updates,
             sent_successfully: false,
@@ -424,13 +537,13 @@ impl TargetChainTx {
             Self::AwaitingNonce(t) => {
                 t.target_tx.nonce = nonce;
                 let target_tx = SignedTransaction::new(
-                    t.target_private.sign(&t.target_tx.get_hash_and_size().0.as_ref()),
+                    t.target_secret_key.sign(&t.target_tx.get_hash_and_size().0.as_ref()),
                     t.target_tx.clone(),
                 );
                 *self = Self::Ready(MappedTx {
                     source_signer_id: t.source_signer_id.clone(),
                     source_receiver_id: t.source_receiver_id.clone(),
-                    source_tx_index: t.source_tx_index,
+                    provenance: t.provenance,
                     target_tx,
                     nonce_updates: t.nonce_updates.clone(),
                     sent_successfully: false,
@@ -454,53 +567,57 @@ impl TargetChainTx {
     }
 
     fn new_ready(
-        source_tx: &SignedTransactionView,
-        source_tx_index: usize,
-        actions: Vec<Action>,
-        nonce: Nonce,
-        ref_hash: &CryptoHash,
+        source_signer_id: AccountId,
+        source_receiver_id: AccountId,
         target_signer_id: AccountId,
         target_receiver_id: AccountId,
         target_secret_key: &SecretKey,
         target_public_key: PublicKey,
+        actions: Vec<Action>,
+        nonce: Nonce,
+        ref_hash: &CryptoHash,
+        provenance: MappedTxProvenance,
         nonce_updates: HashSet<(AccountId, PublicKey)>,
     ) -> Self {
         Self::Ready(MappedTx::new(
-            source_tx,
-            source_tx_index,
-            actions,
-            nonce,
-            &ref_hash,
+            source_signer_id,
+            source_receiver_id,
             target_signer_id,
             target_receiver_id,
             target_secret_key,
             target_public_key,
+            actions,
+            nonce,
+            ref_hash,
+            provenance,
             nonce_updates,
         ))
     }
 
     fn new_awaiting_nonce(
-        source_tx: &SignedTransactionView,
-        source_tx_index: usize,
+        source_signer_id: AccountId,
+        source_receiver_id: AccountId,
+        target_signer_id: AccountId,
+        target_receiver_id: AccountId,
+        target_secret_key: &SecretKey,
+        target_public_key: PublicKey,
         actions: Vec<Action>,
         target_nonce: &TargetNonce,
         ref_hash: &CryptoHash,
-        target_signer_id: AccountId,
-        target_receiver_id: AccountId,
-        target_private: SecretKey,
-        target_public_key: PublicKey,
+        provenance: MappedTxProvenance,
         nonce_updates: HashSet<(AccountId, PublicKey)>,
     ) -> Self {
         Self::AwaitingNonce(TxAwaitingNonce::new(
-            source_tx,
-            source_tx_index,
+            source_signer_id,
+            source_receiver_id,
+            target_signer_id,
+            target_receiver_id,
+            target_secret_key.clone(),
+            target_public_key,
             actions,
             target_nonce,
             &ref_hash,
-            target_signer_id,
-            target_receiver_id,
-            target_private,
-            target_public_key,
+            provenance,
             nonce_updates,
         ))
     }
@@ -745,8 +862,8 @@ impl<T: ChainAccess> TxMirror<T> {
                                 // that some other instance of this code ran and made progress already. For now we can assume
                                 // only once instance of this code will run, but this is the place to detect if that's not the case.
                                 tracing::error!(
-                                    target: "mirror", "Tried to send an invalid tx for ({}, {:?}) from source #{} shard {} tx {}: {:?}",
-                                    &tx.target_tx.transaction.signer_id, &tx.target_tx.transaction.public_key, block.source_height, chunk.shard_id, tx.source_tx_index, e
+                                    target: "mirror", "Tried to send an invalid tx for ({}, {:?}) from source #{} shard {} {}: {:?}",
+                                    &tx.target_tx.transaction.signer_id, &tx.target_tx.transaction.public_key, block.source_height, chunk.shard_id, &tx.provenance, e
                                 );
                                 crate::metrics::TRANSACTIONS_SENT
                                     .with_label_values(&["invalid"])
@@ -833,6 +950,323 @@ impl<T: ChainAccess> TxMirror<T> {
         Ok((actions, nonce_updates))
     }
 
+    async fn prepare_tx(
+        &self,
+        tracker: &mut crate::chain_tracker::TxTracker,
+        source_signer_id: AccountId,
+        source_receiver_id: AccountId,
+        target_signer_id: AccountId,
+        target_receiver_id: AccountId,
+        target_secret_key: &SecretKey,
+        actions: Vec<Action>,
+        ref_hash: &CryptoHash,
+        source_height: BlockHeight,
+        provenance: MappedTxProvenance,
+        nonce_updates: HashSet<(AccountId, PublicKey)>,
+    ) -> anyhow::Result<TargetChainTx> {
+        let target_public_key = target_secret_key.public_key();
+        let target_nonce = tracker
+            .next_nonce(
+                &self.target_view_client,
+                &self.db,
+                &target_signer_id,
+                &target_public_key,
+                source_height,
+            )
+            .await?;
+        if target_nonce.pending_outcomes.is_empty() && target_nonce.nonce.is_some() {
+            Ok(TargetChainTx::new_ready(
+                source_signer_id,
+                source_receiver_id,
+                target_signer_id,
+                target_receiver_id,
+                &target_secret_key,
+                target_public_key,
+                actions,
+                target_nonce.nonce.unwrap(),
+                &ref_hash,
+                provenance,
+                nonce_updates,
+            ))
+        } else {
+            Ok(TargetChainTx::new_awaiting_nonce(
+                source_signer_id,
+                source_receiver_id,
+                target_signer_id,
+                target_receiver_id,
+                target_secret_key,
+                target_public_key,
+                actions,
+                target_nonce,
+                &ref_hash,
+                provenance,
+                nonce_updates,
+            ))
+        }
+    }
+
+    // add extra AddKey transactions that come from function call. If we don't do this,
+    // then the only keys we will have mapped are the ones added by regular AddKey transactions.
+    async fn push_extra_tx(
+        &self,
+        tracker: &mut crate::chain_tracker::TxTracker,
+        block_hash: CryptoHash,
+        txs: &mut Vec<TargetChainTx>,
+        predecessor_id: AccountId,
+        receiver_id: AccountId,
+        access_keys: Vec<(PublicKey, AccessKeyView)>,
+        ref_hash: &CryptoHash,
+        provenance: MappedTxProvenance,
+        source_height: BlockHeight,
+    ) -> anyhow::Result<()> {
+        let target_signer_id =
+            crate::key_mapping::map_account(&predecessor_id, self.secret.as_ref());
+
+        let target_secret_key = match self
+            .source_chain_access
+            .get_full_access_keys(&predecessor_id, &block_hash)
+            .await
+        {
+            Ok(keys) => {
+                let mut key = None;
+                let mut first_key = None;
+                for k in keys.iter() {
+                    let target_secret_key = crate::key_mapping::map_key(k, self.secret.as_ref());
+                    if fetch_access_key_nonce(
+                        &self.target_view_client,
+                        &target_signer_id,
+                        &target_secret_key.public_key(),
+                    )
+                    .await?
+                    .is_some()
+                    {
+                        key = Some(target_secret_key);
+                        break;
+                    }
+                    if first_key.is_none() {
+                        first_key = Some(target_secret_key);
+                    }
+                }
+                // here none of them have equivalents in the target chain. Just use the first one and hope that
+                // it will become available. shouldn't happen much in practice
+                if key.is_none() {
+                    if let Some(k) = first_key {
+                        tracing::warn!(
+                            target: "mirror", "preparing a transaction for {} for signer {} with key {} even though it is not yet known in the target chain",
+                            &provenance, &target_signer_id, &k.public_key(),
+                        );
+                        key = Some(k);
+                    }
+                }
+                match key {
+                    Some(key) => key,
+                    None => {
+                        tracing::warn!(
+                            target: "mirror", "not preparing a transaction for {} because no full access key for {} in the source chain is known at block {}",
+                            &provenance, &target_signer_id, &block_hash,
+                        );
+                        return Ok(());
+                    }
+                }
+            }
+            Err(ChainError::Unknown) => {
+                tracing::warn!(
+                    target: "mirror", "not preparing a transaction for {} because no full access key for {} in the source chain is known at block {}",
+                    &provenance, &predecessor_id, &block_hash,
+                );
+                return Ok(());
+            }
+            Err(ChainError::Other(e)) => {
+                return Err(e)
+                    .with_context(|| format!("failed fetching access key for {}", &predecessor_id))
+            }
+        };
+
+        let target_receiver_id =
+            crate::key_mapping::map_account(&receiver_id, self.secret.as_ref());
+
+        let mut nonce_updates = HashSet::new();
+        let mut actions = Vec::new();
+
+        for (public_key, access_key) in access_keys {
+            let target_public_key =
+                crate::key_mapping::map_key(&public_key, self.secret.as_ref()).public_key();
+
+            nonce_updates.insert((target_receiver_id.clone(), target_public_key.clone()));
+            actions.push(Action::AddKey(AddKeyAction {
+                public_key: target_public_key,
+                access_key: access_key.into(),
+            }));
+        }
+
+        let target_tx = self
+            .prepare_tx(
+                tracker,
+                predecessor_id,
+                receiver_id,
+                target_signer_id,
+                target_receiver_id,
+                &target_secret_key,
+                actions,
+                ref_hash,
+                source_height,
+                provenance,
+                nonce_updates,
+            )
+            .await?;
+        txs.push(target_tx);
+        Ok(())
+    }
+
+    async fn add_function_call_keys(
+        &self,
+        tracker: &mut crate::chain_tracker::TxTracker,
+        txs: &mut Vec<TargetChainTx>,
+        receipt_id: &CryptoHash,
+        receiver_id: &AccountId,
+        ref_hash: &CryptoHash,
+        provenance: MappedTxProvenance,
+        source_height: BlockHeight,
+    ) -> anyhow::Result<()> {
+        let outcome = self
+            .source_chain_access
+            .get_outcome(TransactionOrReceiptId::Receipt {
+                receipt_id: receipt_id.clone(),
+                receiver_id: receiver_id.clone(),
+            })
+            .await
+            .with_context(|| format!("failed fetching outcome for receipt {}", receipt_id))?;
+        if !execution_status_good(&outcome.outcome.status) {
+            return Ok(());
+        }
+        for id in outcome.outcome.receipt_ids.iter() {
+            let receipt = match self.source_chain_access.get_receipt(id).await {
+                Ok(r) => r,
+                Err(ChainError::Unknown) => {
+                    tracing::warn!(
+                        target: "mirror", "receipt {} appears in the list output by receipt {}, but can't find it in the source chain",
+                        id, receipt_id,
+                    );
+                    continue;
+                }
+                Err(ChainError::Other(e)) => return Err(e),
+            };
+            if let ReceiptEnumView::Action { actions, .. } = &receipt.receipt {
+                // TODO: if predecessor and receiver are different, then any AddKeys are probably along with a
+                // CreateAccount. That is a different case we will handler later
+                if receipt.predecessor_id != receipt.receiver_id {
+                    continue;
+                }
+                let mut keys = Vec::new();
+                for a in actions.iter() {
+                    if let ActionView::AddKey { public_key, access_key } = a {
+                        keys.push((public_key.clone(), access_key.clone()));
+                    }
+                }
+
+                if keys.is_empty() {
+                    continue;
+                }
+                let outcome = self
+                    .source_chain_access
+                    .get_outcome(TransactionOrReceiptId::Receipt {
+                        receipt_id: receipt.receipt_id.clone(),
+                        receiver_id: receipt.receiver_id.clone(),
+                    })
+                    .await
+                    .with_context(|| {
+                        format!("failed fetching outcome for receipt {}", receipt.receipt_id)
+                    })?;
+                if !execution_status_good(&outcome.outcome.status) {
+                    continue;
+                }
+
+                self.push_extra_tx(
+                    tracker,
+                    outcome.block_hash,
+                    txs,
+                    receipt.predecessor_id,
+                    receipt.receiver_id,
+                    keys,
+                    ref_hash,
+                    provenance,
+                    source_height,
+                )
+                .await?;
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn add_tx_function_call_keys(
+        &self,
+        tx: &SignedTransactionView,
+        tx_idx: usize,
+        source_height: BlockHeight,
+        ref_hash: &CryptoHash,
+        tracker: &mut crate::chain_tracker::TxTracker,
+        txs: &mut Vec<TargetChainTx>,
+    ) -> anyhow::Result<()> {
+        // if signer and receiver are the same then the resulting local receipt
+        // is only logically included, and we won't see it in the receipts in any chunk,
+        // so handle that case here
+        if tx.signer_id == tx.receiver_id
+            && tx.actions.iter().any(|a| matches!(a, ActionView::FunctionCall { .. }))
+        {
+            if let Some(receipt_id) = self
+                .source_chain_access
+                .get_tx_receipt_id(&tx.hash, &tx.signer_id)
+                .await
+                .with_context(|| format!("failed fetching local receipt ID for tx {}", &tx.hash))?
+            {
+                self.add_function_call_keys(
+                    tracker,
+                    txs,
+                    &receipt_id,
+                    &tx.receiver_id,
+                    ref_hash,
+                    MappedTxProvenance::TxAddKey(tx_idx),
+                    source_height,
+                )
+                .await
+            } else {
+                Ok(())
+            }
+        } else {
+            Ok(())
+        }
+    }
+
+    async fn add_receipt_function_call_keys(
+        &self,
+        receipt: &ReceiptView,
+        receipt_idx: usize,
+        source_height: BlockHeight,
+        ref_hash: &CryptoHash,
+        tracker: &mut crate::chain_tracker::TxTracker,
+        txs: &mut Vec<TargetChainTx>,
+    ) -> anyhow::Result<()> {
+        if let ReceiptEnumView::Action { actions, .. } = &receipt.receipt {
+            if actions.iter().any(|a| matches!(a, ActionView::FunctionCall { .. })) {
+                self.add_function_call_keys(
+                    tracker,
+                    txs,
+                    &receipt.receipt_id,
+                    &receipt.receiver_id,
+                    ref_hash,
+                    MappedTxProvenance::ReceiptAddKey(receipt_idx),
+                    source_height,
+                )
+                .await
+            } else {
+                Ok(())
+            }
+        } else {
+            Ok(())
+        }
+    }
+
     // fetch the source chain block at `source_height`, and prepare a
     // set of transactions that should be valid in the target chain
     // from it.
@@ -846,103 +1280,70 @@ impl<T: ChainAccess> TxMirror<T> {
             match self.source_chain_access.get_txs(source_height, &self.tracked_shards).await {
                 Ok(x) => x,
                 Err(e) => match e {
-                    ChainError::UnknownBlock => return Ok(None),
+                    ChainError::Unknown => return Ok(None),
                     ChainError::Other(e) => return Err(e),
                 },
             };
 
-        let mut num_not_ready = 0;
         let mut chunks = Vec::new();
         for ch in source_chunks {
             let mut txs = Vec::new();
 
             for (idx, source_tx) in ch.transactions.into_iter().enumerate() {
-                let (actions, tx_nonce_updates) = self.map_actions(&source_tx).await?;
+                let (actions, nonce_updates) = self.map_actions(&source_tx).await?;
                 if actions.is_empty() {
                     // If this is a tx containing only stake actions, skip it.
                     continue;
                 }
-                let mapped_key =
+                let target_private_key =
                     crate::key_mapping::map_key(&source_tx.public_key, self.secret.as_ref());
-                let public_key = mapped_key.public_key();
 
                 let target_signer_id =
                     crate::key_mapping::map_account(&source_tx.signer_id, self.secret.as_ref());
                 let target_receiver_id =
                     crate::key_mapping::map_account(&source_tx.receiver_id, self.secret.as_ref());
 
-                let target_nonce = tracker
-                    .next_nonce(
-                        &self.target_view_client,
-                        &self.db,
-                        &target_signer_id,
-                        &public_key,
-                        source_height,
-                    )
-                    .await?;
-                if target_nonce.pending_outcomes.is_empty() {
-                    match target_nonce.nonce {
-                        Some(nonce) => {
-                            let target_tx = TargetChainTx::new_ready(
-                                &source_tx,
-                                idx,
-                                actions,
-                                nonce,
-                                &ref_hash,
-                                target_signer_id,
-                                target_receiver_id,
-                                &mapped_key,
-                                public_key,
-                                tx_nonce_updates,
-                            );
-                            txs.push(target_tx);
-                        }
-                        None => {
-                            num_not_ready += 1;
-                            let target_tx = TargetChainTx::new_awaiting_nonce(
-                                &source_tx,
-                                idx,
-                                actions,
-                                target_nonce,
-                                &ref_hash,
-                                target_signer_id,
-                                target_receiver_id,
-                                mapped_key,
-                                public_key,
-                                tx_nonce_updates,
-                            );
-                            txs.push(target_tx);
-                        }
-                    }
-                } else {
-                    num_not_ready += 1;
-                    let target_tx = TargetChainTx::new_awaiting_nonce(
-                        &source_tx,
-                        idx,
-                        actions,
-                        target_nonce,
-                        &ref_hash,
+                let target_tx = self
+                    .prepare_tx(
+                        tracker,
+                        source_tx.signer_id.clone(),
+                        source_tx.receiver_id.clone(),
                         target_signer_id,
                         target_receiver_id,
-                        mapped_key,
-                        public_key,
-                        tx_nonce_updates,
-                    );
-                    txs.push(target_tx);
-                }
+                        &target_private_key,
+                        actions,
+                        &ref_hash,
+                        source_height,
+                        MappedTxProvenance::SourceTxIndex(idx),
+                        nonce_updates,
+                    )
+                    .await?;
+                txs.push(target_tx);
+                self.add_tx_function_call_keys(
+                    &source_tx,
+                    idx,
+                    source_height,
+                    &ref_hash,
+                    tracker,
+                    &mut txs,
+                )
+                .await?;
             }
-            if num_not_ready == 0 {
-                tracing::debug!(
-                    target: "mirror", "prepared {} transacations for source chain #{} shard {}",
-                    txs.len(), source_height, ch.shard_id
-                );
-            } else {
-                tracing::debug!(
-                    target: "mirror", "prepared {} transacations for source chain #{} shard {} with {} \
-                    still waiting for the corresponding access keys to make it on chain",
-                    txs.len(), source_height, ch.shard_id, num_not_ready,
-                );
+            for (idx, r) in ch.receipts.iter().enumerate() {
+                self.add_receipt_function_call_keys(
+                    r,
+                    idx,
+                    source_height,
+                    &ref_hash,
+                    tracker,
+                    &mut txs,
+                )
+                .await?;
             }
+            tracing::debug!(
+                target: "mirror", "prepared {} transacations for source chain #{} shard {}",
+                txs.len(), source_height, ch.shard_id
+            );
             chunks.push(MappedChunk { txs, shard_id: ch.shard_id });
         }
         Ok(Some(MappedBlock { source_height, chunks }))
@@ -1059,7 +1460,9 @@ async fn run<P: AsRef<Path>>(
 ) -> anyhow::Result<()> {
     if !online_source {
         let source_chain_access = crate::offline::ChainAccess::new(source_home)?;
-        let stop_height = stop_height.unwrap_or(source_chain_access.head_height().await?);
+        let stop_height = stop_height.unwrap_or(
+            source_chain_access.head_height().await.context("could not fetch source chain head")?,
+        );
         TxMirror::new(source_chain_access, target_home, secret)?.run(Some(stop_height)).await
     } else {
         TxMirror::new(crate::online::ChainAccess::new(source_home)?, target_home, secret)?
