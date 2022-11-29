@@ -53,8 +53,6 @@ use near_network::types::PeerManagerMessageRequest;
 use near_o11y::WithSpanContextExt;
 use near_primitives::shard_layout::ShardUId;
 
-use crate::adapter::StateResponse;
-
 /// Maximum number of state parts to request per peer on each round when node is trying to download the state.
 pub const MAX_STATE_PART_REQUEST: u64 = 16;
 /// Number of state parts already requested stored as pending.
