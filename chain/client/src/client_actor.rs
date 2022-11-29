@@ -38,8 +38,7 @@ use near_chain_configs::ClientConfig;
 use near_chunks::client::ShardsManagerResponse;
 use near_chunks::logic::cares_about_shard_this_or_next_epoch;
 use near_client_primitives::types::{
-    Error, GetNetworkInfo, NetworkInfoResponse, ShardSyncDownload, ShardSyncStatus, Status,
-    StatusError, StatusSyncInfo, SyncStatus,
+    Error, GetNetworkInfo, NetworkInfoResponse, Status, StatusError, StatusSyncInfo, SyncStatus,
 };
 use near_dyn_configs::EXPECTED_SHUTDOWN_AT;
 #[cfg(feature = "test_features")]
@@ -497,6 +496,8 @@ impl Handler<WithSpanContext<BlockApproval>> for ClientActor {
     }
 }
 
+/// StateResponse is used during StateSync and catchup.
+/// It contains either StateSync header information (that tells us how many parts there are etc) or a single part.
 impl Handler<WithSpanContext<StateResponse>> for ClientActor {
     type Result = ();
 
@@ -513,111 +514,36 @@ impl Handler<WithSpanContext<StateResponse>> for ClientActor {
                    state_response.part().as_ref().map(|(part_id, data)| (part_id, data.len()))
             );
             // Get the download that matches the shard_id and hash
-            let download = {
-                let mut download: Option<&mut ShardSyncDownload> = None;
 
-                // ... It could be that the state was requested by the state sync
-                if let SyncStatus::StateSync(sync_hash, shards_to_download) =
-                    &mut this.client.sync_status
-                {
-                    if hash == *sync_hash {
-                        if let Some(part_id) = state_response.part_id() {
-                            this.client
-                                .state_sync
-                                .received_requested_part(part_id, shard_id, hash);
-                        }
-
-                        if let Some(shard_download) = shards_to_download.get_mut(&shard_id) {
-                            assert!(
-                                download.is_none(),
-                                "Internal downloads set has duplicates"
-                            );
-                            download = Some(shard_download);
-                        } else {
-                            // This may happen because of sending too many StateRequests to different peers.
-                            // For example, we received StateResponse after StateSync completion.
-                        }
-                    }
-                }
-
-                // ... Or one of the catchups
-                if let Some((_, shards_to_download, _)) =
-                    this.client.catchup_state_syncs.get_mut(&hash)
-                {
-                    if let Some(part_id) = state_response.part_id() {
-                        this.client.state_sync.received_requested_part(part_id, shard_id, hash);
-                    }
-
+            // ... It could be that the state was requested by the state sync
+            if let SyncStatus::StateSync(sync_hash, shards_to_download) =
+                &mut this.client.sync_status
+            {
+                if hash == *sync_hash {
                     if let Some(shard_download) = shards_to_download.get_mut(&shard_id) {
-                        assert!(download.is_none(), "Internal downloads set has duplicates");
-                        download = Some(shard_download);
+                        this.client.state_sync.update_download_on_state_response_message(shard_download, hash, shard_id, state_response, &mut this.client.chain);
+                        return;
                     } else {
                         // This may happen because of sending too many StateRequests to different peers.
                         // For example, we received StateResponse after StateSync completion.
                     }
                 }
-                // We should not be requesting the same state twice.
-                download
-            };
-
-            if let Some(shard_sync_download) = download {
-                match shard_sync_download.status {
-                    ShardSyncStatus::StateDownloadHeader => {
-                        if let Some(header) = state_response.take_header() {
-                            if !shard_sync_download.downloads[0].done {
-                                match this.client.chain.set_state_header(shard_id, hash, header)
-                                {
-                                    Ok(()) => {
-                                        shard_sync_download.downloads[0].done = true;
-                                    }
-                                    Err(err) => {
-                                        error!(target: "sync", "State sync set_state_header error, shard = {}, hash = {}: {:?}", shard_id, hash, err);
-                                        shard_sync_download.downloads[0].error = true;
-                                    }
-                                }
-                            }
-                        } else {
-                            // No header found.
-                            // It may happen because requested node couldn't build state response.
-                            if !shard_sync_download.downloads[0].done {
-                                info!(target: "sync", "state_response doesn't have header, should be re-requested, shard = {}, hash = {}", shard_id, hash);
-                                shard_sync_download.downloads[0].error = true;
-                            }
-                        }
-                    }
-                    ShardSyncStatus::StateDownloadParts => {
-                        if let Some(part) = state_response.take_part() {
-                            let num_parts = shard_sync_download.downloads.len() as u64;
-                            let (part_id, data) = part;
-                            if part_id >= num_parts {
-                                error!(target: "sync", "State sync received incorrect part_id # {:?} for hash {:?}, potential malicious peer", part_id, hash);
-                                return;
-                            }
-                            if !shard_sync_download.downloads[part_id as usize].done {
-                                match this.client.chain.set_state_part(
-                                    shard_id,
-                                    hash,
-                                    PartId::new(part_id, num_parts),
-                                    &data,
-                                ) {
-                                    Ok(()) => {
-                                        shard_sync_download.downloads[part_id as usize].done =
-                                            true;
-                                    }
-                                    Err(err) => {
-                                        error!(target: "sync", "State sync set_state_part error, shard = {}, part = {}, hash = {}: {:?}", shard_id, part_id, hash, err);
-                                        shard_sync_download.downloads[part_id as usize].error =
-                                            true;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    _ => {}
-                }
-            } else {
-                error!(target: "sync", "State sync received hash {} that we're not expecting, potential malicious peer", hash);
             }
+
+            // ... Or one of the catchups
+            if let Some((state_sync, shards_to_download, _)) =
+                this.client.catchup_state_syncs.get_mut(&hash)
+            {
+                if let Some(shard_download) = shards_to_download.get_mut(&shard_id) {
+                    state_sync.update_download_on_state_response_message(shard_download, hash, shard_id, state_response, &mut this.client.chain);
+                    return;
+                } else {
+                    // This may happen because of sending too many StateRequests to different peers.
+                    // For example, we received StateResponse after StateSync completion.
+                }
+            }
+
+            error!(target: "sync", "State sync received hash {} that we're not expecting, potential malicious peer", hash);
         })
     }
 }

@@ -5,22 +5,23 @@
 //! epochs).
 //!
 //! You can do the state sync for each shard independently.
-//! It starts by fetching a 'header' - that contains basic information about the state (for example its size, how 
+//! It starts by fetching a 'header' - that contains basic information about the state (for example its size, how
 //! many parts it consists of, hash of the root etc).
 //! Then it tries downloading the rest of the data in 'parts' (usually the part is around 1MB in size).
 //!
-//! For downloading - the code is picking the potential target nodes (all direct peers that are tracking the shard 
+//! For downloading - the code is picking the potential target nodes (all direct peers that are tracking the shard
 //! (and are high enough) + validators from that epoch that were tracking the shard)
 //! Then for each part that we're missing, we're 'randomly' picking a target from whom we'll request it - but we make
 //! sure to not request more than MAX_STATE_PART_REQUESTS from each.
 //!
 //! WARNING: with the current design, we're putting quite a load on the validators - as we request a lot of data from
 //!         them (if you assume that we have 100 validators and 30 peers - we send 100/130 of requests to validators).
-//!         Currently validators defend against it, by having a rate limiters - but we should improve the algorithm 
+//!         Currently validators defend against it, by having a rate limiters - but we should improve the algorithm
 //!         here to depend more on local peers instead.
 //!
 
 use near_chain::{near_chain_primitives, Error};
+use near_primitives::state_part::PartId;
 use std::collections::HashMap;
 use std::ops::Add;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -39,7 +40,7 @@ use near_network::types::{
     HighestHeightPeerInfo, NetworkRequests, NetworkResponses, PeerManagerAdapter,
 };
 use near_primitives::hash::CryptoHash;
-use near_primitives::syncing::get_num_state_parts;
+use near_primitives::syncing::{get_num_state_parts, ShardStateSyncResponse};
 use near_primitives::time::{Clock, Utc};
 use near_primitives::types::{AccountId, ShardId, StateRoot};
 
@@ -51,6 +52,8 @@ use near_network::types::AccountOrPeerIdOrHash;
 use near_network::types::PeerManagerMessageRequest;
 use near_o11y::WithSpanContextExt;
 use near_primitives::shard_layout::ShardUId;
+
+use crate::adapter::StateResponse;
 
 /// Maximum number of state parts to request per peer on each round when node is trying to download the state.
 pub const MAX_STATE_PART_REQUEST: u64 = 16;
@@ -290,7 +293,7 @@ impl StateSync {
                     let state_num_parts =
                         get_num_state_parts(shard_state_header.state_root_node().memory_usage);
                     // Now apply all the parts to the chain / runtime.
-                    // TODO: not sure why this has to happen only after all the parts were downloaded - 
+                    // TODO: not sure why this has to happen only after all the parts were downloaded -
                     //       as we could have done this in parallel after getting each part.
                     match chain.schedule_apply_state_parts(
                         shard_id,
@@ -581,7 +584,7 @@ impl StateSync {
     }
 
     /// Returns new ShardSyncDownload if successful, otherwise returns given shard_sync_download
-    pub fn request_shard(
+    fn request_shard(
         &mut self,
         me: &Option<AccountId>,
         shard_id: ShardId,
@@ -757,6 +760,71 @@ impl StateSync {
         } else {
             StateSyncResult::Unchanged
         })
+    }
+
+    pub fn update_download_on_state_response_message(
+        &mut self,
+        shard_sync_download: &mut ShardSyncDownload,
+        hash: CryptoHash,
+        shard_id: u64,
+        state_response: ShardStateSyncResponse,
+        chain: &mut Chain,
+    ) {
+        if let Some(part_id) = state_response.part_id() {
+            // Mark that we have received this part (this will update info on pending parts from peers etc).
+            self.received_requested_part(part_id, shard_id, hash);
+        }
+        match shard_sync_download.status {
+            ShardSyncStatus::StateDownloadHeader => {
+                if let Some(header) = state_response.take_header() {
+                    if !shard_sync_download.downloads[0].done {
+                        match chain.set_state_header(shard_id, hash, header) {
+                            Ok(()) => {
+                                shard_sync_download.downloads[0].done = true;
+                            }
+                            Err(err) => {
+                                error!(target: "sync", "State sync set_state_header error, shard = {}, hash = {}: {:?}", shard_id, hash, err);
+                                shard_sync_download.downloads[0].error = true;
+                            }
+                        }
+                    }
+                } else {
+                    // No header found.
+                    // It may happen because requested node couldn't build state response.
+                    if !shard_sync_download.downloads[0].done {
+                        info!(target: "sync", "state_response doesn't have header, should be re-requested, shard = {}, hash = {}", shard_id, hash);
+                        shard_sync_download.downloads[0].error = true;
+                    }
+                }
+            }
+            ShardSyncStatus::StateDownloadParts => {
+                if let Some(part) = state_response.take_part() {
+                    let num_parts = shard_sync_download.downloads.len() as u64;
+                    let (part_id, data) = part;
+                    if part_id >= num_parts {
+                        error!(target: "sync", "State sync received incorrect part_id # {:?} for hash {:?}, potential malicious peer", part_id, hash);
+                        return;
+                    }
+                    if !shard_sync_download.downloads[part_id as usize].done {
+                        match chain.set_state_part(
+                            shard_id,
+                            hash,
+                            PartId::new(part_id, num_parts),
+                            &data,
+                        ) {
+                            Ok(()) => {
+                                shard_sync_download.downloads[part_id as usize].done = true;
+                            }
+                            Err(err) => {
+                                error!(target: "sync", "State sync set_state_part error, shard = {}, part = {}, hash = {}: {:?}", shard_id, part_id, hash, err);
+                                shard_sync_download.downloads[part_id as usize].error = true;
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
     }
 }
 
