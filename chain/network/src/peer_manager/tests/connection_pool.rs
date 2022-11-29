@@ -218,6 +218,4 @@ async fn owned_account_conflict() {
             }
         ))
     );
-    drop(conn1);
-    drop(pm);
 }

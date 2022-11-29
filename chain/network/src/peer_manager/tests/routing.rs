@@ -1104,9 +1104,6 @@ async fn square() {
         (id0.clone(), vec![id0.clone()]),
     ])
     .await;
-    drop(pm0);
-    drop(pm2);
-    drop(pm3);
 }
 
 #[tokio::test]
@@ -1160,7 +1157,6 @@ async fn fix_local_edges() {
 
     tracing::info!(target:"test","checking the consistency");
     pm.check_consistency().await;
-    drop(conn);
 }
 
 #[tokio::test]
