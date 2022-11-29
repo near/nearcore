@@ -263,6 +263,7 @@ pub fn migrate_32_to_33(storage: &crate::NodeStorage) -> anyhow::Result<()> {
             )?;
         }
     }
+    update.finish()?;
     let mut delete_old_update = store.store_update();
     delete_old_update.delete_all(DBCol::_TransactionResult);
     delete_old_update.commit()?;
