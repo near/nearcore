@@ -64,7 +64,7 @@ async fn test_nonces() {
         let mut stream = stream::Stream::new(Some(Encoding::Proto), stream);
         let peer_key = data::make_secret_key(rng);
         let peer_id = PeerId::new(peer_key.public_key());
-        let handshake = PeerMessage::Handshake(Handshake {
+        let handshake = PeerMessage::Tier2Handshake(Handshake {
             protocol_version: version::PROTOCOL_VERSION,
             oldest_supported_version: version::PEER_MIN_ALLOWED_PROTOCOL_VERSION,
             sender_peer_id: peer_id.clone(),
@@ -74,11 +74,12 @@ async fn test_nonces() {
             sender_listen_port: Some(24567),
             sender_chain_info: chain.get_peer_chain_info(),
             partial_edge_info: PartialEdgeInfo::new(&peer_id, &pm.cfg.node_id(), test.0, &peer_key),
+            owned_account: None,
         });
         stream.write(&handshake).await;
         if test.1 {
             match stream.read().await {
-                Ok(PeerMessage::Handshake { .. }) => {}
+                Ok(PeerMessage::Tier2Handshake { .. }) => {}
                 got => panic!("got = {got:?}, want Handshake"),
             }
         } else {
