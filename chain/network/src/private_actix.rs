@@ -5,7 +5,7 @@ use crate::peer_manager::connection;
 use std::fmt::Debug;
 use std::sync::Arc;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum RegisterPeerError {
     Blacklisted,
     Banned,

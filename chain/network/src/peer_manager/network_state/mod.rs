@@ -286,7 +286,7 @@ impl NetworkState {
         let conn = conn.clone();
         self.spawn(async move {
             let peer_id = conn.peer_info.id.clone();
-            this.tier2.remove(&peer_id);
+            this.tier2.remove(&conn);
 
             // If the last edge we have with this peer represent a connection addition, create the edge
             // update that represents the connection removal.

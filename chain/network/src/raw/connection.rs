@@ -149,6 +149,7 @@ impl Connection {
                 1,
                 &self.secret_key,
             ),
+            owned_account: None,
         });
 
         self.write_message(&handshake).await.map_err(ConnectError::IO)?;

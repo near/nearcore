@@ -224,6 +224,10 @@ async fn join_components() {
         (id2.clone(), vec![id2.clone()]),
     ])
     .await;
+    drop(pm0);
+    drop(pm1);
+    drop(pm2);
+    drop(pm3);
 }
 
 // test routing for three nodes in a line, then test dropping the middle node

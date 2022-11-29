@@ -204,6 +204,7 @@ async fn test_handshake(outbound_encoding: Option<Encoding>, inbound_encoding: O
         sender_listen_port: Some(outbound_port),
         sender_chain_info: outbound_cfg.chain.get_peer_chain_info(),
         partial_edge_info: outbound_cfg.partial_edge_info(&inbound.cfg.id(), 1),
+        owned_account: None,
     };
     // We will also introduce chain_id mismatch, but ProtocolVersionMismatch is expected to take priority.
     handshake.sender_chain_info.genesis_id.chain_id = "unknown_chain".to_string();
