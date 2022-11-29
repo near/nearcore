@@ -221,7 +221,6 @@ impl StateSync {
             match &shard_sync_download.status {
                 ShardSyncStatus::StateDownloadHeader => {
                     // StateDownloadHeader is the first step. We want to fetch the basic information about the state (its size, hash etc).
-                    // FIXME: why are we looking only on the first index? - ah right, we assume taht download header has only 1.
                     if shard_sync_download.downloads[0].done {
                         let shard_state_header = chain.get_state_header(shard_id, sync_hash)?;
                         let state_num_parts =
@@ -280,7 +279,7 @@ impl StateSync {
                             }
                         }
                     }
-                    // If all parts are done - we can move towards scheduling (TODO: why?)
+                    // If all parts are done - we can move towards scheduling.
                     if parts_done {
                         *shard_sync_download = ShardSyncDownload {
                             downloads: vec![],
