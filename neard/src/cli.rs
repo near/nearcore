@@ -223,8 +223,7 @@ pub(super) enum NeardSubCommand {
     /// Testing tool for cold storage
     ColdStore(ColdStoreCommand),
 
-    /// Connects to a NEAR node and sends ping messages to the accounts it sends
-    /// us after the handshake is completed, printing stats to stdout.
+    /// Connects to a NEAR node and sends state parts requests after the handshake is completed.
     StateParts(StatePartsCommand),
 }
 

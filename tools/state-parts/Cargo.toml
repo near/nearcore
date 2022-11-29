@@ -3,8 +3,7 @@ name = "near-state-parts"
 version = "0.0.0"
 authors.workspace = true
 publish = false
-rust-version.workspace = true
-edition = "2021"
+edition.workspace = true
 
 [dependencies]
 anyhow.workspace = true

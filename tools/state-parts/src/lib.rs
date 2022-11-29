@@ -16,7 +16,7 @@ struct AppInfo {
 }
 
 impl AppInfo {
-    fn new(_chain_id: &str, _peer_addr: &SocketAddr, _peer_id: &PeerId) -> Self {
+    fn new() -> Self {
         Self { requests_sent: HashMap::new() }
     }
 }
@@ -31,19 +31,24 @@ fn handle_message(
             let shard_id = response.shard_id();
             let sync_hash = response.sync_hash();
             let state_response = response.clone().take_state_response();
-            let part_id = state_response.part_id().unwrap();
-            let duration = app_info
-                .requests_sent
-                .get(&part_id)
-                .map(|sent| (sent.elapsed() - received_at.elapsed()).as_seconds_f64());
+            let part_id = state_response.part_id();
+            let duration = if let Some(part_id) = part_id {
+                let duration = app_info
+                    .requests_sent
+                    .get(&part_id)
+                    .map(|sent| (sent.elapsed() - received_at.elapsed()).as_seconds_f64());
+                app_info.requests_sent.remove(&part_id);
+                duration
+            } else {
+                None
+            };
             tracing::info!(
                 shard_id,
                 ?sync_hash,
-                part_id,
+                ?part_id,
                 ?duration,
                 "Received VersionedStateResponse"
             );
-            app_info.requests_sent.remove(&part_id);
         }
         _ => {}
     };
@@ -81,7 +86,7 @@ async fn state_parts_from_node(
     num_parts: u64,
 ) -> anyhow::Result<()> {
     assert!(start_part_id < num_parts && num_parts > 0, "{}/{}", start_part_id, num_parts);
-    let mut app_info = AppInfo::new(chain_id, &peer_addr, &peer_id);
+    let mut app_info = AppInfo::new();
 
     let mut peer = match Connection::connect(
         peer_addr,

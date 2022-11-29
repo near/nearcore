@@ -33,6 +33,7 @@ pub struct Connection {
 
 /// The types of messages it's possible to receive from a `Peer`. Any PeerMessage
 /// we receive that doesn't fit one of these will just be logged and dropped.
+#[derive(Debug)]
 pub enum ReceivedMessage {
     AnnounceAccounts(Vec<(AccountId, PeerId, EpochId)>),
     Pong { nonce: u64, source: PeerId },
@@ -269,6 +270,7 @@ impl Connection {
 
         Ok(())
     }
+
     /// Try to send a StateRequestPart message to the given target, with the given nonce and ttl
     pub async fn send_state_part_request(
         &mut self,
