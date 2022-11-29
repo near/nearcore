@@ -163,7 +163,9 @@ pub(crate) struct PoolSnapshot {
     /// Connections which have completed the handshake and are ready
     /// for transmitting messages.
     pub ready: im::HashMap<PeerId, Arc<Connection>>,
-    /// index on `ready` by Connection.owned_account.account_key.
+    /// Index on `ready` by Connection.owned_account.account_key.
+    /// We allow only 1 connection to a peer with the given account_key,
+    /// as it is an invalid setup to have 2 nodes acting as the same validator.
     pub ready_by_account_key: im::HashMap<PublicKey, Arc<Connection>>,
     /// Set of started outbound connections, which are not ready yet.
     /// We need to keep those to prevent a deadlock when 2 peers try
@@ -226,10 +228,12 @@ impl Drop for OutboundHandshakePermit {
 #[derive(Clone)]
 pub(crate) struct Pool(Arc<ArcMutex<PoolSnapshot>>);
 
-#[derive(thiserror::Error, Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(thiserror::Error, Clone, Debug, PartialEq, Eq)]
 pub(crate) enum PoolError {
     #[error("already connected to this peer")]
     AlreadyConnected,
+    #[error("already connected to peer {peer_id} with the same account key {account_key}")]
+    AlreadyConnectedAccount { peer_id: PeerId, account_key: PublicKey },
     #[error("already started another outbound connection to this peer")]
     AlreadyStartedConnecting,
     #[error("loop connections are not allowed")]
@@ -285,8 +289,29 @@ impl Pool {
                 // Only 1 connection per account key is allowed.
                 // Having 2 peers use the same account key is an invalid setup,
                 // which violates the BFT consensus anyway.
-                if pool.ready_by_account_key.insert(owned_account.account_key.clone(), peer.clone()).is_some() {
-                    return Err(PoolError::AlreadyConnected);
+                // TODO(gprusak): an incorrectly closed TCP connection may remain in ESTABLISHED
+                // state up to minutes/hours afterwards. This may cause problems in
+                // case a validator is restarting a node after crash and the new node has the same
+                // peer_id/account_key/IP:port as the old node. What is the desired behavior is
+                // such a case? Linux TCP implementation supports:
+                // TCP_USER_TIMEOUT - timeout for ACKing the sent data
+                // TCP_KEEPIDLE - idle connection time after which a KEEPALIVE is sent
+                // TCP_KEEPINTVL - interval between subsequent KEEPALIVE probes
+                // TCP_KEEPCNT - number of KEEPALIVE probes before closing the connection.
+                // If it ever becomes a problem, we can eiter:
+                // 1. replace TCP with sth else, like QUIC.
+                // 2. use some lower level API than tokio::net to be able to set the linux flags.
+                // 3. implement KEEPALIVE equivalent manually on top of TCP to resolve conflicts.
+                // 4. allow overriding old connections by new connections, but that will require
+                //    a deeper thought to make sure that the connections will be eventually stable
+                //    and that incorrect setups will be detectable.
+                if let Some(conn) = pool.ready_by_account_key.insert(owned_account.account_key.clone(), peer.clone()) {
+                    // Unwrap is safe, because pool.ready_by_account_key is an index on connections
+                    // with owned_account present.
+                    return Err(PoolError::AlreadyConnectedAccount{
+                        peer_id: conn.peer_info.id.clone(),
+                        account_key: conn.owned_account.as_ref().unwrap().account_key.clone(),
+                    });
                 }
             }
             Ok(((),pool))
