@@ -1,7 +1,9 @@
 use crate::concurrency::arc_mutex::ArcMutex;
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
-use crate::network_protocol::{Edge, PeerInfo, PeerMessage, SignedAccountData, SyncAccountsData};
+use crate::network_protocol::{
+    Edge, PeerInfo, PeerMessage, SignedAccountData, SignedOwnedAccount, SyncAccountsData,
+};
 use crate::peer::peer_actor;
 use crate::peer::peer_actor::PeerActor;
 use crate::private_actix::SendMessage;
@@ -9,6 +11,7 @@ use crate::stats::metrics;
 use crate::time;
 use crate::types::{BlockInfo, FullPeerInfo, PeerChainInfo, PeerType, ReasonForBan};
 use arc_swap::ArcSwap;
+use near_crypto::PublicKey;
 use near_o11y::WithSpanContextExt;
 use near_primitives::block::GenesisId;
 use near_primitives::network::PeerId;
@@ -46,6 +49,8 @@ pub(crate) struct Connection {
     pub addr: actix::Addr<PeerActor>,
 
     pub peer_info: PeerInfo,
+    /// AccountKey ownership proof.
+    pub owned_account: Option<SignedOwnedAccount>,
     pub edge: ArcMutex<Edge>,
     /// Chain Id and hash of genesis block.
     pub genesis_id: GenesisId,
@@ -58,7 +63,7 @@ pub(crate) struct Connection {
     /// Who started connection. Inbound (other) or Outbound (us).
     pub peer_type: PeerType,
     /// Time where the connection was established.
-    pub connection_established_time: time::Instant,
+    pub established_time: time::Instant,
 
     /// Last time requested peers.
     pub last_time_peer_requested: AtomicCell<Option<time::Instant>>,
@@ -79,7 +84,7 @@ impl fmt::Debug for Connection {
             .field("peer_info", &self.peer_info)
             .field("edge", &self.edge.load())
             .field("peer_type", &self.peer_type)
-            .field("connection_established_time", &self.connection_established_time)
+            .field("established_time", &self.established_time)
             .finish()
     }
 }
@@ -158,6 +163,10 @@ pub(crate) struct PoolSnapshot {
     /// Connections which have completed the handshake and are ready
     /// for transmitting messages.
     pub ready: im::HashMap<PeerId, Arc<Connection>>,
+    /// Index on `ready` by Connection.owned_account.account_key.
+    /// We allow only 1 connection to a peer with the given account_key,
+    /// as it is an invalid setup to have 2 nodes acting as the same validator.
+    pub ready_by_account_key: im::HashMap<PublicKey, Arc<Connection>>,
     /// Set of started outbound connections, which are not ready yet.
     /// We need to keep those to prevent a deadlock when 2 peers try
     /// to connect to each other at the same time.
@@ -219,10 +228,12 @@ impl Drop for OutboundHandshakePermit {
 #[derive(Clone)]
 pub(crate) struct Pool(Arc<ArcMutex<PoolSnapshot>>);
 
-#[derive(thiserror::Error, Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(thiserror::Error, Clone, Debug, PartialEq, Eq)]
 pub(crate) enum PoolError {
     #[error("already connected to this peer")]
     AlreadyConnected,
+    #[error("already connected to peer {peer_id} with the same account key {account_key}")]
+    AlreadyConnectedAccount { peer_id: PeerId, account_key: PublicKey },
     #[error("already started another outbound connection to this peer")]
     AlreadyStartedConnecting,
     #[error("loop connections are not allowed")]
@@ -234,6 +245,7 @@ impl Pool {
         Self(Arc::new(ArcMutex::new(PoolSnapshot {
             me,
             ready: im::HashMap::new(),
+            ready_by_account_key: im::HashMap::new(),
             outbound_handshakes: im::HashSet::new(),
         })))
     }
@@ -270,7 +282,46 @@ impl Pool {
                     }
                 }
             }
-            pool.ready.insert(id.clone(), peer);
+            if pool.ready.insert(id.clone(), peer.clone()).is_some() {
+                return Err(PoolError::AlreadyConnected);
+            }
+            if let Some(owned_account) = &peer.owned_account {
+                // Only 1 connection per account key is allowed.
+                // Having 2 peers use the same account key is an invalid setup,
+                // which violates the BFT consensus anyway.
+                // TODO(gprusak): an incorrectly closed TCP connection may remain in ESTABLISHED
+                // state up to minutes/hours afterwards. This may cause problems in
+                // case a validator is restarting a node after crash and the new node has the same
+                // peer_id/account_key/IP:port as the old node. What is the desired behavior is
+                // such a case? Linux TCP implementation supports:
+                // TCP_USER_TIMEOUT - timeout for ACKing the sent data
+                // TCP_KEEPIDLE - idle connection time after which a KEEPALIVE is sent
+                // TCP_KEEPINTVL - interval between subsequent KEEPALIVE probes
+                // TCP_KEEPCNT - number of KEEPALIVE probes before closing the connection.
+                // If it ever becomes a problem, we can eiter:
+                // 1. replace TCP with sth else, like QUIC.
+                // 2. use some lower level API than tokio::net to be able to set the linux flags.
+                // 3. implement KEEPALIVE equivalent manually on top of TCP to resolve conflicts.
+                // 4. allow overriding old connections by new connections, but that will require
+                //    a deeper thought to make sure that the connections will be eventually stable
+                //    and that incorrect setups will be detectable.
+                if let Some(conn) = pool.ready_by_account_key.insert(owned_account.account_key.clone(), peer.clone()) {
+                    // Unwrap is safe, because pool.ready_by_account_key is an index on connections
+                    // with owned_account present.
+                    let err = PoolError::AlreadyConnectedAccount{
+                        peer_id: conn.peer_info.id.clone(),
+                        account_key: conn.owned_account.as_ref().unwrap().account_key.clone(),
+                    };
+                    // We duplicate the error logging here, because returning an error
+                    // from insert_ready is expected (pool may regularly reject connections),
+                    // however conflicting connections with the same account key indicate an
+                    // incorrect validator setup, so we log it here as a warn!, rather than just
+                    // info!.
+                    tracing::warn!(target:"network", "Pool::register({id}): {err}");
+                    metrics::ALREADY_CONNECTED_ACCOUNT.inc();
+                    return Err(err);
+                }
+            }
             Ok(((),pool))
         })
     }
@@ -291,9 +342,22 @@ impl Pool {
         })
     }
 
-    pub fn remove(&self, peer_id: &PeerId) {
+    pub fn remove(&self, conn: &Arc<Connection>) {
         self.0.update(|mut pool| {
-            pool.ready.remove(peer_id);
+            match pool.ready.entry(conn.peer_info.id.clone()) {
+                im::hashmap::Entry::Occupied(e) if Arc::ptr_eq(e.get(), conn) => {
+                    e.remove_entry();
+                }
+                _ => {}
+            }
+            if let Some(owned_account) = &conn.owned_account {
+                match pool.ready_by_account_key.entry(owned_account.account_key.clone()) {
+                    im::hashmap::Entry::Occupied(e) if Arc::ptr_eq(e.get(), conn) => {
+                        e.remove_entry();
+                    }
+                    _ => {}
+                }
+            }
             ((), pool)
         });
     }
