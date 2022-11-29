@@ -34,6 +34,7 @@ near-chain = { path = "../../chain/chain" }
 near-chain-primitives = { path = "../../chain/chain-primitives" }
 near-client = { path = "../../chain/client" }
 near-client-primitives = { path = "../../chain/client-primitives" }
+near-epoch-manager = { path = "../../chain/epoch-manager" }
 near-indexer-primitives = { path = "../../chain/indexer-primitives" }
 near-indexer = { path = "../../chain/indexer" }
 near-network = { path = "../../chain/network" }
