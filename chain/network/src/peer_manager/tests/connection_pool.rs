@@ -206,7 +206,7 @@ async fn owned_account_conflict() {
 
     // Start 2 connections with the same account_key.
     // The second should be rejected.
-    let conn1 = pm.start_inbound(chain.clone(), cfg1.clone()).await.handshake(&clock.clock()).await;
+    let _conn1 = pm.start_inbound(chain.clone(), cfg1.clone()).await.handshake(&clock.clock()).await;
     let reason =
         pm.start_inbound(chain.clone(), cfg2).await.manager_fail_handshake(&clock.clock()).await;
     assert_eq!(
