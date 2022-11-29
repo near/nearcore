@@ -6,13 +6,13 @@
 //! You can do the state sync for each shard independently.
 //! It starts by fetching a 'header' - that contains basic information about the state (for example its size, how many parts it consists of, hash of the root etc).
 //! Then it tries downloading the rest of the data in 'parts' (usually the part is around 1MB in size).
-//! 
+//!
 //! For downloading - the code is picking the potential target nodes (all direct peers that are tracking the shard (and are high enough) + validators from that epoch that were tracking the shard)
 //! Then for each part that we're missing, we're 'randomly' picking a target from whom we'll request it - but we make sure to not request more than MAX_STATE_PART_REQUESTS from each.
-//! 
+//!
 //! WARNING: with the current design, we're putting quite a load on the validators - as we request a lot of data from them (if you assume that we have 100 validators and 30 peers - we send 100/130 of requests to validators).
 //!          currently validators defend against it, by having a rate limiters - but we should improve the algorithm here to depend more on local peers instead.
-//! 
+//!
 
 use near_chain::{near_chain_primitives, Error};
 use std::collections::HashMap;
@@ -481,7 +481,7 @@ impl StateSync {
         shard_id: ShardId,
         sync_hash: CryptoHash,
     ) {
-        // FIXME: something is wrong - the index should have a shard_id too. 
+        // FIXME: something is wrong - the index should have a shard_id too.
         self.requested_target.put((part_id, sync_hash), target.clone());
 
         let timeout = self.timeout;
@@ -638,8 +638,8 @@ impl StateSync {
                 // Parts are ordered such that its index match its part_id.
                 // Finally, for every part that needs to be requested it is selected one peer (target) randomly
                 // to request the part from.
-                // IMPORTANT: here we use 'zip' with possible_target_sampler - which is limited. So at any moment we'll not request more than 
-                // possible_targets.len() * MAX_STATE_PART_REQUEST parts. 
+                // IMPORTANT: here we use 'zip' with possible_target_sampler - which is limited. So at any moment we'll not request more than
+                // possible_targets.len() * MAX_STATE_PART_REQUEST parts.
                 for ((part_id, download), target) in new_shard_sync_download
                     .downloads
                     .iter_mut()
@@ -690,7 +690,7 @@ impl StateSync {
 
     /// The main 'step' function that should be called periodically to check and update the sync process.
     /// The current state/progress information is mostly kept within 'new_shard_sync' object.
-    /// 
+    ///
     /// Returns the state of the sync.
     pub fn run(
         &mut self,
