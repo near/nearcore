@@ -807,6 +807,7 @@ impl<T: ChainAccess> TxMirror<T> {
             home_dir: target_home.as_ref().to_path_buf(),
             sync_mode: near_indexer::SyncModeEnum::LatestSynced,
             await_for_node_synced: near_indexer::AwaitForNodeSyncedEnum::WaitForFullSync,
+            validate_genesis: false,
         })
         .context("failed to start target chain indexer")?;
         let (target_view_client, target_client) = target_indexer.client_actors();
