@@ -317,7 +317,7 @@ impl Pool {
                     // however conflicting connections with the same account key indicate an
                     // incorrect validator setup, so we log it here as a warn!, rather than just
                     // info!.
-                    tracing::warn!(target:"network", "Pool::register({id}): {err}");
+                    tracing::warn!(target:"network", "Pool::register({id}): {err:?}");
                     return err;
                 }
             }
