@@ -308,17 +308,17 @@ impl Pool {
                 if let Some(conn) = pool.ready_by_account_key.insert(owned_account.account_key.clone(), peer.clone()) {
                     // Unwrap is safe, because pool.ready_by_account_key is an index on connections
                     // with owned_account present.
-                    let err = Err(PoolError::AlreadyConnectedAccount{
+                    let err = PoolError::AlreadyConnectedAccount{
                         peer_id: conn.peer_info.id.clone(),
                         account_key: conn.owned_account.as_ref().unwrap().account_key.clone(),
-                    });
+                    };
                     // We duplicate the error logging here, because returning an error
                     // from insert_ready is expected (pool may regularly reject connections),
                     // however conflicting connections with the same account key indicate an
                     // incorrect validator setup, so we log it here as a warn!, rather than just
                     // info!.
-                    tracing::warn!(target:"network", "Pool::register({id}): {err:?}");
-                    return err;
+                    tracing::warn!(target:"network", "Pool::register({id}): {err}");
+                    return Err(err);
                 }
             }
             Ok(((),pool))
