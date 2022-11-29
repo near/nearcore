@@ -5,18 +5,18 @@
 //! epochs).
 //!
 //! You can do the state sync for each shard independently.
-//! It starts by fetching a 'header' - that contains basic information about the state (for example its size, how 
+//! It starts by fetching a 'header' - that contains basic information about the state (for example its size, how
 //! many parts it consists of, hash of the root etc).
 //! Then it tries downloading the rest of the data in 'parts' (usually the part is around 1MB in size).
 //!
-//! For downloading - the code is picking the potential target nodes (all direct peers that are tracking the shard 
+//! For downloading - the code is picking the potential target nodes (all direct peers that are tracking the shard
 //! (and are high enough) + validators from that epoch that were tracking the shard)
 //! Then for each part that we're missing, we're 'randomly' picking a target from whom we'll request it - but we make
 //! sure to not request more than MAX_STATE_PART_REQUESTS from each.
 //!
 //! WARNING: with the current design, we're putting quite a load on the validators - as we request a lot of data from
 //!         them (if you assume that we have 100 validators and 30 peers - we send 100/130 of requests to validators).
-//!         Currently validators defend against it, by having a rate limiters - but we should improve the algorithm 
+//!         Currently validators defend against it, by having a rate limiters - but we should improve the algorithm
 //!         here to depend more on local peers instead.
 //!
 
@@ -218,7 +218,6 @@ impl StateSync {
             match &shard_sync_download.status {
                 ShardSyncStatus::StateDownloadHeader => {
                     // StateDownloadHeader is the first step. We want to fetch the basic information about the state (its size, hash etc).
-                    // FIXME: why are we looking only on the first index? - ah right, we assume taht download header has only 1.
                     if shard_sync_download.downloads[0].done {
                         let shard_state_header = chain.get_state_header(shard_id, sync_hash)?;
                         let state_num_parts =
@@ -277,7 +276,7 @@ impl StateSync {
                             }
                         }
                     }
-                    // If all parts are done - we can move towards scheduling (TODO: why?)
+                    // If all parts are done - we can move towards scheduling.
                     if parts_done {
                         *shard_sync_download = ShardSyncDownload {
                             downloads: vec![],
@@ -290,7 +289,7 @@ impl StateSync {
                     let state_num_parts =
                         get_num_state_parts(shard_state_header.state_root_node().memory_usage);
                     // Now apply all the parts to the chain / runtime.
-                    // TODO: not sure why this has to happen only after all the parts were downloaded - 
+                    // TODO: not sure why this has to happen only after all the parts were downloaded -
                     //       as we could have done this in parallel after getting each part.
                     match chain.schedule_apply_state_parts(
                         shard_id,
