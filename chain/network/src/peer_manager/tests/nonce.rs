@@ -74,6 +74,7 @@ async fn test_nonces() {
             sender_listen_port: Some(24567),
             sender_chain_info: chain.get_peer_chain_info(),
             partial_edge_info: PartialEdgeInfo::new(&peer_id, &pm.cfg.node_id(), test.0, &peer_key),
+            owned_account: None,
         });
         stream.write(&handshake).await;
         if test.1 {
