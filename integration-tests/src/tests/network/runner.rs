@@ -343,21 +343,6 @@ impl Runner {
         }
     }
 
-    /// Add node `v` to the blacklist of node `u`.
-    /// If passed `Some(v)` it is created a blacklist entry like:
-    ///
-    ///     127.0.0.1:PORT_OF_NODE_V
-    ///
-    /// Use None (instead of Some(v)) if you want to add all other nodes to the blacklist.
-    /// If passed None it is created a blacklist entry like:
-    ///
-    ///     127.0.0.1
-    ///
-    pub fn add_to_blacklist(mut self, u: usize, v: Option<usize>) -> Self {
-        self.test_config[u].blacklist.insert(v);
-        self
-    }
-
     /// Add node `v` to the whitelist of node `u`.
     /// If passed `v` an entry of the following form is added to the whitelist:
     ///     PEER_ID_OF_NODE_V@127.0.0.1:PORT_OF_NODE_V

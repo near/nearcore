@@ -6,7 +6,7 @@ package network;
 import "google/protobuf/timestamp.proto";
 
 // Proof that a given peer owns the account key.
-// Included in every outbound TIER1 handshake.
+// Included in every handshake sent by a validator node.
 // Note: sign AccountKeyPayload, rather than OwnedAccount directly.
 message OwnedAccount {
   PublicKey account_key = 1; // required
@@ -20,7 +20,6 @@ message OwnedAccount {
   // asymetric entryption.
   google.protobuf.Timestamp timestamp = 3; // required
 }
-
 
 // A payload that can be signed with account keys.
 // Since account keys are used to sign things in independent contexts,

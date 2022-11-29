@@ -3246,6 +3246,7 @@ dependencies = [
  "near-client",
  "near-client-primitives",
  "near-crypto",
+ "near-epoch-manager",
  "near-indexer",
  "near-indexer-primitives",
  "near-network",
@@ -4959,7 +4960,6 @@ dependencies = [
 name = "runtime-tester"
 version = "0.0.0"
 dependencies = [
- "byteorder",
  "cpu-time",
  "libfuzzer-sys",
  "near-chain",

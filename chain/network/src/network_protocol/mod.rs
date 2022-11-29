@@ -180,6 +180,8 @@ impl SignedAccountData {
     }
 }
 
+/// Proof that a given peer owns the account key.
+/// Included in every handshake sent by a validator node.
 #[derive(Clone, PartialEq, Eq, Debug, Hash)]
 pub struct OwnedAccount {
     pub(crate) account_key: PublicKey,

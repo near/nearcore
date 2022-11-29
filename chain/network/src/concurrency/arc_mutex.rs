@@ -20,6 +20,8 @@ impl<T: Clone> ArcMutex<T> {
 
     /// Atomic update of the value. Blocking.
     /// Note that `T -> (R,T)` is a state monad.
+    /// State monad is a function which takes the old state and
+    /// returns the new state + additional result value.
     pub fn update<R>(&self, f: impl FnOnce(T) -> (R, T)) -> R {
         let _guard = self.mutex.lock().unwrap();
         let (res, val) = f(self.value.load().as_ref().clone());

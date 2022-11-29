@@ -5,7 +5,7 @@ use actix::{Actor, Context, Handler};
 use anyhow::{anyhow, Context as AnyhowContext};
 use near_chain::{Block, BlockHeader, Chain, ChainStoreAccess, Error};
 use near_chain_configs::GenesisConfig;
-use near_client::sync;
+use near_client::sync::header::MAX_BLOCK_HEADERS;
 use near_network::time;
 use near_network::types::{
     BlockInfo, ConnectedPeerInfo, FullPeerInfo, NetworkInfo, NetworkRequests, NetworkResponses,
@@ -469,7 +469,7 @@ impl ChainHistoryAccess {
         &mut self,
         hashes: Vec<CryptoHash>,
     ) -> Result<Vec<BlockHeader>, Error> {
-        self.chain.retrieve_headers(hashes, sync::MAX_BLOCK_HEADERS, Some(self.target_height))
+        self.chain.retrieve_headers(hashes, MAX_BLOCK_HEADERS, Some(self.target_height))
     }
 
     fn retrieve_block_by_height(&mut self, block_height: BlockHeight) -> Result<Block, Error> {

@@ -108,6 +108,8 @@ pub(crate) enum ClosingReason {
     DisconnectMessage,
     #[error("Peer clock skew exceeded {MAX_CLOCK_SKEW}")]
     TooLargeClockSkew,
+    #[error("owned_account.peer_id doesn't match handshake.sender_peer_id")]
+    OwnedAccountMismatch,
     #[error("PeerActor stopped NOT via PeerActor::stop()")]
     Unknown,
 }
@@ -587,7 +589,7 @@ impl PeerActor {
                 return;
             }
             if owned_account.peer_id != handshake.sender_peer_id {
-                self.stop(ctx, ClosingReason::HandshakeFailed);
+                self.stop(ctx, ClosingReason::OwnedAccountMismatch);
                 return;
             }
             if (owned_account.timestamp - self.clock.now_utc()).abs() >= MAX_CLOCK_SKEW {
@@ -1388,11 +1390,15 @@ impl actix::Actor for PeerActor {
         // closing_reason may be None in case the whole actix system is stopped.
         // It happens a lot in tests.
         metrics::PEER_CONNECTIONS_TOTAL.dec();
-        tracing::debug!(target: "network", "{:?}: [status = {:?}] Peer {} disconnected.", self.my_node_info.id, self.peer_status, self.peer_info);
-        if self.closing_reason.is_none() {
-            // Due to Actix semantics, sometimes closing reason may be not set.
-            // But it is only expected to happen in tests.
-            tracing::error!(target:"network", "closing reason not set. This should happen only in tests.");
+        match &self.closing_reason {
+            None => {
+                // Due to Actix semantics, sometimes closing reason may be not set.
+                // But it is only expected to happen in tests.
+                tracing::error!(target:"network", "closing reason not set. This should happen only in tests.");
+            }
+            Some(reason) => {
+                tracing::info!(target: "network", "{:?}: Peer {} disconnected, reason: {reason}", self.my_node_info.id, self.peer_info);
+            }
         }
         match &self.peer_status {
             // If PeerActor is in Connecting state, then
