@@ -523,9 +523,6 @@ impl Handler<WithSpanContext<StateResponse>> for ClientActor {
                     if let Some(shard_download) = shards_to_download.get_mut(&shard_id) {
                         this.client.state_sync.update_download_on_state_response_message(shard_download, hash, shard_id, state_response, &mut this.client.chain);
                         return;
-                    } else {
-                        // This may happen because of sending too many StateRequests to different peers.
-                        // For example, we received StateResponse after StateSync completion.
                     }
                 }
             }
@@ -537,13 +534,9 @@ impl Handler<WithSpanContext<StateResponse>> for ClientActor {
                 if let Some(shard_download) = shards_to_download.get_mut(&shard_id) {
                     state_sync.update_download_on_state_response_message(shard_download, hash, shard_id, state_response, &mut this.client.chain);
                     return;
-                } else {
-                    // This may happen because of sending too many StateRequests to different peers.
-                    // For example, we received StateResponse after StateSync completion.
-                }
             }
 
-            error!(target: "sync", "State sync received hash {} that we're not expecting, potential malicious peer", hash);
+            error!(target: "sync", "State sync received hash {} that we're not expecting, potential malicious peer or a very delayed response.", hash);
         })
     }
 }
