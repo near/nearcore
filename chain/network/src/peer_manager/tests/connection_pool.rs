@@ -183,3 +183,41 @@ async fn owned_account_mismatch() {
         .await;
     assert_eq!(ClosingReason::OwnedAccountMismatch, reason);
 }
+
+#[tokio::test]
+async fn owned_account_conflict() {
+    init_test_logger();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
+    let pm = peer_manager::testonly::start(
+        clock.clock(),
+        near_store::db::TestDB::new(),
+        chain.make_config(rng),
+        chain.clone(),
+    )
+    .await;
+
+    let cfg1 = chain.make_config(rng);
+    let mut cfg2 = chain.make_config(rng);
+    cfg2.validator = cfg1.validator.clone();
+
+    // Start 2 connections with the same account_key.
+    // The second should be rejected.
+    let conn1 = pm.start_inbound(chain.clone(), cfg1.clone()).await.handshake(&clock.clock()).await;
+    let reason =
+        pm.start_inbound(chain.clone(), cfg2).await.manager_fail_handshake(&clock.clock()).await;
+    assert_eq!(
+        reason,
+        ClosingReason::RejectedByPeerManager(RegisterPeerError::PoolError(
+            connection::PoolError::AlreadyConnectedAccount {
+                peer_id: cfg1.node_id(),
+                account_key: cfg1.validator.as_ref().unwrap().signer.public_key(),
+            }
+        ))
+    );
+    drop(conn1);
+    drop(pm);
+}

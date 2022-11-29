@@ -318,6 +318,7 @@ impl Pool {
                     // incorrect validator setup, so we log it here as a warn!, rather than just
                     // info!.
                     tracing::warn!(target:"network", "Pool::register({id}): {err}");
+                    metrics::ALREADY_CONNECTED_ACCOUNT.inc();
                     return Err(err);
                 }
             }
