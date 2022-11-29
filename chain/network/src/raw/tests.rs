@@ -4,7 +4,6 @@ use crate::testonly;
 use crate::time;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
-use std::str::FromStr;
 use std::sync::Arc;
 
 #[tokio::test]
@@ -98,7 +97,9 @@ async fn test_raw_conn_state_parts() {
 
     let num_parts = 5;
     let ttl = 100;
-    let block_hash = CryptoHash::from_str("5nPwPzNqLkbftPQ557Ewe84xjXDFaoFuKkKc62PsasKp").unwrap();
+    // Block hash needs to correspond to the hash of the first block of an epoch.
+    // But the fake node simply ignores the block hash.
+    let block_hash = CryptoHash::new();
     for part_id in 0..num_parts {
         conn.send_state_part_request(&peer_id, 0, block_hash, part_id, ttl).await.unwrap();
     }
