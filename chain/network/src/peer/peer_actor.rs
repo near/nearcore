@@ -211,10 +211,23 @@ impl PeerActor {
                     .map_err(|_| ClosingReason::TooManyInbound)?,
             ),
             tcp::StreamType::Outbound { peer_id } => ConnectingStatus::Outbound {
-                _permit: network_state
-                    .tier2
-                    .start_outbound(peer_id.clone())
-                    .map_err(ClosingReason::OutboundNotAllowed)?,
+                _permit: {
+                    // This block will be executed for TIER2 only.
+                    {
+                        // A loop connection is not allowed on TIER2
+                        // (it is allowed on TIER1 to verify node's public IP).
+                        // TODO(gprusak): try to make this more consistent.
+                        if peer_id == &network_state.config.node_id() {
+                            return Err(ClosingReason::OutboundNotAllowed(
+                                connection::PoolError::UnexpectedLoopConnection,
+                            ));
+                        }
+                        network_state
+                            .tier2
+                            .start_outbound(peer_id.clone())
+                            .map_err(ClosingReason::OutboundNotAllowed)?
+                    }
+                },
                 handshake_spec: HandshakeSpec {
                     partial_edge_info: network_state.propose_edge(&clock, peer_id, None),
                     protocol_version: PROTOCOL_VERSION,
@@ -232,10 +245,10 @@ impl PeerActor {
         // Start PeerActor on separate thread.
         Ok((
             Self::start_in_arbiter(&actix::Arbiter::new().handle(), move |ctx| {
-                let stats = Arc::new(connection::Stats::default());
                 let stream_id = stream.id();
                 let peer_addr = stream.peer_addr;
                 let stream_type = stream.type_.clone();
+                let stats = Arc::new(connection::Stats::default());
                 let framed = stream::FramedStream::spawn(ctx, stream, stats.clone());
                 Self {
                     closing_reason: None,

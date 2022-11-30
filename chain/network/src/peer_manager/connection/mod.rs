@@ -49,9 +49,9 @@ pub(crate) struct Connection {
     pub addr: actix::Addr<PeerActor>,
 
     pub peer_info: PeerInfo,
+    pub edge: ArcMutex<Edge>,
     /// AccountKey ownership proof.
     pub owned_account: Option<SignedOwnedAccount>,
-    pub edge: ArcMutex<Edge>,
     /// Chain Id and hash of genesis block.
     pub genesis_id: GenesisId,
     /// Shards that the peer is tracking.
@@ -198,6 +198,8 @@ pub(crate) struct PoolSnapshot {
     /// In this scenario A will fail to obtain a permit, because it has already accepted a
     /// connection from B.
     pub outbound_handshakes: im::HashSet<PeerId>,
+    /// Inbound end of the loop connection. The outbound end is added to the `ready` set.
+    pub loop_inbound: Option<Arc<Connection>>,
 }
 
 pub(crate) struct OutboundHandshakePermit(PeerId, Weak<ArcMutex<PoolSnapshot>>);
@@ -237,12 +239,13 @@ pub(crate) enum PoolError {
     #[error("already started another outbound connection to this peer")]
     AlreadyStartedConnecting,
     #[error("loop connections are not allowed")]
-    LoopConnection,
+    UnexpectedLoopConnection,
 }
 
 impl Pool {
     pub fn new(me: PeerId) -> Pool {
         Self(Arc::new(ArcMutex::new(PoolSnapshot {
+            loop_inbound: None,
             me,
             ready: im::HashMap::new(),
             ready_by_account_key: im::HashMap::new(),
@@ -256,16 +259,28 @@ impl Pool {
 
     pub fn insert_ready(&self, peer: Arc<Connection>) -> Result<(), PoolError> {
         self.0.try_update(move |mut pool| {
-            let id = &peer.peer_info.id;
-            if id == &pool.me {
-                return Err(PoolError::LoopConnection);
-            }
-            if pool.ready.contains_key(id) {
-                return Err(PoolError::AlreadyConnected);
+            let id = peer.peer_info.id.clone();
+            // We support loopback connections for the purpose of 
+            // validating our own external IP. This is the only case
+            // in which we allow 2 connections in a pool to have the same
+            // PeerId. The outbound connection is added to the
+            // `ready` set, the inbound connection is put into dedicated `loop_inbound` field.
+            if id==pool.me && peer.peer_type==PeerType::Inbound {
+                if pool.loop_inbound.is_some() {
+                    return Err(PoolError::AlreadyConnected);
+                }
+                // Detect a situation in which a different node tries to connect
+                // to us with the same PeerId. This can happen iff the node key
+                // has been stolen (or just copied over by mistake).
+                if !pool.ready.contains_key(&id) && !pool.outbound_handshakes.contains(&id) {
+                    return Err(PoolError::UnexpectedLoopConnection);
+                }
+                pool.loop_inbound = Some(peer);
+                return Ok(((),pool));
             }
             match peer.peer_type {
                 PeerType::Inbound => {
-                    if pool.outbound_handshakes.contains(id) && id >= &pool.me {
+                    if pool.outbound_handshakes.contains(&id) && id >= pool.me {
                         return Err(PoolError::AlreadyStartedConnecting);
                     }
                 }
@@ -277,7 +292,7 @@ impl Pool {
                     // that permit is dropped properly. However we will still
                     // need a runtime check to verify that the permit comes
                     // from the same Pool instance and is for the right PeerId.
-                    if !pool.outbound_handshakes.contains(id) {
+                    if !pool.outbound_handshakes.contains(&id) {
                         panic!("bug detected: OutboundHandshakePermit dropped before calling Pool.insert_ready()")
                     }
                 }
@@ -328,9 +343,6 @@ impl Pool {
 
     pub fn start_outbound(&self, peer_id: PeerId) -> Result<OutboundHandshakePermit, PoolError> {
         self.0.try_update(move |mut pool| {
-            if peer_id == pool.me {
-                return Err(PoolError::LoopConnection);
-            }
             if pool.ready.contains_key(&peer_id) {
                 return Err(PoolError::AlreadyConnected);
             }
