@@ -2,7 +2,6 @@ use std::time::Duration;
 
 use awc::{Client, Connector};
 use futures::{future, future::LocalBoxFuture, FutureExt, TryFutureExt};
-use near_jsonrpc_primitives::types::transactions::RpcTransactionInclusionWaitResponse;
 use near_primitives::types::Finality;
 use serde::Deserialize;
 use serde::Serialize;
@@ -199,8 +198,6 @@ jsonrpc_client!(pub struct JsonRpcClient {
     // TODO check or modify return types
     #[allow(non_snake_case)]
     pub fn EXPERIMENTAL_tx_wait(&self, tx: &str, finality: Finality, wait_type: &str) -> RpcRequest<FinalExecutionOutcomeView>;
-    #[allow(non_snake_case)]
-    pub fn EXPERIMENTAL_tx_inclusion_wait(&self, tx: &str, finality: Finality) -> RpcRequest<RpcTransactionInclusionWaitResponse>;
     pub fn health(&self) -> RpcRequest<()>;
     pub fn tx(&self, hash: String, account_id: AccountId) -> RpcRequest<FinalExecutionOutcomeView>;
     pub fn chunk(&self, id: ChunkId) -> RpcRequest<ChunkView>;

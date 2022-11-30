@@ -10,7 +10,7 @@ use actix_web::HttpRequest;
 use actix_web::{get, http, middleware, web, App, Error as HttpError, HttpResponse, HttpServer};
 use futures::Future;
 use futures::FutureExt;
-use near_client_primitives::types::{TxInclusion, TxWaitType};
+use near_client_primitives::types::TxWaitType;
 use near_network::PeerManagerActor;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -32,7 +32,7 @@ use near_o11y::metrics::{prometheus, Encoder, TextEncoder};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeight, Finality};
-use near_primitives::views::{FinalExecutionOutcomeViewEnum, InclusionView};
+use near_primitives::views::FinalExecutionOutcomeViewEnum;
 
 mod api;
 mod metrics;
@@ -318,9 +318,6 @@ impl JsonRpcHandler {
             "EXPERIMENTAL_tx_wait" => {
                 process_method_call(request, |params| self.wait_tx_execution(params)).await
             }
-            "EXPERIMENTAL_tx_inclusion_wait" => {
-                process_method_call(request, |params| self.wait_tx_inclusion(params)).await
-            }
             "EXPERIMENTAL_changes" => {
                 process_method_call(request, |params| self.changes_in_block_by_type(params)).await
             }
@@ -468,10 +465,14 @@ impl JsonRpcHandler {
     ) -> Result<bool, near_jsonrpc_primitives::types::transactions::RpcTransactionError> {
         timeout(self.polling_config.polling_timeout, async {
             loop {
+                // TODO(optimization): Introduce a view_client method to only get transaction
+                // status without the information about execution outcomes.
                 match self.view_client_send(
-                    TxInclusion {
+                    TxStatus {
                         tx_hash,
                         signer_account_id: signer_account_id.clone(),
+                        fetch_receipt: false,
+                        finality: None,
                     })
                     .await
                 {
@@ -672,58 +673,6 @@ impl JsonRpcHandler {
             Some((request_data.finality, request_data.wait_type)),
         )
         .await
-    }
-
-    async fn wait_tx_inclusion(
-        &self,
-        request_data: near_jsonrpc_primitives::types::transactions::RpcTransactionInclusionWaitRequest,
-    ) -> Result<
-        near_jsonrpc_primitives::types::transactions::RpcTransactionInclusionWaitResponse,
-        near_jsonrpc_primitives::types::transactions::RpcTransactionError,
-    > {
-        let tx_hash = request_data.transaction_info.hash();
-        let signer_account_id = request_data.transaction_info.signer_account_id();
-        let request_finality = request_data.finality;
-        timeout(self.polling_config.polling_timeout, async {
-            loop {
-                match self.view_client_send(
-                    TxInclusion {
-                        tx_hash: *tx_hash,
-                        signer_account_id: signer_account_id.clone(),
-                    })
-                    .await
-                {
-                    Ok(Some(InclusionView { finality, block_hash })) => {
-                        if matches!(request_finality, Finality::Final) && matches!(finality, Finality::Final) {
-                            return Ok(near_jsonrpc_primitives::types::transactions::RpcTransactionInclusionWaitResponse { block_hash});
-                        } else if matches!(request_finality, Finality::DoomSlug) && matches!(finality, Finality::Final | Finality::DoomSlug) {
-                            return Ok(near_jsonrpc_primitives::types::transactions::RpcTransactionInclusionWaitResponse { block_hash});
-                        } else if matches!(request_finality, Finality::None){
-                            return Ok(near_jsonrpc_primitives::types::transactions::RpcTransactionInclusionWaitResponse { block_hash});
-                        }
-
-                        // If none of the above finality conditions are met, we keep polling.
-                    }
-                    Err(err @ near_jsonrpc_primitives::types::transactions::RpcTransactionError::UnknownTransaction {
-                        ..
-                    }) => {
-                        return Err(err);
-                    }
-                    _ => {}
-                }
-                sleep(self.polling_config.polling_interval).await;
-            }
-        })
-        .await
-        .map_err(|_| {
-            metrics::RPC_TIMEOUT_TOTAL.inc();
-            tracing::warn!(
-                target: "jsonrpc", "Timeout: wait_tx_inclusion method. tx_hash {:?} signer_account_id {:?}",
-                tx_hash,
-                signer_account_id
-            );
-            near_jsonrpc_primitives::types::transactions::RpcTransactionError::TimeoutError
-        })?
     }
 
     async fn check_tx(

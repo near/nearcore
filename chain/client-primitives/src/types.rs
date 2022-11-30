@@ -19,10 +19,9 @@ use near_primitives::types::{
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
     BlockView, ChunkView, DownloadStatusView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
-    FinalExecutionOutcomeViewEnum, GasPriceView, InclusionView, LightClientBlockLiteView,
-    LightClientBlockView, MaintenanceWindowsView, QueryRequest, QueryResponse, ReceiptView,
-    ShardSyncDownloadView, StateChangesKindsView, StateChangesRequestView, StateChangesView,
-    SyncStatusView,
+    FinalExecutionOutcomeViewEnum, GasPriceView, LightClientBlockLiteView, LightClientBlockView,
+    MaintenanceWindowsView, QueryRequest, QueryResponse, ReceiptView, ShardSyncDownloadView,
+    StateChangesKindsView, StateChangesRequestView, StateChangesView, SyncStatusView,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 use serde::{Deserialize, Serialize};
@@ -608,14 +607,6 @@ impl Default for TxWaitType {
     }
 }
 
-/// Details of a transaction inclusion. A similar query to [TxStatus] but does not include
-/// transaction result and receipts.
-pub struct TxInclusion {
-    pub tx_hash: CryptoHash,
-    // TODO ! very likely remove the signer here.
-    pub signer_account_id: AccountId,
-}
-
 #[derive(Debug)]
 pub enum TxStatusError {
     ChainError(near_chain_primitives::Error),
@@ -632,10 +623,6 @@ impl From<near_chain_primitives::Error> for TxStatusError {
 
 impl Message for TxStatus {
     type Result = Result<Option<FinalExecutionOutcomeViewEnum>, TxStatusError>;
-}
-
-impl Message for TxInclusion {
-    type Result = Result<Option<InclusionView>, TxStatusError>;
 }
 
 pub struct GetValidatorInfo {

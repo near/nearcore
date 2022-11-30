@@ -109,20 +109,6 @@ fn test_send_tx_async_wait() {
             }};
         }
 
-        macro_rules! inclusion_wait {
-            ($finality:expr) => {{
-                let tx_encoded1 = tx_encoded.clone();
-                let wait_client = new_client(&client.server_addr);
-                actix::spawn(async move {
-                    let result = wait_client
-                        .EXPERIMENTAL_tx_inclusion_wait(&tx_encoded1, $finality)
-                        .await
-                        .unwrap();
-                    result.block_hash
-                })
-            }};
-        }
-
         // TODO ! This is broken because DB doesn't seem to be updated in these cases
         // TODO ..need to explore if it's because the data isn't stored on the shard or if
         // TODO ..testing infra is just mocked (which it seems like)
@@ -130,18 +116,6 @@ fn test_send_tx_async_wait() {
         // let f_e_handle = execution_wait!(Finality::Final, "execution_result");
         // let ds_f_handle = execution_wait!(Finality::DoomSlug, "full");
         let n_f_handle = execution_wait!(Finality::None, "full");
-
-        // TODO ! re-enable tests when fixed
-        // let i_f_hash = inclusion_wait!(Finality::Final).await.unwrap();
-        // let i_ds_hash = inclusion_wait!(Finality::DoomSlug).await.unwrap();
-        // let i_n_hash = inclusion_wait!(Finality::None).await.unwrap();
-
-        // Transaction should be able to be queried now that inclusion has awaited on.
-        // get block hash to verify against
-        // let result = client.tx(tx.get_hash().to_string(), tx.transaction.signer_id).await.unwrap();
-        // assert_eq!(result.transaction_outcome.block_hash, i_f_hash);
-        // assert_eq!(result.transaction_outcome.block_hash, i_ds_hash);
-        // assert_eq!(result.transaction_outcome.block_hash, i_n_hash);
 
         // Await on all executions to be awaited and status checked
         // f_f_handle.await.unwrap();

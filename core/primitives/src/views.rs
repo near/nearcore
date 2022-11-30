@@ -43,9 +43,9 @@ use crate::transaction::{
 };
 use crate::types::{
     AccountId, AccountWithPublicKey, Balance, BlockHeight, CompiledContractCache, EpochHeight,
-    EpochId, Finality, FunctionArgs, Gas, Nonce, NumBlocks, ShardId, StateChangeCause,
-    StateChangeKind, StateChangeValue, StateChangeWithCause, StateChangesRequest, StateRoot,
-    StorageUsage, StoreKey, StoreValue, ValidatorKickoutReason,
+    EpochId, FunctionArgs, Gas, Nonce, NumBlocks, ShardId, StateChangeCause, StateChangeKind,
+    StateChangeValue, StateChangeWithCause, StateChangesRequest, StateRoot, StorageUsage, StoreKey,
+    StoreValue, ValidatorKickoutReason,
 };
 use crate::version::{ProtocolVersion, Version};
 use validator_stake_view::ValidatorStakeView;
@@ -1464,14 +1464,6 @@ pub struct FinalExecutionOutcomeWithReceiptView {
     pub final_outcome: FinalExecutionOutcomeView,
     /// Receipts generated from the transaction
     pub receipts: Vec<ReceiptView>,
-}
-
-#[derive(Serialize, Deserialize, PartialEq, Eq, Clone)]
-pub struct InclusionView {
-    /// Finality of the inclusion.
-    pub finality: Finality,
-    /// Block hash of the transaction inclusion.
-    pub block_hash: CryptoHash,
 }
 
 pub mod validator_stake_view {

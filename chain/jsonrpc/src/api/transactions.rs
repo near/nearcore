@@ -4,8 +4,7 @@ use near_client_primitives::types::{TxStatusError, TxWaitType};
 use near_jsonrpc_primitives::errors::RpcParseError;
 use near_jsonrpc_primitives::types::transactions::{
     RpcBroadcastTransactionRequest, RpcTransactionError, RpcTransactionExecutionWaitRequest,
-    RpcTransactionInclusionWaitRequest, RpcTransactionResponse, RpcTransactionStatusCommonRequest,
-    TransactionInfo,
+    RpcTransactionResponse, RpcTransactionStatusCommonRequest, TransactionInfo,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{AccountId, Finality};
@@ -50,24 +49,6 @@ impl RpcRequest for RpcTransactionExecutionWaitRequest {
             let transaction_info =
                 TransactionInfo::Transaction(decode_signed_transaction(&encoded_tx)?);
             Ok(Self { transaction_info, finality, wait_type })
-        }
-    }
-}
-
-impl RpcRequest for RpcTransactionInclusionWaitRequest {
-    fn parse(value: Option<Value>) -> Result<Self, RpcParseError> {
-        // Try to parse with transaction and hash and account id first
-        if let Ok((hash, account_id, finality)) =
-            parse_params::<(CryptoHash, AccountId, Finality)>(value.clone())
-        {
-            let transaction_info = TransactionInfo::TransactionId { hash, account_id };
-            Ok(Self { transaction_info, finality })
-        } else {
-            // If decoding the previous fails, try decoding the tx info as a signed transaction.
-            let (encoded_tx, finality) = parse_params::<(String, Finality)>(value)?;
-            let transaction_info =
-                TransactionInfo::Transaction(decode_signed_transaction(&encoded_tx)?);
-            Ok(Self { transaction_info, finality })
         }
     }
 }

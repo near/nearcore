@@ -24,7 +24,7 @@ use near_client_primitives::types::{
     GetMaintenanceWindowsError, GetNextLightClientBlockError, GetProtocolConfig,
     GetProtocolConfigError, GetReceipt, GetReceiptError, GetStateChangesError,
     GetStateChangesWithCauseInBlock, GetStateChangesWithCauseInBlockForTrackedShards,
-    GetValidatorInfoError, Query, QueryError, TxInclusion, TxStatus, TxStatusError, TxWaitType,
+    GetValidatorInfoError, Query, QueryError, TxStatus, TxStatusError, TxWaitType,
 };
 #[cfg(feature = "test_features")]
 use near_network::types::NetworkAdversarialMessage;
@@ -51,9 +51,9 @@ use near_primitives::types::{
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
-    FinalExecutionOutcomeView, FinalExecutionOutcomeViewEnum, GasPriceView, InclusionView,
-    LightClientBlockView, MaintenanceWindowsView, QueryRequest, QueryResponse, ReceiptView,
-    StateChangesKindsView, StateChangesView,
+    FinalExecutionOutcomeView, FinalExecutionOutcomeViewEnum, GasPriceView, LightClientBlockView,
+    MaintenanceWindowsView, QueryRequest, QueryResponse, ReceiptView, StateChangesKindsView,
+    StateChangesView,
 };
 
 use crate::adapter::{
@@ -657,18 +657,6 @@ impl Handler<WithSpanContext<TxStatus>> for ViewClientActor {
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["TxStatus"]).start_timer();
         self.get_tx_status(msg.tx_hash, msg.signer_account_id, msg.fetch_receipt, msg.finality)
-    }
-}
-
-impl Handler<WithSpanContext<TxInclusion>> for ViewClientActor {
-    type Result = Result<Option<InclusionView>, TxStatusError>;
-
-    #[perf]
-    fn handle(&mut self, msg: WithSpanContext<TxInclusion>, _: &mut Self::Context) -> Self::Result {
-        let (_span, msg) = handler_debug_span!(target: "client", msg);
-        let _timer =
-            metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["TxInclusion"]).start_timer();
-        Ok(self.chain.get_transaction_inclusion(&msg.tx_hash)?)
     }
 }
 

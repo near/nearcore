@@ -48,7 +48,7 @@ use near_primitives::utils::MaybeValidated;
 use near_primitives::views::{
     BlockStatusView, DroppedReason, ExecutionOutcomeWithIdView, ExecutionStatusView,
     FinalExecutionOutcomeView, FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus,
-    InclusionView, LightClientBlockView, SignedTransactionView,
+    LightClientBlockView, SignedTransactionView,
 };
 #[cfg(feature = "protocol_feature_flat_state")]
 use near_store::{flat_state, StorageError};
@@ -3413,7 +3413,6 @@ impl Chain {
                 }
             })
             .expect("results should resolve to a final outcome");
-
         let receipts_outcome = outcomes.split_off(1);
         let transaction = self.store.get_transaction(transaction_hash)?.ok_or_else(|| {
             Error::DBNotFoundErr(format!("Transaction {} is not found", transaction_hash))
@@ -3436,7 +3435,6 @@ impl Chain {
             .receipts_outcome
             .iter()
             .filter_map(|outcome| {
-                // TODO dig into why this case is handled specifically
                 if Some(outcome.id) == receipt_id_from_transaction && is_local_receipt {
                     None
                 } else {
@@ -3496,29 +3494,6 @@ impl Chain {
 
         // All receipts were checked to be finalized.
         Ok(true)
-    }
-
-    /// Return transaction inclusion with finality of the inclusion.
-    pub fn get_transaction_inclusion(
-        &self,
-        transaction_hash: &CryptoHash,
-    ) -> Result<Option<InclusionView>, Error> {
-        let transaction = match self.store.get_transaction(transaction_hash)? {
-            Some(tx) => tx,
-            None => return Ok(None),
-        };
-        // TODO ! this block hash is very wrong. It's the hash of the block the tx is built on.
-        let current_block = self.get_block_header(&transaction.transaction.block_hash)?;
-        let on_current_chain = self.is_on_current_chain(&current_block)?;
-        let finality = if on_current_chain && current_block.height() <= self.final_head()?.height {
-            Finality::Final
-        } else if on_current_chain && current_block.height() <= self.get_doomslug_header()?.height()
-        {
-            Finality::DoomSlug
-        } else {
-            Finality::None
-        };
-        Ok(Some(InclusionView { finality, block_hash: *current_block.hash() }))
     }
 
     /// Find a validator to forward transactions to

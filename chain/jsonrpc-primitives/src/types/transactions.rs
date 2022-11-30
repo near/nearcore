@@ -1,9 +1,12 @@
+use std::borrow::Borrow;
+
 use near_client_primitives::types::TxWaitType;
-use near_primitives::hash::CryptoHash;
-use near_primitives::types::{AccountId, Finality};
+use near_primitives::{
+    hash::CryptoHash,
+    types::{AccountId, Finality},
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::borrow::Borrow;
 
 #[derive(Debug, Clone)]
 pub struct RpcBroadcastTransactionRequest {
@@ -109,16 +112,4 @@ pub struct RpcTransactionExecutionWaitRequest {
     pub transaction_info: TransactionInfo,
     pub finality: Finality,
     pub wait_type: TxWaitType,
-}
-
-#[derive(Debug, Clone)]
-pub struct RpcTransactionInclusionWaitRequest {
-    pub transaction_info: TransactionInfo,
-    pub finality: Finality,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct RpcTransactionInclusionWaitResponse {
-    /// Block hash the transaction was included in.
-    pub block_hash: CryptoHash,
 }
