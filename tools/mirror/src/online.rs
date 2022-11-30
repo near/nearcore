@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use near_chain_configs::GenesisValidationMode;
 use near_client::ViewClientActor;
 use near_client_primitives::types::{
-    GetBlock, GetChunk, GetChunkError, GetExecutionOutcome, GetReceipt, Query,
+    GetBlock, GetBlockError, GetChunk, GetChunkError, GetExecutionOutcome, GetReceipt, Query,
 };
 use near_crypto::PublicKey;
 use near_o11y::WithSpanContextExt;
@@ -39,15 +39,19 @@ impl ChainAccess {
 
 #[async_trait(?Send)]
 impl crate::ChainAccess for ChainAccess {
-    // wait until HEAD moves. We don't really need it to be fully synced.
-    async fn init(&self) -> anyhow::Result<()> {
+    async fn init(
+        &self,
+        last_height: BlockHeight,
+        num_initial_blocks: usize,
+    ) -> anyhow::Result<Vec<BlockHeight>> {
+        // first wait until HEAD moves. We don't really need it to be fully synced.
         let mut first_height = None;
         loop {
             match self.head_height().await {
                 Ok(head) => match first_height {
                     Some(h) => {
                         if h != head {
-                            return Ok(());
+                            break;
                         }
                     }
                     None => {
@@ -59,6 +63,31 @@ impl crate::ChainAccess for ChainAccess {
             };
 
             tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+
+        let mut block_heights = Vec::with_capacity(num_initial_blocks);
+        let mut height = last_height;
+
+        loop {
+            // note that here we are using the fact that get_next_block_height() for this struct
+            // allows passing a height that doesn't exist in the chain. This is not true for the offline
+            // version
+            match self.get_next_block_height(height).await {
+                Ok(h) => {
+                    block_heights.push(h);
+                    height = h;
+                    if block_heights.len() >= num_initial_blocks {
+                        return Ok(block_heights);
+                    }
+                }
+                Err(ChainError::Unknown) => {
+                    tokio::time::sleep(Duration::from_millis(500)).await;
+                }
+                Err(ChainError::Other(e)) => {
+                    return Err(e)
+                        .with_context(|| format!("failed fetching next block after #{}", height))
+                }
+            }
         }
     }
 
@@ -107,6 +136,40 @@ impl crate::ChainAccess for ChainAccess {
         }
 
         Ok(chunks)
+    }
+
+    async fn get_next_block_height(
+        &self,
+        mut height: BlockHeight,
+    ) -> Result<BlockHeight, ChainError> {
+        let head = self.head_height().await?;
+
+        if height >= head {
+            // let's only return finalized heights
+            Err(ChainError::Unknown)
+        } else if height + 1 == head {
+            Ok(head)
+        } else {
+            loop {
+                height += 1;
+                if height >= head {
+                    break Err(ChainError::Unknown);
+                }
+                match self
+                    .view_client
+                    .send(
+                        GetBlock(BlockReference::BlockId(BlockId::Height(height)))
+                            .with_span_context(),
+                    )
+                    .await
+                    .unwrap()
+                {
+                    Ok(b) => break Ok(b.header.height),
+                    Err(GetBlockError::UnknownBlock { .. }) => {}
+                    Err(e) => break Err(ChainError::other(e)),
+                }
+            }
+        }
     }
 
     async fn get_outcome(
