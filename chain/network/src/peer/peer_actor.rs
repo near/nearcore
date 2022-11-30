@@ -1130,6 +1130,9 @@ impl PeerActor {
                     // Check whenever we exceeded number of transactions we got since last block.
                     // If so, drop the transaction.
                     let r = self.network_state.txns_since_last_block.load(Ordering::Acquire);
+                    // TODO(gprusak): this constraint doesn't take into consideration such
+                    // parameters as number of nodes or number of shards. Reconsider why do we need
+                    // this and whether this is really the right way of handling it.
                     if r > MAX_TRANSACTIONS_PER_BLOCK_MESSAGE {
                         metrics::MessageDropped::TransactionsPerBlockExceeded.inc(&msg.body);
                         return;
