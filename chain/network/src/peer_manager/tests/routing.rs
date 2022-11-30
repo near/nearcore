@@ -838,6 +838,11 @@ async fn max_num_peers_limit() {
 
     tracing::info!(target:"test", "wait for {id3} routing table");
     pm3.wait_for_routing_table(&[]).await;
+
+    drop(pm0);
+    drop(pm1);
+    drop(pm2);
+    drop(pm3);
 }
 
 // test that TTL is handled property.
