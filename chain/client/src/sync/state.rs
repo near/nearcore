@@ -886,3 +886,54 @@ impl<T: Clone> Iterator for SamplerLimited<T> {
         }
     }
 }
+
+#[cfg(test)]
+mod test {
+
+    use near_chain::{
+        test_utils::KeyValueRuntime, types::ChainConfig, ChainGenesis, DoomslugThresholdMode,
+    };
+    use near_chain_configs::GenesisConfig;
+    use near_network::test_utils::MockPeerManagerAdapter;
+    use near_store::test_utils::create_test_store;
+
+    use super::*;
+
+    #[test]
+    fn test_basic_flow() {
+        let mock_peer_manager = Arc::new(MockPeerManagerAdapter::default());
+        let mut state_sync = StateSync::new(mock_peer_manager.clone(), TimeDuration::from_secs(1));
+        let mut new_shard_sync = HashMap::new();
+
+        let store = create_test_store();
+        let chain_genesis = ChainGenesis::test();
+        let runtime_adapter =
+            Arc::new(KeyValueRuntime::new(store.clone(), chain_genesis.epoch_length));
+        let mut genesis = GenesisConfig::default();
+        genesis.genesis_height = 0;
+        let mut chain = Chain::new(
+            runtime_adapter.clone(),
+            &chain_genesis,
+            DoomslugThresholdMode::NoApprovals,
+            ChainConfig::test(),
+        )
+        .unwrap();
+
+        let apply_parts_fn = move |request: ApplyStatePartsRequest| {};
+        let state_split_fn = move |request: StateSplitRequest| {};
+
+        state_sync
+            .run(
+                &None,
+                "DR8ukGaqNu12B7SU1DUSicCkuZJSG1hH47jK7NLLp3GR".parse().unwrap(),
+                &mut new_shard_sync,
+                &mut chain,
+                &(runtime_adapter as Arc<dyn RuntimeAdapter>),
+                &[],
+                vec![0],
+                &apply_parts_fn,
+                &state_split_fn,
+            )
+            .unwrap();
+    }
+}
