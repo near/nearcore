@@ -98,7 +98,6 @@ pub(crate) struct NetworkState {
     /// A graph of the whole NEAR network.
     pub graph: Arc<crate::routing::Graph>,
 
-
     /// Hash of messages that requires routing back to respective previous hop.
     pub tier1_route_back: Mutex<RouteBackCache>,
 
