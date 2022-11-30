@@ -21,6 +21,7 @@
 //!
 
 use near_chain::{near_chain_primitives, Error};
+use near_primitives::state_part::PartId;
 use std::collections::HashMap;
 use std::ops::Add;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -39,7 +40,7 @@ use near_network::types::{
     HighestHeightPeerInfo, NetworkRequests, NetworkResponses, PeerManagerAdapter,
 };
 use near_primitives::hash::CryptoHash;
-use near_primitives::syncing::get_num_state_parts;
+use near_primitives::syncing::{get_num_state_parts, ShardStateSyncResponse};
 use near_primitives::time::{Clock, Utc};
 use near_primitives::types::{AccountId, ShardId, StateRoot};
 
@@ -580,7 +581,7 @@ impl StateSync {
     }
 
     /// Returns new ShardSyncDownload if successful, otherwise returns given shard_sync_download
-    pub fn request_shard(
+    fn request_shard(
         &mut self,
         me: &Option<AccountId>,
         shard_id: ShardId,
@@ -756,6 +757,71 @@ impl StateSync {
         } else {
             StateSyncResult::Unchanged
         })
+    }
+
+    pub fn update_download_on_state_response_message(
+        &mut self,
+        shard_sync_download: &mut ShardSyncDownload,
+        hash: CryptoHash,
+        shard_id: u64,
+        state_response: ShardStateSyncResponse,
+        chain: &mut Chain,
+    ) {
+        if let Some(part_id) = state_response.part_id() {
+            // Mark that we have received this part (this will update info on pending parts from peers etc).
+            self.received_requested_part(part_id, shard_id, hash);
+        }
+        match shard_sync_download.status {
+            ShardSyncStatus::StateDownloadHeader => {
+                if let Some(header) = state_response.take_header() {
+                    if !shard_sync_download.downloads[0].done {
+                        match chain.set_state_header(shard_id, hash, header) {
+                            Ok(()) => {
+                                shard_sync_download.downloads[0].done = true;
+                            }
+                            Err(err) => {
+                                error!(target: "sync", "State sync set_state_header error, shard = {}, hash = {}: {:?}", shard_id, hash, err);
+                                shard_sync_download.downloads[0].error = true;
+                            }
+                        }
+                    }
+                } else {
+                    // No header found.
+                    // It may happen because requested node couldn't build state response.
+                    if !shard_sync_download.downloads[0].done {
+                        info!(target: "sync", "state_response doesn't have header, should be re-requested, shard = {}, hash = {}", shard_id, hash);
+                        shard_sync_download.downloads[0].error = true;
+                    }
+                }
+            }
+            ShardSyncStatus::StateDownloadParts => {
+                if let Some(part) = state_response.take_part() {
+                    let num_parts = shard_sync_download.downloads.len() as u64;
+                    let (part_id, data) = part;
+                    if part_id >= num_parts {
+                        error!(target: "sync", "State sync received incorrect part_id # {:?} for hash {:?}, potential malicious peer", part_id, hash);
+                        return;
+                    }
+                    if !shard_sync_download.downloads[part_id as usize].done {
+                        match chain.set_state_part(
+                            shard_id,
+                            hash,
+                            PartId::new(part_id, num_parts),
+                            &data,
+                        ) {
+                            Ok(()) => {
+                                shard_sync_download.downloads[part_id as usize].done = true;
+                            }
+                            Err(err) => {
+                                error!(target: "sync", "State sync set_state_part error, shard = {}, part = {}, hash = {}: {:?}", shard_id, part_id, hash, err);
+                                shard_sync_download.downloads[part_id as usize].error = true;
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
     }
 }
 
