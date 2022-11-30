@@ -14,6 +14,7 @@ use near_primitives::types::AccountId;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
+use std::collections::HashSet;
 
 /// How much height horizon to give to consider peer up to date.
 pub const HIGHEST_PEER_HORIZON: u64 = 5;
@@ -178,7 +179,12 @@ impl NetworkConfig {
         if cfg.public_addrs.len() > 0 && cfg.trusted_stun_servers.len() > 0 {
             anyhow::bail!("you cannot specify both public_addrs and trusted_stun_servers");
         }
+        let mut proxies = HashSet::new();
         for proxy in &cfg.public_addrs {
+            if proxies.contains(&proxy.peer_id) {
+                anyhow::bail!("public_addrs: found multiple entries with peer_id {}. Only 1 entry per peer_id is supported.",proxy.peer_id);
+            }
+            proxies.insert(proxy.peer_id.clone());
             let ip = proxy.addr.ip();
             if cfg.allow_private_ip_in_public_addrs {
                 if ip.is_unspecified() {
