@@ -34,6 +34,7 @@ use near_primitives::state_part::PartId;
 use near_primitives::state_record::{state_record_to_account_id, StateRecord};
 use near_primitives::syncing::{get_num_state_parts, STATE_PART_MEMORY_LIMIT};
 use near_primitives::transaction::SignedTransaction;
+use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_raw_key;
 use near_primitives::types::validator_stake::ValidatorStakeIter;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, CompiledContractCache, EpochHeight, EpochId,
@@ -50,6 +51,7 @@ use near_store::flat_state::{
     store_helper, FlatStateFactory, FlatStorageState, FlatStorageStateStatus,
 };
 use near_store::split_state::get_delayed_receipts;
+use near_store::DBCol::State;
 use near_store::{
     get_genesis_hash, get_genesis_state_roots, set_genesis_hash, set_genesis_state_roots,
     ApplyStatePartResult, DBCol, PartialStorage, ShardTries, Store, StoreCompiledContractCache,
@@ -724,6 +726,41 @@ impl RuntimeAdapter for NightshadeRuntime {
             _ => {}
         }
         status
+    }
+
+    fn remove_flat_storage_state_for_shard(
+        &self,
+        shard_id: ShardId,
+        epoch_id: &EpochId,
+    ) -> Result<(), Error> {
+        match self.flat_state_factory.remove_flat_storage_state_for_shard(shard_id) {
+            None => {}
+            Some(_) => {
+                // will not work in case of resharding - need to remove items right after we stopped caring about shard
+                let shard_layout = self.get_shard_layout(epoch_id)?;
+                let mut store_update = self.store.store_update();
+                // in the future, we should support range updates and delete ranges of keys
+                // e.g. [ [0]+account_id(shard_id) .. [0]+account_id(shard_id+1) )
+                // same for all other key prefixes
+                for item in self.store.iter(DBCol::FlatState) {
+                    let (key, _) = item?;
+                    let account_id = parse_account_id_from_raw_key(&key)?.ok_or(
+                        Error::StorageError(StorageError::FlatStorageError(format!(
+                            "Failed to find account id in flat storage key {key}"
+                        ))),
+                    )?;
+                    if account_id_to_shard_id(&account_id, &shard_layout) == shard_id {
+                        store_update.delete(DBCol::FlatState, &key);
+                    }
+                }
+
+                // remove DBCol::FlatStateDeltas. add custom serialization to remove everything by prefix?
+
+                store_helper::remove_flat_head(&mut store_update, shard_id);
+            }
+        }
+
+        Ok(())
     }
 
     fn set_flat_storage_state_for_genesis(

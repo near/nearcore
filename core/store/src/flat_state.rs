@@ -249,6 +249,15 @@ mod imp {
             let flat_storage_states = self.0.flat_storage_states.lock().expect(POISONED_LOCK_ERR);
             flat_storage_states.get(&shard_id).cloned()
         }
+
+        pub fn remove_flat_storage_state_for_shard(
+            &self,
+            shard_id: ShardId,
+        ) -> Option<FlatStorageState> {
+            let mut flat_storage_states =
+                self.0.flat_storage_states.lock().expect(POISONED_LOCK_ERR);
+            flat_storage_states.remove(&shard_id)
+        }
     }
 }
 

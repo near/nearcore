@@ -213,6 +213,11 @@ impl StateSync {
                 update_sync_status = true;
                 init_sync_download.clone()
             });
+            // if shard sync was just initialized, remove flat storage state data if it exists
+            if need_shard {
+                chain.runtime_adapter.remove_flat_storage_state_for_shard(shard_id, &epoch_id)?;
+            }
+
             let old_status = shard_sync_download.status.clone();
             let mut this_done = false;
             match &shard_sync_download.status {
