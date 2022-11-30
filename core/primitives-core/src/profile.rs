@@ -1,56 +1,22 @@
+pub use profile_v1::ProfileDataV1;
+
 use crate::config::{ActionCosts, ExtCosts};
+use crate::types::Gas;
 use borsh::{BorshDeserialize, BorshSerialize};
+use enum_map::{enum_map, EnumMap};
 use std::fmt;
 use std::ops::{Index, IndexMut};
 use strum::IntoEnumIterator;
 
-/// Serialization format to store profiles in the database.
-///
-/// This is not part of the protocol but archival nodes still rely on this not
-/// changing to answer old tx-status requests with a gas profile.
-#[derive(Clone, PartialEq, Eq)]
-pub struct DataArray(Box<[u64; Self::LEN]>);
-
-impl DataArray {
-    pub const LEN: usize = if cfg!(feature = "protocol_feature_ed25519_verify") { 72 } else { 70 };
-}
-
-impl Index<usize> for DataArray {
-    type Output = u64;
-
-    fn index(&self, index: usize) -> &Self::Output {
-        &self.0[index]
-    }
-}
-
-impl IndexMut<usize> for DataArray {
-    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        &mut self.0[index]
-    }
-}
-
-impl BorshDeserialize for DataArray {
-    fn deserialize(buf: &mut &[u8]) -> Result<Self, std::io::Error> {
-        let data_vec: Vec<u64> = BorshDeserialize::deserialize(buf)?;
-        let mut data_array = [0; Self::LEN];
-        let len = Self::LEN.min(data_vec.len());
-        data_array[0..len].copy_from_slice(&data_vec[0..len]);
-        Ok(Self(Box::new(data_array)))
-    }
-}
-
-impl BorshSerialize for DataArray {
-    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> Result<(), std::io::Error> {
-        let v: Vec<_> = self.0.as_ref().to_vec();
-        BorshSerialize::serialize(&v, writer)
-    }
-}
-
 /// Profile of gas consumption.
-/// When add new cost, the new cost should also be append to profile_index
-#[derive(Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct ProfileData {
-    data: DataArray,
+    /// Gas spent on sending or executing actions.
+    actions_profile: EnumMap<ActionCosts, Gas>,
+    /// Non-action gas spent outside the WASM VM while executing a contract.
+    wasm_ext_profile: EnumMap<ExtCosts, Gas>,
+    /// Gas spent on execution inside the WASM VM.
+    wasm_gas: Gas,
 }
 
 impl Default for ProfileData {
@@ -62,27 +28,32 @@ impl Default for ProfileData {
 impl ProfileData {
     #[inline]
     pub fn new() -> Self {
-        let costs = DataArray(Box::new([0; DataArray::LEN]));
-        ProfileData { data: costs }
-    }
-
-    #[inline]
-    pub fn merge(&mut self, other: &ProfileData) {
-        for i in 0..DataArray::LEN {
-            self.data[i] = self.data[i].saturating_add(other.data[i]);
+        ProfileData {
+            actions_profile: enum_map! { _ => 0 },
+            wasm_ext_profile: enum_map! { _ => 0 },
+            wasm_gas: 0,
         }
     }
 
     #[inline]
+    pub fn merge(&mut self, other: &ProfileData) {
+        for (cost, gas) in self.actions_profile.iter_mut() {
+            *gas = gas.saturating_add(other.actions_profile[cost]);
+        }
+        for (cost, gas) in self.wasm_ext_profile.iter_mut() {
+            *gas = gas.saturating_add(other.wasm_ext_profile[cost]);
+        }
+        self.wasm_gas = self.wasm_gas.saturating_add(other.wasm_gas);
+    }
+
+    #[inline]
     pub fn add_action_cost(&mut self, action: ActionCosts, value: u64) {
-        self[Cost::ActionCost { action_cost_kind: action }] =
-            self[Cost::ActionCost { action_cost_kind: action }].saturating_add(value);
+        self.actions_profile[action] = self.actions_profile[action].saturating_add(value);
     }
 
     #[inline]
     pub fn add_ext_cost(&mut self, ext: ExtCosts, value: u64) {
-        self[Cost::ExtCost { ext_cost_kind: ext }] =
-            self[Cost::ExtCost { ext_cost_kind: ext }].saturating_add(value);
+        self.wasm_ext_profile[ext] = self.wasm_ext_profile[ext].saturating_add(value);
     }
 
     /// WasmInstruction is the only cost we don't explicitly account for.
@@ -94,66 +65,25 @@ impl ProfileData {
     /// with the help on the VM side, so we don't want to have profiling logic
     /// there both for simplicity and efficiency reasons.
     pub fn compute_wasm_instruction_cost(&mut self, total_gas_burnt: u64) {
-        self[Cost::WasmInstruction] =
+        self.wasm_gas =
             total_gas_burnt.saturating_sub(self.action_gas()).saturating_sub(self.host_gas());
     }
 
+    #[cfg(test)]
     fn get_action_cost(&self, action: ActionCosts) -> u64 {
-        self[Cost::ActionCost { action_cost_kind: action }]
+        self.actions_profile[action]
     }
 
     pub fn get_ext_cost(&self, ext: ExtCosts) -> u64 {
-        self[Cost::ExtCost { ext_cost_kind: ext }]
+        self.wasm_ext_profile[ext]
     }
 
     fn host_gas(&self) -> u64 {
-        ExtCosts::iter().map(|a| self.get_ext_cost(a)).fold(0, u64::saturating_add)
+        self.wasm_ext_profile.as_slice().iter().copied().fold(0, u64::saturating_add)
     }
 
     pub fn action_gas(&self) -> u64 {
-        // TODO(#8033): Temporary hack to work around multiple action costs
-        // mapping to the same profile entry. Can be removed as soon as inner
-        // tracking of profile is tracked by parameter or when the profile is
-        // more detail, which ever happens first.
-        let mut indices: Vec<_> = ActionCosts::iter()
-            .map(|action_cost_kind| Cost::ActionCost { action_cost_kind }.profile_index())
-            .collect();
-        indices.sort_unstable();
-        indices.dedup();
-        indices.into_iter().map(|i| self.data[i]).fold(0, u64::saturating_add)
-    }
-}
-
-impl fmt::Debug for ProfileData {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use num_rational::Ratio;
-        let host_gas = self.host_gas();
-        let action_gas = self.action_gas();
-
-        writeln!(f, "------------------------------")?;
-        writeln!(f, "Action gas: {}", action_gas)?;
-        writeln!(f, "------ Host functions --------")?;
-        for cost in ExtCosts::iter() {
-            let d = self.get_ext_cost(cost);
-            if d != 0 {
-                writeln!(
-                    f,
-                    "{} -> {} [{}% host]",
-                    cost,
-                    d,
-                    Ratio::new(d * 100, core::cmp::max(host_gas, 1)).to_integer(),
-                )?;
-            }
-        }
-        writeln!(f, "------ Actions --------")?;
-        for cost in ActionCosts::iter() {
-            let d = self.get_action_cost(cost);
-            if d != 0 {
-                writeln!(f, "{} -> {}", cost, d)?;
-            }
-        }
-        writeln!(f, "------------------------------")?;
-        Ok(())
+        self.actions_profile.as_slice().iter().copied().fold(0, u64::saturating_add)
     }
 }
 
@@ -264,66 +194,219 @@ impl Cost {
     }
 }
 
-impl Index<Cost> for ProfileData {
-    type Output = u64;
-
-    fn index(&self, index: Cost) -> &Self::Output {
-        &self.data[index.profile_index()]
-    }
-}
-
-impl IndexMut<Cost> for ProfileData {
-    fn index_mut(&mut self, index: Cost) -> &mut Self::Output {
-        &mut self.data[index.profile_index()]
-    }
-}
-
-#[cfg(test)]
-mod test {
+mod profile_v1 {
     use super::*;
-
-    #[test]
-    fn test_profile_data_debug() {
-        let profile_data = ProfileData::new();
-        println!("{:#?}", &profile_data);
+    /// Deprecated serialization format to store profiles in the database.
+    ///
+    /// This is not part of the protocol but archival nodes still rely on this not
+    /// changing to answer old tx-status requests with a gas profile.
+    #[derive(Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+    pub struct ProfileDataV1 {
+        data: DataArray,
     }
 
-    #[test]
-    fn test_profile_data_debug_no_data() {
-        let profile_data = ProfileData::new();
-        println!("{:#?}", &profile_data);
+    // TODO: Remove
+    impl Default for ProfileDataV1 {
+        fn default() -> Self {
+            let costs = DataArray(Box::new([0; DataArray::LEN]));
+            ProfileDataV1 { data: costs }
+        }
     }
 
-    #[test]
-    fn test_no_panic_on_overflow() {
-        let mut profile_data = ProfileData::new();
-        profile_data.add_action_cost(ActionCosts::add_full_access_key, u64::MAX);
-        profile_data.add_action_cost(ActionCosts::add_full_access_key, u64::MAX);
+    #[derive(Clone, PartialEq, Eq)]
+    struct DataArray(Box<[u64; Self::LEN]>);
 
-        let res = profile_data.get_action_cost(ActionCosts::add_full_access_key);
-        assert_eq!(res, u64::MAX);
+    impl DataArray {
+        const LEN: usize = if cfg!(feature = "protocol_feature_ed25519_verify") { 72 } else { 70 };
     }
 
-    #[test]
-    fn test_merge() {
-        let mut profile_data = ProfileData::new();
-        profile_data.add_action_cost(ActionCosts::add_full_access_key, 111);
-        profile_data.add_ext_cost(ExtCosts::storage_read_base, 11);
+    impl ProfileDataV1 {
+        #[inline]
+        pub fn merge(&mut self, other: &ProfileDataV1) {
+            for i in 0..DataArray::LEN {
+                self.data[i] = self.data[i].saturating_add(other.data[i]);
+            }
+        }
 
-        let mut profile_data2 = ProfileData::new();
-        profile_data2.add_action_cost(ActionCosts::add_full_access_key, 222);
-        profile_data2.add_ext_cost(ExtCosts::storage_read_base, 22);
+        #[inline]
+        pub fn add_action_cost(&mut self, action: ActionCosts, value: u64) {
+            self[Cost::ActionCost { action_cost_kind: action }] =
+                self[Cost::ActionCost { action_cost_kind: action }].saturating_add(value);
+        }
 
-        profile_data.merge(&profile_data2);
-        assert_eq!(profile_data.get_action_cost(ActionCosts::add_full_access_key), 333);
-        assert_eq!(profile_data.get_ext_cost(ExtCosts::storage_read_base), 33);
+        #[inline]
+        pub fn add_ext_cost(&mut self, ext: ExtCosts, value: u64) {
+            self[Cost::ExtCost { ext_cost_kind: ext }] =
+                self[Cost::ExtCost { ext_cost_kind: ext }].saturating_add(value);
+        }
+
+        /// WasmInstruction is the only cost we don't explicitly account for.
+        /// Instead, we compute it at the end of contract call as the difference
+        /// between total gas burnt and what we've explicitly accounted for in the
+        /// profile.
+        ///
+        /// This is because WasmInstruction is the hottest cost and is implemented
+        /// with the help on the VM side, so we don't want to have profiling logic
+        /// there both for simplicity and efficiency reasons.
+        pub fn compute_wasm_instruction_cost(&mut self, total_gas_burnt: u64) {
+            self[Cost::WasmInstruction] =
+                total_gas_burnt.saturating_sub(self.action_gas()).saturating_sub(self.host_gas());
+        }
+
+        fn get_action_cost(&self, action: ActionCosts) -> u64 {
+            self[Cost::ActionCost { action_cost_kind: action }]
+        }
+
+        pub fn get_ext_cost(&self, ext: ExtCosts) -> u64 {
+            self[Cost::ExtCost { ext_cost_kind: ext }]
+        }
+
+        fn host_gas(&self) -> u64 {
+            ExtCosts::iter().map(|a| self.get_ext_cost(a)).fold(0, u64::saturating_add)
+        }
+
+        pub fn action_gas(&self) -> u64 {
+            // TODO(#8033): Temporary hack to work around multiple action costs
+            // mapping to the same profile entry. Can be removed as soon as inner
+            // tracking of profile is tracked by parameter or when the profile is
+            // more detail, which ever happens first.
+            let mut indices: Vec<_> = ActionCosts::iter()
+                .map(|action_cost_kind| Cost::ActionCost { action_cost_kind }.profile_index())
+                .collect();
+            indices.sort_unstable();
+            indices.dedup();
+            indices.into_iter().map(|i| self.data[i]).fold(0, u64::saturating_add)
+        }
     }
 
-    #[test]
-    fn test_profile_len() {
-        let mut indices: Vec<_> = Cost::iter().map(|i| i.profile_index()).collect();
-        indices.sort();
-        indices.dedup();
-        assert_eq!(indices.len(), DataArray::LEN);
+    impl fmt::Debug for ProfileDataV1 {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            use num_rational::Ratio;
+            let host_gas = self.host_gas();
+            let action_gas = self.action_gas();
+
+            writeln!(f, "------------------------------")?;
+            writeln!(f, "Action gas: {}", action_gas)?;
+            writeln!(f, "------ Host functions --------")?;
+            for cost in ExtCosts::iter() {
+                let d = self.get_ext_cost(cost);
+                if d != 0 {
+                    writeln!(
+                        f,
+                        "{} -> {} [{}% host]",
+                        cost,
+                        d,
+                        Ratio::new(d * 100, core::cmp::max(host_gas, 1)).to_integer(),
+                    )?;
+                }
+            }
+            writeln!(f, "------ Actions --------")?;
+            for cost in ActionCosts::iter() {
+                let d = self.get_action_cost(cost);
+                if d != 0 {
+                    writeln!(f, "{} -> {}", cost, d)?;
+                }
+            }
+            writeln!(f, "------------------------------")?;
+            Ok(())
+        }
+    }
+
+    impl Index<usize> for DataArray {
+        type Output = u64;
+
+        fn index(&self, index: usize) -> &Self::Output {
+            &self.0[index]
+        }
+    }
+
+    impl IndexMut<usize> for DataArray {
+        fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+            &mut self.0[index]
+        }
+    }
+
+    impl Index<Cost> for ProfileDataV1 {
+        type Output = u64;
+
+        fn index(&self, index: Cost) -> &Self::Output {
+            &self.data[index.profile_index()]
+        }
+    }
+
+    impl IndexMut<Cost> for ProfileDataV1 {
+        fn index_mut(&mut self, index: Cost) -> &mut Self::Output {
+            &mut self.data[index.profile_index()]
+        }
+    }
+
+    impl BorshDeserialize for DataArray {
+        fn deserialize(buf: &mut &[u8]) -> Result<Self, std::io::Error> {
+            let data_vec: Vec<u64> = BorshDeserialize::deserialize(buf)?;
+            let mut data_array = [0; Self::LEN];
+            let len = Self::LEN.min(data_vec.len());
+            data_array[0..len].copy_from_slice(&data_vec[0..len]);
+            Ok(Self(Box::new(data_array)))
+        }
+    }
+
+    impl BorshSerialize for DataArray {
+        fn serialize<W: std::io::Write>(&self, writer: &mut W) -> Result<(), std::io::Error> {
+            let v: Vec<_> = self.0.as_ref().to_vec();
+            BorshSerialize::serialize(&v, writer)
+        }
+    }
+
+    #[cfg(test)]
+    mod test {
+        use super::*;
+
+        #[test]
+        fn test_profile_data_debug() {
+            let profile_data = ProfileDataV1::default();
+            // TODO: this test is the same as test_profile_data_debug_no_data, need to add data
+            println!("{:#?}", &profile_data);
+        }
+
+        #[test]
+        fn test_profile_data_debug_no_data() {
+            let profile_data = ProfileDataV1::default();
+            println!("{:#?}", &profile_data);
+        }
+
+        #[test]
+        fn test_no_panic_on_overflow() {
+            let mut profile_data = ProfileDataV1::default();
+            profile_data.add_action_cost(ActionCosts::add_full_access_key, u64::MAX);
+            profile_data.add_action_cost(ActionCosts::add_full_access_key, u64::MAX);
+
+            let res = profile_data.get_action_cost(ActionCosts::add_full_access_key);
+            assert_eq!(res, u64::MAX);
+        }
+
+        #[test]
+        fn test_merge() {
+            let mut profile_data = ProfileData::new();
+            profile_data.add_action_cost(ActionCosts::add_full_access_key, 111);
+            profile_data.add_ext_cost(ExtCosts::storage_read_base, 11);
+
+            let mut profile_data2 = ProfileData::new();
+            profile_data2.add_action_cost(ActionCosts::add_full_access_key, 222);
+            profile_data2.add_ext_cost(ExtCosts::storage_read_base, 22);
+
+            profile_data.merge(&profile_data2);
+            assert_eq!(profile_data.get_action_cost(ActionCosts::add_full_access_key), 333);
+            assert_eq!(profile_data.get_ext_cost(ExtCosts::storage_read_base), 33);
+        }
+
+        #[test]
+        fn test_profile_len() {
+            let mut indices: Vec<_> = Cost::iter().map(|i| i.profile_index()).collect();
+            indices.sort();
+            indices.dedup();
+            assert_eq!(indices.len(), DataArray::LEN);
+        }
     }
 }
+
+// TODO: add tests for new profile data

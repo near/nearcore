@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use near_crypto::{PublicKey, Signature};
 use near_o11y::pretty;
-use near_primitives_core::profile::ProfileData;
+use near_primitives_core::profile::ProfileDataV1;
 
 use crate::account::AccessKey;
 use crate::errors::TxExecutionError;
@@ -370,7 +370,7 @@ pub enum ExecutionMetadata {
     V1,
 
     // V2: With ProfileData
-    V2(ProfileData),
+    V2(ProfileDataV1),
 }
 
 impl Default for ExecutionMetadata {
