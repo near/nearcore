@@ -67,9 +67,23 @@ impl ValidatorConfig {
 
 #[derive(Clone)]
 pub struct Tier1 {
+    /// Interval between attempts to connect to proxies of other TIER1 nodes.
+    pub connect_interval: time::Duration,
+    /// Maximal number of new connections established every connect_interval.
+    /// TIER1 can consists of hundreds of nodes, so it is not feasible to connect to all of them at
+    /// once.
+    pub new_connections_per_attempt: usize,
     /// Interval between broacasts of the list of validator's proxies.
     /// Before the broadcast, validator tries to establish all the missing connections to proxies.
     pub advertise_proxies_interval: time::Duration,
+    /// Support for gradual TIER1 feature rollout:
+    /// - establishing connection to node's own proxies is always enabled (it is a part of peer
+    ///   discovery mechanism). Note that unless the proxy has enable_inbound set, establishing
+    ///   those connections will fail anyway.
+    /// - a node will start accepting TIER1 inbound connections iff `enable_inbound` is true.
+    /// - a node will try to start outbound TIER1 connections iff `enable_outbound` is true.
+    pub enable_inbound: bool,
+    pub enable_outbound: bool,
 }
 
 /// Validated configuration for the peer-to-peer manager.
@@ -253,7 +267,13 @@ impl NetworkConfig {
             archive,
             accounts_data_broadcast_rate_limit: rate::Limit { qps: 0.1, burst: 1 },
             routing_table_update_rate_limit: rate::Limit { qps: 1., burst: 1 },
-            tier1: Some(Tier1 { advertise_proxies_interval: time::Duration::minutes(15) }),
+            tier1: Some(Tier1 {
+                connect_interval: time::Duration::seconds(60),
+                new_connections_per_attempt: 10,
+                advertise_proxies_interval: time::Duration::minutes(15),
+                enable_inbound: cfg.experimental.tier1_enable_inbound,
+                enable_outbound: cfg.experimental.tier1_enable_outbound,
+            }),
             inbound_disabled: cfg.experimental.inbound_disabled,
             skip_tombstones: if cfg.experimental.skip_sending_tombstones_seconds > 0 {
                 Some(time::Duration::seconds(cfg.experimental.skip_sending_tombstones_seconds))
@@ -321,7 +341,11 @@ impl NetworkConfig {
             tier1: Some(Tier1 {
                 // Interval is very large, so that it doesn't happen spontaneously in tests.
                 // It should rather be triggered manually in tests.
+                connect_interval: time::Duration::hours(1000),
+                new_connections_per_attempt: 10000,
                 advertise_proxies_interval: time::Duration::hours(1000),
+                enable_inbound: true,
+                enable_outbound: true,
             }),
             skip_tombstones: None,
             event_sink: Sink::null(),

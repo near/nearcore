@@ -2,10 +2,16 @@ use crate::network_protocol::PeerInfo;
 use anyhow::{anyhow, Context as _};
 use near_primitives::network::PeerId;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, strum::AsRefStr)]
+pub enum Tier {
+    T1,
+    T2,
+}
+
 #[derive(Clone, Debug)]
 pub(crate) enum StreamType {
     Inbound,
-    Outbound { peer_id: PeerId },
+    Outbound { peer_id: PeerId, tier: Tier },
 }
 
 #[derive(Debug)]
@@ -42,13 +48,13 @@ impl Socket {
         Self(socket)
     }
 
-    pub async fn connect(self, peer_info: &PeerInfo) -> Stream {
+    pub async fn connect(self, peer_info: &PeerInfo, tier: Tier) -> Stream {
         // TODO(gprusak): this could replace Stream::connect,
         // however this means that we will have to replicate everything
         // that tokio::net::TcpStream sets on the socket.
         // As long as Socket::connect is test-only we may ignore that.
         let stream = self.0.connect(peer_info.addr.unwrap()).await.unwrap();
-        Stream::new(stream, StreamType::Outbound { peer_id: peer_info.id.clone() }).unwrap()
+        Stream::new(stream, StreamType::Outbound { peer_id: peer_info.id.clone(), tier }).unwrap()
     }
 }
 
@@ -57,7 +63,7 @@ impl Stream {
         Ok(Self { peer_addr: stream.peer_addr()?, local_addr: stream.local_addr()?, stream, type_ })
     }
 
-    pub async fn connect(peer_info: &PeerInfo) -> anyhow::Result<Stream> {
+    pub async fn connect(peer_info: &PeerInfo, tier: Tier) -> anyhow::Result<Stream> {
         let addr =
             peer_info.addr.ok_or(anyhow!("Trying to connect to peer with no public address"))?;
         // The `connect` may take several minutes. This happens when the
@@ -74,13 +80,13 @@ impl Stream {
         )
         .await?
         .context("TcpStream::connect()")?;
-        Ok(Stream::new(stream, StreamType::Outbound { peer_id: peer_info.id.clone() })?)
+        Ok(Stream::new(stream, StreamType::Outbound { peer_id: peer_info.id.clone(), tier })?)
     }
 
     /// Establishes a loopback TCP connection to localhost with random ports.
     /// Returns a pair of streams: (outbound,inbound).
     #[cfg(test)]
-    pub async fn loopback(peer_id: PeerId) -> (Stream, Stream) {
+    pub async fn loopback(peer_id: PeerId, tier: Tier) -> (Stream, Stream) {
         let localhost = std::net::SocketAddr::new(std::net::Ipv4Addr::LOCALHOST.into(), 0);
         let mut listener = Listener::bind(localhost).await.unwrap();
         let peer_info = PeerInfo {
@@ -88,7 +94,8 @@ impl Stream {
             addr: Some(listener.0.local_addr().unwrap()),
             account_id: None,
         };
-        let (outbound, inbound) = tokio::join!(Stream::connect(&peer_info), listener.accept(),);
+        let (outbound, inbound) =
+            tokio::join!(Stream::connect(&peer_info, tier), listener.accept());
         (outbound.unwrap(), inbound.unwrap())
     }
 

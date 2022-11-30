@@ -176,6 +176,13 @@ pub struct Config {
     pub experimental: ExperimentalConfig,
 }
 
+fn default_tier1_enable_inbound() -> bool {
+    true
+}
+fn default_tier1_enable_outbound() -> bool {
+    false
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ExperimentalConfig {
     // If true - don't allow any inbound connections.
@@ -192,6 +199,14 @@ pub struct ExperimentalConfig {
     // compatibility.
     #[serde(default = "default_skip_tombstones")]
     pub skip_sending_tombstones_seconds: i64,
+
+    /// See `near_network::config::Tier1::enable_inbound`.
+    #[serde(default = "default_tier1_enable_inbound")]
+    pub tier1_enable_inbound: bool,
+
+    /// See `near_network::config::Tier1::enable_outbound`.
+    #[serde(default = "default_tier1_enable_outbound")]
+    pub tier1_enable_outbound: bool,
 }
 
 impl Default for ExperimentalConfig {
@@ -200,6 +215,8 @@ impl Default for ExperimentalConfig {
             inbound_disabled: false,
             connect_only_to_boot_nodes: false,
             skip_sending_tombstones_seconds: default_skip_tombstones(),
+            tier1_enable_inbound: default_tier1_enable_inbound(),
+            tier1_enable_outbound: default_tier1_enable_outbound(),
         }
     }
 }
