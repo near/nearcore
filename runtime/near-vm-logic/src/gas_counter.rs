@@ -127,7 +127,15 @@ impl GasCounter {
             self.fast_counter.burnt_gas = new_burnt_gas;
             Ok(())
         } else {
-            Err(self.process_gas_limit(new_burnt_gas, new_burnt_gas + self.promises_gas).into())
+            // In the past `new_used_gas` would be computed using an implicit wrapping addition,
+            // which would then give an opportunity for the `assert` (now `debug_assert`) in the
+            // callee to fail, leading to a DoS of a node. A wrapping_add in this instance is
+            // actually fine, even if it gives the attacker full control of the value passed in
+            // here…
+            //
+            // [CONTINUATION IN THE NEXT COMMENT]
+            let new_used_gas = new_burnt_gas.wrapping_add(self.promises_gas);
+            Err(self.process_gas_limit(new_burnt_gas, new_used_gas).into())
         }
     }
 
@@ -143,8 +151,21 @@ impl GasCounter {
         // See https://github.com/near/nearcore/issues/5148.
         // TODO: consider making this change!
         let used_gas_limit = min(self.prepaid_gas, new_used_gas);
-        assert!(used_gas_limit >= self.fast_counter.burnt_gas);
-        self.promises_gas = used_gas_limit - self.fast_counter.burnt_gas;
+        // [CONTINUATION OF THE PREVIOUS COMMENT]
+        //
+        // Now, there are two distinct ways an attacker can attempt to exploit this code given
+        // their full control of the `new_used_gas` value.
+        //
+        // 1. `self.prepaid_gas < new_used_gas` This is perfectly fine and would be the happy path,
+        //    were the computations performed with arbitrary precision integers all the time.
+        // 2. `new_used_gas < new_burnt_gas` means that the `new_used_gas` computation wrapped
+        //    and `used_gas_limit` is now set to a lower value than it otherwise should be. In the
+        //    past this would have triggered an unconditional assert leading to nodes crashing and
+        //    network getting stuck/going down. We don’t actually need to assert, though. By
+        //    replacing the wrapping subtraction with a saturating one we make sure that the
+        //    resulting value of `self.promises_gas` is well behaved (becomes 0.) All a potential
+        //    attacker has achieved in this case is throwing some of their gas away.
+        self.promises_gas = used_gas_limit.saturating_sub(self.fast_counter.burnt_gas);
 
         // If we crossed both limits prefer reporting GasLimitExceeded.
         // Alternative would be to prefer reporting limit that is lower (or
