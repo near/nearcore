@@ -11,7 +11,7 @@ use futures::{future, FutureExt};
 use num_rational::Ratio;
 use once_cell::sync::OnceCell;
 use rand::{thread_rng, Rng};
-use tracing::{info, warn};
+use tracing::info;
 
 use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor};
 use near_chain::chain::{do_apply_chunks, BlockCatchUpRequest, StateSplitRequest};
@@ -1475,9 +1475,10 @@ impl TestEnv {
                 );
             }
         } else {
-            // TODO: Somehow this may fail at epoch boundaries. Figure out why.
-            warn!("Failed to process PartialEncodedChunkRequest from client {}: {:?}", id, request);
-            None
+            panic!(
+                "Failed to process PartialEncodedChunkRequest from client {}: {:?}",
+                id, request
+            );
         }
     }
 

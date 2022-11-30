@@ -4,7 +4,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{
     ChunkHash, PartialEncodedChunkPart, PartialEncodedChunkV2, ReceiptProof, ShardChunkHeader,
 };
-use near_primitives::types::{BlockHeight, BlockHeightDelta, ShardId};
+use near_primitives::types::{BlockHeight, BlockHeightDelta, EpochId, ShardId};
 use std::collections::hash_map::Entry::Occupied;
 use tracing::warn;
 
@@ -46,6 +46,7 @@ pub struct EncodedChunksCacheEntry {
     /// validated again to make sure they are fully validated.
     /// See comments in `validate_chunk_header` for more context on partial vs full validation
     pub header_fully_validated: bool,
+    pub epoch_id_last_forwarded_for: Option<EpochId>,
 }
 
 pub struct EncodedChunksCache {
@@ -76,20 +77,27 @@ impl EncodedChunksCacheEntry {
             complete: false,
             ready_for_inclusion: false,
             header_fully_validated: false,
+            epoch_id_last_forwarded_for: None,
         }
     }
 
-    /// Inserts previously unknown chunks and receipts, returning the part ords that were
-    /// previously unknown.
+    /// Inserts previously unknown chunks and receipts, returning the parts that need
+    /// to be forwarded.
     pub fn merge_in_partial_encoded_chunk(
         &mut self,
         partial_encoded_chunk: &PartialEncodedChunkV2,
-    ) -> HashSet<u64> {
-        let mut previously_missing_part_ords = HashSet::new();
+        best_epoch_id_guess: Option<&EpochId>,
+    ) -> Vec<PartialEncodedChunkPart> {
+        let mut parts_to_forward = Vec::new();
+        if let Some(best_epoch_id_guess) = best_epoch_id_guess {
+            if self.epoch_id_last_forwarded_for.as_ref() != Some(best_epoch_id_guess) {
+                self.epoch_id_last_forwarded_for = Some(best_epoch_id_guess.clone());
+                parts_to_forward.extend(self.parts.values().cloned());
+            }
+        }
         for part_info in partial_encoded_chunk.parts.iter() {
-            let part_ord = part_info.part_ord;
-            self.parts.entry(part_ord).or_insert_with(|| {
-                previously_missing_part_ords.insert(part_ord);
+            self.parts.entry(part_info.part_ord).or_insert_with(|| {
+                parts_to_forward.push(part_info.clone());
                 part_info.clone()
             });
         }
@@ -98,7 +106,19 @@ impl EncodedChunksCacheEntry {
             let shard_id = receipt.1.to_shard_id;
             self.receipts.entry(shard_id).or_insert_with(|| receipt.clone());
         }
-        previously_missing_part_ords
+        parts_to_forward
+    }
+
+    pub fn update_epoch_id_and_return_parts_to_forward_again(
+        &mut self,
+        epoch_id: &EpochId,
+    ) -> Vec<PartialEncodedChunkPart> {
+        if self.epoch_id_last_forwarded_for.as_ref() != Some(epoch_id) {
+            self.epoch_id_last_forwarded_for = Some(epoch_id.clone());
+            self.parts.values().cloned().collect()
+        } else {
+            Vec::new()
+        }
     }
 }
 
@@ -213,13 +233,26 @@ impl EncodedChunksCache {
     }
 
     /// Add parts and receipts stored in a partial encoded chunk to the corresponding chunk entry,
-    /// returning the set of part ords that were previously unknown.
+    /// returning the parts that need to be forwarded.
     pub fn merge_in_partial_encoded_chunk(
         &mut self,
         partial_encoded_chunk: &PartialEncodedChunkV2,
-    ) -> HashSet<u64> {
+        best_epoch_id_guess: Option<&EpochId>,
+    ) -> Vec<PartialEncodedChunkPart> {
         let entry = self.get_or_insert_from_header(&partial_encoded_chunk.header);
-        entry.merge_in_partial_encoded_chunk(partial_encoded_chunk)
+        entry.merge_in_partial_encoded_chunk(partial_encoded_chunk, best_epoch_id_guess)
+    }
+
+    pub fn update_epoch_id_and_return_parts_to_forward_again(
+        &mut self,
+        chunk_hash: &ChunkHash,
+        epoch_id: &EpochId,
+    ) -> Vec<PartialEncodedChunkPart> {
+        if let Some(entry) = self.encoded_chunks.get_mut(chunk_hash) {
+            entry.update_epoch_id_and_return_parts_to_forward_again(epoch_id)
+        } else {
+            Vec::new()
+        }
     }
 
     /// Remove a chunk from the cache if it is outside of horizon
@@ -274,10 +307,14 @@ mod tests {
     use near_crypto::KeyType;
     use near_primitives::hash::CryptoHash;
     use near_primitives::sharding::{PartialEncodedChunkV2, ShardChunkHeader, ShardChunkHeaderV2};
+    use near_primitives::types::EpochId;
     use near_primitives::validator_signer::InMemoryValidatorSigner;
 
     use crate::chunk_cache::EncodedChunksCache;
+    use crate::test_utils::ChunkTestFixture;
     use crate::ChunkRequestInfo;
+
+    use super::EncodedChunksCacheEntry;
 
     fn create_chunk_header(height: u64, shard_id: u64) -> ShardChunkHeader {
         let signer =
@@ -306,11 +343,10 @@ mod tests {
         let header0 = create_chunk_header(1, 0);
         let header1 = create_chunk_header(1, 1);
         cache.get_or_insert_from_header(&header0);
-        cache.merge_in_partial_encoded_chunk(&PartialEncodedChunkV2 {
-            header: header1.clone(),
-            parts: vec![],
-            receipts: vec![],
-        });
+        cache.merge_in_partial_encoded_chunk(
+            &PartialEncodedChunkV2 { header: header1.clone(), parts: vec![], receipts: vec![] },
+            None,
+        );
         assert_eq!(
             cache.get_incomplete_chunks(&CryptoHash::default()).unwrap(),
             &HashSet::from([header0.chunk_hash(), header1.chunk_hash()])
@@ -330,11 +366,48 @@ mod tests {
         let header = create_chunk_header(1, 0);
         let partial_encoded_chunk =
             PartialEncodedChunkV2 { header: header.clone(), parts: vec![], receipts: vec![] };
-        cache.merge_in_partial_encoded_chunk(&partial_encoded_chunk);
+        cache.merge_in_partial_encoded_chunk(&partial_encoded_chunk, None);
         assert!(!cache.height_map.is_empty());
 
         cache.update_largest_seen_height::<ChunkRequestInfo>(2000, &HashMap::default());
         assert!(cache.encoded_chunks.is_empty());
         assert!(cache.height_map.is_empty());
+    }
+
+    #[test]
+    fn test_parts_to_forward_correctly_calculated() {
+        let fixture = ChunkTestFixture::default();
+        let chunk1 = fixture.make_partial_encoded_chunk(&[1]);
+        let chunk2 = fixture.make_partial_encoded_chunk(&[2]);
+        let chunk3 = fixture.make_partial_encoded_chunk(&[3]);
+        let mut cache =
+            EncodedChunksCacheEntry::from_chunk_header(fixture.mock_chunk_header.clone());
+        assert_eq!(
+            cache
+                .merge_in_partial_encoded_chunk(&chunk1.into(), Some(&EpochId::default()))
+                .into_iter()
+                .map(|part| part.part_ord)
+                .collect::<HashSet<_>>(),
+            vec![1].into_iter().collect()
+        );
+        assert_eq!(
+            cache
+                .merge_in_partial_encoded_chunk(&chunk2.into(), Some(&EpochId::default()))
+                .into_iter()
+                .map(|part| part.part_ord)
+                .collect::<HashSet<_>>(),
+            vec![2].into_iter().collect()
+        );
+        assert_eq!(
+            cache
+                .merge_in_partial_encoded_chunk(
+                    &chunk3.into(),
+                    Some(&EpochId(CryptoHash::hash_bytes(&[1])))
+                )
+                .into_iter()
+                .map(|part| part.part_ord)
+                .collect::<HashSet<_>>(),
+            vec![1, 2, 3].into_iter().collect()
+        );
     }
 }

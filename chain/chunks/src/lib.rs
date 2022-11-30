@@ -1548,11 +1548,14 @@ impl ShardsManager {
             // it is the first time we learn of the header here, because later when we call
             // try_process_chunk_parts_and_receipts, we will perform a header validation if we
             // didn't already.
-            self.encoded_chunks.merge_in_partial_encoded_chunk(&PartialEncodedChunkV2 {
-                header: header.clone(),
-                parts: parts.into_values().collect(),
-                receipts: vec![],
-            });
+            self.encoded_chunks.merge_in_partial_encoded_chunk(
+                &PartialEncodedChunkV2 {
+                    header: header.clone(),
+                    parts: parts.into_values().collect(),
+                    receipts: vec![],
+                },
+                None,
+            );
             return true;
         }
         !header_known_before
@@ -1624,13 +1627,12 @@ impl ShardsManager {
             self.validate_chunk_header(self.chain_head.as_ref(), &pec.header).map(|()| true)
         }) {
             Err(Error::ChainError(chain_error)) => match chain_error {
-                // validate_chunk_header returns DBNotFoundError if the previous block is not ready
-                // in this case, we return NeedBlock instead of error
-                near_chain::Error::DBNotFoundErr(_) => {
-                    debug!(target:"client", "Dropping partial encoded chunk {:?} height {}, shard_id {} because we don't have enough information to validate it",
-                           header.chunk_hash(), header.height_created(), header.shard_id());
-                    return Ok(ProcessPartialEncodedChunkResult::NeedBlock);
-                }
+                // validate_chunk_header returns DBNotFoundError if the previous block is not ready,
+                // and whatever block we have is in a different epoch so we couldn't validate the
+                // chunk header. Nevertheless, keep going because we'll be able to validate it once
+                // we have the previous block. It is important not to drop this, because this case
+                // may legitimately happen when the previous block is the last block if its epoch.
+                near_chain::Error::DBNotFoundErr(_) => {}
                 _ => return Err(chain_error.into()),
             },
             Err(err) => return Err(err),
@@ -1661,40 +1663,49 @@ impl ShardsManager {
             }
         }
 
-        // 2. Consider it valid; mergeparts and receipts included in the partial encoded chunk
-        // into chunk cache
-        let new_part_ords =
-            self.encoded_chunks.merge_in_partial_encoded_chunk(partial_encoded_chunk);
-
-        // 3. Forward my parts to others tracking this chunk's shard
-        // It's possible that the previous block has not been processed yet. We will want to
-        // forward the chunk parts in this case, so we try our best to estimate current epoch id
-        // using the chain head. At epoch boundary, it could happen that this epoch id is not the
-        // actual epoch of the block, which is ok. In the worst case, chunk parts are not forwarded to the
-        // the right block producers, which may make validators wait for chunks for a little longer,
-        // but it doesn't affect the correctness of the protocol.
-        if let Ok(epoch_id) = self
+        // 2. Insert the chunk into the cache; and
+        // 3. Forward parts that I own to others trackingthis chunk's shard.
+        //
+        // It's possible that the previous block has not been processed yet, but we will want
+        // to forward the chunk parts nonetheless to unblock the next chunk producer. The problem
+        // here is that we need the correct epoch ID to determine who to forward to, but to
+        // determine the epoch ID we need the previous block. So, if we don't have the previous
+        // block, just take the current head of the chain and estimate it, and that will be the
+        // same epoch ID unless we're going through an epoch transition. In that case, whenever we
+        // have the correct epoch ID we will forward all our parts again, but to the correct
+        // targets. This is all fine because it's OK to send extraneous forward messages especially
+        // if it only happens around epoch boundaries.
+        //
+        // In fact, forwarding is entirely optional for the correctness of the protocol, but it's
+        // a good idea to keep it predictable and not have strange behavior across epoch boundaries
+        // because otherwise purely synchronous tests can fail due to missing chunks.
+        let (best_epoch_id_guess, latest_block_hash) = if let Ok(epoch_id) = self
             .runtime_adapter
             .get_epoch_id_from_prev_block(&partial_encoded_chunk.header.prev_block_hash())
         {
-            self.send_partial_encoded_chunk_to_chunk_trackers(
-                partial_encoded_chunk,
-                new_part_ords,
-                &epoch_id,
-                &partial_encoded_chunk.header.prev_block_hash(),
-            )?;
+            (Some(epoch_id), *partial_encoded_chunk.header.prev_block_hash())
         } else if let Some(chain_head) = &self.chain_head {
             let epoch_id =
                 self.runtime_adapter.get_epoch_id_from_prev_block(&chain_head.last_block_hash)?;
+            (Some(epoch_id), chain_head.last_block_hash.clone())
+        } else {
+            (None, CryptoHash::default())
+        };
+        let new_part_ords = self
+            .encoded_chunks
+            .merge_in_partial_encoded_chunk(partial_encoded_chunk, best_epoch_id_guess.as_ref());
+
+        if let Some(epoch_id) = best_epoch_id_guess {
             self.send_partial_encoded_chunk_to_chunk_trackers(
-                partial_encoded_chunk,
+                &partial_encoded_chunk.header,
                 new_part_ords,
                 &epoch_id,
-                &chain_head.last_block_hash.clone(),
+                &latest_block_hash,
             )?;
-        };
+        }
 
-        // 4. Process the forwarded parts in chunk_forwards_cache.
+        // 4. Process the forwarded parts in chunk_forwards_cache; this is for parts that others
+        // have forwarded to us.
         self.insert_header_if_not_exists_and_process_cached_chunk_forwards(header);
 
         // 5. Check if the chunk is complete; requesting more if not.
@@ -1753,7 +1764,23 @@ impl ShardsManager {
                 return Ok(ProcessPartialEncodedChunkResult::NeedBlock);
             }
         };
+
         let chunk_hash = header.chunk_hash();
+
+        // If the epoch ID is different than the previous epoch ID we used to do forwarding,
+        // we need to forward the parts again.
+        let need_forward_parts = self
+            .encoded_chunks
+            .update_epoch_id_and_return_parts_to_forward_again(&chunk_hash, &epoch_id);
+        if !need_forward_parts.is_empty() {
+            self.send_partial_encoded_chunk_to_chunk_trackers(
+                header,
+                need_forward_parts,
+                &epoch_id,
+                prev_block_hash,
+            )?;
+        }
+
         // check the header exists in encoded_chunks and validate it again (full validation)
         // now that prev_block is processed
         if let Some(chunk_entry) = self.encoded_chunks.get(&chunk_hash) {
@@ -1912,8 +1939,8 @@ impl ShardsManager {
     /// other validators that are tracking the shard.
     fn send_partial_encoded_chunk_to_chunk_trackers(
         &mut self,
-        partial_encoded_chunk: &PartialEncodedChunkV2,
-        part_ords: HashSet<u64>,
+        header: &ShardChunkHeader,
+        parts: Vec<PartialEncodedChunkPart>,
         epoch_id: &EpochId,
         lastest_block_hash: &CryptoHash,
     ) -> Result<(), Error> {
@@ -1921,32 +1948,25 @@ impl ShardsManager {
             Some(me) => me,
             None => return Ok(()),
         };
-        let owned_parts: Vec<_> = partial_encoded_chunk
-            .parts
-            .iter()
+        let owned_parts: Vec<_> = parts
+            .into_iter()
             .filter(|part| {
-                part_ords.contains(&part.part_ord)
-                    && self
-                        .runtime_adapter
-                        .get_part_owner(epoch_id, part.part_ord)
-                        .map_or(false, |owner| &owner == me)
+                self.runtime_adapter
+                    .get_part_owner(epoch_id, part.part_ord)
+                    .map_or(false, |owner| &owner == me)
             })
-            .cloned()
             .collect();
 
         if owned_parts.is_empty() {
             return Ok(());
         }
 
-        let forward = PartialEncodedChunkForwardMsg::from_header_and_parts(
-            &partial_encoded_chunk.header,
-            owned_parts,
-        );
+        let forward = PartialEncodedChunkForwardMsg::from_header_and_parts(header, owned_parts);
 
         let block_producers = self
             .runtime_adapter
             .get_epoch_block_producers_ordered(&epoch_id, lastest_block_hash)?;
-        let current_chunk_height = partial_encoded_chunk.header.height_created();
+        let current_chunk_height = header.height_created();
         let num_shards = self.runtime_adapter.num_shards(&epoch_id)?;
         let mut next_chunk_producers = (0..num_shards)
             .map(|shard_id| {
@@ -2162,8 +2182,10 @@ impl ShardsManager {
         }
 
         // Add it to the set of chunks to be included in the next block
-        self.encoded_chunks.merge_in_partial_encoded_chunk(&partial_chunk.clone().into());
+        self.encoded_chunks
+            .merge_in_partial_encoded_chunk(&partial_chunk.clone().into(), Some(&epoch_id));
         self.encoded_chunks.mark_chunk_for_inclusion(&chunk_header.chunk_hash());
+        self.encoded_chunks.mark_entry_complete(&chunk_header.chunk_hash());
 
         Ok(())
     }
