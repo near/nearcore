@@ -51,7 +51,6 @@ use near_store::flat_state::{
     store_helper, FlatStateFactory, FlatStorageState, FlatStorageStateStatus,
 };
 use near_store::split_state::get_delayed_receipts;
-use near_store::DBCol::State;
 use near_store::{
     get_genesis_hash, get_genesis_state_roots, set_genesis_hash, set_genesis_state_roots,
     ApplyStatePartResult, DBCol, PartialStorage, ShardTries, Store, StoreCompiledContractCache,
@@ -746,7 +745,8 @@ impl RuntimeAdapter for NightshadeRuntime {
                     let (key, _) = item?;
                     let account_id = parse_account_id_from_raw_key(&key)?.ok_or(
                         Error::StorageError(StorageError::FlatStorageError(format!(
-                            "Failed to find account id in flat storage key {key}"
+                            "Failed to find account id in flat storage key {:?}",
+                            key
                         ))),
                     )?;
                     if account_id_to_shard_id(&account_id, &shard_layout) == shard_id {
