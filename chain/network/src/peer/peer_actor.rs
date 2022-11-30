@@ -173,11 +173,16 @@ impl PeerActor {
         network_state: Arc<NetworkState>,
     ) -> anyhow::Result<actix::Addr<Self>> {
         let (addr, handshake_signal) = Self::spawn(clock, stream, force_encoding, network_state)?;
+        // Await for the handshake to complete, by awaiting the handshake_signal channel.
         // This is a receiver of Infallible, so it only completes when the channel is closed.
         handshake_signal.await.err().unwrap();
         Ok(addr)
     }
 
+    /// Spawns a PeerActor on a separate actix arbiter.
+    /// Returns the actor address and a HandshakeSignal: an asynchronous channel
+    /// which will be closed as soon as the handshake is finished (successfully or not).
+    /// You can asynchronously await the returned HandshakeSignal.
     pub(crate) fn spawn(
         clock: time::Clock,
         stream: tcp::Stream,
@@ -241,7 +246,9 @@ impl PeerActor {
             addr: network_state.config.node_addr.clone(),
             account_id: network_state.config.validator.as_ref().map(|v| v.account_id()),
         };
-        let (send, recv) = tokio::sync::oneshot::channel();
+        // recv is the HandshakeSignal returned by this spawn_inner() call.
+        let (send, recv): (HandshakeSignalSender, HandshakeSignal) =
+            tokio::sync::oneshot::channel();
         // Start PeerActor on separate thread.
         Ok((
             Self::start_in_arbiter(&actix::Arbiter::new().handle(), move |ctx| {
@@ -633,7 +640,7 @@ impl PeerActor {
                                 partial_edge_info: partial_edge_info,
                             });
                         }
-                        // This block will be executed for TIER2 only.
+                        // TODO(gprusak): This block will be executed for TIER2 only.
                         {
                             if conn.peer_type == PeerType::Outbound {
                                 // Outbound peer triggers the inital full accounts data sync.
@@ -909,6 +916,7 @@ impl PeerActor {
             .delayed_push(|| Event::MessageProcessed(msg.clone()));
         let was_requested = match &msg {
             PeerMessage::Block(block) => {
+                self.network_state.txns_since_last_block.store(0, Ordering::Release);
                 let hash = *block.hash();
                 let height = block.header().height();
                 conn.last_block.rcu(|last_block| {
@@ -1112,6 +1120,7 @@ impl PeerActor {
                 let now = self.clock.now();
                 if let Some(&t) = self.routed_message_cache.get(&key) {
                     if now <= t + DROP_DUPLICATED_MESSAGES_PERIOD {
+                        metrics::MessageDropped::Duplicate.inc(&msg.body);
                         self.network_state.config.event_sink.push(Event::RoutedMessageDropped);
                         tracing::debug!(target: "network", "Dropping duplicated message from {} to {:?}", msg.author, msg.target);
                         return;
@@ -1122,6 +1131,7 @@ impl PeerActor {
                     // If so, drop the transaction.
                     let r = self.network_state.txns_since_last_block.load(Ordering::Acquire);
                     if r > MAX_TRANSACTIONS_PER_BLOCK_MESSAGE {
+                        metrics::MessageDropped::TransactionsPerBlockExceeded.inc(&msg.body);
                         return;
                     }
                     self.network_state.txns_since_last_block.fetch_add(1, Ordering::AcqRel);
