@@ -128,7 +128,8 @@ impl GasCounter {
             self.fast_counter.burnt_gas = new_burnt_gas;
             Ok(())
         } else {
-            Err(self.process_gas_limit(new_burnt_gas, new_burnt_gas + self.promises_gas).into())
+            let new_used_gas = new_burnt_gas.wrapping_add(self.promises_gas);
+            Err(self.process_gas_limit(new_burnt_gas, new_used_gas).into())
         }
     }
 
@@ -144,8 +145,7 @@ impl GasCounter {
         // See https://github.com/near/nearcore/issues/5148.
         // TODO: consider making this change!
         let used_gas_limit = min(self.prepaid_gas, new_used_gas);
-        assert!(used_gas_limit >= self.fast_counter.burnt_gas);
-        self.promises_gas = used_gas_limit - self.fast_counter.burnt_gas;
+        self.promises_gas = used_gas_limit.saturating_sub(self.fast_counter.burnt_gas);
 
         // If we crossed both limits prefer reporting GasLimitExceeded.
         // Alternative would be to prefer reporting limit that is lower (or
