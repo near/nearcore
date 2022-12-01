@@ -681,6 +681,7 @@ pub fn setup_mock_all_validators(
                                 last_time_received_message: near_network::time::Instant::now(),
                                 connection_established_time: near_network::time::Instant::now(),
                                 peer_type: PeerType::Outbound,
+                                nonce: 3,
                             })
                             .collect();
                         let peers2 = peers

@@ -9,6 +9,7 @@ use assert_matches::assert_matches;
 use futures::{future, FutureExt};
 use near_chain::test_utils::ValidatorSchedule;
 use near_chunks::test_utils::MockClientAdapterForShardsManager;
+use near_primitives::config::ActionCosts;
 use near_primitives::num_rational::{Ratio, Rational32};
 
 use near_actix_test_utils::run_actix;
@@ -32,7 +33,7 @@ use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
 use near_network::test_utils::{wait_or_panic, MockPeerManagerAdapter};
 use near_network::types::{
     BlockInfo, ConnectedPeerInfo, HighestHeightPeerInfo, NetworkInfo, PeerChainInfo,
-    PeerManagerMessageRequest, PeerManagerMessageResponse,
+    PeerManagerMessageRequest, PeerManagerMessageResponse, PeerType,
 };
 use near_network::types::{FullPeerInfo, NetworkRequests, NetworkResponses};
 use near_network::types::{PeerInfo, ReasonForBan};
@@ -1027,15 +1028,24 @@ fn client_sync_headers() {
         );
         client.do_send(
             SetNetworkInfo(NetworkInfo {
-                connected_peers: vec![ConnectedPeerInfo::from(&FullPeerInfo {
-                    peer_info: peer_info2.clone(),
-                    chain_info: PeerChainInfo {
-                        genesis_id: Default::default(),
-                        last_block: Some(BlockInfo { height: 5, hash: hash(&[5]) }),
-                        tracked_shards: vec![],
-                        archival: false,
+                connected_peers: vec![ConnectedPeerInfo {
+                    full_peer_info: FullPeerInfo {
+                        peer_info: peer_info2.clone(),
+                        chain_info: PeerChainInfo {
+                            genesis_id: Default::default(),
+                            last_block: Some(BlockInfo { height: 5, hash: hash(&[5]) }),
+                            tracked_shards: vec![],
+                            archival: false,
+                        },
                     },
-                })],
+                    received_bytes_per_sec: 0,
+                    sent_bytes_per_sec: 0,
+                    last_time_peer_requested: near_network::time::Instant::now(),
+                    last_time_received_message: near_network::time::Instant::now(),
+                    connection_established_time: near_network::time::Instant::now(),
+                    peer_type: PeerType::Outbound,
+                    nonce: 1,
+                }],
                 num_connected_peers: 1,
                 peer_max_count: 1,
                 highest_height_peers: vec![HighestHeightPeerInfo {
@@ -1850,13 +1860,12 @@ fn test_gas_price_change() {
     init_test_logger();
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let target_num_tokens_left = NEAR_BASE / 10 + 1;
-    let transaction_costs = RuntimeConfig::test().transaction_costs;
+    let transaction_costs = RuntimeConfig::test().fees;
 
-    let send_money_total_gas =
-        transaction_costs.action_creation_config.transfer_cost.send_fee(false)
-            + transaction_costs.action_receipt_creation_config.send_fee(false)
-            + transaction_costs.action_creation_config.transfer_cost.exec_fee()
-            + transaction_costs.action_receipt_creation_config.exec_fee();
+    let send_money_total_gas = transaction_costs.fee(ActionCosts::transfer).send_fee(false)
+        + transaction_costs.fee(ActionCosts::new_action_receipt).send_fee(false)
+        + transaction_costs.fee(ActionCosts::transfer).exec_fee()
+        + transaction_costs.fee(ActionCosts::new_action_receipt).exec_fee();
     let min_gas_price = target_num_tokens_left / send_money_total_gas as u128;
     let gas_limit = 1000000000000;
     let gas_price_adjustment_rate = Ratio::new(1, 10);
@@ -2647,10 +2656,9 @@ fn test_execution_metadata() {
     let config = RuntimeConfigStore::test().get_config(PROTOCOL_VERSION).clone();
 
     // Total costs for creating a function call receipt.
-    let expected_receipt_cost = config.transaction_costs.action_receipt_creation_config.execution
-        + config.transaction_costs.action_creation_config.function_call_cost.exec_fee()
-        + config.transaction_costs.action_creation_config.function_call_cost_per_byte.exec_fee()
-            * "main".len() as u64;
+    let expected_receipt_cost = config.fees.fee(ActionCosts::new_action_receipt).execution
+        + config.fees.fee(ActionCosts::function_call_base).exec_fee()
+        + config.fees.fee(ActionCosts::function_call_byte).exec_fee() * "main".len() as u64;
 
     // Profile for what's happening *inside* wasm vm during function call.
     let expected_profile = serde_json::json!([

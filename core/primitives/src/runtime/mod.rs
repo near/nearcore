@@ -23,7 +23,7 @@ pub fn get_insufficient_storage_stake(
     runtime_config: &RuntimeConfig,
 ) -> Result<Option<Balance>, String> {
     let required_amount = Balance::from(account.storage_usage())
-        .checked_mul(runtime_config.storage_amount_per_byte)
+        .checked_mul(runtime_config.storage_amount_per_byte())
         .ok_or_else(|| {
             format!("Account's storage_usage {} overflows multiplication", account.storage_usage())
         })?;

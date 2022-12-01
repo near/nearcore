@@ -306,6 +306,14 @@ impl ActorHandler {
         self.with_state(move |s| async move { s.tier1_advertise_proxies(&clock).await }).await
     }
 
+    pub async fn send_ping(&self, nonce: u64, target: PeerId) {
+        self.actix
+            .addr
+            .send(PeerManagerMessageRequest::PingTo { nonce, target }.with_span_context())
+            .await
+            .unwrap();
+    }
+
     pub async fn announce_account(&self, aa: AnnounceAccount) {
         self.actix
             .addr
@@ -347,9 +355,7 @@ impl ActorHandler {
             }
             events
                 .recv_until(|ev| match ev {
-                    Event::PeerManager(PME::MessageProcessed(PeerMessage::SyncRoutingTable {
-                        ..
-                    })) => Some(()),
+                    Event::PeerManager(PME::EdgesAdded { .. }) => Some(()),
                     _ => None,
                 })
                 .await;

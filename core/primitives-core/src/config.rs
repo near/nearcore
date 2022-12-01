@@ -5,6 +5,13 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use strum::{Display, EnumCount};
 
+/// Dynamic configuration parameters required for the WASM runtime to
+/// execute a smart contract.
+///
+/// This (`VMConfig`) and `RuntimeFeesConfig` combined are sufficient to define
+/// protocol specific behavior of the contract runtime. The former contains
+/// configuration for the WASM runtime specifically, while the latter contains
+/// configuration for the transaction runtime and WASM runtime.
 #[derive(Clone, Debug, Hash, Serialize, Deserialize, PartialEq, Eq)]
 pub struct VMConfig {
     /// Costs for runtime externals
@@ -128,7 +135,7 @@ pub enum StackLimiterVersion {
 }
 
 impl StackLimiterVersion {
-    fn v0() -> StackLimiterVersion {
+    pub fn v0() -> StackLimiterVersion {
         StackLimiterVersion::V0
     }
 }
@@ -650,7 +657,18 @@ pub enum ExtCosts {
 
 // Type of an action, used in fees logic.
 #[derive(
-    Copy, Clone, Hash, PartialEq, Eq, Debug, PartialOrd, Ord, EnumCount, Display, strum::EnumIter,
+    Copy,
+    Clone,
+    Hash,
+    PartialEq,
+    Eq,
+    Debug,
+    PartialOrd,
+    Ord,
+    EnumCount,
+    Display,
+    strum::EnumIter,
+    enum_map::Enum,
 )]
 #[allow(non_camel_case_types)]
 pub enum ActionCosts {

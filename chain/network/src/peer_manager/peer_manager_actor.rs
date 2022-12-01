@@ -9,7 +9,6 @@ use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
 use crate::peer_manager::network_state::{NetworkState, WhitelistNode};
 use crate::peer_manager::peer_store;
-use crate::routing;
 use crate::stats::metrics;
 use crate::store;
 use crate::tcp;
@@ -93,8 +92,7 @@ pub enum Event {
     ServerStarted,
     RoutedMessageDropped,
     AccountsAdded(Vec<AnnounceAccount>),
-    RoutingTableUpdate { next_hops: Arc<routing::NextHopTable>, pruned_edges: Vec<Edge> },
-    EdgesVerified(Vec<Edge>),
+    EdgesAdded(Vec<Edge>),
     Ping(Ping),
     Pong(Pong),
     // Reported once a message has been processed.
@@ -436,7 +434,7 @@ impl PeerManagerActor {
             .collect();
 
         // Sort by established time.
-        active_peers.sort_by_key(|p| p.connection_established_time);
+        active_peers.sort_by_key(|p| p.established_time);
         // Saturate safe set with recently active peers.
         let set_limit = self.state.config.safe_set_size as usize;
         for p in active_peers {
@@ -584,8 +582,9 @@ impl PeerManagerActor {
                         .load()
                         .unwrap_or(self.clock.now()),
                     last_time_received_message: cp.last_time_received_message.load(),
-                    connection_established_time: cp.connection_established_time,
+                    connection_established_time: cp.established_time,
                     peer_type: cp.peer_type,
+                    nonce: cp.edge.load().nonce(),
                 })
                 .collect(),
             num_connected_peers: tier2.ready.len(),

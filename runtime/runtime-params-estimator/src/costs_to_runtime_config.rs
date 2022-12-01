@@ -1,12 +1,9 @@
 use near_primitives::runtime::config::AccountCreationConfig;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
-use near_primitives::runtime::fees::{
-    AccessKeyCreationConfig, ActionCreationConfig, DataReceiptCreationConfig, Fee,
-    RuntimeFeesConfig,
-};
+use near_primitives::runtime::fees::{Fee, RuntimeFeesConfig};
 use near_primitives::types::Gas;
 use near_primitives::version::PROTOCOL_VERSION;
-use near_vm_logic::{ExtCostsConfig, VMConfig};
+use near_vm_logic::{ActionCosts, ExtCostsConfig, VMConfig};
 use node_runtime::config::RuntimeConfig;
 
 use anyhow::Context;
@@ -33,9 +30,7 @@ pub fn costs_to_runtime_config(cost_table: &CostTable) -> anyhow::Result<Runtime
     let vm_limit_config = latest_runtime_config.wasm_config.limit_config.clone();
 
     let res = RuntimeConfig {
-        // See https://nomicon.io/Economics/README.html#general-variables for how it was calculated.
-        storage_amount_per_byte: 909 * 100_000_000_000_000_000,
-        transaction_costs: runtime_fees_config(cost_table)?,
+        fees: runtime_fees_config(cost_table)?,
         wasm_config: VMConfig {
             ext_costs: ext_costs_config(cost_table)?,
             grow_mem_cost: 1,
@@ -56,28 +51,24 @@ fn runtime_fees_config(cost_table: &CostTable) -> anyhow::Result<RuntimeFeesConf
     };
 
     let config_store = RuntimeConfigStore::new(None);
-    let actual_fees_config = &config_store.get_config(PROTOCOL_VERSION).transaction_costs;
+    let actual_fees_config = &config_store.get_config(PROTOCOL_VERSION).fees;
     let res = RuntimeFeesConfig {
-        action_receipt_creation_config: fee(Cost::ActionReceiptCreation)?,
-        data_receipt_creation_config: DataReceiptCreationConfig {
-            base_cost: fee(Cost::DataReceiptCreationBase)?,
-            cost_per_byte: fee(Cost::DataReceiptCreationPerByte)?,
-        },
-        action_creation_config: ActionCreationConfig {
-            create_account_cost: fee(Cost::ActionCreateAccount)?,
-            deploy_contract_cost: fee(Cost::ActionDeployContractBase)?,
-            deploy_contract_cost_per_byte: fee(Cost::ActionDeployContractPerByte)?,
-            function_call_cost: fee(Cost::ActionFunctionCallBase)?,
-            function_call_cost_per_byte: fee(Cost::ActionFunctionCallPerByte)?,
-            transfer_cost: fee(Cost::ActionTransfer)?,
-            stake_cost: fee(Cost::ActionStake)?,
-            add_key_cost: AccessKeyCreationConfig {
-                full_access_cost: fee(Cost::ActionAddFullAccessKey)?,
-                function_call_cost: fee(Cost::ActionAddFunctionAccessKeyBase)?,
-                function_call_cost_per_byte: fee(Cost::ActionAddFunctionAccessKeyPerByte)?,
-            },
-            delete_key_cost: fee(Cost::ActionDeleteKey)?,
-            delete_account_cost: fee(Cost::ActionDeleteAccount)?,
+        action_fees: enum_map::enum_map! {
+            ActionCosts::create_account => fee(Cost::ActionCreateAccount)?,
+            ActionCosts::delete_account => fee(Cost::ActionDeleteAccount)?,
+            ActionCosts::deploy_contract_base => fee(Cost::ActionDeployContractBase)?,
+            ActionCosts::deploy_contract_byte => fee(Cost::ActionDeployContractPerByte)?,
+            ActionCosts::function_call_base => fee(Cost::ActionFunctionCallBase)?,
+            ActionCosts::function_call_byte => fee(Cost::ActionFunctionCallPerByte)?,
+            ActionCosts::transfer => fee(Cost::ActionTransfer)?,
+            ActionCosts::stake => fee(Cost::ActionStake)?,
+            ActionCosts::add_full_access_key => fee(Cost::ActionAddFullAccessKey)?,
+            ActionCosts::add_function_call_key_base => fee(Cost::ActionAddFunctionAccessKeyBase)?,
+            ActionCosts::add_function_call_key_byte => fee(Cost::ActionAddFunctionAccessKeyPerByte)?,
+            ActionCosts::delete_key => fee(Cost::ActionDeleteKey)?,
+            ActionCosts::new_action_receipt => fee(Cost::ActionReceiptCreation)?,
+            ActionCosts::new_data_receipt_base => fee(Cost::DataReceiptCreationBase)?,
+            ActionCosts::new_data_receipt_byte => fee(Cost::DataReceiptCreationPerByte)?,
         },
         ..actual_fees_config.clone()
     };
