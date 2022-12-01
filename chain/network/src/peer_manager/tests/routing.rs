@@ -839,6 +839,21 @@ async fn max_num_peers_limit() {
     tracing::info!(target:"test", "wait for {id3} routing table");
     pm3.wait_for_routing_table(&[]).await;
 
+    // These drop() calls fix the place at which we want the values to be dropped,
+    // so that they live long enough for the test to succeed.
+    // AFAIU (gprusak) NLL (https://blog.rust-lang.org/2022/08/05/nll-by-default.html)
+    // this is NOT strictly necessary, as the destructors of these values should
+    // be called exactly at the end of the function anyway
+    // (unless the problem is even deeper: for example the compiler incorrectly
+    // figures out that it can reorder some instructions). However, I add those every time
+    // I observe some flakiness that I can't reproduce, just to eliminate the possibility that
+    // I just don't understand how NLL works.
+    //
+    // The proper solution would be to:
+    // 1. Make nearcore presubmit run tests with "[panic=abort]" (which is not supported with
+    //    "cargo test"), so that the test actually stop if some thread panic.
+    // 2. Set some timeout on the test execution (with an enourmous heardoom), so that we actually get some logs
+    //    if the presubmit times out (also not supported by "cargo test").
     drop(pm0);
     drop(pm1);
     drop(pm2);
