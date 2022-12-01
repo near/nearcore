@@ -90,5 +90,9 @@ force_wasmer2 = ["nearcore/force_wasmer2"]
 force_wasmer0 = ["nearcore/force_wasmer0"]
 force_wasmtime = ["nearcore/force_wasmtime"]
 
+# Watch config and reload will disable the global logger,
+# because it will restart system, and the global logger can not reset
+watch_config = ["default"]
+
 [package.metadata.workspaces]
 independent = true

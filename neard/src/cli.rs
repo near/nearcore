@@ -13,9 +13,10 @@ use near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofRe
 use near_mirror::MirrorCommand;
 use near_o11y::tracing_subscriber::EnvFilter;
 use near_o11y::{
-    default_subscriber, default_subscriber_with_opentelemetry, set_default_optl_level,
-    BuildEnvFilterError, EnvFilterBuilder, OpenTelemetryLevel,
+    default_subscriber, set_default_optl_level, BuildEnvFilterError, EnvFilterBuilder,
 };
+#[cfg(not(feature = "watch_config"))]
+use near_o11y::{default_subscriber_with_opentelemetry, OpenTelemetryLevel};
 use near_ping::PingCommand;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::compute_root_from_path;
@@ -392,7 +393,7 @@ impl RunCmd {
         self,
         home_dir: &Path,
         genesis_validation: GenesisValidationMode,
-        verbose_target: Option<&str>,
+        _verbose_target: Option<&str>,
         o11y_opts: &near_o11y::Options,
     ) {
         set_default_optl_level(o11y_opts);
@@ -480,8 +481,9 @@ impl RunCmd {
 
             let _ = sys.block_on(async move {
                 // Initialize the subscriber that takes care of both logging and tracing.
+                #[cfg(not(feature = "watch_config"))]
                 let _subscriber_guard = default_subscriber_with_opentelemetry(
-                    make_env_filter(verbose_target).unwrap(),
+                    make_env_filter(_verbose_target).unwrap(),
                     o11y_opts,
                     config.client_config.chain_id.clone(),
                     config.network_config.node_key.public_key().clone(),
@@ -492,7 +494,6 @@ impl RunCmd {
                         .map(|validator| validator.account_id()),
                 )
                 .await
-                // TODO tracing global logger can not be reset
                 .global();
 
                 let nearcore::NearNode { rpc_servers, .. } =
@@ -512,6 +513,7 @@ impl RunCmd {
                 .await;
                 actix::System::current().stop();
                 // Disable the subscriber to properly shutdown the tracer.
+                #[cfg(not(feature = "watch_config"))]
                 near_o11y::reload(Some("error"), None, Some(OpenTelemetryLevel::OFF)).unwrap();
                 tx_sig.send(sig)
             });
@@ -579,14 +581,21 @@ async fn wait_for_interrupt_signal(home_dir: &Path, mut rx_crash: Receiver<()>) 
                 update_watchers(&home_dir, UpdateBehavior::UpdateOrReset);
                 "reload signer"
              },
-             meta = watch_config(&home_dir) => {
-                if let Ok(m) = meta {
-                    if let Ok(t) = m.modified() {
-                        if t != config_modify_time {
-                            return "reload signer"
+             meta = watch_config(&home_dir) =>
+             {
+                    if let Ok(m) = meta {
+                        if let Ok(t) = m.modified() {
+                            if t != config_modify_time {
+                                #[cfg(feature = "watch_config")]
+                                {
+                                    println!("config changed, reloading");
+                                    return "reload signer"
+                                }
+                                #[cfg(not(feature = "watch_config"))]
+                                info!("config changed, neard can not reload it, need watch_config featrure build");
+                            }
                         }
                     }
-                }
                 continue;
              }
              _ = rx_crash.recv() => "ClientActor died",
