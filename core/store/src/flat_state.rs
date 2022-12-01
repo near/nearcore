@@ -393,6 +393,7 @@ impl FlatStateDelta {
     }
 
     /// Applies delta to the flat state.
+    #[cfg(feature = "protocol_feature_flat_state")]
     pub fn apply_to_flat_state(self, store_update: &mut StoreUpdate) {
         for (key, value) in self.0.into_iter() {
             store_helper::set_ref(store_update, key, value).expect(BORSH_ERR);
@@ -707,14 +708,6 @@ pub mod store_helper {
         _shard_id: ShardId,
     ) -> FlatStorageStateStatus {
         FlatStorageStateStatus::DontCreate
-    }
-
-    pub(crate) fn set_ref(
-        _store_update: &mut StoreUpdate,
-        _key: Vec<u8>,
-        _value: Option<ValueRef>,
-    ) -> Result<(), FlatStorageError> {
-        Ok(())
     }
 }
 
