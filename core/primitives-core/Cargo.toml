@@ -29,6 +29,7 @@ near-account-id = { path = "../account-id", features = ["arbitrary"] }
 
 [dev-dependencies]
 serde_json.workspace = true
+insta.workspace = true
 
 [features]
 default = []

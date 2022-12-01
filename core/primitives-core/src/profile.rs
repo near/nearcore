@@ -10,7 +10,7 @@ use strum::IntoEnumIterator;
 
 /// Profile of gas consumption.
 #[derive(Clone, PartialEq, Eq)]
-pub struct ProfileData {
+pub struct ProfileDataV2 {
     /// Gas spent on sending or executing actions.
     actions_profile: EnumMap<ActionCosts, Gas>,
     /// Non-action gas spent outside the WASM VM while executing a contract.
@@ -19,16 +19,16 @@ pub struct ProfileData {
     wasm_gas: Gas,
 }
 
-impl Default for ProfileData {
-    fn default() -> ProfileData {
-        ProfileData::new()
+impl Default for ProfileDataV2 {
+    fn default() -> ProfileDataV2 {
+        ProfileDataV2::new()
     }
 }
 
-impl ProfileData {
+impl ProfileDataV2 {
     #[inline]
     pub fn new() -> Self {
-        ProfileData {
+        Self {
             actions_profile: enum_map! { _ => 0 },
             wasm_ext_profile: enum_map! { _ => 0 },
             wasm_gas: 0,
@@ -36,7 +36,7 @@ impl ProfileData {
     }
 
     #[inline]
-    pub fn merge(&mut self, other: &ProfileData) {
+    pub fn merge(&mut self, other: &ProfileDataV2) {
         for (cost, gas) in self.actions_profile.iter_mut() {
             *gas = gas.saturating_add(other.actions_profile[cost]);
         }
@@ -69,7 +69,6 @@ impl ProfileData {
             total_gas_burnt.saturating_sub(self.action_gas()).saturating_sub(self.host_gas());
     }
 
-    #[cfg(test)]
     fn get_action_cost(&self, action: ActionCosts) -> u64 {
         self.actions_profile[action]
     }
@@ -84,6 +83,39 @@ impl ProfileData {
 
     pub fn action_gas(&self) -> u64 {
         self.actions_profile.as_slice().iter().copied().fold(0, u64::saturating_add)
+    }
+}
+
+impl fmt::Debug for ProfileDataV2 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use num_rational::Ratio;
+        let host_gas = self.host_gas();
+        let action_gas = self.action_gas();
+
+        writeln!(f, "------------------------------")?;
+        writeln!(f, "Action gas: {}", action_gas)?;
+        writeln!(f, "------ Host functions --------")?;
+        for cost in ExtCosts::iter() {
+            let d = self.get_ext_cost(cost);
+            if d != 0 {
+                writeln!(
+                    f,
+                    "{} -> {} [{}% host]",
+                    cost,
+                    d,
+                    Ratio::new(d * 100, core::cmp::max(host_gas, 1)).to_integer(),
+                )?;
+            }
+        }
+        writeln!(f, "------ Actions --------")?;
+        for cost in ActionCosts::iter() {
+            let d = self.get_action_cost(cost);
+            if d != 0 {
+                writeln!(f, "{} -> {}", cost, d)?;
+            }
+        }
+        writeln!(f, "------------------------------")?;
+        Ok(())
     }
 }
 
@@ -357,20 +389,29 @@ mod profile_v1 {
         }
     }
 
+    /// Tests for ProfileDataV1
     #[cfg(test)]
     mod test {
         use super::*;
 
         #[test]
         fn test_profile_data_debug() {
-            let profile_data = ProfileDataV1::default();
-            // TODO: this test is the same as test_profile_data_debug_no_data, need to add data
-            println!("{:#?}", &profile_data);
+            let mut profile_data = ProfileDataV1::default();
+            for (i, cost) in ExtCosts::iter().enumerate() {
+                profile_data.add_ext_cost(cost, i as Gas);
+            }
+            for (i, cost) in ActionCosts::iter().enumerate() {
+                profile_data.add_action_cost(cost, i as Gas + 1000);
+            }
+            // we don't care about exact formatting, but the numbers should not change unexpectedly
+            let pretty_debug_str = format!("{profile_data:#?}");
+            insta::assert_snapshot!(pretty_debug_str);
         }
 
         #[test]
         fn test_profile_data_debug_no_data() {
             let profile_data = ProfileDataV1::default();
+            // we don't care about exact formatting, but at least it should not panic
             println!("{:#?}", &profile_data);
         }
 
@@ -386,11 +427,11 @@ mod profile_v1 {
 
         #[test]
         fn test_merge() {
-            let mut profile_data = ProfileData::new();
+            let mut profile_data = ProfileDataV1::default();
             profile_data.add_action_cost(ActionCosts::add_full_access_key, 111);
             profile_data.add_ext_cost(ExtCosts::storage_read_base, 11);
 
-            let mut profile_data2 = ProfileData::new();
+            let mut profile_data2 = ProfileDataV1::default();
             profile_data2.add_action_cost(ActionCosts::add_full_access_key, 222);
             profile_data2.add_ext_cost(ExtCosts::storage_read_base, 22);
 
@@ -409,4 +450,54 @@ mod profile_v1 {
     }
 }
 
-// TODO: add tests for new profile data
+/// Tests for ProfileDataV2
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_profile_data_debug() {
+        let mut profile_data = ProfileDataV2::default();
+        for (i, cost) in ExtCosts::iter().enumerate() {
+            profile_data.add_ext_cost(cost, i as Gas);
+        }
+        for (i, cost) in ActionCosts::iter().enumerate() {
+            profile_data.add_action_cost(cost, i as Gas + 1000);
+        }
+        // we don't care about exact formatting, but the numbers should not change unexpectedly
+        let pretty_debug_str = format!("{profile_data:#?}");
+        insta::assert_snapshot!(pretty_debug_str);
+    }
+
+    #[test]
+    fn test_profile_data_debug_no_data() {
+        let profile_data = ProfileDataV2::default();
+        // we don't care about exact formatting, but at least it should not panic
+        println!("{:#?}", &profile_data);
+    }
+
+    #[test]
+    fn test_no_panic_on_overflow() {
+        let mut profile_data = ProfileDataV2::default();
+        profile_data.add_action_cost(ActionCosts::add_full_access_key, u64::MAX);
+        profile_data.add_action_cost(ActionCosts::add_full_access_key, u64::MAX);
+
+        let res = profile_data.get_action_cost(ActionCosts::add_full_access_key);
+        assert_eq!(res, u64::MAX);
+    }
+
+    #[test]
+    fn test_merge() {
+        let mut profile_data = ProfileDataV2::default();
+        profile_data.add_action_cost(ActionCosts::add_full_access_key, 111);
+        profile_data.add_ext_cost(ExtCosts::storage_read_base, 11);
+
+        let mut profile_data2 = ProfileDataV2::default();
+        profile_data2.add_action_cost(ActionCosts::add_full_access_key, 222);
+        profile_data2.add_ext_cost(ExtCosts::storage_read_base, 22);
+
+        profile_data.merge(&profile_data2);
+        assert_eq!(profile_data.get_action_cost(ActionCosts::add_full_access_key), 333);
+        assert_eq!(profile_data.get_ext_cost(ExtCosts::storage_read_base), 33);
+    }
+}
