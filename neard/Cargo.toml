@@ -33,17 +33,18 @@ tracing.workspace = true
 nearcore = { path = "../nearcore" }
 near-amend-genesis = { path = "../tools/amend-genesis" }
 near-chain-configs = { path = "../core/chain-configs" }
+near-cold-store-tool = { path = "../tools/cold-store", package = "cold-store-tool" }
 near-dyn-configs = { path = "../core/dyn-configs" }
 near-jsonrpc-primitives = { path = "../chain/jsonrpc-primitives" }
-near-network = { path = "../chain/network" }
 near-mirror = { path = "../tools/mirror" }
-near-primitives = { path = "../core/primitives" }
+near-network = { path = "../chain/network" }
+near-o11y = { path = "../core/o11y" }
 near-performance-metrics = { path = "../utils/near-performance-metrics" }
 near-ping = { path = "../tools/ping" }
+near-primitives = { path = "../core/primitives" }
+near-state-parts = { path = "../tools/state-parts" }
 near-state-viewer = { path = "../tools/state-viewer", package = "state-viewer" }
-near-cold-store-tool = { path = "../tools/cold-store", package = "cold-store-tool" }
 near-store = { path = "../core/store" }
-near-o11y = { path = "../core/o11y" }
 
 [build-dependencies]
 anyhow.workspace = true
