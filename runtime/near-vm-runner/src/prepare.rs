@@ -117,11 +117,11 @@ pub fn prepare_contract(original_code: &[u8], config: &VMConfig) -> Result<Vec<u
         // See `test_stack_instrumentation_protocol_upgrade` test.
         near_vm_logic::StackLimiterVersion::V0 => pwasm_12::prepare_contract(original_code, config),
         near_vm_logic::StackLimiterVersion::V1 => ContractModule::init(original_code, config)?
+            .scan_imports()?
             .standardize_mem()
             .ensure_no_internal_memory()?
             .inject_gas_metering()?
             .inject_stack_height_metering()?
-            .scan_imports()?
             .into_wasm_code(),
     }
 }
@@ -212,8 +212,6 @@ impl<'a> ContractModule<'a> {
         let import_entries =
             module.import_section().map(elements::ImportSection::entries).unwrap_or(&[]);
 
-        let mut imported_mem_type = None;
-
         for import in import_entries {
             if import.module() != "env" {
                 // This import tries to import something from non-"env" module,
@@ -223,10 +221,7 @@ impl<'a> ContractModule<'a> {
 
             let type_idx = match *import.external() {
                 External::Function(ref type_idx) => type_idx,
-                External::Memory(ref memory_type) => {
-                    imported_mem_type = Some(memory_type);
-                    continue;
-                }
+                External::Memory(_) => return Err(PrepareError::Memory),
                 _ => continue,
             };
 
@@ -245,17 +240,6 @@ impl<'a> ContractModule<'a> {
             }
             */
         }
-        if let Some(memory_type) = imported_mem_type {
-            // Inspect the module to extract the initial and maximum page count.
-            let limits = memory_type.limits();
-            if limits.initial() != config.limit_config.initial_memory_pages
-                || limits.maximum() != Some(config.limit_config.max_memory_pages)
-            {
-                return Err(PrepareError::Memory);
-            }
-        } else {
-            return Err(PrepareError::Memory);
-        };
         Ok(Self { module, config })
     }
 
@@ -443,12 +427,12 @@ mod tests {
     }
 
     #[test]
-    fn memory() {
+    fn memory_imports() {
         // This test assumes that maximum page number is configured to a certain number.
         assert_eq!(VMConfig::test().limit_config.max_memory_pages, 2048);
 
         let r = parse_and_prepare_wat(r#"(module (import "env" "memory" (memory 1 1)))"#);
-        assert_matches!(r, Ok(_));
+        assert_matches!(r, Err(PrepareError::Memory));
 
         // No memory import
         let r = parse_and_prepare_wat(r#"(module)"#);
@@ -460,11 +444,11 @@ mod tests {
 
         // no maximum
         let r = parse_and_prepare_wat(r#"(module (import "env" "memory" (memory 1)))"#);
-        assert_matches!(r, Ok(_));
+        assert_matches!(r, Err(PrepareError::Memory));
 
         // requested maximum exceed configured maximum
         let r = parse_and_prepare_wat(r#"(module (import "env" "memory" (memory 1 33)))"#);
-        assert_matches!(r, Ok(_));
+        assert_matches!(r, Err(PrepareError::Memory));
     }
 
     #[test]
