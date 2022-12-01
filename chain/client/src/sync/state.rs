@@ -50,7 +50,9 @@ use near_client_primitives::types::{
 use near_network::types::AccountOrPeerIdOrHash;
 use near_network::types::PeerManagerMessageRequest;
 use near_o11y::WithSpanContextExt;
+use near_primitives::errors::StorageError;
 use near_primitives::shard_layout::ShardUId;
+use near_store::flat_state::FlatStorageStateStatus;
 
 /// Maximum number of state parts to request per peer on each round when node is trying to download the state.
 pub const MAX_STATE_PART_REQUEST: u64 = 16;
@@ -194,7 +196,8 @@ impl StateSync {
             status: ShardSyncStatus::StateDownloadHeader,
         };
 
-        let prev_hash = *chain.get_block_header(&sync_hash)?.prev_hash();
+        let sync_block_header = chain.get_block_header(&sync_hash)?;
+        let prev_hash = *sync_block_header.prev_hash();
         let prev_epoch_id = chain.get_block_header(&prev_hash)?.epoch_id().clone();
         let epoch_id = chain.get_block_header(&sync_hash)?.epoch_id().clone();
         if chain.runtime_adapter.get_shard_layout(&prev_epoch_id)?
@@ -322,6 +325,17 @@ impl StateSync {
                     // (these are set via callback from ClientActor - both for sync and catchup).
                     let result = self.state_parts_apply_results.remove(&shard_id);
                     if let Some(result) = result {
+                        let block_height = sync_block_header.height();
+                        match chain.runtime_adapter.try_create_flat_storage_state_for_shard(
+                            shard_id,
+                            block_height,
+                            chain.store(),
+                        ) {
+                            FlatStorageStateStatus::Ready | FlatStorageStateStatus::DontCreate => {}
+                            status @ _ => {
+                                return Err(Error::StorageError(StorageError::FlatStorageError(format!("Unable to create flat storage during syncing shard {shard_id}, got status {status:?}"))));
+                            }
+                        };
                         match chain.set_state_finalize(shard_id, sync_hash, result) {
                             Ok(()) => {
                                 *shard_sync_download = ShardSyncDownload {

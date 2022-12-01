@@ -352,9 +352,13 @@ impl FlatStateDelta {
         self.0.get(key).cloned()
     }
 
-    /// Returns `Some(Option<ValueRef>)` from delta for the given key. If key is not present, returns None.
+    /// Inserts a key-value pair to delta.
     pub fn insert(&mut self, key: Vec<u8>, value: Option<ValueRef>) -> Option<Option<ValueRef>> {
         self.0.insert(key, value)
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
     }
 
     /// Merge two deltas. Values from `other` should override values from `self`.

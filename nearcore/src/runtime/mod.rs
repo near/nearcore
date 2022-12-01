@@ -724,6 +724,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             }
             _ => {}
         }
+        info!(target: "chain", %shard_id, "Flat storage creation status: {status:?}");
         status
     }
 
@@ -741,6 +742,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 // in the future, we should support range updates and delete ranges of keys
                 // e.g. [ [0]+account_id(shard_id) .. [0]+account_id(shard_id+1) )
                 // same for all other key prefixes
+                let mut removed_items = 0;
                 for item in self.store.iter(DBCol::FlatState) {
                     let (key, _) = item?;
                     let account_id = parse_account_id_from_raw_key(&key)?.ok_or(
@@ -750,10 +752,11 @@ impl RuntimeAdapter for NightshadeRuntime {
                         ))),
                     )?;
                     if account_id_to_shard_id(&account_id, &shard_layout) == shard_id {
+                        removed_items += 1;
                         store_update.delete(DBCol::FlatState, &key);
                     }
                 }
-
+                info!(target: "chain", %shard_id, %removed_items, "Removing old items from flat storage");
                 // remove DBCol::FlatStateDeltas. add custom serialization to remove everything by prefix?
 
                 store_helper::remove_flat_head(&mut store_update, shard_id);
@@ -1381,6 +1384,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, epoch_id)?;
         let mut store_update = tries.store_update();
         tries.apply_all(&trie_changes, shard_uid, &mut store_update);
+        info!(target: "chain", %shard_id, "Inserting {} values to flat storage", flat_state_delta.len());
         flat_state_delta.apply_to_flat_state(&mut store_update);
         self.precompile_contracts(epoch_id, contract_codes)?;
         Ok(store_update.commit()?)

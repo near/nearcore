@@ -64,6 +64,7 @@ use near_primitives::utils::{from_timestamp, MaybeValidated};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{DetailedDebugStatus, ValidatorInfo};
+use near_store::flat_state::store_helper;
 use near_store::DBCol;
 use near_telemetry::TelemetryActor;
 use rand::seq::SliceRandom;
@@ -1898,6 +1899,14 @@ impl SyncJobsActor {
                 &part,
                 &msg.epoch_id,
             )?;
+        }
+
+        // once we applied all parts, we can set flat storage head
+        #[cfg(feature = "protocol_feature_flat_state")]
+        {
+            let mut store_update = store.store_update();
+            store_helper::set_flat_head(&mut store_update, msg.shard_id, &msg.sync_hash);
+            store_update.commit()?;
         }
 
         Ok(())
