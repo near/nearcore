@@ -340,6 +340,14 @@ pub(crate) static CONNECTED_TO_MYSELF: Lazy<IntCounter> = Lazy::new(|| {
     .unwrap()
 });
 
+pub(crate) static ALREADY_CONNECTED_ACCOUNT: Lazy<IntCounter> = Lazy::new(|| {
+    try_create_int_counter(
+        "near_already_connected_account",
+        "A second peer with the same validator key is trying to connect to our node. This means that the validator peer has invalid setup."
+    )
+    .unwrap()
+});
+
 pub(crate) fn record_routed_msg_metrics(clock: &time::Clock, msg: &RoutedMessageV2) {
     record_routed_msg_latency(clock, msg);
     record_routed_msg_hops(msg);
@@ -379,6 +387,8 @@ pub(crate) enum MessageDropped {
     UnknownAccount,
     InputTooLong,
     MaxCapacityExceeded,
+    TransactionsPerBlockExceeded,
+    Duplicate,
 }
 
 impl MessageDropped {

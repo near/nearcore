@@ -281,7 +281,9 @@ def send_add_access_key(node, key, target_key, nonce, block_hash):
                                                     key.account_id,
                                                     key.decoded_pk(),
                                                     key.decoded_sk())
-    node.send_tx(tx)
+    res = node.send_tx(tx)
+    logger.info(
+        f'sent add key tx for {target_key.account_id} {target_key.pk}: {res}')
 
 
 def send_delete_access_key(node, key, target_key, nonce, block_hash):
@@ -292,7 +294,10 @@ def send_delete_access_key(node, key, target_key, nonce, block_hash):
                                                     target_key.account_id,
                                                     key.decoded_pk(),
                                                     key.decoded_sk())
-    node.send_tx(tx)
+    res = node.send_tx(tx)
+    logger.info(
+        f'sent delete key tx for {target_key.account_id} {target_key.pk}: {res}'
+    )
 
 
 def create_subaccount(node, signer_key, nonce, block_hash):
@@ -311,7 +316,54 @@ def create_subaccount(node, signer_key, nonce, block_hash):
                                                     signer_key.account_id,
                                                     signer_key.decoded_pk(),
                                                     signer_key.decoded_sk())
+    res = node.send_tx(tx)
+    logger.info(f'sent create account tx for {k.account_id} {k.pk}: {res}')
+    return k
+
+
+def deploy_addkey_contract(node, signer_key, contract_path, nonce, block_hash):
+    code = utils.load_binary_file(contract_path)
+    tx = transaction.sign_deploy_contract_tx(signer_key, code, nonce,
+                                             block_hash)
     node.send_tx(tx)
+
+
+def call_addkey(node, signer_key, new_key, nonce, block_hash, extra_actions=[]):
+    args = bytearray(json.dumps({'public_key': new_key.pk}), encoding='utf-8')
+
+    # add a transfer action and the extra_actions to exercise some more code paths
+    actions = [
+        transaction.create_function_call_action('add_key', args, 10**14, 0),
+        transaction.create_payment_action(123)
+    ]
+    actions.extend(extra_actions)
+    tx = transaction.sign_and_serialize_transaction('test0', nonce, actions,
+                                                    block_hash,
+                                                    signer_key.account_id,
+                                                    signer_key.decoded_pk(),
+                                                    signer_key.decoded_sk())
+    res = node.send_tx(tx)
+    logger.info(f'called add_key for {new_key.account_id} {new_key.pk}: {res}')
+
+
+def call_create_account(node, signer_key, account_id, nonce, block_hash):
+    k = key.Key.from_random(account_id)
+    args = json.dumps({'account_id': account_id, 'public_key': k.pk})
+    args = bytearray(args, encoding='utf-8')
+
+    actions = [
+        transaction.create_function_call_action('create_account', args, 10**13,
+                                                10**24),
+        transaction.create_payment_action(123)
+    ]
+    tx = transaction.sign_and_serialize_transaction('test0', nonce, actions,
+                                                    block_hash,
+                                                    signer_key.account_id,
+                                                    signer_key.decoded_pk(),
+                                                    signer_key.decoded_sk())
+    res = node.send_tx(tx)
+    logger.info(
+        f'called create account contract for {account_id} {k.pk}: {res}')
     return k
 
 
@@ -325,7 +377,9 @@ class AddedKey:
 
     def send_if_inited(self, node, transfers, block_hash):
         if self.nonce is None:
-            self.nonce = node.get_nonce_for_pk(self.key.account_id, self.key.pk)
+            self.nonce = node.get_nonce_for_pk(self.key.account_id,
+                                               self.key.pk,
+                                               finality='final')
             if self.nonce is not None:
                 logger.info(
                     f'added key {self.key.account_id} {self.key.pk} inited @ {self.nonce}'
@@ -338,6 +392,9 @@ class AddedKey:
                                                  self.nonce, block_hash)
                 node.send_tx(tx)
 
+    def account_id(self):
+        return self.key.account_id
+
     def inited(self):
         return self.nonce is not None
 
@@ -348,7 +405,7 @@ class ImplicitAccount:
         self.key = AddedKey(key.Key.implicit_account())
 
     def account_id(self):
-        return self.key.key.account_id
+        return self.key.account_id()
 
     def transfer(self, node, sender_key, amount, block_hash, nonce):
         tx = transaction.sign_payment_tx(sender_key, self.account_id(), amount,
@@ -406,9 +463,11 @@ def check_num_txs(source_node, target_node):
 
     total_source_txs = count_total_txs(source_node, min_height=genesis_height)
     total_target_txs = count_total_txs(target_node)
-    assert total_source_txs == total_target_txs, (total_source_txs,
+    assert total_source_txs <= total_target_txs, (total_source_txs,
                                                   total_target_txs)
-    logger.info(f'all {total_source_txs} transactions mirrored')
+    logger.info(
+        f'passed. num source txs: {total_source_txs} num target txs: {total_target_txs}'
+    )
 
 
 # keeps info initialized during start_source_chain() for use in send_traffic()
@@ -432,12 +491,30 @@ class TrafficData:
             self.nonces[sender] += 1
 
 
+def added_keys_send_transfers(nodes, added_keys, receivers, amount, block_hash):
+    node_idx = 0
+    for key in added_keys:
+        key.send_if_inited(nodes[node_idx],
+                           [(receiver, amount) for receiver in receivers],
+                           block_hash)
+        node_idx += 1
+        node_idx %= len(nodes)
+
+
 def start_source_chain(config,
                        num_source_validators=3,
                        target_validators=['foo0', 'foo1', 'foo2']):
     # for now we need at least 2 because we're sending traffic for source_nodes[1].signer_key
     # Could fix that but for now this assert is fine
     assert num_source_validators >= 2
+
+    contract_path = pathlib.Path(__file__).resolve().parents[
+        0] / 'contract/target/wasm32-unknown-unknown/release/addkey_contract.wasm'
+    if not os.path.exists(contract_path):
+        sys.exit(
+            'please build the addkey contract by running cargo build --target wasm32-unknown-unknown --release from the ./contract/ dir'
+        )
+
     config_changes = {}
     for i in range(num_source_validators + 1):
         config_changes[i] = {"tracked_shards": [0, 1, 2, 3], "archive": True}
@@ -470,10 +547,21 @@ def start_source_chain(config,
     traffic_data.implicit_account = ImplicitAccount()
     for height, block_hash in utils.poll_blocks(source_nodes[0],
                                                 timeout=TIMEOUT):
-        traffic_data.implicit_account.transfer(
-            source_nodes[0], source_nodes[0].signer_key, 10**24,
-            base58.b58decode(block_hash.encode('utf8')), traffic_data.nonces[0])
+        block_hash_bytes = base58.b58decode(block_hash.encode('utf8'))
+        traffic_data.implicit_account.transfer(source_nodes[0],
+                                               source_nodes[0].signer_key,
+                                               10**24, block_hash_bytes,
+                                               traffic_data.nonces[0])
         traffic_data.nonces[0] += 1
+
+        deploy_addkey_contract(source_nodes[0], source_nodes[0].signer_key,
+                               contract_path, traffic_data.nonces[0],
+                               block_hash_bytes)
+        traffic_data.nonces[0] += 1
+        deploy_addkey_contract(source_nodes[0], source_nodes[1].signer_key,
+                               contract_path, traffic_data.nonces[1],
+                               block_hash_bytes)
+        traffic_data.nonces[1] += 1
         break
 
     for height, block_hash in utils.poll_blocks(source_nodes[0],
@@ -513,6 +601,43 @@ def send_traffic(near_root, source_nodes, traffic_data, callback):
     send_add_access_key(source_nodes[1], source_nodes[0].signer_key, k,
                         traffic_data.nonces[0], block_hash_bytes)
     traffic_data.nonces[0] += 1
+
+    test0_contract_key = key.Key.from_random('test0')
+    test0_contract_extra_key = key.Key.from_random('test0')
+
+    # here we are assuming that the deployed contract has landed since we called start_source_chain()
+    # we will add an extra AddKey action to hit some more code paths
+    call_addkey(source_nodes[1],
+                source_nodes[0].signer_key,
+                test0_contract_key,
+                traffic_data.nonces[0],
+                block_hash_bytes,
+                extra_actions=[
+                    transaction.create_full_access_key_action(
+                        test0_contract_extra_key.decoded_pk())
+                ])
+    traffic_data.nonces[0] += 1
+
+    test0_contract_key = AddedKey(test0_contract_key)
+    test0_contract_extra_key = AddedKey(test0_contract_extra_key)
+
+    test1_contract_key = key.Key.from_random('test1')
+
+    call_addkey(source_nodes[1], source_nodes[1].signer_key, test1_contract_key,
+                traffic_data.nonces[1], block_hash_bytes)
+    traffic_data.nonces[1] += 1
+    test1_contract_key = AddedKey(test1_contract_key)
+
+    test0_subaccount_contract_key = AddedKey(
+        call_create_account(source_nodes[1], source_nodes[0].signer_key,
+                            'test0.test0', traffic_data.nonces[0],
+                            block_hash_bytes))
+    traffic_data.nonces[0] += 1
+    test1_subaccount_contract_key = AddedKey(
+        call_create_account(source_nodes[1], source_nodes[1].signer_key,
+                            'test1.test0', traffic_data.nonces[1],
+                            block_hash_bytes))
+    traffic_data.nonces[1] += 1
 
     test0_deleted_height = None
     test0_readded_key = None
@@ -555,15 +680,19 @@ def send_traffic(near_root, source_nodes, traffic_data, callback):
                 [('test2', height), ('test0', height),
                  (traffic_data.implicit_account.account_id(), height)],
                 block_hash_bytes)
-        new_key.send_if_inited(
-            source_nodes[1],
-            [('test1', height), ('test2', height),
-             (traffic_data.implicit_account.account_id(), height),
-             (implicit_account2.account_id(), height)], block_hash_bytes)
-        subaccount_key.send_if_inited(
-            source_nodes[1], [('test3', height),
-                              (implicit_account2.account_id(), height)],
-            block_hash_bytes)
+        keys = [
+            new_key,
+            subaccount_key,
+            test0_contract_key,
+            test0_contract_extra_key,
+            test1_contract_key,
+            test0_subaccount_contract_key,
+            test1_subaccount_contract_key,
+        ]
+        added_keys_send_transfers(source_nodes, keys, [
+            traffic_data.implicit_account.account_id(),
+            implicit_account2.account_id(), 'test2', 'test3'
+        ], height, block_hash_bytes)
 
         if implicit_added is None:
             # wait for 15 blocks after we started to get some "normal" traffic

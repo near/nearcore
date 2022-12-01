@@ -3246,6 +3246,7 @@ dependencies = [
  "near-client",
  "near-client-primitives",
  "near-crypto",
+ "near-epoch-manager",
  "near-indexer",
  "near-indexer-primitives",
  "near-network",
@@ -3523,6 +3524,23 @@ name = "near-stable-hasher"
 version = "0.0.0"
 
 [[package]]
+name = "near-state-parts"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap 3.1.18",
+ "near-jsonrpc",
+ "near-network",
+ "near-o11y",
+ "near-ping",
+ "near-primitives",
+ "once_cell",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "near-stdx"
 version = "0.0.0"
 
@@ -3766,6 +3784,7 @@ dependencies = [
  "near-ping",
  "near-primitives",
  "near-rust-allocator-proxy",
+ "near-state-parts",
  "near-store",
  "nearcore",
  "once_cell",
@@ -4959,7 +4978,6 @@ dependencies = [
 name = "runtime-tester"
 version = "0.0.0"
 dependencies = [
- "byteorder",
  "cpu-time",
  "libfuzzer-sys",
  "near-chain",
