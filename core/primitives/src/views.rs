@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 
 use near_crypto::{PublicKey, Signature};
 use near_o11y::pretty;
+use strum::IntoEnumIterator;
 
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
 use crate::block::{Block, BlockHeader, Tip};
@@ -30,7 +31,6 @@ use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::{combine_hash, MerklePath};
 use crate::network::PeerId;
-use crate::profile::Cost;
 use crate::receipt::{ActionReceipt, DataReceipt, DataReceiver, Receipt, ReceiptEnum};
 use crate::runtime::config::RuntimeConfig;
 use crate::serialize::{base64_format, dec_format, option_base64_format};
@@ -1268,52 +1268,36 @@ impl From<ExecutionMetadata> for ExecutionMetadataView {
         let gas_profile = match metadata {
             ExecutionMetadata::V1 => None,
             ExecutionMetadata::V2(profile_data) => {
-                let mut costs: Vec<_> =
-                    Cost::iter()
-                        .filter(|&cost| profile_data[cost] > 0)
-                        .map(|cost| CostGasUsed {
-                            cost_category: match cost {
-                                Cost::ActionCost { .. } => "ACTION_COST",
-                                Cost::ExtCost { .. } => "WASM_HOST_COST",
-                                Cost::WasmInstruction => "WASM_HOST_COST",
-                            }
-                            .to_string(),
-                            cost: match cost {
-                                // preserve old behavior that conflated some action
-                                // costs for profile (duplicates are removed afterwards)
-                                Cost::ActionCost {
-                                    action_cost_kind:
-                                        ActionCosts::deploy_contract_base
-                                        | ActionCosts::deploy_contract_byte,
-                                } => "DEPLOY_CONTRACT".to_owned(),
-                                Cost::ActionCost {
-                                    action_cost_kind:
-                                        ActionCosts::function_call_base
-                                        | ActionCosts::function_call_byte,
-                                } => "FUNCTION_CALL".to_owned(),
-                                Cost::ActionCost {
-                                    action_cost_kind:
-                                        ActionCosts::add_full_access_key
-                                        | ActionCosts::add_function_call_key_base
-                                        | ActionCosts::add_function_call_key_byte,
-                                } => "ADD_KEY".to_owned(),
-                                Cost::ActionCost {
-                                    action_cost_kind:
-                                        ActionCosts::new_action_receipt
-                                        | ActionCosts::new_data_receipt_base,
-                                } => "NEW_RECEIPT".to_owned(),
-                                // other costs have always been mapped one-to-one
-                                Cost::ActionCost { action_cost_kind: action_cost } => {
-                                    format!("{:?}", action_cost).to_ascii_uppercase()
-                                }
-                                Cost::ExtCost { ext_cost_kind: ext_cost } => {
-                                    format!("{:?}", ext_cost).to_ascii_uppercase()
-                                }
-                                Cost::WasmInstruction => "WASM_INSTRUCTION".to_string(),
-                            },
-                            gas_used: profile_data[cost],
-                        })
-                        .collect();
+                // Add actions, wasm op, and ext costs in groups.
+
+                // actions should use the old format, since `ActionCosts`
+                // includes more detailed entries than were present in the old
+                // profile
+                let mut costs: Vec<CostGasUsed> = profile_data
+                    .legacy_action_costs()
+                    .into_iter()
+                    .map(|(name, gas_used)| CostGasUsed {
+                        cost_category: "ACTION_COST".to_string(),
+                        cost: name.to_string(),
+                        gas_used,
+                    })
+                    .collect();
+
+                // wasm op is a single cost
+                costs.push(CostGasUsed {
+                    cost_category: "WASM_HOST_COST".to_string(),
+                    cost: "WASM_INSTRUCTION".to_string(),
+                    gas_used: profile_data.get_wasm_cost(),
+                });
+
+                // ext costs are 1-to-1, except for those added later which we will display as 0
+                for ext_cost in ExtCosts::iter() {
+                    costs.push(CostGasUsed {
+                        cost_category: "WASM_HOST_COST".to_string(),
+                        cost: format!("{:?}", ext_cost).to_ascii_uppercase(),
+                        gas_used: profile_data.get_ext_cost(ext_cost),
+                    });
+                }
 
                 // The order doesn't really matter, but the default one is just
                 // historical, which is especially unintuitive, so let's sort
@@ -1325,11 +1309,9 @@ impl From<ExecutionMetadata> for ExecutionMetadataView {
                     lhs.cost_category.cmp(&rhs.cost_category).then(lhs.cost.cmp(&rhs.cost))
                 });
 
-                // need to remove duplicate entries due to cost conflation
-                costs.dedup();
-
                 Some(costs)
             }
+            ExecutionMetadata::V3(_) => todo!(),
         };
         ExecutionMetadataView { version: 1, gas_profile }
     }

@@ -11,7 +11,7 @@ pub use near_crypto;
 use near_crypto::PublicKey;
 pub use near_primitives;
 use near_primitives::contract::ContractCode;
-use near_primitives::profile::ProfileDataV1;
+use near_primitives::profile::ProfileDataV2;
 pub use near_primitives::runtime::apply_state::ApplyState;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::runtime::get_insufficient_storage_stake;
@@ -134,7 +134,7 @@ pub struct ActionResult {
     pub logs: Vec<LogEntry>,
     pub new_receipts: Vec<Receipt>,
     pub validator_proposals: Vec<ValidatorStake>,
-    pub profile: ProfileDataV1, // TODO: Replace with V2
+    pub profile: ProfileDataV2,
 }
 
 impl ActionResult {
@@ -732,7 +732,7 @@ impl Runtime {
                 gas_burnt: result.gas_burnt,
                 tokens_burnt,
                 executor_id: account_id.clone(),
-                metadata: ExecutionMetadata::V2(result.profile),
+                metadata: ExecutionMetadata::V3(result.profile),
             },
         })
     }

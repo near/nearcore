@@ -9,7 +9,7 @@ use byteorder::ByteOrder;
 use near_crypto::Secp256K1Signature;
 use near_primitives::checked_feature;
 use near_primitives::config::ViewConfig;
-use near_primitives::profile::ProfileDataV1;
+use near_primitives::profile::ProfileDataV2;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::version::is_implicit_account_creation_enabled;
 use near_primitives_core::config::ExtCosts::*;
@@ -2854,7 +2854,7 @@ pub struct VMOutcome {
     pub used_gas: Gas,
     pub logs: Vec<String>,
     /// Data collected from making a contract call
-    pub profile: ProfileDataV1,
+    pub profile: ProfileDataV2,
     pub action_receipts: Vec<(AccountId, ReceiptMetadata)>,
     pub aborted: Option<FunctionCallError>,
 }
@@ -2886,7 +2886,7 @@ impl VMOutcome {
             burnt_gas: 0,
             used_gas: 0,
             logs: Vec::new(),
-            profile: ProfileDataV1::default(),
+            profile: ProfileDataV2::default(),
             action_receipts: Vec::new(),
             aborted: Some(error),
         }
