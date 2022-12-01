@@ -80,8 +80,8 @@ fn generate_stats(db: &Db) -> anyhow::Result<String> {
         &mut buf,
         "{:>24}{:>24}{:>24}",
         "icount",
-        EstimationRow::count_by_metric(&db, Metric::ICount)?,
-        EstimationRow::last_updated(&db, Metric::ICount)?
+        EstimationRow::count_by_metric(db, Metric::ICount)?,
+        EstimationRow::last_updated(db, Metric::ICount)?
             .map(|dt| dt.to_string())
             .as_deref()
             .unwrap_or("never")
@@ -90,8 +90,8 @@ fn generate_stats(db: &Db) -> anyhow::Result<String> {
         &mut buf,
         "{:>24}{:>24}{:>24}",
         "time",
-        EstimationRow::count_by_metric(&db, Metric::Time)?,
-        EstimationRow::last_updated(&db, Metric::Time)?
+        EstimationRow::count_by_metric(db, Metric::Time)?,
+        EstimationRow::last_updated(db, Metric::Time)?
             .map(|dt| dt.to_string())
             .as_deref()
             .unwrap_or("never")
@@ -100,8 +100,8 @@ fn generate_stats(db: &Db) -> anyhow::Result<String> {
         &mut buf,
         "{:>24}{:>24}{:>24}",
         "parameter",
-        ParameterRow::count(&db)?,
-        ParameterRow::latest_protocol_version(&db)?
+        ParameterRow::count(db)?,
+        ParameterRow::latest_protocol_version(db)?
             .map(|version| format!("v{version}"))
             .as_deref()
             .unwrap_or("never")
