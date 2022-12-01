@@ -14,6 +14,7 @@ use opentelemetry_semantic_conventions::resource::SERVICE_NAME;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::path::PathBuf;
+use std::sync::Mutex;
 use tracing::level_filters::LevelFilter;
 use tracing::subscriber::DefaultGuard;
 use tracing_appender::non_blocking::NonBlocking;
@@ -48,8 +49,9 @@ macro_rules! io_trace {
     ($($fields:tt)*) => {};
 }
 
-static LOG_LAYER_RELOAD_HANDLE: OnceCell<reload::Handle<EnvFilter, Registry>> = OnceCell::new();
-static OTLP_LAYER_RELOAD_HANDLE: OnceCell<reload::Handle<LevelFilter, LogLayer<Registry>>> =
+static LOG_LAYER_RELOAD_HANDLE: OnceCell<Mutex<reload::Handle<EnvFilter, Registry>>> =
+    OnceCell::new();
+static OTLP_LAYER_RELOAD_HANDLE: OnceCell<Mutex<reload::Handle<LevelFilter, LogLayer<Registry>>>> =
     OnceCell::new();
 
 type LogLayer<Inner> = Layered<
@@ -359,6 +361,12 @@ pub fn default_subscriber(
     }
 }
 
+pub fn set_default_optl_level(options: &Options) {
+    // Record the initial tracing level specified as a command-line flag. Use this recorded value to
+    // reset opentelemetry filter when the LogConfig file gets deleted.
+    DEFAULT_OTLP_LEVEL.set(options.opentelemetry).unwrap();
+}
+
 /// Constructs a subscriber set to the option appropriate for the NEAR code.
 ///
 /// The subscriber enables logging, tracing and io tracing.
@@ -379,10 +387,6 @@ pub async fn default_subscriber_with_opentelemetry(
 
     let subscriber = tracing_subscriber::registry();
 
-    // Record the initial tracing level specified as a command-line flag. Use this recorded value to
-    // reset opentelemetry filter when the LogConfig file gets deleted.
-    DEFAULT_OTLP_LEVEL.set(options.opentelemetry).unwrap();
-
     let (subscriber, handle) = add_non_blocking_log_layer(
         env_filter,
         writer,
@@ -390,9 +394,10 @@ pub async fn default_subscriber_with_opentelemetry(
         options.log_span_events,
         subscriber,
     );
-    LOG_LAYER_RELOAD_HANDLE
-        .set(handle)
-        .unwrap_or_else(|_| panic!("Failed to set Log Layer Filter"));
+    *LOG_LAYER_RELOAD_HANDLE
+        .get_or_init(|| Mutex::new(handle.clone()))
+        .lock()
+        .unwrap_or_else(|_| panic!("Failed to set Log Layer Filter")) = handle.clone();
 
     let (subscriber, handle) = add_opentelemetry_layer(
         options.opentelemetry,
@@ -402,9 +407,11 @@ pub async fn default_subscriber_with_opentelemetry(
         subscriber,
     )
     .await;
-    OTLP_LAYER_RELOAD_HANDLE
-        .set(handle)
-        .unwrap_or_else(|_| panic!("Failed to set OTLP Layer Filter"));
+
+    *OTLP_LAYER_RELOAD_HANDLE
+        .get_or_init(|| Mutex::new(handle.clone()))
+        .lock()
+        .unwrap_or_else(|_| panic!("Failed to set OTLP Layer Filter")) = handle.clone();
 
     #[allow(unused_mut)]
     let mut io_trace_guard = None;
@@ -455,45 +462,45 @@ pub fn reload(
     verbose_module: Option<&str>,
     opentelemetry_level: Option<OpenTelemetryLevel>,
 ) -> Result<(), Vec<ReloadError>> {
-    let log_reload_result = LOG_LAYER_RELOAD_HANDLE.get().map_or(
-        Err(ReloadError::NoLogReloadHandle),
-        |reload_handle| {
-            let mut builder = rust_log.map_or_else(
-                || EnvFilterBuilder::from_env(),
-                |rust_log| EnvFilterBuilder::new(rust_log),
-            );
-            if let Some(module) = verbose_module {
-                builder = builder.verbose(Some(module));
-            }
-            let env_filter = builder.finish().map_err(ReloadError::Parse)?;
+    let mut errors: Vec<ReloadError> = vec![];
 
-            reload_handle
-                .modify(|log_filter| {
-                    *log_filter = env_filter;
+    let mut builder = rust_log
+        .map_or_else(|| EnvFilterBuilder::from_env(), |rust_log| EnvFilterBuilder::new(rust_log));
+    if let Some(module) = verbose_module {
+        builder = builder.verbose(Some(module));
+    }
+
+    let log_reload_result = builder.finish().map_err(ReloadError::Parse).map(|env_filter| {
+        LOG_LAYER_RELOAD_HANDLE.get_or_try_init(|| Err(ReloadError::NoLogReloadHandle)).map(
+            |reload_handle| {
+                reload_handle.try_lock().map(|h| {
+                    h.modify(|log_filter| {
+                        *log_filter = env_filter;
+                    })
+                    .map_err(ReloadError::ReloadLogLayer)
                 })
-                .map_err(ReloadError::ReloadLogLayer)?;
-            Ok(())
-        },
-    );
+            },
+        )
+    });
 
     let opentelemetry_level = opentelemetry_level
         .unwrap_or(*DEFAULT_OTLP_LEVEL.get().unwrap_or(&OpenTelemetryLevel::OFF));
-    let opentelemetry_reload_result = OTLP_LAYER_RELOAD_HANDLE.get().map_or(
-        Err(ReloadError::NoOpentelemetryReloadHandle),
-        |reload_handle| {
-            reload_handle
-                .modify(|otlp_filter| {
+
+    let opentelemetry_reload_result = OTLP_LAYER_RELOAD_HANDLE
+        .get_or_try_init(|| Err(ReloadError::NoOpentelemetryReloadHandle))
+        .map(|reload_handle| {
+            reload_handle.try_lock().map(|h| {
+                h.modify(|otlp_filter| {
                     *otlp_filter = get_opentelemetry_filter(opentelemetry_level);
                 })
-                .map_err(ReloadError::ReloadOpentelemetryLayer)?;
-            Ok(())
-        },
-    );
+                .map_err(ReloadError::ReloadOpentelemetryLayer)
+            })
+        });
 
-    let mut errors: Vec<ReloadError> = vec![];
     if let Err(err) = log_reload_result {
         errors.push(err);
     }
+
     if let Err(err) = opentelemetry_reload_result {
         errors.push(err);
     }

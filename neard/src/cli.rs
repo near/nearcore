@@ -13,8 +13,8 @@ use near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofRe
 use near_mirror::MirrorCommand;
 use near_o11y::tracing_subscriber::EnvFilter;
 use near_o11y::{
-    default_subscriber, default_subscriber_with_opentelemetry, BuildEnvFilterError,
-    EnvFilterBuilder, OpenTelemetryLevel,
+    default_subscriber, default_subscriber_with_opentelemetry, set_default_optl_level,
+    BuildEnvFilterError, EnvFilterBuilder, OpenTelemetryLevel,
 };
 use near_ping::PingCommand;
 use near_primitives::hash::CryptoHash;
@@ -388,6 +388,7 @@ impl RunCmd {
         verbose_target: Option<&str>,
         o11y_opts: &near_o11y::Options,
     ) {
+        set_default_optl_level(o11y_opts);
         // Load configs from home.
         let mut near_config = nearcore::config::load_config(&home_dir, genesis_validation.clone())
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
@@ -471,21 +472,21 @@ impl RunCmd {
             let config = near_config.clone();
 
             let _ = sys.block_on(async move {
-                // TODO handle o11y in reload signer
                 // Initialize the subscriber that takes care of both logging and tracing.
-                // let _subscriber_guard = default_subscriber_with_opentelemetry(
-                //     make_env_filter(verbose_target).unwrap(),
-                //     o11y_opts,
-                //     config.client_config.chain_id.clone(),
-                //     config.network_config.node_key.public_key().clone(),
-                //     config
-                //         .network_config
-                //         .validator
-                //         .as_ref()
-                //         .map(|validator| validator.account_id()),
-                // )
-                // .await
-                // .global();
+                let _subscriber_guard = default_subscriber_with_opentelemetry(
+                    make_env_filter(verbose_target).unwrap(),
+                    o11y_opts,
+                    config.client_config.chain_id.clone(),
+                    config.network_config.node_key.public_key().clone(),
+                    config
+                        .network_config
+                        .validator
+                        .as_ref()
+                        .map(|validator| validator.account_id()),
+                )
+                .await
+                // TODO tracing global logger can not be reset
+                .global();
 
                 let nearcore::NearNode { rpc_servers, .. } =
                     nearcore::start_with_config_and_synchronization(
@@ -503,18 +504,18 @@ impl RunCmd {
                 }))
                 .await;
                 actix::System::current().stop();
+                // Disable the subscriber to properly shutdown the tracer.
+                near_o11y::reload(Some("error"), None, Some(OpenTelemetryLevel::OFF)).unwrap();
                 tx_sig.send(sig)
             });
             sys.run().unwrap();
             match rx_sig.try_recv() {
                 Ok(sig) => {
-                    if sig == "reload" {
+                    if sig == "reload signer" {
                         info!(target: "neard", "{}, restarting... this may take a few minutes.", sig);
                         continue;
                     } else {
                         warn!(target: "neard", "{}, stopping... this may take a few minutes.", sig);
-                        // Disable the subscriber to properly shutdown the tracer.
-                        // near_o11y::reload(Some("error"), None, Some(OpenTelemetryLevel::OFF)).unwrap();
                         break;
                     }
                 }
@@ -527,7 +528,7 @@ impl RunCmd {
 }
 
 async fn watch_config(home_dir: &Path) -> anyhow::Result<Metadata> {
-    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
     let mut config_path = home_dir.to_path_buf();
     config_path.push("config.json");
     let meta = tokio::fs::File::open(&config_path).await?.metadata().await?;
@@ -569,13 +570,13 @@ async fn wait_for_interrupt_signal(home_dir: &Path, mut rx_crash: Receiver<()>) 
              _ = sigterm.recv() => "SIGTERM",
              _ = sighup.recv() => {
                 update_watchers(&home_dir, UpdateBehavior::UpdateOrReset);
-                continue;
+                "reload signer"
              },
              meta = watch_config(&home_dir) => {
                 if let Ok(m) = meta {
                     if let Ok(t) = m.modified() {
                         if t != config_modify_time {
-                            return "reload"
+                            return "reload signer"
                         }
                     }
                 }
