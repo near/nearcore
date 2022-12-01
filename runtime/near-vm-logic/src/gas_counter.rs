@@ -8,7 +8,6 @@ use near_primitives_core::{
     types::Gas,
 };
 use std::collections::HashMap;
-use std::fmt;
 
 #[inline]
 pub fn with_ext_cost_counter(f: impl FnOnce(&mut HashMap<ExtCosts, u64>)) {
@@ -56,15 +55,10 @@ pub struct GasCounter {
     prepaid_gas: Gas,
     /// If this is a view-only call.
     is_view: bool,
+    /// FIXME(nagisa): why do we store a copy both here and in the VMLogic???
     ext_costs_config: ExtCostsConfig,
     /// Where to store profile data, if needed.
     profile: ProfileData,
-}
-
-impl fmt::Debug for GasCounter {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("").finish()
-    }
 }
 
 impl GasCounter {

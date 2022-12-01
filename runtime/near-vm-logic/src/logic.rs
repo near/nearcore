@@ -170,6 +170,12 @@ impl<'a> VMLogic<'a> {
         &self.gas_counter
     }
 
+    #[allow(dead_code)]
+    #[cfg(test)]
+    pub(crate) fn config(&self) -> &VMConfig {
+        &self.config
+    }
+
     // ###########################
     // # Memory helper functions #
     // ###########################
