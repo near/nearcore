@@ -177,11 +177,16 @@ impl PeerActor {
         network_state: Arc<NetworkState>,
     ) -> anyhow::Result<actix::Addr<Self>> {
         let (addr, handshake_signal) = Self::spawn(clock, stream, force_encoding, network_state)?;
+        // Await for the handshake to complete, by awaiting the handshake_signal channel.
         // This is a receiver of Infallible, so it only completes when the channel is closed.
         handshake_signal.await.err().unwrap();
         Ok(addr)
     }
 
+    /// Spawns a PeerActor on a separate actix arbiter.
+    /// Returns the actor address and a HandshakeSignal: an asynchronous channel
+    /// which will be closed as soon as the handshake is finished (successfully or not).
+    /// You can asynchronously await the returned HandshakeSignal.
     pub(crate) fn spawn(
         clock: time::Clock,
         stream: tcp::Stream,
@@ -256,7 +261,9 @@ impl PeerActor {
             addr: network_state.config.node_addr.clone(),
             account_id: network_state.config.validator.as_ref().map(|v| v.account_id()),
         };
-        let (send, recv) = tokio::sync::oneshot::channel();
+        // recv is the HandshakeSignal returned by this spawn_inner() call.
+        let (send, recv): (HandshakeSignalSender, HandshakeSignal) =
+            tokio::sync::oneshot::channel();
         // Start PeerActor on separate thread.
         Ok((
             Self::start_in_arbiter(&actix::Arbiter::new().handle(), move |ctx| {
@@ -700,31 +707,32 @@ impl PeerActor {
                                 }
                             }));
 
-                            // Refresh connection nonces but only if we're outbound. For inbound connection, the other party should 
+                            // Refresh connection nonces but only if we're outbound. For inbound connection, the other party should
                             // take care of nonce refresh.
-                            ctx.spawn(wrap_future({
-                                let conn = conn.clone();
-                                let network_state = act.network_state.clone();
-                                let clock = act.clock.clone();
-                                async move {
+                            if act.peer_type == PeerType::Outbound {
+                                ctx.spawn(wrap_future({
+                                    let conn = conn.clone();
+                                    let network_state = act.network_state.clone();
+                                    let clock = act.clock.clone();
                                     // How often should we refresh a nonce from a peer.
                                     // It should be smaller than PRUNE_EDGES_AFTER.
                                     let mut interval = time::Interval::new(start_time + PRUNE_EDGES_AFTER / 3, PRUNE_EDGES_AFTER / 3);
-                                    loop {
-                                        interval.tick(&clock).await;
-                                        conn.send_message(Arc::new(
-                                            PeerMessage::RequestUpdateNonce(PartialEdgeInfo::new(
-                                                &network_state.config.node_id(),
-                                                &conn.peer_info.id,
-                                                Edge::create_fresh_nonce(&clock),
-                                                &network_state.config.node_key,
-                                            )
-                                        )));
+                                    async move {
+                                        loop {
+                                            interval.tick(&clock).await;
+                                            conn.send_message(Arc::new(
+                                                PeerMessage::RequestUpdateNonce(PartialEdgeInfo::new(
+                                                    &network_state.config.node_id(),
+                                                    &conn.peer_info.id,
+                                                    Edge::create_fresh_nonce(&clock),
+                                                    &network_state.config.node_key,
+                                                )
+                                            )));
 
+                                        }
                                     }
-                                }
-                            }));
-
+                                }));
+                            }
                             // Sync the RoutingTable.
                             act.sync_routing_table();
                         }
@@ -1162,6 +1170,7 @@ impl PeerActor {
                 let now = self.clock.now();
                 if let Some(&t) = self.routed_message_cache.get(&key) {
                     if now <= t + DROP_DUPLICATED_MESSAGES_PERIOD {
+                        metrics::MessageDropped::Duplicate.inc(&msg.body);
                         self.network_state.config.event_sink.push(Event::RoutedMessageDropped);
                         tracing::debug!(target: "network", "Dropping duplicated message from {} to {:?}", msg.author, msg.target);
                         return;
@@ -1171,7 +1180,11 @@ impl PeerActor {
                     // Check whenever we exceeded number of transactions we got since last block.
                     // If so, drop the transaction.
                     let r = self.network_state.txns_since_last_block.load(Ordering::Acquire);
+                    // TODO(gprusak): this constraint doesn't take into consideration such
+                    // parameters as number of nodes or number of shards. Reconsider why do we need
+                    // this and whether this is really the right way of handling it.
                     if r > MAX_TRANSACTIONS_PER_BLOCK_MESSAGE {
+                        metrics::MessageDropped::TransactionsPerBlockExceeded.inc(&msg.body);
                         return;
                     }
                     self.network_state.txns_since_last_block.fetch_add(1, Ordering::AcqRel);

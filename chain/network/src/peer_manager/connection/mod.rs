@@ -369,6 +369,17 @@ impl Pool {
         })
     }
 
+    /// Reserves an OutboundHandshakePermit for the given peer_id.
+    /// It should be called before attempting to connect to this peer.
+    /// The returned permit shouldn't be dropped until insert_ready for this
+    /// outbound connection is called.
+    ///
+    /// This is required to resolve race conditions in case 2 nodes try to connect
+    /// to each other at the same time.
+    ///
+    /// NOTE: Pool supports loop connections (i.e. connections in which both ends are the same
+    /// node) for the purpose of verifying one's own public IP.
+    // TODO(gprusak): simplify this flow.
     pub fn start_outbound(&self, peer_id: PeerId) -> Result<OutboundHandshakePermit, PoolError> {
         self.0.try_update(move |mut pool| {
             if pool.ready.contains_key(&peer_id) {

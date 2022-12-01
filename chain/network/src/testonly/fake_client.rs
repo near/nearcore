@@ -4,28 +4,29 @@ use crate::network_protocol::{
     StateResponseInfo,
 };
 use crate::sink::Sink;
-use crate::types::{NetworkInfo, ReasonForBan};
+use crate::types::{NetworkInfo, ReasonForBan, StateResponseInfoV2};
 use near_primitives::block::{Approval, Block, BlockHeader};
 use near_primitives::challenge::Challenge;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::{ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart};
+use near_primitives::syncing::{ShardStateSyncResponse, ShardStateSyncResponseV2};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::views::FinalExecutionOutcomeView;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Event {
-    BlockRequest(CryptoHash),
+    AnnounceAccount(Vec<(AnnounceAccount, Option<EpochId>)>),
     Block(Block),
-    BlockHeadersRequest(Vec<CryptoHash>),
     BlockHeaders(Vec<BlockHeader>),
     BlockApproval(Approval, PeerId),
+    BlockHeadersRequest(Vec<CryptoHash>),
+    BlockRequest(CryptoHash),
+    Challenge(Challenge),
     Chunk(Vec<PartialEncodedChunkPart>),
     ChunkRequest(ChunkHash),
     Transaction(SignedTransaction),
-    Challenge(Challenge),
-    AnnounceAccount(Vec<(AnnounceAccount, Option<EpochId>)>),
 }
 
 pub(crate) struct Fake {
@@ -54,11 +55,19 @@ impl client::Client for Fake {
 
     async fn state_request_part(
         &self,
-        _shard_id: ShardId,
-        _sync_hash: CryptoHash,
-        _part_id: u64,
+        shard_id: ShardId,
+        sync_hash: CryptoHash,
+        part_id: u64,
     ) -> Result<Option<StateResponseInfo>, ReasonForBan> {
-        unimplemented!();
+        let part = Some((part_id, vec![]));
+        let state_response =
+            ShardStateSyncResponse::V2(ShardStateSyncResponseV2 { header: None, part });
+        let result = Some(StateResponseInfo::V2(StateResponseInfoV2 {
+            shard_id,
+            sync_hash,
+            state_response,
+        }));
+        Ok(result)
     }
 
     async fn state_response(&self, _info: StateResponseInfo) {
