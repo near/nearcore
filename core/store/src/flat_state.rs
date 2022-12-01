@@ -155,7 +155,6 @@ mod imp {
         /// Note that this function is different from `add_flat_storage_state_for_shard`,
         /// it must be called before `add_flat_storage_state_for_shard` if the node starts from
         /// an empty database.
-        #[cfg(feature = "protocol_feature_flat_state")]
         pub fn set_flat_storage_state_for_genesis(
             &self,
             store_update: &mut StoreUpdate,
@@ -309,6 +308,13 @@ mod imp {
             _shard_id: ShardId,
             _flat_storage_state: FlatStorageState,
         ) {
+        }
+
+        pub fn remove_flat_storage_state_for_shard(
+            &self,
+            _shard_id: ShardId,
+        ) -> Option<FlatStorageState> {
+            None
         }
 
         pub fn set_flat_storage_state_for_genesis(

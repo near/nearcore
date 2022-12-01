@@ -736,30 +736,34 @@ impl RuntimeAdapter for NightshadeRuntime {
         match self.flat_state_factory.remove_flat_storage_state_for_shard(shard_id) {
             None => {}
             Some(_) => {
-                // will not work in case of resharding - need to remove items right after we stopped caring about shard
-                let shard_layout = self.get_shard_layout(epoch_id)?;
-                let mut store_update = self.store.store_update();
-                // in the future, we should support range updates and delete ranges of keys
-                // e.g. [ [0]+account_id(shard_id) .. [0]+account_id(shard_id+1) )
-                // same for all other key prefixes
-                let mut removed_items = 0;
-                for item in self.store.iter(DBCol::FlatState) {
-                    let (key, _) = item?;
-                    let account_id = parse_account_id_from_raw_key(&key)?.ok_or(
-                        Error::StorageError(StorageError::FlatStorageError(format!(
-                            "Failed to find account id in flat storage key {:?}",
-                            key
-                        ))),
-                    )?;
-                    if account_id_to_shard_id(&account_id, &shard_layout) == shard_id {
-                        removed_items += 1;
-                        store_update.delete(DBCol::FlatState, &key);
+                #[cfg(feature = "protocol_feature_flat_state")]
+                {
+                    // will not work in case of resharding - need to remove items right after we stopped caring about shard
+                    let shard_layout = self.get_shard_layout(epoch_id)?;
+                    let mut store_update = self.store.store_update();
+                    // in the future, we should support range updates and delete ranges of keys
+                    // e.g. [ [0]+account_id(shard_id) .. [0]+account_id(shard_id+1) )
+                    // same for all other key prefixes
+                    let mut removed_items = 0;
+                    for item in self.store.iter(DBCol::FlatState) {
+                        let (key, _) = item?;
+                        let account_id = parse_account_id_from_raw_key(&key)?.ok_or(
+                            Error::StorageError(StorageError::FlatStorageError(format!(
+                                "Failed to find account id in flat storage key {:?}",
+                                key
+                            ))),
+                        )?;
+                        if account_id_to_shard_id(&account_id, &shard_layout) == shard_id {
+                            removed_items += 1;
+                            store_update.delete(DBCol::FlatState, &key);
+                        }
                     }
-                }
-                info!(target: "chain", %shard_id, %removed_items, "Removing old items from flat storage");
-                // remove DBCol::FlatStateDeltas. add custom serialization to remove everything by prefix?
+                    info!(target: "chain", %shard_id, %removed_items, "Removing old items from flat storage");
+                    // remove DBCol::FlatStateDeltas. add custom serialization to remove everything by prefix?
 
-                store_helper::remove_flat_head(&mut store_update, shard_id);
+                    store_helper::remove_flat_head(&mut store_update, shard_id);
+                    store_update.commit()?;
+                }
             }
         }
 
