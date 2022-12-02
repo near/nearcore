@@ -37,7 +37,7 @@ struct EstimationResult {
 impl Db {
     pub(crate) fn import_json_lines(&self, info: &ImportConfig, input: &str) -> anyhow::Result<()> {
         for line in input.lines() {
-            self.import(info, &line)?;
+            self.import(info, line)?;
         }
         Ok(())
     }

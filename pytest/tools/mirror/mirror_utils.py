@@ -346,6 +346,27 @@ def call_addkey(node, signer_key, new_key, nonce, block_hash, extra_actions=[]):
     logger.info(f'called add_key for {new_key.account_id} {new_key.pk}: {res}')
 
 
+def call_create_account(node, signer_key, account_id, nonce, block_hash):
+    k = key.Key.from_random(account_id)
+    args = json.dumps({'account_id': account_id, 'public_key': k.pk})
+    args = bytearray(args, encoding='utf-8')
+
+    actions = [
+        transaction.create_function_call_action('create_account', args, 10**13,
+                                                10**24),
+        transaction.create_payment_action(123)
+    ]
+    tx = transaction.sign_and_serialize_transaction('test0', nonce, actions,
+                                                    block_hash,
+                                                    signer_key.account_id,
+                                                    signer_key.decoded_pk(),
+                                                    signer_key.decoded_sk())
+    res = node.send_tx(tx)
+    logger.info(
+        f'called create account contract for {account_id} {k.pk}: {res}')
+    return k
+
+
 # a key that we added with an AddKey tx or implicit account transfer.
 # just for nonce handling convenience
 class AddedKey:
@@ -605,8 +626,18 @@ def send_traffic(near_root, source_nodes, traffic_data, callback):
     call_addkey(source_nodes[1], source_nodes[1].signer_key, test1_contract_key,
                 traffic_data.nonces[1], block_hash_bytes)
     traffic_data.nonces[1] += 1
-
     test1_contract_key = AddedKey(test1_contract_key)
+
+    test0_subaccount_contract_key = AddedKey(
+        call_create_account(source_nodes[1], source_nodes[0].signer_key,
+                            'test0.test0', traffic_data.nonces[0],
+                            block_hash_bytes))
+    traffic_data.nonces[0] += 1
+    test1_subaccount_contract_key = AddedKey(
+        call_create_account(source_nodes[1], source_nodes[1].signer_key,
+                            'test1.test0', traffic_data.nonces[1],
+                            block_hash_bytes))
+    traffic_data.nonces[1] += 1
 
     test0_deleted_height = None
     test0_readded_key = None
@@ -655,6 +686,8 @@ def send_traffic(near_root, source_nodes, traffic_data, callback):
             test0_contract_key,
             test0_contract_extra_key,
             test1_contract_key,
+            test0_subaccount_contract_key,
+            test1_subaccount_contract_key,
         ]
         added_keys_send_transfers(source_nodes, keys, [
             traffic_data.implicit_account.account_id(),
