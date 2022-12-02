@@ -32,7 +32,6 @@ def main():
                                         mirror_utils.dot_near() /
                                         f'{mirror_utils.MIRROR_DIR}/source',
                                         online_source=True)
-
     mirror_utils.send_traffic(near_root, source_nodes, traffic_data,
                               mirror.restart_once)
 

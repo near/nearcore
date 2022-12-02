@@ -63,5 +63,5 @@ where
         s += if items.peek().is_some() { ", " } else { " and " };
         s += i.as_ref();
     }
-    return s;
+    s
 }
