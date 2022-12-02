@@ -62,7 +62,7 @@ Then the validators do the verification themselves, and if successful, they
 sign the block.
 
 When such block is succesfully signed, the protocol automatically slashes 
-correct nodes (more details below) and initiates the rollback to bring the 
+malicious nodes (more details below) and initiates the rollback to bring the 
 state back to the state before the bad chunk (so in our case, back to the block 
 produced by `B0`).
 
