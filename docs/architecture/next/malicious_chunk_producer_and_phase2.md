@@ -106,6 +106,3 @@ chunk that you produced would be marked as malicious, and you'd lose your stake
 So the open question is - can we do something 'smarter' in the protocol to
 detect the case, where there is 'just a single' malicious (or buggy) chunk 
 producer and avoid the expensive rollback?
-
-(one strawman proposal - if we see that the previous block didn't contain any signatures from validators that were tracking a given shard - mark the block as failed and ignore the chunks from this shard for the next X blocks).
-
