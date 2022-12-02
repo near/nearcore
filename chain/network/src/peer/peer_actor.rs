@@ -159,13 +159,36 @@ struct HandshakeSpec {
     partial_edge_info: PartialEdgeInfo,
 }
 
+type HandshakeSignalSender = tokio::sync::oneshot::Sender<std::convert::Infallible>;
+pub type HandshakeSignal = tokio::sync::oneshot::Receiver<std::convert::Infallible>;
+
 impl PeerActor {
-    pub(crate) fn spawn(
+    /// Spawns a PeerActor on a separate actix::Arbiter and awaits for the
+    /// handshake to succeed/fail. The actual result is not returned because
+    /// actix makes everything complicated.
+    pub(crate) async fn spawn_and_handshake(
         clock: time::Clock,
         stream: tcp::Stream,
         force_encoding: Option<Encoding>,
         network_state: Arc<NetworkState>,
     ) -> anyhow::Result<actix::Addr<Self>> {
+        let (addr, handshake_signal) = Self::spawn(clock, stream, force_encoding, network_state)?;
+        // Await for the handshake to complete, by awaiting the handshake_signal channel.
+        // This is a receiver of Infallible, so it only completes when the channel is closed.
+        handshake_signal.await.err().unwrap();
+        Ok(addr)
+    }
+
+    /// Spawns a PeerActor on a separate actix arbiter.
+    /// Returns the actor address and a HandshakeSignal: an asynchronous channel
+    /// which will be closed as soon as the handshake is finished (successfully or not).
+    /// You can asynchronously await the returned HandshakeSignal.
+    pub(crate) fn spawn(
+        clock: time::Clock,
+        stream: tcp::Stream,
+        force_encoding: Option<Encoding>,
+        network_state: Arc<NetworkState>,
+    ) -> anyhow::Result<(actix::Addr<Self>, HandshakeSignal)> {
         let stream_id = stream.id();
         match Self::spawn_inner(clock, stream, force_encoding, network_state.clone()) {
             Ok(it) => Ok(it),
@@ -183,7 +206,7 @@ impl PeerActor {
         stream: tcp::Stream,
         force_encoding: Option<Encoding>,
         network_state: Arc<NetworkState>,
-    ) -> Result<actix::Addr<Self>, ClosingReason> {
+    ) -> Result<(actix::Addr<Self>, HandshakeSignal), ClosingReason> {
         let connecting_status = match &stream.type_ {
             tcp::StreamType::Inbound => ConnectingStatus::Inbound(
                 network_state
@@ -193,10 +216,23 @@ impl PeerActor {
                     .map_err(|_| ClosingReason::TooManyInbound)?,
             ),
             tcp::StreamType::Outbound { peer_id } => ConnectingStatus::Outbound {
-                _permit: network_state
-                    .tier2
-                    .start_outbound(peer_id.clone())
-                    .map_err(ClosingReason::OutboundNotAllowed)?,
+                _permit: {
+                    // This block will be executed for TIER2 only.
+                    {
+                        // A loop connection is not allowed on TIER2
+                        // (it is allowed on TIER1 to verify node's public IP).
+                        // TODO(gprusak): try to make this more consistent.
+                        if peer_id == &network_state.config.node_id() {
+                            return Err(ClosingReason::OutboundNotAllowed(
+                                connection::PoolError::UnexpectedLoopConnection,
+                            ));
+                        }
+                        network_state
+                            .tier2
+                            .start_outbound(peer_id.clone())
+                            .map_err(ClosingReason::OutboundNotAllowed)?
+                    }
+                },
                 handshake_spec: HandshakeSpec {
                     partial_edge_info: network_state.propose_edge(&clock, peer_id, None),
                     protocol_version: PROTOCOL_VERSION,
@@ -210,42 +246,48 @@ impl PeerActor {
             addr: network_state.config.node_addr.clone(),
             account_id: network_state.config.validator.as_ref().map(|v| v.account_id()),
         };
+        // recv is the HandshakeSignal returned by this spawn_inner() call.
+        let (send, recv): (HandshakeSignalSender, HandshakeSignal) =
+            tokio::sync::oneshot::channel();
         // Start PeerActor on separate thread.
-        Ok(Self::start_in_arbiter(&actix::Arbiter::new().handle(), move |ctx| {
-            let stats = Arc::new(connection::Stats::default());
-            let stream_id = stream.id();
-            let peer_addr = stream.peer_addr;
-            let stream_type = stream.type_.clone();
-            let framed = stream::FramedStream::spawn(ctx, stream, stats.clone());
-            Self {
-                closing_reason: None,
-                clock,
-                my_node_info,
-                stream_id,
-                peer_addr,
-                peer_type: match &stream_type {
-                    tcp::StreamType::Inbound => PeerType::Inbound,
-                    tcp::StreamType::Outbound { .. } => PeerType::Outbound,
-                },
-                peer_status: PeerStatus::Connecting(connecting_status),
-                framed,
-                tracker: Default::default(),
-                stats,
-                routed_message_cache: LruCache::new(ROUTED_MESSAGE_CACHE_SIZE),
-                protocol_buffers_supported: false,
-                force_encoding,
-                peer_info: match &stream_type {
-                    tcp::StreamType::Inbound => None,
-                    tcp::StreamType::Outbound { peer_id } => Some(PeerInfo {
-                        id: peer_id.clone(),
-                        addr: Some(peer_addr),
-                        account_id: None,
-                    }),
+        Ok((
+            Self::start_in_arbiter(&actix::Arbiter::new().handle(), move |ctx| {
+                let stream_id = stream.id();
+                let peer_addr = stream.peer_addr;
+                let stream_type = stream.type_.clone();
+                let stats = Arc::new(connection::Stats::default());
+                let framed = stream::FramedStream::spawn(ctx, stream, stats.clone());
+                Self {
+                    closing_reason: None,
+                    clock,
+                    my_node_info,
+                    stream_id,
+                    peer_addr,
+                    peer_type: match &stream_type {
+                        tcp::StreamType::Inbound => PeerType::Inbound,
+                        tcp::StreamType::Outbound { .. } => PeerType::Outbound,
+                    },
+                    peer_status: PeerStatus::Connecting(send, connecting_status),
+                    framed,
+                    tracker: Default::default(),
+                    stats,
+                    routed_message_cache: LruCache::new(ROUTED_MESSAGE_CACHE_SIZE),
+                    protocol_buffers_supported: false,
+                    force_encoding,
+                    peer_info: match &stream_type {
+                        tcp::StreamType::Inbound => None,
+                        tcp::StreamType::Outbound { peer_id } => Some(PeerInfo {
+                            id: peer_id.clone(),
+                            addr: Some(peer_addr),
+                            account_id: None,
+                        }),
+                    }
+                    .into(),
+                    network_state,
                 }
-                .into(),
-                network_state,
-            }
-        }))
+            }),
+            recv,
+        ))
     }
 
     // Determines the encoding to use for communication with the peer.
@@ -373,14 +415,6 @@ impl PeerActor {
         self.peer_info.as_ref().as_ref().map(|peer_info| &peer_info.id)
     }
 
-    /// Update stats when receiving msg
-    fn update_stats_on_receiving_message(&mut self, msg_len: usize) {
-        metrics::PEER_DATA_RECEIVED_BYTES.inc_by(msg_len as u64);
-        metrics::PEER_MESSAGE_RECEIVED_TOTAL.inc();
-        tracing::trace!(target: "network", msg_len);
-        self.tracker.lock().increment_received(&self.clock, msg_len as u64);
-    }
-
     fn process_handshake(
         &mut self,
         ctx: &mut <PeerActor as actix::Actor>::Context,
@@ -388,7 +422,7 @@ impl PeerActor {
     ) {
         tracing::debug!(target: "network", "{:?}: Received handshake {:?}", self.my_node_info.id, handshake);
         let cs = match &self.peer_status {
-            PeerStatus::Connecting(it) => it,
+            PeerStatus::Connecting(_, it) => it,
             _ => panic!("process_handshake called in non-connecting state"),
         };
         match cs {
@@ -485,18 +519,6 @@ impl PeerActor {
             }
         }
 
-        // Verify that the received partial edge is valid.
-        // WARNING: signature is verified against the 2nd argument.
-        if !Edge::partial_verify(
-            &self.my_node_id(),
-            &handshake.sender_peer_id,
-            &handshake.partial_edge_info,
-        ) {
-            tracing::warn!(target: "network", "partial edge with invalid signature, disconnecting");
-            self.stop(ctx, ClosingReason::Ban(ReasonForBan::InvalidSignature));
-            return;
-        }
-
         // Merge partial edges.
         let nonce = handshake.partial_edge_info.nonce;
         let partial_edge_info = match cs {
@@ -514,7 +536,6 @@ impl PeerActor {
             partial_edge_info.signature.clone(),
             handshake.partial_edge_info.signature.clone(),
         );
-        debug_assert!(edge.verify());
 
         // TODO(gprusak): not enabling a port for listening is also a valid setup.
         // In that case peer_info.addr should be None (same as now), however
@@ -618,76 +639,78 @@ impl PeerActor {
                                 protocol_version: handshake.protocol_version,
                                 partial_edge_info: partial_edge_info,
                             });
-                        } else {
-                            // Outbound peer triggers the inital full accounts data sync.
-                            // TODO(gprusak): implement triggering the periodic full sync.
-                            act.send_message_or_log(&PeerMessage::SyncAccountsData(SyncAccountsData{
-                                accounts_data: act.network_state.accounts_data.load().data.values().cloned().collect(),
-                                incremental: false,
-                                requesting_full_sync: true,
-                            }));
                         }
-
-                        // Exchange peers periodically.
-                        ctx.spawn(wrap_future({
-                            let clock = act.clock.clone();
-                            let conn = conn.clone();
-                            async move {
-                                let mut interval = time::Interval::new(clock.now(),REQUEST_PEERS_INTERVAL);
-                                loop {
-                                    interval.tick(&clock).await;
-                                    conn.send_message(Arc::new(PeerMessage::PeersRequest));
-                                }
+                        // TODO(gprusak): This block will be executed for TIER2 only.
+                        {
+                            if conn.peer_type == PeerType::Outbound {
+                                // Outbound peer triggers the inital full accounts data sync.
+                                // TODO(gprusak): implement triggering the periodic full sync.
+                                act.send_message_or_log(&PeerMessage::SyncAccountsData(SyncAccountsData{
+                                    accounts_data: act.network_state.accounts_data.load().data.values().cloned().collect(),
+                                    incremental: false,
+                                    requesting_full_sync: true,
+                                }));
                             }
-                        }));
-                        // Send latest block periodically
-                        ctx.spawn(wrap_future({
-                            let clock = act.clock.clone();
-                            let conn = conn.clone();
-                            let state = act.network_state.clone();
-                            async move {
-                                let mut interval =
-                                    time::Interval::new(clock.now(), SYNC_LATEST_BLOCK_INTERVAL);
-                                loop {
-                                    // the first tick is immediate, so the tick should go sync_latest_block
-                                    interval.tick(&clock).await;
-                                    if let Some(chain_info) = state.chain_info.load().as_ref() {
-                                        conn.send_message(Arc::new(PeerMessage::Block(
-                                            chain_info.block.clone(),
-                                        )));
+                            // Exchange peers periodically.
+                            ctx.spawn(wrap_future({
+                                let clock = act.clock.clone();
+                                let conn = conn.clone();
+                                let mut interval = time::Interval::new(clock.now(),REQUEST_PEERS_INTERVAL);
+                                async move {
+                                    loop {
+                                        interval.tick(&clock).await;
+                                        conn.send_message(Arc::new(PeerMessage::PeersRequest));
                                     }
                                 }
-                            }
-                        }));
-
-                        // Refresh connection nonces but only if we're outbound. For inbound connection, the other party should
-                        // take care of nonce refresh.
-                        if act.peer_type == PeerType::Outbound {
+                            }));
+                            // Send latest block periodically
                             ctx.spawn(wrap_future({
-                                let conn = conn.clone();
-                                let network_state = act.network_state.clone();
                                 let clock = act.clock.clone();
+                                let conn = conn.clone();
+                                let state = act.network_state.clone();
+                                let mut interval = time::Interval::new(clock.now(), SYNC_LATEST_BLOCK_INTERVAL);
                                 async move {
+                                    loop {
+                                        interval.tick(&clock).await;
+                                        if let Some(chain_info) = state.chain_info.load().as_ref() {
+                                            conn.send_message(Arc::new(PeerMessage::Block(
+                                                chain_info.block.clone(),
+                                            )));
+                                        }
+                                    }
+                                }
+                            }));
+
+                            // Refresh connection nonces but only if we're outbound. For inbound connection, the other party should
+                            // take care of nonce refresh.
+                            if act.peer_type == PeerType::Outbound {
+                                ctx.spawn(wrap_future({
+                                    let conn = conn.clone();
+                                    let network_state = act.network_state.clone();
+                                    let clock = act.clock.clone();
                                     // How often should we refresh a nonce from a peer.
                                     // It should be smaller than PRUNE_EDGES_AFTER.
                                     let mut interval = time::Interval::new(start_time + PRUNE_EDGES_AFTER / 3, PRUNE_EDGES_AFTER / 3);
-                                    loop {
-                                        interval.tick(&clock).await;
-                                        conn.send_message(Arc::new(
-                                            PeerMessage::RequestUpdateNonce(PartialEdgeInfo::new(
-                                                &network_state.config.node_id(),
-                                                &conn.peer_info.id,
-                                                Edge::create_fresh_nonce(&clock),
-                                                &network_state.config.node_key,
-                                            )
-                                        )));
+                                    async move {
+                                        loop {
+                                            interval.tick(&clock).await;
+                                            conn.send_message(Arc::new(
+                                                PeerMessage::RequestUpdateNonce(PartialEdgeInfo::new(
+                                                    &network_state.config.node_id(),
+                                                    &conn.peer_info.id,
+                                                    Edge::create_fresh_nonce(&clock),
+                                                    &network_state.config.node_key,
+                                                )
+                                            )));
 
+                                        }
                                     }
-                                }
-                            }));
+                                }));
+                            }
+                            // Sync the RoutingTable.
+                            act.sync_routing_table();
                         }
-                        // Sync the RoutingTable.
-                        act.sync_routing_table();
+
                         act.network_state.config.event_sink.push(Event::HandshakeCompleted(HandshakeCompletedEvent{
                             stream_id: act.stream_id,
                             edge: conn.edge.load().as_ref().clone(),
@@ -720,7 +743,7 @@ impl PeerActor {
     fn handle_msg_connecting(&mut self, ctx: &mut actix::Context<Self>, msg: PeerMessage) {
         match (&mut self.peer_status, msg) {
             (
-                PeerStatus::Connecting(ConnectingStatus::Outbound { handshake_spec, .. }),
+                PeerStatus::Connecting(_, ConnectingStatus::Outbound { handshake_spec, .. }),
                 PeerMessage::HandshakeFailure(peer_info, reason),
             ) => {
                 match reason {
@@ -762,7 +785,7 @@ impl PeerActor {
             // TODO(gprusak): LastEdge should rather be a variant of HandshakeFailure.
             // Clean this up (you don't have to modify the proto, just the translation layer).
             (
-                PeerStatus::Connecting(ConnectingStatus::Outbound { handshake_spec, .. }),
+                PeerStatus::Connecting(_, ConnectingStatus::Outbound { handshake_spec, .. }),
                 PeerMessage::LastEdge(edge),
             ) => {
                 // Check that the edge provided:
@@ -893,6 +916,7 @@ impl PeerActor {
             .delayed_push(|| Event::MessageProcessed(msg.clone()));
         let was_requested = match &msg {
             PeerMessage::Block(block) => {
+                self.network_state.txns_since_last_block.store(0, Ordering::Release);
                 let hash = *block.hash();
                 let height = block.header().height();
                 conn.last_block.rcu(|last_block| {
@@ -1086,6 +1110,37 @@ impl PeerActor {
                     "Received routed message from {} to {:?}.",
                     self.peer_info,
                     msg.target);
+                let for_me = self.network_state.message_for_me(&msg.target);
+                if for_me {
+                    metrics::record_routed_msg_metrics(&self.clock, &msg);
+                }
+
+                // Drop duplicated messages routed within DROP_DUPLICATED_MESSAGES_PERIOD ms
+                let key = (msg.author.clone(), msg.target.clone(), msg.signature.clone());
+                let now = self.clock.now();
+                if let Some(&t) = self.routed_message_cache.get(&key) {
+                    if now <= t + DROP_DUPLICATED_MESSAGES_PERIOD {
+                        metrics::MessageDropped::Duplicate.inc(&msg.body);
+                        self.network_state.config.event_sink.push(Event::RoutedMessageDropped);
+                        tracing::debug!(target: "network", "Dropping duplicated message from {} to {:?}", msg.author, msg.target);
+                        return;
+                    }
+                }
+                if let RoutedMessageBody::ForwardTx(_) = &msg.body {
+                    // Check whenever we exceeded number of transactions we got since last block.
+                    // If so, drop the transaction.
+                    let r = self.network_state.txns_since_last_block.load(Ordering::Acquire);
+                    // TODO(gprusak): this constraint doesn't take into consideration such
+                    // parameters as number of nodes or number of shards. Reconsider why do we need
+                    // this and whether this is really the right way of handling it.
+                    if r > MAX_TRANSACTIONS_PER_BLOCK_MESSAGE {
+                        metrics::MessageDropped::TransactionsPerBlockExceeded.inc(&msg.body);
+                        return;
+                    }
+                    self.network_state.txns_since_last_block.fetch_add(1, Ordering::AcqRel);
+                }
+                self.routed_message_cache.put(key, now);
+
                 if !msg.verify() {
                     // Received invalid routed message from peer.
                     self.stop(ctx, ClosingReason::Ban(ReasonForBan::InvalidSignature));
@@ -1100,8 +1155,7 @@ impl PeerActor {
                         from.clone(),
                     );
                 }
-                if self.network_state.message_for_me(&msg.target) {
-                    metrics::record_routed_msg_metrics(&self.clock, &msg);
+                if for_me {
                     // Handle Ping and Pong message if they are for us without sending to client.
                     // i.e. Return false in case of Ping and Pong
                     match &msg.body {
@@ -1194,7 +1248,7 @@ impl actix::Actor for PeerActor {
         );
 
         // If outbound peer, initiate handshake.
-        if let PeerStatus::Connecting(ConnectingStatus::Outbound { handshake_spec, .. }) =
+        if let PeerStatus::Connecting(_, ConnectingStatus::Outbound { handshake_spec, .. }) =
             &self.peer_status
         {
             self.send_handshake(handshake_spec.clone());
@@ -1306,7 +1360,14 @@ impl actix::Handler<stream::Frame> for PeerActor {
             return;
         }
 
-        self.update_stats_on_receiving_message(msg.len());
+        // Message type agnostic stats.
+        {
+            metrics::PEER_DATA_RECEIVED_BYTES.inc_by(msg.len() as u64);
+            metrics::PEER_MESSAGE_RECEIVED_TOTAL.inc();
+            tracing::trace!(target: "network", msg_len=msg.len());
+            self.tracker.lock().increment_received(&self.clock, msg.len() as u64);
+        }
+
         let mut peer_msg = match self.parse_message(&msg) {
             Ok(msg) => msg,
             Err(err) => {
@@ -1314,35 +1375,6 @@ impl actix::Handler<stream::Frame> for PeerActor {
                 return;
             }
         };
-
-        match &peer_msg {
-            PeerMessage::Routed(msg) => {
-                let key = (msg.author.clone(), msg.target.clone(), msg.signature.clone());
-                let now = self.clock.now();
-                // Drop duplicated messages routed within DROP_DUPLICATED_MESSAGES_PERIOD ms
-                if let Some(&t) = self.routed_message_cache.get(&key) {
-                    if now <= t + DROP_DUPLICATED_MESSAGES_PERIOD {
-                        tracing::debug!(target: "network", "Dropping duplicated message from {} to {:?}", msg.author, msg.target);
-                        self.network_state.config.event_sink.push(Event::RoutedMessageDropped);
-                        return;
-                    }
-                }
-                if let RoutedMessageBody::ForwardTx(_) = &msg.body {
-                    // Check whenever we exceeded number of transactions we got since last block.
-                    // If so, drop the transaction.
-                    let r = self.network_state.txns_since_last_block.load(Ordering::Acquire);
-                    if r > MAX_TRANSACTIONS_PER_BLOCK_MESSAGE {
-                        return;
-                    }
-                    self.network_state.txns_since_last_block.fetch_add(1, Ordering::AcqRel);
-                }
-                self.routed_message_cache.put(key, now);
-            }
-            PeerMessage::Block(_) => {
-                self.network_state.txns_since_last_block.store(0, Ordering::Release);
-            }
-            _ => {}
-        }
 
         tracing::trace!(target: "network", "Received message: {}", peer_msg);
 
@@ -1440,7 +1472,7 @@ enum ConnectingStatus {
 #[derive(Debug)]
 enum PeerStatus {
     /// Handshake in progress.
-    Connecting(ConnectingStatus),
+    Connecting(HandshakeSignalSender, ConnectingStatus),
     /// Ready to go.
     Ready(Arc<connection::Connection>),
 }

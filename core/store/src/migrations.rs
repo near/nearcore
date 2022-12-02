@@ -250,8 +250,8 @@ pub fn migrate_32_to_33(storage: &crate::NodeStorage) -> anyhow::Result<()> {
         // It appears that it was possible that the same entry in the original column contained
         // duplicate outcomes. We remove them here to avoid panicing due to issuing a
         // self-overwriting transaction.
-        outcomes.sort_by_key(|outcome| outcome.id().clone());
-        outcomes.dedup_by_key(|outcome| outcome.id().clone());
+        outcomes.sort_by_key(|outcome| (outcome.id().clone(), outcome.block_hash.clone()));
+        outcomes.dedup_by_key(|outcome| (outcome.id().clone(), outcome.block_hash.clone()));
         for outcome in outcomes {
             update.insert_ser(
                 DBCol::TransactionResultForBlock,
@@ -263,6 +263,7 @@ pub fn migrate_32_to_33(storage: &crate::NodeStorage) -> anyhow::Result<()> {
             )?;
         }
     }
+    update.finish()?;
     let mut delete_old_update = store.store_update();
     delete_old_update.delete_all(DBCol::_TransactionResult);
     delete_old_update.commit()?;

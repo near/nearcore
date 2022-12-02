@@ -121,37 +121,6 @@ impl actix::Actor for PeerManagerActor {
     type Context = actix::Context<Self>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
-        // Start server if address provided.
-        if let Some(server_addr) = self.state.config.node_addr {
-            tracing::debug!(target: "network", at = ?server_addr, "starting public server");
-            let clock = self.clock.clone();
-            let state = self.state.clone();
-            ctx.spawn(wrap_future(async move {
-                let mut listener = match tcp::Listener::bind(server_addr).await {
-                    Ok(it) => it,
-                    Err(e) => {
-                        panic!("failed to start listening on server_addr={server_addr:?} e={e:?}")
-                    }
-                };
-                state.config.event_sink.push(Event::ServerStarted);
-                loop {
-                    if let Ok(stream) = listener.accept().await {
-                        // Always let the new peer to send a handshake message.
-                        // Only then we can decide whether we should accept a connection.
-                        // It is expected to be reasonably cheap: eventually, for TIER2 network
-                        // we would like to exchange set of connected peers even without establishing
-                        // a proper connection.
-                        tracing::debug!(target: "network", from = ?stream.peer_addr, "got new connection");
-                        if let Err(err) =
-                            PeerActor::spawn(clock.clone(), stream, None, state.clone())
-                        {
-                            tracing::info!(target:"network", ?err, "PeerActor::spawn()");
-                        }
-                    }
-                }
-            }));
-        }
-
         // Periodically push network information to client.
         self.push_network_info_trigger(ctx, self.state.config.push_info_period);
 
@@ -210,8 +179,6 @@ impl PeerManagerActor {
                banned = peer_store.count_banned(),
                "Found known peers");
         tracing::debug!(target: "network", blacklist = ?config.peer_store.blacklist, "Blacklist");
-
-        let my_peer_id = config.node_id();
         let whitelist_nodes = {
             let mut v = vec![];
             for wn in &config.whitelist_nodes {
@@ -219,30 +186,71 @@ impl PeerManagerActor {
             }
             v
         };
+        let my_peer_id = config.node_id();
         let arbiter = actix::Arbiter::new().handle();
+        let clock = clock.clone();
         let state = Arc::new(NetworkState::new(
             &clock,
             store.clone(),
             peer_store,
-            config,
+            config.clone(),
             genesis_id,
             client,
             whitelist_nodes,
         ));
-        if let Some(cfg) = state.config.tier1.clone() {
-            // Connect to TIER1 proxies and broadcast the list those connections periodically.
-            arbiter.spawn({
-                let clock = clock.clone();
-                let state = state.clone();
-                let mut interval = time::Interval::new(clock.now(), cfg.advertise_proxies_interval);
-                async move {
-                    loop {
-                        interval.tick(&clock).await;
-                        state.tier1_advertise_proxies(&clock).await;
-                    }
+        arbiter.spawn({
+            let arbiter = arbiter.clone();
+            let state = state.clone();
+            let clock = clock.clone();
+            async move {
+                // Start server if address provided. 
+                if let Some(server_addr) = state.config.node_addr {
+                    tracing::debug!(target: "network", at = ?server_addr, "starting public server");
+                    let mut listener = match tcp::Listener::bind(server_addr).await {
+                        Ok(it) => it,
+                        Err(e) => {
+                            panic!("failed to start listening on server_addr={server_addr:?} e={e:?}")
+                        }
+                    };
+                    state.config.event_sink.push(Event::ServerStarted);
+                    arbiter.spawn({
+                        let clock = clock.clone();
+                        let state = state.clone();
+                        async move {
+                            loop {
+                                if let Ok(stream) = listener.accept().await {
+                                    // Always let the new peer to send a handshake message.
+                                    // Only then we can decide whether we should accept a connection.
+                                    // It is expected to be reasonably cheap: eventually, for TIER2 network
+                                    // we would like to exchange set of connected peers even without establishing
+                                    // a proper connection.
+                                    tracing::debug!(target: "network", from = ?stream.peer_addr, "got new connection");
+                                    if let Err(err) =
+                                        PeerActor::spawn(clock.clone(), stream, None, state.clone())
+                                    {
+                                        tracing::info!(target:"network", ?err, "PeerActor::spawn()");
+                                    }
+                                }
+                            }
+                        }
+                    });
                 }
-            });
-        }
+                if let Some(cfg) = state.config.tier1.clone() {
+                    // Connect to TIER1 proxies and broadcast the list those connections periodically.
+                    arbiter.spawn({
+                        let clock = clock.clone();
+                        let state = state.clone();
+                        let mut interval = time::Interval::new(clock.now(), cfg.advertise_proxies_interval);
+                        async move {
+                            loop {
+                                interval.tick(&clock).await;
+                                state.tier1_advertise_proxies(&clock).await;
+                            }
+                        }
+                    });
+                }
+            }
+        });
         Ok(Self::start_in_arbiter(&arbiter, move |_ctx| Self {
             my_peer_id: my_peer_id.clone(),
             started_connect_attempts: false,
@@ -509,7 +517,7 @@ impl PeerManagerActor {
                     async move {
                         let result = async {
                             let stream = tcp::Stream::connect(&peer_info).await.context("tcp::Stream::connect()")?;
-                            PeerActor::spawn(clock.clone(),stream,None,state.clone()).context("PeerActor::spawn()")?;
+                            PeerActor::spawn_and_handshake(clock.clone(),stream,None,state.clone()).await.context("PeerActor::spawn()")?;
                             anyhow::Ok(())
                         }.await;
 
@@ -569,24 +577,19 @@ impl PeerManagerActor {
 
     pub(crate) fn get_network_info(&self) -> NetworkInfo {
         let tier2 = self.state.tier2.load();
+        let now = self.clock.now();
+        let connected_peer = |cp: &Arc<connection::Connection>| ConnectedPeerInfo {
+            full_peer_info: cp.full_peer_info(),
+            received_bytes_per_sec: cp.stats.received_bytes_per_sec.load(Ordering::Relaxed),
+            sent_bytes_per_sec: cp.stats.sent_bytes_per_sec.load(Ordering::Relaxed),
+            last_time_peer_requested: cp.last_time_peer_requested.load().unwrap_or(now),
+            last_time_received_message: cp.last_time_received_message.load(),
+            connection_established_time: cp.established_time,
+            peer_type: cp.peer_type,
+            nonce: cp.edge.load().nonce(),
+        };
         NetworkInfo {
-            connected_peers: tier2
-                .ready
-                .values()
-                .map(|cp| ConnectedPeerInfo {
-                    full_peer_info: cp.full_peer_info(),
-                    received_bytes_per_sec: cp.stats.received_bytes_per_sec.load(Ordering::Relaxed),
-                    sent_bytes_per_sec: cp.stats.sent_bytes_per_sec.load(Ordering::Relaxed),
-                    last_time_peer_requested: cp
-                        .last_time_peer_requested
-                        .load()
-                        .unwrap_or(self.clock.now()),
-                    last_time_received_message: cp.last_time_received_message.load(),
-                    connection_established_time: cp.established_time,
-                    peer_type: cp.peer_type,
-                    nonce: cp.edge.load().nonce(),
-                })
-                .collect(),
+            connected_peers: tier2.ready.values().map(connected_peer).collect(),
             num_connected_peers: tier2.ready.len(),
             peer_max_count: self.state.max_num_peers.load(Ordering::Relaxed),
             highest_height_peers: self.highest_height_peers(),

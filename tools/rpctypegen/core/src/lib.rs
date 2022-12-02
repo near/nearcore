@@ -19,10 +19,7 @@ fn parse_rpc_error_variant(input: &DeriveInput) -> String {
     type_kind[0].to_string()
 }
 
-fn error_type_name<'a>(
-    schema: &'a mut BTreeMap<String, ErrorType>,
-    name: String,
-) -> &'a mut ErrorType {
+fn error_type_name(schema: &mut BTreeMap<String, ErrorType>, name: String) -> &mut ErrorType {
     let error_type = ErrorType { name: name.clone(), ..Default::default() };
     schema.entry(name).or_insert(error_type)
 }
