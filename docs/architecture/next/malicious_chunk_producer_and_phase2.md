@@ -41,7 +41,9 @@ The validators that do track that shard will of course (assuming that they are n
 
 ### Challenges, Slashing and Rollbacks
 
-So we're in a pickle - as a malicious chunk was just added to the chain. And Fthat's why need to have mechanisms to automatically recover from such situations: Challenges, Slashing and Rollbacks.
+So we're in a pickle - as a malicious chunk was just added to the chain. And
+that's why need to have mechanisms to automatically recover from such situations:
+Challenges, Slashing and Rollbacks.
 
 #### Challenge
 
