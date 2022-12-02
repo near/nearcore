@@ -99,6 +99,12 @@ pub(crate) struct NetworkState {
     pub graph: Arc<crate::routing::Graph>,
 
     /// Hash of messages that requires routing back to respective previous hop.
+    /// Currently unused, as TIER1 messages do not require a response.
+    /// Also TIER1 connections are direct by design (except for proxies),
+    /// so routing shouldn't really be needed.
+    /// TODO(gprusak): consider removing it altogether.
+    ///
+    /// Note that the route_back table for TIER2 is stored in graph.routing_table_view.
     pub tier1_route_back: Mutex<RouteBackCache>,
 
     /// Shared counter across all PeerActors, which counts number of `RoutedMessageBody::ForwardTx`
@@ -401,8 +407,9 @@ impl NetworkState {
         }
         match tier {
             tcp::Tier::T1 => {
-                tracing::debug!(target:"test", "sending msg over TIER1");
                 let peer_id = match &msg.target {
+                    // If a message is a response, we try to load the target from the route back
+                    // cache.
                     PeerIdOrHash::Hash(hash) => {
                         match self.tier1_route_back.lock().remove(clock, hash) {
                             Some(peer_id) => peer_id,
@@ -442,14 +449,18 @@ impl NetworkState {
 
     /// Send message to specific account.
     /// Return whether the message is sent or not.
+    /// The message might be sent over TIER1 and/or TIER2 connection depending on the message type.
     pub fn send_message_to_account(
         &self,
         clock: &time::Clock,
         account_id: &AccountId,
         msg: RoutedMessageBody,
     ) -> bool {
+        let mut success = false;
+        // All TIER1 messages are being sent over both TIER1 and TIER2 connections for now,
+        // so that we can actually observe the latency/reliability improvements in practice:
+        // for each message we track over which network tier it arrived faster?
         if tcp::Tier::T1.is_allowed_routed(&msg) {
-            tracing::debug!(target:"test", "got TIER1 message to send");
             let accounts_data = self.accounts_data.load();
             for key in accounts_data.keys_by_id.get(account_id).iter().flat_map(|keys| keys.iter())
             {
@@ -461,7 +472,6 @@ impl NetworkState {
                     Some(conn) => conn,
                     None => continue,
                 };
-                tracing::debug!(target:"test", "found TIER1 proxy");
                 // TODO(gprusak): in case of PartialEncodedChunk, consider stripping everything
                 // but the header. This will bound the message size
                 conn.send_message(Arc::new(PeerMessage::Routed(self.sign_message(
@@ -471,6 +481,7 @@ impl NetworkState {
                         body: msg.clone(),
                     },
                 ))));
+                success |= true;
                 break;
             }
         }
@@ -493,14 +504,13 @@ impl NetworkState {
         let msg = RawRoutedMessage { target: PeerIdOrHash::PeerId(target), body: msg };
         let msg = self.sign_message(clock, msg);
         if msg.body.is_important() {
-            let mut success = false;
             for _ in 0..IMPORTANT_MESSAGE_RESENT_COUNT {
                 success |= self.send_message_to_peer(clock, tcp::Tier::T2, msg.clone());
             }
-            success
         } else {
-            self.send_message_to_peer(clock, tcp::Tier::T2, msg)
+            success |= self.send_message_to_peer(clock, tcp::Tier::T2, msg)
         }
+        success
     }
 
     pub async fn add_accounts_data(

@@ -275,7 +275,7 @@ impl NetworkConfig {
             routing_table_update_rate_limit: rate::Limit { qps: 1., burst: 1 },
             tier1: Some(Tier1 {
                 connect_interval: time::Duration::seconds(60),
-                new_connections_per_attempt: 10,
+                new_connections_per_attempt: 50,
                 advertise_proxies_interval: time::Duration::minutes(15),
                 enable_inbound: cfg.experimental.tier1_enable_inbound,
                 enable_outbound: cfg.experimental.tier1_enable_outbound,

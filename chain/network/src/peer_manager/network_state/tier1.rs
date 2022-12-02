@@ -32,41 +32,12 @@ impl super::NetworkState {
             .filter(|cfg| accounts_data.keys.contains(&cfg.signer.public_key()))
     }
 
-    /// Tries to connect to ALL trusted proxies from the config, then broadcasts AccountData with
-    /// the set of proxies it managed to connect to. This way other TIER1 nodes can just connect
-    /// to ANY proxy of this node.
-    pub async fn tier1_advertise_proxies(
+    async fn tier1_connect_to_my_proxies(
         self: &Arc<Self>,
         clock: &time::Clock,
-    ) -> Vec<Arc<SignedAccountData>> {
-        // Tier1 advertise proxies calls should be disjoint,
-        // to avoid a race condition while connecting to the proxies.
-        // TODO(gprusak): there are more corner cases to cover, because
-        // tier1_connect may also spawn TIER1 connections conflicting with
-        // tier1_advertise_proxies. It would be better to be able to await
-        // handshake on connection attempts, even if another call spawned them.
-        let _lock = self.tier1_advertise_proxies_mutex.lock().await;
-        let accounts_data = self.accounts_data.load();
+        proxies: &[PeerAddr],
+    ) {
         let tier1 = self.tier1.load();
-        let vc = match self.tier1_validator_config(&accounts_data) {
-            Some(it) => it,
-            None => {
-                tracing::info!(target:"network","This IS NOT a TIER1 node");
-                return vec![];
-            }
-        };
-        tracing::info!(target:"network","This IS a TIER1 node");
-        let proxies = match &vc.proxies {
-            config::ValidatorProxies::Dynamic(_) => {
-                // TODO(gprusak): If Dynamic are specified,
-                // it means that this node is its own proxy.
-                // Resolve the public IP of this node using those STUN servers,
-                // then connect to yourself (to verify the public IP).
-                vec![]
-            }
-            config::ValidatorProxies::Static(peer_addrs) => peer_addrs.clone(),
-        };
-        tracing::debug!(target:"test","proxies = {proxies:?}");
         // Try to connect to all proxies in parallel.
         let mut handles = vec![];
         for proxy in proxies {
@@ -88,16 +59,52 @@ impl super::NetworkState {
                     anyhow::Ok(PeerActor::spawn_and_handshake(clock.clone(), stream, None, self.clone()).await?)
                 }.await;
                 if let Err(err) = res {
-                    tracing::info!(target:"network", ?err, "failed to establish connection to TIER1 proxy {:?}",proxy);
+                    tracing::warn!(target:"network", ?err, "failed to establish connection to TIER1 proxy {:?}",proxy);
                 }
             });
         }
         futures_util::future::join_all(handles).await;
+    }
+
+    /// Tries to connect to ALL trusted proxies from the config, then broadcasts AccountData with
+    /// the set of proxies it managed to connect to. This way other TIER1 nodes can just connect
+    /// to ANY proxy of this node.
+    pub async fn tier1_advertise_proxies(
+        self: &Arc<Self>,
+        clock: &time::Clock,
+    ) -> Vec<Arc<SignedAccountData>> {
+        // Tier1 advertise proxies calls should be disjoint,
+        // to avoid a race condition while connecting to the proxies.
+        // TODO(gprusak): there are more corner cases to cover, because
+        // tier1_connect may also spawn TIER1 connections conflicting with
+        // tier1_advertise_proxies. It would be better to be able to await
+        // handshake on connection attempts, even if another call spawned them.
+        let _lock = self.tier1_advertise_proxies_mutex.lock().await;
+        let accounts_data = self.accounts_data.load();
+        let vc = match self.tier1_validator_config(&accounts_data) {
+            Some(it) => it,
+            None => {
+                return vec![];
+            }
+        };
+        let proxies = match &vc.proxies {
+            config::ValidatorProxies::Dynamic(_) => {
+                // TODO(gprusak): If Dynamic are specified,
+                // it means that this node is its own proxy.
+                // Resolve the public IP of this node using those STUN servers,
+                // then connect to yourself (to verify the public IP).
+                vec![]
+            }
+            config::ValidatorProxies::Static(peer_addrs) => peer_addrs.clone(),
+        };
+        self.tier1_connect_to_my_proxies(clock, &proxies).await;
 
         // Snapshot tier1 connections again before broadcasting.
         let tier1 = self.tier1.load();
 
         let my_proxies = match &vc.proxies {
+            // In case of dynamic configuration, only the node itself can be its proxy,
+            // so we look for a loop connection which would prove our node's address.
             config::ValidatorProxies::Dynamic(_) => match tier1.ready.get(&self.config.node_id()) {
                 Some(conn) => {
                     log_assert!(PeerType::Outbound == conn.peer_type);
@@ -109,6 +116,7 @@ impl super::NetworkState {
                 }
                 None => vec![],
             },
+            // In case of static configuration, we look for connections to proxies matching the config.
             config::ValidatorProxies::Static(proxies) => {
                 let mut connected_proxies = vec![];
                 for proxy in proxies {
