@@ -18,8 +18,9 @@ use std::str;
 use wasmtime::ExternType::Func;
 use wasmtime::{Engine, Linker, Memory, MemoryType, Module, Store, TrapCode};
 
+type Caller = wasmtime::Caller<'static, ()>;
 thread_local! {
-    pub(crate) static CALLER: RefCell<Option<wasmtime::Caller<'static, ()>>> = RefCell::new(None);
+    pub(crate) static CALLER: RefCell<Option<Caller>> = RefCell::new(None);
 }
 pub struct WasmtimeMemory(Memory);
 
@@ -36,36 +37,35 @@ impl WasmtimeMemory {
     }
 }
 
-impl MemoryLike for WasmtimeMemory {
-    fn fits_memory(&self, offset: u64, len: u64) -> bool {
-        CALLER.with(|caller| match offset.checked_add(len) {
-            None => false,
-            Some(end) => self.0.data_size(caller.borrow_mut().as_mut().unwrap()) as u64 >= end,
-        })
-    }
+fn with_caller(func: impl FnOnce(&mut Caller) -> Result<(), ()>) -> Result<(), ()> {
+    CALLER.with(|caller| func(caller.borrow_mut().as_mut().unwrap()))
+}
 
-    fn read_memory(&self, offset: u64, buffer: &mut [u8]) {
-        CALLER.with(|caller| {
-            let offset = offset as usize;
-            let mut caller = caller.borrow_mut();
-            let caller = caller.as_mut().unwrap();
-            for i in 0..buffer.len() {
-                buffer[i] = self.0.data(&mut *caller)[i + offset];
+impl MemoryLike for WasmtimeMemory {
+    fn read_memory(&self, offset: u64, buffer: &mut [u8]) -> Result<(), ()> {
+        let start = usize::try_from(offset).map_err(|_| ())?;
+        let end = start.checked_add(buffer.len()).ok_or(())?;
+        with_caller(|caller| {
+            let data = self.0.data(caller);
+            if end <= data.len() {
+                buffer.copy_from_slice(&data[start..end]);
+                Ok(())
+            } else {
+                Err(())
             }
         })
     }
 
-    fn read_memory_u8(&self, offset: u64) -> u8 {
-        CALLER.with(|caller| self.0.data(caller.borrow_mut().as_mut().unwrap())[offset as usize])
-    }
-
-    fn write_memory(&mut self, offset: u64, buffer: &[u8]) {
-        CALLER.with(|caller| {
-            let offset = offset as usize;
-            let mut caller = caller.borrow_mut();
-            let caller = caller.as_mut().unwrap();
-            for i in 0..buffer.len() {
-                self.0.data_mut(&mut *caller)[i + offset] = buffer[i];
+    fn write_memory(&mut self, offset: u64, buffer: &[u8]) -> Result<(), ()> {
+        let start = usize::try_from(offset).map_err(|_| ())?;
+        let end = start.checked_add(buffer.len()).ok_or(())?;
+        with_caller(|caller| {
+            let data = self.0.data_mut(caller);
+            if end <= data.len() {
+                data[start..end].copy_from_slice(buffer);
+                Ok(())
+            } else {
+                Err(())
             }
         })
     }

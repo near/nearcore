@@ -7,29 +7,19 @@ use near_vm_errors::VMLogicError;
 
 /// An abstraction over the memory of the smart contract.
 pub trait MemoryLike {
-    /// Returns whether the memory interval is completely inside the smart contract memory.
-    fn fits_memory(&self, offset: u64, len: u64) -> bool;
-
     /// Reads the content of the given memory interval.
     ///
-    /// # Panics
-    ///
-    /// If memory interval is outside the smart contract memory.
-    fn read_memory(&self, offset: u64, buffer: &mut [u8]);
-
-    /// Reads a single byte from the memory.
-    ///
-    /// # Panics
-    ///
-    /// If pointer is outside the smart contract memory.
-    fn read_memory_u8(&self, offset: u64) -> u8;
+    /// Returns error if the memory interval isn’t completely inside the smart
+    /// contract memory.
+    #[must_use]
+    fn read_memory(&self, offset: u64, buffer: &mut [u8]) -> Result<(), ()>;
 
     /// Writes the buffer into the smart contract memory.
     ///
-    /// # Panics
-    ///
-    /// If `offset + buffer.len()` is outside the smart contract memory.
-    fn write_memory(&mut self, offset: u64, buffer: &[u8]);
+    /// Returns error if the memory interval isn’t completely inside the smart
+    /// contract memory.
+    #[must_use]
+    fn write_memory(&mut self, offset: u64, buffer: &[u8]) -> Result<(), ()>;
 }
 
 /// This enum represents if a storage_get call will be performed through flat storage or trie
@@ -38,7 +28,7 @@ pub enum StorageGetMode {
     Trie,
 }
 
-pub type Result<T> = ::std::result::Result<T, VMLogicError>;
+pub type Result<T, E = VMLogicError> = ::std::result::Result<T, E>;
 
 /// Logical pointer to a value in storage.
 /// Allows getting value length before getting the value itself. This is needed so that runtime
