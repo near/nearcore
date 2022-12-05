@@ -1000,7 +1000,11 @@ mod test {
     use near_actix_test_utils::run_actix;
     use near_chain::{test_utils::process_block_sync, Block, BlockProcessingArtifact, Provenance};
 
+    use near_epoch_manager::EpochManagerAdapter;
     use near_network::test_utils::MockPeerManagerAdapter;
+    use near_primitives::{
+        merkle::PartialMerkleTree, syncing::ShardStateSyncResponseV2, types::EpochId,
+    };
 
     use super::*;
 
@@ -1012,9 +1016,24 @@ mod test {
         let mut new_shard_sync = HashMap::new();
 
         let (mut chain, kv, signer) = test_utils::setup();
-        for _ in 0..3 {
+
+        // TODO: lower the epoch length
+        for _ in 0..(chain.epoch_length + 1) {
             let prev = chain.get_block(&chain.head().unwrap().last_block_hash).unwrap();
-            let block = Block::empty(&prev, &*signer);
+            let block = if kv.is_next_block_epoch_start(prev.hash()).unwrap() {
+                Block::empty_with_epoch(
+                    &prev,
+                    prev.header().height() + 1,
+                    prev.header().next_epoch_id().clone(),
+                    EpochId { 0: *prev.hash() },
+                    *prev.header().next_bp_hash(),
+                    &*signer,
+                    &mut PartialMerkleTree::default(),
+                )
+            } else {
+                Block::empty(&prev, &*signer)
+            };
+
             process_block_sync(
                 &mut chain,
                 &None,
@@ -1026,6 +1045,11 @@ mod test {
         }
 
         let request_hash = &chain.head().unwrap().last_block_hash;
+        let state_sync_header = chain.get_state_response_header(0, *request_hash).unwrap();
+        let state_sync_header = match state_sync_header {
+            ShardStateSyncResponseHeader::V1(_) => panic!("Invalid header"),
+            ShardStateSyncResponseHeader::V2(internal) => internal,
+        };
 
         let apply_parts_fn = move |_: ApplyStatePartsRequest| {};
         let state_split_fn = move |_: StateSplitRequest| {};
@@ -1077,6 +1101,26 @@ mod test {
                     "test".parse().unwrap()
                 ))
             );
+
+            // Now let's simulate header return message.
+
+            let state_response = ShardStateSyncResponse::V2(ShardStateSyncResponseV2 {
+                header: Some(state_sync_header),
+                part: None,
+            });
+
+            state_sync.update_download_on_state_response_message(
+                &mut new_shard_sync.get_mut(&0).unwrap(),
+                *request_hash,
+                0,
+                state_response,
+                &mut chain,
+            );
+
+            let download = new_shard_sync.get(&0).unwrap();
+            assert_eq!(download.status, ShardSyncStatus::StateDownloadHeader);
+            // Download should be marked as done.
+            assert_eq!(download.downloads[0].done, true);
 
             System::current().stop()
         });
