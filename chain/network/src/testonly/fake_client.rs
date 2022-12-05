@@ -20,6 +20,7 @@ pub enum Event {
     AnnounceAccount(Vec<(AnnounceAccount, Option<EpochId>)>),
     Block(Block),
     BlockHeaders(Vec<BlockHeader>),
+    BlockApproval(Approval, PeerId),
     BlockHeadersRequest(Vec<CryptoHash>),
     BlockRequest(CryptoHash),
     Challenge(Challenge),
@@ -73,8 +74,8 @@ impl client::Client for Fake {
         unimplemented!();
     }
 
-    async fn block_approval(&self, _approval: Approval, _peer_id: PeerId) {
-        unimplemented!();
+    async fn block_approval(&self, approval: Approval, peer_id: PeerId) {
+        self.event_sink.push(Event::BlockApproval(approval, peer_id));
     }
 
     async fn transaction(&self, transaction: SignedTransaction, _is_forwarded: bool) {
