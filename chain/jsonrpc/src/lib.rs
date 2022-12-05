@@ -63,7 +63,13 @@ pub struct RpcLimitsConfig {
 
 impl Default for RpcLimitsConfig {
     fn default() -> Self {
-        Self { json_payload_max_size: 10 * 1024 * 1024 }
+        if cfg!(feature = "sandbox") {
+            // Sandbox can take large state patches for patching arbitrary data so this value
+            // is a lot larger than the default case. 1 GB should suffice on most contracts.
+            Self { json_payload_max_size: 1024 * 1024 * 1024 }
+        } else {
+            Self { json_payload_max_size: 10 * 1024 * 1024 }
+        }
     }
 }
 
