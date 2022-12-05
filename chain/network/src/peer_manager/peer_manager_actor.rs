@@ -578,6 +578,7 @@ impl PeerManagerActor {
     pub(crate) fn get_network_info(&self) -> NetworkInfo {
         let tier2 = self.state.tier2.load();
         let now = self.clock.now();
+        let graph = self.state.graph.load();
         let connected_peer = |cp: &Arc<connection::Connection>| ConnectedPeerInfo {
             full_peer_info: cp.full_peer_info(),
             received_bytes_per_sec: cp.stats.received_bytes_per_sec.load(Ordering::Relaxed),
@@ -586,7 +587,10 @@ impl PeerManagerActor {
             last_time_received_message: cp.last_time_received_message.load(),
             connection_established_time: cp.established_time,
             peer_type: cp.peer_type,
-            nonce: cp.edge.load().nonce(),
+            nonce: match graph.local_edges.get(&cp.peer_info.id) {
+                Some(e) => e.nonce(),
+                None => 0,
+            },
         };
         NetworkInfo {
             connected_peers: tier2.ready.values().map(connected_peer).collect(),
