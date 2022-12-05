@@ -683,15 +683,14 @@ impl Trie {
 
     // Converts the list of Nibbles to a readable string.
     fn nibbles_to_string(&self, prefix: &[u8]) -> String {
-        let mut result = String::new();
-        for chunk in prefix.chunks(2) {
-            if chunk.len() == 2 {
-                let chr: char = ((chunk[0] * 16) + chunk[1]).into();
-                write!(&mut result, "{}", chr.escape_default()).unwrap();
-            } else {
-                // Final, sole nibble
-                write!(&mut result, " + {:x}", chunk[0]).unwrap();
-            }
+        let (chunks, remainder) = stdx::as_chunks::<2, _>(prefix);
+        let mut result = chunks
+            .into_iter()
+            .map(|chunk| (chunk[0] * 16) + chunk[1])
+            .flat_map(|ch| std::ascii::escape_default(ch).map(char::from))
+            .collect::<String>();
+        if let Some(final_nibble) = remainder.first() {
+            write!(&mut result, "\\x{:x}_", final_nibble).unwrap();
         }
         result
     }
