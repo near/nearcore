@@ -2,12 +2,14 @@ use crate::concurrency::arc_mutex::ArcMutex;
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
 use crate::network_protocol::{
-    Edge, PeerInfo, PeerMessage, SignedAccountData, SignedOwnedAccount, SyncAccountsData,
+    Edge, PeerInfo, PeerMessage, RoutedMessageBody, SignedAccountData, SignedOwnedAccount,
+    SyncAccountsData,
 };
 use crate::peer::peer_actor;
 use crate::peer::peer_actor::PeerActor;
 use crate::private_actix::SendMessage;
 use crate::stats::metrics;
+use crate::tcp;
 use crate::time;
 use crate::types::{BlockInfo, FullPeerInfo, PeerChainInfo, PeerType, ReasonForBan};
 use arc_swap::ArcSwap;
@@ -24,6 +26,31 @@ use std::sync::{Arc, Weak};
 
 #[cfg(test)]
 mod tests;
+
+impl tcp::Tier {
+    /// Checks if the given message type is allowed on a connection of the given Tier.
+    /// TIER1 is reserved exclusively for BFT consensus messages.
+    /// Each validator establishes a lot of TIER1 connections, so bandwidth shouldn't be
+    /// wasted on broadcasting or periodic state syncs on TIER1 connections.
+    pub(crate) fn is_allowed(self, msg: &PeerMessage) -> bool {
+        match msg {
+            PeerMessage::Tier1Handshake(_) => self == tcp::Tier::T1,
+            PeerMessage::Tier2Handshake(_) => self == tcp::Tier::T2,
+            PeerMessage::HandshakeFailure(_, _) => true,
+            PeerMessage::LastEdge(_) => true,
+            PeerMessage::Routed(msg) => self.is_allowed_routed(&msg.body),
+            _ => self == tcp::Tier::T2,
+        }
+    }
+
+    pub(crate) fn is_allowed_routed(self, body: &RoutedMessageBody) -> bool {
+        match body {
+            RoutedMessageBody::BlockApproval(..) => true,
+            RoutedMessageBody::VersionedPartialEncodedChunk(..) => true,
+            _ => self == tcp::Tier::T2,
+        }
+    }
+}
 
 #[derive(Default)]
 pub(crate) struct Stats {
@@ -44,14 +71,16 @@ pub(crate) struct Stats {
 
 /// Contains information relevant to a connected peer.
 pub(crate) struct Connection {
+    // TODO(gprusak): add rate limiting on TIER1 connections for defence in-depth.
+    pub tier: tcp::Tier,
     // TODO(gprusak): addr should be internal, so that Connection will become an API of the
     // PeerActor.
     pub addr: actix::Addr<PeerActor>,
 
     pub peer_info: PeerInfo,
+    pub edge: ArcMutex<Edge>,
     /// AccountKey ownership proof.
     pub owned_account: Option<SignedOwnedAccount>,
-    pub edge: ArcMutex<Edge>,
     /// Chain Id and hash of genesis block.
     pub genesis_id: GenesisId,
     /// Shards that the peer is tracking.
@@ -198,6 +227,8 @@ pub(crate) struct PoolSnapshot {
     /// In this scenario A will fail to obtain a permit, because it has already accepted a
     /// connection from B.
     pub outbound_handshakes: im::HashSet<PeerId>,
+    /// Inbound end of the loop connection. The outbound end is added to the `ready` set.
+    pub loop_inbound: Option<Arc<Connection>>,
 }
 
 pub(crate) struct OutboundHandshakePermit(PeerId, Weak<ArcMutex<PoolSnapshot>>);
@@ -237,12 +268,13 @@ pub(crate) enum PoolError {
     #[error("already started another outbound connection to this peer")]
     AlreadyStartedConnecting,
     #[error("loop connections are not allowed")]
-    LoopConnection,
+    UnexpectedLoopConnection,
 }
 
 impl Pool {
     pub fn new(me: PeerId) -> Pool {
         Self(Arc::new(ArcMutex::new(PoolSnapshot {
+            loop_inbound: None,
             me,
             ready: im::HashMap::new(),
             ready_by_account_key: im::HashMap::new(),
@@ -256,16 +288,28 @@ impl Pool {
 
     pub fn insert_ready(&self, peer: Arc<Connection>) -> Result<(), PoolError> {
         self.0.try_update(move |mut pool| {
-            let id = &peer.peer_info.id;
-            if id == &pool.me {
-                return Err(PoolError::LoopConnection);
-            }
-            if pool.ready.contains_key(id) {
-                return Err(PoolError::AlreadyConnected);
+            let id = peer.peer_info.id.clone();
+            // We support loopback connections for the purpose of 
+            // validating our own external IP. This is the only case
+            // in which we allow 2 connections in a pool to have the same
+            // PeerId. The outbound connection is added to the
+            // `ready` set, the inbound connection is put into dedicated `loop_inbound` field.
+            if id==pool.me && peer.peer_type==PeerType::Inbound {
+                if pool.loop_inbound.is_some() {
+                    return Err(PoolError::AlreadyConnected);
+                }
+                // Detect a situation in which a different node tries to connect
+                // to us with the same PeerId. This can happen iff the node key
+                // has been stolen (or just copied over by mistake).
+                if !pool.ready.contains_key(&id) && !pool.outbound_handshakes.contains(&id) {
+                    return Err(PoolError::UnexpectedLoopConnection);
+                }
+                pool.loop_inbound = Some(peer);
+                return Ok(((),pool));
             }
             match peer.peer_type {
                 PeerType::Inbound => {
-                    if pool.outbound_handshakes.contains(id) && id >= &pool.me {
+                    if pool.outbound_handshakes.contains(&id) && id >= pool.me {
                         return Err(PoolError::AlreadyStartedConnecting);
                     }
                 }
@@ -277,7 +321,7 @@ impl Pool {
                     // that permit is dropped properly. However we will still
                     // need a runtime check to verify that the permit comes
                     // from the same Pool instance and is for the right PeerId.
-                    if !pool.outbound_handshakes.contains(id) {
+                    if !pool.outbound_handshakes.contains(&id) {
                         panic!("bug detected: OutboundHandshakePermit dropped before calling Pool.insert_ready()")
                     }
                 }
@@ -326,11 +370,19 @@ impl Pool {
         })
     }
 
+    /// Reserves an OutboundHandshakePermit for the given peer_id.
+    /// It should be called before attempting to connect to this peer.
+    /// The returned permit shouldn't be dropped until insert_ready for this
+    /// outbound connection is called.
+    ///
+    /// This is required to resolve race conditions in case 2 nodes try to connect
+    /// to each other at the same time.
+    ///
+    /// NOTE: Pool supports loop connections (i.e. connections in which both ends are the same
+    /// node) for the purpose of verifying one's own public IP.
+    // TODO(gprusak): simplify this flow.
     pub fn start_outbound(&self, peer_id: PeerId) -> Result<OutboundHandshakePermit, PoolError> {
         self.0.try_update(move |mut pool| {
-            if peer_id == pool.me {
-                return Err(PoolError::LoopConnection);
-            }
             if pool.ready.contains_key(&peer_id) {
                 return Err(PoolError::AlreadyConnected);
             }

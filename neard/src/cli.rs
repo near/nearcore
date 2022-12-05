@@ -20,6 +20,7 @@ use near_ping::PingCommand;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::compute_root_from_path;
 use near_primitives::types::{Gas, NumSeats, NumShards};
+use near_state_parts::cli::StatePartsCommand;
 use near_state_viewer::StateViewerSubCommand;
 use near_store::db::RocksDB;
 use near_store::Mode;
@@ -114,6 +115,9 @@ impl NeardCmd {
             #[cfg(feature = "cold_store")]
             NeardSubCommand::ColdStore(cmd) => {
                 cmd.run(&home_dir);
+            }
+            NeardSubCommand::StateParts(cmd) => {
+                cmd.run()?;
             }
         };
         Ok(())
@@ -218,6 +222,9 @@ pub(super) enum NeardSubCommand {
     #[cfg(feature = "cold_store")]
     /// Testing tool for cold storage
     ColdStore(ColdStoreCommand),
+
+    /// Connects to a NEAR node and sends state parts requests after the handshake is completed.
+    StateParts(StatePartsCommand),
 }
 
 #[derive(Parser)]

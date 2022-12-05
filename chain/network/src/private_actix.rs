@@ -11,6 +11,8 @@ pub(crate) enum RegisterPeerError {
     Banned,
     PoolError(connection::PoolError),
     ConnectionLimitExceeded,
+    NotTier1Peer,
+    Tier1InboundDisabled,
     InvalidEdge,
 }
 

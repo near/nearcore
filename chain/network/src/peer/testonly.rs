@@ -2,7 +2,8 @@ use crate::broadcast;
 use crate::config::NetworkConfig;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
-    Edge, PartialEdgeInfo, PeerMessage, RawRoutedMessage, RoutedMessageBody, RoutedMessageV2,
+    Edge, PartialEdgeInfo, PeerIdOrHash, PeerMessage, RawRoutedMessage, RoutedMessageBody,
+    RoutedMessageV2,
 };
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::network_state::NetworkState;
@@ -14,7 +15,6 @@ use crate::tcp;
 use crate::testonly::actix::ActixSystem;
 use crate::testonly::fake_client;
 use crate::time;
-use crate::types::PeerIdOrHash;
 use near_o11y::WithSpanContextExt;
 use near_primitives::network::PeerId;
 use std::sync::Arc;
@@ -112,7 +112,7 @@ impl PeerHandle {
         let actix = ActixSystem::spawn({
             let clock = clock.clone();
             let cfg = cfg.clone();
-            move || PeerActor::spawn(clock, stream, cfg.force_encoding, network_state).unwrap()
+            move || PeerActor::spawn(clock, stream, cfg.force_encoding, network_state).unwrap().0
         })
         .await;
         Self { actix, cfg, events: recv, edge: None }
