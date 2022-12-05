@@ -306,6 +306,95 @@ impl BlockHeader {
     }
 }
 
+/// Builder class for blocks to make testing easier.
+/// Example usage:
+///
+/// let test_block = TestBlockBuilder::new(prev, signer).height(33).build();
+pub struct TestBlockBuilder {
+    prev: Block,
+    signer: Arc<dyn ValidatorSigner>,
+    height: u64,
+    epoch_id: EpochId,
+    next_epoch_id: EpochId,
+    next_bp_hash: CryptoHash,
+    approvals: Vec<Option<Signature>>,
+    block_merkle_root: CryptoHash,
+}
+
+impl TestBlockBuilder {
+    pub fn new(prev: &Block, signer: Arc<dyn ValidatorSigner>) -> Self {
+        let mut tree = PartialMerkleTree::default();
+        tree.insert(prev.hash().clone());
+
+        Self {
+            prev: prev.clone(),
+            signer: signer.clone(),
+            height: prev.header().height() + 1,
+            epoch_id: prev.header().epoch_id().clone(),
+            next_epoch_id: if prev.header().prev_hash() == &CryptoHash::default() {
+                EpochId(*prev.hash())
+            } else {
+                prev.header().next_epoch_id().clone()
+            },
+            next_bp_hash: *prev.header().next_bp_hash(),
+            approvals: vec![],
+            block_merkle_root: tree.root(),
+        }
+    }
+    pub fn height(mut self, height: u64) -> Self {
+        self.height = height;
+        self
+    }
+    pub fn epoch_id(mut self, epoch_id: EpochId) -> Self {
+        self.epoch_id = epoch_id;
+        self
+    }
+    pub fn next_epoch_id(mut self, next_epoch_id: EpochId) -> Self {
+        self.next_epoch_id = next_epoch_id;
+        self
+    }
+    pub fn next_bp_hash(mut self, next_bp_hash: CryptoHash) -> Self {
+        self.next_bp_hash = next_bp_hash;
+        self
+    }
+    pub fn approvals(mut self, approvals: Vec<Option<Signature>>) -> Self {
+        self.approvals = approvals;
+        self
+    }
+
+    /// Updates the merkle tree by adding the previous hash, and updates the new block's merkle_root.
+    pub fn block_merkle_tree(mut self, block_merkle_tree: &mut PartialMerkleTree) -> Self {
+        block_merkle_tree.insert(self.prev.hash().clone());
+        self.block_merkle_root = block_merkle_tree.root();
+        self
+    }
+
+    pub fn build(self) -> Block {
+        Block::produce(
+            PROTOCOL_VERSION,
+            PROTOCOL_VERSION,
+            self.prev.header(),
+            self.height,
+            self.prev.header().block_ordinal() + 1,
+            self.prev.chunks().iter().cloned().collect(),
+            self.epoch_id,
+            self.next_epoch_id,
+            None,
+            self.approvals,
+            Ratio::new(0, 1),
+            0,
+            0,
+            Some(0),
+            vec![],
+            vec![],
+            self.signer.as_ref(),
+            self.next_bp_hash,
+            self.block_merkle_root,
+            None,
+        )
+    }
+}
+
 impl Block {
     pub fn mut_header(&mut self) -> &mut BlockHeader {
         match self {
