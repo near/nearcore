@@ -73,7 +73,7 @@ pub struct Tier1 {
     /// Maximal number of new connections established every connect_interval.
     /// TIER1 can consists of hundreds of nodes, so it is not feasible to connect to all of them at
     /// once.
-    pub new_connections_per_attempt: usize,
+    pub new_connections_per_attempt: u64,
     /// Interval between broacasts of the list of validator's proxies.
     /// Before the broadcast, validator tries to establish all the missing connections to proxies.
     pub advertise_proxies_interval: time::Duration,
@@ -274,8 +274,8 @@ impl NetworkConfig {
             accounts_data_broadcast_rate_limit: rate::Limit { qps: 0.1, burst: 1 },
             routing_table_update_rate_limit: rate::Limit { qps: 1., burst: 1 },
             tier1: Some(Tier1 {
-                connect_interval: time::Duration::seconds(60),
-                new_connections_per_attempt: 50,
+                connect_interval: cfg.experimental.tier1_connect_interval.try_into()?,
+                new_connections_per_attempt: cfg.experimental.tier1_new_connections_per_attempt,
                 advertise_proxies_interval: time::Duration::minutes(15),
                 enable_inbound: cfg.experimental.tier1_enable_inbound,
                 enable_outbound: cfg.experimental.tier1_enable_outbound,

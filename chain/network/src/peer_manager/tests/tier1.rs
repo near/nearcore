@@ -80,8 +80,8 @@ async fn send_tier1_message(
     assert_eq!(RoutedMessageBody::BlockApproval(want), got.body);
 }
 
+/// Send a message over each connection.
 async fn test_clique(rng: &mut Rng, pms: &[&peer_manager::testonly::ActorHandler]) {
-    // Send a message over each connection.
     for from in pms {
         for to in pms {
             if from.cfg.node_id() == to.cfg.node_id() {
@@ -160,6 +160,9 @@ async fn direct_connections() {
     test_clique(rng, &pms[..]).await;
 }
 
+/// Test which spawns N validators, each with 1 proxy.
+/// All the nodes are connected in TIER2 star topology.
+/// Then all validators connect to the proxy of each other validator.
 #[tokio::test]
 async fn proxy_connections() {
     init_test_logger();

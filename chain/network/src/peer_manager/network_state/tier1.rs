@@ -219,19 +219,37 @@ impl super::NetworkState {
 
         // Select the oldest TIER1 connection for each account.
         let mut safe = HashMap::<&PublicKey, &PeerId>::new();
-        if validator_cfg.is_some() {
-            // TIER1 nodes can also connect to TIER1 proxies.
-            for conn in &ready {
-                let peer_id = &conn.peer_info.id;
-                for key in accounts_by_proxy.get(peer_id).into_iter().flatten() {
-                    safe.insert(key, peer_id);
+
+        match validator_cfg {
+            // TIER1 nodes can establish outbound connections to other TIER1 nodes and TIER1 proxies.
+            // TIER1 nodes can also accept inbound connections from TIER1 nodes.
+            Some(_) => {
+                for conn in &ready {
+                    if conn.peer_type != PeerType::Outbound {
+                        continue;
+                    }
+                    let peer_id = &conn.peer_info.id;
+                    for key in accounts_by_proxy.get(peer_id).into_iter().flatten() {
+                        safe.insert(key, peer_id);
+                    }
+                }
+                // Direct TIER1 connections have priority over proxy connections.
+                for key in &accounts_data.keys {
+                    if let Some(conn) = tier1.ready_by_account_key.get(&key) {
+                        safe.insert(key, &conn.peer_info.id);
+                    }
                 }
             }
-        }
-        // Direct TIER1 connections have priority.
-        for key in &accounts_data.keys {
-            if let Some(conn) = tier1.ready_by_account_key.get(&key) {
-                safe.insert(key, &conn.peer_info.id);
+            // All the other nodes should accept inbound connections from TIER1 nodes
+            // (to act as a TIER1 proxy).
+            None => {
+                for key in &accounts_data.keys {
+                    if let Some(conn) = tier1.ready_by_account_key.get(&key) {
+                        if conn.peer_type == PeerType::Inbound {
+                            safe.insert(key, &conn.peer_info.id);
+                        }
+                    }
+                }
             }
         }
 
@@ -263,15 +281,15 @@ impl super::NetworkState {
             let mut account_keys: Vec<_> = proxies_by_account.keys().copied().collect();
             account_keys.shuffle(&mut rand::thread_rng());
             for account_key in account_keys {
-                // tier1_establish_proxies() is responsible for connecting to proxies
-                // of this node. tier1_establish_connections() connects only to proxies
+                // tier1_connect() is responsible for connecting to proxies
+                // of this node. tier1_connect() connects only to proxies
                 // of other TIER1 nodes.
                 if account_key == &vc.signer.public_key() {
                     continue;
                 }
                 // Bound the number of connections established at a single call to
-                // tier1_establish_connections().
-                if handles.len() >= tier1_cfg.new_connections_per_attempt {
+                // tier1_connect().
+                if handles.len() as u64 >= tier1_cfg.new_connections_per_attempt {
                     break;
                 }
                 // If we are already connected to some proxy of account_key, then
