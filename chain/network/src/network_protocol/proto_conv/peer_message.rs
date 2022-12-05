@@ -221,6 +221,14 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
                 try_from_required(&unr.partial_edge_info)
                     .map_err(Self::Error::UpdateNonceRequest)?,
             ),
+            ProtoMT::UpdateNonceResponse(unr) => {
+                PeerMessage::SyncRoutingTable(RoutingTableUpdate {
+                    edges: vec![
+                        try_from_required(&unr.edge).map_err(Self::Error::UpdateNonceResponse)?
+                    ],
+                    accounts: vec![],
+                })
+            }
             ProtoMT::SyncAccountsData(msg) => PeerMessage::SyncAccountsData(SyncAccountsData {
                 accounts_data: try_from_slice(&msg.accounts_data)
                     .map_err(Self::Error::SyncAccountsData)?
