@@ -996,24 +996,11 @@ impl<T: Clone> Iterator for SamplerLimited<T> {
 #[cfg(test)]
 mod test {
 
-    use std::collections::HashSet;
-
     use actix::System;
     use near_actix_test_utils::run_actix;
-    use near_chain::{
-        test_utils::{
-            process_block_sync, setup_with_validators, KeyValueRuntime, ValidatorSchedule,
-        },
-        types::ChainConfig,
-        Block, BlockProcessingArtifact, ChainGenesis, DoomslugThresholdMode, Provenance,
-    };
-    use near_chain_configs::GenesisConfig;
-    use near_crypto::KeyType;
-    use near_network::test_utils::MockPeerManagerAdapter;
-    use near_primitives::{types::EpochId, validator_signer::InMemoryValidatorSigner};
-    use near_store::{test_utils::create_test_store, DBCol};
+    use near_chain::{test_utils::process_block_sync, Block, BlockProcessingArtifact, Provenance};
 
-    use crate::adapter::StateRequestHeader;
+    use near_network::test_utils::MockPeerManagerAdapter;
 
     use super::*;
 
@@ -1040,8 +1027,8 @@ mod test {
 
         let request_hash = &chain.head().unwrap().last_block_hash;
 
-        let apply_parts_fn = move |request: ApplyStatePartsRequest| {};
-        let state_split_fn = move |request: StateSplitRequest| {};
+        let apply_parts_fn = move |_: ApplyStatePartsRequest| {};
+        let state_split_fn = move |_: StateSplitRequest| {};
 
         run_actix(async {
             state_sync
@@ -1072,13 +1059,14 @@ mod test {
             );
 
             assert_eq!(1, new_shard_sync.len());
-            let foo = new_shard_sync.get(&0).unwrap();
+            let download = new_shard_sync.get(&0).unwrap();
 
-            assert_eq!(foo.status, ShardSyncStatus::StateDownloadHeader);
+            assert_eq!(download.status, ShardSyncStatus::StateDownloadHeader);
 
-            assert_eq!(foo.downloads.len(), 1);
-            let download_status = &foo.downloads[0];
+            assert_eq!(download.downloads.len(), 1);
+            let download_status = &download.downloads[0];
 
+            // 'run me' is false - as we've just executed this peer manager request.
             assert_eq!(download_status.run_me.load(Ordering::SeqCst), false);
             assert_eq!(download_status.error, false);
             assert_eq!(download_status.done, false);
@@ -1089,24 +1077,6 @@ mod test {
                     "test".parse().unwrap()
                 ))
             );
-
-            /*
-            assert_eq!(
-                *foo,
-                ShardSyncDownload {
-                    download_status: DownloadStatus {
-                        start_time: todo!(),
-                        prev_update_time: todo!(),
-                        run_me: todo!(),
-                        error: todo!(),
-                        done: todo!(),
-                        state_requests_count: todo!(),
-                        last_target: todo!()
-                    }
-                }
-            );*/
-            /*println!("{:?}", new_shard_sync);
-            assert!(false);*/
 
             System::current().stop()
         });
