@@ -35,6 +35,7 @@ use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
 use tracing::{debug, error, info, warn};
 
+use near_chain::test_utils;
 use near_chain::{Chain, RuntimeAdapter};
 use near_network::types::{
     HighestHeightPeerInfo, NetworkRequests, NetworkResponses, PeerManagerAdapter,
@@ -995,140 +996,119 @@ impl<T: Clone> Iterator for SamplerLimited<T> {
 #[cfg(test)]
 mod test {
 
+    use std::collections::HashSet;
+
+    use actix::System;
+    use near_actix_test_utils::run_actix;
     use near_chain::{
-        test_utils::{setup_with_validators, KeyValueRuntime, ValidatorSchedule},
+        test_utils::{
+            process_block_sync, setup_with_validators, KeyValueRuntime, ValidatorSchedule,
+        },
         types::ChainConfig,
-        ChainGenesis, DoomslugThresholdMode,
+        Block, BlockProcessingArtifact, ChainGenesis, DoomslugThresholdMode, Provenance,
     };
     use near_chain_configs::GenesisConfig;
+    use near_crypto::KeyType;
     use near_network::test_utils::MockPeerManagerAdapter;
-    use near_store::test_utils::create_test_store;
+    use near_primitives::{types::EpochId, validator_signer::InMemoryValidatorSigner};
+    use near_store::{test_utils::create_test_store, DBCol};
+
+    use crate::adapter::StateRequestHeader;
 
     use super::*;
 
-    pub struct FakeChain {}
-
-    impl ChainForStateSync for FakeChain {
-        fn block_exists(
-            &self,
-            _: &near_primitives::hash::CryptoHash,
-        ) -> Result<bool, near_chain::Error> {
-            todo!()
-        }
-
-        fn get_block_header(&self, hash: &CryptoHash) -> Result<BlockHeader, Error> {
-            todo!()
-        }
-
-        fn get_state_header(
-            &self,
-            shard_id: ShardId,
-            sync_hash: CryptoHash,
-        ) -> Result<ShardStateSyncResponseHeader, Error> {
-            todo!()
-        }
-
-        fn schedule_apply_state_parts(
-            &self,
-            shard_id: ShardId,
-            sync_hash: CryptoHash,
-            num_parts: u64,
-            state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
-        ) -> Result<(), Error> {
-            todo!()
-        }
-
-        fn clear_downloaded_parts(
-            &mut self,
-            shard_id: ShardId,
-            sync_hash: CryptoHash,
-            num_parts: u64,
-        ) -> Result<(), Error> {
-            todo!()
-        }
-
-        fn set_state_finalize(
-            &mut self,
-            shard_id: ShardId,
-            sync_hash: CryptoHash,
-            apply_result: Result<(), near_chain_primitives::Error>,
-        ) -> Result<(), Error> {
-            todo!()
-        }
-
-        fn build_state_for_split_shards_preprocessing(
-            &self,
-            sync_hash: &CryptoHash,
-            shard_id: ShardId,
-            state_split_scheduler: &dyn Fn(StateSplitRequest),
-            state_split_status: Arc<StateSplitApplyingStatus>,
-        ) -> Result<(), Error> {
-            todo!()
-        }
-
-        fn build_state_for_split_shards_postprocessing(
-            &mut self,
-            sync_hash: &CryptoHash,
-            state_roots: Result<HashMap<ShardUId, StateRoot>, Error>,
-        ) -> Result<(), Error> {
-            todo!()
-        }
-    }
-
     #[test]
-    fn test_basic_flow() {
+    // Start a new state sync - and check that it asks for a header.
+    fn test_ask_for_header() {
         let mock_peer_manager = Arc::new(MockPeerManagerAdapter::default());
         let mut state_sync = StateSync::new(mock_peer_manager.clone(), TimeDuration::from_secs(1));
         let mut new_shard_sync = HashMap::new();
 
-        let store = create_test_store();
-        let chain_genesis = ChainGenesis::test();
-        let runtime_adapter =
-            Arc::new(KeyValueRuntime::new(store.clone(), chain_genesis.epoch_length));
+        let (mut chain, kv, signer) = test_utils::setup();
+        for _ in 0..3 {
+            let prev = chain.get_block(&chain.head().unwrap().last_block_hash).unwrap();
+            let block = Block::empty(&prev, &*signer);
+            process_block_sync(
+                &mut chain,
+                &None,
+                block.into(),
+                Provenance::PRODUCED,
+                &mut BlockProcessingArtifact::default(),
+            )
+            .unwrap();
+        }
 
-        let mut chain = FakeChain {};
-
-        /*         let mut genesis = GenesisConfig::default();
-        genesis.genesis_height = 0;
-        let mut chain = Chain::new(
-            runtime_adapter.clone(),
-            &chain_genesis,
-            DoomslugThresholdMode::NoApprovals,
-            ChainConfig::test(),
-        )
-        .unwrap();*/
-        /*
-
-        let vs = ValidatorSchedule::new().block_producers_per_epoch(vec![vec![
-            "test0", "test1", "test2", "test3", "test4",
-        ]
-        .iter()
-        .map(|x| x.parse().unwrap())
-        .collect()]);
-
-        let (mut chain, runtime_adapter, signers) = setup_with_validators(vs, 1000, 100);
-        let genesis = chain.get_block(&chain.genesis().hash().clone()).unwrap();
-
-
-        let request_hash = chain.genesis().hash();*/
-
-        let request_hash = "DR8ukGaqNu12B7SU1DUSicCkuZJSG1hH47jK7NLLp3GR".parse().unwrap();
+        let request_hash = &chain.head().unwrap().last_block_hash;
 
         let apply_parts_fn = move |request: ApplyStatePartsRequest| {};
         let state_split_fn = move |request: StateSplitRequest| {};
 
-        state_sync
-            .run(
-                &None,
-                request_hash,
-                &mut new_shard_sync,
-                &mut chain,
-                &(runtime_adapter as Arc<dyn RuntimeAdapter>),
-                &[],
-                vec![0],
-                &apply_parts_fn,
-                &state_split_fn,
-            )
-            .unwrap();
+        run_actix(async {
+            state_sync
+                .run(
+                    &None,
+                    *request_hash,
+                    &mut new_shard_sync,
+                    &mut chain,
+                    &(kv as Arc<dyn RuntimeAdapter>),
+                    &[],
+                    vec![0],
+                    &apply_parts_fn,
+                    &state_split_fn,
+                )
+                .unwrap();
+
+            // Wait for the message that is sent to peer manager.
+            mock_peer_manager.notify.notified().await;
+            let request = mock_peer_manager.pop().unwrap();
+
+            assert_eq!(
+                NetworkRequests::StateRequestHeader {
+                    shard_id: 0,
+                    sync_hash: *request_hash,
+                    target: AccountOrPeerIdOrHash::AccountId("test".parse().unwrap())
+                },
+                request.as_network_requests()
+            );
+
+            assert_eq!(1, new_shard_sync.len());
+            let foo = new_shard_sync.get(&0).unwrap();
+
+            assert_eq!(foo.status, ShardSyncStatus::StateDownloadHeader);
+
+            assert_eq!(foo.downloads.len(), 1);
+            let download_status = &foo.downloads[0];
+
+            assert_eq!(download_status.run_me.load(Ordering::SeqCst), false);
+            assert_eq!(download_status.error, false);
+            assert_eq!(download_status.done, false);
+            assert_eq!(download_status.state_requests_count, 1);
+            assert_eq!(
+                download_status.last_target,
+                Some(near_client_primitives::types::AccountOrPeerIdOrHash::AccountId(
+                    "test".parse().unwrap()
+                ))
+            );
+
+            /*
+            assert_eq!(
+                *foo,
+                ShardSyncDownload {
+                    download_status: DownloadStatus {
+                        start_time: todo!(),
+                        prev_update_time: todo!(),
+                        run_me: todo!(),
+                        error: todo!(),
+                        done: todo!(),
+                        state_requests_count: todo!(),
+                        last_target: todo!()
+                    }
+                }
+            );*/
+            /*println!("{:?}", new_shard_sync);
+            assert!(false);*/
+
+            System::current().stop()
+        });
     }
 }
