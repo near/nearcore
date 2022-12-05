@@ -13,7 +13,7 @@ use near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofRe
 use near_mirror::MirrorCommand;
 use near_o11y::tracing_subscriber::EnvFilter;
 use near_o11y::{
-    default_subscriber, set_default_optl_level, BuildEnvFilterError, EnvFilterBuilder,
+    default_subscriber, set_default_otlp_level, BuildEnvFilterError, EnvFilterBuilder,
 };
 #[cfg(not(feature = "watch_config"))]
 use near_o11y::{default_subscriber_with_opentelemetry, OpenTelemetryLevel};
@@ -396,7 +396,7 @@ impl RunCmd {
         _verbose_target: Option<&str>,
         o11y_opts: &near_o11y::Options,
     ) {
-        set_default_optl_level(o11y_opts);
+        set_default_otlp_level(o11y_opts);
         // Load configs from home.
         let mut near_config = nearcore::config::load_config(&home_dir, genesis_validation.clone())
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));

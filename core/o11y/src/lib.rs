@@ -361,7 +361,7 @@ pub fn default_subscriber(
     }
 }
 
-pub fn set_default_optl_level(options: &Options) {
+pub fn set_default_otlp_level(options: &Options) {
     // Record the initial tracing level specified as a command-line flag. Use this recorded value to
     // reset opentelemetry filter when the LogConfig file gets deleted.
     DEFAULT_OTLP_LEVEL.set(options.opentelemetry).unwrap();
