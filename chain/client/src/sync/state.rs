@@ -20,7 +20,7 @@
 //!         here to depend more on local peers instead.
 //!
 
-use near_chain::{near_chain_primitives, BlockHeader, Error};
+use near_chain::{near_chain_primitives, Error};
 use near_primitives::state_part::PartId;
 use std::collections::HashMap;
 use std::ops::Add;
@@ -100,109 +100,6 @@ fn make_account_or_peer_id_or_hash(
     }
 }
 
-pub trait ChainForStateSync {
-    fn block_exists(&self, hash: &CryptoHash) -> Result<bool, Error>;
-    fn get_block_header(&self, hash: &CryptoHash) -> Result<BlockHeader, Error>;
-    fn get_state_header(
-        &self,
-        shard_id: ShardId,
-        sync_hash: CryptoHash,
-    ) -> Result<ShardStateSyncResponseHeader, Error>;
-    fn schedule_apply_state_parts(
-        &self,
-        shard_id: ShardId,
-        sync_hash: CryptoHash,
-        num_parts: u64,
-        state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
-    ) -> Result<(), Error>;
-    fn clear_downloaded_parts(
-        &mut self,
-        shard_id: ShardId,
-        sync_hash: CryptoHash,
-        num_parts: u64,
-    ) -> Result<(), Error>;
-    fn set_state_finalize(
-        &mut self,
-        shard_id: ShardId,
-        sync_hash: CryptoHash,
-        apply_result: Result<(), near_chain_primitives::Error>,
-    ) -> Result<(), Error>;
-    fn build_state_for_split_shards_preprocessing(
-        &self,
-        sync_hash: &CryptoHash,
-        shard_id: ShardId,
-        state_split_scheduler: &dyn Fn(StateSplitRequest),
-        state_split_status: Arc<StateSplitApplyingStatus>,
-    ) -> Result<(), Error>;
-    fn build_state_for_split_shards_postprocessing(
-        &mut self,
-        sync_hash: &CryptoHash,
-        state_roots: Result<HashMap<ShardUId, StateRoot>, Error>,
-    ) -> Result<(), Error>;
-}
-
-impl ChainForStateSync for Chain {
-    fn block_exists(&self, hash: &CryptoHash) -> Result<bool, Error> {
-        self.block_exists(hash)
-    }
-    fn get_block_header(&self, hash: &CryptoHash) -> Result<BlockHeader, Error> {
-        self.get_block_header(hash)
-    }
-    fn get_state_header(
-        &self,
-        shard_id: ShardId,
-        sync_hash: CryptoHash,
-    ) -> Result<ShardStateSyncResponseHeader, Error> {
-        self.get_state_header(shard_id, sync_hash)
-    }
-    fn schedule_apply_state_parts(
-        &self,
-        shard_id: ShardId,
-        sync_hash: CryptoHash,
-        num_parts: u64,
-        state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
-    ) -> Result<(), Error> {
-        self.schedule_apply_state_parts(shard_id, sync_hash, num_parts, state_parts_task_scheduler)
-    }
-    fn clear_downloaded_parts(
-        &mut self,
-        shard_id: ShardId,
-        sync_hash: CryptoHash,
-        num_parts: u64,
-    ) -> Result<(), Error> {
-        self.clear_downloaded_parts(shard_id, sync_hash, num_parts)
-    }
-    fn set_state_finalize(
-        &mut self,
-        shard_id: ShardId,
-        sync_hash: CryptoHash,
-        apply_result: Result<(), near_chain_primitives::Error>,
-    ) -> Result<(), Error> {
-        self.set_state_finalize(shard_id, sync_hash, apply_result)
-    }
-    fn build_state_for_split_shards_preprocessing(
-        &self,
-        sync_hash: &CryptoHash,
-        shard_id: ShardId,
-        state_split_scheduler: &dyn Fn(StateSplitRequest),
-        state_split_status: Arc<StateSplitApplyingStatus>,
-    ) -> Result<(), Error> {
-        self.build_state_for_split_shards_preprocessing(
-            sync_hash,
-            shard_id,
-            state_split_scheduler,
-            state_split_status,
-        )
-    }
-    fn build_state_for_split_shards_postprocessing(
-        &mut self,
-        sync_hash: &CryptoHash,
-        state_roots: Result<HashMap<ShardUId, StateRoot>, Error>,
-    ) -> Result<(), Error> {
-        self.build_state_for_split_shards_postprocessing(sync_hash, state_roots)
-    }
-}
-
 /// Helper to track state sync.
 pub struct StateSync {
     network_adapter: Arc<dyn PeerManagerAdapter>,
@@ -240,7 +137,7 @@ impl StateSync {
     fn sync_block_status(
         &mut self,
         prev_hash: &CryptoHash,
-        chain: &impl ChainForStateSync,
+        chain: &Chain,
         now: DateTime<Utc>,
     ) -> Result<(bool, bool), near_chain::Error> {
         let (request_block, have_block) = if !chain.block_exists(prev_hash)? {
@@ -275,7 +172,7 @@ impl StateSync {
         me: &Option<AccountId>,
         sync_hash: CryptoHash,
         new_shard_sync: &mut HashMap<u64, ShardSyncDownload>,
-        chain: &mut impl ChainForStateSync,
+        chain: &mut Chain,
         runtime_adapter: &Arc<dyn RuntimeAdapter>,
         highest_height_peers: &[HighestHeightPeerInfo],
         tracking_shards: Vec<ShardId>,
@@ -636,7 +533,7 @@ impl StateSync {
         &mut self,
         me: &Option<AccountId>,
         shard_id: ShardId,
-        chain: &impl ChainForStateSync,
+        chain: &Chain,
         runtime_adapter: &Arc<dyn RuntimeAdapter>,
         sync_hash: CryptoHash,
         highest_height_peers: &[HighestHeightPeerInfo],
@@ -691,7 +588,7 @@ impl StateSync {
         &mut self,
         me: &Option<AccountId>,
         shard_id: ShardId,
-        chain: &impl ChainForStateSync,
+        chain: &Chain,
         runtime_adapter: &Arc<dyn RuntimeAdapter>,
         sync_hash: CryptoHash,
         shard_sync_download: ShardSyncDownload,
@@ -812,7 +709,7 @@ impl StateSync {
         me: &Option<AccountId>,
         sync_hash: CryptoHash,
         new_shard_sync: &mut HashMap<u64, ShardSyncDownload>,
-        chain: &mut impl ChainForStateSync,
+        chain: &mut Chain,
         runtime_adapter: &Arc<dyn RuntimeAdapter>,
         highest_height_peers: &[HighestHeightPeerInfo],
         // Shards to sync.
