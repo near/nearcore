@@ -89,9 +89,11 @@ STATUS_DIR = '/home/ubuntu/.near/logs/status'
 
 
 def run_in_background(node, cmd, log_filename, env=''):
+    setup_cmd = f'truncate --size 0 {STATUS_DIR}/{log_filename} '
+    setup_cmd += f'&& for i in {{8..0}}; do if [ -f {LOG_DIR}/{log_filename}.$i ]; then mv {LOG_DIR}/{log_filename}.$i {LOG_DIR}/{log_filename}.$((i+1)); fi done'
     run_cmd(
         node,
-        f'( truncate --size 0 {STATUS_DIR}/{log_filename} && {env} nohup {cmd} > {LOG_DIR}/{log_filename} 2>&1; nohup echo "$?" ) > {STATUS_DIR}/{log_filename} 2>&1 &'
+        f'( {setup_cmd} && {env} nohup {cmd} > {LOG_DIR}/{log_filename}.0 2>&1; nohup echo "$?" ) > {STATUS_DIR}/{log_filename} 2>&1 &'
     )
 
 
