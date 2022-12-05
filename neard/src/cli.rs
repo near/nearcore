@@ -521,7 +521,7 @@ impl RunCmd {
             match rx_sig.try_recv() {
                 Ok(sig) => {
                     if sig == "reload signer" {
-                        info!(target: "neard", "{}, restarting... this may take a few minutes.", sig);
+                        info!(target: "neard", "{}, restarting...", sig);
                         continue;
                     } else {
                         warn!(target: "neard", "{}, stopping... this may take a few minutes.", sig);
