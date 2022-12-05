@@ -592,7 +592,7 @@ async fn wait_for_interrupt_signal(home_dir: &Path, mut rx_crash: Receiver<()>) 
                                     return "reload signer"
                                 }
                                 #[cfg(not(feature = "watch_config"))]
-                                info!("config changed, neard can not reload it, need watch_config featrure build");
+                                info!("config changed, neard can not reload it, need watch_config feature build");
                             }
                         }
                     }
