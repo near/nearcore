@@ -28,7 +28,6 @@ use near_store::Mode;
 use near_store::Temperature;
 use serde_json::Value;
 use std::fs::File;
-use std::fs::Metadata;
 use std::io::BufReader;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -536,14 +535,6 @@ impl RunCmd {
     }
 }
 
-async fn watch_config(home_dir: &Path) -> anyhow::Result<Metadata> {
-    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-    let mut config_path = home_dir.to_path_buf();
-    config_path.push("config.json");
-    let meta = tokio::fs::File::open(&config_path).await?.metadata().await?;
-    Ok(meta)
-}
-
 #[cfg(not(unix))]
 async fn wait_for_interrupt_signal(_home_dir: &Path, mut _rx_crash: Receiver<()>) -> &str {
     // TODO(#6372): Support graceful shutdown on windows.
@@ -566,12 +557,6 @@ async fn wait_for_interrupt_signal(home_dir: &Path, mut rx_crash: Receiver<()>) 
     let mut sigint = signal(SignalKind::interrupt()).unwrap();
     let mut sigterm = signal(SignalKind::terminate()).unwrap();
     let mut sighup = signal(SignalKind::hangup()).unwrap();
-    let config_modify_time = {
-        let mut config_path = home_dir.to_path_buf();
-        config_path.push("config.json");
-        let meta = File::open(&config_path).unwrap().metadata().unwrap();
-        meta.modified().unwrap()
-    };
 
     loop {
         break tokio::select! {
@@ -581,23 +566,6 @@ async fn wait_for_interrupt_signal(home_dir: &Path, mut rx_crash: Receiver<()>) 
                 update_watchers(&home_dir, UpdateBehavior::UpdateOrReset);
                 "reload signer"
              },
-             meta = watch_config(&home_dir) =>
-             {
-                    if let Ok(m) = meta {
-                        if let Ok(t) = m.modified() {
-                            if t != config_modify_time {
-                                #[cfg(feature = "watch_config")]
-                                {
-                                    println!("config changed, reloading");
-                                    return "reload signer"
-                                }
-                                #[cfg(not(feature = "watch_config"))]
-                                info!("config changed, neard can not reload it, need watch_config feature build");
-                            }
-                        }
-                    }
-                continue;
-             }
              _ = rx_crash.recv() => "ClientActor died",
         };
     }
