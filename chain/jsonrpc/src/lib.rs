@@ -1226,7 +1226,7 @@ impl JsonRpcHandler {
 
 #[cfg(feature = "test_features")]
 impl JsonRpcHandler {
-    async fn adv_disable_header_sync(&self, _params: Option<Value>) -> Result<Value, RpcError> {
+    async fn adv_disable_header_sync(&self, _params: Value) -> Result<Value, RpcError> {
         actix::spawn(
             self.client_addr
                 .send(
@@ -1243,10 +1243,10 @@ impl JsonRpcHandler {
                 )
                 .map(|_| ()),
         );
-        Ok(Value::String("".to_string()))
+        Ok(Value::String(String::new()))
     }
 
-    async fn adv_disable_doomslug(&self, _params: Option<Value>) -> Result<Value, RpcError> {
+    async fn adv_disable_doomslug(&self, _params: Value) -> Result<Value, RpcError> {
         actix::spawn(
             self.client_addr
                 .send(
@@ -1263,10 +1263,10 @@ impl JsonRpcHandler {
                 )
                 .map(|_| ()),
         );
-        Ok(Value::String("".to_string()))
+        Ok(Value::String(String::new()))
     }
 
-    async fn adv_produce_blocks(&self, params: Option<Value>) -> Result<Value, RpcError> {
+    async fn adv_produce_blocks(&self, params: Value) -> Result<Value, RpcError> {
         let (num_blocks, only_valid) = crate::api::parse_params::<(u64, bool)>(params)?;
         actix::spawn(
             self.client_addr
@@ -1278,10 +1278,10 @@ impl JsonRpcHandler {
                 )
                 .map(|_| ()),
         );
-        Ok(Value::String("".to_string()))
+        Ok(Value::String(String::new()))
     }
 
-    async fn adv_switch_to_height(&self, params: Option<Value>) -> Result<Value, RpcError> {
+    async fn adv_switch_to_height(&self, params: Value) -> Result<Value, RpcError> {
         let (height,) = crate::api::parse_params::<(u64,)>(params)?;
         actix::spawn(
             self.client_addr
@@ -1299,10 +1299,10 @@ impl JsonRpcHandler {
                 )
                 .map(|_| ()),
         );
-        Ok(Value::String("".to_string()))
+        Ok(Value::String(String::new()))
     }
 
-    async fn adv_get_saved_blocks(&self, _params: Option<Value>) -> Result<Value, RpcError> {
+    async fn adv_get_saved_blocks(&self, _params: Value) -> Result<Value, RpcError> {
         match self
             .client_addr
             .send(
@@ -1319,7 +1319,7 @@ impl JsonRpcHandler {
         }
     }
 
-    async fn adv_check_store(&self, _params: Option<Value>) -> Result<Value, RpcError> {
+    async fn adv_check_store(&self, _params: Value) -> Result<Value, RpcError> {
         match self
             .client_addr
             .send(

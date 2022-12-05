@@ -13,14 +13,14 @@ use near_primitives::views::FinalExecutionOutcomeViewEnum;
 use super::{parse_params, parse_signed_transaction, RpcFrom, RpcRequest};
 
 impl RpcRequest for RpcBroadcastTransactionRequest {
-    fn parse(value: Option<Value>) -> Result<Self, RpcParseError> {
+    fn parse(value: Value) -> Result<Self, RpcParseError> {
         let signed_transaction = parse_signed_transaction(value)?;
         Ok(Self { signed_transaction })
     }
 }
 
 impl RpcRequest for RpcTransactionStatusCommonRequest {
-    fn parse(value: Option<Value>) -> Result<Self, RpcParseError> {
+    fn parse(value: Value) -> Result<Self, RpcParseError> {
         if let Ok((hash, account_id)) = parse_params::<(CryptoHash, AccountId)>(value.clone()) {
             let transaction_info = TransactionInfo::TransactionId { hash, account_id };
             Ok(Self { transaction_info })
