@@ -90,12 +90,13 @@ fn display_stats(stats: &mut [(crate::PeerIdentifier, crate::PingStats)], peer_i
     }
 }
 
-struct ChainInfo {
-    chain_id: &'static str,
-    genesis_hash: CryptoHash,
+// TODO: Refactor this struct into a separate crate.
+pub struct ChainInfo {
+    pub chain_id: &'static str,
+    pub genesis_hash: CryptoHash,
 }
 
-static CHAIN_INFO: &[ChainInfo] = &[
+pub static CHAIN_INFO: &[ChainInfo] = &[
     ChainInfo {
         chain_id: "mainnet",
         genesis_hash: CryptoHash([

@@ -406,6 +406,8 @@ pub(crate) enum MessageDropped {
     UnknownAccount,
     InputTooLong,
     MaxCapacityExceeded,
+    TransactionsPerBlockExceeded,
+    Duplicate,
 }
 
 impl MessageDropped {

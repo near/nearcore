@@ -179,8 +179,18 @@ pub struct Config {
 fn default_tier1_enable_inbound() -> bool {
     true
 }
+/// This default will be changed over the next releases.
+/// It allows us to gradually roll out the TIER1 feature.
 fn default_tier1_enable_outbound() -> bool {
     false
+}
+
+fn default_tier1_connect_interval() -> Duration {
+    Duration::from_secs(60)
+}
+
+fn default_tier1_new_connections_per_attempt() -> u64 {
+    50
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -207,6 +217,14 @@ pub struct ExperimentalConfig {
     /// See `near_network::config::Tier1::enable_outbound`.
     #[serde(default = "default_tier1_enable_outbound")]
     pub tier1_enable_outbound: bool,
+
+    /// See `near_network::config::Tier1::connect_interval`.
+    #[serde(default = "default_tier1_connect_interval")]
+    pub tier1_connect_interval: Duration,
+
+    /// See `near_network::config::Tier1::new_connections_per_attempt`.
+    #[serde(default = "default_tier1_new_connections_per_attempt")]
+    pub tier1_new_connections_per_attempt: u64,
 }
 
 impl Default for ExperimentalConfig {
@@ -217,6 +235,8 @@ impl Default for ExperimentalConfig {
             skip_sending_tombstones_seconds: default_skip_tombstones(),
             tier1_enable_inbound: default_tier1_enable_inbound(),
             tier1_enable_outbound: default_tier1_enable_outbound(),
+            tier1_connect_interval: default_tier1_connect_interval(),
+            tier1_new_connections_per_attempt: default_tier1_new_connections_per_attempt(),
         }
     }
 }

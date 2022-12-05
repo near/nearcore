@@ -391,6 +391,7 @@ impl ActorHandler {
         }
     }
 
+    /// Executes `NetworkState::tier1_connect` method.
     pub async fn tier1_connect(&self, clock: &time::Clock) {
         let clock = clock.clone();
         self.with_state(move |s| async move {

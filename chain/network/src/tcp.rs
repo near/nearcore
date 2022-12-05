@@ -2,9 +2,17 @@ use crate::network_protocol::PeerInfo;
 use anyhow::{anyhow, Context as _};
 use near_primitives::network::PeerId;
 
+/// TCP connections established by a node belong to different logical networks (aka tiers),
+/// which serve different purpose.
+// TODO(gprusak): add a link to the design on github docs (but first write those docs).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, strum::AsRefStr)]
 pub enum Tier {
+    /// Tier1 connections are established between the BFT consensus participants (or their proxies)
+    /// and are reserved exclusively for exchanging BFT consensus messages.
     T1,
+    /// Tier2 connections form a P2P gossip network, which is used for everything, except the BFT
+    /// consensus messages. Also, Tier1 peer discovery actually happens on Tier2 network, i.e.
+    /// Tier2 network is necessary to bootstrap Tier1 connections.
     T2,
 }
 

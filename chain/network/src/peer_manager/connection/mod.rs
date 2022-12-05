@@ -28,6 +28,10 @@ use std::sync::{Arc, Weak};
 mod tests;
 
 impl tcp::Tier {
+    /// Checks if the given message type is allowed on a connection of the given Tier.
+    /// TIER1 is reserved exclusively for BFT consensus messages.
+    /// Each validator establishes a lot of TIER1 connections, so bandwidth shouldn't be
+    /// wasted on broadcasting or periodic state syncs on TIER1 connections.
     pub(crate) fn is_allowed(self, msg: &PeerMessage) -> bool {
         match msg {
             PeerMessage::Tier1Handshake(_) => self == tcp::Tier::T1,
@@ -67,10 +71,7 @@ pub(crate) struct Stats {
 
 /// Contains information relevant to a connected peer.
 pub(crate) struct Connection {
-    // TODO(gprusak): TIER1 connections should minimize the communication:
-    // routed messages only, no broadcasts, edge not broadcasted,
-    // no routing table sync. We expect ~500 TIER1 connections and that's
-    // too many to advertise.
+    // TODO(gprusak): add rate limiting on TIER1 connections for defence in-depth.
     pub tier: tcp::Tier,
     // TODO(gprusak): addr should be internal, so that Connection will become an API of the
     // PeerActor.
@@ -369,6 +370,17 @@ impl Pool {
         })
     }
 
+    /// Reserves an OutboundHandshakePermit for the given peer_id.
+    /// It should be called before attempting to connect to this peer.
+    /// The returned permit shouldn't be dropped until insert_ready for this
+    /// outbound connection is called.
+    ///
+    /// This is required to resolve race conditions in case 2 nodes try to connect
+    /// to each other at the same time.
+    ///
+    /// NOTE: Pool supports loop connections (i.e. connections in which both ends are the same
+    /// node) for the purpose of verifying one's own public IP.
+    // TODO(gprusak): simplify this flow.
     pub fn start_outbound(&self, peer_id: PeerId) -> Result<OutboundHandshakePermit, PoolError> {
         self.0.try_update(move |mut pool| {
             if pool.ready.contains_key(&peer_id) {

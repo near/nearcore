@@ -71,17 +71,17 @@ enum Metric {
 
 fn generate_stats(db: &Db) -> anyhow::Result<String> {
     let mut buf = String::new();
-    writeln!(&mut buf, "")?;
+    writeln!(&mut buf)?;
     writeln!(&mut buf, "{:=^72}", " Warehouse statistics ")?;
-    writeln!(&mut buf, "")?;
+    writeln!(&mut buf)?;
     writeln!(&mut buf, "{:>24}{:>24}{:>24}", "metric", "records", "last updated")?;
     writeln!(&mut buf, "{:>24}{:>24}{:>24}", "------", "-------", "------------")?;
     writeln!(
         &mut buf,
         "{:>24}{:>24}{:>24}",
         "icount",
-        EstimationRow::count_by_metric(&db, Metric::ICount)?,
-        EstimationRow::last_updated(&db, Metric::ICount)?
+        EstimationRow::count_by_metric(db, Metric::ICount)?,
+        EstimationRow::last_updated(db, Metric::ICount)?
             .map(|dt| dt.to_string())
             .as_deref()
             .unwrap_or("never")
@@ -90,8 +90,8 @@ fn generate_stats(db: &Db) -> anyhow::Result<String> {
         &mut buf,
         "{:>24}{:>24}{:>24}",
         "time",
-        EstimationRow::count_by_metric(&db, Metric::Time)?,
-        EstimationRow::last_updated(&db, Metric::Time)?
+        EstimationRow::count_by_metric(db, Metric::Time)?,
+        EstimationRow::last_updated(db, Metric::Time)?
             .map(|dt| dt.to_string())
             .as_deref()
             .unwrap_or("never")
@@ -100,13 +100,13 @@ fn generate_stats(db: &Db) -> anyhow::Result<String> {
         &mut buf,
         "{:>24}{:>24}{:>24}",
         "parameter",
-        ParameterRow::count(&db)?,
-        ParameterRow::latest_protocol_version(&db)?
+        ParameterRow::count(db)?,
+        ParameterRow::latest_protocol_version(db)?
             .map(|version| format!("v{version}"))
             .as_deref()
             .unwrap_or("never")
     )?;
-    writeln!(&mut buf, "")?;
+    writeln!(&mut buf)?;
     writeln!(&mut buf, "{:=^72}", " END STATS ")?;
 
     Ok(buf)

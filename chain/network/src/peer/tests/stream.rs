@@ -83,7 +83,6 @@ async fn send_recv() {
     let clock = time::FakeClock::default();
     let mut rng = make_rng(98324532);
     let (s1, s2) = tcp::Stream::loopback(data::make_peer_id(&mut rng), tcp::Tier::T2).await;
-    tracing::info!(target:"test","spawn actors");
     let a1 = Actor::spawn(&clock.clock(), s1).await;
     let mut a2 = Actor::spawn(&clock.clock(), s2).await;
 

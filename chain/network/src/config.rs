@@ -13,6 +13,7 @@ use near_crypto::{KeyType, SecretKey};
 use near_primitives::network::PeerId;
 use near_primitives::types::AccountId;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
+use std::collections::HashSet;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
 
@@ -73,7 +74,7 @@ pub struct Tier1 {
     /// Maximal number of new connections established every connect_interval.
     /// TIER1 can consists of hundreds of nodes, so it is not feasible to connect to all of them at
     /// once.
-    pub new_connections_per_attempt: usize,
+    pub new_connections_per_attempt: u64,
     /// Interval between broacasts of the list of validator's proxies.
     /// Before the broadcast, validator tries to establish all the missing connections to proxies.
     pub advertise_proxies_interval: time::Duration,
@@ -199,7 +200,12 @@ impl NetworkConfig {
         if cfg.public_addrs.len() > 0 && cfg.trusted_stun_servers.len() > 0 {
             anyhow::bail!("you cannot specify both public_addrs and trusted_stun_servers");
         }
+        let mut proxies = HashSet::new();
         for proxy in &cfg.public_addrs {
+            if proxies.contains(&proxy.peer_id) {
+                anyhow::bail!("public_addrs: found multiple entries with peer_id {}. Only 1 entry per peer_id is supported.",proxy.peer_id);
+            }
+            proxies.insert(proxy.peer_id.clone());
             let ip = proxy.addr.ip();
             if cfg.allow_private_ip_in_public_addrs {
                 if ip.is_unspecified() {
@@ -289,8 +295,8 @@ impl NetworkConfig {
             accounts_data_broadcast_rate_limit: rate::Limit { qps: 0.1, burst: 1 },
             routing_table_update_rate_limit: rate::Limit { qps: 1., burst: 1 },
             tier1: Some(Tier1 {
-                connect_interval: time::Duration::seconds(20),
-                new_connections_per_attempt: 10,
+                connect_interval: cfg.experimental.tier1_connect_interval.try_into()?,
+                new_connections_per_attempt: cfg.experimental.tier1_new_connections_per_attempt,
                 advertise_proxies_interval: time::Duration::minutes(15),
                 enable_inbound: cfg.experimental.tier1_enable_inbound,
                 enable_outbound: cfg.experimental.tier1_enable_outbound,
