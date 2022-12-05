@@ -11,14 +11,12 @@ pub trait MemoryLike {
     ///
     /// Returns error if the memory interval isn’t completely inside the smart
     /// contract memory.
-    #[must_use]
     fn read_memory(&self, offset: u64, buffer: &mut [u8]) -> Result<(), ()>;
 
     /// Writes the buffer into the smart contract memory.
     ///
     /// Returns error if the memory interval isn’t completely inside the smart
     /// contract memory.
-    #[must_use]
     fn write_memory(&mut self, offset: u64, buffer: &[u8]) -> Result<(), ()>;
 }
 
