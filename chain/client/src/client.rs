@@ -1734,7 +1734,7 @@ impl Client {
                         // eligible to build the next block on, so we just pick one.
                         let hash = hashes.values().flatten().next();
                         match hash {
-                            Some(hash) => hash,
+                            Some(hash) => *hash,
                             None => {
                                 self.handle_process_approval_error(
                                     approval,
