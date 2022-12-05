@@ -15,9 +15,6 @@ use near_primitives::validator_signer::InMemoryValidatorSigner;
 // existing chain looks like 0 - 1
 //                             \ 2
 // test that if the node receives Skip(2, 4), it can process it successfully.
-// For the simplicity of creating such chain structure, we only use on validator in the setup.
-// We use a non-validator to test the processing the such skip message. This is not ideal and it
-// covers the code path that we need to test.
 #[test]
 fn test_processing_skips_on_forks() {
     init_test_logger();
