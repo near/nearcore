@@ -198,12 +198,6 @@ def check_backup(node):
     return True
 
 
-def make_backups(nodes):
-    logger.info(f'copying data dirs to {BACKUP_DIR}')
-    pmap(lambda node: make_backup(node, 'make-backup.txt'), nodes)
-    pmap(lambda node: wait_process(node, 'make-backup.txt'), nodes)
-
-
 def reset_data_dir(node, log_filename):
     if node.instance_name.endswith('traffic'):
         data = '/home/ubuntu/.near/target/data'
@@ -363,21 +357,30 @@ def setup(args, traffic_generator, nodes):
     pmap(lambda node: wait_process(node, 'amend-genesis.txt'), all_nodes)
     logger.info(f'finished neard amend-genesis step')
 
-    logger.info(f'starting neard nodes')
-    pmap(lambda node: start_neard(node, 'neard.txt'), all_nodes)
     logger.info(
-        f'waiting for neard nodes to be ready. This may take a very long time (> 12 hours)'
+        f'starting neard nodes then waiting for them to be ready. This may take a very long time (> 12 hours)'
     )
-    pmap(lambda node: wait_node_up(node, 'neard.txt'), all_nodes)
+    logger.info(
+        'If your connection is broken in the meantime, run "make-backups" to resume'
+    )
 
-    mocknet.stop_nodes(all_nodes)
-
-    make_backups(all_nodes)
+    make_backups(args, traffic_generator, nodes)
 
     logger.info('test setup complete')
 
     if args.start_traffic:
         start_traffic(args, traffic_generator, nodes)
+
+
+def make_backups(args, traffic_generator, nodes):
+    all_nodes = nodes + [traffic_generator]
+    pmap(lambda node: start_neard(node, 'neard.txt'), all_nodes)
+    pmap(lambda node: wait_node_up(node, 'neard.txt'), all_nodes)
+    mocknet.stop_nodes(all_nodes)
+
+    logger.info(f'copying data dirs to {BACKUP_DIR}')
+    pmap(lambda node: make_backup(node, 'make-backup.txt'), all_nodes)
+    pmap(lambda node: wait_process(node, 'make-backup.txt'), all_nodes)
 
 
 def reset_data_dirs(args, traffic_generator, nodes):
@@ -455,6 +458,16 @@ if __name__ == '__main__':
     stop_parser = subparsers.add_parser('stop-nodes',
                                         help='kill all neard processes')
     stop_parser.set_defaults(func=stop_nodes)
+
+    backup_parser = subparsers.add_parser('make-backups',
+                                          help='''
+    This is run automatically by "setup", but if your connection is interrupted during "setup", this will
+    resume waiting for the nodes to compute the state roots, and then will make a backup of all data dirs
+    ''')
+    backup_parser.add_argument('--start-traffic',
+                               default=False,
+                               action='store_true')
+    backup_parser.set_defaults(func=make_backups)
 
     reset_parser = subparsers.add_parser('reset',
                                          help='''
