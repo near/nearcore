@@ -41,7 +41,7 @@ pub enum Error {
     Other(String),
 }
 
-#[derive(Clone, Debug, serde::Serialize)]
+#[derive(Clone, Debug, serde::Serialize, PartialEq)]
 pub enum AccountOrPeerIdOrHash {
     AccountId(AccountId),
     PeerId(PeerId),

@@ -690,13 +690,14 @@ pub fn setup_mock_all_validators(
                             .collect();
                         let info = NetworkInfo {
                             connected_peers: peers,
+                            tier1_connections: vec![],
                             num_connected_peers: key_pairs1.len(),
                             peer_max_count: key_pairs1.len() as u32,
                             highest_height_peers: peers2,
                             sent_bytes_per_sec: 0,
                             received_bytes_per_sec: 0,
                             known_producers: vec![],
-                            tier1_accounts: vec![],
+                            tier1_accounts_data: vec![],
                         };
                         client_addr.do_send(SetNetworkInfo(info).with_span_context());
                     }
