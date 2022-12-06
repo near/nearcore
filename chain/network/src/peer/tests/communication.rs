@@ -35,7 +35,8 @@ async fn test_peer_communication(
         network: chain.make_config(&mut rng),
         force_encoding: outbound_encoding,
     };
-    let (outbound_stream, inbound_stream) = tcp::Stream::loopback(inbound_cfg.id()).await;
+    let (outbound_stream, inbound_stream) =
+        tcp::Stream::loopback(inbound_cfg.id(), tcp::Tier::T2).await;
     let mut inbound = PeerHandle::start_endpoint(clock.clock(), inbound_cfg, inbound_stream).await;
     let mut outbound =
         PeerHandle::start_endpoint(clock.clock(), outbound_cfg, outbound_stream).await;
@@ -45,7 +46,7 @@ async fn test_peer_communication(
 
     let message_processed = |want| {
         move |ev| match ev {
-            Event::Network(PME::MessageProcessed(got)) if got == want => Some(()),
+            Event::Network(PME::MessageProcessed(_, got)) if got == want => Some(()),
             _ => None,
         }
     };
@@ -190,7 +191,8 @@ async fn test_handshake(outbound_encoding: Option<Encoding>, inbound_encoding: O
         chain: chain.clone(),
         force_encoding: outbound_encoding,
     };
-    let (outbound_stream, inbound_stream) = tcp::Stream::loopback(inbound_cfg.id()).await;
+    let (outbound_stream, inbound_stream) =
+        tcp::Stream::loopback(inbound_cfg.id(), tcp::Tier::T2).await;
     let inbound = PeerHandle::start_endpoint(clock.clock(), inbound_cfg, inbound_stream).await;
     let outbound_port = outbound_stream.local_addr.port();
     let mut outbound = Stream::new(outbound_encoding, outbound_stream);

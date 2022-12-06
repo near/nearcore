@@ -60,7 +60,7 @@ async fn test_nonces() {
         )
         .await;
 
-        let stream = tcp::Stream::connect(&pm.peer_info()).await.unwrap();
+        let stream = tcp::Stream::connect(&pm.peer_info(), tcp::Tier::T2).await.unwrap();
         let mut stream = stream::Stream::new(Some(Encoding::Proto), stream);
         let peer_key = data::make_secret_key(rng);
         let peer_id = PeerId::new(peer_key.public_key());
@@ -129,7 +129,7 @@ async fn test_nonce_refresh() {
     )
     .await;
 
-    pm2.connect_to(&pm.peer_info()).await;
+    pm2.connect_to(&pm.peer_info(), tcp::Tier::T2).await;
 
     let edge = wait_for_edge(&mut pm2).await;
     let start_time = clock.now_utc();

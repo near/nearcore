@@ -366,7 +366,7 @@ pub struct NetworkInfo {
     pub tier1_accounts: Vec<Arc<SignedAccountData>>,
 }
 
-#[derive(Debug, actix::MessageResponse)]
+#[derive(Debug, actix::MessageResponse, PartialEq, Eq)]
 pub enum NetworkResponses {
     NoResponse,
     PingPongInfo { pings: Vec<Ping>, pongs: Vec<Pong> },
@@ -488,7 +488,6 @@ mod tests {
     fn test_enum_size() {
         assert_size!(PeerType);
         assert_size!(RoutedMessageBody);
-        assert_size!(PeerIdOrHash);
         assert_size!(KnownPeerStatus);
         assert_size!(ReasonForBan);
     }

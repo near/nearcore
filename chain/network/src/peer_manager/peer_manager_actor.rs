@@ -2,8 +2,8 @@ use crate::client;
 use crate::config;
 use crate::debug::{DebugStatus, GetDebugStatus};
 use crate::network_protocol::{
-    AccountOrPeerIdOrHash, Edge, PeerMessage, Ping, Pong, RawRoutedMessage, RoutedMessageBody,
-    SignedAccountData, StateResponseInfo,
+    AccountOrPeerIdOrHash, Edge, PeerIdOrHash, PeerMessage, Ping, Pong, RawRoutedMessage,
+    RoutedMessageBody, SignedAccountData, StateResponseInfo,
 };
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
@@ -15,8 +15,8 @@ use crate::tcp;
 use crate::time;
 use crate::types::{
     ConnectedPeerInfo, GetNetworkInfo, HighestHeightPeerInfo, KnownProducer, NetworkInfo,
-    NetworkRequests, NetworkResponses, PeerIdOrHash, PeerManagerMessageRequest,
-    PeerManagerMessageResponse, PeerType, SetChainInfo,
+    NetworkRequests, NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
+    PeerType, SetChainInfo,
 };
 use actix::fut::future::wrap_future;
 use actix::{Actor as _, AsyncContext as _};
@@ -25,9 +25,7 @@ use near_o11y::{handler_debug_span, handler_trace_span, OpenTelemetrySpanExt, Wi
 use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::views::EdgeView;
-use near_primitives::views::NetworkGraphView;
-use near_primitives::views::{KnownPeerStateView, PeerStoreView};
+use near_primitives::views::{EdgeView, KnownPeerStateView, NetworkGraphView, PeerStoreView};
 use rand::seq::IteratorRandom;
 use rand::thread_rng;
 use rand::Rng;
@@ -78,6 +76,7 @@ pub struct PeerManagerActor {
     my_peer_id: PeerId,
     /// Flag that track whether we started attempts to establish outbound connections.
     started_connect_attempts: bool,
+
     /// State that is shared between multiple threads (including PeerActors).
     pub(crate) state: Arc<NetworkState>,
 }
@@ -106,7 +105,7 @@ pub enum Event {
     // it is hard to pinpoint all the places when the processing of a message is
     // actually complete. Currently this event is reported only for some message types,
     // feel free to add support for more.
-    MessageProcessed(PeerMessage),
+    MessageProcessed(tcp::Tier, PeerMessage),
     // Reported every time a new list of proxies has been constructed.
     Tier1AdvertiseProxies(Vec<Arc<SignedAccountData>>),
     // Reported when a handshake has been started.
@@ -245,6 +244,19 @@ impl PeerManagerActor {
                             loop {
                                 interval.tick(&clock).await;
                                 state.tier1_advertise_proxies(&clock).await;
+                            }
+                        }
+                    });
+                    // Update TIER1 connections periodically.
+                    arbiter.spawn({
+                        let clock = clock.clone();
+                        let state = state.clone();
+                        let mut interval = tokio::time::interval(cfg.connect_interval.try_into().unwrap());
+                        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                        async move {
+                            loop {
+                                interval.tick().await;
+                                state.tier1_connect(&clock).await;
                             }
                         }
                     });
@@ -516,7 +528,7 @@ impl PeerManagerActor {
                     let clock = self.clock.clone();
                     async move {
                         let result = async {
-                            let stream = tcp::Stream::connect(&peer_info).await.context("tcp::Stream::connect()")?;
+                            let stream = tcp::Stream::connect(&peer_info, tcp::Tier::T2).await.context("tcp::Stream::connect()")?;
                             PeerActor::spawn_and_handshake(clock.clone(),stream,None,state.clone()).await.context("PeerActor::spawn()")?;
                             anyhow::Ok(())
                         }.await;
@@ -571,6 +583,7 @@ impl PeerManagerActor {
 
         self.state.send_message_to_peer(
             &self.clock,
+            tcp::Tier::T2,
             self.state.sign_message(&self.clock, RawRoutedMessage { target, body: msg }),
         )
     }
@@ -723,6 +736,7 @@ impl PeerManagerActor {
                 };
                 if self.state.send_message_to_peer(
                     &self.clock,
+                    tcp::Tier::T2,
                     self.state.sign_message(
                         &self.clock,
                         RawRoutedMessage { target: PeerIdOrHash::Hash(route_back), body },
@@ -780,6 +794,7 @@ impl PeerManagerActor {
                         {
                             if self.state.send_message_to_peer(
                                 &self.clock,
+                                tcp::Tier::T2,
                                 self.state.sign_message(
                                     &self.clock,
                                     RawRoutedMessage {
@@ -809,6 +824,7 @@ impl PeerManagerActor {
             NetworkRequests::PartialEncodedChunkResponse { route_back, response } => {
                 if self.state.send_message_to_peer(
                     &self.clock,
+                    tcp::Tier::T2,
                     self.state.sign_message(
                         &self.clock,
                         RawRoutedMessage {
@@ -912,7 +928,7 @@ impl PeerManagerActor {
             }
             // TEST-ONLY
             PeerManagerMessageRequest::PingTo { nonce, target } => {
-                self.state.send_ping(&self.clock, nonce, target);
+                self.state.send_ping(&self.clock, tcp::Tier::T2, nonce, target);
                 PeerManagerMessageResponse::PingTo
             }
         }
