@@ -327,41 +327,6 @@ impl StateSync {
                     // (these are set via callback from ClientActor - both for sync and catchup).
                     let result = self.state_parts_apply_results.remove(&shard_id);
                     if let Some(result) = result {
-                        // we synced state after _previous_ block for `sync_hash` was applied:
-                        let block_hash = sync_block_header.prev_hash();
-                        let block_height = sync_block_header.prev_height().unwrap();
-
-                        // create flat storage. add "if" in case we repeat this step, to avoid double creation
-                        if chain
-                            .runtime_adapter
-                            .get_flat_storage_state_for_shard(shard_id)
-                            .is_none()
-                        {
-                            // once we applied all parts, we can set flat storage head
-                            #[cfg(feature = "protocol_feature_flat_state")]
-                            {
-                                let mut store_update = chain.runtime_adapter.store().store_update();
-                                store_helper::set_flat_head(
-                                    &mut store_update,
-                                    shard_id,
-                                    block_hash,
-                                );
-                                store_update.commit()?;
-                            }
-
-                            match chain.runtime_adapter.try_create_flat_storage_state_for_shard(
-                                shard_id,
-                                block_height,
-                                chain.store(),
-                            ) {
-                                FlatStorageStateStatus::Ready
-                                | FlatStorageStateStatus::DontCreate => {}
-                                status @ _ => {
-                                    return Err(Error::StorageError(StorageError::FlatStorageError(format!("Unable to create flat storage during syncing shard {shard_id}, got status {status:?}"))));
-                                }
-                            };
-                        }
-
                         match chain.set_state_finalize(shard_id, sync_hash, result) {
                             Ok(()) => {
                                 *shard_sync_download = ShardSyncDownload {

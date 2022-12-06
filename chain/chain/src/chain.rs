@@ -85,9 +85,9 @@ use near_primitives::shard_layout::{
     account_id_to_shard_id, account_id_to_shard_uid, ShardLayout, ShardUId,
 };
 use near_primitives::version::PROTOCOL_VERSION;
-use near_store::flat_state::FlatStorageError;
 #[cfg(feature = "protocol_feature_flat_state")]
 use near_store::flat_state::{store_helper, FlatStateDelta};
+use near_store::flat_state::{FlatStorageError, FlatStorageStateStatus};
 use once_cell::sync::OnceCell;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
@@ -3162,6 +3162,34 @@ impl Chain {
         apply_result?;
 
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
+        let chunk = shard_state_header.cloned_chunk();
+
+        // we synced state for _previous_ block for chunk in shard state header:
+        let block_hash = chunk.prev_block();
+        let block_height = self.get_block_header(block_hash)?.height();
+
+        // create flat storage. add "if" in case we repeat this step, to avoid double creation
+        if self.runtime_adapter.get_flat_storage_state_for_shard(shard_id).is_none() {
+            // once we applied all parts, we can set flat storage head
+            #[cfg(feature = "protocol_feature_flat_state")]
+            {
+                let mut store_update = self.runtime_adapter.store().store_update();
+                store_helper::set_flat_head(&mut store_update, shard_id, block_hash);
+                store_update.commit()?;
+            }
+
+            match self.runtime_adapter.try_create_flat_storage_state_for_shard(
+                shard_id,
+                block_height,
+                self.store(),
+            ) {
+                FlatStorageStateStatus::Ready | FlatStorageStateStatus::DontCreate => {}
+                status @ _ => {
+                    return Err(Error::StorageError(StorageError::FlatStorageError(format!("Unable to create flat storage during syncing shard {shard_id}, got status {status:?}"))));
+                }
+            };
+        }
+
         let mut height = shard_state_header.chunk_height_included();
         let mut chain_update = self.chain_update();
         chain_update.set_state_finalize(shard_id, sync_hash, shard_state_header)?;

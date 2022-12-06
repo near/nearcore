@@ -917,10 +917,14 @@ impl FlatStorageState {
         let shard_id = guard.shard_id;
         let block_height = block.height;
         info!(target: "chain", %shard_id, %block_hash, %block_height, "Adding block to flat storage");
+        let mut store_update = StoreUpdate::new(guard.store.storage.clone());
+        if guard.blocks.contains_key(block_hash) {
+            // apparently happens on set_state_finalize
+            return Ok(store_update);
+        }
         if !guard.blocks.contains_key(&block.prev_hash) {
             return Err(guard.create_block_not_supported_error(block_hash));
         }
-        let mut store_update = StoreUpdate::new(guard.store.storage.clone());
         store_helper::set_delta(&mut store_update, guard.shard_id, block_hash.clone(), &delta)?;
         guard.deltas.insert(*block_hash, Arc::new(delta));
         guard.blocks.insert(*block_hash, block);
