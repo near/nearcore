@@ -24,6 +24,14 @@ In memory signer (generates the key based on seed). There is a slight preference
 InMemoryValidatorSigner::from_seed("account".parse().unwrap(), KeyType::ED25519, "account".to_owned())
 ```
 
+### Block
+
+Use ``TestBlockBuilder`` to create the block that you need. This class allows you to set custom values for most of the fields.
+
+```rust
+let test_block = test_utils::TestBlockBuilder::new(prev, signer).height(33).build();
+```
+
 ## Store
 Use the in memory test store in tests:
 ```rust
