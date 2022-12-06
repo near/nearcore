@@ -6,8 +6,10 @@ use crate::network_protocol::{
 };
 use crate::peer;
 use crate::peer::peer_actor::ClosingReason;
+use crate::peer_manager::connection;
 use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_manager_actor::Event as PME;
+use crate::private_actix::RegisterPeerError;
 use crate::tcp;
 use crate::test_utils;
 use crate::testonly::actix::ActixSystem;
@@ -163,6 +165,47 @@ impl ActorHandler {
                     _ => None,
                 })
                 .await
+        }
+    }
+
+    pub async fn force_connect_to(&self, peer_info: &PeerInfo, tier: tcp::Tier) {
+        let addr = self.actix.addr.clone();
+        let events = self.events.clone();
+        let peer_info = peer_info.clone();
+
+        loop {
+            let stream = tcp::Stream::connect(&peer_info, tier).await.unwrap();
+            let mut events = events.from_now();
+            let stream_id = stream.id();
+            addr.do_send(PeerManagerMessageRequest::OutboundTcpConnect(stream).with_span_context());
+            let success = events
+                .recv_until(|ev| match ev {
+                    Event::PeerManager(PME::HandshakeCompleted(ev))
+                        if ev.stream_id == stream_id =>
+                    {
+                        Some(true)
+                    }
+                    Event::PeerManager(PME::ConnectionClosed(ev)) if ev.stream_id == stream_id => {
+                        Some(
+                            ev.reason
+                                == ClosingReason::RejectedByPeerManager(
+                                    RegisterPeerError::PoolError(
+                                        connection::PoolError::AlreadyConnected,
+                                    ),
+                                )
+                                || ev.reason
+                                    == ClosingReason::OutboundNotAllowed(
+                                        connection::PoolError::AlreadyConnected,
+                                    ),
+                        )
+                    }
+                    _ => None,
+                })
+                .await;
+
+            if success {
+                return;
+            }
         }
     }
 
@@ -352,6 +395,27 @@ impl ActorHandler {
         }
     }
 
+    pub async fn wait_for_direct_connection(&self, target_peer_id: PeerId) {
+        let mut events = self.events.from_now();
+        loop {
+            let next_hops =
+                self.with_state(|s| async move { s.graph.routing_table.info().next_hops }).await;
+
+            if let Some(routes) = next_hops.get(&target_peer_id) {
+                if routes.contains(&target_peer_id) {
+                    return;
+                }
+            }
+
+            events
+                .recv_until(|ev| match ev {
+                    Event::PeerManager(PME::EdgesAdded { .. }) => Some(()),
+                    _ => None,
+                })
+                .await;
+        }
+    }
+
     // Awaits until the routing_table matches `want`.
     pub async fn wait_for_routing_table(&self, want: &[(PeerId, Vec<PeerId>)]) {
         let mut events = self.events.from_now();
@@ -385,6 +449,22 @@ impl ActorHandler {
             events
                 .recv_until(|ev| match ev {
                     Event::PeerManager(PME::AccountsAdded(_)) => Some(()),
+                    _ => None,
+                })
+                .await;
+        }
+    }
+
+    pub async fn wait_for_num_connected_peers(&self, wanted: usize) {
+        let mut events = self.events.from_now();
+        loop {
+            let got = self.with_state(|s| async move { s.tier2.load().ready.len() }).await;
+            if got == wanted {
+                return;
+            }
+            events
+                .recv_until(|ev| match ev {
+                    Event::PeerManager(PME::EdgesAdded { .. }) => Some(()),
                     _ => None,
                 })
                 .await;

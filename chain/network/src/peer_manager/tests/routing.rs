@@ -1222,3 +1222,59 @@ async fn do_not_block_announce_account_broadcast() {
     pm1.announce_account(aa.clone()).await;
     assert_eq!(&aa.peer_id, &pm2.wait_for_account_owner(&aa.account_id).await);
 }
+
+/// Check that two archival nodes keep connected after network rebalance. Nodes 0 and 1 are archival nodes, others aren't.
+/// Initially connect 2, 3, 4 to 0. Then connect 1 to 0, this connection should persist, even after other nodes tries
+/// to connect to node 0 again.
+///
+/// Do four rounds where 2, 3, 4 tries to connect to 0 and check that connection between 0 and 1 was never dropped.
+#[tokio::test]
+async fn archival_node() {
+    init_test_logger();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
+    tracing::info!(target:"test", "start five nodes");
+    let mut cfgs = make_configs(&chain, rng, 5, 5, false);
+    for config in cfgs.iter_mut() {
+        config.max_num_peers = 3;
+        config.ideal_connections_lo = 2;
+        config.ideal_connections_hi = 2;
+        config.safe_set_size = 1;
+        config.minimum_outbound_peers = 0;
+    }
+    cfgs[0].archive = true;
+    cfgs[1].archive = true;
+
+    let pm0 = start_pm(clock.clock(), TestDB::new(), cfgs[0].clone(), chain.clone()).await;
+    let pm1 = start_pm(clock.clock(), TestDB::new(), cfgs[1].clone(), chain.clone()).await;
+    let pm2 = start_pm(clock.clock(), TestDB::new(), cfgs[2].clone(), chain.clone()).await;
+    let pm3 = start_pm(clock.clock(), TestDB::new(), cfgs[3].clone(), chain.clone()).await;
+    let pm4 = start_pm(clock.clock(), TestDB::new(), cfgs[4].clone(), chain.clone()).await;
+
+    let id1 = pm1.cfg.node_id();
+    let id4 = pm4.cfg.node_id();
+
+    pm2.connect_to(&pm0.peer_info(), tcp::Tier::T2).await;
+    pm0.wait_for_num_connected_peers(1).await;
+    pm3.connect_to(&pm0.peer_info(), tcp::Tier::T2).await;
+    pm0.wait_for_num_connected_peers(2).await;
+    pm4.connect_to(&pm0.peer_info(), tcp::Tier::T2).await;
+    pm0.wait_for_direct_connection(id4.clone()).await;
+    pm0.wait_for_num_connected_peers(2).await;
+
+    pm1.force_connect_to(&pm0.peer_info(), tcp::Tier::T2).await;
+    pm0.wait_for_direct_connection(id1.clone()).await;
+    pm0.wait_for_num_connected_peers(2).await;
+
+    for _step in 0..4 {
+        pm2.force_connect_to(&pm0.peer_info(), tcp::Tier::T2).await;
+        pm3.force_connect_to(&pm0.peer_info(), tcp::Tier::T2).await;
+        pm4.force_connect_to(&pm0.peer_info(), tcp::Tier::T2).await;
+
+        pm0.wait_for_num_connected_peers(2).await;
+        pm0.wait_for_direct_connection(id1.clone()).await;
+    }
+}
