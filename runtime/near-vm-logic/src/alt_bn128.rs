@@ -25,7 +25,7 @@ impl From<InvalidInput> for VMLogicError {
 pub(crate) fn split_elements<const ELEMENT_SIZE: usize>(
     data: &[u8],
 ) -> Result<&[[u8; ELEMENT_SIZE]], InvalidInput> {
-    stdx::as_chunks_exact(data).ok_or_else(|| InvalidInput {
+    stdx::as_chunks_exact(data).map_err(|_| InvalidInput {
         msg: format!("invalid array, byte length {}, element size {}", data.len(), ELEMENT_SIZE),
     })
 }

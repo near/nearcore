@@ -102,21 +102,40 @@ pub fn as_chunks<const N: usize, T>(slice: &[T]) -> (&[[T; N]], &[T]) {
     (head, tail)
 }
 
-/// Chunks if `as_chunks` has no remainder.
-pub fn as_chunks_exact<const N: usize, T>(slice: &[T]) -> Option<&[[T; N]]> {
+#[derive(Debug, Eq, PartialEq)]
+pub struct InexactChunkingError {
+    array_size: usize,
+    chunk_size: usize,
+}
+impl std::error::Error for InexactChunkingError {}
+impl std::fmt::Display for InexactChunkingError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Array of size {} cannot be precisely split into chunks of size {}",
+            self.array_size, self.chunk_size
+        )
+    }
+}
+
+/// Like `as_chunks` but returns an error if there’s a remainder.
+pub fn as_chunks_exact<const N: usize, T>(slice: &[T]) -> Result<&[[T; N]], InexactChunkingError> {
     let (chunks, remainder) = as_chunks(slice);
     if remainder.is_empty() {
-        Some(chunks)
+        Ok(chunks)
     } else {
-        None
+        Err(InexactChunkingError { array_size: slice.len(), chunk_size: N })
     }
 }
 
 #[test]
 fn test_as_chunks() {
     assert_eq!((&[[0, 1], [2, 3]][..], &[4][..]), as_chunks::<2, _>(&[0, 1, 2, 3, 4]));
-    assert_eq!(Some(&[[0, 1], [2, 3]][..]), as_chunks_exact::<2, _>(&[0, 1, 2, 3]));
-    assert_eq!(None, as_chunks_exact::<2, _>(&[0, 1, 2, 3, 4]));
+    assert_eq!(Ok(&[[0, 1], [2, 3]][..]), as_chunks_exact::<2, _>(&[0, 1, 2, 3]));
+    assert_eq!(
+        Err(InexactChunkingError { array_size: 5, chunk_size: 2 }),
+        as_chunks_exact::<2, _>(&[0, 1, 2, 3, 4])
+    );
 }
 
 /// Asserts, at compile time, that `S == A + B`.
