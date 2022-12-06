@@ -1209,7 +1209,15 @@ impl PeerActor {
                     msg.target);
                 let for_me = self.network_state.message_for_me(&msg.target);
                 if for_me {
-                    metrics::record_routed_msg_metrics(&self.clock, &msg);
+                    // Check if we have already received this message.
+                    let fastest = self
+                        .network_state
+                        .recent_routed_messages
+                        .lock()
+                        .put(CryptoHash::hash_borsh(&msg.body), ())
+                        .is_none();
+                    // Register that the message has been received.
+                    metrics::record_routed_msg_metrics(&self.clock, &msg, conn.tier, fastest);
                 }
 
                 // Drop duplicated messages routed within DROP_DUPLICATED_MESSAGES_PERIOD ms
@@ -1447,8 +1455,6 @@ impl actix::Handler<stream::Frame> for PeerActor {
             msg_len = msg.len(),
             peer = %self.peer_info)
         .entered();
-        // TODO(#5155) We should change our code to track size of messages received from Peer
-        // as long as it travels to PeerManager, etc.
 
         if self.closing_reason.is_some() {
             tracing::warn!(target: "network", "Received message from closing connection {:?}. Ignoring", self.peer_type);
