@@ -137,6 +137,13 @@ impl ActorHandler {
         }
     }
 
+    pub async fn send_outbound_connect(&self, peer_info: &PeerInfo, tier: tcp::Tier) {
+        let addr = self.actix.addr.clone();
+        let peer_info = peer_info.clone();
+        let stream = tcp::Stream::connect(&peer_info, tier).await.unwrap();
+        addr.do_send(PeerManagerMessageRequest::OutboundTcpConnect(stream).with_span_context());
+    }
+
     pub fn connect_to(
         &self,
         peer_info: &PeerInfo,

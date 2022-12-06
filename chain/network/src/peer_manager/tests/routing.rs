@@ -1262,16 +1262,16 @@ async fn archival_node() {
     let mut pm0_ev = pm0.events.from_now();
 
     tracing::info!(target:"test", "connect node 2 to node 0");
-    pm2.connect_to(&pm0.peer_info(), tcp::Tier::T2).await;
+    pm2.send_outbound_connect(&pm0.peer_info(), tcp::Tier::T2).await;
     tracing::info!(target:"test", "connect node 3 to node 0");
-    pm3.connect_to(&pm0.peer_info(), tcp::Tier::T2).await;
+    pm3.send_outbound_connect(&pm0.peer_info(), tcp::Tier::T2).await;
 
     tracing::info!(target:"test", "connect node 4 to node 0 and wait for pm0 to close a connection");
-    pm4.connect_to(&pm0.peer_info(), tcp::Tier::T2).await;
+    pm4.send_outbound_connect(&pm0.peer_info(), tcp::Tier::T2).await;
     wait_for_connection_closed(&mut pm0_ev, ClosingReason::PeerManager).await;
 
     tracing::info!(target:"test", "connect node 1 to node 0 and wait for pm0 to close a connection");
-    pm1.connect_to(&pm0.peer_info(), tcp::Tier::T2).await;
+    pm1.send_outbound_connect(&pm0.peer_info(), tcp::Tier::T2).await;
     wait_for_connection_closed(&mut pm0_ev, ClosingReason::PeerManager).await;
 
     tracing::info!(target:"test", "check that node 0 and node 1 are still connected");
@@ -1293,7 +1293,7 @@ async fn archival_node() {
         chosen.wait_for_num_connected_peers(0).await;
 
         tracing::info!(target:"test", "[{_step}] connect the chosen node to node 0 and wait for pm0 to close a connection");
-        chosen.connect_to(&pm0.peer_info(), tcp::Tier::T2).await;
+        chosen.send_outbound_connect(&pm0.peer_info(), tcp::Tier::T2).await;
         wait_for_connection_closed(&mut pm0_ev, ClosingReason::PeerManager).await;
 
         tracing::info!(target:"test", "[{_step}] check that node 0 and node 1 are still connected");
