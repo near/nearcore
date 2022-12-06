@@ -1,6 +1,5 @@
 use near_chain::{Block, BlockHeader};
-use near_crypto::KeyType;
-use near_primitives::{test_utils::create_test_signer, validator_signer::InMemoryValidatorSigner};
+use near_primitives::test_utils::create_test_signer;
 use std::sync::Arc;
 
 pub fn set_no_chunk_in_block(block: &mut Block, prev_block: &Block) {

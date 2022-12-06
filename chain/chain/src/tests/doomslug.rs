@@ -10,7 +10,6 @@ use near_crypto::{KeyType, SecretKey};
 use near_primitives::block::Approval;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::{ApprovalStake, BlockHeight};
-use near_primitives::validator_signer::InMemoryValidatorSigner;
 
 fn block_hash(height: BlockHeight, ord: usize) -> CryptoHash {
     hash(([height.to_le_bytes(), ord.to_le_bytes()].concat()).as_ref())

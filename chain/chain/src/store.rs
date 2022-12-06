@@ -2976,7 +2976,6 @@ mod tests {
     use near_primitives::merkle::PartialMerkleTree;
 
     use near_chain_configs::{GCConfig, GenesisConfig};
-    use near_crypto::KeyType;
     use near_primitives::block::{Block, Tip};
     use near_primitives::epoch_manager::block_info::BlockInfo;
     use near_primitives::errors::InvalidTxError;

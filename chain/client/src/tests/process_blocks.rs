@@ -4,7 +4,6 @@ use near_crypto::{KeyType, PublicKey};
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::validator_stake::ValidatorStake;
-use near_primitives::validator_signer::InMemoryValidatorSigner;
 use std::sync::Arc;
 
 /// Only process one block per height

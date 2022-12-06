@@ -12,7 +12,6 @@ use near_primitives::time::Clock;
 use near_chain::test_utils::{KeyValueRuntime, ValidatorSchedule};
 use near_chain::types::{EpochManagerAdapter, RuntimeAdapter, Tip};
 use near_chain::{Chain, ChainStore};
-use near_crypto::KeyType;
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_o11y::WithSpanContext;
 use near_primitives::block::BlockHeader;
@@ -25,7 +24,6 @@ use near_primitives::sharding::{
 use near_primitives::types::NumShards;
 use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::types::{BlockHeight, MerkleHash};
-use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::Store;
 

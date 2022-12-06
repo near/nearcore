@@ -1542,7 +1542,7 @@ mod test {
     use near_primitives::types::{
         BlockHeightDelta, Nonce, ValidatorId, ValidatorInfoIdentifier, ValidatorKickoutReason,
     };
-    use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
+    use near_primitives::validator_signer::ValidatorSigner;
     use near_primitives::views::{
         AccountView, CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo,
         ValidatorKickoutView,

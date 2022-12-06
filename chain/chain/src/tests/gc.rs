@@ -6,13 +6,11 @@ use crate::types::{ChainConfig, ChainGenesis, Tip};
 use crate::DoomslugThresholdMode;
 
 use near_chain_configs::GCConfig;
-use near_crypto::KeyType;
 use near_primitives::block::Block;
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::test_utils::{create_test_signer, TestBlockBuilder};
 use near_primitives::types::{NumBlocks, NumShards, StateRoot};
-use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_store::test_utils::{create_test_store, gen_changes};
 use near_store::{ShardTries, Trie, WrappedTrieChanges};
 use rand::Rng;
