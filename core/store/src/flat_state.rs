@@ -412,6 +412,7 @@ impl FlatStateDelta {
 
 use near_primitives::errors::StorageError;
 use std::sync::{Arc, RwLock};
+use tracing::info;
 
 /// FlatStorageState stores information on which blocks flat storage current supports key lookups on.
 /// Note that this struct is shared by multiple threads, the chain thread, threads that apply chunks,
@@ -861,6 +862,8 @@ impl FlatStorageState {
         }
 
         // Update flat state on disk.
+        let shard_id = guard.shard_id;
+        let new_height = guard.blocks.get(new_head).unwrap().height;
         guard.flat_head = *new_head;
         let mut store_update = StoreUpdate::new(guard.store.storage.clone());
         store_helper::set_flat_head(&mut store_update, guard.shard_id, new_head);
@@ -888,6 +891,8 @@ impl FlatStorageState {
         }
 
         store_update.commit().expect(BORSH_ERR);
+        info!(target: "chain", %shard_id, %new_head, %new_height, "Moved flat storage head");
+
         Ok(())
     }
 
@@ -909,6 +914,9 @@ impl FlatStorageState {
         block: BlockInfo,
     ) -> Result<StoreUpdate, FlatStorageError> {
         let mut guard = self.0.write().expect(POISONED_LOCK_ERR);
+        let shard_id = guard.shard_id;
+        let block_height = block.height;
+        info!(target: "chain", %shard_id, %block_hash, %block_height, "Adding block to flat storage");
         if !guard.blocks.contains_key(&block.prev_hash) {
             return Err(guard.create_block_not_supported_error(block_hash));
         }

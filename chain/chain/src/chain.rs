@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::intrinsics::unreachable;
 
 use std::sync::Arc;
 use std::time::{Duration as TimeDuration, Instant};
@@ -76,7 +77,7 @@ use crate::validate::{
 };
 use crate::{byzantine_assert, create_light_client_block_view, Doomslug};
 use crate::{metrics, DoomslugThresholdMode};
-use actix::Message;
+use actix::{ActorStreamExt, Message};
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use delay_detector::DelayDetector;
 use lru::LruCache;
@@ -2132,6 +2133,7 @@ impl Chain {
         .entered();
 
         let prev_head = self.store.head()?;
+        let is_caught_up = block_preprocess_info.is_caught_up;
         let provenance = block_preprocess_info.provenance.clone();
         let block_start_processing_time = block_preprocess_info.block_start_processing_time.clone();
         // TODO(#8055): this zip relies on the ordering of the apply_results.
@@ -2165,12 +2167,28 @@ impl Chain {
         // Also note, for now, we only update flat storage for the shards that we care about in this epoch
         // TODO (#7327): support flat storage for state sync and block catchups
         for shard_id in 0..self.runtime_adapter.num_shards(block.header().epoch_id())? {
-            if self.runtime_adapter.cares_about_shard(
-                me.as_ref(),
-                block.header().prev_hash(),
-                shard_id,
-                true,
-            ) {
+            let need_flat_storage_update = if is_caught_up {
+                self.runtime_adapter.cares_about_shard(
+                    me.as_ref(),
+                    block.header().prev_hash(),
+                    shard_id,
+                    true,
+                ) || self.runtime_adapter.will_care_about_shard(
+                    me.as_ref(),
+                    block.header().prev_hash(),
+                    shard_id,
+                    true,
+                )
+            } else {
+                self.runtime_adapter.cares_about_shard(
+                    me.as_ref(),
+                    block.header().prev_hash(),
+                    shard_id,
+                    true,
+                )
+            };
+
+            if need_flat_storage_update {
                 if let Some(flat_storage_state) =
                     self.runtime_adapter.get_flat_storage_state_for_shard(shard_id)
                 {
@@ -3306,13 +3324,64 @@ impl Chain {
         let block = self.store.get_block(block_hash)?;
         let prev_block = self.store.get_block(block.header().prev_hash())?;
         let mut chain_update = self.chain_update();
-        chain_update.apply_chunk_postprocessing(
-            me,
-            &block,
-            &prev_block,
-            results.into_iter().collect::<Result<Vec<_>, Error>>()?,
-        )?;
+        let filtered_results = results.into_iter().collect::<Result<Vec<_>, Error>>()?;
+
+        chain_update.apply_chunk_postprocessing(me, &block, &prev_block, filtered_results)?;
+
+        for shard_id in 0..self.runtime_adapter.num_shards(block.header().epoch_id())? {
+            // `block_catch_up_postprocess` is called only during block catchup.
+            // during that, we catch up all affected shards simultaneously.
+            // if we not care about shard but will care in this epoch, then we need to update flat storage here.
+            if !self.runtime_adapter.cares_about_shard(
+                me.as_ref(),
+                block.header().prev_hash(),
+                shard_id,
+                true,
+            ) && self.runtime_adapter.will_care_about_shard(
+                me.as_ref(),
+                block.header().prev_hash(),
+                shard_id,
+                true,
+            ) {
+                let flat_storage_state = match self
+                    .runtime_adapter
+                    .get_flat_storage_state_for_shard(shard_id)
+                {
+                    Some(flat_storage_state) => flat_storage_state,
+                    None => {
+                        unreachable!("flat storage state does not exist for shard {shard_id} during catching up block {block_hash}");
+                    }
+                };
+
+                let mut new_flat_head = *block.header().last_final_block();
+                if new_flat_head == CryptoHash::default() {
+                    new_flat_head = *self.genesis.hash();
+                }
+                // Try to update flat head.
+                flat_storage_state.update_flat_head(&new_flat_head).unwrap_or_else(|err| {
+                    match &err {
+                        FlatStorageError::BlockNotSupported(_) => {
+                            // It's possible that new head is not a child of current flat head, e.g. when we have a
+                            // fork:
+                            //
+                            //      (flat head)        /-------> 6
+                            // 1 ->      2     -> 3 -> 4
+                            //                         \---> 5
+                            //
+                            // where during postprocessing (5) we call `update_flat_head(3)` and then for (6) we can
+                            // call `update_flat_head(2)`. In such case, just log an error.
+                            debug!(target: "chain", "Cannot update flat head to {:?}: {:?}", new_flat_head, err);
+                        }
+                        _ => {
+                            // All other errors are unexpected, so we panic.
+                            panic!("Cannot update flat head to {:?}: {:?}", new_flat_head, err);
+                        }
+                    }
+                });
+            }
+        }
         chain_update.commit()?;
+
         Ok(())
     }
 
@@ -4839,7 +4908,6 @@ impl<'a> ChainUpdate<'a> {
     #[allow(unused_variables)]
     fn save_flat_state_changes(
         &mut self,
-        me: &Option<AccountId>,
         block_hash: CryptoHash,
         prev_hash: CryptoHash,
         height: BlockHeight,
@@ -4849,7 +4917,7 @@ impl<'a> ChainUpdate<'a> {
         // Right now, we don't implement flat storage for catchup, so we only store
         // the delta for the shards that we are tracking this epoch
         #[cfg(feature = "protocol_feature_flat_state")]
-        if self.runtime_adapter.cares_about_shard(me.as_ref(), &prev_hash, shard_id, true) {
+        {
             let delta = FlatStateDelta::from_state_changes(&trie_changes.state_changes());
 
             if let Some(chain_flat_storage) =
@@ -4905,7 +4973,6 @@ impl<'a> ChainUpdate<'a> {
                     ),
                 );
                 self.save_flat_state_changes(
-                    me,
                     block_hash,
                     prev_block_hash,
                     height,
@@ -4946,7 +5013,6 @@ impl<'a> ChainUpdate<'a> {
                 *new_extra.state_root_mut() = apply_result.new_root;
 
                 self.save_flat_state_changes(
-                    me,
                     block_hash,
                     prev_block_hash,
                     height,
@@ -5318,6 +5384,13 @@ impl<'a> ChainUpdate<'a> {
 
         self.chain_store_update.save_chunk(chunk);
 
+        self.save_flat_state_changes(
+            block_header.hash().clone(),
+            chunk_header.prev_block_hash().clone(),
+            chunk_header.height_included(),
+            shard_id,
+            &apply_result.trie_changes,
+        )?;
         self.chain_store_update.save_trie_changes(apply_result.trie_changes);
         let chunk_extra = ChunkExtra::new(
             &apply_result.new_root,
@@ -5397,7 +5470,13 @@ impl<'a> ChainUpdate<'a> {
             Default::default(),
             false,
         )?;
-
+        self.save_flat_state_changes(
+            block_header.hash().clone(),
+            prev_block_header.hash().clone(),
+            height,
+            shard_id,
+            &apply_result.trie_changes,
+        )?;
         self.chain_store_update.save_trie_changes(apply_result.trie_changes);
 
         let mut new_chunk_extra = ChunkExtra::clone(&chunk_extra);
