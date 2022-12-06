@@ -51,8 +51,8 @@ use near_primitives::views::{
     LightClientBlockView, SignedTransactionView,
 };
 #[cfg(feature = "protocol_feature_flat_state")]
-use near_store::{flat_state, StorageError};
-use near_store::{DBCol, ShardTries, StoreUpdate, WrappedTrieChanges};
+use near_store::flat_state;
+use near_store::{DBCol, ShardTries, StorageError, StoreUpdate, WrappedTrieChanges};
 
 use crate::block_processing_utils::{
     BlockPreprocessInfo, BlockProcessingArtifact, BlocksInProcessing, DoneApplyChunkCallback,
