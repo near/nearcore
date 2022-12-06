@@ -104,7 +104,7 @@ pub fn as_chunks<const N: usize, T>(slice: &[T]) -> (&[[T; N]], &[T]) {
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct InexactChunkingError {
-    array_size: usize,
+    slice_len: usize,
     chunk_size: usize,
 }
 impl std::error::Error for InexactChunkingError {}
@@ -112,8 +112,8 @@ impl std::fmt::Display for InexactChunkingError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Array of size {} cannot be precisely split into chunks of size {}",
-            self.array_size, self.chunk_size
+            "Slice of size {} cannot be precisely split into chunks of size {}",
+            self.slice_len, self.chunk_size
         )
     }
 }
@@ -124,7 +124,7 @@ pub fn as_chunks_exact<const N: usize, T>(slice: &[T]) -> Result<&[[T; N]], Inex
     if remainder.is_empty() {
         Ok(chunks)
     } else {
-        Err(InexactChunkingError { array_size: slice.len(), chunk_size: N })
+        Err(InexactChunkingError { slice_len: slice.len(), chunk_size: N })
     }
 }
 
@@ -133,7 +133,7 @@ fn test_as_chunks() {
     assert_eq!((&[[0, 1], [2, 3]][..], &[4][..]), as_chunks::<2, _>(&[0, 1, 2, 3, 4]));
     assert_eq!(Ok(&[[0, 1], [2, 3]][..]), as_chunks_exact::<2, _>(&[0, 1, 2, 3]));
     assert_eq!(
-        Err(InexactChunkingError { array_size: 5, chunk_size: 2 }),
+        Err(InexactChunkingError { slice_len: 5, chunk_size: 2 }),
         as_chunks_exact::<2, _>(&[0, 1, 2, 3, 4])
     );
 }
