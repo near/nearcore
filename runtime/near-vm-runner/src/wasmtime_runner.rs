@@ -46,8 +46,7 @@ impl MemoryLike for WasmtimeMemory {
         let start = usize::try_from(offset).map_err(|_| ())?;
         let end = start.checked_add(buffer.len()).ok_or(())?;
         with_caller(|caller| {
-            let data = self.0.data(caller);
-            let memory = data.get(start..end).ok_or(())?;
+            let memory = self.0.data(caller).get(start..end).ok_or(())?;
             buffer.copy_from_slice(memory);
             Ok(())
         })
@@ -57,13 +56,9 @@ impl MemoryLike for WasmtimeMemory {
         let start = usize::try_from(offset).map_err(|_| ())?;
         let end = start.checked_add(buffer.len()).ok_or(())?;
         with_caller(|caller| {
-            let data = self.0.data_mut(caller);
-            if end <= data.len() {
-                data[start..end].copy_from_slice(buffer);
-                Ok(())
-            } else {
-                Err(())
-            }
+            let memory = self.0.data_mut(caller).get_mut(start..end).ok_or(())?;
+            memory.copy_from_slice(buffer);
+            Ok(())
         })
     }
 }

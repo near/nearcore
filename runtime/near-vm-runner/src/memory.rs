@@ -1,5 +1,5 @@
 use near_vm_logic::MemoryLike;
-use wasmer_runtime::units::{Bytes, Pages};
+use wasmer_runtime::units::Pages;
 use wasmer_runtime::wasm::MemoryDescriptor;
 use wasmer_runtime::Memory;
 
@@ -30,14 +30,9 @@ impl WasmerMemory {
     where
         F: FnOnce(core::slice::Iter<'_, std::cell::Cell<u8>>),
     {
-        let start = usize::try_from(offset).unwrap();
-        if let Some(end) = start.checked_add(len) {
-            if Bytes(end) <= self.0.size().bytes() {
-                func(self.0.view()[start..end].iter());
-                return Ok(());
-            }
-        }
-        Err(())
+        let start = usize::try_from(offset).map_err(|_| ())?;
+        let end = start.checked_add(len).ok_or(())?;
+        self.0.view().get(start..end).map(|mem| func(mem.iter())).ok_or(())
     }
 }
 
