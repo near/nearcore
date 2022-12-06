@@ -349,6 +349,11 @@ pub(crate) static ALREADY_CONNECTED_ACCOUNT: Lazy<IntCounter> = Lazy::new(|| {
     .unwrap()
 });
 
+/// Updated the prometheus metrics about the received routed message `msg`.
+/// `tier` indicates the network over which the message was transmitted.
+/// `fastest` indicates whether this message is the first copy of `msg` received -
+/// important messages are sent multiple times over different routing paths
+/// simultaneously to improve the chance that the message will be delivered on time.
 pub(crate) fn record_routed_msg_metrics(
     clock: &time::Clock,
     msg: &RoutedMessageV2,
