@@ -1,5 +1,4 @@
 use std::collections::{HashMap, HashSet};
-use std::intrinsics::unreachable;
 
 use std::sync::Arc;
 use std::time::{Duration as TimeDuration, Instant};
@@ -77,7 +76,7 @@ use crate::validate::{
 };
 use crate::{byzantine_assert, create_light_client_block_view, Doomslug};
 use crate::{metrics, DoomslugThresholdMode};
-use actix::{ActorStreamExt, Message};
+use actix::Message;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use delay_detector::DelayDetector;
 use lru::LruCache;
@@ -3324,9 +3323,13 @@ impl Chain {
         let block = self.store.get_block(block_hash)?;
         let prev_block = self.store.get_block(block.header().prev_hash())?;
         let mut chain_update = self.chain_update();
-        let filtered_results = results.into_iter().collect::<Result<Vec<_>, Error>>()?;
-
-        chain_update.apply_chunk_postprocessing(me, &block, &prev_block, filtered_results)?;
+        chain_update.apply_chunk_postprocessing(
+            me,
+            &block,
+            &prev_block,
+            results.into_iter().collect::<Result<Vec<_>, Error>>()?,
+        )?;
+        chain_update.commit()?;
 
         for shard_id in 0..self.runtime_adapter.num_shards(block.header().epoch_id())? {
             // `block_catch_up_postprocess` is called only during block catchup.
@@ -3380,7 +3383,6 @@ impl Chain {
                 });
             }
         }
-        chain_update.commit()?;
 
         Ok(())
     }
