@@ -47,12 +47,9 @@ impl MemoryLike for WasmtimeMemory {
         let end = start.checked_add(buffer.len()).ok_or(())?;
         with_caller(|caller| {
             let data = self.0.data(caller);
-            if end <= data.len() {
-                buffer.copy_from_slice(&data[start..end]);
-                Ok(())
-            } else {
-                Err(())
-            }
+            let memory = data.get(start..end).ok_or(())?;
+            buffer.copy_from_slice(memory);
+            Ok(())
         })
     }
 
