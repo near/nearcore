@@ -6,10 +6,8 @@ use crate::network_protocol::{
 };
 use crate::peer;
 use crate::peer::peer_actor::ClosingReason;
-use crate::peer_manager::connection;
 use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_manager_actor::Event as PME;
-use crate::private_actix::RegisterPeerError;
 use crate::tcp;
 use crate::test_utils;
 use crate::testonly::actix::ActixSystem;
@@ -166,40 +164,6 @@ impl ActorHandler {
                 })
                 .await
         }
-    }
-
-    pub async fn force_connect_to(&self, peer_info: &PeerInfo, tier: tcp::Tier) {
-        let addr = self.actix.addr.clone();
-        let events = self.events.clone();
-        let peer_info = peer_info.clone();
-
-        let stream = tcp::Stream::connect(&peer_info, tier).await.unwrap();
-        let mut events = events.from_now();
-        let stream_id = stream.id();
-        addr.do_send(PeerManagerMessageRequest::OutboundTcpConnect(stream).with_span_context());
-        events
-            .recv_until(|ev| match ev {
-                Event::PeerManager(PME::HandshakeCompleted(ev)) if ev.stream_id == stream_id => {
-                    Some(())
-                }
-                Event::PeerManager(PME::ConnectionClosed(ev)) if ev.stream_id == stream_id => {
-                    if ev.reason
-                        == ClosingReason::RejectedByPeerManager(RegisterPeerError::PoolError(
-                            connection::PoolError::AlreadyConnected,
-                        ))
-                        || ev.reason
-                            == ClosingReason::OutboundNotAllowed(
-                                connection::PoolError::AlreadyConnected,
-                            )
-                    {
-                        Some(())
-                    } else {
-                        panic!("PeerManager rejected the handshake")
-                    }
-                }
-                _ => None,
-            })
-            .await;
     }
 
     pub async fn with_state<R: 'static + Send, Fut: 'static + Send + Future<Output = R>>(

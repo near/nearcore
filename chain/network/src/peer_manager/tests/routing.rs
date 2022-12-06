@@ -17,8 +17,10 @@ use crate::time;
 use crate::types::PeerInfo;
 use crate::types::PeerMessage;
 use near_o11y::testonly::init_test_logger;
+use near_primitives::network::PeerId;
 use near_store::db::TestDB;
 use pretty_assertions::assert_eq;
+use rand::seq::IteratorRandom;
 use rand::Rng as _;
 use std::collections::HashSet;
 use std::net::Ipv4Addr;
@@ -1247,6 +1249,7 @@ async fn archival_node() {
     cfgs[0].archive = true;
     cfgs[1].archive = true;
 
+    tracing::info!(target:"test", "start five nodes, the first two of which are archival nodes");
     let pm0 = start_pm(clock.clock(), TestDB::new(), cfgs[0].clone(), chain.clone()).await;
     let pm1 = start_pm(clock.clock(), TestDB::new(), cfgs[1].clone(), chain.clone()).await;
     let pm2 = start_pm(clock.clock(), TestDB::new(), cfgs[2].clone(), chain.clone()).await;
@@ -1254,30 +1257,46 @@ async fn archival_node() {
     let pm4 = start_pm(clock.clock(), TestDB::new(), cfgs[4].clone(), chain.clone()).await;
 
     let id1 = pm1.cfg.node_id();
-    let id4 = pm4.cfg.node_id();
 
+    // capture pm0 event stream
+    let mut pm0_ev = pm0.events.from_now();
+
+    tracing::info!(target:"test", "connect node 2 to node 0");
     pm2.connect_to(&pm0.peer_info(), tcp::Tier::T2).await;
-    pm0.wait_for_num_connected_peers(1).await;
+    tracing::info!(target:"test", "connect node 3 to node 0");
     pm3.connect_to(&pm0.peer_info(), tcp::Tier::T2).await;
-    pm0.wait_for_num_connected_peers(2).await;
-    pm4.connect_to(&pm0.peer_info(), tcp::Tier::T2).await;
-    pm0.wait_for_direct_connection(id4.clone()).await;
-    pm0.wait_for_num_connected_peers(2).await;
 
+    tracing::info!(target:"test", "connect node 4 to node 0 and wait for pm0 to close a connection");
+    pm4.connect_to(&pm0.peer_info(), tcp::Tier::T2).await;
+    wait_for_connection_closed(&mut pm0_ev, ClosingReason::PeerManager).await;
+
+    tracing::info!(target:"test", "connect node 1 to node 0 and wait for pm0 to close a connection");
     pm1.connect_to(&pm0.peer_info(), tcp::Tier::T2).await;
+    wait_for_connection_closed(&mut pm0_ev, ClosingReason::PeerManager).await;
+
+    tracing::info!(target:"test", "check that node 0 and node 1 are still connected");
     pm0.wait_for_direct_connection(id1.clone()).await;
 
-    for _step in 0..4 {
-        pm0.wait_for_num_connected_peers(2).await;
-        pm2.force_connect_to(&pm0.peer_info(), tcp::Tier::T2).await;
+    for _step in 0..10 {
+        tracing::info!(target:"test", "[{_step}] select a node which node 0 is not connected to");
+        let pm0_connections: HashSet<PeerId> =
+            pm0.with_state(|s| async move { s.tier2.load().ready.keys().cloned().collect() }).await;
 
-        pm0.wait_for_num_connected_peers(2).await;
-        pm3.force_connect_to(&pm0.peer_info(), tcp::Tier::T2).await;
+        let chosen = vec![&pm2, &pm3, &pm4]
+            .iter()
+            .filter(|&pm| !pm0_connections.contains(&pm.cfg.node_id()))
+            .choose(rng)
+            .unwrap()
+            .clone();
 
-        pm0.wait_for_num_connected_peers(2).await;
-        pm4.force_connect_to(&pm0.peer_info(), tcp::Tier::T2).await;
+        tracing::info!(target:"test", "[{_step}] wait for the chosen node to finish disconnecting from node 0");
+        chosen.wait_for_num_connected_peers(0).await;
 
-        pm0.wait_for_num_connected_peers(2).await;
+        tracing::info!(target:"test", "[{_step}] connect the chosen node to node 0 and wait for pm0 to close a connection");
+        chosen.connect_to(&pm0.peer_info(), tcp::Tier::T2).await;
+        wait_for_connection_closed(&mut pm0_ev, ClosingReason::PeerManager).await;
+
+        tracing::info!(target:"test", "[{_step}] check that node 0 and node 1 are still connected");
         pm0.wait_for_direct_connection(id1.clone()).await;
     }
 }
