@@ -398,18 +398,16 @@ impl ActorHandler {
     pub async fn wait_for_direct_connection(&self, target_peer_id: PeerId) {
         let mut events = self.events.from_now();
         loop {
-            let next_hops =
-                self.with_state(|s| async move { s.graph.routing_table.info().next_hops }).await;
+            let connections =
+                self.with_state(|s| async move { s.tier2.load().ready.clone() }).await;
 
-            if let Some(routes) = next_hops.get(&target_peer_id) {
-                if routes.contains(&target_peer_id) {
-                    return;
-                }
+            if connections.contains_key(&target_peer_id) {
+                return;
             }
 
             events
                 .recv_until(|ev| match ev {
-                    Event::PeerManager(PME::EdgesAdded { .. }) => Some(()),
+                    Event::PeerManager(PME::HandshakeCompleted { .. }) => Some(()),
                     _ => None,
                 })
                 .await;
