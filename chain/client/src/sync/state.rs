@@ -35,15 +35,12 @@ use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
 use tracing::{debug, error, info, warn};
 
-use near_chain::test_utils;
 use near_chain::{Chain, RuntimeAdapter};
 use near_network::types::{
     HighestHeightPeerInfo, NetworkRequests, NetworkResponses, PeerManagerAdapter,
 };
 use near_primitives::hash::CryptoHash;
-use near_primitives::syncing::{
-    get_num_state_parts, ShardStateSyncResponse, ShardStateSyncResponseHeader,
-};
+use near_primitives::syncing::{get_num_state_parts, ShardStateSyncResponse};
 use near_primitives::time::{Clock, Utc};
 use near_primitives::types::{AccountId, ShardId, StateRoot};
 
@@ -900,8 +897,12 @@ mod test {
     use near_epoch_manager::EpochManagerAdapter;
     use near_network::test_utils::MockPeerManagerAdapter;
     use near_primitives::{
-        merkle::PartialMerkleTree, syncing::ShardStateSyncResponseV2, types::EpochId,
+        merkle::PartialMerkleTree,
+        syncing::{ShardStateSyncResponseHeader, ShardStateSyncResponseV2},
+        types::EpochId,
     };
+
+    use near_chain::test_utils;
 
     use super::*;
 
