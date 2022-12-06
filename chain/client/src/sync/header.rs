@@ -321,6 +321,7 @@ mod test {
     use near_network::test_utils::MockPeerManagerAdapter;
     use near_primitives::block::{Approval, Block, GenesisId};
     use near_primitives::network::PeerId;
+    use near_primitives::test_utils::TestBlockBuilder;
 
     use super::*;
     use near_network::types::{BlockInfo, FullPeerInfo, PeerInfo};
@@ -363,7 +364,7 @@ mod test {
         let (mut chain, _, signer) = setup();
         for _ in 0..3 {
             let prev = chain.get_block(&chain.head().unwrap().last_block_hash).unwrap();
-            let block = Block::empty(&prev, &*signer);
+            let block = TestBlockBuilder::new(&prev, signer.clone()).build();
             process_block_sync(
                 &mut chain,
                 &None,
@@ -376,7 +377,7 @@ mod test {
         let (mut chain2, _, signer2) = setup();
         for _ in 0..5 {
             let prev = chain2.get_block(&chain2.head().unwrap().last_block_hash).unwrap();
-            let block = Block::empty(&prev, &*signer2);
+            let block = TestBlockBuilder::new(&prev, signer2.clone()).build();
             process_block_sync(
                 &mut chain2,
                 &None,

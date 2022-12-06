@@ -56,6 +56,7 @@ use near_primitives::sharding::{
 };
 use near_primitives::state_part::PartId;
 use near_primitives::syncing::{get_num_state_parts, ShardStateSyncResponseHeader, StatePartKey};
+use near_primitives::test_utils::TestBlockBuilder;
 use near_primitives::transaction::{
     Action, DeployContractAction, ExecutionStatus, FunctionCallAction, SignedTransaction,
     Transaction,
@@ -1132,13 +1133,16 @@ fn test_time_attack() {
         chain_genesis,
         TEST_SEED,
     );
-    let signer =
-        InMemoryValidatorSigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
+    let signer = Arc::new(InMemoryValidatorSigner::from_seed(
+        "test1".parse().unwrap(),
+        KeyType::ED25519,
+        "test1",
+    ));
     let genesis = client.chain.get_block_by_height(0).unwrap();
-    let mut b1 = Block::empty_with_height(&genesis, 1, &signer);
+    let mut b1 = TestBlockBuilder::new(&genesis, signer.clone()).build();
     b1.mut_header().get_mut().inner_lite.timestamp =
         to_timestamp(b1.header().timestamp() + chrono::Duration::seconds(60));
-    b1.mut_header().resign(&signer);
+    b1.mut_header().resign(signer.as_ref());
 
     let _ = client.process_block_test(b1.into(), Provenance::NONE).unwrap();
 
@@ -1167,10 +1171,13 @@ fn test_invalid_approvals() {
         chain_genesis,
         TEST_SEED,
     );
-    let signer =
-        InMemoryValidatorSigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
+    let signer = Arc::new(InMemoryValidatorSigner::from_seed(
+        "test1".parse().unwrap(),
+        KeyType::ED25519,
+        "test1",
+    ));
     let genesis = client.chain.get_block_by_height(0).unwrap();
-    let mut b1 = Block::empty_with_height(&genesis, 1, &signer);
+    let mut b1 = TestBlockBuilder::new(&genesis, signer.clone()).build();
     b1.mut_header().get_mut().inner_rest.approvals = (0..100)
         .map(|i| {
             let account_id = AccountId::try_from(format!("test{}", i)).unwrap();
@@ -1184,7 +1191,7 @@ fn test_invalid_approvals() {
             )
         })
         .collect();
-    b1.mut_header().resign(&signer);
+    b1.mut_header().resign(signer.as_ref());
 
     let result = client.process_block_test(b1.into(), Provenance::NONE);
     assert_matches!(result.unwrap_err(), Error::InvalidApprovals);
@@ -1218,12 +1225,15 @@ fn test_invalid_gas_price() {
         chain_genesis,
         TEST_SEED,
     );
-    let signer =
-        InMemoryValidatorSigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
+    let signer = Arc::new(InMemoryValidatorSigner::from_seed(
+        "test1".parse().unwrap(),
+        KeyType::ED25519,
+        "test1",
+    ));
     let genesis = client.chain.get_block_by_height(0).unwrap();
-    let mut b1 = Block::empty_with_height(&genesis, 1, &signer);
+    let mut b1 = TestBlockBuilder::new(&genesis, signer.clone()).build();
     b1.mut_header().get_mut().inner_rest.gas_price = 0;
-    b1.mut_header().resign(&signer);
+    b1.mut_header().resign(signer.as_ref());
 
     let res = client.process_block_test(b1.into(), Provenance::NONE);
     assert_matches!(res.unwrap_err(), Error::InvalidGasPrice);
@@ -1234,9 +1244,12 @@ fn test_invalid_height_too_large() {
     let mut env = TestEnv::builder(ChainGenesis::test()).build();
     let b1 = env.clients[0].produce_block(1).unwrap().unwrap();
     let _ = env.clients[0].process_block_test(b1.clone().into(), Provenance::PRODUCED).unwrap();
-    let signer =
-        InMemoryValidatorSigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
-    let b2 = Block::empty_with_height(&b1, u64::MAX, &signer);
+    let signer = Arc::new(InMemoryValidatorSigner::from_seed(
+        "test0".parse().unwrap(),
+        KeyType::ED25519,
+        "test0",
+    ));
+    let b2 = TestBlockBuilder::new(&b1, signer.clone()).height(u64::MAX).build();
     let res = env.clients[0].process_block_test(b2.into(), Provenance::NONE);
     assert_matches!(res.unwrap_err(), Error::InvalidBlockHeight(_));
 }
