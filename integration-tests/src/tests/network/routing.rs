@@ -1,5 +1,4 @@
 use crate::tests::network::runner::*;
-use near_network::time;
 
 #[test]
 fn account_propagation() -> anyhow::Result<()> {

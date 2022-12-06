@@ -351,12 +351,6 @@ impl Runner {
         self
     }
 
-    /// Set node `u` as archival node.
-    pub fn set_as_archival(mut self, u: usize) -> Self {
-        self.test_config[u].archive = true;
-        self
-    }
-
     /// Specify boot nodes. By default there are no boot nodes.
     pub fn use_boot_nodes(mut self, boot_nodes: Vec<usize>) -> Self {
         self.apply_all(move |test_config| {
@@ -590,41 +584,6 @@ pub fn check_expected_connections(
             Ok(ControlFlow::Break(()))
         })
     })
-}
-
-async fn check_direct_connection_inner(
-    info: &mut RunningInfo,
-    node_id: usize,
-    target_id: usize,
-) -> anyhow::Result<ControlFlow> {
-    let target_peer_id = info.runner.test_config[target_id].peer_id();
-    debug!(target: "network",  node_id, ?target_id, "runner.rs: check_direct_connection");
-    let pm = &info.get_node(node_id)?.actix.addr;
-    let rt = match pm.send(PeerManagerMessageRequest::FetchRoutingTable.with_span_context()).await?
-    {
-        PeerManagerMessageResponse::FetchRoutingTable(rt) => rt,
-        _ => bail!("bad response"),
-    };
-    let routes = if let Some(routes) = rt.next_hops.get(&target_peer_id) {
-        routes
-    } else {
-        debug!(target: "network", ?target_peer_id, node_id, target_id,
-            "runner.rs: check_direct_connection NO ROUTES!",
-        );
-        return Ok(ControlFlow::Continue(()));
-    };
-    debug!(target: "network", ?target_peer_id, ?routes, node_id, target_id,
-        "runner.rs: check_direct_connection",
-    );
-    if !routes.contains(&target_peer_id) {
-        return Ok(ControlFlow::Continue(()));
-    }
-    Ok(ControlFlow::Break(()))
-}
-
-/// Check that `node_id` has a direct connection to `target_id`.
-pub fn check_direct_connection(node_id: usize, target_id: usize) -> ActionFn {
-    Box::new(move |info| Box::pin(check_direct_connection_inner(info, node_id, target_id)))
 }
 
 /// Restart a node that was already stopped.
