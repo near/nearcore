@@ -229,6 +229,10 @@ impl ChunkSet {
     }
 }
 
+pub fn make_hash<R: Rng>(rng: &mut R) -> CryptoHash {
+    CryptoHash::hash_bytes(&rng.gen::<[u8; 19]>())
+}
+
 pub fn make_account_keys(signers: &[InMemoryValidatorSigner]) -> AccountKeys {
     let mut account_keys = AccountKeys::new();
     for s in signers {

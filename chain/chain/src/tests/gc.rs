@@ -10,6 +10,7 @@ use near_crypto::KeyType;
 use near_primitives::block::Block;
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::shard_layout::ShardUId;
+use near_primitives::test_utils::TestBlockBuilder;
 use near_primitives::types::{NumBlocks, NumShards, StateRoot};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_store::test_utils::{create_test_store, gen_changes};
@@ -90,15 +91,11 @@ fn do_fork(
                 &prev_hash,
             )
             .unwrap();
-            Block::empty_with_epoch(
-                &prev_block,
-                prev_block.header().height() + 1,
-                epoch_id,
-                next_epoch_id,
-                next_bp_hash,
-                &*signer,
-                &mut PartialMerkleTree::default(),
-            )
+            TestBlockBuilder::new(&prev_block, signer.clone())
+                .epoch_id(epoch_id)
+                .next_epoch_id(next_epoch_id)
+                .next_bp_hash(next_bp_hash)
+                .build()
         };
 
         if verbose {
