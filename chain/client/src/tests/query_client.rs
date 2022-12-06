@@ -2,6 +2,7 @@ use actix::System;
 use futures::{future, FutureExt};
 use near_chain::test_utils::ValidatorSchedule;
 use near_primitives::merkle::PartialMerkleTree;
+use near_primitives::test_utils::create_test_signer;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -66,8 +67,7 @@ fn query_status_not_crash() {
     run_actix(async {
         let (client, view_client) =
             setup_no_network(vec!["test".parse().unwrap()], "other".parse().unwrap(), true, false);
-        let signer =
-            InMemoryValidatorSigner::from_seed("test".parse().unwrap(), KeyType::ED25519, "test");
+        let signer = create_test_signer("test");
         let actor = view_client.send(GetBlockWithMerkleTree::latest().with_span_context());
         let actor = actor.then(move |res| {
             let (block, block_merkle_tree) = res.unwrap().unwrap();

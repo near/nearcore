@@ -321,6 +321,7 @@ mod test {
     use near_network::test_utils::MockPeerManagerAdapter;
     use near_primitives::block::{Approval, Block, GenesisId};
     use near_primitives::network::PeerId;
+    use near_primitives::test_utils::create_test_signer;
 
     use super::*;
     use near_network::types::{BlockInfo, FullPeerInfo, PeerInfo};
@@ -483,11 +484,7 @@ mod test {
                 .iter()
                 .map(|account_id| {
                     account_id.map(|account_id| {
-                        let signer = InMemoryValidatorSigner::from_seed(
-                            account_id.parse().unwrap(),
-                            KeyType::ED25519,
-                            account_id,
-                        );
+                        let signer = create_test_signer(account_id);
                         Approval::new(
                             *last_block.hash(),
                             last_block.header().height(),

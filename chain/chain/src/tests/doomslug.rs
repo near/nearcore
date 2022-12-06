@@ -1,3 +1,4 @@
+use near_primitives::test_utils::create_test_signer;
 use near_primitives::time::Clock;
 use rand::{thread_rng, Rng};
 use std::collections::{HashMap, HashSet};
@@ -48,13 +49,7 @@ fn one_iter(
         .collect::<Vec<_>>();
     let signers = account_ids
         .iter()
-        .map(|account_id| {
-            Arc::new(InMemoryValidatorSigner::from_seed(
-                account_id.parse().unwrap(),
-                KeyType::ED25519,
-                account_id,
-            ))
-        })
+        .map(|account_id| Arc::new(create_test_signer(account_id)))
         .collect::<Vec<_>>();
     let mut doomslugs = signers
         .iter()

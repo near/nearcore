@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use actix::{Actor, Addr, System};
 use futures::{future, FutureExt};
+use near_primitives::test_utils::create_test_signer;
 
 use crate::genesis_helpers::genesis_block;
 use crate::test_helpers::heavy_test;
@@ -132,11 +133,7 @@ fn sync_nodes() {
             let nearcore::NearNode { client: client1, .. } =
                 start_with_config(dir1.path(), near1).expect("start_with_config");
 
-            let signer = InMemoryValidatorSigner::from_seed(
-                "other".parse().unwrap(),
-                KeyType::ED25519,
-                "other",
-            );
+            let signer = create_test_signer("other");
             let _ =
                 add_blocks(vec![genesis_block], client1, 13, genesis.config.epoch_length, &signer);
 
@@ -183,11 +180,7 @@ fn sync_after_sync_nodes() {
             let nearcore::NearNode { view_client: view_client2, .. } =
                 start_with_config(dir2.path(), near2).expect("start_with_config");
 
-            let signer = InMemoryValidatorSigner::from_seed(
-                "other".parse().unwrap(),
-                KeyType::ED25519,
-                "other",
-            );
+            let signer = create_test_signer("other");
             let blocks = add_blocks(
                 vec![genesis_block],
                 client1.clone(),

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use near_crypto::{EmptySigner, PublicKey, Signature, Signer};
+use near_crypto::{EmptySigner, KeyType, PublicKey, Signature, Signer};
 use near_primitives_core::types::ProtocolVersion;
 
 use crate::account::{AccessKey, AccessKeyPermission, Account};
@@ -18,7 +18,7 @@ use crate::transaction::{
     TransferAction,
 };
 use crate::types::{AccountId, Balance, BlockHeight, EpochId, EpochInfoProvider, Gas, Nonce};
-use crate::validator_signer::ValidatorSigner;
+use crate::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use crate::version::PROTOCOL_VERSION;
 
 pub fn account_new(amount: Balance, code_hash: CryptoHash) -> Account {
@@ -585,4 +585,14 @@ impl EpochInfoProvider for MockEpochInfoProvider {
 /// Encode array of `u64` to be passed as a smart contract argument.
 pub fn encode(xs: &[u64]) -> Vec<u8> {
     xs.iter().flat_map(|it| it.to_le_bytes()).collect()
+}
+
+// Helper function that creates a new signer for a given account, that uses the account name as seed.
+// Should be used only in tests.
+pub fn create_test_signer(account_name: &str) -> InMemoryValidatorSigner {
+    InMemoryValidatorSigner::from_seed(
+        account_name.parse().unwrap(),
+        KeyType::ED25519,
+        account_name,
+    )
 }
