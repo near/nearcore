@@ -122,21 +122,11 @@ fn test_as_chunks() {
 /// Asserts, at compile time, that `S == A + B`.
 struct AssertEqSum<const S: usize, const A: usize, const B: usize>;
 impl<const S: usize, const A: usize, const B: usize> AssertEqSum<S, A, B> {
-    const OK: () = static_assert(S == A + B);
+    const OK: () = assert!(S == A + B);
 }
 
 /// Asserts, at compile time, that `N` is non-zero.
 struct AssertNonZero<const N: usize>;
 impl<const N: usize> AssertNonZero<N> {
-    const OK: () = static_assert(N > 0);
-}
-
-const fn static_assert(ok: bool) {
-    // Array with a single unit element
-    let arr = [()];
-    // index == 0 ↔ ok == true
-    let index = !ok as usize;
-    // the following expression will fail with
-    // "index out of bounds" if ok is false
-    arr[index]
+    const OK: () = assert!(N != 0);
 }
