@@ -255,7 +255,8 @@ impl MockPeerManagerActor {
             sent_bytes_per_sec: 0,
             received_bytes_per_sec: 0,
             known_producers: vec![],
-            tier1_accounts: vec![],
+            tier1_connections: vec![],
+            tier1_accounts_data: vec![],
         };
         let incoming_requests = IncomingRequests::new(
             &network_config.incoming_requests,
