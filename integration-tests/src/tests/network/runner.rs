@@ -211,7 +211,7 @@ impl StateMachine {
             #[allow(unused_variables)]
             Action::SetOptions { target, max_num_peers } => {
                 self.actions.push(Box::new(move |info:&mut RunningInfo| Box::pin(async move {
-                    debug!(target: "network", num_prev_actions, action = ?action_clone, "runner.rs: Action");
+                    debug!(target: "test", num_prev_actions, action = ?action_clone, "runner.rs: Action");
                     info.get_node(target)?.actix.addr.send(PeerManagerMessageRequest::SetAdvOptions(near_network::test_utils::SetAdvOptions {
                         set_max_peers: max_num_peers,
                     }).with_span_context()).await?;
@@ -220,7 +220,7 @@ impl StateMachine {
             }
             Action::AddEdge { from, to, force } => {
                 self.actions.push(Box::new(move |info: &mut RunningInfo| Box::pin(async move {
-                    debug!(target: "network", num_prev_actions, action = ?action_clone, "runner.rs: Action");
+                    debug!(target: "test", num_prev_actions, action = ?action_clone, "runner.rs: Action");
                     let pm = info.get_node(from)?.actix.addr.clone();
                     let peer_info = info.runner.test_config[to].peer_info();
                     match tcp::Stream::connect(&peer_info, tcp::Tier::T2).await {
@@ -252,14 +252,14 @@ impl StateMachine {
             }
             Action::Stop(source) => {
                 self.actions.push(Box::new(move |info: &mut RunningInfo| Box::pin(async move {
-                    debug!(target: "network", num_prev_actions, action = ?action_clone, "runner.rs: Action");
+                    debug!(target: "test", num_prev_actions, action = ?action_clone, "runner.rs: Action");
                     info.stop_node(source);
                     Ok(ControlFlow::Break(()))
                 })));
             }
             Action::Wait(t) => {
                 self.actions.push(Box::new(move |_info: &mut RunningInfo| Box::pin(async move {
-                    debug!(target: "network", num_prev_actions, action = ?action_clone, "runner.rs: Action");
+                    debug!(target: "test", num_prev_actions, action = ?action_clone, "runner.rs: Action");
                     tokio::time::sleep(t.try_into().unwrap()).await;
                     Ok(ControlFlow::Break(()))
                 })));
@@ -507,7 +507,7 @@ pub fn start_test(runner: Runner) -> anyhow::Result<()> {
         let step = tokio::time::Duration::from_millis(10);
         let start = tokio::time::Instant::now();
         for (i, a) in actions.into_iter().enumerate() {
-            tracing::debug!("[starting action {i}]");
+            tracing::debug!(target: "test", "[starting action {i}]");
             loop {
                 let done =
                     tokio::time::timeout_at(start + timeout, a(&mut info)).await.with_context(
@@ -578,7 +578,7 @@ pub fn check_expected_connections(
 ) -> ActionFn {
     Box::new(move |info: &mut RunningInfo| {
         Box::pin(async move {
-            debug!(target: "network", node_id, expected_connections_lo, ?expected_connections_hi, "runner.rs: check_expected_connections");
+            debug!(target: "test", node_id, expected_connections_lo, ?expected_connections_hi, "runner.rs: check_expected_connections");
             let pm = &info.get_node(node_id)?.actix.addr;
             let res = pm.send(GetInfo {}.with_span_context()).await?;
             if expected_connections_lo.map_or(false, |l| l > res.num_connected_peers) {
@@ -598,7 +598,7 @@ async fn check_direct_connection_inner(
     target_id: usize,
 ) -> anyhow::Result<ControlFlow> {
     let target_peer_id = info.runner.test_config[target_id].peer_id();
-    debug!(target: "network",  node_id, ?target_id, "runner.rs: check_direct_connection");
+    debug!(target: "test",  node_id, ?target_id, "runner.rs: check_direct_connection");
     let pm = &info.get_node(node_id)?.actix.addr;
     let rt = match pm.send(PeerManagerMessageRequest::FetchRoutingTable.with_span_context()).await?
     {
@@ -608,12 +608,12 @@ async fn check_direct_connection_inner(
     let routes = if let Some(routes) = rt.next_hops.get(&target_peer_id) {
         routes
     } else {
-        debug!(target: "network", ?target_peer_id, node_id, target_id,
+        debug!(target: "test", ?target_peer_id, node_id, target_id,
             "runner.rs: check_direct_connection NO ROUTES!",
         );
         return Ok(ControlFlow::Continue(()));
     };
-    debug!(target: "network", ?target_peer_id, ?routes, node_id, target_id,
+    debug!(target: "test", ?target_peer_id, ?routes, node_id, target_id,
         "runner.rs: check_direct_connection",
     );
     if !routes.contains(&target_peer_id) {
@@ -631,7 +631,7 @@ pub fn check_direct_connection(node_id: usize, target_id: usize) -> ActionFn {
 pub fn restart(node_id: usize) -> ActionFn {
     Box::new(move |info: &mut RunningInfo| {
         Box::pin(async move {
-            debug!(target: "network", ?node_id, "runner.rs: restart");
+            debug!(target: "test", ?node_id, "runner.rs: restart");
             info.start_node(node_id).await?;
             Ok(ControlFlow::Break(()))
         })
@@ -643,7 +643,7 @@ async fn ban_peer_inner(
     target_peer: usize,
     banned_peer: usize,
 ) -> anyhow::Result<ControlFlow> {
-    debug!(target: "network", target_peer, banned_peer, "runner.rs: ban_peer");
+    debug!(target: "test", target_peer, banned_peer, "runner.rs: ban_peer");
     let banned_peer_id = info.runner.test_config[banned_peer].peer_id();
     let pm = &info.get_node(target_peer)?.actix.addr;
     pm.send(BanPeerSignal::new(banned_peer_id).with_span_context()).await?;
@@ -677,7 +677,7 @@ where
     Box::new(move |_info: &mut RunningInfo| {
         let predicate = predicate.clone();
         Box::pin(async move {
-            debug!(target: "network", "runner.rs: wait_for predicate");
+            debug!(target: "test", "runner.rs: wait_for predicate");
             if predicate() {
                 return Ok(ControlFlow::Break(()));
             }
