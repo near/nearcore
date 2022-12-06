@@ -112,7 +112,7 @@ impl std::fmt::Display for InexactChunkingError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Slice of size {} cannot be precisely split into chunks of size {}",
+            "slice of size {} cannot be precisely split into chunks of size {}",
             self.slice_len, self.chunk_size
         )
     }
