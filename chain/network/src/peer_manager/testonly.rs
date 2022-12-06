@@ -173,40 +173,33 @@ impl ActorHandler {
         let events = self.events.clone();
         let peer_info = peer_info.clone();
 
-        loop {
-            let stream = tcp::Stream::connect(&peer_info, tier).await.unwrap();
-            let mut events = events.from_now();
-            let stream_id = stream.id();
-            addr.do_send(PeerManagerMessageRequest::OutboundTcpConnect(stream).with_span_context());
-            let success = events
-                .recv_until(|ev| match ev {
-                    Event::PeerManager(PME::HandshakeCompleted(ev))
-                        if ev.stream_id == stream_id =>
+        let stream = tcp::Stream::connect(&peer_info, tier).await.unwrap();
+        let mut events = events.from_now();
+        let stream_id = stream.id();
+        addr.do_send(PeerManagerMessageRequest::OutboundTcpConnect(stream).with_span_context());
+        events
+            .recv_until(|ev| match ev {
+                Event::PeerManager(PME::HandshakeCompleted(ev)) if ev.stream_id == stream_id => {
+                    Some(())
+                }
+                Event::PeerManager(PME::ConnectionClosed(ev)) if ev.stream_id == stream_id => {
+                    if ev.reason
+                        == ClosingReason::RejectedByPeerManager(RegisterPeerError::PoolError(
+                            connection::PoolError::AlreadyConnected,
+                        ))
+                        || ev.reason
+                            == ClosingReason::OutboundNotAllowed(
+                                connection::PoolError::AlreadyConnected,
+                            )
                     {
-                        Some(true)
+                        Some(())
+                    } else {
+                        panic!("PeerManager rejected the handshake")
                     }
-                    Event::PeerManager(PME::ConnectionClosed(ev)) if ev.stream_id == stream_id => {
-                        Some(
-                            ev.reason
-                                == ClosingReason::RejectedByPeerManager(
-                                    RegisterPeerError::PoolError(
-                                        connection::PoolError::AlreadyConnected,
-                                    ),
-                                )
-                                || ev.reason
-                                    == ClosingReason::OutboundNotAllowed(
-                                        connection::PoolError::AlreadyConnected,
-                                    ),
-                        )
-                    }
-                    _ => None,
-                })
-                .await;
-
-            if success {
-                return;
-            }
-        }
+                }
+                _ => None,
+            })
+            .await;
     }
 
     pub async fn with_state<R: 'static + Send, Fut: 'static + Send + Future<Output = R>>(

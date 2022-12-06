@@ -1236,7 +1236,6 @@ async fn archival_node() {
     let mut clock = time::FakeClock::default();
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
-    tracing::info!(target:"test", "start five nodes");
     let mut cfgs = make_configs(&chain, rng, 5, 5, false);
     for config in cfgs.iter_mut() {
         config.max_num_peers = 3;
@@ -1265,13 +1264,17 @@ async fn archival_node() {
     pm0.wait_for_direct_connection(id4.clone()).await;
     pm0.wait_for_num_connected_peers(2).await;
 
-    pm1.force_connect_to(&pm0.peer_info(), tcp::Tier::T2).await;
+    pm1.connect_to(&pm0.peer_info(), tcp::Tier::T2).await;
     pm0.wait_for_direct_connection(id1.clone()).await;
-    pm0.wait_for_num_connected_peers(2).await;
 
     for _step in 0..4 {
+        pm0.wait_for_num_connected_peers(2).await;
         pm2.force_connect_to(&pm0.peer_info(), tcp::Tier::T2).await;
+
+        pm0.wait_for_num_connected_peers(2).await;
         pm3.force_connect_to(&pm0.peer_info(), tcp::Tier::T2).await;
+
+        pm0.wait_for_num_connected_peers(2).await;
         pm4.force_connect_to(&pm0.peer_info(), tcp::Tier::T2).await;
 
         pm0.wait_for_num_connected_peers(2).await;
