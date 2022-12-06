@@ -256,9 +256,9 @@ impl Cost {
             Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_pairing_check_element } => 67,
             Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_sum_base } => 68,
             Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_sum_element } => 69,
-            Cost::ExtCost {ext_cost_kind: ExtCosts::bls12381_verify_base} => 70,
-            Cost::ExtCost {ext_cost_kind: ExtCosts::bls12381_verify_byte} => 71,
-            Cost::ExtCost {ext_cost_kind: ExtCosts::bls12381_verify_elements} => 72,
+            Cost::ExtCost { ext_cost_kind: ExtCosts::bls12381_verify_base } => 70,
+            Cost::ExtCost { ext_cost_kind: ExtCosts::bls12381_verify_byte } => 71,
+            Cost::ExtCost { ext_cost_kind: ExtCosts::bls12381_verify_elements } => 72,
             #[cfg(feature = "protocol_feature_ed25519_verify")]
             Cost::ExtCost { ext_cost_kind: ExtCosts::ed25519_verify_base } => 73,
             #[cfg(feature = "protocol_feature_ed25519_verify")]

@@ -957,15 +957,15 @@ fn ed25519_verify_byte(ctx: &mut EstimatorContext) -> GasCost {
 }
 
 fn bls12381_verify_base(ctx: &mut EstimatorContext) -> GasCost {
-    fn_cost(ctx, "bls12_381_verify_basic_10k", ExtCosts::bls12381_verify_base, 10_000)
+    fn_cost(ctx, "bls12_381_verify_basic_100", ExtCosts::bls12381_verify_base, 100)
 }
 
 fn bls12381_verify_byte(ctx: &mut EstimatorContext) -> GasCost {
-    fn_cost(ctx, "bls12_381_verify_bytes_10k_1k", ExtCosts::bls12381_verify_byte, 10_000*1000)
+    fn_cost(ctx, "bls12_381_verify_bytes_10k_100", ExtCosts::bls12381_verify_byte, 10_000 * 100)
 }
 
 fn bls12381_verify_elements(ctx: &mut EstimatorContext) -> GasCost {
-    fn_cost(ctx, "bls12_381_verify_elements_1000_100", ExtCosts::bls12381_verify_elements, 1000 * 100)
+    fn_cost(ctx, "bls12_381_verify_elements_1000_10", ExtCosts::bls12381_verify_elements, 1000 * 10)
 }
 
 fn alt_bn128g1_multiexp_base(ctx: &mut EstimatorContext) -> GasCost {

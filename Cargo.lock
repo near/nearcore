@@ -4929,6 +4929,7 @@ name = "runtime-params-estimator"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "blst",
  "borsh",
  "bs58",
  "bytesize",

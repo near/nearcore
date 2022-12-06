@@ -331,7 +331,7 @@ fn main_docker(
         let mut buf = String::new();
         buf.push_str("set -ex;\n");
         buf.push_str("cd /host/nearcore;\n");
-        buf.push_str("CFLAGS='-D__BLST_PORTABLE__' cargo build --manifest-path /host/nearcore/Cargo.toml");
+        buf.push_str("cargo build --manifest-path /host/nearcore/Cargo.toml");
         buf.push_str(" --package runtime-params-estimator --bin runtime-params-estimator");
 
         // Feature "required" is always necessary for accurate measurements.
@@ -342,6 +342,9 @@ fn main_docker(
         buf.push_str(",nightly");
         #[cfg(feature = "nightly_protocol")]
         buf.push_str(",nightly_protocol");
+
+        // Add blst features to be able to run it in qemu
+        buf.push_str(",blst/portable,blst/no-threads");
 
         buf.push_str(" --profile ");
         buf.push_str(profile);
