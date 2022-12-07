@@ -73,6 +73,8 @@
   `opentelemetry-otlp`: [#7563](https://github.com/near/nearcore/pull/7563).
 * Tracing of requests across processes:
   [#8004](https://github.com/near/nearcore/pull/8004).
+* Gas profiles as displayed in the `EXPERIMENTAL_tx_status` are now more
+  detailed and give the gas cost per parameter.
 
 ## 1.29.0 [2022-08-15]
 
