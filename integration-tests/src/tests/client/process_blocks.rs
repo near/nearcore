@@ -9,7 +9,7 @@ use assert_matches::assert_matches;
 use futures::{future, FutureExt};
 use near_chain::test_utils::ValidatorSchedule;
 use near_chunks::test_utils::MockClientAdapterForShardsManager;
-use near_primitives::config::ActionCosts;
+use near_primitives::config::{ActionCosts, ExtCosts};
 use near_primitives::num_rational::{Ratio, Rational32};
 
 use near_actix_test_utils::run_actix;
@@ -2667,13 +2667,13 @@ fn test_execution_metadata() {
       {
         "cost_category": "WASM_HOST_COST",
         "cost": "BASE",
-        "gas_used": config.wasm_config.ext_costs.base.to_string()
+        "gas_used": config.wasm_config.ext_costs.cost(ExtCosts::base).to_string()
       },
       // We include compilation costs into running the function.
       {
         "cost_category": "WASM_HOST_COST",
         "cost": "CONTRACT_LOADING_BASE",
-        "gas_used": config.wasm_config.ext_costs.contract_loading_base.to_string()
+        "gas_used": config.wasm_config.ext_costs.cost(ExtCosts::contract_loading_base).to_string()
       },
       {
         "cost_category": "WASM_HOST_COST",
