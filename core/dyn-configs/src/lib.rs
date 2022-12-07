@@ -12,21 +12,25 @@ pub struct DynConfig {
 }
 
 #[derive(Serialize, Deserialize, Clone, Default)]
-pub struct DynConfigs {
+/// Contains the latest state of configs which can be updated at runtime.
+pub struct UpdateableConfigs {
+    /// Contents of the file `dyn_config.json`.
     pub dyn_config: Option<DynConfig>,
+    /// Contents of the file `log_config.json`.
     pub log_config: Option<LogConfig>,
+    /// Contents of the `consensus` section of the file `config.json`.
     pub consensus: Option<Consensus>,
 }
 
 #[derive(Default)]
 pub struct DynConfigStore {
-    dyn_configs: DynConfigs,
+    dyn_configs: UpdateableConfigs,
     original_consensus: Consensus,
-    tx: Option<Sender<DynConfigs>>,
+    tx: Option<Sender<UpdateableConfigs>>,
 }
 
 impl DynConfigStore {
-    pub fn reload(&mut self, mut dyn_configs: DynConfigs) {
+    pub fn reload(&mut self, mut dyn_configs: UpdateableConfigs) {
         if dyn_configs.consensus.is_none() {
             dyn_configs.consensus = Some(self.original_consensus.clone());
         }
@@ -35,9 +39,9 @@ impl DynConfigStore {
     }
 
     pub fn new(
-        dyn_configs: DynConfigs,
+        dyn_configs: UpdateableConfigs,
         original_consensus: Consensus,
-        tx: Sender<DynConfigs>,
+        tx: Sender<UpdateableConfigs>,
     ) -> Self {
         Self { dyn_configs, original_consensus, tx: Some(tx) }
     }
