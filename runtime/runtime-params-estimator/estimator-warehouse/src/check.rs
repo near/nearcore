@@ -95,7 +95,7 @@ pub(crate) fn create_report(db: &Db, config: &CheckConfig) -> anyhow::Result<Zul
         }
         _ => anyhow::bail!("you have to either specify both commits for comparison or neither"),
     };
-    let estimations = if config.estimations.len() > 0 {
+    let estimations = if !config.estimations.is_empty() {
         config.estimations.clone()
     } else {
         let rows_a = EstimationRow::select_by_commit_and_metric(db, &commit_after, config.metric)?;

@@ -5,7 +5,11 @@ env:
 steps:
   - label: "protobuf backward compatibility"
     command: |
-      buf breaking --against ".git#ref=`git merge-base master HEAD`"
+      # We need to manually fetch the latest commit of master to
+      # correctly compute the commit at which we should diff the proto
+      # files. Apparently the pipeline doesn't do that for us.
+      git fetch origin
+      buf breaking --against ".git#ref=`git merge-base origin/master HEAD`"
 
     timeout: 30
     agents:

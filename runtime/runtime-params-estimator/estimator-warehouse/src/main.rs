@@ -71,9 +71,9 @@ enum Metric {
 
 fn generate_stats(db: &Db) -> anyhow::Result<String> {
     let mut buf = String::new();
-    writeln!(&mut buf, "")?;
+    writeln!(&mut buf)?;
     writeln!(&mut buf, "{:=^72}", " Warehouse statistics ")?;
-    writeln!(&mut buf, "")?;
+    writeln!(&mut buf)?;
     writeln!(&mut buf, "{:>24}{:>24}{:>24}", "metric", "records", "last updated")?;
     writeln!(&mut buf, "{:>24}{:>24}{:>24}", "------", "-------", "------------")?;
     writeln!(
@@ -106,7 +106,7 @@ fn generate_stats(db: &Db) -> anyhow::Result<String> {
             .as_deref()
             .unwrap_or("never")
     )?;
-    writeln!(&mut buf, "")?;
+    writeln!(&mut buf)?;
     writeln!(&mut buf, "{:=^72}", " END STATS ")?;
 
     Ok(buf)
