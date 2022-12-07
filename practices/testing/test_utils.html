@@ -159,9 +159,10 @@
 </span></code></pre></pre>
 <h3 id="signatures"><a class="header" href="#signatures">Signatures</a></h3>
 <p>In memory signer (generates the key based on seed). There is a slight preference to use the seed that is matching the account name.</p>
+<p>This will create a signer for account 'test' using 'test' as a seed.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>InMemoryValidatorSigner::from_seed(&quot;account&quot;.parse().unwrap(), KeyType::ED25519, &quot;account&quot;.to_owned())
+</span>let signer: InMemoryValidatorSigner = create_test_signer(&quot;test&quot;);
 <span class="boring">}
 </span></code></pre></pre>
 <h2 id="store"><a class="header" href="#store">Store</a></h2>
