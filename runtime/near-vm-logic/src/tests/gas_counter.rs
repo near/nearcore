@@ -230,6 +230,17 @@ fn function_call_no_weight_refund() {
 /// Increases an action cost to a high value and then watch an execution run out
 /// of gas. Then make sure the exact result is still the same. This prevents
 /// accidental protocol changes where gas is deducted in different order.
+///
+/// The `exercise_action` function must be a function or closure that operates
+/// on a `VMLogic` and triggers gas costs associated with the action parameter
+/// under test.
+///
+/// `num_action_paid` specifies how often the cost is charged in
+/// `exercise_action`. We aim to make it `num_action_paid` = 1 in the typical
+/// case but for cots per byte this is usually a higher value.
+///
+/// `num_action_paid` is required to calculate by how much exactly gas prices
+/// must be increased so that it will just trigger the gas limit.
 #[track_caller]
 fn check_action_gas_exceeds_limit(
     cost: ActionCosts,
@@ -265,14 +276,19 @@ fn check_action_gas_exceeds_limit(
     );
 }
 
-/// Check consistent result when exceeding attached gas on a specific action gas parameter.
+/// Check consistent result when exceeding attached gas on a specific action gas
+/// parameter.
 ///
 /// Very similar to `check_action_gas_exceeds_limit` but we hit a different
-/// limit and return a different error.
+/// limit and return a different error. See that comment for an explanation on
+/// the arguments.
 ///
 /// This case is more interesting because the burnt gas can be below used gas,
 /// when the prepaid gas was exceeded by burnt burnt + promised gas but not by
 /// burnt gas alone.
+///
+/// Consequently, `num_action_paid` here is even more important to calculate
+/// exactly what the gas costs should be to trigger the limits.
 #[track_caller]
 fn check_action_gas_exceeds_attached(
     cost: ActionCosts,
@@ -304,6 +320,30 @@ fn check_action_gas_exceeds_attached(
     expected.assert_eq(&actual);
 }
 
+// Below are a bunch of `out_of_gas_*` tests. These test that when we run out of
+// gas while charging a specific action gas cost, we burn a consistent amount of
+// gas. This is to prevent accidental changes in how we charge gas. It cannot
+// cover all cases but it can detect things like a changed order of gas charging
+// or splitting pay_gas(A+B) to pay_gas(A), pay_gas(B), which went through to
+// master unnoticed before.
+//
+// The setup for these tests is as follows:
+// - 1 test per action cost
+// - each test checks for 2 types of out of gas errors, gas limit exceeded and
+//   gas attached exceeded
+// - common code to create a test VMLogic setup is in checker functions
+//   `check_action_gas_exceeds_limit` and `check_action_gas_exceeds_attached`
+//   which are called from every test
+// - each action cost must be triggered in a different way, so we define a small
+//   function that does something which charges the tested action cost, then we
+//   give this function to the checker functions
+// - if an action cost is charged through different paths, the test defines
+//   multiple functions that trigger the cost and the checker functions are
+//   called once for each of them
+// - these action cost triggering functions are defined in the test's inner
+//   scope, unless they are shared between multiple tests
+
+/// see longer comment above for how this test works
 #[test]
 fn out_of_gas_new_action_receipt() {
     // two different ways to create an action receipts, first check exceeding the burnt limit
@@ -324,8 +364,15 @@ fn out_of_gas_new_action_receipt() {
         expect!["9411968532130 burnt 10000000000000 used"],
         create_promise_dependency,
     );
+
+    /// function to trigger action receipt action cost
+    fn create_action_receipt(logic: &mut VMLogic) -> Result<(), VMLogicError> {
+        promise_batch_create(logic, "rick.test")?;
+        Ok(())
+    }
 }
 
+/// see longer comment above for how this test works
 #[test]
 fn out_of_gas_new_data_receipt() {
     check_action_gas_exceeds_limit(
@@ -342,11 +389,7 @@ fn out_of_gas_new_data_receipt() {
     );
 }
 
-fn create_action_receipt(logic: &mut VMLogic) -> Result<(), VMLogicError> {
-    promise_batch_create(logic, "rick.test")?;
-    Ok(())
-}
-
+/// function to trigger action + data receipt action costs
 fn create_promise_dependency(logic: &mut VMLogic) -> Result<(), VMLogicError> {
     let account_id = "rick.test";
     let idx = promise_batch_create(logic, account_id)?;
@@ -354,6 +397,7 @@ fn create_promise_dependency(logic: &mut VMLogic) -> Result<(), VMLogicError> {
     Ok(())
 }
 
+/// see longer comment above for how this test works
 #[test]
 fn out_of_gas_new_data_receipt_byte() {
     check_action_gas_exceeds_limit(ActionCosts::new_data_receipt_byte, 11, value_return);
@@ -374,6 +418,7 @@ fn out_of_gas_new_data_receipt_byte() {
     }
 }
 
+/// see longer comment above for how this test works
 #[test]
 fn out_of_gas_create_account() {
     check_action_gas_exceeds_limit(ActionCosts::create_account, 1, create_account);
@@ -393,6 +438,7 @@ fn out_of_gas_create_account() {
     }
 }
 
+/// see longer comment above for how this test works
 #[test]
 fn out_of_gas_delete_account() {
     check_action_gas_exceeds_limit(ActionCosts::delete_account, 1, delete_account);
@@ -417,6 +463,7 @@ fn out_of_gas_delete_account() {
     }
 }
 
+/// see longer comment above for how this test works
 #[test]
 fn out_of_gas_deploy_contract_base() {
     check_action_gas_exceeds_limit(ActionCosts::deploy_contract_base, 1, deploy_contract);
@@ -429,6 +476,7 @@ fn out_of_gas_deploy_contract_base() {
     );
 }
 
+/// see longer comment above for how this test works
 #[test]
 fn out_of_gas_deploy_contract_byte() {
     check_action_gas_exceeds_limit(ActionCosts::deploy_contract_byte, 26, deploy_contract);
@@ -441,6 +489,7 @@ fn out_of_gas_deploy_contract_byte() {
     );
 }
 
+/// function to trigger base + 26 bytes deployment costs (26 is arbitrary)
 fn deploy_contract(logic: &mut VMLogic) -> Result<(), VMLogicError> {
     let account_id = "rick.test";
     let idx = promise_batch_create(logic, account_id)?;
@@ -449,6 +498,7 @@ fn deploy_contract(logic: &mut VMLogic) -> Result<(), VMLogicError> {
     Ok(())
 }
 
+/// see longer comment above for how this test works
 #[test]
 fn out_of_gas_function_call_base() {
     check_action_gas_exceeds_limit(ActionCosts::function_call_base, 1, cross_contract_call);
@@ -472,6 +522,7 @@ fn out_of_gas_function_call_base() {
     );
 }
 
+/// see longer comment above for how this test works
 #[test]
 fn out_of_gas_function_call_byte() {
     check_action_gas_exceeds_limit(ActionCosts::function_call_byte, 40, cross_contract_call);
@@ -495,6 +546,8 @@ fn out_of_gas_function_call_byte() {
     );
 }
 
+/// function to trigger base + 40 bytes function call action costs (40 is 26 +
+/// 14  which are arbitrary)
 fn cross_contract_call(logic: &mut VMLogic) -> Result<(), VMLogicError> {
     let account_id = "rick.test";
     let idx = promise_batch_create(logic, account_id)?;
@@ -514,6 +567,7 @@ fn cross_contract_call(logic: &mut VMLogic) -> Result<(), VMLogicError> {
     Ok(())
 }
 
+/// same as `cross_contract_call` but splits gas remainder among outgoing calls
 fn cross_contract_call_gas_weight(logic: &mut VMLogic) -> Result<(), VMLogicError> {
     let account_id = "rick.test";
     let idx = promise_batch_create(logic, account_id)?;
@@ -535,6 +589,7 @@ fn cross_contract_call_gas_weight(logic: &mut VMLogic) -> Result<(), VMLogicErro
     Ok(())
 }
 
+/// see longer comment above for how this test works
 #[test]
 fn out_of_gas_transfer() {
     check_action_gas_exceeds_limit(ActionCosts::transfer, 1, promise_transfer);
@@ -555,6 +610,7 @@ fn out_of_gas_transfer() {
     }
 }
 
+/// see longer comment above for how this test works
 #[test]
 fn out_of_gas_stake() {
     check_action_gas_exceeds_limit(ActionCosts::stake, 1, promise_stake);
@@ -581,6 +637,7 @@ fn out_of_gas_stake() {
     }
 }
 
+/// see longer comment above for how this test works
 #[test]
 fn out_of_gas_add_full_access_key() {
     check_action_gas_exceeds_limit(ActionCosts::add_full_access_key, 1, promise_full_access_key);
@@ -607,6 +664,7 @@ fn out_of_gas_add_full_access_key() {
     }
 }
 
+/// see longer comment above for how this test works
 #[test]
 fn out_of_gas_add_function_call_key_base() {
     check_action_gas_exceeds_limit(
@@ -623,6 +681,7 @@ fn out_of_gas_add_function_call_key_base() {
     );
 }
 
+/// see longer comment above for how this test works
 #[test]
 fn out_of_gas_add_function_call_key_byte() {
     check_action_gas_exceeds_limit(
@@ -639,6 +698,8 @@ fn out_of_gas_add_function_call_key_byte() {
     );
 }
 
+/// function to trigger base + 7 bytes action costs for adding a new function
+/// call access key to an accont (7 is arbitrary)
 fn promise_function_key(logic: &mut VMLogic) -> Result<(), VMLogicError> {
     let account_id = "alice.test";
     let idx = promise_batch_create(logic, account_id)?;
@@ -660,6 +721,7 @@ fn promise_function_key(logic: &mut VMLogic) -> Result<(), VMLogicError> {
     Ok(())
 }
 
+/// see longer comment above for how this test works
 #[test]
 fn out_of_gas_delete_key() {
     check_action_gas_exceeds_limit(ActionCosts::delete_key, 1, promise_delete_key);
