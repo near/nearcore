@@ -230,6 +230,19 @@ export type ValidatorKickoutReason =
     { NotEnoughStake: { stake: string, threshold: string } } |
     'DidNotGetASeat';
 
+export interface PeerStoreView {
+    peer_states: KnownPeerStateView[],
+}
+
+export interface KnownPeerStateView {
+    peer_id: string,
+    status: string,
+    addr: string,
+    first_seen: number,
+    last_seen: number,
+    last_attempt: [number, string] | null,
+}
+
 export interface SyncStatusResponse {
     status_response: {
         SyncStatus: SyncStatusView,
@@ -254,6 +267,12 @@ export interface BlockStatusResponse {
 export interface EpochInfoResponse {
     status_response: {
         EpochInfo: EpochInfoView[],
+    }
+}
+
+export interface PeerStoreResponse {
+    status_response: {
+        PeerStore: PeerStoreView,
     }
 }
 
@@ -285,5 +304,10 @@ export async function fetchBlockStatus(addr: string, height: number | null): Pro
 
 export async function fetchEpochInfo(addr: string): Promise<EpochInfoResponse> {
     const response = await fetch(`http://${addr}/debug/api/epoch_info`);
+    return await response.json();
+}
+
+export async function fetchPeerStore(addr: string): Promise<PeerStoreResponse> {
+    const response = await fetch(`http://${addr}/debug/api/peer_store`);
     return await response.json();
 }
