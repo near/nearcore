@@ -1265,7 +1265,7 @@ impl Default for ExecutionMetadataView {
 
 impl From<ExecutionMetadata> for ExecutionMetadataView {
     fn from(metadata: ExecutionMetadata) -> Self {
-        let gas_profile = match metadata {
+        let mut gas_profile = match metadata {
             ExecutionMetadata::V1 => None,
             ExecutionMetadata::V2(profile_data) => {
                 // Add actions, wasm op, and ext costs in groups.
@@ -1276,44 +1276,73 @@ impl From<ExecutionMetadata> for ExecutionMetadataView {
                 let mut costs: Vec<CostGasUsed> = profile_data
                     .legacy_action_costs()
                     .into_iter()
-                    .map(|(name, gas_used)| CostGasUsed {
-                        cost_category: "ACTION_COST".to_string(),
-                        cost: name.to_string(),
-                        gas_used,
-                    })
+                    .map(|(name, gas)| CostGasUsed::action(name.to_string(), gas))
                     .collect();
 
-                // wasm op is a single cost
-                costs.push(CostGasUsed {
-                    cost_category: "WASM_HOST_COST".to_string(),
-                    cost: "WASM_INSTRUCTION".to_string(),
-                    gas_used: profile_data.get_wasm_cost(),
-                });
+                // wasm op is a single cost, for historical reasons it is inaccurately displayed as "wasm host"
+                costs.push(CostGasUsed::wasm_host(
+                    "WASM_INSTRUCTION".to_string(),
+                    profile_data.get_wasm_cost(),
+                ));
 
                 // ext costs are 1-to-1, except for those added later which we will display as 0
                 for ext_cost in ExtCosts::iter() {
-                    costs.push(CostGasUsed {
-                        cost_category: "WASM_HOST_COST".to_string(),
-                        cost: format!("{:?}", ext_cost).to_ascii_uppercase(),
-                        gas_used: profile_data.get_ext_cost(ext_cost),
-                    });
+                    costs.push(CostGasUsed::wasm_host(
+                        format!("{:?}", ext_cost).to_ascii_uppercase(),
+                        profile_data.get_ext_cost(ext_cost),
+                    ));
                 }
-
-                // The order doesn't really matter, but the default one is just
-                // historical, which is especially unintuitive, so let's sort
-                // lexicographically.
-                //
-                // Can't `sort_by_key` here because lifetime inference in
-                // closures is limited.
-                costs.sort_by(|lhs, rhs| {
-                    lhs.cost_category.cmp(&rhs.cost_category).then(lhs.cost.cmp(&rhs.cost))
-                });
 
                 Some(costs)
             }
-            ExecutionMetadata::V3(_) => todo!(),
+            ExecutionMetadata::V3(profile) => {
+                // Add actions, wasm op, and ext costs in groups.
+                // actions costs are 1-to-1
+                let mut costs: Vec<CostGasUsed> = ActionCosts::iter()
+                    .map(|cost| {
+                        CostGasUsed::action(cost.to_string(), profile.get_action_cost(cost))
+                    })
+                    .collect();
+
+                // wasm op is a single cost, for historical reasons it is inaccurately displayed as "wasm host"
+                costs.push(CostGasUsed::wasm_host(
+                    "WASM_INSTRUCTION".to_string(),
+                    profile.get_wasm_cost(),
+                ));
+
+                // ext costs are 1-to-1
+                for ext_cost in ExtCosts::iter() {
+                    costs.push(CostGasUsed::wasm_host(
+                        format!("{:?}", ext_cost).to_ascii_uppercase(),
+                        profile.get_ext_cost(ext_cost),
+                    ));
+                }
+
+                Some(costs)
+            }
         };
+        if let Some(ref mut costs) = gas_profile {
+            // The order doesn't really matter, but the default one is just
+            // historical, which is especially unintuitive, so let's sort
+            // lexicographically.
+            //
+            // Can't `sort_by_key` here because lifetime inference in
+            // closures is limited.
+            costs.sort_by(|lhs, rhs| {
+                lhs.cost_category.cmp(&rhs.cost_category).then(lhs.cost.cmp(&rhs.cost))
+            });
+        }
         ExecutionMetadataView { version: 1, gas_profile }
+    }
+}
+
+impl CostGasUsed {
+    pub fn action(cost: String, gas_used: Gas) -> Self {
+        Self { cost_category: "ACTION_COST".to_string(), cost, gas_used }
+    }
+
+    pub fn wasm_host(cost: String, gas_used: Gas) -> Self {
+        Self { cost_category: "WASM_HOST_COST".to_string(), cost, gas_used }
     }
 }
 

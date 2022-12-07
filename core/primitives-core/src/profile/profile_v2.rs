@@ -34,7 +34,7 @@ impl ProfileDataV2 {
     }
 
     pub fn get_wasm_cost(&self) -> u64 {
-        // ProfileV1Cost::WasmInstruction => 62,
+        // ProfileV2Cost::WasmInstruction => 62,
         self.data[62]
     }
 
