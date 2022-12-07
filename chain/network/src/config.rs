@@ -10,8 +10,9 @@ use crate::types::ROUTED_MESSAGE_TTL;
 use anyhow::Context;
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::network::PeerId;
+use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::AccountId;
-use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
+use near_primitives::validator_signer::ValidatorSigner;
 use std::collections::HashSet;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
@@ -299,13 +300,8 @@ impl NetworkConfig {
     pub fn from_seed(seed: &str, port: u16) -> Self {
         let node_key = SecretKey::from_seed(KeyType::ED25519, seed);
         let node_addr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port));
-        let account_id = seed.parse().unwrap();
         let validator = ValidatorConfig {
-            signer: Arc::new(InMemoryValidatorSigner::from_seed(
-                account_id,
-                KeyType::ED25519,
-                seed,
-            )),
+            signer: Arc::new(create_test_signer(seed)),
             proxies: ValidatorProxies::Static(vec![PeerAddr {
                 addr: node_addr,
                 peer_id: PeerId::new(node_key.public_key()),
