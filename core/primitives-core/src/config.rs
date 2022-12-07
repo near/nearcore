@@ -5,7 +5,7 @@ use enum_map::{enum_map, EnumMap};
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-use strum::{Display, EnumCount};
+use strum::Display;
 
 /// Dynamic configuration parameters required for the WASM runtime to
 /// execute a smart contract.
@@ -362,7 +362,6 @@ impl ExtCostsConfig {
     Debug,
     PartialOrd,
     Ord,
-    EnumCount,
     Display,
     strum::EnumIter,
     enum_map::Enum,
@@ -444,7 +443,6 @@ pub enum ExtCosts {
     Debug,
     PartialOrd,
     Ord,
-    EnumCount,
     Display,
     strum::EnumIter,
     enum_map::Enum,
