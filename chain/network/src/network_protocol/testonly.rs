@@ -229,6 +229,10 @@ impl ChunkSet {
     }
 }
 
+pub fn make_hash<R: Rng>(rng: &mut R) -> CryptoHash {
+    CryptoHash::hash_bytes(&rng.gen::<[u8; 19]>())
+}
+
 pub fn make_account_keys(signers: &[InMemoryValidatorSigner]) -> AccountKeys {
     let mut account_keys = AccountKeys::new();
     for s in signers {
@@ -340,6 +344,7 @@ pub fn make_handshake<R: Rng>(rng: &mut R, chain: &Chain) -> Handshake {
         sender_listen_port: Some(rng.gen()),
         sender_chain_info: chain.get_peer_chain_info(),
         partial_edge_info: make_partial_edge(rng),
+        owned_account: None,
     }
 }
 

@@ -225,12 +225,11 @@ fn test_sanity_used_gas() {
     };
     assert_eq!(returned_bytes.len(), num_return_values * size_of::<u64>());
 
-    let mut used_gas = vec![];
-    for i in 0..num_return_values {
-        let bytes = &returned_bytes[i * size_of::<u64>()..(i + 1) * size_of::<u64>()];
-        let val = u64::from_le_bytes(bytes.try_into().unwrap());
-        used_gas.push(val);
-    }
+    let used_gas = stdx::as_chunks_exact::<{ size_of::<u64>() }, _>(&returned_bytes)
+        .unwrap()
+        .iter()
+        .map(|bytes| u64::from_le_bytes(*bytes))
+        .collect::<Vec<_>>();
 
     // Executing `used_gas` costs `base_cost`. When executing `used_gas` twice
     // within a metered block, the returned values should differ by that amount.

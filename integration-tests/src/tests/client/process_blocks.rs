@@ -33,7 +33,7 @@ use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
 use near_network::test_utils::{wait_or_panic, MockPeerManagerAdapter};
 use near_network::types::{
     BlockInfo, ConnectedPeerInfo, HighestHeightPeerInfo, NetworkInfo, PeerChainInfo,
-    PeerManagerMessageRequest, PeerManagerMessageResponse,
+    PeerManagerMessageRequest, PeerManagerMessageResponse, PeerType,
 };
 use near_network::types::{FullPeerInfo, NetworkRequests, NetworkResponses};
 use near_network::types::{PeerInfo, ReasonForBan};
@@ -1028,15 +1028,24 @@ fn client_sync_headers() {
         );
         client.do_send(
             SetNetworkInfo(NetworkInfo {
-                connected_peers: vec![ConnectedPeerInfo::from(&FullPeerInfo {
-                    peer_info: peer_info2.clone(),
-                    chain_info: PeerChainInfo {
-                        genesis_id: Default::default(),
-                        last_block: Some(BlockInfo { height: 5, hash: hash(&[5]) }),
-                        tracked_shards: vec![],
-                        archival: false,
+                connected_peers: vec![ConnectedPeerInfo {
+                    full_peer_info: FullPeerInfo {
+                        peer_info: peer_info2.clone(),
+                        chain_info: PeerChainInfo {
+                            genesis_id: Default::default(),
+                            last_block: Some(BlockInfo { height: 5, hash: hash(&[5]) }),
+                            tracked_shards: vec![],
+                            archival: false,
+                        },
                     },
-                })],
+                    received_bytes_per_sec: 0,
+                    sent_bytes_per_sec: 0,
+                    last_time_peer_requested: near_network::time::Instant::now(),
+                    last_time_received_message: near_network::time::Instant::now(),
+                    connection_established_time: near_network::time::Instant::now(),
+                    peer_type: PeerType::Outbound,
+                    nonce: 1,
+                }],
                 num_connected_peers: 1,
                 peer_max_count: 1,
                 highest_height_peers: vec![HighestHeightPeerInfo {
@@ -1050,7 +1059,8 @@ fn client_sync_headers() {
                 sent_bytes_per_sec: 0,
                 received_bytes_per_sec: 0,
                 known_producers: vec![],
-                tier1_accounts: vec![],
+                tier1_connections: vec![],
+                tier1_accounts_data: vec![],
             })
             .with_span_context(),
         );

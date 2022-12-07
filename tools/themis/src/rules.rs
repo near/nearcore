@@ -63,7 +63,7 @@ pub fn rust_version_matches_toolchain(workspace: &Workspace) -> anyhow::Result<(
 
     if toolchain_version != workspace_version {
         bail!(ComplianceError {
-            msg: format!("rust-version in rust-toolchain.toml and workspace Cargo.toml differ"),
+            msg: "rust-version in rust-toolchain.toml and workspace Cargo.toml differ".to_string(),
             expected: None,
             outliers: Vec::new(),
         });

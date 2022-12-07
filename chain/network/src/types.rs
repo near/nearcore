@@ -26,8 +26,8 @@ use std::sync::Arc;
 /// Exported types, which are part of network protocol.
 pub use crate::network_protocol::{
     Edge, PartialEdgeInfo, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
-    PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerIdOrHash, PeerInfo, Ping, Pong,
-    StateResponseInfo, StateResponseInfoV1, StateResponseInfoV2,
+    PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerInfo, Ping, Pong, StateResponseInfo,
+    StateResponseInfoV1, StateResponseInfoV2,
 };
 
 /// Number of hops a message is allowed to travel before being dropped.
@@ -333,20 +333,6 @@ pub struct PeerChainInfo {
     pub archival: bool,
 }
 
-impl From<&FullPeerInfo> for ConnectedPeerInfo {
-    fn from(full_peer_info: &FullPeerInfo) -> Self {
-        ConnectedPeerInfo {
-            full_peer_info: full_peer_info.clone(),
-            received_bytes_per_sec: 0,
-            sent_bytes_per_sec: 0,
-            last_time_peer_requested: time::Instant::now(),
-            last_time_received_message: time::Instant::now(),
-            connection_established_time: time::Instant::now(),
-            peer_type: PeerType::Outbound,
-        }
-    }
-}
-
 // Information about the connected peer that is shared with the rest of the system.
 #[derive(Debug, Clone)]
 pub struct ConnectedPeerInfo {
@@ -363,10 +349,13 @@ pub struct ConnectedPeerInfo {
     pub connection_established_time: time::Instant,
     /// Who started connection. Inbound (other) or Outbound (us).
     pub peer_type: PeerType,
+    /// Nonce used for the connection with the peer.
+    pub nonce: u64,
 }
 
 #[derive(Debug, Clone, actix::MessageResponse)]
 pub struct NetworkInfo {
+    /// TIER2 connections.
     pub connected_peers: Vec<ConnectedPeerInfo>,
     pub num_connected_peers: usize,
     pub peer_max_count: u32,
@@ -375,10 +364,13 @@ pub struct NetworkInfo {
     pub received_bytes_per_sec: u64,
     /// Accounts of known block and chunk producers from routing table.
     pub known_producers: Vec<KnownProducer>,
-    pub tier1_accounts: Vec<Arc<SignedAccountData>>,
+    /// Collected data about the current TIER1 accounts.
+    pub tier1_accounts_data: Vec<Arc<SignedAccountData>>,
+    /// TIER1 connections.
+    pub tier1_connections: Vec<ConnectedPeerInfo>,
 }
 
-#[derive(Debug, actix::MessageResponse)]
+#[derive(Debug, actix::MessageResponse, PartialEq, Eq)]
 pub enum NetworkResponses {
     NoResponse,
     PingPongInfo { pings: Vec<Ping>, pongs: Vec<Pong> },
@@ -500,7 +492,6 @@ mod tests {
     fn test_enum_size() {
         assert_size!(PeerType);
         assert_size!(RoutedMessageBody);
-        assert_size!(PeerIdOrHash);
         assert_size!(KnownPeerStatus);
         assert_size!(ReasonForBan);
     }

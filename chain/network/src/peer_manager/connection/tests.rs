@@ -3,6 +3,7 @@ use crate::peer::peer_actor::ClosingReason;
 use crate::peer_manager;
 use crate::peer_manager::connection;
 use crate::private_actix::RegisterPeerError;
+use crate::tcp;
 use crate::testonly::make_rng;
 use crate::time;
 use near_o11y::testonly::init_test_logger;
@@ -28,7 +29,7 @@ async fn connection_tie_break() {
     .await;
 
     // pm.id is lower
-    let outbound_conn = pm.start_outbound(chain.clone(), cfgs[2].clone()).await;
+    let outbound_conn = pm.start_outbound(chain.clone(), cfgs[2].clone(), tcp::Tier::T2).await;
     let inbound_conn = pm.start_inbound(chain.clone(), cfgs[2].clone()).await;
     // inbound should be rejected, outbound accepted.
     assert_eq!(
@@ -40,7 +41,7 @@ async fn connection_tie_break() {
     outbound_conn.handshake(&clock.clock()).await;
 
     // pm.id is higher
-    let outbound_conn = pm.start_outbound(chain.clone(), cfgs[0].clone()).await;
+    let outbound_conn = pm.start_outbound(chain.clone(), cfgs[0].clone(), tcp::Tier::T2).await;
     let inbound_conn = pm.start_inbound(chain.clone(), cfgs[0].clone()).await;
     // inbound should be accepted, outbound rejected by PM.
     let inbound = inbound_conn.handshake(&clock.clock()).await;
@@ -71,8 +72,8 @@ async fn duplicate_connections() {
 
     // Double outbound.
     let cfg = chain.make_config(rng);
-    let conn1 = pm.start_outbound(chain.clone(), cfg.clone()).await;
-    let conn2 = pm.start_outbound(chain.clone(), cfg.clone()).await;
+    let conn1 = pm.start_outbound(chain.clone(), cfg.clone(), tcp::Tier::T2).await;
+    let conn2 = pm.start_outbound(chain.clone(), cfg.clone(), tcp::Tier::T2).await;
     // conn2 shouldn't even be started, so it should fail before conn1 completes.
     assert_eq!(
         ClosingReason::OutboundNotAllowed(connection::PoolError::AlreadyStartedConnecting),
@@ -99,7 +100,7 @@ async fn duplicate_connections() {
     let cfg = chain.make_config(rng);
     let conn1 = pm.start_inbound(chain.clone(), cfg.clone()).await;
     let conn1 = conn1.handshake(&clock.clock()).await;
-    let conn2 = pm.start_outbound(chain.clone(), cfg.clone()).await;
+    let conn2 = pm.start_outbound(chain.clone(), cfg.clone(), tcp::Tier::T2).await;
     assert_eq!(
         ClosingReason::OutboundNotAllowed(connection::PoolError::AlreadyConnected),
         conn2.manager_fail_handshake(&clock.clock()).await,
@@ -108,7 +109,7 @@ async fn duplicate_connections() {
 
     // Outbound then inbound.
     let cfg = chain.make_config(rng);
-    let conn1 = pm.start_outbound(chain.clone(), cfg.clone()).await;
+    let conn1 = pm.start_outbound(chain.clone(), cfg.clone(), tcp::Tier::T2).await;
     let conn1 = conn1.handshake(&clock.clock()).await;
     let conn2 = pm.start_inbound(chain.clone(), cfg.clone()).await;
     assert_eq!(
