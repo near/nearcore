@@ -1356,10 +1356,6 @@ impl<'a> VMLogic<'a> {
         promise_idx_ptr: u64,
         promise_idx_count: u64,
     ) -> Result<PromiseIndex> {
-        let memory_len = promise_idx_count
-            .checked_mul(size_of::<u64>() as u64)
-            .ok_or(HostError::IntegerOverflow)?;
-
         self.gas_counter.pay_base(base)?;
         if self.context.is_view() {
             return Err(
@@ -1367,6 +1363,9 @@ impl<'a> VMLogic<'a> {
             );
         }
         self.gas_counter.pay_base(promise_and_base)?;
+        let memory_len = promise_idx_count
+            .checked_mul(size_of::<u64>() as u64)
+            .ok_or(HostError::IntegerOverflow)?;
         self.gas_counter.pay_per(promise_and_per_promise, memory_len)?;
 
         // Read indices as little endian u64.
