@@ -428,8 +428,9 @@ def get_near_pid(machine):
 def stop_node(node):
     m = node.machine
     logger.info(f'Stopping node {m.name}')
-    pid = get_near_pid(m)
-    if pid != '':
+    pids = get_near_pid(m).split()
+
+    for pid in pids:
         m.run('bash', input=kill_proccess_script(pid))
         m.run('sudo -u ubuntu -i', input=TMUX_STOP_SCRIPT)
 
