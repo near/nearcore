@@ -2,12 +2,14 @@ use crate::concurrency::arc_mutex::ArcMutex;
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
 use crate::network_protocol::{
-    Edge, PeerInfo, PeerMessage, SignedAccountData, SignedOwnedAccount, SyncAccountsData,
+    Edge, PeerInfo, PeerMessage, RoutedMessageBody, SignedAccountData, SignedOwnedAccount,
+    SyncAccountsData,
 };
 use crate::peer::peer_actor;
 use crate::peer::peer_actor::PeerActor;
 use crate::private_actix::SendMessage;
 use crate::stats::metrics;
+use crate::tcp;
 use crate::time;
 use crate::types::{BlockInfo, FullPeerInfo, PeerChainInfo, PeerType, ReasonForBan};
 use arc_swap::ArcSwap;
@@ -24,6 +26,31 @@ use std::sync::{Arc, Weak};
 
 #[cfg(test)]
 mod tests;
+
+impl tcp::Tier {
+    /// Checks if the given message type is allowed on a connection of the given Tier.
+    /// TIER1 is reserved exclusively for BFT consensus messages.
+    /// Each validator establishes a lot of TIER1 connections, so bandwidth shouldn't be
+    /// wasted on broadcasting or periodic state syncs on TIER1 connections.
+    pub(crate) fn is_allowed(self, msg: &PeerMessage) -> bool {
+        match msg {
+            PeerMessage::Tier1Handshake(_) => self == tcp::Tier::T1,
+            PeerMessage::Tier2Handshake(_) => self == tcp::Tier::T2,
+            PeerMessage::HandshakeFailure(_, _) => true,
+            PeerMessage::LastEdge(_) => true,
+            PeerMessage::Routed(msg) => self.is_allowed_routed(&msg.body),
+            _ => self == tcp::Tier::T2,
+        }
+    }
+
+    pub(crate) fn is_allowed_routed(self, body: &RoutedMessageBody) -> bool {
+        match body {
+            RoutedMessageBody::BlockApproval(..) => true,
+            RoutedMessageBody::VersionedPartialEncodedChunk(..) => true,
+            _ => self == tcp::Tier::T2,
+        }
+    }
+}
 
 #[derive(Default)]
 pub(crate) struct Stats {
@@ -44,6 +71,8 @@ pub(crate) struct Stats {
 
 /// Contains information relevant to a connected peer.
 pub(crate) struct Connection {
+    // TODO(gprusak): add rate limiting on TIER1 connections for defence in-depth.
+    pub tier: tcp::Tier,
     // TODO(gprusak): addr should be internal, so that Connection will become an API of the
     // PeerActor.
     pub addr: actix::Addr<PeerActor>,

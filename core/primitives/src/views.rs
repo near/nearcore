@@ -364,11 +364,27 @@ pub struct KnownProducerView {
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct Tier1ProxyView {
+    pub addr: std::net::SocketAddr,
+    pub peer_id: PublicKey,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct AccountDataView {
+    pub peer_id: PublicKey,
+    pub proxies: Vec<Tier1ProxyView>,
+    pub account_key: PublicKey,
+    pub timestamp: DateTime<chrono::Utc>,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct NetworkInfoView {
     pub peer_max_count: u32,
     pub num_connected_peers: usize,
     pub connected_peers: Vec<PeerInfoView>,
     pub known_producers: Vec<KnownProducerView>,
+    pub tier1_accounts_data: Vec<AccountDataView>,
+    pub tier1_connections: Vec<PeerInfoView>,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]

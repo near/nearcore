@@ -75,15 +75,15 @@ async fn loop_connection() {
     let mut cfg = chain.make_config(rng);
     cfg.node_key = pm.cfg.node_key.clone();
 
-    // Starting an outbound loop connection should be stopped without sending the handshake.
-    let conn = pm.start_outbound(chain.clone(), cfg).await;
+    // Starting an outbound loop connection on TIER2 should be stopped without sending the handshake.
+    let conn = pm.start_outbound(chain.clone(), cfg, tcp::Tier::T2).await;
     assert_eq!(
         ClosingReason::OutboundNotAllowed(connection::PoolError::UnexpectedLoopConnection),
         conn.manager_fail_handshake(&clock.clock()).await
     );
 
     // An inbound connection pretending to be a loop should be rejected.
-    let stream = tcp::Stream::connect(&pm.peer_info()).await.unwrap();
+    let stream = tcp::Stream::connect(&pm.peer_info(), tcp::Tier::T2).await.unwrap();
     let stream_id = stream.id();
     let port = stream.local_addr.port();
     let mut events = pm.events.from_now();
@@ -141,7 +141,7 @@ async fn owned_account_mismatch() {
     .await;
 
     // An inbound connection pretending to be a loop should be rejected.
-    let stream = tcp::Stream::connect(&pm.peer_info()).await.unwrap();
+    let stream = tcp::Stream::connect(&pm.peer_info(), tcp::Tier::T2).await.unwrap();
     let stream_id = stream.id();
     let port = stream.local_addr.port();
     let mut events = pm.events.from_now();
