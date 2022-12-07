@@ -24,6 +24,9 @@ async fn connection_spam_security_test() {
     let mut clock = time::FakeClock::default();
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
+    const PEERS_OVER_LIMIT: usize = 10;
+    let mut cfg = chain.make_config(rng);
+    cfg.max_num_peers = (LIMIT_PENDING_PEERS + PEERS_OVER_LIMIT) as u32;
     let mut cfg = chain.make_config(rng);
     // Make sure that connections will never get dropped.
     cfg.handshake_timeout = time::Duration::hours(1);
@@ -41,7 +44,7 @@ async fn connection_spam_security_test() {
         conns.push(pm.start_inbound(chain.clone(), chain.make_config(rng)).await);
     }
     // Try to establish additional connections. Should fail.
-    for _ in 0..10 {
+    for _ in 0..PEERS_OVER_LIMIT {
         let conn = pm.start_inbound(chain.clone(), chain.make_config(rng)).await;
         assert_eq!(
             ClosingReason::TooManyInbound,
@@ -72,15 +75,15 @@ async fn loop_connection() {
     let mut cfg = chain.make_config(rng);
     cfg.node_key = pm.cfg.node_key.clone();
 
-    // Starting an outbound loop connection should be stopped without sending the handshake.
-    let conn = pm.start_outbound(chain.clone(), cfg).await;
+    // Starting an outbound loop connection on TIER2 should be stopped without sending the handshake.
+    let conn = pm.start_outbound(chain.clone(), cfg, tcp::Tier::T2).await;
     assert_eq!(
-        ClosingReason::OutboundNotAllowed(connection::PoolError::LoopConnection),
+        ClosingReason::OutboundNotAllowed(connection::PoolError::UnexpectedLoopConnection),
         conn.manager_fail_handshake(&clock.clock()).await
     );
 
     // An inbound connection pretending to be a loop should be rejected.
-    let stream = tcp::Stream::connect(&pm.peer_info()).await.unwrap();
+    let stream = tcp::Stream::connect(&pm.peer_info(), tcp::Tier::T2).await.unwrap();
     let stream_id = stream.id();
     let port = stream.local_addr.port();
     let mut events = pm.events.from_now();
@@ -115,7 +118,7 @@ async fn loop_connection() {
         .await;
     assert_eq!(
         ClosingReason::RejectedByPeerManager(RegisterPeerError::PoolError(
-            connection::PoolError::LoopConnection
+            connection::PoolError::UnexpectedLoopConnection
         )),
         reason
     );
@@ -138,7 +141,7 @@ async fn owned_account_mismatch() {
     .await;
 
     // An inbound connection pretending to be a loop should be rejected.
-    let stream = tcp::Stream::connect(&pm.peer_info()).await.unwrap();
+    let stream = tcp::Stream::connect(&pm.peer_info(), tcp::Tier::T2).await.unwrap();
     let stream_id = stream.id();
     let port = stream.local_addr.port();
     let mut events = pm.events.from_now();

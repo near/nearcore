@@ -21,6 +21,7 @@
 //!
 
 use near_chain::{near_chain_primitives, Error};
+use near_primitives::state_part::PartId;
 use std::collections::HashMap;
 use std::ops::Add;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -39,7 +40,7 @@ use near_network::types::{
     HighestHeightPeerInfo, NetworkRequests, NetworkResponses, PeerManagerAdapter,
 };
 use near_primitives::hash::CryptoHash;
-use near_primitives::syncing::get_num_state_parts;
+use near_primitives::syncing::{get_num_state_parts, ShardStateSyncResponse};
 use near_primitives::time::{Clock, Utc};
 use near_primitives::types::{AccountId, ShardId, StateRoot};
 
@@ -197,8 +198,8 @@ impl StateSync {
         let prev_hash = *chain.get_block_header(&sync_hash)?.prev_hash();
         let prev_epoch_id = chain.get_block_header(&prev_hash)?.epoch_id().clone();
         let epoch_id = chain.get_block_header(&sync_hash)?.epoch_id().clone();
-        if chain.runtime_adapter.get_shard_layout(&prev_epoch_id)?
-            != chain.runtime_adapter.get_shard_layout(&epoch_id)?
+        if runtime_adapter.get_shard_layout(&prev_epoch_id)?
+            != runtime_adapter.get_shard_layout(&epoch_id)?
         {
             error!("cannot sync to the first epoch after sharding upgrade");
             panic!("cannot sync to the first epoch after sharding upgrade. Please wait for the next epoch or find peers that are more up to date");
@@ -580,7 +581,7 @@ impl StateSync {
     }
 
     /// Returns new ShardSyncDownload if successful, otherwise returns given shard_sync_download
-    pub fn request_shard(
+    fn request_shard(
         &mut self,
         me: &Option<AccountId>,
         shard_id: ShardId,
@@ -757,6 +758,71 @@ impl StateSync {
             StateSyncResult::Unchanged
         })
     }
+
+    pub fn update_download_on_state_response_message(
+        &mut self,
+        shard_sync_download: &mut ShardSyncDownload,
+        hash: CryptoHash,
+        shard_id: u64,
+        state_response: ShardStateSyncResponse,
+        chain: &mut Chain,
+    ) {
+        if let Some(part_id) = state_response.part_id() {
+            // Mark that we have received this part (this will update info on pending parts from peers etc).
+            self.received_requested_part(part_id, shard_id, hash);
+        }
+        match shard_sync_download.status {
+            ShardSyncStatus::StateDownloadHeader => {
+                if let Some(header) = state_response.take_header() {
+                    if !shard_sync_download.downloads[0].done {
+                        match chain.set_state_header(shard_id, hash, header) {
+                            Ok(()) => {
+                                shard_sync_download.downloads[0].done = true;
+                            }
+                            Err(err) => {
+                                error!(target: "sync", "State sync set_state_header error, shard = {}, hash = {}: {:?}", shard_id, hash, err);
+                                shard_sync_download.downloads[0].error = true;
+                            }
+                        }
+                    }
+                } else {
+                    // No header found.
+                    // It may happen because requested node couldn't build state response.
+                    if !shard_sync_download.downloads[0].done {
+                        info!(target: "sync", "state_response doesn't have header, should be re-requested, shard = {}, hash = {}", shard_id, hash);
+                        shard_sync_download.downloads[0].error = true;
+                    }
+                }
+            }
+            ShardSyncStatus::StateDownloadParts => {
+                if let Some(part) = state_response.take_part() {
+                    let num_parts = shard_sync_download.downloads.len() as u64;
+                    let (part_id, data) = part;
+                    if part_id >= num_parts {
+                        error!(target: "sync", "State sync received incorrect part_id # {:?} for hash {:?}, potential malicious peer", part_id, hash);
+                        return;
+                    }
+                    if !shard_sync_download.downloads[part_id as usize].done {
+                        match chain.set_state_part(
+                            shard_id,
+                            hash,
+                            PartId::new(part_id, num_parts),
+                            &data,
+                        ) {
+                            Ok(()) => {
+                                shard_sync_download.downloads[part_id as usize].done = true;
+                            }
+                            Err(err) => {
+                                error!(target: "sync", "State sync set_state_part error, shard = {}, part = {}, hash = {}: {:?}", shard_id, part_id, hash, err);
+                                shard_sync_download.downloads[part_id as usize].error = true;
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 /// Create an abstract collection of elements to be shuffled.
@@ -818,5 +884,143 @@ impl<T: Clone> Iterator for SamplerLimited<T> {
                 Some(self.data[ix].clone())
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+
+    use actix::System;
+    use near_actix_test_utils::run_actix;
+    use near_chain::{test_utils::process_block_sync, Block, BlockProcessingArtifact, Provenance};
+
+    use near_epoch_manager::EpochManagerAdapter;
+    use near_network::test_utils::MockPeerManagerAdapter;
+    use near_primitives::{
+        merkle::PartialMerkleTree,
+        syncing::{ShardStateSyncResponseHeader, ShardStateSyncResponseV2},
+        types::EpochId,
+    };
+
+    use near_chain::test_utils;
+
+    use super::*;
+
+    #[test]
+    // Start a new state sync - and check that it asks for a header.
+    fn test_ask_for_header() {
+        let mock_peer_manager = Arc::new(MockPeerManagerAdapter::default());
+        let mut state_sync = StateSync::new(mock_peer_manager.clone(), TimeDuration::from_secs(1));
+        let mut new_shard_sync = HashMap::new();
+
+        let (mut chain, kv, signer) = test_utils::setup();
+
+        // TODO: lower the epoch length
+        for _ in 0..(chain.epoch_length + 1) {
+            let prev = chain.get_block(&chain.head().unwrap().last_block_hash).unwrap();
+            let block = if kv.is_next_block_epoch_start(prev.hash()).unwrap() {
+                Block::empty_with_epoch(
+                    &prev,
+                    prev.header().height() + 1,
+                    prev.header().next_epoch_id().clone(),
+                    EpochId { 0: *prev.hash() },
+                    *prev.header().next_bp_hash(),
+                    &*signer,
+                    &mut PartialMerkleTree::default(),
+                )
+            } else {
+                Block::empty(&prev, &*signer)
+            };
+
+            process_block_sync(
+                &mut chain,
+                &None,
+                block.into(),
+                Provenance::PRODUCED,
+                &mut BlockProcessingArtifact::default(),
+            )
+            .unwrap();
+        }
+
+        let request_hash = &chain.head().unwrap().last_block_hash;
+        let state_sync_header = chain.get_state_response_header(0, *request_hash).unwrap();
+        let state_sync_header = match state_sync_header {
+            ShardStateSyncResponseHeader::V1(_) => panic!("Invalid header"),
+            ShardStateSyncResponseHeader::V2(internal) => internal,
+        };
+
+        let apply_parts_fn = move |_: ApplyStatePartsRequest| {};
+        let state_split_fn = move |_: StateSplitRequest| {};
+
+        run_actix(async {
+            state_sync
+                .run(
+                    &None,
+                    *request_hash,
+                    &mut new_shard_sync,
+                    &mut chain,
+                    &(kv as Arc<dyn RuntimeAdapter>),
+                    &[],
+                    vec![0],
+                    &apply_parts_fn,
+                    &state_split_fn,
+                )
+                .unwrap();
+
+            // Wait for the message that is sent to peer manager.
+            mock_peer_manager.notify.notified().await;
+            let request = mock_peer_manager.pop().unwrap();
+
+            assert_eq!(
+                NetworkRequests::StateRequestHeader {
+                    shard_id: 0,
+                    sync_hash: *request_hash,
+                    target: AccountOrPeerIdOrHash::AccountId("test".parse().unwrap())
+                },
+                request.as_network_requests()
+            );
+
+            assert_eq!(1, new_shard_sync.len());
+            let download = new_shard_sync.get(&0).unwrap();
+
+            assert_eq!(download.status, ShardSyncStatus::StateDownloadHeader);
+
+            assert_eq!(download.downloads.len(), 1);
+            let download_status = &download.downloads[0];
+
+            // 'run me' is false - as we've just executed this peer manager request.
+            assert_eq!(download_status.run_me.load(Ordering::SeqCst), false);
+            assert_eq!(download_status.error, false);
+            assert_eq!(download_status.done, false);
+            assert_eq!(download_status.state_requests_count, 1);
+            assert_eq!(
+                download_status.last_target,
+                Some(near_client_primitives::types::AccountOrPeerIdOrHash::AccountId(
+                    "test".parse().unwrap()
+                ))
+            );
+
+            // Now let's simulate header return message.
+
+            let state_response = ShardStateSyncResponse::V2(ShardStateSyncResponseV2 {
+                header: Some(state_sync_header),
+                part: None,
+            });
+
+            state_sync.update_download_on_state_response_message(
+                &mut new_shard_sync.get_mut(&0).unwrap(),
+                *request_hash,
+                0,
+                state_response,
+                &mut chain,
+            );
+
+            let download = new_shard_sync.get(&0).unwrap();
+            assert_eq!(download.status, ShardSyncStatus::StateDownloadHeader);
+            // Download should be marked as done.
+            assert_eq!(download.downloads[0].done, true);
+
+            System::current().stop()
+        });
     }
 }
