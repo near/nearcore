@@ -217,8 +217,10 @@
                         $('.js-unknown-chunk-producers').text(Array.from(chunk_uknown_set).join(","));
                         $('.js-unreachable-chunk-producers').text(Array.from(chunk_known_but_unreachable).join(","));
 
+                        let node_public_key = data.node_public_key;
                         let sync_status = data.detailed_debug_status.sync_status;
                         let network_info = data.detailed_debug_status.network_info;
+                        $('.js-node-public-key').text(node_public_key);
                         $('.js-sync-status').text(sync_status);
                         $('.js-max-peers').text(network_info.peer_max_count);
                         $('.js-num-peers').text(network_info.num_connected_peers);
@@ -354,6 +356,10 @@
         Welcome to the Network Info page!
     </h1>
     <h2>
+        <p>
+            PeerId:
+            <span class="js-node-public-key"></span>
+        </p>
         <p>
             Current Sync Status:
             <span class="js-sync-status"></span>
