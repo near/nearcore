@@ -7,7 +7,7 @@ use rand::seq::SliceRandom;
 use rand::thread_rng;
 use tracing::{debug, warn};
 
-use near_chain::Chain;
+use near_chain::{Chain, ChainStoreAccess};
 use near_network::types::{HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter};
 use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
@@ -31,7 +31,6 @@ pub const NS_PER_SECOND: u128 = 1_000_000_000;
 /// Handles major re-orgs by finding closest header that matches and re-downloading headers from that point.
 pub struct HeaderSync {
     network_adapter: Arc<dyn PeerManagerAdapter>,
-    history_locator: Vec<(BlockHeight, CryptoHash)>,
     prev_header_sync: (DateTime<Utc>, BlockHeight, BlockHeight, BlockHeight),
     syncing_peer: Option<HighestHeightPeerInfo>,
     stalling_ts: Option<DateTime<Utc>>,
@@ -52,7 +51,6 @@ impl HeaderSync {
     ) -> Self {
         HeaderSync {
             network_adapter,
-            history_locator: vec![],
             prev_header_sync: (Clock::utc(), 0, 0, 0),
             syncing_peer: None,
             stalling_ts: None,
@@ -84,7 +82,6 @@ impl HeaderSync {
                 debug!(target: "sync", "Sync: initial transition to Header sync. Header head {} at {}",
                     header_head.last_block_hash, header_head.height,
                 );
-                self.history_locator.retain(|&x| x.0 == 0);
                 true
             }
             SyncStatus::StateSync { .. } => false,
@@ -237,75 +234,51 @@ impl HeaderSync {
         None
     }
 
+    // The remote side will return MAX_BLOCK_HEADERS headers, starting from the first hash in
+    // the returned "locator" list that is on their canonical chain.
+    //
+    // The locator allows us to start syncing from a reasonably recent common ancestor. Since
+    // we don't know which fork the remote side is on, we include a few hashes. The first one
+    // we include is the tip of our chain, and the next one is 2 blocks back, then 4 blocks
+    // back, then 8 blocks back, etc, until we reach the most recent final block. The reason
+    // why we stop at the final block is because the consensus guarantees us that the final
+    // blocks observed by all nodes are on the same fork.
     fn get_locator(&mut self, chain: &Chain) -> Result<Vec<CryptoHash>, near_chain::Error> {
-        let tip = chain.header_head()?;
-        let genesis_height = chain.genesis().height();
-        let heights = get_locator_heights(tip.height - genesis_height)
-            .into_iter()
-            .map(|h| h + genesis_height)
-            .collect::<Vec<_>>();
-
-        // For each height we need, we either check if something is close enough from last locator, or go to the db.
-        let mut locator: Vec<(u64, CryptoHash)> = vec![(tip.height, tip.last_block_hash)];
-        for h in heights {
-            if let Some(x) = close_enough(&self.history_locator, h) {
-                locator.push(x);
-            } else {
-                // Walk backwards to find last known hash.
-                let last_loc = *locator.last().unwrap();
-                if let Ok(header) = chain.get_block_header_by_height(h) {
-                    if header.height() != last_loc.0 {
-                        locator.push((header.height(), *header.hash()));
-                    }
-                }
-            }
+        let store = chain.store();
+        let tip = store.header_head()?;
+        // We could just get the ordinal from the header, but it's off by one: #8177.
+        let tip_ordinal = store.get_block_merkle_tree(&tip.last_block_hash)?.size();
+        let final_head = store.final_head()?;
+        let final_head_ordinal = store.get_block_merkle_tree(&final_head.last_block_hash)?.size();
+        let ordinals = get_locator_ordinals(final_head_ordinal, tip_ordinal);
+        let mut locator: Vec<CryptoHash> = vec![];
+        for ordinal in &ordinals {
+            let block_hash = store.get_block_hash_from_ordinal(*ordinal)?;
+            locator.push(block_hash);
         }
-        locator.dedup_by(|a, b| a.0 == b.0);
-        debug!(target: "sync", "Sync: locator: {:?}", locator);
-        self.history_locator = locator.clone();
-        Ok(locator.iter().map(|x| x.1).collect())
+        debug!(target: "sync", "Sync: locator: {:?} ordinals: {:?}", locator, ordinals);
+        Ok(locator)
     }
 }
 
-/// Check if there is a close enough value to provided height in the locator.
-fn close_enough(locator: &[(u64, CryptoHash)], height: u64) -> Option<(u64, CryptoHash)> {
-    if locator.len() == 0 {
-        return None;
-    }
-    // Check boundaries, if lower than the last.
-    if locator.last().unwrap().0 >= height {
-        return locator.last().map(|x| *x);
-    }
-    // Higher than first and first is within acceptable gap.
-    if locator[0].0 < height && height.saturating_sub(127) < locator[0].0 {
-        return Some(locator[0]);
-    }
-    for h in locator.windows(2) {
-        if height <= h[0].0 && height > h[1].0 {
-            if h[0].0 - height < height - h[1].0 {
-                return Some(h[0]);
-            } else {
-                return Some(h[1]);
-            }
-        }
-    }
-    None
-}
-
-/// Given height stepping back to 0 in powers of 2 steps.
-fn get_locator_heights(height: u64) -> Vec<u64> {
-    let mut current = height;
-    let mut heights = vec![];
-    while current > 0 {
-        heights.push(current);
-        if heights.len() >= MAX_BLOCK_HEADER_HASHES as usize - 1 {
+/// Step back from highest to lowest ordinal, in powers of 2 steps, limited by MAX_BLOCK_HEADERS
+/// heights per step, and limited by MAX_BLOCK_HEADER_HASHES steps in total.
+fn get_locator_ordinals(lowest_ordinal: u64, highest_ordinal: u64) -> Vec<u64> {
+    let mut current = highest_ordinal;
+    let mut ordinals = vec![];
+    let mut step = 2;
+    while current > lowest_ordinal && ordinals.len() < MAX_BLOCK_HEADER_HASHES as usize - 1 {
+        ordinals.push(current);
+        if current <= lowest_ordinal + step {
             break;
         }
-        let next = 2u64.pow(heights.len() as u32);
-        current = if current > next { current - next } else { 0 };
+        current -= step;
+        // Do not step back more than MAX_BLOCK_HEADERS, as the gap in between would not
+        // allow us to sync to a more recent block.
+        step = min(step * 2, MAX_BLOCK_HEADERS);
     }
-    heights.push(0);
-    heights
+    ordinals.push(lowest_ordinal);
+    ordinals
 }
 
 #[cfg(test)]
@@ -331,25 +304,45 @@ mod test {
     use num_rational::Ratio;
 
     #[test]
-    fn test_get_locator_heights() {
-        assert_eq!(get_locator_heights(0), vec![0]);
-        assert_eq!(get_locator_heights(1), vec![1, 0]);
-        assert_eq!(get_locator_heights(2), vec![2, 0]);
-        assert_eq!(get_locator_heights(3), vec![3, 1, 0]);
-        assert_eq!(get_locator_heights(10), vec![10, 8, 4, 0]);
-        assert_eq!(get_locator_heights(100), vec![100, 98, 94, 86, 70, 38, 0]);
+    fn test_get_locator_ordinals() {
+        assert_eq!(get_locator_ordinals(0, 0), vec![0]);
+        assert_eq!(get_locator_ordinals(0, 1), vec![1, 0]);
+        assert_eq!(get_locator_ordinals(0, 2), vec![2, 0]);
+        assert_eq!(get_locator_ordinals(0, 3), vec![3, 1, 0]);
+        assert_eq!(get_locator_ordinals(0, 10), vec![10, 8, 4, 0]);
+        assert_eq!(get_locator_ordinals(0, 100), vec![100, 98, 94, 86, 70, 38, 0]);
         assert_eq!(
-            get_locator_heights(1000),
+            get_locator_ordinals(0, 1000),
             vec![1000, 998, 994, 986, 970, 938, 874, 746, 490, 0]
         );
         // Locator is still reasonable size even given large height.
         assert_eq!(
-            get_locator_heights(10000),
-            vec![10000, 9998, 9994, 9986, 9970, 9938, 9874, 9746, 9490, 8978, 7954, 5906, 1810, 0,]
+            get_locator_ordinals(0, 10000),
+            vec![
+                10000, 9998, 9994, 9986, 9970, 9938, 9874, 9746, 9490, 8978, 8466, 7954, 7442,
+                6930, 6418, 5906, 5394, 4882, 4370, 0
+            ]
+        );
+        assert_eq!(get_locator_ordinals(100, 100), vec![100]);
+        assert_eq!(get_locator_ordinals(100, 101), vec![101, 100]);
+        assert_eq!(get_locator_ordinals(100, 102), vec![102, 100]);
+        assert_eq!(get_locator_ordinals(100, 103), vec![103, 101, 100]);
+        assert_eq!(get_locator_ordinals(100, 110), vec![110, 108, 104, 100]);
+        assert_eq!(get_locator_ordinals(100, 200), vec![200, 198, 194, 186, 170, 138, 100]);
+        assert_eq!(
+            get_locator_ordinals(20000, 21000),
+            vec![21000, 20998, 20994, 20986, 20970, 20938, 20874, 20746, 20490, 20000]
+        );
+        assert_eq!(
+            get_locator_ordinals(20000, 30000),
+            vec![
+                30000, 29998, 29994, 29986, 29970, 29938, 29874, 29746, 29490, 28978, 28466, 27954,
+                27442, 26930, 26418, 25906, 25394, 24882, 24370, 20000
+            ]
         );
     }
 
-    /// Starts two chains that fork of genesis and checks that they can sync heaaders to the longest.
+    /// Starts two chains that fork of genesis and checks that they can sync headers to the longest.
     #[test]
     fn test_sync_headers_fork() {
         let mock_adapter = Arc::new(MockPeerManagerAdapter::default());
@@ -363,7 +356,9 @@ mod test {
         let (mut chain, _, signer) = setup();
         for _ in 0..3 {
             let prev = chain.get_block(&chain.head().unwrap().last_block_hash).unwrap();
-            let block = Block::empty(&prev, &*signer);
+            // Have gaps in the chain, so we don't have final blocks (i.e. last final block is
+            // genesis). Otherwise we violate consensus invariants.
+            let block = Block::empty_with_height(&prev, prev.header().height() + 2, &*signer);
             process_block_sync(
                 &mut chain,
                 &None,
@@ -376,7 +371,9 @@ mod test {
         let (mut chain2, _, signer2) = setup();
         for _ in 0..5 {
             let prev = chain2.get_block(&chain2.head().unwrap().last_block_hash).unwrap();
-            let block = Block::empty(&prev, &*signer2);
+            // Have gaps in the chain, so we don't have final blocks (i.e. last final block is
+            // genesis). Otherwise we violate consensus invariants.
+            let block = Block::empty_with_height(&prev, prev.header().height() + 2, &*signer2);
             process_block_sync(
                 &mut chain2,
                 &None,
@@ -418,7 +415,105 @@ mod test {
         assert_eq!(
             item,
             NetworkRequests::BlockHeadersRequest {
-                hashes: [3, 1, 0]
+                // chain is 6 -> 4 -> 2 -> 0.
+                hashes: [6, 2, 0]
+                    .iter()
+                    .map(|i| *chain.get_block_by_height(*i).unwrap().hash())
+                    .collect(),
+                peer_id: peer1.peer_info.id
+            }
+        );
+    }
+
+    #[test]
+    fn test_sync_headers_fork_from_final_block() {
+        let mock_adapter = Arc::new(MockPeerManagerAdapter::default());
+        let mut header_sync = HeaderSync::new(
+            mock_adapter.clone(),
+            TimeDuration::from_secs(10),
+            TimeDuration::from_secs(2),
+            TimeDuration::from_secs(120),
+            1_000_000_000,
+        );
+        let (mut chain, _, signer) = setup();
+        let (mut chain2, _, signer2) = setup();
+        for chain in [&mut chain, &mut chain2] {
+            // Both chains share a common final block at height 3.
+            for _ in 0..5 {
+                let prev = chain.get_block(&chain.head().unwrap().last_block_hash).unwrap();
+                let block = Block::empty(&prev, &*signer);
+                process_block_sync(
+                    chain,
+                    &None,
+                    block.into(),
+                    Provenance::PRODUCED,
+                    &mut BlockProcessingArtifact::default(),
+                )
+                .unwrap();
+            }
+        }
+        for _ in 0..7 {
+            let prev = chain.get_block(&chain.head().unwrap().last_block_hash).unwrap();
+            // Test with huge gaps to make sure we are still able to find locators.
+            let block = Block::empty_with_height(&prev, prev.header().height() + 1000, &*signer2);
+            process_block_sync(
+                &mut chain,
+                &None,
+                block.into(),
+                Provenance::PRODUCED,
+                &mut BlockProcessingArtifact::default(),
+            )
+            .unwrap();
+        }
+        for _ in 0..3 {
+            let prev = chain2.get_block(&chain2.head().unwrap().last_block_hash).unwrap();
+            // Test with huge gaps, but 3 blocks here produce a higher height than the 7 blocks
+            // above.
+            let block = Block::empty_with_height(&prev, prev.header().height() + 3100, &*signer2);
+            process_block_sync(
+                &mut chain2,
+                &None,
+                block.into(),
+                Provenance::PRODUCED,
+                &mut BlockProcessingArtifact::default(),
+            )
+            .unwrap();
+        }
+        let mut sync_status = SyncStatus::NoSync;
+        let peer1 = FullPeerInfo {
+            peer_info: PeerInfo::random(),
+            chain_info: near_network::types::PeerChainInfo {
+                genesis_id: GenesisId {
+                    chain_id: "unittest".to_string(),
+                    hash: *chain.genesis().hash(),
+                },
+                tracked_shards: vec![],
+                archival: false,
+                last_block: Some(BlockInfo {
+                    height: chain2.head().unwrap().height,
+                    hash: chain2.head().unwrap().last_block_hash,
+                }),
+            },
+        };
+        let head = chain.head().unwrap();
+        assert!(header_sync
+            .run(
+                &mut sync_status,
+                &mut chain,
+                head.height,
+                &[<FullPeerInfo as Into<Option<_>>>::into(peer1.clone()).unwrap()]
+            )
+            .is_ok());
+        assert!(sync_status.is_syncing());
+        // Check that it queried last block, and then stepped down to genesis block to find common block with the peer.
+
+        let item = mock_adapter.pop().unwrap().as_network_requests();
+        assert_eq!(
+            item,
+            NetworkRequests::BlockHeadersRequest {
+                // chain is 7005 -> 6005 -> 5005 -> 4005 -> 3005 -> 2005 -> 1005 -> 5 -> 4 -> 3 -> 2 -> 1 -> 0
+                // where 3 is final.
+                hashes: [7005, 5005, 1005, 3]
                     .iter()
                     .map(|i| *chain.get_block_by_height(*i).unwrap().hash())
                     .collect(),
