@@ -52,6 +52,10 @@ impl BlockSync {
         BlockSync { network_adapter, last_request: None, block_fetch_horizon, archive }
     }
 
+    pub(crate) fn update_config(&mut self, block_fetch_horizon: BlockHeightDelta) {
+        self.block_fetch_horizon = block_fetch_horizon;
+    }
+
     /// Runs check if block sync is needed, if it's needed and it's too far - sync state is started instead (returning true).
     /// Otherwise requests recent blocks from peers.
     pub fn run(

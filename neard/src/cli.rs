@@ -5,7 +5,7 @@ use near_amend_genesis::AmendGenesisCommand;
 use near_chain_configs::GenesisValidationMode;
 #[cfg(feature = "cold_store")]
 use near_cold_store_tool::ColdStoreCommand;
-use near_dyn_configs::{DynConfigStore, DynConfigs};
+use near_dyn_configs::{DynConfigStore, UpdateableConfigs};
 use near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofResponse;
 use near_mirror::MirrorCommand;
 use near_o11y::tracing_subscriber::EnvFilter;
@@ -27,7 +27,6 @@ use std::fs::File;
 use std::io::BufReader;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
 use tokio::sync::broadcast;
 use tokio::sync::broadcast::Receiver;
 use tracing::{debug, error, info, warn};
@@ -400,12 +399,9 @@ impl RunCmd {
 
         // Set current version in client config.
         near_config.client_config.version = crate::neard_version();
-
-        let mut consensus = near_config.client_config.consensus.lock().unwrap().clone();
-
         // Override some parameters from command line.
         if let Some(produce_empty_blocks) = self.produce_empty_blocks {
-            consensus.produce_empty_blocks = produce_empty_blocks;
+            near_config.client_config.consensus.produce_empty_blocks = produce_empty_blocks;
         }
         if let Some(boot_nodes) = self.boot_nodes {
             if !boot_nodes.is_empty() {
@@ -416,7 +412,7 @@ impl RunCmd {
             }
         }
         if let Some(min_peers) = self.min_peers {
-            consensus.min_num_peers = min_peers;
+            near_config.client_config.consensus.min_num_peers = min_peers;
         }
         if let Some(network_addr) = self.network_addr {
             near_config.network_config.node_addr = Some(network_addr);
@@ -459,14 +455,10 @@ impl RunCmd {
         }
 
         let (tx_crash, mut rx_crash) = broadcast::channel::<()>(16);
-        let (tx_dyn_configs, rx_dyn_configs) = broadcast::channel::<DynConfigs>(16);
+        let (tx_dyn_configs, rx_dyn_configs) = broadcast::channel::<UpdateableConfigs>(16);
         let storage =
             nearcore::open_storage(home_dir, &mut near_config).expect("storage can not access");
         let store = storage.get_store(Temperature::Hot);
-        let dyn_configs = nearcore::dyn_config::read_dyn_configs(home_dir)
-            .unwrap_or_else(|e| panic!("Error reading dynamic configs: {:#}", e));
-        let dyn_configs_store = DynConfigStore::new(dyn_configs, consensus.clone(), tx_dyn_configs);
-        let dyn_configs_store = Arc::new(Mutex::new(dyn_configs_store));
 
         let nearcore::config::NearConfig { validator_signer, .. } =
             nearcore::config::load_config(&home_dir, genesis_validation.clone())
@@ -476,8 +468,6 @@ impl RunCmd {
         let sys = actix::System::new();
         let s = store.clone();
         let config = near_config.clone();
-
-        near_config.client_config.consensus = Arc::new(Mutex::new(consensus));
 
         let _ = sys.block_on(async move {
             // Initialize the subscriber that takes care of both logging and tracing.
@@ -495,13 +485,21 @@ impl RunCmd {
             .await
             .global();
 
+            let updateable_configs = nearcore::dyn_config::read_updateable_configs(home_dir)
+                .unwrap_or_else(|e| panic!("Error reading dynamic configs: {:#}", e));
+            let mut dyn_configs_store = DynConfigStore::new(
+                updateable_configs.clone(),
+                near_config.client_config.consensus.clone(),
+                tx_dyn_configs,
+            );
+
             let nearcore::NearNode { rpc_servers, .. } =
                 nearcore::start_with_config_and_synchronization(
                     home_dir,
                     config,
                     Some(tx_crash),
                     s,
-                    dyn_configs_store.clone(),
+                    updateable_configs.dyn_config,
                     Some(rx_dyn_configs),
                 )
                 .expect("start_with_config");
@@ -509,10 +507,9 @@ impl RunCmd {
             let sig = loop {
                 let sig = wait_for_interrupt_signal(home_dir, &mut rx_crash).await;
                 if sig == "SIGHUP" {
-                    match nearcore::dyn_config::read_dyn_configs(home_dir) {
-                        Ok(dyn_configs) => {
-                            let mut dyn_configs_store = dyn_configs_store.lock().unwrap();
-                            dyn_configs_store.reload(dyn_configs);
+                    match nearcore::dyn_config::read_updateable_configs(home_dir) {
+                        Ok(updateable_configs) => {
+                            dyn_configs_store.reload(updateable_configs);
                         }
                         Err(err) => {
                             tracing::warn!("Failed to reload dynamic configs: {:#?}", err);
