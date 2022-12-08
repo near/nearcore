@@ -109,7 +109,7 @@ mod tests {
     use crate::version::ProtocolFeature::{
         LowerDataReceiptAndEcrecoverBaseCost, LowerStorageCost, LowerStorageKeyLimit,
     };
-    use near_primitives_core::config::ActionCosts;
+    use near_primitives_core::config::{ActionCosts, ExtCosts};
 
     const GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
     const RECEIPTS_DEPTH: u64 = 63;
@@ -212,8 +212,8 @@ mod tests {
         let base_cfg = store.get_config(LowerStorageCost.protocol_version());
         let new_cfg = store.get_config(LowerDataReceiptAndEcrecoverBaseCost.protocol_version());
         assert!(
-            base_cfg.wasm_config.ext_costs.ecrecover_base
-                > new_cfg.wasm_config.ext_costs.ecrecover_base
+            base_cfg.wasm_config.ext_costs.cost(ExtCosts::ecrecover_base)
+                > new_cfg.wasm_config.ext_costs.cost(ExtCosts::ecrecover_base)
         );
     }
 
