@@ -154,16 +154,16 @@ async fn test_nonce_refresh() {
     // Check that the nonces were properly updates on both pm and pm2 states.
     let pm_peer_info = pm.peer_info().id.clone();
     let pm2_nonce = pm2
-        .with_state(|s| async move {
-            s.tier2.load().ready.get(&pm_peer_info).unwrap().edge.load().nonce()
-        })
+        .with_state(
+            |s| async move { s.graph.load().local_edges.get(&pm_peer_info).unwrap().nonce() },
+        )
         .await;
 
     assert_eq!(Edge::nonce_to_utc(pm2_nonce).unwrap().unwrap(), new_nonce_utc);
 
     let pm_nonce = pm
         .with_state(|s| async move {
-            s.tier2.load().ready.get(&pm2.peer_info().id).unwrap().edge.load().nonce()
+            s.graph.load().local_edges.get(&pm2.peer_info().id).unwrap().nonce()
         })
         .await;
 
