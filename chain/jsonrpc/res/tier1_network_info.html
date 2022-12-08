@@ -62,7 +62,7 @@
                         let last_ping = convertTime(peer.last_time_received_message_millis)
                         let last_ping_class = ""
                         if (node_public_key == peer_id) {
-                            last_ping = "N/A"
+                            last_ping = "n/a"
                         } else if (peer.last_time_received_message_millis > 60 * 1000) {
                             last_ping_class = "peer_far_behind";
                         }
@@ -71,7 +71,7 @@
                             .append($('<td>').append(add_debug_port_link(peer.addr)))
                             .append($('<td>').append(validator.join(",")))
                             .append($('<td>').append(peer.peer_id.substr(8, 5) + "..."))
-                            .append($('<td>').append(convertTime(peer.last_time_received_message_millis)).addClass(last_ping_class))
+                            .append($('<td>').append(last_ping).addClass(last_ping_class))
                             .append($('<td>').append(JSON.stringify(peer.height)).addClass(peer_class))
                             .append($('<td>').append(displayHash(peer)))
                             .append($('<td>').append(JSON.stringify(peer.tracked_shards)))
