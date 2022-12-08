@@ -86,7 +86,7 @@ bencher = "0.1.5"
 bitflags = "1.2"
 blake2 = "0.9.1"
 bn = { package = "zeropool-bn", version = "0.5.11" }
-bolero = "0.6.2"
+bolero = "0.8.0"
 borsh = { version = "0.9", features = ["rc"] }
 bs58 = "0.4"
 byteorder = "1.3"

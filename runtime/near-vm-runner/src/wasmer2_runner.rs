@@ -268,7 +268,10 @@ impl Wasmer2VM {
         let prepared_code = prepare::prepare_contract(code.code(), &self.config)
             .map_err(CompilationError::PrepareError)?;
 
-        debug_assert!(matches!(self.engine.validate(&prepared_code), Ok(_)), "wasmer failed to validate the prepared code");
+        debug_assert!(
+            matches!(self.engine.validate(&prepared_code), Ok(_)),
+            "wasmer failed to validate the prepared code"
+        );
         let executable = self
             .engine
             .compile_universal(&prepared_code, &self)
