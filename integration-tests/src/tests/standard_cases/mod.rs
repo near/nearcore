@@ -7,6 +7,7 @@ use assert_matches::assert_matches;
 use near_crypto::{InMemorySigner, KeyType};
 use near_jsonrpc_primitives::errors::ServerError;
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
+use near_primitives::config::{ActionCosts, ExtCosts};
 use near_primitives::errors::{
     ActionError, ActionErrorKind, InvalidAccessKeyError, InvalidTxError, TxExecutionError,
 };
@@ -34,7 +35,7 @@ use testlib::runtime_utils::{
 const FUNCTION_CALL_AMOUNT: Balance = TESTING_INIT_BALANCE / 10;
 
 fn fee_helper(node: &impl Node) -> FeeHelper {
-    FeeHelper::new(RuntimeConfig::test().transaction_costs, node.genesis().config.min_gas_price)
+    FeeHelper::new(RuntimeConfig::test().fees, node.genesis().config.min_gas_price)
 }
 
 /// Adds given access key to the given account_id using signer2.
@@ -403,12 +404,10 @@ pub fn trying_to_create_implicit_account(node: impl Node) {
 
     let cost = fee_helper.create_account_transfer_full_key_cost_fail_on_create_account()
         + fee_helper.gas_to_balance(
-            fee_helper.cfg.action_creation_config.create_account_cost.send_fee(false)
+            fee_helper.cfg.fee(ActionCosts::create_account).send_fee(false)
                 + fee_helper
                     .cfg
-                    .action_creation_config
-                    .add_key_cost
-                    .full_access_cost
+                    .fee(near_primitives::config::ActionCosts::add_full_access_key)
                     .send_fee(false),
         );
 
@@ -1348,12 +1347,12 @@ fn get_trie_nodes_count(
     for cost in metadata.gas_profile.clone().unwrap_or_default().iter() {
         match cost.cost.as_str() {
             "TOUCHING_TRIE_NODE" => {
-                count.db_reads +=
-                    cost.gas_used / runtime_config.wasm_config.ext_costs.touching_trie_node;
+                count.db_reads += cost.gas_used
+                    / runtime_config.wasm_config.ext_costs.cost(ExtCosts::touching_trie_node);
             }
             "READ_CACHED_TRIE_NODE" => {
-                count.mem_reads +=
-                    cost.gas_used / runtime_config.wasm_config.ext_costs.read_cached_trie_node;
+                count.mem_reads += cost.gas_used
+                    / runtime_config.wasm_config.ext_costs.cost(ExtCosts::read_cached_trie_node);
             }
             _ => {}
         };

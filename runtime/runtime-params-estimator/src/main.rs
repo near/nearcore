@@ -5,6 +5,7 @@ use clap::Parser;
 use genesis_populate::GenesisBuilder;
 use near_chain_configs::GenesisValidationMode;
 use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::views::RuntimeConfigView;
 use near_vm_runner::internal::VMKind;
 use replay::ReplayCmd;
 use runtime_params_estimator::config::{Config, GasMetric};
@@ -200,7 +201,8 @@ fn main() -> anyhow::Result<()> {
         println!("Generated RuntimeConfig:\n");
         println!("{:#?}", runtime_config);
 
-        let str = serde_json::to_string_pretty(&runtime_config)
+        let config_view = RuntimeConfigView::from(runtime_config);
+        let str = serde_json::to_string_pretty(&config_view)
             .expect("Failed serializing the runtime config");
 
         let output_path = state_dump_path.join("runtime_config.json");

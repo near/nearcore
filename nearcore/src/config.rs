@@ -7,6 +7,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{anyhow, bail, Context};
+use near_primitives::test_utils::create_test_signer;
 use near_primitives::time::Clock;
 use num_rational::Rational32;
 use serde::{Deserialize, Serialize};
@@ -1056,12 +1057,8 @@ pub fn create_testnet_configs_from_seeds(
     fixed_shards: Option<Vec<String>>,
 ) -> (Vec<Config>, Vec<InMemoryValidatorSigner>, Vec<InMemorySigner>, Genesis) {
     let num_validator_seats = (seeds.len() - num_non_validator_seats as usize) as NumSeats;
-    let validator_signers = seeds
-        .iter()
-        .map(|seed| {
-            InMemoryValidatorSigner::from_seed(seed.parse().unwrap(), KeyType::ED25519, seed)
-        })
-        .collect::<Vec<_>>();
+    let validator_signers =
+        seeds.iter().map(|seed| create_test_signer(seed.as_str())).collect::<Vec<_>>();
     let network_signers = seeds
         .iter()
         .map(|seed| InMemorySigner::from_seed("node".parse().unwrap(), KeyType::ED25519, seed))
@@ -1166,6 +1163,7 @@ pub fn init_testnet_configs(
     num_validator_seats: NumSeats,
     num_non_validator_seats: NumSeats,
     prefix: &str,
+    local_ports: bool,
     archive: bool,
     fixed_shards: bool,
 ) {
@@ -1174,7 +1172,7 @@ pub fn init_testnet_configs(
         num_validator_seats,
         num_non_validator_seats,
         prefix,
-        false,
+        local_ports,
         archive,
         fixed_shards,
     );
@@ -1331,11 +1329,7 @@ pub fn load_test_config(seed: &str, port: u16, genesis: Genesis) -> NearConfig {
     } else {
         let signer =
             Arc::new(InMemorySigner::from_seed(seed.parse().unwrap(), KeyType::ED25519, seed));
-        let validator_signer = Arc::new(InMemoryValidatorSigner::from_seed(
-            seed.parse().unwrap(),
-            KeyType::ED25519,
-            seed,
-        )) as Arc<dyn ValidatorSigner>;
+        let validator_signer = Arc::new(create_test_signer(seed)) as Arc<dyn ValidatorSigner>;
         (signer, Some(validator_signer))
     };
     NearConfig::new(config, genesis, signer.into(), validator_signer).unwrap()

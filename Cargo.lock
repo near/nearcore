@@ -2357,6 +2357,7 @@ dependencies = [
  "near-performance-metrics",
  "near-primitives",
  "near-primitives-core",
+ "near-stdx",
  "near-store",
  "near-telemetry",
  "near-test-contracts",
@@ -3246,17 +3247,20 @@ version = "0.0.0"
 dependencies = [
  "actix",
  "anyhow",
+ "async-trait",
  "borsh",
  "bs58",
  "clap 3.1.18",
  "ed25519-dalek",
  "hex",
  "hkdf",
+ "near-chain",
  "near-chain-configs",
+ "near-chain-primitives",
  "near-client",
  "near-client-primitives",
  "near-crypto",
- "near-dyn-configs",
+ "near-epoch-manager",
  "near-indexer",
  "near-indexer-primitives",
  "near-network",
@@ -3427,6 +3431,7 @@ dependencies = [
  "chrono",
  "derive_more",
  "easy-ext",
+ "enum-map",
  "hex",
  "insta",
  "near-crypto",
@@ -3456,6 +3461,7 @@ dependencies = [
  "borsh",
  "bs58",
  "derive_more",
+ "enum-map",
  "near-account-id",
  "num-rational",
  "serde",
@@ -3530,6 +3536,23 @@ dependencies = [
 [[package]]
 name = "near-stable-hasher"
 version = "0.0.0"
+
+[[package]]
+name = "near-state-parts"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap 3.1.18",
+ "near-jsonrpc",
+ "near-network",
+ "near-o11y",
+ "near-ping",
+ "near-primitives",
+ "once_cell",
+ "tokio",
+ "tracing",
+]
 
 [[package]]
 name = "near-stdx"
@@ -3621,6 +3644,7 @@ dependencies = [
  "borsh",
  "byteorder",
  "ed25519-dalek",
+ "expect-test",
  "hex",
  "near-account-id",
  "near-crypto",
@@ -3776,6 +3800,7 @@ dependencies = [
  "near-ping",
  "near-primitives",
  "near-rust-allocator-proxy",
+ "near-state-parts",
  "near-store",
  "nearcore",
  "once_cell",
@@ -3814,6 +3839,7 @@ dependencies = [
  "assert_matches",
  "borsh",
  "byteorder",
+ "enum-map",
  "hex",
  "indicatif",
  "near-chain-configs",
@@ -4936,6 +4962,7 @@ dependencies = [
  "cfg-if 1.0.0",
  "chrono",
  "clap 3.1.18",
+ "enum-map",
  "genesis-populate",
  "hex",
  "indicatif",
@@ -4968,7 +4995,6 @@ dependencies = [
 name = "runtime-tester"
 version = "0.0.0"
 dependencies = [
- "byteorder",
  "cpu-time",
  "libfuzzer-sys",
  "near-chain",

@@ -577,14 +577,13 @@ pub struct LatestKnown {
 
 #[cfg(test)]
 mod tests {
+    use near_primitives::test_utils::{create_test_signer, TestBlockBuilder};
     use near_primitives::time::Utc;
 
-    use near_crypto::KeyType;
     use near_primitives::block::{genesis_chunks, Approval};
     use near_primitives::hash::hash;
     use near_primitives::merkle::verify_path;
     use near_primitives::transaction::{ExecutionMetadata, ExecutionOutcome, ExecutionStatus};
-    use near_primitives::validator_signer::InMemoryValidatorSigner;
     use near_primitives::version::PROTOCOL_VERSION;
 
     use super::*;
@@ -604,26 +603,12 @@ mod tests {
             1_000_000_000,
             CryptoHash::hash_borsh(genesis_bps),
         );
-        let signer =
-            InMemoryValidatorSigner::from_seed("other".parse().unwrap(), KeyType::ED25519, "other");
-        let b1 = Block::empty(&genesis, &signer);
+        let signer = Arc::new(create_test_signer("other"));
+        let b1 = TestBlockBuilder::new(&genesis, signer.clone()).build();
         assert!(b1.header().verify_block_producer(&signer.public_key()));
-        let other_signer = InMemoryValidatorSigner::from_seed(
-            "other2".parse().unwrap(),
-            KeyType::ED25519,
-            "other2",
-        );
+        let other_signer = create_test_signer("other2");
         let approvals = vec![Some(Approval::new(*b1.hash(), 1, 2, &other_signer).signature)];
-        let b2 = Block::empty_with_approvals(
-            &b1,
-            2,
-            b1.header().epoch_id().clone(),
-            EpochId(*genesis.hash()),
-            approvals,
-            &signer,
-            *genesis.header().next_bp_hash(),
-            CryptoHash::default(),
-        );
+        let b2 = TestBlockBuilder::new(&b1, signer.clone()).approvals(approvals).build();
         b2.header().verify_block_producer(&signer.public_key());
     }
 

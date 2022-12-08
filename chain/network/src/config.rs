@@ -10,8 +10,10 @@ use crate::types::ROUTED_MESSAGE_TTL;
 use anyhow::Context;
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::network::PeerId;
+use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::AccountId;
-use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
+use near_primitives::validator_signer::ValidatorSigner;
+use std::collections::HashSet;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
 
@@ -67,9 +69,23 @@ impl ValidatorConfig {
 
 #[derive(Clone)]
 pub struct Tier1 {
+    /// Interval between attempts to connect to proxies of other TIER1 nodes.
+    pub connect_interval: time::Duration,
+    /// Maximal number of new connections established every connect_interval.
+    /// TIER1 can consists of hundreds of nodes, so it is not feasible to connect to all of them at
+    /// once.
+    pub new_connections_per_attempt: u64,
     /// Interval between broacasts of the list of validator's proxies.
     /// Before the broadcast, validator tries to establish all the missing connections to proxies.
     pub advertise_proxies_interval: time::Duration,
+    /// Support for gradual TIER1 feature rollout:
+    /// - establishing connection to node's own proxies is always enabled (it is a part of peer
+    ///   discovery mechanism). Note that unless the proxy has enable_inbound set, establishing
+    ///   those connections will fail anyway.
+    /// - a node will start accepting TIER1 inbound connections iff `enable_inbound` is true.
+    /// - a node will try to start outbound TIER1 connections iff `enable_outbound` is true.
+    pub enable_inbound: bool,
+    pub enable_outbound: bool,
 }
 
 /// Validated configuration for the peer-to-peer manager.
@@ -164,7 +180,12 @@ impl NetworkConfig {
         if cfg.public_addrs.len() > 0 && cfg.trusted_stun_servers.len() > 0 {
             anyhow::bail!("you cannot specify both public_addrs and trusted_stun_servers");
         }
+        let mut proxies = HashSet::new();
         for proxy in &cfg.public_addrs {
+            if proxies.contains(&proxy.peer_id) {
+                anyhow::bail!("public_addrs: found multiple entries with peer_id {}. Only 1 entry per peer_id is supported.",proxy.peer_id);
+            }
+            proxies.insert(proxy.peer_id.clone());
             let ip = proxy.addr.ip();
             if cfg.allow_private_ip_in_public_addrs {
                 if ip.is_unspecified() {
@@ -253,7 +274,13 @@ impl NetworkConfig {
             archive,
             accounts_data_broadcast_rate_limit: rate::Limit { qps: 0.1, burst: 1 },
             routing_table_update_rate_limit: rate::Limit { qps: 1., burst: 1 },
-            tier1: Some(Tier1 { advertise_proxies_interval: time::Duration::minutes(15) }),
+            tier1: Some(Tier1 {
+                connect_interval: cfg.experimental.tier1_connect_interval.try_into()?,
+                new_connections_per_attempt: cfg.experimental.tier1_new_connections_per_attempt,
+                advertise_proxies_interval: time::Duration::minutes(15),
+                enable_inbound: cfg.experimental.tier1_enable_inbound,
+                enable_outbound: cfg.experimental.tier1_enable_outbound,
+            }),
             inbound_disabled: cfg.experimental.inbound_disabled,
             skip_tombstones: if cfg.experimental.skip_sending_tombstones_seconds > 0 {
                 Some(time::Duration::seconds(cfg.experimental.skip_sending_tombstones_seconds))
@@ -273,13 +300,8 @@ impl NetworkConfig {
     pub fn from_seed(seed: &str, port: u16) -> Self {
         let node_key = SecretKey::from_seed(KeyType::ED25519, seed);
         let node_addr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port));
-        let account_id = seed.parse().unwrap();
         let validator = ValidatorConfig {
-            signer: Arc::new(InMemoryValidatorSigner::from_seed(
-                account_id,
-                KeyType::ED25519,
-                seed,
-            )),
+            signer: Arc::new(create_test_signer(seed)),
             proxies: ValidatorProxies::Static(vec![PeerAddr {
                 addr: node_addr,
                 peer_id: PeerId::new(node_key.public_key()),
@@ -321,7 +343,11 @@ impl NetworkConfig {
             tier1: Some(Tier1 {
                 // Interval is very large, so that it doesn't happen spontaneously in tests.
                 // It should rather be triggered manually in tests.
+                connect_interval: time::Duration::hours(1000),
+                new_connections_per_attempt: 10000,
                 advertise_proxies_interval: time::Duration::hours(1000),
+                enable_inbound: true,
+                enable_outbound: true,
             }),
             skip_tombstones: None,
             event_sink: Sink::null(),

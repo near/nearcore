@@ -67,7 +67,7 @@ fn test_deliver_tx_error_log() {
     let runtime_config_store = RuntimeConfigStore::new(None);
     let runtime_config = runtime_config_store.get_config(PROTOCOL_VERSION);
     let fee_helper = testlib::fees_utils::FeeHelper::new(
-        runtime_config.transaction_costs.clone(),
+        runtime_config.fees.clone(),
         node.genesis().config.min_gas_price,
     );
     let signer =

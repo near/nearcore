@@ -18,6 +18,7 @@ bytesize.workspace = true
 cfg-if.workspace = true
 chrono.workspace = true
 clap.workspace = true
+enum-map.workspace = true
 hex.workspace = true
 indicatif.workspace = true
 libc.workspace = true

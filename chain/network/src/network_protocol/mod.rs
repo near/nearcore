@@ -180,6 +180,54 @@ impl SignedAccountData {
     }
 }
 
+/// Proof that a given peer owns the account key.
+/// Included in every handshake sent by a validator node.
+#[derive(Clone, PartialEq, Eq, Debug, Hash)]
+pub struct OwnedAccount {
+    pub(crate) account_key: PublicKey,
+    pub(crate) peer_id: PeerId,
+    pub(crate) timestamp: time::Utc,
+}
+
+impl OwnedAccount {
+    /// Serializes OwnedAccount to proto and signs it using `signer`.
+    /// Panics if OwnedAccount.account_key doesn't match signer.public_key(),
+    /// as this would likely be a bug.
+    pub fn sign(self, signer: &dyn ValidatorSigner) -> SignedOwnedAccount {
+        assert_eq!(
+            self.account_key,
+            signer.public_key(),
+            "OwnedAccount.account_key doesn't match the signer's account_key"
+        );
+        let payload = proto::AccountKeyPayload::from(&self).write_to_bytes().unwrap();
+        let signature = signer.sign_account_key_payload(&payload);
+        SignedOwnedAccount {
+            owned_account: self,
+            payload: AccountKeySignedPayload { payload, signature },
+        }
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Hash)]
+pub struct SignedOwnedAccount {
+    owned_account: OwnedAccount,
+    // Serialized and signed OwnedAccount.
+    payload: AccountKeySignedPayload,
+}
+
+impl std::ops::Deref for SignedOwnedAccount {
+    type Target = OwnedAccount;
+    fn deref(&self) -> &Self::Target {
+        &self.owned_account
+    }
+}
+
+impl SignedOwnedAccount {
+    pub fn payload(&self) -> &AccountKeySignedPayload {
+        &self.payload
+    }
+}
+
 #[derive(PartialEq, Eq, Clone, Debug, Default)]
 pub struct RoutingTableUpdate {
     pub edges: Vec<Edge>,
@@ -216,6 +264,8 @@ pub struct Handshake {
     pub(crate) sender_chain_info: PeerChainInfoV2,
     /// Represents new `edge`. Contains only `none` and `Signature` from the sender.
     pub(crate) partial_edge_info: PartialEdgeInfo,
+    /// Account owned by the sender.
+    pub(crate) owned_account: Option<SignedOwnedAccount>,
 }
 
 #[derive(PartialEq, Eq, Clone, Debug, strum::IntoStaticStr)]
@@ -236,7 +286,8 @@ pub struct SyncAccountsData {
 #[derive(PartialEq, Eq, Clone, Debug, strum::IntoStaticStr, strum::EnumVariantNames)]
 #[allow(clippy::large_enum_variant)]
 pub enum PeerMessage {
-    Handshake(Handshake),
+    Tier1Handshake(Handshake),
+    Tier2Handshake(Handshake),
     HandshakeFailure(PeerInfo, HandshakeFailureReason),
     /// When a failed nonce is used by some peer, this message is sent back as evidence.
     LastEdge(Edge),

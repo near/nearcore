@@ -37,11 +37,24 @@ impl NetworkState {
 
     /// Constructs a partial edge to the given peer with the nonce specified.
     /// If nonce is None, nonce is selected automatically.
-    pub fn propose_edge(&self, peer1: &PeerId, with_nonce: Option<u64>) -> PartialEdgeInfo {
+    pub fn propose_edge(
+        &self,
+        clock: &time::Clock,
+        peer1: &PeerId,
+        with_nonce: Option<u64>,
+    ) -> PartialEdgeInfo {
         // When we create a new edge we increase the latest nonce by 2 in case we miss a removal
         // proposal from our partner.
         let nonce = with_nonce.unwrap_or_else(|| {
-            self.graph.load().local_edges.get(peer1).map_or(1, |edge| edge.next())
+            let nonce = Edge::create_fresh_nonce(clock);
+            // If we already had a connection to this peer - check that edge's nonce.
+            // And use either that one or the one from the current timestamp.
+            // We would use existing edge's nonce, if we were trying to connect to a given peer multiple times per second.
+            self.graph
+                .load()
+                .local_edges
+                .get(peer1)
+                .map_or(nonce, |edge| std::cmp::max(edge.next(), nonce))
         });
         PartialEdgeInfo::new(&self.config.node_id(), peer1, nonce, &self.config.node_key)
     }
@@ -77,6 +90,22 @@ impl NetworkState {
         // instead, however that would be backward incompatible, so it can be introduced in
         // PROTOCOL_VERSION 60 earliest.
         let (edges, ok) = self.graph.verify(edges).await;
+        let result = match ok {
+            true => Ok(()),
+            false => Err(ReasonForBan::InvalidEdge),
+        };
+        // Skip recomputation if no new edges have been verified.
+        if edges.len() == 0 {
+            return result;
+        }
+
+        // Select local edges (where we are one of the peers) - and update the peer's Connection nonces.
+        for e in &edges {
+            if let Some(_) = e.other(&self.config.node_id()) {
+                self.tier2.update_edge(&e);
+            }
+        }
+
         let this = self.clone();
         let clock = clock.clone();
         let _ = self
@@ -96,6 +125,7 @@ impl NetworkState {
                     }
                 }
                 // Broadcast new edges to all other peers.
+                this.config.event_sink.push(Event::EdgesAdded(edges.clone()));
                 this.broadcast_routing_table_update(RoutingTableUpdate::from_edges(edges));
                 results
             })
@@ -107,9 +137,6 @@ impl NetworkState {
         // node. The node would then validate all the edges every time, then reject the whole set
         // because just the last edge was invalid. Instead, we accept all the edges verified so
         // far and return an error only afterwards.
-        match ok {
-            true => Ok(()),
-            false => Err(ReasonForBan::InvalidEdge),
-        }
+        result
     }
 }

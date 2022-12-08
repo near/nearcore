@@ -37,6 +37,7 @@ near-vm-errors = { path = "../near-vm-errors" }
 [dev-dependencies]
 hex.workspace = true
 serde_json = { workspace = true, features = ["preserve_order"] }
+expect-test.workspace = true
 
 [features]
 default = []
