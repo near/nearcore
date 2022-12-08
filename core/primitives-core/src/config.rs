@@ -509,7 +509,7 @@ impl ExtCosts {
             ExtCosts::ed25519_verify_byte => Parameter::WasmEd25519VerifyByte,
             ExtCosts::bls12381_verify_base => Parameter::WasmBls12381VerifyBase,
             ExtCosts::bls12381_verify_byte => Parameter::WasmBls12381VerifyByte,
-            ExtCosts::bls12381_verify_elements =>  Parameter::WasmBls12381VerifyElements,
+            ExtCosts::bls12381_verify_elements => Parameter::WasmBls12381VerifyElements,
             ExtCosts::log_base => Parameter::WasmLogBase,
             ExtCosts::log_byte => Parameter::WasmLogByte,
             ExtCosts::storage_write_base => Parameter::WasmStorageWriteBase,
