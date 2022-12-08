@@ -59,8 +59,11 @@
                             peer_status_map.set(peer_class, 1);
                         }
 
+                        let last_ping = convertTime(peer.last_time_received_message_millis)
                         let last_ping_class = ""
-                        if (peer.last_time_received_message_millis > 60 * 1000) {
+                        if (node_public_key == peer_id) {
+                            last_ping = "N/A"
+                        } else if (peer.last_time_received_message_millis > 60 * 1000) {
                             last_ping_class = "peer_far_behind";
                         }
 
