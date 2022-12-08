@@ -35,6 +35,7 @@ use near_primitives::state_part::PartId;
 use near_primitives::state_record::{state_record_to_account_id, StateRecord};
 use near_primitives::syncing::{get_num_state_parts, STATE_PART_MEMORY_LIMIT};
 use near_primitives::transaction::SignedTransaction;
+#[cfg(feature = "protocol_feature_flat_state")]
 use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_raw_key;
 use near_primitives::types::validator_stake::ValidatorStakeIter;
 use near_primitives::types::{
@@ -732,7 +733,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn remove_flat_storage_state_for_shard(
         &self,
         shard_id: ShardId,
-        epoch_id: &EpochId,
+        #[allow(unused)] epoch_id: &EpochId,
     ) -> Result<(), Error> {
         match self.flat_state_factory.remove_flat_storage_state_for_shard(shard_id) {
             None => {}
