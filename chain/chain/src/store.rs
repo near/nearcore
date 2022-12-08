@@ -2976,11 +2976,11 @@ mod tests {
     use near_primitives::merkle::PartialMerkleTree;
 
     use near_chain_configs::{GCConfig, GenesisConfig};
-    use near_crypto::KeyType;
     use near_primitives::block::{Block, Tip};
     use near_primitives::epoch_manager::block_info::BlockInfo;
     use near_primitives::errors::InvalidTxError;
     use near_primitives::hash::hash;
+    use near_primitives::test_utils::create_test_signer;
     use near_primitives::types::{BlockHeight, EpochId, NumBlocks};
     use near_primitives::utils::index_to_bytes;
     use near_primitives::validator_signer::InMemoryValidatorSigner;
@@ -3018,11 +3018,7 @@ mod tests {
         let transaction_validity_period = 5;
         let mut chain = get_chain();
         let genesis = chain.get_block_by_height(0).unwrap();
-        let signer = Arc::new(InMemoryValidatorSigner::from_seed(
-            "test1".parse().unwrap(),
-            KeyType::ED25519,
-            "test1",
-        ));
+        let signer = Arc::new(create_test_signer("test1"));
         let short_fork = vec![Block::empty_with_height(&genesis, 1, &*signer)];
         let mut store_update = chain.mut_store().store_update();
         store_update.save_block_header(short_fork[0].header().clone()).unwrap();
@@ -3076,11 +3072,7 @@ mod tests {
         let transaction_validity_period = 5;
         let mut chain = get_chain();
         let genesis = chain.get_block_by_height(0).unwrap();
-        let signer = Arc::new(InMemoryValidatorSigner::from_seed(
-            "test1".parse().unwrap(),
-            KeyType::ED25519,
-            "test1",
-        ));
+        let signer = Arc::new(create_test_signer("test1"));
         let mut blocks = vec![];
         let mut prev_block = genesis;
         for i in 1..(transaction_validity_period + 2) {
@@ -3130,11 +3122,7 @@ mod tests {
         let transaction_validity_period = 5;
         let mut chain = get_chain();
         let genesis = chain.get_block_by_height(0).unwrap();
-        let signer = Arc::new(InMemoryValidatorSigner::from_seed(
-            "test1".parse().unwrap(),
-            KeyType::ED25519,
-            "test1",
-        ));
+        let signer = Arc::new(create_test_signer("test1"));
         let mut short_fork = vec![];
         let mut prev_block = genesis.clone();
         for i in 1..(transaction_validity_period + 2) {
@@ -3180,11 +3168,7 @@ mod tests {
     fn test_cache_invalidation() {
         let mut chain = get_chain();
         let genesis = chain.get_block_by_height(0).unwrap();
-        let signer = Arc::new(InMemoryValidatorSigner::from_seed(
-            "test1".parse().unwrap(),
-            KeyType::ED25519,
-            "test1",
-        ));
+        let signer = Arc::new(create_test_signer("test1"));
         let block1 = Block::empty_with_height(&genesis, 1, &*signer);
         let mut block2 = block1.clone();
         block2.mut_header().get_mut().inner_lite.epoch_id = EpochId(hash(&[1, 2, 3]));
@@ -3225,11 +3209,7 @@ mod tests {
         let mut chain = get_chain_with_epoch_length(1);
         let runtime_adapter = chain.runtime_adapter.clone();
         let genesis = chain.get_block_by_height(0).unwrap();
-        let signer = Arc::new(InMemoryValidatorSigner::from_seed(
-            "test1".parse().unwrap(),
-            KeyType::ED25519,
-            "test1",
-        ));
+        let signer = Arc::new(create_test_signer("test1"));
         let mut prev_block = genesis;
         let mut blocks = vec![prev_block.clone()];
         for i in 1..15 {
@@ -3317,11 +3297,7 @@ mod tests {
         let mut chain = get_chain();
         let runtime_adapter = chain.runtime_adapter.clone();
         let genesis = chain.get_block_by_height(0).unwrap();
-        let signer = Arc::new(InMemoryValidatorSigner::from_seed(
-            "test1".parse().unwrap(),
-            KeyType::ED25519,
-            "test1",
-        ));
+        let signer = Arc::new(create_test_signer("test1"));
         let mut prev_block = genesis;
         let mut blocks = vec![prev_block.clone()];
         for i in 1..10 {
@@ -3389,11 +3365,7 @@ mod tests {
     fn test_clear_old_data_too_many_heights_common(gc_blocks_limit: NumBlocks) {
         let mut chain = get_chain_with_epoch_length(1);
         let genesis = chain.get_block_by_height(0).unwrap();
-        let signer = Arc::new(InMemoryValidatorSigner::from_seed(
-            "test1".parse().unwrap(),
-            KeyType::ED25519,
-            "test1",
-        ));
+        let signer = Arc::new(create_test_signer("test1"));
         let mut prev_block = genesis.clone();
         let mut blocks = vec![prev_block.clone()];
         {
@@ -3474,11 +3446,7 @@ mod tests {
         let mut chain = get_chain();
         let runtime_adapter = chain.runtime_adapter.clone();
         let genesis = chain.get_block_by_height(0).unwrap();
-        let signer = Arc::new(InMemoryValidatorSigner::from_seed(
-            "test1".parse().unwrap(),
-            KeyType::ED25519,
-            "test1",
-        ));
+        let signer = Arc::new(create_test_signer("test1"));
         let mut prev_block = genesis;
         let mut blocks = vec![prev_block.clone()];
         for i in 1..10 {
