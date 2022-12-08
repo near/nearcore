@@ -71,12 +71,19 @@ mod tests {
 
     #[test]
     fn check_memory() {
+        const PAGE: u64 = WASM_PAGE_SIZE as u64;
+
         let memory = super::WasmerMemory::new(1, 1);
-        memory.check_memory(0, WASM_PAGE_SIZE).unwrap();
-        memory.check_memory(WASM_PAGE_SIZE / 2, WASM_PAGE_SIZE / 2).unwrap();
-        memory.check_memory(WASM_PAGE_SIZE - 1 , 1).unwrap();
-        memory.check_memory(1, WASM_PAGE_SIZE).unwrap_err();
-        memory.check_memory(WASM_PAGE_SIZE - 1 , 2).unwrap_err();
+
+        memory.check_memory(0, PAGE).unwrap();
+        memory.check_memory(PAGE / 2, PAGE as u64 / 2).unwrap();
+        memory.check_memory(PAGE - 1, 1).unwrap();
+        memory.check_memory(PAGE, 0).unwrap();
+
+        memory.check_memory(0, PAGE + 1).unwrap_err();
+        memory.check_memory(1, PAGE).unwrap_err();
+        memory.check_memory(PAGE - 1, 2).unwrap_err();
+        memory.check_memory(PAGE, 1).unwrap_err();
     }
 
     #[test]

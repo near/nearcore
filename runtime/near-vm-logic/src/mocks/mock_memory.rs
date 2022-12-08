@@ -15,8 +15,7 @@ impl MemoryLike for MockedMemory {
     }
 
     fn write_memory(&mut self, offset: u64, buffer: &[u8]) -> Result<(), ()> {
-        let dest =
-            unsafe { std::slice::from_raw_parts_mut(offset as *mut u8, buffer.len()) };
+        let dest = unsafe { std::slice::from_raw_parts_mut(offset as *mut u8, buffer.len()) };
         dest.copy_from_slice(buffer);
         Ok(())
     }

@@ -186,7 +186,7 @@ impl<'a> VMLogic<'a> {
         // This check is redundant in the sense that read_memory will perform it
         // as well however it’s here to validate that `len` is a valid value.
         // See documentation of MemoryLike::read_memory for more information.
-        self.memory.check_memory(offset, len)?;
+        self.memory.fits_memory(offset, len).map_err(|_| HostError::MemoryAccessViolation)?;
         let mut buf = vec![0; len as usize];
         self.memory.read_memory(offset, &mut buf).map_err(|_| HostError::MemoryAccessViolation)?;
         Ok(buf)
