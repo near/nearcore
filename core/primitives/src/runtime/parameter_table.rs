@@ -1,5 +1,5 @@
 use super::config::{AccountCreationConfig, RuntimeConfig};
-use near_primitives_core::config::VMConfig;
+use near_primitives_core::config::{ExtCostsConfig, VMConfig};
 use near_primitives_core::parameter::{FeeParameter, Parameter};
 use near_primitives_core::runtime::fees::{RuntimeFeesConfig, StorageUsageConfig};
 use num_rational::Rational;
@@ -81,8 +81,11 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                 },
             },
             wasm_config: VMConfig {
-                ext_costs: serde_json::from_value(params.json_map(Parameter::ext_costs(), "wasm_"))
-                    .map_err(InvalidConfigError::WrongStructure)?,
+                ext_costs: ExtCostsConfig {
+                    costs: enum_map::enum_map! {
+                        cost => params.get_parsed(cost.param())?
+                    },
+                },
                 grow_mem_cost: params.get_parsed(Parameter::WasmGrowMemCost)?,
                 regular_op_cost: params.get_parsed(Parameter::WasmRegularOpCost)?,
                 limit_config: serde_json::from_value(params.json_map(Parameter::vm_limits(), ""))
