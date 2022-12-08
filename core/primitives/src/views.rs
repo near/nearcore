@@ -2323,6 +2323,13 @@ pub struct ExtCostsConfigView {
     #[cfg(feature = "protocol_feature_ed25519_verify")]
     pub ed25519_verify_byte: Gas,
 
+    /// Cost of getting bls12381 base
+    pub bls12381_verify_base: Gas,
+    /// Cost of getting bls12381 per byte
+    pub bls12381_verify_byte: Gas,
+    /// Cost of getting bls12381 elements
+    pub bls12381_verify_elements: Gas,
+
     /// Cost of calling ecrecover
     pub ecrecover_base: Gas,
 
@@ -2455,6 +2462,9 @@ impl From<near_primitives_core::config::ExtCostsConfig> for ExtCostsConfigView {
             ed25519_verify_base: config.cost(ExtCosts::ed25519_verify_base),
             #[cfg(feature = "protocol_feature_ed25519_verify")]
             ed25519_verify_byte: config.cost(ExtCosts::ed25519_verify_byte),
+            bls12381_verify_base: config.cost(ExtCosts::bls12381_verify_base),
+            bls12381_verify_byte: config.cost(ExtCosts::bls12381_verify_byte),
+            bls12381_verify_elements: config.cost(ExtCosts::bls12381_verify_elements),
             ecrecover_base: config.cost(ExtCosts::ecrecover_base),
             log_base: config.cost(ExtCosts::log_base),
             log_byte: config.cost(ExtCosts::log_byte),
@@ -2528,6 +2538,9 @@ impl From<ExtCostsConfigView> for near_primitives_core::config::ExtCostsConfig {
                 ExtCosts::ed25519_verify_base => view.ed25519_verify_base,
                 #[cfg(feature = "protocol_feature_ed25519_verify")]
                 ExtCosts::ed25519_verify_byte => view.ed25519_verify_byte,
+                ExtCosts::bls12381_verify_base => view.bls12381_verify_base,
+                ExtCosts::bls12381_verify_byte => view.bls12381_verify_byte,
+                ExtCosts::bls12381_verify_elements => view.bls12381_verify_elements,
                 ExtCosts::ecrecover_base => view.ecrecover_base,
                 ExtCosts::log_base => view.log_base,
                 ExtCosts::log_byte => view.log_byte,
