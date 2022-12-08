@@ -463,6 +463,22 @@ impl RunCmd {
         let storage =
             nearcore::open_storage(home_dir, &mut near_config).expect("storage can not access");
         let store = storage.get_store(Temperature::Hot);
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let _subscriber_guard = runtime.block_on(async {
+            default_subscriber_with_opentelemetry(
+                make_env_filter(_verbose_target).unwrap(),
+                o11y_opts,
+                near_config.client_config.chain_id.clone(),
+                near_config.network_config.node_key.public_key().clone(),
+                near_config
+                    .network_config
+                    .validator
+                    .as_ref()
+                    .map(|validator| validator.account_id()),
+            )
+            .await
+            .global()
+        });
 
         loop {
             // reload signer
@@ -471,6 +487,8 @@ impl RunCmd {
                     .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
             near_config.validator_signer = validator_signer;
 
+            // Currently, tokio runtime did not reuse for actix system,
+            // because actix system only can reuse tokio runtime not tokio handle,
             let sys = actix::System::new();
             let tx_crash = tx.clone();
             let rx_crash = tx.subscribe();
@@ -479,22 +497,6 @@ impl RunCmd {
             let config = near_config.clone();
 
             let _ = sys.block_on(async move {
-                // Initialize the subscriber that takes care of both logging and tracing.
-                #[cfg(not(feature = "watch_config"))]
-                let _subscriber_guard = default_subscriber_with_opentelemetry(
-                    make_env_filter(_verbose_target).unwrap(),
-                    o11y_opts,
-                    config.client_config.chain_id.clone(),
-                    config.network_config.node_key.public_key().clone(),
-                    config
-                        .network_config
-                        .validator
-                        .as_ref()
-                        .map(|validator| validator.account_id()),
-                )
-                .await
-                .global();
-
                 let nearcore::NearNode { rpc_servers, .. } =
                     nearcore::start_with_config_and_synchronization(
                         home_dir,
@@ -511,9 +513,6 @@ impl RunCmd {
                 }))
                 .await;
                 actix::System::current().stop();
-                // Disable the subscriber to properly shutdown the tracer.
-                #[cfg(not(feature = "watch_config"))]
-                near_o11y::reload(Some("error"), None, Some(OpenTelemetryLevel::OFF)).unwrap();
                 tx_sig.send(sig)
             });
             sys.run().unwrap();
@@ -531,6 +530,7 @@ impl RunCmd {
             }
         }
         info!(target: "neard", "Waiting for RocksDB to gracefully shutdown");
+        near_o11y::reload(Some("error"), None, Some(OpenTelemetryLevel::OFF)).unwrap();
         RocksDB::block_until_all_instances_are_dropped();
     }
 }
