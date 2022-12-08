@@ -589,6 +589,7 @@ impl PeerManagerActor {
     }
 
     pub(crate) fn get_network_info(&self) -> NetworkInfo {
+        let tier1 = self.state.tier1.load();
         let tier2 = self.state.tier2.load();
         let now = self.clock.now();
         let graph = self.state.graph.load();
@@ -607,6 +608,7 @@ impl PeerManagerActor {
         };
         NetworkInfo {
             connected_peers: tier2.ready.values().map(connected_peer).collect(),
+            tier1_connections: tier1.ready.values().map(connected_peer).collect(),
             num_connected_peers: tier2.ready.len(),
             peer_max_count: self.state.max_num_peers.load(Ordering::Relaxed),
             highest_height_peers: self.highest_height_peers(),
@@ -634,7 +636,7 @@ impl PeerManagerActor {
                     next_hops: self.state.graph.routing_table.view_route(&announce_account.peer_id),
                 })
                 .collect(),
-            tier1_accounts: self.state.accounts_data.load().data.values().cloned().collect(),
+            tier1_accounts_data: self.state.accounts_data.load().data.values().cloned().collect(),
         }
     }
 

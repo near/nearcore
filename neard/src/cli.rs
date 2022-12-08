@@ -564,6 +564,7 @@ impl LocalnetCmd {
             self.validators,
             self.non_validators,
             &self.prefix,
+            true,
             self.archival_nodes,
             self.fixed_shards,
         );

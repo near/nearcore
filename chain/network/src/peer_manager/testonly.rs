@@ -140,6 +140,13 @@ impl ActorHandler {
         }
     }
 
+    pub async fn send_outbound_connect(&self, peer_info: &PeerInfo, tier: tcp::Tier) {
+        let addr = self.actix.addr.clone();
+        let peer_info = peer_info.clone();
+        let stream = tcp::Stream::connect(&peer_info, tier).await.unwrap();
+        addr.do_send(PeerManagerMessageRequest::OutboundTcpConnect(stream).with_span_context());
+    }
+
     pub fn connect_to(
         &self,
         peer_info: &PeerInfo,
@@ -355,6 +362,25 @@ impl ActorHandler {
         }
     }
 
+    pub async fn wait_for_direct_connection(&self, target_peer_id: PeerId) {
+        let mut events = self.events.from_now();
+        loop {
+            let connections =
+                self.with_state(|s| async move { s.tier2.load().ready.clone() }).await;
+
+            if connections.contains_key(&target_peer_id) {
+                return;
+            }
+
+            events
+                .recv_until(|ev| match ev {
+                    Event::PeerManager(PME::HandshakeCompleted { .. }) => Some(()),
+                    _ => None,
+                })
+                .await;
+        }
+    }
+
     // Awaits until the routing_table matches `want`.
     pub async fn wait_for_routing_table(&self, want: &[(PeerId, Vec<PeerId>)]) {
         let mut events = self.events.from_now();
@@ -388,6 +414,22 @@ impl ActorHandler {
             events
                 .recv_until(|ev| match ev {
                     Event::PeerManager(PME::AccountsAdded(_)) => Some(()),
+                    _ => None,
+                })
+                .await;
+        }
+    }
+
+    pub async fn wait_for_num_connected_peers(&self, wanted: usize) {
+        let mut events = self.events.from_now();
+        loop {
+            let got = self.with_state(|s| async move { s.tier2.load().ready.len() }).await;
+            if got == wanted {
+                return;
+            }
+            events
+                .recv_until(|ev| match ev {
+                    Event::PeerManager(PME::EdgesAdded { .. }) => Some(()),
                     _ => None,
                 })
                 .await;

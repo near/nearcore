@@ -7,7 +7,7 @@ use assert_matches::assert_matches;
 use near_crypto::{InMemorySigner, KeyType};
 use near_jsonrpc_primitives::errors::ServerError;
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
-use near_primitives::config::ActionCosts;
+use near_primitives::config::{ActionCosts, ExtCosts};
 use near_primitives::errors::{
     ActionError, ActionErrorKind, InvalidAccessKeyError, InvalidTxError, TxExecutionError,
 };
@@ -1347,12 +1347,12 @@ fn get_trie_nodes_count(
     for cost in metadata.gas_profile.clone().unwrap_or_default().iter() {
         match cost.cost.as_str() {
             "TOUCHING_TRIE_NODE" => {
-                count.db_reads +=
-                    cost.gas_used / runtime_config.wasm_config.ext_costs.touching_trie_node;
+                count.db_reads += cost.gas_used
+                    / runtime_config.wasm_config.ext_costs.cost(ExtCosts::touching_trie_node);
             }
             "READ_CACHED_TRIE_NODE" => {
-                count.mem_reads +=
-                    cost.gas_used / runtime_config.wasm_config.ext_costs.read_cached_trie_node;
+                count.mem_reads += cost.gas_used
+                    / runtime_config.wasm_config.ext_costs.cost(ExtCosts::read_cached_trie_node);
             }
             _ => {}
         };

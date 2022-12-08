@@ -39,6 +39,11 @@ pub(crate) const LIMIT_PENDING_PEERS: usize = 60;
 /// We send these messages multiple times to reduce the chance that they are lost
 const IMPORTANT_MESSAGE_RESENT_COUNT: usize = 3;
 
+/// Size of LRU cache size of recent routed messages.
+/// It should be large enough to detect duplicates (i.e. all messages received during
+/// production of 1 block should fit).
+const RECENT_ROUTED_MESSAGES_CACHE_SIZE: usize = 10000;
+
 /// How long a peer has to be unreachable, until we prune it from the in-memory graph.
 const PRUNE_UNREACHABLE_PEERS_AFTER: time::Duration = time::Duration::hours(1);
 
@@ -97,6 +102,10 @@ pub(crate) struct NetworkState {
     pub peer_store: peer_store::PeerStore,
     /// A graph of the whole NEAR network.
     pub graph: Arc<crate::routing::Graph>,
+
+    /// Hashes of the body of recently received routed messages.
+    /// It allows us to determine whether messages arrived faster over TIER1 or TIER2 network.
+    pub recent_routed_messages: Mutex<lru::LruCache<CryptoHash, ()>>,
 
     /// Hash of messages that requires routing back to respective previous hop.
     /// Currently unused, as TIER1 messages do not require a response.
@@ -160,6 +169,9 @@ impl NetworkState {
             peer_store,
             accounts_data: Arc::new(accounts_data::Cache::new()),
             tier1_route_back: Mutex::new(RouteBackCache::default()),
+            recent_routed_messages: Mutex::new(lru::LruCache::new(
+                RECENT_ROUTED_MESSAGES_CACHE_SIZE,
+            )),
             txns_since_last_block: AtomicUsize::new(0),
             whitelist_nodes,
             max_num_peers: AtomicU32::new(config.max_num_peers),

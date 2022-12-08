@@ -1,5 +1,6 @@
 use assert_matches::assert_matches;
 use borsh::BorshSerialize;
+use near_primitives::test_utils::create_test_signer;
 
 use crate::tests::client::process_blocks::create_nightshade_runtimes;
 use near_chain::validate::validate_challenge;
@@ -24,7 +25,6 @@ use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, EpochId};
-use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
 use near_store::Trie;
@@ -99,8 +99,7 @@ fn test_verify_block_double_sign_challenge() {
 
     env.process_block(0, b1.clone(), Provenance::NONE);
 
-    let signer =
-        InMemoryValidatorSigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let signer = create_test_signer("test0");
     let mut block_merkle_tree = PartialMerkleTree::default();
     block_merkle_tree.insert(*genesis.hash());
     let b2 = Block::produce(
@@ -333,8 +332,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         ))])
         .build();
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
-    let validator_signer =
-        InMemoryValidatorSigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let validator_signer = create_test_signer("test0");
     let genesis_hash = *env.clients[0].chain.genesis().hash();
     env.produce_block(0, 1);
     env.clients[0].process_tx(

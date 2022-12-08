@@ -26,8 +26,8 @@ use std::sync::Arc;
 /// Exported types, which are part of network protocol.
 pub use crate::network_protocol::{
     Edge, PartialEdgeInfo, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
-    PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerIdOrHash, PeerInfo, Ping, Pong,
-    StateResponseInfo, StateResponseInfoV1, StateResponseInfoV2,
+    PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerInfo, Ping, Pong, StateResponseInfo,
+    StateResponseInfoV1, StateResponseInfoV2,
 };
 
 /// Number of hops a message is allowed to travel before being dropped.
@@ -355,6 +355,7 @@ pub struct ConnectedPeerInfo {
 
 #[derive(Debug, Clone, actix::MessageResponse)]
 pub struct NetworkInfo {
+    /// TIER2 connections.
     pub connected_peers: Vec<ConnectedPeerInfo>,
     pub num_connected_peers: usize,
     pub peer_max_count: u32,
@@ -363,7 +364,10 @@ pub struct NetworkInfo {
     pub received_bytes_per_sec: u64,
     /// Accounts of known block and chunk producers from routing table.
     pub known_producers: Vec<KnownProducer>,
-    pub tier1_accounts: Vec<Arc<SignedAccountData>>,
+    /// Collected data about the current TIER1 accounts.
+    pub tier1_accounts_data: Vec<Arc<SignedAccountData>>,
+    /// TIER1 connections.
+    pub tier1_connections: Vec<ConnectedPeerInfo>,
 }
 
 #[derive(Debug, actix::MessageResponse, PartialEq, Eq)]

@@ -713,9 +713,9 @@ mod tests {
     use near_crypto::{KeyType, SecretKey};
     use near_primitives::block::{Approval, ApprovalInner};
     use near_primitives::hash::hash;
+    use near_primitives::test_utils::create_test_signer;
     use near_primitives::time::Clock;
     use near_primitives::types::ApprovalStake;
-    use near_primitives::validator_signer::InMemoryValidatorSigner;
 
     use crate::doomslug::{
         DoomslugApprovalsTrackersAtHeight, DoomslugBlockProductionReadiness, DoomslugThresholdMode,
@@ -730,11 +730,7 @@ mod tests {
             Duration::from_millis(1000),
             Duration::from_millis(100),
             Duration::from_millis(3000),
-            Some(Arc::new(InMemoryValidatorSigner::from_seed(
-                "test".parse().unwrap(),
-                KeyType::ED25519,
-                "test",
-            ))),
+            Some(Arc::new(create_test_signer("test"))),
             DoomslugThresholdMode::TwoThirds,
         );
 
@@ -870,20 +866,10 @@ mod tests {
             .collect::<Vec<_>>();
         let signers = accounts
             .iter()
-            .map(|(account_id, _, _)| {
-                InMemoryValidatorSigner::from_seed(
-                    account_id.parse().unwrap(),
-                    KeyType::ED25519,
-                    account_id,
-                )
-            })
+            .map(|(account_id, _, _)| create_test_signer(account_id))
             .collect::<Vec<_>>();
 
-        let signer = Arc::new(InMemoryValidatorSigner::from_seed(
-            "test".parse().unwrap(),
-            KeyType::ED25519,
-            "test",
-        ));
+        let signer = Arc::new(create_test_signer("test"));
         let mut ds = Doomslug::new(
             0,
             Duration::from_millis(400),
@@ -998,13 +984,7 @@ mod tests {
         let accounts = vec![("test1", 2, 0), ("test2", 1, 2), ("test3", 3, 3), ("test4", 2, 2)];
         let signers = accounts
             .iter()
-            .map(|(account_id, _, _)| {
-                InMemoryValidatorSigner::from_seed(
-                    account_id.parse().unwrap(),
-                    KeyType::ED25519,
-                    account_id,
-                )
-            })
+            .map(|(account_id, _, _)| create_test_signer(account_id))
             .collect::<Vec<_>>();
         let stakes = accounts
             .into_iter()
