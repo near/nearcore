@@ -3143,7 +3143,7 @@ impl Chain {
     }
 
     pub fn schedule_apply_state_parts(
-        &mut self,
+        &self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
         num_parts: u64,
@@ -3225,7 +3225,7 @@ impl Chain {
     }
 
     pub fn build_state_for_split_shards_preprocessing(
-        &mut self,
+        &self,
         sync_hash: &CryptoHash,
         shard_id: ShardId,
         state_split_scheduler: &dyn Fn(StateSplitRequest),

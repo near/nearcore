@@ -7,29 +7,57 @@ use near_vm_errors::VMLogicError;
 
 /// An abstraction over the memory of the smart contract.
 pub trait MemoryLike {
-    /// Returns whether the memory interval is completely inside the smart contract memory.
-    fn fits_memory(&self, offset: u64, len: u64) -> bool;
+    /// Returns success if the memory interval is completely inside smart
+    /// contract’s memory.
+    ///
+    /// You often don’t need to use this method since [`Self::read_memory`] and
+    /// [`Self::write_memory`] will perform the check, however it may be
+    /// necessary to prevent potential denial of service attacks.  See
+    /// [`Self::read_memory`] for description.
+    fn fits_memory(&self, offset: u64, len: u64) -> Result<(), ()>;
 
     /// Reads the content of the given memory interval.
     ///
-    /// # Panics
+    /// Returns error if the memory interval isn’t completely inside the smart
+    /// contract memory.
     ///
-    /// If memory interval is outside the smart contract memory.
-    fn read_memory(&self, offset: u64, buffer: &mut [u8]);
-
-    /// Reads a single byte from the memory.
+    /// # Potential denial of service
     ///
-    /// # Panics
+    /// Note that improper use of this function may lead to denial of service
+    /// attacks.  For example, consider the following function:
     ///
-    /// If pointer is outside the smart contract memory.
-    fn read_memory_u8(&self, offset: u64) -> u8;
+    /// ```
+    /// # use near_vm_logic::MemoryLike;
+    ///
+    /// fn read_vec(mem: &dyn MemoryLike, ptr: u64, len: u64) -> Result<Vec<u8>, ()> {
+    ///     let mut vec = vec![0; usize::try_from(len).map_err(|_| ())?];
+    ///     mem.read_memory(ptr, &mut vec[..])?;
+    ///     Ok(vec)
+    /// }
+    /// ```
+    ///
+    /// If attacker controls `len` argument, it may cause attempt at allocation
+    /// of arbitrarily-large buffer and crash the program.  In situations like
+    /// this, it’s necessary to use [`Self::fits_memory`] method to verify that
+    /// the length is valid.  For example:
+    ///
+    /// ```
+    /// # use near_vm_logic::MemoryLike;
+    ///
+    /// fn read_vec(mem: &dyn MemoryLike, ptr: u64, len: u64) -> Result<Vec<u8>, ()> {
+    ///     mem.fits_memory(ptr, len)?;
+    ///     let mut vec = vec![0; len as usize];
+    ///     mem.read_memory(ptr, &mut vec[..])?;
+    ///     Ok(vec)
+    /// }
+    /// ```
+    fn read_memory(&self, offset: u64, buffer: &mut [u8]) -> Result<(), ()>;
 
     /// Writes the buffer into the smart contract memory.
     ///
-    /// # Panics
-    ///
-    /// If `offset + buffer.len()` is outside the smart contract memory.
-    fn write_memory(&mut self, offset: u64, buffer: &[u8]);
+    /// Returns error if the memory interval isn’t completely inside the smart
+    /// contract memory.
+    fn write_memory(&mut self, offset: u64, buffer: &[u8]) -> Result<(), ()>;
 }
 
 /// This enum represents if a storage_get call will be performed through flat storage or trie
@@ -38,7 +66,7 @@ pub enum StorageGetMode {
     Trie,
 }
 
-pub type Result<T> = ::std::result::Result<T, VMLogicError>;
+pub type Result<T, E = VMLogicError> = ::std::result::Result<T, E>;
 
 /// Logical pointer to a value in storage.
 /// Allows getting value length before getting the value itself. This is needed so that runtime

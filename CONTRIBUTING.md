@@ -67,7 +67,7 @@ following steps when creating a PR:
 2. The branch can contain any number of commits.  When merged, all commits will
    be squashed into a single commit.
 3. The changes should be thoroughly tested.  Please refer to [this
-   document](https://github.com/nearprotocol/nearcore/wiki/Writing-tests-for-nearcore)
+   document](https://github.com/near/nearcore/blob/master/docs/practices/testing/README.md)
    for our testing guidelines and an overview of the testing infrastructure.
 4. When ready, send a pull request against the `master` branch of the `nearcore`
    repository.

@@ -54,6 +54,53 @@ impl ChainAccess {
 
 #[async_trait(?Send)]
 impl crate::ChainAccess for ChainAccess {
+    async fn init(
+        &self,
+        last_height: BlockHeight,
+        num_initial_blocks: usize,
+    ) -> anyhow::Result<Vec<BlockHeight>> {
+        let mut block_heights = Vec::with_capacity(num_initial_blocks);
+        let head = self.head_height().await?;
+
+        let mut height = last_height + 1;
+        loop {
+            if height > head {
+                return Ok(block_heights);
+            }
+            match self.chain.get_block_hash_by_height(height) {
+                Ok(hash) => {
+                    block_heights.push(
+                        self.chain
+                            .get_block_header(&hash)
+                            .with_context(|| format!("failed fetching block header for {}", &hash))?
+                            .height(),
+                    );
+                    break;
+                }
+                Err(near_chain_primitives::Error::DBNotFoundErr(_)) => {
+                    height += 1;
+                }
+                Err(e) => {
+                    return Err(e)
+                        .with_context(|| format!("failed fetching block hash for #{}", height))
+                }
+            };
+        }
+        while block_heights.len() < num_initial_blocks {
+            let last_height = *block_heights.iter().next_back().unwrap();
+            match self.get_next_block_height(last_height).await {
+                Ok(h) => block_heights.push(h),
+                Err(ChainError::Unknown) => break,
+                Err(ChainError::Other(e)) => {
+                    return Err(e).with_context(|| {
+                        format!("failed getting next block height after {}", last_height)
+                    })
+                }
+            };
+        }
+        Ok(block_heights)
+    }
+
     async fn head_height(&self) -> Result<BlockHeight, ChainError> {
         Ok(self.chain.head()?.height)
     }
@@ -94,6 +141,12 @@ impl crate::ChainAccess for ChainAccess {
             })
         }
         Ok(chunks)
+    }
+
+    async fn get_next_block_height(&self, height: BlockHeight) -> Result<BlockHeight, ChainError> {
+        let hash = self.chain.get_block_hash_by_height(height)?;
+        let hash = self.chain.get_next_block_hash(&hash)?;
+        Ok(self.chain.get_block_header(&hash)?.height())
     }
 
     async fn get_outcome(

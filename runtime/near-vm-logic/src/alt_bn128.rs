@@ -1,4 +1,3 @@
-use crate::array_utils::ArrayChunks;
 use bn::Group;
 use near_vm_errors::{HostError, VMLogicError};
 
@@ -25,20 +24,17 @@ impl From<InvalidInput> for VMLogicError {
 
 pub(crate) fn split_elements<const ELEMENT_SIZE: usize>(
     data: &[u8],
-) -> Result<ArrayChunks<'_, ELEMENT_SIZE>, InvalidInput> {
-    ArrayChunks::new(data).map_err(|()| {
-        let msg =
-            format!("invalid array, byte length {}, element size {}", data.len(), ELEMENT_SIZE);
-        InvalidInput { msg }
-    })
+) -> Result<&[[u8; ELEMENT_SIZE]], InvalidInput> {
+    stdx::as_chunks_exact(data).map_err(|e| InvalidInput { msg: e.to_string() })
 }
 
 const G1_MULTIEXP_ELEMENT_SIZE: usize = POINT_SIZE + SCALAR_SIZE;
 
 pub(crate) fn g1_multiexp(
-    elements: ArrayChunks<'_, G1_MULTIEXP_ELEMENT_SIZE>,
+    elements: &[[u8; G1_MULTIEXP_ELEMENT_SIZE]],
 ) -> Result<[u8; POINT_SIZE], InvalidInput> {
     let elements: Vec<(bn::G1, bn::Fr)> = elements
+        .iter()
         .map(|chunk| {
             let (g1, fr) = stdx::split_array(chunk);
             let g1 = decode_g1(g1)?;
@@ -55,10 +51,11 @@ pub(crate) fn g1_multiexp(
 const G1_SUM_ELEMENT_SIZE: usize = BOOL_SIZE + POINT_SIZE;
 
 pub(crate) fn g1_sum(
-    elements: ArrayChunks<'_, G1_SUM_ELEMENT_SIZE>,
+    elements: &[[u8; G1_SUM_ELEMENT_SIZE]],
 ) -> Result<[u8; POINT_SIZE], InvalidInput> {
     let elements: Vec<(bool, bn::G1)> = {
         elements
+            .iter()
             .map(|chunk| {
                 let (sign, g1) = stdx::split_array(chunk);
                 let sign = decode_bool(sign)?;
@@ -78,9 +75,10 @@ pub(crate) fn g1_sum(
 const PAIRING_CHECK_ELEMENT_SIZE: usize = POINT_SIZE + POINT_SIZE * 2;
 
 pub(crate) fn pairing_check(
-    elements: ArrayChunks<'_, PAIRING_CHECK_ELEMENT_SIZE>,
+    elements: &[[u8; PAIRING_CHECK_ELEMENT_SIZE]],
 ) -> Result<bool, InvalidInput> {
     let elements: Vec<(bn::G1, bn::G2)> = elements
+        .iter()
         .map(|chunk| {
             let (g1, g2) = stdx::split_array(chunk);
             let g1 = decode_g1(g1)?;
