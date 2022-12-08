@@ -1,5 +1,4 @@
 use crate::accounts_data;
-use crate::concurrency::arc_mutex::ArcMutex;
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
 use crate::network_protocol::{
@@ -586,7 +585,6 @@ impl PeerActor {
             tier,
             addr: ctx.address(),
             peer_info: peer_info.clone(),
-            edge: ArcMutex::new(edge),
             owned_account: handshake.owned_account.clone(),
             genesis_id: handshake.sender_chain_info.genesis_id.clone(),
             tracked_shards: handshake.sender_chain_info.tracked_shards.clone(),
@@ -658,7 +656,8 @@ impl PeerActor {
             let network_state = self.network_state.clone();
             let clock = self.clock.clone();
             let conn = conn.clone();
-            async move { network_state.register(&clock,conn).await }
+            let edge = edge.clone();
+            async move { network_state.register(&clock,edge,conn).await }
         })
             .map(move |res, act: &mut PeerActor, ctx| {
                 match res {
@@ -766,7 +765,7 @@ impl PeerActor {
 
                         act.network_state.config.event_sink.push(Event::HandshakeCompleted(HandshakeCompletedEvent{
                             stream_id: act.stream_id,
-                            edge: conn.edge.load().as_ref().clone(),
+                            edge,
                             tier: conn.tier,
                         }));
                     },
@@ -1117,27 +1116,26 @@ impl PeerActor {
                 let network_state = self.network_state.clone();
                 ctx.spawn(wrap_future(async move {
                     let peer_id = &conn.peer_info.id;
-                    let edge = match network_state.graph.load().local_edges.get(peer_id) {
+                    match network_state.graph.load().local_edges.get(peer_id) {
                         Some(cur_edge)
                             if cur_edge.edge_type() == EdgeState::Active
                                 && cur_edge.nonce() >= edge_info.nonce =>
                         {
-                            cur_edge.clone()
+                            // Found a newer local edge, so just send it to the peer.
+                            conn.send_message(Arc::new(PeerMessage::SyncRoutingTable(
+                                RoutingTableUpdate::from_edges(vec![cur_edge.clone()]),
+                            )));
                         }
-                        _ => match network_state
-                            .finalize_edge(&clock, peer_id.clone(), edge_info)
-                            .await
-                        {
-                            Ok(edge) => edge,
-                            Err(ban_reason) => {
+                        // Sign the edge and broadcast it to everyone (finalize_edge does both).
+                        _ => {
+                            if let Err(ban_reason) = network_state
+                                .finalize_edge(&clock, peer_id.clone(), edge_info)
+                                .await
+                            {
                                 conn.stop(Some(ban_reason));
-                                return;
                             }
-                        },
+                        }
                     };
-                    conn.send_message(Arc::new(PeerMessage::SyncRoutingTable(
-                        RoutingTableUpdate::from_edges(vec![edge]),
-                    )));
                     network_state
                         .config
                         .event_sink
