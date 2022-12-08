@@ -300,6 +300,9 @@ impl JsonRpcHandler {
                 process_method_call(request, |params| self.next_light_client_block(params)).await
             }
             "network_info" => process_method_call(request, |_params: ()| self.network_info()).await,
+            "tier1_network_info" => {
+                process_method_call(request, |_params: ()| self.tier1_network_info()).await
+            }
             "query" => {
                 let params = RpcRequest::parse(request.params)?;
                 let query_response = self.query(params).await;
@@ -1008,6 +1011,16 @@ impl JsonRpcHandler {
         Ok(network_info.rpc_into())
     }
 
+    async fn tier1_network_info(
+        &self,
+    ) -> Result<
+        near_jsonrpc_primitives::types::network_info::RpcNetworkInfoResponse,
+        near_jsonrpc_primitives::types::network_info::RpcNetworkInfoError,
+    > {
+        let network_info = self.client_send(GetNetworkInfo {}).await?;
+        Ok(network_info.rpc_into())
+    }
+
     async fn gas_price(
         &self,
         request_data: near_jsonrpc_primitives::types::gas_price::RpcGasPriceRequest,
@@ -1371,6 +1384,18 @@ fn network_info_handler(
     response.boxed()
 }
 
+fn tier1_network_info_handler(
+    handler: web::Data<JsonRpcHandler>,
+) -> impl Future<Output = Result<HttpResponse, HttpError>> {
+    let response = async move {
+        match handler.tier1_network_info().await {
+            Ok(value) => Ok(HttpResponse::Ok().json(&value)),
+            Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
+        }
+    };
+    response.boxed()
+}
+
 pub async fn prometheus_handler() -> Result<HttpResponse, HttpError> {
     metrics::PROMETHEUS_REQUEST_COUNT.inc();
 
@@ -1425,6 +1450,7 @@ async fn display_debug_html(
         "network_info" => Some(debug_page_string!("network_info.html", handler)),
         "network_info.css" => Some(debug_page_string!("network_info.css", handler)),
         "network_info.js" => Some(debug_page_string!("network_info.js", handler)),
+        "tier1_network_info" => Some(debug_page_string!("tier1_network_info.html", handler)),
         "epoch_info" => Some(debug_page_string!("epoch_info.html", handler)),
         "chain_n_chunk_info" => Some(debug_page_string!("chain_n_chunk_info.html", handler)),
         "sync" => Some(debug_page_string!("sync.html", handler)),
@@ -1497,6 +1523,10 @@ pub fn start_http(
                     .route(web::head().to(health_handler)),
             )
             .service(web::resource("/network_info").route(web::get().to(network_info_handler)))
+            .service(
+                web::resource("/tier1_network_info")
+                    .route(web::get().to(tier1_network_info_handler)),
+            )
             .service(web::resource("/metrics").route(web::get().to(prometheus_handler)))
             .service(web::resource("/debug/api/{api}").route(web::get().to(debug_handler)))
             .service(
