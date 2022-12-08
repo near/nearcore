@@ -3364,7 +3364,6 @@ impl Chain {
         let prev_block = self.store.get_block(block.header().prev_hash())?;
         let mut chain_update = self.chain_update();
         chain_update.apply_chunk_postprocessing(
-            me,
             &block,
             &prev_block,
             results.into_iter().collect::<Result<Vec<_>, Error>>()?,
@@ -4768,7 +4767,6 @@ impl<'a> ChainUpdate<'a> {
 
     fn apply_chunk_postprocessing(
         &mut self,
-        me: &Option<AccountId>,
         block: &Block,
         prev_block: &Block,
         apply_results: Vec<ApplyChunkResult>,
@@ -4776,7 +4774,6 @@ impl<'a> ChainUpdate<'a> {
         let _span = tracing::debug_span!(target: "chain", "apply_chunk_postprocessing").entered();
         for result in apply_results {
             self.process_apply_chunk_result(
-                me,
                 result,
                 *block.hash(),
                 block.header().height(),
@@ -4949,7 +4946,6 @@ impl<'a> ChainUpdate<'a> {
     /// Processed results of applying chunk
     fn process_apply_chunk_result(
         &mut self,
-        me: &Option<AccountId>,
         result: ApplyChunkResult,
         block_hash: CryptoHash,
         height: BlockHeight,
@@ -5071,7 +5067,7 @@ impl<'a> ChainUpdate<'a> {
             }
             x
         }).collect::<Result<Vec<_>, Error>>()?;
-        self.apply_chunk_postprocessing(me, block, &prev_block, results)?;
+        self.apply_chunk_postprocessing(block, &prev_block, results)?;
 
         let BlockPreprocessInfo {
             is_caught_up,

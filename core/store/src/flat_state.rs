@@ -412,6 +412,7 @@ impl FlatStateDelta {
 
 use near_primitives::errors::StorageError;
 use std::sync::{Arc, RwLock};
+#[cfg(feature = "protocol_feature_flat_state")]
 use tracing::info;
 
 /// FlatStorageState stores information on which blocks flat storage current supports key lookups on.
