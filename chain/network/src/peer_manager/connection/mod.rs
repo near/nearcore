@@ -2,7 +2,7 @@ use crate::concurrency::arc_mutex::ArcMutex;
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
 use crate::network_protocol::{
-    Edge, PeerInfo, PeerMessage, RoutedMessageBody, SignedAccountData, SignedOwnedAccount,
+    PeerInfo, PeerMessage, RoutedMessageBody, SignedAccountData, SignedOwnedAccount,
     SyncAccountsData,
 };
 use crate::peer::peer_actor;
@@ -78,7 +78,6 @@ pub(crate) struct Connection {
     pub addr: actix::Addr<PeerActor>,
 
     pub peer_info: PeerInfo,
-    pub edge: ArcMutex<Edge>,
     /// AccountKey ownership proof.
     pub owned_account: Option<SignedOwnedAccount>,
     /// Chain Id and hash of genesis block.
@@ -103,7 +102,7 @@ pub(crate) struct Connection {
     /// prometheus gauge point guard.
     pub _peer_connections_metric: metrics::GaugePoint,
 
-    /// A helper data structure for limiting reading, reporting stats.
+    /// Demultiplexer for the calls to send_accounts_data().
     pub send_accounts_data_demux: demux::Demux<Vec<Arc<SignedAccountData>>, ()>,
 }
 
@@ -111,7 +110,6 @@ impl fmt::Debug for Connection {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Connection")
             .field("peer_info", &self.peer_info)
-            .field("edge", &self.edge.load())
             .field("peer_type", &self.peer_type)
             .field("established_time", &self.established_time)
             .finish()
@@ -411,19 +409,6 @@ impl Pool {
                 }
             }
             ((), pool)
-        });
-    }
-    /// Update the edge in the pool (if it is newer).
-    pub fn update_edge(&self, new_edge: &Edge) {
-        let pool = self.load();
-        let Some(other) = new_edge.other(&pool.me) else { return };
-        let Some(conn) = pool.ready.get(other) else { return };
-        // Returns an error if the current edge is not older than new_edge.
-        let _ = conn.edge.try_update(|e| {
-            if e.nonce() >= new_edge.nonce() {
-                return Err(());
-            }
-            Ok(((), new_edge.clone()))
         });
     }
 
