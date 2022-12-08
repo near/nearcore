@@ -275,6 +275,10 @@ impl NetworkState {
                             return Err(RegisterPeerError::NotTier1Peer);
                         }
                     }
+                    let (_, ok) = this.graph.verify(vec![edge]).await;
+                    if !ok {
+                        return Err(RegisterPeerError::InvalidEdge);
+                    }
                     this.tier1.insert_ready(conn).map_err(RegisterPeerError::PoolError)?;
                 }
                 tcp::Tier::T2 => {

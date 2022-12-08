@@ -224,3 +224,89 @@ async fn owned_account_conflict() {
     drop(conn1);
     drop(pm);
 }
+
+#[tokio::test]
+async fn invalid_edge() {
+    init_test_logger();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
+    let pm = peer_manager::testonly::start(
+        clock.clock(),
+        near_store::db::TestDB::new(),
+        chain.make_config(rng),
+        chain.clone(),
+    )
+    .await;
+    let cfg = chain.make_config(rng);
+    let chain_info = peer_manager::testonly::make_chain_info(&chain, &[&cfg]);
+    pm.set_chain_info(chain_info).await;
+
+    let testcases = [
+        (
+            "wrong key",
+            PartialEdgeInfo::new(&cfg.node_id(), &pm.cfg.node_id(), 1, &data::make_secret_key(rng)),
+        ),
+        (
+            "wrong source",
+            PartialEdgeInfo::new(&data::make_peer_id(rng), &pm.cfg.node_id(), 1, &cfg.node_key),
+        ),
+        (
+            "wrong target",
+            PartialEdgeInfo::new(&cfg.node_id(), &data::make_peer_id(rng), 1, &cfg.node_key),
+        ),
+    ];
+
+    for (name, edge) in &testcases {
+        for tier in [tcp::Tier::T1, tcp::Tier::T2] {
+            tracing::info!(target:"test","{name} {tier:?}");
+            let stream = tcp::Stream::connect(&pm.peer_info(), tier).await.unwrap();
+            let stream_id = stream.id();
+            let port = stream.local_addr.port();
+            let mut events = pm.events.from_now();
+            let mut stream = Stream::new(Some(Encoding::Proto), stream);
+            let vc = cfg.validator.clone().unwrap();
+            let handshake = Handshake {
+                protocol_version: PROTOCOL_VERSION,
+                oldest_supported_version: PROTOCOL_VERSION,
+                sender_peer_id: cfg.node_id(),
+                target_peer_id: pm.cfg.node_id(),
+                sender_listen_port: Some(port),
+                sender_chain_info: chain.get_peer_chain_info(),
+                partial_edge_info: edge.clone(),
+                owned_account: Some(
+                    OwnedAccount {
+                        account_key: vc.signer.public_key().clone(),
+                        peer_id: cfg.node_id(),
+                        timestamp: clock.now_utc(),
+                    }
+                    .sign(vc.signer.as_ref()),
+                ),
+            };
+            let handshake = match tier {
+                tcp::Tier::T1 => PeerMessage::Tier1Handshake(handshake),
+                tcp::Tier::T2 => PeerMessage::Tier2Handshake(handshake),
+            };
+            stream.write(&handshake).await;
+            let reason = events
+                .recv_until(|ev| match ev {
+                    Event::PeerManager(PME::ConnectionClosed(ev)) if ev.stream_id == stream_id => {
+                        Some(ev.reason)
+                    }
+                    Event::PeerManager(PME::HandshakeCompleted(ev))
+                        if ev.stream_id == stream_id =>
+                    {
+                        panic!("PeerManager accepted the handshake")
+                    }
+                    _ => None,
+                })
+                .await;
+            assert_eq!(
+                ClosingReason::RejectedByPeerManager(RegisterPeerError::InvalidEdge),
+                reason
+            );
+        }
+    }
+}

@@ -64,12 +64,15 @@ pub fn unwrap_sync_accounts_data_processed(ev: Event) -> Option<SyncAccountsData
     }
 }
 
-pub(crate) fn make_chain_info(chain: &data::Chain, validators: &[&ActorHandler]) -> ChainInfo {
+pub(crate) fn make_chain_info(
+    chain: &data::Chain,
+    validators: &[&config::NetworkConfig],
+) -> ChainInfo {
     // Construct ChainInfo with tier1_accounts set to `validators`.
     let mut chain_info = chain.get_chain_info();
     let mut account_keys = AccountKeys::new();
-    for pm in validators {
-        let s = &pm.cfg.validator.as_ref().unwrap().signer;
+    for cfg in validators {
+        let s = &cfg.validator.as_ref().unwrap().signer;
         account_keys.entry(s.validator_id().clone()).or_default().insert(s.public_key());
     }
     chain_info.tier1_accounts = Arc::new(account_keys);
