@@ -183,6 +183,10 @@ impl<'a> VMLogic<'a> {
     fn memory_get_vec(&mut self, offset: u64, len: u64) -> Result<Vec<u8>> {
         self.gas_counter.pay_base(read_memory_base)?;
         self.gas_counter.pay_per(read_memory_byte, len)?;
+        // This check is redundant in the sense that read_memory will perform it
+        // as well however it’s here to validate that `len` is a valid value.
+        // See documentation of MemoryLike::read_memory for more information.
+        self.memory.check_memory(offset, len)?;
         let mut buf = vec![0; len as usize];
         self.memory.read_memory(offset, &mut buf).map_err(|_| HostError::MemoryAccessViolation)?;
         Ok(buf)
