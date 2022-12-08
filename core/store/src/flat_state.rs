@@ -734,7 +734,7 @@ impl FlatStorageStateInner {
     }
 
     /// Get deltas between blocks `target_block_hash`(inclusive) to flat head(exclusive),
-    /// in backwards chain order. Returns an error if there is no path between these two them.
+    /// in backwards chain order. Returns an error if there is no path between them.
     fn get_deltas_between_blocks(
         &self,
         target_block_hash: &CryptoHash,
@@ -851,7 +851,6 @@ impl FlatStorageState {
     /// Update the head of the flat storage, including updating the flat state in memory and on disk
     /// and updating the flat state to reflect the state at the new head. If updating to given head is not possible,
     /// returns an error.
-    // TODO (#7327): implement garbage collection of old deltas.
     #[cfg(feature = "protocol_feature_flat_state")]
     pub fn update_flat_head(&self, new_head: &CryptoHash) -> Result<(), FlatStorageError> {
         let mut guard = self.0.write().expect(POISONED_LOCK_ERR);
@@ -917,14 +916,10 @@ impl FlatStorageState {
         let shard_id = guard.shard_id;
         let block_height = block.height;
         info!(target: "chain", %shard_id, %block_hash, %block_height, "Adding block to flat storage");
-        let mut store_update = StoreUpdate::new(guard.store.storage.clone());
-        if guard.blocks.contains_key(block_hash) {
-            // apparently happens on set_state_finalize
-            return Ok(store_update);
-        }
         if !guard.blocks.contains_key(&block.prev_hash) {
             return Err(guard.create_block_not_supported_error(block_hash));
         }
+        let mut store_update = StoreUpdate::new(guard.store.storage.clone());
         store_helper::set_delta(&mut store_update, guard.shard_id, block_hash.clone(), &delta)?;
         guard.deltas.insert(*block_hash, Arc::new(delta));
         guard.blocks.insert(*block_hash, block);

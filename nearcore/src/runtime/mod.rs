@@ -738,12 +738,17 @@ impl RuntimeAdapter for NightshadeRuntime {
             Some(_) => {
                 #[cfg(feature = "protocol_feature_flat_state")]
                 {
-                    // will not work in case of resharding - need to remove items right after we stopped caring about shard
+                    // If flat storage state existed, remove all items belonging to the shard one by one.
+                    // Note that it does not work for resharding.
+                    // TODO (#7327): call it just after we stopped tracking a shard.
+                    // TODO (#7327): remove FlatStateDeltas. Consider custom serialization of keys to remove them by
+                    // prefix.
+                    // TODO (#7327): support range deletions which are much faster than naive deletions. For that, we
+                    // can delete ranges of keys like
+                    // [ [0]+boundary_accounts(shard_id) .. [0]+boundary_accounts(shard_id+1) ), etc.
+                    // We should also take fixed accounts into account
                     let shard_layout = self.get_shard_layout(epoch_id)?;
                     let mut store_update = self.store.store_update();
-                    // in the future, we should support range updates and delete ranges of keys
-                    // e.g. [ [0]+account_id(shard_id) .. [0]+account_id(shard_id+1) )
-                    // same for all other key prefixes
                     let mut removed_items = 0;
                     for item in self.store.iter(DBCol::FlatState) {
                         let (key, _) = item?;
@@ -759,7 +764,6 @@ impl RuntimeAdapter for NightshadeRuntime {
                         }
                     }
                     info!(target: "chain", %shard_id, %removed_items, "Removing old items from flat storage");
-                    // remove DBCol::FlatStateDeltas. add custom serialization to remove everything by prefix?
 
                     store_helper::remove_flat_head(&mut store_update, shard_id);
                     store_update.commit()?;

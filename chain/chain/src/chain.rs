@@ -2106,6 +2106,52 @@ impl Chain {
         Ok(new_head)
     }
 
+    /// Update flat storage for given processed or caught up block.
+    fn update_flat_storage_for_block(
+        &mut self,
+        block: &Block,
+        shard_id: ShardId,
+    ) -> Result<(), Error> {
+        if let Some(flat_storage_state) =
+            self.runtime_adapter.get_flat_storage_state_for_shard(shard_id)
+        {
+            let mut new_flat_head = *block.header().last_final_block();
+            if new_flat_head == CryptoHash::default() {
+                new_flat_head = *self.genesis.hash();
+            }
+            // Try to update flat head.
+            flat_storage_state.update_flat_head(&new_flat_head).unwrap_or_else(|err| {
+                match &err {
+                    FlatStorageError::BlockNotSupported(_) => {
+                        // It's possible that new head is not a child of current flat head, e.g. when we have a
+                        // fork:
+                        //
+                        //      (flat head)        /-------> 6
+                        // 1 ->      2     -> 3 -> 4
+                        //                         \---> 5
+                        //
+                        // where during postprocessing (5) we call `update_flat_head(3)` and then for (6) we can
+                        // call `update_flat_head(2)`. In such case, just log an error.
+                        debug!(target: "chain", "Cannot update flat head to {:?}: {:?}", new_flat_head, err);
+                    }
+                    _ => {
+                        // All other errors are unexpected, so we panic.
+                        panic!("Cannot update flat head to {:?}: {:?}", new_flat_head, err);
+                    }
+                }
+            });
+        } else {
+            // If flat storage doesn't exist, update its creation status.
+            match &mut self.flat_storage_creator {
+                Some(flat_storage_creator) => {
+                    flat_storage_creator.update_status(shard_id, &self.store)?;
+                }
+                None => {}
+            }
+        }
+        Ok(())
+    }
+
     /// Run postprocessing on this block, which stores the block on chain.
     /// Check that if accepting the block unlocks any orphans in the orphan pool and start
     /// the processing of those blocks.
@@ -2163,10 +2209,10 @@ impl Chain {
         // apply chunks processes. This means, the flat head is not always the same as
         // the last final block on chain, which is OK, because in the flat storage implementation
         // we don't assume that.
-        // Also note, for now, we only update flat storage for the shards that we care about in this epoch
-        // TODO (#7327): support flat storage for state sync and block catchups
         for shard_id in 0..self.runtime_adapter.num_shards(block.header().epoch_id())? {
             let need_flat_storage_update = if is_caught_up {
+                // If we already caught up this epoch, then flat storage exists for both shards which we already track
+                // and shards which will be tracked in next epoch, so we can update them.
                 self.runtime_adapter.cares_about_shard(
                     me.as_ref(),
                     block.header().prev_hash(),
@@ -2179,6 +2225,8 @@ impl Chain {
                     true,
                 )
             } else {
+                // If we didn't catch up, we can update only shards tracked right now. Remaining shards will be updated
+                // during catchup of this block.
                 self.runtime_adapter.cares_about_shard(
                     me.as_ref(),
                     block.header().prev_hash(),
@@ -2188,42 +2236,7 @@ impl Chain {
             };
 
             if need_flat_storage_update {
-                if let Some(flat_storage_state) =
-                    self.runtime_adapter.get_flat_storage_state_for_shard(shard_id)
-                {
-                    let mut new_flat_head = *block.header().last_final_block();
-                    if new_flat_head == CryptoHash::default() {
-                        new_flat_head = *self.genesis.hash();
-                    }
-                    // Try to update flat head.
-                    flat_storage_state.update_flat_head(&new_flat_head).unwrap_or_else(|err| {
-                        match &err {
-                            FlatStorageError::BlockNotSupported(_) => {
-                                // It's possible that new head is not a child of current flat head, e.g. when we have a
-                                // fork:
-                                //
-                                //      (flat head)        /-------> 6
-                                // 1 ->      2     -> 3 -> 4
-                                //                         \---> 5
-                                //
-                                // where during postprocessing (5) we call `update_flat_head(3)` and then for (6) we can
-                                // call `update_flat_head(2)`. In such case, just log an error.
-                                debug!(target: "chain", "Cannot update flat head to {:?}: {:?}", new_flat_head, err);
-                            }
-                            _ => {
-                                // All other errors are unexpected, so we panic.
-                                panic!("Cannot update flat head to {:?}: {:?}", new_flat_head, err);
-                            }
-                        }
-                    });
-                } else {
-                    match &mut self.flat_storage_creator {
-                        Some(flat_storage_creator) => {
-                            flat_storage_creator.update_status(shard_id, &self.store)?;
-                        }
-                        None => {}
-                    }
-                }
+                self.update_flat_storage_for_block(&block, shard_id)?;
             }
         }
 
@@ -3164,13 +3177,12 @@ impl Chain {
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
         let chunk = shard_state_header.cloned_chunk();
 
-        // we synced state for _previous_ block for chunk in shard state header:
         let block_hash = chunk.prev_block();
         let block_height = self.get_block_header(block_hash)?.height();
 
-        // create flat storage. add "if" in case we repeat this step, to avoid double creation
+        // We synced shard state on top of _previous_ block for chunk in shard state header and applied state parts to
+        // flat storage. Now we can set flat head to hash of this block and create flat storage.
         if self.runtime_adapter.get_flat_storage_state_for_shard(shard_id).is_none() {
-            // once we applied all parts, we can set flat storage head
             #[cfg(feature = "protocol_feature_flat_state")]
             {
                 let mut store_update = self.runtime_adapter.store().store_update();
@@ -3360,9 +3372,8 @@ impl Chain {
         chain_update.commit()?;
 
         for shard_id in 0..self.runtime_adapter.num_shards(block.header().epoch_id())? {
-            // `block_catch_up_postprocess` is called only during block catchup.
-            // during that, we catch up all affected shards simultaneously.
-            // if we not care about shard but will care in this epoch, then we need to update flat storage here.
+            // Update flat storage for each shard being caught up. We catch up a shard if it is tracked in the next
+            // epoch. If it is tracked in this epoch as well, it was updated during regular block processing.
             if !self.runtime_adapter.cares_about_shard(
                 me.as_ref(),
                 block.header().prev_hash(),
@@ -3374,41 +3385,7 @@ impl Chain {
                 shard_id,
                 true,
             ) {
-                let flat_storage_state = match self
-                    .runtime_adapter
-                    .get_flat_storage_state_for_shard(shard_id)
-                {
-                    Some(flat_storage_state) => flat_storage_state,
-                    None => {
-                        unreachable!("flat storage state does not exist for shard {shard_id} during catching up block {block_hash}");
-                    }
-                };
-
-                let mut new_flat_head = *block.header().last_final_block();
-                if new_flat_head == CryptoHash::default() {
-                    new_flat_head = *self.genesis.hash();
-                }
-                // Try to update flat head.
-                flat_storage_state.update_flat_head(&new_flat_head).unwrap_or_else(|err| {
-                    match &err {
-                        FlatStorageError::BlockNotSupported(_) => {
-                            // It's possible that new head is not a child of current flat head, e.g. when we have a
-                            // fork:
-                            //
-                            //      (flat head)        /-------> 6
-                            // 1 ->      2     -> 3 -> 4
-                            //                         \---> 5
-                            //
-                            // where during postprocessing (5) we call `update_flat_head(3)` and then for (6) we can
-                            // call `update_flat_head(2)`. In such case, just log an error.
-                            debug!(target: "chain", "Cannot update flat head to {:?}: {:?}", new_flat_head, err);
-                        }
-                        _ => {
-                            // All other errors are unexpected, so we panic.
-                            panic!("Cannot update flat head to {:?}: {:?}", new_flat_head, err);
-                        }
-                    }
-                });
+                self.update_flat_storage_for_block(&block, shard_id)?;
             }
         }
 
@@ -4944,8 +4921,6 @@ impl<'a> ChainUpdate<'a> {
         shard_id: ShardId,
         trie_changes: &WrappedTrieChanges,
     ) -> Result<(), Error> {
-        // Right now, we don't implement flat storage for catchup, so we only store
-        // the delta for the shards that we are tracking this epoch
         #[cfg(feature = "protocol_feature_flat_state")]
         {
             let delta = FlatStateDelta::from_state_changes(&trie_changes.state_changes());
@@ -4953,12 +4928,14 @@ impl<'a> ChainUpdate<'a> {
             if let Some(chain_flat_storage) =
                 self.runtime_adapter.get_flat_storage_state_for_shard(shard_id)
             {
+                // If flat storage exists, we add a block to it.
                 let block_info = flat_state::BlockInfo { hash: block_hash, height, prev_hash };
                 let store_update = chain_flat_storage
                     .add_block(&block_hash, delta, block_info)
                     .map_err(|e| StorageError::from(e))?;
                 self.chain_store_update.merge(store_update);
             } else {
+                // Otherwise, save delta to disk so it will be used for flat storage creation later.
                 info!(target: "chain", %shard_id, "Add delta for flat storage creation");
                 let mut store_update = self.chain_store_update.store().store_update();
                 store_helper::set_delta(&mut store_update, shard_id, block_hash.clone(), &delta)
