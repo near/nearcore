@@ -387,6 +387,7 @@ impl<'a> VMLogic<'a> {
     /// * It's up to the caller to set correct len
     #[cfg(feature = "sandbox")]
     fn sandbox_get_utf8_string(&mut self, len: u64, ptr: u64) -> Result<String> {
+        self.memory.fits_memory(offset, len).map_err(|_| HostError::MemoryAccessViolation)?;
         let mut buf = vec![0; len as usize];
         self.memory.read_memory(ptr, &mut buf).map_err(|_| HostError::MemoryAccessViolation)?;
         String::from_utf8(buf).map_err(|_| HostError::BadUTF8.into())

@@ -43,9 +43,8 @@ fn with_caller<T>(func: impl FnOnce(&mut Caller) -> T) -> T {
 
 impl MemoryLike for WasmtimeMemory {
     fn fits_memory(&self, offset: u64, len: u64) -> Result<(), ()> {
-        let start = usize::try_from(offset).map_err(|_| ())?;
-        let len = usize::try_from(len).map_err(|_| ())?;
-        let end = start.checked_add(len).ok_or(())?;
+        let end = offset.checked_add(len).ok_or(())?;
+        let end = usize::try_from(end).map_err(|_| ())?;
         if end <= with_caller(|caller| self.0.data_size(caller)) {
             Ok(())
         } else {
