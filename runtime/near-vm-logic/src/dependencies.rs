@@ -7,10 +7,46 @@ use near_vm_errors::VMLogicError;
 
 /// An abstraction over the memory of the smart contract.
 pub trait MemoryLike {
+    /// Returns whether the memory interval is completely inside the smart
+    /// contract memory.
+    ///
+    /// You often don’t need to use this method since [`Self::read_memory`] and
+    /// [`Self::write_memory`] will perform the check, however it may be
+    /// necessary to prevent potential denial of service attacks.  See
+    /// [`Self::read_memory`] for description.
+    fn check_memory(&self, offset: u64, len: u64) -> Result<(), ()>;
+
     /// Reads the content of the given memory interval.
     ///
     /// Returns error if the memory interval isn’t completely inside the smart
     /// contract memory.
+    ///
+    /// # Potential denial of service
+    ///
+    /// Note that improper use of this function may lead to denial of service
+    /// attacks.  For example, consider the following function:
+    ///
+    /// ```
+    /// fn read_vector(mem: &dyn MemoryLike, ptr: u64, len: u64) -> Result<Vec<u8>, ()> {
+    ///     let mut vec = vec![0; usize::try_from(len).map_err(|_| ())?];
+    ///     mem.read_memory(ptr, &mut vec[..])?;
+    ///     Ok(vec)
+    /// }
+    /// ```
+    ///
+    /// If attacker controls `len` argument, it may cause attempt at allocation
+    /// of arbitrarily-large buffer and crash the program.  In situations like
+    /// this, it’s necessary to use [`Self::check_memory`] method to verify that
+    /// the length is valid.  For example:
+    ///
+    /// ```
+    /// fn read_vector(mem: &dyn MemoryLike, ptr: u64, len: u64) -> Result<Vec<u8>, ()> {
+    ///     mem.check_memory(offset, len)?;
+    ///     let mut vec = vec![0; len as usize];
+    ///     mem.read_memory(ptr, &mut vec[..])?;
+    ///     Ok(vec)
+    /// }
+    /// ```
     fn read_memory(&self, offset: u64, buffer: &mut [u8]) -> Result<(), ()>;
 
     /// Writes the buffer into the smart contract memory.

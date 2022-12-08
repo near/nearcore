@@ -42,6 +42,15 @@ fn with_caller(func: impl FnOnce(&mut Caller) -> Result<(), ()>) -> Result<(), (
 }
 
 impl MemoryLike for WasmtimeMemory {
+    fn check_memory(&self, offset: u64, len: u64) -> Result<(), ()> {
+        let start = usize::try_from(offset).map_err(|_| ())?;
+        let len = usize::try_from(len).map_err(|_| ())?;
+        let end = start.checked_add(len).ok_or(())?;
+        with_caller(|caller| {
+            self.0.data(caller).get(start..end).map(|_| ()).ok_or(())
+        })
+    }
+
     fn read_memory(&self, offset: u64, buffer: &mut [u8]) -> Result<(), ()> {
         let start = usize::try_from(offset).map_err(|_| ())?;
         let end = start.checked_add(buffer.len()).ok_or(())?;

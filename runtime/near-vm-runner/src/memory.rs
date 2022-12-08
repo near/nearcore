@@ -37,6 +37,10 @@ impl WasmerMemory {
 }
 
 impl MemoryLike for WasmerMemory {
+    fn check_memory(&self, offset: u64, len: u64) -> Result<(), ()> {
+        self.with_memory(offset, usize::try_from(len).map_err(|_| ())?, |_| ())
+    }
+
     fn read_memory(&self, offset: u64, buffer: &mut [u8]) -> Result<(), ()> {
         self.with_memory(offset, buffer.len(), |mem| {
             buffer.iter_mut().zip(mem).for_each(|(dst, src)| *dst = src.get());
@@ -63,6 +67,16 @@ mod tests {
         memory.read_memory(0, &mut buffer).unwrap();
         // memory should be zeroed at creation.
         assert!(buffer.iter().all(|&v| v == 0));
+    }
+
+    #[test]
+    fn check_memory() {
+        let memory = super::WasmerMemory::new(1, 1);
+        memory.check_memory(0, WASM_PAGE_SIZE).unwrap();
+        memory.check_memory(WASM_PAGE_SIZE / 2, WASM_PAGE_SIZE / 2).unwrap();
+        memory.check_memory(WASM_PAGE_SIZE - 1 , 1).unwrap();
+        memory.check_memory(1, WASM_PAGE_SIZE).unwrap_err();
+        memory.check_memory(WASM_PAGE_SIZE - 1 , 2).unwrap_err();
     }
 
     #[test]

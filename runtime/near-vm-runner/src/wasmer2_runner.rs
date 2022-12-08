@@ -87,6 +87,11 @@ impl Wasmer2Memory {
 }
 
 impl MemoryLike for Wasmer2Memory {
+    fn check_memory(&self, offset: u64, len: u64) -> Result<(), ()> {
+        let len = usize::try_from(len).map_err(|_| ())?;
+        self.get_memory_buffer(offset, len).map(|_| ())
+    }
+
     fn read_memory(&self, offset: u64, buffer: &mut [u8]) -> Result<(), ()> {
         let memory = self.get_memory_buffer(offset, buffer.len())?;
         unsafe {
@@ -662,6 +667,16 @@ mod tests {
         memory.get_memory_buffer(0, WASM_PAGE_SIZE).unwrap();
         memory.get_memory_buffer(WASM_PAGE_SIZE as u64 - 1, 1).unwrap();
         memory.get_memory_buffer(WASM_PAGE_SIZE as u64, 0).unwrap();
+    }
+
+    #[test]
+    fn check_memory() {
+        let memory = super::Wasmer2Memory::new(1, 1).unwrap();
+        memory.check_memory(0, WASM_PAGE_SIZE).unwrap();
+        memory.check_memory(WASM_PAGE_SIZE / 2, WASM_PAGE_SIZE / 2).unwrap();
+        memory.check_memory(WASM_PAGE_SIZE - 1 , 1).unwrap();
+        memory.check_memory(1, WASM_PAGE_SIZE).unwrap_err();
+        memory.check_memory(WASM_PAGE_SIZE - 1 , 2).unwrap_err();
     }
 
     #[test]
