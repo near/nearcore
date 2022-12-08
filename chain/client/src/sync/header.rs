@@ -239,7 +239,8 @@ impl HeaderSync {
     //
     // The locator allows us to start syncing from a reasonably recent common ancestor. Since
     // we don't know which fork the remote side is on, we include a few hashes. The first one
-    // we include is the tip of our chain, and the next one is 2 blocks back, then 4 blocks
+    // we include is the tip of our chain, and the next one is 2 blocks back (on the same chain,
+    // by number of blocks (or in other words, by ordinals), not by height), then 4 blocks
     // back, then 8 blocks back, etc, until we reach the most recent final block. The reason
     // why we stop at the final block is because the consensus guarantees us that the final
     // blocks observed by all nodes are on the same fork.
@@ -287,14 +288,13 @@ mod test {
     use std::thread;
 
     use near_chain::test_utils::{
-        process_block_sync, setup, setup_with_validators, ValidatorSchedule,
+        process_block_sync, setup, setup_with_validators_and_start_time, ValidatorSchedule,
     };
     use near_chain::{BlockProcessingArtifact, Provenance};
     use near_crypto::{KeyType, PublicKey};
     use near_network::test_utils::MockPeerManagerAdapter;
     use near_primitives::block::{Approval, Block, GenesisId};
     use near_primitives::network::PeerId;
-    use near_primitives::test_utils::create_test_signer;
 
     use super::*;
     use near_network::types::{BlockInfo, FullPeerInfo, PeerInfo};
@@ -455,7 +455,7 @@ mod test {
         for _ in 0..7 {
             let prev = chain.get_block(&chain.head().unwrap().last_block_hash).unwrap();
             // Test with huge gaps to make sure we are still able to find locators.
-            let block = Block::empty_with_height(&prev, prev.header().height() + 1000, &*signer2);
+            let block = Block::empty_with_height(&prev, prev.header().height() + 1000, &*signer);
             process_block_sync(
                 &mut chain,
                 &None,
@@ -559,71 +559,15 @@ mod test {
         };
         set_syncing_peer(&mut header_sync);
 
-        let vs = ValidatorSchedule::new().block_producers_per_epoch(vec![vec![
-            "test0", "test1", "test2", "test3", "test4",
-        ]
-        .iter()
-        .map(|x| x.parse().unwrap())
-        .collect()]);
-        let (chain, _, signers) = setup_with_validators(vs, 1000, 100);
+        let (chain, _, signer) = setup();
         let genesis = chain.get_block(&chain.genesis().hash().clone()).unwrap();
 
         let mut last_block = &genesis;
         let mut all_blocks = vec![];
-        let mut block_merkle_tree = PartialMerkleTree::default();
         for i in 0..61 {
             let current_height = 3 + i * 5;
-
-            let approvals = [None, None, Some("test3"), Some("test4")]
-                .iter()
-                .map(|account_id| {
-                    account_id.map(|account_id| {
-                        let signer = create_test_signer(account_id);
-                        Approval::new(
-                            *last_block.hash(),
-                            last_block.header().height(),
-                            current_height,
-                            &signer,
-                        )
-                        .signature
-                    })
-                })
-                .collect();
-            let (epoch_id, next_epoch_id) =
-                if last_block.header().prev_hash() == &CryptoHash::default() {
-                    (last_block.header().next_epoch_id().clone(), EpochId(*last_block.hash()))
-                } else {
-                    (
-                        last_block.header().epoch_id().clone(),
-                        last_block.header().next_epoch_id().clone(),
-                    )
-                };
-            let block = Block::produce(
-                PROTOCOL_VERSION,
-                PROTOCOL_VERSION,
-                last_block.header(),
-                current_height,
-                last_block.header().block_ordinal() + 1,
-                last_block.chunks().iter().cloned().collect(),
-                epoch_id,
-                next_epoch_id,
-                None,
-                approvals,
-                Ratio::new(0, 1),
-                0,
-                100,
-                Some(0),
-                vec![],
-                vec![],
-                &*signers[3],
-                *last_block.header().next_bp_hash(),
-                block_merkle_tree.root(),
-                None,
-            );
-            block_merkle_tree.insert(*block.hash());
-
+            let block = Block::empty_with_height(last_block, current_height, &*signer);
             all_blocks.push(block);
-
             last_block = &all_blocks[all_blocks.len() - 1];
         }
 
@@ -678,5 +622,152 @@ mod test {
         } else {
             assert!(false);
         }
+    }
+
+    #[test]
+    fn test_sync_from_very_behind() {
+        let mock_adapter = Arc::new(MockPeerManagerAdapter::default());
+        let mut header_sync = HeaderSync::new(
+            mock_adapter.clone(),
+            TimeDuration::from_secs(10),
+            TimeDuration::from_secs(2),
+            TimeDuration::from_secs(120),
+            1_000_000_000,
+        );
+
+        let vs = ValidatorSchedule::new()
+            .block_producers_per_epoch(vec![vec!["test0".parse().unwrap()]]);
+        let genesis_time = Clock::utc();
+        // Don't bother with epoch switches. It's not relevant.
+        let (mut chain, _, _) =
+            setup_with_validators_and_start_time(vs.clone(), 10000, 100, genesis_time);
+        let (mut chain2, _, signers2) =
+            setup_with_validators_and_start_time(vs, 10000, 100, genesis_time);
+        // Set up the second chain with 2000+ blocks.
+        let mut block_merkle_tree = PartialMerkleTree::default();
+        block_merkle_tree.insert(*chain.genesis().hash()); // for genesis block
+        for _ in 0..(4 * MAX_BLOCK_HEADERS + 10) {
+            let last_block = chain2.get_block(&chain2.head().unwrap().last_block_hash).unwrap();
+            let this_height = last_block.header().height() + 1;
+            let (epoch_id, next_epoch_id) =
+                if last_block.header().prev_hash() == &CryptoHash::default() {
+                    (last_block.header().next_epoch_id().clone(), EpochId(*last_block.hash()))
+                } else {
+                    (
+                        last_block.header().epoch_id().clone(),
+                        last_block.header().next_epoch_id().clone(),
+                    )
+                };
+            let block = Block::produce(
+                PROTOCOL_VERSION,
+                PROTOCOL_VERSION,
+                last_block.header(),
+                this_height,
+                last_block.header().block_ordinal() + 1,
+                last_block.chunks().iter().cloned().collect(),
+                epoch_id,
+                next_epoch_id,
+                None,
+                signers2
+                    .iter()
+                    .map(|signer| {
+                        Some(
+                            Approval::new(
+                                *last_block.hash(),
+                                last_block.header().height(),
+                                this_height,
+                                signer.as_ref(),
+                            )
+                            .signature,
+                        )
+                    })
+                    .collect(),
+                Ratio::new(0, 1),
+                0,
+                100,
+                Some(0),
+                vec![],
+                vec![],
+                &*signers2[0],
+                *last_block.header().next_bp_hash(),
+                block_merkle_tree.root(),
+                None,
+            );
+            block_merkle_tree.insert(*block.hash());
+            chain2.process_block_header(block.header(), &mut Vec::new()).unwrap(); // just to validate
+            process_block_sync(
+                &mut chain2,
+                &None,
+                block.into(),
+                Provenance::PRODUCED,
+                &mut BlockProcessingArtifact::default(),
+            )
+            .unwrap();
+        }
+        let mut sync_status = SyncStatus::NoSync;
+        let peer1 = FullPeerInfo {
+            peer_info: PeerInfo::random(),
+            chain_info: near_network::types::PeerChainInfo {
+                genesis_id: GenesisId {
+                    chain_id: "unittest".to_string(),
+                    hash: *chain.genesis().hash(),
+                },
+                tracked_shards: vec![],
+                archival: false,
+                last_block: Some(BlockInfo {
+                    height: chain2.head().unwrap().height,
+                    hash: chain2.head().unwrap().last_block_hash,
+                }),
+            },
+        };
+        // It should be done in 5 iterations, but give it 10 iterations just in case it would
+        // get into an infinite loop because of some bug and cause the test to hang.
+        for _ in 0..10 {
+            let header_head = chain.header_head().unwrap();
+            if header_head.last_block_hash == chain2.header_head().unwrap().last_block_hash {
+                // sync is done.
+                break;
+            }
+            assert!(header_sync
+                .run(
+                    &mut sync_status,
+                    &mut chain,
+                    header_head.height,
+                    &[<FullPeerInfo as Into<Option<_>>>::into(peer1.clone()).unwrap()]
+                )
+                .is_ok());
+            match sync_status {
+                SyncStatus::HeaderSync { .. } => {}
+                _ => panic!("Unexpected sync status: {:?}", sync_status),
+            }
+            let message = match mock_adapter.pop() {
+                Some(message) => message.as_network_requests(),
+                None => {
+                    panic!("No message was sent; current height: {}", header_head.height);
+                }
+            };
+            match message {
+                NetworkRequests::BlockHeadersRequest { hashes, peer_id } => {
+                    assert_eq!(peer_id, peer1.peer_info.id);
+                    let headers = chain2.retrieve_headers(hashes, MAX_BLOCK_HEADERS, None).unwrap();
+                    assert!(headers.len() > 0, "No headers were returned");
+                    match chain.sync_block_headers(headers, &mut Vec::new()) {
+                        Ok(_) => {}
+                        Err(e) => {
+                            panic!("Error inserting headers: {:?}", e);
+                        }
+                    }
+                }
+                _ => panic!("Unexpected network message: {:?}", message),
+            }
+            if chain.header_head().unwrap().height <= header_head.height {
+                panic!(
+                    "Syncing is not making progress. Head was not updated from {}",
+                    header_head.height
+                );
+            }
+        }
+        let new_tip = chain.header_head().unwrap();
+        assert_eq!(new_tip.last_block_hash, chain2.head().unwrap().last_block_hash);
     }
 }
