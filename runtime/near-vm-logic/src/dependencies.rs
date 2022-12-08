@@ -29,7 +29,7 @@ pub trait MemoryLike {
     /// ```
     /// # use near_vm_logic::MemoryLike;
     ///
-    /// fn read_vector(mem: &dyn MemoryLike, ptr: u64, len: u64) -> Result<Vec<u8>, ()> {
+    /// fn read_vec(mem: &dyn MemoryLike, ptr: u64, len: u64) -> Result<Vec<u8>, ()> {
     ///     let mut vec = vec![0; usize::try_from(len).map_err(|_| ())?];
     ///     mem.read_memory(ptr, &mut vec[..])?;
     ///     Ok(vec)
@@ -44,8 +44,8 @@ pub trait MemoryLike {
     /// ```
     /// # use near_vm_logic::MemoryLike;
     ///
-    /// fn read_vector(mem: &dyn MemoryLike, ptr: u64, len: u64) -> Result<Vec<u8>, ()> {
-    ///     mem.fits_memory(offset, len)?;
+    /// fn read_vec(mem: &dyn MemoryLike, ptr: u64, len: u64) -> Result<Vec<u8>, ()> {
+    ///     mem.fits_memory(ptr, len)?;
     ///     let mut vec = vec![0; len as usize];
     ///     mem.read_memory(ptr, &mut vec[..])?;
     ///     Ok(vec)

@@ -4,7 +4,7 @@ use crate::MemoryLike;
 pub struct MockedMemory {}
 
 impl MemoryLike for MockedMemory {
-    fn check_memory(&self, _offset: u64, _len: u64) -> Result<(), ()> {
+    fn fits_memory(&self, _offset: u64, _len: u64) -> Result<(), ()> {
         Ok(())
     }
 

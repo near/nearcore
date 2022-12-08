@@ -87,7 +87,7 @@ impl Wasmer2Memory {
 }
 
 impl MemoryLike for Wasmer2Memory {
-    fn check_memory(&self, offset: u64, len: u64) -> Result<(), ()> {
+    fn fits_memory(&self, offset: u64, len: u64) -> Result<(), ()> {
         let len = usize::try_from(len).map_err(|_| ())?;
         self.get_memory_buffer(offset, len).map(|_| ())
     }
@@ -670,20 +670,20 @@ mod tests {
     }
 
     #[test]
-    fn check_memory() {
+    fn fits_memory() {
         const PAGE: u64 = WASM_PAGE_SIZE as u64;
 
         let memory = super::Wasmer2Memory::new(1, 1).unwrap();
 
-        memory.check_memory(0, PAGE).unwrap();
-        memory.check_memory(PAGE / 2, PAGE as u64 / 2).unwrap();
-        memory.check_memory(PAGE - 1, 1).unwrap();
-        memory.check_memory(PAGE, 0).unwrap();
+        memory.fits_memory(0, PAGE).unwrap();
+        memory.fits_memory(PAGE / 2, PAGE as u64 / 2).unwrap();
+        memory.fits_memory(PAGE - 1, 1).unwrap();
+        memory.fits_memory(PAGE, 0).unwrap();
 
-        memory.check_memory(0, PAGE + 1).unwrap_err();
-        memory.check_memory(1, PAGE).unwrap_err();
-        memory.check_memory(PAGE - 1, 2).unwrap_err();
-        memory.check_memory(PAGE, 1).unwrap_err();
+        memory.fits_memory(0, PAGE + 1).unwrap_err();
+        memory.fits_memory(1, PAGE).unwrap_err();
+        memory.fits_memory(PAGE - 1, 2).unwrap_err();
+        memory.fits_memory(PAGE, 1).unwrap_err();
     }
 
     #[test]
