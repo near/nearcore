@@ -382,7 +382,6 @@ impl FlatStorageCreator {
                 chain_store.head().unwrap().height,
                 chain_store,
             );
-            info!(target: "chain", %shard_id, "Flat storage creation status: {:?}", status);
             match status {
                 FlatStorageStateStatus::Ready | FlatStorageStateStatus::DontCreate => {}
                 _ => {
