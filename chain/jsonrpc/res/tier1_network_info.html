@@ -5,32 +5,6 @@
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
     <script src="network_info.js"></script>
     <script>
-        function fetchProducers(epoch_id, producers_callback) {
-            $.ajax({
-                type: "GET",
-                url: "../api/epoch_info",
-                success: data => {
-                    let epoch_found = false;
-                    data.status_response.EpochInfo.forEach(element => {
-                        if (element.epoch_id == epoch_id) {
-                            epoch_found = true;
-                            producers_callback(element.block_producers, element.chunk_only_producers);
-                        }
-                    });
-                    // This can happen if we're in sync mode - in such case, still print the list of peers,
-                    // but don't show producers.
-                    if (epoch_found == false) {
-                        producers_callback([], []);
-                    }
-                },
-                dataType: "json",
-                error: function (errMsg, textStatus, errorThrown) {
-                    alert("Failed: " + textStatus + " :" + errorThrown);
-                },
-                contentType: "application/json; charset=utf-8",
-            })
-        }
-
         $(document).ready(() => {
             $('.detailed-peer-storage-div').hide();
             $('span').text("Loading...");
