@@ -689,6 +689,7 @@ pub(crate) fn new_network_info_view(chain: &Chain, network_info: &NetworkInfo) -
                     .map(|it| it.iter().map(|peer_id| peer_id.public_key().clone()).collect()),
             })
             .collect(),
+        tier1_accounts_keys: network_info.tier1_accounts_keys.clone(),
         tier1_accounts_data: network_info
             .tier1_accounts_data
             .iter()
