@@ -8,7 +8,6 @@ edition.workspace = true
 
 [dependencies]
 borsh.workspace = true
-byteorder.workspace = true
 hex.workspace = true
 num-bigint.workspace = true
 num-rational.workspace = true
