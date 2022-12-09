@@ -4,7 +4,9 @@ use crate::config::NetworkConfig;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{Edge, Encoding, Ping, Pong, RoutedMessageBody, RoutingTableUpdate};
 use crate::peer;
-use crate::peer::peer_actor::{ClosingReason, ConnectionClosedEvent};
+use crate::peer::peer_actor::{
+    ClosingReason, ConnectionClosedEvent, DROP_DUPLICATED_MESSAGES_PERIOD,
+};
 use crate::peer_manager;
 use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::peer_manager::testonly::start as start_pm;
@@ -590,7 +592,7 @@ async fn test_dropping_duplicate_messages() {
     tracing::info!(target:"test", "await pong at {id0}");
     wait_for_pong(&mut pm0_ev, Pong { nonce: 1, source: id2.clone() }).await;
 
-    clock.advance(time::Duration::milliseconds(300));
+    clock.advance(DROP_DUPLICATED_MESSAGES_PERIOD + time::Duration::milliseconds(1));
 
     tracing::info!(target:"test", "send ping from {id0} to {id2}");
     pm0.send_ping(1, id2.clone()).await;
@@ -598,6 +600,10 @@ async fn test_dropping_duplicate_messages() {
     wait_for_ping(&mut pm2_ev, Ping { nonce: 1, source: id0.clone() }).await;
     tracing::info!(target:"test", "await pong at {id0}");
     wait_for_pong(&mut pm0_ev, Pong { nonce: 1, source: id2.clone() }).await;
+
+    drop(pm0);
+    drop(pm1);
+    drop(pm2);
 }
 
 // Awaits until a ConnectionClosed event with the expected reason is seen in the event stream.
