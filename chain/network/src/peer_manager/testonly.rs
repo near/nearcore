@@ -15,6 +15,7 @@ use crate::testonly::fake_client;
 use crate::time;
 use crate::types::{
     AccountKeys, ChainInfo, KnownPeerStatus, NetworkRequests, PeerManagerMessageRequest,
+    ReasonForBan,
 };
 use crate::PeerManagerActor;
 use near_o11y::WithSpanContextExt;
@@ -322,6 +323,25 @@ impl ActorHandler {
     ) -> Vec<Arc<SignedAccountData>> {
         let clock = clock.clone();
         self.with_state(move |s| async move { s.tier1_advertise_proxies(&clock).await }).await
+    }
+
+    pub async fn disconnect_and_ban(
+        &self,
+        clock: &time::Clock,
+        peer_id: &PeerId,
+        reason: ReasonForBan,
+    ) {
+        // TODO(gprusak): make it wait asynchronously for the connection to get closed.
+        // TODO(gprusak): figure out how to await for both ends to disconnect.
+        let clock = clock.clone();
+        let peer_id = peer_id.clone();
+        self.with_state(move |s| async move { s.disconnect_and_ban(&clock, &peer_id, reason) })
+            .await
+    }
+
+    pub async fn peer_store_update(&self, clock: &time::Clock) {
+        let clock = clock.clone();
+        self.with_state(move |s| async move { s.peer_store.update(&clock) }).await;
     }
 
     pub async fn send_ping(&self, nonce: u64, target: PeerId) {

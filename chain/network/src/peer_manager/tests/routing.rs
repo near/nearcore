@@ -2,9 +2,11 @@ use crate::blacklist;
 use crate::broadcast;
 use crate::config::NetworkConfig;
 use crate::network_protocol::testonly as data;
-use crate::network_protocol::{Edge, Encoding, Ping, Pong, RoutedMessageBody, RoutingTableUpdate};
+use crate::network_protocol::{
+    Edge, Encoding, PeerMessage, Ping, Pong, RoutedMessageBody, RoutingTableUpdate,
+};
 use crate::peer;
-use crate::peer::peer_actor::{ClosingReason, ConnectionClosedEvent};
+use crate::peer::peer_actor::ClosingReason;
 use crate::peer_manager;
 use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::peer_manager::testonly::start as start_pm;
@@ -14,8 +16,7 @@ use crate::store;
 use crate::tcp;
 use crate::testonly::{make_rng, Rng};
 use crate::time;
-use crate::types::PeerInfo;
-use crate::types::PeerMessage;
+use crate::types::{PeerInfo, ReasonForBan};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::network::PeerId;
 use near_store::db::TestDB;
@@ -600,26 +601,14 @@ async fn test_dropping_duplicate_messages() {
     wait_for_pong(&mut pm0_ev, Pong { nonce: 1, source: id2.clone() }).await;
 }
 
-// Awaits until a ConnectionClosed event with the expected reason is seen in the event stream.
-pub(crate) async fn wait_for_connection_closed(
-    events: &mut broadcast::Receiver<Event>,
-    want_reason: ClosingReason,
-) {
+/// Awaits for ConnectionClosed event.
+async fn wait_for_connection_closed(events: &mut broadcast::Receiver<Event>) -> ClosingReason {
     events
         .recv_until(|ev| match ev {
-            Event::PeerManager(PME::ConnectionClosed(ConnectionClosedEvent {
-                stream_id: _,
-                reason,
-            })) => {
-                if reason == want_reason {
-                    Some(())
-                } else {
-                    None
-                }
-            }
+            Event::PeerManager(PME::ConnectionClosed(ev)) => Some(ev.reason),
             _ => None,
         })
-        .await;
+        .await
 }
 
 // Constructs NetworkConfigs for num_nodes nodes, the first num_boot_nodes of which
@@ -687,11 +676,10 @@ async fn blacklist_01() {
     let id1 = pm1.cfg.node_id();
 
     tracing::info!(target:"test", "wait for the connection to be attempted and rejected");
-    wait_for_connection_closed(
-        &mut pm0.events.clone(),
+    assert_eq!(
         ClosingReason::RejectedByPeerManager(RegisterPeerError::Blacklisted),
-    )
-    .await;
+        wait_for_connection_closed(&mut pm0.events.clone()).await,
+    );
 
     tracing::info!(target:"test", "wait for {id0} routing table");
     pm0.wait_for_routing_table(&[]).await;
@@ -720,11 +708,10 @@ async fn blacklist_10() {
     let id1 = pm1.cfg.node_id();
 
     tracing::info!(target:"test", "wait for the connection to be attempted and rejected");
-    wait_for_connection_closed(
-        &mut pm1.events.clone(),
+    assert_eq!(
         ClosingReason::RejectedByPeerManager(RegisterPeerError::Blacklisted),
-    )
-    .await;
+        wait_for_connection_closed(&mut pm1.events.clone()).await,
+    );
 
     tracing::info!(target:"test", "wait for {id0} routing table");
     pm0.wait_for_routing_table(&[]).await;
@@ -753,11 +740,10 @@ async fn blacklist_all() {
     let id1 = pm1.cfg.node_id();
 
     tracing::info!(target:"test", "wait for the connection to be attempted and rejected");
-    wait_for_connection_closed(
-        &mut pm0.events.clone(),
+    assert_eq!(
         ClosingReason::RejectedByPeerManager(RegisterPeerError::Blacklisted),
-    )
-    .await;
+        wait_for_connection_closed(&mut pm0.events.clone()).await,
+    );
 
     tracing::info!(target:"test", "wait for {id0} routing table");
     pm0.wait_for_routing_table(&[]).await;
@@ -820,23 +806,20 @@ async fn max_num_peers_limit() {
     let id3 = pm3.cfg.node_id();
 
     tracing::info!(target:"test", "wait for {id0} to reject attempted connection");
-    wait_for_connection_closed(
-        &mut pm0_ev,
+    assert_eq!(
         ClosingReason::RejectedByPeerManager(RegisterPeerError::ConnectionLimitExceeded),
-    )
-    .await;
+        wait_for_connection_closed(&mut pm0_ev).await,
+    );
     tracing::info!(target:"test", "wait for {id1} to reject attempted connection");
-    wait_for_connection_closed(
-        &mut pm1_ev,
+    assert_eq!(
         ClosingReason::RejectedByPeerManager(RegisterPeerError::ConnectionLimitExceeded),
-    )
-    .await;
+        wait_for_connection_closed(&mut pm1_ev).await,
+    );
     tracing::info!(target:"test", "wait for {id2} to reject attempted connection");
-    wait_for_connection_closed(
-        &mut pm2_ev,
+    assert_eq!(
         ClosingReason::RejectedByPeerManager(RegisterPeerError::ConnectionLimitExceeded),
-    )
-    .await;
+        wait_for_connection_closed(&mut pm2_ev).await,
+    );
 
     tracing::info!(target:"test", "wait for {id3} routing table");
     pm3.wait_for_routing_table(&[]).await;
@@ -1268,11 +1251,11 @@ async fn archival_node() {
 
     tracing::info!(target:"test", "connect node 4 to node 0 and wait for pm0 to close a connection");
     pm4.send_outbound_connect(&pm0.peer_info(), tcp::Tier::T2).await;
-    wait_for_connection_closed(&mut pm0_ev, ClosingReason::PeerManager).await;
+    assert_eq!(ClosingReason::PeerManagerRequest, wait_for_connection_closed(&mut pm0_ev).await,);
 
     tracing::info!(target:"test", "connect node 1 to node 0 and wait for pm0 to close a connection");
     pm1.send_outbound_connect(&pm0.peer_info(), tcp::Tier::T2).await;
-    wait_for_connection_closed(&mut pm0_ev, ClosingReason::PeerManager).await;
+    assert_eq!(ClosingReason::PeerManagerRequest, wait_for_connection_closed(&mut pm0_ev).await,);
 
     tracing::info!(target:"test", "check that node 0 and node 1 are still connected");
     pm0.wait_for_direct_connection(id1.clone()).await;
@@ -1294,9 +1277,54 @@ async fn archival_node() {
 
         tracing::info!(target:"test", "[{_step}] connect the chosen node to node 0 and wait for pm0 to close a connection");
         chosen.send_outbound_connect(&pm0.peer_info(), tcp::Tier::T2).await;
-        wait_for_connection_closed(&mut pm0_ev, ClosingReason::PeerManager).await;
+        assert_eq!(
+            ClosingReason::PeerManagerRequest,
+            wait_for_connection_closed(&mut pm0_ev).await,
+        );
 
         tracing::info!(target:"test", "[{_step}] check that node 0 and node 1 are still connected");
         pm0.wait_for_direct_connection(id1.clone()).await;
     }
+}
+
+/// Check two peers are able to connect again after one peers is banned and unbanned.
+#[tokio::test]
+async fn connect_to_unbanned_peer() {
+    init_test_logger();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
+    let mut pm0 =
+        start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
+    let mut pm1 =
+        start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
+
+    tracing::info!(target:"test", "pm0 connects to pm1");
+    pm0.connect_to(&pm1.peer_info(), tcp::Tier::T2).await;
+
+    tracing::info!(target:"test", "pm1 bans pm1");
+    let ban_reason = ReasonForBan::BadBlock;
+    pm1.disconnect_and_ban(&clock.clock(), &pm0.cfg.node_id(), ban_reason).await;
+    wait_for_connection_closed(&mut pm0.events).await;
+    assert_eq!(ClosingReason::Ban(ban_reason), wait_for_connection_closed(&mut pm1.events).await);
+
+    tracing::info!(target:"test", "pm0 fails to reconnect to pm1");
+    let got_reason = pm1
+        .start_inbound(chain.clone(), pm0.cfg.clone())
+        .await
+        .manager_fail_handshake(&clock.clock())
+        .await;
+    assert_eq!(ClosingReason::RejectedByPeerManager(RegisterPeerError::Banned), got_reason);
+
+    tracing::info!(target:"test", "pm1 unbans pm0");
+    clock.advance(pm1.cfg.peer_store.ban_window);
+    pm1.peer_store_update(&clock.clock()).await;
+
+    tracing::info!(target:"test", "pm0 reconnects to pm1");
+    pm0.connect_to(&pm1.peer_info(), tcp::Tier::T2).await;
+
+    drop(pm0);
+    drop(pm1);
 }
