@@ -358,6 +358,9 @@ async fn ping_simple() {
 
     tracing::info!(target:"test", "await pong at {id0}");
     wait_for_pong(&mut pm0_ev, Pong { nonce: 0, source: id1.clone() }).await;
+
+    drop(pm0);
+    drop(pm1);
 }
 
 // test ping without a direct connection
