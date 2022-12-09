@@ -38,12 +38,13 @@
                 type: "GET",
                 url: "../api/status",
                 success: data => {
-                    let connected_tier1_peers = new Set();
-
+                    let rendered = new Set();
                     let network_info = data.detailed_debug_status.network_info;
+
+                    // tier1_connections contains TIER1 nodes we are currently connected to
                     network_info.tier1_connections.forEach(function (peer, index) {
                         let peer_id = peer.peer_id;
-                        connected_tier1_peers.add(peer_id);
+                        rendered.add(peer_id);
 
                         let validator = "";
                         data.detailed_debug_status.network_info.known_producers.forEach(element => {
@@ -83,12 +84,14 @@
                         )
                     });
 
+                    // tier1_accounts_data contains data about TIER1 nodes we would like to connect to
                     network_info.tier1_accounts_data.forEach(account => {
                         let peer_id = account.peer_id;
 
-                        if (connected_tier1_peers.has(peer_id)) {
+                        if (rendered.has(peer_id)) {
                             return;
                         }
+                        rendered.add(peer_id);
 
                         let validator = "";
                         data.detailed_debug_status.network_info.known_producers.forEach(element => {
@@ -115,7 +118,36 @@
                             .append($('<td>'))
                         )
                     });
+
+                    // tier1_accounts_keys contains accounts whose data we would like to connect
+                    network_info.tier1_accounts_keys.forEach(peer_id => {
+                        if (rendered.has(peer_id)) {
+                            return;
+                        }
+                        rendered.add(peer_id);
+
+                        let validator = "";
+                        data.detailed_debug_status.network_info.known_producers.forEach(element => {
+                            if (element.peer_id == peer_id) {
+                                validator = element.account_id;
+                            }
+                        });
+
+                        let row = $('.js-tbody-peers').append($('<tr>')
+                            .append($('<td>'))
+                            .append($('<td>').append(validator))
+                            .append($('<td>').append(peer_id.substr(8, 5) + "..."))
+                            .append($('<td>'))
+                            .append($('<td>'))
+                            .append($('<td>'))
+                            .append($('<td>'))
+                            .append($('<td>'))
+                            .append($('<td>'))
+                            .append($('<td>'))
+                        )
+                    });
                 },
+
 
                 dataType: "json",
                 error: function (errMsg, textStatus, errorThrown) {
