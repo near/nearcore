@@ -170,32 +170,31 @@ impl<'a> VMLogic<'a> {
         &self.gas_counter
     }
 
+    #[allow(dead_code)]
+    #[cfg(test)]
+    pub(crate) fn config(&self) -> &VMConfig {
+        &self.config
+    }
+
     // ###########################
     // # Memory helper functions #
     // ###########################
 
-    fn try_fit_mem(&mut self, offset: u64, len: u64) -> Result<()> {
-        if self.memory.fits_memory(offset, len) {
-            Ok(())
-        } else {
-            Err(HostError::MemoryAccessViolation.into())
-        }
-    }
-
     fn memory_get_into(&mut self, offset: u64, buf: &mut [u8]) -> Result<()> {
         self.gas_counter.pay_base(read_memory_base)?;
         self.gas_counter.pay_per(read_memory_byte, buf.len() as _)?;
-        self.try_fit_mem(offset, buf.len() as _)?;
-        self.memory.read_memory(offset, buf);
-        Ok(())
+        self.memory.read_memory(offset, buf).map_err(|_| HostError::MemoryAccessViolation.into())
     }
 
     fn memory_get_vec(&mut self, offset: u64, len: u64) -> Result<Vec<u8>> {
         self.gas_counter.pay_base(read_memory_base)?;
         self.gas_counter.pay_per(read_memory_byte, len)?;
-        self.try_fit_mem(offset, len)?;
+        // This check is redundant in the sense that read_memory will perform it
+        // as well however it’s here to validate that `len` is a valid value.
+        // See documentation of MemoryLike::read_memory for more information.
+        self.memory.fits_memory(offset, len).map_err(|_| HostError::MemoryAccessViolation)?;
         let mut buf = vec![0; len as usize];
-        self.memory.read_memory(offset, &mut buf);
+        self.memory.read_memory(offset, &mut buf).map_err(|_| HostError::MemoryAccessViolation)?;
         Ok(buf)
     }
 
@@ -215,9 +214,7 @@ impl<'a> VMLogic<'a> {
     fn memory_set_slice(&mut self, offset: u64, buf: &[u8]) -> Result<()> {
         self.gas_counter.pay_base(write_memory_base)?;
         self.gas_counter.pay_per(write_memory_byte, buf.len() as _)?;
-        self.try_fit_mem(offset, buf.len() as _)?;
-        self.memory.write_memory(offset, buf);
-        Ok(())
+        self.memory.write_memory(offset, buf).map_err(|_| HostError::MemoryAccessViolation.into())
     }
 
     memory_set!(u128, memory_set_u128);
@@ -360,7 +357,7 @@ impl<'a> VMLogic<'a> {
         } else {
             buf = vec![];
             for i in 0..=max_len {
-                // self.try_fit_mem will check for u64 overflow on the first iteration (i == 0)
+                // self.memory_get_u8 will check for u64 overflow on the first iteration (i == 0)
                 let el = self.memory_get_u8(ptr + i)?;
                 if el == 0 {
                     break;
@@ -385,9 +382,9 @@ impl<'a> VMLogic<'a> {
     /// * It's up to the caller to set correct len
     #[cfg(feature = "sandbox")]
     fn sandbox_get_utf8_string(&mut self, len: u64, ptr: u64) -> Result<String> {
-        self.try_fit_mem(ptr, len)?;
+        self.memory.fits_memory(ptr, len).map_err(|_| HostError::MemoryAccessViolation)?;
         let mut buf = vec![0; len as usize];
-        self.memory.read_memory(ptr, &mut buf);
+        self.memory.read_memory(ptr, &mut buf).map_err(|_| HostError::MemoryAccessViolation)?;
         String::from_utf8(buf).map_err(|_| HostError::BadUTF8.into())
     }
 
@@ -430,7 +427,7 @@ impl<'a> VMLogic<'a> {
             let limit = max_len / size_of::<u16>() as u64;
             // Takes 2 bytes each iter
             for i in 0..=limit {
-                // self.try_fit_mem will check for u64 overflow on the first iteration (i == 0)
+                // self.memory_get_u16 will check for u64 overflow on the first iteration (i == 0)
                 let start = ptr + i * size_of::<u16>() as u64;
                 let el = self.memory_get_u16(start)?;
                 if el == 0 {
