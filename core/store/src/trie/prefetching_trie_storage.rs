@@ -308,7 +308,7 @@ impl PrefetchStagingArea {
     /// 2: IO thread misses in the shard cache on the same key and starts fetching it again.
     /// 3: Main thread value is inserted in shard cache.
     pub(crate) fn release(&self, key: &CryptoHash) {
-        let mut guard = self.0.lock().expect(POISONED_LOCK_ERR);
+        let mut guard = self.lock();
         let dropped = guard.slots.remove(key);
         // `Done` is the result after a successful prefetch.
         // `PendingFetch` means the value has been read without a prefetch.
@@ -332,7 +332,7 @@ impl PrefetchStagingArea {
     /// Of course, that would require prefetching to be moved into an async environment,
     pub(crate) fn blocking_get(&self, key: CryptoHash) -> Option<Arc<[u8]>> {
         loop {
-            match self.0.lock().expect(POISONED_LOCK_ERR).slots.get(&key) {
+            match self.lock().slots.get(&key) {
                 Some(PrefetchSlot::Done(value)) => return Some(value.clone()),
                 Some(_) => (),
                 None => return None,
@@ -348,7 +348,7 @@ impl PrefetchStagingArea {
     }
 
     fn insert_fetched(&self, key: CryptoHash, value: Arc<[u8]>) {
-        self.0.lock().expect(POISONED_LOCK_ERR).slots.insert(key, PrefetchSlot::Done(value));
+        self.lock().slots.insert(key, PrefetchSlot::Done(value));
     }
 
     /// Get prefetched value if available and otherwise atomically insert the
@@ -358,7 +358,7 @@ impl PrefetchStagingArea {
         key: CryptoHash,
         set_if_empty: PrefetchSlot,
     ) -> PrefetcherResult {
-        let mut guard = self.0.lock().expect(POISONED_LOCK_ERR);
+        let mut guard = self.lock();
         let full =
             guard.slots.size_bytes > MAX_PREFETCH_STAGING_MEMORY - PREFETCH_RESERVED_BYTES_PER_SLOT;
         match guard.slots.map.get(&key) {
@@ -376,6 +376,11 @@ impl PrefetchStagingArea {
                 PrefetcherResult::SlotReserved
             }
         }
+    }
+
+    #[track_caller]
+    fn lock(&self) -> std::sync::MutexGuard<InnerPrefetchStagingArea> {
+        self.0.lock().expect(POISONED_LOCK_ERR)
     }
 }
 
@@ -482,7 +487,7 @@ impl PrefetchApi {
 
     /// Clear prefetched staging area from data that has not been picked up by the main thread.
     pub fn clear_data(&self) {
-        self.prefetching.0.lock().expect(POISONED_LOCK_ERR).slots.clear();
+        self.prefetching.lock().slots.clear();
     }
 }
 
@@ -534,9 +539,7 @@ mod tests {
         /// Returns the number of prefetched values currently staged.
         pub fn num_prefetched_and_staged(&self) -> usize {
             self.prefetching
-                .0
                 .lock()
-                .unwrap()
                 .slots
                 .map
                 .iter()

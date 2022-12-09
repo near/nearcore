@@ -62,6 +62,10 @@ pub(crate) struct TriePrefetcher {
     prefetch_queue_full: GenericCounter<prometheus::core::AtomicU64>,
 }
 
+#[derive(thiserror::Error, Debug)]
+#[error("I/O scheduler input queue is full")]
+pub(crate) struct PrefetchQueueFullError;
+
 impl TriePrefetcher {
     pub(crate) fn new_if_enabled(trie: Rc<Trie>) -> Option<Self> {
         if let Some(caching_storage) = trie.storage.as_caching_storage() {
@@ -85,7 +89,10 @@ impl TriePrefetcher {
     /// Start prefetching data for processing the receipts.
     ///
     /// Returns an error if the prefetching queue is full.
-    pub(crate) fn input_receipts(&mut self, receipts: &[Receipt]) -> Result<(), ()> {
+    pub(crate) fn input_receipts(
+        &mut self,
+        receipts: &[Receipt],
+    ) -> Result<(), PrefetchQueueFullError> {
         for receipt in receipts.iter() {
             if let ReceiptEnum::Action(action_receipt) = &receipt.receipt {
                 let account_id = receipt.receiver_id.clone();
@@ -122,7 +129,7 @@ impl TriePrefetcher {
     pub(crate) fn input_transactions(
         &mut self,
         transactions: &[SignedTransaction],
-    ) -> Result<(), ()> {
+    ) -> Result<(), PrefetchQueueFullError> {
         if self.prefetch_api.enable_receipt_prefetching {
             for t in transactions {
                 let account_id = t.transaction.signer_id.clone();
@@ -157,12 +164,12 @@ impl TriePrefetcher {
         self.prefetch_api.clear_data();
     }
 
-    fn prefetch_trie_key(&self, trie_key: TrieKey) -> Result<(), ()> {
+    fn prefetch_trie_key(&self, trie_key: TrieKey) -> Result<(), PrefetchQueueFullError> {
         let queue_full = self.prefetch_api.prefetch_trie_key(self.trie_root, trie_key).is_err();
         if queue_full {
             self.prefetch_queue_full.inc();
-            debug!(target: "prefetcher", "I/O scheduler input queue full, dropping prefetch request");
-            Err(())
+            debug!(target: "prefetcher", "I/O scheduler input queue is full, dropping prefetch request");
+            Err(PrefetchQueueFullError)
         } else {
             self.prefetch_enqueued.inc();
             Ok(())
@@ -173,7 +180,11 @@ impl TriePrefetcher {
     ///
     /// Temporary hack, consider removing after merging flat storage, see
     /// <https://github.com/near/nearcore/issues/7327>.
-    fn prefetch_sweat_record_batch(&self, account_id: AccountId, arg: &[u8]) -> Result<(), ()> {
+    fn prefetch_sweat_record_batch(
+        &self,
+        account_id: AccountId,
+        arg: &[u8],
+    ) -> Result<(), PrefetchQueueFullError> {
         if let Ok(json) = serde_json::de::from_slice::<serde_json::Value>(arg) {
             if json.is_object() {
                 if let Some(list) = json.get("steps_batch") {
@@ -210,7 +221,11 @@ mod tests {
         test_utils::{create_test_store, test_populate_trie},
         ShardTries, ShardUId, Trie, TrieConfig,
     };
-    use std::{rc::Rc, str::FromStr, time::Duration};
+    use std::{
+        rc::Rc,
+        str::FromStr,
+        time::{Duration, Instant},
+    };
 
     #[test]
     fn test_basic_prefetch_account() {
@@ -293,8 +308,7 @@ mod tests {
         let prefetch_keys = accounts_to_trie_keys(prefetch);
 
         let shard_uids = vec![ShardUId::single_shard()];
-        let mut trie_config = TrieConfig::default();
-        trie_config.enable_receipt_prefetching = true;
+        let trie_config = TrieConfig { enable_receipt_prefetching: true, ..TrieConfig::default() };
         let store = create_test_store();
         let flat_storage_factory = near_store::flat_state::FlatStateFactory::new(store.clone());
         let tries = ShardTries::new(store, trie_config, &shard_uids, flat_storage_factory);
@@ -313,28 +327,30 @@ mod tests {
 
         let prefetcher = TriePrefetcher::new_if_enabled(trie.clone())
             .expect("caching storage should have prefetcher");
-        let p = &prefetcher.prefetch_api;
+        let prefetch_api = &prefetcher.prefetch_api;
 
-        assert_eq!(p.num_prefetched_and_staged(), 0);
+        assert_eq!(prefetch_api.num_prefetched_and_staged(), 0);
 
         for trie_key in &prefetch_keys {
             _ = prefetcher.prefetch_trie_key(trie_key.clone());
         }
         std::thread::yield_now();
 
-        // don't use infinite loop to avoid test from ever hanging
-        for _ in 0..1000 {
-            if !p.work_queued() {
-                break;
-            }
-            std::thread::sleep(Duration::from_micros(100));
+        let wait_work_queue_empty_start = Instant::now();
+        while !prefetch_api.work_queued() {
+            std::thread::yield_now();
+            // Use timeout to avoid hanging the test
+            assert!(
+                wait_work_queue_empty_start.elapsed() < Duration::from_millis(100),
+                "timeout while waiting for prefetch queue to become empty"
+            );
         }
 
         // Request can still be pending. Stop threads and wait for them to finish.
         std::thread::sleep(Duration::from_micros(1000));
 
         assert_eq!(
-            p.num_prefetched_and_staged(),
+            prefetch_api.num_prefetched_and_staged(),
             expected_prefetched,
             "unexpected number of prefetched values"
         );
@@ -345,7 +361,7 @@ mod tests {
             let _value = trie.get(&storage_key).unwrap();
         }
         assert_eq!(
-            p.num_prefetched_and_staged(),
+            prefetch_api.num_prefetched_and_staged(),
             0,
             "prefetching staging area not clear after reading all values from main thread"
         );
