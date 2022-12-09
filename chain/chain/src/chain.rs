@@ -3149,6 +3149,10 @@ impl Chain {
         num_parts: u64,
         state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
     ) -> Result<(), Error> {
+        // Before working with state parts, remove existing flat storage data.
+        let epoch_id = self.get_block_header(&sync_hash)?.epoch_id().clone();
+        self.runtime_adapter.remove_flat_storage_state_for_shard(shard_id, &epoch_id)?;
+
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
         let state_root = shard_state_header.chunk_prev_state_root();
         let epoch_id = self.get_block_header(&sync_hash)?.epoch_id().clone();
@@ -3180,26 +3184,27 @@ impl Chain {
         let block_hash = chunk.prev_block();
         let block_height = self.get_block_header(block_hash)?.height();
 
+        // Flat storage must not exist at this point because leftover keys corrupt its state.
+        assert!(self.runtime_adapter.get_flat_storage_state_for_shard(shard_id).is_none());
+
         // We synced shard state on top of _previous_ block for chunk in shard state header and applied state parts to
         // flat storage. Now we can set flat head to hash of this block and create flat storage.
-        if self.runtime_adapter.get_flat_storage_state_for_shard(shard_id).is_none() {
-            #[cfg(feature = "protocol_feature_flat_state")]
-            {
-                let mut store_update = self.runtime_adapter.store().store_update();
-                store_helper::set_flat_head(&mut store_update, shard_id, block_hash);
-                store_update.commit()?;
-            }
+        #[cfg(feature = "protocol_feature_flat_state")]
+        {
+            let mut store_update = self.runtime_adapter.store().store_update();
+            store_helper::set_flat_head(&mut store_update, shard_id, block_hash);
+            store_update.commit()?;
+        }
 
-            match self.runtime_adapter.try_create_flat_storage_state_for_shard(
-                shard_id,
-                block_height,
-                self.store(),
-            ) {
-                FlatStorageStateStatus::Ready | FlatStorageStateStatus::DontCreate => {}
-                status @ _ => {
-                    return Err(Error::StorageError(StorageError::FlatStorageError(format!("Unable to create flat storage during syncing shard {shard_id}, got status {status:?}"))));
-                }
-            };
+        match self.runtime_adapter.try_create_flat_storage_state_for_shard(
+            shard_id,
+            block_height,
+            self.store(),
+        ) {
+            FlatStorageStateStatus::Ready | FlatStorageStateStatus::DontCreate => {}
+            status @ _ => {
+                return Err(Error::StorageError(StorageError::FlatStorageError(format!("Unable to create flat storage during syncing shard {shard_id}, got status {status:?}"))));
+            }
         }
 
         let mut height = shard_state_header.chunk_height_included();

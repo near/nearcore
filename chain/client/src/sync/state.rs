@@ -222,11 +222,6 @@ impl StateSync {
                 ShardSyncStatus::StateDownloadHeader => {
                     // StateDownloadHeader is the first step. We want to fetch the basic information about the state (its size, hash etc).
                     if shard_sync_download.downloads[0].done {
-                        // Before working with state parts, remove existing flat storage data.
-                        chain
-                            .runtime_adapter
-                            .remove_flat_storage_state_for_shard(shard_id, &epoch_id)?;
-
                         let shard_state_header = chain.get_state_header(shard_id, sync_hash)?;
                         let state_num_parts =
                             get_num_state_parts(shard_state_header.state_root_node().memory_usage);
