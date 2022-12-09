@@ -133,6 +133,18 @@ enum PrefetchSlot {
     Done(Arc<[u8]>),
 }
 
+impl PrefetchSlot {
+    /// Reserved memory capacity for a value from the prefetching area.
+    fn reserved_memory(&self) -> usize {
+        match self {
+            PrefetchSlot::Done(value) => value.len(),
+            PrefetchSlot::PendingFetch | PrefetchSlot::PendingPrefetch => {
+                PREFETCH_RESERVED_BYTES_PER_SLOT
+            }
+        }
+    }
+}
+
 struct SizeTrackedHashMap {
     map: HashMap<CryptoHash, PrefetchSlot>,
     size_bytes: usize,
@@ -141,10 +153,10 @@ struct SizeTrackedHashMap {
 
 impl SizeTrackedHashMap {
     fn insert(&mut self, k: CryptoHash, v: PrefetchSlot) -> Option<PrefetchSlot> {
-        self.size_bytes += Self::reserved_memory(&v);
+        self.size_bytes += v.reserved_memory();
         let dropped = self.map.insert(k, v);
         if let Some(dropped) = &dropped {
-            self.size_bytes -= Self::reserved_memory(dropped);
+            self.size_bytes -= dropped.reserved_memory();
         }
         self.update_metrics();
         dropped
@@ -153,7 +165,7 @@ impl SizeTrackedHashMap {
     fn remove(&mut self, k: &CryptoHash) -> Option<PrefetchSlot> {
         let dropped = self.map.remove(k);
         if let Some(dropped) = &dropped {
-            self.size_bytes -= Self::reserved_memory(dropped);
+            self.size_bytes -= dropped.reserved_memory();
         }
         self.update_metrics();
         dropped
@@ -168,16 +180,6 @@ impl SizeTrackedHashMap {
     fn update_metrics(&self) {
         self.metrics.prefetch_staged_bytes.set(self.size_bytes as i64);
         self.metrics.prefetch_staged_items.set(self.map.len() as i64);
-    }
-
-    /// Reserved memory capacity for a value from the prefetching area.
-    fn reserved_memory(slot: &PrefetchSlot) -> usize {
-        match slot {
-            PrefetchSlot::Done(value) => value.len(),
-            PrefetchSlot::PendingFetch | PrefetchSlot::PendingPrefetch => {
-                PREFETCH_RESERVED_BYTES_PER_SLOT
-            }
-        }
     }
 
     fn get(&self, key: &CryptoHash) -> Option<&PrefetchSlot> {
