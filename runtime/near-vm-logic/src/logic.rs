@@ -203,17 +203,6 @@ impl<'a> VMLogic<'a> {
     memory_get!(u16, memory_get_u16);
     memory_get!(u8, memory_get_u8);
 
-    /// Reads an array of `u64` elements.
-    fn memory_get_vec_u64(&mut self, offset: u64, num_elements: u64) -> Result<Vec<u64>> {
-        let memory_len = num_elements
-            .checked_mul(size_of::<u64>() as u64)
-            .ok_or(HostError::MemoryAccessViolation)?;
-        let data = self.memory_get_vec(offset, memory_len)?;
-        let mut res = vec![0u64; num_elements as usize];
-        byteorder::LittleEndian::read_u64_into(&data, &mut res);
-        Ok(res)
-    }
-
     fn get_vec_from_memory_or_register(&mut self, offset: u64, len: u64) -> Result<Vec<u8>> {
         if len != u64::MAX {
             self.memory_get_vec(offset, len)
@@ -1371,21 +1360,24 @@ impl<'a> VMLogic<'a> {
             );
         }
         self.gas_counter.pay_base(promise_and_base)?;
-        self.gas_counter.pay_per(
-            promise_and_per_promise,
-            promise_idx_count
-                .checked_mul(size_of::<u64>() as u64)
-                .ok_or(HostError::IntegerOverflow)?,
-        )?;
+        let memory_len = promise_idx_count
+            .checked_mul(size_of::<u64>() as u64)
+            .ok_or(HostError::IntegerOverflow)?;
+        self.gas_counter.pay_per(promise_and_per_promise, memory_len)?;
 
-        let promise_indices = self.memory_get_vec_u64(promise_idx_ptr, promise_idx_count)?;
+        // Read indices as little endian u64.
+        let promise_indices = self.memory_get_vec(promise_idx_ptr, memory_len)?;
+        let promise_indices = stdx::as_chunks_exact::<{ size_of::<u64>() }, u8>(&promise_indices)
+            .unwrap()
+            .into_iter()
+            .map(|bytes| u64::from_le_bytes(*bytes));
 
         let mut receipt_dependencies = vec![];
-        for promise_idx in &promise_indices {
+        for promise_idx in promise_indices {
             let promise = self
                 .promises
-                .get(*promise_idx as usize)
-                .ok_or(HostError::InvalidPromiseIndex { promise_idx: *promise_idx })?;
+                .get(promise_idx as usize)
+                .ok_or(HostError::InvalidPromiseIndex { promise_idx })?;
             match &promise {
                 Promise::Receipt(receipt_idx) => {
                     receipt_dependencies.push(*receipt_idx);
