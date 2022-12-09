@@ -156,6 +156,26 @@ pub struct ShardSyncDownload {
     pub status: ShardSyncStatus,
 }
 
+impl ShardSyncDownload {
+    /// Indicates the initial status of shard sync.
+    pub fn new(time: DateTime<Utc>) -> Self {
+        Self {
+            downloads: vec![
+                DownloadStatus {
+                    start_time: time,
+                    prev_update_time: time,
+                    run_me: Arc::new(AtomicBool::new(true)),
+                    error: false,
+                    done: false,
+                    state_requests_count: 0,
+                    last_target: None,
+                };
+                1
+            ],
+            status: ShardSyncStatus::StateDownloadHeader,
+        }
+    }
+}
 /// Various status sync can be in, whether it's fast sync or archival.
 #[derive(Clone, Debug, strum::AsRefStr)]
 pub enum SyncStatus {
