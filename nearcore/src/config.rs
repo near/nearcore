@@ -1163,6 +1163,7 @@ pub fn init_testnet_configs(
     num_validator_seats: NumSeats,
     num_non_validator_seats: NumSeats,
     prefix: &str,
+    local_ports: bool,
     archive: bool,
     fixed_shards: bool,
 ) {
@@ -1171,7 +1172,7 @@ pub fn init_testnet_configs(
         num_validator_seats,
         num_non_validator_seats,
         prefix,
-        false,
+        local_ports,
         archive,
         fixed_shards,
     );

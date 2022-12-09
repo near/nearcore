@@ -5,7 +5,7 @@ use crate::tests::vm_logic_builder::VMLogicBuilder;
 use crate::types::Gas;
 use crate::{VMConfig, VMLogic};
 use expect_test::expect;
-use near_primitives::config::ActionCosts;
+use near_primitives::config::{ActionCosts, ExtCosts};
 use near_primitives::runtime::fees::Fee;
 use near_primitives::transaction::{Action, FunctionCallAction};
 use near_vm_errors::{HostError, VMLogicError};
@@ -221,6 +221,67 @@ fn function_call_no_weight_refund() {
 
     // Verify that unused gas was not allocated to function call
     assert!(outcome.used_gas < gas_limit);
+}
+
+#[test]
+fn test_overflowing_burn_gas_with_promises_gas() {
+    let gas_limit = 3 * 10u64.pow(14);
+    let mut logic_builder = VMLogicBuilder::default().max_gas_burnt(gas_limit);
+    let mut logic = logic_builder.build_with_prepaid_gas(gas_limit);
+
+    let index = promise_batch_create(&mut logic, "rick.test").expect("should create a promise");
+    logic.promise_batch_action_transfer(index, 100u128.to_le_bytes().as_ptr() as _).unwrap();
+    let call_id = logic.promise_batch_then(index, 9, "rick.test".as_ptr() as _).unwrap();
+
+    let needed_gas_charge = u64::max_value() - logic.gas_counter().used_gas() - 1;
+    let function_name_len =
+        needed_gas_charge / logic.config().ext_costs.cost(ExtCosts::read_memory_byte);
+    let result = logic.promise_batch_action_function_call(
+        call_id,
+        function_name_len,
+        "x".as_ptr() as _,
+        1,
+        "x".as_ptr() as _,
+        10u128.to_le_bytes().as_ptr() as _,
+        10000,
+    );
+    assert!(matches!(
+        result,
+        Err(near_vm_errors::VMLogicError::HostError(near_vm_errors::HostError::GasLimitExceeded))
+    ));
+    assert_eq!(logic.gas_counter().used_gas(), gas_limit);
+}
+
+#[test]
+fn test_overflowing_burn_gas_with_promises_gas_2() {
+    let gas_limit = 3 * 10u64.pow(14);
+    let mut logic_builder = VMLogicBuilder::default().max_gas_burnt(gas_limit);
+    let mut logic = logic_builder.build_with_prepaid_gas(gas_limit / 2);
+    let index = promise_batch_create(&mut logic, "rick.test").expect("should create a promise");
+    logic.promise_batch_action_transfer(index, 100u128.to_le_bytes().as_ptr() as _).unwrap();
+    logic.promise_batch_then(index, 9, "rick.test".as_ptr() as _).unwrap();
+    let minimum_prepay = logic.gas_counter().used_gas();
+    let mut logic = logic_builder.build_with_prepaid_gas(minimum_prepay);
+    let index = promise_batch_create(&mut logic, "rick.test").expect("should create a promise");
+    logic.promise_batch_action_transfer(index, 100u128.to_le_bytes().as_ptr() as _).unwrap();
+    let call_id = logic.promise_batch_then(index, 9, "rick.test".as_ptr() as _).unwrap();
+    let needed_gas_charge = u64::max_value() - logic.gas_counter().used_gas() - 1;
+    let function_name_len =
+        needed_gas_charge / logic.config().ext_costs.cost(ExtCosts::read_memory_byte);
+    let result = logic.promise_batch_action_function_call(
+        call_id,
+        function_name_len,
+        "x".as_ptr() as _,
+        1,
+        "x".as_ptr() as _,
+        10u128.to_le_bytes().as_ptr() as _,
+        10000,
+    );
+    assert!(matches!(
+        result,
+        Err(near_vm_errors::VMLogicError::HostError(near_vm_errors::HostError::GasExceeded))
+    ));
+    assert_eq!(logic.gas_counter().used_gas(), minimum_prepay);
 }
 
 /// Check consistent result when exceeding gas limit on a specific action gas parameter.

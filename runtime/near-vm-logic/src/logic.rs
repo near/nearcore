@@ -170,32 +170,31 @@ impl<'a> VMLogic<'a> {
         &self.gas_counter
     }
 
+    #[allow(dead_code)]
+    #[cfg(test)]
+    pub(crate) fn config(&self) -> &VMConfig {
+        &self.config
+    }
+
     // ###########################
     // # Memory helper functions #
     // ###########################
 
-    fn try_fit_mem(&mut self, offset: u64, len: u64) -> Result<()> {
-        if self.memory.fits_memory(offset, len) {
-            Ok(())
-        } else {
-            Err(HostError::MemoryAccessViolation.into())
-        }
-    }
-
     fn memory_get_into(&mut self, offset: u64, buf: &mut [u8]) -> Result<()> {
         self.gas_counter.pay_base(read_memory_base)?;
         self.gas_counter.pay_per(read_memory_byte, buf.len() as _)?;
-        self.try_fit_mem(offset, buf.len() as _)?;
-        self.memory.read_memory(offset, buf);
-        Ok(())
+        self.memory.read_memory(offset, buf).map_err(|_| HostError::MemoryAccessViolation.into())
     }
 
     fn memory_get_vec(&mut self, offset: u64, len: u64) -> Result<Vec<u8>> {
         self.gas_counter.pay_base(read_memory_base)?;
         self.gas_counter.pay_per(read_memory_byte, len)?;
-        self.try_fit_mem(offset, len)?;
+        // This check is redundant in the sense that read_memory will perform it
+        // as well however it’s here to validate that `len` is a valid value.
+        // See documentation of MemoryLike::read_memory for more information.
+        self.memory.fits_memory(offset, len).map_err(|_| HostError::MemoryAccessViolation)?;
         let mut buf = vec![0; len as usize];
-        self.memory.read_memory(offset, &mut buf);
+        self.memory.read_memory(offset, &mut buf).map_err(|_| HostError::MemoryAccessViolation)?;
         Ok(buf)
     }
 
@@ -203,17 +202,6 @@ impl<'a> VMLogic<'a> {
     memory_get!(u32, memory_get_u32);
     memory_get!(u16, memory_get_u16);
     memory_get!(u8, memory_get_u8);
-
-    /// Reads an array of `u64` elements.
-    fn memory_get_vec_u64(&mut self, offset: u64, num_elements: u64) -> Result<Vec<u64>> {
-        let memory_len = num_elements
-            .checked_mul(size_of::<u64>() as u64)
-            .ok_or(HostError::MemoryAccessViolation)?;
-        let data = self.memory_get_vec(offset, memory_len)?;
-        let mut res = vec![0u64; num_elements as usize];
-        byteorder::LittleEndian::read_u64_into(&data, &mut res);
-        Ok(res)
-    }
 
     fn get_vec_from_memory_or_register(&mut self, offset: u64, len: u64) -> Result<Vec<u8>> {
         if len != u64::MAX {
@@ -226,9 +214,7 @@ impl<'a> VMLogic<'a> {
     fn memory_set_slice(&mut self, offset: u64, buf: &[u8]) -> Result<()> {
         self.gas_counter.pay_base(write_memory_base)?;
         self.gas_counter.pay_per(write_memory_byte, buf.len() as _)?;
-        self.try_fit_mem(offset, buf.len() as _)?;
-        self.memory.write_memory(offset, buf);
-        Ok(())
+        self.memory.write_memory(offset, buf).map_err(|_| HostError::MemoryAccessViolation.into())
     }
 
     memory_set!(u128, memory_set_u128);
@@ -371,7 +357,7 @@ impl<'a> VMLogic<'a> {
         } else {
             buf = vec![];
             for i in 0..=max_len {
-                // self.try_fit_mem will check for u64 overflow on the first iteration (i == 0)
+                // self.memory_get_u8 will check for u64 overflow on the first iteration (i == 0)
                 let el = self.memory_get_u8(ptr + i)?;
                 if el == 0 {
                     break;
@@ -396,9 +382,9 @@ impl<'a> VMLogic<'a> {
     /// * It's up to the caller to set correct len
     #[cfg(feature = "sandbox")]
     fn sandbox_get_utf8_string(&mut self, len: u64, ptr: u64) -> Result<String> {
-        self.try_fit_mem(ptr, len)?;
+        self.memory.fits_memory(ptr, len).map_err(|_| HostError::MemoryAccessViolation)?;
         let mut buf = vec![0; len as usize];
-        self.memory.read_memory(ptr, &mut buf);
+        self.memory.read_memory(ptr, &mut buf).map_err(|_| HostError::MemoryAccessViolation)?;
         String::from_utf8(buf).map_err(|_| HostError::BadUTF8.into())
     }
 
@@ -441,7 +427,7 @@ impl<'a> VMLogic<'a> {
             let limit = max_len / size_of::<u16>() as u64;
             // Takes 2 bytes each iter
             for i in 0..=limit {
-                // self.try_fit_mem will check for u64 overflow on the first iteration (i == 0)
+                // self.memory_get_u16 will check for u64 overflow on the first iteration (i == 0)
                 let start = ptr + i * size_of::<u16>() as u64;
                 let el = self.memory_get_u16(start)?;
                 if el == 0 {
@@ -1374,21 +1360,24 @@ impl<'a> VMLogic<'a> {
             );
         }
         self.gas_counter.pay_base(promise_and_base)?;
-        self.gas_counter.pay_per(
-            promise_and_per_promise,
-            promise_idx_count
-                .checked_mul(size_of::<u64>() as u64)
-                .ok_or(HostError::IntegerOverflow)?,
-        )?;
+        let memory_len = promise_idx_count
+            .checked_mul(size_of::<u64>() as u64)
+            .ok_or(HostError::IntegerOverflow)?;
+        self.gas_counter.pay_per(promise_and_per_promise, memory_len)?;
 
-        let promise_indices = self.memory_get_vec_u64(promise_idx_ptr, promise_idx_count)?;
+        // Read indices as little endian u64.
+        let promise_indices = self.memory_get_vec(promise_idx_ptr, memory_len)?;
+        let promise_indices = stdx::as_chunks_exact::<{ size_of::<u64>() }, u8>(&promise_indices)
+            .unwrap()
+            .into_iter()
+            .map(|bytes| u64::from_le_bytes(*bytes));
 
         let mut receipt_dependencies = vec![];
-        for promise_idx in &promise_indices {
+        for promise_idx in promise_indices {
             let promise = self
                 .promises
-                .get(*promise_idx as usize)
-                .ok_or(HostError::InvalidPromiseIndex { promise_idx: *promise_idx })?;
+                .get(promise_idx as usize)
+                .ok_or(HostError::InvalidPromiseIndex { promise_idx })?;
             match &promise {
                 Promise::Receipt(receipt_idx) => {
                     receipt_dependencies.push(*receipt_idx);
