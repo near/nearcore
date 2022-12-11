@@ -87,6 +87,7 @@ impl Network {
                     received_bytes_per_sec: 0,
                     known_producers: vec![],
                     tier1_connections: vec![],
+                    tier1_accounts_keys: vec![],
                     tier1_accounts_data: vec![],
                 }),
                 info_futures: Default::default(),
