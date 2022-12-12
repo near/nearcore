@@ -392,6 +392,10 @@ impl PrefetchStagingArea {
         }
     }
 
+    fn clear(&self) {
+        self.lock().slots.clear();
+    }
+
     #[track_caller]
     fn lock(&self) -> std::sync::MutexGuard<InnerPrefetchStagingArea> {
         self.0.lock().expect(POISONED_LOCK_ERR)
@@ -503,7 +507,7 @@ impl PrefetchApi {
 
     /// Clear prefetched staging area from data that has not been picked up by the main thread.
     pub fn clear_data(&self) {
-        self.prefetching.lock().slots.clear();
+        self.prefetching.clear();
     }
 }
 

@@ -175,7 +175,7 @@ impl TriePrefetcher {
                 // This shouldn't have happened, hence logging warning here
                 warn!(target: "prefetcher", "I/O scheduler input queue is disconnected, dropping prefetch request");
             }
-            Ok(_) => self.prefetch_enqueued.inc(),
+            Ok(()) => self.prefetch_enqueued.inc(),
         };
         res
     }
