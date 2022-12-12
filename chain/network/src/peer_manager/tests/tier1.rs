@@ -378,7 +378,7 @@ async fn tier2_routing_using_accounts_data() {
     assert!(send_tier1_message(rng, &clock.clock(), &pm0, &pm1).await.is_none());
 
     tracing::info!(target:"test", "propagate AccountsData");
-    let chain_info = peer_manager::testonly::make_chain_info(&chain, &[&pm1]);
+    let chain_info = peer_manager::testonly::make_chain_info(&chain, &[&pm1.cfg]);
     for pm in [&pm0, &pm1] {
         pm.set_chain_info(chain_info.clone()).await;
     }
