@@ -7,9 +7,16 @@
 * Stabilize `account_id_in_function_call_permission` feature: enforcing validity
   of account ids in function call permission.
 * Enable TIER1 peer discovery. Validator nodes are now exchanging the [public addresses
-  set in config](https://github.com/near/nearcore/blob/301fb493ea4f6d9b75d7dac7f2b52d00a1b2b709/chain/network/src/config_json.rs#L162).
-  The TIER1 connections support (direct connections between validators) based on
-  this discovery mechanism will be added soon.
+  set in config](https://github.com/near/nearcore/blob/d95a5f58d998c69cb8d4e965ad6b0a440cf3f233/chain/network/src/config_json.rs#L154).
+* Enable TIER1 communication. Participants of the BFT consensus now can establish direct TIER1 connections
+  between each other.
+  * To allow for inbound TIER1 connections to your node, you have to set
+    [public address(es)](https://github.com/near/nearcore/blob/d95a5f58d998c69cb8d4e965ad6b0a440cf3f233/chain/network/src/config_json.rs#L154).
+  * If you want your node to actively try to establish outbound TIER1 connections (recommended), set
+    [experimental.tier1_enable_outbound](https://github.com/near/nearcore/blob/d95a5f58d998c69cb8d4e965ad6b0a440cf3f233/chain/network/src/config_json.rs#L213)
+    (currently `false` by default, will be changed to `true` by default in the future).
+  * If you want your node to entirely opt out from TIER1 communication, set [experimental.tier1_enable_inbound](https://github.com/near/nearcore/blob/d95a5f58d998c69cb8d4e965ad6b0a440cf3f233/chain/network/src/config_json.rs#L209)
+    to `false` (it is `true` by default).
 
 ### Non-protocol Changes
 
