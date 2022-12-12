@@ -1304,7 +1304,7 @@ async fn connect_to_unbanned_peer() {
     tracing::info!(target:"test", "pm0 connects to pm1");
     pm0.connect_to(&pm1.peer_info(), tcp::Tier::T2).await;
 
-    tracing::info!(target:"test", "pm1 bans pm1");
+    tracing::info!(target:"test", "pm1 bans pm0");
     let ban_reason = ReasonForBan::BadBlock;
     pm1.disconnect_and_ban(&clock.clock(), &pm0.cfg.node_id(), ban_reason).await;
     wait_for_connection_closed(&mut pm0.events).await;

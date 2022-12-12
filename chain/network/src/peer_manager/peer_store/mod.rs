@@ -18,6 +18,9 @@ mod testonly;
 #[cfg(test)]
 mod tests;
 
+/// How often to update the KnownPeerState.last_seen in storage.
+const UPDATE_LAST_SEEN_INTERVAL: time::Duration = time::Duration::minutes(1);
+
 /// Level of trust we have about a new (PeerId, Addr) pair.
 #[derive(Eq, PartialEq, Debug, Clone, Copy)]
 enum TrustLevel {
@@ -254,7 +257,7 @@ impl Inner {
         }
         for peer_id in &to_unban {
             if let Err(err) = self.peer_unban(&peer_id) {
-                tracing::error!(target: "network", ?err, "Failed to unban a peer");
+                tracing::error!(target: "network", ?peer_id, ?err, "Failed to unban a peer");
             }
         }
     }
@@ -263,16 +266,21 @@ impl Inner {
     fn update_last_seen(&mut self, now: time::Utc) {
         for (peer_id, peer_state) in self.peer_states.iter_mut() {
             if peer_state.status == KnownPeerStatus::Connected
-                && now > peer_state.last_seen + time::Duration::minutes(1)
+                && now > peer_state.last_seen + UPDATE_LAST_SEEN_INTERVAL
             {
                 peer_state.last_seen = now;
                 if let Err(err) = self.store.set_peer_state(peer_id, peer_state) {
-                    tracing::error!(target: "network", ?err, "Failed to update peers last seen time.");
+                    tracing::error!(target: "network", ?peer_id, ?err, "Failed to update peers last seen time.");
                 }
             }
         }
     }
 
+    /// Cleans up the state of the PeerStore, due to passing time.
+    /// * it unbans a peer if config.ban_window has passed
+    /// * it updates KnownPeerStatus.last_seen of the connected peers
+    /// * it removes peers which were not seen for config.peer_expiration_duration
+    /// This function should be called periodically.
     pub fn update(&mut self, clock: &time::Clock) {
         let now = clock.now_utc();
         // TODO(gprusak): these operations could be put into a single DB write transaction.
