@@ -448,7 +448,7 @@ impl Runtime {
     }
 
     // Executes when all Receipt `input_data_ids` are in the state
-    fn apply_action_receipt(
+    pub fn apply_action_receipt( // TODO: I don't want to make this public when merging to nearcore
         &self,
         state_update: &mut TrieUpdate,
         apply_state: &ApplyState,
