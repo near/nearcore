@@ -134,4 +134,6 @@ sandbox = [
 ]
 io_trace = ["near-vm-runner/io_trace"]
 
+calimero_zero_storage = ["near-primitives/calimero_zero_storage"]
+
 cold_store = ["near-store/cold_store"]
