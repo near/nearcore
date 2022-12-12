@@ -884,7 +884,7 @@ pub fn init_configs(
             genesis.to_file(&dir.join(config.genesis_file));
             info!(target: "near", "Generated mainnet genesis file in {}", dir.display());
         }
-        "testnet" | "betanet" | "shardnet" => {
+        "testnet" | "betanet" => {
             if test_seed.is_some() {
                 bail!("Test seed is not supported for {chain_id}");
             }
@@ -1304,7 +1304,7 @@ pub fn load_config(
         None => Genesis::from_file(&genesis_file, genesis_validation),
     };
 
-    if matches!(genesis.config.chain_id.as_ref(), "mainnet" | "testnet" | "betanet" | "shardnet") {
+    if matches!(genesis.config.chain_id.as_ref(), "mainnet" | "testnet" | "betanet") {
         // Make sure validators tracks all shards, see
         // https://github.com/near/nearcore/issues/7388
         anyhow::ensure!(!config.tracked_shards.is_empty(),

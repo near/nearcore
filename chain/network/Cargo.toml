@@ -65,5 +65,3 @@ performance_stats = [
     "near-rust-allocator-proxy",
 ]
 test_features = []
-
-shardnet = []
