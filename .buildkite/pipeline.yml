@@ -18,6 +18,7 @@ steps:
   - label: "cargo test integration-tests*"
     command: |
       source ~/.cargo/env && set -eux
+      cargo install cargo-nextest
       cargo nextest run --locked -p 'integration-tests'
 
     timeout: 60
@@ -28,6 +29,7 @@ steps:
   - label: "cargo test not integration-tests*"
     command: |
       source ~/.cargo/env && set -eux
+      cargo install cargo-nextest
       cargo nextest run --locked --workspace -p '*' --exclude 'integration-tests*'
 
     timeout: 60
@@ -38,6 +40,7 @@ steps:
   - label: "cargo test nightly integration-tests*"
     command: |
       source ~/.cargo/env && set -eux
+      cargo install cargo-nextest
       cargo nextest run --features nightly,test_features -p 'integration-tests'
 
     timeout: 60
@@ -48,6 +51,7 @@ steps:
   - label: "cargo test nightly not integration-tests*"
     command: |
       source ~/.cargo/env && set -eux
+      cargo install cargo-nextest
       cargo nextest run --workspace --features nightly,test_features,mock_node -p '*' --exclude 'integration-tests*'
 
     timeout: 60
