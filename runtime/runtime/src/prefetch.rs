@@ -63,8 +63,10 @@ pub(crate) struct TriePrefetcher {
 }
 
 #[derive(thiserror::Error, Debug)]
-#[error("I/O scheduler input queue is full")]
-pub(crate) struct PrefetchQueueFullError;
+pub(crate) enum PrefetchError {
+    #[error("I/O scheduler input queue is full")]
+    QueueFull,
+}
 
 impl TriePrefetcher {
     pub(crate) fn new_if_enabled(trie: Rc<Trie>) -> Option<Self> {
@@ -88,11 +90,10 @@ impl TriePrefetcher {
 
     /// Start prefetching data for processing the receipts.
     ///
-    /// Returns an error if the prefetching queue is full.
-    pub(crate) fn input_receipts(
-        &mut self,
-        receipts: &[Receipt],
-    ) -> Result<(), PrefetchQueueFullError> {
+    /// Returns an error if prefetching for any receipt fails.
+    /// The function is not idempotent; in case of failure, prefetching
+    /// for some receipts may have been initiated.
+    pub(crate) fn input_receipts(&mut self, receipts: &[Receipt]) -> Result<(), PrefetchError> {
         for receipt in receipts.iter() {
             if let ReceiptEnum::Action(action_receipt) = &receipt.receipt {
                 let account_id = receipt.receiver_id.clone();
@@ -125,11 +126,13 @@ impl TriePrefetcher {
 
     /// Start prefetching data for processing the transactions.
     ///
-    /// Returns an error if the prefetching queue is full.
+    /// Returns an error if prefetching for any transaction fails.
+    /// The function is not idempotent; in case of failure, prefetching
+    /// for some transactions may have been initiated.
     pub(crate) fn input_transactions(
         &mut self,
         transactions: &[SignedTransaction],
-    ) -> Result<(), PrefetchQueueFullError> {
+    ) -> Result<(), PrefetchError> {
         if self.prefetch_api.enable_receipt_prefetching {
             for t in transactions {
                 let account_id = t.transaction.signer_id.clone();
@@ -164,12 +167,12 @@ impl TriePrefetcher {
         self.prefetch_api.clear_data();
     }
 
-    fn prefetch_trie_key(&self, trie_key: TrieKey) -> Result<(), PrefetchQueueFullError> {
+    fn prefetch_trie_key(&self, trie_key: TrieKey) -> Result<(), PrefetchError> {
         let queue_full = self.prefetch_api.prefetch_trie_key(self.trie_root, trie_key).is_err();
         if queue_full {
             self.prefetch_queue_full.inc();
             debug!(target: "prefetcher", "I/O scheduler input queue is full, dropping prefetch request");
-            Err(PrefetchQueueFullError)
+            Err(PrefetchError::QueueFull)
         } else {
             self.prefetch_enqueued.inc();
             Ok(())
@@ -184,7 +187,7 @@ impl TriePrefetcher {
         &self,
         account_id: AccountId,
         arg: &[u8],
-    ) -> Result<(), PrefetchQueueFullError> {
+    ) -> Result<(), PrefetchError> {
         if let Ok(json) = serde_json::de::from_slice::<serde_json::Value>(arg) {
             if json.is_object() {
                 if let Some(list) = json.get("steps_batch") {

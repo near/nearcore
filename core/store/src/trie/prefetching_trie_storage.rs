@@ -42,7 +42,7 @@ const NUM_IO_THREADS: usize = 8;
 ///
 /// Please note that this should only be used from the background threads
 /// performing prefetching. The main thread uses `PrefetchStagingArea`
-/// directly to look up for prefetched values before going to the database.
+/// directly to look up prefetched values before going to the database.
 #[derive(Clone)]
 struct TriePrefetchingStorage {
     /// Store is shared with parent `TrieCachingStorage`.
