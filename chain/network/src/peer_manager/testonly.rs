@@ -472,7 +472,7 @@ pub(crate) async fn start(
     cfg: config::NetworkConfig,
     chain: Arc<data::Chain>,
 ) -> ActorHandler {
-    let (send, recv) = broadcast::unbounded_channel();
+    let (send, mut recv) = broadcast::unbounded_channel();
     let actix = ActixSystem::spawn({
         let mut cfg = cfg.clone();
         let chain = chain.clone();
@@ -484,9 +484,13 @@ pub(crate) async fn start(
         }
     })
     .await;
-    let mut h = ActorHandler { cfg, actix, events: recv };
+    let h = ActorHandler { cfg, actix, events: recv.clone() };
     // Wait for the server to start.
-    assert_eq!(Event::PeerManager(PME::ServerStarted), h.events.recv().await);
+    recv.recv_until(|ev| match ev {
+        Event::PeerManager(PME::ServerStarted) => Some(()),
+        _ => None,
+    })
+    .await;
     h.set_chain_info(chain.get_chain_info()).await;
     h
 }
