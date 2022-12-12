@@ -217,15 +217,11 @@ impl TriePrefetcher {
 mod tests {
     use super::TriePrefetcher;
     use near_primitives::{trie_key::TrieKey, types::AccountId};
-    use near_store::{
-        test_utils::{create_test_store, test_populate_trie},
-        ShardTries, ShardUId, Trie, TrieConfig,
-    };
-    use std::{
-        rc::Rc,
-        str::FromStr,
-        time::{Duration, Instant},
-    };
+    use near_store::test_utils::{create_test_store, test_populate_trie};
+    use near_store::{ShardTries, ShardUId, Trie, TrieConfig};
+    use std::rc::Rc;
+    use std::str::FromStr;
+    use std::time::{Duration, Instant};
 
     #[test]
     fn test_basic_prefetch_account() {
