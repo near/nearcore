@@ -138,7 +138,7 @@ enum PrefetchSlot {
 }
 
 impl PrefetchSlot {
-    /// Reserved memory capacity for a value from the prefetching area.
+    /// Returns amount of memory reserved for a value in the prefetching area.
     fn reserved_memory(&self) -> usize {
         match self {
             PrefetchSlot::Done(value) => value.len(),

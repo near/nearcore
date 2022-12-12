@@ -88,7 +88,7 @@ impl TriePrefetcher {
         None
     }
 
-    /// Start prefetching data for processing the receipts.
+    /// Starts prefetching data for processing the receipts.
     ///
     /// Returns an error if prefetching for any receipt fails.
     /// The function is not idempotent; in case of failure, prefetching
