@@ -140,7 +140,10 @@ async fn gradual_epoch_change() {
     for ids in (0..pms.len()).permutations(pms.len()) {
         tracing::info!(target:"test", "permutation {ids:?}");
         clock.advance(time::Duration::hours(1));
-        let chain_info = testonly::make_chain_info(&chain, &pms.iter().collect::<Vec<_>>()[..]);
+        let chain_info = testonly::make_chain_info(
+            &chain,
+            &pms.iter().map(|pm| &pm.cfg).collect::<Vec<_>>()[..],
+        );
 
         let mut want = HashSet::new();
         // Advance epoch in the given order.
@@ -217,7 +220,8 @@ async fn rate_limiting() {
     }
 
     // Construct ChainInfo with tier1_accounts containing all validators.
-    let chain_info = testonly::make_chain_info(&chain, &pms.iter().collect::<Vec<_>>()[..]);
+    let chain_info =
+        testonly::make_chain_info(&chain, &pms.iter().map(|pm| &pm.cfg).collect::<Vec<_>>()[..]);
 
     clock.advance(time::Duration::hours(1));
 

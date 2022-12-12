@@ -126,7 +126,7 @@ async fn first_proxy_advertisement() {
         chain.clone(),
     )
     .await;
-    let chain_info = peer_manager::testonly::make_chain_info(&chain, &[&pm]);
+    let chain_info = peer_manager::testonly::make_chain_info(&chain, &[&pm.cfg]);
     tracing::info!(target:"test", "set_chain_info()");
     // TODO(gprusak): The default config constructed via chain.make_config(),
     // currently returns a validator config with its own server addr in the list of TIER1 proxies.
@@ -168,7 +168,10 @@ async fn direct_connections() {
     }
 
     tracing::info!(target:"test", "Set chain info.");
-    let chain_info = peer_manager::testonly::make_chain_info(&chain, &pms[..]);
+    let chain_info = peer_manager::testonly::make_chain_info(
+        &chain,
+        &pms.iter().map(|pm| &pm.cfg).collect::<Vec<_>>()[..],
+    );
     for pm in &pms {
         pm.set_chain_info(chain_info.clone()).await;
     }
@@ -238,7 +241,10 @@ async fn proxy_connections() {
     all.extend(proxies.clone());
     all.push(&hub);
 
-    let chain_info = peer_manager::testonly::make_chain_info(&chain, &validators[..]);
+    let chain_info = peer_manager::testonly::make_chain_info(
+        &chain,
+        &validators.iter().map(|pm| &pm.cfg).collect::<Vec<_>>()[..],
+    );
     for pm in &all {
         pm.set_chain_info(chain_info.clone()).await;
     }
@@ -263,7 +269,7 @@ async fn account_keys_change() {
     hub.connect_to(&v2.peer_info(), tcp::Tier::T2).await;
 
     // TIER1 nodes in 1st epoch are {v0,v1}.
-    let chain_info = peer_manager::testonly::make_chain_info(&chain, &[&v0, &v1]);
+    let chain_info = peer_manager::testonly::make_chain_info(&chain, &[&v0.cfg, &v1.cfg]);
     for pm in [&v0, &v1, &v2, &hub] {
         pm.set_chain_info(chain_info.clone()).await;
     }
@@ -271,7 +277,7 @@ async fn account_keys_change() {
     test_clique(rng, &clock.clock(), &[&v0, &v1]).await;
 
     // TIER1 nodes in 2nd epoch are {v0,v2}.
-    let chain_info = peer_manager::testonly::make_chain_info(&chain, &[&v0, &v2]);
+    let chain_info = peer_manager::testonly::make_chain_info(&chain, &[&v0.cfg, &v2.cfg]);
     for pm in [&v0, &v1, &v2, &hub] {
         pm.set_chain_info(chain_info.clone()).await;
     }
@@ -322,7 +328,7 @@ async fn proxy_change() {
     tracing::info!(target:"test", "p0 goes down");
     drop(p0);
     tracing::info!(target:"test", "remaining nodes learn that [v0,v1] are TIER1 nodes");
-    let chain_info = peer_manager::testonly::make_chain_info(&chain, &[&v0, &v1]);
+    let chain_info = peer_manager::testonly::make_chain_info(&chain, &[&v0.cfg, &v1.cfg]);
     for pm in [&v0, &v1, &p1, &hub] {
         pm.set_chain_info(chain_info.clone()).await;
     }

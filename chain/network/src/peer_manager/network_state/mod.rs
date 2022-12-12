@@ -254,6 +254,7 @@ impl NetworkState {
     pub async fn register(
         self: &Arc<Self>,
         clock: &time::Clock,
+        edge: Edge,
         conn: Arc<connection::Connection>,
     ) -> Result<(), RegisterPeerError> {
         let this = self.clone();
@@ -286,6 +287,10 @@ impl NetworkState {
                             return Err(RegisterPeerError::NotTier1Peer);
                         }
                     }
+                    let (_, ok) = this.graph.verify(vec![edge]).await;
+                    if !ok {
+                        return Err(RegisterPeerError::InvalidEdge);
+                    }
                     this.tier1.insert_ready(conn).map_err(RegisterPeerError::PoolError)?;
                 }
                 tcp::Tier::T2 => {
@@ -301,10 +306,10 @@ impl NetworkState {
                             return Err(RegisterPeerError::ConnectionLimitExceeded);
                         }
                     }
-                    // Verify and broadcast the edge of the connection. Only then insert the new
-                    // connection to TIER2 pool, so that nothing is broadcasted to conn.
+                    // First verify and broadcast the edge of the connection, so that in case
+                    // it is invalid, the connection is not added to the pool.
                     // TODO(gprusak): consider actually banning the peer for consistency.
-                    this.add_edges(&clock, vec![conn.edge.load().as_ref().clone()])
+                    this.add_edges(&clock, vec![edge])
                         .await
                         .map_err(|_: ReasonForBan| RegisterPeerError::InvalidEdge)?;
                     this.tier2.insert_ready(conn.clone()).map_err(RegisterPeerError::PoolError)?;

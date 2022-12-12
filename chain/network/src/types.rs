@@ -365,6 +365,7 @@ pub struct NetworkInfo {
     /// Accounts of known block and chunk producers from routing table.
     pub known_producers: Vec<KnownProducer>,
     /// Collected data about the current TIER1 accounts.
+    pub tier1_accounts_keys: Vec<PublicKey>,
     pub tier1_accounts_data: Vec<Arc<SignedAccountData>>,
     /// TIER1 connections.
     pub tier1_connections: Vec<ConnectedPeerInfo>,

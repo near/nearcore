@@ -202,7 +202,7 @@ impl PeerManagerActor {
             let state = state.clone();
             let clock = clock.clone();
             async move {
-                // Start server if address provided. 
+                // Start server if address provided.
                 if let Some(server_addr) = state.config.node_addr {
                     tracing::debug!(target: "network", at = ?server_addr, "starting public server");
                     let mut listener = match tcp::Listener::bind(server_addr).await {
@@ -592,6 +592,7 @@ impl PeerManagerActor {
         let tier1 = self.state.tier1.load();
         let tier2 = self.state.tier2.load();
         let now = self.clock.now();
+        let graph = self.state.graph.load();
         let connected_peer = |cp: &Arc<connection::Connection>| ConnectedPeerInfo {
             full_peer_info: cp.full_peer_info(),
             received_bytes_per_sec: cp.stats.received_bytes_per_sec.load(Ordering::Relaxed),
@@ -600,7 +601,10 @@ impl PeerManagerActor {
             last_time_received_message: cp.last_time_received_message.load(),
             connection_established_time: cp.established_time,
             peer_type: cp.peer_type,
-            nonce: cp.edge.load().nonce(),
+            nonce: match graph.local_edges.get(&cp.peer_info.id) {
+                Some(e) => e.nonce(),
+                None => 0,
+            },
         };
         NetworkInfo {
             connected_peers: tier2.ready.values().map(connected_peer).collect(),
@@ -632,6 +636,7 @@ impl PeerManagerActor {
                     next_hops: self.state.graph.routing_table.view_route(&announce_account.peer_id),
                 })
                 .collect(),
+            tier1_accounts_keys: self.state.accounts_data.load().keys.iter().cloned().collect(),
             tier1_accounts_data: self.state.accounts_data.load().data.values().cloned().collect(),
         }
     }
