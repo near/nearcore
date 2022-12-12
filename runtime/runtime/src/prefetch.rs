@@ -87,7 +87,7 @@ impl TriePrefetcher {
     /// Returns an error if prefetching for any receipt fails.
     /// The function is not idempotent; in case of failure, prefetching
     /// for some receipts may have been initiated.
-    pub(crate) fn input_receipts(&mut self, receipts: &[Receipt]) -> Result<(), PrefetchError> {
+    pub(crate) fn prefetch_receipts_data(&mut self, receipts: &[Receipt]) -> Result<(), PrefetchError> {
         for receipt in receipts.iter() {
             if let ReceiptEnum::Action(action_receipt) = &receipt.receipt {
                 let account_id = receipt.receiver_id.clone();
@@ -123,7 +123,7 @@ impl TriePrefetcher {
     /// Returns an error if prefetching for any transaction fails.
     /// The function is not idempotent; in case of failure, prefetching
     /// for some transactions may have been initiated.
-    pub(crate) fn input_transactions(
+    pub(crate) fn prefetch_transactions_data(
         &mut self,
         transactions: &[SignedTransaction],
     ) -> Result<(), PrefetchError> {
