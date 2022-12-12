@@ -51,13 +51,13 @@ impl ZulipEndpoint {
     }
     fn send_raw_message(&self, msg: &str, topic: &str) -> anyhow::Result<()> {
         let params = if let Some(user_list) = &self.user_list {
-            vec![("type", "private"), ("to", user_list), ("content", &msg)]
+            vec![("type", "private"), ("to", user_list), ("content", msg)]
         } else {
             vec![
                 ("type", "stream"),
                 ("to", self.stream.as_deref().unwrap()),
                 ("topic", topic),
-                ("content", &msg),
+                ("content", msg),
             ]
         };
         self.client.post(&self.full_endpoint_url).form(&params).send()?;
@@ -89,7 +89,7 @@ impl std::fmt::Display for ZulipReport {
         writeln!(f, "*Current commit: {}*", self.after)?;
         writeln!(f, "*Compared to: {}*", self.before)?;
         writeln!(f, "### Relative gas estimation changes above threshold: {}", self.changes.len())?;
-        if self.changes.len() > 0 {
+        if !self.changes.is_empty() {
             writeln!(f, "```")?;
             for change in &self.changes {
                 let percent_change = 100.0 * (change.after - change.before) / change.before;
@@ -106,7 +106,7 @@ impl std::fmt::Display for ZulipReport {
             writeln!(f, "```")?;
         }
         writeln!(f, "### Gas estimator uncertain estimations: {}", self.changes_uncertain.len())?;
-        if self.changes_uncertain.len() > 0 {
+        if !self.changes_uncertain.is_empty() {
             writeln!(f, "```")?;
             for change in &self.changes_uncertain {
                 writeln!(

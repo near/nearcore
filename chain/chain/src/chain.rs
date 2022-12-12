@@ -3113,7 +3113,7 @@ impl Chain {
     }
 
     pub fn schedule_apply_state_parts(
-        &mut self,
+        &self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
         num_parts: u64,
@@ -3168,7 +3168,7 @@ impl Chain {
     }
 
     pub fn build_state_for_split_shards_preprocessing(
-        &mut self,
+        &self,
         sync_hash: &CryptoHash,
         shard_id: ShardId,
         state_split_scheduler: &dyn Fn(StateSplitRequest),
@@ -3368,6 +3368,7 @@ impl Chain {
         Ok(self.store.get_outcomes_by_id(id)?.into_iter().map(Into::into).collect())
     }
 
+    /// Returns all tx results given a tx hash, excluding refund receipts
     fn get_recursive_transaction_results(
         &self,
         id: &CryptoHash,
@@ -3376,6 +3377,13 @@ impl Chain {
         let receipt_ids = outcome.outcome.receipt_ids.clone();
         let mut results = vec![outcome];
         for receipt_id in &receipt_ids {
+            // don't include refund receipts to speed up tx status query
+            if let Some(receipt) = self.store.get_receipt(&receipt_id)? {
+                let is_refund = receipt.predecessor_id.is_system();
+                if is_refund {
+                    continue;
+                }
+            }
             results.extend(self.get_recursive_transaction_results(receipt_id)?);
         }
         Ok(results)

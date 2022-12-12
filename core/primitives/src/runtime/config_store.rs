@@ -69,7 +69,7 @@ impl RuntimeConfigStore {
             let mut config = runtime_config.clone();
             store.insert(0, Arc::new(config.clone()));
 
-            config.storage_amount_per_byte = 10u128.pow(19);
+            config.fees.storage_usage_config.storage_amount_per_byte = 10u128.pow(19);
             store.insert(42, Arc::new(config));
         }
 
@@ -109,6 +109,7 @@ mod tests {
     use crate::version::ProtocolFeature::{
         LowerDataReceiptAndEcrecoverBaseCost, LowerStorageCost, LowerStorageKeyLimit,
     };
+    use near_primitives_core::config::{ActionCosts, ExtCosts};
 
     const GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
     const RECEIPTS_DEPTH: u64 = 63;
@@ -119,7 +120,7 @@ mod tests {
         for (protocol_version, config) in store.store.iter() {
             assert!(
                 config.wasm_config.limit_config.max_total_prepaid_gas
-                    / config.transaction_costs.min_receipt_with_function_call_gas()
+                    / config.fees.min_receipt_with_function_call_gas()
                     <= 63,
                 "The maximum desired depth of receipts for protocol version {} should be at most {}",
                 protocol_version,
@@ -133,7 +134,7 @@ mod tests {
         let store = RuntimeConfigStore::new(None);
         let base_cfg = store.get_config(GENESIS_PROTOCOL_VERSION);
         let new_cfg = store.get_config(LowerStorageCost.protocol_version());
-        assert!(base_cfg.storage_amount_per_byte > new_cfg.storage_amount_per_byte);
+        assert!(base_cfg.storage_amount_per_byte() > new_cfg.storage_amount_per_byte());
     }
 
     #[test]
@@ -158,12 +159,12 @@ mod tests {
         let base_cfg = store.get_config(LowerStorageCost.protocol_version());
         let new_cfg = store.get_config(LowerDataReceiptAndEcrecoverBaseCost.protocol_version());
         assert!(
-            base_cfg.transaction_costs.data_receipt_creation_config.base_cost.send_sir
-                > new_cfg.transaction_costs.data_receipt_creation_config.base_cost.send_sir
+            base_cfg.fees.fee(ActionCosts::new_data_receipt_base).send_sir
+                > new_cfg.fees.fee(ActionCosts::new_data_receipt_base).send_sir
         );
         assert!(
-            base_cfg.transaction_costs.data_receipt_creation_config.cost_per_byte.send_sir
-                > new_cfg.transaction_costs.data_receipt_creation_config.cost_per_byte.send_sir
+            base_cfg.fees.fee(ActionCosts::new_data_receipt_byte).send_sir
+                > new_cfg.fees.fee(ActionCosts::new_data_receipt_byte).send_sir
         );
     }
 
@@ -179,12 +180,9 @@ mod tests {
         assert_eq!(config.as_ref(), &base_config);
 
         let config = store.get_config(LowerStorageCost.protocol_version());
-        assert_eq!(base_config.storage_amount_per_byte, 100_000_000_000_000_000_000u128);
-        assert_eq!(config.storage_amount_per_byte, 10_000_000_000_000_000_000u128);
-        assert_eq!(
-            config.transaction_costs.data_receipt_creation_config.base_cost.send_sir,
-            4_697_339_419_375
-        );
+        assert_eq!(base_config.storage_amount_per_byte(), 100_000_000_000_000_000_000u128);
+        assert_eq!(config.storage_amount_per_byte(), 10_000_000_000_000_000_000u128);
+        assert_eq!(config.fees.fee(ActionCosts::new_data_receipt_base).send_sir, 4_697_339_419_375);
         assert_ne!(config.as_ref(), &base_config);
         assert_ne!(
             config.as_ref(),
@@ -199,10 +197,7 @@ mod tests {
         assert_eq!(**config, expected_config);
 
         let config = store.get_config(LowerDataReceiptAndEcrecoverBaseCost.protocol_version());
-        assert_eq!(
-            config.transaction_costs.data_receipt_creation_config.base_cost.send_sir,
-            36_486_732_312
-        );
+        assert_eq!(config.fees.fee(ActionCosts::new_data_receipt_base).send_sir, 36_486_732_312);
         let expected_config = {
             let second_diff = CONFIG_DIFFS[1].1.parse().unwrap();
             base_params.apply_diff(second_diff).unwrap();
@@ -217,8 +212,8 @@ mod tests {
         let base_cfg = store.get_config(LowerStorageCost.protocol_version());
         let new_cfg = store.get_config(LowerDataReceiptAndEcrecoverBaseCost.protocol_version());
         assert!(
-            base_cfg.wasm_config.ext_costs.ecrecover_base
-                > new_cfg.wasm_config.ext_costs.ecrecover_base
+            base_cfg.wasm_config.ext_costs.cost(ExtCosts::ecrecover_base)
+                > new_cfg.wasm_config.ext_costs.cost(ExtCosts::ecrecover_base)
         );
     }
 
@@ -240,11 +235,14 @@ mod tests {
     #[test]
     #[cfg(not(feature = "nightly"))]
     fn test_json_unchanged() {
+        use crate::views::RuntimeConfigView;
+
         let store = RuntimeConfigStore::new(None);
 
         for version in store.store.keys() {
             let snapshot_name = format!("{version}.json");
-            insta::assert_json_snapshot!(snapshot_name, store.get_config(*version));
+            let config_view = RuntimeConfigView::from(store.get_config(*version).as_ref().clone());
+            insta::assert_json_snapshot!(snapshot_name, config_view);
         }
 
         // Testnet initial config for old version was different, thus needs separate testing
@@ -254,7 +252,8 @@ mod tests {
 
         for version in testnet_store.store.keys() {
             let snapshot_name = format!("testnet_{version}.json");
-            insta::assert_json_snapshot!(snapshot_name, store.get_config(*version));
+            let config_view = RuntimeConfigView::from(store.get_config(*version).as_ref().clone());
+            insta::assert_json_snapshot!(snapshot_name, config_view);
         }
     }
 }

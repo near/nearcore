@@ -110,7 +110,7 @@ pub(crate) fn execute_function_call(
         runtime_ext,
         context,
         &config.wasm_config,
-        &config.transaction_costs,
+        &config.fees,
         promise_results,
         apply_state.current_protocol_version,
         apply_state.cache.as_deref(),
@@ -605,7 +605,7 @@ pub(crate) fn action_add_key(
             &add_key.access_key,
         );
     };
-    let storage_config = &apply_state.config.transaction_costs.storage_usage_config;
+    let storage_config = &apply_state.config.fees.storage_usage_config;
     account.set_storage_usage(
         account
             .storage_usage()

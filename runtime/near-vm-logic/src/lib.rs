@@ -1,7 +1,6 @@
 #![doc = include_str!("../README.md")]
 
 mod alt_bn128;
-mod array_utils;
 mod context;
 mod dependencies;
 pub mod gas_counter;

@@ -6,12 +6,11 @@ use crate::types::{ChainConfig, ChainGenesis, Tip};
 use crate::DoomslugThresholdMode;
 
 use near_chain_configs::GCConfig;
-use near_crypto::KeyType;
 use near_primitives::block::Block;
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::shard_layout::ShardUId;
+use near_primitives::test_utils::{create_test_signer, TestBlockBuilder};
 use near_primitives::types::{NumBlocks, NumShards, StateRoot};
-use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_store::test_utils::{create_test_store, gen_changes};
 use near_store::{ShardTries, Trie, WrappedTrieChanges};
 use rand::Rng;
@@ -60,11 +59,7 @@ fn do_fork(
         );
     }
     let mut rng = rand::thread_rng();
-    let signer = Arc::new(InMemoryValidatorSigner::from_seed(
-        "test1".parse().unwrap(),
-        KeyType::ED25519,
-        "test1",
-    ));
+    let signer = Arc::new(create_test_signer("test1"));
     let num_shards = prev_state_roots.len() as u64;
     let runtime_adapter = chain.runtime_adapter.clone();
     for i in 0..num_blocks {
@@ -90,15 +85,11 @@ fn do_fork(
                 &prev_hash,
             )
             .unwrap();
-            Block::empty_with_epoch(
-                &prev_block,
-                prev_block.header().height() + 1,
-                epoch_id,
-                next_epoch_id,
-                next_bp_hash,
-                &*signer,
-                &mut PartialMerkleTree::default(),
-            )
+            TestBlockBuilder::new(&prev_block, signer.clone())
+                .epoch_id(epoch_id)
+                .next_epoch_id(next_epoch_id)
+                .next_bp_hash(next_bp_hash)
+                .build()
         };
 
         if verbose {

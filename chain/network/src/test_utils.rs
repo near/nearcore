@@ -20,6 +20,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::TcpListener;
 use std::ops::ControlFlow;
 use std::sync::{Arc, Mutex, RwLock};
+use tokio::sync::Notify;
 use tracing::debug;
 
 static OPENED_PORTS: Lazy<Mutex<HashSet<u16>>> = Lazy::new(|| Mutex::new(HashSet::new()));
@@ -286,6 +287,7 @@ impl Handler<WithSpanContext<BanPeerSignal>> for PeerManagerActor {
 #[derive(Default)]
 pub struct MockPeerManagerAdapter {
     pub requests: Arc<RwLock<VecDeque<PeerManagerMessageRequest>>>,
+    pub notify: Notify,
 }
 
 impl MsgRecipient<WithSpanContext<PeerManagerMessageRequest>> for MockPeerManagerAdapter {
@@ -300,6 +302,7 @@ impl MsgRecipient<WithSpanContext<PeerManagerMessageRequest>> for MockPeerManage
 
     fn do_send(&self, msg: WithSpanContext<PeerManagerMessageRequest>) {
         self.requests.write().unwrap().push_back(msg.msg);
+        self.notify.notify_one();
     }
 }
 

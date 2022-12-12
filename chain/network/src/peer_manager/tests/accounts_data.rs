@@ -1,10 +1,11 @@
-use crate::concurrency::demux;
+use crate::concurrency::rate;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::SyncAccountsData;
 use crate::peer;
 use crate::peer_manager;
 use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::peer_manager::testonly;
+use crate::tcp;
 use crate::testonly::{make_rng, AsSet as _};
 use crate::time;
 use crate::types::PeerMessage;
@@ -14,6 +15,14 @@ use pretty_assertions::assert_eq;
 use rand::seq::SliceRandom as _;
 use std::collections::HashSet;
 use std::sync::Arc;
+
+/// Each actix arbiter (in fact, the underlying tokio runtime) creates 4 file descriptors:
+/// 1. eventfd2()
+/// 2. epoll_create1()
+/// 3. fcntl() duplicating one end of some globally shared socketpair()
+/// 4. fcntl() duplicating epoll socket created in (2)
+/// This gives 5 file descriptors per PeerActor (4 + 1 TCP socket).
+const FDS_PER_PEER: usize = 5;
 
 #[tokio::test]
 async fn broadcast() {
@@ -34,15 +43,17 @@ async fn broadcast() {
     .await;
 
     let take_incremental_sync = |ev| match ev {
-        peer::testonly::Event::Network(PME::MessageProcessed(PeerMessage::SyncAccountsData(
-            msg,
-        ))) if msg.incremental => Some(msg),
+        peer::testonly::Event::Network(PME::MessageProcessed(
+            tcp::Tier::T2,
+            PeerMessage::SyncAccountsData(msg),
+        )) if msg.incremental => Some(msg),
         _ => None,
     };
     let take_full_sync = |ev| match ev {
-        peer::testonly::Event::Network(PME::MessageProcessed(PeerMessage::SyncAccountsData(
-            msg,
-        ))) if !msg.incremental => Some(msg),
+        peer::testonly::Event::Network(PME::MessageProcessed(
+            tcp::Tier::T2,
+            PeerMessage::SyncAccountsData(msg),
+        )) if !msg.incremental => Some(msg),
         _ => None,
     };
 
@@ -122,14 +133,17 @@ async fn gradual_epoch_change() {
     // 0 <-> 1 <-> 2
     let pm1 = pms[1].peer_info();
     let pm2 = pms[2].peer_info();
-    pms[0].connect_to(&pm1).await;
-    pms[1].connect_to(&pm2).await;
+    pms[0].connect_to(&pm1, tcp::Tier::T2).await;
+    pms[1].connect_to(&pm2, tcp::Tier::T2).await;
 
     // For every order of nodes.
     for ids in (0..pms.len()).permutations(pms.len()) {
         tracing::info!(target:"test", "permutation {ids:?}");
         clock.advance(time::Duration::hours(1));
-        let chain_info = testonly::make_chain_info(&chain, &pms.iter().collect::<Vec<_>>()[..]);
+        let chain_info = testonly::make_chain_info(
+            &chain,
+            &pms.iter().map(|pm| &pm.cfg).collect::<Vec<_>>()[..],
+        );
 
         let mut want = HashSet::new();
         // Advance epoch in the given order.
@@ -158,17 +172,12 @@ async fn gradual_epoch_change() {
 #[tokio::test(flavor = "multi_thread")]
 async fn rate_limiting() {
     init_test_logger();
-    // Each actix arbiter (in fact, the underlying tokio runtime) creates 4 file descriptors:
-    // 1. eventfd2()
-    // 2. epoll_create1()
-    // 3. fcntl() duplicating one end of some globally shared socketpair()
-    // 4. fcntl() duplicating epoll socket created in (2)
-    // This gives 5 file descriptors per PeerActor (4 + 1 TCP socket).
-    // PeerManager (together with the whole ActixSystem) creates 13 file descriptors.
-    // The usual default soft limit on the number of file descriptors on linux is 1024.
-    // Here we adjust it appropriately to account for test requirements.
+    // Adjust the file descriptors limit, so that we can create many connection in the test.
+    const MAX_CONNECTIONS: usize = 300;
     let limit = rlimit::Resource::NOFILE.get().unwrap();
-    rlimit::Resource::NOFILE.set(std::cmp::min(limit.1, 3000), limit.1).unwrap();
+    rlimit::Resource::NOFILE
+        .set(std::cmp::min(limit.1, (1000 + 2 * FDS_PER_PEER * MAX_CONNECTIONS) as u64), limit.1)
+        .unwrap();
 
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
@@ -182,7 +191,7 @@ async fn rate_limiting() {
     let mut pms = vec![];
     for _ in 0..n * m {
         let mut cfg = chain.make_config(rng);
-        cfg.accounts_data_broadcast_rate_limit = demux::RateLimit { qps: 0.5, burst: 1 };
+        cfg.accounts_data_broadcast_rate_limit = rate::Limit { qps: 0.5, burst: 1 };
         pms.push(
             peer_manager::testonly::start(
                 clock.clock(),
@@ -194,19 +203,25 @@ async fn rate_limiting() {
         );
     }
     tracing::info!(target:"test", "Construct a 4-layer bipartite graph.");
+
     let mut connections = 0;
+    let mut tasks = vec![];
     for i in 0..n - 1 {
         for j in 0..m {
             for k in 0..m {
                 let pi = pms[(i + 1) * m + k].peer_info();
-                pms[i * m + j].connect_to(&pi).await;
+                tasks.push(tokio::spawn(pms[i * m + j].connect_to(&pi, tcp::Tier::T2)));
                 connections += 1;
             }
         }
     }
+    for t in tasks {
+        t.await.unwrap();
+    }
 
     // Construct ChainInfo with tier1_accounts containing all validators.
-    let chain_info = testonly::make_chain_info(&chain, &pms.iter().collect::<Vec<_>>()[..]);
+    let chain_info =
+        testonly::make_chain_info(&chain, &pms.iter().map(|pm| &pm.cfg).collect::<Vec<_>>()[..]);
 
     clock.advance(time::Duration::hours(1));
 

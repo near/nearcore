@@ -1,7 +1,7 @@
 use crate::commands::*;
 use crate::dump_state_parts::dump_state_parts;
-use crate::epoch_info;
 use crate::rocksdb_stats::get_rocksdb_stats;
+use crate::{dump_state_parts, epoch_info};
 use clap::{Args, Parser, Subcommand};
 use near_chain_configs::{GenesisChangeConfig, GenesisValidationMode};
 use near_primitives::account::id::AccountId;
@@ -477,9 +477,9 @@ impl ViewTrieCmd {
 
 #[derive(Parser)]
 pub struct DumpStatePartsCmd {
-    /// Last block of a previous epoch.
-    #[clap(long)]
-    block_hash: CryptoHash,
+    /// Selects an epoch. The dump will be of the state at the beginning of this epoch.
+    #[clap(subcommand)]
+    epoch_selection: dump_state_parts::EpochSelection,
     /// Shard id.
     #[clap(long)]
     shard_id: ShardId,
@@ -494,7 +494,7 @@ pub struct DumpStatePartsCmd {
 impl DumpStatePartsCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
         dump_state_parts(
-            self.block_hash,
+            self.epoch_selection,
             self.shard_id,
             self.part_id,
             home_dir,

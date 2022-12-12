@@ -75,6 +75,8 @@ pub enum ParseHandshakeError {
     SenderChainInfo(ParseRequiredError<ParsePeerChainInfoV2Error>),
     #[error("partial_edge_info {0}")]
     PartialEdgeInfo(ParseRequiredError<ParsePartialEdgeInfoError>),
+    #[error("owned_account {0}")]
+    OwnedAccount(ParseSignedOwnedAccountError),
 }
 
 impl From<&Handshake> for proto::Handshake {
@@ -87,6 +89,7 @@ impl From<&Handshake> for proto::Handshake {
             sender_listen_port: x.sender_listen_port.unwrap_or(0).into(),
             sender_chain_info: MF::some((&x.sender_chain_info).into()),
             partial_edge_info: MF::some((&x.partial_edge_info).into()),
+            owned_account: x.owned_account.as_ref().map(Into::into).into(),
             ..Self::default()
         }
     }
@@ -115,6 +118,8 @@ impl TryFrom<&proto::Handshake> for Handshake {
                 .map_err(Self::Error::SenderChainInfo)?,
             partial_edge_info: try_from_required(&p.partial_edge_info)
                 .map_err(Self::Error::PartialEdgeInfo)?,
+            owned_account: try_from_optional(&p.owned_account)
+                .map_err(Self::Error::OwnedAccount)?,
         })
     }
 }

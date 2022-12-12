@@ -10,7 +10,7 @@ pub fn wat_contract(wat: &str) -> Vec<u8> {
     wat::parse_str(wat).unwrap_or_else(|err| panic!("invalid wat: {err}\n{wat}"))
 }
 
-/// Trivial contact with a do-nothing main function.
+/// Trivial contract with a do-nothing main function.
 pub fn trivial_contract() -> &'static [u8] {
     static CONTRACT: OnceCell<Vec<u8>> = OnceCell::new();
     CONTRACT.get_or_init(|| wat_contract(r#"(module (func (export "main")))"#)).as_slice()
