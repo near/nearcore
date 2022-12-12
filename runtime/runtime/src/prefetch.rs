@@ -51,7 +51,7 @@ use near_primitives::types::StateRoot;
 use near_store::{PrefetchApi, PrefetchError, Trie};
 use sha2::Digest;
 use std::rc::Rc;
-use tracing::debug;
+use tracing::{debug, warn};
 
 use crate::metrics;
 /// Transaction runtime view of the prefetching subsystem.
@@ -170,6 +170,10 @@ impl TriePrefetcher {
             Err(PrefetchError::QueueFull) => {
                 self.prefetch_queue_full.inc();
                 debug!(target: "prefetcher", "I/O scheduler input queue is full, dropping prefetch request");
+            }
+            Err(PrefetchError::QueueDisconnected) => {
+                // This shouldn't have happend, hence logging warning here
+                warn!(target: "prefetcher", "I/O scheduler input queue is disconnected, dropping prefetch request");
             }
             Ok(_) => self.prefetch_enqueued.inc(),
         };

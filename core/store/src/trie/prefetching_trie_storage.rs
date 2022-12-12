@@ -89,6 +89,8 @@ pub struct PrefetchApi {
 pub enum PrefetchError {
     #[error("I/O scheduler input queue is full")]
     QueueFull,
+    #[error("I/O scheduler input queue is disconnected")]
+    QueueDisconnected,
 }
 
 /// Staging area for in-flight prefetch requests and a buffer for prefetched data.
@@ -437,7 +439,10 @@ impl PrefetchApi {
         root: StateRoot,
         trie_key: TrieKey,
     ) -> Result<(), PrefetchError> {
-        self.work_queue_tx.try_send((root, trie_key)).map_err(|_| PrefetchError::QueueFull)
+        self.work_queue_tx.try_send((root, trie_key)).map_err(|e| match e {
+            crossbeam::channel::TrySendError::Full(_) => PrefetchError::QueueFull,
+            crossbeam::channel::TrySendError::Disconnected(_) => PrefetchError::QueueDisconnected,
+        })
     }
 
     pub fn start_io_thread(
