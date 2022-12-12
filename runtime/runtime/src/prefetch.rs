@@ -124,7 +124,7 @@ impl TriePrefetcher {
         Ok(())
     }
 
-    /// Start prefetching data for processing the transactions.
+    /// Starts prefetching data for processing the transactions.
     ///
     /// Returns an error if prefetching for any transaction fails.
     /// The function is not idempotent; in case of failure, prefetching
