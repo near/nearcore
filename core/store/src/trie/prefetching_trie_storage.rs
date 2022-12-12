@@ -39,6 +39,10 @@ const NUM_IO_THREADS: usize = 8;
 ///
 /// Each I/O threads will have its own copy of `TriePrefetchingStorage`, so
 /// this should remain a cheap object.
+///
+/// Please note that this should only be used from the background threads
+/// performing prefetching. The main thread uses `PrefetchStagingArea`
+/// directly to look up for prefetched values before going to the database.
 #[derive(Clone)]
 struct TriePrefetchingStorage {
     /// Store is shared with parent `TrieCachingStorage`.
