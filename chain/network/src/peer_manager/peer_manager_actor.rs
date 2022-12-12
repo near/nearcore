@@ -202,7 +202,7 @@ impl PeerManagerActor {
             let state = state.clone();
             let clock = clock.clone();
             async move {
-                // Start server if address provided. 
+                // Start server if address provided.
                 if let Some(server_addr) = state.config.node_addr {
                     tracing::debug!(target: "network", at = ?server_addr, "starting public server");
                     let mut listener = match tcp::Listener::bind(server_addr).await {
@@ -629,6 +629,7 @@ impl PeerManagerActor {
                     next_hops: self.state.graph.routing_table.view_route(&announce_account.peer_id),
                 })
                 .collect(),
+            tier1_accounts_keys: self.state.accounts_data.load().keys.iter().cloned().collect(),
             tier1_accounts_data: self.state.accounts_data.load().data.values().cloned().collect(),
         }
     }
