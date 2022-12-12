@@ -48,7 +48,7 @@ use near_primitives::transaction::{Action, SignedTransaction};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::AccountId;
 use near_primitives::types::StateRoot;
-use near_store::{PrefetchApi, Trie};
+use near_store::{PrefetchApi, PrefetchError, Trie};
 use sha2::Digest;
 use std::rc::Rc;
 use tracing::debug;
@@ -60,12 +60,6 @@ pub(crate) struct TriePrefetcher {
     trie_root: StateRoot,
     prefetch_enqueued: GenericCounter<prometheus::core::AtomicU64>,
     prefetch_queue_full: GenericCounter<prometheus::core::AtomicU64>,
-}
-
-#[derive(thiserror::Error, Debug)]
-pub(crate) enum PrefetchError {
-    #[error("I/O scheduler input queue is full")]
-    QueueFull,
 }
 
 impl TriePrefetcher {
@@ -168,15 +162,15 @@ impl TriePrefetcher {
     }
 
     fn prefetch_trie_key(&self, trie_key: TrieKey) -> Result<(), PrefetchError> {
-        let queue_full = self.prefetch_api.prefetch_trie_key(self.trie_root, trie_key).is_err();
-        if queue_full {
-            self.prefetch_queue_full.inc();
-            debug!(target: "prefetcher", "I/O scheduler input queue is full, dropping prefetch request");
-            Err(PrefetchError::QueueFull)
-        } else {
-            self.prefetch_enqueued.inc();
-            Ok(())
-        }
+        let res = self.prefetch_api.prefetch_trie_key(self.trie_root, trie_key);
+        match res {
+            Err(PrefetchError::QueueFull) => {
+                self.prefetch_queue_full.inc();
+                debug!(target: "prefetcher", "I/O scheduler input queue is full, dropping prefetch request");
+            }
+            Ok(_) => self.prefetch_enqueued.inc(),
+        };
+        res
     }
 
     /// Prefetcher specifically tuned for SWEAT record batch

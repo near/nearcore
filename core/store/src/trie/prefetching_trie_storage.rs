@@ -85,6 +85,12 @@ pub struct PrefetchApi {
     pub shard_uid: ShardUId,
 }
 
+#[derive(thiserror::Error, Debug)]
+pub enum PrefetchError {
+    #[error("I/O scheduler input queue is full")]
+    QueueFull,
+}
+
 /// Staging area for in-flight prefetch requests and a buffer for prefetched data.
 ///
 /// Before starting a pre-fetch, a slot is reserved for it. Once the data is
@@ -426,13 +432,12 @@ impl PrefetchApi {
         (this, handle)
     }
 
-    /// Returns the argument back if queue is full.
     pub fn prefetch_trie_key(
         &self,
         root: StateRoot,
         trie_key: TrieKey,
-    ) -> Result<(), (StateRoot, TrieKey)> {
-        self.work_queue_tx.try_send((root, trie_key)).map_err(|e| e.into_inner())
+    ) -> Result<(), PrefetchError> {
+        self.work_queue_tx.try_send((root, trie_key)).map_err(|_| PrefetchError::QueueFull)
     }
 
     pub fn start_io_thread(
