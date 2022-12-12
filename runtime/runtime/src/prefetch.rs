@@ -172,7 +172,7 @@ impl TriePrefetcher {
                 debug!(target: "prefetcher", "I/O scheduler input queue is full, dropping prefetch request");
             }
             Err(PrefetchError::QueueDisconnected) => {
-                // This shouldn't have happend, hence logging warning here
+                // This shouldn't have happened, hence logging warning here
                 warn!(target: "prefetcher", "I/O scheduler input queue is disconnected, dropping prefetch request");
             }
             Ok(_) => self.prefetch_enqueued.inc(),
