@@ -136,6 +136,4 @@ sandbox = [
 ]
 io_trace = ["near-vm-runner/io_trace"]
 
-shardnet = ["near-network/shardnet"]
-
 cold_store = ["near-store/cold_store"]
