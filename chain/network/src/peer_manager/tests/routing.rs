@@ -1308,4 +1308,10 @@ async fn archival_node() {
         tracing::info!(target:"test", "[{_step}] check that node 0 and node 1 are still connected");
         pm0.wait_for_direct_connection(id1.clone()).await;
     }
+
+    drop(pm0);
+    drop(pm1);
+    drop(pm2);
+    drop(pm3);
+    drop(pm4);
 }
