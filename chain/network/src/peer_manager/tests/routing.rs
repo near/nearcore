@@ -14,8 +14,8 @@ use crate::store;
 use crate::tcp;
 use crate::testonly::{make_rng, Rng};
 use crate::time;
-use crate::types::PeerInfo;
 use crate::types::PeerMessage;
+use crate::types::{PeerInfo, ReasonForBan};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::network::PeerId;
 use near_store::db::TestDB;
@@ -600,7 +600,10 @@ async fn test_dropping_duplicate_messages() {
     wait_for_pong(&mut pm0_ev, Pong { nonce: 1, source: id2.clone() }).await;
 }
 
-// Awaits until a ConnectionClosed event with the expected reason is seen in the event stream.
+/// Awaits until a ConnectionClosed event with the expected reason is seen in the event stream.
+/// This helper function should be used in tests with peer manager instances with
+/// `config.outbound_enabled = true`, because it makes the order of spawning connections
+/// non-deterministic, so we cannot just wait for the first ConnectionClosed event.
 pub(crate) async fn wait_for_connection_closed(
     events: &mut broadcast::Receiver<Event>,
     want_reason: ClosingReason,
@@ -1268,11 +1271,11 @@ async fn archival_node() {
 
     tracing::info!(target:"test", "connect node 4 to node 0 and wait for pm0 to close a connection");
     pm4.send_outbound_connect(&pm0.peer_info(), tcp::Tier::T2).await;
-    wait_for_connection_closed(&mut pm0_ev, ClosingReason::PeerManager).await;
+    wait_for_connection_closed(&mut pm0_ev, ClosingReason::PeerManagerRequest).await;
 
     tracing::info!(target:"test", "connect node 1 to node 0 and wait for pm0 to close a connection");
     pm1.send_outbound_connect(&pm0.peer_info(), tcp::Tier::T2).await;
-    wait_for_connection_closed(&mut pm0_ev, ClosingReason::PeerManager).await;
+    wait_for_connection_closed(&mut pm0_ev, ClosingReason::PeerManagerRequest).await;
 
     tracing::info!(target:"test", "check that node 0 and node 1 are still connected");
     pm0.wait_for_direct_connection(id1.clone()).await;
@@ -1294,9 +1297,69 @@ async fn archival_node() {
 
         tracing::info!(target:"test", "[{_step}] connect the chosen node to node 0 and wait for pm0 to close a connection");
         chosen.send_outbound_connect(&pm0.peer_info(), tcp::Tier::T2).await;
-        wait_for_connection_closed(&mut pm0_ev, ClosingReason::PeerManager).await;
+        wait_for_connection_closed(&mut pm0_ev, ClosingReason::PeerManagerRequest).await;
 
         tracing::info!(target:"test", "[{_step}] check that node 0 and node 1 are still connected");
         pm0.wait_for_direct_connection(id1.clone()).await;
     }
+}
+
+/// Awaits for ConnectionClosed event for a given `stream_id`.
+async fn wait_for_stream_closed(
+    events: &mut broadcast::Receiver<Event>,
+    stream_id: tcp::StreamId,
+) -> ClosingReason {
+    events
+        .recv_until(|ev| match ev {
+            Event::PeerManager(PME::ConnectionClosed(ev)) if ev.stream_id == stream_id => {
+                Some(ev.reason)
+            }
+            _ => None,
+        })
+        .await
+}
+
+/// Check two peers are able to connect again after one peers is banned and unbanned.
+#[tokio::test]
+async fn connect_to_unbanned_peer() {
+    init_test_logger();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
+    let mut pm0 =
+        start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
+    let mut pm1 =
+        start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
+
+    tracing::info!(target:"test", "pm0 connects to pm1");
+    let stream_id = pm0.connect_to(&pm1.peer_info(), tcp::Tier::T2).await;
+
+    tracing::info!(target:"test", "pm1 bans pm0");
+    let ban_reason = ReasonForBan::BadBlock;
+    pm1.disconnect_and_ban(&clock.clock(), &pm0.cfg.node_id(), ban_reason).await;
+    wait_for_stream_closed(&mut pm0.events, stream_id).await;
+    assert_eq!(
+        ClosingReason::Ban(ban_reason),
+        wait_for_stream_closed(&mut pm1.events, stream_id).await
+    );
+
+    tracing::info!(target:"test", "pm0 fails to reconnect to pm1");
+    let got_reason = pm1
+        .start_inbound(chain.clone(), pm0.cfg.clone())
+        .await
+        .manager_fail_handshake(&clock.clock())
+        .await;
+    assert_eq!(ClosingReason::RejectedByPeerManager(RegisterPeerError::Banned), got_reason);
+
+    tracing::info!(target:"test", "pm1 unbans pm0");
+    clock.advance(pm1.cfg.peer_store.ban_window);
+    pm1.peer_store_update(&clock.clock()).await;
+
+    tracing::info!(target:"test", "pm0 reconnects to pm1");
+    pm0.connect_to(&pm1.peer_info(), tcp::Tier::T2).await;
+
+    drop(pm0);
+    drop(pm1);
 }
