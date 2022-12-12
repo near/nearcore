@@ -498,10 +498,7 @@ impl PeerManagerActor {
         let _timer =
             metrics::PEER_MANAGER_TRIGGER_TIME.with_label_values(&["monitor_peers"]).start_timer();
 
-        self.state.peer_store.unban(&self.clock);
-        if let Err(err) = self.state.peer_store.update_connected_peers_last_seen(&self.clock) {
-            tracing::error!(target: "network", ?err, "Failed to update peers last seen time.");
-        }
+        self.state.peer_store.update(&self.clock);
 
         if self.is_outbound_bootstrap_needed() {
             let tier2 = self.state.tier2.load();
@@ -546,10 +543,6 @@ impl PeerManagerActor {
 
         // If there are too many active connections try to remove some connections
         self.maybe_stop_active_connection();
-
-        if let Err(err) = self.state.peer_store.remove_expired(&self.clock) {
-            tracing::error!(target: "network", ?err, "Failed to remove expired peers");
-        };
 
         // Find peers that are not reliable (too much behind) - and make sure that we're not routing messages through them.
         let unreliable_peers = self.unreliable_peers();
