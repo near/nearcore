@@ -337,7 +337,7 @@ mod tests {
         std::thread::yield_now();
 
         let wait_work_queue_empty_start = Instant::now();
-        while !prefetch_api.work_queued() {
+        while prefetch_api.work_queued() {
             std::thread::yield_now();
             // Use timeout to avoid hanging the test
             assert!(
