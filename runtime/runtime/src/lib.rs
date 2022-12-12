@@ -1169,6 +1169,7 @@ impl Runtime {
         let mut prefetcher = TriePrefetcher::new_if_enabled(trie.clone());
 
         if let Some(prefetcher) = &mut prefetcher {
+            // Prefetcher is allowed to fail
             _ = prefetcher.prefetch_transactions_data(transactions);
         }
 
@@ -1286,6 +1287,7 @@ impl Runtime {
         // We first process local receipts. They contain staking, local contract calls, etc.
         if let Some(prefetcher) = &mut prefetcher {
             prefetcher.clear();
+            // Prefetcher is allowed to fail
             _ = prefetcher.prefetch_receipts_data(&local_receipts);
         }
         for receipt in local_receipts.iter() {
@@ -1313,6 +1315,7 @@ impl Runtime {
 
             if let Some(prefetcher) = &mut prefetcher {
                 prefetcher.clear();
+                // Prefetcher is allowed to fail
                 _ = prefetcher.prefetch_receipts_data(std::slice::from_ref(&receipt));
             }
 
@@ -1336,6 +1339,7 @@ impl Runtime {
         // And then we process the new incoming receipts. These are receipts from other shards.
         if let Some(prefetcher) = &mut prefetcher {
             prefetcher.clear();
+            // Prefetcher is allowed to fail
             _ = prefetcher.prefetch_receipts_data(&incoming_receipts);
         }
         for receipt in incoming_receipts.iter() {
