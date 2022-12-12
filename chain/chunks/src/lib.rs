@@ -1025,228 +1025,224 @@ impl ShardsManager {
     ) -> (std::time::Instant, &'static str, Option<PartialEncodedChunkResponseMsg>) {
         // Try getting data from in-memory cache.
         let started = Instant::now();
-        if let Some(entry) = self.encoded_chunks.get(&request.chunk_hash) {
-            let response = Self::prepare_partial_encoded_chunk_response_from_cache(request, entry);
-            return (started, "cache", response);
+        let PartialEncodedChunkRequestMsg { chunk_hash, part_ords, mut tracking_shards } = request;
+        let mut part_ords = part_ords.into_iter().collect::<HashSet<_>>();
+        if part_ords.is_empty() && tracking_shards.is_empty() {
+            return (started, "none", None);
+        }
+        let mut response = PartialEncodedChunkResponseMsg {
+            chunk_hash: chunk_hash.clone(),
+            parts: vec![],
+            receipts: vec![],
+        };
+        if let Some(entry) = self.encoded_chunks.get(&chunk_hash) {
+            Self::lookup_partial_encoded_chunk_from_cache(
+                &mut part_ords,
+                &mut tracking_shards,
+                &mut response,
+                entry,
+            );
+        }
+        if part_ords.is_empty() && tracking_shards.is_empty() {
+            return (started, "cache", Some(response));
         }
 
         // Try fetching partial encoded chunk from storage.
-        let started = Instant::now();
-        if let Ok(partial_chunk) = self.store.get_partial_chunk(&request.chunk_hash) {
-            let response =
-                Self::prepare_partial_encoded_chunk_response_from_partial(request, &partial_chunk);
-            return (started, "partial", response);
+        if let Ok(partial_chunk) = self.store.get_partial_chunk(&chunk_hash) {
+            Self::lookup_partial_encoded_chunk_from_partial_chunk_storage(
+                &mut part_ords,
+                &mut tracking_shards,
+                &mut response,
+                &partial_chunk,
+            );
+        }
+        if part_ords.is_empty() && tracking_shards.is_empty() {
+            return (started, "partial", Some(response));
         }
 
         // Try fetching chunk from storage and recomputing encoded chunk from
         // it.  If we are archival node we might have garbage collected the
         // partial chunk while we still keep the chunk itself.  We can get the
         // chunk, recalculate the parts and respond to the request.
-        let started = Instant::now();
-        if let Ok(chunk) = self.store.get_chunk(&request.chunk_hash) {
-            let response = self.prepare_partial_encoded_chunk_response_from_chunk(request, &chunk);
-            return (started, "chunk", response);
+        if let Ok(chunk) = self.store.get_chunk(&chunk_hash) {
+            self.lookup_partial_encoded_chunk_from_chunk_storage(
+                part_ords,
+                tracking_shards,
+                &mut response,
+                &chunk,
+            );
         }
 
-        (Instant::now(), "none", None)
-    }
-
-    /// Prepares response to a partial encoded chunk request from an entry in
-    /// a encoded_chunks in-memory cache.
-    ///
-    /// If the entry can satisfy the requests (i.e. contains all necessary parts
-    /// and shards) the method returns a [`PartialEncodedChunkResponseMsg`]
-    /// object; otherwise returns `None`.
-    fn prepare_partial_encoded_chunk_response_from_cache(
-        request: PartialEncodedChunkRequestMsg,
-        entry: &EncodedChunksCacheEntry,
-    ) -> Option<PartialEncodedChunkResponseMsg> {
-        // Create iterators which _might_ contain the requested parts.
-        let parts_iter = request.part_ords.iter().map(|ord| entry.parts.get(ord).cloned());
-        let receipts_iter =
-            request.tracking_shards.iter().map(|shard_id| entry.receipts.get(shard_id).cloned());
-
-        // Pass iterators to function which will evaluate them. Since iterators are lazy
-        // we will clone as few elements as possible before realizing not all are present.
-        // In the case all are present, the response is sent.
-        Self::prepare_partial_encoded_chunk_response_from_iters(
-            request.chunk_hash,
-            parts_iter,
-            receipts_iter,
+        (
+            started,
+            "chunk",
+            if response.parts.is_empty() && response.receipts.is_empty() {
+                None
+            } else {
+                Some(response)
+            },
         )
     }
 
-    /// Prepares response to a partial encoded chunk request from a partial
-    /// chunk read from the storage.
-    ///
-    /// If the partial chunk can satisfy the requests (i.e. contains all
-    /// necessary parts and shards) the method returns
-    /// a [`PartialEncodedChunkResponseMsg`] object; otherwise returns `None`.
-    // pub for testing
-    pub fn prepare_partial_encoded_chunk_response_from_partial(
-        request: PartialEncodedChunkRequestMsg,
+    /// Looks up the given part_ords and tracking_shards from the cache, appending
+    /// any we have found into the response, and deleting those we have found from
+    /// part_ords and tracking_shards.
+    fn lookup_partial_encoded_chunk_from_cache(
+        part_ords: &mut HashSet<u64>,
+        tracking_shards: &mut HashSet<ShardId>,
+        response: &mut PartialEncodedChunkResponseMsg,
+        entry: &EncodedChunksCacheEntry,
+    ) {
+        part_ords.retain(|part_ord| {
+            if let Some(part) = entry.parts.get(part_ord) {
+                response.parts.push(part.clone());
+                false
+            } else {
+                true
+            }
+        });
+        tracking_shards.retain(|shard_id| {
+            if let Some(receipt_proof) = entry.receipts.get(shard_id) {
+                response.receipts.push(receipt_proof.clone());
+                false
+            } else {
+                true
+            }
+        });
+    }
+
+    /// Looks up the given part_ords and tracking_shards from the partial chunks
+    /// storage, appending any we have found into the response, and deleting those we
+    /// have found from part_ords and tracking_shards.
+    pub fn lookup_partial_encoded_chunk_from_partial_chunk_storage(
+        part_ords: &mut HashSet<u64>,
+        tracking_shards: &mut HashSet<ShardId>,
+        response: &mut PartialEncodedChunkResponseMsg,
         partial_chunk: &PartialEncodedChunk,
-    ) -> Option<PartialEncodedChunkResponseMsg> {
+    ) {
         // Index _references_ to the parts we know about by their `part_ord`. Since only
         // references are used in this index, we will only clone the requested parts, not
         // all of them.
         let present_parts: HashMap<u64, _> =
             partial_chunk.parts().iter().map(|part| (part.part_ord, part)).collect();
-        // Create an iterator which _might_ contain the request parts. Again, we are
-        // using the laziness of iterators for efficiency.
-        let parts_iter =
-            request.part_ords.iter().map(|ord| present_parts.get(ord).map(|x| *x).cloned());
-
-        // Same process for receipts as above for parts.
+        // Same process for receipts.
         let present_receipts: HashMap<ShardId, _> = partial_chunk
             .receipts()
             .iter()
             .map(|receipt| (receipt.1.to_shard_id, receipt))
             .collect();
-        let receipts_iter = request
-            .tracking_shards
-            .iter()
-            .map(|shard_id| present_receipts.get(shard_id).map(|x| *x).cloned());
 
-        // Pass iterators to function, same as cache case.
-        Self::prepare_partial_encoded_chunk_response_from_iters(
-            request.chunk_hash,
-            parts_iter,
-            receipts_iter,
-        )
+        part_ords.retain(|part_ord| {
+            if let Some(part) = present_parts.get(part_ord) {
+                response.parts.push((*part).clone());
+                false
+            } else {
+                true
+            }
+        });
+        tracking_shards.retain(|shard_id| {
+            if let Some(receipt_proof) = present_receipts.get(shard_id) {
+                response.receipts.push((*receipt_proof).clone());
+                false
+            } else {
+                true
+            }
+        });
     }
 
-    /// Prepares response to a partial encoded chunk request from a chunk read
-    /// from the storage.
+    /// Looks up the given part_ords and tracking_shards from the cache, appending
+    /// any we have found into the response.
     ///
     /// This requires encoding the chunk and as such is computationally
     /// expensive operation.  If possible, the request should be served from
     /// EncodedChunksCacheEntry or PartialEncodedChunk instead.
     // pub for testing
-    pub fn prepare_partial_encoded_chunk_response_from_chunk(
+    pub fn lookup_partial_encoded_chunk_from_chunk_storage(
         &mut self,
-        request: PartialEncodedChunkRequestMsg,
+        part_ords: HashSet<u64>,
+        tracking_shards: HashSet<ShardId>,
+        response: &mut PartialEncodedChunkResponseMsg,
         chunk: &ShardChunk,
-    ) -> Option<PartialEncodedChunkResponseMsg> {
-        let total_parts = self.rs.total_shard_count();
-        for &ord in request.part_ords.iter() {
-            let ord: usize = ord.try_into().unwrap();
-            if ord >= total_parts {
-                warn!(target:"chunks", "Not sending {}, requested part_ord {} but we only expect {} total",
-                       request.chunk_hash.0, ord, total_parts);
-                return None;
-            }
-        }
-
+    ) {
         let header = chunk.cloned_header();
 
         // Get outgoing receipts for the chunk and construct vector of their
         // proofs.
         let outgoing_receipts = chunk.receipts();
-        let present_receipts: HashMap<ShardId, _> = make_outgoing_receipts_proofs(
+        let present_receipts: HashMap<ShardId, _> = match make_outgoing_receipts_proofs(
             &header,
             &outgoing_receipts,
             self.runtime_adapter.as_ref(),
-        )
-        .map_err(|err| {
-            warn!(target: "chunks", "Not sending {}, {}", request.chunk_hash.0, err);
-        })
-        .ok()?
-        .map(|receipt| (receipt.1.to_shard_id, receipt))
-        .collect();
-        let receipts_iter = request
-            .tracking_shards
-            .into_iter()
-            .map(move |shard_id| present_receipts.get(&shard_id).cloned());
+        ) {
+            Ok(receipts) => receipts.map(|receipt| (receipt.1.to_shard_id, receipt)).collect(),
+            Err(e) => {
+                warn!(target: "chunks", "Not sending {:?}, failed to make outgoing receipts proofs: {}", chunk.chunk_hash(), e);
+                return;
+            }
+        };
 
         // Construct EncodedShardChunk.  If we earlier determined that we will
         // need parity parts, instruct the constructor to calculate them as
         // well.  Otherwise we won’t bother.
-        let (parts, encoded_length) = EncodedShardChunk::encode_transaction_receipts(
+        let (parts, encoded_length) = match EncodedShardChunk::encode_transaction_receipts(
             &mut self.rs,
             chunk.transactions().to_vec(),
-            &outgoing_receipts).map_err(|err| {
-                warn!(target: "chunks", "Not sending {}, failed to encode transaction receipts: {}", request.chunk_hash.0, err);
-            }).ok()?;
+            &outgoing_receipts,
+        ) {
+            Ok(result) => result,
+            Err(err) => {
+                warn!(target: "chunks",
+                       "Not sending {:?}, failed to encode transactions and receipts: {}",
+                       chunk.chunk_hash(), err);
+                return;
+            }
+        };
         if header.encoded_length() != encoded_length {
             warn!(target: "chunks",
-                   "Not sending {}, expected encoded length doesn’t match calculated: {} != {}",
-                   request.chunk_hash.0, header.encoded_length(), encoded_length);
-            return None;
+                   "Not sending {:?}, expected encoded length doesn’t match calculated: {} != {}",
+                   chunk.chunk_hash(), header.encoded_length(), encoded_length);
+            return;
         }
 
         let mut content = EncodedShardChunkBody { parts };
         if let Err(err) = content.reconstruct(&mut self.rs) {
             warn!(target: "chunks",
-                   "Not sending {}, failed to reconstruct RS parity parts: {}",
-                   request.chunk_hash.0, err);
-            return None;
+                   "Not sending {:?}, failed to reconstruct RS parity parts: {}",
+                   chunk.chunk_hash(), err);
+            return;
         }
 
         let (encoded_merkle_root, merkle_paths) = content.get_merkle_hash_and_paths();
         if header.encoded_merkle_root() != encoded_merkle_root {
             warn!(target: "chunks",
-                   "Not sending {}, expected encoded Merkle root doesn’t match calculated: {} != {}",
-                   request.chunk_hash.0, header.encoded_merkle_root(), encoded_merkle_root);
-            return None;
+                   "Not sending {:?}, expected encoded Merkle root doesn’t match calculated: {} != {}",
+                   chunk.chunk_hash(), header.encoded_merkle_root(), encoded_merkle_root);
+            return;
         }
-
-        let parts_iter = request.part_ords.into_iter().map(|part_ord| {
-            let ord: usize = part_ord.try_into().unwrap();
-            content.parts[ord].take().map(|part| PartialEncodedChunkPart {
-                part_ord,
-                part,
-                merkle_proof: merkle_paths[ord].clone(),
-            })
-        });
-
-        // Pass iterators to function, same as cache case.
-        Self::prepare_partial_encoded_chunk_response_from_iters(
-            request.chunk_hash,
-            parts_iter,
-            receipts_iter,
-        )
-    }
-
-    /// Checks if `parts_iter` and `receipts_iter` contain no `None` elements.
-    /// It evaluates the iterators only up to the first `None` value (if any);
-    /// since iterators are lazy this saves some work if there are any `Some`
-    /// elements later in the iterator. `receipts_iter` is not iterated if
-    /// `part_iter` contained any `None` values.
-    ///
-    /// If there were no `None` elements in either of the iterators, the method
-    /// returns a [`PartialEncodedChunkResponseMsg`] object; otherwise returns
-    /// `None`.
-    fn prepare_partial_encoded_chunk_response_from_iters<A, B>(
-        chunk_hash: ChunkHash,
-        parts_iter: A,
-        receipts_iter: B,
-    ) -> Option<PartialEncodedChunkResponseMsg>
-    where
-        A: Iterator<Item = Option<PartialEncodedChunkPart>>,
-        B: Iterator<Item = Option<ReceiptProof>>,
-    {
-        let maybe_known_parts: Option<Vec<_>> = parts_iter.collect();
-        let parts = match maybe_known_parts {
-            None => {
-                debug!(target:"chunks", "Not sending {}, some parts are missing",
-                       chunk_hash.0);
-                return None;
+        if merkle_paths.len() != content.parts.len() {
+            warn!(target: "chunks",
+                   "Not sending {:?}, expected number of Merkle paths doesn’t match calculated: {} != {}",
+                   chunk.chunk_hash(), merkle_paths.len(), content.parts.len());
+            return;
+        }
+        for (part_ord, (part, merkle_proof)) in
+            content.parts.into_iter().zip(merkle_paths.into_iter()).enumerate()
+        {
+            if let Some(part) = part {
+                if part_ords.contains(&(part_ord as u64)) {
+                    response.parts.push(PartialEncodedChunkPart {
+                        part_ord: part_ord as u64,
+                        part,
+                        merkle_proof,
+                    });
+                }
             }
-            Some(known_parts) => known_parts,
-        };
-
-        let maybe_known_receipts: Option<Vec<_>> = receipts_iter.collect();
-        let receipts = match maybe_known_receipts {
-            None => {
-                debug!(target:"chunks", "Not sending {}, some receipts are missing",
-                       chunk_hash.0);
-                return None;
+        }
+        for (shard_id, receipt_proof) in present_receipts {
+            if tracking_shards.contains(&shard_id) {
+                response.receipts.push(receipt_proof);
             }
-            Some(known_receipts) => known_receipts,
-        };
-
-        Some(PartialEncodedChunkResponseMsg { chunk_hash, parts, receipts })
+        }
     }
 
     // pub for testing
@@ -3061,6 +3057,225 @@ mod test {
         assert_eq!(source, "chunk");
         assert!(response.is_some());
         assert_eq!(response.unwrap().parts.len(), fixture.all_part_ords.len());
+    }
+
+    #[test]
+    fn test_chunk_response_combining_cache_and_partial_chunks() {
+        let mut fixture = ChunkTestFixture::default();
+        let mut shards_manager = ShardsManager::new(
+            Some(fixture.mock_shard_tracker.clone()),
+            fixture.mock_runtime.clone(),
+            fixture.mock_network.clone(),
+            fixture.mock_client_adapter.clone(),
+            fixture.chain_store.new_read_only_chunks_store(),
+            None,
+        );
+        // Split the part ords into two groups.
+        assert!(fixture.all_part_ords.len() >= 2);
+        let (cache_ords, partial_ords) =
+            fixture.all_part_ords.split_at(fixture.all_part_ords.len() / 2);
+
+        shards_manager
+            .process_partial_encoded_chunk(fixture.make_partial_encoded_chunk(cache_ords).into())
+            .unwrap();
+
+        persist_chunk(
+            fixture.make_partial_encoded_chunk(partial_ords),
+            None,
+            &mut fixture.chain_store,
+        )
+        .unwrap();
+        let (_, source, response) =
+            shards_manager.prepare_partial_encoded_chunk_response(PartialEncodedChunkRequestMsg {
+                chunk_hash: fixture.mock_chunk_header.chunk_hash(),
+                part_ords: fixture.all_part_ords.clone(),
+                tracking_shards: HashSet::new(),
+            });
+        assert_eq!(source, "partial");
+        assert!(response.is_some());
+        assert_eq!(response.unwrap().parts.len(), fixture.all_part_ords.len());
+    }
+
+    #[test]
+    fn test_chunk_response_combining_cache_and_partial_chunks_with_some_missing() {
+        let mut fixture = ChunkTestFixture::default();
+        let mut shards_manager = ShardsManager::new(
+            Some(fixture.mock_shard_tracker.clone()),
+            fixture.mock_runtime.clone(),
+            fixture.mock_network.clone(),
+            fixture.mock_client_adapter.clone(),
+            fixture.chain_store.new_read_only_chunks_store(),
+            None,
+        );
+        // Split the part ords into three groups; put one in cache, the second in partial
+        // and the third is missing. We should return the first two groups.
+        assert!(fixture.all_part_ords.len() >= 3);
+        let n = fixture.all_part_ords.len();
+        let cache_ords = &fixture.all_part_ords.as_slice()[0..n / 3];
+        let partial_ords = &fixture.all_part_ords.as_slice()[n / 3..(n * 2 / 3)];
+
+        shards_manager
+            .process_partial_encoded_chunk(fixture.make_partial_encoded_chunk(cache_ords).into())
+            .unwrap();
+
+        persist_chunk(
+            fixture.make_partial_encoded_chunk(partial_ords),
+            None,
+            &mut fixture.chain_store,
+        )
+        .unwrap();
+        let (_, source, response) =
+            shards_manager.prepare_partial_encoded_chunk_response(PartialEncodedChunkRequestMsg {
+                chunk_hash: fixture.mock_chunk_header.chunk_hash(),
+                part_ords: fixture.all_part_ords.clone(),
+                tracking_shards: HashSet::new(),
+            });
+        // Although we fulfilled our request using cache and partial, we did try to lookup in the
+        // chunk column, so we should return "chunk" as the source.
+        assert_eq!(source, "chunk");
+        assert!(response.is_some());
+        assert_eq!(response.unwrap().parts.len(), n * 2 / 3);
+    }
+
+    #[test]
+    fn test_chunk_response_fallback_to_chunk_storage_if_not_all_parts_found() {
+        let mut fixture = ChunkTestFixture::default();
+        let mut shards_manager = ShardsManager::new(
+            Some(fixture.mock_shard_tracker.clone()),
+            fixture.mock_runtime.clone(),
+            fixture.mock_network.clone(),
+            fixture.mock_client_adapter.clone(),
+            fixture.chain_store.new_read_only_chunks_store(),
+            None,
+        );
+        assert!(fixture.all_part_ords.len() >= 3);
+
+        // Put part 0 in cache, part 1 in partial chunk storage. We should fall back to chunk
+        // storage to recover the parts we requested.
+        shards_manager
+            .process_partial_encoded_chunk(fixture.make_partial_encoded_chunk(&[0]).into())
+            .unwrap();
+
+        persist_chunk(
+            fixture.make_partial_encoded_chunk(&[1]),
+            Some(
+                fixture
+                    .mock_encoded_chunk
+                    .decode_chunk(fixture.mock_runtime.num_data_parts())
+                    .unwrap(),
+            ),
+            &mut fixture.chain_store,
+        )
+        .unwrap();
+        let (_, source, response) =
+            shards_manager.prepare_partial_encoded_chunk_response(PartialEncodedChunkRequestMsg {
+                chunk_hash: fixture.mock_chunk_header.chunk_hash(),
+                part_ords: fixture.all_part_ords.clone(),
+                tracking_shards: HashSet::new(),
+            });
+        assert_eq!(source, "chunk");
+        assert!(response.is_some());
+        assert_eq!(response.unwrap().parts.len(), fixture.all_part_ords.len());
+    }
+
+    #[test]
+    fn test_chunk_response_empty_request() {
+        let fixture = ChunkTestFixture::default();
+        let mut shards_manager = ShardsManager::new(
+            Some(fixture.mock_shard_tracker.clone()),
+            fixture.mock_runtime.clone(),
+            fixture.mock_network.clone(),
+            fixture.mock_client_adapter.clone(),
+            fixture.chain_store.new_read_only_chunks_store(),
+            None,
+        );
+        let (_, source, response) =
+            shards_manager.prepare_partial_encoded_chunk_response(PartialEncodedChunkRequestMsg {
+                chunk_hash: fixture.mock_chunk_header.chunk_hash(),
+                part_ords: Vec::new(),
+                tracking_shards: HashSet::new(),
+            });
+        assert_eq!(source, "none");
+        assert!(response.is_none());
+    }
+
+    #[test]
+    fn test_chunk_response_for_nonexistent_chunk() {
+        let fixture = ChunkTestFixture::default();
+        let mut shards_manager = ShardsManager::new(
+            Some(fixture.mock_shard_tracker.clone()),
+            fixture.mock_runtime.clone(),
+            fixture.mock_network.clone(),
+            fixture.mock_client_adapter.clone(),
+            fixture.chain_store.new_read_only_chunks_store(),
+            None,
+        );
+        let (_, source, response) =
+            shards_manager.prepare_partial_encoded_chunk_response(PartialEncodedChunkRequestMsg {
+                chunk_hash: fixture.mock_chunk_header.chunk_hash(),
+                part_ords: vec![0],
+                tracking_shards: HashSet::new(),
+            });
+        assert_eq!(source, "chunk");
+        assert!(response.is_none());
+    }
+
+    #[test]
+    fn test_chunk_response_for_request_including_invalid_part_ord() {
+        let mut fixture = ChunkTestFixture::default();
+        let mut shards_manager = ShardsManager::new(
+            Some(fixture.mock_shard_tracker.clone()),
+            fixture.mock_runtime.clone(),
+            fixture.mock_network.clone(),
+            fixture.mock_client_adapter.clone(),
+            fixture.chain_store.new_read_only_chunks_store(),
+            None,
+        );
+        let mut update = fixture.chain_store.store_update();
+        let shard_chunk =
+            fixture.mock_encoded_chunk.decode_chunk(fixture.mock_runtime.num_data_parts()).unwrap();
+        update.save_chunk(shard_chunk);
+        update.commit().unwrap();
+
+        let (_, source, response) =
+            shards_manager.prepare_partial_encoded_chunk_response(PartialEncodedChunkRequestMsg {
+                chunk_hash: fixture.mock_chunk_header.chunk_hash(),
+                part_ords: vec![0, fixture.mock_runtime.num_total_parts() as u64],
+                tracking_shards: HashSet::new(),
+            });
+        assert_eq!(source, "chunk");
+        assert!(response.is_some());
+        // part 0 should be returned; part N should be ignored.
+        assert_eq!(response.unwrap().parts.len(), 1);
+    }
+
+    #[test]
+    fn test_chunk_response_for_request_with_duplicate_part_ords() {
+        // We should not return any duplicates.
+        let mut fixture = ChunkTestFixture::default();
+        let mut shards_manager = ShardsManager::new(
+            Some(fixture.mock_shard_tracker.clone()),
+            fixture.mock_runtime.clone(),
+            fixture.mock_network.clone(),
+            fixture.mock_client_adapter.clone(),
+            fixture.chain_store.new_read_only_chunks_store(),
+            None,
+        );
+        let mut update = fixture.chain_store.store_update();
+        let shard_chunk =
+            fixture.mock_encoded_chunk.decode_chunk(fixture.mock_runtime.num_data_parts()).unwrap();
+        update.save_chunk(shard_chunk);
+        update.commit().unwrap();
+
+        let (_, source, response) =
+            shards_manager.prepare_partial_encoded_chunk_response(PartialEncodedChunkRequestMsg {
+                chunk_hash: fixture.mock_chunk_header.chunk_hash(),
+                part_ords: vec![0, 1, 0, 1, 0, 1, 0, 1],
+                tracking_shards: HashSet::new(),
+            });
+        assert_eq!(source, "chunk");
+        assert!(response.is_some());
+        assert_eq!(response.unwrap().parts.len(), 2);
     }
 
     #[test]
