@@ -152,7 +152,7 @@ impl ActorHandler {
         &self,
         peer_info: &PeerInfo,
         tier: tcp::Tier,
-    ) -> impl 'static + Send + Future<Output = ()> {
+    ) -> impl 'static + Send + Future<Output = tcp::StreamId> {
         let addr = self.actix.addr.clone();
         let events = self.events.clone();
         let peer_info = peer_info.clone();
@@ -166,7 +166,7 @@ impl ActorHandler {
                     Event::PeerManager(PME::HandshakeCompleted(ev))
                         if ev.stream_id == stream_id =>
                     {
-                        Some(())
+                        Some(stream_id)
                     }
                     Event::PeerManager(PME::ConnectionClosed(ev)) if ev.stream_id == stream_id => {
                         panic!("PeerManager rejected the handshake")
