@@ -162,6 +162,13 @@ struct SizeTrackedHashMap {
 }
 
 impl SizeTrackedHashMap {
+    fn new(shard_id: ShardId) -> Self {
+        let instance =
+            Self { map: Default::default(), size_bytes: 0, metrics: StagedMetrics::new(shard_id) };
+        instance.update_metrics();
+        instance
+    }
+
     fn insert(&mut self, k: CryptoHash, v: PrefetchSlot) -> Option<PrefetchSlot> {
         self.size_bytes += v.reserved_memory();
         let dropped = self.map.insert(k, v);
@@ -301,14 +308,7 @@ impl TriePrefetchingStorage {
 
 impl PrefetchStagingArea {
     fn new(shard_id: ShardId) -> Self {
-        let inner = InnerPrefetchStagingArea {
-            slots: SizeTrackedHashMap {
-                map: Default::default(),
-                size_bytes: 0,
-                metrics: StagedMetrics::new(shard_id),
-            },
-        };
-        inner.slots.update_metrics();
+        let inner = InnerPrefetchStagingArea { slots: SizeTrackedHashMap::new(shard_id) };
         Self(Arc::new(Mutex::new(inner)))
     }
 
