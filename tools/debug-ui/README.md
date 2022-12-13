@@ -8,7 +8,7 @@ npm start
 
 This will serve the UI at localhost:3000.
 
-Go to `http://localhost:3030/<RPC address>` to look at the debug UI of a near node.
+Go to `http://localhost:3000/<RPC address>` to look at the debug UI of a near node.
 
 The RPC address can be either IP:port, or just IP (which will default to port 3030).
 
