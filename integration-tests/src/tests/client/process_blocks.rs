@@ -1944,7 +1944,7 @@ fn test_incorrect_validator_key_produce_block() {
         KeyType::ED25519,
         "seed",
     ));
-    let mut config = ClientConfig::test(true, 10, 20, 2, false, true);
+    let mut config = ClientConfig::test(true, 10, 20, 2, false, true, true);
     config.epoch_length = chain_genesis.epoch_length;
     let mut client = Client::new(
         config,

@@ -223,7 +223,7 @@ pub fn setup(
         runtime.clone(),
         &chain_genesis,
         doomslug_threshold_mode,
-        ChainConfig { save_trie_changes: !archive, background_migration_threads: 1 },
+        ChainConfig { save_trie_changes: true, background_migration_threads: 1 },
     )
     .unwrap();
     let genesis_block = chain.get_block(&chain.genesis().hash().clone()).unwrap();
@@ -236,6 +236,7 @@ pub fn setup(
         max_block_prod_time,
         num_validator_seats,
         archive,
+        true,
         epoch_sync_enabled,
     );
 
@@ -309,7 +310,7 @@ pub fn setup_only_view(
         runtime.clone(),
         &chain_genesis,
         doomslug_threshold_mode,
-        ChainConfig { save_trie_changes: !archive, background_migration_threads: 1 },
+        ChainConfig { save_trie_changes: true, background_migration_threads: 1 },
     )
     .unwrap();
 
@@ -321,6 +322,7 @@ pub fn setup_only_view(
         max_block_prod_time,
         num_validator_seats,
         archive,
+        true,
         epoch_sync_enabled,
     );
 
@@ -1093,7 +1095,7 @@ pub fn setup_client_with_runtime(
 ) -> Client {
     let validator_signer =
         account_id.map(|x| Arc::new(create_test_signer(x.as_str())) as Arc<dyn ValidatorSigner>);
-    let mut config = ClientConfig::test(true, 10, 20, num_validator_seats, false, true);
+    let mut config = ClientConfig::test(true, 10, 20, num_validator_seats, false, true, true);
     config.epoch_length = chain_genesis.epoch_length;
     let mut client = Client::new(
         config,

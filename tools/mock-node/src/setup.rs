@@ -120,12 +120,12 @@ pub fn setup_mock_node(
         let mut chain_store = ChainStore::new(
             client_runtime.store().clone(),
             config.genesis.config.genesis_height,
-            !config.client_config.archive,
+            config.client_config.save_trie_changes,
         );
         let mut network_chain_store = ChainStore::new(
             mock_network_runtime.store().clone(),
             config.genesis.config.genesis_height,
-            !config.client_config.archive,
+            config.client_config.save_trie_changes,
         );
 
         let network_tail_height = network_chain_store.tail().unwrap();
@@ -261,14 +261,13 @@ pub fn setup_mock_node(
     let client1 = client.clone();
     let view_client1 = view_client.clone();
     let genesis_config = config.genesis.config.clone();
-    let archival = config.client_config.archive;
     let network_config = network_config.clone();
 
     let chain = Chain::new_for_view_client(
         mock_network_runtime,
         &chain_genesis,
         DoomslugThresholdMode::NoApprovals,
-        !archival,
+        config.client_config.save_trie_changes,
     )
     .unwrap();
     let chain_height = chain.head().unwrap().height;

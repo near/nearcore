@@ -130,7 +130,7 @@ impl ViewClientActor {
             runtime_adapter.clone(),
             chain_genesis,
             DoomslugThresholdMode::TwoThirds,
-            !config.archive,
+            config.save_trie_changes,
         )?;
         Ok(ViewClientActor {
             adv,

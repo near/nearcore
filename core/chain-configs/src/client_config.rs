@@ -142,6 +142,10 @@ pub struct ClientConfig {
     pub tracked_shards: Vec<ShardId>,
     /// Not clear old data, set `true` for archive nodes.
     pub archive: bool,
+    /// Save trie changes. Must be set to true if either of the following is true
+    /// - archive is false - non archival nodes need trie changes for garbage collection
+    /// - the node will be migrated to split storage in the near future - split storage nodes need trie changes for hot storage garbage collection
+    pub save_trie_changes: bool,
     /// Number of threads for ViewClientActor pool.
     pub view_client_threads: usize,
     /// Run Epoch Sync on the start.
@@ -167,6 +171,7 @@ impl ClientConfig {
         max_block_prod_time: u64,
         num_block_producer_seats: NumSeats,
         archive: bool,
+        save_trie_changes: bool,
         epoch_sync_enabled: bool,
     ) -> Self {
         ClientConfig {
@@ -210,6 +215,7 @@ impl ClientConfig {
             tracked_accounts: vec![],
             tracked_shards: vec![],
             archive,
+            save_trie_changes,
             log_summary_style: LogSummaryStyle::Colored,
             view_client_threads: 1,
             epoch_sync_enabled,
