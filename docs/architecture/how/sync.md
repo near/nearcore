@@ -210,16 +210,20 @@ is caught up and if we need to download states. The logic works as follows:
   happen, because the node will appear stalled until the blocks in the previous
   epoch are catching up.
 * Otherwise, we start processing blocks for the new epoch T. For the first
-  block, we always consider it as not caught up and will initiate the process
+  block, we always mark it as not caught up and will initiate the process
   for downloading states for shards that we are going to care about in epoch
-  T+1.
-* For other blocks, we consider it caught up if the previous block is caught up.
-* `process_block` will apply chunks differently depending on whether the block
-  is caught up or not, as we discussed in `ApplyChunksMode`.
+  T+1. Info about downloading states is persisted in `DBCol::StateDlInfos`.
+* For other blocks, we mark them as not caught up if the previous block is not
+  caught up. This info is persisted in `DBCol::BlocksToCatchup` which stores
+  mapping from previous block to vector of all child blocks to catch up.
+* Chunks for already tracked shards will be applied during `process_block`, as 
+  we discussed in `ApplyChunksMode`.
+* Once we downloaded state, we start catchup. It will take blocks from 
+  `DBCol::BlocksToCatchup` in breadth-first search order and apply chunks for 
+  shards which have to be tracked.
+* We assume that at some point each new block will be built on caught up block,
+  which means that catchup process is finished.
 
-The information of which blocks need to catch up (`add_block_to_catch_up`) and
-which new states need to be downloaded (`add_state_dl_info`) are stored in
-storage to be persisted across different runs.
 
 The catchup process is implemented through the function `Client::run_catchup`.
 `ClientActor` schedules a call to `run_catchup` every 100ms. However, the call
