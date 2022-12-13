@@ -260,4 +260,6 @@ async fn rate_limiting() {
     let want_max = connections * 12;
     println!("got {msgs}, want <= {want_max}");
     assert!(msgs <= want_max, "got {msgs} messages, want at most {want_max}");
+
+    drop(pms);
 }

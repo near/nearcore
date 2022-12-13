@@ -1169,7 +1169,8 @@ impl Runtime {
         let mut prefetcher = TriePrefetcher::new_if_enabled(trie.clone());
 
         if let Some(prefetcher) = &mut prefetcher {
-            let _queue_full = prefetcher.input_transactions(transactions);
+            // Prefetcher is allowed to fail
+            _ = prefetcher.prefetch_transactions_data(transactions);
         }
 
         let mut stats = ApplyStats::default();
@@ -1286,7 +1287,8 @@ impl Runtime {
         // We first process local receipts. They contain staking, local contract calls, etc.
         if let Some(prefetcher) = &mut prefetcher {
             prefetcher.clear();
-            let _queue_full = prefetcher.input_receipts(&local_receipts);
+            // Prefetcher is allowed to fail
+            _ = prefetcher.prefetch_receipts_data(&local_receipts);
         }
         for receipt in local_receipts.iter() {
             if total_gas_burnt < gas_limit {
@@ -1313,7 +1315,8 @@ impl Runtime {
 
             if let Some(prefetcher) = &mut prefetcher {
                 prefetcher.clear();
-                let _queue_full = prefetcher.input_receipts(std::slice::from_ref(&receipt));
+                // Prefetcher is allowed to fail
+                _ = prefetcher.prefetch_receipts_data(std::slice::from_ref(&receipt));
             }
 
             // Validating the delayed receipt. If it fails, it's likely the state is inconsistent.
@@ -1336,7 +1339,8 @@ impl Runtime {
         // And then we process the new incoming receipts. These are receipts from other shards.
         if let Some(prefetcher) = &mut prefetcher {
             prefetcher.clear();
-            let _queue_full = prefetcher.input_receipts(&incoming_receipts);
+            // Prefetcher is allowed to fail
+            _ = prefetcher.prefetch_receipts_data(&incoming_receipts);
         }
         for receipt in incoming_receipts.iter() {
             // Validating new incoming no matter whether we have available gas or not. We don't
