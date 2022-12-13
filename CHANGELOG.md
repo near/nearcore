@@ -8,7 +8,7 @@
   of account ids in function call permission.
 * Enable TIER1 network. Participants of the BFT consensus (block & chunk producers) now can establish direct TIER1 connections
   between each other, which will optimize the communication latency and minimize the number of dropped chunks.
-  To configure this feature, see [advanced\_configuration/networking](./docs/advanced_configuration/networking.md").
+  To configure this feature, see [advanced\_configuration/networking](./docs/advanced_configuration/networking.md).
 
 ### Non-protocol Changes
 

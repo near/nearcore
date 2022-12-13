@@ -1,5 +1,5 @@
-This document describes the advanced network options that you can configure by modidying
-the "network" section of in "config.json" file.
+This document describes the advanced network options that you can configure by modifying
+the "network" section of your "config.json" file.
 
 ### TIER1 network
 
@@ -8,10 +8,10 @@ between each other, which will optimize the communication latency and minimize t
 If you are a validator, you can enable TIER1 connections by setting the following fields in the config:
 
 * [public_addrs](https://github.com/near/nearcore/blob/d95a5f58d998c69cb8d4e965ad6b0a440cf3f233/chain/network/src/config_json.rs#L154)
-  * this is a list of the public addresses (in the format "<node public key>@<IP>:<port>") of trusted nodes,
+  * this is a list of the public addresses (in the format `"<node public key>@<IP>:<port>"`) of trusted nodes,
     which are willing to route messages to your node
   * this list will be broadcasted to the network, so that other validator nodes can connect to your node.
-  * if your node has a static public IP, set `public_addrs` to a list with a single entry, for example:
+  * if your node has a static public IP, set `public_addrs` to a list with a single entry with public key and address of your node, for example:
     `"public_addrs": ["ed25519:86EtEy7epneKyrcJwSWP7zsisTkfDRH5CFVszt4qiQYw@31.192.22.209:24567"]`.
   * if your node doesn't have a public IP (for example, it is hidden behind a NAT), set `public_addrs` to
     a list (<=10 entries) of proxy nodes that you trust (arbitrary nodes with static public IPs).
