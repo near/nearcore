@@ -6,17 +6,9 @@
 
 * Stabilize `account_id_in_function_call_permission` feature: enforcing validity
   of account ids in function call permission.
-* Enable TIER1 peer discovery. Validator nodes are now exchanging the [public addresses
-  set in config](https://github.com/near/nearcore/blob/d95a5f58d998c69cb8d4e965ad6b0a440cf3f233/chain/network/src/config_json.rs#L154).
-* Enable TIER1 communication. Participants of the BFT consensus now can establish direct TIER1 connections
-  between each other.
-  * To allow for inbound TIER1 connections to your node, you have to set
-    [public address(es)](https://github.com/near/nearcore/blob/d95a5f58d998c69cb8d4e965ad6b0a440cf3f233/chain/network/src/config_json.rs#L154).
-  * If you want your node to actively try to establish outbound TIER1 connections (recommended), set
-    [experimental.tier1_enable_outbound](https://github.com/near/nearcore/blob/d95a5f58d998c69cb8d4e965ad6b0a440cf3f233/chain/network/src/config_json.rs#L213)
-    (currently `false` by default, will be changed to `true` by default in the future).
-  * If you want your node to entirely opt out from TIER1 communication, set [experimental.tier1_enable_inbound](https://github.com/near/nearcore/blob/d95a5f58d998c69cb8d4e965ad6b0a440cf3f233/chain/network/src/config_json.rs#L209)
-    to `false` (it is `true` by default).
+* Enable TIER1 network. Participants of the BFT consensus (block & chunk producers) now can establish direct TIER1 connections
+  between each other, which will optimize the communication latency and minimize the number of dropped chunks.
+  To configure this feature, see [advanced\_configuration/networking](./docs/advanced_configuration/networking.md").
 
 ### Non-protocol Changes
 
