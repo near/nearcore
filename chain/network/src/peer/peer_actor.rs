@@ -100,7 +100,7 @@ pub(crate) enum ClosingReason {
     #[error("Received a message of type not allowed on this connection.")]
     DisallowedMessage,
     #[error("PeerManager requested to close the connection")]
-    PeerManager,
+    PeerManagerRequest,
     #[error("Received DisconnectMessage from peer")]
     DisconnectMessage,
     #[error("Peer clock skew exceeded {MAX_CLOCK_SKEW}")]
@@ -1551,7 +1551,7 @@ impl actix::Handler<WithSpanContext<Stop>> for PeerActor {
             ctx,
             match msg.ban_reason {
                 Some(reason) => ClosingReason::Ban(reason),
-                None => ClosingReason::PeerManager,
+                None => ClosingReason::PeerManagerRequest,
             },
         );
     }
