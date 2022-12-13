@@ -42,6 +42,10 @@
   - [Testing Utils](./practices/testing/test_utils.md)
 - [Protocol Upgrade](./practices/protocol_upgrade.md)
 
+# Advanced configuration
+
+- [Networking](./advanced_configuration/networking.md)
+
 # Misc
 
 - [Misc](./misc/README.md)
