@@ -111,7 +111,7 @@ pub(crate) struct PrefetchStagingArea(Arc<InnerPrefetchStagingArea>);
 
 struct InnerPrefetchStagingArea {
     slots: Mutex<SizeTrackedHashMap>,
-    slots_updated_cvar: Condvar,
+    slots_update_cvar: Condvar,
 }
 
 /// Result when atomically accessing the prefetch staging area.
@@ -313,7 +313,7 @@ impl PrefetchStagingArea {
     fn new(shard_id: ShardId) -> Self {
         let inner = InnerPrefetchStagingArea {
             slots: Mutex::new(SizeTrackedHashMap::new(shard_id)),
-            slots_updated_cvar: Condvar::new(),
+            slots_update_cvar: Condvar::new(),
         };
         Self(Arc::new(inner))
     }
@@ -359,7 +359,7 @@ impl PrefetchStagingArea {
                 Some(_) => (),
                 None => return None,
             }
-            guard = self.0.slots_updated_cvar.wait(guard).expect(POISONED_LOCK_ERR)
+            guard = self.0.slots_update_cvar.wait(guard).expect(POISONED_LOCK_ERR)
         }
     }
 
@@ -410,10 +410,10 @@ impl PrefetchStagingArea {
     }
 
     /// This consumes locked mutex guard to make sure to unlock it before
-    /// notifying condition variable.
+    /// notifying the condition variable.
     fn notify_slots_update(&self, guard: MutexGuard<SizeTrackedHashMap>) {
         std::mem::drop(guard);
-        self.0.slots_updated_cvar.notify_all();
+        self.0.slots_update_cvar.notify_all();
     }
 
     #[track_caller]
