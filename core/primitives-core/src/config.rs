@@ -318,6 +318,8 @@ impl ExtCostsConfig {
             ExtCosts::storage_remove_ret_value_byte => SAFETY_MULTIPLIER * 3843852,
             ExtCosts::storage_has_key_base => SAFETY_MULTIPLIER * 18013298875,
             ExtCosts::storage_has_key_byte => SAFETY_MULTIPLIER * 10263615,
+            // Here it should be `SAFETY_MULTIPLIER * 0` for consistency, but then
+            // clippy complains with "this operation will always return zero" warning
             ExtCosts::storage_iter_create_prefix_base => 0,
             ExtCosts::storage_iter_create_prefix_byte => 0,
             ExtCosts::storage_iter_create_range_base => 0,
