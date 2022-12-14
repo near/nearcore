@@ -24,6 +24,7 @@ use tracing::{info, trace};
 pub mod append_only_map;
 pub mod config;
 mod download_file;
+pub mod dyn_config;
 mod metrics;
 pub mod migrations;
 mod runtime;
@@ -158,7 +159,7 @@ pub struct NearNode {
 pub fn start_with_config(home_dir: &Path, mut config: NearConfig) -> anyhow::Result<NearNode> {
     let storage = open_storage(home_dir, &mut config)?;
     let store = storage.get_store(Temperature::Hot);
-    let dyn_configs_store = Arc::new(Mutex::new(DynConfigStore::new_empty()));
+    let dyn_configs_store = Arc::new(Mutex::new(DynConfigStore::default()));
     start_with_config_and_synchronization(home_dir, config, None, store, dyn_configs_store)
 }
 

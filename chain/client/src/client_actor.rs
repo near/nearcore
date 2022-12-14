@@ -1121,8 +1121,10 @@ impl ClientActor {
         // Check block height to trigger expected shutdown
         if let Ok(head) = self.client.chain.head() {
             let dyn_configs_store = self.dyn_configs_store.lock().unwrap();
-            if let Some(block_height_to_shutdown) =
-                dyn_configs_store.config().get_expected_shutdown_at()
+            if let Some(block_height_to_shutdown) = dyn_configs_store
+                .dyn_config()
+                .map(|config| config.expected_shutdown)
+                .unwrap_or(None)
             {
                 if head.height >= block_height_to_shutdown {
                     info!(target: "client", "Expected shutdown triggered: head block({}) >= ({:?})", head.height, block_height_to_shutdown);
