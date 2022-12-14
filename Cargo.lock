@@ -3016,14 +3016,12 @@ dependencies = [
 name = "near-dyn-configs"
 version = "0.0.0"
 dependencies = [
- "near-chain-configs",
  "near-o11y",
  "once_cell",
  "prometheus",
  "serde",
  "serde_json",
  "thiserror",
- "tokio",
  "tracing",
 ]
 

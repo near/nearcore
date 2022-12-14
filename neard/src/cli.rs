@@ -1,20 +1,17 @@
 #[cfg(unix)]
-use crate::watchers::Watcher;
-use crate::watchers::{
-    dyn_config_watcher::DynConfig, log_config_watcher::LogConfig, UpdateBehavior,
-};
 use anyhow::Context;
 use clap::{Args, Parser};
 use near_amend_genesis::AmendGenesisCommand;
 use near_chain_configs::GenesisValidationMode;
 #[cfg(feature = "cold_store")]
 use near_cold_store_tool::ColdStoreCommand;
+use near_dyn_configs::DynConfigStore;
 use near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofResponse;
 use near_mirror::MirrorCommand;
 use near_o11y::tracing_subscriber::EnvFilter;
 use near_o11y::{
-    default_subscriber, default_subscriber_with_opentelemetry, BuildEnvFilterError,
-    EnvFilterBuilder, OpenTelemetryLevel,
+    default_subscriber, default_subscriber_with_opentelemetry, set_default_otlp_level,
+    BuildEnvFilterError, EnvFilterBuilder,
 };
 use near_ping::PingCommand;
 use near_primitives::hash::CryptoHash;
@@ -27,10 +24,10 @@ use near_store::Mode;
 use near_store::Temperature;
 use serde_json::Value;
 use std::fs::File;
-use std::fs::Metadata;
 use std::io::BufReader;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use tokio::sync::broadcast;
 use tokio::sync::broadcast::Receiver;
 use tokio::sync::oneshot;
@@ -395,6 +392,7 @@ impl RunCmd {
         verbose_target: Option<&str>,
         o11y_opts: &near_o11y::Options,
     ) {
+        set_default_otlp_level(o11y_opts);
         // Load configs from home.
         let mut near_config = nearcore::config::load_config(&home_dir, genesis_validation.clone())
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
@@ -462,132 +460,102 @@ impl RunCmd {
         let storage =
             nearcore::open_storage(home_dir, &mut near_config).expect("storage can not access");
         let store = storage.get_store(Temperature::Hot);
+        let dyn_configs_store = DynConfigStore::new(home_dir)
+            .unwrap_or_else(|e| panic!("Error creating dynamic config store: {:#}", e));
+        let dyn_configs_store = Arc::new(Mutex::new(dyn_configs_store));
 
-        loop {
-            // reload signer
-            let nearcore::config::NearConfig { validator_signer, .. } =
-                nearcore::config::load_config(&home_dir, genesis_validation.clone())
-                    .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
-            near_config.validator_signer = validator_signer;
+        let nearcore::config::NearConfig { validator_signer, .. } =
+            nearcore::config::load_config(&home_dir, genesis_validation.clone())
+                .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
+        near_config.validator_signer = validator_signer;
 
-            let sys = actix::System::new();
-            let tx_crash = tx.clone();
-            let rx_crash = tx.subscribe();
-            let s = store.clone();
-            let (tx_sig, mut rx_sig) = oneshot::channel::<&str>();
-            let config = near_config.clone();
+        let sys = actix::System::new();
+        let tx_crash = tx.clone();
+        let mut rx_crash = tx.subscribe();
+        let s = store.clone();
+        let (tx_sig, mut rx_sig) = oneshot::channel::<&str>();
+        let config = near_config.clone();
 
-            let _ = sys.block_on(async move {
-                // TODO handle o11y in reload signer
-                // Initialize the subscriber that takes care of both logging and tracing.
-                // let _subscriber_guard = default_subscriber_with_opentelemetry(
-                //     make_env_filter(verbose_target).unwrap(),
-                //     o11y_opts,
-                //     config.client_config.chain_id.clone(),
-                //     config.network_config.node_key.public_key().clone(),
-                //     config
-                //         .network_config
-                //         .validator
-                //         .as_ref()
-                //         .map(|validator| validator.account_id()),
-                // )
-                // .await
-                // .global();
+        let _ = sys.block_on(async move {
+            // Initialize the subscriber that takes care of both logging and tracing.
+            let _subscriber_guard = default_subscriber_with_opentelemetry(
+                make_env_filter(verbose_target).unwrap(),
+                o11y_opts,
+                near_config.client_config.chain_id.clone(),
+                near_config.network_config.node_key.public_key().clone(),
+                near_config
+                    .network_config
+                    .validator
+                    .as_ref()
+                    .map(|validator| validator.account_id()),
+            )
+            .await
+            .global();
 
-                let nearcore::NearNode { rpc_servers, .. } =
-                    nearcore::start_with_config_and_synchronization(
-                        home_dir,
-                        config,
-                        Some(tx_crash),
-                        Some(s),
-                    )
-                    .expect("start_with_config");
+            let nearcore::NearNode { rpc_servers, .. } =
+                nearcore::start_with_config_and_synchronization(
+                    home_dir,
+                    config,
+                    Some(tx_crash),
+                    s,
+                    dyn_configs_store.clone(),
+                )
+                .expect("start_with_config");
 
-                let sig = wait_for_interrupt_signal(home_dir, rx_crash).await;
-                futures::future::join_all(rpc_servers.iter().map(|(name, server)| async move {
-                    server.stop(true).await;
-                    debug!(target: "neard", "{} server stopped", name);
-                }))
-                .await;
-                actix::System::current().stop();
-                tx_sig.send(sig)
-            });
-            sys.run().unwrap();
-            match rx_sig.try_recv() {
-                Ok(sig) => {
-                    if sig == "reload" {
-                        info!(target: "neard", "{}, restarting... this may take a few minutes.", sig);
-                        continue;
-                    } else {
-                        warn!(target: "neard", "{}, stopping... this may take a few minutes.", sig);
-                        // Disable the subscriber to properly shutdown the tracer.
-                        // near_o11y::reload(Some("error"), None, Some(OpenTelemetryLevel::OFF)).unwrap();
-                        break;
+            let sig = loop {
+                let sig = wait_for_interrupt_signal(home_dir, &mut rx_crash).await;
+                if sig == "SIGHUP" {
+                    let mut dyn_configs_store = dyn_configs_store.lock().unwrap();
+                    match dyn_configs_store.reload() {
+                        Ok(_) => {
+                            if let Err(errs) = near_o11y::reload_log_config(dyn_configs_store.config().log_config()) {
+                                tracing::warn!("Failed to reload dynamic configs: {:#?}", errs);
+                            }
+                        }
+                        Err(err) => {
+                            tracing::warn!("Failed to reload the log config: {:#?}", err)
+                        }
                     }
+                } else {
+                    break sig;
                 }
-                _ => unreachable!(),
-            }
-        }
+            };
+            warn!(target: "neard", "{}, stopping... this may take a few minutes.", sig);
+            futures::future::join_all(rpc_servers.iter().map(|(name, server)| async move {
+                server.stop(true).await;
+                debug!(target: "neard", "{} server stopped", name);
+            }))
+            .await;
+            actix::System::current().stop();
+            near_o11y::reload(Some("error"), None, Some(near_o11y::OpenTelemetryLevel::OFF))
+                .unwrap();
+        });
         info!(target: "neard", "Waiting for RocksDB to gracefully shutdown");
         RocksDB::block_until_all_instances_are_dropped();
     }
 }
 
-async fn watch_config(home_dir: &Path) -> anyhow::Result<Metadata> {
-    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-    let mut config_path = home_dir.to_path_buf();
-    config_path.push("config.json");
-    let meta = tokio::fs::File::open(&config_path).await?.metadata().await?;
-    Ok(meta)
-}
-
 #[cfg(not(unix))]
-async fn wait_for_interrupt_signal(_home_dir: &Path, mut _rx_crash: Receiver<()>) -> &str {
+async fn wait_for_interrupt_signal(_home_dir: &Path, mut _rx_crash: &Receiver<()>) -> &str {
     // TODO(#6372): Support graceful shutdown on windows.
     tokio::signal::ctrl_c().await.unwrap();
     "Ctrl+C"
 }
 
 #[cfg(unix)]
-fn update_watchers(home_dir: &Path, behavior: UpdateBehavior) {
-    LogConfig::update(home_dir.join("log_config.json"), &behavior);
-    DynConfig::update(home_dir.join("dyn_config.json"), &behavior);
-}
-
-#[cfg(unix)]
-async fn wait_for_interrupt_signal(home_dir: &Path, mut rx_crash: Receiver<()>) -> &str {
-    // Apply all watcher config file if it exists.
-    update_watchers(&home_dir, UpdateBehavior::UpdateOnlyIfExists);
-
+async fn wait_for_interrupt_signal(home_dir: &Path, rx_crash: &mut Receiver<()>) -> &'static str {
     use tokio::signal::unix::{signal, SignalKind};
     let mut sigint = signal(SignalKind::interrupt()).unwrap();
     let mut sigterm = signal(SignalKind::terminate()).unwrap();
     let mut sighup = signal(SignalKind::hangup()).unwrap();
-    let config_modify_time = {
-        let mut config_path = home_dir.to_path_buf();
-        config_path.push("config.json");
-        let meta = File::open(&config_path).unwrap().metadata().unwrap();
-        meta.modified().unwrap()
-    };
 
     loop {
         break tokio::select! {
              _ = sigint.recv()  => "SIGINT",
              _ = sigterm.recv() => "SIGTERM",
              _ = sighup.recv() => {
-                update_watchers(&home_dir, UpdateBehavior::UpdateOrReset);
-                continue;
+                "SIGHUP"
              },
-             meta = watch_config(&home_dir) => {
-                if let Ok(m) = meta {
-                    if let Ok(t) = m.modified() {
-                        if t != config_modify_time {
-                            return "reload"
-                        }
-                    }
-                }
-                continue;
-             }
              _ = rx_crash.recv() => "ClientActor died",
         };
     }
@@ -854,7 +822,7 @@ mod tests {
             )
         );
 
-        // Proof with a wroing outcome (as user specified wrong shard).
+        // Proof with a wrong outcome (as user specified wrong shard).
         assert_eq!(
             VerifyProofSubCommand::verify_json(
                 serde_json::from_slice(include_bytes!("../res/invalid_proof.json")).unwrap()

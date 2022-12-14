@@ -29,6 +29,7 @@ use near_chunks::client::{ClientAdapterForShardsManager, ShardsManagerResponse};
 use near_chunks::test_utils::MockClientAdapterForShardsManager;
 use near_client_primitives::types::Error;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
+use near_dyn_configs::DynConfigStore;
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_network::types::{
     AccountOrPeerIdOrHash, HighestHeightPeerInfo, PartialEncodedChunkRequestMsg,
@@ -197,6 +198,7 @@ pub fn setup(
     transaction_validity_period: NumBlocks,
     genesis_time: DateTime<Utc>,
     ctx: &Context<ClientActor>,
+    dyn_configs_store: Arc<Mutex<DynConfigStore>>,
 ) -> (Block, ClientActor, Addr<ViewClientActor>) {
     let store = create_test_store();
     let num_validator_seats = vs.all_block_producers().count() as NumSeats;
@@ -265,8 +267,7 @@ pub fn setup(
         ctx,
         None,
         adv,
-        None,
-        None,
+        dyn_configs_store,
     )
     .unwrap();
     (genesis_block, client, view_client_addr)
@@ -380,6 +381,7 @@ pub fn setup_mock_with_validity_period_and_no_epoch_sync(
 ) -> (Addr<ClientActor>, Addr<ViewClientActor>) {
     let network_adapter = Arc::new(NetworkRecipient::default());
     let mut vca: Option<Addr<ViewClientActor>> = None;
+    let dyn_configs_store = Arc::new(Mutex::new(DynConfigStore::new_empty()));
     let client_addr = ClientActor::create(|ctx: &mut Context<ClientActor>| {
         let vs = ValidatorSchedule::new().block_producers_per_epoch(vec![validators]);
         let (_, client, view_client_addr) = setup(
@@ -396,6 +398,7 @@ pub fn setup_mock_with_validity_period_and_no_epoch_sync(
             transaction_validity_period,
             Clock::utc(),
             ctx,
+            dyn_configs_store,
         );
         vca = Some(view_client_addr);
         client
@@ -632,6 +635,7 @@ pub fn setup_mock_all_validators(
         let hash_to_height1 = hash_to_height.clone();
         let archive1 = archive.clone();
         let epoch_sync_enabled1 = epoch_sync_enabled.clone();
+        let dyn_configs_store = Arc::new(Mutex::new(DynConfigStore::new_empty()));
         let client_addr = ClientActor::create(|ctx| {
             let client_addr = ctx.address();
             let _account_id = account_id.clone();
@@ -1033,6 +1037,7 @@ pub fn setup_mock_all_validators(
                 10000,
                 genesis_time,
                 ctx,
+                dyn_configs_store,
             );
             view_client_addr_slot = Some(view_client_addr);
             *genesis_block1.write().unwrap() = Some(block);

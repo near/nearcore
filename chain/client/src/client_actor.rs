@@ -40,7 +40,7 @@ use near_chunks::logic::cares_about_shard_this_or_next_epoch;
 use near_client_primitives::types::{
     Error, GetNetworkInfo, NetworkInfoResponse, Status, StatusError, StatusSyncInfo, SyncStatus,
 };
-use near_dyn_configs::EXPECTED_SHUTDOWN_AT;
+use near_dyn_configs::DynConfigStore;
 #[cfg(feature = "test_features")]
 use near_network::types::NetworkAdversarialMessage;
 use near_network::types::ReasonForBan;
@@ -68,7 +68,7 @@ use near_telemetry::TelemetryActor;
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
@@ -119,6 +119,8 @@ pub struct ClientActor {
     /// Synchronization measure to allow graceful shutdown.
     /// Informs the system when a ClientActor gets dropped.
     shutdown_signal: Option<broadcast::Sender<()>>,
+
+    dyn_configs_store: Arc<Mutex<DynConfigStore>>,
 }
 
 /// Blocks the program until given genesis time arrives.
@@ -156,6 +158,7 @@ impl ClientActor {
         ctx: &Context<ClientActor>,
         shutdown_signal: Option<broadcast::Sender<()>>,
         adv: crate::adversarial::Controls,
+        dyn_configs_store: Arc<Mutex<DynConfigStore>>,
     ) -> Result<Self, Error> {
         let state_parts_arbiter = Arbiter::new();
         let self_addr = ctx.address();
@@ -225,6 +228,7 @@ impl ClientActor {
             #[cfg(feature = "sandbox")]
             fastforward_delta: 0,
             shutdown_signal: shutdown_signal,
+            dyn_configs_store: dyn_configs_store.clone(),
         })
     }
 }
@@ -1116,12 +1120,15 @@ impl ClientActor {
 
         // Check block height to trigger expected shutdown
         if let Ok(head) = self.client.chain.head() {
-            let block_height_to_shutdown =
-                EXPECTED_SHUTDOWN_AT.load(std::sync::atomic::Ordering::Relaxed);
-            if block_height_to_shutdown > 0 && head.height >= block_height_to_shutdown {
-                info!(target: "client", "Expected shutdown triggered: head block({}) >= ({})", head.height, block_height_to_shutdown);
-                if let Some(tx) = self.shutdown_signal.take() {
-                    let _ = tx.send(()); // Ignore send signal fail, it will send again in next trigger
+            let dyn_configs_store = self.dyn_configs_store.lock().unwrap();
+            if let Some(block_height_to_shutdown) =
+                dyn_configs_store.config().get_expected_shutdown_at()
+            {
+                if head.height >= block_height_to_shutdown {
+                    info!(target: "client", "Expected shutdown triggered: head block({}) >= ({:?})", head.height, block_height_to_shutdown);
+                    if let Some(tx) = self.shutdown_signal.take() {
+                        let _ = tx.send(()); // Ignore send signal fail, it will send again in next trigger
+                    }
                 }
             }
         }
@@ -2001,6 +2008,7 @@ pub fn start_client(
     telemetry_actor: Addr<TelemetryActor>,
     sender: Option<broadcast::Sender<()>>,
     adv: crate::adversarial::Controls,
+    dyn_configs_store: Arc<Mutex<DynConfigStore>>,
 ) -> (Addr<ClientActor>, ArbiterHandle) {
     let client_arbiter = Arbiter::new();
     let client_arbiter_handle = client_arbiter.handle();
@@ -2019,6 +2027,7 @@ pub fn start_client(
             ctx,
             sender,
             adv,
+            dyn_configs_store,
         )
         .unwrap()
     });
