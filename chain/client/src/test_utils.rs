@@ -381,7 +381,7 @@ pub fn setup_mock_with_validity_period_and_no_epoch_sync(
 ) -> (Addr<ClientActor>, Addr<ViewClientActor>) {
     let network_adapter = Arc::new(NetworkRecipient::default());
     let mut vca: Option<Addr<ViewClientActor>> = None;
-    let dyn_configs_store = Arc::new(Mutex::new(DynConfigStore::new_empty()));
+    let dyn_configs_store = Arc::new(Mutex::new(DynConfigStore::default()));
     let client_addr = ClientActor::create(|ctx: &mut Context<ClientActor>| {
         let vs = ValidatorSchedule::new().block_producers_per_epoch(vec![validators]);
         let (_, client, view_client_addr) = setup(
@@ -635,7 +635,7 @@ pub fn setup_mock_all_validators(
         let hash_to_height1 = hash_to_height.clone();
         let archive1 = archive.clone();
         let epoch_sync_enabled1 = epoch_sync_enabled.clone();
-        let dyn_configs_store = Arc::new(Mutex::new(DynConfigStore::new_empty()));
+        let dyn_configs_store = Arc::new(Mutex::new(DynConfigStore::default()));
         let client_addr = ClientActor::create(|ctx| {
             let client_addr = ctx.address();
             let _account_id = account_id.clone();

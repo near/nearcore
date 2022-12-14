@@ -460,8 +460,9 @@ impl RunCmd {
         let storage =
             nearcore::open_storage(home_dir, &mut near_config).expect("storage can not access");
         let store = storage.get_store(Temperature::Hot);
-        let dyn_configs_store = DynConfigStore::new(home_dir)
-            .unwrap_or_else(|e| panic!("Error creating dynamic config store: {:#}", e));
+        let dyn_configs = nearcore::dyn_config::read_dyn_configs(home_dir)
+            .unwrap_or_else(|e| panic!("Error reading dynamic configs: {:#}", e));
+        let dyn_configs_store = DynConfigStore::new(dyn_configs);
         let dyn_configs_store = Arc::new(Mutex::new(dyn_configs_store));
 
         let nearcore::config::NearConfig { validator_signer, .. } =
@@ -473,7 +474,7 @@ impl RunCmd {
         let tx_crash = tx.clone();
         let mut rx_crash = tx.subscribe();
         let s = store.clone();
-        let (tx_sig, mut rx_sig) = oneshot::channel::<&str>();
+        let (tx_sig, rx_sig) = oneshot::channel::<&str>();
         let config = near_config.clone();
 
         let _ = sys.block_on(async move {
@@ -505,17 +506,15 @@ impl RunCmd {
             let sig = loop {
                 let sig = wait_for_interrupt_signal(home_dir, &mut rx_crash).await;
                 if sig == "SIGHUP" {
-                    let mut dyn_configs_store = dyn_configs_store.lock().unwrap();
-                    match dyn_configs_store.reload() {
-                        Ok(_) => {
-                            if let Err(errs) = near_o11y::reload_log_config(dyn_configs_store.config().log_config()) {
-                                tracing::warn!("Failed to reload dynamic configs: {:#?}", errs);
-                            }
+                    match nearcore::dyn_config::read_dyn_configs(home_dir) {
+                        Ok(dyn_configs) => {
+                            let mut dyn_configs_store = dyn_configs_store.lock().unwrap();
+                            dyn_configs_store.reload(dyn_configs);
                         }
                         Err(err) => {
-                            tracing::warn!("Failed to reload the log config: {:#?}", err)
+                            tracing::warn!("Failed to reload dynamic configs: {:#?}", err);
                         }
-                    }
+                    };
                 } else {
                     break sig;
                 }
@@ -543,7 +542,7 @@ async fn wait_for_interrupt_signal(_home_dir: &Path, mut _rx_crash: &Receiver<()
 }
 
 #[cfg(unix)]
-async fn wait_for_interrupt_signal(home_dir: &Path, rx_crash: &mut Receiver<()>) -> &'static str {
+async fn wait_for_interrupt_signal(_home_dir: &Path, rx_crash: &mut Receiver<()>) -> &'static str {
     use tokio::signal::unix::{signal, SignalKind};
     let mut sigint = signal(SignalKind::interrupt()).unwrap();
     let mut sigterm = signal(SignalKind::terminate()).unwrap();
