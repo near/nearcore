@@ -1,9 +1,10 @@
 //! Client is responsible for tracking the chain, chunks, and producing them when needed.
 //! This client works completely synchronously and must be operated by some async actor outside.
 
+use std::borrow::BorrowMut;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use lru::LruCache;
@@ -95,6 +96,7 @@ pub struct Client {
     pub(crate) accrued_fastforward_delta: near_primitives::types::BlockHeightDelta,
 
     pub config: ClientConfig,
+    pub dyn_client_config: Arc<Mutex<Option<ClientConfig>>>,
     pub sync_status: SyncStatus,
     pub chain: Chain,
     pub doomslug: Doomslug,
@@ -147,6 +149,16 @@ pub struct Client {
     tier1_accounts_cache: Option<(EpochId, Arc<AccountKeys>)>,
 }
 
+impl Client {
+    pub(crate) fn get_doomslug_step_period(&self, dyn_client_config: MutexGuard<Option<ClientConfig>>) -> Duration {
+        if let Some(dyn_client_config) = dyn_client_config {
+            dyn_client_config.doomslug_step_period
+        } else {
+            self.config.doomslug_step_period
+        }
+    }
+}
+
 // Debug information about the upcoming block.
 #[derive(Default)]
 pub struct BlockDebugStatus {
@@ -172,6 +184,11 @@ pub struct BlockDebugStatus {
 }
 
 impl Client {
+    pub fn update_dyn_client_config(&mut self, dyn_client_config: Option<&ClientConfig>) {
+        let mut dyn_client_config_lock = self.dyn_client_config.lock().unwrap();
+        *dyn_client_config_lock = dyn_client_config.cloned();
+    }
+
     pub fn new(
         config: ClientConfig,
         chain_genesis: ChainGenesis,
@@ -258,6 +275,7 @@ impl Client {
             #[cfg(feature = "sandbox")]
             accrued_fastforward_delta: 0,
             config,
+            dyn_client_config: Arc::new(Mutex::new(None)),
             sync_status,
             chain,
             doomslug,

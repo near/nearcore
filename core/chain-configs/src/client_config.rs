@@ -127,11 +127,11 @@ pub struct ClientConfig {
     /// Horizon to step from the latest block when fetching state.
     pub state_fetch_horizon: NumBlocks,
     /// Time between check to perform catchup.
-    pub catchup_step_period: Duration,
+    catchup_step_period: Duration,
     /// Time between checking to re-request chunks.
-    pub chunk_request_retry_period: Duration,
+    chunk_request_retry_period: Duration,
     /// Time between running doomslug timer.
-    pub doosmslug_step_period: Duration,
+    doosmslug_step_period: Duration,
     /// Behind this horizon header fetch kicks in.
     pub block_header_fetch_horizon: BlockHeightDelta,
     /// Garbage collection configuration.

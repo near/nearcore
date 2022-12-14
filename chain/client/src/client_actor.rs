@@ -1144,6 +1144,7 @@ impl ClientActor {
 
         let timer = metrics::CHECK_TRIGGERS_TIME.start_timer();
         if self.sync_started {
+            let dyn_config_lock = self.client.dyn_client_config.lock().unwrap();
             self.sync_timer_next_attempt = self.run_timer(
                 self.sync_wait_period(),
                 self.sync_timer_next_attempt,
@@ -1158,7 +1159,7 @@ impl ClientActor {
             );
 
             self.doomslug_timer_next_attempt = self.run_timer(
-                self.client.config.doosmslug_step_period,
+                self.client.get_doomslug_step_period(dyn_config_lock),
                 self.doomslug_timer_next_attempt,
                 ctx,
                 |act, ctx| act.try_doomslug_timer(ctx),
