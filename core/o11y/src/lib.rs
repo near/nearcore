@@ -28,6 +28,7 @@ use tracing_subscriber::{fmt, reload, EnvFilter, Layer, Registry};
 /// Custom tracing subscriber implementation that produces IO traces.
 pub mod context;
 mod io_tracer;
+pub mod log_config;
 pub mod macros;
 pub mod metrics;
 pub mod pretty;
@@ -446,6 +447,20 @@ pub enum ReloadError {
     ReloadOpentelemetryLayer(#[source] reload::Error),
     #[error("could not create the log filter")]
     Parse(#[source] BuildEnvFilterError),
+}
+
+pub fn reload_log_config(
+    config: Option<&crate::log_config::LogConfig>,
+) -> Result<(), Vec<ReloadError>> {
+    if let Some(config) = config {
+        reload(
+            config.rust_log.as_ref().map(|s| s.as_str()),
+            config.verbose_module.as_ref().map(|s| s.as_str()),
+            config.opentelemetry_level,
+        )
+    } else {
+        reload(None, None, None)
+    }
 }
 
 /// Constructs new filters for the logging and opentelemetry layers.

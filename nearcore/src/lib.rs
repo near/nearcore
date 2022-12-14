@@ -7,6 +7,7 @@ use actix_web;
 use anyhow::Context;
 use near_chain::{Chain, ChainGenesis};
 use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
+use near_dyn_configs::DynConfigStore;
 use near_network::time;
 use near_network::types::NetworkRecipient;
 use near_network::PeerManagerActor;
@@ -16,7 +17,7 @@ use near_rust_allocator_proxy::reset_memory_usage_max;
 use near_store::{DBCol, Mode, NodeStorage, Store, StoreOpenerError, Temperature};
 use near_telemetry::TelemetryActor;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tokio::sync::broadcast;
 use tracing::{info, trace};
 
@@ -154,25 +155,22 @@ pub struct NearNode {
     pub rpc_servers: Vec<(&'static str, actix_web::dev::ServerHandle)>,
 }
 
-pub fn start_with_config(home_dir: &Path, config: NearConfig) -> anyhow::Result<NearNode> {
-    start_with_config_and_synchronization(home_dir, config, None, None)
+pub fn start_with_config(home_dir: &Path, mut config: NearConfig) -> anyhow::Result<NearNode> {
+    let storage = open_storage(home_dir, &mut config)?;
+    let store = storage.get_store(Temperature::Hot);
+    let dyn_configs_store = Arc::new(Mutex::new(DynConfigStore::new_empty()));
+    start_with_config_and_synchronization(home_dir, config, None, store, dyn_configs_store)
 }
 
 pub fn start_with_config_and_synchronization(
     home_dir: &Path,
-    mut config: NearConfig,
+    config: NearConfig,
     // 'shutdown_signal' will notify the corresponding `oneshot::Receiver` when an instance of
     // `ClientActor` gets dropped.
     shutdown_signal: Option<broadcast::Sender<()>>,
-    store: Option<Store>,
+    store: Store,
+    dyn_configs_store: Arc<Mutex<DynConfigStore>>,
 ) -> anyhow::Result<NearNode> {
-    let store = if let Some(store) = store {
-        store
-    } else {
-        let storage = open_storage(home_dir, &mut config)?;
-        storage.get_store(Temperature::Hot)
-    };
-
     let runtime = Arc::new(NightshadeRuntime::from_config(home_dir, store.clone(), &config));
 
     let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();
@@ -205,6 +203,7 @@ pub fn start_with_config_and_synchronization(
         telemetry,
         shutdown_signal,
         adv,
+        dyn_configs_store.clone(),
     );
 
     #[allow(unused_mut)]
