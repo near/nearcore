@@ -56,7 +56,7 @@ const MAX_TRANSACTIONS_PER_BLOCK_MESSAGE: usize = 1000;
 /// Limit cache size of 1000 messages
 const ROUTED_MESSAGE_CACHE_SIZE: usize = 1000;
 /// Duplicated messages will be dropped if routed through the same peer multiple times.
-const DROP_DUPLICATED_MESSAGES_PERIOD: time::Duration = time::Duration::milliseconds(50);
+pub(crate) const DROP_DUPLICATED_MESSAGES_PERIOD: time::Duration = time::Duration::milliseconds(50);
 /// How often to send the latest block to peers.
 const SYNC_LATEST_BLOCK_INTERVAL: time::Duration = time::Duration::seconds(60);
 /// How often to perform a full sync of AccountsData with the peer.
@@ -100,7 +100,7 @@ pub(crate) enum ClosingReason {
     #[error("Received a message of type not allowed on this connection.")]
     DisallowedMessage,
     #[error("PeerManager requested to close the connection")]
-    PeerManager,
+    PeerManagerRequest,
     #[error("Received DisconnectMessage from peer")]
     DisconnectMessage,
     #[error("Peer clock skew exceeded {MAX_CLOCK_SKEW}")]
@@ -1551,7 +1551,7 @@ impl actix::Handler<WithSpanContext<Stop>> for PeerActor {
             ctx,
             match msg.ban_reason {
                 Some(reason) => ClosingReason::Ban(reason),
-                None => ClosingReason::PeerManager,
+                None => ClosingReason::PeerManagerRequest,
             },
         );
     }

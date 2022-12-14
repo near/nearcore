@@ -15,6 +15,7 @@ use crate::testonly::fake_client;
 use crate::time;
 use crate::types::{
     AccountKeys, ChainInfo, KnownPeerStatus, NetworkRequests, PeerManagerMessageRequest,
+    ReasonForBan,
 };
 use crate::PeerManagerActor;
 use near_o11y::WithSpanContextExt;
@@ -151,7 +152,7 @@ impl ActorHandler {
         &self,
         peer_info: &PeerInfo,
         tier: tcp::Tier,
-    ) -> impl 'static + Send + Future<Output = ()> {
+    ) -> impl 'static + Send + Future<Output = tcp::StreamId> {
         let addr = self.actix.addr.clone();
         let events = self.events.clone();
         let peer_info = peer_info.clone();
@@ -165,7 +166,7 @@ impl ActorHandler {
                     Event::PeerManager(PME::HandshakeCompleted(ev))
                         if ev.stream_id == stream_id =>
                     {
-                        Some(())
+                        Some(stream_id)
                     }
                     Event::PeerManager(PME::ConnectionClosed(ev)) if ev.stream_id == stream_id => {
                         panic!("PeerManager rejected the handshake")
@@ -324,6 +325,25 @@ impl ActorHandler {
         self.with_state(move |s| async move { s.tier1_advertise_proxies(&clock).await }).await
     }
 
+    pub async fn disconnect_and_ban(
+        &self,
+        clock: &time::Clock,
+        peer_id: &PeerId,
+        reason: ReasonForBan,
+    ) {
+        // TODO(gprusak): make it wait asynchronously for the connection to get closed.
+        // TODO(gprusak): figure out how to await for both ends to disconnect.
+        let clock = clock.clone();
+        let peer_id = peer_id.clone();
+        self.with_state(move |s| async move { s.disconnect_and_ban(&clock, &peer_id, reason) })
+            .await
+    }
+
+    pub async fn peer_store_update(&self, clock: &time::Clock) {
+        let clock = clock.clone();
+        self.with_state(move |s| async move { s.peer_store.update(&clock) }).await;
+    }
+
     pub async fn send_ping(&self, nonce: u64, target: PeerId) {
         self.actix
             .addr
@@ -452,7 +472,7 @@ pub(crate) async fn start(
     cfg: config::NetworkConfig,
     chain: Arc<data::Chain>,
 ) -> ActorHandler {
-    let (send, recv) = broadcast::unbounded_channel();
+    let (send, mut recv) = broadcast::unbounded_channel();
     let actix = ActixSystem::spawn({
         let mut cfg = cfg.clone();
         let chain = chain.clone();
@@ -464,9 +484,13 @@ pub(crate) async fn start(
         }
     })
     .await;
-    let mut h = ActorHandler { cfg, actix, events: recv };
+    let h = ActorHandler { cfg, actix, events: recv.clone() };
     // Wait for the server to start.
-    assert_eq!(Event::PeerManager(PME::ServerStarted), h.events.recv().await);
+    recv.recv_until(|ev| match ev {
+        Event::PeerManager(PME::ServerStarted) => Some(()),
+        _ => None,
+    })
+    .await;
     h.set_chain_info(chain.get_chain_info()).await;
     h
 }
