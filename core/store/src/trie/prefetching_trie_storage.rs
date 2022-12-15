@@ -326,7 +326,8 @@ impl PrefetchStagingArea {
     /// 2: IO thread misses in the shard cache on the same key and starts fetching it again.
     /// 3: Main thread value is inserted in shard cache.
     pub(crate) fn release(&self, key: &CryptoHash) {
-        let dropped = self.lock_slots().remove(key);
+        let mut guard = self.lock_slots();
+        let dropped = guard.remove(key);
         // `Done` is the result after a successful prefetch.
         // `PendingFetch` means the value has been read without a prefetch.
         // `None` means prefetching was stopped due to memory limits.
@@ -369,7 +370,8 @@ impl PrefetchStagingArea {
     }
 
     fn insert_fetched(&self, key: CryptoHash, value: Arc<[u8]>) {
-        self.lock_slots().insert(key, PrefetchSlot::Done(value));
+        let mut guard = self.lock_slots();
+        guard.insert(key, PrefetchSlot::Done(value));
         self.notify_slots_update();
     }
 
@@ -402,7 +404,8 @@ impl PrefetchStagingArea {
     }
 
     fn clear(&self) {
-        self.lock_slots().clear();
+        let mut guard = self.lock_slots();
+        guard.clear();
         self.notify_slots_update();
     }
 
