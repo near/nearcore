@@ -326,8 +326,7 @@ impl PrefetchStagingArea {
     /// 2: IO thread misses in the shard cache on the same key and starts fetching it again.
     /// 3: Main thread value is inserted in shard cache.
     pub(crate) fn release(&self, key: &CryptoHash) {
-        let mut guard = self.lock_slots();
-        let dropped = guard.remove(key);
+        let dropped = self.lock_slots().remove(key);
         // `Done` is the result after a successful prefetch.
         // `PendingFetch` means the value has been read without a prefetch.
         // `None` means prefetching was stopped due to memory limits.
@@ -340,7 +339,7 @@ impl PrefetchStagingArea {
                 || prefetch_state_matches(PrefetchSlot::PendingFetch, dropped.as_ref().unwrap()),
         );
         if dropped.is_some() {
-            self.notify_slots_update(guard);
+            self.notify_slots_update();
         }
     }
 
@@ -370,9 +369,8 @@ impl PrefetchStagingArea {
     }
 
     fn insert_fetched(&self, key: CryptoHash, value: Arc<[u8]>) {
-        let mut guard = self.lock_slots();
-        guard.insert(key, PrefetchSlot::Done(value));
-        self.notify_slots_update(guard);
+        self.lock_slots().insert(key, PrefetchSlot::Done(value));
+        self.notify_slots_update();
     }
 
     /// Get prefetched value if available and otherwise atomically insert the
@@ -397,22 +395,18 @@ impl PrefetchStagingArea {
                     return PrefetcherResult::MemoryLimitReached;
                 }
                 guard.insert(key, set_if_empty);
-                self.notify_slots_update(guard);
+                self.notify_slots_update();
                 PrefetcherResult::SlotReserved
             }
         }
     }
 
     fn clear(&self) {
-        let mut guard = self.lock_slots();
-        guard.clear();
-        self.notify_slots_update(guard);
+        self.lock_slots().clear();
+        self.notify_slots_update();
     }
 
-    /// This consumes locked mutex guard to make sure to unlock it before
-    /// notifying the condition variable.
-    fn notify_slots_update(&self, guard: MutexGuard<SizeTrackedHashMap>) {
-        std::mem::drop(guard);
+    fn notify_slots_update(&self) {
         self.0.slots_update_cvar.notify_all();
     }
 
