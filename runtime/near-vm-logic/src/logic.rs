@@ -539,7 +539,7 @@ impl<'a> VMLogic<'a> {
             &mut self.gas_counter,
             &self.config.limit_config,
             register_id,
-            self.context.input.clone(),
+            self.context.input.as_slice(),
         )
     }
 
@@ -856,7 +856,7 @@ impl<'a> VMLogic<'a> {
             &mut self.gas_counter,
             &self.config.limit_config,
             register_id,
-            self.context.random_seed.clone(),
+            self.context.random_seed.as_slice(),
         )
     }
 

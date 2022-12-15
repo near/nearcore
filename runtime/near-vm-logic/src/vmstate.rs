@@ -126,7 +126,6 @@ impl Registers {
             gas_counter.pay_base(read_register_base)?;
             let len = u64::try_from(data.len()).map_err(|_| HostError::MemoryAccessViolation)?;
             gas_counter.pay_per(read_register_byte, len)?;
-            gas_counter.pay_per(read_register_byte, data.len() as u64)?;
             Ok(&data[..])
         } else {
             Err(HostError::InvalidRegisterId { register_id }.into())
