@@ -89,10 +89,10 @@ impl GasCounter {
 
     /// Deducts burnt and used gas.
     ///
-    /// Returns an error if the max_gax_burnt or the prepaid_gas limits are
+    /// Returns an error if the `max_gax_burnt` or the `prepaid_gas` limits are
     /// crossed or there are arithmetic overflows.
     ///
-    /// Preconditions: gas_burnt <= gas_used
+    /// Preconditions: `gas_burnt <= gas_used`
     fn deduct_gas(&mut self, gas_burnt: Gas, gas_used: Gas) -> Result<()> {
         assert!(gas_burnt <= gas_used);
         let promises_gas = gas_used - gas_burnt;
