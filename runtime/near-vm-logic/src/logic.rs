@@ -158,19 +158,16 @@ impl<'a> VMLogic<'a> {
         &self.receipt_manager.action_receipts
     }
 
-    #[allow(dead_code)]
     #[cfg(test)]
     pub(crate) fn receipt_manager(&self) -> &ReceiptManager {
         &self.receipt_manager
     }
 
-    #[allow(dead_code)]
     #[cfg(test)]
     pub(crate) fn gas_counter(&self) -> &GasCounter {
         &self.gas_counter
     }
 
-    #[allow(dead_code)]
     #[cfg(test)]
     pub(crate) fn config(&self) -> &VMConfig {
         &self.config
