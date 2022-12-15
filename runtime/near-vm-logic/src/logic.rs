@@ -521,7 +521,7 @@ impl<'a> VMLogic<'a> {
             &mut self.gas_counter,
             &self.config.limit_config,
             register_id,
-            self.context.predecessor_account_id.as_ref().as_bytes().to_vec(),
+            self.context.predecessor_account_id.as_ref().as_bytes(),
         )
     }
 
@@ -882,7 +882,7 @@ impl<'a> VMLogic<'a> {
             &mut self.gas_counter,
             &self.config.limit_config,
             register_id,
-            value_hash.as_slice().to_vec(),
+            value_hash.as_slice(),
         )
     }
 
