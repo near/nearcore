@@ -8,9 +8,7 @@ use near_network::actix::ActixSystem;
 use near_network::blacklist;
 use near_network::config;
 use near_network::tcp;
-use near_network::test_utils::{
-    expected_routing_tables, open_port, peer_id_from_seed, BanPeerSignal, GetInfo,
-};
+use near_network::test_utils::{expected_routing_tables, open_port, peer_id_from_seed, GetInfo};
 use near_network::time;
 use near_network::types::NetworkRecipient;
 use near_network::types::{
@@ -32,9 +30,9 @@ use std::pin::Pin;
 use std::sync::Arc;
 use tracing::debug;
 
-pub type ControlFlow = std::ops::ControlFlow<()>;
-pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
-pub type ActionFn =
+pub(crate) type ControlFlow = std::ops::ControlFlow<()>;
+pub(crate) type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
+pub(crate) type ActionFn =
     Box<dyn for<'a> Fn(&'a mut RunningInfo) -> BoxFuture<'a, anyhow::Result<ControlFlow>>>;
 
 /// Sets up a node with a valid Client, Peer
@@ -100,21 +98,9 @@ fn setup_network_node(
     peer_manager
 }
 
-#[derive(Debug, Clone)]
-pub struct Ping {
-    pub source: usize,
-    pub nonce: u64,
-}
-
-#[derive(Debug, Clone)]
-pub struct Pong {
-    pub source: usize,
-    pub nonce: u64,
-}
-
 // TODO: Deprecate this in favor of separate functions.
 #[derive(Debug, Clone)]
-pub enum Action {
+pub(crate) enum Action {
     AddEdge {
         from: usize,
         to: usize,
@@ -132,7 +118,7 @@ pub enum Action {
     },
 }
 
-pub struct RunningInfo {
+pub(crate) struct RunningInfo {
     runner: Runner,
     nodes: Vec<Option<NodeHandle>>,
 }
@@ -285,7 +271,7 @@ impl TestConfig {
     }
 }
 
-pub struct Runner {
+pub(crate) struct Runner {
     test_config: Vec<TestConfig>,
     state_machine: StateMachine,
     validators: Vec<AccountId>,
@@ -354,12 +340,6 @@ impl Runner {
         self.apply_all(move |test_config| {
             test_config.max_num_peers = max_num_peers;
         });
-        self
-    }
-
-    /// Set ban window range.
-    pub fn ban_window(mut self, ban_window: time::Duration) -> Self {
-        self.apply_all(move |test_config| test_config.ban_window = ban_window);
         self
     }
 
@@ -455,7 +435,7 @@ impl Runner {
 /// Executes the test.
 /// It will fail if it doesn't solve all actions.
 /// start_test will block until test is complete.
-pub fn start_test(runner: Runner) -> anyhow::Result<()> {
+pub(crate) fn start_test(runner: Runner) -> anyhow::Result<()> {
     init_test_logger();
     let r = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
     r.block_on(async {
@@ -507,7 +487,7 @@ impl RunningInfo {
     }
 }
 
-pub fn assert_expected_peers(node_id: usize, peers: Vec<usize>) -> ActionFn {
+pub(crate) fn assert_expected_peers(node_id: usize, peers: Vec<usize>) -> ActionFn {
     Box::new(move |info: &mut RunningInfo| {
         let peers = peers.clone();
         Box::pin(async move {
@@ -531,7 +511,7 @@ pub fn assert_expected_peers(node_id: usize, peers: Vec<usize>) -> ActionFn {
 /// Check that the number of connections of `node_id` is in the range:
 /// [expected_connections_lo, expected_connections_hi]
 /// Use None to denote semi-open interval
-pub fn check_expected_connections(
+pub(crate) fn check_expected_connections(
     node_id: usize,
     expected_connections_lo: Option<usize>,
     expected_connections_hi: Option<usize>,
@@ -553,7 +533,7 @@ pub fn check_expected_connections(
 }
 
 /// Restart a node that was already stopped.
-pub fn restart(node_id: usize) -> ActionFn {
+pub(crate) fn restart(node_id: usize) -> ActionFn {
     Box::new(move |info: &mut RunningInfo| {
         Box::pin(async move {
             debug!(target: "test", ?node_id, "runner.rs: restart");
@@ -563,50 +543,14 @@ pub fn restart(node_id: usize) -> ActionFn {
     })
 }
 
-async fn ban_peer_inner(
-    info: &mut RunningInfo,
-    target_peer: usize,
-    banned_peer: usize,
-) -> anyhow::Result<ControlFlow> {
-    debug!(target: "test", target_peer, banned_peer, "runner.rs: ban_peer");
-    let banned_peer_id = info.runner.test_config[banned_peer].peer_id();
-    let pm = &info.get_node(target_peer)?.actix.addr;
-    pm.send(BanPeerSignal::new(banned_peer_id).with_span_context()).await?;
-    Ok(ControlFlow::Break(()))
-}
-
-/// Ban peer `banned_peer` from perspective of `target_peer`.
-pub fn ban_peer(target_peer: usize, banned_peer: usize) -> ActionFn {
-    Box::new(move |info| Box::pin(ban_peer_inner(info, target_peer, banned_peer)))
-}
-
 /// Change account id from a stopped peer. Notice this will also change its peer id, since
 /// peer_id is derived from account id with NetworkConfig::from_seed
-pub fn change_account_id(node_id: usize, account_id: AccountId) -> ActionFn {
+pub(crate) fn change_account_id(node_id: usize, account_id: AccountId) -> ActionFn {
     Box::new(move |info: &mut RunningInfo| {
         let account_id = account_id.clone();
         Box::pin(async move {
             info.change_account_id(node_id, account_id);
             Ok(ControlFlow::Break(()))
-        })
-    })
-}
-
-/// Wait for predicate to return True.
-#[allow(dead_code)]
-pub fn wait_for<T>(predicate: T) -> ActionFn
-where
-    T: 'static + Fn() -> bool,
-{
-    let predicate = Arc::new(predicate);
-    Box::new(move |_info: &mut RunningInfo| {
-        let predicate = predicate.clone();
-        Box::pin(async move {
-            debug!(target: "test", "runner.rs: wait_for predicate");
-            if predicate() {
-                return Ok(ControlFlow::Break(()));
-            }
-            Ok(ControlFlow::Continue(()))
         })
     })
 }
