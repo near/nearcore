@@ -265,6 +265,20 @@ impl InfoHelper {
         memory_usage: u64,
         is_validator: bool,
     ) -> serde_json::Value {
+        let (
+            block_production_tracking_delay,
+            min_block_production_delay,
+            max_block_production_delay,
+            max_block_wait_delay,
+        ) = {
+            let consensus = client_config.consensus.lock().unwrap();
+            (
+                consensus.block_production_tracking_delay,
+                consensus.min_block_production_delay,
+                consensus.max_block_production_delay,
+                consensus.max_block_wait_delay,
+            )
+        };
         let info = TelemetryInfo {
             agent: TelemetryAgentInfo {
                 name: "near-rs".to_string(),
@@ -286,12 +300,10 @@ impl InfoHelper {
                 latest_block_hash: head.last_block_hash.clone(),
                 latest_block_height: head.height,
                 num_peers: network_info.num_connected_peers,
-                block_production_tracking_delay: client_config
-                    .block_production_tracking_delay
-                    .as_secs_f64(),
-                min_block_production_delay: client_config.min_block_production_delay.as_secs_f64(),
-                max_block_production_delay: client_config.max_block_production_delay.as_secs_f64(),
-                max_block_wait_delay: client_config.max_block_wait_delay.as_secs_f64(),
+                block_production_tracking_delay: block_production_tracking_delay.as_secs_f64(),
+                min_block_production_delay: min_block_production_delay.as_secs_f64(),
+                max_block_production_delay: max_block_production_delay.as_secs_f64(),
+                max_block_wait_delay: max_block_wait_delay.as_secs_f64(),
             },
             extra_info: serde_json::to_string(&extra_telemetry_info(client_config)).unwrap(),
         };
@@ -305,11 +317,12 @@ impl InfoHelper {
 }
 
 fn extra_telemetry_info(client_config: &ClientConfig) -> serde_json::Value {
+    let consensus = client_config.consensus.lock().unwrap();
     serde_json::json!({
-        "block_production_tracking_delay":  client_config.block_production_tracking_delay.as_secs_f64(),
-        "min_block_production_delay":  client_config.min_block_production_delay.as_secs_f64(),
-        "max_block_production_delay": client_config.max_block_production_delay.as_secs_f64(),
-        "max_block_wait_delay": client_config.max_block_wait_delay.as_secs_f64(),
+        "block_production_tracking_delay":  consensus.block_production_tracking_delay.as_secs_f64(),
+        "min_block_production_delay":  consensus.min_block_production_delay.as_secs_f64(),
+        "max_block_production_delay": consensus.max_block_production_delay.as_secs_f64(),
+        "max_block_wait_delay": consensus.max_block_wait_delay.as_secs_f64(),
     })
 }
 

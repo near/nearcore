@@ -1,5 +1,5 @@
 use crate::config::Config;
-use near_chain_configs::{ClientConfig, Consensus, LogSummaryStyle};
+use near_chain_configs::Consensus;
 use near_dyn_configs::{DynConfig, DynConfigs};
 use near_o11y::log_config::LogConfig;
 use serde::Deserialize;
@@ -49,14 +49,14 @@ pub fn read_dyn_configs(home_dir: &Path) -> Result<DynConfigs, DynConfigsError> 
         }
     };
     if errs.is_empty() {
-        Ok(DynConfigs { log_config, dyn_config, consensus})
+        Ok(DynConfigs { log_config, dyn_config, consensus })
     } else {
         Err(DynConfigsError::Errors(errs))
     }
 }
 
 fn get_consensus(config: Config) -> Consensus {
-    Consensus::default()
+    config.consensus
 }
 
 fn read_log_config(home_dir: &Path) -> Result<Option<LogConfig>, DynConfigsError> {

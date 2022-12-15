@@ -867,6 +867,7 @@ impl<T: ChainAccess> TxMirror<T> {
         let (target_view_client, target_client) = target_indexer.client_actors();
         let target_stream = target_indexer.streamer();
 
+        let consensus = target_config.client_config.consensus.lock().unwrap().clone();
         Ok(Self {
             source_chain_access,
             target_client,
@@ -874,9 +875,7 @@ impl<T: ChainAccess> TxMirror<T> {
             target_stream,
             db,
             target_genesis_height: target_config.genesis.config.genesis_height,
-            target_min_block_production_delay: target_config
-                .client_config
-                .min_block_production_delay,
+            target_min_block_production_delay: consensus.min_block_production_delay,
             tracked_shards: target_config.config.tracked_shards.clone(),
             secret,
         })

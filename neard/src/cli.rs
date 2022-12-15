@@ -401,9 +401,12 @@ impl RunCmd {
 
         // Set current version in client config.
         near_config.client_config.version = crate::neard_version();
+
+        let mut consensus = near_config.client_config.consensus.lock().unwrap().clone();
+
         // Override some parameters from command line.
         if let Some(produce_empty_blocks) = self.produce_empty_blocks {
-            near_config.client_config.produce_empty_blocks = produce_empty_blocks;
+            consensus.produce_empty_blocks = produce_empty_blocks;
         }
         if let Some(boot_nodes) = self.boot_nodes {
             if !boot_nodes.is_empty() {
@@ -414,7 +417,7 @@ impl RunCmd {
             }
         }
         if let Some(min_peers) = self.min_peers {
-            near_config.client_config.min_num_peers = min_peers;
+            consensus.min_num_peers = min_peers;
         }
         if let Some(network_addr) = self.network_addr {
             near_config.network_config.node_addr = Some(network_addr);
@@ -462,7 +465,7 @@ impl RunCmd {
         let store = storage.get_store(Temperature::Hot);
         let dyn_configs = nearcore::dyn_config::read_dyn_configs(home_dir)
             .unwrap_or_else(|e| panic!("Error reading dynamic configs: {:#}", e));
-        let dyn_configs_store = DynConfigStore::new(dyn_configs);
+        let dyn_configs_store = DynConfigStore::new(dyn_configs, consensus.clone());
         let dyn_configs_store = Arc::new(Mutex::new(dyn_configs_store));
 
         let nearcore::config::NearConfig { validator_signer, .. } =
@@ -476,6 +479,8 @@ impl RunCmd {
         let s = store.clone();
         let (tx_sig, rx_sig) = oneshot::channel::<&str>();
         let config = near_config.clone();
+
+        near_config.client_config.consensus = Arc::new(Mutex::new(consensus));
 
         let _ = sys.block_on(async move {
             // Initialize the subscriber that takes care of both logging and tracing.

@@ -3,7 +3,7 @@
 
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use lru::LruCache;
@@ -95,7 +95,6 @@ pub struct Client {
     pub(crate) accrued_fastforward_delta: near_primitives::types::BlockHeightDelta,
 
     pub config: ClientConfig,
-    pub dyn_client_config: Arc<Mutex<Option<ClientConfig>>>,
     pub sync_status: SyncStatus,
     pub chain: Chain,
     pub doomslug: Doomslug,
@@ -173,11 +172,6 @@ pub struct BlockDebugStatus {
 }
 
 impl Client {
-    pub fn update_dyn_client_config(&mut self, dyn_client_config: Option<&ClientConfig>) {
-        let mut dyn_client_config_lock = self.dyn_client_config.lock().unwrap();
-        *dyn_client_config_lock = dyn_client_config.cloned();
-    }
-
     pub fn new(
         config: ClientConfig,
         chain_genesis: ChainGenesis,
@@ -229,26 +223,30 @@ impl Client {
             EPOCH_SYNC_REQUEST_TIMEOUT,
             EPOCH_SYNC_PEER_TIMEOUT,
         );
+        let consensus = {
+            let consensus = config.consensus.lock().unwrap();
+            consensus.clone()
+        };
         let header_sync = HeaderSync::new(
             network_adapter.clone(),
-            config.header_sync_initial_timeout,
-            config.header_sync_progress_timeout,
-            config.header_sync_stall_ban_timeout,
-            config.header_sync_expected_height_per_second,
+            consensus.header_sync_initial_timeout,
+            consensus.header_sync_progress_timeout,
+            consensus.header_sync_stall_ban_timeout,
+            consensus.header_sync_expected_height_per_second,
         );
         let block_sync =
-            BlockSync::new(network_adapter.clone(), config.block_fetch_horizon, config.archive);
-        let state_sync = StateSync::new(network_adapter.clone(), config.state_sync_timeout);
+            BlockSync::new(network_adapter.clone(), consensus.block_fetch_horizon, config.archive);
+        let state_sync = StateSync::new(network_adapter.clone(), consensus.state_sync_timeout);
         let num_block_producer_seats = config.num_block_producer_seats as usize;
         let data_parts = runtime_adapter.num_data_parts();
         let parity_parts = runtime_adapter.num_total_parts() - data_parts;
 
         let doomslug = Doomslug::new(
             chain.store().largest_target_height()?,
-            config.min_block_production_delay,
-            config.max_block_production_delay,
-            config.max_block_production_delay / 10,
-            config.max_block_wait_delay,
+            consensus.min_block_production_delay,
+            consensus.max_block_production_delay,
+            consensus.max_block_production_delay / 10,
+            consensus.max_block_wait_delay,
             validator_signer.clone(),
             doomslug_threshold_mode,
         );
@@ -264,7 +262,6 @@ impl Client {
             #[cfg(feature = "sandbox")]
             accrued_fastforward_delta: 0,
             config,
-            dyn_client_config: Arc::new(Mutex::new(None)),
             sync_status,
             chain,
             doomslug,
@@ -548,7 +545,11 @@ impl Client {
                next_height, prev.height(), format_hash(head.last_block_hash), new_chunks.len());
 
         // If we are producing empty blocks and there are no transactions.
-        if !self.config.produce_empty_blocks && new_chunks.is_empty() {
+        let produce_empty_blocks = {
+            let consensus = self.config.consensus.lock().unwrap();
+            consensus.produce_empty_blocks
+        };
+        if !produce_empty_blocks && new_chunks.is_empty() {
             debug!(target: "client", "Empty blocks, skipping block production");
             return Ok(None);
         }
@@ -2124,7 +2125,10 @@ impl Client {
                     HashMap::new()
                 }
             };
-            let state_sync_timeout = self.config.state_sync_timeout;
+            let state_sync_timeout = {
+                let consensus = self.config.consensus.lock().unwrap();
+                consensus.state_sync_timeout
+            };
             let epoch_id = self.chain.get_block(&sync_hash)?.header().epoch_id().clone();
             let (state_sync, new_shard_sync, blocks_catch_up_state) =
                 self.catchup_state_syncs.entry(sync_hash).or_insert_with(|| {

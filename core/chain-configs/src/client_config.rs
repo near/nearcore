@@ -1,7 +1,7 @@
 //! Chain Client Configuration
 use std::cmp::max;
 use std::cmp::min;
-use std::sync::MutexGuard;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -79,42 +79,12 @@ pub struct ClientConfig {
     pub chain_id: String,
     /// Listening rpc port for status.
     pub rpc_addr: Option<String>,
-    /// Duration to check for producing / skipping block.
-    pub block_production_tracking_delay: Duration,
-    /// Minimum duration before producing block.
-    pub min_block_production_delay: Duration,
-    /// Maximum wait for approvals before producing block.
-    pub max_block_production_delay: Duration,
-    /// Maximum duration before skipping given height.
-    pub max_block_wait_delay: Duration,
-    /// Duration to reduce the wait for each missed block by validator.
-    pub reduce_wait_for_missing_block: Duration,
     /// Skip waiting for sync (for testing or single node testnet).
     pub skip_sync_wait: bool,
-    /// How often to check that we are not out of sync.
-    pub sync_check_period: Duration,
-    /// While syncing, how long to check for each step.
-    pub sync_step_period: Duration,
-    /// Sync height threshold: below this difference in height don't start syncing.
-    pub sync_height_threshold: BlockHeightDelta,
-    /// How much time to wait after initial header sync
-    pub header_sync_initial_timeout: Duration,
-    /// How much time to wait after some progress is made in header sync
-    pub header_sync_progress_timeout: Duration,
-    /// How much time to wait before banning a peer in header sync if sync is too slow
-    pub header_sync_stall_ban_timeout: Duration,
-    /// Expected increase of header head weight per second during header sync
-    pub header_sync_expected_height_per_second: u64,
-    /// How long to wait for a response during state sync
-    pub state_sync_timeout: Duration,
-    /// Minimum number of peers to start syncing.
-    pub min_num_peers: usize,
     /// Period between logging summary information.
     pub log_summary_period: Duration,
     /// Enable coloring of the logs
     pub log_summary_style: LogSummaryStyle,
-    /// Produce empty blocks, use `false` for testing.
-    pub produce_empty_blocks: bool,
     /// Epoch length.
     pub epoch_length: BlockHeightDelta,
     /// Number of block producer seats
@@ -123,18 +93,6 @@ pub struct ClientConfig {
     pub announce_account_horizon: BlockHeightDelta,
     /// Time to persist Accounts Id in the router without removing them.
     pub ttl_account_id_router: Duration,
-    /// Horizon at which instead of fetching block, fetch full state.
-    pub block_fetch_horizon: BlockHeightDelta,
-    /// Horizon to step from the latest block when fetching state.
-    pub state_fetch_horizon: NumBlocks,
-    /// Time between check to perform catchup.
-    catchup_step_period: Duration,
-    /// Time between checking to re-request chunks.
-    chunk_request_retry_period: Duration,
-    /// Time between running doomslug timer.
-    doomslug_step_period: Duration,
-    /// Behind this horizon header fetch kicks in.
-    pub block_header_fetch_horizon: BlockHeightDelta,
     /// Garbage collection configuration.
     pub gc: GCConfig,
     /// Accounts that this client tracks
@@ -159,34 +117,11 @@ pub struct ClientConfig {
     pub enable_statistics_export: bool,
     /// Number of threads to execute background migration work in client.
     pub client_background_migration_threads: usize,
+
+    pub consensus: Arc<Mutex<Consensus>>,
 }
 
-
 impl ClientConfig {
-    pub fn get_doomslug_step_period(&self, dyn_client_config: &MutexGuard<Option<ClientConfig>>) -> Duration {
-        if let Some(dyn_client_config) = &**dyn_client_config {
-            dyn_client_config.doomslug_step_period
-        } else {
-            self.doomslug_step_period
-        }
-    }
-
-    pub fn get_chunk_request_retry_period(&self, dyn_client_config: &MutexGuard<Option<ClientConfig>>) -> Duration {
-        if let Some(dyn_client_config) = &**dyn_client_config {
-            dyn_client_config.chunk_request_retry_period
-        } else {
-            self.chunk_request_retry_period
-        }
-    }
-
-    pub fn get_catchup_step_period(&self, dyn_client_config: &MutexGuard<Option<ClientConfig>>) -> Duration {
-        if let Some(dyn_client_config) = &**dyn_client_config {
-            dyn_client_config.catchup_step_period
-        } else {
-            self.catchup_step_period
-        }
-    }
-
     pub fn test(
         skip_sync_wait: bool,
         min_block_prod_time: u64,
@@ -199,39 +134,12 @@ impl ClientConfig {
             version: Default::default(),
             chain_id: "unittest".to_string(),
             rpc_addr: Some("0.0.0.0:3030".to_string()),
-            block_production_tracking_delay: Duration::from_millis(std::cmp::max(
-                10,
-                min_block_prod_time / 5,
-            )),
-            min_block_production_delay: Duration::from_millis(min_block_prod_time),
-            max_block_production_delay: Duration::from_millis(max_block_prod_time),
-            max_block_wait_delay: Duration::from_millis(3 * min_block_prod_time),
-            reduce_wait_for_missing_block: Duration::from_millis(0),
             skip_sync_wait,
-            sync_check_period: Duration::from_millis(100),
-            sync_step_period: Duration::from_millis(10),
-            sync_height_threshold: 1,
-            header_sync_initial_timeout: Duration::from_secs(10),
-            header_sync_progress_timeout: Duration::from_secs(2),
-            header_sync_stall_ban_timeout: Duration::from_secs(30),
-            state_sync_timeout: Duration::from_secs(TEST_STATE_SYNC_TIMEOUT),
-            header_sync_expected_height_per_second: 1,
-            min_num_peers: 1,
             log_summary_period: Duration::from_secs(10),
-            produce_empty_blocks: true,
             epoch_length: 10,
             num_block_producer_seats,
             announce_account_horizon: 5,
             ttl_account_id_router: Duration::from_secs(60 * 60),
-            block_fetch_horizon: 50,
-            state_fetch_horizon: 5,
-            catchup_step_period: Duration::from_millis(1),
-            chunk_request_retry_period: min(
-                Duration::from_millis(100),
-                Duration::from_millis(min_block_prod_time / 5),
-            ),
-            doomslug_step_period: Duration::from_millis(100),
-            block_header_fetch_horizon: 50,
             gc: GCConfig { gc_blocks_limit: 100, ..GCConfig::default() },
             tracked_accounts: vec![],
             tracked_shards: vec![],
@@ -244,6 +152,10 @@ impl ClientConfig {
             max_gas_burnt_view: None,
             enable_statistics_export: true,
             client_background_migration_threads: 1,
+            consensus: Arc::new(Mutex::new(Consensus::test(
+                min_block_prod_time,
+                max_block_prod_time,
+            ))),
         }
     }
 }
@@ -372,6 +284,40 @@ pub struct Consensus {
     pub doomslug_step_period: Duration,
     #[serde(default = "default_sync_height_threshold")]
     pub sync_height_threshold: u64,
+}
+
+impl Consensus {
+    fn test(min_block_prod_time: u64, max_block_prod_time: u64) -> Self {
+        Consensus {
+            min_num_peers: 1,
+            block_production_tracking_delay: Duration::from_millis(std::cmp::max(
+                10,
+                min_block_prod_time / 5,
+            )),
+            min_block_production_delay: Duration::from_millis(min_block_prod_time),
+            max_block_production_delay: Duration::from_millis(max_block_prod_time),
+            max_block_wait_delay: Duration::from_millis(3 * min_block_prod_time),
+            reduce_wait_for_missing_block: Duration::from_millis(0),
+            produce_empty_blocks: true,
+            block_fetch_horizon: 50,
+            state_fetch_horizon: 5,
+            block_header_fetch_horizon: 50,
+            catchup_step_period: Duration::from_millis(1),
+            chunk_request_retry_period: min(
+                Duration::from_millis(100),
+                Duration::from_millis(min_block_prod_time / 5),
+            ),
+            header_sync_initial_timeout: Duration::from_secs(10),
+            header_sync_progress_timeout: Duration::from_secs(2),
+            header_sync_stall_ban_timeout: Duration::from_secs(30),
+            state_sync_timeout: Duration::from_secs(TEST_STATE_SYNC_TIMEOUT),
+            header_sync_expected_height_per_second: 1,
+            sync_check_period: Duration::from_millis(100),
+            sync_step_period: Duration::from_millis(10),
+            doomslug_step_period: Duration::from_millis(100),
+            sync_height_threshold: 1,
+        }
+    }
 }
 
 impl Default for Consensus {

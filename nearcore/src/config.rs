@@ -3,7 +3,7 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::{anyhow, bail, Context};
@@ -15,7 +15,10 @@ use serde::{Deserialize, Serialize};
 use tempfile::tempdir;
 use tracing::{info, warn};
 
-use near_chain_configs::{get_initial_supply, ClientConfig, GCConfig, Genesis, GenesisConfig, GenesisValidationMode, LogSummaryStyle, Consensus};
+use near_chain_configs::{
+    get_initial_supply, ClientConfig, Consensus, GCConfig, Genesis, GenesisConfig,
+    GenesisValidationMode, LogSummaryStyle,
+};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 #[cfg(feature = "json_rpc")]
 use near_jsonrpc::RpcConfig;
@@ -437,36 +440,12 @@ impl NearConfig {
                 version: Default::default(),
                 chain_id: genesis.config.chain_id.clone(),
                 rpc_addr: config.rpc_addr().map(|addr| addr.to_owned()),
-                block_production_tracking_delay: config.consensus.block_production_tracking_delay,
-                min_block_production_delay: config.consensus.min_block_production_delay,
-                max_block_production_delay: config.consensus.max_block_production_delay,
-                max_block_wait_delay: config.consensus.max_block_wait_delay,
-                reduce_wait_for_missing_block: config.consensus.reduce_wait_for_missing_block,
                 skip_sync_wait: config.network.skip_sync_wait,
-                sync_check_period: config.consensus.sync_check_period,
-                sync_step_period: config.consensus.sync_step_period,
-                sync_height_threshold: config.consensus.sync_height_threshold,
-                header_sync_initial_timeout: config.consensus.header_sync_initial_timeout,
-                header_sync_progress_timeout: config.consensus.header_sync_progress_timeout,
-                header_sync_stall_ban_timeout: config.consensus.header_sync_stall_ban_timeout,
-                header_sync_expected_height_per_second: config
-                    .consensus
-                    .header_sync_expected_height_per_second,
-                state_sync_timeout: config.consensus.state_sync_timeout,
-                min_num_peers: config.consensus.min_num_peers,
                 log_summary_period: Duration::from_secs(10),
-                produce_empty_blocks: config.consensus.produce_empty_blocks,
                 epoch_length: genesis.config.epoch_length,
                 num_block_producer_seats: genesis.config.num_block_producer_seats,
                 announce_account_horizon: genesis.config.epoch_length / 2,
                 ttl_account_id_router: config.network.ttl_account_id_router,
-                // TODO(1047): this should be adjusted depending on the speed of sync of state.
-                block_fetch_horizon: config.consensus.block_fetch_horizon,
-                state_fetch_horizon: config.consensus.state_fetch_horizon,
-                block_header_fetch_horizon: config.consensus.block_header_fetch_horizon,
-                catchup_step_period: config.consensus.catchup_step_period,
-                chunk_request_retry_period: config.consensus.chunk_request_retry_period,
-                doomslug_step_period: config.consensus.doomslug_step_period,
                 tracked_accounts: config.tracked_accounts,
                 tracked_shards: config.tracked_shards,
                 archive: config.archive,
@@ -479,6 +458,7 @@ impl NearConfig {
                 max_gas_burnt_view: config.max_gas_burnt_view,
                 enable_statistics_export: config.store.enable_statistics_export,
                 client_background_migration_threads: config.store.background_migration_threads,
+                consensus: Arc::new(Mutex::new(config.consensus)),
             },
             network_config: NetworkConfig::new(
                 config.network,

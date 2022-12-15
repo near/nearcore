@@ -701,10 +701,13 @@ impl Handler<WithSpanContext<Status>> for ClientActor {
             let block_timestamp = from_timestamp(latest_block_time);
             if now > block_timestamp {
                 let elapsed = (now - block_timestamp).to_std().unwrap();
+                let max_block_production_delay = {
+                    let consensus = self.client.config.consensus.lock().unwrap();
+                    consensus.max_block_production_delay
+                };
                 if elapsed
                     > Duration::from_millis(
-                        self.client.config.max_block_production_delay.as_millis() as u64
-                            * STATUS_WAIT_TIME_MULTIPLIER,
+                        max_block_production_delay.as_millis() as u64 * STATUS_WAIT_TIME_MULTIPLIER,
                     )
                 {
                     return Err(StatusError::NoNewBlocks { elapsed });
@@ -754,6 +757,10 @@ impl Handler<WithSpanContext<Status>> for ClientActor {
         // Provide more detailed information about the current state of chain.
         // For now - provide info about last 50 blocks.
         let detailed_debug_status = if msg.detailed {
+            let min_block_production_delay = {
+                let consensus = self.client.config.consensus.lock().unwrap();
+                consensus.min_block_production_delay
+            };
             Some(DetailedDebugStatus {
                 network_info: new_network_info_view(&self.client.chain, &self.network_info),
                 sync_status: format!(
@@ -764,11 +771,7 @@ impl Handler<WithSpanContext<Status>> for ClientActor {
                 catchup_status: self.client.get_catchup_status()?,
                 current_head_status: head.clone().into(),
                 current_header_head_status: self.client.chain.header_head()?.into(),
-                block_production_delay_millis: self
-                    .client
-                    .config
-                    .min_block_production_delay
-                    .as_millis() as u64,
+                block_production_delay_millis: min_block_production_delay.as_millis() as u64,
             })
         } else {
             None
@@ -1158,8 +1161,8 @@ impl ClientActor {
             );
 
             let doomslug_step_period = {
-                let dyn_config_lock = self.client.dyn_client_config.lock().unwrap();
-                self.client.config.get_doomslug_step_period(&dyn_config_lock)
+                let consensus = self.client.config.consensus.lock().unwrap();
+                consensus.doomslug_step_period
             };
             self.doomslug_timer_next_attempt = self.run_timer(
                 doomslug_step_period,
@@ -1177,17 +1180,21 @@ impl ClientActor {
             )
         }
         if self.block_production_started {
+            let (block_production_tracking_delay, max_block_production_delay) = {
+                let consensus = self.client.config.consensus.lock().unwrap();
+                (consensus.block_production_tracking_delay, consensus.max_block_production_delay)
+            };
             self.block_production_next_attempt = self.run_timer(
-                self.client.config.block_production_tracking_delay,
+                block_production_tracking_delay,
                 self.block_production_next_attempt,
                 ctx,
                 |act, _ctx| act.try_handle_block_production(),
                 "block_production",
             );
 
-            let _ = self.client.check_head_progress_stalled(
-                self.client.config.max_block_production_delay * HEAD_STALL_MULTIPLIER,
-            );
+            let _ = self
+                .client
+                .check_head_progress_stalled(max_block_production_delay * HEAD_STALL_MULTIPLIER);
 
             delay = core::cmp::min(
                 delay,
@@ -1214,8 +1221,8 @@ impl ClientActor {
         );
 
         let chunk_request_retry_period = {
-            let dyn_config_lock = self.client.dyn_client_config.lock().unwrap();
-            self.client.config.get_chunk_request_retry_period(&dyn_config_lock)
+            let consensus = self.client.config.consensus.lock().unwrap();
+            consensus.chunk_request_retry_period
         };
         self.chunk_request_retry_next_attempt = self.run_timer(
             chunk_request_retry_period,
@@ -1449,9 +1456,11 @@ impl ClientActor {
                 is_syncing = false;
             }
         } else {
-            if peer_info.highest_block_height
-                > head.height + self.client.config.sync_height_threshold
-            {
+            let sync_height_threshold = {
+                let consensus = self.client.config.consensus.lock().unwrap();
+                consensus.sync_height_threshold
+            };
+            if peer_info.highest_block_height > head.height + sync_height_threshold {
                 info!(
                     target: "client",
                     "Sync: height: {}, peer id/height: {}/{}, enabling sync",
@@ -1472,16 +1481,16 @@ impl ClientActor {
     /// Starts syncing and then switches to either syncing or regular mode.
     fn start_sync(&mut self, ctx: &mut Context<ClientActor>) {
         // Wait for connections reach at least minimum peers unless skipping sync.
-        if self.network_info.num_connected_peers < self.client.config.min_num_peers
+        let (min_num_peers, sync_step_period) = {
+            let consensus = self.client.config.consensus.lock().unwrap();
+            (consensus.min_num_peers, consensus.sync_step_period)
+        };
+        if self.network_info.num_connected_peers < min_num_peers
             && !self.client.config.skip_sync_wait
         {
-            near_performance_metrics::actix::run_later(
-                ctx,
-                self.client.config.sync_step_period,
-                move |act, ctx| {
-                    act.start_sync(ctx);
-                },
-            );
+            near_performance_metrics::actix::run_later(ctx, sync_step_period, move |act, ctx| {
+                act.start_sync(ctx);
+            });
             return;
         }
         self.sync_started = true;
@@ -1501,7 +1510,11 @@ impl ClientActor {
     fn find_sync_hash(&mut self) -> Result<CryptoHash, near_chain::Error> {
         let header_head = self.client.chain.header_head()?;
         let mut sync_hash = header_head.prev_block_hash;
-        for _ in 0..self.client.config.state_fetch_horizon {
+        let state_fetch_horizon = {
+            let consensus = self.client.config.consensus.lock().unwrap();
+            consensus.state_fetch_horizon
+        };
+        for _ in 0..state_fetch_horizon {
             sync_hash = *self.client.chain.get_block_header(&sync_hash)?.prev_hash();
         }
         let mut epoch_start_sync_hash =
@@ -1536,16 +1549,12 @@ impl ClientActor {
         }
 
         let catchup_step_period = {
-            let dyn_config_lock = self.client.dyn_client_config.lock().unwrap();
-            self.client.config.get_catchup_step_period(&dyn_config_lock)
+            let consensus = self.client.config.consensus.lock().unwrap();
+            consensus.catchup_step_period
         };
-        near_performance_metrics::actix::run_later(
-            ctx,
-            catchup_step_period,
-            move |act, ctx| {
-                act.catchup(ctx);
-            },
-        );
+        near_performance_metrics::actix::run_later(ctx, catchup_step_period, move |act, ctx| {
+            act.catchup(ctx);
+        });
     }
 
     fn run_timer<F>(
@@ -1573,16 +1582,17 @@ impl ClientActor {
     }
 
     fn sync_wait_period(&self) -> Duration {
+        let consensus = self.client.config.consensus.lock().unwrap();
         if let Ok((needs_syncing, _)) = self.syncing_info() {
             if !self.needs_syncing(needs_syncing) {
                 // If we don't need syncing - retry the sync call rarely.
-                self.client.config.sync_check_period
+                consensus.sync_check_period
             } else {
                 // If we need syncing - retry the sync call often.
-                self.client.config.sync_step_period
+                consensus.sync_step_period
             }
         } else {
-            self.client.config.sync_step_period
+            consensus.sync_step_period
         }
     }
 
@@ -1630,11 +1640,14 @@ impl ClientActor {
             let header_head = unwrap_and_report!(self.client.chain.header_head());
 
             // Sync state if already running sync state or if block sync is too far.
+            let block_header_fetch_horizon = {
+                let consensus = self.client.config.consensus.lock().unwrap();
+                consensus.block_header_fetch_horizon
+            };
             let sync_state = match self.client.sync_status {
                 SyncStatus::StateSync(_, _) => true,
                 _ if header_head.height
-                    >= highest_height
-                        .saturating_sub(self.client.config.block_header_fetch_horizon) =>
+                    >= highest_height.saturating_sub(block_header_fetch_horizon) =>
                 {
                     unwrap_and_report!(self.client.block_sync.run(
                         &mut self.client.sync_status,
