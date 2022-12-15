@@ -561,12 +561,15 @@ pub mod store_helper {
     pub(crate) fn get_ref(store: &Store, key: &[u8]) -> Result<Option<ValueRef>, FlatStorageError> {
         let raw_ref = store
             .get(crate::DBCol::FlatState, key)
-            .map_err(|_| FlatStorageError::StorageInternalError);
-        match raw_ref? {
-            Some(bytes) => ValueRef::decode(&bytes)
-                .map(Some)
-                .map_err(|_| FlatStorageError::StorageInternalError),
-            None => Ok(None),
+            .map_err(|_| FlatStorageError::StorageInternalError)?;
+        if let Some(raw_ref) = raw_ref {
+            let bytes = raw_ref
+                .as_slice()
+                .try_into()
+                .map_err(|_| FlatStorageError::StorageInternalError)?;
+            Ok(Some(ValueRef::decode(bytes)))
+        } else {
+            Ok(None)
         }
     }
 
