@@ -142,15 +142,18 @@ impl Registers {
     ///
     /// Returns an error if (i) there’s not enough gas to perform the register
     /// write or (ii) if setting the register would violate configured limits.
-    pub(super) fn set(
+    pub(super) fn set<T>(
         &mut self,
         gas_counter: &mut GasCounter,
         config: &VMLimitConfig,
         register_id: u64,
-        data: impl Into<Box<[u8]>>,
-    ) -> Result<()> {
-        let data = data.into();
-        let data_len = data.len() as u64;
+        data: T,
+    ) -> Result<()>
+    where
+        T: Into<Box<[u8]>> + AsRef<[u8]>,
+    {
+        let data_len =
+            u64::try_from(data.as_ref().len()).map_err(|_| HostError::MemoryAccessViolation)?;
         gas_counter.pay_base(write_register_base)?;
         gas_counter.pay_per(write_register_byte, data_len)?;
         // Fun fact: if we are at the limit and we replace a register, we’ll
@@ -160,7 +163,7 @@ impl Registers {
         {
             return Err(HostError::MemoryAccessViolation.into());
         }
-        match self.0.insert(register_id, data) {
+        match self.0.insert(register_id, data.into()) {
             Some(old_value) if old_value.len() as u64 >= data_len => {
                 // If there was old value and it was no shorter than the new
                 // one, there’s no need to check new memory usage since it
