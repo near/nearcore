@@ -57,6 +57,10 @@ pub struct VMLimitConfig {
     /// Maximum number of bytes that can be stored in a single register.
     pub max_register_size: u64,
     /// Maximum number of registers that can be used simultaneously.
+    ///
+    /// Note that due to an implementation quirk [read: a bug] in VMLogic, if we
+    /// have this number of registers, no subsequent writes to the registers
+    /// will succeed even if they replace an existing register.
     pub max_number_registers: u64,
 
     /// Maximum number of log entries.
