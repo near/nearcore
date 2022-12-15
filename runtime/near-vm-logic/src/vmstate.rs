@@ -124,6 +124,8 @@ impl Registers {
     ) -> Result<&'s [u8]> {
         if let Some(data) = self.0.get(&register_id) {
             gas_counter.pay_base(read_register_base)?;
+            let len = u64::try_from(data.len()).map_err(|_| HostError::MemoryAccessViolation)?;
+            gas_counter.pay_per(read_register_byte, len)?;
             gas_counter.pay_per(read_register_byte, data.len() as u64)?;
             Ok(&data[..])
         } else {
@@ -139,7 +141,7 @@ impl Registers {
     /// Sets register with given index.
     ///
     /// Returns an error if (i) there’s not enough gas to perform the register
-    /// read or (ii) if setting the register would violate configured limits.
+    /// write or (ii) if setting the register would violate configured limits.
     pub(super) fn set(
         &mut self,
         gas_counter: &mut GasCounter,
@@ -166,6 +168,8 @@ impl Registers {
             }
             _ => {
                 // Calculate and check the new memory usage.
+                // TODO(mina86): Memorise usage in a field so we don’t have to
+                // go through all registers each time.
                 let usage: usize = self.0.values().map(|v| size_of::<u64>() + v.len()).sum();
                 if usage as u64 > config.registers_memory_limit {
                     return Err(HostError::MemoryAccessViolation.into());

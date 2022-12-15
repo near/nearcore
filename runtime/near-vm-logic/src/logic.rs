@@ -911,7 +911,7 @@ impl<'a> VMLogic<'a> {
             &mut self.gas_counter,
             &self.config.limit_config,
             register_id,
-            value_hash.as_slice().to_vec(),
+            value_hash.as_slice(),
         )
     }
 
@@ -937,7 +937,7 @@ impl<'a> VMLogic<'a> {
             &mut self.gas_counter,
             &self.config.limit_config,
             register_id,
-            value_hash.as_slice().to_vec(),
+            value_hash.as_slice(),
         )
     }
 
@@ -973,7 +973,7 @@ impl<'a> VMLogic<'a> {
             &mut self.gas_counter,
             &self.config.limit_config,
             register_id,
-            value_hash.as_slice().to_vec(),
+            value_hash.as_slice(),
         )
     }
 
@@ -1067,7 +1067,7 @@ impl<'a> VMLogic<'a> {
                 &mut self.gas_counter,
                 &self.config.limit_config,
                 register_id,
-                pk.as_ref().to_vec(),
+                pk.as_ref(),
             )?;
             return Ok(true as u64);
         };
@@ -2031,7 +2031,7 @@ impl<'a> VMLogic<'a> {
                     &mut self.gas_counter,
                     &self.config.limit_config,
                     register_id,
-                    data.clone(),
+                    data.as_slice(),
                 )?;
                 Ok(1)
             }
