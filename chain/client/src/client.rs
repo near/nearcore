@@ -1,10 +1,9 @@
 //! Client is responsible for tracking the chain, chunks, and producing them when needed.
 //! This client works completely synchronously and must be operated by some async actor outside.
 
-use std::borrow::BorrowMut;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use lru::LruCache;
@@ -147,16 +146,6 @@ pub struct Client {
     /// Cached precomputed set of TIER1 accounts.
     /// See send_network_chain_info().
     tier1_accounts_cache: Option<(EpochId, Arc<AccountKeys>)>,
-}
-
-impl Client {
-    pub(crate) fn get_doomslug_step_period(&self, dyn_client_config: MutexGuard<Option<ClientConfig>>) -> Duration {
-        if let Some(dyn_client_config) = dyn_client_config {
-            dyn_client_config.doomslug_step_period
-        } else {
-            self.config.doomslug_step_period
-        }
-    }
 }
 
 // Debug information about the upcoming block.

@@ -1144,7 +1144,6 @@ impl ClientActor {
 
         let timer = metrics::CHECK_TRIGGERS_TIME.start_timer();
         if self.sync_started {
-            let dyn_config_lock = self.client.dyn_client_config.lock().unwrap();
             self.sync_timer_next_attempt = self.run_timer(
                 self.sync_wait_period(),
                 self.sync_timer_next_attempt,
@@ -1158,8 +1157,12 @@ impl ClientActor {
                 self.sync_timer_next_attempt.signed_duration_since(now).to_std().unwrap_or(delay),
             );
 
+            let doomslug_step_period = {
+                let dyn_config_lock = self.client.dyn_client_config.lock().unwrap();
+                self.client.config.get_doomslug_step_period(&dyn_config_lock)
+            };
             self.doomslug_timer_next_attempt = self.run_timer(
-                self.client.get_doomslug_step_period(dyn_config_lock),
+                doomslug_step_period,
                 self.doomslug_timer_next_attempt,
                 ctx,
                 |act, ctx| act.try_doomslug_timer(ctx),
@@ -1210,8 +1213,12 @@ impl ClientActor {
                 .unwrap_or(delay),
         );
 
+        let chunk_request_retry_period = {
+            let dyn_config_lock = self.client.dyn_client_config.lock().unwrap();
+            self.client.config.get_chunk_request_retry_period(&dyn_config_lock)
+        };
         self.chunk_request_retry_next_attempt = self.run_timer(
-            self.client.config.chunk_request_retry_period,
+            chunk_request_retry_period,
             self.chunk_request_retry_next_attempt,
             ctx,
             |act, _ctx| {
@@ -1528,9 +1535,13 @@ impl ClientActor {
             error!(target: "client", "{:?} Error occurred during catchup for the next epoch: {:?}", self.client.validator_signer.as_ref().map(|vs| vs.validator_id()), err);
         }
 
+        let catchup_step_period = {
+            let dyn_config_lock = self.client.dyn_client_config.lock().unwrap();
+            self.client.config.get_catchup_step_period(&dyn_config_lock)
+        };
         near_performance_metrics::actix::run_later(
             ctx,
-            self.client.config.catchup_step_period,
+            catchup_step_period,
             move |act, ctx| {
                 act.catchup(ctx);
             },

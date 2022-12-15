@@ -1,6 +1,6 @@
 #![doc = include_str!("../README.md")]
 
-use near_chain_configs::{ClientConfig, LogSummaryStyle};
+use near_chain_configs::Consensus;
 use near_o11y::log_config::LogConfig;
 use serde::{Deserialize, Serialize};
 
@@ -14,10 +14,11 @@ pub struct DynConfig {
 pub struct DynConfigs {
     pub dyn_config: Option<DynConfig>,
     pub log_config: Option<LogConfig>,
-    pub client_config: Option<ClientConfig>,
+    pub consensus: Option<Consensus>,
 }
 
-fn default_client_config() -> ClientConfig {
+
+/* fn default_client_config() -> ClientConfig {
     ClientConfig {
         version: Default::default(),
         chain_id: "".to_string(),
@@ -63,11 +64,12 @@ fn default_client_config() -> ClientConfig {
         client_background_migration_threads: 0,
     }
 }
+ */
 
 #[derive(Default)]
 pub struct DynConfigStore {
     dyn_configs: DynConfigs,
-    callbacks: Vec<Box<dyn Fn(Option<&ClientConfig>) + Send + Sync + 'static>>,
+    callbacks: Vec<Box<dyn Fn(Option<&Consensus>) + Send + Sync + 'static>>,
 }
 
 impl DynConfigStore {
@@ -90,11 +92,11 @@ impl DynConfigStore {
         self.dyn_configs.log_config.as_ref()
     }
 
-    pub fn client_config(&self) -> Option<&ClientConfig> {
-        self.dyn_configs.client_config.as_ref()
+    pub fn client_config(&self) -> Option<&Consensus> {
+        self.dyn_configs.consensus.as_ref()
     }
 
-    pub fn register_update_callback(&mut self, f: Box<dyn Fn(Option<&ClientConfig>) + Send + Sync + 'static>) {
+    pub fn register_update_callback(&mut self, f: Box<dyn Fn(Option<&Consensus>) + Send + Sync + 'static>) {
         self.callbacks.push(f);
     }
 }
