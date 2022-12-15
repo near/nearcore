@@ -1,3 +1,5 @@
+use near_primitives::types::Gas;
+
 use crate::tests::fixtures::get_context;
 use crate::tests::vm_logic_builder::VMLogicBuilder;
 
@@ -20,14 +22,14 @@ fn test_prohibited_view_methods() {
     test_prohibited!(attached_deposit, 0);
     test_prohibited!(prepaid_gas);
     test_prohibited!(used_gas);
-    test_prohibited!(promise_create, 0, 0, 0, 0, 0, 0, 0, 0);
+    test_prohibited!(promise_create, 0, 0, 0, 0, 0, 0, 0, Gas::from(0));
     test_prohibited!(promise_then, 0, 0, 0, 0, 0, 0, 0, 0, 0);
     test_prohibited!(promise_and, 0, 0);
     test_prohibited!(promise_batch_create, 0, 0);
     test_prohibited!(promise_batch_then, 0, 0, 0);
     test_prohibited!(promise_batch_action_create_account, 0);
     test_prohibited!(promise_batch_action_deploy_contract, 0, 0, 0);
-    test_prohibited!(promise_batch_action_function_call, 0, 0, 0, 0, 0, 0, 0);
+    test_prohibited!(promise_batch_action_function_call, 0, 0, 0, 0, 0, 0, Gas::from(0));
     test_prohibited!(promise_batch_action_transfer, 0, 0);
     test_prohibited!(promise_batch_action_stake, 0, 0, 0, 0);
     test_prohibited!(promise_batch_action_add_key_with_full_access, 0, 0, 0, 0);

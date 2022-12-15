@@ -1312,7 +1312,7 @@ impl From<ExecutionMetadata> for ExecutionMetadataView {
                                 }
                                 Cost::WasmInstruction => "WASM_INSTRUCTION".to_string(),
                             },
-                            gas_used: profile_data[cost],
+                            gas_used: Gas::from(profile_data[cost]),
                         })
                         .collect();
 
@@ -2493,8 +2493,8 @@ impl From<near_primitives_core::config::ExtCostsConfig> for ExtCostsConfigView {
             alt_bn128_pairing_check_base: config.cost(ExtCosts::alt_bn128_pairing_check_base),
             alt_bn128_pairing_check_element: config.cost(ExtCosts::alt_bn128_pairing_check_element),
             // removed parameters
-            contract_compile_base: 0,
-            contract_compile_bytes: 0,
+            contract_compile_base: Gas::from(0),
+            contract_compile_bytes: Gas::from(0),
         }
     }
 }

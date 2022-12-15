@@ -599,8 +599,13 @@ mod tests {
     #[test]
     fn test_block_produce() {
         let num_shards = 32;
-        let genesis_chunks =
-            genesis_chunks(vec![Trie::EMPTY_ROOT], num_shards, 1_000_000, 0, PROTOCOL_VERSION);
+        let genesis_chunks = genesis_chunks(
+            vec![Trie::EMPTY_ROOT],
+            num_shards,
+            Gas::from(1_000_000),
+            0,
+            PROTOCOL_VERSION,
+        );
         let genesis_bps: Vec<ValidatorStake> = Vec::new();
         let genesis = Block::genesis(
             PROTOCOL_VERSION,
@@ -628,7 +633,7 @@ mod tests {
                 status: ExecutionStatus::Unknown,
                 logs: vec!["outcome1".to_string()],
                 receipt_ids: vec![hash(&[1])],
-                gas_burnt: 100,
+                gas_burnt: Gas::from(100),
                 tokens_burnt: 10000,
                 executor_id: "alice".parse().unwrap(),
                 metadata: ExecutionMetadata::V1,
@@ -640,7 +645,7 @@ mod tests {
                 status: ExecutionStatus::SuccessValue(vec![1]),
                 logs: vec!["outcome2".to_string()],
                 receipt_ids: vec![],
-                gas_burnt: 0,
+                gas_burnt: Gas::from(0),
                 tokens_burnt: 0,
                 executor_id: "bob".parse().unwrap(),
                 metadata: ExecutionMetadata::V1,

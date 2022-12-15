@@ -1,5 +1,5 @@
 use crate::parameter::Parameter;
-use crate::types::Gas;
+use crate::types::{self, Gas};
 
 use enum_map::{enum_map, EnumMap};
 use serde::{Deserialize, Serialize};
@@ -194,7 +194,10 @@ impl VMConfig {
             grow_mem_cost: 0,
             regular_op_cost: 0,
             // We shouldn't have any costs in the limit config.
-            limit_config: VMLimitConfig { max_gas_burnt: u64::MAX, ..VMLimitConfig::test() },
+            limit_config: VMLimitConfig {
+                max_gas_burnt: types::Gas::from(u64::MAX),
+                ..VMLimitConfig::test()
+            },
         }
     }
 }
@@ -203,7 +206,8 @@ impl VMLimitConfig {
     pub fn test() -> Self {
         let max_contract_size = 4 * 2u64.pow(20);
         Self {
-            max_gas_burnt: 2 * 10u64.pow(14), // with 10**15 block gas limit this will allow 5 calls.
+            // with 10**15 block gas limit this will allow 5 calls.
+            max_gas_burnt: types::Gas::from(2 * 10u64.pow(14)),
 
             // NOTE: Stack height has to be 16K, otherwise Wasmer produces non-deterministic results.
             // For experimentation try `test_stack_overflow`.
@@ -226,7 +230,7 @@ impl VMLimitConfig {
             // Updating the maximum prepaid gas to limit the maximum depth of a transaction to 64
             // blocks.
             // This based on `63 * min_receipt_with_function_call_gas()`. Where 63 is max depth - 1.
-            max_total_prepaid_gas: 300 * 10u64.pow(12),
+            max_total_prepaid_gas: types::Gas::from(300 * 10u64.pow(12)),
 
             // Safety limit. Unlikely to hit it for most common transactions and receipts.
             max_actions_per_receipt: 100,
@@ -273,78 +277,78 @@ const SAFETY_MULTIPLIER: u64 = 3;
 
 impl ExtCostsConfig {
     pub fn cost(&self, param: ExtCosts) -> Gas {
-        self.costs[param]
+        self.costs[param].clone()
     }
 
     /// Convenience constructor to use in tests where the exact gas cost does
     /// not need to correspond to a specific protocol version.
     pub fn test() -> ExtCostsConfig {
         let costs = enum_map! {
-            ExtCosts::base => SAFETY_MULTIPLIER * 88256037,
-            ExtCosts::contract_loading_base => SAFETY_MULTIPLIER * 11815321,
-            ExtCosts::contract_loading_bytes => SAFETY_MULTIPLIER * 72250,
-            ExtCosts::read_memory_base => SAFETY_MULTIPLIER * 869954400,
-            ExtCosts::read_memory_byte => SAFETY_MULTIPLIER * 1267111,
-            ExtCosts::write_memory_base => SAFETY_MULTIPLIER * 934598287,
-            ExtCosts::write_memory_byte => SAFETY_MULTIPLIER * 907924,
-            ExtCosts::read_register_base => SAFETY_MULTIPLIER * 839055062,
-            ExtCosts::read_register_byte => SAFETY_MULTIPLIER * 32854,
-            ExtCosts::write_register_base => SAFETY_MULTIPLIER * 955174162,
-            ExtCosts::write_register_byte => SAFETY_MULTIPLIER * 1267188,
-            ExtCosts::utf8_decoding_base => SAFETY_MULTIPLIER * 1037259687,
-            ExtCosts::utf8_decoding_byte => SAFETY_MULTIPLIER * 97193493,
-            ExtCosts::utf16_decoding_base => SAFETY_MULTIPLIER * 1181104350,
-            ExtCosts::utf16_decoding_byte => SAFETY_MULTIPLIER * 54525831,
-            ExtCosts::sha256_base => SAFETY_MULTIPLIER * 1513656750,
-            ExtCosts::sha256_byte => SAFETY_MULTIPLIER * 8039117,
-            ExtCosts::keccak256_base => SAFETY_MULTIPLIER * 1959830425,
-            ExtCosts::keccak256_byte => SAFETY_MULTIPLIER * 7157035,
-            ExtCosts::keccak512_base => SAFETY_MULTIPLIER * 1937129412,
-            ExtCosts::keccak512_byte => SAFETY_MULTIPLIER * 12216567,
-            ExtCosts::ripemd160_base => SAFETY_MULTIPLIER * 284558362,
+            ExtCosts::base => Gas::from(SAFETY_MULTIPLIER * 88256037),
+            ExtCosts::contract_loading_base => Gas::from(SAFETY_MULTIPLIER * 11815321),
+            ExtCosts::contract_loading_bytes => Gas::from(SAFETY_MULTIPLIER * 72250),
+            ExtCosts::read_memory_base => Gas::from(SAFETY_MULTIPLIER * 869954400),
+            ExtCosts::read_memory_byte => Gas::from(SAFETY_MULTIPLIER * 1267111),
+            ExtCosts::write_memory_base => Gas::from(SAFETY_MULTIPLIER * 934598287),
+            ExtCosts::write_memory_byte => Gas::from(SAFETY_MULTIPLIER * 907924),
+            ExtCosts::read_register_base => Gas::from(SAFETY_MULTIPLIER * 839055062),
+            ExtCosts::read_register_byte => Gas::from(SAFETY_MULTIPLIER * 32854),
+            ExtCosts::write_register_base => Gas::from(SAFETY_MULTIPLIER * 955174162),
+            ExtCosts::write_register_byte => Gas::from(SAFETY_MULTIPLIER * 1267188),
+            ExtCosts::utf8_decoding_base => Gas::from(SAFETY_MULTIPLIER * 1037259687),
+            ExtCosts::utf8_decoding_byte => Gas::from(SAFETY_MULTIPLIER * 97193493),
+            ExtCosts::utf16_decoding_base => Gas::from(SAFETY_MULTIPLIER * 1181104350),
+            ExtCosts::utf16_decoding_byte => Gas::from(SAFETY_MULTIPLIER * 54525831),
+            ExtCosts::sha256_base => Gas::from(SAFETY_MULTIPLIER * 1513656750),
+            ExtCosts::sha256_byte => Gas::from(SAFETY_MULTIPLIER * 8039117),
+            ExtCosts::keccak256_base => Gas::from(SAFETY_MULTIPLIER * 1959830425),
+            ExtCosts::keccak256_byte => Gas::from(SAFETY_MULTIPLIER * 7157035),
+            ExtCosts::keccak512_base => Gas::from(SAFETY_MULTIPLIER * 1937129412),
+            ExtCosts::keccak512_byte => Gas::from(SAFETY_MULTIPLIER * 12216567),
+            ExtCosts::ripemd160_base => Gas::from(SAFETY_MULTIPLIER * 284558362),
             #[cfg(feature = "protocol_feature_ed25519_verify")]
-            ExtCosts::ed25519_verify_base => SAFETY_MULTIPLIER * 1513656750,
+            ExtCosts::ed25519_verify_base => Gas::from(SAFETY_MULTIPLIER * 1513656750),
             #[cfg(feature = "protocol_feature_ed25519_verify")]
-            ExtCosts::ed25519_verify_byte => SAFETY_MULTIPLIER * 7157035,
-            ExtCosts::ripemd160_block => SAFETY_MULTIPLIER * 226702528,
-            ExtCosts::ecrecover_base => SAFETY_MULTIPLIER * 1121789875000,
-            ExtCosts::log_base => SAFETY_MULTIPLIER * 1181104350,
-            ExtCosts::log_byte => SAFETY_MULTIPLIER * 4399597,
-            ExtCosts::storage_write_base => SAFETY_MULTIPLIER * 21398912000,
-            ExtCosts::storage_write_key_byte => SAFETY_MULTIPLIER * 23494289,
-            ExtCosts::storage_write_value_byte => SAFETY_MULTIPLIER * 10339513,
-            ExtCosts::storage_write_evicted_byte => SAFETY_MULTIPLIER * 10705769,
-            ExtCosts::storage_read_base => SAFETY_MULTIPLIER * 18785615250,
-            ExtCosts::storage_read_key_byte => SAFETY_MULTIPLIER * 10317511,
-            ExtCosts::storage_read_value_byte => SAFETY_MULTIPLIER * 1870335,
-            ExtCosts::storage_remove_base => SAFETY_MULTIPLIER * 17824343500,
-            ExtCosts::storage_remove_key_byte => SAFETY_MULTIPLIER * 12740128,
-            ExtCosts::storage_remove_ret_value_byte => SAFETY_MULTIPLIER * 3843852,
-            ExtCosts::storage_has_key_base => SAFETY_MULTIPLIER * 18013298875,
-            ExtCosts::storage_has_key_byte => SAFETY_MULTIPLIER * 10263615,
+            ExtCosts::ed25519_verify_byte => Gas::from(SAFETY_MULTIPLIER * 7157035),
+            ExtCosts::ripemd160_block => Gas::from(SAFETY_MULTIPLIER * 226702528),
+            ExtCosts::ecrecover_base => Gas::from(SAFETY_MULTIPLIER * 1121789875000),
+            ExtCosts::log_base => Gas::from(SAFETY_MULTIPLIER * 1181104350),
+            ExtCosts::log_byte => Gas::from(SAFETY_MULTIPLIER * 4399597),
+            ExtCosts::storage_write_base => Gas::from(SAFETY_MULTIPLIER * 21398912000),
+            ExtCosts::storage_write_key_byte => Gas::from(SAFETY_MULTIPLIER * 23494289),
+            ExtCosts::storage_write_value_byte => Gas::from(SAFETY_MULTIPLIER * 10339513),
+            ExtCosts::storage_write_evicted_byte => Gas::from(SAFETY_MULTIPLIER * 10705769),
+            ExtCosts::storage_read_base => Gas::from(SAFETY_MULTIPLIER * 18785615250),
+            ExtCosts::storage_read_key_byte => Gas::from(SAFETY_MULTIPLIER * 10317511),
+            ExtCosts::storage_read_value_byte => Gas::from(SAFETY_MULTIPLIER * 1870335),
+            ExtCosts::storage_remove_base => Gas::from(SAFETY_MULTIPLIER * 17824343500),
+            ExtCosts::storage_remove_key_byte => Gas::from(SAFETY_MULTIPLIER * 12740128),
+            ExtCosts::storage_remove_ret_value_byte => Gas::from(SAFETY_MULTIPLIER * 3843852),
+            ExtCosts::storage_has_key_base => Gas::from(SAFETY_MULTIPLIER * 18013298875),
+            ExtCosts::storage_has_key_byte => Gas::from(SAFETY_MULTIPLIER * 10263615),
             // Here it should be `SAFETY_MULTIPLIER * 0` for consistency, but then
             // clippy complains with "this operation will always return zero" warning
-            ExtCosts::storage_iter_create_prefix_base => 0,
-            ExtCosts::storage_iter_create_prefix_byte => 0,
-            ExtCosts::storage_iter_create_range_base => 0,
-            ExtCosts::storage_iter_create_from_byte => 0,
-            ExtCosts::storage_iter_create_to_byte => 0,
-            ExtCosts::storage_iter_next_base => 0,
-            ExtCosts::storage_iter_next_key_byte => 0,
-            ExtCosts::storage_iter_next_value_byte => 0,
-            ExtCosts::touching_trie_node => SAFETY_MULTIPLIER * 5367318642,
-            ExtCosts::read_cached_trie_node => SAFETY_MULTIPLIER * 760_000_000,
-            ExtCosts::promise_and_base => SAFETY_MULTIPLIER * 488337800,
-            ExtCosts::promise_and_per_promise => SAFETY_MULTIPLIER * 1817392,
-            ExtCosts::promise_return => SAFETY_MULTIPLIER * 186717462,
-            ExtCosts::validator_stake_base => SAFETY_MULTIPLIER * 303944908800,
-            ExtCosts::validator_total_stake_base => SAFETY_MULTIPLIER * 303944908800,
-            ExtCosts::alt_bn128_g1_multiexp_base => 713_000_000_000,
-            ExtCosts::alt_bn128_g1_multiexp_element => 320_000_000_000,
-            ExtCosts::alt_bn128_pairing_check_base => 9_686_000_000_000,
-            ExtCosts::alt_bn128_pairing_check_element => 5_102_000_000_000,
-            ExtCosts::alt_bn128_g1_sum_base => 3_000_000_000,
-            ExtCosts::alt_bn128_g1_sum_element => 5_000_000_000,
+            ExtCosts::storage_iter_create_prefix_base => Gas::from(0),
+            ExtCosts::storage_iter_create_prefix_byte => Gas::from(0),
+            ExtCosts::storage_iter_create_range_base => Gas::from(0),
+            ExtCosts::storage_iter_create_from_byte => Gas::from(0),
+            ExtCosts::storage_iter_create_to_byte => Gas::from(0),
+            ExtCosts::storage_iter_next_base => Gas::from(0),
+            ExtCosts::storage_iter_next_key_byte => Gas::from(0),
+            ExtCosts::storage_iter_next_value_byte => Gas::from(0),
+            ExtCosts::touching_trie_node => Gas::from(SAFETY_MULTIPLIER * 5367318642),
+            ExtCosts::read_cached_trie_node => Gas::from(SAFETY_MULTIPLIER * 760_000_000),
+            ExtCosts::promise_and_base => Gas::from(SAFETY_MULTIPLIER * 488337800),
+            ExtCosts::promise_and_per_promise => Gas::from(SAFETY_MULTIPLIER * 1817392),
+            ExtCosts::promise_return => Gas::from(SAFETY_MULTIPLIER * 186717462),
+            ExtCosts::validator_stake_base => Gas::from(SAFETY_MULTIPLIER * 303944908800),
+            ExtCosts::validator_total_stake_base => Gas::from(SAFETY_MULTIPLIER * 303944908800),
+            ExtCosts::alt_bn128_g1_multiexp_base => Gas::from(713_000_000_000),
+            ExtCosts::alt_bn128_g1_multiexp_element => Gas::from(320_000_000_000),
+            ExtCosts::alt_bn128_pairing_check_base => Gas::from(9_686_000_000_000),
+            ExtCosts::alt_bn128_pairing_check_element => Gas::from(5_102_000_000_000),
+            ExtCosts::alt_bn128_g1_sum_base => Gas::from(3_000_000_000),
+            ExtCosts::alt_bn128_g1_sum_element => Gas::from(5_000_000_000),
         };
         ExtCostsConfig { costs }
     }
@@ -352,7 +356,7 @@ impl ExtCostsConfig {
     fn free() -> ExtCostsConfig {
         ExtCostsConfig {
             costs: enum_map! {
-                _ => 0
+                _ => types::Gas::from(0)
             },
         }
     }

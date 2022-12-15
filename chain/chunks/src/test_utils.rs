@@ -21,9 +21,9 @@ use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkPart,
     PartialEncodedChunkV2, ReedSolomonWrapper, ShardChunkHeader,
 };
-use near_primitives::types::NumShards;
 use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::types::{BlockHeight, MerkleHash};
+use near_primitives::types::{Gas, NumShards};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::Store;
 
@@ -245,8 +245,8 @@ impl ChunkTestFixture {
             Default::default(),
             mock_height,
             mock_shard_id,
-            0,
-            1000,
+            Gas::from(0),
+            Gas::from(1000),
             0,
             Vec::new(),
             Vec::new(),

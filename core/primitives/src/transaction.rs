@@ -74,7 +74,7 @@ impl Action {
     pub fn get_prepaid_gas(&self) -> Gas {
         match self {
             Action::FunctionCall(a) => a.gas,
-            _ => 0,
+            _ => Gas::from(0),
         }
     }
     pub fn get_deposit_balance(&self) -> Balance {
@@ -494,7 +494,7 @@ mod tests {
                 Action::FunctionCall(FunctionCallAction {
                     method_name: "qqq".to_string(),
                     args: vec![1, 2, 3],
-                    gas: 1_000,
+                    gas: Gas::from(1_000),
                     deposit: 1_000_000,
                 }),
                 Action::Transfer(TransferAction { deposit: 123 }),
@@ -532,7 +532,7 @@ mod tests {
             status: ExecutionStatus::SuccessValue(vec![123]),
             logs: vec!["123".to_string(), "321".to_string()],
             receipt_ids: vec![],
-            gas_burnt: 123,
+            gas_burnt: Gas::from(123),
             tokens_burnt: 1234000,
             executor_id: "alice".parse().unwrap(),
             metadata: ExecutionMetadata::V1,

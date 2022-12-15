@@ -7,6 +7,7 @@ use borsh::BorshSerialize;
 use near_account_id::AccountId;
 use near_crypto::PublicKey;
 use near_primitives::transaction::Action;
+use near_primitives::types::Gas;
 use serde::Serialize;
 use serde_json;
 
@@ -50,17 +51,18 @@ fn test_promise_results() {
 fn test_promise_batch_action_function_call() {
     let mut logic_builder = VMLogicBuilder::default();
     let mut logic = logic_builder.build(get_context(vec![], false));
-    let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
+    let index =
+        promise_create(&mut logic, b"rick.test", 0, Gas::from(0)).expect("should create a promise");
 
-    promise_batch_action_function_call(&mut logic, 123, 0, 0)
+    promise_batch_action_function_call(&mut logic, 123, 0, Gas::from(0))
         .expect_err("shouldn't accept not existent promise index");
     let non_receipt = logic
         .promise_and(index.to_le_bytes().as_ptr() as _, 1u64)
         .expect("should create a non-receipt promise");
-    promise_batch_action_function_call(&mut logic, non_receipt, 0, 0)
+    promise_batch_action_function_call(&mut logic, non_receipt, 0, Gas::from(0))
         .expect_err("shouldn't accept non-receipt promise index");
 
-    promise_batch_action_function_call(&mut logic, index, 0, 0)
+    promise_batch_action_function_call(&mut logic, index, 0, Gas::from(0))
         .expect("should add an action to receipt");
     let expected = serde_json::json!([
     {
@@ -82,7 +84,8 @@ fn test_promise_batch_action_function_call() {
 fn test_promise_batch_action_create_account() {
     let mut logic_builder = VMLogicBuilder::default();
     let mut logic = logic_builder.build(get_context(vec![], false));
-    let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
+    let index =
+        promise_create(&mut logic, b"rick.test", 0, Gas::from(0)).expect("should create a promise");
 
     logic
         .promise_batch_action_create_account(123)
@@ -96,7 +99,7 @@ fn test_promise_batch_action_create_account() {
     logic
         .promise_batch_action_create_account(index)
         .expect("should add an action to create account");
-    assert_eq!(logic.used_gas().unwrap(), 5077478438564);
+    assert_eq!(logic.used_gas().unwrap(), Gas::from(5077478438564));
     let expected = serde_json::json!([
         {
             "receiver_id": "rick.test",
@@ -120,7 +123,8 @@ fn test_promise_batch_action_create_account() {
 fn test_promise_batch_action_deploy_contract() {
     let mut logic_builder = VMLogicBuilder::default();
     let mut logic = logic_builder.build(get_context(vec![], false));
-    let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
+    let index =
+        promise_create(&mut logic, b"rick.test", 0, Gas::from(0)).expect("should create a promise");
     let code = b"sample";
 
     logic
@@ -136,7 +140,7 @@ fn test_promise_batch_action_deploy_contract() {
     logic
         .promise_batch_action_deploy_contract(index, code.len() as u64, code.as_ptr() as _)
         .expect("should add an action to deploy contract");
-    assert_eq!(logic.used_gas().unwrap(), 5255774958146);
+    assert_eq!(logic.used_gas().unwrap(), Gas::from(5255774958146));
     let expected = serde_json::json!(
       [
         {
@@ -169,7 +173,8 @@ fn test_promise_batch_action_transfer() {
     context.attached_deposit = 10;
     let mut logic_builder = VMLogicBuilder::default();
     let mut logic = logic_builder.build(context);
-    let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
+    let index =
+        promise_create(&mut logic, b"rick.test", 0, Gas::from(0)).expect("should create a promise");
 
     logic
         .promise_batch_action_transfer(123, 110u128.to_le_bytes().as_ptr() as _)
@@ -187,7 +192,7 @@ fn test_promise_batch_action_transfer() {
     logic
         .promise_batch_action_transfer(index, 1u128.to_le_bytes().as_ptr() as _)
         .expect_err("not enough money");
-    assert_eq!(logic.used_gas().unwrap(), 5349703444787);
+    assert_eq!(logic.used_gas().unwrap(), Gas::from(5349703444787));
     let expected = serde_json::json!(
     [
         {
@@ -220,7 +225,8 @@ fn test_promise_batch_action_stake() {
     context.account_balance = 100;
     let mut logic_builder = VMLogicBuilder::default();
     let mut logic = logic_builder.build(context);
-    let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
+    let index =
+        promise_create(&mut logic, b"rick.test", 0, Gas::from(0)).expect("should create a promise");
     let key = "ed25519:5do5nkAEVhL8iteDvXNgxi4pWK78Y7DDadX11ArFNyrf"
         .parse::<PublicKey>()
         .unwrap()
@@ -255,7 +261,7 @@ fn test_promise_batch_action_stake() {
             key.as_ptr() as _,
         )
         .expect("should add an action to stake");
-    assert_eq!(logic.used_gas().unwrap(), 5138414976215);
+    assert_eq!(logic.used_gas().unwrap(), Gas::from(5138414976215));
     let expected = serde_json::json!([
         {
 
@@ -288,7 +294,8 @@ fn test_promise_batch_action_add_key_with_function_call() {
 
     let mut logic_builder = VMLogicBuilder::default();
     let mut logic = logic_builder.build(context);
-    let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
+    let index =
+        promise_create(&mut logic, b"rick.test", 0, Gas::from(0)).expect("should create a promise");
     let serialized_key = "ed25519:5do5nkAEVhL8iteDvXNgxi4pWK78Y7DDadX11ArFNyrf"
         .parse::<PublicKey>()
         .unwrap()
@@ -334,7 +341,7 @@ fn test_promise_batch_action_add_key_with_function_call() {
         method_names,
     )
     .expect("should add allowance");
-    assert_eq!(logic.used_gas().unwrap(), 5126680499695);
+    assert_eq!(logic.used_gas().unwrap(), Gas::from(5126680499695));
     let expected = serde_json::json!(
     [
         {
@@ -380,7 +387,8 @@ fn test_promise_batch_then() {
     let mut logic = logic_builder.build(context);
 
     let account_id = b"rick.test";
-    let index = promise_create(&mut logic, account_id, 0, 0).expect("should create a promise");
+    let index =
+        promise_create(&mut logic, account_id, 0, Gas::from(0)).expect("should create a promise");
 
     logic
         .promise_batch_then(123, account_id.len() as u64, account_id.as_ptr() as _)
@@ -395,7 +403,7 @@ fn test_promise_batch_then() {
     logic
         .promise_batch_then(index, account_id.len() as u64, account_id.as_ptr() as _)
         .expect("promise batch should run ok");
-    assert_eq!(logic.used_gas().unwrap(), 24124999601771);
+    assert_eq!(logic.used_gas().unwrap(), Gas::from(24124999601771));
     let expected = serde_json::json!([
         {
             "receiver_id": "rick.test",

@@ -17,7 +17,7 @@ use near_primitives::sharding::{
     ReedSolomonWrapper, ShardChunk,
 };
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockHeight, EpochId, StateRoot};
+use near_primitives::types::{AccountId, BlockHeight, EpochId, Gas, StateRoot};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version;
 use rand::distributions::Standard;
@@ -220,7 +220,7 @@ impl ChunkSet {
         let chunks = genesis_chunks(
             vec![StateRoot::new()], // state_roots
             4,                      // num_shards
-            1000,                   // initial_gas_limit
+            Gas::from(1000),        // initial_gas_limit
             0,                      // genesis_height
             version::PROTOCOL_VERSION,
         );

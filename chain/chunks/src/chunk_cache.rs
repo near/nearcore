@@ -274,6 +274,7 @@ mod tests {
     use near_crypto::KeyType;
     use near_primitives::hash::CryptoHash;
     use near_primitives::sharding::{PartialEncodedChunkV2, ShardChunkHeader, ShardChunkHeaderV2};
+    use near_primitives::types::Gas;
     use near_primitives::validator_signer::InMemoryValidatorSigner;
 
     use crate::chunk_cache::EncodedChunksCache;
@@ -290,8 +291,8 @@ mod tests {
             1,
             height,
             shard_id,
-            0,
-            0,
+            Gas::from(0),
+            Gas::from(0),
             0,
             CryptoHash::default(),
             CryptoHash::default(),

@@ -50,7 +50,7 @@ pub struct InfoHelper {
     /// Total number of blocks processed.
     num_chunks_in_blocks_processed: u64,
     /// Total gas used during period.
-    gas_used: u64,
+    gas_used: Gas,
     /// Sign telemetry with block producer key if available.
     validator_signer: Option<Arc<dyn ValidatorSigner>>,
     /// Telemetry actor.
@@ -77,7 +77,7 @@ impl InfoHelper {
             started: Clock::instant(),
             num_blocks_processed: 0,
             num_chunks_in_blocks_processed: 0,
-            gas_used: 0,
+            gas_used: Gas::from(0),
             telemetry_actor,
             validator_signer,
             log_summary_style: client_config.log_summary_style,
@@ -88,7 +88,7 @@ impl InfoHelper {
     pub fn chunk_processed(&mut self, shard_id: ShardId, gas_used: Gas, balance_burnt: Balance) {
         metrics::TGAS_USAGE_HIST
             .with_label_values(&[&shard_id.to_string()])
-            .observe(gas_used as f64 / TERAGAS);
+            .observe(gas_used.get() as f64 / TERAGAS);
         metrics::BALANCE_BURNT.inc_by(balance_burnt as f64);
     }
 
@@ -108,8 +108,8 @@ impl InfoHelper {
     ) {
         self.num_blocks_processed += 1;
         self.num_chunks_in_blocks_processed += num_chunks;
-        self.gas_used += gas_used;
-        metrics::GAS_USED.inc_by(gas_used as f64);
+        self.gas_used = self.gas_used.saturating_add(gas_used);
+        metrics::GAS_USED.inc_by(gas_used.get() as f64);
         metrics::BLOCKS_PROCESSED.inc();
         metrics::CHUNKS_PROCESSED.inc_by(num_chunks);
         metrics::GAS_PRICE.set(gas_price as f64);
@@ -245,8 +245,9 @@ impl InfoHelper {
         } else {
             0.
         };
-        let avg_gas_used =
-            ((self.gas_used as f64) / (self.started.elapsed().as_millis() as f64) * 1000.0) as u64;
+        let avg_gas_used = ((self.gas_used.get() as f64)
+            / (self.started.elapsed().as_millis() as f64)
+            * 1000.0) as u64;
         let blocks_info_log =
             Some(format!(" {:.2} bps {}", avg_bls, PrettyNumber::gas_per_sec(avg_gas_used)));
 
@@ -312,7 +313,7 @@ impl InfoHelper {
         self.started = Clock::instant();
         self.num_blocks_processed = 0;
         self.num_chunks_in_blocks_processed = 0;
-        self.gas_used = 0;
+        self.gas_used = Gas::from(0);
 
         // In production `telemetry_actor` should always be available.
         if let Some(telemetry_actor) = &self.telemetry_actor {
@@ -693,7 +694,7 @@ mod tests {
         let chain_genesis = ChainGenesis {
             time: Clock::utc(),
             height: 0,
-            gas_limit: 1_000_000,
+            gas_limit: Gas::from(1_000_000),
             min_gas_price: 100,
             max_gas_price: 1_000_000_000,
             total_supply: 3_000_000_000_000_000_000_000_000_000_000_000,

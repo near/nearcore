@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use crate::types::StatusError;
 use actix::Message;
 use chrono::DateTime;
-use near_primitives::types::EpochId;
+use near_primitives::types::{EpochId, Gas};
 use near_primitives::views::{
     CatchupStatusView, ChainProcessingInfo, EpochValidatorInfo, RequestedStatePartsView,
     SyncStatusView,
@@ -43,7 +43,7 @@ pub struct DebugChunkStatus {
     pub shard_id: u64,
     pub chunk_hash: ChunkHash,
     pub chunk_producer: Option<AccountId>,
-    pub gas_used: u64,
+    pub gas_used: Gas,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub processing_time_ms: Option<u64>,
 }

@@ -624,7 +624,7 @@ impl Chain {
                             state_root,
                             CryptoHash::default(),
                             vec![],
-                            0,
+                            Gas::from(0),
                             chain_genesis.gas_limit,
                             0,
                         ),
@@ -4881,18 +4881,18 @@ impl<'a> ChainUpdate<'a> {
                     .len() as NumShards;
                 let total_gas_used = chunk_extra.gas_used();
                 let total_balance_burnt = chunk_extra.balance_burnt();
-                let gas_res = total_gas_used % num_split_shards;
-                let gas_split = total_gas_used / num_split_shards;
+                let gas_res = total_gas_used.get() % num_split_shards;
+                let gas_split = total_gas_used.get() / num_split_shards;
                 let balance_res = (total_balance_burnt % num_split_shards as u128) as NumShards;
                 let balance_split = total_balance_burnt / (num_split_shards as u128);
                 let gas_limit = chunk_extra.gas_limit();
                 let outcome_root = *chunk_extra.outcome_root();
 
-                let mut sum_gas_used = 0;
+                let mut sum_gas_used = Gas::from(0);
                 let mut sum_balance_burnt = 0;
                 for result in results {
                     let shard_id = result.shard_uid.shard_id();
-                    let gas_burnt = gas_split + if shard_id < gas_res { 1 } else { 0 };
+                    let gas_burnt = Gas::from(gas_split + if shard_id < gas_res { 1 } else { 0 });
                     let balance_burnt = balance_split + if shard_id < balance_res { 1 } else { 0 };
                     let new_chunk_extra = ChunkExtra::new(
                         &result.new_root,
@@ -4902,7 +4902,7 @@ impl<'a> ChainUpdate<'a> {
                         gas_limit,
                         balance_burnt,
                     );
-                    sum_gas_used += gas_burnt;
+                    sum_gas_used = sum_gas_used.saturating_add(gas_burnt);
                     sum_balance_burnt += balance_burnt;
 
                     self.chain_store_update.save_chunk_extra(

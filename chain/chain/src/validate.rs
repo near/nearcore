@@ -14,7 +14,7 @@ use near_primitives::sharding::{
 };
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{AccountId, BlockHeight, EpochId, Nonce};
+use near_primitives::types::{AccountId, BlockHeight, EpochId, Gas, Nonce};
 
 use crate::{byzantine_assert, Chain};
 use crate::{ChainStore, Error, RuntimeAdapter};
@@ -171,8 +171,12 @@ pub fn validate_chunk_with_chunk_extra(
     }
 
     let prev_gas_limit = prev_chunk_extra.gas_limit();
-    if chunk_header.gas_limit() < prev_gas_limit - prev_gas_limit / GAS_LIMIT_ADJUSTMENT_FACTOR
-        || chunk_header.gas_limit() > prev_gas_limit + prev_gas_limit / GAS_LIMIT_ADJUSTMENT_FACTOR
+    if chunk_header.gas_limit()
+        < prev_gas_limit
+            .saturating_sub(Gas::from(prev_gas_limit.get() / GAS_LIMIT_ADJUSTMENT_FACTOR))
+        || chunk_header.gas_limit()
+            > prev_gas_limit
+                .saturating_add(Gas::from(prev_gas_limit.get() / GAS_LIMIT_ADJUSTMENT_FACTOR))
     {
         return Err(Error::InvalidGasLimit);
     }

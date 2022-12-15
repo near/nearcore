@@ -94,7 +94,7 @@ pub fn genesis_chunks(
                 genesis_height,
                 i,
                 &mut rs,
-                0,
+                Gas::from(0),
                 initial_gas_limit,
                 0,
                 CryptoHash::default(),
@@ -214,16 +214,16 @@ impl Block {
     ) -> Self {
         // Collect aggregate of validators and gas usage/limits from chunks.
         let mut validator_proposals = vec![];
-        let mut gas_used = 0;
+        let mut gas_used = Gas::from(0);
         // This computation of chunk_mask relies on the fact that chunks are ordered by shard_id.
         let mut chunk_mask = vec![];
         let mut balance_burnt = 0;
-        let mut gas_limit = 0;
+        let mut gas_limit = Gas::from(0);
         for chunk in chunks.iter() {
             if chunk.height_included() == height {
                 validator_proposals.extend(chunk.validator_proposals());
-                gas_used += chunk.gas_used();
-                gas_limit += chunk.gas_limit();
+                gas_used = gas_used.saturating_add(chunk.gas_used());
+                gas_limit = gas_limit.saturating_add(chunk.gas_limit());
                 balance_burnt += chunk.balance_burnt();
                 chunk_mask.push(true);
             } else {
@@ -333,14 +333,15 @@ impl Block {
         min_gas_price: Balance,
         max_gas_price: Balance,
     ) -> Balance {
-        if gas_limit == 0 {
+        if gas_limit == Gas::from(0) {
             prev_gas_price
         } else {
-            let numerator = 2 * *gas_price_adjustment_rate.denom() as u128 * u128::from(gas_limit)
-                - *gas_price_adjustment_rate.numer() as u128 * u128::from(gas_limit)
-                + 2 * *gas_price_adjustment_rate.numer() as u128 * u128::from(gas_used);
+            let numerator =
+                2 * *gas_price_adjustment_rate.denom() as u128 * u128::from(gas_limit.get())
+                    - *gas_price_adjustment_rate.numer() as u128 * u128::from(gas_limit.get())
+                    + 2 * *gas_price_adjustment_rate.numer() as u128 * u128::from(gas_used.get());
             let denominator =
-                2 * *gas_price_adjustment_rate.denom() as u128 * u128::from(gas_limit);
+                2 * *gas_price_adjustment_rate.denom() as u128 * u128::from(gas_limit.get());
             let new_gas_price =
                 U256::from(prev_gas_price) * U256::from(numerator) / U256::from(denominator);
             if new_gas_price > U256::from(max_gas_price) {
@@ -404,9 +405,9 @@ impl Block {
         chunks: T,
         height: BlockHeight,
     ) -> Gas {
-        chunks.into_iter().fold(0, |acc, chunk| {
+        chunks.into_iter().fold(Gas::from(0), |acc, chunk| {
             if chunk.height_included() == height {
-                acc + chunk.gas_used()
+                acc.saturating_add(chunk.gas_used())
             } else {
                 acc
             }
@@ -417,9 +418,9 @@ impl Block {
         chunks: T,
         height: BlockHeight,
     ) -> Gas {
-        chunks.into_iter().fold(0, |acc, chunk| {
+        chunks.into_iter().fold(Gas::from(0), |acc, chunk| {
             if chunk.height_included() == height {
-                acc + chunk.gas_limit()
+                acc.saturating_add(chunk.gas_limit())
             } else {
                 acc
             }

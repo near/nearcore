@@ -679,7 +679,7 @@ pub mod chunk_extra {
 
     impl ChunkExtra {
         pub fn new_with_only_state_root(state_root: &StateRoot) -> Self {
-            Self::new(state_root, CryptoHash::default(), vec![], 0, 0, 0)
+            Self::new(state_root, CryptoHash::default(), vec![], Gas::from(0), Gas::from(0), 0)
         }
 
         pub fn new(

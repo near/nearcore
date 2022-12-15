@@ -14,7 +14,7 @@ use near_network::test_utils::wait_or_timeout;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{BlockId, BlockReference, EpochId, SyncCheckpoint};
+use near_primitives::types::{BlockId, BlockReference, EpochId, Gas, SyncCheckpoint};
 use near_primitives::views::QueryRequest;
 
 use near_jsonrpc_tests::{self as test_utils, test_with_client};
@@ -94,8 +94,8 @@ fn test_chunk_by_hash() {
         assert_eq!(chunk.header.chunk_hash.as_ref().len(), 32);
         assert_eq!(chunk.header.encoded_length, 8);
         assert_eq!(chunk.header.encoded_merkle_root.as_ref().len(), 32);
-        assert_eq!(chunk.header.gas_limit, 1000000);
-        assert_eq!(chunk.header.gas_used, 0);
+        assert_eq!(chunk.header.gas_limit, Gas::from(1000000));
+        assert_eq!(chunk.header.gas_used, Gas::from(0));
         assert_eq!(chunk.header.height_created, 0);
         assert_eq!(chunk.header.height_included, 0);
         assert_eq!(chunk.header.outgoing_receipts_root.as_ref().len(), 32);
@@ -565,8 +565,8 @@ fn test_get_chunk_with_object_in_params() {
         assert_eq!(chunk.header.chunk_hash.as_ref().len(), 32);
         assert_eq!(chunk.header.encoded_length, 8);
         assert_eq!(chunk.header.encoded_merkle_root.as_ref().len(), 32);
-        assert_eq!(chunk.header.gas_limit, 1000000);
-        assert_eq!(chunk.header.gas_used, 0);
+        assert_eq!(chunk.header.gas_limit, Gas::from(1000000));
+        assert_eq!(chunk.header.gas_used, Gas::from(0));
         assert_eq!(chunk.header.height_created, 0);
         assert_eq!(chunk.header.height_included, 0);
         assert_eq!(chunk.header.outgoing_receipts_root.as_ref().len(), 32);

@@ -15,7 +15,7 @@ use near_primitives::block::Block;
 
 use near_primitives::hash::CryptoHash;
 
-use near_primitives::types::{AccountId, NumBlocks};
+use near_primitives::types::{AccountId, Gas, NumBlocks};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 
@@ -94,7 +94,7 @@ pub fn setup_with_tx_validity_period(
         &ChainGenesis {
             time: Clock::utc(),
             height: 0,
-            gas_limit: 1_000_000,
+            gas_limit: Gas::from(1_000_000),
             min_gas_price: 100,
             max_gas_price: 1_000_000_000,
             total_supply: 1_000_000_000,
@@ -126,7 +126,7 @@ pub fn setup_with_validators(
         &ChainGenesis {
             time: Clock::utc(),
             height: 0,
-            gas_limit: 1_000_000,
+            gas_limit: Gas::from(1_000_000),
             min_gas_price: 100,
             max_gas_price: 1_000_000_000,
             total_supply: 1_000_000_000,
@@ -157,7 +157,7 @@ pub fn setup_with_validators_and_start_time(
         &ChainGenesis {
             time: start_time,
             height: 0,
-            gas_limit: 1_000_000,
+            gas_limit: Gas::from(1_000_000),
             min_gas_price: 100,
             max_gas_price: 1_000_000_000,
             total_supply: 1_000_000_000,
@@ -279,7 +279,7 @@ impl ChainGenesis {
         ChainGenesis {
             time: Clock::utc(),
             height: 0,
-            gas_limit: 10u64.pow(15),
+            gas_limit: Gas::from(10u64.pow(15)),
             min_gas_price: 0,
             max_gas_price: 1_000_000_000,
             total_supply: 1_000_000_000,

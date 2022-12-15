@@ -147,7 +147,8 @@ impl<'a> VMLogic<'a> {
         let gas_counter = GasCounter::new(
             config.ext_costs.clone(),
             max_gas_burnt,
-            config.regular_op_cost,
+            // XXX: should I change the type of config.regular_op_cost?
+            Gas::from(config.regular_op_cost as u64),
             context.prepaid_gas,
             context.is_view(),
         );
@@ -1309,6 +1310,7 @@ impl<'a> VMLogic<'a> {
         arguments_len: u64,
         arguments_ptr: u64,
         amount_ptr: u64,
+        // XXX: should I change the type here to Gas?
         gas: u64,
     ) -> Result<u64> {
         let new_promise_idx =
@@ -1320,7 +1322,7 @@ impl<'a> VMLogic<'a> {
             arguments_len,
             arguments_ptr,
             amount_ptr,
-            gas,
+            Gas::from(gas),
         )?;
         Ok(new_promise_idx)
     }
@@ -2119,7 +2121,7 @@ impl<'a> VMLogic<'a> {
     pub fn value_return(&mut self, value_len: u64, value_ptr: u64) -> Result<()> {
         self.gas_counter.pay_base(base)?;
         let return_val = get_memory_or_register!(self, value_ptr, value_len)?;
-        let mut burn_gas: Gas = 0;
+        let mut burned_gas = Gas::from(0);
         let num_bytes = return_val.len() as u64;
         if num_bytes > self.config.limit_config.max_length_returned_data {
             return Err(HostError::ReturnedValueLengthExceeded {
@@ -2137,7 +2139,7 @@ impl<'a> VMLogic<'a> {
             // refund in this situation. Which we avoid by just paying for execution of
             // data receipt that might not be performed.
             // The gas here is considered burnt, cause we'll prepay for it upfront.
-            burn_gas = burn_gas
+            burned_gas = burned_gas
                 .checked_add(
                     self.fees_config
                         .fee(ActionCosts::new_data_receipt_byte)
@@ -2152,8 +2154,8 @@ impl<'a> VMLogic<'a> {
                 .ok_or(HostError::IntegerOverflow)?;
         }
         self.gas_counter.pay_action_accumulated(
-            burn_gas,
-            burn_gas,
+            burned_gas,
+            burned_gas,
             ActionCosts::new_data_receipt_byte,
         )?;
         self.return_data = ReturnData::Value(return_val.into_owned());
@@ -2735,7 +2737,8 @@ impl<'a> VMLogic<'a> {
         let used_gas = self.gas_counter.used_gas();
 
         let mut profile = self.gas_counter.profile_data();
-        profile.compute_wasm_instruction_cost(burnt_gas);
+        // XXX: should compute_wasm_instruction_cost take Gas
+        profile.compute_wasm_instruction_cost(burnt_gas.get());
 
         VMOutcome {
             balance: self.current_account_balance,
@@ -2791,14 +2794,19 @@ impl<'a> VMLogic<'a> {
         sir: bool,
     ) -> Result<()> {
         let per_byte_fee = self.fees_config.fee(action);
-        let burn_gas =
-            num_bytes.checked_mul(per_byte_fee.send_fee(sir)).ok_or(HostError::IntegerOverflow)?;
-        let use_gas = burn_gas
-            .checked_add(
-                num_bytes.checked_mul(per_byte_fee.exec_fee()).ok_or(HostError::IntegerOverflow)?,
-            )
+        let burned_gas = Gas::from(
+            num_bytes
+                .checked_mul(per_byte_fee.send_fee(sir).get())
+                .ok_or(HostError::IntegerOverflow)?,
+        );
+        let used_gas = burned_gas
+            .checked_add(Gas::from(
+                num_bytes
+                    .checked_mul(per_byte_fee.exec_fee().get())
+                    .ok_or(HostError::IntegerOverflow)?,
+            ))
             .ok_or(HostError::IntegerOverflow)?;
-        self.gas_counter.pay_action_accumulated(burn_gas, use_gas, action)
+        self.gas_counter.pay_action_accumulated(burned_gas, used_gas, action)
     }
 
     /// VM independent setup before loading the executable.
@@ -2892,8 +2900,8 @@ impl VMOutcome {
             // Note: Fields below are added or merged when processing the
             // outcome. With 0 or the empty set, those are no-ops.
             return_data: ReturnData::None,
-            burnt_gas: 0,
-            used_gas: 0,
+            burnt_gas: Gas::from(0),
+            used_gas: Gas::from(0),
             logs: Vec::new(),
             profile: ProfileData::default(),
             action_receipts: Vec::new(),

@@ -36,11 +36,11 @@ pub struct FastGasCounter {
     /// and the host code.
 
     /// The amount of gas that was irreversibly used for contract execution.
-    pub burnt_gas: u64,
+    pub burnt_gas: Gas,
     /// Hard gas limit for execution
-    pub gas_limit: u64,
+    pub gas_limit: Gas,
     /// Single WASM opcode cost
-    pub opcode_cost: u64,
+    pub opcode_cost: Gas,
 }
 
 /// Gas counter (a part of VMlogic)
@@ -65,22 +65,22 @@ impl GasCounter {
     pub fn new(
         ext_costs_config: ExtCostsConfig,
         max_gas_burnt: Gas,
-        opcode_cost: u32,
+        opcode_cost: Gas,
         prepaid_gas: Gas,
         is_view: bool,
     ) -> Self {
         use std::cmp::min;
         // Ignore prepaid gas limit when in view.
-        let prepaid_gas = if is_view { Gas::MAX } else { prepaid_gas };
+        let prepaid_gas = if is_view { Gas::from(u64::MAX) } else { prepaid_gas };
         Self {
             ext_costs_config,
             fast_counter: FastGasCounter {
-                burnt_gas: 0,
+                burnt_gas: Gas::from(0),
                 gas_limit: min(max_gas_burnt, prepaid_gas),
-                opcode_cost: Gas::from(opcode_cost),
+                opcode_cost,
             },
             max_gas_burnt: max_gas_burnt,
-            promises_gas: 0,
+            promises_gas: Gas::from(0),
             prepaid_gas,
             is_view,
             profile: Default::default(),
@@ -97,7 +97,7 @@ impl GasCounter {
     /// This function asserts that `gas_burnt <= gas_used`
     fn deduct_gas(&mut self, gas_burnt: Gas, gas_used: Gas) -> Result<()> {
         assert!(gas_burnt <= gas_used);
-        let promises_gas = gas_used - gas_burnt;
+        let promises_gas = gas_used.saturating_sub(gas_burnt);
         let new_promises_gas =
             self.promises_gas.checked_add(promises_gas).ok_or(HostError::IntegerOverflow)?;
         let new_burnt_gas =
@@ -106,9 +106,9 @@ impl GasCounter {
             new_burnt_gas.checked_add(new_promises_gas).ok_or(HostError::IntegerOverflow)?;
         if new_burnt_gas <= self.max_gas_burnt && new_used_gas <= self.prepaid_gas {
             use std::cmp::min;
-            if promises_gas != 0 && !self.is_view {
+            if promises_gas != Gas::from(0) && !self.is_view {
                 self.fast_counter.gas_limit =
-                    min(self.max_gas_burnt, self.prepaid_gas - new_promises_gas);
+                    min(self.max_gas_burnt, self.prepaid_gas.saturating_sub(new_promises_gas));
             }
             self.fast_counter.burnt_gas = new_burnt_gas;
             self.promises_gas = new_promises_gas;
@@ -180,8 +180,8 @@ impl GasCounter {
     }
 
     pub fn pay_wasm_gas(&mut self, opcodes: u32) -> Result<()> {
-        let value = Gas::from(opcodes) * self.fast_counter.opcode_cost;
-        self.burn_gas(value)
+        let gas_burnt = Gas::from(opcodes as u64 & self.fast_counter.opcode_cost.get());
+        self.burn_gas(gas_burnt)
     }
 
     /// Very special function to get the gas counter pointer for generated machine code.
@@ -218,12 +218,13 @@ impl GasCounter {
 
     /// A helper function to pay a multiple of a cost.
     pub fn pay_per(&mut self, cost: ExtCosts, num: u64) -> Result<()> {
-        let use_gas = num
-            .checked_mul(cost.value(&self.ext_costs_config))
-            .ok_or(HostError::IntegerOverflow)?;
+        let use_gas = Gas::from(
+            num.checked_mul(cost.value(&self.ext_costs_config).get())
+                .ok_or(HostError::IntegerOverflow)?,
+        );
 
         self.inc_ext_costs_counter(cost, num);
-        self.update_profile_host(cost, use_gas);
+        self.update_profile_host(cost, use_gas.get());
         self.burn_gas(use_gas)
     }
 
@@ -231,7 +232,7 @@ impl GasCounter {
     pub fn pay_base(&mut self, cost: ExtCosts) -> Result<()> {
         let base_fee = cost.value(&self.ext_costs_config);
         self.inc_ext_costs_counter(cost, 1);
-        self.update_profile_host(cost, base_fee);
+        self.update_profile_host(cost, base_fee.get());
         self.burn_gas(base_fee)
     }
 
@@ -246,7 +247,7 @@ impl GasCounter {
         use_gas: Gas,
         action: ActionCosts,
     ) -> Result<()> {
-        self.update_profile_action(action, burn_gas);
+        self.update_profile_action(action, burn_gas.get());
         self.deduct_gas(burn_gas, use_gas)
     }
 
@@ -257,7 +258,7 @@ impl GasCounter {
     }
 
     pub fn prepay_gas(&mut self, use_gas: Gas) -> Result<()> {
-        self.deduct_gas(0, use_gas)
+        self.deduct_gas(Gas::from(0), use_gas)
     }
 
     pub fn burnt_gas(&self) -> Gas {
@@ -266,12 +267,12 @@ impl GasCounter {
 
     /// Amount of gas used through promises and amount burned.
     pub fn used_gas(&self) -> Gas {
-        self.promises_gas + self.fast_counter.burnt_gas
+        self.promises_gas.saturating_add(self.fast_counter.burnt_gas)
     }
 
     /// Remaining gas based on the amount of prepaid gas not yet used.
     pub fn unused_gas(&self) -> Gas {
-        self.prepaid_gas - self.used_gas()
+        self.prepaid_gas.saturating_sub(self.used_gas())
     }
 
     pub fn profile_data(&self) -> ProfileData {
@@ -285,63 +286,65 @@ mod tests {
     use near_primitives_core::types::Gas;
 
     fn make_test_counter(max_burnt: Gas, prepaid: Gas, is_view: bool) -> super::GasCounter {
-        super::GasCounter::new(ExtCostsConfig::test(), max_burnt, 1, prepaid, is_view)
+        super::GasCounter::new(ExtCostsConfig::test(), max_burnt, Gas::from(1), prepaid, is_view)
     }
 
     #[test]
     fn test_deduct_gas() {
-        let mut counter = make_test_counter(10, 10, false);
-        counter.deduct_gas(5, 10).expect("deduct_gas should work");
-        assert_eq!(counter.burnt_gas(), 5);
-        assert_eq!(counter.used_gas(), 10);
+        let mut counter = make_test_counter(Gas::from(10), Gas::from(10), false);
+        counter.deduct_gas(Gas::from(5), Gas::from(10)).expect("deduct_gas should work");
+        assert_eq!(counter.burnt_gas(), Gas::from(5));
+        assert_eq!(counter.used_gas(), Gas::from(10));
     }
 
     #[test]
     #[should_panic]
     fn test_burn_gas_must_be_lt_use_gas() {
-        let _ = make_test_counter(10, 10, false).deduct_gas(5, 2);
+        let _ = make_test_counter(Gas::from(10), Gas::from(10), false)
+            .deduct_gas(Gas::from(5), Gas::from(2));
     }
 
     #[test]
     #[should_panic]
     fn test_burn_gas_must_be_lt_use_gas_view() {
-        let _ = make_test_counter(10, 10, true).deduct_gas(5, 2);
+        let _ = make_test_counter(Gas::from(10), Gas::from(10), true)
+            .deduct_gas(Gas::from(5), Gas::from(2));
     }
 
     #[test]
     fn test_burn_too_much() {
         fn test(burn: Gas, prepaid: Gas, view: bool, want: Result<(), HostError>) {
             let mut counter = make_test_counter(burn, prepaid, view);
-            assert_eq!(counter.burn_gas(5), Ok(()));
-            assert_eq!(counter.burn_gas(3), want.map_err(Into::into));
+            assert_eq!(counter.burn_gas(Gas::from(5)), Ok(()));
+            assert_eq!(counter.burn_gas(Gas::from(3)), want.map_err(Into::into));
         }
 
-        test(5, 7, false, Err(HostError::GasLimitExceeded));
-        test(5, 7, true, Err(HostError::GasLimitExceeded));
-        test(5, 5, false, Err(HostError::GasLimitExceeded));
-        test(5, 5, true, Err(HostError::GasLimitExceeded));
-        test(7, 5, false, Err(HostError::GasLimitExceeded));
-        test(7, 5, true, Err(HostError::GasLimitExceeded));
+        test(Gas::from(5), Gas::from(7), false, Err(HostError::GasLimitExceeded));
+        test(Gas::from(5), Gas::from(7), true, Err(HostError::GasLimitExceeded));
+        test(Gas::from(5), Gas::from(5), false, Err(HostError::GasLimitExceeded));
+        test(Gas::from(5), Gas::from(5), true, Err(HostError::GasLimitExceeded));
+        test(Gas::from(7), Gas::from(5), false, Err(HostError::GasLimitExceeded));
+        test(Gas::from(7), Gas::from(5), true, Err(HostError::GasLimitExceeded));
     }
 
     #[test]
     fn test_deduct_too_much() {
         fn test(burn: Gas, prepaid: Gas, view: bool, want: Result<(), HostError>) {
             let mut counter = make_test_counter(burn, prepaid, view);
-            assert_eq!(counter.deduct_gas(5, 5), Ok(()));
-            assert_eq!(counter.deduct_gas(3, 3), want.map_err(Into::into));
+            assert_eq!(counter.deduct_gas(Gas::from(5), Gas::from(5)), Ok(()));
+            assert_eq!(counter.deduct_gas(Gas::from(3), Gas::from(3)), want.map_err(Into::into));
         }
 
-        test(5, 7, false, Err(HostError::GasLimitExceeded));
-        test(5, 7, true, Err(HostError::GasLimitExceeded));
-        test(5, 5, false, Err(HostError::GasLimitExceeded));
-        test(5, 5, true, Err(HostError::GasLimitExceeded));
-        test(7, 5, false, Err(HostError::GasLimitExceeded));
-        test(7, 5, true, Err(HostError::GasLimitExceeded));
+        test(Gas::from(5), Gas::from(7), false, Err(HostError::GasLimitExceeded));
+        test(Gas::from(5), Gas::from(7), true, Err(HostError::GasLimitExceeded));
+        test(Gas::from(5), Gas::from(5), false, Err(HostError::GasLimitExceeded));
+        test(Gas::from(5), Gas::from(5), true, Err(HostError::GasLimitExceeded));
+        test(Gas::from(7), Gas::from(5), false, Err(HostError::GasLimitExceeded));
+        test(Gas::from(7), Gas::from(5), true, Err(HostError::GasLimitExceeded));
 
-        test(5, 8, false, Err(HostError::GasLimitExceeded));
-        test(5, 8, true, Err(HostError::GasLimitExceeded));
-        test(8, 5, false, Err(HostError::GasExceeded));
-        test(8, 5, true, Ok(()));
+        test(Gas::from(5), Gas::from(8), false, Err(HostError::GasLimitExceeded));
+        test(Gas::from(5), Gas::from(8), true, Err(HostError::GasLimitExceeded));
+        test(Gas::from(8), Gas::from(5), false, Err(HostError::GasExceeded));
+        test(Gas::from(8), Gas::from(5), true, Ok(()));
     }
 }

@@ -12,7 +12,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::combine_hash;
 use near_primitives::test_utils::account_new;
 use near_primitives::transaction::{Action, SignedTransaction, Transaction, TransferAction};
-use near_primitives::types::{EpochId, StateRoot};
+use near_primitives::types::{EpochId, Gas, StateRoot};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives_core::types::MerkleHash;
@@ -37,7 +37,8 @@ fn create_transaction() -> SignedTransaction {
 }
 
 fn create_block() -> Block {
-    let genesis_chunks = genesis_chunks(vec![StateRoot::new()], 1, 1_000, 0, PROTOCOL_VERSION);
+    let genesis_chunks =
+        genesis_chunks(vec![StateRoot::new()], 1, Gas::from(1_000), 0, PROTOCOL_VERSION);
     let genesis = Block::genesis(
         PROTOCOL_VERSION,
         genesis_chunks.into_iter().map(|chunk| chunk.take_header()).collect(),

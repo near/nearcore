@@ -57,7 +57,7 @@ use near_primitives::time::Utc;
 use near_primitives::time::{Clock, Instant};
 use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, BlockHeightDelta, EpochId, NumBlocks, NumSeats, ShardId,
+    AccountId, Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, NumBlocks, NumSeats, ShardId,
 };
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
@@ -205,7 +205,7 @@ pub fn setup(
     let chain_genesis = ChainGenesis {
         time: genesis_time,
         height: 0,
-        gas_limit: 1_000_000,
+        gas_limit: Gas::from(1_000_000),
         min_gas_price: 100,
         max_gas_price: 1_000_000_000,
         total_supply: 3_000_000_000_000_000_000_000_000_000_000_000,
@@ -291,7 +291,7 @@ pub fn setup_only_view(
     let chain_genesis = ChainGenesis {
         time: genesis_time,
         height: 0,
-        gas_limit: 1_000_000,
+        gas_limit: Gas::from(1_000_000),
         min_gas_price: 100,
         max_gas_price: 1_000_000_000,
         total_supply: 3_000_000_000_000_000_000_000_000_000_000_000,
@@ -1715,7 +1715,7 @@ impl TestEnv {
         let actions = vec![Action::FunctionCall(FunctionCallAction {
             method_name: "main".to_string(),
             args: vec![],
-            gas: 3 * 10u64.pow(14),
+            gas: Gas::from(3 * 10u64.pow(14)),
             deposit: 0,
         })];
         let tx = self.tx_from_actions(actions, &signer, signer.account_id.clone());

@@ -695,6 +695,7 @@ mod tests {
     use near_actix_test_utils::run_actix;
     use near_client::test_utils::setup_no_network;
     use near_primitives::runtime::config::RuntimeConfig;
+    use near_primitives::types::Gas;
     use near_primitives::views::RuntimeConfigView;
 
     #[test]
@@ -866,7 +867,7 @@ mod tests {
             vec![near_primitives::transaction::FunctionCallAction {
                 method_name: "method-name".parse().unwrap(),
                 args: b"args".to_vec(),
-                gas: 100500,
+                gas: Gas::from(100500),
                 deposit: 0,
             }
             .into()];
@@ -874,7 +875,7 @@ mod tests {
             vec![near_primitives::transaction::FunctionCallAction {
                 method_name: "method-name".parse().unwrap(),
                 args: b"args".to_vec(),
-                gas: 100500,
+                gas: Gas::from(100500),
                 deposit: near_primitives::types::Balance::MAX,
             }
             .into()];

@@ -390,23 +390,24 @@ impl ReceiptManager {
 
             // Operation cannot overflow because the amount of assigned gas is a fraction of
             // the unused gas and is using floor division.
-            *gas += assigned_gas;
+            *gas = gas.saturating_add(assigned_gas);
         };
 
-        let mut distributed = 0;
+        let mut distributed = Gas::from(0);
         for (action_index, GasWeight(weight)) in &self.gas_weights {
             // Multiplication is done in u128 with max values of u64::MAX so this cannot overflow.
             // Division result can be truncated to 64 bits because gas_weight_sum >= weight.
-            let assigned_gas = (unused_gas as u128 * *weight as u128 / gas_weight_sum) as u64;
+            let assigned_gas =
+                Gas::from((unused_gas.get() as u128 * *weight as u128 / gas_weight_sum) as u64);
 
-            distribute_gas(action_index, assigned_gas as u64);
+            distribute_gas(action_index, assigned_gas);
 
-            distributed += assigned_gas
+            distributed = distributed.saturating_add(assigned_gas)
         }
 
         // Distribute remaining gas to final action.
         if let Some((last_idx, _)) = self.gas_weights.last() {
-            distribute_gas(last_idx, unused_gas - distributed);
+            distribute_gas(last_idx, unused_gas.saturating_sub(distributed));
         }
         self.gas_weights.clear();
         GasDistribution::All

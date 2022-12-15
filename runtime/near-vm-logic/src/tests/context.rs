@@ -1,3 +1,5 @@
+use near_primitives::types::Gas;
+
 use crate::tests::vm_logic_builder::VMLogicBuilder;
 use crate::VMContext;
 
@@ -15,7 +17,7 @@ pub fn create_context() -> VMContext {
         account_locked_balance: 1u128,
         storage_usage: 12,
         attached_deposit: 2u128,
-        prepaid_gas: 10_u64.pow(14),
+        prepaid_gas: Gas::from(10_u64.pow(14)),
         random_seed: vec![0, 1, 2],
         view_config: None,
         output_data_receivers: vec![],

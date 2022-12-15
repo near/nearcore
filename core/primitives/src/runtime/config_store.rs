@@ -110,6 +110,7 @@ mod tests {
         LowerDataReceiptAndEcrecoverBaseCost, LowerStorageCost, LowerStorageKeyLimit,
     };
     use near_primitives_core::config::{ActionCosts, ExtCosts};
+    use near_primitives_core::types::Gas;
 
     const GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
     const RECEIPTS_DEPTH: u64 = 63;
@@ -119,8 +120,8 @@ mod tests {
         let store = RuntimeConfigStore::new(None);
         for (protocol_version, config) in store.store.iter() {
             assert!(
-                config.wasm_config.limit_config.max_total_prepaid_gas
-                    / config.fees.min_receipt_with_function_call_gas()
+                config.wasm_config.limit_config.max_total_prepaid_gas.get()
+                    / config.fees.min_receipt_with_function_call_gas().get()
                     <= 63,
                 "The maximum desired depth of receipts for protocol version {} should be at most {}",
                 protocol_version,
@@ -182,7 +183,10 @@ mod tests {
         let config = store.get_config(LowerStorageCost.protocol_version());
         assert_eq!(base_config.storage_amount_per_byte(), 100_000_000_000_000_000_000u128);
         assert_eq!(config.storage_amount_per_byte(), 10_000_000_000_000_000_000u128);
-        assert_eq!(config.fees.fee(ActionCosts::new_data_receipt_base).send_sir, 4_697_339_419_375);
+        assert_eq!(
+            config.fees.fee(ActionCosts::new_data_receipt_base).send_sir,
+            Gas::from(4_697_339_419_375)
+        );
         assert_ne!(config.as_ref(), &base_config);
         assert_ne!(
             config.as_ref(),
@@ -197,7 +201,10 @@ mod tests {
         assert_eq!(**config, expected_config);
 
         let config = store.get_config(LowerDataReceiptAndEcrecoverBaseCost.protocol_version());
-        assert_eq!(config.fees.fee(ActionCosts::new_data_receipt_base).send_sir, 36_486_732_312);
+        assert_eq!(
+            config.fees.fee(ActionCosts::new_data_receipt_base).send_sir,
+            Gas::from(36_486_732_312)
+        );
         let expected_config = {
             let second_diff = CONFIG_DIFFS[1].1.parse().unwrap();
             base_params.apply_diff(second_diff).unwrap();

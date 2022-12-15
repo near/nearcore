@@ -1,4 +1,5 @@
 use crate::{VMContext, VMLimitConfig};
+use near_primitives::types::Gas;
 use near_primitives_core::config::ViewConfig;
 
 pub fn get_context(input: Vec<u8>, is_view: bool) -> VMContext {
@@ -15,7 +16,7 @@ pub fn get_context(input: Vec<u8>, is_view: bool) -> VMContext {
         storage_usage: 0,
         account_locked_balance: 0,
         attached_deposit: 10,
-        prepaid_gas: 10_u64.pow(14),
+        prepaid_gas: Gas::from(10_u64.pow(14)),
         random_seed: vec![],
         view_config: match is_view {
             true => Some(ViewConfig { max_gas_burnt: VMLimitConfig::test().max_gas_burnt }),
