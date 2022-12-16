@@ -53,6 +53,7 @@ steps:
       source ~/.cargo/env && set -eux
       cargo install cargo-nextest
       cargo nextest run --workspace --features nightly,test_features,mock_node -p '*' --exclude 'integration-tests*'
+      cargo test --doc
 
     timeout: 60
     agents:
