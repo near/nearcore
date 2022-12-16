@@ -4148,8 +4148,10 @@ that pass without the change that is being tested.</li>
 <li>The general rule of thumb for a reviewer is to first review the tests, and
 ensure that they can convince themselves that the code change that passes the
 tests must be correct. Only then the code should be reviewed.</li>
-<li>Have the assertions in the tests as specific as possible. For example, do not
-do <code>assert!(result.is_err())</code>, expect the specific error instead.</li>
+<li>Have the assertions in the tests as specific as possible,
+however do not make the tests change-detectors of the concrete implementation.
+(assert only properties which are required for correctness).
+For example, do not do <code>assert!(result.is_err())</code>, expect the specific error instead.</li>
 </ol>
 <h1 id="tests-hierarchy"><a class="header" href="#tests-hierarchy">Tests hierarchy</a></h1>
 <p>In NEAR Reference Client we largely split tests into three categories:</p>
@@ -4157,9 +4159,10 @@ do <code>assert!(result.is_err())</code>, expect the specific error instead.</li
 <li>Relatively cheap sanity or fast fuzz tests. It includes all the <code>#[test]</code>
 Rust tests not decorated by features. Our repo is configured in such a way
 that all such tests are ran on every PR, and failing at least one of them is
-blocking the PR from being pushed.</li>
+blocking the PR from being merged.</li>
 </ol>
-<p>To run such tests locally run <code>cargo test --all</code></p>
+<p>To run such tests locally run <code>cargo nextest run --all</code>.
+It requires nextest harness which can be installed by running <code>cargo install cargo-nextest</code> first.</p>
 <ol start="2">
 <li>Expensive tests. This includes all the fuzzy tests that run many iterations,
 as well as tests that spin up multiple nodes and run them until they reach a
@@ -4167,9 +4170,9 @@ certain condition. Such tests are decorated with
 <code>#[cfg(feature=&quot;expensive-tests&quot;)]</code>. It is not trivial to enable features
 that are not declared in the top level crate, and thus the easiest way to run
 such tests is to enable all the features by passing <code>--all-features</code> to
-<code>cargo test</code>, e.g:</li>
+<code>cargo nextest run</code>, e.g:</li>
 </ol>
-<p><code>cargo test --package near-client --test cross_shard_tx tests::test_cross_shard_tx --all-features</code></p>
+<p><code>cargo nextest run --package near-client --test cross_shard_tx tests::test_cross_shard_tx --all-features</code></p>
 <ol start="3">
 <li>Python tests. We have an infrastructure to spin up nodes, both locally and
 remotely, in python, and interact with them using RPC. The infrastructure and
