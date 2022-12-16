@@ -1,5 +1,4 @@
 use crate::network_protocol::PeerInfo;
-use crate::types::ReasonForBan;
 use crate::types::{
     MsgRecipient, NetworkInfo, NetworkResponses, PeerManagerMessageRequest,
     PeerManagerMessageResponse, SetChainInfo,
@@ -251,35 +250,6 @@ impl Handler<WithSpanContext<StopSignal>> for PeerManagerActor {
         } else {
             ctx.stop();
         }
-    }
-}
-
-/// Ban peer for unit tests.
-/// Calls `try_ban_peer` in `PeerManagerActor`.
-#[derive(Message)]
-#[rtype(result = "()")]
-pub struct BanPeerSignal {
-    pub peer_id: PeerId,
-    pub ban_reason: ReasonForBan,
-}
-
-impl BanPeerSignal {
-    pub fn new(peer_id: PeerId) -> Self {
-        Self { peer_id, ban_reason: ReasonForBan::None }
-    }
-}
-
-impl Handler<WithSpanContext<BanPeerSignal>> for PeerManagerActor {
-    type Result = ();
-
-    fn handle(
-        &mut self,
-        msg: WithSpanContext<BanPeerSignal>,
-        _ctx: &mut Self::Context,
-    ) -> Self::Result {
-        let (_span, msg) = handler_debug_span!(target: "network", msg);
-        debug!(target: "network", "Ban peer: {:?}", msg.peer_id);
-        self.state.disconnect_and_ban(&self.clock, &msg.peer_id, msg.ban_reason);
     }
 }
 
