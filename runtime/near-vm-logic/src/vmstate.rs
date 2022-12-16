@@ -181,3 +181,116 @@ impl Registers {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::Registers;
+
+    use crate::gas_counter::GasCounter;
+
+    use near_primitives_core::config::{ExtCostsConfig, VMLimitConfig};
+    use near_vm_errors::HostError;
+
+    struct RegistersTestContext {
+        gas: GasCounter,
+        cfg: VMLimitConfig,
+        regs: Registers,
+    }
+
+    impl RegistersTestContext {
+        fn new() -> Self {
+            let costs = ExtCostsConfig::test();
+            Self {
+                gas: GasCounter::new(costs, u64::MAX, 0, u64::MAX, false),
+                cfg: VMLimitConfig::test(),
+                regs: Default::default(),
+            }
+        }
+
+        #[track_caller]
+        fn assert_set_success(&mut self, register_id: u64, value: &str) {
+            self.regs.set(&mut self.gas, &self.cfg, register_id, value.as_bytes()).unwrap();
+            self.assert_read(register_id, Some(value));
+        }
+
+        #[track_caller]
+        fn assert_set_failure(&mut self, register_id: u64, value: &str) {
+            let want = Err(HostError::MemoryAccessViolation.into());
+            let got = self.regs.set(&mut self.gas, &self.cfg, register_id, value.as_bytes());
+            assert_eq!(want, got);
+        }
+
+        #[track_caller]
+        fn assert_read(&mut self, register_id: u64, value: Option<&str>) {
+            if let Some(value) = value {
+                assert_eq!(Ok(value.as_bytes()), self.regs.get(&mut self.gas, register_id));
+                assert_eq!(Some(value.len() as u64), self.regs.get_len(register_id));
+            } else {
+                let err = HostError::InvalidRegisterId { register_id }.into();
+                assert_eq!(Err(err), self.regs.get(&mut self.gas, register_id));
+                assert_eq!(None, self.regs.get_len(register_id));
+            }
+        }
+
+        #[track_caller]
+        fn assert_used_gas(&self, gas: u64) {
+            assert_eq!((gas, gas), (self.gas.burnt_gas(), self.gas.used_gas()));
+        }
+    }
+
+    /// Tests basic setting and reading of registers.
+    #[test]
+    fn registers_set() {
+        let mut ctx = RegistersTestContext::new();
+        ctx.assert_read(42, None);
+        ctx.assert_read(24, None);
+        ctx.assert_set_success(42, "foo");
+        ctx.assert_read(24, None);
+        ctx.assert_used_gas(5394388050);
+    }
+
+    /// Tests limit on number of registers.
+    #[test]
+    fn registers_max_number_limit() {
+        let mut ctx = RegistersTestContext::new();
+        ctx.cfg.max_number_registers = 2;
+
+        ctx.assert_set_success(42, "foo");
+        ctx.assert_set_success(24, "bar");
+
+        // max_number_registers is 2 so cannot set third register
+        ctx.assert_set_failure(12, "baz");
+
+        // Due to historical bug, changing a register is not possible either
+        // once limit is reached:
+        ctx.assert_set_failure(42, "O_o");
+        ctx.assert_set_failure(24, "O_o");
+
+        ctx.assert_used_gas(19419557634);
+    }
+
+    /// Tests limit on a size of a single register.
+    #[test]
+    fn registers_register_size_limit() {
+        let mut ctx = RegistersTestContext::new();
+        ctx.cfg.max_register_size = 3;
+        ctx.assert_set_success(42, "foo");
+        ctx.assert_set_failure(24, "quux");
+        ctx.assert_used_gas(8275116792);
+    }
+
+    /// Tests limit on total memory usage.
+    #[test]
+    fn registers_usage_limit() {
+        let mut ctx = RegistersTestContext::new();
+        ctx.cfg.registers_memory_limit = 11;
+        ctx.assert_set_success(42, "foo");
+        // Replacing value is fine.
+        ctx.assert_set_success(42, "bar");
+        ctx.assert_set_success(42, "");
+        ctx.assert_set_success(42, "baz");
+        // But three bytes is a limit (usage is sizeof(u64) + data.len()).
+        ctx.assert_set_failure(42, "quux");
+        ctx.assert_used_gas(24446580564);
+    }
+}
