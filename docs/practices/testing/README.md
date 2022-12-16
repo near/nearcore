@@ -11,8 +11,10 @@
 4. The general rule of thumb for a reviewer is to first review the tests, and
    ensure that they can convince themselves that the code change that passes the
    tests must be correct. Only then the code should be reviewed.
-5. Have the assertions in the tests as specific as possible. For example, do not
-   do `assert!(result.is_err())`, expect the specific error instead.
+5. Have the assertions in the tests as specific as possible,
+   however do not make the tests change-detectors of the concrete implementation.
+   (assert only properties which are required for correctness).
+   For example, do not do `assert!(result.is_err())`, expect the specific error instead.
 
 # Tests hierarchy
 
@@ -21,9 +23,10 @@ In NEAR Reference Client we largely split tests into three categories:
 1. Relatively cheap sanity or fast fuzz tests. It includes all the `#[test]`
    Rust tests not decorated by features. Our repo is configured in such a way
    that all such tests are ran on every PR, and failing at least one of them is
-   blocking the PR from being pushed.
+   blocking the PR from being merged.
 
-To run such tests locally run `cargo test --all`
+To run such tests locally run `cargo nextest run --all`.
+It requires nextest harness which can be installed by running `cargo install cargo-nextest` first.
 
 2. Expensive tests. This includes all the fuzzy tests that run many iterations,
    as well as tests that spin up multiple nodes and run them until they reach a
@@ -31,9 +34,9 @@ To run such tests locally run `cargo test --all`
    `#[cfg(feature="expensive-tests")]`. It is not trivial to enable features
    that are not declared in the top level crate, and thus the easiest way to run
    such tests is to enable all the features by passing `--all-features` to
-   `cargo test`, e.g:
+   `cargo nextest run`, e.g:
 
-`cargo test --package near-client --test cross_shard_tx
+`cargo nextest run --package near-client --test cross_shard_tx
 tests::test_cross_shard_tx --all-features`
 
 3. Python tests. We have an infrastructure to spin up nodes, both locally and
