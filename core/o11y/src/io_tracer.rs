@@ -187,42 +187,45 @@ impl IoTraceLayer {
         event: &tracing::Event,
         ctx: tracing_subscriber::layer::Context<S>,
     ) {
+        struct FormatSize(Option<u64>);
+
+        impl std::fmt::Display for FormatSize {
+            fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                self.0.map_or(Ok(()), |size| write!(fmt, " size={size}"))
+            }
+        }
+
         let mut visitor = IoEventVisitor::default();
         event.record(&mut visitor);
         match visitor.t {
             Some(IoEventType::DbOp(db_op)) => {
-                let col = visitor.col.as_deref().unwrap_or("?");
-                let key = visitor.key.as_deref().unwrap_or("?");
-                let formatted_size = if let Some(size) = visitor.size {
-                    format!(" size={size}")
-                } else {
-                    String::new()
-                };
-                let output_line = format!("{db_op} {col} {key:?}{formatted_size}");
-                if let Some(span) = ctx.event_span(event) {
-                    span.extensions_mut()
-                        .get_mut::<OutputBuffer>()
-                        .unwrap()
-                        .0
-                        .push(BufferedLine { indent: 2, output_line });
-                } else {
-                    // Print top level unbuffered.
-                    writeln!(self.make_writer.make_writer(), "{output_line}").unwrap();
-                }
+                (|output_line: std::fmt::Arguments| {
+                    if let Some(span) = ctx.event_span(event) {
+                        let output_line = output_line.to_string();
+                        span.extensions_mut()
+                            .get_mut::<OutputBuffer>()
+                            .unwrap()
+                            .0
+                            .push(BufferedLine { indent: 2, output_line });
+                    } else {
+                        // Print top level unbuffered.
+                        writeln!(self.make_writer.make_writer(), "{output_line}").unwrap();
+                    }
+                })(format_args!(
+                    "{db_op} {col} {key:?}{size}",
+                    col = visitor.col.as_deref().unwrap_or("?"),
+                    key = visitor.key.as_deref().unwrap_or("?"),
+                    size = FormatSize(visitor.size),
+                ));
             }
             Some(IoEventType::StorageOp(storage_op)) => {
-                let key = visitor.key.as_deref().unwrap_or("?");
-                let formatted_size = if let Some(size) = visitor.size {
-                    format!(" size={size}")
-                } else {
-                    String::new()
-                };
-                let tn_db_reads = visitor.tn_db_reads.unwrap();
-                let tn_mem_reads = visitor.tn_mem_reads.unwrap();
-
-                let span_info =
-                    format!("{storage_op} key={key}{formatted_size} tn_db_reads={tn_db_reads} tn_mem_reads={tn_mem_reads}");
-
+                let span_info = format!(
+                    "{storage_op} key={key}{size} tn_db_reads={tn_db_reads} tn_mem_reads={tn_mem_reads}",
+                    key = visitor.key.as_deref().unwrap_or("?"),
+                    tn_db_reads = visitor.tn_db_reads.unwrap(),
+                    tn_mem_reads = visitor.tn_mem_reads.unwrap(),
+                    size = FormatSize(visitor.size),
+                );
                 let span =
                     ctx.event_span(event).expect("storage operations must happen inside span");
                 span.extensions_mut().get_mut::<SpanInfo>().unwrap().key_values.push(span_info);
