@@ -90,10 +90,7 @@ impl NetworkState {
         // instead, however that would be backward incompatible, so it can be introduced in
         // PROTOCOL_VERSION 60 earliest.
         let (edges, ok) = self.graph.verify(edges).await;
-        let result = match ok {
-            true => Ok(()),
-            false => Err(ReasonForBan::InvalidEdge),
-        };
+        let result = if ok { Ok(()) } else { Err(ReasonForBan::InvalidEdge) };
         // Skip recomputation if no new edges have been verified.
         if edges.len() == 0 {
             return result;

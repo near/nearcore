@@ -603,32 +603,30 @@ impl ShardsManager {
                 continue;
             }
 
-            let need_to_fetch_part = if request_full || seal.contains_part_ord(&part_ord) {
-                true
+            let need_to_fetch_part = request_full || seal.contains_part_ord(&part_ord) || {
+                match me {
+                    Some(me) => &self.runtime_adapter.get_part_owner(&epoch_id, part_ord)? == me,
+                    None => false,
+                }
+            };
+            if !need_to_fetch_part {
+                continue;
+            }
+
+            let fetch_from = if request_from_archival {
+                shard_representative_target.clone()
             } else {
-                if let Some(me) = me {
-                    &self.runtime_adapter.get_part_owner(&epoch_id, part_ord)? == me
+                let part_owner = self.runtime_adapter.get_part_owner(&epoch_id, part_ord)?;
+
+                if Some(&part_owner) == me {
+                    // If missing own part, request it from the chunk producer / node tracking shard
+                    shard_representative_target.clone()
                 } else {
-                    false
+                    Some(part_owner)
                 }
             };
 
-            if need_to_fetch_part {
-                let fetch_from = if request_from_archival {
-                    shard_representative_target.clone()
-                } else {
-                    let part_owner = self.runtime_adapter.get_part_owner(&epoch_id, part_ord)?;
-
-                    if Some(&part_owner) == me {
-                        // If missing own part, request it from the chunk producer / node tracking shard
-                        shard_representative_target.clone()
-                    } else {
-                        Some(part_owner)
-                    }
-                };
-
-                bp_to_parts.entry(fetch_from).or_default().push(part_ord);
-            }
+            bp_to_parts.entry(fetch_from).or_default().push(part_ord);
         }
 
         let shards_to_fetch_receipts =
