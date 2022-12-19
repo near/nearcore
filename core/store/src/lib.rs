@@ -51,6 +51,7 @@ pub mod migrations;
 mod opener;
 pub mod test_utils;
 mod trie;
+mod sync_utils;
 
 pub use crate::config::{Mode, StoreConfig};
 pub use crate::opener::{StoreMigrator, StoreOpener, StoreOpenerError};
