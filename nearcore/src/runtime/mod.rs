@@ -35,8 +35,6 @@ use near_primitives::state_part::PartId;
 use near_primitives::state_record::{state_record_to_account_id, StateRecord};
 use near_primitives::syncing::{get_num_state_parts, STATE_PART_MEMORY_LIMIT};
 use near_primitives::transaction::SignedTransaction;
-#[cfg(feature = "protocol_feature_flat_state")]
-use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_raw_key;
 use near_primitives::types::validator_stake::ValidatorStakeIter;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, CompiledContractCache, EpochHeight, EpochId,

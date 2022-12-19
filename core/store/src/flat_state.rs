@@ -276,6 +276,7 @@ mod imp {
     use crate::flat_state::FlatStorageState;
     use crate::{Store, StoreUpdate};
     use near_primitives::hash::CryptoHash;
+    use near_primitives::shard_layout::ShardLayout;
     use near_primitives::types::ShardId;
 
     /// Since this has no variants it can never be instantiated.
@@ -423,7 +424,9 @@ impl FlatStateDelta {
 }
 
 use near_primitives::errors::StorageError;
-use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout};
+#[cfg(feature = "protocol_feature_flat_state")]
+use near_primitives::shard_layout::account_id_to_shard_id;
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_raw_key;
 use std::sync::{Arc, RwLock};
 #[cfg(feature = "protocol_feature_flat_state")]
