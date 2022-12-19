@@ -67,7 +67,7 @@ fn do_fork(
             .get_next_epoch_id_from_prev_block(prev_block.hash())
             .expect("block must exist");
         let block = if next_epoch_id == *prev_block.header().next_epoch_id() {
-            Block::empty(&prev_block, &*signer)
+            TestBlockBuilder::new(&prev_block, signer.clone()).build()
         } else {
             let prev_hash = prev_block.hash();
             let epoch_id = prev_block.header().next_epoch_id().clone();

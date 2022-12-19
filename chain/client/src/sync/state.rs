@@ -892,13 +892,13 @@ mod test {
 
     use actix::System;
     use near_actix_test_utils::run_actix;
-    use near_chain::{test_utils::process_block_sync, Block, BlockProcessingArtifact, Provenance};
+    use near_chain::{test_utils::process_block_sync, BlockProcessingArtifact, Provenance};
 
     use near_epoch_manager::EpochManagerAdapter;
     use near_network::test_utils::MockPeerManagerAdapter;
     use near_primitives::{
-        merkle::PartialMerkleTree,
         syncing::{ShardStateSyncResponseHeader, ShardStateSyncResponseV2},
+        test_utils::TestBlockBuilder,
         types::EpochId,
     };
 
@@ -919,17 +919,13 @@ mod test {
         for _ in 0..(chain.epoch_length + 1) {
             let prev = chain.get_block(&chain.head().unwrap().last_block_hash).unwrap();
             let block = if kv.is_next_block_epoch_start(prev.hash()).unwrap() {
-                Block::empty_with_epoch(
-                    &prev,
-                    prev.header().height() + 1,
-                    prev.header().next_epoch_id().clone(),
-                    EpochId { 0: *prev.hash() },
-                    *prev.header().next_bp_hash(),
-                    &*signer,
-                    &mut PartialMerkleTree::default(),
-                )
+                TestBlockBuilder::new(&prev, signer.clone())
+                    .epoch_id(prev.header().next_epoch_id().clone())
+                    .next_epoch_id(EpochId { 0: *prev.hash() })
+                    .next_bp_hash(*prev.header().next_bp_hash())
+                    .build()
             } else {
-                Block::empty(&prev, &*signer)
+                TestBlockBuilder::new(&prev, signer.clone()).build()
             };
 
             process_block_sync(
