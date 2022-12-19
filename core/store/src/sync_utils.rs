@@ -5,7 +5,7 @@ const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
 /// A convenience wrapper around a SharedMutex and a Condvar.
 ///
-/// It enables blocking while waiting for the underlying value to be updated. 
+/// It enables blocking while waiting for the underlying value to be updated.
 /// The implementation ensures that any modification results in all blocked
 /// threads being notified.
 pub(crate) struct Monitor<T> {
@@ -14,7 +14,7 @@ pub(crate) struct Monitor<T> {
 }
 
 pub(crate) struct MonitorReadGuard<'a, T> {
-    guard: MutexGuard<'a, T>
+    guard: MutexGuard<'a, T>,
 }
 
 pub(crate) struct MonitorWriteGuard<'a, T> {
@@ -39,11 +39,11 @@ impl<T> Monitor<T> {
 
     pub fn wait<'a>(&'a self, guard: MonitorReadGuard<'a, T>) -> MonitorReadGuard<'a, T> {
         let guard = self.cvar.wait(guard.guard).expect(POISONED_LOCK_ERR);
-        MonitorReadGuard{ guard }
+        MonitorReadGuard { guard }
     }
 }
 
-impl <T> Deref for MonitorReadGuard<'_, T> {
+impl<T> Deref for MonitorReadGuard<'_, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -65,7 +65,7 @@ impl<T> DerefMut for MonitorWriteGuard<'_, T> {
     }
 }
 
-impl <T> Drop for MonitorWriteGuard<'_, T> {
+impl<T> Drop for MonitorWriteGuard<'_, T> {
     fn drop(&mut self) {
         self.cvar.notify_all();
     }
