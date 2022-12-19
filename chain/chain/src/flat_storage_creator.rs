@@ -33,6 +33,7 @@ use near_store::{Trie, TrieDBStorage, TrieTraversalItem};
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 use tracing::debug;
+#[cfg(feature = "protocol_feature_flat_state")]
 use tracing::info;
 
 /// If we launched a node with enabled flat storage but it doesn't have flat storage data on disk, we have to create it.

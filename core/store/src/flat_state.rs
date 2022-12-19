@@ -324,6 +324,7 @@ mod imp {
         pub fn remove_flat_storage_state_for_shard(
             &self,
             _shard_id: ShardId,
+            _shard_layout: ShardLayout,
         ) -> Option<FlatStorageState> {
             None
         }
