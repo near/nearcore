@@ -1,5 +1,6 @@
 #![no_std]
 #![allow(non_snake_case)]
+#![allow(clippy::all)]
 
 #[panic_handler]
 #[no_mangle]
