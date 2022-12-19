@@ -604,7 +604,7 @@ mod tests {
         // result in any flakiness since the test would still pass if we don't
         // sleep enough, it just won't verify the the synchronization part of
         // `blocking_get`.
-        std::thread::sleep(Duration::from_micros(1000));
+        std::thread::sleep(Duration::from_millis(1));
         assert!(!handle.is_finished());
         prefetch_staging_area.insert_fetched(key, value.clone());
 
