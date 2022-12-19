@@ -275,6 +275,7 @@ mod imp {
 mod imp {
     use crate::flat_state::FlatStorageState;
     use crate::{Store, StoreUpdate};
+    use near_primitives::errors::StorageError;
     use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::ShardLayout;
     use near_primitives::types::ShardId;
