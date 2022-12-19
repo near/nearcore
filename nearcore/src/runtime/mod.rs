@@ -733,46 +733,10 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn remove_flat_storage_state_for_shard(
         &self,
         shard_id: ShardId,
-        #[allow(unused)] epoch_id: &EpochId,
+        epoch_id: &EpochId,
     ) -> Result<(), Error> {
-        match self.flat_state_factory.remove_flat_storage_state_for_shard(shard_id) {
-            None => {}
-            Some(_) => {
-                #[cfg(feature = "protocol_feature_flat_state")]
-                {
-                    // If flat storage state existed, remove all items belonging to the shard one by one.
-                    // Note that it does not work for resharding.
-                    // TODO (#7327): call it just after we stopped tracking a shard.
-                    // TODO (#7327): remove FlatStateDeltas. Consider custom serialization of keys to remove them by
-                    // prefix.
-                    // TODO (#7327): support range deletions which are much faster than naive deletions. For that, we
-                    // can delete ranges of keys like
-                    // [ [0]+boundary_accounts(shard_id) .. [0]+boundary_accounts(shard_id+1) ), etc.
-                    // We should also take fixed accounts into account
-                    let shard_layout = self.get_shard_layout(epoch_id)?;
-                    let mut store_update = self.store.store_update();
-                    let mut removed_items = 0;
-                    for item in self.store.iter(DBCol::FlatState) {
-                        let (key, _) = item?;
-                        let account_id = parse_account_id_from_raw_key(&key)?.ok_or(
-                            Error::StorageError(StorageError::FlatStorageError(format!(
-                                "Failed to find account id in flat storage key {:?}",
-                                key
-                            ))),
-                        )?;
-                        if account_id_to_shard_id(&account_id, &shard_layout) == shard_id {
-                            removed_items += 1;
-                            store_update.delete(DBCol::FlatState, &key);
-                        }
-                    }
-                    info!(target: "chain", %shard_id, %removed_items, "Removing old items from flat storage");
-
-                    store_helper::remove_flat_head(&mut store_update, shard_id);
-                    store_update.commit()?;
-                }
-            }
-        }
-
+        let shard_layout = self.get_shard_layout(epoch_id)?;
+        self.flat_state_factory.remove_flat_storage_state_for_shard(shard_id, shard_layout)?;
         Ok(())
     }
 

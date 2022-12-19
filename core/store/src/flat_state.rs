@@ -54,7 +54,9 @@ impl From<FlatStorageError> for StorageError {
 #[cfg(feature = "protocol_feature_flat_state")]
 mod imp {
     use crate::flat_state::{store_helper, FlatStorageState, POISONED_LOCK_ERR};
+    use near_primitives::errors::StorageError;
     use near_primitives::hash::CryptoHash;
+    use near_primitives::shard_layout::ShardLayout;
     use near_primitives::state::ValueRef;
     use near_primitives::types::ShardId;
     use std::collections::HashMap;
@@ -252,10 +254,19 @@ mod imp {
         pub fn remove_flat_storage_state_for_shard(
             &self,
             shard_id: ShardId,
-        ) -> Option<FlatStorageState> {
+            shard_layout: ShardLayout,
+        ) -> Result<(), StorageError> {
             let mut flat_storage_states =
                 self.0.flat_storage_states.lock().expect(POISONED_LOCK_ERR);
-            flat_storage_states.remove(&shard_id)
+
+            match flat_storage_states.remove(&shard_id) {
+                None => {}
+                Some(flat_storage_state) => {
+                    flat_storage_state.clear_state(shard_layout)?;
+                }
+            }
+
+            Ok(())
         }
     }
 }
@@ -411,6 +422,8 @@ impl FlatStateDelta {
 }
 
 use near_primitives::errors::StorageError;
+use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout};
+use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_raw_key;
 use std::sync::{Arc, RwLock};
 #[cfg(feature = "protocol_feature_flat_state")]
 use tracing::info;
@@ -939,6 +952,47 @@ impl FlatStorageState {
     ) -> Result<StoreUpdate, FlatStorageError> {
         panic!("not implemented")
     }
+
+    /// Clears all State key-value pairs from flat storage.
+    #[cfg(feature = "protocol_feature_flat_state")]
+    pub fn clear_state(&self, shard_layout: ShardLayout) -> Result<(), StorageError> {
+        let guard = self.0.write().expect(POISONED_LOCK_ERR);
+        let shard_id = guard.shard_id;
+
+        // Removes all items belonging to the shard one by one.
+        // Note that it does not work for resharding.
+        // TODO (#7327): call it just after we stopped tracking a shard.
+        // TODO (#7327): remove FlatStateDeltas. Consider custom serialization of keys to remove them by
+        // prefix.
+        // TODO (#7327): support range deletions which are much faster than naive deletions. For that, we
+        // can delete ranges of keys like
+        // [ [0]+boundary_accounts(shard_id) .. [0]+boundary_accounts(shard_id+1) ), etc.
+        // We should also take fixed accounts into account.
+        let mut store_update = guard.store.store_update();
+        let mut removed_items = 0;
+        for item in guard.store.iter(crate::DBCol::FlatState) {
+            let (key, _) =
+                item.map_err(|e| StorageError::StorageInconsistentState(e.to_string()))?;
+            let account_id = parse_account_id_from_raw_key(&key)
+                .map_err(|e| StorageError::StorageInconsistentState(e.to_string()))?
+                .ok_or(StorageError::FlatStorageError(format!(
+                    "Failed to find account id in flat storage key {:?}",
+                    key
+                )))?;
+            if account_id_to_shard_id(&account_id, &shard_layout) == shard_id {
+                removed_items += 1;
+                store_update.delete(crate::DBCol::FlatState, &key);
+            }
+        }
+        info!(target: "chain", %shard_id, %removed_items, "Removing old items from flat storage");
+
+        store_helper::remove_flat_head(&mut store_update, shard_id);
+        store_update.commit().map_err(|_| StorageError::StorageInternalError)?;
+        Ok(())
+    }
+
+    #[cfg(not(feature = "protocol_feature_flat_state"))]
+    pub fn clear_state(&self, _shard_layout: ShardLayout) {}
 }
 
 #[cfg(test)]
