@@ -326,7 +326,7 @@ mod imp {
             &self,
             _shard_id: ShardId,
             _shard_layout: ShardLayout,
-        ) -> Option<FlatStorageState> {
+        ) -> Result<(), StorageError> {
             None
         }
 
@@ -427,6 +427,7 @@ use near_primitives::errors::StorageError;
 #[cfg(feature = "protocol_feature_flat_state")]
 use near_primitives::shard_layout::account_id_to_shard_id;
 use near_primitives::shard_layout::ShardLayout;
+#[cfg(feature = "protocol_feature_flat_state")]
 use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_raw_key;
 use std::sync::{Arc, RwLock};
 #[cfg(feature = "protocol_feature_flat_state")]
