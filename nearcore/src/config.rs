@@ -67,27 +67,6 @@ pub const MIN_BLOCK_PRODUCTION_DELAY: u64 = 600;
 /// Maximum time to delay block production without approvals is ms.
 pub const MAX_BLOCK_PRODUCTION_DELAY: u64 = 2_000;
 
-/// Maximum time until skipping the previous block is ms.
-pub const MAX_BLOCK_WAIT_DELAY: u64 = 6_000;
-
-/// Reduce wait time for every missing block in ms.
-const REDUCE_DELAY_FOR_MISSING_BLOCKS: u64 = 100;
-
-/// Horizon at which instead of fetching block, fetch full state.
-const BLOCK_FETCH_HORIZON: BlockHeightDelta = 50;
-
-/// Horizon to step from the latest block when fetching state.
-const STATE_FETCH_HORIZON: NumBlocks = 5;
-
-/// Behind this horizon header fetch kicks in.
-const BLOCK_HEADER_FETCH_HORIZON: BlockHeightDelta = 50;
-
-/// Time between check to perform catchup.
-const CATCHUP_STEP_PERIOD: u64 = 100;
-
-/// Time between checking to re-request chunks.
-const CHUNK_REQUEST_RETRY_PERIOD: u64 = 400;
-
 /// Expected epoch length.
 pub const EXPECTED_EPOCH_LENGTH: BlockHeightDelta = (5 * 60 * 1000) / MIN_BLOCK_PRODUCTION_DELAY;
 

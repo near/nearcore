@@ -7,7 +7,7 @@ use actix_web;
 use anyhow::Context;
 use near_chain::{Chain, ChainGenesis};
 use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
-use near_dyn_configs::DynConfigStore;
+use near_dyn_configs::{DynConfigStore, DynConfigs};
 use near_network::time;
 use near_network::types::NetworkRecipient;
 use near_network::PeerManagerActor;
@@ -19,6 +19,7 @@ use near_telemetry::TelemetryActor;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use tokio::sync::broadcast;
+use tokio::sync::broadcast::Receiver;
 use tracing::{info, trace};
 
 pub mod append_only_map;
@@ -160,7 +161,7 @@ pub fn start_with_config(home_dir: &Path, mut config: NearConfig) -> anyhow::Res
     let storage = open_storage(home_dir, &mut config)?;
     let store = storage.get_store(Temperature::Hot);
     let dyn_configs_store = Arc::new(Mutex::new(DynConfigStore::default()));
-    start_with_config_and_synchronization(home_dir, config, None, store, dyn_configs_store)
+    start_with_config_and_synchronization(home_dir, config, None, store, dyn_configs_store, None)
 }
 
 pub fn start_with_config_and_synchronization(
@@ -171,6 +172,7 @@ pub fn start_with_config_and_synchronization(
     shutdown_signal: Option<broadcast::Sender<()>>,
     store: Store,
     dyn_configs_store: Arc<Mutex<DynConfigStore>>,
+    rx_dyn_configs: Option<Receiver<DynConfigs>>,
 ) -> anyhow::Result<NearNode> {
     let runtime = Arc::new(NightshadeRuntime::from_config(home_dir, store.clone(), &config));
 
@@ -205,6 +207,7 @@ pub fn start_with_config_and_synchronization(
         shutdown_signal,
         adv,
         dyn_configs_store.clone(),
+        rx_dyn_configs,
     );
 
     #[allow(unused_mut)]

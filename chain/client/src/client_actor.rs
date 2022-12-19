@@ -40,7 +40,7 @@ use near_chunks::logic::cares_about_shard_this_or_next_epoch;
 use near_client_primitives::types::{
     Error, GetNetworkInfo, NetworkInfoResponse, Status, StatusError, StatusSyncInfo, SyncStatus,
 };
-use near_dyn_configs::DynConfigStore;
+use near_dyn_configs::{DynConfig, DynConfigStore, DynConfigs};
 #[cfg(feature = "test_features")]
 use near_network::types::NetworkAdversarialMessage;
 use near_network::types::ReasonForBan;
@@ -72,6 +72,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
+use tokio::sync::broadcast::Receiver;
 use tracing::{debug, error, info, trace, warn};
 
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.
@@ -120,7 +121,10 @@ pub struct ClientActor {
     /// Informs the system when a ClientActor gets dropped.
     shutdown_signal: Option<broadcast::Sender<()>>,
 
-    dyn_configs_store: Arc<Mutex<DynConfigStore>>,
+    dyn_config: Arc<Mutex<Option<DynConfig>>>,
+    /// `rx_dyn_configs` is a way to get notified about the config being changed
+    /// when the node is running.
+    rx_dyn_configs: Option<Receiver<DynConfigs>>,
 }
 
 /// Blocks the program until given genesis time arrives.
@@ -159,6 +163,7 @@ impl ClientActor {
         shutdown_signal: Option<broadcast::Sender<()>>,
         adv: crate::adversarial::Controls,
         dyn_configs_store: Arc<Mutex<DynConfigStore>>,
+        rx_dyn_configs: Option<Receiver<DynConfigs>>,
     ) -> Result<Self, Error> {
         let state_parts_arbiter = Arbiter::new();
         let self_addr = ctx.address();
@@ -187,6 +192,10 @@ impl ClientActor {
         )?;
 
         let now = Utc::now();
+        let dyn_config = {
+            let dyn_configs_store = dyn_configs_store.lock().unwrap();
+            dyn_configs_store.dyn_config().cloned()
+        };
         Ok(ClientActor {
             adv,
             my_address: address,
@@ -227,8 +236,9 @@ impl ClientActor {
 
             #[cfg(feature = "sandbox")]
             fastforward_delta: 0,
-            shutdown_signal: shutdown_signal,
-            dyn_configs_store: dyn_configs_store.clone(),
+            shutdown_signal,
+            dyn_config: Arc::new(Mutex::new(dyn_config)),
+            rx_dyn_configs,
         })
     }
 }
@@ -696,15 +706,17 @@ impl Handler<WithSpanContext<Status>> for ClientActor {
         let head_header = self.client.chain.get_block_header(&head.last_block_hash)?;
         let latest_block_time = head_header.raw_timestamp();
         let latest_state_root = *head_header.prev_state_root();
+
+        let (max_block_production_delay, min_block_production_delay) = {
+            let consensus = self.client.config.consensus.lock().unwrap();
+            (consensus.max_block_production_delay, consensus.min_block_production_delay)
+        };
+
         if msg.is_health_check {
             let now = Utc::now();
             let block_timestamp = from_timestamp(latest_block_time);
             if now > block_timestamp {
                 let elapsed = (now - block_timestamp).to_std().unwrap();
-                let max_block_production_delay = {
-                    let consensus = self.client.config.consensus.lock().unwrap();
-                    consensus.max_block_production_delay
-                };
                 if elapsed
                     > Duration::from_millis(
                         max_block_production_delay.as_millis() as u64 * STATUS_WAIT_TIME_MULTIPLIER,
@@ -757,10 +769,6 @@ impl Handler<WithSpanContext<Status>> for ClientActor {
         // Provide more detailed information about the current state of chain.
         // For now - provide info about last 50 blocks.
         let detailed_debug_status = if msg.detailed {
-            let min_block_production_delay = {
-                let consensus = self.client.config.consensus.lock().unwrap();
-                consensus.min_block_production_delay
-            };
             Some(DetailedDebugStatus {
                 network_info: new_network_info_view(&self.client.chain, &self.network_info),
                 sync_status: format!(
@@ -1117,22 +1125,33 @@ impl ClientActor {
     }
 
     fn check_triggers(&mut self, ctx: &mut Context<ClientActor>) -> Duration {
+        // Check if any of the configs were updated. If they did, the receiver
+        // will contain a clone of the new configs.
+        self.rx_dyn_configs.as_mut().map(|rx_dyn_configs| {
+            while let Ok(dyn_configs) = rx_dyn_configs.try_recv() {
+                if let Some(consensus) = dyn_configs.consensus {
+                    *self.client.config.consensus.lock().unwrap() = consensus;
+                } else {
+                    tracing::warn!(target: "client", "Consensus config is missing, which is impossible");
+                }
+                *self.dyn_config.lock().unwrap() = dyn_configs.dyn_config;
+                tracing::info!(target: "client", "Updated Consensus and DynConfig");
+            }
+        });
         // There is a bug in Actix library. While there are messages in mailbox, Actix
         // will prioritize processing messages until mailbox is empty. Execution of any other task
         // scheduled with run_later will be delayed.
 
         // Check block height to trigger expected shutdown
         if let Ok(head) = self.client.chain.head() {
-            let dyn_configs_store = self.dyn_configs_store.lock().unwrap();
-            if let Some(block_height_to_shutdown) = dyn_configs_store
-                .dyn_config()
-                .map(|config| config.expected_shutdown)
-                .unwrap_or(None)
-            {
-                if head.height >= block_height_to_shutdown {
-                    info!(target: "client", "Expected shutdown triggered: head block({}) >= ({:?})", head.height, block_height_to_shutdown);
-                    if let Some(tx) = self.shutdown_signal.take() {
-                        let _ = tx.send(()); // Ignore send signal fail, it will send again in next trigger
+            let dyn_config = self.dyn_config.lock().unwrap();
+            if let Some(dyn_config) = &*dyn_config {
+                if let Some(block_height_to_shutdown) = dyn_config.expected_shutdown {
+                    if head.height >= block_height_to_shutdown {
+                        info!(target: "client", "Expected shutdown triggered: head block({}) >= ({:?})", head.height, block_height_to_shutdown);
+                        if let Some(tx) = self.shutdown_signal.take() {
+                            let _ = tx.send(()); // Ignore send signal fail, it will send again in next trigger
+                        }
                     }
                 }
             }
@@ -1146,6 +1165,20 @@ impl ClientActor {
         let now = Utc::now();
 
         let timer = metrics::CHECK_TRIGGERS_TIME.start_timer();
+        let (
+            doomslug_step_period,
+            block_production_tracking_delay,
+            max_block_production_delay,
+            chunk_request_retry_period,
+        ) = {
+            let consensus = self.client.config.consensus.lock().unwrap();
+            (
+                consensus.doomslug_step_period,
+                consensus.block_production_tracking_delay,
+                consensus.max_block_production_delay,
+                consensus.chunk_request_retry_period,
+            )
+        };
         if self.sync_started {
             self.sync_timer_next_attempt = self.run_timer(
                 self.sync_wait_period(),
@@ -1160,10 +1193,6 @@ impl ClientActor {
                 self.sync_timer_next_attempt.signed_duration_since(now).to_std().unwrap_or(delay),
             );
 
-            let doomslug_step_period = {
-                let consensus = self.client.config.consensus.lock().unwrap();
-                consensus.doomslug_step_period
-            };
             self.doomslug_timer_next_attempt = self.run_timer(
                 doomslug_step_period,
                 self.doomslug_timer_next_attempt,
@@ -1180,10 +1209,6 @@ impl ClientActor {
             )
         }
         if self.block_production_started {
-            let (block_production_tracking_delay, max_block_production_delay) = {
-                let consensus = self.client.config.consensus.lock().unwrap();
-                (consensus.block_production_tracking_delay, consensus.max_block_production_delay)
-            };
             self.block_production_next_attempt = self.run_timer(
                 block_production_tracking_delay,
                 self.block_production_next_attempt,
@@ -1220,10 +1245,6 @@ impl ClientActor {
                 .unwrap_or(delay),
         );
 
-        let chunk_request_retry_period = {
-            let consensus = self.client.config.consensus.lock().unwrap();
-            consensus.chunk_request_retry_period
-        };
         self.chunk_request_retry_next_attempt = self.run_timer(
             chunk_request_retry_period,
             self.chunk_request_retry_next_attempt,
@@ -2036,6 +2057,7 @@ pub fn start_client(
     sender: Option<broadcast::Sender<()>>,
     adv: crate::adversarial::Controls,
     dyn_configs_store: Arc<Mutex<DynConfigStore>>,
+    rx_dyn_configs: Option<Receiver<DynConfigs>>,
 ) -> (Addr<ClientActor>, ArbiterHandle) {
     let client_arbiter = Arbiter::new();
     let client_arbiter_handle = client_arbiter.handle();
@@ -2055,6 +2077,7 @@ pub fn start_client(
             sender,
             adv,
             dyn_configs_store,
+            rx_dyn_configs,
         )
         .unwrap()
     });
