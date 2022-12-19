@@ -195,8 +195,7 @@ impl StateSync {
             status: ShardSyncStatus::StateDownloadHeader,
         };
 
-        let sync_block_header = chain.get_block_header(&sync_hash)?;
-        let prev_hash = *sync_block_header.prev_hash();
+        let prev_hash = *chain.get_block_header(&sync_hash)?.prev_hash();
         let prev_epoch_id = chain.get_block_header(&prev_hash)?.epoch_id().clone();
         let epoch_id = chain.get_block_header(&sync_hash)?.epoch_id().clone();
         if runtime_adapter.get_shard_layout(&prev_epoch_id)?

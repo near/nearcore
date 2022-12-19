@@ -2106,7 +2106,10 @@ impl Chain {
         Ok(new_head)
     }
 
-    /// Update flat storage for given processed or caught up block.
+    /// Update flat storage for given processed or caught up block, which includes:
+    /// - merge deltas from current flat storage head to new one;
+    /// - update flat storage head to the hash of final block visible from given one;
+    /// - remove info about unreachable blocks from memory.
     fn update_flat_storage_for_block(
         &mut self,
         block: &Block,
@@ -2131,7 +2134,8 @@ impl Chain {
                         //                         \---> 5
                         //
                         // where during postprocessing (5) we call `update_flat_head(3)` and then for (6) we can
-                        // call `update_flat_head(2)`. In such case, just log an error.
+                        // call `update_flat_head(2)` because (2) will be last visible final block from it.
+                        // In such case, just log an error.
                         debug!(target: "chain", "Cannot update flat head to {:?}: {:?}", new_flat_head, err);
                     }
                     _ => {
@@ -2141,12 +2145,15 @@ impl Chain {
                 }
             });
         } else {
-            // If flat storage doesn't exist, update its creation status.
+            // If background flat storage creation was initiated, update its creation status.
+            // Note that it doesn't work with state sync / catchup logic.
             match &mut self.flat_storage_creator {
                 Some(flat_storage_creator) => {
                     flat_storage_creator.update_status(shard_id, &self.store)?;
                 }
-                None => {}
+                None => {
+                    debug_assert!(false, "Flat storage state for shard {shard_id} does not exist and its creation was not initiated");
+                }
             }
         }
         Ok(())

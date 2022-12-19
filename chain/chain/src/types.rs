@@ -308,7 +308,7 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
     ) -> FlatStorageStateStatus;
 
     /// Removes flat storage state for shard, if it exists.
-    /// Used to clear old flat storage data before syncing to newer state.
+    /// Used to clear old flat storage data from disk and memory before syncing to newer state.
     fn remove_flat_storage_state_for_shard(
         &self,
         shard_id: ShardId,
