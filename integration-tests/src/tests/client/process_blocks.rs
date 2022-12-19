@@ -1116,12 +1116,12 @@ fn test_time_attack() {
         chain_genesis,
         TEST_SEED,
     );
-    let signer = create_test_signer("test1");
+    let signer = Arc::new(create_test_signer("test1"));
     let genesis = client.chain.get_block_by_height(0).unwrap();
     let mut b1 = TestBlockBuilder::new(&genesis, signer.clone()).build();
     b1.mut_header().get_mut().inner_lite.timestamp =
         to_timestamp(b1.header().timestamp() + chrono::Duration::seconds(60));
-    b1.mut_header().resign(signer.as_ref());
+    b1.mut_header().resign(&*signer);
 
     let _ = client.process_block_test(b1.into(), Provenance::NONE).unwrap();
 
@@ -1150,7 +1150,7 @@ fn test_invalid_approvals() {
         chain_genesis,
         TEST_SEED,
     );
-    let signer = create_test_signer("test1");
+    let signer = Arc::new(create_test_signer("test1"));
     let genesis = client.chain.get_block_by_height(0).unwrap();
     let mut b1 = TestBlockBuilder::new(&genesis, signer.clone()).build();
     b1.mut_header().get_mut().inner_rest.approvals = (0..100)
@@ -1162,7 +1162,7 @@ fn test_invalid_approvals() {
             )
         })
         .collect();
-    b1.mut_header().resign(signer.as_ref());
+    b1.mut_header().resign(&*signer);
 
     let result = client.process_block_test(b1.into(), Provenance::NONE);
     assert_matches!(result.unwrap_err(), Error::InvalidApprovals);
@@ -1196,11 +1196,11 @@ fn test_invalid_gas_price() {
         chain_genesis,
         TEST_SEED,
     );
-    let signer = create_test_signer("test1");
+    let signer = Arc::new(create_test_signer("test1"));
     let genesis = client.chain.get_block_by_height(0).unwrap();
     let mut b1 = TestBlockBuilder::new(&genesis, signer.clone()).build();
     b1.mut_header().get_mut().inner_rest.gas_price = 0;
-    b1.mut_header().resign(signer.as_ref());
+    b1.mut_header().resign(&*signer);
 
     let res = client.process_block_test(b1.into(), Provenance::NONE);
     assert_matches!(res.unwrap_err(), Error::InvalidGasPrice);
@@ -1211,7 +1211,7 @@ fn test_invalid_height_too_large() {
     let mut env = TestEnv::builder(ChainGenesis::test()).build();
     let b1 = env.clients[0].produce_block(1).unwrap().unwrap();
     let _ = env.clients[0].process_block_test(b1.clone().into(), Provenance::PRODUCED).unwrap();
-    let signer = create_test_signer("test0");
+    let signer = Arc::new(create_test_signer("test0"));
     let b2 = TestBlockBuilder::new(&b1, signer.clone()).height(u64::MAX).build();
     let res = env.clients[0].process_block_test(b2.into(), Provenance::NONE);
     assert_matches!(res.unwrap_err(), Error::InvalidBlockHeight(_));
