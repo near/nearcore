@@ -432,14 +432,14 @@ mod tests {
 
     #[test]
     fn test_is_valid_account_id() {
-        for account_id in OK_ACCOUNT_IDS.iter().cloned() {
+        for &account_id in OK_ACCOUNT_IDS.iter() {
             if let Err(err) = AccountId::validate(account_id) {
                 panic!("Valid account id {:?} marked invalid: {}", account_id, err.kind());
             }
         }
 
-        for account_id in BAD_ACCOUNT_IDS.iter().cloned() {
-            if let Ok(_) = AccountId::validate(account_id) {
+        for &account_id in BAD_ACCOUNT_IDS.iter() {
+            if AccountId::validate(account_id).is_ok() {
                 panic!("Invalid account id {:?} marked valid", account_id);
             }
         }
