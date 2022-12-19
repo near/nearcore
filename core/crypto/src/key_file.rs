@@ -90,7 +90,6 @@ mod test {
                 let secret_key: SecretKey = SECRET_KEY.parse().unwrap();
                 assert_eq!(secret_key, key.secret_key);
                 assert_eq!(secret_key.public_key(), key.public_key);
-                ()
             })
         }
 
