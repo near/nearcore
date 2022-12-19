@@ -364,8 +364,7 @@ impl PrefetchStagingArea {
     }
 
     fn insert_fetched(&self, key: CryptoHash, value: Arc<[u8]>) {
-        let mut guard = self.0.lock_mut();
-        guard.slots.insert(key, PrefetchSlot::Done(value));
+        self.0.lock_mut().slots.insert(key, PrefetchSlot::Done(value));
     }
 
     /// Get prefetched value if available and otherwise atomically insert the
