@@ -328,7 +328,7 @@ mod imp {
             _shard_id: ShardId,
             _shard_layout: ShardLayout,
         ) -> Result<(), StorageError> {
-            None
+            Ok(())
         }
 
         pub fn set_flat_storage_state_for_genesis(
