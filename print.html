@@ -4506,6 +4506,13 @@ though about.</p>
 </span>let signer: InMemoryValidatorSigner = create_test_signer(&quot;test&quot;);
 <span class="boring">}
 </span></code></pre></pre>
+<h3 id="block"><a class="header" href="#block">Block</a></h3>
+<p>Use <code>TestBlockBuilder</code> to create the block that you need. This class allows you to set custom values for most of the fields.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>let test_block = test_utils::TestBlockBuilder::new(prev, signer).height(33).build();
+<span class="boring">}
+</span></code></pre></pre>
 <h2 id="store"><a class="header" href="#store">Store</a></h2>
 <p>Use the in memory test store in tests:</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
