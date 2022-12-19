@@ -5,7 +5,7 @@ use near_amend_genesis::AmendGenesisCommand;
 use near_chain_configs::GenesisValidationMode;
 #[cfg(feature = "cold_store")]
 use near_cold_store_tool::ColdStoreCommand;
-use near_dyn_configs::DynConfigStore;
+use near_dyn_configs::{DynConfigStore, DynConfigs};
 use near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofResponse;
 use near_mirror::MirrorCommand;
 use near_o11y::tracing_subscriber::EnvFilter;
@@ -30,7 +30,6 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use tokio::sync::broadcast;
 use tokio::sync::broadcast::Receiver;
-use tokio::sync::oneshot;
 use tracing::{debug, error, info, warn};
 
 /// NEAR Protocol Node
@@ -401,9 +400,12 @@ impl RunCmd {
 
         // Set current version in client config.
         near_config.client_config.version = crate::neard_version();
+
+        let mut consensus = near_config.client_config.consensus.lock().unwrap().clone();
+
         // Override some parameters from command line.
         if let Some(produce_empty_blocks) = self.produce_empty_blocks {
-            near_config.client_config.produce_empty_blocks = produce_empty_blocks;
+            consensus.produce_empty_blocks = produce_empty_blocks;
         }
         if let Some(boot_nodes) = self.boot_nodes {
             if !boot_nodes.is_empty() {
@@ -414,7 +416,7 @@ impl RunCmd {
             }
         }
         if let Some(min_peers) = self.min_peers {
-            near_config.client_config.min_num_peers = min_peers;
+            consensus.min_num_peers = min_peers;
         }
         if let Some(network_addr) = self.network_addr {
             near_config.network_config.node_addr = Some(network_addr);
@@ -456,13 +458,14 @@ impl RunCmd {
             }
         }
 
-        let (tx, _) = broadcast::channel::<()>(16);
+        let (tx_crash, mut rx_crash) = broadcast::channel::<()>(16);
+        let (tx_dyn_configs, rx_dyn_configs) = broadcast::channel::<DynConfigs>(16);
         let storage =
             nearcore::open_storage(home_dir, &mut near_config).expect("storage can not access");
         let store = storage.get_store(Temperature::Hot);
         let dyn_configs = nearcore::dyn_config::read_dyn_configs(home_dir)
             .unwrap_or_else(|e| panic!("Error reading dynamic configs: {:#}", e));
-        let dyn_configs_store = DynConfigStore::new(dyn_configs);
+        let dyn_configs_store = DynConfigStore::new(dyn_configs, consensus.clone(), tx_dyn_configs);
         let dyn_configs_store = Arc::new(Mutex::new(dyn_configs_store));
 
         let nearcore::config::NearConfig { validator_signer, .. } =
@@ -471,11 +474,10 @@ impl RunCmd {
         near_config.validator_signer = validator_signer;
 
         let sys = actix::System::new();
-        let tx_crash = tx.clone();
-        let mut rx_crash = tx.subscribe();
         let s = store.clone();
-        let (tx_sig, rx_sig) = oneshot::channel::<&str>();
         let config = near_config.clone();
+
+        near_config.client_config.consensus = Arc::new(Mutex::new(consensus));
 
         let _ = sys.block_on(async move {
             // Initialize the subscriber that takes care of both logging and tracing.
@@ -500,6 +502,7 @@ impl RunCmd {
                     Some(tx_crash),
                     s,
                     dyn_configs_store.clone(),
+                    Some(rx_dyn_configs),
                 )
                 .expect("start_with_config");
 

@@ -268,6 +268,7 @@ pub fn setup(
         None,
         adv,
         dyn_configs_store,
+        None,
     )
     .unwrap();
     (genesis_block, client, view_client_addr)

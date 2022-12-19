@@ -4,6 +4,7 @@ use near_primitives::types::{AccountId, BlockHeightDelta, Gas, NumBlocks, NumSea
 use near_primitives::version::Version;
 use serde::{Deserialize, Serialize};
 use std::cmp::max;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
@@ -118,7 +119,7 @@ pub struct ClientConfig {
     pub client_background_migration_threads: usize,
 
     /// Consensus config protected by a Mutex because it can be dynamically reloaded.
-    pub consensus: Consensus,
+    pub consensus: Arc<Mutex<Consensus>>,
 }
 
 impl ClientConfig {
@@ -160,7 +161,10 @@ impl ClientConfig {
             max_gas_burnt_view: None,
             enable_statistics_export: true,
             client_background_migration_threads: 1,
-            consensus: Consensus::test(min_block_prod_time, max_block_prod_time),
+            consensus: Arc::new(Mutex::new(Consensus::test(
+                min_block_prod_time,
+                max_block_prod_time,
+            ))),
         }
     }
 }
