@@ -2145,7 +2145,9 @@ impl Chain {
                 }
             });
         } else {
-            // If background flat storage creation was initiated, update its creation status.
+            // If background flat storage creation was initiated, update its creation status, which means executing
+            // some work related to current creation step and possibly moving status forward until flat storage is
+            // finally created.
             // Note that it doesn't work with state sync / catchup logic.
             match &mut self.flat_storage_creator {
                 Some(flat_storage_creator) => {
