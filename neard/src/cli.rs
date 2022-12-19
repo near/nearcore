@@ -554,18 +554,38 @@ pub(super) struct LocalnetCmd {
     /// Whether to configure nodes as archival.
     #[clap(long)]
     archival_nodes: bool,
+    /// Comma separated list of shards to track, the word 'all' to track all shards or the word 'none' to track no shards.
+    #[clap(long, default_value = "all")]
+    tracked_shards: String,
 }
 
 impl LocalnetCmd {
+    fn parse_tracked_shards(tracked_shards: &String, num_shards: NumShards) -> Vec<u64> {
+        if tracked_shards.to_lowercase() == "all" {
+            return (0..num_shards).collect();
+        }
+        if tracked_shards.to_lowercase() == "none" {
+            return vec![];
+        }
+        tracked_shards
+            .split(',')
+            .map(|shard_id| shard_id.parse::<u64>().expect("Shard id must be an integer"))
+            .collect()
+    }
+
     pub(super) fn run(self, home_dir: &Path) {
+        let tracked_shards = Self::parse_tracked_shards(&self.tracked_shards, self.shards);
+
         nearcore::config::init_testnet_configs(
             home_dir,
             self.shards,
             self.validators,
             self.non_validators,
             &self.prefix,
+            true,
             self.archival_nodes,
             self.fixed_shards,
+            tracked_shards,
         );
     }
 }

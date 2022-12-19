@@ -39,6 +39,11 @@ pub(crate) const LIMIT_PENDING_PEERS: usize = 60;
 /// We send these messages multiple times to reduce the chance that they are lost
 const IMPORTANT_MESSAGE_RESENT_COUNT: usize = 3;
 
+/// Size of LRU cache size of recent routed messages.
+/// It should be large enough to detect duplicates (i.e. all messages received during
+/// production of 1 block should fit).
+const RECENT_ROUTED_MESSAGES_CACHE_SIZE: usize = 10000;
+
 /// How long a peer has to be unreachable, until we prune it from the in-memory graph.
 const PRUNE_UNREACHABLE_PEERS_AFTER: time::Duration = time::Duration::hours(1);
 
@@ -97,6 +102,10 @@ pub(crate) struct NetworkState {
     pub peer_store: peer_store::PeerStore,
     /// A graph of the whole NEAR network.
     pub graph: Arc<crate::routing::Graph>,
+
+    /// Hashes of the body of recently received routed messages.
+    /// It allows us to determine whether messages arrived faster over TIER1 or TIER2 network.
+    pub recent_routed_messages: Mutex<lru::LruCache<CryptoHash, ()>>,
 
     /// Hash of messages that requires routing back to respective previous hop.
     /// Currently unused, as TIER1 messages do not require a response.
@@ -160,6 +169,9 @@ impl NetworkState {
             peer_store,
             accounts_data: Arc::new(accounts_data::Cache::new()),
             tier1_route_back: Mutex::new(RouteBackCache::default()),
+            recent_routed_messages: Mutex::new(lru::LruCache::new(
+                RECENT_ROUTED_MESSAGES_CACHE_SIZE,
+            )),
             txns_since_last_block: AtomicUsize::new(0),
             whitelist_nodes,
             max_num_peers: AtomicU32::new(config.max_num_peers),
@@ -242,6 +254,7 @@ impl NetworkState {
     pub async fn register(
         self: &Arc<Self>,
         clock: &time::Clock,
+        edge: Edge,
         conn: Arc<connection::Connection>,
     ) -> Result<(), RegisterPeerError> {
         let this = self.clone();
@@ -274,6 +287,10 @@ impl NetworkState {
                             return Err(RegisterPeerError::NotTier1Peer);
                         }
                     }
+                    let (_, ok) = this.graph.verify(vec![edge]).await;
+                    if !ok {
+                        return Err(RegisterPeerError::InvalidEdge);
+                    }
                     this.tier1.insert_ready(conn).map_err(RegisterPeerError::PoolError)?;
                 }
                 tcp::Tier::T2 => {
@@ -289,10 +306,10 @@ impl NetworkState {
                             return Err(RegisterPeerError::ConnectionLimitExceeded);
                         }
                     }
-                    // Verify and broadcast the edge of the connection. Only then insert the new
-                    // connection to TIER2 pool, so that nothing is broadcasted to conn.
+                    // First verify and broadcast the edge of the connection, so that in case
+                    // it is invalid, the connection is not added to the pool.
                     // TODO(gprusak): consider actually banning the peer for consistency.
-                    this.add_edges(&clock, vec![conn.edge.load().as_ref().clone()])
+                    this.add_edges(&clock, vec![edge])
                         .await
                         .map_err(|_: ReasonForBan| RegisterPeerError::InvalidEdge)?;
                     this.tier2.insert_ready(conn.clone()).map_err(RegisterPeerError::PoolError)?;
@@ -457,11 +474,11 @@ impl NetworkState {
         msg: RoutedMessageBody,
     ) -> bool {
         let mut success = false;
+        let accounts_data = self.accounts_data.load();
         // All TIER1 messages are being sent over both TIER1 and TIER2 connections for now,
         // so that we can actually observe the latency/reliability improvements in practice:
         // for each message we track over which network tier it arrived faster?
         if tcp::Tier::T1.is_allowed_routed(&msg) {
-            let accounts_data = self.accounts_data.load();
             for key in accounts_data.keys_by_id.get(account_id).iter().flat_map(|keys| keys.iter())
             {
                 let data = match accounts_data.data.get(key) {
@@ -486,19 +503,34 @@ impl NetworkState {
             }
         }
 
-        let target = match self.graph.routing_table.account_owner(account_id) {
-            Some(peer_id) => peer_id,
-            None => {
-                // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
-                metrics::MessageDropped::UnknownAccount.inc(&msg);
-                tracing::debug!(target: "network",
-                       account_id = ?self.config.validator.as_ref().map(|v|v.account_id()),
-                       to = ?account_id,
-                       ?msg,"Drop message: unknown account",
-                );
-                tracing::trace!(target: "network", known_peers = ?self.graph.routing_table.get_accounts_keys(), "Known peers");
-                return false;
-            }
+        let peer_id_from_account_data = accounts_data
+            .keys_by_id
+            .get(account_id)
+            .iter()
+            .flat_map(|keys| keys.iter())
+            .flat_map(|key| accounts_data.data.get(key))
+            .next()
+            .map(|data| data.peer_id.clone());
+        // Find the target peer_id:
+        // - first look it up in self.accounts_data
+        // - if missing, fall back to lookup in self.graph.routing_table
+        // We want to deprecate self.graph.routing_table.account_owner in the next release.
+        let target = if let Some(peer_id) = peer_id_from_account_data {
+            metrics::ACCOUNT_TO_PEER_LOOKUPS.with_label_values(&["AccountData"]).inc();
+            peer_id
+        } else if let Some(peer_id) = self.graph.routing_table.account_owner(account_id) {
+            metrics::ACCOUNT_TO_PEER_LOOKUPS.with_label_values(&["AnnounceAccount"]).inc();
+            peer_id
+        } else {
+            // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
+            metrics::MessageDropped::UnknownAccount.inc(&msg);
+            tracing::debug!(target: "network",
+                   account_id = ?self.config.validator.as_ref().map(|v|v.account_id()),
+                   to = ?account_id,
+                   ?msg,"Drop message: unknown account",
+            );
+            tracing::trace!(target: "network", known_peers = ?self.graph.routing_table.get_accounts_keys(), "Known peers");
+            return false;
         };
 
         let msg = RawRoutedMessage { target: PeerIdOrHash::PeerId(target), body: msg };

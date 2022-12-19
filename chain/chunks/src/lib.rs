@@ -2174,12 +2174,12 @@ mod test {
 
     use assert_matches::assert_matches;
     use near_chain::types::EpochManagerAdapter;
+    use near_primitives::test_utils::create_test_signer;
     use std::sync::Arc;
     use std::time::Duration;
 
     use near_chain::test_utils::{KeyValueRuntime, ValidatorSchedule};
     use near_chain::{Chain, ChainStore};
-    use near_crypto::KeyType;
     use near_network::test_utils::MockPeerManagerAdapter;
     use near_network::types::NetworkRequests;
     use near_o11y::testonly::init_test_logger;
@@ -2188,7 +2188,6 @@ mod test {
     use near_primitives::merkle::merklize;
     use near_primitives::sharding::ReedSolomonWrapper;
     use near_primitives::types::EpochId;
-    use near_primitives::validator_signer::InMemoryValidatorSigner;
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::create_test_store;
 
@@ -2267,8 +2266,7 @@ mod test {
             chain_store.new_read_only_chunks_store(),
             None,
         );
-        let signer =
-            InMemoryValidatorSigner::from_seed("test".parse().unwrap(), KeyType::ED25519, "test");
+        let signer = create_test_signer("test");
         let mut rs = ReedSolomonWrapper::new(4, 10);
         let shard_layout = runtime_adapter.get_shard_layout(&EpochId::default()).unwrap();
         let (encoded_chunk, proof) = ShardsManager::create_encoded_shard_chunk(

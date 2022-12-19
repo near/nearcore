@@ -202,7 +202,7 @@ impl PeerManagerActor {
             let state = state.clone();
             let clock = clock.clone();
             async move {
-                // Start server if address provided. 
+                // Start server if address provided.
                 if let Some(server_addr) = state.config.node_addr {
                     tracing::debug!(target: "network", at = ?server_addr, "starting public server");
                     let mut listener = match tcp::Listener::bind(server_addr).await {
@@ -498,10 +498,7 @@ impl PeerManagerActor {
         let _timer =
             metrics::PEER_MANAGER_TRIGGER_TIME.with_label_values(&["monitor_peers"]).start_timer();
 
-        self.state.peer_store.unban(&self.clock);
-        if let Err(err) = self.state.peer_store.update_connected_peers_last_seen(&self.clock) {
-            tracing::error!(target: "network", ?err, "Failed to update peers last seen time.");
-        }
+        self.state.peer_store.update(&self.clock);
 
         if self.is_outbound_bootstrap_needed() {
             let tier2 = self.state.tier2.load();
@@ -547,10 +544,6 @@ impl PeerManagerActor {
         // If there are too many active connections try to remove some connections
         self.maybe_stop_active_connection();
 
-        if let Err(err) = self.state.peer_store.remove_expired(&self.clock) {
-            tracing::error!(target: "network", ?err, "Failed to remove expired peers");
-        };
-
         // Find peers that are not reliable (too much behind) - and make sure that we're not routing messages through them.
         let unreliable_peers = self.unreliable_peers();
         metrics::PEER_UNRELIABLE.set(unreliable_peers.len() as i64);
@@ -589,8 +582,10 @@ impl PeerManagerActor {
     }
 
     pub(crate) fn get_network_info(&self) -> NetworkInfo {
+        let tier1 = self.state.tier1.load();
         let tier2 = self.state.tier2.load();
         let now = self.clock.now();
+        let graph = self.state.graph.load();
         let connected_peer = |cp: &Arc<connection::Connection>| ConnectedPeerInfo {
             full_peer_info: cp.full_peer_info(),
             received_bytes_per_sec: cp.stats.received_bytes_per_sec.load(Ordering::Relaxed),
@@ -599,10 +594,14 @@ impl PeerManagerActor {
             last_time_received_message: cp.last_time_received_message.load(),
             connection_established_time: cp.established_time,
             peer_type: cp.peer_type,
-            nonce: cp.edge.load().nonce(),
+            nonce: match graph.local_edges.get(&cp.peer_info.id) {
+                Some(e) => e.nonce(),
+                None => 0,
+            },
         };
         NetworkInfo {
             connected_peers: tier2.ready.values().map(connected_peer).collect(),
+            tier1_connections: tier1.ready.values().map(connected_peer).collect(),
             num_connected_peers: tier2.ready.len(),
             peer_max_count: self.state.max_num_peers.load(Ordering::Relaxed),
             highest_height_peers: self.highest_height_peers(),
@@ -630,7 +629,8 @@ impl PeerManagerActor {
                     next_hops: self.state.graph.routing_table.view_route(&announce_account.peer_id),
                 })
                 .collect(),
-            tier1_accounts: self.state.accounts_data.load().data.values().cloned().collect(),
+            tier1_accounts_keys: self.state.accounts_data.load().keys.iter().cloned().collect(),
+            tier1_accounts_data: self.state.accounts_data.load().data.values().cloned().collect(),
         }
     }
 

@@ -1,5 +1,4 @@
 use crate::network_protocol::PeerInfo;
-use crate::types::ReasonForBan;
 use crate::types::{
     MsgRecipient, NetworkInfo, NetworkResponses, PeerManagerMessageRequest,
     PeerManagerMessageResponse, SetChainInfo,
@@ -20,6 +19,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::TcpListener;
 use std::ops::ControlFlow;
 use std::sync::{Arc, Mutex, RwLock};
+use tokio::sync::Notify;
 use tracing::debug;
 
 static OPENED_PORTS: Lazy<Mutex<HashSet<u16>>> = Lazy::new(|| Mutex::new(HashSet::new()));
@@ -253,39 +253,11 @@ impl Handler<WithSpanContext<StopSignal>> for PeerManagerActor {
     }
 }
 
-/// Ban peer for unit tests.
-/// Calls `try_ban_peer` in `PeerManagerActor`.
-#[derive(Message)]
-#[rtype(result = "()")]
-pub struct BanPeerSignal {
-    pub peer_id: PeerId,
-    pub ban_reason: ReasonForBan,
-}
-
-impl BanPeerSignal {
-    pub fn new(peer_id: PeerId) -> Self {
-        Self { peer_id, ban_reason: ReasonForBan::None }
-    }
-}
-
-impl Handler<WithSpanContext<BanPeerSignal>> for PeerManagerActor {
-    type Result = ();
-
-    fn handle(
-        &mut self,
-        msg: WithSpanContext<BanPeerSignal>,
-        _ctx: &mut Self::Context,
-    ) -> Self::Result {
-        let (_span, msg) = handler_debug_span!(target: "network", msg);
-        debug!(target: "network", "Ban peer: {:?}", msg.peer_id);
-        self.state.disconnect_and_ban(&self.clock, &msg.peer_id, msg.ban_reason);
-    }
-}
-
 // Mocked `PeerManager` adapter, has a queue of `PeerManagerMessageRequest` messages.
 #[derive(Default)]
 pub struct MockPeerManagerAdapter {
     pub requests: Arc<RwLock<VecDeque<PeerManagerMessageRequest>>>,
+    pub notify: Notify,
 }
 
 impl MsgRecipient<WithSpanContext<PeerManagerMessageRequest>> for MockPeerManagerAdapter {
@@ -300,6 +272,7 @@ impl MsgRecipient<WithSpanContext<PeerManagerMessageRequest>> for MockPeerManage
 
     fn do_send(&self, msg: WithSpanContext<PeerManagerMessageRequest>) {
         self.requests.write().unwrap().push_back(msg.msg);
+        self.notify.notify_one();
     }
 }
 

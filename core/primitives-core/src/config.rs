@@ -1,9 +1,11 @@
+use crate::parameter::Parameter;
 use crate::types::Gas;
 
+use enum_map::{enum_map, EnumMap};
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-use strum::{Display, EnumCount};
+use strum::Display;
 
 /// Dynamic configuration parameters required for the WASM runtime to
 /// execute a smart contract.
@@ -12,7 +14,7 @@ use strum::{Display, EnumCount};
 /// protocol specific behavior of the contract runtime. The former contains
 /// configuration for the WASM runtime specifically, while the latter contains
 /// configuration for the transaction runtime and WASM runtime.
-#[derive(Clone, Debug, Hash, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct VMConfig {
     /// Costs for runtime externals
     pub ext_costs: ExtCostsConfig,
@@ -55,6 +57,10 @@ pub struct VMLimitConfig {
     /// Maximum number of bytes that can be stored in a single register.
     pub max_register_size: u64,
     /// Maximum number of registers that can be used simultaneously.
+    ///
+    /// Note that due to an implementation quirk [read: a bug] in VMLogic, if we
+    /// have this number of registers, no subsequent writes to the registers
+    /// will succeed even if they replace an existing register.
     pub max_number_registers: u64,
 
     /// Maximum number of log entries.
@@ -256,183 +262,9 @@ pub struct ViewConfig {
     pub max_gas_burnt: Gas,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct ExtCostsConfig {
-    /// Base cost for calling a host function.
-    pub base: Gas,
-
-    /// Base cost of loading a pre-compiled contract
-    pub contract_loading_base: Gas,
-    /// Cost per byte of loading a pre-compiled contract
-    pub contract_loading_bytes: Gas,
-
-    /// Base cost for guest memory read
-    pub read_memory_base: Gas,
-    /// Cost for guest memory read
-    pub read_memory_byte: Gas,
-
-    /// Base cost for guest memory write
-    pub write_memory_base: Gas,
-    /// Cost for guest memory write per byte
-    pub write_memory_byte: Gas,
-
-    /// Base cost for reading from register
-    pub read_register_base: Gas,
-    /// Cost for reading byte from register
-    pub read_register_byte: Gas,
-
-    /// Base cost for writing into register
-    pub write_register_base: Gas,
-    /// Cost for writing byte into register
-    pub write_register_byte: Gas,
-
-    /// Base cost of decoding utf8. It's used for `log_utf8` and `panic_utf8`.
-    pub utf8_decoding_base: Gas,
-    /// Cost per byte of decoding utf8. It's used for `log_utf8` and `panic_utf8`.
-    pub utf8_decoding_byte: Gas,
-
-    /// Base cost of decoding utf16. It's used for `log_utf16`.
-    pub utf16_decoding_base: Gas,
-    /// Cost per byte of decoding utf16. It's used for `log_utf16`.
-    pub utf16_decoding_byte: Gas,
-
-    /// Cost of getting sha256 base
-    pub sha256_base: Gas,
-    /// Cost of getting sha256 per byte
-    pub sha256_byte: Gas,
-
-    /// Cost of getting sha256 base
-    pub keccak256_base: Gas,
-    /// Cost of getting sha256 per byte
-    pub keccak256_byte: Gas,
-
-    /// Cost of getting sha256 base
-    pub keccak512_base: Gas,
-    /// Cost of getting sha256 per byte
-    pub keccak512_byte: Gas,
-
-    /// Cost of getting ripemd160 base
-    pub ripemd160_base: Gas,
-    /// Cost of getting ripemd160 per message block
-    pub ripemd160_block: Gas,
-
-    /// Cost of getting ed25519 base
-    #[cfg(feature = "protocol_feature_ed25519_verify")]
-    pub ed25519_verify_base: Gas,
-    /// Cost of getting ed25519 per byte
-    #[cfg(feature = "protocol_feature_ed25519_verify")]
-    pub ed25519_verify_byte: Gas,
-
-    /// Cost of calling ecrecover
-    pub ecrecover_base: Gas,
-
-    /// Cost for calling logging.
-    pub log_base: Gas,
-    /// Cost for logging per byte
-    pub log_byte: Gas,
-
-    // ###############
-    // # Storage API #
-    // ###############
-    /// Storage trie write key base cost
-    pub storage_write_base: Gas,
-    /// Storage trie write key per byte cost
-    pub storage_write_key_byte: Gas,
-    /// Storage trie write value per byte cost
-    pub storage_write_value_byte: Gas,
-    /// Storage trie write cost per byte of evicted value.
-    pub storage_write_evicted_byte: Gas,
-
-    /// Storage trie read key base cost
-    pub storage_read_base: Gas,
-    /// Storage trie read key per byte cost
-    pub storage_read_key_byte: Gas,
-    /// Storage trie read value cost per byte cost
-    pub storage_read_value_byte: Gas,
-
-    /// Remove key from trie base cost
-    pub storage_remove_base: Gas,
-    /// Remove key from trie per byte cost
-    pub storage_remove_key_byte: Gas,
-    /// Remove key from trie ret value byte cost
-    pub storage_remove_ret_value_byte: Gas,
-
-    /// Storage trie check for key existence cost base
-    pub storage_has_key_base: Gas,
-    /// Storage trie check for key existence per key byte
-    pub storage_has_key_byte: Gas,
-
-    /// Create trie prefix iterator cost base
-    pub storage_iter_create_prefix_base: Gas,
-    /// Create trie prefix iterator cost per byte.
-    pub storage_iter_create_prefix_byte: Gas,
-
-    /// Create trie range iterator cost base
-    pub storage_iter_create_range_base: Gas,
-    /// Create trie range iterator cost per byte of from key.
-    pub storage_iter_create_from_byte: Gas,
-    /// Create trie range iterator cost per byte of to key.
-    pub storage_iter_create_to_byte: Gas,
-
-    /// Trie iterator per key base cost
-    pub storage_iter_next_base: Gas,
-    /// Trie iterator next key byte cost
-    pub storage_iter_next_key_byte: Gas,
-    /// Trie iterator next key byte cost
-    pub storage_iter_next_value_byte: Gas,
-
-    /// Cost per reading trie node from DB
-    pub touching_trie_node: Gas,
-    /// Cost for reading trie node from memory
-    #[serde(default = "default_read_cached_trie_node")]
-    pub read_cached_trie_node: Gas,
-
-    // ###############
-    // # Promise API #
-    // ###############
-    /// Cost for calling `promise_and`
-    pub promise_and_base: Gas,
-    /// Cost for calling `promise_and` for each promise
-    pub promise_and_per_promise: Gas,
-    /// Cost for calling `promise_return`
-    pub promise_return: Gas,
-
-    // ###############
-    // # Validator API #
-    // ###############
-    /// Cost of calling `validator_stake`.
-    pub validator_stake_base: Gas,
-    /// Cost of calling `validator_total_stake`.
-    pub validator_total_stake_base: Gas,
-
-    // Workaround to keep JSON serialization backwards-compatible
-    // <https://github.com/near/nearcore/pull/6587#discussion_r876113324>.
-    //
-    // Remove once #5516 is fixed.
-    #[serde(default, rename = "contract_compile_base")]
-    pub _unused1: Gas,
-    #[serde(default, rename = "contract_compile_bytes")]
-    pub _unused2: Gas,
-
-    // #############
-    // # Alt BN128 #
-    // #############
-    /// Base cost for multiexp
-    pub alt_bn128_g1_multiexp_base: Gas,
-    /// Per element cost for multiexp
-    pub alt_bn128_g1_multiexp_element: Gas,
-    /// Base cost for sum
-    pub alt_bn128_g1_sum_base: Gas,
-    /// Per element cost for sum
-    pub alt_bn128_g1_sum_element: Gas,
-    /// Base cost for pairing check
-    pub alt_bn128_pairing_check_base: Gas,
-    /// Per element cost for pairing check
-    pub alt_bn128_pairing_check_element: Gas,
-}
-
-fn default_read_cached_trie_node() -> Gas {
-    SAFETY_MULTIPLIER * 760_000_000
+    pub costs: EnumMap<ExtCosts, Gas>,
 }
 
 // We multiply the actual computed costs by the fixed factor to ensure we
@@ -440,153 +272,105 @@ fn default_read_cached_trie_node() -> Gas {
 const SAFETY_MULTIPLIER: u64 = 3;
 
 impl ExtCostsConfig {
+    pub fn cost(&self, param: ExtCosts) -> Gas {
+        self.costs[param]
+    }
+
     /// Convenience constructor to use in tests where the exact gas cost does
     /// not need to correspond to a specific protocol version.
     pub fn test() -> ExtCostsConfig {
-        ExtCostsConfig {
-            base: SAFETY_MULTIPLIER * 88256037,
-            contract_loading_base: SAFETY_MULTIPLIER * 11815321,
-            contract_loading_bytes: SAFETY_MULTIPLIER * 72250,
-            read_memory_base: SAFETY_MULTIPLIER * 869954400,
-            read_memory_byte: SAFETY_MULTIPLIER * 1267111,
-            write_memory_base: SAFETY_MULTIPLIER * 934598287,
-            write_memory_byte: SAFETY_MULTIPLIER * 907924,
-            read_register_base: SAFETY_MULTIPLIER * 839055062,
-            read_register_byte: SAFETY_MULTIPLIER * 32854,
-            write_register_base: SAFETY_MULTIPLIER * 955174162,
-            write_register_byte: SAFETY_MULTIPLIER * 1267188,
-            utf8_decoding_base: SAFETY_MULTIPLIER * 1037259687,
-            utf8_decoding_byte: SAFETY_MULTIPLIER * 97193493,
-            utf16_decoding_base: SAFETY_MULTIPLIER * 1181104350,
-            utf16_decoding_byte: SAFETY_MULTIPLIER * 54525831,
-            sha256_base: SAFETY_MULTIPLIER * 1513656750,
-            sha256_byte: SAFETY_MULTIPLIER * 8039117,
-            keccak256_base: SAFETY_MULTIPLIER * 1959830425,
-            keccak256_byte: SAFETY_MULTIPLIER * 7157035,
-            keccak512_base: SAFETY_MULTIPLIER * 1937129412,
-            keccak512_byte: SAFETY_MULTIPLIER * 12216567,
-            ripemd160_base: SAFETY_MULTIPLIER * 284558362,
+        let costs = enum_map! {
+            ExtCosts::base => SAFETY_MULTIPLIER * 88256037,
+            ExtCosts::contract_loading_base => SAFETY_MULTIPLIER * 11815321,
+            ExtCosts::contract_loading_bytes => SAFETY_MULTIPLIER * 72250,
+            ExtCosts::read_memory_base => SAFETY_MULTIPLIER * 869954400,
+            ExtCosts::read_memory_byte => SAFETY_MULTIPLIER * 1267111,
+            ExtCosts::write_memory_base => SAFETY_MULTIPLIER * 934598287,
+            ExtCosts::write_memory_byte => SAFETY_MULTIPLIER * 907924,
+            ExtCosts::read_register_base => SAFETY_MULTIPLIER * 839055062,
+            ExtCosts::read_register_byte => SAFETY_MULTIPLIER * 32854,
+            ExtCosts::write_register_base => SAFETY_MULTIPLIER * 955174162,
+            ExtCosts::write_register_byte => SAFETY_MULTIPLIER * 1267188,
+            ExtCosts::utf8_decoding_base => SAFETY_MULTIPLIER * 1037259687,
+            ExtCosts::utf8_decoding_byte => SAFETY_MULTIPLIER * 97193493,
+            ExtCosts::utf16_decoding_base => SAFETY_MULTIPLIER * 1181104350,
+            ExtCosts::utf16_decoding_byte => SAFETY_MULTIPLIER * 54525831,
+            ExtCosts::sha256_base => SAFETY_MULTIPLIER * 1513656750,
+            ExtCosts::sha256_byte => SAFETY_MULTIPLIER * 8039117,
+            ExtCosts::keccak256_base => SAFETY_MULTIPLIER * 1959830425,
+            ExtCosts::keccak256_byte => SAFETY_MULTIPLIER * 7157035,
+            ExtCosts::keccak512_base => SAFETY_MULTIPLIER * 1937129412,
+            ExtCosts::keccak512_byte => SAFETY_MULTIPLIER * 12216567,
+            ExtCosts::ripemd160_base => SAFETY_MULTIPLIER * 284558362,
             #[cfg(feature = "protocol_feature_ed25519_verify")]
-            ed25519_verify_base: SAFETY_MULTIPLIER * 1513656750,
+            ExtCosts::ed25519_verify_base => SAFETY_MULTIPLIER * 1513656750,
             #[cfg(feature = "protocol_feature_ed25519_verify")]
-            ed25519_verify_byte: SAFETY_MULTIPLIER * 7157035,
-            // Cost per byte is 3542227. There are 64 bytes in a block.
-            ripemd160_block: SAFETY_MULTIPLIER * 226702528,
-            ecrecover_base: SAFETY_MULTIPLIER * 1121789875000,
-            log_base: SAFETY_MULTIPLIER * 1181104350,
-            log_byte: SAFETY_MULTIPLIER * 4399597,
-            storage_write_base: SAFETY_MULTIPLIER * 21398912000,
-            storage_write_key_byte: SAFETY_MULTIPLIER * 23494289,
-            storage_write_value_byte: SAFETY_MULTIPLIER * 10339513,
-            storage_write_evicted_byte: SAFETY_MULTIPLIER * 10705769,
-            storage_read_base: SAFETY_MULTIPLIER * 18785615250,
-            storage_read_key_byte: SAFETY_MULTIPLIER * 10317511,
-            storage_read_value_byte: SAFETY_MULTIPLIER * 1870335,
-            storage_remove_base: SAFETY_MULTIPLIER * 17824343500,
-            storage_remove_key_byte: SAFETY_MULTIPLIER * 12740128,
-            storage_remove_ret_value_byte: SAFETY_MULTIPLIER * 3843852,
-            storage_has_key_base: SAFETY_MULTIPLIER * 18013298875,
-            storage_has_key_byte: SAFETY_MULTIPLIER * 10263615,
-            storage_iter_create_prefix_base: SAFETY_MULTIPLIER * 0,
-            storage_iter_create_prefix_byte: SAFETY_MULTIPLIER * 0,
-            storage_iter_create_range_base: SAFETY_MULTIPLIER * 0,
-            storage_iter_create_from_byte: SAFETY_MULTIPLIER * 0,
-            storage_iter_create_to_byte: SAFETY_MULTIPLIER * 0,
-            storage_iter_next_base: SAFETY_MULTIPLIER * 0,
-            storage_iter_next_key_byte: SAFETY_MULTIPLIER * 0,
-            storage_iter_next_value_byte: SAFETY_MULTIPLIER * 0,
-            touching_trie_node: SAFETY_MULTIPLIER * 5367318642,
-            read_cached_trie_node: default_read_cached_trie_node(),
-            promise_and_base: SAFETY_MULTIPLIER * 488337800,
-            promise_and_per_promise: SAFETY_MULTIPLIER * 1817392,
-            promise_return: SAFETY_MULTIPLIER * 186717462,
-            validator_stake_base: SAFETY_MULTIPLIER * 303944908800,
-            validator_total_stake_base: SAFETY_MULTIPLIER * 303944908800,
-            _unused1: 0,
-            _unused2: 0,
-            alt_bn128_g1_multiexp_base: 713_000_000_000,
-            alt_bn128_g1_multiexp_element: 320_000_000_000,
-            alt_bn128_pairing_check_base: 9_686_000_000_000,
-            alt_bn128_pairing_check_element: 5_102_000_000_000,
-            alt_bn128_g1_sum_base: 3_000_000_000,
-            alt_bn128_g1_sum_element: 5_000_000_000,
-        }
+            ExtCosts::ed25519_verify_byte => SAFETY_MULTIPLIER * 7157035,
+            ExtCosts::ripemd160_block => SAFETY_MULTIPLIER * 226702528,
+            ExtCosts::ecrecover_base => SAFETY_MULTIPLIER * 1121789875000,
+            ExtCosts::log_base => SAFETY_MULTIPLIER * 1181104350,
+            ExtCosts::log_byte => SAFETY_MULTIPLIER * 4399597,
+            ExtCosts::storage_write_base => SAFETY_MULTIPLIER * 21398912000,
+            ExtCosts::storage_write_key_byte => SAFETY_MULTIPLIER * 23494289,
+            ExtCosts::storage_write_value_byte => SAFETY_MULTIPLIER * 10339513,
+            ExtCosts::storage_write_evicted_byte => SAFETY_MULTIPLIER * 10705769,
+            ExtCosts::storage_read_base => SAFETY_MULTIPLIER * 18785615250,
+            ExtCosts::storage_read_key_byte => SAFETY_MULTIPLIER * 10317511,
+            ExtCosts::storage_read_value_byte => SAFETY_MULTIPLIER * 1870335,
+            ExtCosts::storage_remove_base => SAFETY_MULTIPLIER * 17824343500,
+            ExtCosts::storage_remove_key_byte => SAFETY_MULTIPLIER * 12740128,
+            ExtCosts::storage_remove_ret_value_byte => SAFETY_MULTIPLIER * 3843852,
+            ExtCosts::storage_has_key_base => SAFETY_MULTIPLIER * 18013298875,
+            ExtCosts::storage_has_key_byte => SAFETY_MULTIPLIER * 10263615,
+            // Here it should be `SAFETY_MULTIPLIER * 0` for consistency, but then
+            // clippy complains with "this operation will always return zero" warning
+            ExtCosts::storage_iter_create_prefix_base => 0,
+            ExtCosts::storage_iter_create_prefix_byte => 0,
+            ExtCosts::storage_iter_create_range_base => 0,
+            ExtCosts::storage_iter_create_from_byte => 0,
+            ExtCosts::storage_iter_create_to_byte => 0,
+            ExtCosts::storage_iter_next_base => 0,
+            ExtCosts::storage_iter_next_key_byte => 0,
+            ExtCosts::storage_iter_next_value_byte => 0,
+            ExtCosts::touching_trie_node => SAFETY_MULTIPLIER * 5367318642,
+            ExtCosts::read_cached_trie_node => SAFETY_MULTIPLIER * 760_000_000,
+            ExtCosts::promise_and_base => SAFETY_MULTIPLIER * 488337800,
+            ExtCosts::promise_and_per_promise => SAFETY_MULTIPLIER * 1817392,
+            ExtCosts::promise_return => SAFETY_MULTIPLIER * 186717462,
+            ExtCosts::validator_stake_base => SAFETY_MULTIPLIER * 303944908800,
+            ExtCosts::validator_total_stake_base => SAFETY_MULTIPLIER * 303944908800,
+            ExtCosts::alt_bn128_g1_multiexp_base => 713_000_000_000,
+            ExtCosts::alt_bn128_g1_multiexp_element => 320_000_000_000,
+            ExtCosts::alt_bn128_pairing_check_base => 9_686_000_000_000,
+            ExtCosts::alt_bn128_pairing_check_element => 5_102_000_000_000,
+            ExtCosts::alt_bn128_g1_sum_base => 3_000_000_000,
+            ExtCosts::alt_bn128_g1_sum_element => 5_000_000_000,
+        };
+        ExtCostsConfig { costs }
     }
 
     fn free() -> ExtCostsConfig {
         ExtCostsConfig {
-            base: 0,
-            contract_loading_base: 0,
-            contract_loading_bytes: 0,
-            read_memory_base: 0,
-            read_memory_byte: 0,
-            write_memory_base: 0,
-            write_memory_byte: 0,
-            read_register_base: 0,
-            read_register_byte: 0,
-            write_register_base: 0,
-            write_register_byte: 0,
-            utf8_decoding_base: 0,
-            utf8_decoding_byte: 0,
-            utf16_decoding_base: 0,
-            utf16_decoding_byte: 0,
-            sha256_base: 0,
-            sha256_byte: 0,
-            keccak256_base: 0,
-            keccak256_byte: 0,
-            keccak512_base: 0,
-            keccak512_byte: 0,
-            ripemd160_base: 0,
-            ripemd160_block: 0,
-            #[cfg(feature = "protocol_feature_ed25519_verify")]
-            ed25519_verify_base: 0,
-            #[cfg(feature = "protocol_feature_ed25519_verify")]
-            ed25519_verify_byte: 0,
-            ecrecover_base: 0,
-            log_base: 0,
-            log_byte: 0,
-            storage_write_base: 0,
-            storage_write_key_byte: 0,
-            storage_write_value_byte: 0,
-            storage_write_evicted_byte: 0,
-            storage_read_base: 0,
-            storage_read_key_byte: 0,
-            storage_read_value_byte: 0,
-            storage_remove_base: 0,
-            storage_remove_key_byte: 0,
-            storage_remove_ret_value_byte: 0,
-            storage_has_key_base: 0,
-            storage_has_key_byte: 0,
-            storage_iter_create_prefix_base: 0,
-            storage_iter_create_prefix_byte: 0,
-            storage_iter_create_range_base: 0,
-            storage_iter_create_from_byte: 0,
-            storage_iter_create_to_byte: 0,
-            storage_iter_next_base: 0,
-            storage_iter_next_key_byte: 0,
-            storage_iter_next_value_byte: 0,
-            touching_trie_node: 0,
-            read_cached_trie_node: 0,
-            promise_and_base: 0,
-            promise_and_per_promise: 0,
-            promise_return: 0,
-            validator_stake_base: 0,
-            validator_total_stake_base: 0,
-            _unused1: 0,
-            _unused2: 0,
-            alt_bn128_g1_multiexp_base: 0,
-            alt_bn128_g1_multiexp_element: 0,
-            alt_bn128_pairing_check_base: 0,
-            alt_bn128_pairing_check_element: 0,
-            alt_bn128_g1_sum_base: 0,
-            alt_bn128_g1_sum_element: 0,
+            costs: enum_map! {
+                _ => 0
+            },
         }
     }
 }
 
 /// Strongly-typed representation of the fees for counting.
 #[derive(
-    Copy, Clone, Hash, PartialEq, Eq, Debug, PartialOrd, Ord, EnumCount, Display, strum::EnumIter,
+    Copy,
+    Clone,
+    Hash,
+    PartialEq,
+    Eq,
+    Debug,
+    PartialOrd,
+    Ord,
+    Display,
+    strum::EnumIter,
+    enum_map::Enum,
 )]
 #[allow(non_camel_case_types)]
 pub enum ExtCosts {
@@ -665,7 +449,6 @@ pub enum ExtCosts {
     Debug,
     PartialOrd,
     Ord,
-    EnumCount,
     Display,
     strum::EnumIter,
     enum_map::Enum,
@@ -691,71 +474,74 @@ pub enum ActionCosts {
 
 impl ExtCosts {
     pub fn value(self, config: &ExtCostsConfig) -> Gas {
-        use ExtCosts::*;
+        config.cost(self)
+    }
+
+    pub fn param(&self) -> Parameter {
         match self {
-            base => config.base,
-            contract_loading_base => config.contract_loading_base,
-            contract_loading_bytes => config.contract_loading_bytes,
-            read_memory_base => config.read_memory_base,
-            read_memory_byte => config.read_memory_byte,
-            write_memory_base => config.write_memory_base,
-            write_memory_byte => config.write_memory_byte,
-            read_register_base => config.read_register_base,
-            read_register_byte => config.read_register_byte,
-            write_register_base => config.write_register_base,
-            write_register_byte => config.write_register_byte,
-            utf8_decoding_base => config.utf8_decoding_base,
-            utf8_decoding_byte => config.utf8_decoding_byte,
-            utf16_decoding_base => config.utf16_decoding_base,
-            utf16_decoding_byte => config.utf16_decoding_byte,
-            sha256_base => config.sha256_base,
-            sha256_byte => config.sha256_byte,
-            keccak256_base => config.keccak256_base,
-            keccak256_byte => config.keccak256_byte,
-            keccak512_base => config.keccak512_base,
-            keccak512_byte => config.keccak512_byte,
-            ripemd160_base => config.ripemd160_base,
-            ripemd160_block => config.ripemd160_block,
+            ExtCosts::base => Parameter::WasmBase,
+            ExtCosts::contract_loading_base => Parameter::WasmContractLoadingBase,
+            ExtCosts::contract_loading_bytes => Parameter::WasmContractLoadingBytes,
+            ExtCosts::read_memory_base => Parameter::WasmReadMemoryBase,
+            ExtCosts::read_memory_byte => Parameter::WasmReadMemoryByte,
+            ExtCosts::write_memory_base => Parameter::WasmWriteMemoryBase,
+            ExtCosts::write_memory_byte => Parameter::WasmWriteMemoryByte,
+            ExtCosts::read_register_base => Parameter::WasmReadRegisterBase,
+            ExtCosts::read_register_byte => Parameter::WasmReadRegisterByte,
+            ExtCosts::write_register_base => Parameter::WasmWriteRegisterBase,
+            ExtCosts::write_register_byte => Parameter::WasmWriteRegisterByte,
+            ExtCosts::utf8_decoding_base => Parameter::WasmUtf8DecodingBase,
+            ExtCosts::utf8_decoding_byte => Parameter::WasmUtf8DecodingByte,
+            ExtCosts::utf16_decoding_base => Parameter::WasmUtf16DecodingBase,
+            ExtCosts::utf16_decoding_byte => Parameter::WasmUtf16DecodingByte,
+            ExtCosts::sha256_base => Parameter::WasmSha256Base,
+            ExtCosts::sha256_byte => Parameter::WasmSha256Byte,
+            ExtCosts::keccak256_base => Parameter::WasmKeccak256Base,
+            ExtCosts::keccak256_byte => Parameter::WasmKeccak256Byte,
+            ExtCosts::keccak512_base => Parameter::WasmKeccak512Base,
+            ExtCosts::keccak512_byte => Parameter::WasmKeccak512Byte,
+            ExtCosts::ripemd160_base => Parameter::WasmRipemd160Base,
+            ExtCosts::ripemd160_block => Parameter::WasmRipemd160Block,
+            ExtCosts::ecrecover_base => Parameter::WasmEcrecoverBase,
             #[cfg(feature = "protocol_feature_ed25519_verify")]
-            ed25519_verify_base => config.ed25519_verify_base,
+            ExtCosts::ed25519_verify_base => Parameter::WasmEd25519VerifyBase,
             #[cfg(feature = "protocol_feature_ed25519_verify")]
-            ed25519_verify_byte => config.ed25519_verify_byte,
-            ecrecover_base => config.ecrecover_base,
-            log_base => config.log_base,
-            log_byte => config.log_byte,
-            storage_write_base => config.storage_write_base,
-            storage_write_key_byte => config.storage_write_key_byte,
-            storage_write_value_byte => config.storage_write_value_byte,
-            storage_write_evicted_byte => config.storage_write_evicted_byte,
-            storage_read_base => config.storage_read_base,
-            storage_read_key_byte => config.storage_read_key_byte,
-            storage_read_value_byte => config.storage_read_value_byte,
-            storage_remove_base => config.storage_remove_base,
-            storage_remove_key_byte => config.storage_remove_key_byte,
-            storage_remove_ret_value_byte => config.storage_remove_ret_value_byte,
-            storage_has_key_base => config.storage_has_key_base,
-            storage_has_key_byte => config.storage_has_key_byte,
-            storage_iter_create_prefix_base => config.storage_iter_create_prefix_base,
-            storage_iter_create_prefix_byte => config.storage_iter_create_prefix_byte,
-            storage_iter_create_range_base => config.storage_iter_create_range_base,
-            storage_iter_create_from_byte => config.storage_iter_create_from_byte,
-            storage_iter_create_to_byte => config.storage_iter_create_to_byte,
-            storage_iter_next_base => config.storage_iter_next_base,
-            storage_iter_next_key_byte => config.storage_iter_next_key_byte,
-            storage_iter_next_value_byte => config.storage_iter_next_value_byte,
-            touching_trie_node => config.touching_trie_node,
-            read_cached_trie_node => config.read_cached_trie_node,
-            promise_and_base => config.promise_and_base,
-            promise_and_per_promise => config.promise_and_per_promise,
-            promise_return => config.promise_return,
-            validator_stake_base => config.validator_stake_base,
-            validator_total_stake_base => config.validator_total_stake_base,
-            alt_bn128_g1_multiexp_base => config.alt_bn128_g1_multiexp_base,
-            alt_bn128_g1_multiexp_element => config.alt_bn128_g1_multiexp_element,
-            alt_bn128_pairing_check_base => config.alt_bn128_pairing_check_base,
-            alt_bn128_pairing_check_element => config.alt_bn128_pairing_check_element,
-            alt_bn128_g1_sum_base => config.alt_bn128_g1_sum_base,
-            alt_bn128_g1_sum_element => config.alt_bn128_g1_sum_element,
+            ExtCosts::ed25519_verify_byte => Parameter::WasmEd25519VerifyByte,
+            ExtCosts::log_base => Parameter::WasmLogBase,
+            ExtCosts::log_byte => Parameter::WasmLogByte,
+            ExtCosts::storage_write_base => Parameter::WasmStorageWriteBase,
+            ExtCosts::storage_write_key_byte => Parameter::WasmStorageWriteKeyByte,
+            ExtCosts::storage_write_value_byte => Parameter::WasmStorageWriteValueByte,
+            ExtCosts::storage_write_evicted_byte => Parameter::WasmStorageWriteEvictedByte,
+            ExtCosts::storage_read_base => Parameter::WasmStorageReadBase,
+            ExtCosts::storage_read_key_byte => Parameter::WasmStorageReadKeyByte,
+            ExtCosts::storage_read_value_byte => Parameter::WasmStorageReadValueByte,
+            ExtCosts::storage_remove_base => Parameter::WasmStorageRemoveBase,
+            ExtCosts::storage_remove_key_byte => Parameter::WasmStorageRemoveKeyByte,
+            ExtCosts::storage_remove_ret_value_byte => Parameter::WasmStorageRemoveRetValueByte,
+            ExtCosts::storage_has_key_base => Parameter::WasmStorageHasKeyBase,
+            ExtCosts::storage_has_key_byte => Parameter::WasmStorageHasKeyByte,
+            ExtCosts::storage_iter_create_prefix_base => Parameter::WasmStorageIterCreatePrefixBase,
+            ExtCosts::storage_iter_create_prefix_byte => Parameter::WasmStorageIterCreatePrefixByte,
+            ExtCosts::storage_iter_create_range_base => Parameter::WasmStorageIterCreateRangeBase,
+            ExtCosts::storage_iter_create_from_byte => Parameter::WasmStorageIterCreateFromByte,
+            ExtCosts::storage_iter_create_to_byte => Parameter::WasmStorageIterCreateToByte,
+            ExtCosts::storage_iter_next_base => Parameter::WasmStorageIterNextBase,
+            ExtCosts::storage_iter_next_key_byte => Parameter::WasmStorageIterNextKeyByte,
+            ExtCosts::storage_iter_next_value_byte => Parameter::WasmStorageIterNextValueByte,
+            ExtCosts::touching_trie_node => Parameter::WasmTouchingTrieNode,
+            ExtCosts::read_cached_trie_node => Parameter::WasmReadCachedTrieNode,
+            ExtCosts::promise_and_base => Parameter::WasmPromiseAndBase,
+            ExtCosts::promise_and_per_promise => Parameter::WasmPromiseAndPerPromise,
+            ExtCosts::promise_return => Parameter::WasmPromiseReturn,
+            ExtCosts::validator_stake_base => Parameter::WasmValidatorStakeBase,
+            ExtCosts::validator_total_stake_base => Parameter::WasmValidatorTotalStakeBase,
+            ExtCosts::alt_bn128_g1_multiexp_base => Parameter::WasmAltBn128G1MultiexpBase,
+            ExtCosts::alt_bn128_g1_multiexp_element => Parameter::WasmAltBn128G1MultiexpElement,
+            ExtCosts::alt_bn128_pairing_check_base => Parameter::WasmAltBn128PairingCheckBase,
+            ExtCosts::alt_bn128_pairing_check_element => Parameter::WasmAltBn128PairingCheckElement,
+            ExtCosts::alt_bn128_g1_sum_base => Parameter::WasmAltBn128G1SumBase,
+            ExtCosts::alt_bn128_g1_sum_element => Parameter::WasmAltBn128G1SumElement,
         }
     }
 }
