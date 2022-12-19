@@ -112,8 +112,16 @@ impl<'a> Memory<'a> {
 /// See documentation of [`Memory`] for more motivation for this struct.
 #[derive(Default, Clone)]
 pub(super) struct Registers {
+    /// Values of each existing register.
     registers: std::collections::HashMap<u64, Box<[u8]>>,
-    usage: u64,
+
+    /// Total memory usage as counted for the purposes of the contract
+    /// execution.
+    ///
+    /// Usage of each register is counted as its value’s length plus eight
+    /// (i.e. size of `u64`).  Total usage is sum over all registers.  This only
+    /// approximates actual usage in memory.
+    total_memory_usage: u64,
 }
 
 impl Registers {
@@ -194,23 +202,21 @@ impl Registers {
         }
 
         let entry = self.registers.entry(register_id);
-        let old_len = match &entry {
-            Entry::Occupied(entry) => Some(entry.get().len() as u64),
-            Entry::Vacant(_) => None,
+        let calc_usage = |len: u64| len + size_of::<u64>() as u64;
+        let old_mem_usage = match &entry {
+            Entry::Occupied(entry) => calc_usage(entry.get().len() as u64),
+            Entry::Vacant(_) => 0,
         };
-
-        // Usage for a registry value is counted as its length plus size of u64.
-        const SIZE_OF_U64: u64 = size_of::<u64>() as u64;
         let usage = self
-            .usage
-            .checked_sub(old_len.map_or(0, |len| len + SIZE_OF_U64))
+            .total_memory_usage
+            .checked_sub(old_mem_usage)
             .unwrap()
-            .checked_add(data_len + SIZE_OF_U64)
+            .checked_add(calc_usage(data_len))
             .ok_or(HostError::MemoryAccessViolation)?;
         if usage > config.registers_memory_limit {
             return Err(HostError::MemoryAccessViolation.into());
         }
-        self.usage = usage;
+        self.total_memory_usage = usage;
         Ok(entry)
     }
 }
