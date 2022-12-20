@@ -178,7 +178,9 @@ shard states for epoch T+1 are ready, processing new blocks only applies chunks
 for the shards that the node is tracking in epoch T. When the shard states for
 epoch T+1 finish downloading, the catchup process needs to reprocess the
 blocks that have already been processed in epoch T to apply the chunks for the
-shards in epoch T+1.
+shards in epoch T+1. We assume that it will be faster than regular block
+processing, because blocks are not full and block production has its own delays,
+so catchup can finish within an epoch.
 
 In other words, there are three modes for applying chunks and two code paths,
 either through the normal `process_block` (blue) or through `catchup_blocks`
@@ -217,12 +219,12 @@ is caught up and if we need to download states. The logic works as follows:
   caught up. This info is persisted in `DBCol::BlocksToCatchup` which stores
   mapping from previous block to vector of all child blocks to catch up.
 * Chunks for already tracked shards will be applied during `process_block`, as 
-  we discussed in `ApplyChunksMode`.
+  we said before mentioning `ApplyChunksMode`.
 * Once we downloaded state, we start catchup. It will take blocks from 
   `DBCol::BlocksToCatchup` in breadth-first search order and apply chunks for 
-  shards which have to be tracked.
-* We assume that at some point each new block will be built on caught up block,
-  which means that catchup process is finished.
+  shards which have to be tracked in the next epoch.
+* When catchup doesn't see any more blocks to process, `DBCol::BlocksToCatchup`
+  is cleared, which means that catchup process is finished.
 
 
 The catchup process is implemented through the function `Client::run_catchup`.
