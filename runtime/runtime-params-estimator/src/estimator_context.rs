@@ -319,24 +319,22 @@ impl Testbed<'_> {
     ///
     /// Use this method to estimate action exec costs.
     pub(crate) fn apply_action_receipt(&mut self, receipt: &Receipt) -> ExecutionOutcome {
-        let runtime = node_runtime::Runtime {};
         let mut state_update = TrieUpdate::new(Rc::new(self.trie()));
         let mut outgoing_receipts = vec![];
         let mut validator_proposals = vec![];
         let mut stats = node_runtime::ApplyStats::default();
         // TODO: mock is not accurate, potential DB requests are skipped in the mock!
         let epoch_info_provider = MockEpochInfoProvider::new([].into_iter());
-        let exec_result = runtime
-            .apply_action_receipt(
-                &mut state_update,
-                &self.apply_state,
-                receipt,
-                &mut outgoing_receipts,
-                &mut validator_proposals,
-                &mut stats,
-                &epoch_info_provider,
-            )
-            .expect("applying receipt in estimator should not fail");
+        let exec_result = node_runtime::estimator::apply_action_receipt(
+            &mut state_update,
+            &self.apply_state,
+            receipt,
+            &mut outgoing_receipts,
+            &mut validator_proposals,
+            &mut stats,
+            &epoch_info_provider,
+        )
+        .expect("applying receipt in estimator should not fail");
         exec_result.outcome
     }
 

@@ -592,6 +592,7 @@ enum ActionSize {
     Min,
     Max,
 }
+
 impl ActionSize {
     fn function_call_payload(self) -> u64 {
         match self {
