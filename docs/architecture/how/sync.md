@@ -231,8 +231,8 @@ The catchup process is implemented through the function `Client::run_catchup`.
 `ClientActor` schedules a call to `run_catchup` every 100ms. However, the call
 can be delayed if ClientActor has a lot of messages in its actix queue.
 
-Every time `run_catchup` is called, it checks the store to see if there are any
-shard states that should be downloaded (`iterate_state_sync_infos`). If so, it
+Every time `run_catchup` is called, it checks `DBCol::StateDlInfos` to see 
+if there are any shard states that should be downloaded. If so, it
 initiates the syncing process for these shards. After the state is downloaded,
 `run_catchup` will start to apply blocks that need to be caught up.
 
