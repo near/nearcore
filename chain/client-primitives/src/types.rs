@@ -150,12 +150,35 @@ impl StateSplitApplyingStatus {
     }
 }
 
+/// Stores status of shard sync and statuses of downloading shards.
 #[derive(Clone, Debug)]
 pub struct ShardSyncDownload {
+    /// Stores all download statuses. If we are downloading state parts, its length equals the number of state parts.
+    /// Otherwise it is 1, since we have only one piece of data to download, like shard state header.
     pub downloads: Vec<DownloadStatus>,
     pub status: ShardSyncStatus,
 }
 
+impl ShardSyncDownload {
+    /// Creates a instance of self which includes initial statuses for shard sync and download at the given time.
+    pub fn new(now: DateTime<Utc>) -> Self {
+        Self {
+            downloads: vec![
+                DownloadStatus {
+                    start_time: now,
+                    prev_update_time: now,
+                    run_me: Arc::new(AtomicBool::new(true)),
+                    error: false,
+                    done: false,
+                    state_requests_count: 0,
+                    last_target: None,
+                };
+                1
+            ],
+            status: ShardSyncStatus::StateDownloadHeader,
+        }
+    }
+}
 /// Various status sync can be in, whether it's fast sync or archival.
 #[derive(Clone, Debug, strum::AsRefStr)]
 pub enum SyncStatus {
