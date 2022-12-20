@@ -2154,8 +2154,10 @@ impl Chain {
                     flat_storage_creator.update_status(shard_id, &self.store)?;
                 }
                 None => {
-                    #[cfg(feature = "protocol_feature_flat_state")]
-                    debug_assert!(false, "Flat storage state for shard {shard_id} does not exist and its creation was not initiated");
+                    // TODO (#8250): enable this assertion. Currently it doesn't work because runtime may be implemented
+                    // with KeyValueRuntime which doesn't support flat storage.
+                    // #[cfg(feature = "protocol_feature_flat_state")]
+                    // debug_assert!(false, "Flat storage state for shard {shard_id} does not exist and its creation was not initiated");
                 }
             }
         }
