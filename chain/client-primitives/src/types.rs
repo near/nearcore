@@ -151,19 +151,20 @@ impl StateSplitApplyingStatus {
 }
 
 #[derive(Clone, Debug)]
+/// Stores status of shard sync and statuses of downloading shards.
 pub struct ShardSyncDownload {
     pub downloads: Vec<DownloadStatus>,
     pub status: ShardSyncStatus,
 }
 
 impl ShardSyncDownload {
-    /// Indicates the initial status of shard sync.
-    pub fn new(time: DateTime<Utc>) -> Self {
+    /// Creates a struct which includes initial statuses for shard sync and download at the given time.
+    pub fn new(now: DateTime<Utc>) -> Self {
         Self {
             downloads: vec![
                 DownloadStatus {
-                    start_time: time,
-                    prev_update_time: time,
+                    start_time: now,
+                    prev_update_time: now,
                     run_me: Arc::new(AtomicBool::new(true)),
                     error: false,
                     done: false,
