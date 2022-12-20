@@ -1189,8 +1189,8 @@ impl TestEnvBuilder {
             runtime_adapters: None,
             network_adapters: None,
             seeds,
-            archive: true,
-            save_trie_changes: false,
+            archive: false,
+            save_trie_changes: true,
         }
     }
 
