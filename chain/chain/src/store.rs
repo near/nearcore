@@ -2973,14 +2973,13 @@ impl<'a> ChainStoreUpdate<'a> {
 mod tests {
     use std::sync::Arc;
 
-    use near_primitives::merkle::PartialMerkleTree;
-
     use near_chain_configs::{GCConfig, GenesisConfig};
     use near_primitives::block::{Block, Tip};
     use near_primitives::epoch_manager::block_info::BlockInfo;
     use near_primitives::errors::InvalidTxError;
     use near_primitives::hash::hash;
     use near_primitives::test_utils::create_test_signer;
+    use near_primitives::test_utils::TestBlockBuilder;
     use near_primitives::types::{BlockHeight, EpochId, NumBlocks};
     use near_primitives::utils::index_to_bytes;
     use near_primitives::validator_signer::InMemoryValidatorSigner;
@@ -3019,7 +3018,7 @@ mod tests {
         let mut chain = get_chain();
         let genesis = chain.get_block_by_height(0).unwrap();
         let signer = Arc::new(create_test_signer("test1"));
-        let short_fork = vec![Block::empty_with_height(&genesis, 1, &*signer)];
+        let short_fork = vec![TestBlockBuilder::new(&genesis, signer.clone()).build()];
         let mut store_update = chain.mut_store().store_update();
         store_update.save_block_header(short_fork[0].header().clone()).unwrap();
         store_update.commit().unwrap();
@@ -3037,7 +3036,7 @@ mod tests {
         let mut prev_block = genesis;
         for i in 1..(transaction_validity_period + 3) {
             let mut store_update = chain.mut_store().store_update();
-            let block = Block::empty_with_height(&prev_block, i, &*signer.clone());
+            let block = TestBlockBuilder::new(&prev_block, signer.clone()).height(i).build();
             prev_block = block.clone();
             store_update.save_block_header(block.header().clone()).unwrap();
             store_update
@@ -3077,7 +3076,7 @@ mod tests {
         let mut prev_block = genesis;
         for i in 1..(transaction_validity_period + 2) {
             let mut store_update = chain.mut_store().store_update();
-            let block = Block::empty_with_height(&prev_block, i, &*signer.clone());
+            let block = TestBlockBuilder::new(&prev_block, signer.clone()).height(i).build();
             prev_block = block.clone();
             store_update.save_block_header(block.header().clone()).unwrap();
             store_update
@@ -3096,11 +3095,10 @@ mod tests {
                 transaction_validity_period
             )
             .is_ok());
-        let new_block = Block::empty_with_height(
-            blocks.last().unwrap(),
-            transaction_validity_period + 3,
-            &*signer,
-        );
+        let new_block = TestBlockBuilder::new(&blocks.last().unwrap(), signer.clone())
+            .height(transaction_validity_period + 3)
+            .build();
+
         let mut store_update = chain.mut_store().store_update();
         store_update.save_block_header(new_block.header().clone()).unwrap();
         store_update
@@ -3127,7 +3125,7 @@ mod tests {
         let mut prev_block = genesis.clone();
         for i in 1..(transaction_validity_period + 2) {
             let mut store_update = chain.mut_store().store_update();
-            let block = Block::empty_with_height(&prev_block, i, &*signer.clone());
+            let block = TestBlockBuilder::new(&prev_block, signer.clone()).height(i).build();
             prev_block = block.clone();
             store_update.save_block_header(block.header().clone()).unwrap();
             short_fork.push(block);
@@ -3147,7 +3145,7 @@ mod tests {
         let mut prev_block = genesis.clone();
         for i in 1..(transaction_validity_period * 5) {
             let mut store_update = chain.mut_store().store_update();
-            let block = Block::empty_with_height(&prev_block, i, &*signer.clone());
+            let block = TestBlockBuilder::new(&prev_block, signer.clone()).height(i).build();
             prev_block = block.clone();
             store_update.save_block_header(block.header().clone()).unwrap();
             long_fork.push(block);
@@ -3169,7 +3167,7 @@ mod tests {
         let mut chain = get_chain();
         let genesis = chain.get_block_by_height(0).unwrap();
         let signer = Arc::new(create_test_signer("test1"));
-        let block1 = Block::empty_with_height(&genesis, 1, &*signer);
+        let block1 = TestBlockBuilder::new(&genesis, signer.clone()).build();
         let mut block2 = block1.clone();
         block2.mut_header().get_mut().inner_lite.epoch_id = EpochId(hash(&[1, 2, 3]));
         block2.mut_header().resign(&*signer);
@@ -3257,7 +3255,7 @@ mod tests {
         let mut store_update = chain.mut_store().store_update();
 
         let block = if next_epoch_id == *prev_block.header().next_epoch_id() {
-            Block::empty_with_height(&prev_block, height, &*signer)
+            TestBlockBuilder::new(&prev_block, signer.clone()).height(height).build()
         } else {
             let prev_hash = prev_block.hash();
             let epoch_id = prev_block.header().next_epoch_id().clone();
@@ -3268,15 +3266,12 @@ mod tests {
                 &prev_hash,
             )
             .unwrap();
-            Block::empty_with_epoch(
-                &prev_block,
-                height,
-                epoch_id,
-                next_epoch_id,
-                next_bp_hash,
-                &*signer,
-                &mut PartialMerkleTree::default(),
-            )
+            TestBlockBuilder::new(&prev_block, signer.clone())
+                .height(height)
+                .epoch_id(epoch_id)
+                .next_epoch_id(next_epoch_id)
+                .next_bp_hash(next_bp_hash)
+                .build()
         };
         blocks.push(block.clone());
         store_update.save_block(block.clone());
@@ -3377,7 +3372,7 @@ mod tests {
             store_update.commit().unwrap();
         }
         for i in 1..1000 {
-            let block = Block::empty_with_height(&prev_block, i, &*signer.clone());
+            let block = TestBlockBuilder::new(&prev_block, signer.clone()).height(i).build();
             blocks.push(block.clone());
 
             let mut store_update = chain.mut_store().store_update();

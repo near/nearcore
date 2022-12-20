@@ -11,6 +11,7 @@ pub(crate) mod receipt_manager;
 mod tests;
 pub mod types;
 mod utils;
+mod vmstate;
 
 pub use context::VMContext;
 pub use dependencies::{External, MemoryLike, StorageGetMode, ValuePtr};

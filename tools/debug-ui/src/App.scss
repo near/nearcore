@@ -1,0 +1,26 @@
+.navbar {
+    padding: 4px;
+    background-color: #eee;
+    border-bottom: 1px solid gray;
+
+    .nav-link {
+        margin: -4px 4px;
+        padding: 4px 8px;
+        text-decoration: none;
+        color: black;
+
+        &:first-child {
+            margin-left: -4px;
+        }
+
+        &.active {
+            background-color: rgb(53, 53, 159);
+            color: white;
+        }
+
+        &:hover {
+            background-color: rgb(93, 93, 217);
+            color: white;
+        }
+    }
+}
