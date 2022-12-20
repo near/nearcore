@@ -584,7 +584,6 @@ mod tests_utils {
 mod tests {
     use super::{PrefetchStagingArea, PrefetcherResult};
     use near_primitives::hash::CryptoHash;
-    use std::time::{Duration, Instant};
 
     #[test]
     fn test_prefetch_staging_area_blocking_get_after_update() {
@@ -596,26 +595,18 @@ mod tests {
             PrefetcherResult::SlotReserved
         ));
         let prefetch_staging_area2 = prefetch_staging_area.clone();
-        let handle = std::thread::spawn(move || prefetch_staging_area2.blocking_get(key));
-        // We need to sleep here to give some time for the thread above to
-        // spawn and block. Otherwise `insert_fetched` can happen before
-        // `blocking_get` which results in data being available immediately,
-        // so it doesn't actually block. Please note that this should not
-        // result in any flakiness since the test would still pass if we don't
-        // sleep enough, it just won't verify the the synchronization part of
-        // `blocking_get`.
-        std::thread::sleep(Duration::from_millis(1));
-        assert!(!handle.is_finished());
-        prefetch_staging_area.insert_fetched(key, value.clone());
-
-        let wait_start = Instant::now();
-        while !handle.is_finished() {
+        let value2 = value.clone();
+        // We need to execute `blocking_get` before `insert_fetched` so that
+        // it blocks while waiting for the value to be updated. Spawning
+        // a new thread + yielding should give enough time for the main
+        // thread to make progress. Please note that even if `insert_fetched`
+        // is executed before `blocking_get`, that still wouldn't result in
+        // any flakiness since the test would still pass, it just won't verify
+        // the the synchronization part of `blocking_get`.
+        std::thread::spawn(move || {
             std::thread::yield_now();
-            assert!(
-                wait_start.elapsed() < Duration::from_millis(100),
-                "timeout while waiting for blocking_get to return"
-            );
-        }
-        assert_eq!(handle.join().unwrap(), Some(value));
+            prefetch_staging_area.insert_fetched(key, value2);
+        });
+        assert_eq!(prefetch_staging_area2.blocking_get(key), Some(value));
     }
 }
