@@ -69,11 +69,14 @@ def check_slow_blocks(initial_metrics, final_metrics):
 
 
 def override_config(node, config):
+    # Add config here depending on the specific node build.
+    pass
+    """
     if "bad" in node.instance_name:
         config["adversarial"] = {
             "produce_duplicate_blocks": True
         }
-
+    """
 
 class Role(Enum):
     Rpc = 0
