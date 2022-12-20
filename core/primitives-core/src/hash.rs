@@ -75,7 +75,7 @@ impl CryptoHash {
     /// The conversion is performed without any memory allocation.  The visitor
     /// is given a reference to a string stored on stack.  Returns whatever the
     /// visitor returns.
-    fn to_base58_impl<Out>(&self, visitor: impl FnOnce(&str) -> Out) -> Out {
+    fn to_base58_impl<Out>(self, visitor: impl FnOnce(&str) -> Out) -> Out {
         // base58-encoded string is at most 1.4 times longer than the binary
         // sequence.  We’re serialising 32 bytes so ⌈32 * 1.4⌉ = 45 should be
         // enough.
@@ -221,6 +221,9 @@ impl fmt::Display for CryptoHash {
     }
 }
 
+// This implementation is compatible with derived PartialEq.
+// Custom PartialEq implementation was explicitly removed in #4220.
+#[allow(clippy::derive_hash_xor_eq)]
 impl Hash for CryptoHash {
     fn hash<H: Hasher>(&self, state: &mut H) {
         state.write(self.as_ref());
