@@ -158,7 +158,7 @@ pub struct ShardSyncDownload {
 }
 
 impl ShardSyncDownload {
-    /// Creates a struct which includes initial statuses for shard sync and download at the given time.
+    /// Creates a instance of self which includes initial statuses for shard sync and download at the given time.
     pub fn new(now: DateTime<Utc>) -> Self {
         Self {
             downloads: vec![
