@@ -150,9 +150,11 @@ impl StateSplitApplyingStatus {
     }
 }
 
-#[derive(Clone, Debug)]
 /// Stores status of shard sync and statuses of downloading shards.
+#[derive(Clone, Debug)]
 pub struct ShardSyncDownload {
+    /// Stores all download statuses. If we are downloading state parts, its length equals the number of state parts.
+    /// Otherwise it is 1, since we have only one piece of data to download, like shard state header.
     pub downloads: Vec<DownloadStatus>,
     pub status: ShardSyncStatus,
 }
