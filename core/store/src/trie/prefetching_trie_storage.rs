@@ -605,8 +605,8 @@ mod tests {
         // the the synchronization part of `blocking_get`.
         std::thread::spawn(move || {
             std::thread::yield_now();
-            prefetch_staging_area.insert_fetched(key, value2);
+            prefetch_staging_area2.insert_fetched(key, value2);
         });
-        assert_eq!(prefetch_staging_area2.blocking_get(key), Some(value));
+        assert_eq!(prefetch_staging_area.blocking_get(key), Some(value));
     }
 }
