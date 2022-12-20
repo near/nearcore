@@ -45,7 +45,7 @@ impl ChainAccess {
         let chain = ChainStore::new(
             store.clone(),
             config.genesis.config.genesis_height,
-            !config.client_config.archive,
+            config.client_config.save_trie_changes,
         );
         let runtime = NightshadeRuntime::from_config(home.as_ref(), store, &config);
         Ok(Self { chain, runtime })
