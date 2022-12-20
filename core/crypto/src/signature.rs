@@ -119,7 +119,7 @@ pub enum PublicKey {
 }
 
 impl PublicKey {
-    // `is_empty` always returns false, so having it doesn't add any value
+    // `is_empty` always returns false, so there is no point in adding it
     #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         match self {
