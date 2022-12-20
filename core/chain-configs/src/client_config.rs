@@ -174,6 +174,12 @@ impl ClientConfig {
         save_trie_changes: bool,
         epoch_sync_enabled: bool,
     ) -> Self {
+        assert!(
+            archive || save_trie_changes,
+            "Configuration with archive = false and save_trie_changes = false is not supported \
+            because non-archival nodes must save trie changes in order to do do garbage collection."
+        );
+
         ClientConfig {
             version: Default::default(),
             chain_id: "unittest".to_string(),
