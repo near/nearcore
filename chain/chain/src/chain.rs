@@ -59,7 +59,6 @@ use crate::block_processing_utils::{
 };
 use crate::blocks_delay_tracker::BlocksDelayTracker;
 use crate::crypto_hash_timer::CryptoHashTimer;
-use crate::flat_storage_creator::FlatStorageCreator;
 use crate::lightclient::get_epoch_block_producers_view;
 use crate::migrations::check_if_block_is_first_with_chunk_of_version;
 use crate::missing_chunks::{BlockLike, MissingChunksPool};
@@ -471,7 +470,6 @@ pub struct Chain {
     /// Used to store state parts already requested along with elapsed time
     /// to create the parts. This information is used for debugging
     pub(crate) requested_state_parts: StateRequestTracker,
-    flat_storage_creator:
 }
 
 impl Drop for Chain {
@@ -2135,21 +2133,11 @@ impl Chain {
                 }
             });
         } else {
-            // If background flat storage creation was initiated, update its creation status, which means executing
-            // some work related to current creation step and possibly moving status forward until flat storage is
-            // finally created.
-            // Note that it doesn't work with state sync / catchup logic.
-            match &mut self.flat_storage_creator {
-                Some(flat_storage_creator) => {
-                    flat_storage_creator.update_status(shard_id, &self.store)?;
-                }
-                None => {
-                    // TODO (#8250): enable this assertion. Currently it doesn't work because runtime may be implemented
-                    // with KeyValueRuntime which doesn't support flat storage.
-                    // #[cfg(feature = "protocol_feature_flat_state")]
-                    // debug_assert!(false, "Flat storage state for shard {shard_id} does not exist and its creation was not initiated");
-                }
-            }
+            // TODO (#8250): come up with correct assertion. Currently it doesn't work because runtime may be
+            // implemented by KeyValueRuntime which doesn't support flat storage, and flat storage background
+            // creation may happen.
+            // #[cfg(feature = "protocol_feature_flat_state")]
+            // debug_assert!(false, "Flat storage state for shard {shard_id} does not exist and its creation was not initiated");
         }
         Ok(())
     }
