@@ -2217,7 +2217,7 @@ impl Client {
         Ok(())
     }
 
-    pub fn run_flat_storage_creation_step(&mut self) {
+    pub fn run_flat_storage_creation_step(&mut self) -> Result<(), Error> {
         match &mut self.flat_storage_creator {
             Some(flat_storage_creator) => {
                 let chain_head = self.chain.head().unwrap();
@@ -2235,6 +2235,7 @@ impl Client {
             }
             None => {}
         }
+        Ok(())
     }
 }
 

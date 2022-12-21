@@ -1130,7 +1130,9 @@ impl ClientActor {
 
         self.try_process_unfinished_blocks();
 
-        self.client.run_flat_storage_creation_step();
+        if let Err(err) = self.client.run_flat_storage_creation_step() {
+            error!(target: "client", "Error occurred during flat storage creation step: {:?}", err);
+        }
 
         let mut delay = Duration::from_secs(1);
         let now = Utc::now();
