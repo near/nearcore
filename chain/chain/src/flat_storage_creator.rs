@@ -411,12 +411,12 @@ impl FlatStorageCreator {
 
     pub fn update_status(
         &mut self,
-        shard_id: ShardId,
-        #[allow(unused_variables)] chain_store: &ChainStore,
+        #[allow(unused)] shard_id: ShardId,
+        #[allow(unused)] chain_store: &ChainStore,
     ) -> Result<(), Error> {
+        #[cfg(feature = "protocol_feature_flat_state")]
         match self.shard_creators.get_mut(&shard_id) {
             Some(shard_creator) => {
-                #[cfg(feature = "protocol_feature_flat_state")]
                 shard_creator.update_status(chain_store, &self.pool)?;
             }
             None => {
