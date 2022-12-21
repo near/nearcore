@@ -6,6 +6,7 @@ use near_primitives_core::config::VMLimitConfig;
 use near_vm_errors::{HostError, VMLogicError};
 
 use core::mem::size_of;
+use std::collections::hash_map::Entry;
 
 type Result<T> = ::std::result::Result<T, VMLogicError>;
 
@@ -110,7 +111,18 @@ impl<'a> Memory<'a> {
 ///
 /// See documentation of [`Memory`] for more motivation for this struct.
 #[derive(Default, Clone)]
-pub(super) struct Registers(std::collections::HashMap<u64, Box<[u8]>>);
+pub(super) struct Registers {
+    /// Values of each existing register.
+    registers: std::collections::HashMap<u64, Box<[u8]>>,
+
+    /// Total memory usage as counted for the purposes of the contract
+    /// execution.
+    ///
+    /// Usage of each register is counted as its value’s length plus eight
+    /// (i.e. size of `u64`).  Total usage is sum over all registers.  This only
+    /// approximates actual usage in memory.
+    total_memory_usage: u64,
+}
 
 impl Registers {
     /// Returns register with given index.
@@ -122,7 +134,7 @@ impl Registers {
         gas_counter: &mut GasCounter,
         register_id: u64,
     ) -> Result<&'s [u8]> {
-        if let Some(data) = self.0.get(&register_id) {
+        if let Some(data) = self.registers.get(&register_id) {
             gas_counter.pay_base(read_register_base)?;
             let len = u64::try_from(data.len()).map_err(|_| HostError::MemoryAccessViolation)?;
             gas_counter.pay_per(read_register_byte, len)?;
@@ -134,7 +146,7 @@ impl Registers {
 
     /// Returns length of register with given index or None if no such register.
     pub(super) fn get_len(&self, register_id: u64) -> Option<u64> {
-        self.0.get(&register_id).map(|data| data.len() as u64)
+        self.registers.get(&register_id).map(|data| data.len() as u64)
     }
 
     /// Sets register with given index.
@@ -155,30 +167,57 @@ impl Registers {
             u64::try_from(data.as_ref().len()).map_err(|_| HostError::MemoryAccessViolation)?;
         gas_counter.pay_base(write_register_base)?;
         gas_counter.pay_per(write_register_byte, data_len)?;
+        let entry = self.check_set_register(config, register_id, data_len)?;
+        let data = data.into();
+        match entry {
+            Entry::Occupied(mut entry) => {
+                entry.insert(data);
+            }
+            Entry::Vacant(entry) => {
+                entry.insert(data);
+            }
+        };
+        Ok(())
+    }
+
+    /// Checks and updates registers usage limits before setting given register
+    /// to value with given length.
+    ///
+    /// On success, returns Entry which must be used to insert the new value
+    /// into the registers.
+    fn check_set_register<'a>(
+        &'a mut self,
+        config: &VMLimitConfig,
+        register_id: u64,
+        data_len: u64,
+    ) -> Result<Entry<'a, u64, Box<[u8]>>> {
+        if data_len > config.max_register_size {
+            return Err(HostError::MemoryAccessViolation.into());
+        }
         // Fun fact: if we are at the limit and we replace a register, we’ll
         // fail even though we should be succeeding.  This bug is now part of
         // the protocol so we can’t change it.
-        if data_len > config.max_register_size || self.0.len() as u64 >= config.max_number_registers
-        {
+        if self.registers.len() as u64 >= config.max_number_registers {
             return Err(HostError::MemoryAccessViolation.into());
         }
-        match self.0.insert(register_id, data.into()) {
-            Some(old_value) if old_value.len() as u64 >= data_len => {
-                // If there was old value and it was no shorter than the new
-                // one, there’s no need to check new memory usage since it
-                // didn’t increase.
-            }
-            _ => {
-                // Calculate and check the new memory usage.
-                // TODO(mina86): Memorise usage in a field so we don’t have to
-                // go through all registers each time.
-                let usage: usize = self.0.values().map(|v| size_of::<u64>() + v.len()).sum();
-                if usage as u64 > config.registers_memory_limit {
-                    return Err(HostError::MemoryAccessViolation.into());
-                }
-            }
+
+        let entry = self.registers.entry(register_id);
+        let calc_usage = |len: u64| len + size_of::<u64>() as u64;
+        let old_mem_usage = match &entry {
+            Entry::Occupied(entry) => calc_usage(entry.get().len() as u64),
+            Entry::Vacant(_) => 0,
+        };
+        let usage = self
+            .total_memory_usage
+            .checked_sub(old_mem_usage)
+            .unwrap()
+            .checked_add(calc_usage(data_len))
+            .ok_or(HostError::MemoryAccessViolation)?;
+        if usage > config.registers_memory_limit {
+            return Err(HostError::MemoryAccessViolation.into());
         }
-        Ok(())
+        self.total_memory_usage = usage;
+        Ok(entry)
     }
 }
 
