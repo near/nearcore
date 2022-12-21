@@ -308,6 +308,7 @@ pub struct Config {
     pub tracked_shards: Vec<ShardId>,
     #[serde(skip_serializing_if = "is_false")]
     pub archive: bool,
+    pub save_trie_changes: bool,
     pub log_summary_style: LogSummaryStyle,
     /// Garbage collection configuration.
     #[serde(default, flatten)]
@@ -363,6 +364,7 @@ impl Default for Config {
             tracked_accounts: vec![],
             tracked_shards: vec![],
             archive: false,
+            save_trie_changes: true,
             log_summary_style: LogSummaryStyle::Colored,
             gc: GCConfig::default(),
             epoch_sync_enabled: true,
@@ -384,7 +386,7 @@ impl Config {
         let contents = std::fs::read_to_string(path)
             .with_context(|| format!("Failed to read config from {}", path.display()))?;
         let mut unrecognised_fields = Vec::new();
-        let config = serde_ignored::deserialize(
+        let config: Config = serde_ignored::deserialize(
             &mut serde_json::Deserializer::from_str(&contents),
             |field| {
                 let field = field.to_string();
@@ -411,6 +413,13 @@ impl Config {
                 path.display(),
             );
         }
+
+        assert!(
+            config.archive || config.save_trie_changes,
+            "Configuration with archive = false and save_trie_changes = false is not supported \
+            because non-archival nodes must save trie changes in order to do do garbage collection."
+        );
+
         Ok(config)
     }
 
@@ -598,6 +607,7 @@ impl NearConfig {
                 tracked_accounts: config.tracked_accounts,
                 tracked_shards: config.tracked_shards,
                 archive: config.archive,
+                save_trie_changes: config.save_trie_changes,
                 log_summary_style: config.log_summary_style,
                 gc: config.gc,
                 view_client_threads: config.view_client_threads,

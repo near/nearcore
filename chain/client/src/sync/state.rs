@@ -199,6 +199,7 @@ impl StateSync {
                 update_sync_status = true;
                 ShardSyncDownload::new(now)
             });
+
             let old_status = shard_sync_download.status.clone();
             let mut this_done = false;
             match &shard_sync_download.status {
