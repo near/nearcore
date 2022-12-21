@@ -49,7 +49,7 @@ use near_primitives::merkle::{verify_hash, PartialMerkleTree};
 use near_primitives::receipt::DelayedReceiptIndices;
 use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
-use near_primitives::shard_layout::ShardUId;
+use near_primitives::shard_layout::{get_block_shard_uid, ShardUId};
 use near_primitives::sharding::{
     EncodedShardChunk, ReedSolomonWrapper, ShardChunkHeader, ShardChunkHeaderInner,
     ShardChunkHeaderV3,
@@ -72,7 +72,7 @@ use near_primitives::views::{
     BlockHeaderView, FinalExecutionStatus, QueryRequest, QueryResponseKind,
 };
 use near_store::test_utils::create_test_store;
-use near_store::{get, DBCol};
+use near_store::{get, DBCol, TrieChanges};
 use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use nearcore::NEAR_BASE;
 use rand::prelude::StdRng;
@@ -1115,6 +1115,8 @@ fn test_time_attack() {
         client_adapter,
         chain_genesis,
         TEST_SEED,
+        false,
+        true,
     );
     let signer = Arc::new(create_test_signer("test1"));
     let genesis = client.chain.get_block_by_height(0).unwrap();
@@ -1149,6 +1151,8 @@ fn test_invalid_approvals() {
         client_adapter,
         chain_genesis,
         TEST_SEED,
+        false,
+        true,
     );
     let signer = Arc::new(create_test_signer("test1"));
     let genesis = client.chain.get_block_by_height(0).unwrap();
@@ -1195,6 +1199,8 @@ fn test_invalid_gas_price() {
         client_adapter,
         chain_genesis,
         TEST_SEED,
+        false,
+        true,
     );
     let signer = Arc::new(create_test_signer("test1"));
     let genesis = client.chain.get_block_by_height(0).unwrap();
@@ -1354,6 +1360,8 @@ fn test_bad_chunk_mask() {
                 Arc::new(MockClientAdapterForShardsManager::default()),
                 chain_genesis.clone(),
                 TEST_SEED,
+                false,
+                true,
             )
         })
         .collect();
@@ -1475,6 +1483,68 @@ fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
 fn test_gc_with_epoch_length() {
     for i in 3..20 {
         test_gc_with_epoch_length_common(i);
+    }
+}
+
+/// Test that producing blocks works in archival mode with save_trie_changes enabled.
+/// In that case garbage collection should not happen but trie changes should be saved to the store.
+#[test]
+fn test_archival_save_trie_changes() {
+    let epoch_length = 10;
+
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+    genesis.config.epoch_length = epoch_length;
+    let mut chain_genesis = ChainGenesis::test();
+    chain_genesis.epoch_length = epoch_length;
+    let mut env = TestEnv::builder(chain_genesis)
+        .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
+        .archive(true)
+        .save_trie_changes(true)
+        .build();
+    let mut blocks = vec![];
+    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+    blocks.push(genesis_block);
+    for i in 1..=epoch_length * (DEFAULT_GC_NUM_EPOCHS_TO_KEEP + 1) {
+        let block = env.clients[0].produce_block(i).unwrap().unwrap();
+        env.process_block(0, block.clone(), Provenance::PRODUCED);
+        blocks.push(block);
+    }
+    // Go through all of the blocks and verify that the block are stored and that the trie changes were stored too.
+    for i in 0..=epoch_length * (DEFAULT_GC_NUM_EPOCHS_TO_KEEP + 1) {
+        let client = &env.clients[0];
+        let chain = &client.chain;
+        let store = chain.store();
+        let block = &blocks[i as usize];
+        let header = block.header();
+        let epoch_id = header.epoch_id();
+        let runtime_adapter = &client.runtime_adapter;
+        let shard_layout = runtime_adapter.get_shard_layout(epoch_id).unwrap();
+
+        assert!(chain.get_block(block.hash()).is_ok());
+        assert!(chain.get_block_by_height(i).is_ok());
+        assert!(chain.store().get_all_block_hashes_by_height(i as BlockHeight).is_ok());
+
+        // The genesis block does not contain trie changes.
+        if i == 0 {
+            continue;
+        }
+
+        // Go through chunks and test that trie changes were correctly saved to the store.
+        let chunks = block.chunks();
+        for chunk in chunks.iter() {
+            let shard_id = chunk.shard_id() as u32;
+            let version = shard_layout.version();
+
+            let shard_uid = ShardUId { version, shard_id };
+            let key = get_block_shard_uid(&block.hash(), &shard_uid);
+            let trie_changes: Option<TrieChanges> =
+                store.store().get_ser(DBCol::TrieChanges, &key).unwrap();
+
+            if let Some(trie_changes) = trie_changes {
+                // We don't do any transactions in this test so the root should remain unchanged.
+                assert_eq!(trie_changes.old_root, trie_changes.new_root);
+            }
+        }
     }
 }
 
@@ -1944,7 +2014,7 @@ fn test_incorrect_validator_key_produce_block() {
         KeyType::ED25519,
         "seed",
     ));
-    let mut config = ClientConfig::test(true, 10, 20, 2, false, true);
+    let mut config = ClientConfig::test(true, 10, 20, 2, false, true, true);
     config.epoch_length = chain_genesis.epoch_length;
     let mut client = Client::new(
         config,

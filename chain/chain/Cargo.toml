@@ -56,7 +56,8 @@ nightly = [
 nightly_protocol = [
   "near-store/nightly_protocol",
   "near-primitives/nightly_protocol",
-  "protocol_feature_reject_blocks_with_outdated_protocol_version"
+  "protocol_feature_reject_blocks_with_outdated_protocol_version",
+  "protocol_feature_flat_state",
 ]
 mock_node = []
 sandbox = ["near-primitives/sandbox"]
