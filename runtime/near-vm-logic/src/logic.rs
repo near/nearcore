@@ -1575,8 +1575,8 @@ impl<'a> VMLogic<'a> {
         }
         let code = get_memory_or_register!(self, code_ptr, code_len)?;
         let code_len = code.len() as u64;
-        if code_len > self.config.limit_config.max_contract_size {
-            let limit = self.config.limit_config.max_contract_size;
+        let limit = self.config.limit_config.max_contract_size;
+        if code_len > limit {
             return Err(HostError::ContractSizeExceeded { size: code_len, limit }.into());
         }
         let code = code.into_owned();
