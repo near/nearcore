@@ -119,6 +119,8 @@ pub enum PublicKey {
 }
 
 impl PublicKey {
+    // `is_empty` always returns false, so there is no point in adding it
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         match self {
             Self::ED25519(_) => ed25519_dalek::PUBLIC_KEY_LENGTH + 1,
@@ -490,6 +492,9 @@ pub enum Signature {
     SECP256K1(Secp256K1Signature),
 }
 
+// This `Hash` implementation is safe since it retains the property
+// `k1 == k2 ⇒ hash(k1) == hash(k2)`.
+#[allow(clippy::derive_hash_xor_eq)]
 impl Hash for Signature {
     fn hash<H: Hasher>(&self, state: &mut H) {
         match self {
@@ -745,7 +750,7 @@ mod tests {
 
     #[test]
     fn test_sign_verify() {
-        for key_type in vec![KeyType::ED25519, KeyType::SECP256K1] {
+        for key_type in [KeyType::ED25519, KeyType::SECP256K1] {
             let secret_key = SecretKey::from_random(key_type);
             let public_key = secret_key.public_key();
             use sha2::Digest;
@@ -812,7 +817,7 @@ mod tests {
     fn test_borsh_serialization() {
         use sha2::Digest;
         let data = sha2::Sha256::digest(b"123").to_vec();
-        for key_type in vec![KeyType::ED25519, KeyType::SECP256K1] {
+        for key_type in [KeyType::ED25519, KeyType::SECP256K1] {
             let sk = SecretKey::from_seed(key_type, "test");
             let pk = sk.public_key();
             let bytes = pk.try_to_vec().unwrap();

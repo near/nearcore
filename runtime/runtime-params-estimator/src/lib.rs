@@ -60,6 +60,7 @@
 mod cost;
 mod cost_table;
 mod costs_to_runtime_config;
+// Encapsulates the runtime so that it can be run separately from the rest of the node.
 mod estimator_context;
 mod gas_cost;
 mod qemu;
@@ -74,8 +75,6 @@ pub mod utils;
 
 // Runs a VM (Default: Wasmer) on the given contract and measures the time it takes to do a single operation.
 pub mod vm_estimator;
-// Encapsulates the runtime so that it can be run separately from the rest of the node.
-pub mod testbed;
 // Prepares transactions and feeds them to the testbed in batches. Performs the warm up, takes care
 // of nonces.
 pub mod config;

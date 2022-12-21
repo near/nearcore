@@ -439,7 +439,7 @@ mod tests {
         }
 
         for account_id in BAD_ACCOUNT_IDS.iter().cloned() {
-            if let Ok(_) = AccountId::validate(account_id) {
+            if AccountId::validate(account_id).is_ok() {
                 panic!("Invalid account id {:?} marked valid", account_id);
             }
         }
