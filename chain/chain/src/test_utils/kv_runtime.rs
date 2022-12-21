@@ -837,6 +837,14 @@ impl RuntimeAdapter for KeyValueRuntime {
         FlatStorageStateStatus::DontCreate
     }
 
+    fn remove_flat_storage_state_for_shard(
+        &self,
+        _shard_id: ShardId,
+        _epoch_id: &EpochId,
+    ) -> Result<(), Error> {
+        Ok(())
+    }
+
     fn set_flat_storage_state_for_genesis(
         &self,
         _genesis_block: &CryptoHash,
