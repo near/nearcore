@@ -19,6 +19,7 @@ use near_chain::chain::{
     ApplyStatePartsRequest, BlockCatchUpRequest, BlockMissingChunks, BlocksCatchUpState,
     OrphanMissingChunks, StateSplitRequest, TX_ROUTING_HEIGHT_HORIZON,
 };
+use near_chain::flat_storage_creator::FlatStorageCreator;
 use near_chain::test_utils::format_hash;
 use near_chain::types::{ChainConfig, LatestKnown};
 use near_chain::{
@@ -145,6 +146,8 @@ pub struct Client {
     /// Cached precomputed set of TIER1 accounts.
     /// See send_network_chain_info().
     tier1_accounts_cache: Option<(EpochId, Arc<AccountKeys>)>,
+    /// Used when it is needed to create flat storage in background for some shards.
+    flat_storage_creator: Option<FlatStorageCreator>,
 }
 
 // Debug information about the upcoming block.
@@ -187,16 +190,23 @@ impl Client {
         } else {
             DoomslugThresholdMode::NoApprovals
         };
+        let chain_config = ChainConfig {
+            save_trie_changes: !config.archive,
+            background_migration_threads: config.client_background_migration_threads,
+        };
         let chain = Chain::new(
             runtime_adapter.clone(),
             &chain_genesis,
             doomslug_threshold_mode,
-            ChainConfig {
-                save_trie_changes: !config.archive,
-                background_migration_threads: config.client_background_migration_threads,
-            },
+            chain_config.clone(),
         )?;
         let me = validator_signer.as_ref().map(|x| x.validator_id().clone());
+        // Create flat storage or initiate migration to flat storage.
+        let flat_storage_creator = FlatStorageCreator::new(
+            runtime_adapter.clone(),
+            chain.store(),
+            chain_config.background_migration_threads,
+        );
         let shards_mgr = ShardsManager::new(
             me.clone(),
             runtime_adapter.clone(),
@@ -286,6 +296,7 @@ impl Client {
             block_production_info: BlockProductionTracker::new(),
             chunk_production_info: lru::LruCache::new(PRODUCTION_TIMES_CACHE_SIZE),
             tier1_accounts_cache: None,
+            flat_storage_creator,
         })
     }
 

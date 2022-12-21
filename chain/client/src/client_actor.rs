@@ -1184,6 +1184,15 @@ impl ClientActor {
                     .unwrap_or(delay),
             )
         }
+        // PUT SOMEWHERE HERE
+        else {
+            match &mut self.flat_storage_creator {
+                Some(flat_storage_creator) => {
+                    flat_storage_creator.update_status(shard_id, &self.store)?;
+                }
+                None => {}
+            }
+        }
 
         self.log_summary_timer_next_attempt = self.run_timer(
             self.client.config.log_summary_period,

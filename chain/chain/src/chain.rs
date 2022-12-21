@@ -451,8 +451,6 @@ pub struct Chain {
     apply_chunks_receiver: Receiver<BlockApplyChunksResult>,
     /// Time when head was updated most recently.
     last_time_head_updated: Instant,
-    /// Used when it is needed to create flat storage in background for some shards.
-    flat_storage_creator: Option<FlatStorageCreator>,
 
     invalid_blocks: LruCache<CryptoHash, ()>,
 
@@ -473,6 +471,7 @@ pub struct Chain {
     /// Used to store state parts already requested along with elapsed time
     /// to create the parts. This information is used for debugging
     pub(crate) requested_state_parts: StateRequestTracker,
+    flat_storage_creator:
 }
 
 impl Drop for Chain {
@@ -534,7 +533,6 @@ impl Chain {
             apply_chunks_sender: sc,
             apply_chunks_receiver: rc,
             last_time_head_updated: Clock::instant(),
-            flat_storage_creator: None,
             invalid_blocks: LruCache::new(INVALID_CHUNKS_POOL_SIZE),
             pending_state_patch: Default::default(),
             requested_state_parts: StateRequestTracker::new(),
@@ -653,13 +651,6 @@ impl Chain {
         };
         store_update.commit()?;
 
-        // Create flat storage or initiate migration to flat storage.
-        let flat_storage_creator = FlatStorageCreator::new(
-            runtime_adapter.clone(),
-            &store,
-            chain_config.background_migration_threads,
-        );
-
         info!(target: "chain", "Init: header head @ #{} {}; block head @ #{} {}",
               header_head.height, header_head.last_block_hash,
               block_head.height, block_head.last_block_hash);
@@ -692,7 +683,6 @@ impl Chain {
             apply_chunks_sender: sc,
             apply_chunks_receiver: rc,
             last_time_head_updated: Clock::instant(),
-            flat_storage_creator,
             pending_state_patch: Default::default(),
             requested_state_parts: StateRequestTracker::new(),
         })
@@ -2199,13 +2189,6 @@ impl Chain {
                             }
                         }
                     });
-                } else {
-                    match &mut self.flat_storage_creator {
-                        Some(flat_storage_creator) => {
-                            flat_storage_creator.update_status(shard_id, &self.store)?;
-                        }
-                        None => {}
-                    }
                 }
             }
         }
