@@ -44,33 +44,32 @@ debug: neard-debug
 
 perf-release: NEAR_RELEASE_BUILD=release
 perf-release:
-	CARGO_PROFILE_RELEASE_DEBUG=true cargo build -p neard --release --features performance_stats,memory_stats
-	cargo build -p store-validator --release --features nearcore/performance_stats,nearcore/memory_stats
+	CARGO_PROFILE_RELEASE_DEBUG=true cargo build -p neard --release --features performance_stats
+	cargo build -p store-validator --release --features nearcore/performance_stats
 
 
 perf-debug:
-	cargo build -p neard --features performance_stats,memory_stats
-	cargo build -p store-validator --features nearcore/performance_stats,nearcore/memory_stats
+	cargo build -p neard --features performance_stats
+	cargo build -p store-validator --features nearcore/performance_stats
 
 
 nightly-release: neard-nightly-release
-	cargo build -p store-validator --release --features nearcore/nightly,nearcore/performance_stats,nearcore/memory_stats
-	cargo build -p genesis-populate --release --features nearcore/nightly,nearcore/performance_stats,nearcore/memory_stats
+	cargo build -p store-validator --release --features nearcore/nightly,nearcore/performance_stats
+	cargo build -p genesis-populate --release --features nearcore/nightly,nearcore/performance_stats
 
 neard-nightly-release:
-	cargo build -p neard --release --features nightly,performance_stats,memory_stats
+	cargo build -p neard --release --features nightly,performance_stats
 
 
 nightly-debug:
-	cargo build -p neard --features nightly,performance_stats,memory_stats
-	cargo build -p store-validator --features nearcore/nightly,nearcore/performance_stats,nearcore/memory_stats
-	cargo build -p genesis-populate --features nearcore/nightly,nearcore/performance_stats,nearcore/memory_stats
+	cargo build -p neard --features nightly,performance_stats
+	cargo build -p store-validator --features nearcore/nightly,nearcore/performance_stats
+	cargo build -p genesis-populate --features nearcore/nightly,nearcore/performance_stats
 
 
 assertions-release: NEAR_RELEASE_BUILD=release
 assertions-release:
-	CARGO_PROFILE_RELEASE_DEBUG=true CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS=true cargo build -p neard --release --features performance_stats,memory_stats
-
+	CARGO_PROFILE_RELEASE_DEBUG=true CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS=true cargo build -p neard --release --features performance_stats
 
 sandbox: CARGO_TARGET_DIR=sandbox
 sandbox: neard-sandbox
