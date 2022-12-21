@@ -452,9 +452,10 @@ def compress_and_upload(nodes, src_filename, dst_filename):
 
 def redownload_neard(nodes, binary_url):
     pmap(
-        lambda node: node.machine.run('sudo -u ubuntu -i',
-                                      input='wget -O /home/ubuntu/neard {}; chmod +x /home/ubuntu/neard'.
-                                      format(binary_url)), nodes)
+        lambda node: node.machine.
+        run('sudo -u ubuntu -i',
+            input='wget -O /home/ubuntu/neard {}; chmod +x /home/ubuntu/neard'.
+            format(binary_url)), nodes)
 
 
 # check each of /home/ubuntu/neard and /home/ubuntu/neard.upgrade to see
@@ -1084,11 +1085,14 @@ def create_and_upload_config_file_from_default(nodes, chain_id, overrider=None):
             overrider(node, copied_config)
         upload_json(node, '/home/ubuntu/.near/config.json', copied_config)
 
+
 def update_existing_config_file(nodes, overrider=None):
     for node in nodes:
-        config_json = download_and_read_json(nodes[0], '/home/ubuntu/.near/config.json')
+        config_json = download_and_read_json(nodes[0],
+                                             '/home/ubuntu/.near/config.json')
         overrider(node, config_json)
         upload_json(node, '/home/ubuntu/.near/config.json', config_json)
+
 
 def start_nodes(nodes, upgrade_schedule=None):
     pmap(lambda node: start_node(node, upgrade_schedule=upgrade_schedule),

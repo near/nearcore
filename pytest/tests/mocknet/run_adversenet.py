@@ -62,7 +62,7 @@ def check_memory_usage(node):
 def check_slow_blocks(initial_metrics, final_metrics):
     delta = Metrics.diff(final_metrics, initial_metrics)
     slow_process_blocks = delta.block_processing_time[
-                              'le +Inf'] - delta.block_processing_time['le 1']
+        'le +Inf'] - delta.block_processing_time['le 1']
     logger.info(
         f'Number of blocks processing for more than 1s: {slow_process_blocks}')
     return slow_process_blocks == 0
@@ -78,6 +78,7 @@ def override_config(node, config):
         }
     """
 
+
 class Role(Enum):
     Rpc = 0
     GoodValidator = 1
@@ -92,21 +93,40 @@ def get_role(node):
     else:
         return Role.GoodValidator
 
+
 if __name__ == '__main__':
     logger.info('Starting adversenet.')
     parser = argparse.ArgumentParser(description=help_str)
-    parser.add_argument('mode', choices=["new", "update"],
-                        help="new: start a new network from scratch, update: update existing network")
+    parser.add_argument(
+        'mode',
+        choices=["new", "update"],
+        help=
+        "new: start a new network from scratch, update: update existing network"
+    )
     parser.add_argument('--chain-id', required=False, default="adversenet")
-    parser.add_argument('--pattern', required=False, default="adversenet-node-",
+    parser.add_argument('--pattern',
+                        required=False,
+                        default="adversenet-node-",
                         help="pattern to filter the gcp instance names")
-    parser.add_argument('--epoch-length', type=int, required=False, default=60,
-                        help="epoch length of the network. Only used when mode == new")
-    parser.add_argument('--num-seats', type=int, required=False, default=100,
-                        help="number of validator seats. Only used when mode == new")
-    parser.add_argument('--bad-stake', required=False, default=5, type=int,
+    parser.add_argument(
+        '--epoch-length',
+        type=int,
+        required=False,
+        default=60,
+        help="epoch length of the network. Only used when mode == new")
+    parser.add_argument(
+        '--num-seats',
+        type=int,
+        required=False,
+        default=100,
+        help="number of validator seats. Only used when mode == new")
+    parser.add_argument('--bad-stake',
+                        required=False,
+                        default=5,
+                        type=int,
                         help="Total stake percentage for bad validators")
-    parser.add_argument('--binary-url', required=False,
+    parser.add_argument('--binary-url',
+                        required=False,
                         help="url to download neard binary")
 
     args = parser.parse_args()
@@ -118,18 +138,22 @@ if __name__ == '__main__':
 
     all_nodes = mocknet.get_nodes(pattern=pattern)
     rpcs = [n.instance_name for n in all_nodes if get_role(n) == Role.Rpc]
-    good_validators = [n.instance_name for n in all_nodes if get_role(n) == Role.GoodValidator]
-    bad_validators = [n.instance_name for n in all_nodes if get_role(n) == Role.BadValidator]
+    good_validators = [
+        n.instance_name for n in all_nodes if get_role(n) == Role.GoodValidator
+    ]
+    bad_validators = [
+        n.instance_name for n in all_nodes if get_role(n) == Role.BadValidator
+    ]
     TOTAL_STAKE = 1000000
-    bad_validator_stake = int(TOTAL_STAKE * args.bad_stake / ( 100 * len(bad_validators)))
-    good_validator_stake = int(TOTAL_STAKE * (100 - args.bad_stake) / ( 100 * len(good_validators)))
+    bad_validator_stake = int(TOTAL_STAKE * args.bad_stake /
+                              (100 * len(bad_validators)))
+    good_validator_stake = int(TOTAL_STAKE * (100 - args.bad_stake) /
+                               (100 * len(good_validators)))
 
-    logger.info(
-        f'Starting chain {chain_id} with {len(all_nodes)} nodes. \n\
+    logger.info(f'Starting chain {chain_id} with {len(all_nodes)} nodes. \n\
         Good validators: {good_validators} each with stake {good_validator_stake} NEAR\n\
         Bad validators: {bad_validators} each with stake {bad_validator_stake} NEAR\n\
-        RPC nodes: {rpcs}\n'
-    )
+        RPC nodes: {rpcs}\n')
 
     answer = input("Enter y to continue: ")
     if answer != "y":
@@ -146,7 +170,8 @@ if __name__ == '__main__':
         mocknet.clear_data(all_nodes)
         mocknet.create_and_upload_genesis_file_from_empty_genesis(
             # Give bad validators less stake.
-            [(node, bad_validator_stake * mocknet.ONE_NEAR if get_role(node) == Role.BadValidator else good_validator_stake * mocknet.ONE_NEAR)
+            [(node, bad_validator_stake * mocknet.ONE_NEAR if get_role(node)
+              == Role.BadValidator else good_validator_stake * mocknet.ONE_NEAR)
              for node in validator_nodes],
             rpc_nodes,
             chain_id,
