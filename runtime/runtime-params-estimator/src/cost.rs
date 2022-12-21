@@ -34,8 +34,8 @@ pub enum Cost {
     /// Estimation: Measure the creation and execution of an empty action
     /// receipt, where sender and receiver are the same account.
     ActionSirReceiptCreation,
-    ActionReceiptCreationSendSir,
     ActionReceiptCreationSendNotSir,
+    ActionReceiptCreationSendSir,
     ActionReceiptCreationExec,
     /// Estimates `data_receipt_creation_config.base_cost`, which is charged for
     /// every data dependency of created receipts. This occurs either through
@@ -69,8 +69,8 @@ pub enum Cost {
     /// an initial balance to it. Subtract the base cost of creating a receipt.
     // TODO(jakmeier): consider also subtracting transfer fee
     ActionCreateAccount,
-    ActionCreateAccountSendSir,
     ActionCreateAccountSendNotSir,
+    ActionCreateAccountSendSir,
     ActionCreateAccountExec,
     // Deploying a new contract for an account on the blockchain stores the WASM
     // code in the trie. Additionally, it also triggers a compilation of the

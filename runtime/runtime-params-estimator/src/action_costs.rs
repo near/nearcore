@@ -20,7 +20,7 @@ use std::iter;
 
 /// A builder object for constructing action cost estimations.
 ///
-/// This modules uses `ActionEstimation` as a builder object to specify the
+/// This module uses `ActionEstimation` as a builder object to specify the
 /// details of each action estimation. For example, creating an account has the
 /// requirement that the account does not exist, yet. But for a staking action,
 /// it must exist. The builder object makes it easy to specify these
@@ -28,8 +28,7 @@ use std::iter;
 /// boiler-plate code repeated.
 ///
 /// Besides account id requirements, the builder also accepts a few other
-/// settings. Most importantly, a vector of actions. This is what ultimately
-/// defines the workload to be executed.
+/// settings. See the available methods and their doc comments.
 ///
 /// Once `ActionEstimation` is complete, call either `verify_cost` or
 /// `apply_cost` to receive just the execution cost or just the sender cost.
@@ -65,6 +64,17 @@ struct ActionEstimation {
 }
 
 impl ActionEstimation {
+    /// Create a new action estimation that can be modified using builder-style
+    /// methods.
+    ///
+    /// The object returned by this constructor uses random and unused accounts
+    /// for signer, predecessor, and receiver. This means the sender is not the
+    /// receiver. Further, the default returned here uses 100 inner iterations,
+    /// thereby duplicating all given actions 100 fold inside each receipt.
+    ///
+    /// Note that the object returned here does not contain any actions, yet. It
+    /// will operate on an action receipt with no actions inside, unless actions
+    /// are added.
     fn new(ctx: &mut EstimatorContext) -> Self {
         Self {
             signer: AccountRequirement::RandomUnused,
@@ -79,26 +89,55 @@ impl ActionEstimation {
         }
     }
 
+    /// Create a new action estimation that can be modified using builder-style
+    /// methods and sets the accounts ids such that the signer, sender, and
+    /// receiver are all the same account id.
+    fn new_sir(ctx: &mut EstimatorContext) -> Self {
+        Self {
+            signer: AccountRequirement::RandomUnused,
+            predecessor: AccountRequirement::SameAsSigner,
+            receiver: AccountRequirement::SameAsSigner,
+            actions: vec![],
+            inner_iters: 100,
+            outer_iters: ctx.config.iter_per_block,
+            warmup: ctx.config.warmup_iters_per_block,
+            metric: ctx.config.metric,
+            subtract_base: true,
+        }
+    }
+
+    /// Set how to generate the predecessor, also known as sender, for each
+    /// transaction or action receipt.
     fn predecessor(mut self, predecessor: AccountRequirement) -> Self {
         self.predecessor = predecessor;
         self
     }
 
+    /// Set how to generate the receiver account id for each transaction or
+    /// action receipt.
     fn receiver(mut self, receiver: AccountRequirement) -> Self {
         self.receiver = receiver;
         self
     }
 
+    /// Add an action that will be duplicated for every inner iteration.
+    ///
+    /// Calling this multiple times is allowed and inner iterations will
+    /// duplicate the full group as a block, rather than individual actions.
+    /// (3 * AB = ABABAB, not AAABBB)
     fn add_action(mut self, action: Action) -> Self {
         self.actions.push(action);
         self
     }
 
+    /// Set how many times thes actions are duplicated per receipt or transaction.
     fn inner_iters(mut self, inner_iters: usize) -> Self {
         self.inner_iters = inner_iters;
         self
     }
 
+    /// If enabled, the estimation will automatically subtract the cost of an
+    /// empty action receipt from the measurement. (enabled by default)
     fn subtract_base(mut self, yes: bool) -> Self {
         self.subtract_base = yes;
         self
@@ -207,9 +246,8 @@ impl ActionEstimation {
 }
 
 pub(crate) fn create_account_send_sir(ctx: &mut EstimatorContext) -> GasCost {
-    ActionEstimation::new(ctx)
+    ActionEstimation::new_sir(ctx)
         .add_action(create_account_action())
-        .predecessor(AccountRequirement::SameAsSigner)
         .receiver(AccountRequirement::SubOfSigner)
         .verify_cost(&mut ctx.testbed())
 }
@@ -222,9 +260,8 @@ pub(crate) fn create_account_send_not_sir(ctx: &mut EstimatorContext) -> GasCost
 }
 
 pub(crate) fn create_account_exec(ctx: &mut EstimatorContext) -> GasCost {
-    ActionEstimation::new(ctx)
+    ActionEstimation::new_sir(ctx)
         .add_action(create_account_action())
-        .predecessor(AccountRequirement::SameAsSigner)
         .receiver(AccountRequirement::SubOfSigner)
         .inner_iters(1) // creating account works only once in a receipt
         .add_action(create_transfer_action()) // must have balance for storage
@@ -232,11 +269,9 @@ pub(crate) fn create_account_exec(ctx: &mut EstimatorContext) -> GasCost {
 }
 
 pub(crate) fn delete_account_send_sir(ctx: &mut EstimatorContext) -> GasCost {
-    ActionEstimation::new(ctx)
+    ActionEstimation::new_sir(ctx)
         .add_action(delete_account_action())
         .inner_iters(1) // only one account deletion possible
-        .predecessor(AccountRequirement::SameAsSigner)
-        .receiver(AccountRequirement::SameAsSigner)
         .verify_cost(&mut ctx.testbed())
 }
 
@@ -248,19 +283,15 @@ pub(crate) fn delete_account_send_not_sir(ctx: &mut EstimatorContext) -> GasCost
 }
 
 pub(crate) fn delete_account_exec(ctx: &mut EstimatorContext) -> GasCost {
-    ActionEstimation::new(ctx)
+    ActionEstimation::new_sir(ctx)
         .add_action(delete_account_action())
         .inner_iters(1) // only one account deletion possible
-        .predecessor(AccountRequirement::SameAsSigner)
-        .receiver(AccountRequirement::SameAsSigner)
         .apply_cost(&mut ctx.testbed())
 }
 
 pub(crate) fn deploy_contract_base_send_sir(ctx: &mut EstimatorContext) -> GasCost {
-    ActionEstimation::new(ctx)
+    ActionEstimation::new_sir(ctx)
         .add_action(deploy_action(ActionSize::Min))
-        .predecessor(AccountRequirement::SameAsSigner)
-        .receiver(AccountRequirement::SameAsSigner)
         .verify_cost(&mut ctx.testbed())
 }
 
@@ -273,18 +304,14 @@ pub(crate) fn deploy_contract_base_send_not_sir(ctx: &mut EstimatorContext) -> G
 /// Note: This is not the best estimation because a dummy contract is clearly
 /// not the worst-case scenario for gas costs.
 pub(crate) fn deploy_contract_base_exec(ctx: &mut EstimatorContext) -> GasCost {
-    ActionEstimation::new(ctx)
+    ActionEstimation::new_sir(ctx)
         .add_action(deploy_action(ActionSize::Min))
-        .predecessor(AccountRequirement::SameAsSigner)
-        .receiver(AccountRequirement::SameAsSigner)
         .apply_cost(&mut ctx.testbed())
 }
 
 pub(crate) fn deploy_contract_byte_send_sir(ctx: &mut EstimatorContext) -> GasCost {
-    ActionEstimation::new(ctx)
+    ActionEstimation::new_sir(ctx)
         .add_action(deploy_action(ActionSize::Max))
-        .predecessor(AccountRequirement::SameAsSigner)
-        .receiver(AccountRequirement::SameAsSigner)
         .inner_iters(1) // circumvent TX size limit
         .verify_cost(&mut ctx.testbed())
         / ActionSize::Max.deploy_contract()
@@ -299,20 +326,16 @@ pub(crate) fn deploy_contract_byte_send_not_sir(ctx: &mut EstimatorContext) -> G
 }
 
 pub(crate) fn deploy_contract_byte_exec(ctx: &mut EstimatorContext) -> GasCost {
-    ActionEstimation::new(ctx)
+    ActionEstimation::new_sir(ctx)
         .add_action(deploy_action(ActionSize::Max))
-        .predecessor(AccountRequirement::SameAsSigner)
-        .receiver(AccountRequirement::SameAsSigner)
         .inner_iters(1) // circumvent TX size limit
         .apply_cost(&mut ctx.testbed())
         / ActionSize::Max.deploy_contract()
 }
 
 pub(crate) fn function_call_base_send_sir(ctx: &mut EstimatorContext) -> GasCost {
-    ActionEstimation::new(ctx)
+    ActionEstimation::new_sir(ctx)
         .add_action(function_call_action(ActionSize::Min))
-        .predecessor(AccountRequirement::SameAsSigner)
-        .receiver(AccountRequirement::SameAsSigner)
         .verify_cost(&mut ctx.testbed())
 }
 
@@ -329,10 +352,8 @@ pub(crate) fn function_call_base_exec(ctx: &mut EstimatorContext) -> GasCost {
 }
 
 pub(crate) fn function_call_byte_send_sir(ctx: &mut EstimatorContext) -> GasCost {
-    ActionEstimation::new(ctx)
+    ActionEstimation::new_sir(ctx)
         .add_action(function_call_action(ActionSize::Max))
-        .predecessor(AccountRequirement::SameAsSigner)
-        .receiver(AccountRequirement::SameAsSigner)
         .verify_cost(&mut ctx.testbed())
         / ActionSize::Max.function_call_payload()
 }
@@ -352,11 +373,7 @@ pub(crate) fn function_call_byte_exec(ctx: &mut EstimatorContext) -> GasCost {
 }
 
 pub(crate) fn transfer_send_sir(ctx: &mut EstimatorContext) -> GasCost {
-    ActionEstimation::new(ctx)
-        .add_action(transfer_action())
-        .predecessor(AccountRequirement::SameAsSigner)
-        .receiver(AccountRequirement::SameAsSigner)
-        .verify_cost(&mut ctx.testbed())
+    ActionEstimation::new_sir(ctx).add_action(transfer_action()).verify_cost(&mut ctx.testbed())
 }
 
 pub(crate) fn transfer_send_not_sir(ctx: &mut EstimatorContext) -> GasCost {
@@ -368,18 +385,16 @@ pub(crate) fn transfer_exec(ctx: &mut EstimatorContext) -> GasCost {
 }
 
 pub(crate) fn stake_send_sir(ctx: &mut EstimatorContext) -> GasCost {
-    ActionEstimation::new(ctx)
-        .add_action(stake_action())
-        .predecessor(AccountRequirement::SameAsSigner)
-        .receiver(AccountRequirement::SameAsSigner)
-        .verify_cost(&mut ctx.testbed())
+    ActionEstimation::new_sir(ctx).add_action(stake_action()).verify_cost(&mut ctx.testbed())
 }
 
+/// This is not a useful action, as staking only works with sender = receiver.
+/// But since this fails only in the exec step, we must still charge a fitting
+/// amount of gas in the send step.
 pub(crate) fn stake_send_not_sir(ctx: &mut EstimatorContext) -> GasCost {
     ActionEstimation::new(ctx)
         .add_action(stake_action())
         .predecessor(AccountRequirement::SameAsSigner)
-        .receiver(AccountRequirement::RandomUnused)
         .verify_cost(&mut ctx.testbed())
 }
 
@@ -392,10 +407,8 @@ pub(crate) fn stake_exec(ctx: &mut EstimatorContext) -> GasCost {
 }
 
 pub(crate) fn add_full_access_key_send_sir(ctx: &mut EstimatorContext) -> GasCost {
-    ActionEstimation::new(ctx)
+    ActionEstimation::new_sir(ctx)
         .add_action(add_full_access_key_action())
-        .predecessor(AccountRequirement::SameAsSigner)
-        .receiver(AccountRequirement::SameAsSigner)
         .verify_cost(&mut ctx.testbed())
 }
 
@@ -406,19 +419,15 @@ pub(crate) fn add_full_access_key_send_not_sir(ctx: &mut EstimatorContext) -> Ga
 }
 
 pub(crate) fn add_full_access_key_exec(ctx: &mut EstimatorContext) -> GasCost {
-    ActionEstimation::new(ctx)
+    ActionEstimation::new_sir(ctx)
         .add_action(add_full_access_key_action())
         .inner_iters(1) // adding the same key a second time would fail
-        .predecessor(AccountRequirement::SameAsSigner)
-        .receiver(AccountRequirement::SameAsSigner)
         .apply_cost(&mut ctx.testbed())
 }
 
 pub(crate) fn add_function_call_key_base_send_sir(ctx: &mut EstimatorContext) -> GasCost {
-    ActionEstimation::new(ctx)
+    ActionEstimation::new_sir(ctx)
         .add_action(add_fn_access_key_action(ActionSize::Min))
-        .predecessor(AccountRequirement::SameAsSigner)
-        .receiver(AccountRequirement::SameAsSigner)
         .verify_cost(&mut ctx.testbed())
 }
 
@@ -429,19 +438,15 @@ pub(crate) fn add_function_call_key_base_send_not_sir(ctx: &mut EstimatorContext
 }
 
 pub(crate) fn add_function_call_key_base_exec(ctx: &mut EstimatorContext) -> GasCost {
-    ActionEstimation::new(ctx)
+    ActionEstimation::new_sir(ctx)
         .add_action(add_fn_access_key_action(ActionSize::Min))
         .inner_iters(1) // adding the same key a second time would fail
-        .predecessor(AccountRequirement::SameAsSigner)
-        .receiver(AccountRequirement::SameAsSigner)
         .apply_cost(&mut ctx.testbed())
 }
 
 pub(crate) fn add_function_call_key_byte_send_sir(ctx: &mut EstimatorContext) -> GasCost {
-    ActionEstimation::new(ctx)
+    ActionEstimation::new_sir(ctx)
         .add_action(add_fn_access_key_action(ActionSize::Max))
-        .predecessor(AccountRequirement::SameAsSigner)
-        .receiver(AccountRequirement::SameAsSigner)
         .verify_cost(&mut ctx.testbed())
         / ActionSize::Max.key_methods_list()
 }
@@ -454,21 +459,15 @@ pub(crate) fn add_function_call_key_byte_send_not_sir(ctx: &mut EstimatorContext
 }
 
 pub(crate) fn add_function_call_key_byte_exec(ctx: &mut EstimatorContext) -> GasCost {
-    ActionEstimation::new(ctx)
+    ActionEstimation::new_sir(ctx)
         .add_action(add_fn_access_key_action(ActionSize::Max))
         .inner_iters(1) // adding the same key a second time would fail
-        .predecessor(AccountRequirement::SameAsSigner)
-        .receiver(AccountRequirement::SameAsSigner)
         .apply_cost(&mut ctx.testbed())
         / ActionSize::Max.key_methods_list()
 }
 
 pub(crate) fn delete_key_send_sir(ctx: &mut EstimatorContext) -> GasCost {
-    ActionEstimation::new(ctx)
-        .add_action(delete_key_action())
-        .predecessor(AccountRequirement::SameAsSigner)
-        .receiver(AccountRequirement::SameAsSigner)
-        .verify_cost(&mut ctx.testbed())
+    ActionEstimation::new_sir(ctx).add_action(delete_key_action()).verify_cost(&mut ctx.testbed())
 }
 
 pub(crate) fn delete_key_send_not_sir(ctx: &mut EstimatorContext) -> GasCost {
@@ -478,29 +477,20 @@ pub(crate) fn delete_key_send_not_sir(ctx: &mut EstimatorContext) -> GasCost {
 pub(crate) fn delete_key_exec(ctx: &mut EstimatorContext) -> GasCost {
     // Cannot delete a key without creating it first. Therefore, compute cost of
     // (create) and of (create + delete) and return the difference.
-    let base = ActionEstimation::new(ctx)
-        .add_action(add_fn_access_key_action(ActionSize::Max))
-        .predecessor(AccountRequirement::SameAsSigner)
+    let base_builder = ActionEstimation::new_sir(ctx)
         .inner_iters(1)
-        .receiver(AccountRequirement::SameAsSigner)
-        .apply_cost(&mut ctx.testbed());
-
-    let total = ActionEstimation::new(ctx)
-        .add_action(add_fn_access_key_action(ActionSize::Max))
+        .add_action(add_fn_access_key_action(ActionSize::Max));
+    let base = base_builder.apply_cost(&mut ctx.testbed());
+    let total = base_builder
         .add_action(delete_key_action())
-        .predecessor(AccountRequirement::SameAsSigner)
-        .receiver(AccountRequirement::SameAsSigner)
+        .inner_iters(100)
         .apply_cost(&mut ctx.testbed());
 
     total - base
 }
 
 pub(crate) fn new_action_receipt_send_sir(ctx: &mut EstimatorContext) -> GasCost {
-    ActionEstimation::new(ctx)
-        .subtract_base(false)
-        .predecessor(AccountRequirement::SameAsSigner)
-        .receiver(AccountRequirement::SameAsSigner)
-        .verify_cost(&mut ctx.testbed())
+    ActionEstimation::new_sir(ctx).subtract_base(false).verify_cost(&mut ctx.testbed())
 }
 
 pub(crate) fn new_action_receipt_send_not_sir(ctx: &mut EstimatorContext) -> GasCost {
