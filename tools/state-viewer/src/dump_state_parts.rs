@@ -118,7 +118,7 @@ pub(crate) fn dump_state_parts(
     let mut chain_store = ChainStore::new(
         store.clone(),
         near_config.genesis.config.genesis_height,
-        !near_config.client_config.archive,
+        near_config.client_config.save_trie_changes,
     );
 
     let epoch_id = epoch_selection.to_epoch_id(store, &mut chain_store, &mut epoch_manager);

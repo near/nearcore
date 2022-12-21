@@ -33,6 +33,7 @@ use near_store::{Trie, TrieDBStorage, TrieTraversalItem};
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 use tracing::debug;
+#[cfg(feature = "protocol_feature_flat_state")]
 use tracing::info;
 
 /// If we launched a node with enabled flat storage but it doesn't have flat storage data on disk, we have to create it.
@@ -382,7 +383,6 @@ impl FlatStorageCreator {
                 chain_store.head().unwrap().height,
                 chain_store,
             );
-            info!(target: "chain", %shard_id, "Flat storage creation status: {:?}", status);
             match status {
                 FlatStorageStateStatus::Ready | FlatStorageStateStatus::DontCreate => {}
                 _ => {

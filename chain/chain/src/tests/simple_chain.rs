@@ -62,7 +62,7 @@ fn build_chain() {
 
         let prev_hash = *chain.head_header().unwrap().hash();
         let prev = chain.get_block(&prev_hash).unwrap();
-        let block = Block::empty(&prev, &*signer);
+        let block = TestBlockBuilder::new(&prev, signer.clone()).build();
         chain.process_block_test(&None, block).unwrap();
         assert_eq!(chain.head().unwrap().height, i as u64);
     }
@@ -85,7 +85,7 @@ fn build_chain_with_orphans() {
     let (mut chain, _, signer) = setup();
     let mut blocks = vec![chain.get_block(&chain.genesis().hash().clone()).unwrap()];
     for i in 1..4 {
-        let block = Block::empty(&blocks[i - 1], &*signer);
+        let block = TestBlockBuilder::new(&blocks[i - 1], signer.clone()).build();
         blocks.push(block);
     }
     let last_block = &blocks[blocks.len() - 1];
@@ -145,9 +145,9 @@ fn build_chain_with_skips_and_forks() {
     let b1 = TestBlockBuilder::new(&genesis, signer.clone()).build();
     let b2 = TestBlockBuilder::new(&genesis, signer.clone()).height(2).build();
     let b3 = TestBlockBuilder::new(&b1, signer.clone()).height(3).build();
-    let b4 = Block::empty_with_height(&b2, 4, &*signer);
-    let b5 = Block::empty(&b4, &*signer);
-    let b6 = Block::empty(&b5, &*signer);
+    let b4 = TestBlockBuilder::new(&b2, signer.clone()).height(4).build();
+    let b5 = TestBlockBuilder::new(&b4, signer.clone()).build();
+    let b6 = TestBlockBuilder::new(&b5, signer.clone()).build();
     assert!(chain.process_block_test(&None, b1).is_ok());
     assert!(chain.process_block_test(&None, b2).is_ok());
     assert!(chain.process_block_test(&None, b3.clone()).is_ok());
@@ -158,7 +158,7 @@ fn build_chain_with_skips_and_forks() {
     assert_eq!(chain.get_block_header_by_height(5).unwrap().height(), 5);
     assert_eq!(chain.get_block_header_by_height(6).unwrap().height(), 6);
 
-    let c4 = Block::empty_with_height(&b3, 4, &*signer);
+    let c4 = TestBlockBuilder::new(&b3, signer.clone()).height(4).build();
     assert_eq!(chain.final_head().unwrap().height, 4);
     assert_matches!(chain.process_block_test(&None, c4), Err(Error::CannotBeFinalized));
 }
@@ -182,18 +182,20 @@ fn blocks_at_height() {
     init_test_logger();
     let (mut chain, _, signer) = setup();
     let genesis = chain.get_block_by_height(0).unwrap();
-    let b_1 = Block::empty_with_height(&genesis, 1, &*signer);
-    let b_2 = Block::empty_with_height(&b_1, 2, &*signer);
+    let b_1 = TestBlockBuilder::new(&genesis, signer.clone()).height(1).build();
 
-    let c_1 = Block::empty_with_height(&genesis, 1, &*signer);
-    let c_3 = Block::empty_with_height(&c_1, 3, &*signer);
-    let c_4 = Block::empty_with_height(&c_3, 4, &*signer);
+    let b_2 = TestBlockBuilder::new(&b_1, signer.clone()).height(2).build();
 
-    let d_3 = Block::empty_with_height(&b_2, 3, &*signer);
-    let d_5 = Block::empty_with_height(&d_3, 5, &*signer);
-    let d_6 = Block::empty_with_height(&d_5, 6, &*signer);
+    let c_1 = TestBlockBuilder::new(&genesis, signer.clone()).height(1).build();
+    let c_3 = TestBlockBuilder::new(&c_1, signer.clone()).height(3).build();
+    let c_4 = TestBlockBuilder::new(&c_3, signer.clone()).height(4).build();
 
-    let e_7 = Block::empty_with_height(&b_1, 7, &*signer);
+    let d_3 = TestBlockBuilder::new(&b_2, signer.clone()).height(3).build();
+
+    let d_5 = TestBlockBuilder::new(&d_3, signer.clone()).height(5).build();
+    let d_6 = TestBlockBuilder::new(&d_5, signer.clone()).height(6).build();
+
+    let e_7 = TestBlockBuilder::new(&b_1, signer.clone()).height(7).build();
 
     let b_1_hash = *b_1.hash();
     let b_2_hash = *b_2.hash();
@@ -253,10 +255,10 @@ fn next_blocks() {
     init_test_logger();
     let (mut chain, _, signer) = setup();
     let genesis = chain.get_block(&chain.genesis().hash().clone()).unwrap();
-    let b1 = Block::empty(&genesis, &*signer);
-    let b2 = Block::empty_with_height(&b1, 2, &*signer);
-    let b3 = Block::empty_with_height(&b1, 3, &*signer);
-    let b4 = Block::empty_with_height(&b3, 4, &*signer);
+    let b1 = TestBlockBuilder::new(&genesis, signer.clone()).build();
+    let b2 = TestBlockBuilder::new(&b1, signer.clone()).height(2).build();
+    let b3 = TestBlockBuilder::new(&b1, signer.clone()).height(3).build();
+    let b4 = TestBlockBuilder::new(&b3, signer.clone()).height(4).build();
     let b1_hash = *b1.hash();
     let b2_hash = *b2.hash();
     let b3_hash = *b3.hash();

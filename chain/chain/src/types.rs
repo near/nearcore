@@ -307,6 +307,14 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
         chain_access: &dyn ChainAccessForFlatStorage,
     ) -> FlatStorageStateStatus;
 
+    /// Removes flat storage state for shard, if it exists.
+    /// Used to clear old flat storage data from disk and memory before syncing to newer state.
+    fn remove_flat_storage_state_for_shard(
+        &self,
+        shard_id: ShardId,
+        epoch_id: &EpochId,
+    ) -> Result<(), Error>;
+
     fn set_flat_storage_state_for_genesis(
         &self,
         genesis_block: &CryptoHash,

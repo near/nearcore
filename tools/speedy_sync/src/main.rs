@@ -238,7 +238,7 @@ fn load_snapshot(load_cmd: LoadCmd) {
         &chain_genesis,
         DoomslugThresholdMode::TwoThirds,
         ChainConfig {
-            save_trie_changes: !config.client_config.archive,
+            save_trie_changes: config.client_config.save_trie_changes,
             background_migration_threads: 1,
         },
     )
