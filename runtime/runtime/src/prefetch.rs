@@ -351,10 +351,11 @@ mod tests {
         // here because threads can be in `Trie::lookup` between nodes, at which
         // point no slot is reserved for them but they are still doing work.
         //
-        // Solution: drop `tries`, which also drops prefetchers. In particular,
-        // we want to drop the `PrefetchingThreadsHandle` stored in tries. This
-        // causes all background threads to stop after they finish the current
-        // work. It will even join them and wait until all threads are done.
+        // Solution: `drop(tries)`, which also drops prefetchers. In particular,
+        // we want to drop the `PrefetchingThreadsHandle` stored in tries.
+        // `drop(tries)` causes all background threads to stop after they finish
+        // the current work. It will even join them and wait until all threads
+        // are done.
         //
         // Because threads are joined, there is also a possibility this will
         // hang forever. To avoid that, we drop in a separate thread.
