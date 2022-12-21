@@ -35,7 +35,7 @@ mod tests {
 
     #[test]
     fn test_is_valid_account_id() {
-        for account_id in OK_ACCOUNT_IDS.iter().cloned() {
+        for account_id in OK_ACCOUNT_IDS.iter() {
             let parsed_account_id = account_id.parse::<AccountId>().unwrap_or_else(|err| {
                 panic!("Valid account id {:?} marked invalid: {}", account_id, err)
             });
@@ -53,7 +53,7 @@ mod tests {
             assert_eq!(serialized_account_id, json!(account_id));
         }
 
-        for account_id in BAD_ACCOUNT_IDS.iter().cloned() {
+        for account_id in BAD_ACCOUNT_IDS.iter() {
             assert!(
                 serde_json::from_value::<AccountId>(json!(account_id)).is_err(),
                 "successfully deserialized invalid account ID {:?}",

@@ -361,7 +361,9 @@ pub struct ChainStore {
     block_ordinal_to_hash: CellLruCache<Vec<u8>, CryptoHash>,
     /// Processed block heights.
     processed_block_heights: CellLruCache<Vec<u8>, ()>,
-    /// Is this a non-archival node that needs to store to DBCol::TrieChanges?
+    /// Should this node store trie changes? Must be set to true if either of the following is true
+    /// - archive is false - non archival nodes need trie changes for garbage collection
+    /// - the node will be migrated to split storage in the near future - split storage nodes need trie changes for hot storage garbage collection
     save_trie_changes: bool,
 }
 
