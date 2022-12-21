@@ -6,6 +6,7 @@ use near_primitives_core::config::VMLimitConfig;
 use near_vm_errors::{HostError, VMLogicError};
 
 use core::mem::size_of;
+use std::borrow::Cow;
 use std::collections::hash_map::Entry;
 
 type Result<T> = ::std::result::Result<T, VMLogicError>;
@@ -218,6 +219,31 @@ impl Registers {
         }
         self.total_memory_usage = usage;
         Ok(entry)
+    }
+}
+
+/// Reads data from guest memory or register.
+///
+/// If `len` is `u64::MAX` read register with index `offset`.  Otherwise, reads
+/// `len` bytes of guest memory starting at given offset.  Returns error if
+/// there’s insufficient gas, memory interval is out of bounds or given register
+/// isn’t set.
+///
+/// This is not a method on `VMLogic` so that the compiler can track borrowing
+/// of gas counter, memory and registers separately.  This allows `VMLogic` to
+/// borrow value from a register and then continue constructing mutable
+/// references to other fields in the structure..
+pub(super) fn get_memory_or_register<'a, 'b>(
+    gas_counter: &mut GasCounter,
+    memory: &Memory<'a>,
+    registers: &'b Registers,
+    offset: u64,
+    len: u64,
+) -> Result<Cow<'b, [u8]>> {
+    if len == u64::MAX {
+        registers.get(gas_counter, offset).map(Cow::Borrowed)
+    } else {
+        memory.get_vec(gas_counter, offset, len).map(Cow::Owned)
     }
 }
 
