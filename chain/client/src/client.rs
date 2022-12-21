@@ -203,6 +203,7 @@ impl Client {
         let me = validator_signer.as_ref().map(|x| x.validator_id().clone());
         // Create flat storage or initiate migration to flat storage.
         let flat_storage_creator = FlatStorageCreator::new(
+            me.as_ref(),
             runtime_adapter.clone(),
             chain.store(),
             chain_config.background_migration_threads,
@@ -2214,6 +2215,26 @@ impl Client {
         //            self.challenges.insert(challenge.hash, challenge);
         //        }
         Ok(())
+    }
+
+    pub fn run_flat_storage_creation_step(&mut self) {
+        match &mut self.flat_storage_creator {
+            Some(flat_storage_creator) => {
+                let chain_head = self.chain.head().unwrap();
+                let num_shards = self.runtime_adapter.num_shards(&chain_head.epoch_id).unwrap();
+                for shard_id in 0..num_shards {
+                    if self.runtime_adapter.cares_about_shard(
+                        self.me.as_ref(),
+                        &chain_head.prev_block_hash,
+                        shard_id,
+                        true,
+                    ) {
+                        flat_storage_creator.update_status(shard_id, self.chain.store())?;
+                    }
+                }
+            }
+            None => {}
+        }
     }
 }
 

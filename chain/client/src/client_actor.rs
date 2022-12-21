@@ -1130,6 +1130,8 @@ impl ClientActor {
 
         self.try_process_unfinished_blocks();
 
+        self.client.run_flat_storage_creation_step();
+
         let mut delay = Duration::from_secs(1);
         let now = Utc::now();
 
@@ -1183,15 +1185,6 @@ impl ClientActor {
                     .to_std()
                     .unwrap_or(delay),
             )
-        }
-        // PUT SOMEWHERE HERE
-        else {
-            match &mut self.flat_storage_creator {
-                Some(flat_storage_creator) => {
-                    flat_storage_creator.update_status(shard_id, &self.store)?;
-                }
-                None => {}
-            }
         }
 
         self.log_summary_timer_next_attempt = self.run_timer(

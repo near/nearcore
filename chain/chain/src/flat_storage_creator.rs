@@ -17,7 +17,7 @@ use near_chain_primitives::Error;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::ValueRef;
 use near_primitives::state_part::PartId;
-use near_primitives::types::{BlockHeight, ShardId, StateRoot};
+use near_primitives::types::{AccountId, BlockHeight, ShardId, StateRoot};
 use near_store::flat_state::FlatStorageStateStatus;
 #[cfg(feature = "protocol_feature_flat_state")]
 use near_store::flat_state::{store_helper, FetchingStateStatus};
@@ -30,6 +30,7 @@ use near_store::DBCol;
 use near_store::FlatStateDelta;
 use near_store::Store;
 use near_store::{Trie, TrieDBStorage, TrieTraversalItem};
+use std::collections::HashMap;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 use tracing::debug;
@@ -360,13 +361,14 @@ impl FlatStorageShardCreator {
 
 /// Creates flat storages for all shards.
 pub struct FlatStorageCreator {
-    pub shard_creators: Vec<FlatStorageShardCreator>,
+    pub shard_creators: HashMap<ShardId, FlatStorageShardCreator>,
     /// Used to spawn threads for traversing state parts.
     pub pool: rayon::ThreadPool,
 }
 
 impl FlatStorageCreator {
     pub fn new(
+        me: Option<&AccountId>,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         chain_store: &ChainStore,
         num_threads: usize,
@@ -374,26 +376,27 @@ impl FlatStorageCreator {
         let chain_head = chain_store.head().unwrap();
         let num_shards = runtime_adapter.num_shards(&chain_head.epoch_id).unwrap();
         let start_height = chain_head.height;
-        let mut shard_creators: Vec<FlatStorageShardCreator> = vec![];
+        let mut shard_creators: HashMap<ShardId, FlatStorageShardCreator> = HashMap::new();
         let mut creation_needed = false;
         for shard_id in 0..num_shards {
-            let status = runtime_adapter.try_create_flat_storage_state_for_shard(
-                shard_id,
-                chain_store.head().unwrap().height,
-                chain_store,
-            );
-            info!(target: "chain", %shard_id, "Flat storage creation status: {:?}", status);
-            match status {
-                FlatStorageStateStatus::Ready | FlatStorageStateStatus::DontCreate => {}
-                _ => {
-                    creation_needed = true;
+            if runtime_adapter.cares_about_shard(me, &chain_head.prev_block_hash, shard_id, true) {
+                let status = runtime_adapter.try_create_flat_storage_state_for_shard(
+                    shard_id,
+                    chain_store.head().unwrap().height,
+                    chain_store,
+                );
+                info!(target: "chain", %shard_id, "Flat storage creation status: {:?}", status);
+                match status {
+                    FlatStorageStateStatus::Ready | FlatStorageStateStatus::DontCreate => {}
+                    _ => {
+                        creation_needed = true;
+                    }
                 }
+                shard_creators.insert(
+                    shard_id,
+                    FlatStorageShardCreator::new(shard_id, start_height, runtime_adapter.clone()),
+                );
             }
-            shard_creators.push(FlatStorageShardCreator::new(
-                shard_id,
-                start_height,
-                runtime_adapter.clone(),
-            ));
         }
 
         if creation_needed {
@@ -411,14 +414,16 @@ impl FlatStorageCreator {
         shard_id: ShardId,
         #[allow(unused_variables)] chain_store: &ChainStore,
     ) -> Result<(), Error> {
-        if shard_id as usize >= self.shard_creators.len() {
-            // We can request update for not supported shard if resharding happens. We don't support it yet, so we just
-            // return Ok.
-            return Ok(());
+        match self.shard_creators.get_mut(&shard_id) {
+            Some(shard_creator) => {
+                #[cfg(feature = "protocol_feature_flat_state")]
+                shard_creator.update_status(chain_store, &self.pool)?;
+            }
+            None => {
+                // We can request update for shard without creator if resharding happens.
+                // We don't support it yet, so we just do nothing.
+            }
         }
-
-        #[cfg(feature = "protocol_feature_flat_state")]
-        self.shard_creators[shard_id as usize].update_status(chain_store, &self.pool)?;
 
         Ok(())
     }
