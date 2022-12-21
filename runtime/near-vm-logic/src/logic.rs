@@ -5,9 +5,8 @@ use crate::receipt_manager::ReceiptManager;
 use crate::types::{PromiseIndex, PromiseResult, ReceiptIndex, ReturnData};
 use crate::utils::split_method_names;
 use crate::{ReceiptMetadata, StorageGetMode, ValuePtr};
-use borsh::BorshDeserialize;
 use byteorder::ByteOrder;
-use near_crypto::{PublicKey, Secp256K1Signature};
+use near_crypto::Secp256K1Signature;
 use near_primitives::checked_feature;
 use near_primitives::config::ViewConfig;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
@@ -417,23 +416,6 @@ impl<'a> VMLogic<'a> {
         }
         self.logs.push(message);
         Ok(())
-    }
-
-    /// Reads public key from register (if length is `u64::MAX`) or memory
-    /// (otherwise).
-    ///
-    /// Returns `Err(_)` on errors related to reading the raw data; `Ok(Err(_))`
-    /// if the data could not be interpreted as a public key; and `Ok(Ok(_))` on
-    /// success.  The nested result is needed to maintain behaviour regarding
-    /// when different errors are reported.
-    fn get_public_key(
-        &mut self,
-        public_key_ptr: u64,
-        public_key_len: u64,
-    ) -> Result<Result<PublicKey>> {
-        let pk = get_memory_or_register!(self, public_key_ptr, public_key_len)?;
-        let pk = PublicKey::try_from_slice(&pk);
-        Ok(pk.map_err(|_| HostError::InvalidPublicKey.into()))
     }
 
     // ###############
@@ -1794,11 +1776,12 @@ impl<'a> VMLogic<'a> {
             .into());
         }
         let amount = self.memory.get_u128(&mut self.gas_counter, amount_ptr)?;
-        let public_key = self.get_public_key(public_key_ptr, public_key_len)?;
+        let public_key =
+            get_memory_or_register!(self, public_key_ptr, public_key_len)?.into_owned();
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
         self.pay_action_base(ActionCosts::stake, sir)?;
-        self.receipt_manager.append_action_stake(receipt_idx, amount, public_key?);
+        self.receipt_manager.append_action_stake(receipt_idx, amount, public_key)?;
         Ok(())
     }
 
@@ -1833,15 +1816,16 @@ impl<'a> VMLogic<'a> {
             }
             .into());
         }
-        let public_key = self.get_public_key(public_key_ptr, public_key_len)?;
+        let public_key =
+            get_memory_or_register!(self, public_key_ptr, public_key_len)?.into_owned();
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
         self.pay_action_base(ActionCosts::add_full_access_key, sir)?;
         self.receipt_manager.append_action_add_key_with_full_access(
             receipt_idx,
-            public_key?,
+            public_key,
             nonce,
-        );
+        )?;
         Ok(())
     }
 
@@ -1883,7 +1867,8 @@ impl<'a> VMLogic<'a> {
             }
             .into());
         }
-        let public_key = self.get_public_key(public_key_ptr, public_key_len)?;
+        let public_key =
+            get_memory_or_register!(self, public_key_ptr, public_key_len)?.into_owned();
         let allowance = self.memory.get_u128(&mut self.gas_counter, allowance_ptr)?;
         let allowance = if allowance > 0 { Some(allowance) } else { None };
         let receiver_id = self.read_and_parse_account_id(receiver_id_ptr, receiver_id_len)?;
@@ -1899,7 +1884,7 @@ impl<'a> VMLogic<'a> {
 
         self.receipt_manager.append_action_add_key_with_function_call(
             receipt_idx,
-            public_key?,
+            public_key,
             nonce,
             allowance,
             receiver_id,
@@ -1938,11 +1923,12 @@ impl<'a> VMLogic<'a> {
             }
             .into());
         }
-        let public_key = self.get_public_key(public_key_ptr, public_key_len)?;
+        let public_key =
+            get_memory_or_register!(self, public_key_ptr, public_key_len)?.into_owned();
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
         self.pay_action_base(ActionCosts::delete_key, sir)?;
-        self.receipt_manager.append_action_delete_key(receipt_idx, public_key?);
+        self.receipt_manager.append_action_delete_key(receipt_idx, public_key)?;
         Ok(())
     }
 
