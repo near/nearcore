@@ -3,7 +3,7 @@ use std::sync::{Condvar, Mutex, MutexGuard};
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
-/// A convenience wrapper around a SharedMutex and a Condvar.
+/// A convenience wrapper around a Mutex and a Condvar.
 ///
 /// It enables blocking while waiting for the underlying value to be updated.
 /// The implementation ensures that any modification results in all blocked
