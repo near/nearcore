@@ -1,11 +1,10 @@
 # Meta Transactions
 
 [NEP-366](https://github.com/near/NEPs/pull/366) introduced the concept of meta
-transactions to Near Protocol. The idea is to construct and sign a transaction
-off-chain and allow someone else to release it on the chain. This someone else
-is called the relayer, who will then pay for the gas and token costs of the
-transaction. This ultimately allows executing transactions on NEAR without
-owning gas or tokens.
+transactions to Near Protocol. This feature allows users to execute transactions
+on NEAR without owning any gas or tokens. In order to enable this, users
+construct and sign transactions off-chain. A third party (the relayer) is used
+to cover the fees of submitting and executing the transaction.
 
 The MVP for meta transactions is currently in the stabilization process.
 Naturally, the MVP has some limitations, which are discussed in separate
@@ -159,8 +158,10 @@ Meta transactions challenge the traditional ways of charging gas for actions. To
 see why, let's first list the normal flow of gas, outside of meta transactions.
 
 1. Gas is purchased by the transaction signer when it is converted to a receipt.
-   This happens as part of `verify_and_charge_transaction` which gets called in
-   `process_transaction`.
+   In today's nearcore code base, this happens as part of
+   [`verify_and_charge_transaction`](https://github.com/near/nearcore/blob/4510472d69c059644bb2d2579837c6bd6d94f190/runtime/runtime/src/verifier.rs#L69)
+   which gets called in
+   [`process_transaction`](https://github.com/near/nearcore/blob/4510472d69c059644bb2d2579837c6bd6d94f190/runtime/runtime/src/lib.rs#L218).
 2. For all actions listed inside the transaction, the `SEND` cost is burned
    immediately. Depending on the condition `sender == receiver`, one of two
    possible `SEND` costs is chosen. The `EXEC` cost is not burned, yet. But it
