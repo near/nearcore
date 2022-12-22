@@ -1647,14 +1647,16 @@ impl TestEnv {
             None => TEST_SEED,
         };
         let vs = ValidatorSchedule::new().block_producers_per_epoch(vec![self.validators.clone()]);
-        self.clients[idx] = setup_client(
-            store,
-            vs,
+        let num_validator_seats = vs.all_block_producers().count() as NumSeats;
+        let runtime_adapter = self.clients[idx].runtime_adapter.clone();
+        self.clients[idx] = setup_client_with_runtime(
+            num_validator_seats,
             Some(self.get_client_id(idx).clone()),
             false,
             self.network_adapters[idx].clone(),
             self.client_adapters[idx].clone(),
             self.chain_genesis.clone(),
+            runtime_adapter,
             rng_seed,
             self.archive,
             self.save_trie_changes,
