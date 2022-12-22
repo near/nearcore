@@ -268,12 +268,10 @@ impl Wasmer2VM {
         let prepared_code = prepare::prepare_contract(code.code(), &self.config)
             .map_err(CompilationError::PrepareError)?;
 
-        self.engine
-            .validate(&prepared_code)
-            .map_err(|err| {
-                tracing::error!(?err, "wasmer failed to validate the prepared code (this is defense-in-depth, the error was recovered from but should be reported to pagoda)");
-                CompilationError::WasmerCompileError { msg: err.to_string() }
-            })?;
+        debug_assert!(
+            matches!(self.engine.validate(&prepared_code), Ok(_)),
+            "wasmer failed to validate the prepared code"
+        );
         let executable = self
             .engine
             .compile_universal(&prepared_code, &self)
