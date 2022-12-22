@@ -11,7 +11,6 @@ use near_network::time;
 use near_network::types::NetworkRecipient;
 use near_network::PeerManagerActor;
 use near_primitives::block::GenesisId;
-#[cfg(feature = "performance_stats")]
 use near_store::{DBCol, Mode, NodeStorage, StoreOpenerError, Temperature};
 use near_telemetry::TelemetryActor;
 use std::path::{Path, PathBuf};
