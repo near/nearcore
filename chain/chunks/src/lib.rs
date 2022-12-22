@@ -650,9 +650,12 @@ impl ShardsManager {
             if no_account_id || me != target_account.as_ref() {
                 let prefer_peer = request_from_archival || rand::thread_rng().gen::<bool>();
                 debug!(
-                    target: "chunks", "Requesting parts {:?} for shard {} from {:?} preferring {}",
-                    &part_ords, shard_id, &target_account,
-                    if prefer_peer { "directly connected peer" } else { "routed message to target account" }
+                    target: "chunks",
+                    ?part_ords,
+                    shard_id,
+                    ?target_account,
+                    prefer_peer,
+                    "Requesting parts",
                 );
 
                 let request = PartialEncodedChunkRequestMsg {
@@ -1593,8 +1596,14 @@ impl ShardsManager {
             partial_encoded_chunk.map(|chunk| PartialEncodedChunkV2::from(chunk));
         let header = &partial_encoded_chunk.header;
         let chunk_hash = header.chunk_hash();
-        debug!(target: "chunks", ?chunk_hash, height=header.height_created(), shard_id=header.shard_id(), "Process partial encoded chunk:  parts: {:?}",
-               partial_encoded_chunk.get_inner().parts.iter().map(|p| p.part_ord).collect::<Vec<_>>());
+        debug!(
+            target: "chunks",
+            ?chunk_hash,
+            height = header.height_created(),
+            shard_id = header.shard_id(),
+            parts = ?partial_encoded_chunk.get_inner().parts.iter().map(|p| p.part_ord).collect::<Vec<_>>(),
+            "Process partial encoded chunk",
+        );
         // Verify the partial encoded chunk is valid and worth processing
         // 1.a Leave if we received known chunk
         if let Some(entry) = self.encoded_chunks.get(&chunk_hash) {
