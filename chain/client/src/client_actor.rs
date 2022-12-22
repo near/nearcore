@@ -208,6 +208,7 @@ impl ClientActor {
             block_production_next_attempt: now,
             log_summary_timer_next_attempt: now,
             block_production_started: false,
+            flat_storage_creation_next_attempt: now,
             doomslug_timer_next_attempt: now,
             sync_timer_next_attempt: now,
             chunk_request_retry_next_attempt: now,
@@ -1131,8 +1132,6 @@ impl ClientActor {
 
         self.try_process_unfinished_blocks();
 
-        self.client.run_flat_storage_creation_step();
-
         let mut delay = Duration::from_secs(1);
         let now = Utc::now();
 
@@ -1142,7 +1141,11 @@ impl ClientActor {
             self.client.config.flat_storage_creation_period,
             self.flat_storage_creation_next_attempt,
             ctx,
-            |act, _| act.client.run_flat_storage_creation_step(),
+            |act, _| {
+                if let Err(err) = act.client.run_flat_storage_creation_step() {
+                    error!(target: "client", "Error occurred during flat storage creation step: {:?}", err);
+                }
+            },
             "flat_storage_creation",
         );
         delay = std::cmp::min(

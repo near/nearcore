@@ -2217,8 +2217,8 @@ impl Client {
         Ok(())
     }
 
-    pub fn run_flat_storage_creation_step(&mut self) {
-        let result = match &mut self.flat_storage_creator {
+    pub fn run_flat_storage_creation_step(&mut self) -> Result<(), Error> {
+        match &mut self.flat_storage_creator {
             Some(flat_storage_creator) => {
                 let chain_head = self.chain.head().unwrap();
                 let num_shards = self.runtime_adapter.num_shards(&chain_head.epoch_id).unwrap();
@@ -2235,9 +2235,6 @@ impl Client {
                 Ok(())
             }
             None => Ok(()),
-        };
-        if let Err(err) = result {
-            error!(target: "client", "Error occurred during flat storage creation step: {:?}", err);
         }
     }
 }
