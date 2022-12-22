@@ -21,7 +21,6 @@ use near_primitives_core::types::{
 use near_primitives_core::types::{GasDistribution, GasWeight};
 use near_vm_errors::{FunctionCallError, InconsistentStateError};
 use near_vm_errors::{HostError, VMLogicError};
-use std::collections::HashMap;
 use std::mem::size_of;
 
 pub type Result<T> = ::std::result::Result<T, VMLogicError>;
@@ -40,7 +39,7 @@ pub struct VMLogic<'a> {
     /// results of the methods that made the callback are stored in this collection.
     promise_results: &'a [PromiseResult],
     /// Pointer to the guest memory.
-    memory: &'a mut dyn MemoryLike,
+    memory: crate::vmstate::Memory<'a>,
 
     /// Keeping track of the current account balance, which can decrease when we create promises
     /// and attach balance to them.
@@ -57,7 +56,7 @@ pub struct VMLogic<'a> {
     logs: Vec<String>,
     /// Registers can be used by the guest to store blobs of data without moving them across
     /// host-guest boundary.
-    registers: HashMap<u64, Vec<u8>>,
+    registers: crate::vmstate::Registers,
 
     /// The DAG of promises, indexed by promise id.
     promises: Vec<Promise>,
@@ -83,21 +82,20 @@ enum Promise {
     NotReceipt(Vec<ReceiptIndex>),
 }
 
-macro_rules! memory_get {
-    ($_type:ty, $name:ident) => {
-        fn $name(&mut self, offset: u64) -> Result<$_type> {
-            let mut array = [0u8; size_of::<$_type>()];
-            self.memory_get_into(offset, &mut array)?;
-            Ok(<$_type>::from_le_bytes(array))
-        }
-    };
-}
-
-macro_rules! memory_set {
-    ($_type:ty, $name:ident) => {
-        fn $name(&mut self, offset: u64, value: $_type) -> Result<()> {
-            self.memory_set_slice(offset, &value.to_le_bytes())
-        }
+/// Helper for calling `crate::vmstate::get_memory_or_register`.
+///
+/// crate::vmstate::get_memory_or_register has a whole lot of wordy arguments
+/// which are always the same when invoked inside of one of VMLogic method.
+/// This macro helps with that invocation.
+macro_rules! get_memory_or_register {
+    ($logic:expr, $offset:expr, $len:expr) => {
+        crate::vmstate::get_memory_or_register(
+            &mut $logic.gas_counter,
+            &$logic.memory,
+            &$logic.registers,
+            $offset,
+            $len,
+        )
     };
 }
 
@@ -133,14 +131,14 @@ impl<'a> VMLogic<'a> {
             config,
             fees_config,
             promise_results,
-            memory,
+            memory: crate::vmstate::Memory::new(memory),
             current_account_balance,
             current_account_locked_balance,
             current_storage_usage,
             gas_counter,
             return_data: ReturnData::None,
             logs: vec![],
-            registers: HashMap::new(),
+            registers: Default::default(),
             promises: vec![],
             total_log_length: 0,
             current_protocol_version,
@@ -158,104 +156,29 @@ impl<'a> VMLogic<'a> {
         &self.receipt_manager.action_receipts
     }
 
-    #[allow(dead_code)]
     #[cfg(test)]
     pub(crate) fn receipt_manager(&self) -> &ReceiptManager {
         &self.receipt_manager
     }
 
-    #[allow(dead_code)]
     #[cfg(test)]
     pub(crate) fn gas_counter(&self) -> &GasCounter {
         &self.gas_counter
     }
 
-    #[allow(dead_code)]
     #[cfg(test)]
     pub(crate) fn config(&self) -> &VMConfig {
         &self.config
     }
 
-    // ###########################
-    // # Memory helper functions #
-    // ###########################
-
-    fn memory_get_into(&mut self, offset: u64, buf: &mut [u8]) -> Result<()> {
-        self.gas_counter.pay_base(read_memory_base)?;
-        self.gas_counter.pay_per(read_memory_byte, buf.len() as _)?;
-        self.memory.read_memory(offset, buf).map_err(|_| HostError::MemoryAccessViolation.into())
-    }
-
-    fn memory_get_vec(&mut self, offset: u64, len: u64) -> Result<Vec<u8>> {
-        self.gas_counter.pay_base(read_memory_base)?;
-        self.gas_counter.pay_per(read_memory_byte, len)?;
-        // This check is redundant in the sense that read_memory will perform it
-        // as well however it’s here to validate that `len` is a valid value.
-        // See documentation of MemoryLike::read_memory for more information.
-        self.memory.fits_memory(offset, len).map_err(|_| HostError::MemoryAccessViolation)?;
-        let mut buf = vec![0; len as usize];
-        self.memory.read_memory(offset, &mut buf).map_err(|_| HostError::MemoryAccessViolation)?;
-        Ok(buf)
-    }
-
-    memory_get!(u128, memory_get_u128);
-    memory_get!(u32, memory_get_u32);
-    memory_get!(u16, memory_get_u16);
-    memory_get!(u8, memory_get_u8);
-
-    fn get_vec_from_memory_or_register(&mut self, offset: u64, len: u64) -> Result<Vec<u8>> {
-        if len != u64::MAX {
-            self.memory_get_vec(offset, len)
-        } else {
-            self.internal_read_register(offset)
-        }
-    }
-
-    fn memory_set_slice(&mut self, offset: u64, buf: &[u8]) -> Result<()> {
-        self.gas_counter.pay_base(write_memory_base)?;
-        self.gas_counter.pay_per(write_memory_byte, buf.len() as _)?;
-        self.memory.write_memory(offset, buf).map_err(|_| HostError::MemoryAccessViolation.into())
-    }
-
-    memory_set!(u128, memory_set_u128);
-
     // #################
     // # Registers API #
     // #################
 
-    fn internal_read_register(&mut self, register_id: u64) -> Result<Vec<u8>> {
-        if let Some(data) = self.registers.get(&register_id) {
-            self.gas_counter.pay_base(read_register_base)?;
-            self.gas_counter.pay_per(read_register_byte, data.len() as _)?;
-            Ok(data.clone())
-        } else {
-            Err(HostError::InvalidRegisterId { register_id }.into())
-        }
-    }
-
-    fn internal_write_register(&mut self, register_id: u64, data: Vec<u8>) -> Result<()> {
-        self.gas_counter.pay_base(write_register_base)?;
-        self.gas_counter.pay_per(write_register_byte, data.len() as u64)?;
-        if data.len() as u64 > self.config.limit_config.max_register_size
-            || self.registers.len() as u64 >= self.config.limit_config.max_number_registers
-        {
-            return Err(HostError::MemoryAccessViolation.into());
-        }
-        self.registers.insert(register_id, data);
-
-        // Calculate the new memory usage.
-        let usage: usize =
-            self.registers.values().map(|v| size_of::<u64>() + v.len() * size_of::<u8>()).sum();
-        if usage as u64 > self.config.limit_config.registers_memory_limit {
-            Err(HostError::MemoryAccessViolation.into())
-        } else {
-            Ok(())
-        }
-    }
-
     /// Convenience function for testing.
+    #[cfg(test)]
     pub fn wrapped_internal_write_register(&mut self, register_id: u64, data: &[u8]) -> Result<()> {
-        self.internal_write_register(register_id, data.to_vec())
+        self.registers.set(&mut self.gas_counter, &self.config.limit_config, register_id, data)
     }
 
     /// Writes the entire content from the register `register_id` into the memory of the guest starting with `ptr`.
@@ -280,8 +203,8 @@ impl<'a> VMLogic<'a> {
     /// `base + read_register_base + read_register_byte * num_bytes + write_memory_base + write_memory_byte * num_bytes`
     pub fn read_register(&mut self, register_id: u64, ptr: u64) -> Result<()> {
         self.gas_counter.pay_base(base)?;
-        let data = self.internal_read_register(register_id)?;
-        self.memory_set_slice(ptr, &data)
+        let data = self.registers.get(&mut self.gas_counter, register_id)?;
+        self.memory.set(&mut self.gas_counter, ptr, data)
     }
 
     /// Returns the size of the blob stored in the given register.
@@ -297,7 +220,7 @@ impl<'a> VMLogic<'a> {
     /// `base`
     pub fn register_len(&mut self, register_id: u64) -> Result<u64> {
         self.gas_counter.pay_base(base)?;
-        Ok(self.registers.get(&register_id).map(|r| r.len() as _).unwrap_or(u64::MAX))
+        Ok(self.registers.get_len(register_id).unwrap_or(u64::MAX))
     }
 
     /// Copies `data` from the guest memory into the register. If register is unused will initialize
@@ -315,8 +238,8 @@ impl<'a> VMLogic<'a> {
     /// `base + read_memory_base + read_memory_bytes * num_bytes + write_register_base + write_register_bytes * num_bytes`
     pub fn write_register(&mut self, register_id: u64, data_len: u64, data_ptr: u64) -> Result<()> {
         self.gas_counter.pay_base(base)?;
-        let data = self.memory_get_vec(data_ptr, data_len)?;
-        self.internal_write_register(register_id, data)
+        let data = self.memory.get_vec(&mut self.gas_counter, data_ptr, data_len)?;
+        self.registers.set(&mut self.gas_counter, &self.config.limit_config, register_id, data)
     }
 
     // ###################################
@@ -353,12 +276,12 @@ impl<'a> VMLogic<'a> {
                 }
                 .into());
             }
-            buf = self.memory_get_vec(ptr, len)?;
+            buf = self.memory.get_vec(&mut self.gas_counter, ptr, len)?;
         } else {
             buf = vec![];
             for i in 0..=max_len {
                 // self.memory_get_u8 will check for u64 overflow on the first iteration (i == 0)
-                let el = self.memory_get_u8(ptr + i)?;
+                let el = self.memory.get_u8(&mut self.gas_counter, ptr + i)?;
                 if el == 0 {
                     break;
                 }
@@ -382,9 +305,7 @@ impl<'a> VMLogic<'a> {
     /// * It's up to the caller to set correct len
     #[cfg(feature = "sandbox")]
     fn sandbox_get_utf8_string(&mut self, len: u64, ptr: u64) -> Result<String> {
-        self.memory.fits_memory(ptr, len).map_err(|_| HostError::MemoryAccessViolation)?;
-        let mut buf = vec![0; len as usize];
-        self.memory.read_memory(ptr, &mut buf).map_err(|_| HostError::MemoryAccessViolation)?;
+        let buf = self.memory.get_vec_for_free(ptr, len)?;
         String::from_utf8(buf).map_err(|_| HostError::BadUTF8.into())
     }
 
@@ -409,7 +330,7 @@ impl<'a> VMLogic<'a> {
         let max_len =
             self.config.limit_config.max_total_log_length.saturating_sub(self.total_log_length);
         if len != u64::MAX {
-            let input = self.memory_get_vec(ptr, len)?;
+            let input = self.memory.get_vec(&mut self.gas_counter, ptr, len)?;
             if len % 2 != 0 {
                 return Err(HostError::BadUTF16.into());
             }
@@ -429,7 +350,7 @@ impl<'a> VMLogic<'a> {
             for i in 0..=limit {
                 // self.memory_get_u16 will check for u64 overflow on the first iteration (i == 0)
                 let start = ptr + i * size_of::<u16>() as u64;
-                let el = self.memory_get_u16(start)?;
+                let el = self.memory.get_u16(&mut self.gas_counter, start)?;
                 if el == 0 {
                     break;
                 }
@@ -513,9 +434,11 @@ impl<'a> VMLogic<'a> {
     pub fn current_account_id(&mut self, register_id: u64) -> Result<()> {
         self.gas_counter.pay_base(base)?;
 
-        self.internal_write_register(
+        self.registers.set(
+            &mut self.gas_counter,
+            &self.config.limit_config,
             register_id,
-            self.context.current_account_id.as_ref().as_bytes().to_vec(),
+            self.context.current_account_id.as_ref().as_bytes(),
         )
     }
 
@@ -541,9 +464,11 @@ impl<'a> VMLogic<'a> {
             }
             .into());
         }
-        self.internal_write_register(
+        self.registers.set(
+            &mut self.gas_counter,
+            &self.config.limit_config,
             register_id,
-            self.context.signer_account_id.as_ref().as_bytes().to_vec(),
+            self.context.signer_account_id.as_ref().as_bytes(),
         )
     }
 
@@ -568,7 +493,12 @@ impl<'a> VMLogic<'a> {
             }
             .into());
         }
-        self.internal_write_register(register_id, self.context.signer_account_pk.clone())
+        self.registers.set(
+            &mut self.gas_counter,
+            &self.config.limit_config,
+            register_id,
+            self.context.signer_account_pk.as_slice(),
+        )
     }
 
     /// All contract calls are a result of a receipt, this receipt might be created by a transaction
@@ -592,9 +522,11 @@ impl<'a> VMLogic<'a> {
             }
             .into());
         }
-        self.internal_write_register(
+        self.registers.set(
+            &mut self.gas_counter,
+            &self.config.limit_config,
             register_id,
-            self.context.predecessor_account_id.as_ref().as_bytes().to_vec(),
+            self.context.predecessor_account_id.as_ref().as_bytes(),
         )
     }
 
@@ -608,7 +540,12 @@ impl<'a> VMLogic<'a> {
     pub fn input(&mut self, register_id: u64) -> Result<()> {
         self.gas_counter.pay_base(base)?;
 
-        self.internal_write_register(register_id, self.context.input.clone())
+        self.registers.set(
+            &mut self.gas_counter,
+            &self.config.limit_config,
+            register_id,
+            self.context.input.as_slice(),
+        )
     }
 
     /// Returns the current block height.
@@ -660,7 +597,7 @@ impl<'a> VMLogic<'a> {
         let account_id = self.read_and_parse_account_id(account_id_ptr, account_id_len)?;
         self.gas_counter.pay_base(validator_stake_base)?;
         let balance = self.ext.validator_stake(&account_id)?.unwrap_or_default();
-        self.memory_set_u128(stake_ptr, balance)
+        self.memory.set_u128(&mut self.gas_counter, stake_ptr, balance)
     }
 
     /// Get the total validator stake of the current epoch.
@@ -674,7 +611,7 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_base(base)?;
         self.gas_counter.pay_base(validator_total_stake_base)?;
         let total_stake = self.ext.validator_total_stake()?;
-        self.memory_set_u128(stake_ptr, total_stake)
+        self.memory.set_u128(&mut self.gas_counter, stake_ptr, total_stake)
     }
 
     /// Returns the number of bytes used by the contract if it was saved to the trie as of the
@@ -704,7 +641,7 @@ impl<'a> VMLogic<'a> {
     /// `base + memory_write_base + memory_write_size * 16`
     pub fn account_balance(&mut self, balance_ptr: u64) -> Result<()> {
         self.gas_counter.pay_base(base)?;
-        self.memory_set_u128(balance_ptr, self.current_account_balance)
+        self.memory.set_u128(&mut self.gas_counter, balance_ptr, self.current_account_balance)
     }
 
     /// The current amount of tokens locked due to staking.
@@ -714,7 +651,11 @@ impl<'a> VMLogic<'a> {
     /// `base + memory_write_base + memory_write_size * 16`
     pub fn account_locked_balance(&mut self, balance_ptr: u64) -> Result<()> {
         self.gas_counter.pay_base(base)?;
-        self.memory_set_u128(balance_ptr, self.current_account_locked_balance)
+        self.memory.set_u128(
+            &mut self.gas_counter,
+            balance_ptr,
+            self.current_account_locked_balance,
+        )
     }
 
     /// The balance that was attached to the call that will be immediately deposited before the
@@ -736,7 +677,7 @@ impl<'a> VMLogic<'a> {
             }
             .into());
         }
-        self.memory_set_u128(balance_ptr, self.context.attached_deposit)
+        self.memory.set_u128(&mut self.gas_counter, balance_ptr, self.context.attached_deposit)
     }
 
     /// The amount of gas attached to the call that can be used to pay for the gas fees.
@@ -813,14 +754,14 @@ impl<'a> VMLogic<'a> {
         register_id: u64,
     ) -> Result<()> {
         self.gas_counter.pay_base(alt_bn128_g1_multiexp_base)?;
-        let data = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
+        let data = get_memory_or_register!(self, value_ptr, value_len)?;
 
         let elements = crate::alt_bn128::split_elements(&data)?;
         self.gas_counter.pay_per(alt_bn128_g1_multiexp_element, elements.len() as u64)?;
 
         let res = crate::alt_bn128::g1_multiexp(elements)?;
 
-        self.internal_write_register(register_id, res.into())
+        self.registers.set(&mut self.gas_counter, &self.config.limit_config, register_id, res)
     }
 
     /// Computes sum for signed g1 group elements on alt_bn128 curve \sum_i
@@ -856,14 +797,14 @@ impl<'a> VMLogic<'a> {
         register_id: u64,
     ) -> Result<()> {
         self.gas_counter.pay_base(alt_bn128_g1_sum_base)?;
-        let data = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
+        let data = get_memory_or_register!(self, value_ptr, value_len)?;
 
         let elements = crate::alt_bn128::split_elements(&data)?;
         self.gas_counter.pay_per(alt_bn128_g1_sum_element, elements.len() as u64)?;
 
         let res = crate::alt_bn128::g1_sum(elements)?;
 
-        self.internal_write_register(register_id, res.into())
+        self.registers.set(&mut self.gas_counter, &self.config.limit_config, register_id, res)
     }
 
     /// Computes pairing check on alt_bn128 curve.
@@ -895,7 +836,7 @@ impl<'a> VMLogic<'a> {
     /// `base + write_register_base + write_register_byte * num_bytes + alt_bn128_pairing_base + alt_bn128_pairing_element * num_elements`
     pub fn alt_bn128_pairing_check(&mut self, value_len: u64, value_ptr: u64) -> Result<u64> {
         self.gas_counter.pay_base(alt_bn128_pairing_check_base)?;
-        let data = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
+        let data = get_memory_or_register!(self, value_ptr, value_len)?;
 
         let elements = crate::alt_bn128::split_elements(&data)?;
         self.gas_counter.pay_per(alt_bn128_pairing_check_element, elements.len() as u64)?;
@@ -916,7 +857,12 @@ impl<'a> VMLogic<'a> {
     /// `base + write_register_base + write_register_byte * num_bytes`.
     pub fn random_seed(&mut self, register_id: u64) -> Result<()> {
         self.gas_counter.pay_base(base)?;
-        self.internal_write_register(register_id, self.context.random_seed.clone())
+        self.registers.set(
+            &mut self.gas_counter,
+            &self.config.limit_config,
+            register_id,
+            self.context.random_seed.as_slice(),
+        )
     }
 
     /// Hashes the given value using sha256 and returns it into `register_id`.
@@ -931,13 +877,18 @@ impl<'a> VMLogic<'a> {
     /// `base + write_register_base + write_register_byte * num_bytes + sha256_base + sha256_byte * num_bytes`
     pub fn sha256(&mut self, value_len: u64, value_ptr: u64, register_id: u64) -> Result<()> {
         self.gas_counter.pay_base(sha256_base)?;
-        let value = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
+        let value = get_memory_or_register!(self, value_ptr, value_len)?;
         self.gas_counter.pay_per(sha256_byte, value.len() as u64)?;
 
         use sha2::Digest;
 
         let value_hash = sha2::Sha256::digest(&value);
-        self.internal_write_register(register_id, value_hash.as_slice().to_vec())
+        self.registers.set(
+            &mut self.gas_counter,
+            &self.config.limit_config,
+            register_id,
+            value_hash.as_slice(),
+        )
     }
 
     /// Hashes the given value using keccak256 and returns it into `register_id`.
@@ -952,13 +903,18 @@ impl<'a> VMLogic<'a> {
     /// `base + write_register_base + write_register_byte * num_bytes + keccak256_base + keccak256_byte * num_bytes`
     pub fn keccak256(&mut self, value_len: u64, value_ptr: u64, register_id: u64) -> Result<()> {
         self.gas_counter.pay_base(keccak256_base)?;
-        let value = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
+        let value = get_memory_or_register!(self, value_ptr, value_len)?;
         self.gas_counter.pay_per(keccak256_byte, value.len() as u64)?;
 
         use sha3::Digest;
 
         let value_hash = sha3::Keccak256::digest(&value);
-        self.internal_write_register(register_id, value_hash.as_slice().to_vec())
+        self.registers.set(
+            &mut self.gas_counter,
+            &self.config.limit_config,
+            register_id,
+            value_hash.as_slice(),
+        )
     }
 
     /// Hashes the given value using keccak512 and returns it into `register_id`.
@@ -973,13 +929,18 @@ impl<'a> VMLogic<'a> {
     /// `base + write_register_base + write_register_byte * num_bytes + keccak512_base + keccak512_byte * num_bytes`
     pub fn keccak512(&mut self, value_len: u64, value_ptr: u64, register_id: u64) -> Result<()> {
         self.gas_counter.pay_base(keccak512_base)?;
-        let value = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
+        let value = get_memory_or_register!(self, value_ptr, value_len)?;
         self.gas_counter.pay_per(keccak512_byte, value.len() as u64)?;
 
         use sha3::Digest;
 
         let value_hash = sha3::Keccak512::digest(&value);
-        self.internal_write_register(register_id, value_hash.as_slice().to_vec())
+        self.registers.set(
+            &mut self.gas_counter,
+            &self.config.limit_config,
+            register_id,
+            value_hash.as_slice(),
+        )
     }
 
     /// Hashes the given value using RIPEMD-160 and returns it into `register_id`.
@@ -996,7 +957,7 @@ impl<'a> VMLogic<'a> {
     /// `base + write_register_base + write_register_byte * num_bytes + ripemd160_base + ripemd160_block * message_blocks`
     pub fn ripemd160(&mut self, value_len: u64, value_ptr: u64, register_id: u64) -> Result<()> {
         self.gas_counter.pay_base(ripemd160_base)?;
-        let value = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
+        let value = get_memory_or_register!(self, value_ptr, value_len)?;
 
         let message_blocks = value
             .len()
@@ -1010,7 +971,12 @@ impl<'a> VMLogic<'a> {
         use ripemd::Digest;
 
         let value_hash = ripemd::Ripemd160::digest(&value);
-        self.internal_write_register(register_id, value_hash.as_slice().to_vec())
+        self.registers.set(
+            &mut self.gas_counter,
+            &self.config.limit_config,
+            register_id,
+            value_hash.as_slice(),
+        )
     }
 
     /// Recovers an ECDSA signer address and returns it into `register_id`.
@@ -1046,7 +1012,7 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_base(ecrecover_base)?;
 
         let signature = {
-            let vec = self.get_vec_from_memory_or_register(sig_ptr, sig_len)?;
+            let vec = get_memory_or_register!(self, sig_ptr, sig_len)?;
             if vec.len() != 64 {
                 return Err(VMLogicError::HostError(HostError::ECRecoverError {
                     msg: format!(
@@ -1070,7 +1036,7 @@ impl<'a> VMLogic<'a> {
         };
 
         let hash = {
-            let vec = self.get_vec_from_memory_or_register(hash_ptr, hash_len)?;
+            let vec = get_memory_or_register!(self, hash_ptr, hash_len)?;
             if vec.len() != 32 {
                 return Err(VMLogicError::HostError(HostError::ECRecoverError {
                     msg: format!(
@@ -1099,7 +1065,12 @@ impl<'a> VMLogic<'a> {
         }
 
         if let Ok(pk) = signature.recover(hash) {
-            self.internal_write_register(register_id, pk.as_ref().to_vec())?;
+            self.registers.set(
+                &mut self.gas_counter,
+                &self.config.limit_config,
+                register_id,
+                pk.as_ref(),
+            )?;
             return Ok(true as u64);
         };
 
@@ -1145,7 +1116,7 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_base(ed25519_verify_base)?;
 
         let signature: ed25519_dalek::Signature = {
-            let vec = self.get_vec_from_memory_or_register(signature_ptr, signature_len)?;
+            let vec = get_memory_or_register!(self, signature_ptr, signature_len)?;
             if vec.len() != ed25519_dalek::SIGNATURE_LENGTH {
                 return Err(VMLogicError::HostError(HostError::Ed25519VerifyInvalidInput {
                     msg: "invalid signature length".to_string(),
@@ -1157,11 +1128,11 @@ impl<'a> VMLogic<'a> {
             }
         };
 
-        let message = self.get_vec_from_memory_or_register(message_ptr, message_len)?;
+        let message = get_memory_or_register!(self, message_ptr, message_len)?;
         self.gas_counter.pay_per(ed25519_verify_byte, message.len() as u64)?;
 
         let public_key: ed25519_dalek::PublicKey = {
-            let vec = self.get_vec_from_memory_or_register(public_key_ptr, public_key_len)?;
+            let vec = get_memory_or_register!(self, public_key_ptr, public_key_len)?;
             if vec.len() != ed25519_dalek::PUBLIC_KEY_LENGTH {
                 return Err(VMLogicError::HostError(HostError::Ed25519VerifyInvalidInput {
                     msg: "invalid public key length".to_string(),
@@ -1366,7 +1337,8 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_per(promise_and_per_promise, memory_len)?;
 
         // Read indices as little endian u64.
-        let promise_indices = self.memory_get_vec(promise_idx_ptr, memory_len)?;
+        let promise_indices =
+            self.memory.get_vec(&mut self.gas_counter, promise_idx_ptr, memory_len)?;
         let promise_indices = stdx::as_chunks_exact::<{ size_of::<u64>() }, u8>(&promise_indices)
             .unwrap()
             .into_iter()
@@ -1583,20 +1555,18 @@ impl<'a> VMLogic<'a> {
             }
             .into());
         }
-        let code = self.get_vec_from_memory_or_register(code_ptr, code_len)?;
-        if code.len() as u64 > self.config.limit_config.max_contract_size {
-            return Err(HostError::ContractSizeExceeded {
-                size: code.len() as u64,
-                limit: self.config.limit_config.max_contract_size,
-            }
-            .into());
+        let code = get_memory_or_register!(self, code_ptr, code_len)?;
+        let code_len = code.len() as u64;
+        let limit = self.config.limit_config.max_contract_size;
+        if code_len > limit {
+            return Err(HostError::ContractSizeExceeded { size: code_len, limit }.into());
         }
+        let code = code.into_owned();
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
-        let num_bytes = code.len() as u64;
         self.pay_action_base(ActionCosts::deploy_contract_base, sir)?;
-        self.pay_action_per_byte(ActionCosts::deploy_contract_byte, num_bytes, sir)?;
+        self.pay_action_per_byte(ActionCosts::deploy_contract_byte, code_len, sir)?;
 
         self.receipt_manager.append_action_deploy_contract(receipt_idx, code)?;
         Ok(())
@@ -1696,15 +1666,17 @@ impl<'a> VMLogic<'a> {
             }
             .into());
         }
-        let amount = self.memory_get_u128(amount_ptr)?;
-        let method_name = self.get_vec_from_memory_or_register(method_name_ptr, method_name_len)?;
+        let amount = self.memory.get_u128(&mut self.gas_counter, amount_ptr)?;
+        let method_name = get_memory_or_register!(self, method_name_ptr, method_name_len)?;
         if method_name.is_empty() {
             return Err(HostError::EmptyMethodName.into());
         }
-        let arguments = self.get_vec_from_memory_or_register(arguments_ptr, arguments_len)?;
+        let arguments = get_memory_or_register!(self, arguments_ptr, arguments_len)?;
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
+        let method_name = method_name.into_owned();
+        let arguments = arguments.into_owned();
         // Input can't be large enough to overflow
         let num_bytes = method_name.len() as u64 + arguments.len() as u64;
         self.pay_action_base(ActionCosts::function_call_base, sir)?;
@@ -1752,7 +1724,7 @@ impl<'a> VMLogic<'a> {
             }
             .into());
         }
-        let amount = self.memory_get_u128(amount_ptr)?;
+        let amount = self.memory.get_u128(&mut self.gas_counter, amount_ptr)?;
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
         let receiver_id = self.get_account_by_receipt(receipt_idx);
@@ -1803,8 +1775,9 @@ impl<'a> VMLogic<'a> {
             }
             .into());
         }
-        let amount = self.memory_get_u128(amount_ptr)?;
-        let public_key = self.get_vec_from_memory_or_register(public_key_ptr, public_key_len)?;
+        let amount = self.memory.get_u128(&mut self.gas_counter, amount_ptr)?;
+        let public_key =
+            get_memory_or_register!(self, public_key_ptr, public_key_len)?.into_owned();
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
         self.pay_action_base(ActionCosts::stake, sir)?;
@@ -1843,7 +1816,8 @@ impl<'a> VMLogic<'a> {
             }
             .into());
         }
-        let public_key = self.get_vec_from_memory_or_register(public_key_ptr, public_key_len)?;
+        let public_key =
+            get_memory_or_register!(self, public_key_ptr, public_key_len)?.into_owned();
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
         self.pay_action_base(ActionCosts::add_full_access_key, sir)?;
@@ -1893,12 +1867,12 @@ impl<'a> VMLogic<'a> {
             }
             .into());
         }
-        let public_key = self.get_vec_from_memory_or_register(public_key_ptr, public_key_len)?;
-        let allowance = self.memory_get_u128(allowance_ptr)?;
+        let public_key =
+            get_memory_or_register!(self, public_key_ptr, public_key_len)?.into_owned();
+        let allowance = self.memory.get_u128(&mut self.gas_counter, allowance_ptr)?;
         let allowance = if allowance > 0 { Some(allowance) } else { None };
         let receiver_id = self.read_and_parse_account_id(receiver_id_ptr, receiver_id_len)?;
-        let raw_method_names =
-            self.get_vec_from_memory_or_register(method_names_ptr, method_names_len)?;
+        let raw_method_names = get_memory_or_register!(self, method_names_ptr, method_names_len)?;
         let method_names = split_method_names(&raw_method_names)?;
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
@@ -1949,7 +1923,8 @@ impl<'a> VMLogic<'a> {
             }
             .into());
         }
-        let public_key = self.get_vec_from_memory_or_register(public_key_ptr, public_key_len)?;
+        let public_key =
+            get_memory_or_register!(self, public_key_ptr, public_key_len)?.into_owned();
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
         self.pay_action_base(ActionCosts::delete_key, sir)?;
@@ -2057,7 +2032,12 @@ impl<'a> VMLogic<'a> {
         {
             PromiseResult::NotReady => Ok(0),
             PromiseResult::Successful(data) => {
-                self.internal_write_register(register_id, data.clone())?;
+                self.registers.set(
+                    &mut self.gas_counter,
+                    &self.config.limit_config,
+                    register_id,
+                    data.as_slice(),
+                )?;
                 Ok(1)
             }
             PromiseResult::Failed => Ok(2),
@@ -2113,7 +2093,7 @@ impl<'a> VMLogic<'a> {
     /// `base + cost of reading return value from memory or register + dispatch&exec cost per byte of the data sent * num data receivers`
     pub fn value_return(&mut self, value_len: u64, value_ptr: u64) -> Result<()> {
         self.gas_counter.pay_base(base)?;
-        let return_val = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
+        let return_val = get_memory_or_register!(self, value_ptr, value_len)?;
         let mut burn_gas: Gas = 0;
         let num_bytes = return_val.len() as u64;
         if num_bytes > self.config.limit_config.max_length_returned_data {
@@ -2151,7 +2131,7 @@ impl<'a> VMLogic<'a> {
             burn_gas,
             ActionCosts::new_data_receipt_byte,
         )?;
-        self.return_data = ReturnData::Value(return_val);
+        self.return_data = ReturnData::Value(return_val.into_owned());
         Ok(())
     }
 
@@ -2253,8 +2233,8 @@ impl<'a> VMLogic<'a> {
         self.check_can_add_a_log_message()?;
 
         // Underflow checked above.
-        let msg_len = self.memory_get_u32((msg_ptr - 4) as u64)?;
-        let filename_len = self.memory_get_u32((filename_ptr - 4) as u64)?;
+        let msg_len = self.memory.get_u32(&mut self.gas_counter, (msg_ptr - 4) as u64)?;
+        let filename_len = self.memory.get_u32(&mut self.gas_counter, (filename_ptr - 4) as u64)?;
 
         let msg = self.get_utf16_string(msg_len as u64, msg_ptr as u64)?;
         let filename = self.get_utf16_string(filename_len as u64, filename_ptr as u64)?;
@@ -2284,7 +2264,7 @@ impl<'a> VMLogic<'a> {
     /// cost of reading buffer from register or memory,
     /// `utf8_decoding_base + utf8_decoding_byte * num_bytes`.
     fn read_and_parse_account_id(&mut self, ptr: u64, len: u64) -> Result<AccountId> {
-        let buf = self.get_vec_from_memory_or_register(ptr, len)?;
+        let buf = get_memory_or_register!(self, ptr, len)?;
         self.gas_counter.pay_base(utf8_decoding_base)?;
         self.gas_counter.pay_per(utf8_decoding_byte, buf.len() as u64)?;
 
@@ -2292,7 +2272,7 @@ impl<'a> VMLogic<'a> {
         // backwards compatibility. For paths previously involving validation, like receipts
         // we retain validation further down the line in node-runtime/verifier.rs#fn(validate_receipt)
         // mimicing previous behaviour.
-        let account_id = String::from_utf8(buf)
+        let account_id = String::from_utf8(buf.into_owned())
             .map(
                 #[allow(deprecated)]
                 AccountId::new_unvalidated,
@@ -2337,7 +2317,7 @@ impl<'a> VMLogic<'a> {
             );
         }
         self.gas_counter.pay_base(storage_write_base)?;
-        let key = self.get_vec_from_memory_or_register(key_ptr, key_len)?;
+        let key = get_memory_or_register!(self, key_ptr, key_len)?;
         if key.len() as u64 > self.config.limit_config.max_length_storage_key {
             return Err(HostError::KeyLengthExceeded {
                 length: key.len() as u64,
@@ -2345,7 +2325,7 @@ impl<'a> VMLogic<'a> {
             }
             .into());
         }
-        let value = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
+        let value = get_memory_or_register!(self, value_ptr, value_len)?;
         if value.len() as u64 > self.config.limit_config.max_length_storage_value {
             return Err(HostError::ValueLengthExceeded {
                 length: value.len() as u64,
@@ -2387,7 +2367,12 @@ impl<'a> VMLogic<'a> {
                     .current_storage_usage
                     .checked_add(value.len() as u64)
                     .ok_or(InconsistentStateError::IntegerOverflow)?;
-                self.internal_write_register(register_id, old_value)?;
+                self.registers.set(
+                    &mut self.gas_counter,
+                    &self.config.limit_config,
+                    register_id,
+                    old_value,
+                )?;
                 Ok(1)
             }
             None => {
@@ -2439,7 +2424,7 @@ impl<'a> VMLogic<'a> {
     pub fn storage_read(&mut self, key_len: u64, key_ptr: u64, register_id: u64) -> Result<u64> {
         self.gas_counter.pay_base(base)?;
         self.gas_counter.pay_base(storage_read_base)?;
-        let key = self.get_vec_from_memory_or_register(key_ptr, key_len)?;
+        let key = get_memory_or_register!(self, key_ptr, key_len)?;
         if key.len() as u64 > self.config.limit_config.max_length_storage_key {
             return Err(HostError::KeyLengthExceeded {
                 length: key.len() as u64,
@@ -2466,7 +2451,12 @@ impl<'a> VMLogic<'a> {
         );
         match read {
             Some(value) => {
-                self.internal_write_register(register_id, value)?;
+                self.registers.set(
+                    &mut self.gas_counter,
+                    &self.config.limit_config,
+                    register_id,
+                    value,
+                )?;
                 Ok(1)
             }
             None => Ok(0),
@@ -2500,7 +2490,7 @@ impl<'a> VMLogic<'a> {
             );
         }
         self.gas_counter.pay_base(storage_remove_base)?;
-        let key = self.get_vec_from_memory_or_register(key_ptr, key_len)?;
+        let key = get_memory_or_register!(self, key_ptr, key_len)?;
         if key.len() as u64 > self.config.limit_config.max_length_storage_key {
             return Err(HostError::KeyLengthExceeded {
                 length: key.len() as u64,
@@ -2540,7 +2530,12 @@ impl<'a> VMLogic<'a> {
                             + storage_config.num_extra_bytes_record,
                     )
                     .ok_or(InconsistentStateError::IntegerOverflow)?;
-                self.internal_write_register(register_id, value)?;
+                self.registers.set(
+                    &mut self.gas_counter,
+                    &self.config.limit_config,
+                    register_id,
+                    value,
+                )?;
                 Ok(1)
             }
             None => Ok(0),
@@ -2562,7 +2557,7 @@ impl<'a> VMLogic<'a> {
     pub fn storage_has_key(&mut self, key_len: u64, key_ptr: u64) -> Result<u64> {
         self.gas_counter.pay_base(base)?;
         self.gas_counter.pay_base(storage_has_key_base)?;
-        let key = self.get_vec_from_memory_or_register(key_ptr, key_len)?;
+        let key = get_memory_or_register!(self, key_ptr, key_len)?;
         if key.len() as u64 > self.config.limit_config.max_length_storage_key {
             return Err(HostError::KeyLengthExceeded {
                 length: key.len() as u64,

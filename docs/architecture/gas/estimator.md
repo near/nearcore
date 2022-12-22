@@ -5,7 +5,7 @@ benchmarking is not really commonly used term but I feel it describes it quite
 well. It measures the performance assuming that up to a third of validators and
 all users collude to make the system as slow as possible.
 
-This benchmarking suite is used check that the gas parameters defined in the
+This benchmarking suite is used to check that the gas parameters defined in the
 protocol are correct. Correct in this context means, a chunk filled with 1 Pgas
 will take at most 1 second to be applied. Or more generally, per 1 Tgas of
 execution, we spend no more than 1ms wall-clock time. 

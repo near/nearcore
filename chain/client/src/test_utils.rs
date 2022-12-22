@@ -223,7 +223,7 @@ pub fn setup(
         runtime.clone(),
         &chain_genesis,
         doomslug_threshold_mode,
-        ChainConfig { save_trie_changes: !archive, background_migration_threads: 1 },
+        ChainConfig { save_trie_changes: true, background_migration_threads: 1 },
     )
     .unwrap();
     let genesis_block = chain.get_block(&chain.genesis().hash().clone()).unwrap();
@@ -236,6 +236,7 @@ pub fn setup(
         max_block_prod_time,
         num_validator_seats,
         archive,
+        true,
         epoch_sync_enabled,
     );
 
@@ -309,7 +310,7 @@ pub fn setup_only_view(
         runtime.clone(),
         &chain_genesis,
         doomslug_threshold_mode,
-        ChainConfig { save_trie_changes: !archive, background_migration_threads: 1 },
+        ChainConfig { save_trie_changes: true, background_migration_threads: 1 },
     )
     .unwrap();
 
@@ -321,6 +322,7 @@ pub fn setup_only_view(
         max_block_prod_time,
         num_validator_seats,
         archive,
+        true,
         epoch_sync_enabled,
     );
 
@@ -690,6 +692,7 @@ pub fn setup_mock_all_validators(
                             sent_bytes_per_sec: 0,
                             received_bytes_per_sec: 0,
                             known_producers: vec![],
+                            tier1_accounts_keys: vec![],
                             tier1_accounts_data: vec![],
                         };
                         client_addr.do_send(SetNetworkInfo(info).with_span_context());
@@ -1089,10 +1092,13 @@ pub fn setup_client_with_runtime(
     chain_genesis: ChainGenesis,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     rng_seed: RngSeed,
+    archive: bool,
+    save_trie_changes: bool,
 ) -> Client {
     let validator_signer =
         account_id.map(|x| Arc::new(create_test_signer(x.as_str())) as Arc<dyn ValidatorSigner>);
-    let mut config = ClientConfig::test(true, 10, 20, num_validator_seats, false, true);
+    let mut config =
+        ClientConfig::test(true, 10, 20, num_validator_seats, archive, save_trie_changes, true);
     config.epoch_length = chain_genesis.epoch_length;
     let mut client = Client::new(
         config,
@@ -1118,6 +1124,8 @@ pub fn setup_client(
     client_adapter: Arc<dyn ClientAdapterForShardsManager>,
     chain_genesis: ChainGenesis,
     rng_seed: RngSeed,
+    archive: bool,
+    save_trie_changes: bool,
 ) -> Client {
     let num_validator_seats = vs.all_block_producers().count() as NumSeats;
     let runtime_adapter =
@@ -1131,6 +1139,8 @@ pub fn setup_client(
         chain_genesis,
         runtime_adapter,
         rng_seed,
+        archive,
+        save_trie_changes,
     )
 }
 
@@ -1147,6 +1157,8 @@ pub struct TestEnv {
     // random seed to be inject in each client according to AccountId
     // if not set, a default constant TEST_SEED will be injected
     seeds: HashMap<AccountId, RngSeed>,
+    archive: bool,
+    save_trie_changes: bool,
 }
 
 /// A builder for the TestEnv structure.
@@ -1159,6 +1171,8 @@ pub struct TestEnvBuilder {
     // random seed to be inject in each client according to AccountId
     // if not set, a default constant TEST_SEED will be injected
     seeds: HashMap<AccountId, RngSeed>,
+    archive: bool,
+    save_trie_changes: bool,
 }
 
 /// Builder for the [`TestEnv`] structure.
@@ -1175,6 +1189,8 @@ impl TestEnvBuilder {
             runtime_adapters: None,
             network_adapters: None,
             seeds,
+            archive: false,
+            save_trie_changes: true,
         }
     }
 
@@ -1237,6 +1253,16 @@ impl TestEnvBuilder {
         self
     }
 
+    pub fn archive(mut self, archive: bool) -> Self {
+        self.archive = archive;
+        self
+    }
+
+    pub fn save_trie_changes(mut self, save_trie_changes: bool) -> Self {
+        self.save_trie_changes = save_trie_changes;
+        self
+    }
+
     /// Constructs new `TestEnv` structure.
     ///
     /// If no clients were configured (either through count or vector) one
@@ -1281,11 +1307,14 @@ impl TestEnvBuilder {
                         client_adapter.clone(),
                         chain_genesis.clone(),
                         rng_seed,
+                        self.archive,
+                        self.save_trie_changes,
                     )
                 })
                 .collect(),
             Some(runtime_adapters) => {
                 assert!(clients.len() == runtime_adapters.len());
+
                 clients
                     .into_iter()
                     .zip((&network_adapters).iter())
@@ -1304,6 +1333,8 @@ impl TestEnvBuilder {
                             chain_genesis.clone(),
                             runtime_adapter,
                             rng_seed,
+                            self.archive,
+                            self.save_trie_changes,
                         )
                     })
                     .collect()
@@ -1324,6 +1355,8 @@ impl TestEnvBuilder {
                 .collect(),
             paused_blocks: Default::default(),
             seeds,
+            archive: self.archive,
+            save_trie_changes: self.save_trie_changes,
         }
     }
 
@@ -1623,6 +1656,8 @@ impl TestEnv {
             self.client_adapters[idx].clone(),
             self.chain_genesis.clone(),
             rng_seed,
+            self.archive,
+            self.save_trie_changes,
         )
     }
 

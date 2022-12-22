@@ -519,7 +519,7 @@ mod tests {
 
     #[test]
     fn telemetry_info() {
-        let config = ClientConfig::test(false, 1230, 2340, 50, false, true);
+        let config = ClientConfig::test(false, 1230, 2340, 50, false, true, true);
         let info_helper = InfoHelper::new(None, &config, None);
 
         let store = near_store::test_utils::create_test_store();
@@ -561,6 +561,7 @@ mod tests {
                 received_bytes_per_sec: 0,
                 known_producers: vec![],
                 tier1_connections: vec![],
+                tier1_accounts_keys: vec![],
                 tier1_accounts_data: vec![],
             },
             &config,

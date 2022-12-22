@@ -65,11 +65,11 @@ delay_detector = [
 nightly_protocol = []
 nightly = [
   "nightly_protocol",
+  "protocol_feature_flat_state",
   "near-chain/nightly",
 ]
 sandbox = [
   "near-client-primitives/sandbox",
   "near-chain/sandbox",
 ]
-# Shardnet is the experimental network that we deploy for chunk-only producer testing.
-shardnet = ["near-network/shardnet"]
+protocol_feature_flat_state = ["near-store/protocol_feature_flat_state", "near-chain/protocol_feature_flat_state"]

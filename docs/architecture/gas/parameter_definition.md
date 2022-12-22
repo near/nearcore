@@ -46,7 +46,7 @@ Before adding anything, please review the basic principles for gas parameters.
   multiplied by `N`. (Example: `N` = number of bytes when reading a value from
   storage.)
 - Charge gas before executing the workload.
-- Parameters should be independent form specific implementation choices in
+- Parameters should be independent from specific implementation choices in
   nearcore.
 - Ideally, contract developers can easily understand what the cost is simply by
   reading the name in a gas profile.

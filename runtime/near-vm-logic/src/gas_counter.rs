@@ -87,21 +87,26 @@ impl GasCounter {
         }
     }
 
-    /// Accounts for burnt and used gas; reports an error if max gas burnt or
-    /// prepaid gas limit is crossed.  Panics when trying to burn more gas than
-    /// being used, i.e. if `burn_gas > use_gas`.
-    fn deduct_gas(&mut self, burn_gas: Gas, use_gas: Gas) -> Result<()> {
-        assert!(burn_gas <= use_gas);
-        let promise_gas = use_gas - burn_gas;
+    /// Deducts burnt and used gas.
+    ///
+    /// Returns an error if the `max_gax_burnt` or the `prepaid_gas` limits are
+    /// crossed or there are arithmetic overflows.
+    ///
+    /// Panics
+    ///
+    /// This function asserts that `gas_burnt <= gas_used`
+    fn deduct_gas(&mut self, gas_burnt: Gas, gas_used: Gas) -> Result<()> {
+        assert!(gas_burnt <= gas_used);
+        let promises_gas = gas_used - gas_burnt;
         let new_promises_gas =
-            self.promises_gas.checked_add(promise_gas).ok_or(HostError::IntegerOverflow)?;
+            self.promises_gas.checked_add(promises_gas).ok_or(HostError::IntegerOverflow)?;
         let new_burnt_gas =
-            self.fast_counter.burnt_gas.checked_add(burn_gas).ok_or(HostError::IntegerOverflow)?;
+            self.fast_counter.burnt_gas.checked_add(gas_burnt).ok_or(HostError::IntegerOverflow)?;
         let new_used_gas =
             new_burnt_gas.checked_add(new_promises_gas).ok_or(HostError::IntegerOverflow)?;
         if new_burnt_gas <= self.max_gas_burnt && new_used_gas <= self.prepaid_gas {
             use std::cmp::min;
-            if promise_gas != 0 && !self.is_view {
+            if promises_gas != 0 && !self.is_view {
                 self.fast_counter.gas_limit =
                     min(self.max_gas_burnt, self.prepaid_gas - new_promises_gas);
             }
@@ -113,10 +118,12 @@ impl GasCounter {
         }
     }
 
-    // Optimized version of above function for cases where no promises involved.
-    pub fn burn_gas(&mut self, value: Gas) -> Result<()> {
+    /// Simpler version of `deduct_gas()` for when no promises are involved.
+    ///
+    /// Return an error if there are arithmetic overflows.
+    pub fn burn_gas(&mut self, gas_burnt: Gas) -> Result<()> {
         let new_burnt_gas =
-            self.fast_counter.burnt_gas.checked_add(value).ok_or(HostError::IntegerOverflow)?;
+            self.fast_counter.burnt_gas.checked_add(gas_burnt).ok_or(HostError::IntegerOverflow)?;
         if new_burnt_gas <= self.fast_counter.gas_limit {
             self.fast_counter.burnt_gas = new_burnt_gas;
             Ok(())

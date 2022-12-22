@@ -1,3 +1,4 @@
+use crate::sync_utils::Monitor;
 use crate::trie::POISONED_LOCK_ERR;
 use crate::{
     metrics, DBCol, StorageError, Store, Trie, TrieCache, TrieCachingStorage, TrieConfig,
@@ -12,7 +13,7 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, ShardId, StateRoot, TrieNodesCount};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::thread;
 
 const MAX_QUEUED_WORK_ITEMS: usize = 16 * 1024;
@@ -39,6 +40,10 @@ const NUM_IO_THREADS: usize = 8;
 ///
 /// Each I/O threads will have its own copy of `TriePrefetchingStorage`, so
 /// this should remain a cheap object.
+///
+/// Please note that this should only be used from the background threads
+/// performing prefetching. The main thread uses `PrefetchStagingArea`
+/// directly to look up prefetched values before going to the database.
 #[derive(Clone)]
 struct TriePrefetchingStorage {
     /// Store is shared with parent `TrieCachingStorage`.
@@ -81,6 +86,14 @@ pub struct PrefetchApi {
     pub shard_uid: ShardUId,
 }
 
+#[derive(thiserror::Error, Debug)]
+pub enum PrefetchError {
+    #[error("I/O scheduler input queue is full")]
+    QueueFull,
+    #[error("I/O scheduler input queue is disconnected")]
+    QueueDisconnected,
+}
+
 /// Staging area for in-flight prefetch requests and a buffer for prefetched data.
 ///
 /// Before starting a pre-fetch, a slot is reserved for it. Once the data is
@@ -95,7 +108,7 @@ pub struct PrefetchApi {
 /// without the prefetcher, because the order in which it sees accesses is
 /// independent of the prefetcher.
 #[derive(Clone)]
-pub(crate) struct PrefetchStagingArea(Arc<Mutex<InnerPrefetchStagingArea>>);
+pub(crate) struct PrefetchStagingArea(Arc<Monitor<InnerPrefetchStagingArea>>);
 
 struct InnerPrefetchStagingArea {
     slots: SizeTrackedHashMap,
@@ -133,6 +146,18 @@ enum PrefetchSlot {
     Done(Arc<[u8]>),
 }
 
+impl PrefetchSlot {
+    /// Returns amount of memory reserved for a value in the prefetching area.
+    fn reserved_memory(&self) -> usize {
+        match self {
+            PrefetchSlot::Done(value) => value.len(),
+            PrefetchSlot::PendingFetch | PrefetchSlot::PendingPrefetch => {
+                PREFETCH_RESERVED_BYTES_PER_SLOT
+            }
+        }
+    }
+}
+
 struct SizeTrackedHashMap {
     map: HashMap<CryptoHash, PrefetchSlot>,
     size_bytes: usize,
@@ -140,11 +165,18 @@ struct SizeTrackedHashMap {
 }
 
 impl SizeTrackedHashMap {
+    fn new(shard_id: ShardId) -> Self {
+        let instance =
+            Self { map: Default::default(), size_bytes: 0, metrics: StagedMetrics::new(shard_id) };
+        instance.update_metrics();
+        instance
+    }
+
     fn insert(&mut self, k: CryptoHash, v: PrefetchSlot) -> Option<PrefetchSlot> {
-        self.size_bytes += Self::reserved_memory(&v);
+        self.size_bytes += v.reserved_memory();
         let dropped = self.map.insert(k, v);
         if let Some(dropped) = &dropped {
-            self.size_bytes -= Self::reserved_memory(dropped);
+            self.size_bytes -= dropped.reserved_memory();
         }
         self.update_metrics();
         dropped
@@ -153,7 +185,7 @@ impl SizeTrackedHashMap {
     fn remove(&mut self, k: &CryptoHash) -> Option<PrefetchSlot> {
         let dropped = self.map.remove(k);
         if let Some(dropped) = &dropped {
-            self.size_bytes -= Self::reserved_memory(dropped);
+            self.size_bytes -= dropped.reserved_memory();
         }
         self.update_metrics();
         dropped
@@ -168,16 +200,6 @@ impl SizeTrackedHashMap {
     fn update_metrics(&self) {
         self.metrics.prefetch_staged_bytes.set(self.size_bytes as i64);
         self.metrics.prefetch_staged_items.set(self.map.len() as i64);
-    }
-
-    /// Reserved memory capacity for a value from the prefetching area.
-    fn reserved_memory(slot: &PrefetchSlot) -> usize {
-        match slot {
-            PrefetchSlot::Done(value) => value.len(),
-            PrefetchSlot::PendingFetch | PrefetchSlot::PendingPrefetch => {
-                PREFETCH_RESERVED_BYTES_PER_SLOT
-            }
-        }
     }
 
     fn get(&self, key: &CryptoHash) -> Option<&PrefetchSlot> {
@@ -289,15 +311,8 @@ impl TriePrefetchingStorage {
 
 impl PrefetchStagingArea {
     fn new(shard_id: ShardId) -> Self {
-        let inner = InnerPrefetchStagingArea {
-            slots: SizeTrackedHashMap {
-                map: Default::default(),
-                size_bytes: 0,
-                metrics: StagedMetrics::new(shard_id),
-            },
-        };
-        inner.slots.update_metrics();
-        Self(Arc::new(Mutex::new(inner)))
+        let inner = InnerPrefetchStagingArea { slots: SizeTrackedHashMap::new(shard_id) };
+        Self(Arc::new(Monitor::new(inner)))
     }
 
     /// Release a slot in the prefetcher staging area.
@@ -308,7 +323,7 @@ impl PrefetchStagingArea {
     /// 2: IO thread misses in the shard cache on the same key and starts fetching it again.
     /// 3: Main thread value is inserted in shard cache.
     pub(crate) fn release(&self, key: &CryptoHash) {
-        let mut guard = self.0.lock().expect(POISONED_LOCK_ERR);
+        let mut guard = self.0.lock_mut();
         let dropped = guard.slots.remove(key);
         // `Done` is the result after a successful prefetch.
         // `PendingFetch` means the value has been read without a prefetch.
@@ -331,13 +346,14 @@ impl PrefetchStagingArea {
     /// same data and thus are waiting on each other rather than the DB.
     /// Of course, that would require prefetching to be moved into an async environment,
     pub(crate) fn blocking_get(&self, key: CryptoHash) -> Option<Arc<[u8]>> {
+        let mut guard = self.0.lock();
         loop {
-            match self.0.lock().expect(POISONED_LOCK_ERR).slots.get(&key) {
+            match guard.slots.get(&key) {
                 Some(PrefetchSlot::Done(value)) => return Some(value.clone()),
                 Some(_) => (),
                 None => return None,
             }
-            thread::sleep(std::time::Duration::from_micros(1));
+            guard = self.0.wait(guard);
         }
     }
 
@@ -348,7 +364,7 @@ impl PrefetchStagingArea {
     }
 
     fn insert_fetched(&self, key: CryptoHash, value: Arc<[u8]>) {
-        self.0.lock().expect(POISONED_LOCK_ERR).slots.insert(key, PrefetchSlot::Done(value));
+        self.0.lock_mut().slots.insert(key, PrefetchSlot::Done(value));
     }
 
     /// Get prefetched value if available and otherwise atomically insert the
@@ -358,7 +374,7 @@ impl PrefetchStagingArea {
         key: CryptoHash,
         set_if_empty: PrefetchSlot,
     ) -> PrefetcherResult {
-        let mut guard = self.0.lock().expect(POISONED_LOCK_ERR);
+        let mut guard = self.0.lock_mut();
         let full =
             guard.slots.size_bytes > MAX_PREFETCH_STAGING_MEMORY - PREFETCH_RESERVED_BYTES_PER_SLOT;
         match guard.slots.map.get(&key) {
@@ -376,6 +392,10 @@ impl PrefetchStagingArea {
                 PrefetcherResult::SlotReserved
             }
         }
+    }
+
+    fn clear(&self) {
+        self.0.lock_mut().slots.clear();
     }
 }
 
@@ -415,13 +435,15 @@ impl PrefetchApi {
         (this, handle)
     }
 
-    /// Returns the argument back if queue is full.
     pub fn prefetch_trie_key(
         &self,
         root: StateRoot,
         trie_key: TrieKey,
-    ) -> Result<(), (StateRoot, TrieKey)> {
-        self.work_queue_tx.try_send((root, trie_key)).map_err(|e| e.into_inner())
+    ) -> Result<(), PrefetchError> {
+        self.work_queue_tx.try_send((root, trie_key)).map_err(|e| match e {
+            crossbeam::channel::TrySendError::Full(_) => PrefetchError::QueueFull,
+            crossbeam::channel::TrySendError::Disconnected(_) => PrefetchError::QueueDisconnected,
+        })
     }
 
     pub fn start_io_thread(
@@ -482,7 +504,7 @@ impl PrefetchApi {
 
     /// Clear prefetched staging area from data that has not been picked up by the main thread.
     pub fn clear_data(&self) {
-        self.prefetching.0.lock().expect(POISONED_LOCK_ERR).slots.clear();
+        self.prefetching.clear();
     }
 }
 
@@ -526,7 +548,7 @@ impl Drop for PrefetchingThreadsHandle {
 /// a minimal set of functions is required to check the inner
 /// state of the prefetcher.
 #[cfg(feature = "test_features")]
-mod tests {
+mod tests_utils {
     use super::{PrefetchApi, PrefetchSlot};
     use crate::TrieCachingStorage;
 
@@ -536,7 +558,6 @@ mod tests {
             self.prefetching
                 .0
                 .lock()
-                .unwrap()
                 .slots
                 .map
                 .iter()
@@ -556,5 +577,36 @@ mod tests {
         pub fn clear_cache(&self) {
             self.shard_cache.clear();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{PrefetchStagingArea, PrefetcherResult};
+    use near_primitives::hash::CryptoHash;
+
+    #[test]
+    fn test_prefetch_staging_area_blocking_get_after_update() {
+        let key = CryptoHash::hash_bytes(&[1, 2, 3]);
+        let value: std::sync::Arc<[u8]> = vec![4, 5, 6].into();
+        let prefetch_staging_area = PrefetchStagingArea::new(0);
+        assert!(matches!(
+            prefetch_staging_area.get_or_set_fetching(key),
+            PrefetcherResult::SlotReserved
+        ));
+        let prefetch_staging_area2 = prefetch_staging_area.clone();
+        let value2 = value.clone();
+        // We need to execute `blocking_get` before `insert_fetched` so that
+        // it blocks while waiting for the value to be updated. Spawning
+        // a new thread + yielding should give enough time for the main
+        // thread to make progress. Please note that even if `insert_fetched`
+        // is executed before `blocking_get`, that still wouldn't result in
+        // any flakiness since the test would still pass, it just won't verify
+        // the synchronization part of `blocking_get`.
+        std::thread::spawn(move || {
+            std::thread::yield_now();
+            prefetch_staging_area2.insert_fetched(key, value2);
+        });
+        assert_eq!(prefetch_staging_area.blocking_get(key), Some(value));
     }
 }
