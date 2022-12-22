@@ -92,7 +92,7 @@ impl ActionEstimation {
     /// Create a new action estimation that can be modified using builder-style
     /// methods and sets the accounts ids such that the signer, sender, and
     /// receiver are all the same account id.
-    /// 
+    ///
     /// This constructor is also used for execution estimations because:
     /// (1) Some actions require sender = receiver to execute without an error.
     /// (2) It does not matter for execution performance.
