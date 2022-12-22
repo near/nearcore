@@ -3,9 +3,14 @@
 [NEP-366](https://github.com/near/NEPs/pull/366) introduced the concept of meta
 transactions to Near Protocol. The idea is to construct and sign a transaction
 off-chain and allow someone else to release it on the chain. This someone else
-is called the relayer, who will then pay for the gas and tokens costs of the
+is called the relayer, who will then pay for the gas and token costs of the
 transaction. This ultimately allows executing transactions on NEAR without
 owning gas or tokens.
+
+The MVP for meta transactions is currently in the stabilization process.
+Naturally, the MVP has some limitations, which are discussed in separate
+sections below. Future iterations have the potential to make meta transactions
+more flexible.
 
 ## Overview
 
@@ -15,7 +20,138 @@ _Credits for the diagram go to the NEP authors Alexander Fadeev and Egor
 Uleyskiy._
 
 
-TODO: Describe the flow chart
+The graphic shows an example use case for meta transactions. Alice owns an
+amount of the fungible token $FT. She wants to transfer some to John. To do
+that, she needs to call `ft_transfer("john", 10)` on an account named `FT`.
+
+In technical terms, ownership of $FT is an entry in the `FT` contract's storage
+that tracks the balance for her account. Note that this is on the application
+layer and thus not a part of Near Protocol itself. But `FT` relies on the
+protocol to verify that the `ft_transfer` call actually comes from Alice. The
+contract code checks that `predecessor_id` is `"Alice"` and if that is the case
+then the call is legitimately from Alice, as only she could create such a
+receipt according to the Near Protocol specification.
+
+The problem is, Alice has no NEAR tokens. She only has a NEAR account that
+someone else funded for her and she owns the private keys. She could create a
+signed transaction that would make the `ft_transfer("john", 10)` call. But
+validator nodes will not accept it, because she does not have the necessary Near
+token balance to purchase the gas.
+
+With meta transactions, Alice can create a `DelegateAction`, which is very
+similar to a transaction. It also contains a list of actions to execute and a
+single receiver for those actions. She signs the `DelegateAction` and forwards
+it (off-chain) to a relayer. The relayer wraps it in a transaction, of which the
+relayer is the signer and therefore pays the gas costs. If the inner actions
+have an attached token balance, this is also paid for by the relayer.
+
+On chain, the `SignedDelegateAction` inside the transaction is converted to an
+action receipt with the same `SignedDelegateAction` on the relayer's shard. The
+receipt is forwarded to the account from `Alice`, which will unpacked the
+`SignedDelegateAction` and verify that it is signed by Alice with a valid Nonce
+etc. If all checks are successful, a new action receipt with the inner actions
+as body is sent to `FT`. There, the `ft_transfer` call finally executes.
+
+## Relayer
+
+Meta transactions only work with a relayer. This is an application layer
+concept, implemented off-chain. Think of it as a server that accepts a
+`SignedDelegateAction`, does some checks on them and eventually forwards it
+inside a transaction to the blockchain network.
+
+A relayer may chose to offer their service for free but that's not going to be
+financially viable long-term. But they could easily have the user pay using
+other means, outside of Near blockchain. And with some tricks, it can even be
+paid using fungible tokens on Near.
+
+In the example visualized above, the payment is done using $FT. Together with
+the transfer to John, Alice also adds an action to pay 0.1 $FT to the relayer.
+The relayer checks the content of the `SignedDelegateAction` and only processes
+it if this payment is included as the first action. In this way, the relayer
+will be paid in the same transaction as John. 
+
+Note that the payment to the relayer is still not guaranteed. It could be that
+Alice does not have sufficient $FT and the transfer fails. To mitigate, the
+relayer should check the $FT balance of Alice first.
+
+Unfortunately, this still does not guarantee that the balance will be high
+enough once the meta transaction executes. The relayer could waste NEAR gas
+without compensation if Alice somehow reduces her $FT balance in just the right
+moment. Some level of trust between the relayer and its user is therefore
+required.
+
+The vision here is that there will be mostly application-specific relayers. A
+general-purpose relayer is difficult to implement with just the MVP. See
+limitations below.
+
+## Limitation: Single receiver
+
+A meta transaction, like a normal transaction, can only have one receiver. It's
+possible to chain additional receipts afterwards. But crucially, there is no
+atomicity guarantee and no roll-back mechanism.
+
+For normal transactions, this has been widely accepted as a fact for how Near
+Protocol works. For meta transactions, there was a discussion around allowing
+multiple receivers with separate lists of actions per receiver. While this could
+be implemented, it would only create a false sense of atomicity. Since each
+receiver would require a separate action receipt, there is no atomicity, the
+same as with chains of receipts.
+
+Unfortunately, this means the trick to compensate the relayer in the same meta
+transaction as the serviced actions only works if both happen on the same
+receiver. In the example, both happen on `FT` and this case works well. But it
+would not be possible to send $FT1 and pay the relayer in $FT2. Nor could one
+deploy a contract code on `Alice` and pay in $FT in one meta transaction. It
+would require two separate meta transactions to do that. Due to timing problems,
+this again requires some level of trust between the relayer and Alice.
+
+A potential solution could involve linear dependencies between the action
+receipts spawned from a single meta transaction. Only if the first succeeds,
+will the second start executing,and so on. But this quickly gets too complicated
+for the MVP and is therefore left open for future improvements.
+
+## Limitation: Accounts must be initialized 
+
+Any transaction, including meta transactions, must use NONCEs to avoid replay
+attacks. The NONCE must be chosen by Alice and compared to a NONCE stored on
+chain. This NONCE is stored on the access key information that gets initialized
+when creating an account. 
+
+Implicit accounts don't need to be initialized in order to receive NEAR tokens,
+or even $FT. This means users could own $FT but no NONCE is stored on chain for
+them. This is problematic because we want to enable this exact use case with
+meta transactions, but we have no NONCE to create a meta transaction.
+
+For the MVP, the proposed solution, or work-around, is that the relayer will
+have to initialize the account of Alice once if it does not exist. Note that
+this cannot be done as part of the meta transaction. Instead, it will be a
+separate transaction that executes first. Only then can Alice even create a
+`SignedDelegateAction` with a valid NONCE.
+
+Once again, some trust is required. If Alice wanted to abuse the relayer's
+helpful service, she could ask the relayer to initialize her account.
+Afterwards, she does not sign a meta transaction, instead she deletes her
+account and cashes in the small token balance reserved for storage. If this
+attack is repeated, a significant amount of tokens could be stolen from the
+relayer.
+
+One partial solution suggested here was to remove the storage staking cost from
+accounts. This means there is no financial incentive for Alice to delete her
+account. But it does not solve the problem that the relayer has to pay for the
+account creation and Alice can simply refuse to send a meta transaction
+afterwards. In particular, anyone creating an account would have financial
+incentive to let a relayer create it for them instead of paying out of the own
+pockets. This would still be better than Alice stealing tokens but
+fundamentally, there still needs to be some trust.
+
+An alternative solution discussed is to do NONCE checks on the relayer's access
+key. This prevents replay attacks and allows implicit accounts to be used in
+meta transactions without even initializing them. The downside is that meta
+transactions share the same NONCE counter(s). That means, a meta transaction
+sent by Bob may invalidate a meta transaction signed by Alice that was created
+and sent to the relayer at the same time. Multiple access keys by the relayer
+and coordination between relayer and user could potentially alleviate this
+problem. But for the MVP, nothing along those lines has been approved.
 
 ## Gas costs for meta transactions
 
