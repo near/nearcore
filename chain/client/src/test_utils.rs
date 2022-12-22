@@ -1635,12 +1635,13 @@ impl TestEnv {
         self.query_account(account_id).amount
     }
 
-    /// Restarts client at given index.  Note that the client is restarted with
-    /// the default runtime adapter (i.e. [`KeyValueRuntime`]).  That is, if
-    /// this `TestEnv` was created with custom runtime adapters that
-    /// customisation will be lost.
+    /// Restarts client at given index. Note that the new client reuses runtime
+    /// adapter of old client.
+    /// TODO (#8269): create new `KeyValueRuntime` for new client. Currently it
+    /// doesn't work because `KeyValueRuntime` misses info about new epochs in
+    /// memory caches.
+    /// Though, it seems that it is not necessary for current use cases.
     pub fn restart(&mut self, idx: usize) {
-        let store = self.clients[idx].chain.store().store().clone();
         let account_id = self.get_client_id(idx).clone();
         let rng_seed = match self.seeds.get(&account_id) {
             Some(seed) => *seed,
