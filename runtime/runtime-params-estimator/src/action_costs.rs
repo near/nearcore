@@ -92,6 +92,10 @@ impl ActionEstimation {
     /// Create a new action estimation that can be modified using builder-style
     /// methods and sets the accounts ids such that the signer, sender, and
     /// receiver are all the same account id.
+    /// 
+    /// This constructor is also used for execution estimations because:
+    /// (1) Some actions require sender = receiver to execute without an error.
+    /// (2) It does not matter for execution performance.
     fn new_sir(ctx: &mut EstimatorContext) -> Self {
         Self {
             signer: AccountRequirement::RandomUnused,
@@ -346,7 +350,7 @@ pub(crate) fn function_call_base_send_not_sir(ctx: &mut EstimatorContext) -> Gas
 }
 
 pub(crate) fn function_call_base_exec(ctx: &mut EstimatorContext) -> GasCost {
-    ActionEstimation::new(ctx)
+    ActionEstimation::new_sir(ctx)
         .add_action(function_call_action(ActionSize::Min))
         .apply_cost(&mut ctx.testbed())
 }
@@ -366,7 +370,7 @@ pub(crate) fn function_call_byte_send_not_sir(ctx: &mut EstimatorContext) -> Gas
 }
 
 pub(crate) fn function_call_byte_exec(ctx: &mut EstimatorContext) -> GasCost {
-    ActionEstimation::new(ctx)
+    ActionEstimation::new_sir(ctx)
         .add_action(function_call_action(ActionSize::Max))
         .apply_cost(&mut ctx.testbed())
         / ActionSize::Max.function_call_payload()
@@ -381,7 +385,7 @@ pub(crate) fn transfer_send_not_sir(ctx: &mut EstimatorContext) -> GasCost {
 }
 
 pub(crate) fn transfer_exec(ctx: &mut EstimatorContext) -> GasCost {
-    ActionEstimation::new(ctx).add_action(transfer_action()).apply_cost(&mut ctx.testbed())
+    ActionEstimation::new_sir(ctx).add_action(transfer_action()).apply_cost(&mut ctx.testbed())
 }
 
 pub(crate) fn stake_send_sir(ctx: &mut EstimatorContext) -> GasCost {
@@ -399,7 +403,7 @@ pub(crate) fn stake_send_not_sir(ctx: &mut EstimatorContext) -> GasCost {
 }
 
 pub(crate) fn stake_exec(ctx: &mut EstimatorContext) -> GasCost {
-    ActionEstimation::new(ctx)
+    ActionEstimation::new_sir(ctx)
         .add_action(stake_action())
         .predecessor(AccountRequirement::SameAsSigner)
         .receiver(AccountRequirement::SameAsSigner) // staking must be local
@@ -498,7 +502,7 @@ pub(crate) fn new_action_receipt_send_not_sir(ctx: &mut EstimatorContext) -> Gas
 }
 
 pub(crate) fn new_action_receipt_exec(ctx: &mut EstimatorContext) -> GasCost {
-    ActionEstimation::new(ctx).subtract_base(false).apply_cost(&mut ctx.testbed())
+    ActionEstimation::new_sir(ctx).subtract_base(false).apply_cost(&mut ctx.testbed())
 }
 
 fn create_account_action() -> Action {
