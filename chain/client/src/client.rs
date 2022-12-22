@@ -2217,6 +2217,8 @@ impl Client {
         Ok(())
     }
 
+    /// Execute work for background flat storage creation and possibly update
+    /// creation status.
     pub fn run_flat_storage_creation_step(&mut self) -> Result<(), Error> {
         match &mut self.flat_storage_creator {
             Some(flat_storage_creator) => {
