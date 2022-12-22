@@ -2449,3 +2449,36 @@ mod tests {
             .expect("Compilation result should be non-empty");
     }
 }
+
+/// Interface provided for gas cost estimations.
+pub mod estimator {
+    use super::Runtime;
+    use crate::ApplyStats;
+    use near_primitives::errors::RuntimeError;
+    use near_primitives::receipt::Receipt;
+    use near_primitives::runtime::apply_state::ApplyState;
+    use near_primitives::transaction::ExecutionOutcomeWithId;
+    use near_primitives::types::validator_stake::ValidatorStake;
+    use near_primitives::types::EpochInfoProvider;
+    use near_store::TrieUpdate;
+
+    pub fn apply_action_receipt(
+        state_update: &mut TrieUpdate,
+        apply_state: &ApplyState,
+        receipt: &Receipt,
+        outgoing_receipts: &mut Vec<Receipt>,
+        validator_proposals: &mut Vec<ValidatorStake>,
+        stats: &mut ApplyStats,
+        epoch_info_provider: &dyn EpochInfoProvider,
+    ) -> Result<ExecutionOutcomeWithId, RuntimeError> {
+        Runtime {}.apply_action_receipt(
+            state_update,
+            apply_state,
+            receipt,
+            outgoing_receipts,
+            validator_proposals,
+            stats,
+            epoch_info_provider,
+        )
+    }
+}

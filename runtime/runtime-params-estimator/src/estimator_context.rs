@@ -7,14 +7,15 @@ use near_primitives::receipt::Receipt;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::test_utils::MockEpochInfoProvider;
-use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
+use near_primitives::transaction::{ExecutionOutcome, ExecutionStatus, SignedTransaction};
 use near_primitives::types::{Gas, MerkleHash};
 use near_primitives::version::PROTOCOL_VERSION;
-use near_store::{ShardTries, ShardUId, Store, StoreCompiledContractCache};
+use near_store::{ShardTries, ShardUId, Store, StoreCompiledContractCache, TrieUpdate};
 use near_store::{TrieCache, TrieCachingStorage, TrieConfig};
 use near_vm_logic::{ExtCosts, VMLimitConfig};
 use node_runtime::{ApplyState, Runtime};
 use std::collections::HashMap;
+use std::rc::Rc;
 use std::sync::Arc;
 
 /// Global context shared by all cost calculating functions.
@@ -240,10 +241,11 @@ impl Testbed<'_> {
         transactions: &[SignedTransaction],
         allow_failures: bool,
     ) -> Gas {
+        let trie = self.trie();
         let apply_result = self
             .runtime
             .apply(
-                self.tries.get_trie_for_shard(ShardUId::single_shard(), self.root.clone()),
+                trie,
                 &None,
                 &self.apply_state,
                 &self.prev_receipts,
@@ -284,5 +286,60 @@ impl Testbed<'_> {
             n += 1;
         }
         n
+    }
+
+    /// Process just the verification of a transaction, without action execution.
+    ///
+    /// Use this method for measuring the SEND cost of actions. This is the
+    /// workload done on the sender's shard before an action receipt is created.
+    /// Network costs for sending are not included.
+    pub(crate) fn verify_transaction(
+        &mut self,
+        tx: &SignedTransaction,
+    ) -> Result<node_runtime::VerificationResult, near_primitives::errors::RuntimeError> {
+        let mut state_update = TrieUpdate::new(Rc::new(self.trie()));
+        // gas price and block height can be anything, it doesn't affect performance
+        // but making it too small affects max_depth and thus pessimistic inflation
+        let gas_price = 100_000_000;
+        let block_height = None;
+        // do a full verification
+        let verify_signature = true;
+        node_runtime::verify_and_charge_transaction(
+            &self.apply_state.config,
+            &mut state_update,
+            gas_price,
+            tx,
+            verify_signature,
+            block_height,
+            PROTOCOL_VERSION,
+        )
+    }
+
+    /// Process only the execution step of an action receipt.
+    ///
+    /// Use this method to estimate action exec costs.
+    pub(crate) fn apply_action_receipt(&mut self, receipt: &Receipt) -> ExecutionOutcome {
+        let mut state_update = TrieUpdate::new(Rc::new(self.trie()));
+        let mut outgoing_receipts = vec![];
+        let mut validator_proposals = vec![];
+        let mut stats = node_runtime::ApplyStats::default();
+        // TODO: mock is not accurate, potential DB requests are skipped in the mock!
+        let epoch_info_provider = MockEpochInfoProvider::new([].into_iter());
+        let exec_result = node_runtime::estimator::apply_action_receipt(
+            &mut state_update,
+            &self.apply_state,
+            receipt,
+            &mut outgoing_receipts,
+            &mut validator_proposals,
+            &mut stats,
+            &epoch_info_provider,
+        )
+        .expect("applying receipt in estimator should not fail");
+        exec_result.outcome
+    }
+
+    /// Instantiate a new trie for the estimator.
+    fn trie(&mut self) -> near_store::Trie {
+        self.tries.get_trie_for_shard(ShardUId::single_shard(), self.root.clone())
     }
 }
