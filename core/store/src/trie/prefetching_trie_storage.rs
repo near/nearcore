@@ -602,7 +602,7 @@ mod tests {
         // thread to make progress. Please note that even if `insert_fetched`
         // is executed before `blocking_get`, that still wouldn't result in
         // any flakiness since the test would still pass, it just won't verify
-        // the the synchronization part of `blocking_get`.
+        // the synchronization part of `blocking_get`.
         std::thread::spawn(move || {
             std::thread::yield_now();
             prefetch_staging_area2.insert_fetched(key, value2);
