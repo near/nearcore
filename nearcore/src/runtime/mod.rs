@@ -724,7 +724,20 @@ impl RuntimeAdapter for NightshadeRuntime {
             }
             _ => {}
         }
+        info!(target: "chain", %shard_id, "Flat storage creation status: {status:?}");
         status
+    }
+
+    fn remove_flat_storage_state_for_shard(
+        &self,
+        shard_id: ShardId,
+        epoch_id: &EpochId,
+    ) -> Result<(), Error> {
+        let shard_layout = self.get_shard_layout(epoch_id)?;
+        self.flat_state_factory
+            .remove_flat_storage_state_for_shard(shard_id, shard_layout)
+            .map_err(|e| Error::StorageError(e))?;
+        Ok(())
     }
 
     fn set_flat_storage_state_for_genesis(
@@ -1339,12 +1352,14 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> Result<(), Error> {
         let part = BorshDeserialize::try_from_slice(data)
             .expect("Part was already validated earlier, so could never fail here");
-        let ApplyStatePartResult { trie_changes, contract_codes } =
+        let ApplyStatePartResult { trie_changes, flat_state_delta, contract_codes } =
             Trie::apply_state_part(state_root, part_id, part);
         let tries = self.get_tries();
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, epoch_id)?;
         let mut store_update = tries.store_update();
         tries.apply_all(&trie_changes, shard_uid, &mut store_update);
+        debug!(target: "chain", %shard_id, "Inserting {} values to flat storage", flat_state_delta.len());
+        flat_state_delta.apply_to_flat_state(&mut store_update);
         self.precompile_contracts(epoch_id, contract_codes)?;
         Ok(store_update.commit()?)
     }
