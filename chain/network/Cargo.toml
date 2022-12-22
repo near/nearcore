@@ -25,7 +25,6 @@ futures.workspace = true
 im.workspace = true
 itertools.workspace = true
 lru.workspace = true
-near-rust-allocator-proxy = { workspace = true, optional = true }
 once_cell.workspace = true
 opentelemetry.workspace = true
 parking_lot.workspace = true
@@ -62,6 +61,5 @@ rlimit.workspace = true
 delay_detector = ["delay-detector/delay_detector"]
 performance_stats = [
     "near-performance-metrics/performance_stats",
-    "near-rust-allocator-proxy",
 ]
 test_features = []

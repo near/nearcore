@@ -3261,7 +3261,6 @@ dependencies = [
  "near-performance-metrics",
  "near-performance-metrics-macros",
  "near-primitives",
- "near-rust-allocator-proxy",
  "near-stable-hasher",
  "near-store",
  "once_cell",
@@ -3323,7 +3322,6 @@ dependencies = [
  "bytesize",
  "futures",
  "libc",
- "near-rust-allocator-proxy",
  "once_cell",
  "strum",
  "tokio",
@@ -3472,17 +3470,6 @@ dependencies = [
  "serde",
  "serde_json",
  "syn",
-]
-
-[[package]]
-name = "near-rust-allocator-proxy"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "be44da452581a4f2e7870d86886f50605853943ded9b6a7975495914645cdca4"
-dependencies = [
- "backtrace",
- "nix",
- "tracing",
 ]
 
 [[package]]
@@ -3706,7 +3693,6 @@ dependencies = [
  "near-pool",
  "near-primitives",
  "near-rosetta-rpc",
- "near-rust-allocator-proxy",
  "near-store",
  "near-telemetry",
  "near-vm-runner",
@@ -3750,7 +3736,6 @@ dependencies = [
  "near-performance-metrics",
  "near-ping",
  "near-primitives",
- "near-rust-allocator-proxy",
  "near-state-parts",
  "near-store",
  "nearcore",
