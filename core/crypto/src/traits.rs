@@ -14,15 +14,15 @@ macro_rules! common_conversions {
             }
         }
 
-        impl Into<String> for $ty {
-            fn into(self) -> String {
-                bs58::encode(self).into_string()
+        impl From<$ty> for String {
+            fn from(v: $ty) -> String {
+                bs58::encode(v).into_string()
             }
         }
 
-        impl Into<String> for &$ty {
-            fn into(self) -> String {
-                bs58::encode(self).into_string()
+        impl From<&$ty> for String {
+            fn from(v: &$ty) -> String {
+                bs58::encode(v).into_string()
             }
         }
 
@@ -74,15 +74,15 @@ macro_rules! common_conversions_fixed {
             }
         }
 
-        impl Into<[u8; $l]> for $ty {
-            fn into(self) -> [u8; $l] {
-                *self.as_ref()
+        impl From<$ty> for [u8; $l] {
+            fn from(v: $ty) -> [u8; $l] {
+                *v.as_ref()
             }
         }
 
-        impl Into<[u8; $l]> for &$ty {
-            fn into(self) -> [u8; $l] {
-                *self.as_ref()
+        impl From<&$ty> for [u8; $l] {
+            fn from(v: &$ty) -> [u8; $l] {
+                *v.as_ref()
             }
         }
 

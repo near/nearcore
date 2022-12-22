@@ -192,7 +192,7 @@ impl Client {
             &chain_genesis,
             doomslug_threshold_mode,
             ChainConfig {
-                save_trie_changes: !config.archive,
+                save_trie_changes: config.save_trie_changes,
                 background_migration_threads: config.client_background_migration_threads,
             },
         )?;
