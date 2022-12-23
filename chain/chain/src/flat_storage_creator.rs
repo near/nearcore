@@ -40,10 +40,15 @@ use tracing::info;
 
 /// Metrics reporting about flat storage creation progress on each status update.
 struct FlatStorageCreationMetrics {
+    #[allow(unused)]
     flat_head_height: GenericGauge<prometheus::core::AtomicI64>,
+    #[allow(unused)]
     remaining_state_parts: GenericGauge<prometheus::core::AtomicI64>,
+    #[allow(unused)]
     fetched_state_parts: GenericCounter<prometheus::core::AtomicU64>,
+    #[allow(unused)]
     fetched_state_items: GenericCounter<prometheus::core::AtomicU64>,
+    #[allow(unused)]
     threads_used: GenericGauge<prometheus::core::AtomicI64>,
 }
 
