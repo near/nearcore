@@ -1098,7 +1098,15 @@ pub fn setup_client_with_runtime(
 ) -> Client {
     let validator_signer =
         account_id.map(|x| Arc::new(create_test_signer(x.as_str())) as Arc<dyn ValidatorSigner>);
-    let mut config = StaticClientConfig::test(true, 10, 20, num_validator_seats, false, true, true);
+    let mut config = StaticClientConfig::test(
+        true,
+        10,
+        20,
+        num_validator_seats,
+        archive,
+        save_trie_changes,
+        true,
+    );
     config.epoch_length = chain_genesis.epoch_length;
     let config = ClientConfig::new(config);
     let mut client = Client::new(

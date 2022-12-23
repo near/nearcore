@@ -278,7 +278,6 @@ impl StaticClientConfig {
         save_trie_changes: bool,
         epoch_sync_enabled: bool,
     ) -> Self {
-        Self {
         assert!(
             archive || save_trie_changes,
             "Configuration with archive = false and save_trie_changes = false is not supported \

@@ -7,6 +7,7 @@ use actix_web;
 use anyhow::Context;
 use near_chain::{Chain, ChainGenesis};
 use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
+use near_dyn_configs::UpdateableConfigs;
 use near_network::time;
 use near_network::types::NetworkRecipient;
 use near_network::PeerManagerActor;
@@ -15,12 +16,14 @@ use near_store::{DBCol, Mode, NodeStorage, StoreOpenerError, Temperature};
 use near_telemetry::TelemetryActor;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tokio::sync::mpsc;
+use tokio::sync::broadcast;
+use tokio::sync::broadcast::Receiver;
 use tracing::{info, trace};
 
 pub mod append_only_map;
 pub mod config;
 mod download_file;
+pub mod dyn_config;
 mod metrics;
 pub mod migrations;
 mod runtime;
@@ -153,7 +156,7 @@ pub struct NearNode {
 }
 
 pub fn start_with_config(home_dir: &Path, config: NearConfig) -> anyhow::Result<NearNode> {
-    start_with_config_and_synchronization(home_dir, config, None)
+    start_with_config_and_synchronization(home_dir, config, None, None)
 }
 
 pub fn start_with_config_and_synchronization(
@@ -161,14 +164,14 @@ pub fn start_with_config_and_synchronization(
     mut config: NearConfig,
     // 'shutdown_signal' will notify the corresponding `oneshot::Receiver` when an instance of
     // `ClientActor` gets dropped.
-    shutdown_signal: Option<mpsc::Sender<()>>,
+    shutdown_signal: Option<broadcast::Sender<()>>,
+    rx_config_update: Option<Receiver<UpdateableConfigs>>,
 ) -> anyhow::Result<NearNode> {
-    let config_snapshot = config.clone();
-    let storage = open_storage(home_dir, &mut config)?;
+    let store = open_storage(home_dir, &mut config)?;
 
     let runtime = Arc::new(NightshadeRuntime::from_config(
         home_dir,
-        storage.get_store(Temperature::Hot),
+        store.get_store(Temperature::Hot),
         &config,
     ));
 
@@ -195,21 +198,21 @@ pub fn start_with_config_and_synchronization(
     let (client_actor, client_arbiter_handle) = start_client(
         config.client_config,
         chain_genesis,
-        runtime.clone(),
+        runtime,
         node_id,
         network_adapter.clone(),
         config.validator_signer,
         telemetry,
         shutdown_signal.clone(),
         adv,
+        rx_config_update,
     );
-    let storage = storage.into_inner(near_store::Temperature::Hot);
 
     #[allow(unused_mut)]
     let mut rpc_servers = Vec::new();
     let network_actor = PeerManagerActor::spawn(
         time::Clock::real(),
-        storage.clone(),
+        store.into_inner(near_store::Temperature::Hot),
         config.network_config,
         Arc::new(near_client::adapter::Adapter::new(client_actor.clone(), view_client.clone())),
         genesis_id,
