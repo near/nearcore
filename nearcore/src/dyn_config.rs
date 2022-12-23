@@ -1,6 +1,6 @@
 use crate::config::Config;
-use near_chain_configs::Consensus;
-use near_dyn_configs::{DynConfig, UpdateableConfigs};
+use near_chain_configs::UpdateableClientConfig;
+use near_dyn_configs::UpdateableConfigs;
 use near_o11y::log_config::LogConfig;
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
@@ -29,42 +29,38 @@ pub fn read_updateable_configs(home_dir: &Path) -> Result<UpdateableConfigs, Dyn
             None
         }
     };
-    let dyn_config = match read_dyn_config(home_dir) {
-        Ok(config) => config,
-        Err(err) => {
-            errs.push(err);
-            None
-        }
-    };
-    let consensus = match Config::from_file(&home_dir.join(crate::config::CONFIG_FILENAME))
-        .map(get_consensus)
-    {
-        Ok(config) => Some(config),
-        Err(err) => {
-            errs.push(DynConfigsError::ConfigFileError {
-                file: PathBuf::from(crate::config::CONFIG_FILENAME),
-                err,
-            });
-            None
-        }
-    };
+    let updateable_client_config =
+        match Config::from_file(&home_dir.join(crate::config::CONFIG_FILENAME))
+            .map(get_updateable_client_config)
+        {
+            Ok(config) => Some(config),
+            Err(err) => {
+                errs.push(DynConfigsError::ConfigFileError {
+                    file: PathBuf::from(crate::config::CONFIG_FILENAME),
+                    err,
+                });
+                None
+            }
+        };
     if errs.is_empty() {
-        Ok(UpdateableConfigs { log_config, dyn_config, consensus })
+        Ok(UpdateableConfigs { log_config, client_config: updateable_client_config })
     } else {
         Err(DynConfigsError::Errors(errs))
     }
 }
 
-fn get_consensus(config: Config) -> Consensus {
-    config.consensus
+pub fn get_updateable_client_config(config: Config) -> UpdateableClientConfig {
+    UpdateableClientConfig {
+        expected_shutdown: config.expected_shutdown,
+        max_block_wait_delay: config.consensus.max_block_wait_delay,
+        max_block_production_delay: config.consensus.max_block_production_delay,
+        min_block_production_delay: config.consensus.min_block_production_delay,
+        block_production_tracking_delay: config.consensus.block_production_tracking_delay,
+    }
 }
 
 fn read_log_config(home_dir: &Path) -> Result<Option<LogConfig>, DynConfigsError> {
     read_json_config::<LogConfig>(&home_dir.join("log_config.json"))
-}
-
-fn read_dyn_config(home_dir: &Path) -> Result<Option<DynConfig>, DynConfigsError> {
-    read_json_config::<DynConfig>(&home_dir.join("dyn_config.json"))
 }
 
 fn read_json_config<T: std::fmt::Debug>(path: &Path) -> Result<Option<T>, DynConfigsError>

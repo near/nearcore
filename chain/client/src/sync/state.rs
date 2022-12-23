@@ -97,12 +97,6 @@ fn make_account_or_peer_id_or_hash(
     }
 }
 
-#[derive(Debug, thiserror::Error)]
-pub enum StateSyncConfigError {
-    #[error("TimeDuration conversion error: {0}")]
-    DurationConversion(String),
-}
-
 /// Helper to track state sync.
 pub struct StateSync {
     network_adapter: Arc<dyn PeerManagerAdapter>,
@@ -135,17 +129,6 @@ impl StateSync {
             state_parts_apply_results: HashMap::new(),
             split_state_roots: HashMap::new(),
         }
-    }
-
-    pub(crate) fn update_config(
-        &mut self,
-        timeout: TimeDuration,
-    ) -> Result<(), StateSyncConfigError> {
-        let timeout = Duration::from_std(timeout).map_err(|err| {
-            StateSyncConfigError::DurationConversion(format!("Invalid timeout: {:?}", err))
-        })?;
-        self.timeout = timeout;
-        Ok(())
     }
 
     fn sync_block_status(

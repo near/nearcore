@@ -24,7 +24,7 @@ use near_chain::types::ChainConfig;
 use near_chain::{
     Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Provenance, RuntimeAdapter,
 };
-use near_chain_configs::ClientConfig;
+use near_chain_configs::{ClientConfig, StaticClientConfig};
 use near_chunks::client::{ClientAdapterForShardsManager, ShardsManagerResponse};
 use near_chunks::test_utils::MockClientAdapterForShardsManager;
 use near_client_primitives::types::Error;
@@ -230,7 +230,7 @@ pub fn setup(
 
     let signer = Arc::new(create_test_signer(account_id.as_str()));
     let telemetry = TelemetryActor::default().start();
-    let config = ClientConfig::test(
+    let config = ClientConfig::new(StaticClientConfig::test(
         skip_sync_wait,
         min_block_prod_time,
         max_block_prod_time,
@@ -238,7 +238,7 @@ pub fn setup(
         archive,
         true,
         epoch_sync_enabled,
-    );
+    ));
 
     let adv = crate::adversarial::Controls::default();
 
@@ -265,7 +265,6 @@ pub fn setup(
         ctx,
         None,
         adv,
-        None,
         None,
     )
     .unwrap();
@@ -318,7 +317,7 @@ pub fn setup_only_view(
 
     let signer = Arc::new(create_test_signer(account_id.as_str()));
     TelemetryActor::default().start();
-    let config = ClientConfig::test(
+    let config = ClientConfig::new(StaticClientConfig::test(
         skip_sync_wait,
         min_block_prod_time,
         max_block_prod_time,
@@ -326,7 +325,7 @@ pub fn setup_only_view(
         archive,
         true,
         epoch_sync_enabled,
-    );
+    ));
 
     let adv = crate::adversarial::Controls::default();
 
@@ -1099,9 +1098,9 @@ pub fn setup_client_with_runtime(
 ) -> Client {
     let validator_signer =
         account_id.map(|x| Arc::new(create_test_signer(x.as_str())) as Arc<dyn ValidatorSigner>);
-    let mut config =
-        ClientConfig::test(true, 10, 20, num_validator_seats, archive, save_trie_changes, true);
+    let mut config = StaticClientConfig::test(true, 10, 20, num_validator_seats, false, true, true);
     config.epoch_length = chain_genesis.epoch_length;
+    let config = ClientConfig::new(config);
     let mut client = Client::new(
         config,
         chain_genesis,

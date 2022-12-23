@@ -96,7 +96,7 @@ impl Network {
             block_headers: WeakMap::new(),
             chunks: WeakMap::new(),
 
-            min_peers: config.client_config.consensus.min_num_peers,
+            min_peers: config.client_config.min_num_peers,
             parts_per_chunk: config.genesis.config.num_block_producer_seats,
             rate_limiter: RateLimiter::new(
                 tokio::time::Duration::from_secs(1) / qps_limit,

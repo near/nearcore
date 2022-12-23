@@ -1,64 +1,64 @@
 #![doc = include_str!("../README.md")]
 
-use near_chain_configs::Consensus;
+use near_chain_configs::{ClientConfig, UpdateableClientConfig};
 use near_o11y::log_config::LogConfig;
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast::Sender;
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct DynConfig {
-    /// Graceful shutdown at expected blockheight.
-    pub expected_shutdown: Option<u64>,
-}
-
 #[derive(Serialize, Deserialize, Clone, Default)]
 /// Contains the latest state of configs which can be updated at runtime.
 pub struct UpdateableConfigs {
-    /// Contents of the file `dyn_config.json`.
-    pub dyn_config: Option<DynConfig>,
     /// Contents of the file `log_config.json`.
     pub log_config: Option<LogConfig>,
-    /// Contents of the `consensus` section of the file `config.json`.
-    pub consensus: Option<Consensus>,
+    /// Contents of the `config.json` corresponding to the mutable fields of `ClientConfig`.
+    pub client_config: Option<UpdateableClientConfig>,
 }
 
 #[derive(Default)]
 pub struct DynConfigStore {
-    dyn_configs: UpdateableConfigs,
-    original_consensus: Consensus,
+    updateable_configs: UpdateableConfigs,
+    original_updateable_client_config: UpdateableClientConfig,
     tx: Option<Sender<UpdateableConfigs>>,
 }
 
 impl DynConfigStore {
-    pub fn reload(&mut self, mut dyn_configs: UpdateableConfigs) {
-        if dyn_configs.consensus.is_none() {
-            dyn_configs.consensus = Some(self.original_consensus.clone());
+    pub fn reload(&mut self, mut updateable_configs: UpdateableConfigs) {
+        if updateable_configs.client_config.is_none() {
+            updateable_configs.client_config = Some(self.original_updateable_client_config.clone());
         }
-        self.tx.as_ref().map(|tx| tx.send(dyn_configs.clone()));
-        self.dyn_configs = dyn_configs;
+        self.tx.as_ref().map(|tx| tx.send(updateable_configs.clone()));
+        self.updateable_configs = updateable_configs;
     }
 
     pub fn new(
-        dyn_configs: UpdateableConfigs,
-        original_consensus: Consensus,
+        updateable_configs: UpdateableConfigs,
+        original_client_config: ClientConfig,
         tx: Sender<UpdateableConfigs>,
     ) -> Self {
-        Self { dyn_configs, original_consensus, tx: Some(tx) }
-    }
-
-    pub fn dyn_config(&self) -> Option<&DynConfig> {
-        self.dyn_configs.dyn_config.as_ref()
+        Self {
+            updateable_configs,
+            original_updateable_client_config: UpdateableClientConfig {
+                expected_shutdown: original_client_config.expected_shutdown.get(),
+                block_production_tracking_delay: original_client_config
+                    .block_production_tracking_delay
+                    .get(),
+                min_block_production_delay: original_client_config.min_block_production_delay.get(),
+                max_block_production_delay: original_client_config.max_block_production_delay.get(),
+                max_block_wait_delay: original_client_config.max_block_wait_delay.get(),
+            },
+            tx: Some(tx),
+        }
     }
 
     pub fn log_config(&self) -> Option<&LogConfig> {
-        self.dyn_configs.log_config.as_ref()
+        self.updateable_configs.log_config.as_ref()
     }
 
-    pub fn consensus(&self) -> &Consensus {
-        if let Some(consensus) = self.dyn_configs.consensus.as_ref() {
-            consensus
+    pub fn updateable_client_config(&self) -> &UpdateableClientConfig {
+        if let Some(client_config) = self.updateable_configs.client_config.as_ref() {
+            client_config
         } else {
-            &self.original_consensus
+            &self.original_updateable_client_config
         }
     }
 }

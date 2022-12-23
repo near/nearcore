@@ -27,12 +27,6 @@ pub const MAX_BLOCK_HEADER_HASHES: usize = 20;
 
 pub const NS_PER_SECOND: u128 = 1_000_000_000;
 
-#[derive(Debug, thiserror::Error)]
-pub enum HeaderSyncConfigError {
-    #[error("TimeDuration conversion error: {0}")]
-    DurationConversion(String),
-}
-
 /// Helper to keep track of sync headers.
 /// Handles major re-orgs by finding closest header that matches and re-downloading headers from that point.
 pub struct HeaderSync {
@@ -65,37 +59,6 @@ impl HeaderSync {
             stall_ban_timeout: Duration::from_std(stall_ban_timeout).unwrap(),
             expected_height_per_second,
         }
-    }
-
-    pub(crate) fn update_config(
-        &mut self,
-        initial_timeout: TimeDuration,
-        progress_timeout: TimeDuration,
-        stall_ban_timeout: TimeDuration,
-        expected_height_per_second: u64,
-    ) -> Result<(), HeaderSyncConfigError> {
-        let initial_timeout = Duration::from_std(initial_timeout).map_err(|err| {
-            HeaderSyncConfigError::DurationConversion(format!("Invalid initial_timeout: {:?}", err))
-        })?;
-        let progress_timeout = Duration::from_std(progress_timeout).map_err(|err| {
-            HeaderSyncConfigError::DurationConversion(format!(
-                "Invalid progress_timeout: {:?}",
-                err
-            ))
-        })?;
-        let stall_ban_timeout = Duration::from_std(stall_ban_timeout).map_err(|err| {
-            HeaderSyncConfigError::DurationConversion(format!(
-                "Invalid stall_ban_timeout: {:?}",
-                err
-            ))
-        })?;
-
-        self.initial_timeout = initial_timeout;
-        self.progress_timeout = progress_timeout;
-        self.stall_ban_timeout = stall_ban_timeout;
-        self.expected_height_per_second = expected_height_per_second;
-
-        Ok(())
     }
 
     pub fn run(

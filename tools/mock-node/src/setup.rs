@@ -235,7 +235,7 @@ pub fn setup_mock_node(
         }
     }
 
-    let block_production_delay = config.client_config.consensus.min_block_production_delay;
+    let block_production_delay = config.client_config.min_block_production_delay.get();
     let (client, _) = start_client(
         config.client_config.clone(),
         chain_genesis.clone(),
@@ -246,7 +246,6 @@ pub fn setup_mock_node(
         telemetry,
         None,
         adv.clone(),
-        None,
         None,
     );
 
@@ -340,7 +339,7 @@ mod tests {
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.epoch_length = 10;
         let mut near_config = load_test_config("test0", open_port(), genesis.clone());
-        near_config.client_config.consensus.min_num_peers = 0;
+        near_config.client_config.min_num_peers = 0;
 
         let dir = tempfile::Builder::new().prefix("test0").tempdir().unwrap();
         let path1 = dir.path().clone();
@@ -420,7 +419,7 @@ mod tests {
         // start the client at height 10 (end of the first epoch)
         let dir1 = tempfile::Builder::new().prefix("test1").tempdir().unwrap();
         let mut near_config1 = load_test_config("", open_port(), genesis);
-        near_config1.client_config.consensus.min_num_peers = 1;
+        near_config1.client_config.min_num_peers = 1;
         near_config1.client_config.tracked_shards =
             (0..near_config1.genesis.config.shard_layout.num_shards()).collect();
         let network_config = MockNetworkConfig::with_delay(Duration::from_millis(10));

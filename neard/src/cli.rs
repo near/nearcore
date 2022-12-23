@@ -21,7 +21,6 @@ use near_state_parts::cli::StatePartsCommand;
 use near_state_viewer::StateViewerSubCommand;
 use near_store::db::RocksDB;
 use near_store::Mode;
-use near_store::Temperature;
 use serde_json::Value;
 use std::fs::File;
 use std::io::BufReader;
@@ -392,7 +391,7 @@ impl RunCmd {
     ) {
         set_default_otlp_level(o11y_opts);
         // Load configs from home.
-        let mut near_config = nearcore::config::load_config(&home_dir, genesis_validation.clone())
+        let mut near_config = nearcore::config::load_config(&home_dir, genesis_validation)
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
 
         check_release_build(&near_config.client_config.chain_id);
@@ -401,7 +400,7 @@ impl RunCmd {
         near_config.client_config.version = crate::neard_version();
         // Override some parameters from command line.
         if let Some(produce_empty_blocks) = self.produce_empty_blocks {
-            near_config.client_config.consensus.produce_empty_blocks = produce_empty_blocks;
+            near_config.client_config.produce_empty_blocks = produce_empty_blocks;
         }
         if let Some(boot_nodes) = self.boot_nodes {
             if !boot_nodes.is_empty() {
@@ -412,7 +411,7 @@ impl RunCmd {
             }
         }
         if let Some(min_peers) = self.min_peers {
-            near_config.client_config.consensus.min_num_peers = min_peers;
+            near_config.client_config.min_num_peers = min_peers;
         }
         if let Some(network_addr) = self.network_addr {
             near_config.network_config.node_addr = Some(network_addr);
@@ -455,21 +454,10 @@ impl RunCmd {
         }
 
         let (tx_crash, mut rx_crash) = broadcast::channel::<()>(16);
-        let (tx_dyn_configs, rx_dyn_configs) = broadcast::channel::<UpdateableConfigs>(16);
-        let storage =
-            nearcore::open_storage(home_dir, &mut near_config).expect("storage can not access");
-        let store = storage.get_store(Temperature::Hot);
-
-        let nearcore::config::NearConfig { validator_signer, .. } =
-            nearcore::config::load_config(&home_dir, genesis_validation.clone())
-                .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
-        near_config.validator_signer = validator_signer;
-
+        let (tx_config_update, rx_config_update) = broadcast::channel::<UpdateableConfigs>(16);
         let sys = actix::System::new();
-        let s = store.clone();
-        let config = near_config.clone();
 
-        let _ = sys.block_on(async move {
+        sys.block_on(async move {
             // Initialize the subscriber that takes care of both logging and tracing.
             let _subscriber_guard = default_subscriber_with_opentelemetry(
                 make_env_filter(verbose_target).unwrap(),
@@ -489,18 +477,16 @@ impl RunCmd {
                 .unwrap_or_else(|e| panic!("Error reading dynamic configs: {:#}", e));
             let mut dyn_configs_store = DynConfigStore::new(
                 updateable_configs.clone(),
-                near_config.client_config.consensus.clone(),
-                tx_dyn_configs,
+                near_config.client_config.clone(),
+                tx_config_update,
             );
 
             let nearcore::NearNode { rpc_servers, .. } =
                 nearcore::start_with_config_and_synchronization(
                     home_dir,
-                    config,
+                    near_config,
                     Some(tx_crash),
-                    s,
-                    updateable_configs.dyn_config,
-                    Some(rx_dyn_configs),
+                    Some(rx_config_update),
                 )
                 .expect("start_with_config");
 
@@ -526,9 +512,11 @@ impl RunCmd {
             }))
             .await;
             actix::System::current().stop();
+            // Disable the subscriber to properly shutdown the tracer.
             near_o11y::reload(Some("error"), None, Some(near_o11y::OpenTelemetryLevel::OFF))
                 .unwrap();
         });
+        sys.run().unwrap();
         info!(target: "neard", "Waiting for RocksDB to gracefully shutdown");
         RocksDB::block_until_all_instances_are_dropped();
     }

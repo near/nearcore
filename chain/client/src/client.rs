@@ -25,7 +25,7 @@ use near_chain::{
     BlockProcessingArtifact, BlockStatus, Chain, ChainGenesis, ChainStoreAccess,
     DoneApplyChunkCallback, Doomslug, DoomslugThresholdMode, Provenance, RuntimeAdapter,
 };
-use near_chain_configs::ClientConfig;
+use near_chain_configs::{ClientConfig, UpdateableClientConfig};
 use near_chunks::ShardsManager;
 use near_network::types::{
     HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter, ReasonForBan,
@@ -51,8 +51,8 @@ use crate::debug::BlockProductionTracker;
 use crate::debug::PRODUCTION_TIMES_CACHE_SIZE;
 use crate::sync::block::BlockSync;
 use crate::sync::epoch::EpochSync;
-use crate::sync::header::{HeaderSync, HeaderSyncConfigError};
-use crate::sync::state::{StateSync, StateSyncConfigError, StateSyncResult};
+use crate::sync::header::HeaderSync;
+use crate::sync::state::{StateSync, StateSyncResult};
 use crate::{metrics, SyncStatus};
 use near_client_primitives::types::{Error, ShardSyncDownload, ShardSyncStatus};
 use near_network::types::{AccountKeys, ChainInfo, PeerManagerMessageRequest, SetChainInfo};
@@ -147,6 +147,22 @@ pub struct Client {
     tier1_accounts_cache: Option<(EpochId, Arc<AccountKeys>)>,
 }
 
+impl Client {
+    pub(crate) fn update_client_config(&self, update_client_config: UpdateableClientConfig) {
+        self.config.expected_shutdown.update(update_client_config.expected_shutdown);
+        self.config
+            .block_production_tracking_delay
+            .update(update_client_config.block_production_tracking_delay);
+        self.config
+            .min_block_production_delay
+            .update(update_client_config.min_block_production_delay);
+        self.config
+            .max_block_production_delay
+            .update(update_client_config.max_block_production_delay);
+        self.config.max_block_wait_delay.update(update_client_config.max_block_wait_delay);
+    }
+}
+
 // Debug information about the upcoming block.
 #[derive(Default)]
 pub struct BlockDebugStatus {
@@ -169,14 +185,6 @@ pub struct BlockDebugStatus {
     pub chunks_received: HashSet<ChunkHash>,
     // Chunks completed - fully rebuild and present in database.
     pub chunks_completed: HashSet<ChunkHash>,
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum UpdateSyncConfigError {
-    #[error("HeaderSync config is invalid")]
-    HeaderSync(#[from] HeaderSyncConfigError),
-    #[error("StateSync config is invalid")]
-    StateSync(#[from] StateSyncConfigError),
 }
 
 impl Client {
@@ -233,28 +241,24 @@ impl Client {
         );
         let header_sync = HeaderSync::new(
             network_adapter.clone(),
-            config.consensus.header_sync_initial_timeout,
-            config.consensus.header_sync_progress_timeout,
-            config.consensus.header_sync_stall_ban_timeout,
-            config.consensus.header_sync_expected_height_per_second,
+            config.header_sync_initial_timeout,
+            config.header_sync_progress_timeout,
+            config.header_sync_stall_ban_timeout,
+            config.header_sync_expected_height_per_second,
         );
-        let block_sync = BlockSync::new(
-            network_adapter.clone(),
-            config.consensus.block_fetch_horizon,
-            config.archive,
-        );
-        let state_sync =
-            StateSync::new(network_adapter.clone(), config.consensus.state_sync_timeout);
+        let block_sync =
+            BlockSync::new(network_adapter.clone(), config.block_fetch_horizon, config.archive);
+        let state_sync = StateSync::new(network_adapter.clone(), config.state_sync_timeout);
         let num_block_producer_seats = config.num_block_producer_seats as usize;
         let data_parts = runtime_adapter.num_data_parts();
         let parity_parts = runtime_adapter.num_total_parts() - data_parts;
 
         let doomslug = Doomslug::new(
             chain.store().largest_target_height()?,
-            config.consensus.min_block_production_delay,
-            config.consensus.max_block_production_delay,
-            config.consensus.max_block_production_delay / 10,
-            config.consensus.max_block_wait_delay,
+            config.min_block_production_delay.get(),
+            config.max_block_production_delay.get(),
+            config.max_block_production_delay.get() / 10,
+            config.max_block_wait_delay.get(),
             validator_signer.clone(),
             doomslug_threshold_mode,
         );
@@ -553,7 +557,7 @@ impl Client {
                next_height, prev.height(), format_hash(head.last_block_hash), new_chunks.len());
 
         // If we are producing empty blocks and there are no transactions.
-        if !self.config.consensus.produce_empty_blocks && new_chunks.is_empty() {
+        if !self.config.produce_empty_blocks && new_chunks.is_empty() {
             debug!(target: "client", "Empty blocks, skipping block production");
             return Ok(None);
         }
@@ -1351,8 +1355,8 @@ impl Client {
     /// Gets the advanced timestamp delta in nanoseconds for sandbox once it has been fast-forwarded
     #[cfg(feature = "sandbox")]
     pub fn sandbox_delta_time(&self) -> chrono::Duration {
-        let avg_block_prod_time = (self.config.consensus.min_block_production_delay.as_nanos()
-            + self.config.consensus.max_block_production_delay.as_nanos())
+        let avg_block_prod_time = (self.config.min_block_production_delay.as_nanos()
+            + self.config.max_block_production_delay.as_nanos())
             / 2;
         let ns = (self.accrued_fastforward_delta as u128 * avg_block_prod_time).try_into().expect(
             &format!(
@@ -2129,11 +2133,12 @@ impl Client {
                     HashMap::new()
                 }
             };
+            let state_sync_timeout = self.config.state_sync_timeout;
             let epoch_id = self.chain.get_block(&sync_hash)?.header().epoch_id().clone();
             let (state_sync, new_shard_sync, blocks_catch_up_state) =
                 self.catchup_state_syncs.entry(sync_hash).or_insert_with(|| {
                     (
-                        StateSync::new(network_adapter1, self.config.consensus.state_sync_timeout),
+                        StateSync::new(network_adapter1, state_sync_timeout),
                         new_shard_sync,
                         BlocksCatchUpState::new(sync_hash, epoch_id),
                     )
@@ -2213,22 +2218,6 @@ impl Client {
         //            }
         //            self.challenges.insert(challenge.hash, challenge);
         //        }
-        Ok(())
-    }
-
-    pub(crate) fn update_sync_config(&mut self) -> Result<(), UpdateSyncConfigError> {
-        self.header_sync
-            .update_config(
-                self.config.consensus.header_sync_initial_timeout,
-                self.config.consensus.header_sync_progress_timeout,
-                self.config.consensus.header_sync_stall_ban_timeout,
-                self.config.consensus.header_sync_expected_height_per_second,
-            )
-            .map_err(UpdateSyncConfigError::HeaderSync)?;
-        self.block_sync.update_config(self.config.consensus.block_fetch_horizon);
-        self.state_sync
-            .update_config(self.config.consensus.state_sync_timeout)
-            .map_err(UpdateSyncConfigError::StateSync)?;
         Ok(())
     }
 }

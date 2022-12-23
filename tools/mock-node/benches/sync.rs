@@ -92,7 +92,7 @@ fn do_bench(c: &mut Criterion, home_archive: &str, target_height: Option<BlockHe
             let mut near_config = nearcore::config::load_config(home.as_path(), GenesisValidationMode::Full)
                 .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
             near_config.validator_signer = None;
-            near_config.client_config.consensus.min_num_peers = 1;
+            near_config.client_config.min_num_peers = 1;
             let signer = InMemorySigner::from_random("mock_node".parse().unwrap(), KeyType::ED25519);
             near_config.network_config.node_key = signer.secret_key;
             near_config.client_config.tracked_shards =
