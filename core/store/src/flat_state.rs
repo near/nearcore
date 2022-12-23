@@ -506,6 +506,7 @@ struct FlatStorageMetrics {
     cached_blocks: GenericGauge<prometheus::core::AtomicI64>,
     cached_deltas_num_items: GenericGauge<prometheus::core::AtomicI64>,
     cached_deltas_size: GenericGauge<prometheus::core::AtomicI64>,
+    #[allow(unused)]
     distance_to_head: GenericGauge<prometheus::core::AtomicI64>,
 }
 
