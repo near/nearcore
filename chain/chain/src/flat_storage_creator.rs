@@ -325,6 +325,7 @@ impl FlatStorageShardCreator {
                         } else {
                             // If all parts were fetched, we can start catchup.
                             info!(target: "chain", %shard_id, %block_hash, "Finished fetching state");
+                            self.metrics.remaining_state_parts.set(0);
                             store_helper::remove_fetching_state_status(&mut store_update, shard_id);
                             store_helper::start_catchup(&mut store_update, shard_id);
                         }
