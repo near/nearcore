@@ -807,6 +807,7 @@ impl FlatStorageStateInner {
 
             block_hash = block_info.prev_hash;
         }
+        self.metrics.distance_to_head.set(deltas.len() as i64);
 
         Ok(deltas)
     }
@@ -943,6 +944,7 @@ impl FlatStorageState {
         for hash in hashes_to_remove {
             // Note that we have to remove delta for new head but we still need to keep block info, e.g. for knowing
             // height of the head.
+            // TODO (#7327): should we throw an error if delta/block is not present as we expect?
             match guard.deltas.remove(&hash) {
                 Some(delta) => {
                     guard.metrics.cached_deltas_num_items.sub(delta.len() as i64);
