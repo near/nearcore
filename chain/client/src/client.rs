@@ -1355,8 +1355,8 @@ impl Client {
     /// Gets the advanced timestamp delta in nanoseconds for sandbox once it has been fast-forwarded
     #[cfg(feature = "sandbox")]
     pub fn sandbox_delta_time(&self) -> chrono::Duration {
-        let avg_block_prod_time = (self.config.min_block_production_delay.as_nanos()
-            + self.config.max_block_production_delay.as_nanos())
+        let avg_block_prod_time = (self.config.min_block_production_delay.get().as_nanos()
+            + self.config.max_block_production_delay.get().as_nanos())
             / 2;
         let ns = (self.accrued_fastforward_delta as u128 * avg_block_prod_time).try_into().expect(
             &format!(
