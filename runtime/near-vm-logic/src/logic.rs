@@ -197,6 +197,16 @@ impl<'a> VMLogic<'a> {
         &self.config
     }
 
+    #[cfg(test)]
+    pub(crate) fn memory(&mut self) -> &mut crate::vmstate::Memory<'a> {
+        &mut self.memory
+    }
+
+    #[cfg(test)]
+    pub(crate) fn registers(&mut self) -> &mut crate::vmstate::Registers {
+        &mut self.registers
+    }
+
     // #################
     // # Registers API #
     // #################

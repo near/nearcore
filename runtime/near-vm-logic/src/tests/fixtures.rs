@@ -1,5 +1,6 @@
 use crate::{VMContext, VMLimitConfig};
 use near_primitives_core::config::ViewConfig;
+use near_primitives_core::types::Gas;
 
 pub fn get_context(input: Vec<u8>, is_view: bool) -> VMContext {
     VMContext {
@@ -23,4 +24,10 @@ pub fn get_context(input: Vec<u8>, is_view: bool) -> VMContext {
         },
         output_data_receivers: vec![],
     }
+}
+
+pub fn get_context_with_prepaid_gas(prepaid_gas: Gas) -> VMContext {
+    let mut context = get_context(vec![], false);
+    context.prepaid_gas = prepaid_gas;
+    context
 }
