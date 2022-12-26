@@ -1,7 +1,7 @@
 use crate::tests::fixtures::get_context;
 use crate::tests::helpers::*;
 use crate::tests::vm_logic_builder::VMLogicBuilder;
-use crate::{map, ExtCosts};
+use crate::{map, ExtCosts, MemSlice, VMLogic, VMLogicError};
 use hex::FromHex;
 use near_vm_errors::HostError;
 use serde::{de::Error, Deserialize, Deserializer};
@@ -396,6 +396,121 @@ fn test_valid_log_utf16_null_terminated_fail() {
         ExtCosts::utf16_decoding_base: 1,
         ExtCosts::utf16_decoding_byte: bytes.len - 2,
     });
+}
+
+mod utf8_mem_violation {
+    use super::*;
+
+    fn check(read_ok: bool, test: fn(&mut VMLogic<'_>, MemSlice) -> Result<(), VMLogicError>) {
+        let mut logic_builder = VMLogicBuilder::default();
+        let mut logic = logic_builder.build(get_context(vec![], false));
+
+        let bytes = b"foo bar \xff baz qux";
+        let bytes = logic.internal_mem_write_at(64 * 1024 - bytes.len() as u64, bytes);
+        let err = if read_ok { HostError::BadUTF8 } else { HostError::MemoryAccessViolation };
+        assert_eq!(Err(err.into()), test(&mut logic, bytes));
+    }
+
+    #[test]
+    fn test_good_read() {
+        // The data is read correctly but it has invalid UTF-8 thus it ends up
+        // with BadeUTF8 error and user being charged for decoding.
+        check(true, |logic, slice| logic.log_utf8(slice.len, slice.ptr));
+        assert_costs(map! {
+            ExtCosts::base: 1,
+            ExtCosts::read_memory_base: 1,
+            ExtCosts::read_memory_byte: 17,
+            ExtCosts::utf8_decoding_base: 1,
+            ExtCosts::utf8_decoding_byte: 17,
+        });
+    }
+
+    #[test]
+    fn test_read_past_end() {
+        // The data goes past the end of the memory resulting in memory access
+        // violation.  User is not charged for UTF-8 decoding (except for the
+        // base cost which is always charged).
+        check(false, |logic, slice| logic.log_utf8(slice.len + 1, slice.ptr));
+        assert_costs(map! {
+            ExtCosts::base: 1,
+            ExtCosts::read_memory_base: 1,
+            ExtCosts::read_memory_byte: 18,
+            ExtCosts::utf8_decoding_base: 1,
+        });
+    }
+
+    #[test]
+    fn test_nul_past_end() {
+        // The call goes past the end of the memory trying to find NUL byte
+        // resulting in memory access violation.  User is not charged for UTF-8
+        // decoding (except for the base cost which is always charged).
+        check(false, |logic, slice| logic.log_utf8(u64::MAX, slice.ptr));
+        assert_costs(map! {
+            ExtCosts::base: 1,
+            ExtCosts::read_memory_base: 18,
+            ExtCosts::read_memory_byte: 18,
+            ExtCosts::utf8_decoding_base: 1,
+        });
+    }
+}
+
+mod utf16_mem_violation {
+    use super::*;
+
+    fn check(read_ok: bool, test: fn(&mut VMLogic<'_>, MemSlice) -> Result<(), VMLogicError>) {
+        let mut logic_builder = VMLogicBuilder::default();
+        let mut logic = logic_builder.build(get_context(vec![], false));
+
+        let mut bytes = Vec::new();
+        append_utf16(&mut bytes, "$ qò$`");
+        bytes.extend_from_slice(&[0x00, 0xD8]); // U+D800, unpaired surrogate
+        append_utf16(&mut bytes, "foobarbaz");
+        let bytes = logic.internal_mem_write_at(64 * 1024 - bytes.len() as u64, &bytes);
+        let err = if read_ok { HostError::BadUTF16 } else { HostError::MemoryAccessViolation };
+        assert_eq!(Err(err.into()), test(&mut logic, bytes));
+    }
+
+    #[test]
+    fn test_good_read() {
+        // The data is read correctly but it has invalid UTF-16 thus it ends up
+        // with BadeUTF16 error and user being charged for decoding.
+        check(true, |logic, slice| logic.log_utf16(slice.len, slice.ptr));
+        assert_costs(map! {
+            ExtCosts::base: 1,
+            ExtCosts::read_memory_base: 1,
+            ExtCosts::read_memory_byte: 32,
+            ExtCosts::utf16_decoding_base: 1,
+            ExtCosts::utf16_decoding_byte: 32,
+        });
+    }
+
+    #[test]
+    fn test_read_past_end() {
+        // The data goes past the end of the memory resulting in memory access
+        // violation.  User is not charged for UTF-16 decoding (except for the
+        // base cost which is always charged).
+        check(false, |logic, slice| logic.log_utf16(slice.len + 2, slice.ptr));
+        assert_costs(map! {
+            ExtCosts::base: 1,
+            ExtCosts::read_memory_base: 1,
+            ExtCosts::read_memory_byte: 34,
+            ExtCosts::utf16_decoding_base: 1,
+        });
+    }
+
+    #[test]
+    fn test_nul_past_end() {
+        // The call goes past the end of the memory trying to find NUL word
+        // resulting in memory access violation.  User is not charged for UTF-16
+        // decoding (except for the base cost which is always charged).
+        check(false, |logic, slice| logic.log_utf16(u64::MAX, slice.ptr));
+        assert_costs(map! {
+            ExtCosts::base: 1,
+            ExtCosts::read_memory_base: 17,
+            ExtCosts::read_memory_byte: 34,
+            ExtCosts::utf16_decoding_base: 1,
+        });
+    }
 }
 
 #[test]
