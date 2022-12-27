@@ -14,7 +14,8 @@ use near_vm_errors::{
 };
 use near_vm_logic::gas_counter::FastGasCounter;
 use near_vm_logic::types::{PromiseResult, ProtocolVersion};
-use near_vm_logic::{External, MemoryLike, VMConfig, VMContext, VMLogic, VMOutcome};
+use near_vm_logic::{External, MemSlice, MemoryLike, VMConfig, VMContext, VMLogic, VMOutcome};
+use std::borrow::Cow;
 use std::hash::{Hash, Hasher};
 use std::mem::size_of;
 use std::sync::Arc;
@@ -87,31 +88,38 @@ impl Wasmer2Memory {
 }
 
 impl MemoryLike for Wasmer2Memory {
-    fn fits_memory(&self, offset: u64, len: u64) -> Result<(), ()> {
-        let len = usize::try_from(len).map_err(|_| ())?;
-        self.get_memory_buffer(offset, len).map(|_| ())
+    fn fits_memory(&self, slice: MemSlice) -> Result<(), ()> {
+        self.get_memory_buffer(slice.ptr, slice.len()?).map(|_| ())
+    }
+
+    fn view_memory(&self, slice: MemSlice) -> Result<Cow<[u8]>, ()> {
+        let len = slice.len()?;
+        let memory = self.get_memory_buffer(slice.ptr, len)?;
+        // SAFETY: we verified indices into are valid and the pointer will
+        // always be valid as well. Our runtime is currently only executing Wasm
+        // code on a single thread, so data races aren't a concern here.
+        let memory = unsafe { core::slice::from_raw_parts(memory, len) };
+        Ok(Cow::Borrowed(memory))
     }
 
     fn read_memory(&self, offset: u64, buffer: &mut [u8]) -> Result<(), ()> {
-        let memory = self.get_memory_buffer(offset, buffer.len())?;
-        unsafe {
-            // SAFETY: we verified indices into are valid and the pointer will always be valid as
-            // well. Our runtime is currently only executing Wasm code on a single thread, so data
-            // races aren't a concern here.
-            std::ptr::copy_nonoverlapping(memory, buffer.as_mut_ptr(), buffer.len());
-        }
-        Ok(())
+        let len = buffer.len();
+        let memory = self.get_memory_buffer(offset, len)?;
+        // SAFETY: we verified indices into are valid and the pointer will
+        // always be valid as well. Our runtime is currently only executing Wasm
+        // code on a single thread, so data races aren't a concern here.
+        let memory = unsafe { core::slice::from_raw_parts(memory, len) };
+        Ok(buffer.copy_from_slice(memory))
     }
 
     fn write_memory(&mut self, offset: u64, buffer: &[u8]) -> Result<(), ()> {
-        let memory = self.get_memory_buffer(offset, buffer.len())?;
-        unsafe {
-            // SAFETY: we verified indices into are valid and the pointer will always be valid as
-            // well. Our runtime is currently only executing Wasm code on a single thread, so data
-            // races aren't a concern here.
-            std::ptr::copy_nonoverlapping(buffer.as_ptr(), memory, buffer.len());
-        }
-        Ok(())
+        let len = buffer.len();
+        let memory = self.get_memory_buffer(offset, len)?;
+        // SAFETY: we verified indices into are valid and the pointer will
+        // always be valid as well. Our runtime is currently only executing Wasm
+        // code on a single thread, so data races aren't a concern here.
+        let memory = unsafe { core::slice::from_raw_parts_mut(memory, len) };
+        Ok(memory.copy_from_slice(buffer))
     }
 }
 

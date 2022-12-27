@@ -1,4 +1,7 @@
-use near_vm_logic::MemoryLike;
+use near_vm_logic::{MemSlice, MemoryLike};
+
+use std::borrow::Cow;
+
 use wasmer_runtime::units::Pages;
 use wasmer_runtime::wasm::MemoryDescriptor;
 use wasmer_runtime::Memory;
@@ -26,9 +29,9 @@ impl WasmerMemory {
 }
 
 impl WasmerMemory {
-    fn with_memory<F>(&self, offset: u64, len: usize, func: F) -> Result<(), ()>
+    fn with_memory<F, T>(&self, offset: u64, len: usize, func: F) -> Result<T, ()>
     where
-        F: FnOnce(core::slice::Iter<'_, std::cell::Cell<u8>>),
+        F: FnOnce(core::slice::Iter<'_, std::cell::Cell<u8>>) -> T,
     {
         let start = usize::try_from(offset).map_err(|_| ())?;
         let end = start.checked_add(len).ok_or(())?;
@@ -37,8 +40,14 @@ impl WasmerMemory {
 }
 
 impl MemoryLike for WasmerMemory {
-    fn fits_memory(&self, offset: u64, len: u64) -> Result<(), ()> {
-        self.with_memory(offset, usize::try_from(len).map_err(|_| ())?, |_| ())
+    fn fits_memory(&self, slice: MemSlice) -> Result<(), ()> {
+        self.with_memory(slice.ptr, slice.len()?, |_| ())
+    }
+
+    fn view_memory(&self, slice: MemSlice) -> Result<Cow<[u8]>, ()> {
+        self.with_memory(slice.ptr, slice.len()?, |mem| {
+            Cow::Owned(mem.map(core::cell::Cell::get).collect())
+        })
     }
 
     fn read_memory(&self, offset: u64, buffer: &mut [u8]) -> Result<(), ()> {

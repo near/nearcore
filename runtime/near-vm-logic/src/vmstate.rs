@@ -1,4 +1,4 @@
-use crate::dependencies::MemoryLike;
+use crate::dependencies::{MemSlice, MemoryLike};
 use crate::gas_counter::GasCounter;
 
 use near_primitives_core::config::ExtCosts::*;
@@ -55,35 +55,32 @@ impl<'a> Memory<'a> {
         Self(mem)
     }
 
+    /// Returns view of the guest memory.
+    ///
+    /// Not all runtimes support returning a view to the guest memory so this
+    /// may return an owned vector.
+    pub(super) fn view<'s>(
+        &'s self,
+        gas_counter: &mut GasCounter,
+        slice: MemSlice,
+    ) -> Result<Cow<'s, [u8]>> {
+        gas_counter.pay_base(read_memory_base)?;
+        gas_counter.pay_per(read_memory_byte, slice.len)?;
+        self.0.view_memory(slice).map_err(|_| HostError::MemoryAccessViolation.into())
+    }
+
+    #[cfg(feature = "sandbox")]
+    /// Like [`Self::view`] but does not pay gas fees.
+    pub(super) fn view_for_free(&self, slice: MemSlice) -> Result<Cow<[u8]>> {
+        self.0.view_memory(slice).map_err(|_| HostError::MemoryAccessViolation.into())
+    }
+
     /// Copies data from guest memory into provided buffer accounting for gas.
     fn get_into(&self, gas_counter: &mut GasCounter, offset: u64, buf: &mut [u8]) -> Result<()> {
         gas_counter.pay_base(read_memory_base)?;
         let len = u64::try_from(buf.len()).map_err(|_| HostError::MemoryAccessViolation)?;
         gas_counter.pay_per(read_memory_byte, len)?;
         self.0.read_memory(offset, buf).map_err(|_| HostError::MemoryAccessViolation.into())
-    }
-
-    /// Copies data from guest memory into a newly allocated vector accounting for gas.
-    pub(super) fn get_vec(
-        &self,
-        gas_counter: &mut GasCounter,
-        offset: u64,
-        len: u64,
-    ) -> Result<Vec<u8>> {
-        gas_counter.pay_base(read_memory_base)?;
-        gas_counter.pay_per(read_memory_byte, len)?;
-        self.get_vec_for_free(offset, len)
-    }
-
-    /// Like [`Self::get_vec`] but does not pay gas fees.
-    pub(super) fn get_vec_for_free(&self, offset: u64, len: u64) -> Result<Vec<u8>> {
-        // This check is redundant in the sense that read_memory will perform it
-        // as well however it’s here to validate that `len` is a valid value.
-        // See documentation of MemoryLike::read_memory for more information.
-        self.0.fits_memory(offset, len).map_err(|_| HostError::MemoryAccessViolation)?;
-        let mut buf = vec![0; len as usize];
-        self.0.read_memory(offset, &mut buf).map_err(|_| HostError::MemoryAccessViolation)?;
-        Ok(buf)
     }
 
     /// Copies data from provided buffer into guest memory accounting for gas.
@@ -224,7 +221,7 @@ impl Registers {
 
 /// Reads data from guest memory or register.
 ///
-/// If `len` is `u64::MAX` read register with index `offset`.  Otherwise, reads
+/// If `len` is `u64::MAX` read register with index `ptr`.  Otherwise, reads
 /// `len` bytes of guest memory starting at given offset.  Returns error if
 /// there’s insufficient gas, memory interval is out of bounds or given register
 /// isn’t set.
@@ -235,15 +232,15 @@ impl Registers {
 /// references to other fields in the structure..
 pub(super) fn get_memory_or_register<'a, 'b>(
     gas_counter: &mut GasCounter,
-    memory: &Memory<'a>,
+    memory: &'b Memory<'a>,
     registers: &'b Registers,
-    offset: u64,
+    ptr: u64,
     len: u64,
 ) -> Result<Cow<'b, [u8]>> {
     if len == u64::MAX {
-        registers.get(gas_counter, offset).map(Cow::Borrowed)
+        registers.get(gas_counter, ptr).map(Cow::Borrowed)
     } else {
-        memory.get_vec(gas_counter, offset, len).map(Cow::Owned)
+        memory.view(gas_counter, MemSlice { ptr, len })
     }
 }
 
