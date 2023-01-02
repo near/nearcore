@@ -16,8 +16,11 @@ pub struct UpdateableConfigs {
 
 #[derive(Default)]
 pub struct DynConfigStore {
+    /// The current version of the updateable configs.
     updateable_configs: UpdateableConfigs,
+    /// The default values of the configs, which is the values obtained at the node startup.
     original_updateable_client_config: UpdateableClientConfig,
+    /// Notifies receivers about the new config values available.
     tx: Option<Sender<UpdateableConfigs>>,
 }
 
