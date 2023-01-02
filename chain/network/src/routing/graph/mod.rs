@@ -225,11 +225,12 @@ impl Inner {
             self.peer_reachable_at.insert(peer.clone(), now);
         }
         // Prune unreachable peers from time to time.
+        // Peers are removed if they are not reacheable for prune_unreachable_peers_after - so we run the pruning every
+        // prune_unreachable_peers_after / 2 seconds (so peer can be in the memory for max 1.5 * prune_unreachable_peers_after).
         if self
             .last_time_peers_pruned
             .map_or(true, |t| t < now - self.config.prune_unreachable_peers_after / 2)
         {
-            tracing::error!("Pruning now..");
             self.prune_unreachable_peers(now - self.config.prune_unreachable_peers_after);
             self.last_time_peers_pruned = Some(now);
         }
