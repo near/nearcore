@@ -50,13 +50,7 @@ pub fn read_updateable_configs(home_dir: &Path) -> Result<UpdateableConfigs, Dyn
 }
 
 pub fn get_updateable_client_config(config: Config) -> UpdateableClientConfig {
-    UpdateableClientConfig {
-        expected_shutdown: config.expected_shutdown,
-        max_block_wait_delay: config.consensus.max_block_wait_delay,
-        max_block_production_delay: config.consensus.max_block_production_delay,
-        min_block_production_delay: config.consensus.min_block_production_delay,
-        block_production_tracking_delay: config.consensus.block_production_tracking_delay,
-    }
+    UpdateableClientConfig { expected_shutdown: config.expected_shutdown }
 }
 
 fn read_log_config(home_dir: &Path) -> Result<Option<LogConfig>, DynConfigsError> {

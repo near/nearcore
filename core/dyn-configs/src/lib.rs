@@ -39,11 +39,6 @@ impl DynConfigStore {
             updateable_configs,
             original_updateable_client_config: UpdateableClientConfig {
                 expected_shutdown: original_client_config.expected_shutdown.get(),
-                block_production_tracking_delay: original_client_config
-                    .block_production_tracking_delay,
-                min_block_production_delay: original_client_config.min_block_production_delay,
-                max_block_production_delay: original_client_config.max_block_production_delay,
-                max_block_wait_delay: original_client_config.max_block_wait_delay,
             },
             tx: Some(tx),
         }

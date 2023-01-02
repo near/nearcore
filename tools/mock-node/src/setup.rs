@@ -235,7 +235,7 @@ pub fn setup_mock_node(
         }
     }
 
-    let block_production_delay = config.client_config.min_block_production_delay.get();
+    let block_production_delay = config.client_config.min_block_production_delay;
     let (client, _) = start_client(
         config.client_config.clone(),
         chain_genesis.clone(),

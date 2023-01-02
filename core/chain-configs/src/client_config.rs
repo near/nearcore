@@ -345,7 +345,10 @@ impl ClientConfig {
             version: config.version,
             chain_id: config.chain_id,
             rpc_addr: config.rpc_addr,
-            expected_shutdown: MutableConfigValue::new(config.expected_shutdown),
+            expected_shutdown: MutableConfigValue::new(
+                config.expected_shutdown,
+                "expected_shutdown",
+            ),
             block_production_tracking_delay: config.block_production_tracking_delay,
             min_block_production_delay: config.min_block_production_delay,
             max_block_production_delay: config.max_block_production_delay,
