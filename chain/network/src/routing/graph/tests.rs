@@ -91,6 +91,51 @@ async fn one_edge() {
 }
 
 #[tokio::test]
+async fn one_edge_with_delayed_pruning() {
+    let clock = time::FakeClock::default();
+    let mut rng = make_rng(87927345);
+    let rng = &mut rng;
+    let cfg = GraphConfig {
+        node_id: data::make_peer_id(rng),
+        prune_unreachable_peers_after: time::Duration::seconds(10),
+        prune_edges_after: None,
+    };
+    let g = Arc::new(Graph::new(cfg.clone(), store()));
+
+    let p1 = data::make_peer_id(rng);
+    let e1 = edge(&cfg.node_id, &p1, 1);
+    let e1v2 = edge(&cfg.node_id, &p1, 2);
+
+    // Add an active edge.
+    // Update RT with pruning. NOOP, since p1 is reachable.
+    g.update(&clock.clock(), vec![e1.clone()]).await;
+    g.check(&[e1.clone()], &[]).await;
+
+    // Override with an inactive edge.
+    g.update(&clock.clock(), vec![e1v2.clone()]).await;
+    g.check(&[e1v2.clone()], &[]).await;
+
+    // Pruning is running every limit/2 seconds - so in this case every 5 seconds.
+    // If we waited 7 seconds - it should run now.
+    // But the peer would still be not-pruned (as 10 seconds didn't pass yet).
+    clock.advance(7 * SEC);
+    g.update(&clock.clock(), vec![]).await;
+    g.check(&[e1v2.clone()], &[]).await;
+
+    // Now advance 4 seconds - the edge should be ready for pruning now (as 7+4 == 11 seconds passed)
+    // But we're skipping pruning in this run - as not enough time passed since the last one.
+    clock.advance(4 * SEC);
+    g.update(&clock.clock(), vec![]).await;
+    g.check(&[e1v2.clone()], &[]).await;
+    tracing::error!("Before last");
+
+    // And now the peer should be pruned.
+    clock.advance(2 * SEC);
+    g.update(&clock.clock(), vec![]).await;
+    g.check(&[], &[Component { edges: vec![e1v2.clone()], peers: vec![p1.clone()] }]).await;
+}
+
+#[tokio::test]
 async fn load_component() {
     let clock = time::FakeClock::default();
     let mut rng = make_rng(87927345);

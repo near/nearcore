@@ -46,6 +46,10 @@ struct Inner {
     /// Last time a peer was reachable.
     peer_reachable_at: HashMap<PeerId, time::Instant>,
     store: store::Store,
+
+    // Last time when we run the peers pruning.
+    // This is quite expensive (as it touches DB) and we don't want to run it on every update.
+    last_time_peers_pruned: Option<time::Instant>,
 }
 
 fn has(set: &im::HashMap<EdgeKey, Edge>, edge: &Edge) -> bool {
@@ -220,7 +224,15 @@ impl Inner {
         for peer in next_hops.keys() {
             self.peer_reachable_at.insert(peer.clone(), now);
         }
-        self.prune_unreachable_peers(now - self.config.prune_unreachable_peers_after);
+        // Prune unreachable peers from time to time.
+        if self
+            .last_time_peers_pruned
+            .map_or(true, |t| t < now - self.config.prune_unreachable_peers_after / 2)
+        {
+            tracing::error!("Pruning now..");
+            self.prune_unreachable_peers(now - self.config.prune_unreachable_peers_after);
+            self.last_time_peers_pruned = Some(now);
+        }
         let mut local_edges = HashMap::new();
         for e in self.edges.clone().values() {
             if let Some(other) = e.other(&self.config.node_id) {
@@ -257,6 +269,7 @@ impl Graph {
                 edges: Default::default(),
                 peer_reachable_at: HashMap::new(),
                 store,
+                last_time_peers_pruned: None,
             })),
             unreliable_peers: ArcSwap::default(),
             snapshot: ArcSwap::default(),
