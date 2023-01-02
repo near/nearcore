@@ -183,13 +183,13 @@ pub struct ClientConfig {
     /// Graceful shutdown at expected block height.
     pub expected_shutdown: MutableConfigValue<Option<BlockHeight>>,
     /// Duration to check for producing / skipping block.
-    pub block_production_tracking_delay: MutableConfigValue<Duration>,
+    pub block_production_tracking_delay: Duration,
     /// Minimum duration before producing block.
-    pub min_block_production_delay: MutableConfigValue<Duration>,
+    pub min_block_production_delay: Duration,
     /// Maximum wait for approvals before producing block.
-    pub max_block_production_delay: MutableConfigValue<Duration>,
+    pub max_block_production_delay: Duration,
     /// Maximum duration before skipping given height.
-    pub max_block_wait_delay: MutableConfigValue<Duration>,
+    pub max_block_wait_delay: Duration,
     /// Duration to reduce the wait for each missed block by validator.
     pub reduce_wait_for_missing_block: Duration,
     /// Skip waiting for sync (for testing or single node testnet).
@@ -346,12 +346,10 @@ impl ClientConfig {
             chain_id: config.chain_id,
             rpc_addr: config.rpc_addr,
             expected_shutdown: MutableConfigValue::new(config.expected_shutdown),
-            block_production_tracking_delay: MutableConfigValue::new(
-                config.block_production_tracking_delay,
-            ),
-            min_block_production_delay: MutableConfigValue::new(config.min_block_production_delay),
-            max_block_production_delay: MutableConfigValue::new(config.max_block_production_delay),
-            max_block_wait_delay: MutableConfigValue::new(config.max_block_wait_delay),
+            block_production_tracking_delay: config.block_production_tracking_delay,
+            min_block_production_delay: config.min_block_production_delay,
+            max_block_production_delay: config.max_block_production_delay,
+            max_block_wait_delay: config.max_block_wait_delay,
             reduce_wait_for_missing_block: config.reduce_wait_for_missing_block,
             skip_sync_wait: config.skip_sync_wait,
             sync_check_period: config.sync_check_period,

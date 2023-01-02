@@ -150,16 +150,6 @@ pub struct Client {
 impl Client {
     pub(crate) fn update_client_config(&self, update_client_config: UpdateableClientConfig) {
         self.config.expected_shutdown.update(update_client_config.expected_shutdown);
-        self.config
-            .block_production_tracking_delay
-            .update(update_client_config.block_production_tracking_delay);
-        self.config
-            .min_block_production_delay
-            .update(update_client_config.min_block_production_delay);
-        self.config
-            .max_block_production_delay
-            .update(update_client_config.max_block_production_delay);
-        self.config.max_block_wait_delay.update(update_client_config.max_block_wait_delay);
     }
 }
 
@@ -255,10 +245,10 @@ impl Client {
 
         let doomslug = Doomslug::new(
             chain.store().largest_target_height()?,
-            config.min_block_production_delay.get(),
-            config.max_block_production_delay.get(),
-            config.max_block_production_delay.get() / 10,
-            config.max_block_wait_delay.get(),
+            config.min_block_production_delay,
+            config.max_block_production_delay,
+            config.max_block_production_delay / 10,
+            config.max_block_wait_delay,
             validator_signer.clone(),
             doomslug_threshold_mode,
         );

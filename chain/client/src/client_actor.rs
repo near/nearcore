@@ -706,7 +706,7 @@ impl Handler<WithSpanContext<Status>> for ClientActor {
                 let elapsed = (now - block_timestamp).to_std().unwrap();
                 if elapsed
                     > Duration::from_millis(
-                        self.client.config.max_block_production_delay.get().as_millis() as u64
+                        self.client.config.max_block_production_delay.as_millis() as u64
                             * STATUS_WAIT_TIME_MULTIPLIER,
                     )
                 {
@@ -771,7 +771,6 @@ impl Handler<WithSpanContext<Status>> for ClientActor {
                     .client
                     .config
                     .min_block_production_delay
-                    .get()
                     .as_millis() as u64,
             })
         } else {
@@ -1183,7 +1182,7 @@ impl ClientActor {
         }
         if self.block_production_started {
             self.block_production_next_attempt = self.run_timer(
-                self.client.config.block_production_tracking_delay.get(),
+                self.client.config.block_production_tracking_delay,
                 self.block_production_next_attempt,
                 ctx,
                 |act, _ctx| act.try_handle_block_production(),
@@ -1191,7 +1190,7 @@ impl ClientActor {
             );
 
             let _ = self.client.check_head_progress_stalled(
-                self.client.config.max_block_production_delay.get() * HEAD_STALL_MULTIPLIER,
+                self.client.config.max_block_production_delay * HEAD_STALL_MULTIPLIER,
             );
 
             delay = core::cmp::min(
