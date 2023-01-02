@@ -5628,7 +5628,6 @@ dependencies = [
 name = "testlib"
 version = "0.0.0"
 dependencies = [
- "byteorder",
  "near-chain",
  "near-chain-configs",
  "near-crypto",
