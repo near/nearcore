@@ -1,5 +1,4 @@
 use crate::stats_enabled::{get_thread_stats_logger, MyFuture, REF_COUNTER, SLOW_CALL_THRESHOLD};
-use near_rust_allocator_proxy::get_tid;
 use std::panic::Location;
 use std::time::{Duration, Instant};
 use tracing::warn;
@@ -36,9 +35,9 @@ where
         stat.lock().unwrap().log("run_later", loc.file(), loc.line(), took, ended, "");
         if took > SLOW_CALL_THRESHOLD {
             warn!(
-                "Slow function call {}:{} {}:{} took: {}ms",
+                "Slow function call {}:{:?} {}:{} took: {}ms",
                 "run_later",
-                get_tid(),
+                std::thread::current().id(),
                 loc.file(),
                 loc.line(),
                 took.as_millis()

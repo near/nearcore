@@ -11,10 +11,10 @@ use near_vm_errors::{
     VMRunnerError, WasmTrap,
 };
 use near_vm_logic::types::PromiseResult;
-use near_vm_logic::{External, MemoryLike, VMContext, VMLogic, VMOutcome};
+use near_vm_logic::{External, MemSlice, MemoryLike, VMContext, VMLogic, VMOutcome};
+use std::borrow::Cow;
 use std::cell::RefCell;
 use std::ffi::c_void;
-use std::str;
 use wasmtime::ExternType::Func;
 use wasmtime::{Engine, Linker, Memory, MemoryType, Module, Store, TrapCode};
 
@@ -42,14 +42,20 @@ fn with_caller<T>(func: impl FnOnce(&mut Caller) -> T) -> T {
 }
 
 impl MemoryLike for WasmtimeMemory {
-    fn fits_memory(&self, offset: u64, len: u64) -> Result<(), ()> {
-        let end = offset.checked_add(len).ok_or(())?;
-        let end = usize::try_from(end).map_err(|_| ())?;
+    fn fits_memory(&self, slice: MemSlice) -> Result<(), ()> {
+        let end = slice.end::<usize>()?;
         if end <= with_caller(|caller| self.0.data_size(caller)) {
             Ok(())
         } else {
             Err(())
         }
+    }
+
+    fn view_memory(&self, slice: MemSlice) -> Result<Cow<[u8]>, ()> {
+        let range = slice.range::<usize>()?;
+        with_caller(|caller| {
+            self.0.data(caller).get(range).map(|slice| Cow::Owned(slice.to_vec())).ok_or(())
+        })
     }
 
     fn read_memory(&self, offset: u64, buffer: &mut [u8]) -> Result<(), ()> {
