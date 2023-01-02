@@ -23,7 +23,7 @@ use near_vm_errors::{FunctionCallError, InconsistentStateError};
 use near_vm_errors::{HostError, VMLogicError};
 use std::mem::size_of;
 
-pub type Result<T> = ::std::result::Result<T, VMLogicError>;
+pub type Result<T, E = VMLogicError> = ::std::result::Result<T, E>;
 
 pub struct VMLogic<'a> {
     /// Provides access to the components outside the Wasm runtime for operations on the trie and
@@ -97,6 +97,32 @@ macro_rules! get_memory_or_register {
             $len,
         )
     };
+}
+
+/// A wrapper for reading public key.
+///
+/// This exists for historical reasons because we must maintain when errors are
+/// returned.  In the old days, between reading the public key and decoding it
+/// we could return unrelated error.  Because of that we cannot change the code
+/// to return deserialisation errors immediately after reading the public key.
+///
+/// This struct abstracts away the fact that we’re deserialising the key
+/// immediately.  Decoding errors are detected as soon as this object is created
+/// but they are communicated to the user only once they call [`Self::decode`].
+///
+/// Why not just keep the old ways without this noise?  By doing deserialisation
+/// immediately we’re copying the data onto the stack without having to allocate
+/// a temporary vector.
+struct PublicKeyBuffer(Result<near_crypto::PublicKey, ()>);
+
+impl PublicKeyBuffer {
+    fn new(data: &[u8]) -> Self {
+        Self(borsh::BorshDeserialize::try_from_slice(data).map_err(|_| ()))
+    }
+
+    fn decode(self) -> Result<near_crypto::PublicKey> {
+        self.0.map_err(|_| HostError::InvalidPublicKey.into())
+    }
 }
 
 impl<'a> VMLogic<'a> {
@@ -416,6 +442,10 @@ impl<'a> VMLogic<'a> {
         }
         self.logs.push(message);
         Ok(())
+    }
+
+    fn get_public_key(&mut self, ptr: u64, len: u64) -> Result<PublicKeyBuffer> {
+        Ok(PublicKeyBuffer::new(&get_memory_or_register!(self, ptr, len)?))
     }
 
     // ###############
@@ -1776,12 +1806,10 @@ impl<'a> VMLogic<'a> {
             .into());
         }
         let amount = self.memory.get_u128(&mut self.gas_counter, amount_ptr)?;
-        let public_key =
-            get_memory_or_register!(self, public_key_ptr, public_key_len)?.into_owned();
-
+        let public_key = self.get_public_key(public_key_ptr, public_key_len)?;
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
         self.pay_action_base(ActionCosts::stake, sir)?;
-        self.receipt_manager.append_action_stake(receipt_idx, amount, public_key)?;
+        self.receipt_manager.append_action_stake(receipt_idx, amount, public_key.decode()?);
         Ok(())
     }
 
@@ -1816,16 +1844,14 @@ impl<'a> VMLogic<'a> {
             }
             .into());
         }
-        let public_key =
-            get_memory_or_register!(self, public_key_ptr, public_key_len)?.into_owned();
-
+        let public_key = self.get_public_key(public_key_ptr, public_key_len)?;
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
         self.pay_action_base(ActionCosts::add_full_access_key, sir)?;
         self.receipt_manager.append_action_add_key_with_full_access(
             receipt_idx,
-            public_key,
+            public_key.decode()?,
             nonce,
-        )?;
+        );
         Ok(())
     }
 
@@ -1867,8 +1893,7 @@ impl<'a> VMLogic<'a> {
             }
             .into());
         }
-        let public_key =
-            get_memory_or_register!(self, public_key_ptr, public_key_len)?.into_owned();
+        let public_key = self.get_public_key(public_key_ptr, public_key_len)?;
         let allowance = self.memory.get_u128(&mut self.gas_counter, allowance_ptr)?;
         let allowance = if allowance > 0 { Some(allowance) } else { None };
         let receiver_id = self.read_and_parse_account_id(receiver_id_ptr, receiver_id_len)?;
@@ -1884,7 +1909,7 @@ impl<'a> VMLogic<'a> {
 
         self.receipt_manager.append_action_add_key_with_function_call(
             receipt_idx,
-            public_key,
+            public_key.decode()?,
             nonce,
             allowance,
             receiver_id,
@@ -1923,12 +1948,10 @@ impl<'a> VMLogic<'a> {
             }
             .into());
         }
-        let public_key =
-            get_memory_or_register!(self, public_key_ptr, public_key_len)?.into_owned();
-
+        let public_key = self.get_public_key(public_key_ptr, public_key_len)?;
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
         self.pay_action_base(ActionCosts::delete_key, sir)?;
-        self.receipt_manager.append_action_delete_key(receipt_idx, public_key)?;
+        self.receipt_manager.append_action_delete_key(receipt_idx, public_key.decode()?);
         Ok(())
     }
 
