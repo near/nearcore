@@ -157,8 +157,12 @@ problem. But for the MVP, nothing along those lines has been approved.
 Meta transactions challenge the traditional ways of charging gas for actions. To
 see why, let's first list the normal flow of gas, outside of meta transactions.
 
-1. Gas is purchased by the transaction signer when it is converted to a receipt.
-   In today's nearcore code base, this happens as part of
+1. Gas is purchased (by deducting NEAR from the transaction signer account),
+   when the transaction is converted into a receipt. The amount of gas is
+   implicitly defined by the content of the receipt. For function calls, the
+   caller decides explicitly how much gas is attached on top of the minimum
+   required amount. The NEAR token price per gas unit is dynamically adjusted on
+   the blockchain. In today's nearcore code base, this happens as part of
    [`verify_and_charge_transaction`](https://github.com/near/nearcore/blob/4510472d69c059644bb2d2579837c6bd6d94f190/runtime/runtime/src/verifier.rs#L69)
    which gets called in
    [`process_transaction`](https://github.com/near/nearcore/blob/4510472d69c059644bb2d2579837c6bd6d94f190/runtime/runtime/src/lib.rs#L218).
@@ -181,10 +185,11 @@ execute actions with Bob as the receiver.
 2. The cost of sending the inner actions and the delegate action from the
    relayer to Alice's shard will be burned immediately. The condition `relayer
    == Alice` determines which action `SEND` cost is taken (`sir` or `not_sir`).
+   Let's call this `SEND(1)`.
 3. On Alice's shard, the delegate action is executed, thus the `EXEC` gas cost
    for it is burned. Alice sends the inner actions to Bob's shard. Therefore, we
    burn the `SEND` fee again. This time based on `Alice == Bob` to figure out
-   `sir` or `not_sir`.
+   `sir` or `not_sir`. Let's call this `SEND(2)`.
 4. On Bob's shard, we execute all inner actions and burn their `EXEC` cost.
 
 Each of these steps should make sense and not be too surprising. But the
@@ -193,6 +198,14 @@ consequence is that the implicit costs paid at the relayer's shard are
 the delegate action. This might be surprising but hopefully with this
 explanation it makes sense now!
 
+## Gas refunds in meta transactions
+
+Gas refund receipts work exactly like for normal transaction. At every step, the
+difference between the pessimistic gas price and the actual gas price at that
+height is computed and refunded. At the end of the last step, additionally all
+remaining gas is also refunded at the original purchasing price. The gas refunds
+go to the signer of the original transaction, in this case the relayer. This is
+only fair, since the relayer also paid for it.
 
 ## Balance refunds in meta transactions
 
