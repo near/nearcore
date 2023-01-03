@@ -194,6 +194,7 @@ async fn components_nonces_are_tracked_in_storage() {
     let p2 = data::make_peer_id(rng);
     let p3 = data::make_peer_id(rng);
     let e23 = edge(&p2, &p3, 2);
+    clock.advance(time::Duration::seconds(2));
     g.update(&clock.clock(), vec![e23.clone()]).await;
     g.check(
         &[],
@@ -225,6 +226,7 @@ async fn components_nonces_are_tracked_in_storage() {
 
     // Add an active edge between unreachable nodes, which will merge 2 components in DB.
     let e34 = edge(&p3, &p4, 1);
+    clock.advance(time::Duration::seconds(2));
     g.update(&clock.clock(), vec![e34.clone()]).await;
     g.check(
         &[],
