@@ -10,6 +10,12 @@
 
 ### Non-protocol Changes
 
+* Enable TIER1 network. Participants of the BFT consensus (block & chunk producers) now can establish direct TIER1 connections
+  between each other, which will optimize the communication latency and minimize the number of dropped chunks.
+  To configure this feature, see [advanced\_configuration/networking](./docs/advanced_configuration/networking.md).
+  [#8141](https://github.com/near/nearcore/pull/8141)
+  [#8085](https://github.com/near/nearcore/pull/8085)
+  [#7759](https://github.com/near/nearcore/pull/7759)
 * `/status` response has now two more fields: `node_public_key` and
   `validator_public_key`.  The `node_key` field is now deprecated and should not
   be used since it confusingly holds validator key.
