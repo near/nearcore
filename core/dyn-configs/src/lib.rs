@@ -2,8 +2,11 @@
 
 use near_chain_configs::{ClientConfig, UpdateableClientConfig};
 use near_o11y::log_config::LogConfig;
+use near_primitives::time::Clock;
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast::Sender;
+
+mod metrics;
 
 #[derive(Serialize, Deserialize, Clone, Default)]
 /// Contains the latest state of configs which can be updated at runtime.
@@ -31,6 +34,7 @@ impl DynConfigStore {
         }
         self.tx.as_ref().map(|tx| tx.send(updateable_configs.clone()));
         self.updateable_configs = updateable_configs;
+        Self::update_metrics();
     }
 
     pub fn new(
@@ -38,6 +42,7 @@ impl DynConfigStore {
         original_client_config: ClientConfig,
         tx: Sender<UpdateableConfigs>,
     ) -> Self {
+        Self::update_metrics();
         Self {
             updateable_configs,
             original_updateable_client_config: UpdateableClientConfig {
@@ -57,5 +62,10 @@ impl DynConfigStore {
         } else {
             &self.original_updateable_client_config
         }
+    }
+
+    fn update_metrics() {
+        metrics::CONFIG_RELOAD_TIMESTAMP.set(Clock::utc().timestamp());
+        metrics::CONFIG_RELOADS.inc();
     }
 }

@@ -2,7 +2,6 @@ use near_primitives::types::BlockHeight;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
 
 #[derive(Clone)]
 /// A simple wrapper for a config value that can be updated while the node is running.
@@ -22,10 +21,8 @@ impl<T: Copy + PartialEq + Debug> MutableConfigValue<T> {
 
     pub fn update(&self, val: T) {
         let mut lock = self.value.lock().unwrap();
-        if *lock != val {
-            *lock = val;
-            tracing::info!(target: "config", "Updated config field '{}' to {:?}", self.field_name, val);
-        }
+        tracing::info!(target: "config", "Updated config field '{}' from {:?} to {:?}", self.field_name, *lock, val);
+        *lock = val;
     }
 }
 

@@ -3018,6 +3018,7 @@ version = "0.0.0"
 dependencies = [
  "near-chain-configs",
  "near-o11y",
+ "near-primitives",
  "once_cell",
  "prometheus",
  "serde",
