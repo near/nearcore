@@ -187,9 +187,11 @@ impl IoTraceLayer {
         event: &tracing::Event,
         ctx: tracing_subscriber::layer::Context<S>,
     ) {
-        struct FormatSize(Option<u64>);
+        /// `Display`s ` size=<value>` if wrapped value is Some; nothing
+        /// otherwise.
+        struct FormattedSize(Option<u64>);
 
-        impl std::fmt::Display for FormatSize {
+        impl std::fmt::Display for FormattedSize {
             fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 self.0.map_or(Ok(()), |size| write!(fmt, " size={size}"))
             }
@@ -199,33 +201,30 @@ impl IoTraceLayer {
         event.record(&mut visitor);
         match visitor.t {
             Some(IoEventType::DbOp(db_op)) => {
-                (|output_line: std::fmt::Arguments| {
-                    if let Some(span) = ctx.event_span(event) {
-                        let output_line = output_line.to_string();
-                        span.extensions_mut()
-                            .get_mut::<OutputBuffer>()
-                            .unwrap()
-                            .0
-                            .push(BufferedLine { indent: 2, output_line });
-                    } else {
-                        // Print top level unbuffered.
-                        writeln!(self.make_writer.make_writer(), "{output_line}").unwrap();
-                    }
-                })(format_args!(
-                    "{db_op} {col} {key:?}{size}",
-                    col = visitor.col.as_deref().unwrap_or("?"),
-                    key = visitor.key.as_deref().unwrap_or("?"),
-                    size = FormatSize(visitor.size),
-                ));
+                let col = visitor.col.as_deref().unwrap_or("?");
+                let key = visitor.key.as_deref().unwrap_or("?");
+                let size = FormattedSize(visitor.size);
+                let output_line = format!("{db_op} {col} {key:?}{size}");
+                if let Some(span) = ctx.event_span(event) {
+                    span.extensions_mut()
+                        .get_mut::<OutputBuffer>()
+                        .unwrap()
+                        .0
+                        .push(BufferedLine { indent: 2, output_line });
+                } else {
+                    // Print top level unbuffered.
+                    writeln!(self.make_writer.make_writer(), "{output_line}").unwrap();
+                }
             }
             Some(IoEventType::StorageOp(storage_op)) => {
-                let span_info = format!(
-                    "{storage_op} key={key}{size} tn_db_reads={tn_db_reads} tn_mem_reads={tn_mem_reads}",
-                    key = visitor.key.as_deref().unwrap_or("?"),
-                    tn_db_reads = visitor.tn_db_reads.unwrap(),
-                    tn_mem_reads = visitor.tn_mem_reads.unwrap(),
-                    size = FormatSize(visitor.size),
-                );
+                let key = visitor.key.as_deref().unwrap_or("?");
+                let size = FormattedSize(visitor.size);
+                let tn_db_reads = visitor.tn_db_reads.unwrap();
+                let tn_mem_reads = visitor.tn_mem_reads.unwrap();
+
+                let span_info =
+                    format!("{storage_op} key={key}{size} tn_db_reads={tn_db_reads} tn_mem_reads={tn_mem_reads}");
+
                 let span =
                     ctx.event_span(event).expect("storage operations must happen inside span");
                 span.extensions_mut().get_mut::<SpanInfo>().unwrap().key_values.push(span_info);

@@ -1,6 +1,4 @@
 use chrono::DateTime;
-use near_chain_configs::LogSummaryStyle;
-use near_chain_primitives::Error;
 use near_primitives::block::{Block, Tip};
 use near_primitives::borsh::maybestd::collections::hash_map::Entry;
 use near_primitives::hash::CryptoHash;
@@ -481,94 +479,5 @@ impl Chain {
             blocks_info,
             floating_chunks_info,
         }
-    }
-
-    pub fn print_chain_processing_info_to_string(
-        &self,
-        log_summary_style: LogSummaryStyle,
-    ) -> Result<String, Error> {
-        let chain_info = self.get_chain_processing_info();
-        let blocks_info = BlocksInfo {
-            blocks_info: chain_info.blocks_info,
-            use_colour: matches!(log_summary_style, LogSummaryStyle::Colored),
-        };
-
-        Ok(format!(
-            "{:?} Orphans: {} With missing chunks: {} In processing {}{}",
-            self.head()?.epoch_id,
-            self.orphans_len(),
-            self.blocks_with_missing_chunks_len(),
-            self.blocks_in_processing_len(),
-            blocks_info,
-        ))
-    }
-}
-
-/// Displays ` {} for {}ms` if second item is `Some`.
-struct FormatMillis(&'static str, Option<u128>);
-
-impl std::fmt::Display for FormatMillis {
-    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.1.map_or(Ok(()), |ms| write!(fmt, " {} for {ms}ms", self.0))
-    }
-}
-
-/// Formats information about each block.  Each information line is *preceded*
-/// by a new line character.  There’s no final new line character.  This is
-/// meant to be used in logging where final new line is not desired.
-struct BlocksInfo {
-    blocks_info: Vec<BlockProcessingInfo>,
-    use_colour: bool,
-}
-
-impl std::fmt::Display for BlocksInfo {
-    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let paint = |colour: ansi_term::Colour, text: String| {
-            if self.use_colour {
-                colour.bold().paint(text)
-            } else {
-                ansi_term::Style::default().paint(text)
-            }
-        };
-
-        for block_info in self.blocks_info.iter() {
-            let mut all_chunks_received = true;
-            let chunk_status = block_info
-                .chunks_info
-                .iter()
-                .map(|chunk_info| {
-                    if let Some(chunk_info) = chunk_info {
-                        all_chunks_received &=
-                            matches!(chunk_info.status, ChunkProcessingStatus::Completed);
-                        match chunk_info.status {
-                            ChunkProcessingStatus::Completed => '✔',
-                            ChunkProcessingStatus::Requested => '⬇',
-                            ChunkProcessingStatus::NeedToRequest => '.',
-                        }
-                    } else {
-                        'X'
-                    }
-                })
-                .collect::<String>();
-
-            let chunk_status_color = if all_chunks_received {
-                ansi_term::Colour::Green
-            } else {
-                ansi_term::Colour::White
-            };
-
-            let chunk_status = paint(chunk_status_color, chunk_status);
-            let in_progress = FormatMillis("in progress", Some(block_info.in_progress_ms));
-            let in_orphan = FormatMillis("orphan", block_info.orphaned_ms);
-            let missing_chunks = FormatMillis("missing chunks", block_info.missing_chunks_ms);
-
-            write!(
-                fmt,
-                "\n  {} {} {:?}{in_progress}{in_orphan}{missing_chunks} Chunks:({chunk_status}))",
-                block_info.height, block_info.hash, block_info.block_status,
-            )?;
-        }
-
-        Ok(())
     }
 }
