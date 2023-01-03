@@ -1,5 +1,11 @@
 # Changelog
 
+## [unreleased]
+
+### Protocol Changes
+
+### Non-protocol Changes
+
 ## 1.31.0
 
 ### Non-protocol Changes
