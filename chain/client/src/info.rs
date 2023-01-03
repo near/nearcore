@@ -386,11 +386,15 @@ impl InfoHelper {
         let use_colour = matches!(self.log_summary_style, LogSummaryStyle::Colored);
         let info = chain.get_chain_processing_info();
         let blocks_info = BlocksInfo { blocks_info: info.blocks_info, use_colour };
-        tracing::debug!(target: "stats",
-                        orphans = %info.num_orphans,
-                        blocks_missing_chunks = %info.num_blocks_missing_chunks,
-                        blocks_in_processing = %info.num_blocks_in_processing,
-                        "{} Chain processing info{}", epoch_id.0, blocks_info);
+        tracing::debug!(
+            target: "stats",
+            "{} Orphans: {} With missing chunks: {} In processing {}{}",
+            epoch_id.0,
+            info.num_orphans,
+            info.num_blocks_missing_chunks,
+            info.num_blocks_in_processing,
+            blocks_info,
+        );
     }
 }
 
