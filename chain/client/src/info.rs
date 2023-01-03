@@ -388,8 +388,8 @@ impl InfoHelper {
         let blocks_info = BlocksInfo { blocks_info: info.blocks_info, use_colour };
         tracing::debug!(
             target: "stats",
-            "{} Orphans: {} With missing chunks: {} In processing {}{}",
-            epoch_id.0,
+            "{:?} Orphans: {} With missing chunks: {} In processing {}{}",
+            epoch_id,
             info.num_orphans,
             info.num_blocks_missing_chunks,
             info.num_blocks_in_processing,
