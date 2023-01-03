@@ -346,8 +346,36 @@ mod tests {
             );
         }
 
-        // Request can still be pending. Stop threads and wait for them to finish.
-        std::thread::sleep(Duration::from_micros(1000));
+        // The queue is empty now but there can still be requests in progress.
+        // Looking at `Pending` slots in the prefetching area is not sufficient
+        // here because threads can be in `Trie::lookup` between nodes, at which
+        // point no slot is reserved for them but they are still doing work.
+        //
+        // Solution: `drop(tries)`, which also drops prefetchers. In particular,
+        // we want to drop the `PrefetchingThreadsHandle` stored in tries.
+        // `drop(tries)` causes all background threads to stop after they finish
+        // the current work. It will even join them and wait until all threads
+        // are done.
+        //
+        // Because threads are joined, there is also a possibility this will
+        // hang forever. To avoid that, we drop in a separate thread.
+        let dropped = std::sync::atomic::AtomicBool::new(false);
+        std::thread::scope(|s| {
+            s.spawn(|| {
+                drop(tries);
+                dropped.store(true, std::sync::atomic::Ordering::Release);
+            });
+            let spawned = Instant::now();
+            while !dropped.load(std::sync::atomic::Ordering::Acquire) {
+                std::thread::yield_now();
+                // 100ms should be enough to finish pending requests. If not,
+                // we should check how the prefetcher affects performance.
+                assert!(
+                    spawned.elapsed() < Duration::from_millis(100),
+                    "timeout while waiting for background threads to terminate"
+                );
+            }
+        });
 
         assert_eq!(
             prefetch_api.num_prefetched_and_staged(),

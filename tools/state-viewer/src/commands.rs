@@ -129,7 +129,7 @@ pub(crate) fn dump_tx(
     let chain_store = ChainStore::new(
         store.clone(),
         near_config.genesis.config.genesis_height,
-        !near_config.client_config.archive,
+        near_config.client_config.save_trie_changes,
     );
     let mut txs = vec![];
     for height in start_height..=end_height {
@@ -266,7 +266,7 @@ pub(crate) fn print_chain(
     let chain_store = ChainStore::new(
         store.clone(),
         near_config.genesis.config.genesis_height,
-        !near_config.client_config.archive,
+        near_config.client_config.save_trie_changes,
     );
     let runtime = NightshadeRuntime::from_config(home_dir, store, &near_config);
     let mut account_id_to_blocks = HashMap::new();
@@ -367,7 +367,7 @@ pub(crate) fn replay_chain(
     let chain_store = ChainStore::new(
         store,
         near_config.genesis.config.genesis_height,
-        !near_config.client_config.archive,
+        near_config.client_config.save_trie_changes,
     );
     let new_store = create_test_store();
     let runtime = NightshadeRuntime::from_config(home_dir, new_store, &near_config);
@@ -517,7 +517,7 @@ pub(crate) fn apply_block_at_height(
     let mut chain_store = ChainStore::new(
         store.clone(),
         near_config.genesis.config.genesis_height,
-        !near_config.client_config.archive,
+        near_config.client_config.save_trie_changes,
     );
     let runtime_adapter: Arc<dyn RuntimeAdapter> =
         Arc::new(NightshadeRuntime::from_config(home_dir, store, &near_config));
@@ -543,7 +543,7 @@ pub(crate) fn view_chain(
     let chain_store = ChainStore::new(
         store.clone(),
         near_config.genesis.config.genesis_height,
-        !near_config.client_config.archive,
+        near_config.client_config.save_trie_changes,
     );
     let block = {
         match height {
@@ -608,7 +608,8 @@ pub(crate) fn view_chain(
 
 pub(crate) fn check_block_chunk_existence(near_config: NearConfig, store: Store) {
     let genesis_height = near_config.genesis.config.genesis_height;
-    let chain_store = ChainStore::new(store, genesis_height, !near_config.client_config.archive);
+    let chain_store =
+        ChainStore::new(store, genesis_height, near_config.client_config.save_trie_changes);
     let head = chain_store.head().unwrap();
     let mut cur_block = chain_store.get_block(&head.last_block_hash).unwrap();
     while cur_block.header().height() > genesis_height {
@@ -641,7 +642,7 @@ pub(crate) fn print_epoch_info(
 ) {
     let genesis_height = near_config.genesis.config.genesis_height;
     let mut chain_store =
-        ChainStore::new(store.clone(), genesis_height, !near_config.client_config.archive);
+        ChainStore::new(store.clone(), genesis_height, near_config.client_config.save_trie_changes);
     let mut epoch_manager =
         EpochManager::new_from_genesis_config(store.clone(), &near_config.genesis.config)
             .expect("Failed to start Epoch Manager");
@@ -662,7 +663,7 @@ pub(crate) fn get_receipt(receipt_id: CryptoHash, near_config: NearConfig, store
     let chain_store = ChainStore::new(
         store,
         near_config.genesis.config.genesis_height,
-        !near_config.client_config.archive,
+        near_config.client_config.save_trie_changes,
     );
     let receipt = chain_store.get_receipt(&receipt_id);
     println!("Receipt: {:#?}", receipt);
@@ -672,7 +673,7 @@ pub(crate) fn get_chunk(chunk_hash: ChunkHash, near_config: NearConfig, store: S
     let chain_store = ChainStore::new(
         store,
         near_config.genesis.config.genesis_height,
-        !near_config.client_config.archive,
+        near_config.client_config.save_trie_changes,
     );
     let chunk = chain_store.get_chunk(&chunk_hash);
     println!("Chunk: {:#?}", chunk);
@@ -686,7 +687,7 @@ pub(crate) fn get_partial_chunk(
     let chain_store = ChainStore::new(
         store,
         near_config.genesis.config.genesis_height,
-        !near_config.client_config.archive,
+        near_config.client_config.save_trie_changes,
     );
     let partial_chunk = chain_store.get_partial_chunk(&partial_chunk_hash);
     println!("Partial chunk: {:#?}", partial_chunk);
@@ -719,7 +720,7 @@ fn load_trie_stop_at_height(
     let chain_store = ChainStore::new(
         store.clone(),
         near_config.genesis.config.genesis_height,
-        !near_config.client_config.archive,
+        near_config.client_config.save_trie_changes,
     );
 
     let runtime = NightshadeRuntime::from_config(home_dir, store, near_config);
@@ -783,7 +784,7 @@ pub(crate) fn apply_chunk(
     let mut chain_store = ChainStore::new(
         store,
         near_config.genesis.config.genesis_height,
-        !near_config.client_config.archive,
+        near_config.client_config.save_trie_changes,
     );
     let (apply_result, gas_limit) =
         apply_chunk::apply_chunk(&runtime, &mut chain_store, chunk_hash, target_height, None)?;

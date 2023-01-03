@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""
-Runs a loadtest on adversenet.
+
+help_str = """
+This script starts or updates a network of adversenet, in which some validators may be malicious.
 
 The setup requires you to have a few nodes that will be validators and at least one node that will be an RPC node.
 The script will recognize any node that has "validator" in its name as a validator, of which any node that has a
@@ -8,22 +9,16 @@ The script will recognize any node that has "validator" in its name as a validat
 
 Use https://github.com/near/near-ops/tree/master/provisioning/terraform/network/adversenet to bring up a set of VM
 instances for the test.
-
-This script will always initializes the network from scratch, and that is the intended purpose of adversenet.
-(Because the point of adversenet is to break the network, it is likely the network is in a bad state, so that's
-why it's a good idea to just always start from scratch.)
 """
+
 import argparse
-import random
 import sys
 import time
-from rc import pmap
+from enum import Enum
 import pathlib
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
-from helpers import load_test_spoon_helper
-from helpers import load_testing_add_and_delete_helper
 import mocknet
 import data
 
@@ -76,24 +71,63 @@ def check_slow_blocks(initial_metrics, final_metrics):
 def override_config(node, config):
     # Add config here depending on the specific node build.
     pass
+    """
+    if "bad" in node.instance_name:
+        config["adversarial"] = {
+            "produce_duplicate_blocks": True
+        }
+    """
+
+
+class Role(Enum):
+    Rpc = 0
+    GoodValidator = 1
+    BadValidator = 2
+
+
+def get_role(node):
+    if "validator" not in node.instance_name:
+        return Role.Rpc
+    elif "bad" in node.instance_name:
+        return Role.BadValidator
+    else:
+        return Role.GoodValidator
 
 
 if __name__ == '__main__':
-    logger.info('Starting Load test.')
-    parser = argparse.ArgumentParser(description='Run a load test')
+    logger.info('Starting adversenet.')
+    parser = argparse.ArgumentParser(description=help_str)
+    parser.add_argument(
+        'mode',
+        choices=["new", "update"],
+        help=
+        "new: start a new network from scratch, update: update existing network"
+    )
     parser.add_argument('--chain-id', required=False, default="adversenet")
-    parser.add_argument('--pattern', required=False, default="adversenet-node-")
-    parser.add_argument('--epoch-length', type=int, required=False, default=60)
-    parser.add_argument('--skip-setup', default=False, action='store_true')
-    parser.add_argument('--skip-reconfigure',
-                        default=False,
-                        action='store_true')
-    parser.add_argument('--num-seats', type=int, required=False, default=100)
-    parser.add_argument('--binary-url', required=False)
-    parser.add_argument('--clear-data',
+    parser.add_argument('--pattern',
                         required=False,
-                        default=False,
-                        action='store_true')
+                        default="adversenet-node-",
+                        help="pattern to filter the gcp instance names")
+    parser.add_argument(
+        '--epoch-length',
+        type=int,
+        required=False,
+        default=60,
+        help="epoch length of the network. Only used when mode == new")
+    parser.add_argument(
+        '--num-seats',
+        type=int,
+        required=False,
+        default=100,
+        help="number of validator seats. Only used when mode == new")
+    parser.add_argument('--bad-stake',
+                        required=False,
+                        default=5,
+                        type=int,
+                        help="Total stake percentage for bad validators")
+    parser.add_argument('--binary-url',
+                        required=False,
+                        help="url to download neard binary")
 
     args = parser.parse_args()
 
@@ -103,28 +137,41 @@ if __name__ == '__main__':
     assert epoch_length > 0
 
     all_nodes = mocknet.get_nodes(pattern=pattern)
-    validator_nodes = [
-        node for node in all_nodes if 'validator' in node.instance_name
+    rpcs = [n.instance_name for n in all_nodes if get_role(n) == Role.Rpc]
+    good_validators = [
+        n.instance_name for n in all_nodes if get_role(n) == Role.GoodValidator
     ]
-    logger.info(f'validator_nodes: {validator_nodes}')
-    rpc_nodes = [
-        node for node in all_nodes if 'validator' not in node.instance_name
+    bad_validators = [
+        n.instance_name for n in all_nodes if get_role(n) == Role.BadValidator
     ]
-    logger.info(
-        f'Starting Load of {chain_id} test using {len(validator_nodes)} validator nodes and {len(rpc_nodes)} RPC nodes.'
-    )
+    TOTAL_STAKE = 1000000
+    bad_validator_stake = int(TOTAL_STAKE * args.bad_stake /
+                              (100 * len(bad_validators)))
+    good_validator_stake = int(TOTAL_STAKE * (100 - args.bad_stake) /
+                               (100 * len(good_validators)))
+
+    logger.info(f'Starting chain {chain_id} with {len(all_nodes)} nodes. \n\
+        Good validators: {good_validators} each with stake {good_validator_stake} NEAR\n\
+        Bad validators: {bad_validators} each with stake {bad_validator_stake} NEAR\n\
+        RPC nodes: {rpcs}\n')
+
+    answer = input("Enter y to continue: ")
+    if answer != "y":
+        exit(0)
 
     mocknet.stop_nodes(all_nodes)
     time.sleep(10)
-    if not args.skip_reconfigure:
-        logger.info(f'Reconfiguring nodes')
-        # Make sure nodes are running by restarting them.
-
-        if args.clear_data:
-            mocknet.clear_data(all_nodes)
+    validator_nodes = [n for n in all_nodes if get_role(n) != Role.Rpc]
+    rpc_nodes = [n for n in all_nodes if get_role(n) == Role.Rpc]
+    if args.binary_url:
+        mocknet.redownload_neard(all_nodes, args.binary_url)
+    if args.mode == "new":
+        logger.info(f'Configuring nodes from scratch')
+        mocknet.clear_data(all_nodes)
         mocknet.create_and_upload_genesis_file_from_empty_genesis(
             # Give bad validators less stake.
-            [(node, 1 if 'bad' in node.instance_name else 5)
+            [(node, bad_validator_stake * mocknet.ONE_NEAR if get_role(node)
+              == Role.BadValidator else good_validator_stake * mocknet.ONE_NEAR)
              for node in validator_nodes],
             rpc_nodes,
             chain_id,
@@ -132,8 +179,8 @@ if __name__ == '__main__':
             num_seats=args.num_seats)
         mocknet.create_and_upload_config_file_from_default(
             all_nodes, chain_id, override_config)
-    if args.binary_url:
-        mocknet.redownload_neard(all_nodes, args.binary_url)
+    else:
+        mocknet.update_existing_config_file(all_nodes, override_config)
     mocknet.start_nodes(all_nodes)
     mocknet.wait_all_nodes_up(all_nodes)
 

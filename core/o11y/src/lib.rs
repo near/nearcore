@@ -87,7 +87,6 @@ pub const DEFAULT_RUST_LOG: &'static str = "tokio_reactor=info,\
      db=info,\
      delay_detector=info,\
      near-performance-metrics=info,\
-     near-rust-allocator-proxy=info,\
      warn";
 
 /// The resource representing a registered subscriber.

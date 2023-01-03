@@ -5,16 +5,51 @@ use near_primitives::types::TrieNodesCount;
 use near_primitives_core::types::{AccountId, Balance};
 use near_vm_errors::VMLogicError;
 
+use std::borrow::Cow;
+
+/// Representation of the address slice of guest memory.
+#[derive(Clone, Copy)]
+pub struct MemSlice {
+    /// Offset within guest memory at which the slice starts.
+    pub ptr: u64,
+    /// Length of the slice.
+    pub len: u64,
+}
+
+impl MemSlice {
+    #[inline]
+    pub fn len<T: TryFrom<u64>>(&self) -> Result<T, ()> {
+        T::try_from(self.len).map_err(|_| ())
+    }
+
+    #[inline]
+    pub fn end<T: TryFrom<u64>>(&self) -> Result<T, ()> {
+        T::try_from(self.ptr.checked_add(self.len).ok_or(())?).map_err(|_| ())
+    }
+
+    #[inline]
+    pub fn range<T: TryFrom<u64>>(&self) -> Result<std::ops::Range<T>, ()> {
+        let end = self.end()?;
+        let start = T::try_from(self.ptr).map_err(|_| ())?;
+        Ok(start..end)
+    }
+}
+
 /// An abstraction over the memory of the smart contract.
 pub trait MemoryLike {
     /// Returns success if the memory interval is completely inside smart
     /// contract’s memory.
     ///
-    /// You often don’t need to use this method since [`Self::read_memory`] and
-    /// [`Self::write_memory`] will perform the check, however it may be
-    /// necessary to prevent potential denial of service attacks.  See
-    /// [`Self::read_memory`] for description.
-    fn fits_memory(&self, offset: u64, len: u64) -> Result<(), ()>;
+    /// You often don’t need to use this method since other methods will perform
+    /// the check, however it may be necessary to prevent potential denial of
+    /// service attacks.  See [`Self::read_memory`] for description.
+    fn fits_memory(&self, slice: MemSlice) -> Result<(), ()>;
+
+    /// Returns view of the content of the given memory interval.
+    ///
+    /// Not all implementations support borrowing the memory directly.  In those
+    /// cases, the data is copied into a vector.
+    fn view_memory(&self, slice: MemSlice) -> Result<Cow<[u8]>, ()>;
 
     /// Reads the content of the given memory interval.
     ///
@@ -27,27 +62,27 @@ pub trait MemoryLike {
     /// attacks.  For example, consider the following function:
     ///
     /// ```
-    /// # use near_vm_logic::MemoryLike;
+    /// # use near_vm_logic::{MemoryLike, MemSlice};
     ///
-    /// fn read_vec(mem: &dyn MemoryLike, ptr: u64, len: u64) -> Result<Vec<u8>, ()> {
-    ///     let mut vec = vec![0; usize::try_from(len).map_err(|_| ())?];
-    ///     mem.read_memory(ptr, &mut vec[..])?;
+    /// fn read_vec(mem: &dyn MemoryLike, slice: MemSlice) -> Result<Vec<u8>, ()> {
+    ///     let mut vec = vec![0; slice.len()?];
+    ///     mem.read_memory(slice.ptr, &mut vec[..])?;
     ///     Ok(vec)
     /// }
     /// ```
     ///
-    /// If attacker controls `len` argument, it may cause attempt at allocation
+    /// If attacker controls length argument, it may cause attempt at allocation
     /// of arbitrarily-large buffer and crash the program.  In situations like
     /// this, it’s necessary to use [`Self::fits_memory`] method to verify that
     /// the length is valid.  For example:
     ///
     /// ```
-    /// # use near_vm_logic::MemoryLike;
+    /// # use near_vm_logic::{MemoryLike, MemSlice};
     ///
-    /// fn read_vec(mem: &dyn MemoryLike, ptr: u64, len: u64) -> Result<Vec<u8>, ()> {
-    ///     mem.fits_memory(ptr, len)?;
-    ///     let mut vec = vec![0; len as usize];
-    ///     mem.read_memory(ptr, &mut vec[..])?;
+    /// fn read_vec(mem: &dyn MemoryLike, slice: MemSlice) -> Result<Vec<u8>, ()> {
+    ///     mem.fits_memory(slice)?;
+    ///     let mut vec = vec![0; slice.len()?];
+    ///     mem.read_memory(slice.ptr, &mut vec[..])?;
     ///     Ok(vec)
     /// }
     /// ```

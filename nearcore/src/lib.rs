@@ -11,8 +11,6 @@ use near_network::time;
 use near_network::types::NetworkRecipient;
 use near_network::PeerManagerActor;
 use near_primitives::block::GenesisId;
-#[cfg(feature = "performance_stats")]
-use near_rust_allocator_proxy::reset_memory_usage_max;
 use near_store::{DBCol, Mode, NodeStorage, StoreOpenerError, Temperature};
 use near_telemetry::TelemetryActor;
 use std::path::{Path, PathBuf};
@@ -245,10 +243,6 @@ pub fn start_with_config_and_synchronization(
     rpc_servers.shrink_to_fit();
 
     trace!(target: "diagnostic", key="log", "Starting NEAR node with diagnostic activated");
-
-    // We probably reached peak memory once on this thread, we want to see when it happens again.
-    #[cfg(feature = "performance_stats")]
-    reset_memory_usage_max();
 
     Ok(NearNode {
         client: client_actor,
