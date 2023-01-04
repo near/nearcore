@@ -1265,6 +1265,11 @@ impl Default for ExecutionMetadataView {
 
 impl From<ExecutionMetadata> for ExecutionMetadataView {
     fn from(metadata: ExecutionMetadata) -> Self {
+        let version = match metadata {
+            ExecutionMetadata::V1 => 1,
+            ExecutionMetadata::V2(_) => 2,
+            ExecutionMetadata::V3(_) => 3,
+        };
         let mut gas_profile = match metadata {
             ExecutionMetadata::V1 => None,
             ExecutionMetadata::V2(profile_data) => {
@@ -1332,7 +1337,7 @@ impl From<ExecutionMetadata> for ExecutionMetadataView {
                 lhs.cost_category.cmp(&rhs.cost_category).then(lhs.cost.cmp(&rhs.cost))
             });
         }
-        ExecutionMetadataView { version: 1, gas_profile }
+        ExecutionMetadataView { version, gas_profile }
     }
 }
 
@@ -2582,8 +2587,10 @@ impl From<ExtCostsConfigView> for near_primitives_core::config::ExtCostsConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::RuntimeConfigView;
+    use super::{ExecutionMetadataView, RuntimeConfigView};
     use crate::runtime::config::RuntimeConfig;
+    use crate::transaction::ExecutionMetadata;
+    use near_primitives_core::profile::{ProfileDataV2, ProfileDataV3};
 
     /// The JSON representation used in RPC responses must not remove or rename
     /// fields, only adding fields is allowed or we risk breaking clients.
@@ -2602,5 +2609,29 @@ mod tests {
         let reconstructed_config = RuntimeConfig::from(view);
 
         assert_eq!(config, reconstructed_config);
+    }
+
+    /// `ExecutionMetadataView` with profile V1 displayed on the RPC should not change.
+    #[test]
+    fn test_exec_metadata_v1_view() {
+        let metadata = ExecutionMetadata::V1;
+        let view = ExecutionMetadataView::from(metadata);
+        insta::assert_json_snapshot!(view);
+    }
+
+    /// `ExecutionMetadataView` with profile V2 displayed on the RPC should not change.
+    #[test]
+    fn test_exec_metadata_v2_view() {
+        let metadata = ExecutionMetadata::V2(ProfileDataV2::test());
+        let view = ExecutionMetadataView::from(metadata);
+        insta::assert_json_snapshot!(view);
+    }
+
+    /// `ExecutionMetadataView` with profile V3 displayed on the RPC should not change.
+    #[test]
+    fn test_exec_metadata_v3_view() {
+        let metadata = ExecutionMetadata::V3(ProfileDataV3::test());
+        let view = ExecutionMetadataView::from(metadata);
+        insta::assert_json_snapshot!(view);
     }
 }

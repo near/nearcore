@@ -34,6 +34,18 @@ impl ProfileDataV3 {
         }
     }
 
+    /// Test instance with unique numbers in each field.
+    pub fn test() -> Self {
+        let mut profile_data = ProfileDataV3::default();
+        for (i, cost) in ExtCosts::iter().enumerate() {
+            profile_data.add_ext_cost(cost, i as Gas);
+        }
+        for (i, cost) in ActionCosts::iter().enumerate() {
+            profile_data.add_action_cost(cost, i as Gas + 1000);
+        }
+        profile_data
+    }
+
     #[inline]
     pub fn merge(&mut self, other: &ProfileDataV3) {
         for (cost, gas) in self.actions_profile.iter_mut() {
@@ -199,13 +211,7 @@ mod test {
 
     #[test]
     fn test_profile_data_debug() {
-        let mut profile_data = ProfileDataV3::default();
-        for (i, cost) in ExtCosts::iter().enumerate() {
-            profile_data.add_ext_cost(cost, i as Gas);
-        }
-        for (i, cost) in ActionCosts::iter().enumerate() {
-            profile_data.add_action_cost(cost, i as Gas + 1000);
-        }
+        let profile_data = ProfileDataV3::test();
         // we don't care about exact formatting, but the numbers should not change unexpectedly
         let pretty_debug_str = format!("{profile_data:#?}");
         insta::assert_snapshot!(pretty_debug_str);

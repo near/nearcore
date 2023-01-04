@@ -63,6 +63,19 @@ impl ProfileDataV2 {
     pub fn action_gas(&self) -> u64 {
         self.legacy_action_costs().iter().map(|(_name, cost)| *cost).fold(0, u64::saturating_add)
     }
+
+    /// Test instance with unique numbers in each field.
+    pub fn test() -> Self {
+        let mut profile_data = ProfileDataV2::default();
+        let num_legacy_actions = 10;
+        for i in 0..num_legacy_actions {
+            profile_data.data.0[i] = i as Gas + 1000;
+        }
+        for i in num_legacy_actions..DataArray::LEN {
+            profile_data.data.0[i] = (i - num_legacy_actions) as Gas;
+        }
+        profile_data
+    }
 }
 
 impl fmt::Debug for ProfileDataV2 {
@@ -222,28 +235,21 @@ impl BorshSerialize for DataArray {
     }
 }
 
+impl Default for ProfileDataV2 {
+    fn default() -> Self {
+        let costs = DataArray(Box::new([0; DataArray::LEN]));
+        ProfileDataV2 { data: costs }
+    }
+}
+
 /// Tests for ProfileDataV2
 #[cfg(test)]
 mod test {
     use super::*;
 
-    impl Default for ProfileDataV2 {
-        fn default() -> Self {
-            let costs = DataArray(Box::new([0; DataArray::LEN]));
-            ProfileDataV2 { data: costs }
-        }
-    }
-
     #[test]
     fn test_profile_data_debug() {
-        let mut profile_data = ProfileDataV2::default();
-        let num_legacy_actions = 10;
-        for i in 0..num_legacy_actions {
-            profile_data.data.0[i] = i as Gas + 1000;
-        }
-        for i in num_legacy_actions..DataArray::LEN {
-            profile_data.data.0[i] = (i - num_legacy_actions) as Gas;
-        }
+        let profile_data = ProfileDataV2::test();
         // we don't care about exact formatting, but the numbers should not change unexpectedly
         let pretty_debug_str = format!("{profile_data:#?}");
         insta::assert_snapshot!(pretty_debug_str);
