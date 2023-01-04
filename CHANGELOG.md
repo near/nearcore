@@ -16,6 +16,9 @@
   [#8141](https://github.com/near/nearcore/pull/8141)
   [#8085](https://github.com/near/nearcore/pull/8085)
   [#7759](https://github.com/near/nearcore/pull/7759)
+* [Network] Started creating connections with larger nonces, that are periodically
+  refreshed Start creating connections (edges) with large nonces
+  [#7966](https://github.com/near/nearcore/pull/7966)
 * `/status` response has now two more fields: `node_public_key` and
   `validator_public_key`.  The `node_key` field is now deprecated and should not
   be used since it confusingly holds validator key.
