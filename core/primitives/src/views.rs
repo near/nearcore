@@ -2600,19 +2600,19 @@ impl From<ExtCostsConfigView> for near_primitives_core::config::ExtCostsConfig {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(not(feature = "nightly_protocol"))]
+    #[cfg(not(feature = "nightly"))]
     use super::ExecutionMetadataView;
     use super::RuntimeConfigView;
     use crate::runtime::config::RuntimeConfig;
-    #[cfg(not(feature = "nightly_protocol"))]
+    #[cfg(not(feature = "nightly"))]
     use crate::transaction::ExecutionMetadata;
-    #[cfg(not(feature = "nightly_protocol"))]
+    #[cfg(not(feature = "nightly"))]
     use near_primitives_core::profile::{ProfileDataV2, ProfileDataV3};
 
     /// The JSON representation used in RPC responses must not remove or rename
     /// fields, only adding fields is allowed or we risk breaking clients.
     #[test]
-    #[cfg(not(feature = "nightly_protocol"))]
+    #[cfg(not(feature = "nightly"))]
     fn test_runtime_config_view() {
         let config = RuntimeConfig::test();
         let view = RuntimeConfigView::from(config);
@@ -2631,7 +2631,7 @@ mod tests {
 
     /// `ExecutionMetadataView` with profile V1 displayed on the RPC should not change.
     #[test]
-    #[cfg(not(feature = "nightly_protocol"))]
+    #[cfg(not(feature = "nightly"))]
     fn test_exec_metadata_v1_view() {
         let metadata = ExecutionMetadata::V1;
         let view = ExecutionMetadataView::from(metadata);
@@ -2640,7 +2640,7 @@ mod tests {
 
     /// `ExecutionMetadataView` with profile V2 displayed on the RPC should not change.
     #[test]
-    #[cfg(not(feature = "nightly_protocol"))]
+    #[cfg(not(feature = "nightly"))]
     fn test_exec_metadata_v2_view() {
         let metadata = ExecutionMetadata::V2(ProfileDataV2::test());
         let view = ExecutionMetadataView::from(metadata);
@@ -2649,7 +2649,7 @@ mod tests {
 
     /// `ExecutionMetadataView` with profile V3 displayed on the RPC should not change.
     #[test]
-    #[cfg(not(feature = "nightly_protocol"))]
+    #[cfg(not(feature = "nightly"))]
     fn test_exec_metadata_v3_view() {
         let metadata = ExecutionMetadata::V3(ProfileDataV3::test());
         let view = ExecutionMetadataView::from(metadata);

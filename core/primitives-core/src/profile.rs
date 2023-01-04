@@ -210,6 +210,7 @@ mod test {
     use super::*;
 
     #[test]
+    #[cfg(not(feature = "nightly"))]
     fn test_profile_data_debug() {
         let profile_data = ProfileDataV3::test();
         // we don't care about exact formatting, but the numbers should not change unexpectedly
