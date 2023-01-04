@@ -1281,6 +1281,7 @@ impl From<ExecutionMetadata> for ExecutionMetadataView {
                 let mut costs: Vec<CostGasUsed> = profile_data
                     .legacy_action_costs()
                     .into_iter()
+                    .filter(|&(_, gas)| gas > 0)
                     .map(|(name, gas)| CostGasUsed::action(name.to_string(), gas))
                     .collect();
 
@@ -1304,23 +1305,35 @@ impl From<ExecutionMetadata> for ExecutionMetadataView {
                 // Add actions, wasm op, and ext costs in groups.
                 // actions costs are 1-to-1
                 let mut costs: Vec<CostGasUsed> = ActionCosts::iter()
-                    .map(|cost| {
-                        CostGasUsed::action(cost.to_string(), profile.get_action_cost(cost))
+                    .flat_map(|cost| {
+                        let gas_used = profile.get_action_cost(cost);
+                        (gas_used > 0).then(|| {
+                            CostGasUsed::action(
+                                format!("{:?}", cost).to_ascii_uppercase(),
+                                gas_used,
+                            )
+                        })
                     })
                     .collect();
 
                 // wasm op is a single cost, for historical reasons it is inaccurately displayed as "wasm host"
-                costs.push(CostGasUsed::wasm_host(
-                    "WASM_INSTRUCTION".to_string(),
-                    profile.get_wasm_cost(),
-                ));
+                let wasm_gas_used = profile.get_wasm_cost();
+                if wasm_gas_used > 0 {
+                    costs.push(CostGasUsed::wasm_host(
+                        "WASM_INSTRUCTION".to_string(),
+                        wasm_gas_used,
+                    ));
+                }
 
                 // ext costs are 1-to-1
                 for ext_cost in ExtCosts::iter() {
-                    costs.push(CostGasUsed::wasm_host(
-                        format!("{:?}", ext_cost).to_ascii_uppercase(),
-                        profile.get_ext_cost(ext_cost),
-                    ));
+                    let gas_used = profile.get_ext_cost(ext_cost);
+                    if gas_used > 0 {
+                        costs.push(CostGasUsed::wasm_host(
+                            format!("{:?}", ext_cost).to_ascii_uppercase(),
+                            gas_used,
+                        ));
+                    }
                 }
 
                 Some(costs)
