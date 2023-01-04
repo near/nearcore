@@ -414,6 +414,7 @@ struct TrieCacheInnerMetrics {
     prefetch_not_requested: GenericCounter<prometheus::core::AtomicU64>,
     prefetch_memory_limit_reached: GenericCounter<prometheus::core::AtomicU64>,
     prefetch_retry: GenericCounter<prometheus::core::AtomicU64>,
+    prefetch_conflict: GenericCounter<prometheus::core::AtomicU64>,
 }
 
 impl TrieCachingStorage {
@@ -447,6 +448,7 @@ impl TrieCachingStorage {
             prefetch_memory_limit_reached: metrics::PREFETCH_MEMORY_LIMIT_REACHED
                 .with_label_values(&metrics_labels[..1]),
             prefetch_retry: metrics::PREFETCH_RETRY.with_label_values(&metrics_labels[..1]),
+            prefetch_conflict: metrics::PREFETCH_CONFLICT.with_label_values(&metrics_labels[..1]),
         };
         TrieCachingStorage {
             store,
@@ -565,6 +567,7 @@ impl TrieStorage for TrieCachingStorage {
                                 // fetch the data from the DB.
                                 None => {
                                     if let Some(value) = self.shard_cache.get(hash) {
+                                        self.metrics.prefetch_conflict.inc();
                                         value
                                     } else {
                                         self.metrics.prefetch_retry.inc();
