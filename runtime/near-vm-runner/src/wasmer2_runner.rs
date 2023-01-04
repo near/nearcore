@@ -381,22 +381,18 @@ impl Wasmer2VM {
                 }
             };
 
-            let artifact: VMArtifact = match stored_artifact {
-                Some(it) => it,
-                None => {
-                    let executable_or_error = self.compile_and_cache(code, cache)?;
-                    match executable_or_error {
-                        Ok(executable) => self
-                            .engine
-                            .load_universal_executable(&executable)
-                            .map(Arc::new)
-                            .map_err(|err| VMRunnerError::LoadingError(err.to_string()))?,
-                        Err(it) => return Ok(Err(it)),
-                    }
+            Ok(if let Some(it) = stored_artifact {
+                Ok(it)
+            } else {
+                match self.compile_and_cache(code, cache)? {
+                    Ok(executable) => Ok(self
+                        .engine
+                        .load_universal_executable(&executable)
+                        .map(Arc::new)
+                        .map_err(|err| VMRunnerError::LoadingError(err.to_string()))?),
+                    Err(err) => Err(err),
                 }
-            };
-
-            Ok(Ok(artifact))
+            })
         };
 
         #[cfg(feature = "no_cache")]
