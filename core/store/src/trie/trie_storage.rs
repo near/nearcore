@@ -250,15 +250,15 @@ impl TrieCache {
     }
 
     pub fn get(&self, key: &CryptoHash) -> Option<Arc<[u8]>> {
-        self.0.lock().expect(POISONED_LOCK_ERR).get(key)
+        self.lock().get(key)
     }
 
     pub fn clear(&self) {
-        self.0.lock().expect(POISONED_LOCK_ERR).clear()
+        self.lock().clear()
     }
 
     pub fn update_cache(&self, ops: Vec<(CryptoHash, Option<&[u8]>)>) {
-        let mut guard = self.0.lock().expect(POISONED_LOCK_ERR);
+        let mut guard = self.lock();
         for (hash, opt_value_rc) in ops {
             if let Some(value_rc) = opt_value_rc {
                 if let (Some(value), _rc) = decode_value_with_rc(&value_rc) {
@@ -276,9 +276,13 @@ impl TrieCache {
         }
     }
 
+    pub(crate) fn lock(&self) -> std::sync::MutexGuard<TrieCacheInner> {
+        self.0.lock().expect(POISONED_LOCK_ERR)
+    }
+
     #[cfg(test)]
     pub(crate) fn len(&self) -> usize {
-        let guard = self.0.lock().expect(POISONED_LOCK_ERR);
+        let guard = self.lock();
         guard.len()
     }
 }
@@ -505,7 +509,7 @@ impl TrieStorage for TrieCachingStorage {
         self.metrics.chunk_cache_misses.inc();
 
         // Try to get value from shard cache containing most recently touched nodes.
-        let mut guard = self.shard_cache.0.lock().expect(POISONED_LOCK_ERR);
+        let mut guard = self.shard_cache.lock();
         self.metrics.shard_cache_size.set(guard.len() as i64);
         self.metrics.shard_cache_current_total_size.set(guard.current_total_size() as i64);
         let val = match guard.get(hash) {
@@ -574,7 +578,7 @@ impl TrieStorage for TrieCachingStorage {
                 // is always a value hash, so for each key there could be only one value, and it is impossible to have
                 // **different** values for the given key in shard and chunk caches.
                 if val.len() < TrieConfig::max_cached_value_size() {
-                    let mut guard = self.shard_cache.0.lock().expect(POISONED_LOCK_ERR);
+                    let mut guard = self.shard_cache.lock();
                     guard.put(*hash, val.clone());
                 } else {
                     self.metrics.shard_cache_too_large.inc();
@@ -807,7 +811,7 @@ mod trie_cache_tests {
     ) {
         let shard_uid = ShardUId { version: 0, shard_id: shard_id as u32 };
         let trie_cache = TrieCache::new(&trie_config, shard_uid, is_view);
-        assert_eq!(expected_size, trie_cache.0.lock().unwrap().total_size_limit,);
-        assert_eq!(is_view, trie_cache.0.lock().unwrap().is_view,);
+        assert_eq!(expected_size, trie_cache.lock().total_size_limit,);
+        assert_eq!(is_view, trie_cache.lock().is_view,);
     }
 }
