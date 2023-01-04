@@ -560,10 +560,16 @@ impl TrieStorage for TrieCachingStorage {
                                 // therefore blocking read will usually not return empty unless there
                                 // was a storage error. Or in the case of forks and parallel chunk
                                 // processing where one chunk cleans up prefetched data from the other.
-                                // In any case, we can try again from the main thread.
+                                // So first we need to check if the data was inserted to shard_cache
+                                // by the main thread from another fork and only if that fails then
+                                // fetch the data from the DB.
                                 None => {
-                                    self.metrics.prefetch_retry.inc();
-                                    self.read_from_db(hash)?
+                                    if let Some(value) = self.shard_cache.get(hash) {
+                                        value
+                                    } else {
+                                        self.metrics.prefetch_retry.inc();
+                                        self.read_from_db(hash)?
+                                    }
                                 }
                             }
                         }
