@@ -2176,7 +2176,7 @@ impl From<RuntimeConfig> for RuntimeConfigView {
     }
 }
 
-// reverse direction: rosetta adapter uses this, also we use to test that all fields are present in view (TODO)
+// reverse direction: rosetta adapter uses this, also we use to test that all fields are present in view
 impl From<RuntimeConfigView> for RuntimeConfig {
     fn from(config: RuntimeConfigView) -> Self {
         Self {
@@ -2577,5 +2577,30 @@ impl From<ExtCostsConfigView> for near_primitives_core::config::ExtCostsConfig {
                 ExtCosts::alt_bn128_pairing_check_element => view.alt_bn128_pairing_check_element,
         };
         Self { costs }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RuntimeConfigView;
+    use crate::runtime::config::RuntimeConfig;
+
+    /// The JSON representation used in RPC responses must not remove or rename
+    /// fields, only adding fields is allowed or we risk breaking clients.
+    #[test]
+    fn test_runtime_config_view() {
+        let config = RuntimeConfig::test();
+        let view = RuntimeConfigView::from(config);
+        insta::assert_json_snapshot!(&view);
+    }
+
+    /// A `RuntimeConfigView` must contain all info to reconstruct a `RuntimeConfig`.
+    #[test]
+    fn test_runtime_config_view_is_complete() {
+        let config = RuntimeConfig::test();
+        let view = RuntimeConfigView::from(config.clone());
+        let reconstructed_config = RuntimeConfig::from(view);
+
+        assert_eq!(config, reconstructed_config);
     }
 }
