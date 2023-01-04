@@ -2600,9 +2600,13 @@ impl From<ExtCostsConfigView> for near_primitives_core::config::ExtCostsConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::{ExecutionMetadataView, RuntimeConfigView};
+    #[cfg(not(feature = "nightly_protocol"))]
+    use super::ExecutionMetadataView;
+    use super::RuntimeConfigView;
     use crate::runtime::config::RuntimeConfig;
+    #[cfg(not(feature = "nightly_protocol"))]
     use crate::transaction::ExecutionMetadata;
+    #[cfg(not(feature = "nightly_protocol"))]
     use near_primitives_core::profile::{ProfileDataV2, ProfileDataV3};
 
     /// The JSON representation used in RPC responses must not remove or rename
