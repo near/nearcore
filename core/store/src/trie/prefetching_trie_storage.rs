@@ -1,5 +1,4 @@
 use crate::sync_utils::Monitor;
-use crate::trie::POISONED_LOCK_ERR;
 use crate::{
     metrics, DBCol, StorageError, Store, Trie, TrieCache, TrieCachingStorage, TrieConfig,
     TrieStorage,
@@ -224,7 +223,7 @@ impl TrieStorage for TriePrefetchingStorage {
     //    block the main thread otherwise.
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
         // Try to get value from shard cache containing most recently touched nodes.
-        let mut shard_cache_guard = self.shard_cache.0.lock().expect(POISONED_LOCK_ERR);
+        let mut shard_cache_guard = self.shard_cache.lock();
         if let Some(val) = shard_cache_guard.get(hash) {
             return Ok(val);
         }
@@ -270,7 +269,7 @@ impl TrieStorage for TriePrefetchingStorage {
                     .or_else(|| {
                         // `blocking_get` will return None if the prefetch slot has been removed
                         // by the main thread and the value inserted into the shard cache.
-                        let mut guard = self.shard_cache.0.lock().expect(POISONED_LOCK_ERR);
+                        let mut guard = self.shard_cache.lock();
                         guard.get(hash)
                     })
                     .ok_or_else(|| {
