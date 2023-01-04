@@ -126,8 +126,6 @@ pub fn prepare_contract(original_code: &[u8], config: &VMConfig) -> Result<Vec<u
             .scan_imports()?
             .standardize_mem()
             .ensure_no_internal_memory()?
-            .inject_gas_metering()?
-            .inject_stack_height_metering()?
             .into_wasm_code(),
     }
 }
