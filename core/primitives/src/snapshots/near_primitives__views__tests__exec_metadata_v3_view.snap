@@ -7,77 +7,77 @@ expression: view
   "gas_profile": [
     {
       "cost_category": "ACTION_COST",
-      "cost": "add_full_access_key",
+      "cost": "ADD_FULL_ACCESS_KEY",
       "gas_used": "1008"
     },
     {
       "cost_category": "ACTION_COST",
-      "cost": "add_function_call_key_base",
+      "cost": "ADD_FUNCTION_CALL_KEY_BASE",
       "gas_used": "1009"
     },
     {
       "cost_category": "ACTION_COST",
-      "cost": "add_function_call_key_byte",
+      "cost": "ADD_FUNCTION_CALL_KEY_BYTE",
       "gas_used": "1010"
     },
     {
       "cost_category": "ACTION_COST",
-      "cost": "create_account",
+      "cost": "CREATE_ACCOUNT",
       "gas_used": "1000"
     },
     {
       "cost_category": "ACTION_COST",
-      "cost": "delete_account",
+      "cost": "DELETE_ACCOUNT",
       "gas_used": "1001"
     },
     {
       "cost_category": "ACTION_COST",
-      "cost": "delete_key",
+      "cost": "DELETE_KEY",
       "gas_used": "1011"
     },
     {
       "cost_category": "ACTION_COST",
-      "cost": "deploy_contract_base",
+      "cost": "DEPLOY_CONTRACT_BASE",
       "gas_used": "1002"
     },
     {
       "cost_category": "ACTION_COST",
-      "cost": "deploy_contract_byte",
+      "cost": "DEPLOY_CONTRACT_BYTE",
       "gas_used": "1003"
     },
     {
       "cost_category": "ACTION_COST",
-      "cost": "function_call_base",
+      "cost": "FUNCTION_CALL_BASE",
       "gas_used": "1004"
     },
     {
       "cost_category": "ACTION_COST",
-      "cost": "function_call_byte",
+      "cost": "FUNCTION_CALL_BYTE",
       "gas_used": "1005"
     },
     {
       "cost_category": "ACTION_COST",
-      "cost": "new_action_receipt",
+      "cost": "NEW_ACTION_RECEIPT",
       "gas_used": "1012"
     },
     {
       "cost_category": "ACTION_COST",
-      "cost": "new_data_receipt_base",
+      "cost": "NEW_DATA_RECEIPT_BASE",
       "gas_used": "1013"
     },
     {
       "cost_category": "ACTION_COST",
-      "cost": "new_data_receipt_byte",
+      "cost": "NEW_DATA_RECEIPT_BYTE",
       "gas_used": "1014"
     },
     {
       "cost_category": "ACTION_COST",
-      "cost": "stake",
+      "cost": "STAKE",
       "gas_used": "1007"
     },
     {
       "cost_category": "ACTION_COST",
-      "cost": "transfer",
+      "cost": "TRANSFER",
       "gas_used": "1006"
     },
     {
@@ -109,11 +109,6 @@ expression: view
       "cost_category": "WASM_HOST_COST",
       "cost": "ALT_BN128_PAIRING_CHECK_ELEMENT",
       "gas_used": "56"
-    },
-    {
-      "cost_category": "WASM_HOST_COST",
-      "cost": "BASE",
-      "gas_used": "0"
     },
     {
       "cost_category": "WASM_HOST_COST",
@@ -354,11 +349,6 @@ expression: view
       "cost_category": "WASM_HOST_COST",
       "cost": "VALIDATOR_TOTAL_STAKE_BASE",
       "gas_used": "52"
-    },
-    {
-      "cost_category": "WASM_HOST_COST",
-      "cost": "WASM_INSTRUCTION",
-      "gas_used": "0"
     },
     {
       "cost_category": "WASM_HOST_COST",
