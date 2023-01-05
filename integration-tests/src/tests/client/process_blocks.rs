@@ -20,9 +20,7 @@ use near_chain::{
     Block, BlockProcessingArtifact, ChainGenesis, ChainStore, ChainStoreAccess, Error, Provenance,
     RuntimeAdapter,
 };
-use near_chain_configs::{
-    ClientConfig, Genesis, StaticClientConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
-};
+use near_chain_configs::{ClientConfig, Genesis, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
 use near_chunks::{ChunkStatus, ShardsManager};
 use near_client::test_utils::{
     create_chunk_on_height, setup_client, setup_mock, setup_mock_all_validators, TestEnv,
@@ -2016,8 +2014,7 @@ fn test_incorrect_validator_key_produce_block() {
         KeyType::ED25519,
         "seed",
     ));
-    let mut config =
-        ClientConfig::new(StaticClientConfig::test(true, 10, 20, 2, false, true, true));
+    let mut config = ClientConfig::test(true, 10, 20, 2, false, true, true);
     config.epoch_length = chain_genesis.epoch_length;
     let mut client = Client::new(
         config,

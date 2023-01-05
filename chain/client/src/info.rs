@@ -661,7 +661,6 @@ mod tests {
     use near_chain::test_utils::{KeyValueRuntime, ValidatorSchedule};
     use near_chain::types::ChainConfig;
     use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
-    use near_chain_configs::StaticClientConfig;
     use near_network::test_utils::peer_id_from_seed;
     use near_primitives::version::PROTOCOL_VERSION;
     use num_rational::Ratio;
@@ -688,8 +687,7 @@ mod tests {
 
     #[test]
     fn telemetry_info() {
-        let config =
-            ClientConfig::new(StaticClientConfig::test(false, 1230, 2340, 50, false, true, true));
+        let config = ClientConfig::test(false, 1230, 2340, 50, false, true, true);
         let info_helper = InfoHelper::new(None, &config, None);
 
         let store = near_store::test_utils::create_test_store();

@@ -2,7 +2,7 @@ use actix::{Actor, Addr};
 use anyhow::{anyhow, bail, Context};
 use near_chain::test_utils::{KeyValueRuntime, ValidatorSchedule};
 use near_chain::{Chain, ChainGenesis};
-use near_chain_configs::{ClientConfig, StaticClientConfig};
+use near_chain_configs::ClientConfig;
 use near_client::{start_client, start_view_client};
 use near_network::actix::ActixSystem;
 use near_network::blacklist;
@@ -56,15 +56,7 @@ fn setup_network_node(
     let telemetry_actor = TelemetryActor::new(TelemetryConfig::default()).start();
 
     let db = store.into_inner(near_store::Temperature::Hot);
-    let mut client_config = ClientConfig::new(StaticClientConfig::test(
-        false,
-        100,
-        200,
-        num_validators,
-        false,
-        true,
-        true,
-    ));
+    let mut client_config = ClientConfig::test(false, 100, 200, num_validators, false, true, true);
     client_config.archive = config.archive;
     client_config.ttl_account_id_router = config.ttl_account_id_router.try_into().unwrap();
     let genesis_block = Chain::make_genesis_block(&*runtime, &chain_genesis).unwrap();
@@ -84,7 +76,6 @@ fn setup_network_node(
         telemetry_actor,
         None,
         adv.clone(),
-        None,
     )
     .0;
     let view_client_actor = start_view_client(
