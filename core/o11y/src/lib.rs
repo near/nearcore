@@ -457,10 +457,8 @@ pub fn reload(
     let log_reload_result = LOG_LAYER_RELOAD_HANDLE.get().map_or(
         Err(ReloadError::NoLogReloadHandle),
         |reload_handle| {
-            let mut builder = rust_log.map_or_else(
-                EnvFilterBuilder::from_env,
-                EnvFilterBuilder::new,
-            );
+            let mut builder =
+                rust_log.map_or_else(EnvFilterBuilder::from_env, EnvFilterBuilder::new);
             if let Some(module) = verbose_module {
                 builder = builder.verbose(Some(module));
             }
