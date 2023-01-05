@@ -717,11 +717,20 @@ def init_cluster(num_nodes, num_observers, num_shards, config,
     logger.info("Creating %s cluster configuration with %s nodes" %
                 ("LOCAL" if is_local else "REMOTE", num_nodes + num_observers))
 
+    binary_path = os.path.join(near_root, binary_name)
     process = subprocess.Popen([
-        os.path.join(near_root, binary_name), "localnet", "--v",
-        str(num_nodes), "--shards",
-        str(num_shards), "--n",
-        str(num_observers), "--prefix", "test"
+        binary_path,
+        "localnet",
+        "--validators",
+        str(num_nodes),
+        "--non-validators",
+        str(num_observers),
+        "--shards",
+        str(num_shards),
+        "--tracked-shards",
+        "none",
+        "--prefix",
+        "test",
     ],
                                stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE)
