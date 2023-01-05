@@ -101,6 +101,8 @@ impl Byte for u8 {
 }
 
 impl TrieKey {
+    // `is_empty` would not be useful since TrieKey is not a container
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         match self {
             TrieKey::Account { account_id } => col::ACCOUNT.len() + account_id.len(),
@@ -242,10 +244,7 @@ pub mod trie_key_parsers {
         Ok(&raw_key[prefix_len..])
     }
 
-    pub fn parse_account_id_prefix<'a>(
-        column: u8,
-        raw_key: &'a [u8],
-    ) -> Result<&'a [u8], std::io::Error> {
+    pub fn parse_account_id_prefix(column: u8, raw_key: &[u8]) -> Result<&[u8], std::io::Error> {
         let prefix = std::slice::from_ref(&column);
         if let Some(tail) = raw_key.strip_prefix(prefix) {
             Ok(tail)

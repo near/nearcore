@@ -290,6 +290,8 @@ mod tests {
     }
 }
 
+// Fixing this is quite involved, so silencing the warning for now
+#[allow(clippy::module_inception)]
 mod time {
     use crate::time::{Clock, Duration, Utc};
     use borsh::{BorshDeserialize, BorshSerialize};

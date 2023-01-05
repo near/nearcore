@@ -11,7 +11,6 @@ use crate::sharding::{
     ReceiptProof, ShardChunk, ShardChunkHeader, ShardChunkHeaderV1, ShardChunkV1,
 };
 use crate::types::{BlockHeight, ShardId, StateRoot, StateRootNode};
-use crate::views::LightClientBlockView;
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub struct ReceiptProofResponse(pub CryptoHash, pub Arc<Vec<ReceiptProof>>);
@@ -209,12 +208,6 @@ pub struct EpochSyncFinalizationResponse {
     // Next Epoch Info is required by Block Sync when Blocks of current Epoch will come.
     // It asks in `process_block_single`, returns `Epoch Out Of Bounds` error otherwise.
     pub next_epoch_info: EpochInfo,
-}
-
-#[derive(BorshSerialize, BorshDeserialize, Eq, PartialEq, Debug, Clone)]
-pub enum EpochSyncResponse {
-    UpToDate,
-    Advance { light_client_block_view: LightClientBlockView },
 }
 
 pub const STATE_PART_MEMORY_LIMIT: bytesize::ByteSize = bytesize::ByteSize(bytesize::MIB);

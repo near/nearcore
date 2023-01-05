@@ -310,17 +310,17 @@ impl DBCol {
     /// In some sence, insert-only column acts as an rc-column, where rc is
     /// always one.
     pub const fn is_insert_only(&self) -> bool {
-        match self {
+        matches!(
+            self,
             DBCol::Block
-            | DBCol::BlockHeader
-            | DBCol::BlockExtra
-            | DBCol::BlockInfo
-            | DBCol::Chunks
-            | DBCol::InvalidChunks
-            | DBCol::PartialChunks
-            | DBCol::TransactionResultForBlock => true,
-            _ => false,
-        }
+                | DBCol::BlockHeader
+                | DBCol::BlockExtra
+                | DBCol::BlockInfo
+                | DBCol::Chunks
+                | DBCol::InvalidChunks
+                | DBCol::PartialChunks
+                | DBCol::TransactionResultForBlock
+        )
     }
 
     /// Whethere this column is reference-counted.

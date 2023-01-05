@@ -174,7 +174,7 @@ pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protoco
 /// nightly builds will vote for new protocols immediately).  On release builds
 /// it’s set according to the schedule for that protocol upgrade.  Release
 /// candidates usually have separate schedule to final releases.
-pub const PROTOCOL_UPGRADE_SCHEDULE: Lazy<ProtocolUpgradeVotingSchedule> = Lazy::new(|| {
+pub static PROTOCOL_UPGRADE_SCHEDULE: Lazy<ProtocolUpgradeVotingSchedule> = Lazy::new(|| {
     // Update to according to schedule when making a release.
     ProtocolUpgradeVotingSchedule::default()
 });

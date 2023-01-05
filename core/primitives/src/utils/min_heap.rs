@@ -28,6 +28,10 @@ impl<T: Ord> MinHeap<T> {
         self.inner.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+
     pub fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
         self.inner.extend(iter.into_iter().map(|item| Reverse(item)))
     }

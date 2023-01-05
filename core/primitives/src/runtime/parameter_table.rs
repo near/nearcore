@@ -249,7 +249,7 @@ fn txt_to_key_values(
         .map(|(nr, trimmed)| {
             let (key, value) = trimmed
                 .split_once(':')
-                .ok_or(InvalidConfigError::NoSeparator(nr + 1, trimmed.to_owned()))?;
+                .ok_or_else(|| InvalidConfigError::NoSeparator(nr + 1, trimmed.to_owned()))?;
             let typed_key: Parameter = key
                 .trim()
                 .parse()

@@ -332,6 +332,7 @@ impl BlockHeader {
         combine_hash(&hash_inner, &prev_hash)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         this_epoch_protocol_version: ProtocolVersion,
         next_epoch_protocol_version: ProtocolVersion,
@@ -471,6 +472,7 @@ impl BlockHeader {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn genesis(
         genesis_protocol_version: ProtocolVersion,
         height: BlockHeight,

@@ -112,6 +112,7 @@ impl ShardChunkHeaderV2 {
         ChunkHash(combine_hash(&inner_hash, &inner.encoded_merkle_root))
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         prev_block_hash: CryptoHash,
         prev_state_root: StateRoot,
@@ -176,6 +177,7 @@ impl ShardChunkHeaderV3 {
         ChunkHash(combine_hash(&inner_hash, inner.encoded_merkle_root()))
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         prev_block_hash: CryptoHash,
         prev_state_root: StateRoot,
@@ -425,6 +427,7 @@ impl ShardChunkHeaderV1 {
         ChunkHash(inner_hash)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         prev_block_hash: CryptoHash,
         prev_state_root: StateRoot,
@@ -921,6 +924,7 @@ impl EncodedShardChunk {
         TransactionReceipt::try_from_slice(&encoded_data)
     }
 
+    #[allow(clippy::type_complexity)]
     pub fn encode_transaction_receipts(
         rs: &mut ReedSolomonWrapper,
         transactions: Vec<SignedTransaction>,
@@ -952,6 +956,7 @@ impl EncodedShardChunk {
         Ok((parts, encoded_length as u64))
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         prev_block_hash: CryptoHash,
         prev_state_root: StateRoot,

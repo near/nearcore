@@ -174,6 +174,7 @@ impl SignedTransaction {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn create_contract(
         nonce: Nonce,
         originator: AccountId,
@@ -202,6 +203,7 @@ impl SignedTransaction {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn call(
         nonce: Nonce,
         signer_id: AccountId,

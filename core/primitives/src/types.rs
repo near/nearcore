@@ -520,6 +520,10 @@ pub mod validator_stake {
         pub fn len(&self) -> usize {
             self.len
         }
+
+        pub fn is_empty(&self) -> bool {
+            self.len == 0
+        }
     }
 
     impl<'a> Iterator for ValidatorStakeIter<'a> {

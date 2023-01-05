@@ -295,10 +295,7 @@ impl Error {
     }
 
     pub fn is_error(&self) -> bool {
-        match self {
-            Error::IOErr(_) | Error::Other(_) | Error::DBNotFoundErr(_) => true,
-            _ => false,
-        }
+        matches!(self, Error::IOErr(_) | Error::Other(_) | Error::DBNotFoundErr(_))
     }
 }
 

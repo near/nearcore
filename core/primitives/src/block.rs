@@ -190,6 +190,7 @@ impl Block {
     }
 
     /// Produces new block from header of previous block, current state root and set of transactions.
+    #[allow(clippy::too_many_arguments)]
     pub fn produce(
         this_epoch_protocol_version: ProtocolVersion,
         next_epoch_protocol_version: ProtocolVersion,
@@ -576,6 +577,13 @@ impl<'a> ChunksCollection<'a> {
         match self {
             ChunksCollection::V1(chunks) => chunks.len(),
             ChunksCollection::V2(chunks) => chunks.len(),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        match self {
+            ChunksCollection::V1(chunks) => chunks.is_empty(),
+            ChunksCollection::V2(chunks) => chunks.is_empty(),
         }
     }
 
