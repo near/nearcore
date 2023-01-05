@@ -67,9 +67,8 @@ impl<T: Clone + Send> Receiver<T> {
             let new_value_pushed = self.channel.notify.notified();
             // Synchronically check if the channel is non-empty.
             // If so, pop a value and return immediately.
-            let v = if l.len() > self.next - 1 { Some(l[self.next - 1].clone()) } else { None };
-            if let Some(v) = v {
-                return v;
+            if let Some(v) = l.get(self.next - 1) {
+                return v.clone();
             }
             new_value_pushed
         };

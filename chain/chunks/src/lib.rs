@@ -603,32 +603,25 @@ impl ShardsManager {
                 continue;
             }
 
-            let need_to_fetch_part = if request_full || seal.contains_part_ord(&part_ord) {
-                true
+            // Note: If request_from_archival is true, we potentially call
+            // get_part_owner unnecessarily.  It’s probably not worth optimising
+            // though unless you can think of a concise way to do it.
+            let part_owner = self.runtime_adapter.get_part_owner(&epoch_id, part_ord)?;
+            let we_own_part = Some(&part_owner) == me;
+            if !request_full && !we_own_part && !seal.contains_part_ord(&part_ord) {
+                continue;
+            }
+
+            let fetch_from = if request_from_archival {
+                shard_representative_target.clone()
+            } else if we_own_part {
+                // If missing own part, request it from the chunk producer / node tracking shard
+                shard_representative_target.clone()
             } else {
-                if let Some(me) = me {
-                    &self.runtime_adapter.get_part_owner(&epoch_id, part_ord)? == me
-                } else {
-                    false
-                }
+                Some(part_owner)
             };
 
-            if need_to_fetch_part {
-                let fetch_from = if request_from_archival {
-                    shard_representative_target.clone()
-                } else {
-                    let part_owner = self.runtime_adapter.get_part_owner(&epoch_id, part_ord)?;
-
-                    if Some(&part_owner) == me {
-                        // If missing own part, request it from the chunk producer / node tracking shard
-                        shard_representative_target.clone()
-                    } else {
-                        Some(part_owner)
-                    }
-                };
-
-                bp_to_parts.entry(fetch_from).or_default().push(part_ord);
-            }
+            bp_to_parts.entry(fetch_from).or_default().push(part_ord);
         }
 
         let shards_to_fetch_receipts =
