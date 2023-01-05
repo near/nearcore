@@ -55,11 +55,11 @@ impl From<CryptoHash> for ChunkHash {
     }
 }
 
-#[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct ShardInfo(pub ShardId, pub ChunkHash);
 
 /// Contains the information that is used to sync state for shards as epochs switch
-#[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct StateSyncInfo {
     /// The first block of the epoch for which syncing is happening
     pub epoch_tail_hash: CryptoHash,
@@ -399,7 +399,7 @@ impl ShardChunkHeader {
         match &self {
             ShardChunkHeader::V1(_) => version < SHARD_CHUNK_HEADER_UPGRADE_VERSION,
             ShardChunkHeader::V2(_) => {
-                SHARD_CHUNK_HEADER_UPGRADE_VERSION <= version && version < BLOCK_HEADER_V3_VERSION
+                (SHARD_CHUNK_HEADER_UPGRADE_VERSION..BLOCK_HEADER_V3_VERSION).contains(&version)
             }
             ShardChunkHeader::V3(_) => BLOCK_HEADER_V3_VERSION <= version,
         }

@@ -62,7 +62,7 @@ impl MockClockPerThread {
         thread_local! {
             static INSTANCE: RefCell<MockClockPerThread> = RefCell::default()
         }
-        INSTANCE.with(|it| f(&mut *it.borrow_mut()))
+        INSTANCE.with(|it| f(&mut it.borrow_mut()))
     }
 }
 

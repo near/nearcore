@@ -200,7 +200,7 @@ mod tests {
         let items = vec![111, 222, 333];
         let (root, paths) = merklize(&items);
         for i in 0..items.len() {
-            assert!(!verify_path(root, &paths[(i + 1) % 3], &items[i]))
+            assert!(!verify_path(root, &paths[(i + 1) % 3], items[i]))
         }
     }
 

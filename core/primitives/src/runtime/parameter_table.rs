@@ -240,7 +240,7 @@ fn txt_to_key_values(
         .filter_map(|(nr, line)| {
             // ignore comments and empty lines
             let trimmed = line.trim();
-            if trimmed.starts_with("#") || trimmed.is_empty() {
+            if trimmed.starts_with('#') || trimmed.is_empty() {
                 None
             } else {
                 Some((nr, trimmed))
@@ -248,7 +248,7 @@ fn txt_to_key_values(
         })
         .map(|(nr, trimmed)| {
             let (key, value) = trimmed
-                .split_once(":")
+                .split_once(':')
                 .ok_or(InvalidConfigError::NoSeparator(nr + 1, trimmed.to_owned()))?;
             let typed_key: Parameter = key
                 .trim()
@@ -266,7 +266,7 @@ fn parse_parameter_txt_value(value: &str) -> Result<serde_json::Value, InvalidCo
     if value.is_empty() {
         return Ok(serde_json::Value::Null);
     }
-    if value.bytes().all(|c| c.is_ascii_digit() || c == '_' as u8) {
+    if value.bytes().all(|c| c.is_ascii_digit() || c == b'_') {
         let mut raw_number = value.to_owned();
         raw_number.retain(char::is_numeric);
         // We do not have "arbitrary_precision" serde feature enabled, thus we

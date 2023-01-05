@@ -191,7 +191,7 @@ impl TrieKey {
             }
             TrieKey::DelayedReceipt { index } => {
                 buf.push(col::DELAYED_RECEIPT_INDICES);
-                buf.extend(&index.to_le_bytes());
+                buf.extend(index.to_le_bytes());
             }
             TrieKey::ContractData { account_id, key } => {
                 buf.push(col::CONTRACT_DATA);

@@ -468,7 +468,7 @@ pub struct BlockStatusView {
 
 impl BlockStatusView {
     pub fn new(height: &BlockHeight, hash: &CryptoHash) -> BlockStatusView {
-        Self { height: height.clone(), hash: hash.clone() }
+        Self { height: *height, hash: *hash }
     }
 }
 
@@ -486,7 +486,7 @@ pub struct PartElapsedTimeView {
 
 impl PartElapsedTimeView {
     pub fn new(part_id: &u64, elapsed_ms: u128) -> PartElapsedTimeView {
-        Self { part_id: part_id.clone(), elapsed_ms }
+        Self { part_id: *part_id, elapsed_ms }
     }
 }
 
@@ -1112,10 +1112,10 @@ impl TryFrom<ActionView> for Action {
         Ok(match action_view {
             ActionView::CreateAccount => Action::CreateAccount(CreateAccountAction {}),
             ActionView::DeployContract { code } => {
-                Action::DeployContract(DeployContractAction { code: code })
+                Action::DeployContract(DeployContractAction { code })
             }
             ActionView::FunctionCall { method_name, args, gas, deposit } => {
-                Action::FunctionCall(FunctionCallAction { method_name, args: args, gas, deposit })
+                Action::FunctionCall(FunctionCallAction { method_name, args, gas, deposit })
             }
             ActionView::Transfer { deposit } => Action::Transfer(TransferAction { deposit }),
             ActionView::Stake { stake, public_key } => {
