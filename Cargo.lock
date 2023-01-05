@@ -3429,6 +3429,7 @@ dependencies = [
  "serde_repr",
  "sha2 0.10.2",
  "strum",
+ "thiserror",
 ]
 
 [[package]]
