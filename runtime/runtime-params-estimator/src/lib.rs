@@ -376,9 +376,9 @@ fn action_transfer(ctx: &mut EstimatorContext) -> GasCost {
 fn action_create_account(ctx: &mut EstimatorContext) -> GasCost {
     let total_cost = {
         let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
-            let sender = tb.random_account();
-            let new_account =
-                AccountId::try_from(format!("{}_{}", sender, tb.rng().gen::<u64>())).unwrap();
+            let sender = tb.random_unused_account();
+            // derive a non-existing account id
+            let new_account = AccountId::try_from(format!("{sender}_x")).unwrap();
 
             let actions = vec![
                 Action::CreateAccount(CreateAccountAction {}),
