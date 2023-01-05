@@ -233,7 +233,7 @@ fn get_cold_key<'a>(col: DBCol, key: &[u8], buffer: &'a mut [u8; 32]) -> Option<
         DBCol::BlockHeight
         | DBCol::BlockPerHeight
         | DBCol::ChunkHashesByHeight
-        | DBCol::ProcessedBlockHeights
+        | DBCol::_ProcessedBlockHeights
         | DBCol::HeaderHashesByHeight => {
             // Key is `little_endian(height)`
             let num = u64::from_le_bytes(key.try_into().unwrap());
@@ -363,7 +363,7 @@ mod test {
             DBCol::BlockHeight,
             DBCol::BlockPerHeight,
             DBCol::ChunkHashesByHeight,
-            DBCol::ProcessedBlockHeights,
+            DBCol::_ProcessedBlockHeights,
             DBCol::HeaderHashesByHeight,
         ];
         let mut ops: Vec<_> = height_columns.iter().map(|col| set(*col, HEIGHT_LE)).collect();

@@ -312,3 +312,14 @@ pub fn migrate_33_to_34(
     update.commit()?;
     Ok(())
 }
+
+/// Migrates the database from version 34 to 35.
+///
+/// This involves deleting contents of ProcessedBlockHeights column which is now
+/// deprecated and no longer used.
+pub fn migrate_34_to_35(storage: &crate::NodeStorage) -> anyhow::Result<()> {
+    let mut update = storage.get_store(crate::Temperature::Hot).store_update();
+    update.delete_all(DBCol::_ProcessedBlockHeights);
+    update.commit()?;
+    Ok(())
+}

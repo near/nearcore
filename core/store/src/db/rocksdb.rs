@@ -623,7 +623,7 @@ fn col_name(col: DBCol) -> &'static str {
         DBCol::_GCCount => "col41",
         DBCol::OutcomeIds => "col42",
         DBCol::_TransactionRefCount => "col43",
-        DBCol::ProcessedBlockHeights => "col44",
+        DBCol::_ProcessedBlockHeights => "col44",
         DBCol::Receipts => "col45",
         DBCol::CachedContractCode => "col46",
         DBCol::EpochValidatorInfo => "col47",

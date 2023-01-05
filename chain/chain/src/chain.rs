@@ -105,6 +105,9 @@ pub const NUM_ORPHAN_ANCESTORS_CHECK: u64 = 3;
 /// The size of the invalid_blocks in-memory pool
 pub const INVALID_CHUNKS_POOL_SIZE: usize = 5000;
 
+/// The size of the processed_heights in-memory pool
+pub const PROCESSED_HEIGHTS_POOL_SIZE: usize = 5000;
+
 // Maximum number of orphans that we can request missing chunks
 // Note that if there are no forks, the maximum number of orphans we would
 // request missing chunks will not exceed NUM_ORPHAN_ANCESTORS_CHECK,
@@ -454,6 +457,7 @@ pub struct Chain {
     /// Used when it is needed to create flat storage in background for some shards.
     flat_storage_creator: Option<FlatStorageCreator>,
 
+    processed_heights: LruCache<BlockHeight, ()>,
     invalid_blocks: LruCache<CryptoHash, ()>,
 
     /// Support for sandbox's patch_state requests.
@@ -535,6 +539,7 @@ impl Chain {
             apply_chunks_receiver: rc,
             last_time_head_updated: Clock::instant(),
             flat_storage_creator: None,
+            processed_heights: LruCache::new(PROCESSED_HEIGHTS_POOL_SIZE),
             invalid_blocks: LruCache::new(INVALID_CHUNKS_POOL_SIZE),
             pending_state_patch: Default::default(),
             requested_state_parts: StateRequestTracker::new(),
@@ -683,6 +688,7 @@ impl Chain {
             blocks_with_missing_chunks: MissingChunksPool::new(),
             blocks_in_processing: BlocksInProcessing::new(),
             invalid_blocks: LruCache::new(INVALID_CHUNKS_POOL_SIZE),
+            processed_heights: LruCache::new(PROCESSED_HEIGHTS_POOL_SIZE),
             genesis: genesis.clone(),
             transaction_validity_period: chain_genesis.transaction_validity_period,
             epoch_length: chain_genesis.epoch_length,
@@ -795,15 +801,6 @@ impl Chain {
             Orphan { block, provenance: Provenance::NONE, added: Clock::instant() },
             requested_missing_chunks,
         );
-        Ok(())
-    }
-
-    fn save_block_height_processed(&mut self, block_height: BlockHeight) -> Result<(), Error> {
-        let mut chain_store_update = ChainStoreUpdate::new(&mut self.store);
-        if !chain_store_update.is_height_processed(block_height)? {
-            chain_store_update.save_block_height_processed(block_height);
-        }
-        chain_store_update.commit()?;
         Ok(())
     }
 
@@ -1662,14 +1659,12 @@ impl Chain {
             self.blocks_delay_tracker
                 .mark_block_dropped(&hash, DroppedReason::TooManyProcessingBlocks);
         }
+
         // Save the block as processed even if it failed. This is used to filter out the
         // incoming blocks that are not requested on heights which we already processed.
         // If there is a new incoming block that we didn't request and we already have height
         // processed 'marked as true' - then we'll not even attempt to process it
-        if let Err(e) = self.save_block_height_processed(block_height) {
-            warn!(target: "chain", "Failed to save processed height {}: {}", block_height, e);
-        }
-
+        self.processed_heights.put(block_height, ());
         res
     }
 
@@ -4402,8 +4397,8 @@ impl Chain {
     }
 
     #[inline]
-    pub fn is_height_processed(&self, height: BlockHeight) -> Result<bool, Error> {
-        self.store.is_height_processed(height)
+    pub fn is_height_processed(&self, height: BlockHeight) -> bool {
+        self.processed_heights.contains(&height)
     }
 
     #[inline]

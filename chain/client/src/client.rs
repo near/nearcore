@@ -1028,7 +1028,7 @@ impl Client {
                     .head()
                     .map_or_else(|_| CryptoHash::default(), |tip| tip.last_block_hash)
         {
-            if self.chain.is_height_processed(block.header().height())? {
+            if self.chain.is_height_processed(block.header().height()) {
                 debug!(target: "client", height = block.header().height(), "Dropping a block because we've seen this height before and we didn't request it");
                 return Ok(false);
             }

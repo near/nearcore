@@ -211,10 +211,8 @@ pub enum DBCol {
     /// Deprecated
     #[strum(serialize = "TransactionRefCount")]
     _TransactionRefCount,
-    /// Heights of blocks that have been processed.
-    /// - *Rows*: height (u64)
-    /// - *Column type*: empty
-    ProcessedBlockHeights,
+    /// Deprecated
+    _ProcessedBlockHeights,
     /// Mapping from receipt hash to Receipt. Note that this doesn't store _all_
     /// receipts. Some receipts are ephemeral and get processed after creation
     /// without getting into the database at all.
@@ -449,7 +447,7 @@ impl DBCol {
             DBCol::_GCCount => &[DBKeyType::ColumnId],
             DBCol::OutcomeIds => &[DBKeyType::BlockHash, DBKeyType::ShardId],
             DBCol::_TransactionRefCount => &[DBKeyType::TransactionHash],
-            DBCol::ProcessedBlockHeights => &[DBKeyType::BlockHeight],
+            DBCol::_ProcessedBlockHeights => &[DBKeyType::BlockHeight],
             DBCol::Receipts => &[DBKeyType::ReceiptHash],
             DBCol::CachedContractCode => &[DBKeyType::ContractCacheKey],
             DBCol::EpochValidatorInfo => &[DBKeyType::EpochId],

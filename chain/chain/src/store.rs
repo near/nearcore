@@ -280,8 +280,6 @@ pub trait ChainStoreAccess {
         self.get_block_merkle_tree(&block_hash)
     }
 
-    fn is_height_processed(&self, height: BlockHeight) -> Result<bool, Error>;
-
     fn get_block_height(&self, hash: &CryptoHash) -> Result<BlockHeight, Error> {
         if hash == &CryptoHash::default() {
             Ok(self.get_genesis_height())
@@ -1118,16 +1116,6 @@ impl ChainStoreAccess for ChainStore {
             format_args!("BLOCK ORDINAL: {}", block_ordinal),
         )
     }
-
-    fn is_height_processed(&self, height: BlockHeight) -> Result<bool, Error> {
-        self.read_with_cache(
-            DBCol::ProcessedBlockHeights,
-            &self.processed_block_heights,
-            &index_to_bytes(height),
-        )
-        .map(|r| r.is_some())
-        .map_err(|e| e.into())
-    }
 }
 
 impl ChainAccessForFlatStorage for ChainStore {
@@ -1168,7 +1156,6 @@ struct ChainStoreCacheUpdate {
     block_refcounts: HashMap<CryptoHash, u64>,
     block_merkle_tree: HashMap<CryptoHash, Arc<PartialMerkleTree>>,
     block_ordinal_to_hash: HashMap<NumBlocks, CryptoHash>,
-    processed_block_heights: HashSet<BlockHeight>,
 }
 
 /// Provides layer to update chain without touching the underlying database.
@@ -1531,14 +1518,6 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
             self.chain_store.get_block_hash_from_ordinal(block_ordinal)
         }
     }
-
-    fn is_height_processed(&self, height: BlockHeight) -> Result<bool, Error> {
-        if self.chain_store_cache_update.processed_block_heights.contains(&height) {
-            Ok(true)
-        } else {
-            self.chain_store.is_height_processed(height)
-        }
-    }
 }
 
 impl<'a> ChainStoreUpdate<'a> {
@@ -1878,10 +1857,6 @@ impl<'a> ChainStoreUpdate<'a> {
         self.chain_store_cache_update.invalid_chunks.insert(chunk.chunk_hash(), Arc::new(chunk));
     }
 
-    pub fn save_block_height_processed(&mut self, height: BlockHeight) {
-        self.chain_store_cache_update.processed_block_heights.insert(height);
-    }
-
     pub fn inc_block_refcount(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
         let refcount = match self.get_block_refcount(block_hash) {
             Ok(refcount) => refcount,
@@ -2208,9 +2183,6 @@ impl<'a> ChainStoreUpdate<'a> {
             store_update.set_ser(DBCol::BlockPerHeight, key, &epoch_to_hashes)?;
             self.chain_store.block_hash_per_height.put(key.to_vec(), Arc::new(epoch_to_hashes));
         }
-        if self.is_height_processed(height)? {
-            self.gc_col(DBCol::ProcessedBlockHeights, key);
-        }
         self.merge(store_update);
         Ok(())
     }
@@ -2380,7 +2352,7 @@ impl<'a> ChainStoreUpdate<'a> {
             DBCol::BlockInfo => {
                 store_update.delete(col, key);
             }
-            DBCol::ProcessedBlockHeights => {
+            DBCol::_ProcessedBlockHeights => {
                 store_update.delete(col, key);
                 self.chain_store.processed_block_heights.pop(key);
             }
@@ -2541,7 +2513,6 @@ impl<'a> ChainStoreUpdate<'a> {
             .chain_store_cache_update
             .block_ordinal_to_hash
             .insert(block_merkle_tree.size(), *block_hash);
-        chain_store_update.chain_store_cache_update.processed_block_heights.insert(height);
 
         // other information not directly related to this block
         chain_store_update.chain_store_cache_update.height_to_hashes.insert(
@@ -2849,13 +2820,6 @@ impl<'a> ChainStoreUpdate<'a> {
         for (chunk_hash, chunk) in self.chain_store_cache_update.invalid_chunks.iter() {
             store_update.insert_ser(DBCol::InvalidChunks, chunk_hash.as_ref(), chunk)?;
         }
-        for block_height in self.chain_store_cache_update.processed_block_heights.iter() {
-            store_update.set_ser(
-                DBCol::ProcessedBlockHeights,
-                &index_to_bytes(*block_height),
-                &(),
-            )?;
-        }
         for other in self.store_updates.drain(..) {
             store_update.merge(other);
         }
@@ -2885,7 +2849,6 @@ impl<'a> ChainStoreUpdate<'a> {
             block_refcounts,
             block_merkle_tree,
             block_ordinal_to_hash,
-            processed_block_heights,
 
             outcomes: _,
             outcome_ids: _,
@@ -2958,9 +2921,6 @@ impl<'a> ChainStoreUpdate<'a> {
             self.chain_store
                 .block_ordinal_to_hash
                 .put(index_to_bytes(block_ordinal).to_vec(), block_hash);
-        }
-        for block_height in processed_block_heights {
-            self.chain_store.processed_block_heights.put(index_to_bytes(block_height).to_vec(), ());
         }
         self.chain_store.head = self.head;
         self.chain_store.tail = self.tail;
