@@ -7,7 +7,7 @@ use actix_web;
 use anyhow::Context;
 use near_chain::{Chain, ChainGenesis};
 use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
-use near_dyn_configs::UpdateableConfigs;
+use near_dyn_configs::{DynConfigsError, UpdateableConfigs};
 use near_network::time;
 use near_network::types::NetworkRecipient;
 use near_network::PeerManagerActor;
@@ -165,7 +165,7 @@ pub fn start_with_config_and_synchronization(
     // 'shutdown_signal' will notify the corresponding `oneshot::Receiver` when an instance of
     // `ClientActor` gets dropped.
     shutdown_signal: Option<broadcast::Sender<()>>,
-    rx_config_update: Option<Receiver<UpdateableConfigs>>,
+    rx_config_update: Option<Receiver<Result<UpdateableConfigs, Arc<DynConfigsError>>>>,
 ) -> anyhow::Result<NearNode> {
     let store = open_storage(home_dir, &mut config)?;
 

@@ -40,7 +40,7 @@ use near_chunks::logic::cares_about_shard_this_or_next_epoch;
 use near_client_primitives::types::{
     Error, GetNetworkInfo, NetworkInfoResponse, Status, StatusError, StatusSyncInfo, SyncStatus,
 };
-use near_dyn_configs::UpdateableConfigs;
+use near_dyn_configs::{DynConfigsError, UpdateableConfigs};
 #[cfg(feature = "test_features")]
 use near_network::types::NetworkAdversarialMessage;
 use near_network::types::ReasonForBan;
@@ -123,7 +123,10 @@ pub struct ClientActor {
 
     /// `rx_config_update` is a way to get notified about the config being changed
     /// while the node is running.
-    rx_config_update: Option<Receiver<UpdateableConfigs>>,
+    rx_config_update: Option<Receiver<Result<UpdateableConfigs, Arc<DynConfigsError>>>>,
+
+    /// Represents the latest Error of reading the dynamically reloadable configs.
+    updateable_configs_error: Option<Arc<DynConfigsError>>,
 }
 
 /// Blocks the program until given genesis time arrives.
@@ -161,7 +164,7 @@ impl ClientActor {
         ctx: &Context<ClientActor>,
         shutdown_signal: Option<broadcast::Sender<()>>,
         adv: crate::adversarial::Controls,
-        rx_config_update: Option<Receiver<UpdateableConfigs>>,
+        rx_config_update: Option<Receiver<Result<UpdateableConfigs, Arc<DynConfigsError>>>>,
     ) -> Result<Self, Error> {
         let state_parts_arbiter = Arbiter::new();
         let self_addr = ctx.address();
@@ -232,6 +235,7 @@ impl ClientActor {
             fastforward_delta: 0,
             shutdown_signal,
             rx_config_update,
+            updateable_configs_error: None,
         })
     }
 }
@@ -1120,11 +1124,19 @@ impl ClientActor {
         // Check if any of the configs were updated. If they did, the receiver
         // will contain a clone of the new configs.
         self.rx_config_update.as_mut().map(|rx_config_update| {
-            while let Ok(updateable_configs) = rx_config_update.try_recv() {
-                if let Some(client_config) = updateable_configs.client_config {
-                    self.client.update_client_config(client_config);
+            while let Ok(maybe_updateable_configs) = rx_config_update.try_recv() {
+                match maybe_updateable_configs {
+                    Ok(updateable_configs) => {
+                        if let Some(client_config) = updateable_configs.client_config {
+                            self.client.update_client_config(client_config);
+                        }
+                        tracing::info!(target: "config", "Updated ClientConfig");
+                        self.updateable_configs_error = None;
+                    }
+                    Err(err) => {
+                        self.updateable_configs_error = Some(err.clone());
+                    }
                 }
-                tracing::info!(target: "client", "Updated ClientConfig");
             }
         });
         // There is a bug in Actix library. While there are messages in mailbox, Actix
@@ -1800,6 +1812,7 @@ impl ClientActor {
                 .unwrap_or(0),
             statistics,
             &self.client.config,
+            &self.updateable_configs_error,
         );
         debug!(target: "stats", "{}", self.client.chain.print_chain_processing_info_to_string(self.client.config.log_summary_style).unwrap_or(String::from("Upcoming block info failed.")));
     }
@@ -2018,7 +2031,7 @@ pub fn start_client(
     telemetry_actor: Addr<TelemetryActor>,
     sender: Option<broadcast::Sender<()>>,
     adv: crate::adversarial::Controls,
-    rx_config_update: Option<Receiver<UpdateableConfigs>>,
+    rx_config_update: Option<Receiver<Result<UpdateableConfigs, Arc<DynConfigsError>>>>,
 ) -> (Addr<ClientActor>, ArbiterHandle) {
     let client_arbiter = Arbiter::new();
     let client_arbiter_handle = client_arbiter.handle();

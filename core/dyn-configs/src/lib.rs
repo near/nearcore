@@ -1,9 +1,11 @@
 #![doc = include_str!("../README.md")]
 
-use near_chain_configs::{ClientConfig, UpdateableClientConfig};
+use near_chain_configs::UpdateableClientConfig;
 use near_o11y::log_config::LogConfig;
 use near_primitives::time::Clock;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
+use std::sync::Arc;
 use tokio::sync::broadcast::Sender;
 
 mod metrics;
@@ -21,35 +23,45 @@ pub struct UpdateableConfigs {
 pub struct DynConfigStore {
     /// The current version of the updateable configs.
     updateable_configs: UpdateableConfigs,
-    /// The default values of the configs, which is the values obtained at the node startup.
-    original_updateable_client_config: UpdateableClientConfig,
     /// Notifies receivers about the new config values available.
-    tx: Option<Sender<UpdateableConfigs>>,
+    tx: Option<Sender<Result<UpdateableConfigs, Arc<DynConfigsError>>>>,
+}
+
+#[derive(thiserror::Error, Debug)]
+#[non_exhaustive]
+pub enum DynConfigsError {
+    #[error("Failed to parse a dynamic config file {file:?}: {err:?}")]
+    Parse { file: PathBuf, err: serde_json::Error },
+    #[error("Can't open or read a dynamic config file {file:?}: {err:?}")]
+    OpenAndRead { file: PathBuf, err: std::io::Error },
+    #[error("Can't open or read the config file {file:?}: {err:?}")]
+    ConfigFileError { file: PathBuf, err: anyhow::Error },
+    #[error("One or multiple dynamic config files reload errors {0:?}")]
+    Errors(Vec<DynConfigsError>),
+    #[error("No home dir set")]
+    NoHomeDir(),
 }
 
 impl DynConfigStore {
-    pub fn reload(&mut self, mut updateable_configs: UpdateableConfigs) {
-        if updateable_configs.client_config.is_none() {
-            updateable_configs.client_config = Some(self.original_updateable_client_config.clone());
+    pub fn reload(&mut self, updateable_configs: Result<UpdateableConfigs, DynConfigsError>) {
+        match updateable_configs {
+            Ok(updateable_configs) => {
+                self.tx.as_ref().map(|tx| tx.send(Ok(updateable_configs.clone())));
+                self.updateable_configs = updateable_configs;
+                Self::update_metrics();
+            }
+            Err(err) => {
+                self.tx.as_ref().map(|tx| tx.send(Err(Arc::new(err))));
+            }
         }
-        self.tx.as_ref().map(|tx| tx.send(updateable_configs.clone()));
-        self.updateable_configs = updateable_configs;
-        Self::update_metrics();
     }
 
     pub fn new(
         updateable_configs: UpdateableConfigs,
-        original_client_config: ClientConfig,
-        tx: Sender<UpdateableConfigs>,
+        tx: Sender<Result<UpdateableConfigs, Arc<DynConfigsError>>>,
     ) -> Self {
         Self::update_metrics();
-        Self {
-            updateable_configs,
-            original_updateable_client_config: UpdateableClientConfig {
-                expected_shutdown: original_client_config.expected_shutdown.get(),
-            },
-            tx: Some(tx),
-        }
+        Self { updateable_configs, tx: Some(tx) }
     }
 
     pub fn log_config(&self) -> Option<&LogConfig> {
@@ -57,11 +69,7 @@ impl DynConfigStore {
     }
 
     pub fn updateable_client_config(&self) -> &UpdateableClientConfig {
-        if let Some(client_config) = self.updateable_configs.client_config.as_ref() {
-            client_config
-        } else {
-            &self.original_updateable_client_config
-        }
+        self.updateable_configs.client_config.as_ref().unwrap()
     }
 
     fn update_metrics() {

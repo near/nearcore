@@ -2872,8 +2872,10 @@ dependencies = [
  "chrono",
  "derive_more",
  "near-crypto",
+ "near-o11y",
  "near-primitives",
  "num-rational",
+ "once_cell",
  "serde",
  "serde_json",
  "sha2 0.10.2",
@@ -3016,6 +3018,7 @@ dependencies = [
 name = "near-dyn-configs"
 version = "0.0.0"
 dependencies = [
+ "anyhow",
  "near-chain-configs",
  "near-o11y",
  "near-primitives",

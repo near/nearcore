@@ -2,6 +2,7 @@ use crate::{metrics, rocksdb_metrics, SyncStatus};
 use actix::Addr;
 use itertools::Itertools;
 use near_chain_configs::{ClientConfig, LogSummaryStyle};
+use near_dyn_configs::DynConfigsError;
 use near_network::types::NetworkInfo;
 use near_primitives::block::Tip;
 use near_primitives::network::PeerId;
@@ -128,6 +129,7 @@ impl InfoHelper {
         protocol_upgrade_block_height: BlockHeight,
         statistics: Option<StoreStatistics>,
         client_config: &ClientConfig,
+        updateable_configs_error: &Option<Arc<DynConfigsError>>,
     ) {
         let use_colour = matches!(self.log_summary_style, LogSummaryStyle::Colored);
         let paint = |colour: ansi_term::Colour, text: Option<String>| match text {
@@ -190,10 +192,13 @@ impl InfoHelper {
             paint(ansi_term::Colour::Blue, machine_info_log),
         );
         if catchup_status_log != "" {
-            info!(target:"stats", "Catchups\n{}", catchup_status_log);
+            info!(target: "stats", "Catchups\n{}", catchup_status_log);
         }
         if let Some(statistics) = statistics {
             rocksdb_metrics::export_stats_as_metrics(statistics);
+        }
+        if let Some(updateable_configs_error) = updateable_configs_error {
+            tracing::warn!(target: "stats", "Dynamically updateable configs are not valid. Please fix this ASAP otherwise the node will be unable to restart: {}", *updateable_configs_error);
         }
 
         let (cpu_usage, memory_usage) = proc_info.unwrap_or_default();

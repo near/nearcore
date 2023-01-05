@@ -83,13 +83,14 @@ static DEFAULT_OTLP_LEVEL: OnceCell<OpenTelemetryLevel> = OnceCell::new();
 
 /// The default value for the `RUST_LOG` environment variable if one isn't specified otherwise.
 pub const DEFAULT_RUST_LOG: &'static str = "tokio_reactor=info,\
+     config=info,\
+     db=info,\
+     delay_detector=info,\
+     near-performance-metrics=info,\
      near=info,\
      recompress=info,\
      stats=info,\
      telemetry=info,\
-     db=info,\
-     delay_detector=info,\
-     near-performance-metrics=info,\
      warn";
 
 /// The resource representing a registered subscriber.

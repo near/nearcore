@@ -1,3 +1,5 @@
+use crate::metrics;
+use near_primitives::time::{Clock, Instant};
 use near_primitives::types::BlockHeight;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
@@ -8,11 +10,18 @@ use std::sync::{Arc, Mutex};
 pub struct MutableConfigValue<T> {
     value: Arc<Mutex<T>>,
     field_name: String,
+    last_update: Instant,
 }
 
 impl<T: Copy + PartialEq + Debug> MutableConfigValue<T> {
     pub fn new(val: T, field_name: &str) -> Self {
-        Self { value: Arc::new(Mutex::new(val)), field_name: field_name.to_string() }
+        let res = Self {
+            value: Arc::new(Mutex::new(val)),
+            field_name: field_name.to_string(),
+            last_update: Clock::instant(),
+        };
+        res.set_metric_value(1);
+        res
     }
 
     pub fn get(&self) -> T {
@@ -21,8 +30,24 @@ impl<T: Copy + PartialEq + Debug> MutableConfigValue<T> {
 
     pub fn update(&self, val: T) {
         let mut lock = self.value.lock().unwrap();
-        tracing::info!(target: "config", "Updated config field '{}' from {:?} to {:?}", self.field_name, *lock, val);
-        *lock = val;
+        if *lock != val {
+            tracing::info!(target: "config", "Updated config field '{}' from {:?} to {:?}", self.field_name, *lock, val);
+            self.set_metric_value(0);
+            *lock = val;
+            self.set_metric_value(1);
+        } else {
+            tracing::info!(target: "config", "Mutable config field '{}' remains the same: {:?}", self.field_name, val);
+        }
+    }
+
+    fn set_metric_value(&self, metric_value: i64) {
+        metrics::CONFIG_MUTABLE_FIELD
+            .with_label_values(&[
+                &self.field_name,
+                &format!("{:?}", self.last_update),
+                &format!("{:?}", self.value),
+            ])
+            .set(metric_value);
     }
 }
 

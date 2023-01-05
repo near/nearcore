@@ -17,7 +17,7 @@ use tracing::{info, warn};
 
 use near_chain_configs::{
     get_initial_supply, ClientConfig, GCConfig, Genesis, GenesisConfig, GenesisValidationMode,
-    LogSummaryStyle, StaticClientConfig,
+    LogSummaryStyle, MutableConfigValue,
 };
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 #[cfg(feature = "json_rpc")]
@@ -202,6 +202,12 @@ fn default_view_client_throttle_period() -> Duration {
 
 fn default_trie_viewer_state_size_limit() -> Option<u64> {
     Some(50_000)
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum ConfigValidationError {
+    #[error("Configuration with archive = false and save_trie_changes = false is not supported because non-archival nodes must save trie changes in order to do do garbage collection.")]
+    TrieChanges,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -417,13 +423,16 @@ impl Config {
             );
         }
 
-        assert!(
-            config.archive || config.save_trie_changes,
-            "Configuration with archive = false and save_trie_changes = false is not supported \
-            because non-archival nodes must save trie changes in order to do do garbage collection."
-        );
-
+        config.validate()?;
         Ok(config)
+    }
+
+    fn validate(&self) -> Result<(), ConfigValidationError> {
+        if self.archive == self.save_trie_changes {
+            Err(ConfigValidationError::TrieChanges)
+        } else {
+            Ok(())
+        }
     }
 
     pub fn write_to_file(&self, path: &Path) -> std::io::Result<()> {
@@ -573,11 +582,14 @@ impl NearConfig {
     ) -> anyhow::Result<Self> {
         Ok(NearConfig {
             config: config.clone(),
-            client_config: ClientConfig::new(StaticClientConfig {
+            client_config: ClientConfig {
                 version: Default::default(),
                 chain_id: genesis.config.chain_id.clone(),
                 rpc_addr: config.rpc_addr().map(|addr| addr.to_owned()),
-                expected_shutdown: config.expected_shutdown,
+                expected_shutdown: MutableConfigValue::new(
+                    config.expected_shutdown,
+                    "expected_shutdown",
+                ),
                 block_production_tracking_delay: config.consensus.block_production_tracking_delay,
                 min_block_production_delay: config.consensus.min_block_production_delay,
                 max_block_production_delay: config.consensus.max_block_production_delay,
@@ -621,7 +633,7 @@ impl NearConfig {
                 max_gas_burnt_view: config.max_gas_burnt_view,
                 enable_statistics_export: config.store.enable_statistics_export,
                 client_background_migration_threads: config.store.background_migration_threads,
-            }),
+            },
             network_config: NetworkConfig::new(
                 config.network,
                 network_key_pair.secret_key,

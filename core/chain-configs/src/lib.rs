@@ -1,10 +1,11 @@
 mod client_config;
 mod genesis_config;
 pub mod genesis_validate;
+mod metrics;
 mod updateable_config;
 
 pub use client_config::{
-    ClientConfig, GCConfig, LogSummaryStyle, StaticClientConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
+    ClientConfig, GCConfig, LogSummaryStyle, DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
     MIN_GC_NUM_EPOCHS_TO_KEEP, TEST_STATE_SYNC_TIMEOUT,
 };
 pub use genesis_config::{

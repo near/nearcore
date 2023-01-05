@@ -1,24 +1,9 @@
 use crate::config::Config;
 use near_chain_configs::UpdateableClientConfig;
-use near_dyn_configs::UpdateableConfigs;
+use near_dyn_configs::{DynConfigsError, UpdateableConfigs};
 use near_o11y::log_config::LogConfig;
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
-
-#[derive(thiserror::Error, Debug)]
-#[non_exhaustive]
-pub enum DynConfigsError {
-    #[error("Failed to parse a dynamic config file {file:?}: {err:?}")]
-    Parse { file: PathBuf, err: serde_json::Error },
-    #[error("Can't open or read a dynamic config file {file:?}: {err:?}")]
-    OpenAndRead { file: PathBuf, err: std::io::Error },
-    #[error("Can't open or read the config file {file:?}: {err:?}")]
-    ConfigFileError { file: PathBuf, err: anyhow::Error },
-    #[error("One or multiple dynamic config files reload errors")]
-    Errors(Vec<DynConfigsError>),
-    #[error("No home dir set")]
-    NoHomeDir(),
-}
 
 pub fn read_updateable_configs(home_dir: &Path) -> Result<UpdateableConfigs, DynConfigsError> {
     let mut errs = vec![];
@@ -43,8 +28,11 @@ pub fn read_updateable_configs(home_dir: &Path) -> Result<UpdateableConfigs, Dyn
             }
         };
     if errs.is_empty() {
+        crate::metrics::CONFIG_CORRECT.set(1);
         Ok(UpdateableConfigs { log_config, client_config: updateable_client_config })
     } else {
+        tracing::warn!(target: "neard", "Dynamically updateable configs are not valid. Please fix this ASAP otherwise the node will be unable to restart: {:?}", &errs);
+        crate::metrics::CONFIG_CORRECT.set(0);
         Err(DynConfigsError::Errors(errs))
     }
 }
