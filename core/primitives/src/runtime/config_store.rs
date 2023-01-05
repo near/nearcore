@@ -13,7 +13,7 @@ macro_rules! include_config {
 
 /// The base config file with all initial parameter values defined.
 /// Later version are calculated by applying diffs to this base.
-static BASE_CONFIG: &str = include_config!("parameters.txt");
+static BASE_CONFIG: &str = include_config!("parameters.yaml");
 
 /// Stores pairs of protocol versions for which runtime config was updated and
 /// the file containing the diffs in bytes.
@@ -31,7 +31,7 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
 ];
 
 /// Testnet parameters for versions <= 29, which (incorrectly) differed from mainnet parameters
-pub static INITIAL_TESTNET_CONFIG: &str = include_config!("parameters_testnet.txt");
+pub static INITIAL_TESTNET_CONFIG: &str = include_config!("parameters_testnet.yaml");
 
 /// Stores runtime config for each protocol version where it was updated.
 #[derive(Debug)]
