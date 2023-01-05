@@ -169,6 +169,7 @@ pub mod block_info {
     }
 
     impl BlockInfo {
+        #[allow(clippy::too_many_arguments)]
         pub fn new(
             hash: CryptoHash,
             height: BlockHeight,
@@ -382,6 +383,7 @@ pub struct BlockInfoV1 {
 }
 
 impl BlockInfoV1 {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         hash: CryptoHash,
         height: BlockHeight,
@@ -525,6 +527,7 @@ pub mod epoch_info {
     }
 
     impl EpochInfo {
+        #[allow(clippy::too_many_arguments)]
         pub fn new(
             epoch_height: EpochHeight,
             validators: Vec<ValidatorStake>,
