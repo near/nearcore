@@ -126,6 +126,7 @@ impl InfoHelper {
         client: &crate::client::Client,
         node_id: &PeerId,
         network_info: &NetworkInfo,
+        updateable_configs_error: &Option<Arc<DynConfigsError>>,
     ) {
         let is_syncing = client.sync_status.is_syncing();
         let head = unwrap_or_return!(client.chain.head());
@@ -191,6 +192,7 @@ impl InfoHelper {
                 .unwrap_or(0),
             statistics,
             &client.config,
+            updateable_configs_error,
         );
         self.log_chain_processing_info(client, &head.epoch_id);
     }
