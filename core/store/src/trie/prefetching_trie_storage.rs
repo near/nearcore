@@ -269,8 +269,7 @@ impl TrieStorage for TriePrefetchingStorage {
                     .or_else(|| {
                         // `blocking_get` will return None if the prefetch slot has been removed
                         // by the main thread and the value inserted into the shard cache.
-                        let mut guard = self.shard_cache.lock();
-                        guard.get(hash)
+                        self.shard_cache.get(hash)
                     })
                     .ok_or_else(|| {
                         // This could only happen if this thread started prefetching a value

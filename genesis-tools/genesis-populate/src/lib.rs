@@ -23,11 +23,29 @@ use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+/// Deterministically construct an account ID by index.
+///
+/// This is used by the estimator to fill a DB with many accounts for which the
+/// name can be constructed again during estimations.
+///
+/// The ids are constructed to form a somewhat interesting shape in the trie. It
+/// starts with a hash that will be different for each account, followed by a
+/// string that is sufficiently long. The hash is supposed to produces a bunch
+/// of branches, whereas the string after that will produce an extension.
+///
+/// If anyone has a reason to change the format, there is no strong reason to
+/// keep it exactly as it is. But keeping the length of the accounts the same
+/// would be desired to avoid breaking tests and estimations.
+///
+/// Note that existing estimator DBs need to be reconstructed when the format
+/// changes. Daily estimations are not affected by this.
 pub fn get_account_id(account_index: u64) -> AccountId {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     account_index.hash(&mut hasher);
     let hash = hasher.finish();
-    AccountId::try_from(format!("{hash}_near_{account_index}_{account_index}")).unwrap()
+    // Some estimations rely on the account ID length being constant.
+    // Pad booth numbers to length 20, the longest decimal representation of an u64.
+    AccountId::try_from(format!("{hash:020}_near_{account_index:020}")).unwrap()
 }
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
