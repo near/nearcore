@@ -63,7 +63,7 @@ fn setup_runtime_node_with_contract(wasm_binary: &[u8]) -> RuntimeNode {
         )
         .unwrap();
     assert_eq!(tx_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
-    assert_eq!(tx_result.receipts_outcome.len(), 2);
+    assert_eq!(tx_result.receipts_outcome.len(), 1);
 
     let tx_result =
         node_user.deploy_contract(test_contract_account(), wasm_binary.to_vec()).unwrap();
