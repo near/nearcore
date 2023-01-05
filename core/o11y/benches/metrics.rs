@@ -24,7 +24,7 @@ fn inc_counter_vec_with_label_values_itoa(bench: &mut Bencher) {
         for shard_id in 0..NUM_SHARDS {
             let mut buffer = itoa::Buffer::new();
             let printed = buffer.format(shard_id);
-            COUNTERS.with_label_values(&[&printed]).inc();
+            COUNTERS.with_label_values(&[printed]).inc();
         }
     });
 }
@@ -63,7 +63,7 @@ fn inc_counter_vec_with_label_values_stack_no_format(bench: &mut Bencher) {
             loop {
                 idx -= 1;
                 buf[idx] = b'0' + (n % 10) as u8;
-                n = n / 10;
+                n /= 10;
                 if n == 0 {
                     break;
                 }

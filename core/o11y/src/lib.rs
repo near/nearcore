@@ -79,7 +79,7 @@ type TracingLayer<Inner> = Layered<
 static DEFAULT_OTLP_LEVEL: OnceCell<OpenTelemetryLevel> = OnceCell::new();
 
 /// The default value for the `RUST_LOG` environment variable if one isn't specified otherwise.
-pub const DEFAULT_RUST_LOG: &'static str = "tokio_reactor=info,\
+pub const DEFAULT_RUST_LOG: &str = "tokio_reactor=info,\
      near=info,\
      recompress=info,\
      stats=info,\
@@ -458,8 +458,8 @@ pub fn reload(
         Err(ReloadError::NoLogReloadHandle),
         |reload_handle| {
             let mut builder = rust_log.map_or_else(
-                || EnvFilterBuilder::from_env(),
-                |rust_log| EnvFilterBuilder::new(rust_log),
+                EnvFilterBuilder::from_env,
+                EnvFilterBuilder::new,
             );
             if let Some(module) = verbose_module {
                 builder = builder.verbose(Some(module));
