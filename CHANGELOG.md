@@ -4,62 +4,44 @@
 
 ### Protocol Changes
 
-* Stabilize `account_id_in_function_call_permission` feature: enforcing validity
-  of account ids in function call permission.
-* Enable TIER1 network. Participants of the BFT consensus (block & chunk producers) now can establish direct TIER1 connections
-  between each other, which will optimize the communication latency and minimize the number of dropped chunks.
-  To configure this feature, see [advanced\_configuration/networking](./docs/advanced_configuration/networking.md).
+### Non-protocol Changes
+
+## 1.31.0
 
 ### Non-protocol Changes
 
-* `use_db_migration_snapshot` and `db_migration_snapshot_path` options are now
-  deprecated.  If they are set in `config.json` the node will fail if migration
-  needs to be performed.  Use `store.migration_snapshot` instead to configure
-  the behaviour [#7486](https://github.com/near/nearcore/pull/7486)
+* Enable TIER1 network. Participants of the BFT consensus (block & chunk producers) now can establish direct TIER1 connections
+  between each other, which will optimize the communication latency and minimize the number of dropped chunks.
+  To configure this feature, see [advanced\_configuration/networking](./docs/advanced_configuration/networking.md).
+  [#8141](https://github.com/near/nearcore/pull/8141)
+  [#8085](https://github.com/near/nearcore/pull/8085)
+  [#7759](https://github.com/near/nearcore/pull/7759)
+* [Network] Started creating connections with larger nonces, that are periodically
+  refreshed Start creating connections (edges) with large nonces
+  [#7966](https://github.com/near/nearcore/pull/7966)
 * `/status` response has now two more fields: `node_public_key` and
   `validator_public_key`.  The `node_key` field is now deprecated and should not
   be used since it confusingly holds validator key.
-* Added `near_peer_message_sent_by_type_bytes` and
-  `near_peer_message_sent_by_type_total` Prometheus metrics measuring
-  size and number of messages sent to peers.
-* `near_peer_message_received_total` Prometheus metric is now deprecated.
-  Instead of it aggregate `near_peer_message_received_by_type_total` metric.
-  For example, to get total rate of received messages use
-  `sum(rate(near_peer_message_received_by_type_total{...}[5m]))`.
+  [#7828](https://github.com/near/nearcore/pull/7828)
 * Added `near_node_protocol_upgrade_voting_start` Prometheus metric whose value
   is timestamp when voting for the next protocol version starts.
-* Few changes to `view_state` JSON RPC query:
-  - The requset has now an optional `include_proof` argument.  When set to
-    `true`, response’s `proof` will be populated.
-  - The `proof` within each value in `values` list of a `view_state` response is
-    now deprecated and will be removed in the future.  Client code should ignore
-    the field.
-  - The `proof` field directly within `view_state` response is currently always
-    sent even if proof has not been requested.  In the future the field will be
-    skipped in those cases.  Clients should accept responses with this field
-    missing (unless they set `include_proof`).
-* Backtraces on panics are enabled by default, so you no longer need to set
-  `RUST_BACKTRACE=1` environmental variable. To disable backtraces, set
-  `RUST_BACKTRACE=0`.
-* Enable receipt prefetching by default. This feature makes receipt processing
-  faster by parallelizing IO requests, which has been introduced in
-  [#7590](https://github.com/near/nearcore/pull/7590) and enabled by default
-  with [#7661](https://github.com/near/nearcore/pull/7661).
-  Configurable in `config.json` using `store.enable_receipt_prefetching`.
+  [#7877](https://github.com/near/nearcore/pull/7877)
 * neard cmd can now verify proofs from JSON files.
+  [#7840](https://github.com/near/nearcore/pull/7840)
 * In storage configuration, the value `trie_cache_capacities` now is no longer
   a hard limit but instead sets a memory consumption limit. For large trie nodes,
   the limits are close to equivalent. For small values, there can now fit more
   in the cache than previously.
   [#7749](https://github.com/near/nearcore/pull/7749)
 * New options `store.trie_cache` and `store.view_trie_cache` in `config.json`
-  to set limits on the trie cache. Deprecates the never announced 
+  to set limits on the trie cache. Deprecates the never announced
   `store.trie_cache_capacities` option which was mentioned in previous change.
   [#7578](https://github.com/near/nearcore/pull/7578)
-* New option `store.background_migration_threads` in `config.json`. Defines 
+* New option `store.background_migration_threads` in `config.json`. Defines
   number of threads to execute background migrations of storage. Currently used
   for flat storage migration. Set to 8 by default, can be reduced if it slows down
   block processing too much or increased if you want to speed up migration.
+  [#8088](https://github.com/near/nearcore/pull/8088),
 * Tracing of work across actix workers within a process:
   [#7866](https://github.com/near/nearcore/pull/7866),
   [#7819](https://github.com/near/nearcore/pull/7819),
@@ -72,6 +54,49 @@
   `opentelemetry-otlp`: [#7563](https://github.com/near/nearcore/pull/7563).
 * Tracing of requests across processes:
   [#8004](https://github.com/near/nearcore/pull/8004).
+
+## 1.30.0
+
+### Protocol Changes
+
+* Stabilize `account_id_in_function_call_permission` feature: enforcing validity
+  of account ids in function call permission.
+  [#7569](https://github.com/near/nearcore/pull/7569)
+
+### Non-protocol Changes
+
+* `use_db_migration_snapshot` and `db_migration_snapshot_path` options are now
+  deprecated.  If they are set in `config.json` the node will fail if migration
+  needs to be performed.  Use `store.migration_snapshot` instead to configure
+  the behaviour [#7486](https://github.com/near/nearcore/pull/7486)
+* Added `near_peer_message_sent_by_type_bytes` and
+  `near_peer_message_sent_by_type_total` Prometheus metrics measuring
+  size and number of messages sent to peers.
+  [#7523](https://github.com/near/nearcore/pull/7523)
+* `near_peer_message_received_total` Prometheus metric is now deprecated.
+  Instead of it aggregate `near_peer_message_received_by_type_total` metric.
+  For example, to get total rate of received messages use
+  `sum(rate(near_peer_message_received_by_type_total{...}[5m]))`.
+  [#7548](https://github.com/near/nearcore/pull/7548)
+* Few changes to `view_state` JSON RPC query:
+  - The requset has now an optional `include_proof` argument.  When set to
+    `true`, response’s `proof` will be populated.
+  - The `proof` within each value in `values` list of a `view_state` response is
+    now deprecated and will be removed in the future.  Client code should ignore
+    the field.
+  - The `proof` field directly within `view_state` response is currently always
+    sent even if proof has not been requested.  In the future the field will be
+    skipped in those cases.  Clients should accept responses with this field
+    missing (unless they set `include_proof`).
+    [#7603](https://github.com/near/nearcore/pull/7603)
+* Backtraces on panics are enabled by default, so you no longer need to set
+  `RUST_BACKTRACE=1` environmental variable. To disable backtraces, set
+  `RUST_BACKTRACE=0`. [#7562](https://github.com/near/nearcore/pull/7562)
+* Enable receipt prefetching by default. This feature makes receipt processing
+  faster by parallelizing IO requests, which has been introduced in
+  [#7590](https://github.com/near/nearcore/pull/7590) and enabled by default
+  with [#7661](https://github.com/near/nearcore/pull/7661).
+  Configurable in `config.json` using `store.enable_receipt_prefetching`.
 
 ## 1.29.0 [2022-08-15]
 
