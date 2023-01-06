@@ -1,6 +1,4 @@
 use chrono::DateTime;
-use near_chain_configs::LogSummaryStyle;
-use near_chain_primitives::Error;
 use near_primitives::block::{Block, Tip};
 use near_primitives::borsh::maybestd::collections::hash_map::Entry;
 use near_primitives::hash::CryptoHash;
@@ -481,86 +479,5 @@ impl Chain {
             blocks_info,
             floating_chunks_info,
         }
-    }
-
-    pub fn print_chain_processing_info_to_string(
-        &self,
-        log_summary_style: LogSummaryStyle,
-    ) -> Result<String, Error> {
-        let chain_info = self.get_chain_processing_info();
-        let blocks_info = chain_info.blocks_info;
-        let use_colour = matches!(log_summary_style, LogSummaryStyle::Colored);
-        let paint = |colour: ansi_term::Colour, text: Option<String>| match text {
-            None => ansi_term::Style::default().paint(""),
-            Some(text) if use_colour => colour.bold().paint(text),
-            Some(text) => ansi_term::Style::default().paint(text),
-        };
-
-        // Returns a status line for each block - also prints what is happening to its chunks.
-        let next_blocks_log = blocks_info
-            .into_iter()
-            .flat_map(|block_info| {
-                let mut all_chunks_received = true;
-                let chunk_status_str = block_info
-                    .chunks_info
-                    .iter()
-                    .map(|chunk_info| {
-                        if let Some(chunk_info) = chunk_info {
-                            all_chunks_received &=
-                                matches!(chunk_info.status, ChunkProcessingStatus::Completed);
-                            match chunk_info.status {
-                                ChunkProcessingStatus::Completed => "✔",
-                                ChunkProcessingStatus::Requested => "⬇",
-                                ChunkProcessingStatus::NeedToRequest => ".",
-                            }
-                        } else {
-                            "X"
-                        }
-                    })
-                    .collect::<Vec<&str>>()
-                    .join("");
-
-                let chunk_status_color = if all_chunks_received {
-                    ansi_term::Colour::Green
-                } else {
-                    ansi_term::Colour::White
-                };
-
-                let chunk_status_str = paint(chunk_status_color, Some(chunk_status_str));
-
-                let in_progress_str = format!("in progress for {:?}ms", block_info.in_progress_ms);
-
-                let in_orphan_str = match block_info.orphaned_ms {
-                    Some(duration) => format!("orphan for {:?}ms", duration),
-                    None => "".to_string(),
-                };
-
-                let missing_chunks_str = match block_info.missing_chunks_ms {
-                    Some(duration) => format!("missing chunks for {:?}ms", duration),
-                    None => "".to_string(),
-                };
-
-                Some(format!(
-                    "{} {} {:?} {} {} {} Chunks:({}))",
-                    block_info.height,
-                    block_info.hash,
-                    block_info.block_status,
-                    in_progress_str,
-                    in_orphan_str,
-                    missing_chunks_str,
-                    chunk_status_str,
-                ))
-            })
-            .collect::<Vec<String>>();
-
-        Ok(format!(
-            "{:?} Orphans: {} With missing chunks: {} In processing {}{}{}",
-            self.head()?.epoch_id,
-            self.orphans_len(),
-            self.blocks_with_missing_chunks_len(),
-            self.blocks_in_processing_len(),
-            if next_blocks_log.len() > 0 { "\n" } else { "" },
-            next_blocks_log.join("\n")
-        ))
     }
 }
