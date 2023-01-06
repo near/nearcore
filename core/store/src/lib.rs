@@ -8,11 +8,12 @@ use std::{fmt, io};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use metadata::DbKind;
 use once_cell::sync::Lazy;
 
 pub use columns::DBCol;
 pub use db::{
-    CHUNK_TAIL_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
+    CHUNK_TAIL_KEY, COLD_HEAD_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
     LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, TAIL_KEY,
 };
 use near_crypto::PublicKey;
@@ -103,7 +104,7 @@ pub struct NodeStorage<D = crate::db::RocksDB> {
 /// Node’s single storage source.
 ///
 /// Currently, this is somewhat equivalent to [`NodeStorage`] in that for given
-/// note storage you can get only a single [`Store`] object.  This will change
+/// node storage you can get only a single [`Store`] object.  This will change
 /// as we implement cold storage in which case this structure will provide an
 /// interface to access either hot or cold data.  At that point, [`NodeStorage`]
 /// will map to one of two [`Store`] objects depending on the temperature of the
@@ -388,6 +389,13 @@ impl Store {
 
     pub fn get_store_statistics(&self) -> Option<StoreStatistics> {
         self.storage.get_store_statistics()
+    }
+}
+
+impl Store {
+    pub fn get_db_kind(&self) -> Option<DbKind> {
+        let metadata = metadata::DbMetadata::read(self.storage.as_ref());
+        return metadata.map(|metadata| metadata.kind).ok().flatten();
     }
 }
 

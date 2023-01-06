@@ -5,6 +5,8 @@ use crate::NearConfig;
 use borsh::ser::BorshSerialize;
 use borsh::BorshDeserialize;
 use errors::FromStateViewerErrors;
+#[cfg(feature = "cold_store")]
+use near_chain::types::Tip;
 use near_chain::types::{ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo};
 use near_chain::{Error, RuntimeAdapter};
 use near_chain_configs::{
@@ -50,7 +52,11 @@ use near_store::flat_state::ChainAccessForFlatStorage;
 use near_store::flat_state::{
     store_helper, FlatStateFactory, FlatStorageState, FlatStorageStateStatus,
 };
+#[cfg(feature = "cold_store")]
+use near_store::metadata::DbKind;
 use near_store::split_state::get_delayed_receipts;
+#[cfg(feature = "cold_store")]
+use near_store::COLD_HEAD_KEY;
 use near_store::{
     get_genesis_hash, get_genesis_state_roots, set_genesis_hash, set_genesis_state_roots,
     ApplyStatePartResult, DBCol, PartialStorage, ShardTries, Store, StoreCompiledContractCache,
@@ -923,6 +929,24 @@ impl RuntimeAdapter for NightshadeRuntime {
                 let epoch_first_block_info = epoch_manager.get_block_info(&epoch_first_block)?;
                 epoch_start_height = epoch_first_block_info.height();
                 last_block_in_prev_epoch = *epoch_first_block_info.prev_hash();
+            }
+
+            // An archival node with split storage should perform garbage collection
+            // on the hot storage but not beyond the COLD_HEAD. In order to determine
+            // if split storage is enabled *and* that the migration to split storage
+            // is finished we can check the store kind. It's only set to hot after the
+            // migration is finished.
+            // TODO currently the gc_stop_height always is at an epoch's start height
+            // Is this an invariant that should be maintained?
+            #[cfg(feature = "cold_store")]
+            {
+                let kind = self.store.get_db_kind();
+                let cold_head = self.store.get_ser::<Tip>(DBCol::BlockMisc, COLD_HEAD_KEY)?;
+
+                if let (Some(DbKind::Hot), Some(cold_head)) = (kind, cold_head) {
+                    let cold_head_height = cold_head.height;
+                    return Ok(std::cmp::min(epoch_start_height, cold_head_height));
+                }
             }
             Ok(epoch_start_height)
         }())
