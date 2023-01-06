@@ -126,7 +126,7 @@ fn run_test_ext(
     if let ReturnData::Value(value) = outcome.return_data {
         assert_eq!(&value, &expected);
     } else {
-        panic!("Value was not returned");
+        panic!("Value was not returned, got outcome {:?}", outcome);
     }
 }
 

@@ -432,10 +432,6 @@ impl Wasmer2VM {
             offset_of!(FastGasCounter, gas_limit),
             offset_of!(wasmer_types::FastGasCounter, gas_limit)
         );
-        assert_eq!(
-            offset_of!(FastGasCounter, opcode_cost),
-            offset_of!(wasmer_types::FastGasCounter, opcode_cost)
-        );
         let gas = import.vmlogic.gas_counter_pointer() as *mut wasmer_types::FastGasCounter;
         let entrypoint = match get_entrypoint_index(&*artifact, method_name) {
             Ok(index) => index,
@@ -584,6 +580,10 @@ impl wasmer_vm::Tunables for &Wasmer2VM {
     ) -> Result<std::sync::Arc<dyn wasmer_vm::Table>, String> {
         // This is called when instantiating a module.
         Ok(Arc::new(LinearTable::from_definition(&ty, &style, vm_definition_location)?))
+    }
+
+    fn regular_op_cost(&self) -> u64 {
+        self.config.regular_op_cost.into()
     }
 }
 

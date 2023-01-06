@@ -11,7 +11,7 @@ static INFINITE_INITIALIZER_CONTRACT: &str = r#"
 )"#;
 
 #[test]
-fn test_infinite_initializer() {
+fn test_infinite_initializer_basic() {
     test_builder()
         .wat(INFINITE_INITIALIZER_CONTRACT)
         .gas(10u64.pow(10))

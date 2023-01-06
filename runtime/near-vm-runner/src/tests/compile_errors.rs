@@ -258,7 +258,7 @@ fn test_limit_contract_functions_number() {
 }
 
 #[test]
-fn test_limit_locals() {
+fn test_limit_locals_bigfunc() {
     test_builder()
         .wasm(
             &near_test_contracts::LargeContract {

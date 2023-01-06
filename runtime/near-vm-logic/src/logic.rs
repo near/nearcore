@@ -147,7 +147,6 @@ impl<'a> VMLogic<'a> {
         let gas_counter = GasCounter::new(
             config.ext_costs.clone(),
             max_gas_burnt,
-            config.regular_op_cost,
             context.prepaid_gas,
             context.is_view(),
         );
@@ -1188,8 +1187,16 @@ impl<'a> VMLogic<'a> {
     /// * If passed gas amount somehow overflows internal gas counters returns `IntegerOverflow`;
     /// * If we exceed usage limit imposed on burnt gas returns `GasLimitExceeded`;
     /// * If we exceed the `prepaid_gas` then returns `GasExceeded`.
-    pub fn gas(&mut self, opcodes: u32) -> Result<()> {
-        self.gas_counter.pay_wasm_gas(opcodes)
+    pub fn gas(&mut self, gas: Gas) -> Result<()> {
+        self.gas_counter.burn_gas(Gas::from(gas))
+    }
+
+    pub fn gas_opcodes(&mut self, opcodes: u32) -> Result<()> {
+        self.gas(opcodes as u64 * self.config.regular_op_cost as u64)
+    }
+
+    pub fn gas_seen_from_wasm(&mut self, gas: u32) -> Result<()> {
+        self.gas(gas as u64)
     }
 
     // ################
