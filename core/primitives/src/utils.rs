@@ -410,10 +410,11 @@ macro_rules! unwrap_or_return {
 /// Converts timestamp in ns into DateTime UTC time.
 pub fn from_timestamp(timestamp: u64) -> DateTime<chrono::Utc> {
     DateTime::from_utc(
-        NaiveDateTime::from_timestamp(
+        NaiveDateTime::from_timestamp_opt(
             (timestamp / NS_IN_SECOND) as i64,
             (timestamp % NS_IN_SECOND) as u32,
-        ),
+        )
+        .unwrap(),
         chrono::Utc,
     )
 }
