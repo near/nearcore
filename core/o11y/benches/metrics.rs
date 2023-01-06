@@ -63,7 +63,7 @@ fn inc_counter_vec_with_label_values_stack_no_format(bench: &mut Bencher) {
             loop {
                 idx -= 1;
                 buf[idx] = b'0' + (n % 10) as u8;
-                n /= 10;
+                n = n / 10;
                 if n == 0 {
                     break;
                 }
