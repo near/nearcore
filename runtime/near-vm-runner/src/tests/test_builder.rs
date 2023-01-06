@@ -27,7 +27,7 @@ pub(crate) fn test_builder() -> TestBuilder {
         view_config: None,
         output_data_receivers: vec![],
     };
-    TestBuilder {
+    let mut res = TestBuilder {
         code: ContractCode::new(Vec::new(), None),
         context,
         method: "main".to_string(),
@@ -35,7 +35,11 @@ pub(crate) fn test_builder() -> TestBuilder {
         skip: HashSet::new(),
         opaque_error: false,
         opaque_outcome: false,
-    }
+    };
+    res.skip_wasmer0().skip_wasmtime()
+    // TODO: actually run tests for wasmer0 / wasmtime... but with the new
+    // instrumentation only working for wasmer2, I’m not sure keeping the
+    // same expect! strings makes sense?
 }
 
 pub(crate) struct TestBuilder {

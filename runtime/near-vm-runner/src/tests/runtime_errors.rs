@@ -47,7 +47,7 @@ static SIMPLE_CONTRACT: &str = r#"(module (func (export "main")))"#;
 #[test]
 fn test_simple_contract() {
     test_builder().wat(SIMPLE_CONTRACT).expect(expect![[r#"
-        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 42815463 used gas 42815463
+        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 46106471 used gas 46106471
     "#]]);
 }
 
@@ -133,7 +133,7 @@ fn test_trap_contract() {
         .wat(r#"(module (func (export "main") (unreachable)) )"#)
         .skip_wasmtime()
         .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 43854969 used gas 43854969
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 47145977 used gas 47145977
             Err: WebAssembly trap: An `unreachable` opcode was executed.
         "#]]);
 }
@@ -150,7 +150,7 @@ fn test_trap_initializer() {
         )
         .skip_wasmtime()
         .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 47322969 used gas 47322969
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 50613977 used gas 50613977
             Err: WebAssembly trap: An `unreachable` opcode was executed.
         "#]]);
 }
@@ -171,7 +171,7 @@ fn test_div_by_zero_contract() {
         )
         .skip_wasmtime()
         .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 47406987 used gas 47406987
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 49875239 used gas 49875239
             Err: WebAssembly trap: An arithmetic exception, e.g. divided by zero.
         "#]]);
 }
@@ -192,7 +192,7 @@ fn test_float_to_int_contract() {
             ))
             .skip_wasmtime()
             .expect(expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 47667981 used gas 47667981
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 50136233 used gas 50136233
                 Err: WebAssembly trap: An arithmetic exception, e.g. divided by zero.
             "#]]);
     }
@@ -216,7 +216,7 @@ fn test_indirect_call_to_null_contract() {
         .opaque_error()
         .skip_wasmtime()
         .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 50919231 used gas 50919231
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 53387483 used gas 53387483
             Err: ...
         "#]])
 }
@@ -242,7 +242,7 @@ fn test_indirect_call_to_wrong_signature_contract() {
         )
         .skip_wasmtime()
         .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 55904481 used gas 55904481
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 58372733 used gas 58372733
             Err: WebAssembly trap: Call indirect incorrect signature trap.
         "#]])
 }
@@ -300,7 +300,7 @@ fn test_guest_panic() {
 )"#,
         )
         .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 315775830 used gas 315775830
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 319066838 used gas 319066838
             Err: Smart contract panicked: explicit guest panic
         "#]]);
 }
@@ -327,8 +327,8 @@ fn test_stack_overflow() {
         .wat(r#"(module (func $f (export "main") (call $f)))"#)
         .skip_wasmtime()
         .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13526101017 used gas 13526101017
-            Err: WebAssembly trap: An `unreachable` opcode was executed.
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 26374156313 used gas 26374156313
+            Err: WebAssembly trap: Stack overflow.
         "#]]);
 }
 
@@ -351,12 +351,12 @@ fn test_stack_instrumentation_protocol_upgrade() {
         .skip_wasmtime()
         .expects(&[
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 6789985365 used gas 6789985365
-                Err: WebAssembly trap: An `unreachable` opcode was executed.
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 28126476189 used gas 28126476189
+                Err: WebAssembly trap: Stack overflow.
             "#]],
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 6789985365 used gas 6789985365
-                Err: WebAssembly trap: An `unreachable` opcode was executed.
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 25324930133 used gas 25324930133
+                Err: WebAssembly trap: Stack overflow.
             "#]],
         ]);
 
@@ -377,12 +377,12 @@ fn test_stack_instrumentation_protocol_upgrade() {
         .skip_wasmtime()
         .expects(&[
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 6789985365 used gas 6789985365
-                Err: WebAssembly trap: An `unreachable` opcode was executed.
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 22274209218 used gas 22274209218
+                Err: WebAssembly trap: Stack overflow.
             "#]],
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 2745316869 used gas 2745316869
-                Err: WebAssembly trap: An `unreachable` opcode was executed.
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 23745238613 used gas 23745238613
+                Err: WebAssembly trap: Stack overflow.
             "#]],
         ]);
 }
@@ -542,7 +542,7 @@ static EXTERNAL_CALL_CONTRACT: &str = r#"
 #[test]
 fn test_external_call_ok() {
     test_builder().wat(EXTERNAL_CALL_CONTRACT).expect(expect![[r#"
-        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 320283336 used gas 320283336
+        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 323574344 used gas 323574344
     "#]]);
 }
 
@@ -571,7 +571,7 @@ fn test_external_call_indirect() {
   )
 )"#
         ).expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 328909092 used gas 328909092
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 332200100 used gas 332200100
         "#]]);
 }
 
@@ -589,13 +589,13 @@ fn test_address_overflow() {
 )"#;
 
     test_builder().wat(code).skip_wasmtime().skip_wasmer0().expect(expect![[r#"
-        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 48534981 used gas 48534981
+        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 51003233 used gas 51003233
         Err: WebAssembly trap: Memory out of bounds trap.
     "#]]);
 
     // wasmer0 incorrectly doesn't catch overflow during address calculation
     test_builder().wat(code).skip_wasmtime().skip_wasmer2().expect(expect![[r#"
-        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 48534981 used gas 48534981
+        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 46066713 used gas 46066713
     "#]]);
 }
 
@@ -623,12 +623,12 @@ fn test_nan_sign() {
 )"#;
 
     test_builder().wat(code).skip_wasmtime().skip_wasmer0().expect(expect![[r#"
-        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 54988767 used gas 54988767
+        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 58279775 used gas 58279775
     "#]]);
 
     // wasmer0 doesn't canonicalize NaNs
     test_builder().wat(code).skip_wasmtime().skip_wasmer2().expect(expect![[r#"
-        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 54988767 used gas 54988767
+        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 47583963 used gas 47583963
         Err: WebAssembly trap: An arithmetic exception, e.g. divided by zero.
     "#]]);
 }
@@ -658,9 +658,10 @@ fn gas_overflow_direct_call() {
     (call $gas (i32.const 0xffff_ffff)))
 )"#,
         )
+        .gas(4000000000)
         .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 100000000000000 used gas 100000000000000
-            Err: Exceeded the maximum amount of gas allowed to burn per contract.
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 4000000000 used gas 4000000000
+            Err: Exceeded the prepaid gas.
         "#]]);
 }
 
@@ -685,9 +686,10 @@ fn gas_overflow_indirect_call() {
       (i32.const 0)))
 )"#,
         )
+        .gas(4000000000)
         .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 100000000000000 used gas 100000000000000
-            Err: Exceeded the maximum amount of gas allowed to burn per contract.
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 4000000000 used gas 4000000000
+            Err: Exceeded the prepaid gas.
         "#]]);
 }
 

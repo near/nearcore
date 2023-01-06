@@ -168,10 +168,10 @@ fn test_limit_contract_functions_number() {
     ])
     .expects(&[
         expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13048032213 used gas 13048032213
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13094397551 used gas 13094397551
         "#]],
         expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13048032213 used gas 13048032213
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13051323221 used gas 13051323221
         "#]],
         #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
         expect![[r#"
@@ -193,7 +193,7 @@ fn test_limit_contract_functions_number() {
     ])
     .expects(&[
         expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13049332713 used gas 13049332713
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13095698051 used gas 13095698051
         "#]],
         expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
@@ -296,7 +296,7 @@ fn test_limit_locals_bigfunc() {
         .skip_wasmtime()
         .expect(expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 43682463 used gas 43682463
-            Err: WebAssembly trap: An `unreachable` opcode was executed.
+            Err: WebAssembly trap: Stack overflow.
         "#]]);
 }
 
@@ -315,7 +315,7 @@ fn test_limit_locals_global() {
     ])
     .expects(&[
         expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 195407463 used gas 195407463
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 8344766023 used gas 8344766023
         "#]],
         expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
@@ -338,7 +338,7 @@ fn test_limit_locals_global() {
             .make(),
         )
         .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 139269213 used gas 139269213
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 12998060221 used gas 12998060221
         "#]]);
 }
 
@@ -361,7 +361,7 @@ pub fn test_stablized_host_function() {
                 Err: ...
             "#]],
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 7143010623 used gas 7143010623
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 7146301631 used gas 7146301631
             "#]],
         ]);
 }
