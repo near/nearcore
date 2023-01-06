@@ -749,6 +749,7 @@ pub(crate) fn view_trie(
     trie.print_recursive(&mut std::io::stdout().lock(), &hash, max_depth);
     Ok(())
 }
+
 #[allow(unused)]
 enum LoadTrieMode {
     /// Load latest state
