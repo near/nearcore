@@ -342,11 +342,23 @@ pub struct DumpStatePartsCmd {
     part_id: Option<u64>,
     /// Where to write the state parts to.
     #[clap(long)]
-    output_dir: PathBuf,
+    output_dir: Option<PathBuf>,
+    /// Store state parts in an S3 bucket.
+    #[clap(long)]
+    s3_bucket: Option<String>,
+    /// Store state parts in an S3 bucket.
+    #[clap(long)]
+    s3_region: Option<String>,
 }
 
 impl DumpStatePartsCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+        assert_eq!(self.s3_bucket.is_some(), self.s3_region.is_some());
+        let s3 = if let Some(s3_bucket) = self.s3_bucket {
+            Some((s3_bucket, self.s3_region.unwrap()))
+        } else {
+            None
+        };
         dump_state_parts(
             self.epoch_selection,
             self.shard_id,
@@ -354,7 +366,8 @@ impl DumpStatePartsCmd {
             home_dir,
             near_config,
             store,
-            &self.output_dir,
+            self.output_dir,
+            s3,
         );
     }
 }
