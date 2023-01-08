@@ -456,8 +456,6 @@ pub struct Chain {
     last_time_head_updated: Instant,
     /// Used when it is needed to create flat storage in background for some shards.
     flat_storage_creator: Option<FlatStorageCreator>,
-
-    processed_heights: LruCache<BlockHeight, ()>,
     invalid_blocks: LruCache<CryptoHash, ()>,
 
     /// Support for sandbox's patch_state requests.
@@ -539,7 +537,6 @@ impl Chain {
             apply_chunks_receiver: rc,
             last_time_head_updated: Clock::instant(),
             flat_storage_creator: None,
-            processed_heights: LruCache::new(PROCESSED_HEIGHTS_POOL_SIZE),
             invalid_blocks: LruCache::new(INVALID_CHUNKS_POOL_SIZE),
             pending_state_patch: Default::default(),
             requested_state_parts: StateRequestTracker::new(),
@@ -688,7 +685,6 @@ impl Chain {
             blocks_with_missing_chunks: MissingChunksPool::new(),
             blocks_in_processing: BlocksInProcessing::new(),
             invalid_blocks: LruCache::new(INVALID_CHUNKS_POOL_SIZE),
-            processed_heights: LruCache::new(PROCESSED_HEIGHTS_POOL_SIZE),
             genesis: genesis.clone(),
             transaction_validity_period: chain_genesis.transaction_validity_period,
             epoch_length: chain_genesis.epoch_length,
@@ -1644,7 +1640,6 @@ impl Chain {
         let block_received_time = Clock::instant();
         metrics::BLOCK_PROCESSING_ATTEMPTS_TOTAL.inc();
 
-        let block_height = block.header().height();
         let hash = *block.hash();
         let res = self.start_process_block_impl(
             me,
@@ -1659,12 +1654,6 @@ impl Chain {
             self.blocks_delay_tracker
                 .mark_block_dropped(&hash, DroppedReason::TooManyProcessingBlocks);
         }
-
-        // Save the block as processed even if it failed. This is used to filter out the
-        // incoming blocks that are not requested on heights which we already processed.
-        // If there is a new incoming block that we didn't request and we already have height
-        // processed 'marked as true' - then we'll not even attempt to process it
-        self.processed_heights.put(block_height, ());
         res
     }
 
@@ -1960,7 +1949,7 @@ impl Chain {
             Err(e) => {
                 if e.is_bad_data() {
                     metrics::NUM_INVALID_BLOCKS.inc();
-                    self.invalid_blocks.put(*block.hash(), ());
+                    self.save_invalid_block(*block.hash());
                 }
                 preprocess_timer.stop_and_discard();
                 match &e {
@@ -2141,7 +2130,7 @@ impl Chain {
             match self.postprocess_block_only(me, &block, block_preprocess_info, apply_results) {
                 Err(err) => {
                     if err.is_bad_data() {
-                        self.invalid_blocks.put(*block.hash(), ());
+                        self.save_invalid_block(*block.hash());
                         metrics::NUM_INVALID_BLOCKS.inc();
                     }
                     self.blocks_delay_tracker.mark_block_errored(&block_hash, err.to_string());
@@ -4397,13 +4386,13 @@ impl Chain {
     }
 
     #[inline]
-    pub fn is_height_processed(&self, height: BlockHeight) -> bool {
-        self.processed_heights.contains(&height)
+    pub fn is_block_invalid(&self, hash: &CryptoHash) -> bool {
+        self.invalid_blocks.contains(hash)
     }
 
     #[inline]
-    pub fn is_block_invalid(&self, hash: &CryptoHash) -> bool {
-        self.invalid_blocks.contains(hash)
+    pub fn save_invalid_block(&mut self, hash: CryptoHash) {
+        self.invalid_blocks.put(hash, ());
     }
 
     /// Check if can sync with sync_hash
