@@ -1900,7 +1900,7 @@ impl ShardsManager {
     /// complete when a new block is accepted.
     pub fn check_incomplete_chunks(&mut self, prev_block_hash: &CryptoHash) {
         let mut chunks_to_process = vec![];
-        for chunk_hashes in self.encoded_chunks.get_incomplete_chunks(prev_block_hash) {
+        if let Some(chunk_hashes) = self.encoded_chunks.get_incomplete_chunks(prev_block_hash) {
             for chunk_hash in chunk_hashes {
                 if let Some(entry) = self.encoded_chunks.get(chunk_hash) {
                     chunks_to_process.push(entry.header.clone());
