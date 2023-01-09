@@ -61,6 +61,7 @@ pub(crate) enum DBOp {
     DeleteAll {
         col: DBCol,
     },
+    /// Deletes [`from`, `to) key range, i.e. including `from` and excluding `to`
     DeleteRange {
         col: DBCol,
         from: Vec<u8>,

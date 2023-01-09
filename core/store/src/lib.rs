@@ -537,6 +537,8 @@ impl StoreUpdate {
         self.transaction.delete_all(column);
     }
 
+    /// Deletes the given key range from the database including `from`
+    /// and excluding `to` keys.
     pub fn delete_range(&mut self, column: DBCol, from: &[u8], to: &[u8]) {
         self.transaction.delete_range(column, from.to_vec(), to.to_vec());
     }
