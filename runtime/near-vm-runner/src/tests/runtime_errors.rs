@@ -599,6 +599,24 @@ fn test_address_overflow() {
     "#]]);
 }
 
+/// Load from address that is within bounds, validating that not all loads do overflow
+#[test]
+fn test_address_valid() {
+    let code = r#"
+(module
+  (memory 1)
+  (func (export "main")
+    i32.const 10
+    i64.load32_u offset=10 align=1
+    drop
+  )
+)"#;
+
+    test_builder().wat(code).expect(expect![[r#"
+        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 50958989 used gas 50958989
+    "#]]);
+}
+
 /// Uses `f32.copysign` to observe a sign of `NaN`.
 ///
 /// WASM specification allows different behaviors here:
