@@ -625,8 +625,8 @@ impl StoreUpdate {
                 DBOp::DeleteAll { col } => {
                     tracing::trace!(target: "store", db_op = "delete_all", col = %col)
                 }
-                DBOp::DeleteRange { col, start_key, end_key } => {
-                    tracing::trace!(target: "store", db_op = "delete_range", col = %col, start_key = %pretty::StorageKey(start_key), end_key = %pretty::StorageKey(end_key))
+                DBOp::DeleteRange { col, from, to } => {
+                    tracing::trace!(target: "store", db_op = "delete_range", col = %col, from = %pretty::StorageKey(from), to = %pretty::StorageKey(to))
                 }
             }
         }
@@ -662,11 +662,11 @@ impl fmt::Debug for StoreUpdate {
                 }
                 DBOp::Delete { col, key } => writeln!(f, "  - {col} {}", pretty::StorageKey(key))?,
                 DBOp::DeleteAll { col } => writeln!(f, "  - {col} (all)")?,
-                DBOp::DeleteRange { col, start_key, end_key } => writeln!(
+                DBOp::DeleteRange { col, from, to } => writeln!(
                     f,
                     "  - {col} [{}, {})",
-                    pretty::StorageKey(start_key),
-                    pretty::StorageKey(end_key)
+                    pretty::StorageKey(from),
+                    pretty::StorageKey(to)
                 )?,
             }
         }

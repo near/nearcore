@@ -33,18 +33,39 @@ pub struct DBTransaction {
 
 pub(crate) enum DBOp {
     /// Sets `key` to `value`, without doing any checks.
-    Set { col: DBCol, key: Vec<u8>, value: Vec<u8> },
+    Set {
+        col: DBCol,
+        key: Vec<u8>,
+        value: Vec<u8>,
+    },
     /// Sets `key` to `value`, and additionally debug-checks that the value is
     /// not overwritten.
-    Insert { col: DBCol, key: Vec<u8>, value: Vec<u8> },
+    Insert {
+        col: DBCol,
+        key: Vec<u8>,
+        value: Vec<u8>,
+    },
     /// Modifies a reference-counted column. `value` includes both the value per
     /// se and a refcount at the end.
-    UpdateRefcount { col: DBCol, key: Vec<u8>, value: Vec<u8> },
+    UpdateRefcount {
+        col: DBCol,
+        key: Vec<u8>,
+        value: Vec<u8>,
+    },
     /// Deletes sepecific `key`.
-    Delete { col: DBCol, key: Vec<u8> },
+    Delete {
+        col: DBCol,
+        key: Vec<u8>,
+    },
     /// Deletes all data from a column.
-    DeleteAll { col: DBCol },
-    DeleteRange { col: DBCol, start_key: Vec<u8>, end_key: Vec<u8> },
+    DeleteAll {
+        col: DBCol,
+    },
+    DeleteRange {
+        col: DBCol,
+        from: Vec<u8>,
+        to: Vec<u8>,
+    },
 }
 
 impl DBTransaction {
@@ -74,8 +95,8 @@ impl DBTransaction {
         self.ops.push(DBOp::DeleteAll { col });
     }
 
-    pub fn delete_range(&mut self, col: DBCol, start_key: Vec<u8>, end_key: Vec<u8>) {
-        self.ops.push(DBOp::DeleteRange { col, start_key, end_key });
+    pub fn delete_range(&mut self, col: DBCol, from: Vec<u8>, to: Vec<u8>) {
+        self.ops.push(DBOp::DeleteRange { col, from, to });
     }
 
     pub fn merge(&mut self, other: DBTransaction) {
