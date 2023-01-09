@@ -386,6 +386,8 @@ pub async fn default_subscriber_with_opentelemetry(
 
     let subscriber = tracing_subscriber::registry();
 
+    set_default_otlp_level(options);
+
     let (subscriber, handle) = add_non_blocking_log_layer(
         env_filter,
         writer,
