@@ -614,7 +614,37 @@ impl ActionSize {
             // This size exactly touches tx limit with 1 deploy action. If this suddenly
             // fails with `InvalidTxError(TransactionSizeExceeded`, it could be a
             // protocol change due to the TX limit computation changing.
-            ActionSize::Max => 4 * 1024 * 1024 - 160,
+            // The test `test_deploy_contract_tx_max_size` checks this.
+            ActionSize::Max => 4 * 1024 * 1024 - 182,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{deploy_action, ActionSize};
+    use genesis_populate::get_account_id;
+
+    #[test]
+    fn test_deploy_contract_tx_max_size() {
+        // The size of a transaction constructed from this must be exactly at the limit.
+        let deploy_action = deploy_action(ActionSize::Max);
+        let limit = 4_194_304;
+
+        // We also need some account IDs constructed the same way as in the estimator.
+        // Let's try multiple index sizes to ensure this does not affect the length.
+        let sender_0 = get_account_id(0);
+        let receiver_0 = get_account_id(1);
+        let sender_1 = get_account_id(1000);
+        let receiver_1 = get_account_id(20001);
+        let test_accounts =
+            vec![sender_0.clone(), sender_1.clone(), receiver_0.clone(), receiver_1.clone()];
+        let mut tb = crate::TransactionBuilder::new(test_accounts);
+
+        let tx_0 = tb.transaction_from_actions(sender_0, receiver_0, vec![deploy_action.clone()]);
+        assert_eq!(tx_0.get_size(), limit, "TX size changed");
+
+        let tx_1 = tb.transaction_from_actions(sender_1, receiver_1, vec![deploy_action]);
+        assert_eq!(tx_1.get_size(), limit, "TX size changed");
     }
 }
