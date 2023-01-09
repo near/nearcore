@@ -596,7 +596,9 @@ impl StoreUpdate {
                         DBOp::Set { col, key, .. }
                         | DBOp::Insert { col, key, .. }
                         | DBOp::Delete { col, key } => Some((*col as u8, key)),
-                        DBOp::UpdateRefcount { .. } | DBOp::DeleteAll { .. } => None,
+                        DBOp::UpdateRefcount { .. }
+                        | DBOp::DeleteAll { .. }
+                        | DBOp::DeleteRange { .. } => None,
                     })
                     .collect::<Vec<_>>();
                 non_refcount_keys.len()
@@ -622,6 +624,9 @@ impl StoreUpdate {
                 }
                 DBOp::DeleteAll { col } => {
                     tracing::trace!(target: "store", db_op = "delete_all", col = %col)
+                }
+                DBOp::DeleteRange { col, start_key, end_key } => {
+                    tracing::trace!(target: "store", db_op = "delete_range", col = %col, start_key = %pretty::StorageKey(start_key), end_key = %pretty::StorageKey(end_key))
                 }
             }
         }
@@ -657,6 +662,12 @@ impl fmt::Debug for StoreUpdate {
                 }
                 DBOp::Delete { col, key } => writeln!(f, "  - {col} {}", pretty::StorageKey(key))?,
                 DBOp::DeleteAll { col } => writeln!(f, "  - {col} (all)")?,
+                DBOp::DeleteRange { col, start_key, end_key } => writeln!(
+                    f,
+                    "  - {col} [{}, {})",
+                    pretty::StorageKey(start_key),
+                    pretty::StorageKey(end_key)
+                )?,
             }
         }
         writeln!(f, "}}")

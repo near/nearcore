@@ -315,6 +315,9 @@ impl Database for RocksDB {
                         batch.delete_cf(cf_handle, range.end())
                     }
                 }
+                DBOp::DeleteRange { col, start_key, end_key } => {
+                    batch.delete_range_cf(self.cf_handle(col)?, start_key, end_key);
+                }
             }
         }
         self.db.write(batch).map_err(into_other)

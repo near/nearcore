@@ -44,6 +44,7 @@ pub(crate) enum DBOp {
     Delete { col: DBCol, key: Vec<u8> },
     /// Deletes all data from a column.
     DeleteAll { col: DBCol },
+    DeleteRange { col: DBCol, start_key: Vec<u8>, end_key: Vec<u8> },
 }
 
 impl DBTransaction {
@@ -71,6 +72,10 @@ impl DBTransaction {
 
     pub fn delete_all(&mut self, col: DBCol) {
         self.ops.push(DBOp::DeleteAll { col });
+    }
+
+    pub fn delete_range(&mut self, col: DBCol, start_key: Vec<u8>, end_key: Vec<u8>) {
+        self.ops.push(DBOp::DeleteRange { col, start_key, end_key });
     }
 
     pub fn merge(&mut self, other: DBTransaction) {
