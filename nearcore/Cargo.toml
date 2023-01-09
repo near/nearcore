@@ -20,7 +20,6 @@ futures.workspace = true
 hyper-tls.workspace = true
 hyper.workspace = true
 indicatif.workspace = true
-near-rust-allocator-proxy = { workspace = true, optional = true }
 num-rational.workspace = true
 once_cell.workspace = true
 rand.workspace = true
@@ -77,9 +76,7 @@ default = ["json_rpc", "rosetta_rpc"]
 
 performance_stats = [
   "near-performance-metrics/performance_stats",
-  "near-rust-allocator-proxy",
 ]
-memory_stats = ["near-performance-metrics/memory_stats"]
 c_memory_stats = ["near-performance-metrics/c_memory_stats"]
 test_features = [
   "near-client/test_features",

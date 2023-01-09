@@ -86,7 +86,7 @@ bencher = "0.1.5"
 bitflags = "1.2"
 blake2 = "0.9.1"
 bn = { package = "zeropool-bn", version = "0.5.11" }
-bolero = "0.6.2"
+bolero = "0.8.0"
 borsh = { version = "0.9", features = ["rc"] }
 bs58 = "0.4"
 byteorder = "1.3"
@@ -130,7 +130,6 @@ log = "0.4"
 loupe = "0.1"
 lru = "0.7.2"
 memoffset = "0.6"
-near-rust-allocator-proxy = "0.4"
 nix = "0.15.0"
 num-bigint = "0.3"
 num-rational = { version = "0.3.1", features = ["serde"] }
@@ -241,4 +240,4 @@ opt-level = 3
 [workspace.package]
 edition = "2021"
 authors = ["Near Inc <hello@nearprotocol.com>"]
-rust-version = "1.65.0"
+rust-version = "1.66.0"

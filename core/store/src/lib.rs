@@ -49,6 +49,7 @@ pub mod metadata;
 mod metrics;
 pub mod migrations;
 mod opener;
+mod sync_utils;
 pub mod test_utils;
 mod trie;
 
