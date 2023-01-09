@@ -537,6 +537,10 @@ impl StoreUpdate {
         self.transaction.delete_all(column);
     }
 
+    pub fn delete_range(&mut self, column: DBCol, from: &[u8], to: &[u8]) {
+        self.transaction.delete_range(column, from.to_vec(), to.to_vec());
+    }
+
     /// Sets reference to the trie to clear cache on the commit.
     ///
     /// Panics if shard_tries are already set to a different object.

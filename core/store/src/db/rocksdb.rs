@@ -738,4 +738,27 @@ mod tests {
             }
         );
     }
+
+    #[test]
+    fn test_delete_range() {
+        let store = NodeStorage::test_opener().1.open().unwrap().get_store(crate::Temperature::Hot);
+        let keys = [vec![0], vec![1], vec![2], vec![3]];
+        let column = DBCol::Block;
+
+        let mut store_update = store.store_update();
+        for key in &keys {
+            store_update.insert(column, key, &vec![42]);
+        }
+        store_update.commit().unwrap();
+
+        let mut store_update = store.store_update();
+        store_update.delete_range(column, &keys[1], &keys[3]);
+        store_update.commit().unwrap();
+
+        let key_exists = |key_index: usize| store.get(column, &keys[key_index]).unwrap().is_some();
+        assert!(key_exists(0));
+        assert!(!key_exists(1));
+        assert!(!key_exists(2));
+        assert!(key_exists(3));
+    }
 }
