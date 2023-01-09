@@ -603,32 +603,25 @@ impl ShardsManager {
                 continue;
             }
 
-            let need_to_fetch_part = if request_full || seal.contains_part_ord(&part_ord) {
-                true
+            // Note: If request_from_archival is true, we potentially call
+            // get_part_owner unnecessarily.  It’s probably not worth optimising
+            // though unless you can think of a concise way to do it.
+            let part_owner = self.runtime_adapter.get_part_owner(&epoch_id, part_ord)?;
+            let we_own_part = Some(&part_owner) == me;
+            if !request_full && !we_own_part && !seal.contains_part_ord(&part_ord) {
+                continue;
+            }
+
+            let fetch_from = if request_from_archival {
+                shard_representative_target.clone()
+            } else if we_own_part {
+                // If missing own part, request it from the chunk producer / node tracking shard
+                shard_representative_target.clone()
             } else {
-                if let Some(me) = me {
-                    &self.runtime_adapter.get_part_owner(&epoch_id, part_ord)? == me
-                } else {
-                    false
-                }
+                Some(part_owner)
             };
 
-            if need_to_fetch_part {
-                let fetch_from = if request_from_archival {
-                    shard_representative_target.clone()
-                } else {
-                    let part_owner = self.runtime_adapter.get_part_owner(&epoch_id, part_ord)?;
-
-                    if Some(&part_owner) == me {
-                        // If missing own part, request it from the chunk producer / node tracking shard
-                        shard_representative_target.clone()
-                    } else {
-                        Some(part_owner)
-                    }
-                };
-
-                bp_to_parts.entry(fetch_from).or_default().push(part_ord);
-            }
+            bp_to_parts.entry(fetch_from).or_default().push(part_ord);
         }
 
         let shards_to_fetch_receipts =
@@ -648,7 +641,16 @@ impl ShardsManager {
         for (target_account, part_ords) in bp_to_parts {
             // extra check that we are not sending request to ourselves.
             if no_account_id || me != target_account.as_ref() {
-                let parts_count = part_ords.len();
+                let prefer_peer = request_from_archival || rand::thread_rng().gen::<bool>();
+                debug!(
+                    target: "chunks",
+                    ?part_ords,
+                    shard_id,
+                    ?target_account,
+                    prefer_peer,
+                    "Requesting parts",
+                );
+
                 let request = PartialEncodedChunkRequestMsg {
                     chunk_hash: chunk_hash.clone(),
                     part_ords,
@@ -660,12 +662,11 @@ impl ShardsManager {
                 };
                 let target = AccountIdOrPeerTrackingShard {
                     account_id: target_account,
-                    prefer_peer: request_from_archival || rand::thread_rng().gen::<bool>(),
+                    prefer_peer,
                     shard_id,
                     only_archival: request_from_archival,
                     min_height: height.saturating_sub(CHUNK_REQUEST_PEER_HORIZON),
                 };
-                debug!(target: "chunks", "Requesting {} parts for shard {} from {:?} prefer {}", parts_count, shard_id, target.account_id, target.prefer_peer);
 
                 self.peer_manager_adapter.do_send(
                     PeerManagerMessageRequest::NetworkRequests(
@@ -1588,8 +1589,14 @@ impl ShardsManager {
             partial_encoded_chunk.map(|chunk| PartialEncodedChunkV2::from(chunk));
         let header = &partial_encoded_chunk.header;
         let chunk_hash = header.chunk_hash();
-        debug!(target: "chunks", ?chunk_hash, height=header.height_created(), shard_id=header.shard_id(), "Process partial encoded chunk:  parts {}",
-               partial_encoded_chunk.get_inner().parts.len());
+        debug!(
+            target: "chunks",
+            ?chunk_hash,
+            height = header.height_created(),
+            shard_id = header.shard_id(),
+            parts = ?partial_encoded_chunk.get_inner().parts.iter().map(|p| p.part_ord).collect::<Vec<_>>(),
+            "Process partial encoded chunk",
+        );
         // Verify the partial encoded chunk is valid and worth processing
         // 1.a Leave if we received known chunk
         if let Some(entry) = self.encoded_chunks.get(&chunk_hash) {
@@ -1893,7 +1900,7 @@ impl ShardsManager {
     /// complete when a new block is accepted.
     pub fn check_incomplete_chunks(&mut self, prev_block_hash: &CryptoHash) {
         let mut chunks_to_process = vec![];
-        for chunk_hashes in self.encoded_chunks.get_incomplete_chunks(prev_block_hash) {
+        if let Some(chunk_hashes) = self.encoded_chunks.get_incomplete_chunks(prev_block_hash) {
             for chunk_hash in chunk_hashes {
                 if let Some(entry) = self.encoded_chunks.get(chunk_hash) {
                     chunks_to_process.push(entry.header.clone());

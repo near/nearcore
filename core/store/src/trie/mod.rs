@@ -25,7 +25,7 @@ pub use crate::trie::prefetching_trie_storage::{PrefetchApi, PrefetchError};
 pub use crate::trie::shard_tries::{KeyForStateChanges, ShardTries, WrappedTrieChanges};
 pub use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieDBStorage, TrieStorage};
 use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieRecordingStorage};
-use crate::StorageError;
+use crate::{FlatStateDelta, StorageError};
 pub use near_primitives::types::TrieNodesCount;
 use std::fmt::Write;
 
@@ -550,6 +550,8 @@ impl TrieChanges {
 pub struct ApplyStatePartResult {
     /// Trie changes after applying state part.
     pub trie_changes: TrieChanges,
+    /// Flat state changes after applying state part, stored as delta.
+    pub flat_state_delta: FlatStateDelta,
     /// Contract codes belonging to the state part.
     pub contract_codes: Vec<ContractCode>,
 }

@@ -128,7 +128,7 @@ fn test_refunds_not_in_receipts() {
                 }
             }
         }
-        for receipt in tx_status.get("receipts") {
+        if let Some(receipt) = tx_status.get("receipts") {
             if !receipt.as_array().unwrap().is_empty() {
                 let receipt_predecessor_id = receipt.get("predecessor_id");
                 if receipt_predecessor_id.is_some() {

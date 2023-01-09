@@ -492,4 +492,28 @@ mod tests {
         assert_matches!(r, Err(Error::Instantiate));
         */
     }
+
+    #[test]
+    fn preparation_generates_valid_contract() {
+        bolero::check!().for_each(|input: &[u8]| {
+            // DO NOT use ArbitraryModule. We do want modules that may be invalid here, if they pass our validation step!
+            let config = VMConfig::test();
+            if let Ok(_) = validate_contract(input, &config) {
+                match prepare_contract(input, &config) {
+                    Err(_e) => (), // TODO: this should be a panic, but for now it’d actually trigger
+                    Ok(code) => {
+                        let mut validator = wasmparser::Validator::new();
+                        validator.wasm_features(WASM_FEATURES);
+                        match validator.validate_all(&code) {
+                            Ok(()) => (),
+                            Err(e) => panic!(
+                                "prepared code failed validation: {e:?}\ncontract: {}",
+                                hex::encode(input),
+                            ),
+                        }
+                    }
+                }
+            }
+        });
+    }
 }

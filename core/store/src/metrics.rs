@@ -181,6 +181,14 @@ pub static PREFETCH_MEMORY_LIMIT_REACHED: Lazy<IntCounterVec> = Lazy::new(|| {
     )
     .unwrap()
 });
+pub static PREFETCH_CONFLICT: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_prefetch_conflict",
+        "Main thread retrieved value from shard_cache after a conflict with another main thread from a fork.",
+        &["shard_id"],
+    )
+    .unwrap()
+});
 pub static PREFETCH_RETRY: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
         "near_prefetch_retries",

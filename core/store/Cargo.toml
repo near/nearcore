@@ -61,4 +61,5 @@ cold_store = []
 nightly_protocol = []
 nightly = [
   "nightly_protocol",
+  "protocol_feature_flat_state",
 ]

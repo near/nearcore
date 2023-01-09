@@ -1,11 +1,18 @@
-use crate::MemoryLike;
+use crate::{MemSlice, MemoryLike};
+
+use std::borrow::Cow;
 
 #[derive(Default)]
 pub struct MockedMemory {}
 
 impl MemoryLike for MockedMemory {
-    fn fits_memory(&self, _offset: u64, _len: u64) -> Result<(), ()> {
+    fn fits_memory(&self, _slice: MemSlice) -> Result<(), ()> {
         Ok(())
+    }
+
+    fn view_memory(&self, slice: MemSlice) -> Result<Cow<[u8]>, ()> {
+        let view = unsafe { std::slice::from_raw_parts(slice.ptr as *const u8, slice.len()?) };
+        Ok(Cow::Borrowed(view))
     }
 
     fn read_memory(&self, offset: u64, buffer: &mut [u8]) -> Result<(), ()> {
