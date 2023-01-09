@@ -293,7 +293,10 @@ fn adjust_op(op: &mut DBOp) -> bool {
             false
         }
         DBOp::DeleteRange { col, from, to } => {
-            near_o11y::log_assert!(false, "Unexpected delete range from {col} in cold store: {from:?} {to:?}");
+            near_o11y::log_assert!(
+                false,
+                "Unexpected delete range from {col} in cold store: {from:?} {to:?}"
+            );
             false
         }
     }

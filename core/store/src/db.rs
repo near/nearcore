@@ -33,40 +33,19 @@ pub struct DBTransaction {
 
 pub(crate) enum DBOp {
     /// Sets `key` to `value`, without doing any checks.
-    Set {
-        col: DBCol,
-        key: Vec<u8>,
-        value: Vec<u8>,
-    },
+    Set { col: DBCol, key: Vec<u8>, value: Vec<u8> },
     /// Sets `key` to `value`, and additionally debug-checks that the value is
     /// not overwritten.
-    Insert {
-        col: DBCol,
-        key: Vec<u8>,
-        value: Vec<u8>,
-    },
+    Insert { col: DBCol, key: Vec<u8>, value: Vec<u8> },
     /// Modifies a reference-counted column. `value` includes both the value per
     /// se and a refcount at the end.
-    UpdateRefcount {
-        col: DBCol,
-        key: Vec<u8>,
-        value: Vec<u8>,
-    },
+    UpdateRefcount { col: DBCol, key: Vec<u8>, value: Vec<u8> },
     /// Deletes sepecific `key`.
-    Delete {
-        col: DBCol,
-        key: Vec<u8>,
-    },
+    Delete { col: DBCol, key: Vec<u8> },
     /// Deletes all data from a column.
-    DeleteAll {
-        col: DBCol,
-    },
+    DeleteAll { col: DBCol },
     /// Deletes [`from`, `to) key range, i.e. including `from` and excluding `to`
-    DeleteRange {
-        col: DBCol,
-        from: Vec<u8>,
-        to: Vec<u8>,
-    },
+    DeleteRange { col: DBCol, from: Vec<u8>, to: Vec<u8> },
 }
 
 impl DBTransaction {
