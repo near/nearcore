@@ -835,6 +835,8 @@ impl Trie {
     }
 
     // Similar to retrieve_raw_node but handles the case where there is a Value (and not a Node) in the database.
+    // This method is not safe to be used in any real scenario as it can incorrectly interpret a value as a trie node.
+    // It's only provided as a convenience for debugging tools.
     fn retrieve_raw_node_or_value(&self, hash: &CryptoHash) -> Result<NodeOrValue, StorageError> {
         let bytes = self.storage.retrieve_raw_bytes(hash)?;
         match RawTrieNodeWithSize::decode(&bytes) {

@@ -509,9 +509,6 @@ impl ViewChainCmd {
     }
 }
 
-#[derive(Subcommand)]
-#[clap(subcommand_required = true, arg_required_else_help = true)]
-
 pub enum ViewTrieFormat {
     Full,
     Pretty,
