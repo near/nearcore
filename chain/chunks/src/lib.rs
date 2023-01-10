@@ -612,10 +612,8 @@ impl ShardsManager {
                 continue;
             }
 
-            let fetch_from = if request_from_archival {
-                shard_representative_target.clone()
-            } else if we_own_part {
-                // If missing own part, request it from the chunk producer / node tracking shard
+            // If missing own part, request it from the chunk producer / node tracking shard
+            let fetch_from = if request_from_archival || we_own_part {
                 shard_representative_target.clone()
             } else {
                 Some(part_owner)

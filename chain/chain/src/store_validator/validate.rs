@@ -890,7 +890,7 @@ pub(crate) fn block_height_cmp_tail_final(
 pub(crate) fn tx_refcount_final(sv: &mut StoreValidator) -> Result<(), StoreValidatorError> {
     let len = sv.inner.tx_refcount.len();
     if len > 0 {
-        for tx_refcount in sv.inner.tx_refcount.iter() {
+        if let Some(tx_refcount) = sv.inner.tx_refcount.iter().next() {
             err!("Found {:?} Txs that are not counted, i.e. {:?}", len, tx_refcount);
         }
     }
@@ -900,7 +900,7 @@ pub(crate) fn tx_refcount_final(sv: &mut StoreValidator) -> Result<(), StoreVali
 pub(crate) fn receipt_refcount_final(sv: &mut StoreValidator) -> Result<(), StoreValidatorError> {
     let len = sv.inner.receipt_refcount.len();
     if len > 0 {
-        for receipt_refcount in sv.inner.receipt_refcount.iter() {
+        if let Some(receipt_refcount) = sv.inner.receipt_refcount.iter().next() {
             err!("Found {:?} receipts that are not counted, i.e. {:?}", len, receipt_refcount);
         }
     }
@@ -910,13 +910,13 @@ pub(crate) fn receipt_refcount_final(sv: &mut StoreValidator) -> Result<(), Stor
 pub(crate) fn block_refcount_final(sv: &mut StoreValidator) -> Result<(), StoreValidatorError> {
     if sv.inner.block_refcount.len() > 1 {
         let len = sv.inner.block_refcount.len();
-        for block_refcount in sv.inner.block_refcount.iter() {
+        if let Some(block_refcount) = sv.inner.block_refcount.iter().next() {
             err!("Found {:?} Blocks that are not counted, i.e. {:?}", len, block_refcount);
         }
     }
     if sv.inner.genesis_blocks.len() > 1 {
         let len = sv.inner.genesis_blocks.len();
-        for tail_block in sv.inner.genesis_blocks.iter() {
+        if let Some(tail_block) = sv.inner.genesis_blocks.first() {
             err!("Found {:?} Genesis Blocks, i.e. {:?}", len, tail_block);
         }
     }
