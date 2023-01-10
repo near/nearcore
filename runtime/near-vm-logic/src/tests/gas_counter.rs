@@ -230,7 +230,7 @@ fn test_overflowing_burn_gas_with_promises_gas() {
     let mut logic = logic_builder.build(get_context_with_prepaid_gas(gas_limit));
 
     let account_id = logic.internal_mem_write(b"rick.test");
-    let args = logic.internal_mem_write(b"x");
+    let args = logic.internal_mem_write(b"");
     let num_100u128 = logic.internal_mem_write(&100u128.to_le_bytes());
     let num_10u128 = logic.internal_mem_write(&10u128.to_le_bytes());
 
@@ -264,7 +264,7 @@ fn test_overflowing_burn_gas_with_promises_gas_2() {
     let mut logic = logic_builder.build(get_context_with_prepaid_gas(gas_limit / 2));
 
     let account_id = logic.internal_mem_write(b"rick.test");
-    let args = logic.internal_mem_write(b"x");
+    let args = logic.internal_mem_write(b"");
     let num_100u128 = logic.internal_mem_write(&100u128.to_le_bytes());
 
     let index = promise_batch_create(&mut logic, "rick.test").expect("should create a promise");
