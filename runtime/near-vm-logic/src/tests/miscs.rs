@@ -32,16 +32,16 @@ fn test_valid_utf8() {
 fn test_invalid_utf8() {
     let mut logic_builder = VMLogicBuilder::default();
     let mut logic = logic_builder.build(get_context(vec![], false));
-    logic.internal_mem_write(b"\x80");
-    assert_eq!(logic.log_utf8(1, 0), Err(HostError::BadUTF8.into()));
+    let bytes = logic.internal_mem_write(b"\x80");
+    assert_eq!(logic.log_utf8(bytes.len, bytes.ptr), Err(HostError::BadUTF8.into()));
     let outcome = logic.compute_outcome_and_distribute_gas();
     assert_eq!(outcome.logs.len(), 0);
     assert_costs(map! {
         ExtCosts::base: 1,
         ExtCosts::read_memory_base: 1,
-        ExtCosts::read_memory_byte: 1,
+        ExtCosts::read_memory_byte: bytes.len,
         ExtCosts::utf8_decoding_base: 1,
-        ExtCosts::utf8_decoding_byte: 1,
+        ExtCosts::utf8_decoding_byte: bytes.len,
     });
 }
 
@@ -49,21 +49,21 @@ fn test_invalid_utf8() {
 fn test_valid_null_terminated_utf8() {
     let mut logic_builder = VMLogicBuilder::default();
 
-    let string = "j ñ r'ø qò$`5 y'5 øò{%÷ `Võ%";
+    let cstring = "j ñ r'ø qò$`5 y'5 øò{%÷ `Võ%\x00";
+    let string = &cstring[..cstring.len() - 1];
     logic_builder.config.limit_config.max_total_log_length = string.len() as u64;
     let mut logic = logic_builder.build(get_context(vec![], false));
-    let bytes = logic.internal_mem_write(string.as_bytes());
-    logic.internal_mem_write(b"\0");
+    let bytes = logic.internal_mem_write(cstring.as_bytes());
     logic.log_utf8(u64::MAX, bytes.ptr).expect("Valid null-terminated utf-8 string_bytes");
     let outcome = logic.compute_outcome_and_distribute_gas();
     assert_costs(map! {
         ExtCosts::base: 1,
         ExtCosts::log_base: 1,
-        ExtCosts::log_byte: bytes.len,
-        ExtCosts::read_memory_base: bytes.len + 1,
-        ExtCosts::read_memory_byte: bytes.len + 1,
+        ExtCosts::log_byte: string.len() as u64,
+        ExtCosts::read_memory_base: bytes.len,
+        ExtCosts::read_memory_byte: bytes.len,
         ExtCosts::utf8_decoding_base: 1,
-        ExtCosts::utf8_decoding_byte: bytes.len,
+        ExtCosts::utf8_decoding_byte: string.len() as u64,
     });
     assert_eq!(outcome.logs[0], string);
 }
@@ -226,8 +226,8 @@ fn test_log_total_length_limit_mixed() {
 #[test]
 fn test_log_utf8_max_limit_null_terminated() {
     let mut logic_builder = VMLogicBuilder::default();
-    let bytes = "j ñ r'ø qò$`5 y'5 øò{%÷ `Võ%".as_bytes();
-    let limit = (bytes.len() - 1) as u64;
+    let bytes = "j ñ r'ø qò$`5 y'5 øò{%÷ `Võ%\x00".as_bytes();
+    let limit = (bytes.len() - 2) as u64;
     logic_builder.config.limit_config.max_total_log_length = limit;
     let mut logic = logic_builder.build(get_context(vec![], false));
     let bytes = logic.internal_mem_write(bytes);
@@ -239,8 +239,8 @@ fn test_log_utf8_max_limit_null_terminated() {
 
     assert_costs(map! {
         ExtCosts::base: 1,
-        ExtCosts::read_memory_base: bytes.len,
-        ExtCosts::read_memory_byte: bytes.len,
+        ExtCosts::read_memory_base: bytes.len - 1,
+        ExtCosts::read_memory_byte: bytes.len - 1,
         ExtCosts::utf8_decoding_base: 1,
     });
 
@@ -293,7 +293,7 @@ fn test_valid_log_utf16_max_log_len_not_even() {
         ExtCosts::utf16_decoding_base: 1,
         ExtCosts::utf16_decoding_byte: bytes.len - 2,
         ExtCosts::log_base: 1,
-        ExtCosts::log_byte: 2,  // "ab"
+        ExtCosts::log_byte: string.len() as u64,
     });
 
     let string = "abc";
@@ -616,7 +616,7 @@ fn test_key_length_limit() {
         .expect("storage_has_key: key length is under the limit");
     logic
         .storage_write(key.len, key.ptr, val.len, val.ptr, 0)
-        .expect("storage_read: key length is under the limit");
+        .expect("storage_write: key length is under the limit");
     logic.storage_read(key.len, key.ptr, 0).expect("storage_read: key length is under the limit");
     logic
         .storage_remove(key.len, key.ptr, 0)

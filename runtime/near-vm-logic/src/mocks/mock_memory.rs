@@ -4,9 +4,13 @@ use std::borrow::Cow;
 
 pub struct MockedMemory(Box<[u8]>);
 
+impl MockedMemory {
+    pub const MEMORY_SIZE: u64 = 64 * 1024;
+}
+
 impl Default for MockedMemory {
     fn default() -> Self {
-        Self(vec![0; 64 * 1024].into())
+        Self(vec![0; Self::MEMORY_SIZE as usize].into())
     }
 }
 

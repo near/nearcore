@@ -109,17 +109,21 @@ impl TestVMLogic<'_> {
         self.memory().view_for_free(MemSlice { ptr, len }).unwrap().into_owned()
     }
 
-    /// Calls `logic.read_register` and then on success reads data from guest memory
-    /// comparing it to expected value.
+    /// Calls `logic.read_register` and then on success reads data from guest
+    /// memory comparing it to expected value.
     ///
-    /// The `read_register` call is made as if contract has made it.  In particular,
-    /// gas is charged for it.  Later reading of the contents of the memory is done
-    /// for free.
+    /// The `read_register` call is made as if contract has made it.  In
+    /// particular, gas is charged for it.  Later reading of the contents of the
+    /// memory is done for free.  Panics if the register is not set or contracts
+    /// runs out of gas.
+    ///
+    /// The value of the register is read onto the end of the guest memory
+    /// overriding anything that might already be there.
     #[track_caller]
     pub(super) fn assert_read_register(&mut self, want: &[u8], register_id: u64) {
-        let ptr = 63 * 1024;
-        self.read_register(register_id, ptr).unwrap();
         let len = self.registers().get_len(register_id).unwrap();
+        let ptr = MockedMemory::MEMORY_SIZE - len;
+        self.read_register(register_id, ptr).unwrap();
         let got = self.memory().view_for_free(MemSlice { ptr, len }).unwrap();
         assert_eq!(want, &got[..]);
     }
