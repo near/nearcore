@@ -1,13 +1,28 @@
-/// This file contains tests that test the robustness of client code against malicious attacks
+/// This file contains tests to test that client doesn't process the same block twice
 use crate::test_utils::TestEnv;
 use assert_matches::assert_matches;
-use near_chain::ChainGenesis;
+use near_chain::{ChainGenesis, Provenance};
 use near_chain_primitives::{BlockKnownError, Error};
 use near_crypto::{KeyType, PublicKey};
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
+use near_primitives::hash::hash;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
 use std::sync::Arc;
+
+#[test]
+fn test_not_process_orphan_twice() {
+    let mut env = TestEnv::builder(ChainGenesis::test()).build();
+    let block = env.clients[0].produce_block(1).unwrap().unwrap();
+    let mut orphan_block = block;
+    let validator_signer = create_test_signer("test0");
+    orphan_block.mut_header().get_mut().prev_hash = hash(&[1]);
+    orphan_block.mut_header().resign(&validator_signer);
+    let res = env.clients[0].process_block_test(orphan_block.into(), Provenance::NONE);
+    assert_matches!(res.unwrap_err(), Error::Orphan);
+    let res = env.clients[0].process_block_test(orphan_block.into(), Provenance::NONE);
+    assert_matches!(res.unwrap_err(), Error::BlockKnown(BlockKnownError::KnownInOrphan));
+}
 
 // Test that we don't re-process invalid block again
 #[test]

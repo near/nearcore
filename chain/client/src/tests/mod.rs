@@ -1,4 +1,3 @@
-mod bad_blocks;
 mod bug_repros;
 mod catching_up;
 mod chunks_management;
@@ -6,4 +5,5 @@ mod consensus;
 mod cross_shard_tx;
 mod doomslug;
 mod maintenance_windows;
+mod no_process_twice;
 mod query_client;
