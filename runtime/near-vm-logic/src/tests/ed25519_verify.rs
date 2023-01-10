@@ -54,7 +54,7 @@ fn check_ed25519_verify(
     want_costs: HashMap<ExtCosts, u64>,
 ) {
     let mut logic_builder = VMLogicBuilder::default();
-    let mut logic = logic_builder.build(get_context(vec![], false));
+    let mut logic = logic_builder.build();
 
     let signature_ptr = if signature_len == u64::MAX {
         logic.wrapped_internal_write_register(1, &signature).unwrap();

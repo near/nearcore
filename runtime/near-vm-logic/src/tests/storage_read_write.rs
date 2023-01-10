@@ -1,11 +1,10 @@
-use crate::tests::fixtures::get_context;
 use crate::tests::vm_logic_builder::VMLogicBuilder;
 use crate::{External, StorageGetMode};
 
 #[test]
 fn test_storage_write_with_register() {
     let mut logic_builder = VMLogicBuilder::default();
-    let mut logic = logic_builder.build(get_context(vec![], false));
+    let mut logic = logic_builder.build();
 
     let key: &[u8] = b"foo";
     let val: &[u8] = b"bar";
@@ -27,7 +26,7 @@ fn test_storage_read_with_register() {
     let val: &[u8] = b"bar";
 
     logic_builder.ext.storage_set(key, val).unwrap();
-    let mut logic = logic_builder.build(get_context(vec![], false));
+    let mut logic = logic_builder.build();
 
     logic.wrapped_internal_write_register(1, key).unwrap();
 
@@ -38,7 +37,7 @@ fn test_storage_read_with_register() {
 #[test]
 fn test_storage_remove_with_register() {
     let mut logic_builder = VMLogicBuilder::default();
-    let mut logic = logic_builder.build(get_context(vec![], false));
+    let mut logic = logic_builder.build();
     let key = logic.internal_mem_write(b"foo");
     let val = logic.internal_mem_write(b"bar");
 
@@ -58,7 +57,7 @@ fn test_storage_has_key_with_register() {
     let val: &[u8] = b"bar";
     logic_builder.ext.storage_set(key, val).unwrap();
 
-    let mut logic = logic_builder.build(get_context(vec![], false));
+    let mut logic = logic_builder.build();
 
     logic.wrapped_internal_write_register(1, key).unwrap();
 
