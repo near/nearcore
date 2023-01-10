@@ -81,7 +81,7 @@ impl Database for TestDB {
                 }
                 DBOp::DeleteAll { col } => db[col].clear(),
                 DBOp::DeleteRange { col, from, to } => {
-                    db[col].retain(|key, _| *key < from || *key >= to);
+                    db[col].retain(|key, _| !(from..to).contains(*key));
                 }
             };
         }
