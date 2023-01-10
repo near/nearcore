@@ -70,8 +70,11 @@ fn prepaid_loading_gas(bytes: usize) -> u64 {
 /// memory must be configured for indices `0..WASM_PAGE_SIZE` to be valid.
 ///
 /// Panics if any of the tests fails.
+#[allow(dead_code)]
 pub(crate) fn test_memory_like(factory: impl FnOnce() -> Box<dyn MemoryLike>) {
-    const PAGE: u64 = wasmer_types::WASM_PAGE_SIZE as u64;
+    // Hardcoded to work around build errors when wasmer_types is not available.
+    // Set to value of wasmer_types::WASM_PAGE_SIZE
+    const PAGE: u64 = 0x10000;
 
     struct TestContext {
         mem: Box<dyn MemoryLike>,

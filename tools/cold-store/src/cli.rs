@@ -45,15 +45,15 @@ fn check_open(store: &NodeStorage) {
 
 fn print_heads(store: &NodeStorage) {
     println!(
-        "HOT HEAD is at {:?}",
+        "HOT HEAD is at {:#?}",
         store.get_store(Temperature::Hot).get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)
     );
     println!(
-        "HOT FINAL HEAD is at {:?}",
+        "HOT FINAL HEAD is at {:#?}",
         store.get_store(Temperature::Hot).get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)
     );
     println!(
-        "COLD HEAD is at {:?}",
+        "COLD HEAD is at {:#?}",
         store.get_store(Temperature::Cold).get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)
     );
 }

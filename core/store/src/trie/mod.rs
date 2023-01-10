@@ -1,6 +1,8 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::fmt::Write;
 use std::io::Read;
+use std::str;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use byteorder::{LittleEndian, ReadBytesExt};
@@ -12,6 +14,7 @@ pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::ValueRef;
 #[cfg(feature = "protocol_feature_flat_state")]
 use near_primitives::state_record::is_delayed_receipt_key;
+use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{StateRoot, StateRootNode};
 
@@ -27,7 +30,6 @@ pub use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieDBStorage
 use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieRecordingStorage};
 use crate::{FlatStateDelta, StorageError};
 pub use near_primitives::types::TrieNodesCount;
-use std::fmt::Write;
 
 mod config;
 mod insert_delete;
@@ -556,6 +558,11 @@ pub struct ApplyStatePartResult {
     pub contract_codes: Vec<ContractCode>,
 }
 
+enum NodeOrValue {
+    Node(RawTrieNodeWithSize),
+    Value(std::sync::Arc<[u8]>),
+}
+
 impl Trie {
     pub const EMPTY_ROOT: StateRoot = StateRoot::new();
 
@@ -661,14 +668,15 @@ impl Trie {
     }
 
     // Prints the trie nodes starting from hash, up to max_depth depth.
+    // The node hash can be any node in the trie.
     pub fn print_recursive(&self, f: &mut dyn std::io::Write, hash: &CryptoHash, max_depth: u32) {
         match self.retrieve_raw_node_or_value(hash) {
-            Ok(Ok(_)) => {
+            Ok(NodeOrValue::Node(_)) => {
                 let mut prefix: Vec<u8> = Vec::new();
                 self.print_recursive_internal(f, hash, max_depth, &mut "".to_string(), &mut prefix)
                     .expect("write failed");
             }
-            Ok(Err(value_bytes)) => {
+            Ok(NodeOrValue::Value(value_bytes)) => {
                 writeln!(
                     f,
                     "Given node is a value. Len: {}, Data: {:?} ",
@@ -681,6 +689,38 @@ impl Trie {
                 writeln!(f, "Error when reading: {}", err).expect("write failed");
             }
         };
+    }
+
+    // Prints the trie leaves starting from the state root node, up to max_depth depth.
+    // This method can only iterate starting from the root node and it only prints the
+    // leaf nodes but it shows output in more human friendly way.
+    pub fn print_recursive_leaves(&self, f: &mut dyn std::io::Write, max_depth: u32) {
+        let iter = match self.iter_with_max_depth(max_depth as usize) {
+            Ok(iter) => iter,
+            Err(err) => {
+                writeln!(f, "Error when getting the trie iterator: {}", err).expect("write failed");
+                return;
+            }
+        };
+        for node in iter {
+            let (key, value) = match node {
+                Ok((key, value)) => (key, value),
+                Err(err) => {
+                    writeln!(f, "Failed to iterate node with error: {err}").expect("write failed");
+                    continue;
+                }
+            };
+
+            // Try to parse the key in UTF8 which works only for the simplest keys (e.g. account),
+            // or get whitespace padding instead.
+            let key_string = match str::from_utf8(&key) {
+                Ok(value) => String::from(value),
+                Err(_) => " ".repeat(key.len()),
+            };
+            let state_record = StateRecord::from_raw_key_value(key.clone(), value);
+
+            writeln!(f, "{} {state_record:?}", key_string).expect("write failed");
+        }
     }
 
     // Converts the list of Nibbles to a readable string.
@@ -795,12 +835,14 @@ impl Trie {
     }
 
     // Similar to retrieve_raw_node but handles the case where there is a Value (and not a Node) in the database.
-    fn retrieve_raw_node_or_value(
-        &self,
-        hash: &CryptoHash,
-    ) -> Result<Result<RawTrieNodeWithSize, std::sync::Arc<[u8]>>, StorageError> {
+    // This method is not safe to be used in any real scenario as it can incorrectly interpret a value as a trie node.
+    // It's only provided as a convenience for debugging tools.
+    fn retrieve_raw_node_or_value(&self, hash: &CryptoHash) -> Result<NodeOrValue, StorageError> {
         let bytes = self.storage.retrieve_raw_bytes(hash)?;
-        Ok(RawTrieNodeWithSize::decode(&bytes).map_err(|_| bytes))
+        match RawTrieNodeWithSize::decode(&bytes) {
+            Ok(node) => Ok(NodeOrValue::Node(node)),
+            Err(_) => Ok(NodeOrValue::Value(bytes)),
+        }
     }
 
     fn move_node_to_mutable(
@@ -984,7 +1026,14 @@ impl Trie {
     }
 
     pub fn iter<'a>(&'a self) -> Result<TrieIterator<'a>, StorageError> {
-        TrieIterator::new(self)
+        TrieIterator::new(self, None)
+    }
+
+    pub fn iter_with_max_depth<'a>(
+        &'a self,
+        max_depth: usize,
+    ) -> Result<TrieIterator<'a>, StorageError> {
+        TrieIterator::new(self, Some(max_depth))
     }
 
     pub fn get_trie_nodes_count(&self) -> TrieNodesCount {
