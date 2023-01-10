@@ -125,7 +125,9 @@ pub fn prepare_contract(original_code: &[u8], config: &VMConfig) -> Result<Vec<u
         near_vm_logic::StackLimiterVersion::V1 => ContractModule::init(original_code, config)?
             .scan_imports()?
             .standardize_mem()
-            .ensure_no_internal_memory()?
+            .ensure_no_internal_memory()?/* TODO: re-enable on non-wasmer2
+            .inject_gas_metering()?
+            .inject_stack_height_metering()?// */
             .into_wasm_code(),
     }
 }
