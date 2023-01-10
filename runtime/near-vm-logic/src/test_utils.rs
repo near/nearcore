@@ -3,11 +3,12 @@ use crate::{MemSlice, MemoryLike};
 /// Tests for implementation of MemoryLike interface.
 ///
 /// The `factory` returns a [`MemoryLike`] implementation to be tested.  The
-/// memory must be configured for indices `0..WASM_PAGE_SIZE` to be valid.
+/// memory must be configured with 64 KiB (i.e. single WASM page) of memory
+/// available.
 ///
 /// Panics if any of the tests fails.
 pub fn test_memory_like(factory: impl FnOnce() -> Box<dyn MemoryLike>) {
-    const PAGE: u64 = 64 * 1024;
+    const PAGE: u64 = 0x10000;
 
     struct TestContext {
         mem: Box<dyn MemoryLike>,

@@ -156,7 +156,7 @@ fn test_alt_bn128_g1_sum() {
         let mut logic = logic_builder.build(get_context(vec![], false));
         let input = logic.internal_mem_write(input);
 
-        let res = logic.alt_bn128_g1_sum(input.len, 0, 0);
+        let res = logic.alt_bn128_g1_sum(input.len, input.ptr, 0);
         if let Some(((), expected)) = check_result(res, expected) {
             let got = logic.registers().get_for_free(0).unwrap();
             assert_eq_points(&expected, got);
