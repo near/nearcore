@@ -2394,6 +2394,7 @@ impl<'a> ChainStoreUpdate<'a> {
             | DBCol::_GCCount
             | DBCol::BlockHeight  // block sync needs it + genesis should be accessible
             | DBCol::Peers
+            | DBCol::StabilizedPeers
             | DBCol::BlockMerkleTree
             | DBCol::AccountAnnouncements
             | DBCol::EpochLightClientBlocks

@@ -481,6 +481,7 @@ impl PeerManagerActor {
     ///  - bootstrap outbound connections from known peers,
     ///  - unban peers that have been banned for awhile,
     ///  - remove expired peers,
+    ///  - update stabilized peers,
     ///
     /// # Arguments:
     /// - `interval` - Time between consequent runs.
@@ -548,6 +549,28 @@ impl PeerManagerActor {
         let unreliable_peers = self.unreliable_peers();
         metrics::PEER_UNRELIABLE.set(unreliable_peers.len() as i64);
         self.state.graph.set_unreliable_peers(unreliable_peers);
+
+        // Find all peers connected long enough to be candidates for stabilization
+        let now = self.clock.now();
+        let mut stable_connections: Vec<Arc<connection::Connection>> = self
+            .state
+            .tier2
+            .load()
+            .ready
+            .values()
+            .filter(|c| {
+                now - c.established_time > peer_store::STABILIZED_PEER_MIN_CONNECTION_DURATION
+            })
+            .cloned()
+            .collect();
+        // Sort most recently established first
+        stable_connections.sort_by_key(|c| c.established_time);
+        stable_connections.reverse();
+        // Store stabilized peers
+        let stabilized_peers = stable_connections.iter().map(|c| c.peer_info.id.clone()).collect();
+        if self.state.peer_store.add_stabilized_peers(stabilized_peers).is_err() {
+            tracing::error!(target: "network", "Failed to store stabilized peers");
+        }
 
         let new_interval = min(max_interval, interval * EXPONENTIAL_BACKOFF_RATIO);
 
@@ -1037,7 +1060,10 @@ impl actix::Handler<GetDebugStatus> for PeerManagerActor {
                         -a.last_seen,
                     )
                 });
-                DebugStatus::PeerStore(PeerStoreView { peer_states: peer_states_view })
+                DebugStatus::PeerStore(PeerStoreView {
+                    peer_states: peer_states_view,
+                    stabilized_peers: self.state.peer_store.get_stabilized_peers(),
+                })
             }
             GetDebugStatus::Graph => DebugStatus::Graph(NetworkGraphView {
                 edges: self

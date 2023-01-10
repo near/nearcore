@@ -145,6 +145,13 @@ impl Column for Peers {
     type Value = KnownPeerStateRepr;
 }
 
+pub struct StabilizedPeers;
+impl Column for StabilizedPeers {
+    const COL: DBCol = DBCol::StabilizedPeers;
+    type Key = Borsh<()>;
+    type Value = Vec<Borsh<PeerId>>;
+}
+
 pub struct PeerComponent;
 impl Column for PeerComponent {
     const COL: DBCol = DBCol::PeerComponent;

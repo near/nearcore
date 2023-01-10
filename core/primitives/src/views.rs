@@ -415,6 +415,7 @@ pub enum SyncStatusView {
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct PeerStoreView {
     pub peer_states: Vec<KnownPeerStateView>,
+    pub stabilized_peers: Vec<PeerId>,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]

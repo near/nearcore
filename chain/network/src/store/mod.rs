@@ -144,6 +144,16 @@ impl Store {
     pub fn list_peer_states(&self) -> Result<Vec<(PeerId, KnownPeerState)>, Error> {
         self.0.iter::<schema::Peers>().collect::<Result<_, _>>().map_err(Error)
     }
+
+    pub fn set_stabilized_peers(&mut self, stabilized_peers: &Vec<PeerId>) -> Result<(), Error> {
+        let mut update = self.0.new_update();
+        update.set::<schema::StabilizedPeers>(&(), &stabilized_peers);
+        self.0.commit(update).map_err(Error)
+    }
+
+    pub fn get_stabilized_peers(&self) -> Vec<PeerId> {
+        self.0.get::<schema::StabilizedPeers>(&()).unwrap_or(Some(vec![])).unwrap_or(vec![])
+    }
 }
 
 // TODO(mina86): Get rid of it.

@@ -21,6 +21,16 @@ mod tests;
 /// How often to update the KnownPeerState.last_seen in storage.
 const UPDATE_LAST_SEEN_INTERVAL: time::Duration = time::Duration::minutes(1);
 
+/// The number of peers which we will keep stable by attempting to re-establish
+/// a connection after node restart or after the peer is disconnected.
+const MAX_STABILIZED_PEERS: usize = 40;
+/// How long a connection needs to survive before the connected peer can become a stabilized peer.
+pub const STABILIZED_PEER_MIN_CONNECTION_DURATION: time::Duration = time::Duration::minutes(10);
+/// (TODO) If a connection to a stabilized peer is lost, we will try to reestablish it
+/// once every 10s for the next minute.
+const RECONNECT_STABILIZED_PEER_MAX_ATTEMPTS: usize = 6;
+const RECONNECT_STABILIZED_PEER_INTERVAL: time::Duration = time::Duration::seconds(10);
+
 /// Level of trust we have about a new (PeerId, Addr) pair.
 #[derive(Eq, PartialEq, Debug, Clone, Copy)]
 enum TrustLevel {
@@ -80,6 +90,8 @@ struct Inner {
     // It can happens that some peers don't have known address, so
     // they will not be present in this list, otherwise they will be present.
     addr_peers: HashMap<SocketAddr, VerifiedPeer>,
+    // A list of peers we'll attempt to reconnect to after node restart or upon disconnection.
+    stabilized_peers: Vec<PeerId>,
 }
 
 impl Inner {
@@ -390,12 +402,15 @@ impl PeerStore {
             }
         }
 
+        let stabilized_peers = store.get_stabilized_peers();
+
         let mut peer_store = Inner {
             config,
             store,
             boot_nodes,
             peer_states: peerid_2_state,
             addr_peers: addr_2_peer,
+            stabilized_peers: stabilized_peers,
         };
         peer_store.delete_peers(&peers_to_delete)?;
         Ok(PeerStore(Mutex::new(peer_store)))
@@ -584,6 +599,34 @@ impl PeerStore {
     /// See also [`Self::add_indirect_peers`] and [`Self::add_signed_peer`].
     pub fn add_direct_peer(&self, clock: &time::Clock, peer_info: PeerInfo) -> anyhow::Result<()> {
         self.0.lock().add_peer(clock, peer_info, TrustLevel::Direct)
+    }
+
+    /// Accepts a time-ordered list of stabilized peers and merges it with the store's
+    /// list of stabilized peers, evicting oldest peers if MAX_STABILIZED_PEERS is reached.
+    pub fn add_stabilized_peers(&self, mut stabilized_peers: Vec<PeerId>) -> anyhow::Result<()> {
+        let mut inner = self.0.lock();
+
+        if stabilized_peers.len() >= MAX_STABILIZED_PEERS {
+            stabilized_peers.truncate(MAX_STABILIZED_PEERS);
+        } else {
+            let included = HashSet::<PeerId>::from_iter(stabilized_peers.clone());
+
+            for peer_id in &inner.stabilized_peers {
+                if !included.contains(&peer_id) && stabilized_peers.len() < MAX_STABILIZED_PEERS {
+                    stabilized_peers.push(peer_id.clone());
+                }
+            }
+        }
+
+        if stabilized_peers != inner.stabilized_peers {
+            inner.store.set_stabilized_peers(&stabilized_peers)?;
+            inner.stabilized_peers = stabilized_peers;
+        }
+        Ok(())
+    }
+
+    pub fn get_stabilized_peers(&self) -> Vec<PeerId> {
+        self.0.lock().stabilized_peers.clone()
     }
 
     pub fn load(&self) -> HashMap<PeerId, KnownPeerState> {
