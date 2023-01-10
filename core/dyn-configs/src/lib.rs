@@ -13,7 +13,7 @@ mod metrics;
 #[derive(Serialize, Deserialize, Clone, Default)]
 /// Contains the latest state of configs which can be updated at runtime.
 pub struct UpdateableConfigs {
-    /// Contents of the file `log_config.json`.
+    /// Contents of the file LOG_CONFIG_FILENAME.
     pub log_config: Option<LogConfig>,
     /// Contents of the `config.json` corresponding to the mutable fields of `ClientConfig`.
     pub client_config: Option<UpdateableClientConfig>,

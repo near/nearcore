@@ -3739,6 +3739,7 @@ dependencies = [
  "futures",
  "near-amend-genesis",
  "near-chain-configs",
+ "near-client",
  "near-dyn-configs",
  "near-jsonrpc-primitives",
  "near-mirror",

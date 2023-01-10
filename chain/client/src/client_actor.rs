@@ -11,6 +11,7 @@ use crate::adapter::{
     RecvPartialEncodedChunkRequest, RecvPartialEncodedChunkResponse, SetNetworkInfo, StateResponse,
 };
 use crate::client::{Client, EPOCH_START_INFO_BLOCKS};
+use crate::config_updater::ConfigUpdater;
 use crate::debug::new_network_info_view;
 use crate::info::{display_sync_status, InfoHelper};
 use crate::metrics::PARTIAL_ENCODED_CHUNK_RESPONSE_DELAY;
@@ -38,7 +39,6 @@ use near_chunks::logic::cares_about_shard_this_or_next_epoch;
 use near_client_primitives::types::{
     Error, GetNetworkInfo, NetworkInfoResponse, Status, StatusError, StatusSyncInfo, SyncStatus,
 };
-use near_dyn_configs::{DynConfigsError, UpdateableConfigs};
 #[cfg(feature = "test_features")]
 use near_network::types::NetworkAdversarialMessage;
 use near_network::types::ReasonForBan;
@@ -70,7 +70,6 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
-use tokio::sync::broadcast::Receiver;
 use tracing::{debug, error, info, trace, warn};
 
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.
@@ -119,12 +118,8 @@ pub struct ClientActor {
     /// Informs the system when a ClientActor gets dropped.
     shutdown_signal: Option<broadcast::Sender<()>>,
 
-    /// `rx_config_update` is a way to get notified about the config being changed
-    /// while the node is running.
-    rx_config_update: Option<Receiver<Result<UpdateableConfigs, Arc<DynConfigsError>>>>,
-
-    /// Represents the latest Error of reading the dynamically reloadable configs.
-    updateable_configs_error: Option<Arc<DynConfigsError>>,
+    /// Manages updating the config.
+    config_updater: Option<ConfigUpdater>,
 }
 
 /// Blocks the program until given genesis time arrives.
@@ -162,7 +157,7 @@ impl ClientActor {
         ctx: &Context<ClientActor>,
         shutdown_signal: Option<broadcast::Sender<()>>,
         adv: crate::adversarial::Controls,
-        rx_config_update: Option<Receiver<Result<UpdateableConfigs, Arc<DynConfigsError>>>>,
+        config_updater: Option<ConfigUpdater>,
     ) -> Result<Self, Error> {
         let state_parts_arbiter = Arbiter::new();
         let self_addr = ctx.address();
@@ -232,8 +227,7 @@ impl ClientActor {
             #[cfg(feature = "sandbox")]
             fastforward_delta: 0,
             shutdown_signal,
-            rx_config_update,
-            updateable_configs_error: None,
+            config_updater,
         })
     }
 }
@@ -1119,24 +1113,12 @@ impl ClientActor {
     }
 
     fn check_triggers(&mut self, ctx: &mut Context<ClientActor>) -> Duration {
-        // Check if any of the configs were updated. If they did, the receiver
-        // will contain a clone of the new configs.
-        self.rx_config_update.as_mut().map(|rx_config_update| {
-            while let Ok(maybe_updateable_configs) = rx_config_update.try_recv() {
-                match maybe_updateable_configs {
-                    Ok(updateable_configs) => {
-                        if let Some(client_config) = updateable_configs.client_config {
-                            self.client.update_client_config(client_config);
-                        }
-                        tracing::info!(target: "config", "Updated ClientConfig");
-                        self.updateable_configs_error = None;
-                    }
-                    Err(err) => {
-                        self.updateable_configs_error = Some(err.clone());
-                    }
-                }
+        if let Some(config_updater) = &mut self.config_updater {
+            if let Err(err) = config_updater.update_if_needed(&mut self.client) {
+                tracing::warn!("Failed to update the client config: {:?}", err);
             }
-        });
+        }
+
         // There is a bug in Actix library. While there are messages in mailbox, Actix
         // will prioritize processing messages until mailbox is empty. Execution of any other task
         // scheduled with run_later will be delayed.
@@ -1749,7 +1731,7 @@ impl ClientActor {
             &self.client,
             &self.node_id,
             &self.network_info,
-            &self.updateable_configs_error,
+            &self.config_updater,
         )
     }
 }
@@ -1967,7 +1949,7 @@ pub fn start_client(
     telemetry_actor: Addr<TelemetryActor>,
     sender: Option<broadcast::Sender<()>>,
     adv: crate::adversarial::Controls,
-    rx_config_update: Option<Receiver<Result<UpdateableConfigs, Arc<DynConfigsError>>>>,
+    config_updater: Option<ConfigUpdater>,
 ) -> (Addr<ClientActor>, ArbiterHandle) {
     let client_arbiter = Arbiter::new();
     let client_arbiter_handle = client_arbiter.handle();
@@ -1986,7 +1968,7 @@ pub fn start_client(
             ctx,
             sender,
             adv,
-            rx_config_update,
+            config_updater,
         )
         .unwrap()
     });

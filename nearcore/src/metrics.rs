@@ -30,7 +30,7 @@ pub static SECONDS_PER_PETAGAS: Lazy<HistogramVec> = Lazy::new(|| {
 pub(crate) static CONFIG_CORRECT: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge(
         "near_config_correct",
-        "Is the current dynamically loadable configs correct",
+        "Are the current dynamically loadable configs correct",
     )
     .unwrap()
 });

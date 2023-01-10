@@ -6,7 +6,10 @@ use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone)]
-/// A simple wrapper for a config value that can be updated while the node is running.
+/// A wrapper for a config value that can be updated while the node is running.
+/// When initializing sub-objects (e.g. `ShardsManager`), please make sure to
+/// pass this wrapper instead of passing a value from a single moment in time.
+/// See `expected_shutdown` for an example how to use it.
 pub struct MutableConfigValue<T> {
     value: Arc<Mutex<T>>,
     field_name: String,
@@ -14,6 +17,8 @@ pub struct MutableConfigValue<T> {
 }
 
 impl<T: Copy + PartialEq + Debug> MutableConfigValue<T> {
+    /// Initializes a value.
+    /// `field_name` is needed to export the config value as a prometheus metric.
     pub fn new(val: T, field_name: &str) -> Self {
         let res = Self {
             value: Arc::new(Mutex::new(val)),

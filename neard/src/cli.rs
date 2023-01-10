@@ -3,6 +3,7 @@ use anyhow::Context;
 use clap::{Args, Parser};
 use near_amend_genesis::AmendGenesisCommand;
 use near_chain_configs::GenesisValidationMode;
+use near_client::ConfigUpdater;
 #[cfg(feature = "cold_store")]
 use near_cold_store_tool::ColdStoreCommand;
 use near_dyn_configs::{DynConfigStore, DynConfigsError, UpdateableConfigs};
@@ -479,13 +480,14 @@ impl RunCmd {
                 .unwrap_or_else(|e| panic!("Error reading dynamic configs: {:#}", e));
             let mut dyn_configs_store =
                 DynConfigStore::new(updateable_configs.clone(), tx_config_update);
+            let config_updater = ConfigUpdater::new(rx_config_update);
 
             let nearcore::NearNode { rpc_servers, .. } =
                 nearcore::start_with_config_and_synchronization(
                     home_dir,
                     near_config,
                     Some(tx_crash),
-                    Some(rx_config_update),
+                    Some(config_updater),
                 )
                 .expect("start_with_config");
 

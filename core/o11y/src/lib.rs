@@ -454,6 +454,8 @@ pub fn reload_log_config(config: Option<&log_config::LogConfig>) -> Result<(), V
             config.opentelemetry_level,
         )
     } else {
+        // When the LOG_CONFIG_FILENAME is not available, reset to the tracing and logging config
+        // when the node was started.
         reload(None, None, None)
     }
 }
