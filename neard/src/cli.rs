@@ -11,8 +11,8 @@ use near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofRe
 use near_mirror::MirrorCommand;
 use near_o11y::tracing_subscriber::EnvFilter;
 use near_o11y::{
-    default_subscriber, default_subscriber_with_opentelemetry, set_default_otlp_level,
-    BuildEnvFilterError, EnvFilterBuilder,
+    default_subscriber, default_subscriber_with_opentelemetry, BuildEnvFilterError,
+    EnvFilterBuilder,
 };
 use near_ping::PingCommand;
 use near_primitives::hash::CryptoHash;
