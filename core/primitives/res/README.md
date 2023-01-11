@@ -4,18 +4,18 @@ Stores resource data which is part of the protocol stable enough to be moved out
 
 ### `runtime_configs`
 
-All parameter value to configure the runtime are defined in `parameters.txt`.
+All parameter value to configure the runtime are defined in `parameters.yaml`.
 Parameters added or changed in protocol upgrades are defined in differential
-config files with a naming scheme like `V.txt`, where `V` is the new version.
+config files with a naming scheme like `V.yaml`, where `V` is the new version.
 
 The content of the base configuration file is one flat list of typed keys and
 untyped values. Key names are defined in
 `core/primitives-core/src/parameter.rs`.
 
 The format of the differential files is slightly different. Inserting new
-parameters uses the same syntax as the base configuration file: `key: value`.
-Parameters that change are specified like this: `key: old_value -> new_value`.
+parameters uses the following syntax: `key: { new: value }`.
+Parameters that change are specified like this: `key: { old: old_value, new: new_value }`.
 Removing a previously defined parameter for a new version is done as follows: 
-`key: old_value ->`. This causes the parameter value to be undefined in newer
+`key: { old: old_value }`. This causes the parameter value to be undefined in newer
 versions which generally means the default value is used to fill in the
 `RuntimeConfig` object.
