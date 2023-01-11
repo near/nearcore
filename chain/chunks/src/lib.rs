@@ -612,6 +612,9 @@ impl ShardsManager {
                 continue;
             }
 
+            // This is false positive, similar to what was reported here:
+            // https://github.com/rust-lang/rust-clippy/issues/5940
+            #[allow(clippy::if_same_then_else)]
             let fetch_from = if request_from_archival {
                 shard_representative_target.clone()
             } else if we_own_part {

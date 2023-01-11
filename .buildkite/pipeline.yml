@@ -90,6 +90,8 @@ steps:
 
       ./scripts/formatting --check
 
+      ./scripts/run_clippy.sh
+
       rm target/rpc_errors_schema.json
       cargo check -p near-jsonrpc --features dump_errors_schema
       if ! git --no-pager diff --no-index chain/jsonrpc/res/rpc_errors_schema.json target/rpc_errors_schema.json; then

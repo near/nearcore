@@ -209,7 +209,10 @@ impl ShardTries {
                         }
                     }
                 }
-                DBOp::Set { col, .. } | DBOp::Insert { col, .. } | DBOp::Delete { col, .. } => {
+                DBOp::Set { col, .. }
+                | DBOp::Insert { col, .. }
+                | DBOp::Delete { col, .. }
+                | DBOp::DeleteRange { col, .. } => {
                     assert_ne!(*col, DBCol::State);
                 }
             }

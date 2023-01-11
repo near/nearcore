@@ -6,7 +6,7 @@ pessimistic_gas_price_inflation_denominator: 100
 
 # Account creation config
 min_allowed_top_level_account_length: 0
-registrar_account_id: registrar
+registrar_account_id: "registrar"
 
 # Storage usage config
 storage_amount_per_byte: 100_000_000_000_000_000_000
