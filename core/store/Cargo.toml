@@ -8,6 +8,7 @@ edition.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+assert_matches.workspace = true
 borsh.workspace = true
 byteorder.workspace = true
 bytesize.workspace = true

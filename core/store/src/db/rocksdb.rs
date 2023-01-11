@@ -643,6 +643,7 @@ fn col_name(col: DBCol) -> &'static str {
 mod tests {
     use crate::db::{Database, StatsValue};
     use crate::{DBCol, NodeStorage, StoreStatistics};
+    use assert_matches::assert_matches;
 
     use super::*;
 
@@ -755,10 +756,9 @@ mod tests {
         store_update.delete_range(column, &keys[1], &keys[3]);
         store_update.commit().unwrap();
 
-        let key_exists = |key_index: usize| store.get(column, &keys[key_index]).unwrap().is_some();
-        assert!(key_exists(0));
-        assert!(!key_exists(1));
-        assert!(!key_exists(2));
-        assert!(key_exists(3));
+        assert_matches!(store.exists(column, &keys[0]), Ok(true));
+        assert_matches!(store.exists(column, &keys[1]), Ok(false));
+        assert_matches!(store.exists(column, &keys[2]), Ok(false));
+        assert_matches!(store.exists(column, &keys[3]), Ok(true));
     }
 }
