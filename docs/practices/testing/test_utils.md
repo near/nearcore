@@ -20,8 +20,18 @@ let alice: AccountId = "alice.near".parse().unwrap()
 ### Signatures
 In memory signer (generates the key based on seed). There is a slight preference to use the seed that is matching the account name.
 
+This will create a signer for account 'test' using 'test' as a seed.
+
 ```rust
-InMemoryValidatorSigner::from_seed("account".parse().unwrap(), KeyType::ED25519, "account".to_owned())
+let signer: InMemoryValidatorSigner = create_test_signer("test");
+```
+
+### Block
+
+Use ``TestBlockBuilder`` to create the block that you need. This class allows you to set custom values for most of the fields.
+
+```rust
+let test_block = test_utils::TestBlockBuilder::new(prev, signer).height(33).build();
 ```
 
 ## Store

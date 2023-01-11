@@ -55,13 +55,7 @@ fn default_peer_expiration_duration() -> Duration {
 
 // If non-zero - we'll skip sending tombstones during initial sync and for that many seconds after start.
 fn default_skip_tombstones() -> i64 {
-    // Enable by default in shardnet only.
-    if cfg!(feature = "shardnet") {
-        // Skip sending tombstones during sync and 240 seconds after start.
-        240
-    } else {
-        0
-    }
+    0
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

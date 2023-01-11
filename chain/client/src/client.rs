@@ -192,7 +192,7 @@ impl Client {
             &chain_genesis,
             doomslug_threshold_mode,
             ChainConfig {
-                save_trie_changes: !config.archive,
+                save_trie_changes: config.save_trie_changes,
                 background_migration_threads: config.client_background_migration_threads,
             },
         )?;
@@ -1728,8 +1728,27 @@ impl Client {
         let parent_hash = match inner {
             ApprovalInner::Endorsement(parent_hash) => *parent_hash,
             ApprovalInner::Skip(parent_height) => {
-                match self.chain.get_block_header_by_height(*parent_height) {
-                    Ok(header) => *header.hash(),
+                match self.chain.store().get_all_block_hashes_by_height(*parent_height) {
+                    Ok(hashes) => {
+                        // If there is more than one block at the height, all of them will be
+                        // eligible to build the next block on, so we just pick one.
+                        let hash = hashes.values().flatten().next();
+                        match hash {
+                            Some(hash) => *hash,
+                            None => {
+                                self.handle_process_approval_error(
+                                    approval,
+                                    approval_type,
+                                    true,
+                                    near_chain::Error::Other(format!(
+                                        "Cannot find any block on height {}",
+                                        parent_height
+                                    )),
+                                );
+                                return;
+                            }
+                        }
+                    }
                     Err(e) => {
                         self.handle_process_approval_error(approval, approval_type, true, e);
                         return;

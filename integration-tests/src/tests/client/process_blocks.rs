@@ -49,13 +49,15 @@ use near_primitives::merkle::{verify_hash, PartialMerkleTree};
 use near_primitives::receipt::DelayedReceiptIndices;
 use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
-use near_primitives::shard_layout::ShardUId;
+use near_primitives::shard_layout::{get_block_shard_uid, ShardUId};
 use near_primitives::sharding::{
     EncodedShardChunk, ReedSolomonWrapper, ShardChunkHeader, ShardChunkHeaderInner,
     ShardChunkHeaderV3,
 };
 use near_primitives::state_part::PartId;
 use near_primitives::syncing::{get_num_state_parts, ShardStateSyncResponseHeader, StatePartKey};
+use near_primitives::test_utils::create_test_signer;
+use near_primitives::test_utils::TestBlockBuilder;
 use near_primitives::transaction::{
     Action, DeployContractAction, ExecutionStatus, FunctionCallAction, SignedTransaction,
     Transaction,
@@ -70,7 +72,7 @@ use near_primitives::views::{
     BlockHeaderView, FinalExecutionStatus, QueryRequest, QueryResponseKind,
 };
 use near_store::test_utils::create_test_store;
-use near_store::{get, DBCol};
+use near_store::{get, DBCol, TrieChanges};
 use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use nearcore::NEAR_BASE;
 use rand::prelude::StdRng;
@@ -81,11 +83,8 @@ pub fn set_block_protocol_version(
     block_producer: AccountId,
     protocol_version: ProtocolVersion,
 ) {
-    let validator_signer = InMemoryValidatorSigner::from_seed(
-        block_producer.clone(),
-        KeyType::ED25519,
-        block_producer.as_ref(),
-    );
+    let validator_signer = create_test_signer(block_producer.as_str());
+
     block.mut_header().set_latest_protocol_version(protocol_version);
     block.mut_header().resign(&validator_signer);
 }
@@ -373,11 +372,7 @@ fn receive_network_block() {
             let (last_block, block_merkle_tree) = res.unwrap().unwrap();
             let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
             block_merkle_tree.insert(last_block.header.hash);
-            let signer = InMemoryValidatorSigner::from_seed(
-                "test1".parse().unwrap(),
-                KeyType::ED25519,
-                "test1",
-            );
+            let signer = create_test_signer("test1");
             let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
             let block = Block::produce(
                 PROTOCOL_VERSION,
@@ -456,11 +451,7 @@ fn produce_block_with_approvals() {
             let (last_block, block_merkle_tree) = res.unwrap().unwrap();
             let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
             block_merkle_tree.insert(last_block.header.hash);
-            let signer1 = InMemoryValidatorSigner::from_seed(
-                "test2".parse().unwrap(),
-                KeyType::ED25519,
-                "test2",
-            );
+            let signer1 = create_test_signer("test2");
             let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
             let block = Block::produce(
                 PROTOCOL_VERSION,
@@ -504,8 +495,7 @@ fn produce_block_with_approvals() {
                     format!("test{}", i)
                 })
                 .unwrap();
-                let signer =
-                    InMemoryValidatorSigner::from_seed(s.clone(), KeyType::ED25519, s.as_ref());
+                let signer = create_test_signer(s.as_str());
                 let approval = Approval::new(
                     *block.hash(),
                     block.header().height(),
@@ -669,11 +659,7 @@ fn invalid_blocks_common(is_requested: bool) {
             let (last_block, block_merkle_tree) = res.unwrap().unwrap();
             let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
             block_merkle_tree.insert(last_block.header.hash);
-            let signer = InMemoryValidatorSigner::from_seed(
-                "test".parse().unwrap(),
-                KeyType::ED25519,
-                "test",
-            );
+            let signer = create_test_signer("test");
             let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
             let valid_block = Block::produce(
                 PROTOCOL_VERSION,
@@ -844,11 +830,7 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
                                 let block_producer_idx =
                                     block.header().height() as usize % validators.len();
                                 let block_producer = &validators[block_producer_idx];
-                                let validator_signer1 = InMemoryValidatorSigner::from_seed(
-                                    block_producer.clone(),
-                                    KeyType::ED25519,
-                                    block_producer.as_ref(),
-                                );
+                                let validator_signer1 = create_test_signer(block_producer.as_str());
                                 sent_bad_blocks = true;
                                 let mut block_mut = block.clone();
                                 match mode {
@@ -1060,6 +1042,7 @@ fn client_sync_headers() {
                 received_bytes_per_sec: 0,
                 known_producers: vec![],
                 tier1_connections: vec![],
+                tier1_accounts_keys: vec![],
                 tier1_accounts_data: vec![],
             })
             .with_span_context(),
@@ -1132,14 +1115,15 @@ fn test_time_attack() {
         client_adapter,
         chain_genesis,
         TEST_SEED,
+        false,
+        true,
     );
-    let signer =
-        InMemoryValidatorSigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
+    let signer = Arc::new(create_test_signer("test1"));
     let genesis = client.chain.get_block_by_height(0).unwrap();
-    let mut b1 = Block::empty_with_height(&genesis, 1, &signer);
+    let mut b1 = TestBlockBuilder::new(&genesis, signer.clone()).build();
     b1.mut_header().get_mut().inner_lite.timestamp =
         to_timestamp(b1.header().timestamp() + chrono::Duration::seconds(60));
-    b1.mut_header().resign(&signer);
+    b1.mut_header().resign(&*signer);
 
     let _ = client.process_block_test(b1.into(), Provenance::NONE).unwrap();
 
@@ -1167,25 +1151,22 @@ fn test_invalid_approvals() {
         client_adapter,
         chain_genesis,
         TEST_SEED,
+        false,
+        true,
     );
-    let signer =
-        InMemoryValidatorSigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
+    let signer = Arc::new(create_test_signer("test1"));
     let genesis = client.chain.get_block_by_height(0).unwrap();
-    let mut b1 = Block::empty_with_height(&genesis, 1, &signer);
+    let mut b1 = TestBlockBuilder::new(&genesis, signer.clone()).build();
     b1.mut_header().get_mut().inner_rest.approvals = (0..100)
         .map(|i| {
             let account_id = AccountId::try_from(format!("test{}", i)).unwrap();
             Some(
-                InMemoryValidatorSigner::from_seed(
-                    account_id.clone(),
-                    KeyType::ED25519,
-                    account_id.as_ref(),
-                )
-                .sign_approval(&ApprovalInner::Endorsement(*genesis.hash()), 1),
+                create_test_signer(account_id.as_str())
+                    .sign_approval(&ApprovalInner::Endorsement(*genesis.hash()), 1),
             )
         })
         .collect();
-    b1.mut_header().resign(&signer);
+    b1.mut_header().resign(&*signer);
 
     let result = client.process_block_test(b1.into(), Provenance::NONE);
     assert_matches!(result.unwrap_err(), Error::InvalidApprovals);
@@ -1218,13 +1199,14 @@ fn test_invalid_gas_price() {
         client_adapter,
         chain_genesis,
         TEST_SEED,
+        false,
+        true,
     );
-    let signer =
-        InMemoryValidatorSigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
+    let signer = Arc::new(create_test_signer("test1"));
     let genesis = client.chain.get_block_by_height(0).unwrap();
-    let mut b1 = Block::empty_with_height(&genesis, 1, &signer);
+    let mut b1 = TestBlockBuilder::new(&genesis, signer.clone()).build();
     b1.mut_header().get_mut().inner_rest.gas_price = 0;
-    b1.mut_header().resign(&signer);
+    b1.mut_header().resign(&*signer);
 
     let res = client.process_block_test(b1.into(), Provenance::NONE);
     assert_matches!(res.unwrap_err(), Error::InvalidGasPrice);
@@ -1235,9 +1217,8 @@ fn test_invalid_height_too_large() {
     let mut env = TestEnv::builder(ChainGenesis::test()).build();
     let b1 = env.clients[0].produce_block(1).unwrap().unwrap();
     let _ = env.clients[0].process_block_test(b1.clone().into(), Provenance::PRODUCED).unwrap();
-    let signer =
-        InMemoryValidatorSigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
-    let b2 = Block::empty_with_height(&b1, u64::MAX, &signer);
+    let signer = Arc::new(create_test_signer("test0"));
+    let b2 = TestBlockBuilder::new(&b1, signer.clone()).height(u64::MAX).build();
     let res = env.clients[0].process_block_test(b2.into(), Provenance::NONE);
     assert_matches!(res.unwrap_err(), Error::InvalidBlockHeight(_));
 }
@@ -1379,6 +1360,8 @@ fn test_bad_chunk_mask() {
                 Arc::new(MockClientAdapterForShardsManager::default()),
                 chain_genesis.clone(),
                 TEST_SEED,
+                false,
+                true,
             )
         })
         .collect();
@@ -1500,6 +1483,68 @@ fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
 fn test_gc_with_epoch_length() {
     for i in 3..20 {
         test_gc_with_epoch_length_common(i);
+    }
+}
+
+/// Test that producing blocks works in archival mode with save_trie_changes enabled.
+/// In that case garbage collection should not happen but trie changes should be saved to the store.
+#[test]
+fn test_archival_save_trie_changes() {
+    let epoch_length = 10;
+
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+    genesis.config.epoch_length = epoch_length;
+    let mut chain_genesis = ChainGenesis::test();
+    chain_genesis.epoch_length = epoch_length;
+    let mut env = TestEnv::builder(chain_genesis)
+        .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
+        .archive(true)
+        .save_trie_changes(true)
+        .build();
+    let mut blocks = vec![];
+    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+    blocks.push(genesis_block);
+    for i in 1..=epoch_length * (DEFAULT_GC_NUM_EPOCHS_TO_KEEP + 1) {
+        let block = env.clients[0].produce_block(i).unwrap().unwrap();
+        env.process_block(0, block.clone(), Provenance::PRODUCED);
+        blocks.push(block);
+    }
+    // Go through all of the blocks and verify that the block are stored and that the trie changes were stored too.
+    for i in 0..=epoch_length * (DEFAULT_GC_NUM_EPOCHS_TO_KEEP + 1) {
+        let client = &env.clients[0];
+        let chain = &client.chain;
+        let store = chain.store();
+        let block = &blocks[i as usize];
+        let header = block.header();
+        let epoch_id = header.epoch_id();
+        let runtime_adapter = &client.runtime_adapter;
+        let shard_layout = runtime_adapter.get_shard_layout(epoch_id).unwrap();
+
+        assert!(chain.get_block(block.hash()).is_ok());
+        assert!(chain.get_block_by_height(i).is_ok());
+        assert!(chain.store().get_all_block_hashes_by_height(i as BlockHeight).is_ok());
+
+        // The genesis block does not contain trie changes.
+        if i == 0 {
+            continue;
+        }
+
+        // Go through chunks and test that trie changes were correctly saved to the store.
+        let chunks = block.chunks();
+        for chunk in chunks.iter() {
+            let shard_id = chunk.shard_id() as u32;
+            let version = shard_layout.version();
+
+            let shard_uid = ShardUId { version, shard_id };
+            let key = get_block_shard_uid(&block.hash(), &shard_uid);
+            let trie_changes: Option<TrieChanges> =
+                store.store().get_ser(DBCol::TrieChanges, &key).unwrap();
+
+            if let Some(trie_changes) = trie_changes {
+                // We don't do any transactions in this test so the root should remain unchanged.
+                assert_eq!(trie_changes.old_root, trie_changes.new_root);
+            }
+        }
     }
 }
 
@@ -1948,8 +1993,7 @@ fn test_gas_price_overflow() {
 fn test_invalid_block_root() {
     let mut env = TestEnv::builder(ChainGenesis::test()).build();
     let mut b1 = env.clients[0].produce_block(1).unwrap().unwrap();
-    let signer =
-        InMemoryValidatorSigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let signer = create_test_signer("test0");
     b1.mut_header().get_mut().inner_lite.block_merkle_root = CryptoHash::default();
     b1.mut_header().resign(&signer);
     let res = env.clients[0].process_block_test(b1.into(), Provenance::NONE);
@@ -1970,7 +2014,7 @@ fn test_incorrect_validator_key_produce_block() {
         KeyType::ED25519,
         "seed",
     ));
-    let mut config = ClientConfig::test(true, 10, 20, 2, false, true);
+    let mut config = ClientConfig::test(true, 10, 20, 2, false, true, true);
     config.epoch_length = chain_genesis.epoch_length;
     let mut client = Client::new(
         config,
@@ -2155,8 +2199,7 @@ fn test_block_height_processed_orphan() {
     let mut env = TestEnv::builder(ChainGenesis::test()).build();
     let block = env.clients[0].produce_block(1).unwrap().unwrap();
     let mut orphan_block = block;
-    let validator_signer =
-        InMemoryValidatorSigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let validator_signer = create_test_signer("test0");
     orphan_block.mut_header().get_mut().prev_hash = hash(&[1]);
     orphan_block.mut_header().resign(&validator_signer);
     let block_height = orphan_block.header().height();
@@ -2224,8 +2267,7 @@ fn test_validate_chunk_extra() {
     }
 
     // Construct two blocks that contain the same chunk and make the chunk unavailable.
-    let validator_signer =
-        InMemoryValidatorSigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let validator_signer = create_test_signer("test0");
     let next_height = last_block.header().height() + 1;
     let (encoded_chunk, merkle_paths, receipts) =
         create_chunk_on_height(&mut env.clients[0], next_height);
@@ -2306,8 +2348,7 @@ fn test_gas_price_change_no_chunk() {
     let mut env = TestEnv::builder(chain_genesis)
         .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
         .build();
-    let validator_signer =
-        InMemoryValidatorSigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let validator_signer = create_test_signer("test0");
     for i in 1..=20 {
         let mut block = env.clients[0].produce_block(i).unwrap().unwrap();
         if i <= 5 || (i > 10 && i <= 15) {
@@ -2920,8 +2961,7 @@ fn test_fork_receipt_ids() {
     env.process_block(0, produced_block.clone(), Provenance::PRODUCED);
 
     // Construct two blocks that contain the same chunk and make the chunk unavailable.
-    let validator_signer =
-        InMemoryValidatorSigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let validator_signer = create_test_signer("test0");
     let next_height = produced_block.header().height() + 1;
     let (encoded_chunk, _, _) = create_chunk_on_height(&mut env.clients[0], next_height);
     let mut block1 = env.clients[0].produce_block(next_height).unwrap().unwrap();
@@ -2968,8 +3008,7 @@ fn test_fork_execution_outcome() {
     }
 
     // Construct two blocks that contain the same chunk and make the chunk unavailable.
-    let validator_signer =
-        InMemoryValidatorSigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let validator_signer = create_test_signer("test0");
     let next_height = last_height + 1;
     let (encoded_chunk, _, _) = create_chunk_on_height(&mut env.clients[0], next_height);
     let mut block1 = env.clients[0].produce_block(next_height).unwrap().unwrap();
@@ -3071,8 +3110,7 @@ fn test_header_version_downgrade() {
     let mut env = TestEnv::builder(chain_genesis)
         .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
         .build();
-    let validator_signer =
-        InMemoryValidatorSigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let validator_signer = create_test_signer("test0");
     for i in 1..10 {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
         env.process_block(0, block, Provenance::NONE);
@@ -3119,8 +3157,7 @@ fn test_node_shutdown_with_old_protocol_version() {
     let mut env = TestEnv::builder(ChainGenesis::test())
         .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
         .build();
-    let validator_signer =
-        InMemoryValidatorSigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let validator_signer = create_test_signer("test0");
     for i in 1..=5 {
         let mut block = env.clients[0].produce_block(i).unwrap().unwrap();
         block.mut_header().get_mut().inner_rest.latest_protocol_version = PROTOCOL_VERSION + 1;

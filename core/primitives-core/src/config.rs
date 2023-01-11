@@ -57,6 +57,10 @@ pub struct VMLimitConfig {
     /// Maximum number of bytes that can be stored in a single register.
     pub max_register_size: u64,
     /// Maximum number of registers that can be used simultaneously.
+    ///
+    /// Note that due to an implementation quirk [read: a bug] in VMLogic, if we
+    /// have this number of registers, no subsequent writes to the registers
+    /// will succeed even if they replace an existing register.
     pub max_number_registers: u64,
 
     /// Maximum number of log entries.
@@ -318,14 +322,16 @@ impl ExtCostsConfig {
             ExtCosts::storage_remove_ret_value_byte => SAFETY_MULTIPLIER * 3843852,
             ExtCosts::storage_has_key_base => SAFETY_MULTIPLIER * 18013298875,
             ExtCosts::storage_has_key_byte => SAFETY_MULTIPLIER * 10263615,
-            ExtCosts::storage_iter_create_prefix_base => SAFETY_MULTIPLIER * 0,
-            ExtCosts::storage_iter_create_prefix_byte => SAFETY_MULTIPLIER * 0,
-            ExtCosts::storage_iter_create_range_base => SAFETY_MULTIPLIER * 0,
-            ExtCosts::storage_iter_create_from_byte => SAFETY_MULTIPLIER * 0,
-            ExtCosts::storage_iter_create_to_byte => SAFETY_MULTIPLIER * 0,
-            ExtCosts::storage_iter_next_base => SAFETY_MULTIPLIER * 0,
-            ExtCosts::storage_iter_next_key_byte => SAFETY_MULTIPLIER * 0,
-            ExtCosts::storage_iter_next_value_byte => SAFETY_MULTIPLIER * 0,
+            // Here it should be `SAFETY_MULTIPLIER * 0` for consistency, but then
+            // clippy complains with "this operation will always return zero" warning
+            ExtCosts::storage_iter_create_prefix_base => 0,
+            ExtCosts::storage_iter_create_prefix_byte => 0,
+            ExtCosts::storage_iter_create_range_base => 0,
+            ExtCosts::storage_iter_create_from_byte => 0,
+            ExtCosts::storage_iter_create_to_byte => 0,
+            ExtCosts::storage_iter_next_base => 0,
+            ExtCosts::storage_iter_next_key_byte => 0,
+            ExtCosts::storage_iter_next_value_byte => 0,
             ExtCosts::touching_trie_node => SAFETY_MULTIPLIER * 5367318642,
             ExtCosts::read_cached_trie_node => SAFETY_MULTIPLIER * 760_000_000,
             ExtCosts::promise_and_base => SAFETY_MULTIPLIER * 488337800,

@@ -34,6 +34,9 @@ pub enum Cost {
     /// Estimation: Measure the creation and execution of an empty action
     /// receipt, where sender and receiver are the same account.
     ActionSirReceiptCreation,
+    ActionReceiptCreationSendNotSir,
+    ActionReceiptCreationSendSir,
+    ActionReceiptCreationExec,
     /// Estimates `data_receipt_creation_config.base_cost`, which is charged for
     /// every data dependency of created receipts. This occurs either through
     /// calls to `promise_batch_then` or `value_return`. Dispatch and execution
@@ -43,6 +46,9 @@ pub enum Cost {
     /// only one of them also creates a callback that depends on the promise
     /// results. The difference in execution cost is divided by 1000.
     DataReceiptCreationBase,
+    DataReceiptCreationBaseSendNotSir,
+    DataReceiptCreationBaseSendSir,
+    DataReceiptCreationBaseExec,
     /// Estimates `data_receipt_creation_config.cost_per_byte`, which is charged
     /// for every byte in data dependency of created receipts. This occurs
     /// either through calls to `promise_batch_then` or `value_return`. Dispatch
@@ -53,6 +59,9 @@ pub enum Cost {
     /// creates small data receipts, the other large ones. The difference in
     /// execution cost is divided by the total byte difference.
     DataReceiptCreationPerByte,
+    DataReceiptCreationPerByteSendNotSir,
+    DataReceiptCreationPerByteSendSir,
+    DataReceiptCreationPerByteExec,
     /// Estimates `action_creation_config.create_account_cost` which is charged
     /// for `CreateAccount` actions, the same value on sending and executing.
     ///
@@ -60,6 +69,9 @@ pub enum Cost {
     /// an initial balance to it. Subtract the base cost of creating a receipt.
     // TODO(jakmeier): consider also subtracting transfer fee
     ActionCreateAccount,
+    ActionCreateAccountSendNotSir,
+    ActionCreateAccountSendSir,
+    ActionCreateAccountExec,
     // Deploying a new contract for an account on the blockchain stores the WASM
     // code in the trie. Additionally, it also triggers a compilation of the
     // code to check that it is valid WASM. The compiled code is then stored in
@@ -72,6 +84,9 @@ pub enum Cost {
     ///
     /// Estimation: Measure deployment cost of a "smallest" contract.
     ActionDeployContractBase,
+    ActionDeployContractBaseSendNotSir,
+    ActionDeployContractBaseSendSir,
+    ActionDeployContractBaseExec,
     /// Estimates `action_creation_config.deploy_contract_cost_per_byte`, which
     /// is charged for every byte in the WASM code when deploying the contract
     ///
@@ -79,6 +94,9 @@ pub enum Cost {
     /// a transaction. Subtract base costs and apply least-squares on the
     /// results to find the per-byte costs.
     ActionDeployContractPerByte,
+    ActionDeployContractPerByteSendNotSir,
+    ActionDeployContractPerByteSendSir,
+    ActionDeployContractPerByteExec,
     /// Estimates `action_creation_config.function_call_cost`, which is the base
     /// cost for adding a `FunctionCallAction` to a receipt. It aims to account
     /// for all costs of calling a function that are already known on the caller
@@ -90,6 +108,9 @@ pub enum Cost {
     /// transaction is divided by N. Executable loading cost is also subtracted
     /// from the final result because this is charged separately.
     ActionFunctionCallBase,
+    ActionFunctionCallBaseSendNotSir,
+    ActionFunctionCallBaseSendSir,
+    ActionFunctionCallBaseExec,
     /// Estimates `action_creation_config.function_call_cost_per_byte`, which is
     /// the incremental cost for each byte of the method name and method
     /// arguments cost for adding a `FunctionCallAction` to a receipt.
@@ -99,20 +120,29 @@ pub enum Cost {
     /// call with no argument. Divide the difference by the length of the
     /// argument.
     ActionFunctionCallPerByte,
+    ActionFunctionCallPerByteSendNotSir,
+    ActionFunctionCallPerByteSendSir,
+    ActionFunctionCallPerByteExec,
     /// Estimates `action_creation_config.transfer_cost` which is charged for
     /// every `Action::Transfer`, the same value for sending and executing.
     ///
     /// Estimation: Measure a transaction with only a transfer and subtract the
     /// base cost of creating a receipt.
     ActionTransfer,
+    ActionTransferSendNotSir,
+    ActionTransferSendSir,
+    ActionTransferExec,
     /// Estimates `action_creation_config.stake_cost` which is charged for every
     /// `Action::Stake`, a slightly higher value for sending than executing.
     ///
     /// Estimation: Measure a transaction with only a staking action and
     /// subtract the base cost of creating a sir-receipt.
-    // TODO(jakmeier): find out and document the reasoning behind send vs exec
-    // values in this specific case
+    ///
+    /// Note: The exec cost is probably a copy-paste mistake. (#8185)
     ActionStake,
+    ActionStakeSendNotSir,
+    ActionStakeSendSir,
+    ActionStakeExec,
     /// Estimates `action_creation_config.add_key_cost.full_access_cost` which
     /// is charged for every `Action::AddKey` where the key is a full access
     /// key. The same value is charged for sending and executing.
@@ -120,6 +150,9 @@ pub enum Cost {
     /// Estimation: Measure a transaction that adds a full access key and
     /// subtract the base cost of creating a sir-receipt.
     ActionAddFullAccessKey,
+    ActionAddFullAccessKeySendNotSir,
+    ActionAddFullAccessKeySendSir,
+    ActionAddFullAccessKeyExec,
     /// Estimates `action_creation_config.add_key_cost.function_call_cost` which
     /// is charged once for every `Action::AddKey` where the key is a function
     /// call key. The same value is charged for sending and executing.
@@ -127,6 +160,9 @@ pub enum Cost {
     /// Estimation: Measure a transaction that adds a function call key and
     /// subtract the base cost of creating a sir-receipt.
     ActionAddFunctionAccessKeyBase,
+    ActionAddFunctionAccessKeyBaseSendNotSir,
+    ActionAddFunctionAccessKeyBaseSendSir,
+    ActionAddFunctionAccessKeyBaseExec,
     /// Estimates
     /// `action_creation_config.add_key_cost.function_call_cost_per_byte` which
     /// is charged once for every byte in null-terminated method names listed in
@@ -138,6 +174,9 @@ pub enum Cost {
     /// single method and of creating a sir-receipt. The result is divided by
     /// total bytes in the method names.
     ActionAddFunctionAccessKeyPerByte,
+    ActionAddFunctionAccessKeyPerByteSendNotSir,
+    ActionAddFunctionAccessKeyPerByteSendSir,
+    ActionAddFunctionAccessKeyPerByteExec,
     /// Estimates `action_creation_config.delete_key_cost` which is charged for
     /// `DeleteKey` actions, the same value on sending and executing. It does
     /// not matter whether it is a function call or full access key.
@@ -147,6 +186,9 @@ pub enum Cost {
     /// receipt.
     // TODO(jakmeier): check cost for function call keys with many methods
     ActionDeleteKey,
+    ActionDeleteKeySendNotSir,
+    ActionDeleteKeySendSir,
+    ActionDeleteKeyExec,
     /// Estimates `action_creation_config.delete_account_cost` which is charged
     /// for `DeleteAccount` actions, the same value on sending and executing.
     ///
@@ -154,6 +196,9 @@ pub enum Cost {
     /// Subtract the base cost of creating a sir-receipt.
     /// TODO(jakmeier): Consider different account states.
     ActionDeleteAccount,
+    ActionDeleteAccountSendNotSir,
+    ActionDeleteAccountSendSir,
+    ActionDeleteAccountExec,
 
     /// Estimates `wasm_config.ext_costs.base` which is intended to be charged
     /// once on every host function call. However, this is currently

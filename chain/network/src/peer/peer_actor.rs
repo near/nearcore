@@ -1,5 +1,4 @@
 use crate::accounts_data;
-use crate::concurrency::arc_mutex::ArcMutex;
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
 use crate::network_protocol::{
@@ -41,9 +40,6 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tracing::Instrument as _;
 
-/// Maximum number of messages per minute from single peer.
-// TODO(#5453): current limit is way to high due to us sending lots of messages during sync.
-const MAX_PEER_MSG_PER_MIN: usize = usize::MAX;
 /// How often to request peers from active peers.
 const REQUEST_PEERS_INTERVAL: time::Duration = time::Duration::seconds(60);
 
@@ -57,7 +53,7 @@ const MAX_TRANSACTIONS_PER_BLOCK_MESSAGE: usize = 1000;
 /// Limit cache size of 1000 messages
 const ROUTED_MESSAGE_CACHE_SIZE: usize = 1000;
 /// Duplicated messages will be dropped if routed through the same peer multiple times.
-const DROP_DUPLICATED_MESSAGES_PERIOD: time::Duration = time::Duration::milliseconds(50);
+pub(crate) const DROP_DUPLICATED_MESSAGES_PERIOD: time::Duration = time::Duration::milliseconds(50);
 /// How often to send the latest block to peers.
 const SYNC_LATEST_BLOCK_INTERVAL: time::Duration = time::Duration::seconds(60);
 /// How often to perform a full sync of AccountsData with the peer.
@@ -101,7 +97,7 @@ pub(crate) enum ClosingReason {
     #[error("Received a message of type not allowed on this connection.")]
     DisallowedMessage,
     #[error("PeerManager requested to close the connection")]
-    PeerManager,
+    PeerManagerRequest,
     #[error("Received DisconnectMessage from peer")]
     DisconnectMessage,
     #[error("Peer clock skew exceeded {MAX_CLOCK_SKEW}")]
@@ -586,7 +582,6 @@ impl PeerActor {
             tier,
             addr: ctx.address(),
             peer_info: peer_info.clone(),
-            edge: ArcMutex::new(edge),
             owned_account: handshake.owned_account.clone(),
             genesis_id: handshake.sender_chain_info.genesis_id.clone(),
             tracked_shards: handshake.sender_chain_info.tracked_shards.clone(),
@@ -622,25 +617,6 @@ impl PeerActor {
                         .received_bytes_per_sec
                         .store(received.bytes_per_min / 60, Ordering::Relaxed);
                     conn.stats.sent_bytes_per_sec.store(sent.bytes_per_min / 60, Ordering::Relaxed);
-                    // Whether the peer is considered abusive due to sending too many messages.
-                    // I am allowing this for now because I assume `MAX_PEER_MSG_PER_MIN` will
-                    // some day be less than `u64::MAX`.
-                    let is_abusive = received.count_per_min > MAX_PEER_MSG_PER_MIN
-                        || sent.count_per_min > MAX_PEER_MSG_PER_MIN;
-                    if is_abusive {
-                        tracing::trace!(
-                        target: "network",
-                        peer_id = ?conn.peer_info.id,
-                        sent = sent.count_per_min,
-                        recv = received.count_per_min,
-                        "Banning peer for abuse");
-                        // TODO(MarX, #1586): Ban peer if we found them abusive. Fix issue with heavy
-                        //  network traffic that flags honest peers.
-                        // Send ban signal to peer instance. It should send ban signal back and stop the instance.
-                        // if let Some(connected_peer) = act.connected_peers.get(&peer_id1) {
-                        //     connected_peer.addr.do_send(PeerManagerRequest::BanPeer(ReasonForBan::Abusive));
-                        // }
-                    }
                 }
             })
         });
@@ -658,7 +634,8 @@ impl PeerActor {
             let network_state = self.network_state.clone();
             let clock = self.clock.clone();
             let conn = conn.clone();
-            async move { network_state.register(&clock,conn).await }
+            let edge = edge.clone();
+            async move { network_state.register(&clock,edge,conn).await }
         })
             .map(move |res, act: &mut PeerActor, ctx| {
                 match res {
@@ -766,7 +743,7 @@ impl PeerActor {
 
                         act.network_state.config.event_sink.push(Event::HandshakeCompleted(HandshakeCompletedEvent{
                             stream_id: act.stream_id,
-                            edge: conn.edge.load().as_ref().clone(),
+                            edge,
                             tier: conn.tier,
                         }));
                     },
@@ -1117,27 +1094,26 @@ impl PeerActor {
                 let network_state = self.network_state.clone();
                 ctx.spawn(wrap_future(async move {
                     let peer_id = &conn.peer_info.id;
-                    let edge = match network_state.graph.load().local_edges.get(peer_id) {
+                    match network_state.graph.load().local_edges.get(peer_id) {
                         Some(cur_edge)
                             if cur_edge.edge_type() == EdgeState::Active
                                 && cur_edge.nonce() >= edge_info.nonce =>
                         {
-                            cur_edge.clone()
+                            // Found a newer local edge, so just send it to the peer.
+                            conn.send_message(Arc::new(PeerMessage::SyncRoutingTable(
+                                RoutingTableUpdate::from_edges(vec![cur_edge.clone()]),
+                            )));
                         }
-                        _ => match network_state
-                            .finalize_edge(&clock, peer_id.clone(), edge_info)
-                            .await
-                        {
-                            Ok(edge) => edge,
-                            Err(ban_reason) => {
+                        // Sign the edge and broadcast it to everyone (finalize_edge does both).
+                        _ => {
+                            if let Err(ban_reason) = network_state
+                                .finalize_edge(&clock, peer_id.clone(), edge_info)
+                                .await
+                            {
                                 conn.stop(Some(ban_reason));
-                                return;
                             }
-                        },
+                        }
                     };
-                    conn.send_message(Arc::new(PeerMessage::SyncRoutingTable(
-                        RoutingTableUpdate::from_edges(vec![edge]),
-                    )));
                     network_state
                         .config
                         .event_sink
@@ -1553,7 +1529,7 @@ impl actix::Handler<WithSpanContext<Stop>> for PeerActor {
             ctx,
             match msg.ban_reason {
                 Some(reason) => ClosingReason::Ban(reason),
-                None => ClosingReason::PeerManager,
+                None => ClosingReason::PeerManagerRequest,
             },
         );
     }

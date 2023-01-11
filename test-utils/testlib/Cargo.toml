@@ -6,7 +6,6 @@ publish = false
 edition.workspace = true
 
 [dependencies]
-byteorder.workspace = true
 once_cell.workspace = true
 
 near-chain-configs = { path = "../../core/chain-configs" }

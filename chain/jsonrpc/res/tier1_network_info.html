@@ -1,0 +1,161 @@
+<html>
+
+<head>
+    <link rel="stylesheet" href="network_info.css">
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+    <script src="network_info.js"></script>
+    <script>
+        $(document).ready(() => {
+            $('.detailed-peer-storage-div').hide();
+            $('span').text("Loading...");
+            $.ajax({
+                type: "GET",
+                url: "../api/status",
+                success: data => {
+                    let rendered = new Set();
+                    let network_info = data.detailed_debug_status.network_info;
+
+                    // tier1_connections contains TIER1 nodes we are currently connected to
+                    network_info.tier1_connections.forEach(function (peer) {
+                        let account_key = "";
+                        let proxies = new Array();
+
+                        network_info.tier1_accounts_data.forEach(account => {
+                            if (account.peer_id == peer.peer_id) {
+                                account_key = account.account_key;
+                                account.proxies.forEach(proxy => {
+                                    proxies.push(proxy.peer_id.substr(8, 5) + "...@" + proxy.addr);
+                                });
+                            }
+                        });
+
+                        rendered.add(account_key);
+
+                        let account_id = "";
+                        network_info.known_producers.forEach(producer => {
+                            if (producer.peer_id == peer.peer_id) {
+                                account_id = producer.account_id;
+                            }
+                        });
+
+                        let last_ping = convertTime(peer.last_time_received_message_millis)
+                        let last_ping_class = ""
+                        if (data.node_public_key == account_key) {
+                            last_ping = "n/a"
+                        } else if (peer.last_time_received_message_millis > 60 * 1000) {
+                            last_ping_class = "peer_far_behind";
+                        }
+
+                        let row = $('.js-tbody-peers').append($('<tr>')
+                            .append($('<td>').append(add_debug_port_link(peer.addr)))
+                            .append($('<td>').append(account_key.substr(8, 5) + "..."))
+                            .append($('<td>').append(account_id))
+                            .append($('<td>').append("[" + proxies.join(",") + "]"))
+                            .append($('<td>').append(peer.peer_id.substr(8, 5) + "..."))
+                            .append($('<td>').append(last_ping).addClass(last_ping_class))
+                            .append($('<td>').append(JSON.stringify(peer.tracked_shards)))
+                            .append($('<td>').append(JSON.stringify(peer.archival)))
+                            .append($('<td>').append(((peer.is_outbound_peer) ? 'OUT' : 'IN')))
+                            .append($('<td>').append(convertTime(peer.connection_established_time_millis)))
+                            .append($('<td>').append(computeTraffic(peer.received_bytes_per_sec, peer.sent_bytes_per_sec)))
+                        )
+                    });
+
+                    // tier1_accounts_data contains data about TIER1 nodes we would like to connect to
+                    network_info.tier1_accounts_data.forEach(account => {
+                        let account_key = account.account_key;
+
+                        if (rendered.has(account_key)) {
+                            return;
+                        }
+                        rendered.add(account_key);
+
+                        let account_id = "";
+                        network_info.known_producers.forEach(producer => {
+                            if (producer.peer_id == account.peer_id) {
+                                account_id = producer.account_id;
+                            }
+                        });
+
+                        let proxies = new Array();
+                        account.proxies.forEach(proxy => {
+                            proxies.push(proxy.peer_id.substr(8, 5) + "...@" + proxy.addr);
+                        });
+
+                        let row = $('.js-tbody-peers').append($('<tr>')
+                            .append($('<td>'))
+                            .append($('<td>').append(account_key.substr(8, 5) + "..."))
+                            .append($('<td>').append(account_id))
+                            .append($('<td>').append("[" + proxies.join(",") + "]"))
+                            .append($('<td>').append(account.peer_id.substr(8, 5) + "..."))
+                            .append($('<td>'))
+                            .append($('<td>'))
+                            .append($('<td>'))
+                            .append($('<td>'))
+                            .append($('<td>'))
+                            .append($('<td>'))
+                        )
+                    });
+
+                    // tier1_accounts_keys contains accounts whose data we would like to collect
+                    network_info.tier1_accounts_keys.forEach(account_key => {
+                        if (rendered.has(account_key)) {
+                            return;
+                        }
+                        rendered.add(account_key);
+
+                        let row = $('.js-tbody-peers').append($('<tr>')
+                            .append($('<td>'))
+                            .append($('<td>').append(account_key.substr(8, 5) + "..."))
+                            .append($('<td>'))
+                            .append($('<td>'))
+                            .append($('<td>'))
+                            .append($('<td>'))
+                            .append($('<td>'))
+                            .append($('<td>'))
+                            .append($('<td>'))
+                            .append($('<td>'))
+                            .append($('<td>'))
+                        )
+                    });
+                },
+
+
+                dataType: "json",
+                error: function (errMsg, textStatus, errorThrown) {
+                    alert("Failed: " + textStatus + " :" + errorThrown);
+                },
+                contentType: "application/json; charset=utf-8",
+            })
+
+        });
+    </script>
+</head>
+
+<body>
+    <h1>
+        Welcome to the TIER1 Network Info page!
+    </h1>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Address</th>
+                <th>AccountKey</th>
+                <th>AccountId</th>
+                <th>Proxies</th>
+                <th>PeerId</th>
+                <th>Last ping</th>
+                <th>Tracked Shards</th>
+                <th>Archival</th>
+                <th>Connection type</th>
+                <th>First connection</th>
+                <th>Traffic (last minute)</th>
+            </tr>
+        </thead>
+        <tbody class="js-tbody-peers">
+        </tbody>
+    </table>
+</body>
+
+</html>

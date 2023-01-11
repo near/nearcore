@@ -2,6 +2,7 @@ use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::marker::PhantomData;
 use std::path::Path;
+use std::str::FromStr;
 use std::sync::Arc;
 use std::{fmt, io};
 
@@ -33,8 +34,8 @@ pub use crate::trie::iterator::{TrieIterator, TrieTraversalItem};
 pub use crate::trie::update::{TrieUpdate, TrieUpdateIterator, TrieUpdateValuePtr};
 pub use crate::trie::{
     estimator, split_state, ApplyStatePartResult, KeyForStateChanges, KeyLookupMode, NibbleSlice,
-    PartialStorage, PrefetchApi, RawTrieNode, RawTrieNodeWithSize, ShardTries, Trie, TrieAccess,
-    TrieCache, TrieCachingStorage, TrieChanges, TrieConfig, TrieDBStorage, TrieStorage,
+    PartialStorage, PrefetchApi, PrefetchError, RawTrieNode, RawTrieNodeWithSize, ShardTries, Trie,
+    TrieAccess, TrieCache, TrieCachingStorage, TrieChanges, TrieConfig, TrieDBStorage, TrieStorage,
     WrappedTrieChanges,
 };
 pub use flat_state::FlatStateDelta;
@@ -49,6 +50,7 @@ pub mod metadata;
 mod metrics;
 pub mod migrations;
 mod opener;
+mod sync_utils;
 pub mod test_utils;
 mod trie;
 
@@ -61,11 +63,25 @@ pub use crate::opener::{StoreMigrator, StoreOpener, StoreOpenerError};
 /// In the future, certain parts of the code may need to access hot or cold
 /// storage.  Specifically, querying an old block will require reading it from
 /// the cold storage.
-#[derive(Clone, Copy, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Temperature {
     Hot,
     #[cfg(feature = "cold_store")]
     Cold,
+}
+
+impl FromStr for Temperature {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, String> {
+        let s = s.to_lowercase();
+        match s.as_str() {
+            "hot" => Ok(Temperature::Hot),
+            #[cfg(feature = "cold_store")]
+            "cold" => Ok(Temperature::Cold),
+            _ => Err(String::from(format!("invalid temperature string {s}"))),
+        }
+    }
 }
 
 /// Node’s storage holding chain and all other necessary data.
@@ -521,6 +537,12 @@ impl StoreUpdate {
         self.transaction.delete_all(column);
     }
 
+    /// Deletes the given key range from the database including `from`
+    /// and excluding `to` keys.
+    pub fn delete_range(&mut self, column: DBCol, from: &[u8], to: &[u8]) {
+        self.transaction.delete_range(column, from.to_vec(), to.to_vec());
+    }
+
     /// Sets reference to the trie to clear cache on the commit.
     ///
     /// Panics if shard_tries are already set to a different object.
@@ -580,7 +602,9 @@ impl StoreUpdate {
                         DBOp::Set { col, key, .. }
                         | DBOp::Insert { col, key, .. }
                         | DBOp::Delete { col, key } => Some((*col as u8, key)),
-                        DBOp::UpdateRefcount { .. } | DBOp::DeleteAll { .. } => None,
+                        DBOp::UpdateRefcount { .. }
+                        | DBOp::DeleteAll { .. }
+                        | DBOp::DeleteRange { .. } => None,
                     })
                     .collect::<Vec<_>>();
                 non_refcount_keys.len()
@@ -606,6 +630,9 @@ impl StoreUpdate {
                 }
                 DBOp::DeleteAll { col } => {
                     tracing::trace!(target: "store", db_op = "delete_all", col = %col)
+                }
+                DBOp::DeleteRange { col, from, to } => {
+                    tracing::trace!(target: "store", db_op = "delete_range", col = %col, from = %pretty::StorageKey(from), to = %pretty::StorageKey(to))
                 }
             }
         }
@@ -641,6 +668,12 @@ impl fmt::Debug for StoreUpdate {
                 }
                 DBOp::Delete { col, key } => writeln!(f, "  - {col} {}", pretty::StorageKey(key))?,
                 DBOp::DeleteAll { col } => writeln!(f, "  - {col} (all)")?,
+                DBOp::DeleteRange { col, from, to } => writeln!(
+                    f,
+                    "  - {col} [{}, {})",
+                    pretty::StorageKey(from),
+                    pretty::StorageKey(to)
+                )?,
             }
         }
         writeln!(f, "}}")

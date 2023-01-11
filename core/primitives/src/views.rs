@@ -383,6 +383,7 @@ pub struct NetworkInfoView {
     pub num_connected_peers: usize,
     pub connected_peers: Vec<PeerInfoView>,
     pub known_producers: Vec<KnownProducerView>,
+    pub tier1_accounts_keys: Vec<PublicKey>,
     pub tier1_accounts_data: Vec<AccountDataView>,
     pub tier1_connections: Vec<PeerInfoView>,
 }
@@ -2017,7 +2018,7 @@ pub type MaintenanceWindowsView = Vec<Range<BlockHeight>>;
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct RuntimeConfigView {
     /// Amount of yN per byte required to have on the account.  See
-    /// <https://nomicon.io/Economics/README.html#state-stake> for details.
+    /// <https://nomicon.io/Economics/Economic#state-stake> for details.
     #[serde(with = "dec_format")]
     pub storage_amount_per_byte: Balance,
     /// Costs of different actions that need to be performed when sending and
@@ -2283,7 +2284,7 @@ impl From<VMConfigView> for VMConfig {
     }
 }
 
-/// Typed view of ExtCostsConfig t preserve JSON output field names in protocol
+/// Typed view of ExtCostsConfig to preserve JSON output field names in protocol
 /// config RPC output.
 #[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
 pub struct ExtCostsConfigView {

@@ -8,7 +8,6 @@ use near_primitives_core::{
     types::Gas,
 };
 use std::collections::HashMap;
-use std::fmt;
 
 #[inline]
 pub fn with_ext_cost_counter(f: impl FnOnce(&mut HashMap<ExtCosts, u64>)) {
@@ -56,15 +55,10 @@ pub struct GasCounter {
     prepaid_gas: Gas,
     /// If this is a view-only call.
     is_view: bool,
+    /// FIXME(nagisa): why do we store a copy both here and in the VMLogic???
     ext_costs_config: ExtCostsConfig,
     /// Where to store profile data, if needed.
     profile: ProfileDataV3,
-}
-
-impl fmt::Debug for GasCounter {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("").finish()
-    }
 }
 
 impl GasCounter {
@@ -93,21 +87,26 @@ impl GasCounter {
         }
     }
 
-    /// Accounts for burnt and used gas; reports an error if max gas burnt or
-    /// prepaid gas limit is crossed.  Panics when trying to burn more gas than
-    /// being used, i.e. if `burn_gas > use_gas`.
-    fn deduct_gas(&mut self, burn_gas: Gas, use_gas: Gas) -> Result<()> {
-        assert!(burn_gas <= use_gas);
-        let promise_gas = use_gas - burn_gas;
+    /// Deducts burnt and used gas.
+    ///
+    /// Returns an error if the `max_gax_burnt` or the `prepaid_gas` limits are
+    /// crossed or there are arithmetic overflows.
+    ///
+    /// Panics
+    ///
+    /// This function asserts that `gas_burnt <= gas_used`
+    fn deduct_gas(&mut self, gas_burnt: Gas, gas_used: Gas) -> Result<()> {
+        assert!(gas_burnt <= gas_used);
+        let promises_gas = gas_used - gas_burnt;
         let new_promises_gas =
-            self.promises_gas.checked_add(promise_gas).ok_or(HostError::IntegerOverflow)?;
+            self.promises_gas.checked_add(promises_gas).ok_or(HostError::IntegerOverflow)?;
         let new_burnt_gas =
-            self.fast_counter.burnt_gas.checked_add(burn_gas).ok_or(HostError::IntegerOverflow)?;
+            self.fast_counter.burnt_gas.checked_add(gas_burnt).ok_or(HostError::IntegerOverflow)?;
         let new_used_gas =
             new_burnt_gas.checked_add(new_promises_gas).ok_or(HostError::IntegerOverflow)?;
         if new_burnt_gas <= self.max_gas_burnt && new_used_gas <= self.prepaid_gas {
             use std::cmp::min;
-            if promise_gas != 0 && !self.is_view {
+            if promises_gas != 0 && !self.is_view {
                 self.fast_counter.gas_limit =
                     min(self.max_gas_burnt, self.prepaid_gas - new_promises_gas);
             }
@@ -119,15 +118,25 @@ impl GasCounter {
         }
     }
 
-    // Optimized version of above function for cases where no promises involved.
-    pub fn burn_gas(&mut self, value: Gas) -> Result<()> {
+    /// Simpler version of `deduct_gas()` for when no promises are involved.
+    ///
+    /// Return an error if there are arithmetic overflows.
+    pub fn burn_gas(&mut self, gas_burnt: Gas) -> Result<()> {
         let new_burnt_gas =
-            self.fast_counter.burnt_gas.checked_add(value).ok_or(HostError::IntegerOverflow)?;
+            self.fast_counter.burnt_gas.checked_add(gas_burnt).ok_or(HostError::IntegerOverflow)?;
         if new_burnt_gas <= self.fast_counter.gas_limit {
             self.fast_counter.burnt_gas = new_burnt_gas;
             Ok(())
         } else {
-            Err(self.process_gas_limit(new_burnt_gas, new_burnt_gas + self.promises_gas).into())
+            // In the past `new_used_gas` would be computed using an implicit wrapping addition,
+            // which would then give an opportunity for the `assert` (now `debug_assert`) in the
+            // callee to fail, leading to a DoS of a node. A wrapping_add in this instance is
+            // actually fine, even if it gives the attacker full control of the value passed in
+            // here…
+            //
+            // [CONTINUATION IN THE NEXT COMMENT]
+            let new_used_gas = new_burnt_gas.wrapping_add(self.promises_gas);
+            Err(self.process_gas_limit(new_burnt_gas, new_used_gas).into())
         }
     }
 
@@ -143,8 +152,21 @@ impl GasCounter {
         // See https://github.com/near/nearcore/issues/5148.
         // TODO: consider making this change!
         let used_gas_limit = min(self.prepaid_gas, new_used_gas);
-        assert!(used_gas_limit >= self.fast_counter.burnt_gas);
-        self.promises_gas = used_gas_limit - self.fast_counter.burnt_gas;
+        // [CONTINUATION OF THE PREVIOUS COMMENT]
+        //
+        // Now, there are two distinct ways an attacker can attempt to exploit this code given
+        // their full control of the `new_used_gas` value.
+        //
+        // 1. `self.prepaid_gas < new_used_gas` This is perfectly fine and would be the happy path,
+        //    were the computations performed with arbitrary precision integers all the time.
+        // 2. `new_used_gas < new_burnt_gas` means that the `new_used_gas` computation wrapped
+        //    and `used_gas_limit` is now set to a lower value than it otherwise should be. In the
+        //    past this would have triggered an unconditional assert leading to nodes crashing and
+        //    network getting stuck/going down. We don’t actually need to assert, though. By
+        //    replacing the wrapping subtraction with a saturating one we make sure that the
+        //    resulting value of `self.promises_gas` is well behaved (becomes 0.) All a potential
+        //    attacker has achieved in this case is throwing some of their gas away.
+        self.promises_gas = used_gas_limit.saturating_sub(self.fast_counter.burnt_gas);
 
         // If we crossed both limits prefer reporting GasLimitExceeded.
         // Alternative would be to prefer reporting limit that is lower (or

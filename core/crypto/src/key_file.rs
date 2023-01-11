@@ -48,9 +48,9 @@ impl KeyFile {
 mod test {
     use super::*;
 
-    const ACCOUNT_ID: &'static str = "example";
-    const SECRET_KEY: &'static str = "ed25519:3D4YudUahN1nawWogh8pAKSj92sUNMdbZGjn7kERKzYoTy8tnFQuwoGUC51DowKqorvkr2pytJSnwuSbsNVfqygr";
-    const KEY_FILE_CONTENTS: &'static str = r#"{
+    const ACCOUNT_ID: &str = "example";
+    const SECRET_KEY: &str = "ed25519:3D4YudUahN1nawWogh8pAKSj92sUNMdbZGjn7kERKzYoTy8tnFQuwoGUC51DowKqorvkr2pytJSnwuSbsNVfqygr";
+    const KEY_FILE_CONTENTS: &str = r#"{
   "account_id": "example",
   "public_key": "ed25519:6DSjZ8mvsRZDvFqFxo8tCKePG96omXW7eVYVSySmDk8e",
   "secret_key": "ed25519:3D4YudUahN1nawWogh8pAKSj92sUNMdbZGjn7kERKzYoTy8tnFQuwoGUC51DowKqorvkr2pytJSnwuSbsNVfqygr"
@@ -63,7 +63,7 @@ mod test {
 
         let account_id = ACCOUNT_ID.parse().unwrap();
         let secret_key: SecretKey = SECRET_KEY.parse().unwrap();
-        let public_key = secret_key.public_key().clone();
+        let public_key = secret_key.public_key();
         let key = KeyFile { account_id, public_key, secret_key };
         key.write_to_file(&path).unwrap();
 
@@ -90,7 +90,6 @@ mod test {
                 let secret_key: SecretKey = SECRET_KEY.parse().unwrap();
                 assert_eq!(secret_key, key.secret_key);
                 assert_eq!(secret_key.public_key(), key.public_key);
-                ()
             })
         }
 

@@ -254,7 +254,7 @@ def run_locally(args, tests):
                 shlex.quote(str(cwd)),
                 ' '.join(shlex.quote(str(arg)) for arg in cmd)))
             continue
-        print("RUNNING COMMAND cwd=%s cmd = %s", (cwd, cmd))
+        print(f"RUNNING COMMAND cwd = {cwd} cmd = {cmd}")
         subprocess.check_call(cmd, cwd=cwd, timeout=_parse_timeout(timeout))
 
 

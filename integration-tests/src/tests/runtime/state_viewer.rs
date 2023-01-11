@@ -19,7 +19,7 @@ use near_primitives::{
 use near_store::{set_account, NibbleSlice, RawTrieNode, RawTrieNodeWithSize};
 use node_runtime::state_viewer::errors;
 use node_runtime::state_viewer::*;
-use testlib::runtime_utils::{alice_account, encode_int};
+use testlib::runtime_utils::alice_account;
 
 struct ProofVerifier {
     nodes: HashMap<CryptoHash, RawTrieNodeWithSize>,
@@ -122,7 +122,7 @@ fn test_view_call() {
         &MockEpochInfoProvider::default(),
     );
 
-    assert_eq!(result.unwrap(), encode_int(10));
+    assert_eq!(result.unwrap(), (10i32).to_le_bytes());
 }
 
 #[test]

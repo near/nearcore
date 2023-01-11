@@ -4,12 +4,13 @@ mod validator_schedule;
 use std::cmp::Ordering;
 use std::sync::Arc;
 
+use chrono::{DateTime, Utc};
+use near_primitives::test_utils::create_test_signer;
 use num_rational::Ratio;
 use tracing::debug;
 
 use near_chain_primitives::Error;
 
-use near_crypto::KeyType;
 use near_primitives::block::Block;
 
 use near_primitives::hash::CryptoHash;
@@ -77,6 +78,7 @@ pub fn process_block_sync(
     Ok(accepted_blocks)
 }
 
+// TODO(#8190) Improve this testing API.
 pub fn setup() -> (Chain, Arc<KeyValueRuntime>, Arc<InMemoryValidatorSigner>) {
     setup_with_tx_validity_period(100)
 }
@@ -105,12 +107,8 @@ pub fn setup_with_tx_validity_period(
         ChainConfig::test(),
     )
     .unwrap();
-    let test_account = "test".parse::<AccountId>().unwrap();
-    let signer = Arc::new(InMemoryValidatorSigner::from_seed(
-        test_account.clone(),
-        KeyType::ED25519,
-        test_account.as_ref(),
-    ));
+
+    let signer = Arc::new(create_test_signer("test"));
     (chain, runtime, signer)
 }
 
@@ -120,17 +118,44 @@ pub fn setup_with_validators(
     tx_validity_period: NumBlocks,
 ) -> (Chain, Arc<KeyValueRuntime>, Vec<Arc<InMemoryValidatorSigner>>) {
     let store = create_test_store();
-    let signers = vs
-        .all_block_producers()
-        .map(|x| {
-            Arc::new(InMemoryValidatorSigner::from_seed(x.clone(), KeyType::ED25519, x.as_ref()))
-        })
-        .collect();
+    let signers =
+        vs.all_block_producers().map(|x| Arc::new(create_test_signer(x.as_str()))).collect();
     let runtime = Arc::new(KeyValueRuntime::new_with_validators(store, vs, epoch_length));
     let chain = Chain::new(
         runtime.clone(),
         &ChainGenesis {
             time: Clock::utc(),
+            height: 0,
+            gas_limit: 1_000_000,
+            min_gas_price: 100,
+            max_gas_price: 1_000_000_000,
+            total_supply: 1_000_000_000,
+            gas_price_adjustment_rate: Ratio::from_integer(0),
+            transaction_validity_period: tx_validity_period,
+            epoch_length,
+            protocol_version: PROTOCOL_VERSION,
+        },
+        DoomslugThresholdMode::NoApprovals,
+        ChainConfig::test(),
+    )
+    .unwrap();
+    (chain, runtime, signers)
+}
+
+pub fn setup_with_validators_and_start_time(
+    vs: ValidatorSchedule,
+    epoch_length: u64,
+    tx_validity_period: NumBlocks,
+    start_time: DateTime<Utc>,
+) -> (Chain, Arc<KeyValueRuntime>, Vec<Arc<InMemoryValidatorSigner>>) {
+    let store = create_test_store();
+    let signers =
+        vs.all_block_producers().map(|x| Arc::new(create_test_signer(x.as_str()))).collect();
+    let runtime = Arc::new(KeyValueRuntime::new_with_validators(store, vs, epoch_length));
+    let chain = Chain::new(
+        runtime.clone(),
+        &ChainGenesis {
+            time: start_time,
             height: 0,
             gas_limit: 1_000_000,
             min_gas_price: 100,

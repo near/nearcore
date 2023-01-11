@@ -12,6 +12,7 @@
   - [Transaction Routing](./architecture/how/tx_routing.md)
   - [Transactions And Receipts](./architecture/how/tx_receipts.md)
   - [Cross shard transactions - deep dive](./architecture/how/cross-shard.md)
+  - [Meta transactions](./architecture/how/meta-tx.md)
   - [Serialization: Borsh, Json, ProtoBuf](./architecture/how/serialization.md)
   - [Proofs](./architecture/how/proofs.md)
 - [How neard will work](./architecture/next/README.md)
@@ -32,6 +33,7 @@
   - [Run a Node](./practices/workflows/run_a_node.md)
   - [Deploy a Contract](./practices/workflows/deploy_a_contract.md)
   - [Run Gas Estimations](./practices/workflows/gas_estimations.md)
+  - [Localnet on many machines](./practices/workflows/localnet_on_many_machines.md)
 - [Code Style](./practices/style.md)
 - [Documentation](./practices/docs.md)
 - [Tracking Issues](./practices/tracking_issues.md)
@@ -42,6 +44,11 @@
   - [Testing Utils](./practices/testing/test_utils.md)
 - [Protocol Upgrade](./practices/protocol_upgrade.md)
 
+# Advanced configuration
+
+- [Networking](./advanced_configuration/networking.md)
+
 # Misc
 
 - [Misc](./misc/README.md)
+- [Database Format](./misc/database.md)

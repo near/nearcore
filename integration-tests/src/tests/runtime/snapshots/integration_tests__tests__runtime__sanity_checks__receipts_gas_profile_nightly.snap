@@ -327,7 +327,6 @@ expression: receipts_gas_profile
             gas_used: 0,
         },
     ],
-    [],
     [
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
@@ -370,7 +369,6 @@ expression: receipts_gas_profile
             gas_used: 0,
         },
     ],
-    [],
     [
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
@@ -383,7 +381,6 @@ expression: receipts_gas_profile
             gas_used: 0,
         },
     ],
-    [],
     [
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
@@ -396,7 +393,6 @@ expression: receipts_gas_profile
             gas_used: 0,
         },
     ],
-    [],
     [
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
@@ -409,9 +405,6 @@ expression: receipts_gas_profile
             gas_used: 0,
         },
     ],
-    [],
-    [],
-    [],
     [],
     [],
     [
@@ -427,9 +420,6 @@ expression: receipts_gas_profile
         },
     ],
     [],
-    [],
-    [],
-    [],
     [
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
@@ -442,7 +432,6 @@ expression: receipts_gas_profile
             gas_used: 0,
         },
     ],
-    [],
     [
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
@@ -470,6 +459,4 @@ expression: receipts_gas_profile
             gas_used: 2865522486,
         },
     ],
-    [],
-    [],
 ]
