@@ -1347,7 +1347,7 @@ impl From<ExecutionMetadata> for ExecutionMetadataView {
             // Can't `sort_by_key` here because lifetime inference in
             // closures is limited.
             costs.sort_by(|lhs, rhs| {
-                lhs.cost_category.cmp(&rhs.cost_category).then(lhs.cost.cmp(&rhs.cost))
+                lhs.cost_category.cmp(&rhs.cost_category).then_with(|| lhs.cost.cmp(&rhs.cost))
             });
         }
         ExecutionMetadataView { version, gas_profile }

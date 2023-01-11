@@ -7,6 +7,8 @@ use enum_map::{enum_map, Enum, EnumMap};
 use std::fmt;
 use strum::IntoEnumIterator;
 
+mod profile_v2;
+
 /// Profile of gas consumption.
 #[derive(Clone, PartialEq, Eq)]
 pub struct ProfileDataV3 {
@@ -48,11 +50,15 @@ impl ProfileDataV3 {
 
     #[inline]
     pub fn merge(&mut self, other: &ProfileDataV3) {
-        for (cost, gas) in self.actions_profile.iter_mut() {
-            *gas = gas.saturating_add(other.actions_profile[cost]);
+        for ((_, gas), (_, other_gas)) in
+            self.actions_profile.iter_mut().zip(other.actions_profile.iter())
+        {
+            *gas = gas.saturating_add(*other_gas);
         }
-        for (cost, gas) in self.wasm_ext_profile.iter_mut() {
-            *gas = gas.saturating_add(other.wasm_ext_profile[cost]);
+        for ((_, gas), (_, other_gas)) in
+            self.wasm_ext_profile.iter_mut().zip(other.wasm_ext_profile.iter())
+        {
+            *gas = gas.saturating_add(*other_gas);
         }
         self.wasm_gas = self.wasm_gas.saturating_add(other.wasm_gas);
     }
@@ -201,8 +207,6 @@ impl fmt::Debug for ProfileDataV3 {
         Ok(())
     }
 }
-
-mod profile_v2;
 
 /// Tests for ProfileDataV3
 #[cfg(test)]
