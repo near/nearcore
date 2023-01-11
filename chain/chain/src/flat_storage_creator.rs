@@ -368,7 +368,8 @@ pub struct FlatStorageCreator {
 }
 
 impl FlatStorageCreator {
-    /// For each of tracked shards, either creates flat storage or starts its creation.
+    /// For each of tracked shards, either creates flat storage if it is already stored on DB,
+    /// or starts migration to flat storage which writes necessary DB data and creates flat storage later.
     pub fn new(
         me: Option<&AccountId>,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
