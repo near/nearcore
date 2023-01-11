@@ -481,7 +481,7 @@ impl PeerManagerActor {
     ///  - bootstrap outbound connections from known peers,
     ///  - unban peers that have been banned for awhile,
     ///  - remove expired peers,
-    ///  - update the peer_store's recent connections set,
+    ///  - update the recent connections set,
     ///
     /// # Arguments:
     /// - `interval` - Time between consequent runs.
@@ -550,7 +550,7 @@ impl PeerManagerActor {
         metrics::PEER_UNRELIABLE.set(unreliable_peers.len() as i64);
         self.state.graph.set_unreliable_peers(unreliable_peers);
 
-        // Find all peers connected long enough to enter the peer store's recent connections set
+        // Find all outbound connections established at least RECENT_CONNECTIONS_MIN_DURATION ago
         let now = self.clock.now();
         let mut recent_connections: Vec<Arc<connection::Connection>> = self
             .state
@@ -558,7 +558,10 @@ impl PeerManagerActor {
             .load()
             .ready
             .values()
-            .filter(|c| now - c.established_time > peer_store::RECENT_CONNECTIONS_MIN_DURATION)
+            .filter(|c| {
+                c.peer_type == PeerType::Outbound
+                    && now - c.established_time > peer_store::RECENT_CONNECTIONS_MIN_DURATION
+            })
             .cloned()
             .collect();
         // Sort by most recently established first
