@@ -2217,27 +2217,16 @@ impl Client {
         Ok(())
     }
 
-    /// Execute work for background flat storage creation and possibly update
-    /// creation status.
+    /// Check updates from background flat storage creation processes and possibly update
+    /// creation statuses.
     pub fn run_flat_storage_creation_step(&mut self) -> Result<(), Error> {
         match &mut self.flat_storage_creator {
             Some(flat_storage_creator) => {
-                let chain_head = self.chain.head().unwrap();
-                let num_shards = self.runtime_adapter.num_shards(&chain_head.epoch_id).unwrap();
-                for shard_id in 0..num_shards {
-                    if self.runtime_adapter.cares_about_shard(
-                        self.me.as_ref(),
-                        &chain_head.prev_block_hash,
-                        shard_id,
-                        true,
-                    ) {
-                        flat_storage_creator.update_status(shard_id, self.chain.store())?;
-                    }
-                }
-                Ok(())
+                flat_storage_creator.update_status(self.chain.store())?;
             }
-            None => Ok(()),
-        }
+            None => {}
+        };
+        Ok(())
     }
 }
 

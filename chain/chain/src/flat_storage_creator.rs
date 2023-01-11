@@ -368,6 +368,7 @@ pub struct FlatStorageCreator {
 }
 
 impl FlatStorageCreator {
+    /// For each of tracked shards, either creates flat storage or starts its creation.
     pub fn new(
         me: Option<&AccountId>,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
@@ -415,19 +416,14 @@ impl FlatStorageCreator {
 
     pub fn update_status(
         &mut self,
-        #[allow(unused)] shard_id: ShardId,
         #[allow(unused)] chain_store: &ChainStore,
     ) -> Result<(), Error> {
         #[cfg(feature = "protocol_feature_flat_state")]
-        match self.shard_creators.get_mut(&shard_id) {
-            Some(shard_creator) => {
-                shard_creator.update_status(chain_store, &self.pool)?;
-            }
-            None => {
-                // We can request update for shard without creator if resharding happens.
-                // We don't support it yet, so we just do nothing.
-            }
+        for shard_creator in self.shard_creators.values_mut() {
+            shard_creator.update_status(chain_store, &self.pool)?;
         }
+        // TODO (#7327): If resharding happens, we may want to throw an error here.
+        // TODO (#7327): If flat storage is created, the creator probably should be removed.
 
         Ok(())
     }
