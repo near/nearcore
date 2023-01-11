@@ -1,7 +1,7 @@
 # Parameter Definitions
 
 Gas parameters are a subset of runtime parameters that are defined in
-[core/primitives/res/runtime_configs/parameters.txt](https://github.com/near/nearcore/blob/d0dc37bf81f7e7bde9c560403b085fae04108659/core/primitives/res/runtime_configs/parameters.txt).
+[core/primitives/res/runtime_configs/parameters.yaml](https://github.com/near/nearcore/blob/d0dc37bf81f7e7bde9c560403b085fae04108659/core/primitives/res/runtime_configs/parameters.yaml).
 IMPORTANT: This is not the final list of parameters, it contains the base values
 which can be overwritten per protocol version. For example,
 [53.txt](https://github.com/near/nearcore/blob/d0dc37bf81f7e7bde9c560403b085fae04108659/core/primitives/res/runtime_configs/53.txt)
@@ -57,7 +57,7 @@ parameter.
 
 ### Necessary Code Changes
 Adding the parameter in code involves several steps.
-1. Define the parameter by adding it to the list in `core/primitives/res/runtime_configs/parameters.txt.`
+1. Define the parameter by adding it to the list in `core/primitives/res/runtime_configs/parameters.yaml.`
 2. Update the Rust view of parameters by adding a variant to `enum Parameter`
    in `core/primitives-core/src/parameter.rs`. In the same file, update
    `enum FeeParameter` if you add an action cost or update `ext_costs()`
@@ -77,7 +77,7 @@ Adding the parameter in code involves several steps.
    behind a feature flag. Add the feature to the `Cargo.toml` of each crate
    touched in step 3 and 4 and hide the code behind `#[cfg(feature =
    "protocol_feature_MY_NEW_FEATURE")]`. Do not hide code in step 2 so that
-   non-nightly builds can still read `parameters.txt`. Also add your feature as
+   non-nightly builds can still read `parameters.yaml`. Also add your feature as
    a dependency on `nightly` in `core/primitives/Cargo.toml` to make sure it
    gets included when compiling for nightly. After that, check `cargo check` and
    `cargo test --no-run` with and without `features=nightly`.

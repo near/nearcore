@@ -94,7 +94,7 @@ impl NeardCmd {
 
             NeardSubCommand::StateViewer(cmd) => {
                 let mode = if cmd.readwrite { Mode::ReadWrite } else { Mode::ReadOnly };
-                cmd.subcmd.run(&home_dir, genesis_validation, mode);
+                cmd.subcmd.run(&home_dir, genesis_validation, mode, cmd.store_temperature);
             }
 
             NeardSubCommand::RecompressStorage(cmd) => {
@@ -131,6 +131,10 @@ pub(super) struct StateViewerCommand {
     /// In case an operation needs to write to caches, a read-write mode may be needed.
     #[clap(long, short = 'w')]
     readwrite: bool,
+    /// What store temperature should the state viewer open. Allowed values are hot and cold but
+    /// cold is only available when cold_store feature is enabled.
+    #[clap(long, short = 't', default_value = "hot")]
+    store_temperature: near_store::Temperature,
     #[clap(subcommand)]
     subcmd: StateViewerSubCommand,
 }
