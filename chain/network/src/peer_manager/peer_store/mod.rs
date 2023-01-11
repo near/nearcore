@@ -7,11 +7,13 @@ use anyhow::bail;
 use im::hashmap::Entry;
 use im::{HashMap, HashSet};
 use near_primitives::network::PeerId;
+use near_store::db::Database;
 use parking_lot::Mutex;
 use rand::seq::IteratorRandom;
 use rand::thread_rng;
 use std::net::SocketAddr;
 use std::ops::Not;
+use std::sync::Arc;
 
 #[cfg(test)]
 mod testonly;
@@ -592,12 +594,12 @@ impl PeerStore {
 }
 
 /// Public method used to iterate through all peers stored in the database.
-pub fn iter_peers_from_store<F>(store: near_store::NodeStorage, f: F)
+pub fn iter_peers_from_store<F>(db: Arc<dyn Database>, f: F)
 where
     F: Fn((PeerId, KnownPeerState)),
 {
-    let db = store.into_inner(near_store::Temperature::Hot);
-    for x in crate::store::Store::from(db).list_peer_states().unwrap() {
+    let store = crate::store::Store::from(db);
+    for x in store.list_peer_states().unwrap() {
         f(x)
     }
 }
