@@ -1,0 +1,2 @@
+wasm_regular_op_cost: { old: 2_207_874, new: 822_756 }
+max_functions_number_per_contract: { new: 10_000 }
