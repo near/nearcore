@@ -63,11 +63,11 @@ pub enum DBCol {
     /// - *Rows*: peer_id (PublicKey)
     /// - *Content type*: [network_primitives::types::KnownPeerState]
     Peers,
-    /// List of stabilized peers; connections to these peers are reestablished after
-    /// node restart and re-attempted upon disconnection.
+    /// List of recent long-standing outbound TIER2 connections. We'll attempt to
+    /// reestablish these connections after node restart or upon disconnection.
     /// - *Rows*: single row (empty row name)
     /// - *Content type*: Vec of PeerId
-    StabilizedPeers,
+    RecentConnections,
     /// Mapping from EpochId to EpochInfo
     /// - *Rows*: EpochId (CryptoHash)
     /// - *Content type*: [near_primitives::epoch_manager::epoch_info::EpochInfo]
@@ -273,7 +273,7 @@ pub enum DBCol {
 /// Currently only used in cold storage continuous migration.
 #[derive(PartialEq, Copy, Clone, Debug, Hash, Eq, strum::EnumIter)]
 pub enum DBKeyType {
-    /// Empty row name. Used in DBCol::LastComponentNonce and DBCol::StabilizedPeers
+    /// Empty row name. Used in DBCol::LastComponentNonce and DBCol::RecentConnections
     Empty,
     /// Set of predetermined strings. Used, for example, in DBCol::BlockMisc
     StringLiteral,
@@ -421,7 +421,7 @@ impl DBCol {
             DBCol::OutgoingReceipts => &[DBKeyType::BlockHash, DBKeyType::ShardId],
             DBCol::IncomingReceipts => &[DBKeyType::BlockHash, DBKeyType::ShardId],
             DBCol::Peers => &[DBKeyType::PeerId],
-            DBCol::StabilizedPeers => &[DBKeyType::Empty],
+            DBCol::RecentConnections => &[DBKeyType::Empty],
             DBCol::EpochInfo => &[DBKeyType::EpochId],
             DBCol::BlockInfo => &[DBKeyType::BlockHash],
             DBCol::Chunks => &[DBKeyType::ChunkHash],

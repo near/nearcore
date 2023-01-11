@@ -145,14 +145,17 @@ impl Store {
         self.0.iter::<schema::Peers>().collect::<Result<_, _>>().map_err(Error)
     }
 
-    pub fn set_stabilized_peers(&mut self, stabilized_peers: &Vec<PeerId>) -> Result<(), Error> {
+    pub fn set_recent_connections(
+        &mut self,
+        recent_connections: &Vec<PeerId>,
+    ) -> Result<(), Error> {
         let mut update = self.0.new_update();
-        update.set::<schema::StabilizedPeers>(&(), &stabilized_peers);
+        update.set::<schema::RecentConnections>(&(), &recent_connections);
         self.0.commit(update).map_err(Error)
     }
 
-    pub fn get_stabilized_peers(&self) -> Vec<PeerId> {
-        self.0.get::<schema::StabilizedPeers>(&()).unwrap_or(Some(vec![])).unwrap_or(vec![])
+    pub fn get_recent_connections(&self) -> Vec<PeerId> {
+        self.0.get::<schema::RecentConnections>(&()).unwrap_or(Some(vec![])).unwrap_or(vec![])
     }
 }
 
