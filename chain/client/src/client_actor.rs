@@ -102,7 +102,6 @@ pub struct ClientActor {
     log_summary_timer_next_attempt: DateTime<Utc>,
 
     block_production_started: bool,
-    flat_storage_creation_next_attempt: DateTime<Utc>,
     doomslug_timer_next_attempt: DateTime<Utc>,
     sync_timer_next_attempt: DateTime<Utc>,
     chunk_request_retry_next_attempt: DateTime<Utc>,
@@ -206,7 +205,6 @@ impl ClientActor {
             block_production_next_attempt: now,
             log_summary_timer_next_attempt: now,
             block_production_started: false,
-            flat_storage_creation_next_attempt: now,
             doomslug_timer_next_attempt: now,
             sync_timer_next_attempt: now,
             chunk_request_retry_next_attempt: now,
@@ -253,6 +251,8 @@ impl Actor for ClientActor {
     type Context = Context<Self>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
+        self.run_flat_storage_creation_step(ctx);
+
         // Start syncing job.
         self.start_sync(ctx);
 
@@ -1134,26 +1134,6 @@ impl ClientActor {
         let now = Utc::now();
 
         let timer = metrics::CHECK_TRIGGERS_TIME.start_timer();
-
-        self.flat_storage_creation_next_attempt = self.run_timer(
-            self.client.config.flat_storage_creation_period,
-            self.flat_storage_creation_next_attempt,
-            ctx,
-            |act, _| {
-                if let Err(err) = act.client.run_flat_storage_creation_step() {
-                    error!(target: "client", "Error occurred during flat storage creation step: {:?}", err);
-                }
-            },
-            "flat_storage_creation",
-        );
-        delay = std::cmp::min(
-            delay,
-            self.flat_storage_creation_next_attempt
-                .signed_duration_since(now)
-                .to_std()
-                .unwrap_or(delay),
-        );
-
         if self.sync_started {
             self.sync_timer_next_attempt = self.run_timer(
                 self.sync_wait_period(),
@@ -1470,6 +1450,19 @@ impl ClientActor {
 
     fn needs_syncing(&self, needs_syncing: bool) -> bool {
         !self.adv.disable_header_sync() && needs_syncing
+    }
+
+    fn run_flat_storage_creation_step(&mut self, ctx: &mut Context<ClientActor>) {
+        if let Err(err) = self.client.run_flat_storage_creation_step() {
+            error!(target: "client", "Error occurred during flat storage creation step: {:?}", err);
+        }
+        near_performance_metrics::actix::run_later(
+            ctx,
+            self.client.config.flat_storage_creation_period,
+            move |act, ctx| {
+                act.run_flat_storage_creation_step(ctx);
+            },
+        );
     }
 
     /// Starts syncing and then switches to either syncing or regular mode.
