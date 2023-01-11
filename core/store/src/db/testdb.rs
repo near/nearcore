@@ -80,6 +80,9 @@ impl Database for TestDB {
                     db[col].remove(&key);
                 }
                 DBOp::DeleteAll { col } => db[col].clear(),
+                DBOp::DeleteRange { col, from, to } => {
+                    db[col].retain(|key, _| !(&from..&to).contains(&key));
+                }
             };
         }
         Ok(())
