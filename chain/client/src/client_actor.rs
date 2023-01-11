@@ -12,9 +12,7 @@ use crate::adapter::{
 };
 use crate::client::{Client, EPOCH_START_INFO_BLOCKS};
 use crate::debug::new_network_info_view;
-use crate::info::{
-    display_sync_status, get_validator_epoch_stats, InfoHelper, ValidatorInfoHelper,
-};
+use crate::info::{display_sync_status, InfoHelper};
 use crate::metrics::PARTIAL_ENCODED_CHUNK_RESPONSE_DELAY;
 use crate::sync::state::{StateSync, StateSyncResult};
 use crate::{metrics, StatusResponse};
@@ -57,7 +55,7 @@ use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::state_part::PartId;
 use near_primitives::syncing::StatePartKey;
 use near_primitives::time::{Clock, Utc};
-use near_primitives::types::{BlockHeight, ValidatorInfoIdentifier};
+use near_primitives::types::BlockHeight;
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::{from_timestamp, MaybeValidated};
 use near_primitives::validator_signer::ValidatorSigner;
@@ -1718,73 +1716,7 @@ impl ClientActor {
     fn log_summary(&mut self) {
         let _span = tracing::debug_span!(target: "client", "log_summary").entered();
         let _d = delay_detector::DelayDetector::new(|| "client log summary".into());
-        let is_syncing = self.client.sync_status.is_syncing();
-        let head = unwrap_or_return!(self.client.chain.head());
-        let validator_info = if !is_syncing {
-            let validators = unwrap_or_return!(self
-                .client
-                .runtime_adapter
-                .get_epoch_block_producers_ordered(&head.epoch_id, &head.last_block_hash));
-            let num_validators = validators.len();
-            let account_id = self.client.validator_signer.as_ref().map(|x| x.validator_id());
-            let is_validator = if let Some(account_id) = account_id {
-                match self.client.runtime_adapter.get_validator_by_account_id(
-                    &head.epoch_id,
-                    &head.last_block_hash,
-                    account_id,
-                ) {
-                    Ok((_, is_slashed)) => !is_slashed,
-                    Err(_) => false,
-                }
-            } else {
-                false
-            };
-            Some(ValidatorInfoHelper { is_validator, num_validators })
-        } else {
-            None
-        };
-
-        let header_head = unwrap_or_return!(self.client.chain.header_head());
-        let validator_epoch_stats = if is_syncing {
-            // EpochManager::get_validator_info method (which is what runtime
-            // adapter calls) is expensive when node is syncing so we’re simply
-            // not collecting the statistics.  The statistics are used to update
-            // a few Prometheus metrics only so we prefer to leave the metrics
-            // unset until node finishes synchronising.  TODO(#6763): If we
-            // manage to get get_validator_info fasts again (or return an error
-            // if computation would be too slow), remove the ‘if is_syncing’
-            // check.
-            Default::default()
-        } else {
-            let epoch_identifier = ValidatorInfoIdentifier::BlockHash(header_head.last_block_hash);
-            self.client
-                .runtime_adapter
-                .get_validator_info(epoch_identifier)
-                .map(get_validator_epoch_stats)
-                .unwrap_or_default()
-        };
-        let statistics = if self.client.config.enable_statistics_export {
-            self.client.chain.store().get_store_statistics()
-        } else {
-            None
-        };
-        self.info_helper.info(
-            &head,
-            &self.client.sync_status,
-            self.client.get_catchup_status().unwrap_or_default(),
-            &self.node_id,
-            &self.network_info,
-            validator_info,
-            validator_epoch_stats,
-            self.client
-                .runtime_adapter
-                .get_estimated_protocol_upgrade_block_height(head.last_block_hash)
-                .unwrap_or(None)
-                .unwrap_or(0),
-            statistics,
-            &self.client.config,
-        );
-        debug!(target: "stats", "{}", self.client.chain.print_chain_processing_info_to_string(self.client.config.log_summary_style).unwrap_or(String::from("Upcoming block info failed.")));
+        self.info_helper.log_summary(&self.client, &self.node_id, &self.network_info)
     }
 }
 
