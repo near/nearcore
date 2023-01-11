@@ -25,10 +25,10 @@ pub(crate) enum InvalidConfigError {
     UnknownParameter(#[source] strum::ParseError, String),
     #[error("could not parse `{1}` as a value")]
     ValueParseError(#[source] serde_json::Error, String),
-    #[error("expected a `:` separator between name and value of a parameter `{1}` on line {0}")]
-    NoSeparator(usize, String),
     #[error("intermediate JSON created by parser does not match `RuntimeConfig`")]
     WrongStructure(#[source] serde_json::Error),
+    #[error("could not parse YAML that defines the structure of the config")]
+    InvalidYaml(#[source] serde_yaml::Error),
     #[error("config diff expected to contain old value `{1}` for parameter `{0}`")]
     OldValueExists(Parameter, String),
     #[error(
@@ -46,12 +46,24 @@ pub(crate) enum InvalidConfigError {
 impl std::str::FromStr for ParameterTable {
     type Err = InvalidConfigError;
     fn from_str(arg: &str) -> Result<ParameterTable, InvalidConfigError> {
-        let parameters = txt_to_key_values(arg)
-            .map(|result| {
-                let (typed_key, value) = result?;
-                Ok((typed_key, parse_parameter_txt_value(value.trim())?))
+        // TODO(#8320): Remove this after migration to `serde_yaml` 0.9 that supports empty strings.
+        if arg.is_empty() {
+            return Ok(ParameterTable { parameters: BTreeMap::new() });
+        }
+
+        let yaml_map: BTreeMap<String, String> =
+            serde_yaml::from_str(arg).map_err(|err| InvalidConfigError::InvalidYaml(err))?;
+
+        let parameters = yaml_map
+            .iter()
+            .map(|(key, value)| {
+                let typed_key: Parameter = key
+                    .parse()
+                    .map_err(|err| InvalidConfigError::UnknownParameter(err, key.to_owned()))?;
+                Ok((typed_key, parse_parameter_txt_value(value)?))
             })
             .collect::<Result<BTreeMap<_, _>, _>>()?;
+
         Ok(ParameterTable { parameters })
     }
 }
@@ -206,56 +218,43 @@ impl ParameterTable {
     }
 }
 
+/// Represents YAML values supported by parameter diff config.
+#[derive(serde::Deserialize, Clone, Debug)]
+struct ParameterDiffValue {
+    old: Option<String>,
+    new: Option<String>,
+}
+
 impl std::str::FromStr for ParameterTableDiff {
     type Err = InvalidConfigError;
     fn from_str(arg: &str) -> Result<ParameterTableDiff, InvalidConfigError> {
-        let parameters = txt_to_key_values(arg)
-            .map(|result| {
-                let (typed_key, value) = result?;
-                if let Some((before, after)) = value.split_once("->") {
-                    Ok((
-                        typed_key,
-                        (
-                            parse_parameter_txt_value(before.trim())?,
-                            parse_parameter_txt_value(after.trim())?,
-                        ),
-                    ))
+        let yaml_map: BTreeMap<String, ParameterDiffValue> =
+            serde_yaml::from_str(arg).map_err(|err| InvalidConfigError::InvalidYaml(err))?;
+
+        let parameters = yaml_map
+            .iter()
+            .map(|(key, value)| {
+                let typed_key: Parameter = key
+                    .parse()
+                    .map_err(|err| InvalidConfigError::UnknownParameter(err, key.to_owned()))?;
+
+                let old_value = if let Some(s) = &value.old {
+                    parse_parameter_txt_value(s)?
                 } else {
-                    Ok((
-                        typed_key,
-                        (serde_json::Value::Null, parse_parameter_txt_value(value.trim())?),
-                    ))
-                }
+                    serde_json::Value::Null
+                };
+
+                let new_value = if let Some(s) = &value.new {
+                    parse_parameter_txt_value(s)?
+                } else {
+                    serde_json::Value::Null
+                };
+
+                Ok((typed_key, (old_value, new_value)))
             })
             .collect::<Result<BTreeMap<_, _>, _>>()?;
         Ok(ParameterTableDiff { parameters })
     }
-}
-
-fn txt_to_key_values(
-    arg: &str,
-) -> impl Iterator<Item = Result<(Parameter, &str), InvalidConfigError>> {
-    arg.lines()
-        .enumerate()
-        .filter_map(|(nr, line)| {
-            // ignore comments and empty lines
-            let trimmed = line.trim();
-            if trimmed.starts_with("#") || trimmed.is_empty() {
-                None
-            } else {
-                Some((nr, trimmed))
-            }
-        })
-        .map(|(nr, trimmed)| {
-            let (key, value) = trimmed
-                .split_once(":")
-                .ok_or(InvalidConfigError::NoSeparator(nr + 1, trimmed.to_owned()))?;
-            let typed_key: Parameter = key
-                .trim()
-                .parse()
-                .map_err(|err| InvalidConfigError::UnknownParameter(err, key.to_owned()))?;
-            Ok((typed_key, value))
-        })
 }
 
 /// Parses a value from the custom format for runtime parameter definitions.
@@ -360,17 +359,17 @@ storage_num_extra_bytes_record   :   40
 
     static DIFF_0: &str = r#"
 # Comment line
-registrar_account_id: registrar -> near
-min_allowed_top_level_account_length: 32 -> 32_000
-wasm_regular_op_cost: 3_856_371
+registrar_account_id: { old: "registrar", new: "near" }
+min_allowed_top_level_account_length: { old: 32, new: 32_000 }
+wasm_regular_op_cost: { new: 3_856_371 }
 "#;
 
     static DIFF_1: &str = r#"
 # Comment line
-registrar_account_id: near -> registrar
-storage_num_extra_bytes_record: 40 -> 77
-wasm_regular_op_cost: 3_856_371 -> 0
-max_memory_pages: 512
+registrar_account_id: { old: "near", new: "registrar" }
+storage_num_extra_bytes_record: { old: 40, new: 77 }
+wasm_regular_op_cost: { old: 3_856_371, new: 0 }
+max_memory_pages: { new: 512 }
 "#;
 
     // Tests synthetic small example configurations. For tests with "real"
@@ -452,7 +451,7 @@ max_memory_pages: 512
 
     #[test]
     fn test_parameter_table_with_empty_value() {
-        let diff_with_empty_value = "min_allowed_top_level_account_length: 32 -> ";
+        let diff_with_empty_value = "min_allowed_top_level_account_length: { old: 32 }";
         check_parameter_table(
             BASE_0,
             &[diff_with_empty_value],
@@ -478,7 +477,10 @@ max_memory_pages: 512
     #[test]
     fn test_parameter_table_invalid_key_in_diff() {
         assert_matches!(
-            check_invalid_parameter_table("wasm_regular_op_cost: 100", &["invalid_key: 100"]),
+            check_invalid_parameter_table(
+                "wasm_regular_op_cost: 100",
+                &["invalid_key: { new: 100 }"]
+            ),
             InvalidConfigError::UnknownParameter(_, _)
         );
     }
@@ -487,6 +489,7 @@ max_memory_pages: 512
     fn test_parameter_table_no_key() {
         assert_matches!(
             check_invalid_parameter_table(": 100", &[]),
+            // TODO(#8320): This must be invalid YAML after migration to `serde_yaml` 0.9.
             InvalidConfigError::UnknownParameter(_, _)
         );
     }
@@ -495,7 +498,7 @@ max_memory_pages: 512
     fn test_parameter_table_no_key_in_diff() {
         assert_matches!(
             check_invalid_parameter_table("wasm_regular_op_cost: 100", &[": 100"]),
-            InvalidConfigError::UnknownParameter(_, _)
+            InvalidConfigError::InvalidYaml(_)
         );
     }
 
@@ -503,7 +506,7 @@ max_memory_pages: 512
     fn test_parameter_table_wrong_separator() {
         assert_matches!(
             check_invalid_parameter_table("wasm_regular_op_cost=100", &[]),
-            InvalidConfigError::NoSeparator(1, _)
+            InvalidConfigError::InvalidYaml(_)
         );
     }
 
@@ -514,7 +517,7 @@ max_memory_pages: 512
                 "wasm_regular_op_cost: 100",
                 &["wasm_regular_op_cost=100"]
             ),
-            InvalidConfigError::NoSeparator(1, _)
+            InvalidConfigError::InvalidYaml(_)
         );
     }
 
@@ -523,7 +526,7 @@ max_memory_pages: 512
         assert_matches!(
             check_invalid_parameter_table(
                 "min_allowed_top_level_account_length: 3_200_000_000",
-                &["min_allowed_top_level_account_length: 3_200_000 -> 1_600_000"]
+                &["min_allowed_top_level_account_length: { old: 3_200_000, new: 1_600_000 }"]
             ),
             InvalidConfigError::WrongOldValue(
                 Parameter::MinAllowedTopLevelAccountLength,
@@ -541,7 +544,7 @@ max_memory_pages: 512
         assert_matches!(
             check_invalid_parameter_table(
                 "min_allowed_top_level_account_length: 3_200_000_000",
-                &["min_allowed_top_level_account_length: 1_600_000"]
+                &["min_allowed_top_level_account_length: { new: 1_600_000 }"]
             ),
             InvalidConfigError::OldValueExists(Parameter::MinAllowedTopLevelAccountLength, expected) => {
                 assert_eq!(expected, "3200000000");
@@ -554,7 +557,7 @@ max_memory_pages: 512
         assert_matches!(
             check_invalid_parameter_table(
                 "min_allowed_top_level_account_length: 3_200_000_000",
-                &["wasm_regular_op_cost: 3_200_000 -> 1_600_000"]
+                &["wasm_regular_op_cost: { old: 3_200_000, new: 1_600_000 }"]
             ),
             InvalidConfigError::NoOldValueExists(Parameter::WasmRegularOpCost, found) => {
                 assert_eq!(found, "3200000");
