@@ -100,7 +100,6 @@ pub struct Client {
     pub doomslug: Doomslug,
     pub runtime_adapter: Arc<dyn RuntimeAdapter>,
     pub shards_mgr: ShardsManager,
-    me: Option<AccountId>,
     pub sharded_tx_pool: ShardedTransactionPool,
     prev_block_to_chunk_headers_ready_for_inclusion: LruCache<
         CryptoHash,
@@ -263,7 +262,6 @@ impl Client {
             doomslug,
             runtime_adapter,
             shards_mgr,
-            me,
             sharded_tx_pool,
             prev_block_to_chunk_headers_ready_for_inclusion: LruCache::new(
                 CHUNK_HEADERS_FOR_INCLUSION_CACHE_SIZE,
@@ -1453,14 +1451,12 @@ impl Client {
         if let Some(validator_signer) = self.validator_signer.clone() {
             // Reconcile the txpool against the new block *after* we have broadcast it too our peers.
             // This may be slow and we do not want to delay block propagation.
+            let validator_id = validator_signer.validator_id().clone();
             match status {
                 BlockStatus::Next => {
                     // If this block immediately follows the current tip, remove transactions
                     //    from the txpool
-                    self.remove_transactions_for_block(
-                        validator_signer.validator_id().clone(),
-                        &block,
-                    );
+                    self.remove_transactions_for_block(validator_id.clone(), &block);
                 }
                 BlockStatus::Fork => {
                     // If it's a fork, no need to reconcile transactions or produce chunks
@@ -1501,20 +1497,14 @@ impl Client {
                     for to_reintroduce_hash in to_reintroduce {
                         if let Ok(block) = self.chain.get_block(&to_reintroduce_hash) {
                             let block = block.clone();
-                            self.reintroduce_transactions_for_block(
-                                validator_signer.validator_id().clone(),
-                                &block,
-                            );
+                            self.reintroduce_transactions_for_block(validator_id.clone(), &block);
                         }
                     }
 
                     for to_remove_hash in to_remove {
                         if let Ok(block) = self.chain.get_block(&to_remove_hash) {
                             let block = block.clone();
-                            self.remove_transactions_for_block(
-                                validator_signer.validator_id().clone(),
-                                &block,
-                            );
+                            self.remove_transactions_for_block(validator_id.clone(), &block);
                         }
                     }
                 }
@@ -1535,7 +1525,7 @@ impl Client {
                         .get_chunk_producer(&epoch_id, block.header().height() + 1, shard_id)
                         .unwrap();
 
-                    if chunk_proposer == *validator_signer.validator_id() {
+                    if &chunk_proposer == &validator_id {
                         let _span = tracing::debug_span!(
                             target: "client",
                             "on_block_accepted_produce_chunk",
@@ -1558,6 +1548,7 @@ impl Client {
                                     encoded_chunk,
                                     merkle_paths,
                                     receipts,
+                                    validator_id.clone(),
                                 )
                                 .expect("Failed to process produced chunk");
                             }
@@ -1578,17 +1569,18 @@ impl Client {
         encoded_chunk: EncodedShardChunk,
         merkle_paths: Vec<MerklePath>,
         receipts: Vec<Receipt>,
+        validator_id: AccountId,
     ) -> Result<(), Error> {
         let (shard_chunk, partial_chunk) = decode_encoded_chunk(
             &encoded_chunk,
             merkle_paths.clone(),
-            self.me.as_ref(),
+            Some(&validator_id),
             self.runtime_adapter.as_ref(),
         )?;
         persist_chunk(partial_chunk.clone(), Some(shard_chunk), self.chain.mut_store())?;
         self.on_chunk_header_ready_for_inclusion(
             encoded_chunk.cloned_header(),
-            self.me.clone().unwrap(),
+            validator_id.clone(),
         );
         self.shards_mgr.distribute_encoded_chunk(
             partial_chunk,
