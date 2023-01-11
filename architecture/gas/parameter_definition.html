@@ -142,7 +142,7 @@
                     <main>
                         <h1 id="parameter-definitions"><a class="header" href="#parameter-definitions">Parameter Definitions</a></h1>
 <p>Gas parameters are a subset of runtime parameters that are defined in
-<a href="https://github.com/near/nearcore/blob/d0dc37bf81f7e7bde9c560403b085fae04108659/core/primitives/res/runtime_configs/parameters.txt">core/primitives/res/runtime_configs/parameters.txt</a>.
+<a href="https://github.com/near/nearcore/blob/d0dc37bf81f7e7bde9c560403b085fae04108659/core/primitives/res/runtime_configs/parameters.yaml">core/primitives/res/runtime_configs/parameters.yaml</a>.
 IMPORTANT: This is not the final list of parameters, it contains the base values
 which can be overwritten per protocol version. For example,
 <a href="https://github.com/near/nearcore/blob/d0dc37bf81f7e7bde9c560403b085fae04108659/core/primitives/res/runtime_configs/53.txt">53.txt</a>
@@ -191,7 +191,7 @@ parameter.</p>
 <h3 id="necessary-code-changes"><a class="header" href="#necessary-code-changes">Necessary Code Changes</a></h3>
 <p>Adding the parameter in code involves several steps.</p>
 <ol>
-<li>Define the parameter by adding it to the list in <code>core/primitives/res/runtime_configs/parameters.txt.</code></li>
+<li>Define the parameter by adding it to the list in <code>core/primitives/res/runtime_configs/parameters.yaml.</code></li>
 <li>Update the Rust view of parameters by adding a variant to <code>enum Parameter</code>
 in <code>core/primitives-core/src/parameter.rs</code>. In the same file, update
 <code>enum FeeParameter</code> if you add an action cost or update <code>ext_costs()</code>
@@ -210,7 +210,7 @@ likely you have to update some testing code, such as
 <li>To merge your changes into nearcore, you will have to hide your parameter
 behind a feature flag. Add the feature to the <code>Cargo.toml</code> of each crate
 touched in step 3 and 4 and hide the code behind <code>#[cfg(feature = &quot;protocol_feature_MY_NEW_FEATURE&quot;)]</code>. Do not hide code in step 2 so that
-non-nightly builds can still read <code>parameters.txt</code>. Also add your feature as
+non-nightly builds can still read <code>parameters.yaml</code>. Also add your feature as
 a dependency on <code>nightly</code> in <code>core/primitives/Cargo.toml</code> to make sure it
 gets included when compiling for nightly. After that, check <code>cargo check</code> and
 <code>cargo test --no-run</code> with and without <code>features=nightly</code>.</li>
