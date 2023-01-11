@@ -4,14 +4,11 @@ use near_chain::test_utils::{KeyValueRuntime, ValidatorSchedule};
 use near_chain::{Chain, ChainGenesis};
 use near_chain_configs::ClientConfig;
 use near_client::{start_client, start_view_client};
-use near_crypto::KeyType;
 use near_network::actix::ActixSystem;
 use near_network::blacklist;
 use near_network::config;
 use near_network::tcp;
-use near_network::test_utils::{
-    expected_routing_tables, open_port, peer_id_from_seed, BanPeerSignal, GetInfo,
-};
+use near_network::test_utils::{expected_routing_tables, open_port, peer_id_from_seed, GetInfo};
 use near_network::time;
 use near_network::types::NetworkRecipient;
 use near_network::types::{
@@ -22,8 +19,8 @@ use near_o11y::testonly::init_test_logger;
 use near_o11y::WithSpanContextExt;
 use near_primitives::block::GenesisId;
 use near_primitives::network::PeerId;
+use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{AccountId, ValidatorId};
-use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_telemetry::{TelemetryActor, TelemetryConfig};
 use std::collections::HashSet;
 use std::future::Future;
@@ -33,9 +30,9 @@ use std::pin::Pin;
 use std::sync::Arc;
 use tracing::debug;
 
-pub type ControlFlow = std::ops::ControlFlow<()>;
-pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
-pub type ActionFn =
+pub(crate) type ControlFlow = std::ops::ControlFlow<()>;
+pub(crate) type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
+pub(crate) type ActionFn =
     Box<dyn for<'a> Fn(&'a mut RunningInfo) -> BoxFuture<'a, anyhow::Result<ControlFlow>>>;
 
 /// Sets up a node with a valid Client, Peer
@@ -55,15 +52,11 @@ fn setup_network_node(
         vs,
         5,
     ));
-    let signer = Arc::new(InMemoryValidatorSigner::from_seed(
-        account_id.clone(),
-        KeyType::ED25519,
-        account_id.as_ref(),
-    ));
+    let signer = Arc::new(create_test_signer(account_id.as_str()));
     let telemetry_actor = TelemetryActor::new(TelemetryConfig::default()).start();
 
     let db = store.into_inner(near_store::Temperature::Hot);
-    let mut client_config = ClientConfig::test(false, 100, 200, num_validators, false, true);
+    let mut client_config = ClientConfig::test(false, 100, 200, num_validators, false, true, true);
     client_config.archive = config.archive;
     client_config.ttl_account_id_router = config.ttl_account_id_router.try_into().unwrap();
     let genesis_block = Chain::make_genesis_block(&*runtime, &chain_genesis).unwrap();
@@ -105,28 +98,15 @@ fn setup_network_node(
     peer_manager
 }
 
-#[derive(Debug, Clone)]
-pub struct Ping {
-    pub source: usize,
-    pub nonce: u64,
-}
-
-#[derive(Debug, Clone)]
-pub struct Pong {
-    pub source: usize,
-    pub nonce: u64,
-}
-
 // TODO: Deprecate this in favor of separate functions.
 #[derive(Debug, Clone)]
-pub enum Action {
+pub(crate) enum Action {
     AddEdge {
         from: usize,
         to: usize,
         force: bool,
     },
     CheckRoutingTable(usize, Vec<(usize, Vec<usize>)>),
-    CheckAccountId(usize, Vec<usize>),
     // Send stop signal to some node.
     Stop(usize),
     // Wait time in milliseconds
@@ -138,7 +118,7 @@ pub enum Action {
     },
 }
 
-pub struct RunningInfo {
+pub(crate) struct RunningInfo {
     runner: Runner,
     nodes: Vec<Option<NodeHandle>>,
 }
@@ -172,29 +152,6 @@ async fn check_routing_table(
     Ok(ControlFlow::Continue(()))
 }
 
-async fn check_account_id(
-    info: &mut RunningInfo,
-    source: usize,
-    known_validators: Vec<usize>,
-) -> anyhow::Result<ControlFlow> {
-    let mut expected_known = vec![];
-    for u in known_validators.clone() {
-        expected_known.push(info.runner.test_config[u].account_id.clone());
-    }
-    let pm = &info.get_node(source)?.actix.addr;
-    let rt = match pm.send(PeerManagerMessageRequest::FetchRoutingTable.with_span_context()).await?
-    {
-        PeerManagerMessageResponse::FetchRoutingTable(rt) => rt,
-        _ => bail!("bad response"),
-    };
-    for v in &expected_known {
-        if !rt.account_peers.contains_key(v) {
-            return Ok(ControlFlow::Continue(()));
-        }
-    }
-    Ok(ControlFlow::Break(()))
-}
-
 impl StateMachine {
     fn new() -> Self {
         Self { actions: vec![] }
@@ -211,7 +168,7 @@ impl StateMachine {
             #[allow(unused_variables)]
             Action::SetOptions { target, max_num_peers } => {
                 self.actions.push(Box::new(move |info:&mut RunningInfo| Box::pin(async move {
-                    debug!(target: "network", num_prev_actions, action = ?action_clone, "runner.rs: Action");
+                    debug!(target: "test", num_prev_actions, action = ?action_clone, "runner.rs: Action");
                     info.get_node(target)?.actix.addr.send(PeerManagerMessageRequest::SetAdvOptions(near_network::test_utils::SetAdvOptions {
                         set_max_peers: max_num_peers,
                     }).with_span_context()).await?;
@@ -220,10 +177,10 @@ impl StateMachine {
             }
             Action::AddEdge { from, to, force } => {
                 self.actions.push(Box::new(move |info: &mut RunningInfo| Box::pin(async move {
-                    debug!(target: "network", num_prev_actions, action = ?action_clone, "runner.rs: Action");
+                    debug!(target: "test", num_prev_actions, action = ?action_clone, "runner.rs: Action");
                     let pm = info.get_node(from)?.actix.addr.clone();
                     let peer_info = info.runner.test_config[to].peer_info();
-                    match tcp::Stream::connect(&peer_info).await {
+                    match tcp::Stream::connect(&peer_info, tcp::Tier::T2).await {
                         Ok(stream) => { pm.send(PeerManagerMessageRequest::OutboundTcpConnect(stream).with_span_context()).await?; },
                         Err(err) => tracing::debug!("tcp::Stream::connect({peer_info}): {err}"),
                     }
@@ -245,21 +202,16 @@ impl StateMachine {
                     Box::pin(check_routing_table(info, u, expected.clone()))
                 }));
             }
-            Action::CheckAccountId(source, known_validators) => {
-                self.actions.push(Box::new(move |info| {
-                    Box::pin(check_account_id(info, source, known_validators.clone()))
-                }));
-            }
             Action::Stop(source) => {
                 self.actions.push(Box::new(move |info: &mut RunningInfo| Box::pin(async move {
-                    debug!(target: "network", num_prev_actions, action = ?action_clone, "runner.rs: Action");
+                    debug!(target: "test", num_prev_actions, action = ?action_clone, "runner.rs: Action");
                     info.stop_node(source);
                     Ok(ControlFlow::Break(()))
                 })));
             }
             Action::Wait(t) => {
                 self.actions.push(Box::new(move |_info: &mut RunningInfo| Box::pin(async move {
-                    debug!(target: "network", num_prev_actions, action = ?action_clone, "runner.rs: Action");
+                    debug!(target: "test", num_prev_actions, action = ?action_clone, "runner.rs: Action");
                     tokio::time::sleep(t.try_into().unwrap()).await;
                     Ok(ControlFlow::Break(()))
                 })));
@@ -319,7 +271,7 @@ impl TestConfig {
     }
 }
 
-pub struct Runner {
+pub(crate) struct Runner {
     test_config: Vec<TestConfig>,
     state_machine: StateMachine,
     validators: Vec<AccountId>,
@@ -343,32 +295,11 @@ impl Runner {
         }
     }
 
-    /// Add node `v` to the blacklist of node `u`.
-    /// If passed `Some(v)` it is created a blacklist entry like:
-    ///
-    ///     127.0.0.1:PORT_OF_NODE_V
-    ///
-    /// Use None (instead of Some(v)) if you want to add all other nodes to the blacklist.
-    /// If passed None it is created a blacklist entry like:
-    ///
-    ///     127.0.0.1
-    ///
-    pub fn add_to_blacklist(mut self, u: usize, v: Option<usize>) -> Self {
-        self.test_config[u].blacklist.insert(v);
-        self
-    }
-
     /// Add node `v` to the whitelist of node `u`.
     /// If passed `v` an entry of the following form is added to the whitelist:
     ///     PEER_ID_OF_NODE_V@127.0.0.1:PORT_OF_NODE_V
     pub fn add_to_whitelist(mut self, u: usize, v: usize) -> Self {
         self.test_config[u].whitelist.insert(v);
-        self
-    }
-
-    /// Set node `u` as archival node.
-    pub fn set_as_archival(mut self, u: usize) -> Self {
-        self.test_config[u].archive = true;
         self
     }
 
@@ -409,12 +340,6 @@ impl Runner {
         self.apply_all(move |test_config| {
             test_config.max_num_peers = max_num_peers;
         });
-        self
-    }
-
-    /// Set ban window range.
-    pub fn ban_window(mut self, ban_window: time::Duration) -> Self {
-        self.apply_all(move |test_config| test_config.ban_window = ban_window);
         self
     }
 
@@ -510,7 +435,7 @@ impl Runner {
 /// Executes the test.
 /// It will fail if it doesn't solve all actions.
 /// start_test will block until test is complete.
-pub fn start_test(runner: Runner) -> anyhow::Result<()> {
+pub(crate) fn start_test(runner: Runner) -> anyhow::Result<()> {
     init_test_logger();
     let r = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
     r.block_on(async {
@@ -522,7 +447,7 @@ pub fn start_test(runner: Runner) -> anyhow::Result<()> {
         let step = tokio::time::Duration::from_millis(10);
         let start = tokio::time::Instant::now();
         for (i, a) in actions.into_iter().enumerate() {
-            tracing::debug!("[starting action {i}]");
+            tracing::debug!(target: "test", "[starting action {i}]");
             loop {
                 let done =
                     tokio::time::timeout_at(start + timeout, a(&mut info)).await.with_context(
@@ -562,7 +487,7 @@ impl RunningInfo {
     }
 }
 
-pub fn assert_expected_peers(node_id: usize, peers: Vec<usize>) -> ActionFn {
+pub(crate) fn assert_expected_peers(node_id: usize, peers: Vec<usize>) -> ActionFn {
     Box::new(move |info: &mut RunningInfo| {
         let peers = peers.clone();
         Box::pin(async move {
@@ -586,14 +511,14 @@ pub fn assert_expected_peers(node_id: usize, peers: Vec<usize>) -> ActionFn {
 /// Check that the number of connections of `node_id` is in the range:
 /// [expected_connections_lo, expected_connections_hi]
 /// Use None to denote semi-open interval
-pub fn check_expected_connections(
+pub(crate) fn check_expected_connections(
     node_id: usize,
     expected_connections_lo: Option<usize>,
     expected_connections_hi: Option<usize>,
 ) -> ActionFn {
     Box::new(move |info: &mut RunningInfo| {
         Box::pin(async move {
-            debug!(target: "network", node_id, expected_connections_lo, ?expected_connections_hi, "runner.rs: check_expected_connections");
+            debug!(target: "test", node_id, expected_connections_lo, ?expected_connections_hi, "runner.rs: check_expected_connections");
             let pm = &info.get_node(node_id)?.actix.addr;
             let res = pm.send(GetInfo {}.with_span_context()).await?;
             if expected_connections_lo.map_or(false, |l| l > res.num_connected_peers) {
@@ -607,96 +532,25 @@ pub fn check_expected_connections(
     })
 }
 
-async fn check_direct_connection_inner(
-    info: &mut RunningInfo,
-    node_id: usize,
-    target_id: usize,
-) -> anyhow::Result<ControlFlow> {
-    let target_peer_id = info.runner.test_config[target_id].peer_id();
-    debug!(target: "network",  node_id, ?target_id, "runner.rs: check_direct_connection");
-    let pm = &info.get_node(node_id)?.actix.addr;
-    let rt = match pm.send(PeerManagerMessageRequest::FetchRoutingTable.with_span_context()).await?
-    {
-        PeerManagerMessageResponse::FetchRoutingTable(rt) => rt,
-        _ => bail!("bad response"),
-    };
-    let routes = if let Some(routes) = rt.next_hops.get(&target_peer_id) {
-        routes
-    } else {
-        debug!(target: "network", ?target_peer_id, node_id, target_id,
-            "runner.rs: check_direct_connection NO ROUTES!",
-        );
-        return Ok(ControlFlow::Continue(()));
-    };
-    debug!(target: "network", ?target_peer_id, ?routes, node_id, target_id,
-        "runner.rs: check_direct_connection",
-    );
-    if !routes.contains(&target_peer_id) {
-        return Ok(ControlFlow::Continue(()));
-    }
-    Ok(ControlFlow::Break(()))
-}
-
-/// Check that `node_id` has a direct connection to `target_id`.
-pub fn check_direct_connection(node_id: usize, target_id: usize) -> ActionFn {
-    Box::new(move |info| Box::pin(check_direct_connection_inner(info, node_id, target_id)))
-}
-
 /// Restart a node that was already stopped.
-pub fn restart(node_id: usize) -> ActionFn {
+pub(crate) fn restart(node_id: usize) -> ActionFn {
     Box::new(move |info: &mut RunningInfo| {
         Box::pin(async move {
-            debug!(target: "network", ?node_id, "runner.rs: restart");
+            debug!(target: "test", ?node_id, "runner.rs: restart");
             info.start_node(node_id).await?;
             Ok(ControlFlow::Break(()))
         })
     })
 }
 
-async fn ban_peer_inner(
-    info: &mut RunningInfo,
-    target_peer: usize,
-    banned_peer: usize,
-) -> anyhow::Result<ControlFlow> {
-    debug!(target: "network", target_peer, banned_peer, "runner.rs: ban_peer");
-    let banned_peer_id = info.runner.test_config[banned_peer].peer_id();
-    let pm = &info.get_node(target_peer)?.actix.addr;
-    pm.send(BanPeerSignal::new(banned_peer_id).with_span_context()).await?;
-    Ok(ControlFlow::Break(()))
-}
-
-/// Ban peer `banned_peer` from perspective of `target_peer`.
-pub fn ban_peer(target_peer: usize, banned_peer: usize) -> ActionFn {
-    Box::new(move |info| Box::pin(ban_peer_inner(info, target_peer, banned_peer)))
-}
-
 /// Change account id from a stopped peer. Notice this will also change its peer id, since
 /// peer_id is derived from account id with NetworkConfig::from_seed
-pub fn change_account_id(node_id: usize, account_id: AccountId) -> ActionFn {
+pub(crate) fn change_account_id(node_id: usize, account_id: AccountId) -> ActionFn {
     Box::new(move |info: &mut RunningInfo| {
         let account_id = account_id.clone();
         Box::pin(async move {
             info.change_account_id(node_id, account_id);
             Ok(ControlFlow::Break(()))
-        })
-    })
-}
-
-/// Wait for predicate to return True.
-#[allow(dead_code)]
-pub fn wait_for<T>(predicate: T) -> ActionFn
-where
-    T: 'static + Fn() -> bool,
-{
-    let predicate = Arc::new(predicate);
-    Box::new(move |_info: &mut RunningInfo| {
-        let predicate = predicate.clone();
-        Box::pin(async move {
-            debug!(target: "network", "runner.rs: wait_for predicate");
-            if predicate() {
-                return Ok(ControlFlow::Break(()));
-            }
-            Ok(ControlFlow::Continue(()))
         })
     })
 }

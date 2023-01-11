@@ -16,7 +16,6 @@ ansi_term.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 futures.workspace = true
-near-rust-allocator-proxy = { workspace = true, optional = true }
 once_cell.workspace = true
 openssl-probe.workspace = true
 opentelemetry.workspace = true
@@ -33,17 +32,18 @@ tracing.workspace = true
 nearcore = { path = "../nearcore" }
 near-amend-genesis = { path = "../tools/amend-genesis" }
 near-chain-configs = { path = "../core/chain-configs" }
+near-cold-store-tool = { path = "../tools/cold-store", package = "cold-store-tool" }
 near-dyn-configs = { path = "../core/dyn-configs" }
 near-jsonrpc-primitives = { path = "../chain/jsonrpc-primitives" }
-near-network = { path = "../chain/network" }
 near-mirror = { path = "../tools/mirror" }
-near-primitives = { path = "../core/primitives" }
+near-network = { path = "../chain/network" }
+near-o11y = { path = "../core/o11y" }
 near-performance-metrics = { path = "../utils/near-performance-metrics" }
 near-ping = { path = "../tools/ping" }
+near-primitives = { path = "../core/primitives" }
+near-state-parts = { path = "../tools/state-parts" }
 near-state-viewer = { path = "../tools/state-viewer", package = "state-viewer" }
-near-cold-store-tool = { path = "../tools/cold-store", package = "cold-store-tool" }
 near-store = { path = "../core/store" }
-near-o11y = { path = "../core/o11y" }
 
 [build-dependencies]
 anyhow.workspace = true
@@ -53,7 +53,6 @@ rustc_version = "0.4"
 default = ["json_rpc", "rosetta_rpc"]
 
 performance_stats = ["nearcore/performance_stats"]
-memory_stats = ["nearcore/memory_stats", "near-rust-allocator-proxy"]
 c_memory_stats = ["nearcore/c_memory_stats"]
 test_features = ["nearcore/test_features"]
 expensive_tests = ["nearcore/expensive_tests"]
@@ -70,12 +69,6 @@ nightly = [
   "nearcore/nightly"
 ]
 nightly_protocol = ["nearcore/nightly_protocol"]
-
-# Shardnet is the experimental network that we deploy for chunk-only producer testing.
-shardnet = [
-  "near-primitives/shardnet",
-  "nearcore/shardnet",
-]
 
 # Compile with option to emit a detailed trace of IO operations and their
 # results that can be replayed on the estimator. To produce the output, compile

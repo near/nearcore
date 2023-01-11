@@ -60,7 +60,7 @@ async fn test_nonces() {
         )
         .await;
 
-        let stream = tcp::Stream::connect(&pm.peer_info()).await.unwrap();
+        let stream = tcp::Stream::connect(&pm.peer_info(), tcp::Tier::T2).await.unwrap();
         let mut stream = stream::Stream::new(Some(Encoding::Proto), stream);
         let peer_key = data::make_secret_key(rng);
         let peer_id = PeerId::new(peer_key.public_key());
@@ -74,6 +74,7 @@ async fn test_nonces() {
             sender_listen_port: Some(24567),
             sender_chain_info: chain.get_peer_chain_info(),
             partial_edge_info: PartialEdgeInfo::new(&peer_id, &pm.cfg.node_id(), test.0, &peer_key),
+            owned_account: None,
         });
         stream.write(&handshake).await;
         if test.1 {
@@ -128,7 +129,7 @@ async fn test_nonce_refresh() {
     )
     .await;
 
-    pm2.connect_to(&pm.peer_info()).await;
+    pm2.connect_to(&pm.peer_info(), tcp::Tier::T2).await;
 
     let edge = wait_for_edge(&mut pm2).await;
     let start_time = clock.now_utc();
@@ -153,16 +154,16 @@ async fn test_nonce_refresh() {
     // Check that the nonces were properly updates on both pm and pm2 states.
     let pm_peer_info = pm.peer_info().id.clone();
     let pm2_nonce = pm2
-        .with_state(|s| async move {
-            s.tier2.load().ready.get(&pm_peer_info).unwrap().edge.load().nonce()
-        })
+        .with_state(
+            |s| async move { s.graph.load().local_edges.get(&pm_peer_info).unwrap().nonce() },
+        )
         .await;
 
     assert_eq!(Edge::nonce_to_utc(pm2_nonce).unwrap().unwrap(), new_nonce_utc);
 
     let pm_nonce = pm
         .with_state(|s| async move {
-            s.tier2.load().ready.get(&pm2.peer_info().id).unwrap().edge.load().nonce()
+            s.graph.load().local_edges.get(&pm2.peer_info().id).unwrap().nonce()
         })
         .await;
 

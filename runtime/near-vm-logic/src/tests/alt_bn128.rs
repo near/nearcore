@@ -136,7 +136,7 @@ fn test_alt_bn128_g1_multiexp() {
         ],
     );
 
-    check_err(b"XXXX", "invalid array, byte length 4, element size 96");
+    check_err(b"XXXX", "slice of size 4 cannot be precisely split into chunks of size 96");
     check_err(
         &le_bytes![0x92  0x2944829dcfa7dd72bb04d12e46869e6a6c8162698f9a6c35724f91f597e25fc4 0x112b450c0769c7cd80ffa552aaab2153adb5646664ee091639784a7f887411f7],
         "invalid g1",
@@ -201,7 +201,7 @@ fn test_alt_bn128_g1_sum() {
         ],
     );
 
-    check_err(&[92], "invalid array, byte length 1, element size 65");
+    check_err(&[92], "slice of size 1 cannot be precisely split into chunks of size 65");
     check_err(
         &le_bytes![
             0u8  0x111 0x222
@@ -267,6 +267,6 @@ fn test_alt_bn128_pairing_check() {
         0,
     );
 
-    check_err(b"XXXX", "invalid array, byte length 4, element size 192");
+    check_err(b"XXXX", "slice of size 4 cannot be precisely split into chunks of size 192");
     check_err(&le_bytes![0x0 0x0  0x0 0x0 0x0 0x0, 0x0 0x0  0x0 0x0 0x0 0x111], "invalid g2");
 }

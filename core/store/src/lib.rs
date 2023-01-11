@@ -2,6 +2,7 @@ use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::marker::PhantomData;
 use std::path::Path;
+use std::str::FromStr;
 use std::sync::Arc;
 use std::{fmt, io};
 
@@ -33,8 +34,8 @@ pub use crate::trie::iterator::{TrieIterator, TrieTraversalItem};
 pub use crate::trie::update::{TrieUpdate, TrieUpdateIterator, TrieUpdateValuePtr};
 pub use crate::trie::{
     estimator, split_state, ApplyStatePartResult, KeyForStateChanges, KeyLookupMode, NibbleSlice,
-    PartialStorage, PrefetchApi, RawTrieNode, RawTrieNodeWithSize, ShardTries, Trie, TrieAccess,
-    TrieCache, TrieCachingStorage, TrieChanges, TrieConfig, TrieDBStorage, TrieStorage,
+    PartialStorage, PrefetchApi, PrefetchError, RawTrieNode, RawTrieNodeWithSize, ShardTries, Trie,
+    TrieAccess, TrieCache, TrieCachingStorage, TrieChanges, TrieConfig, TrieDBStorage, TrieStorage,
     WrappedTrieChanges,
 };
 pub use flat_state::FlatStateDelta;
@@ -49,6 +50,7 @@ pub mod metadata;
 mod metrics;
 pub mod migrations;
 mod opener;
+mod sync_utils;
 pub mod test_utils;
 mod trie;
 
@@ -66,6 +68,20 @@ pub enum Temperature {
     Hot,
     #[cfg(feature = "cold_store")]
     Cold,
+}
+
+impl FromStr for Temperature {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, String> {
+        let s = s.to_lowercase();
+        match s.as_str() {
+            "hot" => Ok(Temperature::Hot),
+            #[cfg(feature = "cold_store")]
+            "cold" => Ok(Temperature::Cold),
+            _ => Err(String::from(format!("invalid temperature string {s}"))),
+        }
+    }
 }
 
 /// Node’s storage holding chain and all other necessary data.

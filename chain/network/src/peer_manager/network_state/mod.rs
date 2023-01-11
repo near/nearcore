@@ -12,6 +12,7 @@ use crate::peer_manager::connection;
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::peer_store;
 use crate::private_actix::RegisterPeerError;
+use crate::routing::route_back_cache::RouteBackCache;
 use crate::stats::metrics;
 use crate::store;
 use crate::tcp;
@@ -37,6 +38,11 @@ pub(crate) const LIMIT_PENDING_PEERS: usize = 60;
 /// Send important messages three times.
 /// We send these messages multiple times to reduce the chance that they are lost
 const IMPORTANT_MESSAGE_RESENT_COUNT: usize = 3;
+
+/// Size of LRU cache size of recent routed messages.
+/// It should be large enough to detect duplicates (i.e. all messages received during
+/// production of 1 block should fit).
+const RECENT_ROUTED_MESSAGES_CACHE_SIZE: usize = 10000;
 
 /// How long a peer has to be unreachable, until we prune it from the in-memory graph.
 const PRUNE_UNREACHABLE_PEERS_AFTER: time::Duration = time::Duration::hours(1);
@@ -89,12 +95,26 @@ pub(crate) struct NetworkState {
     pub accounts_data: Arc<accounts_data::Cache>,
     /// Connected peers (inbound and outbound) with their full peer information.
     pub tier2: connection::Pool,
+    pub tier1: connection::Pool,
     /// Semaphore limiting inflight inbound handshakes.
     pub inbound_handshake_permits: Arc<tokio::sync::Semaphore>,
     /// Peer store that provides read/write access to peers.
     pub peer_store: peer_store::PeerStore,
     /// A graph of the whole NEAR network.
     pub graph: Arc<crate::routing::Graph>,
+
+    /// Hashes of the body of recently received routed messages.
+    /// It allows us to determine whether messages arrived faster over TIER1 or TIER2 network.
+    pub recent_routed_messages: Mutex<lru::LruCache<CryptoHash, ()>>,
+
+    /// Hash of messages that requires routing back to respective previous hop.
+    /// Currently unused, as TIER1 messages do not require a response.
+    /// Also TIER1 connections are direct by design (except for proxies),
+    /// so routing shouldn't really be needed.
+    /// TODO(gprusak): consider removing it altogether.
+    ///
+    /// Note that the route_back table for TIER2 is stored in graph.routing_table_view.
+    pub tier1_route_back: Mutex<RouteBackCache>,
 
     /// Shared counter across all PeerActors, which counts number of `RoutedMessageBody::ForwardTx`
     /// messages sincce last block.
@@ -110,6 +130,8 @@ pub(crate) struct NetworkState {
     /// in the first place.
     pub max_num_peers: AtomicU32,
 
+    /// Mutex which prevents overlapping calls to tier1_advertise_proxies.
+    tier1_advertise_proxies_mutex: tokio::sync::Mutex<()>,
     /// Demultiplexer aggregating calls to add_edges().
     add_edges_demux: demux::Demux<Vec<Edge>, ()>,
 
@@ -142,9 +164,14 @@ impl NetworkState {
             client,
             chain_info: Default::default(),
             tier2: connection::Pool::new(config.node_id()),
+            tier1: connection::Pool::new(config.node_id()),
             inbound_handshake_permits: Arc::new(tokio::sync::Semaphore::new(LIMIT_PENDING_PEERS)),
             peer_store,
             accounts_data: Arc::new(accounts_data::Cache::new()),
+            tier1_route_back: Mutex::new(RouteBackCache::default()),
+            recent_routed_messages: Mutex::new(lru::LruCache::new(
+                RECENT_ROUTED_MESSAGES_CACHE_SIZE,
+            )),
             txns_since_last_block: AtomicUsize::new(0),
             whitelist_nodes,
             max_num_peers: AtomicU32::new(config.max_num_peers),
@@ -152,6 +179,7 @@ impl NetworkState {
             set_chain_info_mutex: Mutex::new(()),
             config,
             created_at: clock.now(),
+            tier1_advertise_proxies_mutex: tokio::sync::Mutex::new(()),
         }
     }
 
@@ -226,6 +254,7 @@ impl NetworkState {
     pub async fn register(
         self: &Arc<Self>,
         clock: &time::Clock,
+        edge: Edge,
         conn: Arc<connection::Connection>,
     ) -> Result<(), RegisterPeerError> {
         let this = self.clone();
@@ -243,28 +272,52 @@ impl NetworkState {
                 return Err(RegisterPeerError::Banned);
             }
 
-            if conn.peer_type == PeerType::Inbound {
-                if !this.is_inbound_allowed(&peer_info) {
-                    // TODO(1896): Gracefully drop inbound connection for other peer.
-                    let tier2 = this.tier2.load();
-                    tracing::debug!(target: "network",
-                        tier2 = tier2.ready.len(), outgoing_peers = tier2.outbound_handshakes.len(),
-                        max_num_peers = this.max_num_peers.load(Ordering::Relaxed),
-                        "Dropping handshake (network at max capacity)."
-                    );
-                    return Err(RegisterPeerError::ConnectionLimitExceeded);
+            match conn.tier {
+                tcp::Tier::T1 => {
+                    if conn.peer_type == PeerType::Inbound {
+                        if !this.config.tier1.as_ref().map_or(false, |c| c.enable_inbound) {
+                            return Err(RegisterPeerError::Tier1InboundDisabled);
+                        }
+                        // Allow for inbound TIER1 connections only directly from a TIER1 peers.
+                        let owned_account = match &conn.owned_account {
+                            Some(it) => it,
+                            None => return Err(RegisterPeerError::NotTier1Peer),
+                        };
+                        if !this.accounts_data.load().keys.contains(&owned_account.account_key) {
+                            return Err(RegisterPeerError::NotTier1Peer);
+                        }
+                    }
+                    let (_, ok) = this.graph.verify(vec![edge]).await;
+                    if !ok {
+                        return Err(RegisterPeerError::InvalidEdge);
+                    }
+                    this.tier1.insert_ready(conn).map_err(RegisterPeerError::PoolError)?;
                 }
-            }
-            // Verify and broadcast the edge of the connection. Only then insert the new
-            // connection to TIER2 pool, so that nothing is broadcasted to conn.
-            // TODO(gprusak): consider actually banning the peer for consistency.
-            this.add_edges(&clock, vec![conn.edge.load()])
-                .await
-                .map_err(|_: ReasonForBan| RegisterPeerError::InvalidEdge)?;
-            this.tier2.insert_ready(conn.clone()).map_err(RegisterPeerError::PoolError)?;
-            // Best effort write to DB.
-            if let Err(err) = this.peer_store.peer_connected(&clock, peer_info) {
-                tracing::error!(target: "network", ?err, "Failed to save peer data");
+                tcp::Tier::T2 => {
+                    if conn.peer_type == PeerType::Inbound {
+                        if !this.is_inbound_allowed(&peer_info) {
+                            // TODO(1896): Gracefully drop inbound connection for other peer.
+                            let tier2 = this.tier2.load();
+                            tracing::debug!(target: "network",
+                                tier2 = tier2.ready.len(), outgoing_peers = tier2.outbound_handshakes.len(),
+                                max_num_peers = this.max_num_peers.load(Ordering::Relaxed),
+                                "Dropping handshake (network at max capacity)."
+                            );
+                            return Err(RegisterPeerError::ConnectionLimitExceeded);
+                        }
+                    }
+                    // First verify and broadcast the edge of the connection, so that in case
+                    // it is invalid, the connection is not added to the pool.
+                    // TODO(gprusak): consider actually banning the peer for consistency.
+                    this.add_edges(&clock, vec![edge])
+                        .await
+                        .map_err(|_: ReasonForBan| RegisterPeerError::InvalidEdge)?;
+                    this.tier2.insert_ready(conn.clone()).map_err(RegisterPeerError::PoolError)?;
+                    // Best effort write to DB.
+                    if let Err(err) = this.peer_store.peer_connected(&clock, peer_info) {
+                        tracing::error!(target: "network", ?err, "Failed to save peer data");
+                    }
+                }
             }
             Ok(())
         }).await.unwrap()
@@ -286,7 +339,13 @@ impl NetworkState {
         let conn = conn.clone();
         self.spawn(async move {
             let peer_id = conn.peer_info.id.clone();
-            this.tier2.remove(&peer_id);
+            if conn.tier == tcp::Tier::T1 {
+                // There is no banning or routing table for TIER1.
+                // Just remove the connection from the network_state.
+                this.tier1.remove(&conn);
+                return;
+            }
+            this.tier2.remove(&conn);
 
             // If the last edge we have with this peer represent a connection addition, create the edge
             // update that represents the connection removal.
@@ -325,16 +384,16 @@ impl NetworkState {
         }
     }
 
-    pub fn send_ping(&self, clock: &time::Clock, nonce: u64, target: PeerId) {
+    pub fn send_ping(&self, clock: &time::Clock, tier: tcp::Tier, nonce: u64, target: PeerId) {
         let body = RoutedMessageBody::Ping(Ping { nonce, source: self.config.node_id() });
         let msg = RawRoutedMessage { target: PeerIdOrHash::PeerId(target), body };
-        self.send_message_to_peer(clock, self.sign_message(clock, msg));
+        self.send_message_to_peer(clock, tier, self.sign_message(clock, msg));
     }
 
-    pub fn send_pong(&self, clock: &time::Clock, nonce: u64, target: CryptoHash) {
+    pub fn send_pong(&self, clock: &time::Clock, tier: tcp::Tier, nonce: u64, target: CryptoHash) {
         let body = RoutedMessageBody::Pong(Pong { nonce, source: self.config.node_id() });
         let msg = RawRoutedMessage { target: PeerIdOrHash::Hash(target), body };
-        self.send_message_to_peer(clock, self.sign_message(clock, msg));
+        self.send_message_to_peer(clock, tier, self.sign_message(clock, msg));
     }
 
     pub fn sign_message(&self, clock: &time::Clock, msg: RawRoutedMessage) -> Box<RoutedMessageV2> {
@@ -347,7 +406,12 @@ impl NetworkState {
 
     /// Route signed message to target peer.
     /// Return whether the message is sent or not.
-    pub fn send_message_to_peer(&self, clock: &time::Clock, msg: Box<RoutedMessageV2>) -> bool {
+    pub fn send_message_to_peer(
+        &self,
+        clock: &time::Clock,
+        tier: tcp::Tier,
+        msg: Box<RoutedMessageV2>,
+    ) -> bool {
         let my_peer_id = self.config.node_id();
 
         // Check if the message is for myself and don't try to send it in that case.
@@ -358,66 +422,127 @@ impl NetworkState {
                 return false;
             }
         }
-        match self.graph.routing_table.find_route(&clock, &msg.target) {
-            Ok(peer_id) => {
-                // Remember if we expect a response for this message.
-                if msg.author == my_peer_id && msg.expect_response() {
-                    tracing::trace!(target: "network", ?msg, "initiate route back");
-                    self.graph.routing_table.add_route_back(&clock, msg.hash(), my_peer_id);
+        match tier {
+            tcp::Tier::T1 => {
+                let peer_id = match &msg.target {
+                    // If a message is a response, we try to load the target from the route back
+                    // cache.
+                    PeerIdOrHash::Hash(hash) => {
+                        match self.tier1_route_back.lock().remove(clock, hash) {
+                            Some(peer_id) => peer_id,
+                            None => return false,
+                        }
+                    }
+                    PeerIdOrHash::PeerId(peer_id) => peer_id.clone(),
+                };
+                return self.tier1.send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
+            }
+            tcp::Tier::T2 => match self.graph.routing_table.find_route(&clock, &msg.target) {
+                Ok(peer_id) => {
+                    // Remember if we expect a response for this message.
+                    if msg.author == my_peer_id && msg.expect_response() {
+                        tracing::trace!(target: "network", ?msg, "initiate route back");
+                        self.graph.routing_table.add_route_back(&clock, msg.hash(), my_peer_id);
+                    }
+                    return self.tier2.send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
                 }
-                return self.tier2.send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
-            }
-            Err(find_route_error) => {
-                // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
-                metrics::MessageDropped::NoRouteFound.inc(&msg.body);
+                Err(find_route_error) => {
+                    // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
+                    metrics::MessageDropped::NoRouteFound.inc(&msg.body);
 
-                tracing::debug!(target: "network",
-                      account_id = ?self.config.validator.as_ref().map(|v|v.account_id()),
-                      to = ?msg.target,
-                      reason = ?find_route_error,
-                      known_peers = ?self.graph.routing_table.reachable_peers(),
-                      msg = ?msg.body,
-                    "Drop signed message"
-                );
-                return false;
-            }
+                    tracing::debug!(target: "network",
+                          account_id = ?self.config.validator.as_ref().map(|v|v.account_id()),
+                          to = ?msg.target,
+                          reason = ?find_route_error,
+                          known_peers = ?self.graph.routing_table.reachable_peers(),
+                          msg = ?msg.body,
+                        "Drop signed message"
+                    );
+                    return false;
+                }
+            },
         }
     }
 
     /// Send message to specific account.
     /// Return whether the message is sent or not.
+    /// The message might be sent over TIER1 and/or TIER2 connection depending on the message type.
     pub fn send_message_to_account(
         &self,
         clock: &time::Clock,
         account_id: &AccountId,
         msg: RoutedMessageBody,
     ) -> bool {
-        let target = match self.graph.routing_table.account_owner(account_id) {
-            Some(peer_id) => peer_id,
-            None => {
-                // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
-                metrics::MessageDropped::UnknownAccount.inc(&msg);
-                tracing::debug!(target: "network",
-                       account_id = ?self.config.validator.as_ref().map(|v|v.account_id()),
-                       to = ?account_id,
-                       ?msg,"Drop message: unknown account",
-                );
-                tracing::trace!(target: "network", known_peers = ?self.graph.routing_table.get_accounts_keys(), "Known peers");
-                return false;
+        let mut success = false;
+        let accounts_data = self.accounts_data.load();
+        // All TIER1 messages are being sent over both TIER1 and TIER2 connections for now,
+        // so that we can actually observe the latency/reliability improvements in practice:
+        // for each message we track over which network tier it arrived faster?
+        if tcp::Tier::T1.is_allowed_routed(&msg) {
+            for key in accounts_data.keys_by_id.get(account_id).iter().flat_map(|keys| keys.iter())
+            {
+                let data = match accounts_data.data.get(key) {
+                    Some(data) => data,
+                    None => continue,
+                };
+                let conn = match self.get_tier1_proxy(data) {
+                    Some(conn) => conn,
+                    None => continue,
+                };
+                // TODO(gprusak): in case of PartialEncodedChunk, consider stripping everything
+                // but the header. This will bound the message size
+                conn.send_message(Arc::new(PeerMessage::Routed(self.sign_message(
+                    clock,
+                    RawRoutedMessage {
+                        target: PeerIdOrHash::PeerId(data.peer_id.clone()),
+                        body: msg.clone(),
+                    },
+                ))));
+                success |= true;
+                break;
             }
+        }
+
+        let peer_id_from_account_data = accounts_data
+            .keys_by_id
+            .get(account_id)
+            .iter()
+            .flat_map(|keys| keys.iter())
+            .flat_map(|key| accounts_data.data.get(key))
+            .next()
+            .map(|data| data.peer_id.clone());
+        // Find the target peer_id:
+        // - first look it up in self.accounts_data
+        // - if missing, fall back to lookup in self.graph.routing_table
+        // We want to deprecate self.graph.routing_table.account_owner in the next release.
+        let target = if let Some(peer_id) = peer_id_from_account_data {
+            metrics::ACCOUNT_TO_PEER_LOOKUPS.with_label_values(&["AccountData"]).inc();
+            peer_id
+        } else if let Some(peer_id) = self.graph.routing_table.account_owner(account_id) {
+            metrics::ACCOUNT_TO_PEER_LOOKUPS.with_label_values(&["AnnounceAccount"]).inc();
+            peer_id
+        } else {
+            // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
+            metrics::MessageDropped::UnknownAccount.inc(&msg);
+            tracing::debug!(target: "network",
+                   account_id = ?self.config.validator.as_ref().map(|v|v.account_id()),
+                   to = ?account_id,
+                   ?msg,"Drop message: unknown account",
+            );
+            tracing::trace!(target: "network", known_peers = ?self.graph.routing_table.get_accounts_keys(), "Known peers");
+            return false;
         };
 
         let msg = RawRoutedMessage { target: PeerIdOrHash::PeerId(target), body: msg };
         let msg = self.sign_message(clock, msg);
         if msg.body.is_important() {
-            let mut success = false;
             for _ in 0..IMPORTANT_MESSAGE_RESENT_COUNT {
-                success |= self.send_message_to_peer(clock, msg.clone());
+                success |= self.send_message_to_peer(clock, tcp::Tier::T2, msg.clone());
             }
-            success
         } else {
-            self.send_message_to_peer(clock, msg)
+            success |= self.send_message_to_peer(clock, tcp::Tier::T2, msg)
         }
+        success
     }
 
     pub async fn add_accounts_data(

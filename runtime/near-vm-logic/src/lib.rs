@@ -1,7 +1,6 @@
 #![doc = include_str!("../README.md")]
 
 mod alt_bn128;
-mod array_utils;
 mod context;
 mod dependencies;
 pub mod gas_counter;
@@ -12,9 +11,10 @@ pub(crate) mod receipt_manager;
 mod tests;
 pub mod types;
 mod utils;
+mod vmstate;
 
 pub use context::VMContext;
-pub use dependencies::{External, MemoryLike, StorageGetMode, ValuePtr};
+pub use dependencies::{External, MemSlice, MemoryLike, StorageGetMode, ValuePtr};
 pub use logic::{VMLogic, VMOutcome};
 pub use near_primitives_core::config::*;
 pub use near_primitives_core::profile;

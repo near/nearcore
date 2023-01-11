@@ -33,7 +33,9 @@ use near_client_primitives::debug::{DebugBlockStatus, DebugChunkStatus};
 use near_network::types::{ConnectedPeerInfo, NetworkInfo, PeerType};
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::time::Clock;
-use near_primitives::views::{KnownProducerView, NetworkInfoView, PeerInfoView};
+use near_primitives::views::{
+    AccountDataView, KnownProducerView, NetworkInfoView, PeerInfoView, Tier1ProxyView,
+};
 
 // Constants for debug requests.
 const DEBUG_BLOCKS_TO_FETCH: u32 = 50;
@@ -430,8 +432,16 @@ impl ClientActor {
                 if blocks.contains_key(&block_hash) {
                     continue;
                 }
-                let block_header = self.client.chain.get_block_header(&block_hash)?;
-                let block = self.client.chain.get_block(&block_hash).ok();
+                let block_header = if block_hash == CryptoHash::default() {
+                    self.client.chain.genesis().clone()
+                } else {
+                    self.client.chain.get_block_header(&block_hash)?
+                };
+                let block = if block_hash == CryptoHash::default() {
+                    Some(self.client.chain.genesis_block().clone())
+                } else {
+                    self.client.chain.get_block(&block_hash).ok()
+                };
                 let is_on_canonical_chain =
                     match self.client.chain.get_block_by_height(block_header.height()) {
                         Ok(block) => block.hash() == &block_hash,
@@ -687,5 +697,31 @@ pub(crate) fn new_network_info_view(chain: &Chain, network_info: &NetworkInfo) -
                     .map(|it| it.iter().map(|peer_id| peer_id.public_key().clone()).collect()),
             })
             .collect(),
+        tier1_accounts_keys: network_info.tier1_accounts_keys.clone(),
+        tier1_accounts_data: network_info
+            .tier1_accounts_data
+            .iter()
+            .map(|d| AccountDataView {
+                peer_id: d.peer_id.public_key().clone(),
+                proxies: d
+                    .proxies
+                    .iter()
+                    .map(|p| Tier1ProxyView {
+                        addr: p.addr,
+                        peer_id: p.peer_id.public_key().clone(),
+                    })
+                    .collect(),
+                account_key: d.account_key.clone(),
+                timestamp: chrono::DateTime::from_utc(
+                    chrono::NaiveDateTime::from_timestamp(d.timestamp.unix_timestamp(), 0),
+                    chrono::Utc,
+                ),
+            })
+            .collect(),
+        tier1_connections: network_info
+            .tier1_connections
+            .iter()
+            .map(|full_peer_info| new_peer_info_view(chain, full_peer_info))
+            .collect::<Vec<_>>(),
     }
 }

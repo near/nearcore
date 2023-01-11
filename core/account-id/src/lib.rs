@@ -299,7 +299,7 @@ impl AccountId {
     /// ```
     #[doc(hidden)]
     #[cfg(feature = "internal_unstable")]
-    #[deprecated(since = "#4440", note = "AccountId construction without validation is illegal")]
+    #[deprecated = "AccountId construction without validation is illegal since #4440"]
     pub fn new_unvalidated(account_id: String) -> Self {
         Self(account_id.into_boxed_str())
     }
@@ -439,7 +439,7 @@ mod tests {
         }
 
         for account_id in BAD_ACCOUNT_IDS.iter().cloned() {
-            if let Ok(_) = AccountId::validate(account_id) {
+            if AccountId::validate(account_id).is_ok() {
                 panic!("Invalid account id {:?} marked valid", account_id);
             }
         }

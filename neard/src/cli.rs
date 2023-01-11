@@ -20,6 +20,7 @@ use near_ping::PingCommand;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::compute_root_from_path;
 use near_primitives::types::{Gas, NumSeats, NumShards};
+use near_state_parts::cli::StatePartsCommand;
 use near_state_viewer::StateViewerSubCommand;
 use near_store::db::RocksDB;
 use near_store::Mode;
@@ -93,7 +94,7 @@ impl NeardCmd {
 
             NeardSubCommand::StateViewer(cmd) => {
                 let mode = if cmd.readwrite { Mode::ReadWrite } else { Mode::ReadOnly };
-                cmd.subcmd.run(&home_dir, genesis_validation, mode);
+                cmd.subcmd.run(&home_dir, genesis_validation, mode, cmd.store_temperature);
             }
 
             NeardSubCommand::RecompressStorage(cmd) => {
@@ -115,6 +116,9 @@ impl NeardCmd {
             NeardSubCommand::ColdStore(cmd) => {
                 cmd.run(&home_dir);
             }
+            NeardSubCommand::StateParts(cmd) => {
+                cmd.run()?;
+            }
         };
         Ok(())
     }
@@ -127,6 +131,10 @@ pub(super) struct StateViewerCommand {
     /// In case an operation needs to write to caches, a read-write mode may be needed.
     #[clap(long, short = 'w')]
     readwrite: bool,
+    /// What store temperature should the state viewer open. Allowed values are hot and cold but
+    /// cold is only available when cold_store feature is enabled.
+    #[clap(long, short = 't', default_value = "hot")]
+    store_temperature: near_store::Temperature,
     #[clap(subcommand)]
     subcmd: StateViewerSubCommand,
 }
@@ -218,6 +226,9 @@ pub(super) enum NeardSubCommand {
     #[cfg(feature = "cold_store")]
     /// Testing tool for cold storage
     ColdStore(ColdStoreCommand),
+
+    /// Connects to a NEAR node and sends state parts requests after the handshake is completed.
+    StateParts(StatePartsCommand),
 }
 
 #[derive(Parser)]
@@ -547,18 +558,38 @@ pub(super) struct LocalnetCmd {
     /// Whether to configure nodes as archival.
     #[clap(long)]
     archival_nodes: bool,
+    /// Comma separated list of shards to track, the word 'all' to track all shards or the word 'none' to track no shards.
+    #[clap(long, default_value = "all")]
+    tracked_shards: String,
 }
 
 impl LocalnetCmd {
+    fn parse_tracked_shards(tracked_shards: &String, num_shards: NumShards) -> Vec<u64> {
+        if tracked_shards.to_lowercase() == "all" {
+            return (0..num_shards).collect();
+        }
+        if tracked_shards.to_lowercase() == "none" {
+            return vec![];
+        }
+        tracked_shards
+            .split(',')
+            .map(|shard_id| shard_id.parse::<u64>().expect("Shard id must be an integer"))
+            .collect()
+    }
+
     pub(super) fn run(self, home_dir: &Path) {
+        let tracked_shards = Self::parse_tracked_shards(&self.tracked_shards, self.shards);
+
         nearcore::config::init_testnet_configs(
             home_dir,
             self.shards,
             self.validators,
             self.non_validators,
             &self.prefix,
+            true,
             self.archival_nodes,
             self.fixed_shards,
+            tracked_shards,
         );
     }
 }

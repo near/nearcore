@@ -178,7 +178,9 @@ shard states for epoch T+1 are ready, processing new blocks only applies chunks
 for the shards that the node is tracking in epoch T. When the shard states for
 epoch T+1 finish downloading, the catchup process needs to reprocess the
 blocks that have already been processed in epoch T to apply the chunks for the
-shards in epoch T+1.
+shards in epoch T+1. We assume that it will be faster than regular block
+processing, because blocks are not full and block production has its own delays,
+so catchup can finish within an epoch.
 
 In other words, there are three modes for applying chunks and two code paths,
 either through the normal `process_block` (blue) or through `catchup_blocks`
@@ -210,23 +212,27 @@ is caught up and if we need to download states. The logic works as follows:
   happen, because the node will appear stalled until the blocks in the previous
   epoch are catching up.
 * Otherwise, we start processing blocks for the new epoch T. For the first
-  block, we always consider it as not caught up and will initiate the process
+  block, we always mark it as not caught up and will initiate the process
   for downloading states for shards that we are going to care about in epoch
-  T+1.
-* For other blocks, we consider it caught up if the previous block is caught up.
-* `process_block` will apply chunks differently depending on whether the block
-  is caught up or not, as we discussed in `ApplyChunksMode`.
+  T+1. Info about downloading states is persisted in `DBCol::StateDlInfos`.
+* For other blocks, we mark them as not caught up if the previous block is not
+  caught up. This info is persisted in `DBCol::BlocksToCatchup` which stores
+  mapping from previous block to vector of all child blocks to catch up.
+* Chunks for already tracked shards will be applied during `process_block`, as 
+  we said before mentioning `ApplyChunksMode`.
+* Once we downloaded state, we start catchup. It will take blocks from 
+  `DBCol::BlocksToCatchup` in breadth-first search order and apply chunks for 
+  shards which have to be tracked in the next epoch.
+* When catchup doesn't see any more blocks to process, `DBCol::BlocksToCatchup`
+  is cleared, which means that catchup process is finished.
 
-The information of which blocks need to catch up (`add_block_to_catch_up`) and
-which new states need to be downloaded (`add_state_dl_info`) are stored in
-storage to be persisted across different runs.
 
 The catchup process is implemented through the function `Client::run_catchup`.
 `ClientActor` schedules a call to `run_catchup` every 100ms. However, the call
 can be delayed if ClientActor has a lot of messages in its actix queue.
 
-Every time `run_catchup` is called, it checks the store to see if there are any
-shard states that should be downloaded (`iterate_state_sync_infos`). If so, it
+Every time `run_catchup` is called, it checks `DBCol::StateDlInfos` to see 
+if there are any shard states that should be downloaded. If so, it
 initiates the syncing process for these shards. After the state is downloaded,
 `run_catchup` will start to apply blocks that need to be caught up.
 

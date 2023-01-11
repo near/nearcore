@@ -27,6 +27,3 @@ near-o11y = { path = "../../core/o11y" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
 node-runtime = { path = "../../runtime/runtime" }
-
-[features]
-shardnet = ["nearcore/shardnet", "near-client/shardnet", "near-primitives/shardnet"]

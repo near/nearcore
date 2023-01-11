@@ -1,19 +1,28 @@
-use crate::{ChainError, ChunkTxs};
+use crate::{ChainError, SourceBlock};
 use actix::Addr;
 use anyhow::Context;
 use async_trait::async_trait;
 use near_chain_configs::GenesisValidationMode;
-use near_client::{ClientActor, ViewClientActor};
-use near_client_primitives::types::{GetChunk, GetChunkError};
+use near_client::ViewClientActor;
+use near_client_primitives::types::{
+    GetBlock, GetBlockError, GetChunk, GetChunkError, GetExecutionOutcome, GetReceipt, Query,
+};
+use near_crypto::PublicKey;
 use near_o11y::WithSpanContextExt;
-use near_primitives::types::BlockHeight;
+use near_primitives::hash::CryptoHash;
+use near_primitives::types::{
+    AccountId, BlockHeight, BlockId, BlockReference, Finality, TransactionOrReceiptId,
+};
+use near_primitives::views::{
+    AccessKeyPermissionView, ExecutionOutcomeWithIdView, QueryRequest, QueryResponseKind,
+    ReceiptView,
+};
 use near_primitives_core::types::ShardId;
 use std::path::Path;
 use std::time::Duration;
 
 pub(crate) struct ChainAccess {
     view_client: Addr<ViewClientActor>,
-    client: Addr<ClientActor>,
 }
 
 impl ChainAccess {
@@ -24,48 +33,79 @@ impl ChainAccess {
 
         let node = nearcore::start_with_config(home.as_ref(), config.clone())
             .context("failed to start NEAR node")?;
-        Ok(Self { view_client: node.view_client, client: node.client })
+        Ok(Self { view_client: node.view_client })
     }
 }
 
 #[async_trait(?Send)]
 impl crate::ChainAccess for ChainAccess {
-    // wait until HEAD moves. We don't really need it to be fully synced.
-    async fn init(&self) -> anyhow::Result<()> {
+    async fn init(
+        &self,
+        last_height: BlockHeight,
+        num_initial_blocks: usize,
+    ) -> anyhow::Result<Vec<BlockHeight>> {
+        // first wait until HEAD moves. We don't really need it to be fully synced.
         let mut first_height = None;
         loop {
-            let head = self.head_height().await?;
-            match first_height {
-                Some(h) => {
-                    if h != head {
-                        return Ok(());
+            match self.head_height().await {
+                Ok(head) => match first_height {
+                    Some(h) => {
+                        if h != head {
+                            break;
+                        }
                     }
-                }
-                None => {
-                    first_height = Some(head);
-                }
-            }
+                    None => {
+                        first_height = Some(head);
+                    }
+                },
+                Err(ChainError::Unknown) => {}
+                Err(ChainError::Other(e)) => return Err(e),
+            };
 
             tokio::time::sleep(Duration::from_millis(500)).await;
         }
+
+        let mut block_heights = Vec::with_capacity(num_initial_blocks);
+        let mut height = last_height;
+
+        loop {
+            // note that here we are using the fact that get_next_block_height() for this struct
+            // allows passing a height that doesn't exist in the chain. This is not true for the offline
+            // version
+            match self.get_next_block_height(height).await {
+                Ok(h) => {
+                    block_heights.push(h);
+                    height = h;
+                    if block_heights.len() >= num_initial_blocks {
+                        return Ok(block_heights);
+                    }
+                }
+                Err(ChainError::Unknown) => {
+                    tokio::time::sleep(Duration::from_millis(500)).await;
+                }
+                Err(ChainError::Other(e)) => {
+                    return Err(e)
+                        .with_context(|| format!("failed fetching next block after #{}", height))
+                }
+            }
+        }
     }
 
-    async fn head_height(&self) -> anyhow::Result<BlockHeight> {
-        self.client
-            .send(
-                near_client::Status { is_health_check: false, detailed: false }.with_span_context(),
-            )
+    async fn head_height(&self) -> Result<BlockHeight, ChainError> {
+        Ok(self
+            .view_client
+            .send(GetBlock(BlockReference::Finality(Finality::Final)).with_span_context())
             .await
-            .unwrap()
-            .map(|s| s.sync_info.latest_block_height)
-            .map_err(Into::into)
+            .unwrap()?
+            .header
+            .height)
     }
 
     async fn get_txs(
         &self,
         height: BlockHeight,
         shards: &[ShardId],
-    ) -> Result<Vec<ChunkTxs>, ChainError> {
+    ) -> Result<Vec<SourceBlock>, ChainError> {
         let mut chunks = Vec::new();
         for shard_id in shards.iter() {
             let chunk = match self
@@ -87,13 +127,99 @@ impl crate::ChainAccess for ChainAccess {
                 },
             };
             if chunk.header.height_included == height {
-                chunks.push(ChunkTxs {
+                chunks.push(SourceBlock {
                     shard_id: *shard_id,
                     transactions: chunk.transactions.clone(),
+                    receipts: chunk.receipts.clone(),
                 })
             }
         }
 
         Ok(chunks)
+    }
+
+    async fn get_next_block_height(
+        &self,
+        mut height: BlockHeight,
+    ) -> Result<BlockHeight, ChainError> {
+        let head = self.head_height().await?;
+
+        if height >= head {
+            // let's only return finalized heights
+            Err(ChainError::Unknown)
+        } else if height + 1 == head {
+            Ok(head)
+        } else {
+            loop {
+                height += 1;
+                if height >= head {
+                    break Err(ChainError::Unknown);
+                }
+                match self
+                    .view_client
+                    .send(
+                        GetBlock(BlockReference::BlockId(BlockId::Height(height)))
+                            .with_span_context(),
+                    )
+                    .await
+                    .unwrap()
+                {
+                    Ok(b) => break Ok(b.header.height),
+                    Err(GetBlockError::UnknownBlock { .. }) => {}
+                    Err(e) => break Err(ChainError::other(e)),
+                }
+            }
+        }
+    }
+
+    async fn get_outcome(
+        &self,
+        id: TransactionOrReceiptId,
+    ) -> Result<ExecutionOutcomeWithIdView, ChainError> {
+        Ok(self
+            .view_client
+            .send(GetExecutionOutcome { id }.with_span_context())
+            .await
+            .unwrap()?
+            .outcome_proof)
+    }
+
+    async fn get_receipt(&self, id: &CryptoHash) -> Result<ReceiptView, ChainError> {
+        self.view_client
+            .send(GetReceipt { receipt_id: id.clone() }.with_span_context())
+            .await
+            .unwrap()?
+            .ok_or(ChainError::Unknown)
+    }
+
+    async fn get_full_access_keys(
+        &self,
+        account_id: &AccountId,
+        block_hash: &CryptoHash,
+    ) -> Result<Vec<PublicKey>, ChainError> {
+        let mut ret = Vec::new();
+        match self
+            .view_client
+            .send(
+                Query {
+                    block_reference: BlockReference::BlockId(BlockId::Hash(block_hash.clone())),
+                    request: QueryRequest::ViewAccessKeyList { account_id: account_id.clone() },
+                }
+                .with_span_context(),
+            )
+            .await
+            .unwrap()?
+            .kind
+        {
+            QueryResponseKind::AccessKeyList(l) => {
+                for k in l.keys {
+                    if k.access_key.permission == AccessKeyPermissionView::FullAccess {
+                        ret.push(k.public_key);
+                    }
+                }
+            }
+            _ => unreachable!(),
+        };
+        Ok(ret)
     }
 }

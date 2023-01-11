@@ -5,7 +5,7 @@ use actix::{Actor, Context, Handler};
 use anyhow::{anyhow, Context as AnyhowContext};
 use near_chain::{Block, BlockHeader, Chain, ChainStoreAccess, Error};
 use near_chain_configs::GenesisConfig;
-use near_client::sync;
+use near_client::sync::header::MAX_BLOCK_HEADERS;
 use near_network::time;
 use near_network::types::{
     BlockInfo, ConnectedPeerInfo, FullPeerInfo, NetworkInfo, NetworkRequests, NetworkResponses,
@@ -255,7 +255,9 @@ impl MockPeerManagerActor {
             sent_bytes_per_sec: 0,
             received_bytes_per_sec: 0,
             known_producers: vec![],
-            tier1_accounts: vec![],
+            tier1_connections: vec![],
+            tier1_accounts_keys: vec![],
+            tier1_accounts_data: vec![],
         };
         let incoming_requests = IncomingRequests::new(
             &network_config.incoming_requests,
@@ -468,7 +470,7 @@ impl ChainHistoryAccess {
         &mut self,
         hashes: Vec<CryptoHash>,
     ) -> Result<Vec<BlockHeader>, Error> {
-        self.chain.retrieve_headers(hashes, sync::MAX_BLOCK_HEADERS, Some(self.target_height))
+        self.chain.retrieve_headers(hashes, MAX_BLOCK_HEADERS, Some(self.target_height))
     }
 
     fn retrieve_block_by_height(&mut self, block_height: BlockHeight) -> Result<Block, Error> {

@@ -1,8 +1,10 @@
 use crate::{
-    ChainObjectId, LatestTargetNonce, MappedBlock, MappedTx, NonceUpdater, ReceiptInfo,
-    TargetChainTx, TargetNonce, TxInfo, TxOutcome, TxRef,
+    ChainAccess, ChainError, ChainObjectId, LatestTargetNonce, MappedBlock, MappedTx,
+    MappedTxProvenance, NonceUpdater, ReceiptInfo, TargetChainTx, TargetNonce, TxInfo, TxOutcome,
+    TxRef,
 };
 use actix::Addr;
+use anyhow::Context;
 use near_client::ViewClientActor;
 use near_crypto::PublicKey;
 use near_indexer::StreamerMessage;
@@ -10,7 +12,7 @@ use near_indexer_primitives::IndexerTransactionWithOutcome;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::Transaction;
 use near_primitives::types::{AccountId, BlockHeight};
-use near_primitives_core::types::{Gas, Nonce, ShardId};
+use near_primitives_core::types::{Gas, Nonce};
 use rocksdb::DB;
 use std::cmp::Ordering;
 use std::collections::hash_map;
@@ -27,8 +29,7 @@ use std::time::{Duration, Instant};
 struct TxSendInfo {
     sent_at: Instant,
     source_height: BlockHeight,
-    source_tx_index: usize,
-    source_shard_id: ShardId,
+    provenance: MappedTxProvenance,
     source_signer_id: AccountId,
     source_receiver_id: AccountId,
     target_signer_id: Option<AccountId>,
@@ -40,7 +41,6 @@ struct TxSendInfo {
 impl TxSendInfo {
     fn new(
         tx: &MappedTx,
-        source_shard_id: ShardId,
         source_height: BlockHeight,
         target_height: BlockHeight,
         now: Instant,
@@ -58,8 +58,7 @@ impl TxSendInfo {
         };
         Self {
             source_height,
-            source_shard_id: source_shard_id,
-            source_tx_index: tx.source_tx_index,
+            provenance: tx.provenance,
             source_signer_id: tx.source_signer_id.clone(),
             source_receiver_id: tx.source_receiver_id.clone(),
             target_signer_id,
@@ -130,6 +129,7 @@ pub(crate) struct TxTracker {
     // a set of access keys who might be updated by it
     updater_to_keys: HashMap<NonceUpdater, HashSet<(AccountId, PublicKey)>>,
     nonces: HashMap<(AccountId, PublicKey), NonceInfo>,
+    next_heights: VecDeque<BlockHeight>,
     height_queued: Option<BlockHeight>,
     // the reason we have these (nonempty_height_queued, height_seen, etc) is so that we can
     // exit after we receive the target block containing the txs we sent for the last source block.
@@ -148,15 +148,50 @@ pub(crate) struct TxTracker {
 }
 
 impl TxTracker {
-    pub(crate) fn new(
+    // `next_heights` should show the next several valid heights in the chain, starting from
+    // the first block we want to send txs for. Right now we are assuming this arg is not empty when
+    // we unwrap() self.height_queued() in Self::next_heights()
+    pub(crate) fn new<'a, I>(
         min_block_production_delay: Duration,
+        next_heights: I,
         stop_height: Option<BlockHeight>,
-    ) -> Self {
-        Self { min_block_production_delay, stop_height, ..Default::default() }
+    ) -> Self
+    where
+        I: IntoIterator<Item = &'a BlockHeight>,
+    {
+        let next_heights = next_heights.into_iter().map(Clone::clone).collect();
+        Self { min_block_production_delay, next_heights, stop_height, ..Default::default() }
     }
 
-    pub(crate) fn height_queued(&self) -> Option<BlockHeight> {
-        self.height_queued
+    pub(crate) async fn next_heights<T: ChainAccess>(
+        &mut self,
+        source_chain: &T,
+    ) -> anyhow::Result<(Option<BlockHeight>, Option<BlockHeight>)> {
+        while self.next_heights.len() <= crate::CREATE_ACCOUNT_DELTA {
+            // we unwrap() the height_queued because Self::new() should have been called with
+            // nonempty next_heights.
+            let h = self
+                .next_heights
+                .iter()
+                .next_back()
+                .cloned()
+                .unwrap_or_else(|| self.height_queued.unwrap());
+            match source_chain.get_next_block_height(h).await {
+                Ok(h) => self.next_heights.push_back(h),
+                Err(ChainError::Unknown) => break,
+                Err(ChainError::Other(e)) => {
+                    return Err(e)
+                        .with_context(|| format!("failed fetching next height after {}", h))
+                }
+            };
+        }
+        let next_height = self.next_heights.get(0).cloned();
+        let create_account_height = self.next_heights.get(crate::CREATE_ACCOUNT_DELTA).cloned();
+        Ok((next_height, create_account_height))
+    }
+
+    pub(crate) fn has_stop_height(&self) -> bool {
+        self.stop_height.is_some()
     }
 
     pub(crate) fn finished(&self) -> bool {
@@ -311,6 +346,8 @@ impl TxTracker {
         db: &DB,
     ) -> anyhow::Result<()> {
         self.height_queued = Some(block.source_height);
+        self.next_heights.pop_front().unwrap();
+
         for c in block.chunks.iter() {
             if !c.txs.is_empty() {
                 self.nonempty_height_queued = Some(block.source_height);
@@ -400,7 +437,7 @@ impl TxTracker {
                             TargetChainTx::Ready(t) => {
                                 tracing::debug!(
                                     target: "mirror", "Prepared {} for ({}, {:?}) with nonce {} even though there are still pending outcomes that may affect the access key",
-                                    &tx_ref, &t.target_tx.transaction.signer_id, &t.target_tx.transaction.public_key, t.target_tx.transaction.nonce
+                                    &t.provenance, &t.target_tx.transaction.signer_id, &t.target_tx.transaction.public_key, t.target_tx.transaction.nonce
                                 );
                                 self.nonces
                                     .get_mut(&(
@@ -414,7 +451,7 @@ impl TxTracker {
                             TargetChainTx::AwaitingNonce(t) => {
                                 tracing::warn!(
                                     target: "mirror", "Could not prepare {} for ({}, {:?}). Nonce unknown",
-                                    &tx_ref, &t.target_tx.signer_id, &t.target_tx.public_key,
+                                    &t.provenance, &t.target_tx.signer_id, &t.target_tx.public_key,
                                 );
                             }
                         };
@@ -508,14 +545,8 @@ impl TxTracker {
                         if let Some(info) = self.sent_txs.get(&tx.transaction.hash) {
                             write!(
                             log_message,
-                            "source #{}{} tx #{} signer: \"{}\"{} receiver: \"{}\"{} actions: <{}> sent {:?} ago @ target #{}\n",
-                            info.source_height,
-                            if s.shard_id == info.source_shard_id {
-                                String::new()
-                            } else {
-                                format!(" (source shard {})", info.source_shard_id)
-                            },
-                            info.source_tx_index,
+                            "{} signer: \"{}\"{} receiver: \"{}\"{} actions: <{}> sent {:?} ago @ target #{}\n",
+                            info.provenance,
                             info.source_signer_id,
                             info.target_signer_id.as_ref().map_or(String::new(), |s| format!(" (mapped to \"{}\")", s)),
                             info.source_receiver_id,
@@ -751,16 +782,19 @@ impl TxTracker {
             return Ok(());
         }
 
+        if tx.provenance.is_add_key() || tx.provenance.is_create_account() {
+            tracing::debug!(
+                target: "mirror", "Successfully sent transaction {} for {}: {:?}",
+                &hash, &tx.provenance, &tx.target_tx.transaction.actions,
+            );
+        }
         let access_key = (
             tx.target_tx.transaction.signer_id.clone(),
             tx.target_tx.transaction.public_key.clone(),
         );
         // TODO: don't keep adding txs if we're not ever finding them on chain, since we'll OOM eventually
         // if that happens.
-        self.sent_txs.insert(
-            hash,
-            TxSendInfo::new(&tx, tx_ref.shard_id, tx_ref.source_height, target_height, now),
-        );
+        self.sent_txs.insert(hash, TxSendInfo::new(&tx, tx_ref.source_height, target_height, now));
         let txs = self.txs_by_signer.entry(access_key.clone()).or_default();
 
         if let Some(highest_nonce) = txs.iter().next_back() {
@@ -1038,7 +1072,7 @@ impl TxTracker {
                 }
             }
         }
-        crate::set_next_source_height(db, block.source_height + 1)?;
+        crate::set_last_source_height(db, block.source_height)?;
 
         for access_key in access_keys_to_remove {
             assert!(self.nonces.remove(&access_key).is_some());
