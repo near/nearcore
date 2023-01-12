@@ -79,7 +79,7 @@ type ShardSplitMap = Vec<Vec<ShardId>>;
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct ShardLayoutV1 {
     /// num_shards = fixed_shards.len() + boundary_accounts.len() + 1
-    /// Each account and all sub-accounts map to the shard of position in this array.
+    /// Each account maps to the shard of position in this array.
     fixed_shards: Vec<AccountId>,
     /// The rest are divided by boundary_accounts to ranges, each range is mapped to a shard
     boundary_accounts: Vec<AccountId>,
@@ -228,9 +228,9 @@ impl ShardLayout {
 /// Maps an account to the shard that it belongs to given a shard_layout
 /// For V0, maps according to hash of account id
 /// For V1, accounts are divided to ranges, each range of account is mapped to a shard.
-/// There are also some fixed shards, each of which is mapped to an account and all sub-accounts.
+/// There are also some fixed shards, each of which is mapped to an account.
 ///     For example, for ShardLayoutV1{ fixed_shards: ["aurora"], boundary_accounts: ["near"]}
-///     Account "aurora" and all its sub-accounts will be mapped to shard_id 0.
+///     Account "aurora" will be mapped to shard_id 0.
 ///     For the rest of accounts, accounts <= "near" will be mapped to shard_id 1 and
 ///     accounts > "near" will be mapped shard_id 2.
 pub fn account_id_to_shard_id(account_id: &AccountId, shard_layout: &ShardLayout) -> ShardId {
@@ -242,7 +242,7 @@ pub fn account_id_to_shard_id(account_id: &AccountId, shard_layout: &ShardLayout
         }
         ShardLayout::V1(ShardLayoutV1 { fixed_shards, boundary_accounts, .. }) => {
             for (shard_id, fixed_account) in fixed_shards.iter().enumerate() {
-                if is_top_level_account(fixed_account, account_id) {
+                if account_id == fixed_account {
                     return shard_id as ShardId;
                 }
             }
@@ -264,13 +264,6 @@ pub fn account_id_to_shard_uid(account_id: &AccountId, shard_layout: &ShardLayou
         account_id_to_shard_id(account_id, shard_layout),
         shard_layout,
     )
-}
-
-fn is_top_level_account(top_account: &AccountId, account: &AccountId) -> bool {
-    match account.as_ref().strip_suffix(top_account.as_ref()) {
-        None => false,
-        Some(rest) => rest.is_empty() || rest.ends_with('.'),
-    }
 }
 
 /// ShardUId is an unique representation for shards from different shard layout
