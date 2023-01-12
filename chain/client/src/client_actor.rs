@@ -1535,7 +1535,7 @@ impl ClientActor {
     }
 
     /// Runs given callback if the time now is at least `next_attempt`.
-    /// Returns time for next call which should be done based on given `delay` between calls.
+    /// Returns time for next run which should be made based on given `delay` between runs.
     fn run_timer<F>(
         &mut self,
         delay: Duration,
