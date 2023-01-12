@@ -291,6 +291,7 @@ pub fn total_prepaid_exec_fees(
     let mut result = 0;
     for action in actions {
         let mut delta;
+        // In case of Action::Delegate it's needed to add Gas which is required for the inner actions.
         if let Action::Delegate(signed_delegate_action) = action {
             let actions = signed_delegate_action.delegate_action.get_actions();
             delta = total_prepaid_exec_fees(
@@ -322,7 +323,7 @@ pub fn total_deposit(actions: &[Action]) -> Result<Balance, IntegerOverflowError
     for action in actions {
         let action_balance;
         if let Action::Delegate(signed_delegate_action) = action {
-            // Note, here Relayer pays the deposit but if actions fail, the depeposit is
+            // Note, here Relayer pays the deposit but if actions fail, the deposit is
             // refunded to Sender of DelegateAction
             let actions = signed_delegate_action.delegate_action.get_actions();
             action_balance = total_deposit(&actions)?;

@@ -281,6 +281,7 @@ fn validate_data_receipt(
 ///
 /// - Checks limits if applicable.
 /// - Checks that the total number of actions doesn't exceed the limit.
+/// - Checks that there not other action if Action::Delegate is present.
 /// - Validates each individual action.
 /// - Checks that the total prepaid gas doesn't exceed the limit.
 pub(crate) fn validate_actions(

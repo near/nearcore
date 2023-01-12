@@ -86,30 +86,6 @@ impl Receipt {
             }),
         }
     }
-
-    pub fn new_delegate_actions(
-        signer_id: &AccountId,
-        predecessor_id: &AccountId,
-        receiver_id: &AccountId,
-        actions: &Vec<Action>,
-        public_key: &PublicKey,
-        gas_price: Balance,
-    ) -> Self {
-        Receipt {
-            predecessor_id: predecessor_id.clone(),
-            receiver_id: receiver_id.clone(),
-            receipt_id: CryptoHash::default(),
-
-            receipt: ReceiptEnum::Action(ActionReceipt {
-                signer_id: signer_id.clone(),
-                signer_public_key: public_key.clone(),
-                gas_price: gas_price,
-                output_data_receivers: vec![],
-                input_data_ids: vec![],
-                actions: actions.clone(),
-            }),
-        }
-    }
 }
 
 /// Receipt could be either ActionReceipt or DataReceipt

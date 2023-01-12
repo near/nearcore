@@ -216,6 +216,8 @@ impl From<DeleteAccountAction> for Action {
     }
 }
 
+/// This is Action which mustn't contain DelegateAction.
+// This struct is needed to avoid the recursion when Action/DelegateAction is deserialized.
 #[derive(Serialize, BorshSerialize, Deserialize, PartialEq, Eq, Clone, Debug)]
 pub struct NonDelegateAction(pub Action);
 
@@ -243,6 +245,7 @@ impl borsh::de::BorshDeserialize for NonDelegateAction {
     }
 }
 
+/// This action allows to execute the inner actions behalf of the defined sender.
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
 pub struct DelegateAction {
     /// Signer of the delegated actions
@@ -259,6 +262,7 @@ pub struct DelegateAction {
     /// Public key that is used to sign this delegated action.
     pub public_key: PublicKey,
 }
+
 #[cfg_attr(feature = "protocol_feature_nep366_delegate_action", derive(BorshDeserialize))]
 #[derive(BorshSerialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
 pub struct SignedDelegateAction {
@@ -692,7 +696,7 @@ mod tests {
             create_delegate_action(vec![Action::CreateAccount(CreateAccountAction {})]);
         let serialized_delegate_action = delegate_action.try_to_vec().expect("Expect ok");
 
-        // Valid action
+        // DelegateAction isn't supported
         assert_eq!(
             Action::try_from_slice(&serialized_delegate_action).map_err(|e| e.kind()),
             Err(ErrorKind::InvalidInput)

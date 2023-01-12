@@ -656,19 +656,26 @@ pub(crate) fn apply_delegate_action(
 
     validate_delegate_action_key(state_update, apply_state, delegate_action, result)?;
     if result.result.is_err() {
+        // Validation failed. Need to return Ok() because this is not a runtime error.
+        // "result.result" will be return to the User as the action execution result.
         return Ok(());
     }
 
-    let actions = delegate_action.get_actions();
+    // Generate a new receipt from DelegateAction.
+    let new_receipt = Receipt {
+        predecessor_id: sender_id.clone(),
+        receiver_id: delegate_action.receiver_id.clone(),
+        receipt_id: CryptoHash::default(),
 
-    let new_receipt = Receipt::new_delegate_actions(
-        &action_receipt.signer_id,
-        sender_id,
-        &delegate_action.receiver_id,
-        &actions,
-        &action_receipt.signer_public_key,
-        action_receipt.gas_price,
-    );
+        receipt: ReceiptEnum::Action(ActionReceipt {
+            signer_id: action_receipt.signer_id.clone(),
+            signer_public_key: action_receipt.signer_public_key.clone(),
+            gas_price: action_receipt.gas_price,
+            output_data_receivers: vec![],
+            input_data_ids: vec![],
+            actions: delegate_action.get_actions(),
+        }),
+    };
 
     // Note, Relayer prepaid all fees and all things required by actions: attached deposits and attached gas.
     // If something goes wrong, deposit is refunded to the predecessor, this is sender_id/Sender in DelegateAction.
@@ -684,7 +691,7 @@ pub(crate) fn apply_delegate_action(
     let required_gas = receipt_required_gas(apply_state, &new_receipt)?;
     // This gas will be burnt by the receiver of the created receipt,
     result.gas_used = safe_add_gas(result.gas_used, required_gas)?;
-    // This gas was prepaid on Relayer shard. Need to burn it because the receipt is goint to be sent.
+    // This gas was prepaid on Relayer shard. Need to burn it because the receipt is going to be sent.
     // gas_used is incremented because otherwise the gas will be refunded. Refund function checks only gas_used.
     result.gas_used = safe_add_gas(result.gas_used, prepaid_send_fees)?;
     result.gas_burnt = safe_add_gas(result.gas_burnt, prepaid_send_fees)?;
@@ -693,6 +700,7 @@ pub(crate) fn apply_delegate_action(
     Ok(())
 }
 
+/// Returns Gas amount is required to execute Receipt and all actions it contains
 fn receipt_required_gas(apply_state: &ApplyState, receipt: &Receipt) -> Result<Gas, RuntimeError> {
     Ok(match &receipt.receipt {
         ReceiptEnum::Action(action_receipt) => {
@@ -716,6 +724,11 @@ fn receipt_required_gas(apply_state: &ApplyState, receipt: &Receipt) -> Result<G
     })
 }
 
+/// Validate access key which was used for signing DelegateAction:
+///
+/// - Checks whether the access key is present fo given public_key and sender_id.
+/// - Validates nonce and updates it if it's ok.
+/// - Validates access key permissions.
 fn validate_delegate_action_key(
     state_update: &mut TrieUpdate,
     apply_state: &ApplyState,
@@ -765,6 +778,8 @@ fn validate_delegate_action_key(
 
     let actions = delegate_action.get_actions();
 
+    // The restriction of "function call" access keys:
+    // the transaction must contain the only `FunctionCall` if "function call" access key is used
     if let AccessKeyPermission::FunctionCall(ref function_call_permission) = access_key.permission {
         if actions.len() != 1 {
             result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(
@@ -805,6 +820,7 @@ fn validate_delegate_action_key(
                 return Ok(());
             }
         } else {
+            // There should Action::FunctionCall when "function call" permission is used
             result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(
                 InvalidAccessKeyError::RequiresFullAccess,
             )
