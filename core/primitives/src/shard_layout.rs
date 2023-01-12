@@ -486,19 +486,19 @@ mod tests {
         }
 
         assert_eq!(account_id_to_shard_id(&"aurora".parse().unwrap(), &shard_layout), 0);
-        assert_eq!(account_id_to_shard_id(&"foo.aurora".parse().unwrap(), &shard_layout), 0);
-        assert_eq!(account_id_to_shard_id(&"bar.foo.aurora".parse().unwrap(), &shard_layout), 0);
         assert_eq!(account_id_to_shard_id(&"bar".parse().unwrap(), &shard_layout), 1);
-        assert_eq!(account_id_to_shard_id(&"bar.bar".parse().unwrap(), &shard_layout), 1);
         assert_eq!(account_id_to_shard_id(&"foo".parse().unwrap(), &shard_layout), 2);
-        assert_eq!(account_id_to_shard_id(&"baz.foo".parse().unwrap(), &shard_layout), 2);
         assert_eq!(account_id_to_shard_id(&"foo.baz".parse().unwrap(), &shard_layout), 3);
-        assert_eq!(account_id_to_shard_id(&"a.foo.baz".parse().unwrap(), &shard_layout), 3);
 
         assert_eq!(account_id_to_shard_id(&"aaa".parse().unwrap(), &shard_layout), 4);
+        assert_eq!(account_id_to_shard_id(&"a.foo.baz".parse().unwrap(), &shard_layout), 4);
         assert_eq!(account_id_to_shard_id(&"abc".parse().unwrap(), &shard_layout), 5);
+        assert_eq!(account_id_to_shard_id(&"bar.bar".parse().unwrap(), &shard_layout), 5);
+        assert_eq!(account_id_to_shard_id(&"bar.foo.aurora".parse().unwrap(), &shard_layout), 5);
+        assert_eq!(account_id_to_shard_id(&"baz.foo".parse().unwrap(), &shard_layout), 5);
         assert_eq!(account_id_to_shard_id(&"bbb".parse().unwrap(), &shard_layout), 5);
         assert_eq!(account_id_to_shard_id(&"foo.goo".parse().unwrap(), &shard_layout), 6);
+        assert_eq!(account_id_to_shard_id(&"foo.aurora".parse().unwrap(), &shard_layout), 6);
         assert_eq!(account_id_to_shard_id(&"goo".parse().unwrap(), &shard_layout), 6);
         assert_eq!(account_id_to_shard_id(&"zoo".parse().unwrap(), &shard_layout), 7);
     }
