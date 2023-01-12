@@ -4,16 +4,16 @@ What if you want to understand the exact gas spending of a smart contract call?
 It would be very complicated to predict exactly how much gas executing a piece
 of WASM code will require, including all host function calls and actions. An
 easier approach is to just run the code on testnet and see how much gas it
-burns. Gas profiles allow to dig deeper and understand the breakdown of the gas
-costs per parameter.
+burns. Gas profiles allow one to dig deeper and understand the breakdown of the
+gas costs per parameter.
 
 **Gas profiles are not very reliable**, in that they are often incomplete and the
 details of how they are computed can change without a protocol version bump.
 
 ## Example Transaction Gas Profile
 
-[NEAR CLI](https://docs.near.org/tools/near-cli) can query gas profiles of
-transactions already executed.
+You can query the gas profile of a transaction with
+[NEAR CLI](https://docs.near.org/tools/near-cli).
 
 ```bash
 NEAR_ENV=mainnet near tx-status 8vYxsqYp5Kkfe8j9LsTqZRsEupNkAs1WvgcGcUE4MUUw --accountId app.nearcrowd.near
@@ -108,25 +108,26 @@ Besides receipts, also note the `transaction_outcome` in the output. It contains
 the gas cost for converting the transaction into a receipt. To calculate the
 full gas cost, add up the transaction cost with all receipt costs.
 
-The transaction outcome does currently not have a gas profile, it only shows the
-total gas spent on converting the transaction. Arguably, it is not necessary to
+The transaction outcome currently does not have a gas profile, it only shows the
+total gas spent converting the transaction. Arguably, it is not necessary to
 provide the gas profile since the costs only depend on the list of actions. With
 sufficient understanding of the protocol, one could reverse-engineer the exact
-breakdown simply by looking at the actin list. But adding the profile would
+breakdown simply by looking at the action list. But adding the profile would
 still make sense to make it easier to understand.
 
 ## Gas Profile Versions
 
-Depending on the `metadata` version, you should expect a different format of the
-gas profile. Version 1 has no profile data at all. Version 2 has a detailed
-profile but some parameters are conflated, so you cannot extract the exact gas
-spending in some cases. Version 3 will have the cost exactly per parameter.
+Depending on the version in `receipts_outcome.outcome.metadata.version`, you
+should expect a different format of the gas profile. Version 1 has no profile
+data at all. Version 2 has a detailed profile but some parameters are conflated,
+so you cannot extract the exact gas spending in some cases. Version 3 will have
+the cost exactly per parameter.
 
 Which version of the profile an RPC node returns depends on the version it had
 when it first processed the transaction. The profiles are stored in the database
 with one version and never updated. Therefore, older transactions will usually
 only have old profiles. However, one could replay the chain from genesis with a
-new nearcore client and generate the newest profile for all transaction in this
+new nearcore client and generate the newest profile for all transactions in this
 way.
 
 Note: Due to bugs, some nodes will claim they send version 1 but actually
