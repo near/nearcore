@@ -231,6 +231,14 @@ pub static FLAT_STORAGE_CACHED_BLOCKS: Lazy<IntGaugeVec> = Lazy::new(|| {
     )
     .unwrap()
 });
+pub static FLAT_STORAGE_CACHED_DELTAS: Lazy<IntGaugeVec> = Lazy::new(|| {
+    try_create_int_gauge_vec(
+        "flat_storage_cached_deltas",
+        "Number of cached deltas in flat storage",
+        &["shard_id"],
+    )
+    .unwrap()
+});
 pub static FLAT_STORAGE_CACHED_DELTAS_NUM_ITEMS: Lazy<IntGaugeVec> = Lazy::new(|| {
     try_create_int_gauge_vec(
         "flat_storage_cached_deltas_num_items",

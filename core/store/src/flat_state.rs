@@ -503,6 +503,7 @@ struct FlatStorageStateInner {
 struct FlatStorageMetrics {
     flat_head_height: IntGauge,
     cached_blocks: IntGauge,
+    cached_deltas: IntGauge,
     cached_deltas_num_items: IntGauge,
     cached_deltas_size: IntGauge,
     #[allow(unused)]
@@ -860,6 +861,7 @@ impl FlatStorageState {
             flat_head_height: metrics::FLAT_STORAGE_HEAD_HEIGHT
                 .with_label_values(&[shard_id_label]),
             cached_blocks: metrics::FLAT_STORAGE_CACHED_BLOCKS.with_label_values(&[shard_id_label]),
+            cached_deltas: metrics::FLAT_STORAGE_CACHED_DELTAS.with_label_values(&[shard_id_label]),
             cached_deltas_num_items: metrics::FLAT_STORAGE_CACHED_DELTAS_NUM_ITEMS
                 .with_label_values(&[shard_id_label]),
             cached_deltas_size: metrics::FLAT_STORAGE_CACHED_DELTAS_SIZE
@@ -887,6 +889,7 @@ impl FlatStorageState {
                     .unwrap_or_else(|| {
                         panic!("Cannot find block delta for block {:?} shard {}", hash, shard_id)
                     });
+                metrics.cached_deltas.inc();
                 metrics.cached_deltas_num_items.add(delta.len() as i64);
                 metrics.cached_deltas_size.add(delta.total_size() as i64);
                 deltas.insert(hash, delta);
@@ -961,6 +964,7 @@ impl FlatStorageState {
             // TODO (#7327): should we throw an error if delta/block is not present as we expect?
             match guard.deltas.remove(&hash) {
                 Some(delta) => {
+                    guard.metrics.cached_deltas.dec();
                     guard.metrics.cached_deltas_num_items.sub(delta.len() as i64);
                     guard.metrics.cached_deltas_size.sub(delta.total_size() as i64);
                 }
@@ -1010,6 +1014,7 @@ impl FlatStorageState {
         }
         let mut store_update = StoreUpdate::new(guard.store.storage.clone());
         store_helper::set_delta(&mut store_update, guard.shard_id, block_hash.clone(), &delta)?;
+        guard.metrics.cached_deltas.inc();
         guard.metrics.cached_deltas_num_items.add(delta.len() as i64);
         guard.metrics.cached_deltas_size.add(delta.total_size() as i64);
         guard.deltas.insert(*block_hash, Arc::new(delta));
