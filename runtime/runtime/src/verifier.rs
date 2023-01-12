@@ -477,12 +477,12 @@ fn test_truncate_string() {
 mod tests {
     use std::sync::Arc;
 
-    use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
+    use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer, Signature};
     use near_primitives::account::{AccessKey, Account, FunctionCallPermission};
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::test_utils::account_new;
     use near_primitives::transaction::{
-        CreateAccountAction, DeleteAccountAction, DeleteKeyAction, StakeAction, TransferAction,
+        CreateAccountAction, DeleteAccountAction, DeleteKeyAction, StakeAction, TransferAction, NonDelegateAction, DelegateAction,
     };
     use near_primitives::types::{AccountId, Balance, MerkleHash, StateChangeCause};
     use near_primitives::version::PROTOCOL_VERSION;
@@ -1527,5 +1527,53 @@ mod tests {
             &Action::DeleteAccount(DeleteAccountAction { beneficiary_id: alice_account() }),
         )
         .expect("valid action");
+    }
+
+    #[test]
+    fn test_delegate_action_must_be_only_one() {
+        let signed_delegate_action = SignedDelegateAction {
+            delegate_action: DelegateAction {
+                sender_id: "bob.test.near".parse().unwrap(),
+                receiver_id: "token.test.near".parse().unwrap(),
+                actions: vec![
+                    NonDelegateAction(
+                        Action::CreateAccount(CreateAccountAction {  })
+                    )
+                ],
+                nonce: 19000001,
+                max_block_height: 57,
+                public_key: PublicKey::empty(KeyType::ED25519),
+            },
+            signature: Signature::default()
+        };
+        assert_eq!(
+            validate_actions(
+                &VMLimitConfig::test(),
+                &[
+                    Action::Delegate(signed_delegate_action.clone()),
+                    Action::Delegate(signed_delegate_action.clone()),
+                ]
+            ),
+            Err(ActionsValidationError::DelegateActionMustBeOnlyOne),
+        );
+        assert_eq!(
+            validate_actions(
+                &&VMLimitConfig::test(),
+                &[
+                    Action::Delegate(signed_delegate_action.clone()),
+                ]
+            ),
+            Ok(()),
+        );
+        assert_eq!(
+            validate_actions(
+                &VMLimitConfig::test(),
+                &[
+                    Action::CreateAccount(CreateAccountAction {}),
+                    Action::Delegate(signed_delegate_action.clone()),
+                ]
+            ),
+            Ok(()),
+        );
     }
 }
