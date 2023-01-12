@@ -270,6 +270,13 @@ impl Actor for ClientActor {
 }
 
 impl ClientActor {
+    /// Wrapper for processing actix message which must be called after receiving it.
+    ///
+    /// Due to a bug in Actix library, while there are messages in mailbox, Actix
+    /// will prioritize processing messages until mailbox is empty. In such case execution
+    /// of any other task scheduled with `run_later` will be delayed. At the same time,
+    /// we have several important functions which have to be called regularly, so we put
+    /// these calls into `check_triggers` and call here as a quick hack.
     fn wrap<Req: std::fmt::Debug + actix::Message, Res>(
         &mut self,
         msg: WithSpanContext<Req>,
@@ -1107,11 +1114,13 @@ impl ClientActor {
         });
     }
 
+    /// Call important functions of client, like running single step of state sync or checking if we
+    /// can produce a block.
+    ///
+    /// It is called during processing Actix message, and each second in `schedule_triggers`.
+    /// Returns the delay before the next invocation which is a minimum of all durations between
+    /// time of next trigger call and current time, and 1 second.
     fn check_triggers(&mut self, ctx: &mut Context<ClientActor>) -> Duration {
-        // There is a bug in Actix library. While there are messages in mailbox, Actix
-        // will prioritize processing messages until mailbox is empty. Execution of any other task
-        // scheduled with run_later will be delayed.
-
         // Check block height to trigger expected shutdown
         if let Ok(head) = self.client.chain.head() {
             let block_height_to_shutdown =
@@ -1525,9 +1534,11 @@ impl ClientActor {
         );
     }
 
+    /// Runs given callback if the time now is at least `next_attempt`.
+    /// Returns time for next call which should be done based on given `delay` between calls.
     fn run_timer<F>(
         &mut self,
-        duration: Duration,
+        delay: Duration,
         next_attempt: DateTime<Utc>,
         ctx: &mut Context<ClientActor>,
         f: F,
@@ -1546,7 +1557,7 @@ impl ClientActor {
         f(self, ctx);
         timer.observe_duration();
 
-        now.checked_add_signed(chrono::Duration::from_std(duration).unwrap()).unwrap()
+        now.checked_add_signed(chrono::Duration::from_std(delay).unwrap()).unwrap()
     }
 
     fn sync_wait_period(&self) -> Duration {
