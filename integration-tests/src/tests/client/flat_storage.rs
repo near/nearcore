@@ -111,7 +111,7 @@ fn test_flat_storage_creation() {
     // Because final head height became greater than height on which node started,
     // we must start fetching the state.
     env.produce_block(0, 6);
-    env.clients[0].run_flat_storage_creation_step().unwrap();
+    assert!(!env.clients[0].run_flat_storage_creation_step().unwrap());
     let final_block_hash = env.clients[0].chain.get_block_hash_by_height(4).unwrap();
     assert_eq!(store_helper::get_flat_head(&store, 0), Some(final_block_hash));
     assert_eq!(
@@ -163,5 +163,6 @@ fn test_flat_storage_creation() {
     }
 
     // Finally, check that flat storage state was created.
+    assert!(env.clients[0].run_flat_storage_creation_step().unwrap());
     assert!(env.clients[0].runtime_adapter.get_flat_storage_state_for_shard(0).is_some());
 }

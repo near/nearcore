@@ -2218,15 +2218,14 @@ impl Client {
     }
 
     /// Check updates from background flat storage creation processes and possibly update
-    /// creation statuses.
-    pub fn run_flat_storage_creation_step(&mut self) -> Result<(), Error> {
-        match &mut self.flat_storage_creator {
-            Some(flat_storage_creator) => {
-                flat_storage_creator.update_status(self.chain.store())?;
-            }
-            None => {}
+    /// creation statuses. Returns boolean indicating if all flat storages are created or
+    /// creation is not needed.
+    pub fn run_flat_storage_creation_step(&mut self) -> Result<bool, Error> {
+        let result = match &mut self.flat_storage_creator {
+            Some(flat_storage_creator) => flat_storage_creator.update_status(self.chain.store())?,
+            None => true,
         };
-        Ok(())
+        Ok(result)
     }
 }
 

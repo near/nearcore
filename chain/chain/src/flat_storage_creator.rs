@@ -150,12 +150,13 @@ impl FlatStorageShardCreator {
 
     /// Checks current flat storage creation status, execute work related to it and possibly switch to next status.
     /// Creates flat storage when all intermediate steps are finished.
+    /// Returns boolean indicating if flat storage was created.
     #[cfg(feature = "protocol_feature_flat_state")]
     pub(crate) fn update_status(
         &mut self,
         chain_store: &ChainStore,
         thread_pool: &rayon::ThreadPool,
-    ) -> Result<(), Error> {
+    ) -> Result<bool, Error> {
         let current_status =
             store_helper::get_flat_storage_state_status(chain_store.store(), self.shard_id);
         let shard_id = self.shard_id;
@@ -214,7 +215,7 @@ impl FlatStorageShardCreator {
                     store_helper::set_fetching_state_status(&mut store_update, shard_id, status);
                     store_update.commit()?;
                 }
-                Ok(())
+                Ok(false)
             }
             FlatStorageStateStatus::FetchingState(fetching_state_status) => {
                 let store = self.runtime_adapter.store().clone();
@@ -258,7 +259,7 @@ impl FlatStorageShardCreator {
                         }
 
                         self.remaining_state_parts = Some(next_start_part_id - start_part_id);
-                        Ok(())
+                        Ok(false)
                     }
                     Some(state_parts) if state_parts > 0 => {
                         // If not all state parts were fetched, try receiving new results.
@@ -268,7 +269,7 @@ impl FlatStorageShardCreator {
                             self.visited_trie_items += n;
                         }
                         self.remaining_state_parts = Some(updated_state_parts);
-                        Ok(())
+                        Ok(false)
                     }
                     Some(_) => {
                         // Mark that we don't wait for new state parts.
@@ -297,7 +298,7 @@ impl FlatStorageShardCreator {
                         }
                         store_update.commit()?;
 
-                        Ok(())
+                        Ok(false)
                     }
                 }
             }
@@ -350,9 +351,9 @@ impl FlatStorageShardCreator {
                     }
                 }
 
-                Ok(())
+                Ok(false)
             }
-            FlatStorageStateStatus::Ready => Ok(()),
+            FlatStorageStateStatus::Ready => Ok(true),
             FlatStorageStateStatus::DontCreate => {
                 panic!("We initiated flat storage creation for shard {shard_id} but according to flat storage state status in db it cannot be created");
             }
@@ -415,17 +416,20 @@ impl FlatStorageCreator {
         }
     }
 
+    /// Updates statuses of underlying flat storage creation processes. Returns boolean
+    /// indicating if all flat storages are created.
     pub fn update_status(
         &mut self,
         #[allow(unused)] chain_store: &ChainStore,
-    ) -> Result<(), Error> {
+    ) -> Result<bool, Error> {
+        let mut all_created = true;
         #[cfg(feature = "protocol_feature_flat_state")]
         for shard_creator in self.shard_creators.values_mut() {
-            shard_creator.update_status(chain_store, &self.pool)?;
+            all_created &= shard_creator.update_status(chain_store, &self.pool)?;
         }
         // TODO (#7327): If resharding happens, we may want to throw an error here.
         // TODO (#7327): If flat storage is created, the creator probably should be removed.
 
-        Ok(())
+        Ok(all_created)
     }
 }
