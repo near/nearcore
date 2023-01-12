@@ -1,4 +1,4 @@
-use near_dyn_configs::{DynConfigsError, UpdateableConfigs};
+use near_dyn_configs::{UpdateableConfigLoaderError, UpdateableConfigs};
 use std::sync::Arc;
 use tokio::sync::broadcast::Receiver;
 
@@ -8,15 +8,15 @@ pub enum ClientConfigUpdateError {}
 /// Manages updating the config encapsulating.
 pub struct ConfigUpdater {
     /// Receives config updates while the node is running.
-    rx_config_update: Receiver<Result<UpdateableConfigs, Arc<DynConfigsError>>>,
+    rx_config_update: Receiver<Result<UpdateableConfigs, Arc<UpdateableConfigLoaderError>>>,
 
     /// Represents the latest Error of reading the dynamically reloadable configs.
-    updateable_configs_error: Option<Arc<DynConfigsError>>,
+    updateable_configs_error: Option<Arc<UpdateableConfigLoaderError>>,
 }
 
 impl ConfigUpdater {
     pub fn new(
-        rx_config_update: Receiver<Result<UpdateableConfigs, Arc<DynConfigsError>>>,
+        rx_config_update: Receiver<Result<UpdateableConfigs, Arc<UpdateableConfigLoaderError>>>,
     ) -> Self {
         Self { rx_config_update, updateable_configs_error: None }
     }

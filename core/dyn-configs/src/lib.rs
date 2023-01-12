@@ -19,17 +19,16 @@ pub struct UpdateableConfigs {
     pub client_config: Option<UpdateableClientConfig>,
 }
 
+/// Pushes the updates to listeners.
 #[derive(Default)]
-pub struct DynConfigStore {
-    /// The current version of the updateable configs.
-    updateable_configs: UpdateableConfigs,
+pub struct UpdateableConfigLoader {
     /// Notifies receivers about the new config values available.
-    tx: Option<Sender<Result<UpdateableConfigs, Arc<DynConfigsError>>>>,
+    tx: Option<Sender<Result<UpdateableConfigs, Arc<UpdateableConfigLoaderError>>>>,
 }
 
 #[derive(thiserror::Error, Debug)]
 #[non_exhaustive]
-pub enum DynConfigsError {
+pub enum UpdateableConfigLoaderError {
     #[error("Failed to parse a dynamic config file {file:?}: {err:?}")]
     Parse { file: PathBuf, err: serde_json::Error },
     #[error("Can't open or read a dynamic config file {file:?}: {err:?}")]
@@ -37,39 +36,34 @@ pub enum DynConfigsError {
     #[error("Can't open or read the config file {file:?}: {err:?}")]
     ConfigFileError { file: PathBuf, err: anyhow::Error },
     #[error("One or multiple dynamic config files reload errors {0:?}")]
-    Errors(Vec<DynConfigsError>),
+    Errors(Vec<UpdateableConfigLoaderError>),
     #[error("No home dir set")]
     NoHomeDir(),
 }
 
-impl DynConfigStore {
-    pub fn reload(&mut self, updateable_configs: Result<UpdateableConfigs, DynConfigsError>) {
+impl UpdateableConfigLoader {
+    pub fn new(
+        updateable_configs: UpdateableConfigs,
+        tx: Sender<Result<UpdateableConfigs, Arc<UpdateableConfigLoaderError>>>,
+    ) -> Self {
+        let mut result = Self { tx: Some(tx) };
+        result.reload(Ok(updateable_configs));
+        result
+    }
+
+    pub fn reload(
+        &mut self,
+        updateable_configs: Result<UpdateableConfigs, UpdateableConfigLoaderError>,
+    ) {
         match updateable_configs {
             Ok(updateable_configs) => {
                 self.tx.as_ref().map(|tx| tx.send(Ok(updateable_configs.clone())));
-                self.updateable_configs = updateable_configs;
                 Self::update_metrics();
             }
             Err(err) => {
                 self.tx.as_ref().map(|tx| tx.send(Err(Arc::new(err))));
             }
         }
-    }
-
-    pub fn new(
-        updateable_configs: UpdateableConfigs,
-        tx: Sender<Result<UpdateableConfigs, Arc<DynConfigsError>>>,
-    ) -> Self {
-        Self::update_metrics();
-        Self { updateable_configs, tx: Some(tx) }
-    }
-
-    pub fn log_config(&self) -> Option<&LogConfig> {
-        self.updateable_configs.log_config.as_ref()
-    }
-
-    pub fn updateable_client_config(&self) -> &UpdateableClientConfig {
-        self.updateable_configs.client_config.as_ref().unwrap()
     }
 
     fn update_metrics() {

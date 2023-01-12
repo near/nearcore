@@ -6,7 +6,7 @@ use near_chain_configs::GenesisValidationMode;
 use near_client::ConfigUpdater;
 #[cfg(feature = "cold_store")]
 use near_cold_store_tool::ColdStoreCommand;
-use near_dyn_configs::{DynConfigStore, DynConfigsError, UpdateableConfigs};
+use near_dyn_configs::{UpdateableConfigLoader, UpdateableConfigLoaderError, UpdateableConfigs};
 use near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofResponse;
 use near_mirror::MirrorCommand;
 use near_o11y::tracing_subscriber::EnvFilter;
@@ -456,7 +456,7 @@ impl RunCmd {
 
         let (tx_crash, mut rx_crash) = broadcast::channel::<()>(16);
         let (tx_config_update, rx_config_update) =
-            broadcast::channel::<Result<UpdateableConfigs, Arc<DynConfigsError>>>(16);
+            broadcast::channel::<Result<UpdateableConfigs, Arc<UpdateableConfigLoaderError>>>(16);
         let sys = actix::System::new();
 
         sys.block_on(async move {
@@ -477,8 +477,8 @@ impl RunCmd {
 
             let updateable_configs = nearcore::dyn_config::read_updateable_configs(home_dir)
                 .unwrap_or_else(|e| panic!("Error reading dynamic configs: {:#}", e));
-            let mut dyn_configs_store =
-                DynConfigStore::new(updateable_configs.clone(), tx_config_update);
+            let mut updateable_config_loader =
+                UpdateableConfigLoader::new(updateable_configs.clone(), tx_config_update);
             let config_updater = ConfigUpdater::new(rx_config_update);
 
             let nearcore::NearNode { rpc_servers, .. } =
@@ -495,7 +495,7 @@ impl RunCmd {
                 if sig == "SIGHUP" {
                     let maybe_updateable_configs =
                         nearcore::dyn_config::read_updateable_configs(home_dir);
-                    dyn_configs_store.reload(maybe_updateable_configs);
+                    updateable_config_loader.reload(maybe_updateable_configs);
                 } else {
                     break sig;
                 }
