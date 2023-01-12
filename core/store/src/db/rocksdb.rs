@@ -315,6 +315,9 @@ impl Database for RocksDB {
                         batch.delete_cf(cf_handle, range.end())
                     }
                 }
+                DBOp::DeleteRange { col, from, to } => {
+                    batch.delete_range_cf(self.cf_handle(col)?, from, to);
+                }
             }
         }
         self.db.write(batch).map_err(into_other)
@@ -640,6 +643,7 @@ fn col_name(col: DBCol) -> &'static str {
 mod tests {
     use crate::db::{Database, StatsValue};
     use crate::{DBCol, NodeStorage, StoreStatistics};
+    use assert_matches::assert_matches;
 
     use super::*;
 
@@ -734,5 +738,27 @@ mod tests {
                 ]
             }
         );
+    }
+
+    #[test]
+    fn test_delete_range() {
+        let store = NodeStorage::test_opener().1.open().unwrap().get_store(crate::Temperature::Hot);
+        let keys = [vec![0], vec![1], vec![2], vec![3]];
+        let column = DBCol::Block;
+
+        let mut store_update = store.store_update();
+        for key in &keys {
+            store_update.insert(column, key, &vec![42]);
+        }
+        store_update.commit().unwrap();
+
+        let mut store_update = store.store_update();
+        store_update.delete_range(column, &keys[1], &keys[3]);
+        store_update.commit().unwrap();
+
+        assert_matches!(store.exists(column, &keys[0]), Ok(true));
+        assert_matches!(store.exists(column, &keys[1]), Ok(false));
+        assert_matches!(store.exists(column, &keys[2]), Ok(false));
+        assert_matches!(store.exists(column, &keys[3]), Ok(true));
     }
 }

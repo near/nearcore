@@ -171,14 +171,12 @@ fn truncated_bytes_format(bytes: &[u8], fmt: &mut std::fmt::Formatter<'_>) -> st
             let value = unsafe { std::str::from_utf8_unchecked(bytes) };
             write!(fmt, "({len})'{value}'…")
         }
+    } else if bytes.len() <= LIMIT / 4 * 3 {
+        std::fmt::Display::fmt(&base64_display(bytes), fmt)
     } else {
-        if bytes.len() <= LIMIT / 4 * 3 {
-            std::fmt::Display::fmt(&base64_display(bytes), fmt)
-        } else {
-            let bytes = &bytes[..(LIMIT - 8) / 4 * 3];
-            let value = base64_display(bytes);
-            write!(fmt, "({len}){value}…")
-        }
+        let bytes = &bytes[..(LIMIT - 8) / 4 * 3];
+        let value = base64_display(bytes);
+        write!(fmt, "({len}){value}…")
     }
 }
 

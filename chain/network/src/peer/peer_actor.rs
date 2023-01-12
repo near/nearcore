@@ -40,9 +40,6 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tracing::Instrument as _;
 
-/// Maximum number of messages per minute from single peer.
-// TODO(#5453): current limit is way to high due to us sending lots of messages during sync.
-const MAX_PEER_MSG_PER_MIN: usize = usize::MAX;
 /// How often to request peers from active peers.
 const REQUEST_PEERS_INTERVAL: time::Duration = time::Duration::seconds(60);
 
@@ -620,25 +617,6 @@ impl PeerActor {
                         .received_bytes_per_sec
                         .store(received.bytes_per_min / 60, Ordering::Relaxed);
                     conn.stats.sent_bytes_per_sec.store(sent.bytes_per_min / 60, Ordering::Relaxed);
-                    // Whether the peer is considered abusive due to sending too many messages.
-                    // I am allowing this for now because I assume `MAX_PEER_MSG_PER_MIN` will
-                    // some day be less than `u64::MAX`.
-                    let is_abusive = received.count_per_min > MAX_PEER_MSG_PER_MIN
-                        || sent.count_per_min > MAX_PEER_MSG_PER_MIN;
-                    if is_abusive {
-                        tracing::trace!(
-                        target: "network",
-                        peer_id = ?conn.peer_info.id,
-                        sent = sent.count_per_min,
-                        recv = received.count_per_min,
-                        "Banning peer for abuse");
-                        // TODO(MarX, #1586): Ban peer if we found them abusive. Fix issue with heavy
-                        //  network traffic that flags honest peers.
-                        // Send ban signal to peer instance. It should send ban signal back and stop the instance.
-                        // if let Some(connected_peer) = act.connected_peers.get(&peer_id1) {
-                        //     connected_peer.addr.do_send(PeerManagerRequest::BanPeer(ReasonForBan::Abusive));
-                        // }
-                    }
                 }
             })
         });

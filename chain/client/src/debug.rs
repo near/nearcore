@@ -432,8 +432,16 @@ impl ClientActor {
                 if blocks.contains_key(&block_hash) {
                     continue;
                 }
-                let block_header = self.client.chain.get_block_header(&block_hash)?;
-                let block = self.client.chain.get_block(&block_hash).ok();
+                let block_header = if block_hash == CryptoHash::default() {
+                    self.client.chain.genesis().clone()
+                } else {
+                    self.client.chain.get_block_header(&block_hash)?
+                };
+                let block = if block_hash == CryptoHash::default() {
+                    Some(self.client.chain.genesis_block().clone())
+                } else {
+                    self.client.chain.get_block(&block_hash).ok()
+                };
                 let is_on_canonical_chain =
                     match self.client.chain.get_block_by_height(block_header.height()) {
                         Ok(block) => block.hash() == &block_hash,

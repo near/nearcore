@@ -83,7 +83,7 @@ impl NeardCmd {
         };
 
         match neard_cmd.subcmd {
-            NeardSubCommand::Init(cmd) => cmd.run(&home_dir),
+            NeardSubCommand::Init(cmd) => cmd.run(&home_dir)?,
             NeardSubCommand::Localnet(cmd) => cmd.run(&home_dir),
             NeardSubCommand::Run(cmd) => cmd.run(
                 &home_dir,
@@ -94,7 +94,7 @@ impl NeardCmd {
 
             NeardSubCommand::StateViewer(cmd) => {
                 let mode = if cmd.readwrite { Mode::ReadWrite } else { Mode::ReadOnly };
-                cmd.subcmd.run(&home_dir, genesis_validation, mode);
+                cmd.subcmd.run(&home_dir, genesis_validation, mode, cmd.store_temperature);
             }
 
             NeardSubCommand::RecompressStorage(cmd) => {
@@ -131,6 +131,10 @@ pub(super) struct StateViewerCommand {
     /// In case an operation needs to write to caches, a read-write mode may be needed.
     #[clap(long, short = 'w')]
     readwrite: bool,
+    /// What store temperature should the state viewer open. Allowed values are hot and cold but
+    /// cold is only available when cold_store feature is enabled.
+    #[clap(long, short = 't', default_value = "hot")]
+    store_temperature: near_store::Temperature,
     #[clap(subcommand)]
     subcmd: StateViewerSubCommand,
 }
@@ -308,17 +312,16 @@ fn check_release_build(chain: &str) {
 }
 
 impl InitCmd {
-    pub(super) fn run(self, home_dir: &Path) {
+    pub(super) fn run(self, home_dir: &Path) -> anyhow::Result<()> {
         // TODO: Check if `home` exists. If exists check what networks we already have there.
         if (self.download_genesis || self.download_genesis_url.is_some()) && self.genesis.is_some()
         {
-            error!("Please give either --genesis or --download-genesis, not both.");
-            return;
+            anyhow::bail!("Please give either --genesis or --download-genesis, not both.");
         }
 
         self.chain_id.as_ref().map(|chain| check_release_build(chain));
 
-        if let Err(e) = nearcore::init_configs(
+        nearcore::init_configs(
             home_dir,
             self.chain_id.as_deref(),
             self.account_id.and_then(|account_id| account_id.parse().ok()),
@@ -333,9 +336,8 @@ impl InitCmd {
             self.download_config_url.as_deref(),
             self.boot_nodes.as_deref(),
             self.max_gas_burnt_view,
-        ) {
-            error!("Failed to initialize configs: {:#}", e);
-        }
+        )
+        .context("Failed to initialize configs")
     }
 }
 
