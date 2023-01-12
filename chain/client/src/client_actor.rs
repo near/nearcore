@@ -1117,7 +1117,7 @@ impl ClientActor {
     /// Call important functions of client, like running single step of state sync or checking if we
     /// can produce a block.
     ///
-    /// It is called during processing Actix message, and each second in `schedule_triggers`.
+    /// It is called during processing Actix message, and with at most 1 second period in `schedule_triggers`.
     /// Returns the delay before the next invocation which is a minimum of all durations between
     /// time of next trigger call and current time, and 1 second.
     fn check_triggers(&mut self, ctx: &mut Context<ClientActor>) -> Duration {
