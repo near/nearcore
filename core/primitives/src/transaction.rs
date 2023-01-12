@@ -671,6 +671,9 @@ mod tests {
         let serialized_non_delegate_action =
             create_delegate_action(vec![delegate_action]).try_to_vec().expect("Expect ok");
 
+        // Expected Action::Delegate has not been moved in enum Action
+        assert_eq!(serialized_non_delegate_action[0], ACTION_DELEGATE_NUMBER);
+
         // Expected a nested DelegateAction error
         assert_eq!(
             NonDelegateAction::try_from_slice(&serialized_non_delegate_action)
@@ -679,7 +682,7 @@ mod tests {
         );
 
         let delegate_action =
-            create_delegate_action(vec![Action::CreateAccount(CreateAccountAction {})]);
+        create_delegate_action(vec![Action::CreateAccount(CreateAccountAction {})]);
         let serialized_delegate_action = delegate_action.try_to_vec().expect("Expect ok");
 
         // Valid action
@@ -687,6 +690,7 @@ mod tests {
             Action::try_from_slice(&serialized_delegate_action).expect("Expect ok"),
             delegate_action
         );
+
     }
 
     #[test]
