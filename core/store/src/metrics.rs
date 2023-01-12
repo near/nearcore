@@ -259,6 +259,14 @@ pub static FLAT_STORAGE_DISTANCE_TO_HEAD: Lazy<IntGaugeVec> = Lazy::new(|| {
 pub mod flat_state_metrics {
     use super::*;
 
+    pub static FLAT_STORAGE_CREATION_STATUS: Lazy<IntGaugeVec> = Lazy::new(|| {
+        try_create_int_gauge_vec(
+            "flat_storage_creation_status",
+            "Integer representing status of flat storage creation",
+            &["shard_id"],
+        )
+        .unwrap()
+    });
     pub static FLAT_STORAGE_CREATION_REMAINING_STATE_PARTS: Lazy<IntGaugeVec> = Lazy::new(|| {
         try_create_int_gauge_vec(
             "flat_storage_creation_remaining_state_parts",

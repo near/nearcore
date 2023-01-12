@@ -433,8 +433,7 @@ impl FlatStateDelta {
     pub fn apply_to_flat_state(self, _store_update: &mut StoreUpdate) {}
 }
 
-use near_o11y::metrics::prometheus;
-use near_o11y::metrics::prometheus::core::GenericGauge;
+use near_o11y::metrics::IntGauge;
 use near_primitives::errors::StorageError;
 #[cfg(feature = "protocol_feature_flat_state")]
 use near_primitives::shard_layout::account_id_to_shard_id;
@@ -502,12 +501,12 @@ struct FlatStorageStateInner {
 }
 
 struct FlatStorageMetrics {
-    flat_head_height: GenericGauge<prometheus::core::AtomicI64>,
-    cached_blocks: GenericGauge<prometheus::core::AtomicI64>,
-    cached_deltas_num_items: GenericGauge<prometheus::core::AtomicI64>,
-    cached_deltas_size: GenericGauge<prometheus::core::AtomicI64>,
+    flat_head_height: IntGauge,
+    cached_blocks: IntGauge,
+    cached_deltas_num_items: IntGauge,
+    cached_deltas_size: IntGauge,
     #[allow(unused)]
-    distance_to_head: GenericGauge<prometheus::core::AtomicI64>,
+    distance_to_head: IntGauge,
 }
 
 /// Number of traversed parts during a single step of fetching state.
@@ -556,6 +555,20 @@ pub enum FlatStorageStateStatus {
     Ready,
     /// Flat storage cannot be created.
     DontCreate,
+}
+
+impl Into<i64> for &FlatStorageStateStatus {
+    /// Converts status to integer to export to prometheus later.
+    /// Cast inside enum does not work because it is not fieldless.
+    fn into(self) -> i64 {
+        match self {
+            FlatStorageStateStatus::Ready => 0,
+            FlatStorageStateStatus::SavingDeltas => 1,
+            FlatStorageStateStatus::FetchingState(_) => 2,
+            FlatStorageStateStatus::CatchingUp => 3,
+            FlatStorageStateStatus::DontCreate => 4,
+        }
+    }
 }
 
 #[cfg(feature = "protocol_feature_flat_state")]

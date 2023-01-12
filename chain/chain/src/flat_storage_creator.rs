@@ -14,8 +14,7 @@ use crate::{ChainStore, ChainStoreAccess, RuntimeAdapter};
 use assert_matches::assert_matches;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use near_chain_primitives::Error;
-use near_o11y::metrics::prometheus;
-use near_o11y::metrics::prometheus::core::{GenericCounter, GenericGauge};
+use near_o11y::metrics::{IntCounter, IntGauge};
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::ValueRef;
 use near_primitives::state_part::PartId;
@@ -41,15 +40,17 @@ use tracing::info;
 /// Metrics reporting about flat storage creation progress on each status update.
 struct FlatStorageCreationMetrics {
     #[allow(unused)]
-    flat_head_height: GenericGauge<prometheus::core::AtomicI64>,
+    status: IntGauge,
     #[allow(unused)]
-    remaining_state_parts: GenericGauge<prometheus::core::AtomicI64>,
+    flat_head_height: IntGauge,
     #[allow(unused)]
-    fetched_state_parts: GenericCounter<prometheus::core::AtomicU64>,
+    remaining_state_parts: IntGauge,
     #[allow(unused)]
-    fetched_state_items: GenericCounter<prometheus::core::AtomicU64>,
+    fetched_state_parts: IntCounter,
     #[allow(unused)]
-    threads_used: GenericGauge<prometheus::core::AtomicI64>,
+    fetched_state_items: IntCounter,
+    #[allow(unused)]
+    threads_used: IntGauge,
 }
 
 /// If we launched a node with enabled flat storage but it doesn't have flat storage data on disk, we have to create it.
@@ -100,6 +101,8 @@ impl FlatStorageShardCreator {
             fetched_parts_sender,
             fetched_parts_receiver,
             metrics: FlatStorageCreationMetrics {
+                status: near_store::flat_state_metrics::FLAT_STORAGE_CREATION_STATUS
+                    .with_label_values(&[shard_id_label]),
                 flat_head_height: FLAT_STORAGE_HEAD_HEIGHT.with_label_values(&[shard_id_label]),
                 remaining_state_parts:
                     near_store::flat_state_metrics::FLAT_STORAGE_CREATION_REMAINING_STATE_PARTS
@@ -190,6 +193,7 @@ impl FlatStorageShardCreator {
     ) -> Result<(), Error> {
         let current_status =
             store_helper::get_flat_storage_state_status(chain_store.store(), self.shard_id);
+        self.metrics.status.set((&current_status).into());
         let shard_id = self.shard_id;
         match &current_status {
             FlatStorageStateStatus::SavingDeltas => {
