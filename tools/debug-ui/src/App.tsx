@@ -2,6 +2,7 @@ import { Navigate, Route, Routes, useParams } from 'react-router';
 import { NavLink } from 'react-router-dom';
 import './App.scss';
 import { ClusterView } from './ClusterView';
+import { EpochInfoView } from './EpochInfoView';
 import { HeaderBar } from './HeaderBar';
 import { LatestBlocksView } from './LatestBlocksView';
 import { NetworkInfoView } from './NetworkInfoView';
@@ -27,13 +28,12 @@ export const App = () => {
         <NavLink to="sync_info" className={navLinkClassName}>Sync Info</NavLink>
         <NavLink to="validator_info" className={navLinkClassName}>Validator Info</NavLink>
         <NavLink to="cluster" className={navLinkClassName}>Cluster View</NavLink>
-
       </div>
       <Routes>
         <Route path="" element={<Navigate to="cluster" />} />
         <Route path="last_blocks" element={<LatestBlocksView addr={addr} />} />
         <Route path="network_info/*" element={<NetworkInfoView addr={addr} />} />
-        <Route path="epoch_info" element={<div>TODO</div>} />
+        <Route path="epoch_info/*" element={<EpochInfoView addr={addr} />} />
         <Route path="chain_and_chunk_info" element={<div>TODO</div>} />
         <Route path="sync_info" element={<div>TODO</div>} />
         <Route path="validator_info" element={<div>TODO</div>} />

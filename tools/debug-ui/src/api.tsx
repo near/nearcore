@@ -41,7 +41,7 @@ export interface BuildInfo {
 
 export interface DetailedDebugStatus {
     network_info: NetworkInfoView,
-    sync_status: String,
+    sync_status: string,
     catchup_status: CatchupStatusView[],
     current_head_status: BlockStatusView,
     current_header_head_status: BlockStatusView,
@@ -175,9 +175,9 @@ export interface EpochInfoView {
     first_block: null | [string, string],
     block_producers: ValidatorInfo[],
     chunk_only_producers: string[],
-    validator_info: EpochValidatorInfo[],
+    validator_info: EpochValidatorInfo,
     protocol_version: number,
-    shard_size_and_parts: [number, number, boolean][],
+    shards_size_and_parts: [number, number, boolean][],
 }
 
 export interface EpochValidatorInfo {
@@ -211,11 +211,10 @@ export interface NextEpochValidatorInfo {
 }
 
 export interface ValidatorStakeView {
-    V1: {
-        account_id: string,
-        public_key: string,
-        stake: string,
-    }
+    account_id: string,
+    public_key: string,
+    stake: string,
+    validator_stake_struct_version: 'V1',
 }
 
 export interface ValidatorKickoutView {
