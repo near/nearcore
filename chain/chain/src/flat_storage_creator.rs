@@ -422,14 +422,19 @@ impl FlatStorageCreator {
         &mut self,
         #[allow(unused)] chain_store: &ChainStore,
     ) -> Result<bool, Error> {
-        let mut all_created = true;
-        #[cfg(feature = "protocol_feature_flat_state")]
-        for shard_creator in self.shard_creators.values_mut() {
-            all_created &= shard_creator.update_status(chain_store, &self.pool)?;
-        }
         // TODO (#7327): If resharding happens, we may want to throw an error here.
         // TODO (#7327): If flat storage is created, the creator probably should be removed.
 
-        Ok(all_created)
+        #[cfg(feature = "protocol_feature_flat_state")]
+        {
+            let mut all_created = true;
+            for shard_creator in self.shard_creators.values_mut() {
+                all_created &= shard_creator.update_status(chain_store, &self.pool)?;
+            }
+            Ok(all_created)
+        }
+
+        #[cfg(not(feature = "protocol_feature_flat_state"))]
+        Ok(true)
     }
 }
