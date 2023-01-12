@@ -151,7 +151,7 @@ pub enum ProtocolFeature {
     RejectBlocksWithOutdatedProtocolVersions,
     #[cfg(feature = "shardnet")]
     ShardnetShardLayoutUpgrade,
-    #[cfg(feature = "protocol_feature_delegate_action")]
+    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
     DelegateAction,
 }
 
@@ -256,7 +256,7 @@ impl ProtocolFeature {
             }
             #[cfg(feature = "shardnet")]
             ProtocolFeature::ShardnetShardLayoutUpgrade => 102,
-            #[cfg(feature = "protocol_feature_delegate_action")]
+            #[cfg(feature = "protocol_feature_nep366_delegate_action")]
             ProtocolFeature::DelegateAction => 133,
         }
     }
