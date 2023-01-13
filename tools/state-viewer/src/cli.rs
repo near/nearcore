@@ -343,17 +343,21 @@ pub struct DumpStatePartsCmd {
     /// Where to write the state parts to.
     #[clap(long)]
     output_dir: Option<PathBuf>,
-    /// Store state parts in an S3 bucket.
+    /// S3 bucket to store state parts.
     #[clap(long)]
     s3_bucket: Option<String>,
-    /// Store state parts in an S3 bucket.
+    /// S3 region to store state parts.
     #[clap(long)]
     s3_region: Option<String>,
 }
 
 impl DumpStatePartsCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
-        assert_eq!(self.s3_bucket.is_some(), self.s3_region.is_some());
+        assert_eq!(
+            self.s3_bucket.is_some(),
+            self.s3_region.is_some(),
+            "Need to provide either both or none of --s3-bucket and --s3-region"
+        );
         let s3 = if let Some(s3_bucket) = self.s3_bucket {
             Some((s3_bucket, self.s3_region.unwrap()))
         } else {
