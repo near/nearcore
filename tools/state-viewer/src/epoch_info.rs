@@ -1,7 +1,7 @@
 use borsh::BorshDeserialize;
 use clap::Subcommand;
 use core::ops::Range;
-use near_chain::{ChainStore, ChainStoreAccess, RuntimeAdapter};
+use near_chain::{ChainStore, ChainStoreAccess, RuntimeWithEpochManagerAdapter};
 use near_epoch_manager::EpochManager;
 use near_primitives::account::id::AccountId;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
@@ -36,7 +36,7 @@ pub(crate) fn print_epoch_info(
     store: Store,
     chain_store: &mut ChainStore,
     epoch_manager: &mut EpochManager,
-    runtime_adapter: Arc<dyn RuntimeAdapter>,
+    runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
 ) {
     let epoch_ids = get_epoch_ids(epoch_selection, store, chain_store, epoch_manager);
 
@@ -82,7 +82,7 @@ fn display_block_and_chunk_producers(
     epoch_info: &EpochInfo,
     chain_store: &mut ChainStore,
     epoch_manager: &mut EpochManager,
-    runtime_adapter: Arc<dyn RuntimeAdapter>,
+    runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
 ) {
     let block_height_range: Range<BlockHeight> =
         get_block_height_range(&epoch_info, &chain_store, epoch_manager);
@@ -212,7 +212,7 @@ fn display_epoch_info(
     head_epoch_height: &EpochHeight,
     chain_store: &mut ChainStore,
     epoch_manager: &mut EpochManager,
-    runtime_adapter: Arc<dyn RuntimeAdapter>,
+    runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
 ) {
     println!("{:?}: {:#?}", epoch_id, epoch_info);
     if epoch_info.epoch_height() >= *head_epoch_height {
@@ -237,7 +237,7 @@ fn display_validator_info(
     account_id: AccountId,
     chain_store: &mut ChainStore,
     epoch_manager: &mut EpochManager,
-    runtime_adapter: Arc<dyn RuntimeAdapter>,
+    runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
 ) {
     if let Some(kickout) = epoch_info.validator_kickout().get(&account_id) {
         println!("Validator {} kickout: {:#?}", account_id, kickout);

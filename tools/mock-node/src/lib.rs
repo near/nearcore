@@ -525,7 +525,7 @@ impl ChainHistoryAccess {
 mod test {
     use crate::ChainHistoryAccess;
     use near_chain::ChainGenesis;
-    use near_chain::{Chain, RuntimeAdapter};
+    use near_chain::{Chain, RuntimeWithEpochManagerAdapter};
     use near_chain_configs::Genesis;
     use near_client::test_utils::TestEnv;
     use near_network::types::PartialEncodedChunkRequestMsg;
@@ -544,7 +544,7 @@ mod test {
             Path::new("../../../.."),
             create_test_store(),
             &genesis,
-        )) as Arc<dyn RuntimeAdapter>];
+        )) as Arc<dyn RuntimeWithEpochManagerAdapter>];
         let mut env = TestEnv::builder(chain_genesis.clone())
             .validator_seats(1)
             .runtime_adapters(runtimes.clone())
