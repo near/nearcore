@@ -100,4 +100,7 @@ skip = [
 
     # redis we’re using uses ancient sha
     { name = "sha1", version = "=0.6.1" },
+
+    # rust-s3 is using an old version of smartstring
+    { name = "smartstring", version = "=0.2.10" },
 ]
