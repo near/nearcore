@@ -226,7 +226,11 @@ impl Default for StoreConfig {
             // regular block processing significantly.
             background_migration_threads: 8,
 
-            flat_storage_creation_period: Duration::from_millis(100),
+            // It shouldn't be very low, because on single flat storage creation step
+            // we do several disk reads from `FlatStateMisc` and `FlatStateDeltas`.
+            // One second should be enough to save deltas on start and catch up
+            // flat storage head quickly. State read work is much more expensive.
+            flat_storage_creation_period: Duration::from_secs(1),
         }
     }
 }

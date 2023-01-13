@@ -232,7 +232,7 @@ impl ClientConfig {
             max_gas_burnt_view: None,
             enable_statistics_export: true,
             client_background_migration_threads: 1,
-            flat_storage_creation_period: Duration::from_millis(100),
+            flat_storage_creation_period: Duration::from_secs(1),
         }
     }
 }

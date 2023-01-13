@@ -215,7 +215,6 @@ impl FlatStorageShardCreator {
                     store_helper::set_fetching_state_status(&mut store_update, shard_id, status);
                     store_update.commit()?;
                 }
-                Ok(false)
             }
             FlatStorageStateStatus::FetchingState(fetching_state_status) => {
                 let store = self.runtime_adapter.store().clone();
@@ -259,7 +258,6 @@ impl FlatStorageShardCreator {
                         }
 
                         self.remaining_state_parts = Some(next_start_part_id - start_part_id);
-                        Ok(false)
                     }
                     Some(state_parts) if state_parts > 0 => {
                         // If not all state parts were fetched, try receiving new results.
@@ -269,7 +267,6 @@ impl FlatStorageShardCreator {
                             self.visited_trie_items += n;
                         }
                         self.remaining_state_parts = Some(updated_state_parts);
-                        Ok(false)
                     }
                     Some(_) => {
                         // Mark that we don't wait for new state parts.
@@ -297,8 +294,6 @@ impl FlatStorageShardCreator {
                             store_helper::start_catchup(&mut store_update, shard_id);
                         }
                         store_update.commit()?;
-
-                        Ok(false)
                     }
                 }
             }
@@ -350,14 +345,13 @@ impl FlatStorageShardCreator {
                         store_update.commit()?;
                     }
                 }
-
-                Ok(false)
             }
-            FlatStorageStateStatus::Ready => Ok(true),
+            FlatStorageStateStatus::Ready => {}
             FlatStorageStateStatus::DontCreate => {
                 panic!("We initiated flat storage creation for shard {shard_id} but according to flat storage state status in db it cannot be created");
             }
-        }
+        };
+        Ok(current_status == FlatStorageStateStatus::Ready)
     }
 }
 
