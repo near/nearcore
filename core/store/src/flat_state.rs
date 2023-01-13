@@ -769,7 +769,7 @@ pub mod store_helper {
         Err(FlatStorageError::StorageInternalError)
     }
 
-    pub fn get_flat_storage_state_status(
+    pub fn get_flat_storage_creation_status(
         _store: &Store,
         _shard_id: ShardId,
     ) -> FlatStorageCreationStatus {
