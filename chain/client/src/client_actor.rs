@@ -270,6 +270,13 @@ impl Actor for ClientActor {
 }
 
 impl ClientActor {
+    /// Wrapper for processing actix message which must be called after receiving it.
+    ///
+    /// Due to a bug in Actix library, while there are messages in mailbox, Actix
+    /// will prioritize processing messages until mailbox is empty. In such case execution
+    /// of any other task scheduled with `run_later` will be delayed. At the same time,
+    /// we have several important functions which have to be called regularly, so we put
+    /// these calls into `check_triggers` and call it here as a quick hack.
     fn wrap<Req: std::fmt::Debug + actix::Message, Res>(
         &mut self,
         msg: WithSpanContext<Req>,
@@ -1107,11 +1114,19 @@ impl ClientActor {
         });
     }
 
+    /// Check if the scheduled time of any "triggers" has passed, and if so, call the trigger.
+    /// Triggers are important functions of client, like running single step of state sync or
+    /// checking if we can produce a block.
+    ///
+    /// It is called before processing Actix message and also in schedule_triggers.
+    /// This is to ensure all triggers enjoy higher priority than any actix message.
+    /// Otherwise due to a bug in Actix library Actix prioritizes processing messages
+    /// while there are messages in mailbox. Because of that we handle scheduling
+    /// triggers with custom `run_timer` function instead of `run_later` in Actix.
+    ///
+    /// Returns the delay before the next time `check_triggers` should be called, which is
+    /// min(time until the closest trigger, 1 second).
     fn check_triggers(&mut self, ctx: &mut Context<ClientActor>) -> Duration {
-        // There is a bug in Actix library. While there are messages in mailbox, Actix
-        // will prioritize processing messages until mailbox is empty. Execution of any other task
-        // scheduled with run_later will be delayed.
-
         // Check block height to trigger expected shutdown
         if let Ok(head) = self.client.chain.head() {
             let block_height_to_shutdown =
@@ -1525,9 +1540,11 @@ impl ClientActor {
         );
     }
 
+    /// Runs given callback if the time now is at least `next_attempt`.
+    /// Returns time for next run which should be made based on given `delay` between runs.
     fn run_timer<F>(
         &mut self,
-        duration: Duration,
+        delay: Duration,
         next_attempt: DateTime<Utc>,
         ctx: &mut Context<ClientActor>,
         f: F,
@@ -1546,7 +1563,7 @@ impl ClientActor {
         f(self, ctx);
         timer.observe_duration();
 
-        now.checked_add_signed(chrono::Duration::from_std(duration).unwrap()).unwrap()
+        now.checked_add_signed(chrono::Duration::from_std(delay).unwrap()).unwrap()
     }
 
     fn sync_wait_period(&self) -> Duration {
