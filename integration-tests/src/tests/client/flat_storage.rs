@@ -5,7 +5,7 @@ use near_client::test_utils::TestEnv;
 use near_o11y::testonly::init_test_logger;
 use near_primitives_core::types::BlockHeight;
 use near_store::flat_state::{
-    store_helper, FetchingStateStatus, FlatStorageStateStatus, NUM_PARTS_IN_ONE_STEP,
+    store_helper, FetchingStateStatus, FlatStorageCreationStatus, NUM_PARTS_IN_ONE_STEP,
 };
 use near_store::test_utils::create_test_store;
 use nearcore::config::GenesisExt;
@@ -37,8 +37,8 @@ fn test_flat_storage_creation() {
             // If chain was initialized from scratch, flat storage state should be created. During block processing, flat
             // storage head should be moved to block 1.
             assert_eq!(
-                store_helper::get_flat_storage_state_status(&store, 0),
-                FlatStorageStateStatus::Ready
+                store_helper::get_flat_storage_creation_status(&store, 0),
+                FlatStorageCreationStatus::Ready
             );
             let expected_flat_storage_head =
                 env.clients[0].chain.get_block_hash_by_height(1).unwrap();
@@ -56,8 +56,8 @@ fn test_flat_storage_creation() {
             }
         } else {
             assert_eq!(
-                store_helper::get_flat_storage_state_status(&store, 0),
-                FlatStorageStateStatus::DontCreate
+                store_helper::get_flat_storage_creation_status(&store, 0),
+                FlatStorageCreationStatus::DontCreate
             );
             assert_eq!(store_helper::get_flat_head(&store, 0), None);
         }
@@ -87,8 +87,8 @@ fn test_flat_storage_creation() {
 
     if !cfg!(feature = "protocol_feature_flat_state") {
         assert_eq!(
-            store_helper::get_flat_storage_state_status(&store, 0),
-            FlatStorageStateStatus::DontCreate
+            store_helper::get_flat_storage_creation_status(&store, 0),
+            FlatStorageCreationStatus::DontCreate
         );
         assert_eq!(store_helper::get_flat_head(&store, 0), None);
         // Stop the test here.
@@ -98,8 +98,8 @@ fn test_flat_storage_creation() {
     // At first, flat storage state should start saving deltas. Deltas for all newly processed blocks should be saved to
     // disk.
     assert_eq!(
-        store_helper::get_flat_storage_state_status(&store, 0),
-        FlatStorageStateStatus::SavingDeltas
+        store_helper::get_flat_storage_creation_status(&store, 0),
+        FlatStorageCreationStatus::SavingDeltas
     );
     for i in 4..6 {
         let block_hash = env.clients[0].chain.get_block_hash_by_height(i).unwrap();
@@ -115,8 +115,8 @@ fn test_flat_storage_creation() {
     let final_block_hash = env.clients[0].chain.get_block_hash_by_height(4).unwrap();
     assert_eq!(store_helper::get_flat_head(&store, 0), Some(final_block_hash));
     assert_eq!(
-        store_helper::get_flat_storage_state_status(&store, 0),
-        FlatStorageStateStatus::FetchingState(FetchingStateStatus {
+        store_helper::get_flat_storage_creation_status(&store, 0),
+        FlatStorageCreationStatus::FetchingState(FetchingStateStatus {
             part_id: 0,
             num_parts_in_step: NUM_PARTS_IN_ONE_STEP,
             num_parts: 1,
@@ -134,14 +134,14 @@ fn test_flat_storage_creation() {
         env.produce_block(0, next_height);
         env.clients[0].run_flat_storage_creation_step().unwrap();
         next_height += 1;
-        match store_helper::get_flat_storage_state_status(&store, 0) {
-            FlatStorageStateStatus::FetchingState(..) => {
+        match store_helper::get_flat_storage_creation_status(&store, 0) {
+            FlatStorageCreationStatus::FetchingState(..) => {
                 assert!(!was_catching_up, "Flat storage state status inconsistency: it was catching up before fetching state");
             }
-            FlatStorageStateStatus::CatchingUp => {
+            FlatStorageCreationStatus::CatchingUp => {
                 was_catching_up = true;
             }
-            FlatStorageStateStatus::Ready => {
+            FlatStorageCreationStatus::Ready => {
                 assert!(
                     was_catching_up,
                     "Flat storage state is ready but there was no flat storage catchup observed"
@@ -158,7 +158,7 @@ fn test_flat_storage_creation() {
         thread::sleep(Duration::from_secs(1));
     }
     if next_height == start_height + BLOCKS_TIMEOUT {
-        let status = store_helper::get_flat_storage_state_status(&store, 0);
+        let status = store_helper::get_flat_storage_creation_status(&store, 0);
         panic!("Apparently, node didn't fetch the whole state in {BLOCKS_TIMEOUT} blocks. Current status: {:?}", status);
     }
 

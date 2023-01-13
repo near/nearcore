@@ -14,7 +14,7 @@ use near_client_primitives::types::StateSplitApplyingStatus;
 use near_pool::types::PoolIterator;
 use near_primitives::challenge::{ChallengesResult, SlashedValidator};
 use near_primitives::checked_feature;
-use near_primitives::errors::{InvalidTxError, StorageError};
+use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
@@ -32,7 +32,7 @@ use near_primitives::version::{
 };
 use near_primitives::views::{QueryRequest, QueryResponse};
 use near_store::flat_state::ChainAccessForFlatStorage;
-use near_store::flat_state::{FlatStorageState, FlatStorageStateStatus};
+use near_store::flat_state::{FlatStorageCreationStatus, FlatStorageState};
 use near_store::{PartialStorage, ShardTries, Store, StoreUpdate, Trie, WrappedTrieChanges};
 
 pub use near_epoch_manager::EpochManagerAdapter;
@@ -301,7 +301,7 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
     fn get_flat_storage_state_for_shard(&self, shard_id: ShardId) -> Option<FlatStorageState>;
 
     /// Gets status of flat storage state background creation.
-    fn get_flat_storage_state_status(&self, shard_id: ShardId) -> FlatStorageStateStatus;
+    fn get_flat_storage_creation_status(&self, shard_id: ShardId) -> FlatStorageCreationStatus;
 
     /// Creates flat storage state for given shard.
     /// TODO (#7327): consider returning flat storage creation errors here

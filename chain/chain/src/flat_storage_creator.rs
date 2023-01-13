@@ -10,7 +10,6 @@
 //! `Ready`: flat storage is created and it is up-to-date.
 
 use crate::{ChainStore, ChainStoreAccess, RuntimeAdapter};
-use actix::run;
 #[cfg(feature = "protocol_feature_flat_state")]
 use assert_matches::assert_matches;
 use crossbeam_channel::{unbounded, Receiver, Sender};
@@ -20,7 +19,7 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::ValueRef;
 use near_primitives::state_part::PartId;
 use near_primitives::types::{AccountId, BlockHeight, ShardId, StateRoot};
-use near_store::flat_state::FlatStorageStateStatus;
+use near_store::flat_state::FlatStorageCreationStatus;
 #[cfg(feature = "protocol_feature_flat_state")]
 use near_store::flat_state::{store_helper, FetchingStateStatus};
 #[cfg(feature = "protocol_feature_flat_state")]
@@ -195,11 +194,11 @@ impl FlatStorageShardCreator {
         thread_pool: &rayon::ThreadPool,
     ) -> Result<bool, Error> {
         let current_status =
-            store_helper::get_flat_storage_state_status(chain_store.store(), self.shard_id);
+            store_helper::get_flat_storage_creation_status(chain_store.store(), self.shard_id);
         self.metrics.status.set((&current_status).into());
         let shard_id = self.shard_id;
         match &current_status {
-            FlatStorageStateStatus::SavingDeltas => {
+            FlatStorageCreationStatus::SavingDeltas => {
                 let final_head = chain_store.final_head()?;
                 let final_height = final_head.height;
 
@@ -255,7 +254,7 @@ impl FlatStorageShardCreator {
                     store_update.commit()?;
                 }
             }
-            FlatStorageStateStatus::FetchingState(fetching_state_status) => {
+            FlatStorageCreationStatus::FetchingState(fetching_state_status) => {
                 let store = self.runtime_adapter.store().clone();
                 let block_hash = store_helper::get_flat_head(&store, shard_id).unwrap();
                 let start_part_id = fetching_state_status.part_id;
@@ -342,7 +341,7 @@ impl FlatStorageShardCreator {
                     }
                 }
             }
-            FlatStorageStateStatus::CatchingUp => {
+            FlatStorageCreationStatus::CatchingUp => {
                 let store = self.runtime_adapter.store();
                 let old_flat_head = store_helper::get_flat_head(store, shard_id).unwrap();
                 let mut flat_head = old_flat_head.clone();
@@ -391,12 +390,12 @@ impl FlatStorageShardCreator {
                     }
                 }
             }
-            FlatStorageStateStatus::Ready => {}
-            FlatStorageStateStatus::DontCreate => {
+            FlatStorageCreationStatus::Ready => {}
+            FlatStorageCreationStatus::DontCreate => {
                 panic!("We initiated flat storage creation for shard {shard_id} but according to flat storage state status in db it cannot be created");
             }
         };
-        Ok(current_status == FlatStorageStateStatus::Ready)
+        Ok(current_status == FlatStorageCreationStatus::Ready)
     }
 }
 
@@ -423,9 +422,9 @@ impl FlatStorageCreator {
         let mut creation_needed = false;
         for shard_id in 0..num_shards {
             if runtime_adapter.cares_about_shard(me, &chain_head.prev_block_hash, shard_id, true) {
-                let status = runtime_adapter.get_flat_storage_state_status(shard_id);
+                let status = runtime_adapter.get_flat_storage_creation_status(shard_id);
                 match status {
-                    FlatStorageStateStatus::Ready | FlatStorageStateStatus::DontCreate => {}
+                    FlatStorageCreationStatus::Ready | FlatStorageCreationStatus::DontCreate => {}
                     _ => {
                         creation_needed = true;
                         shard_creators.insert(

@@ -48,7 +48,7 @@ use near_primitives::views::{
 };
 use near_store::flat_state::ChainAccessForFlatStorage;
 use near_store::flat_state::{
-    store_helper, FlatStateFactory, FlatStorageState, FlatStorageStateStatus,
+    store_helper, FlatStateFactory, FlatStorageCreationStatus, FlatStorageState,
 };
 use near_store::split_state::get_delayed_receipts;
 use near_store::{
@@ -704,8 +704,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         self.flat_state_factory.get_flat_storage_state_for_shard(shard_id)
     }
 
-    fn get_flat_storage_state_status(&self, shard_id: ShardId) -> FlatStorageStateStatus {
-        store_helper::get_flat_storage_state_status(&self.store, shard_id)
+    fn get_flat_storage_creation_status(&self, shard_id: ShardId) -> FlatStorageCreationStatus {
+        store_helper::get_flat_storage_creation_status(&self.store, shard_id)
     }
 
     // TODO (#7327): consider passing flat storage errors here to handle them gracefully
@@ -1791,11 +1791,11 @@ mod test {
                 if cfg!(feature = "protocol_feature_flat_state") {
                     runtime.create_flat_storage_state_for_shard(shard_id, 0, &mock_chain);
                     assert_eq!(
-                        runtime.get_flat_storage_state_status(shard_id),
-                        FlatStorageStateStatus::Ready
+                        runtime.get_flat_storage_creation_status(shard_id),
+                        FlatStorageCreationStatus::Ready
                     );
                 } else {
-                    assert_eq!(status, FlatStorageStateStatus::DontCreate);
+                    assert_eq!(status, FlatStorageCreationStatus::DontCreate);
                 }
             }
 

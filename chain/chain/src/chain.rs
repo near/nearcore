@@ -51,8 +51,8 @@ use near_primitives::views::{
     LightClientBlockView, SignedTransactionView,
 };
 #[cfg(feature = "protocol_feature_flat_state")]
-use near_store::flat_state;
-use near_store::{DBCol, ShardTries, StorageError, StoreUpdate, WrappedTrieChanges};
+use near_store::{flat_state, StorageError};
+use near_store::{DBCol, ShardTries, StoreUpdate, WrappedTrieChanges};
 
 use crate::block_processing_utils::{
     BlockPreprocessInfo, BlockProcessingArtifact, BlocksInProcessing, DoneApplyChunkCallback,
@@ -84,9 +84,9 @@ use near_primitives::shard_layout::{
     account_id_to_shard_id, account_id_to_shard_uid, ShardLayout, ShardUId,
 };
 use near_primitives::version::PROTOCOL_VERSION;
+use near_store::flat_state::FlatStorageError;
 #[cfg(feature = "protocol_feature_flat_state")]
 use near_store::flat_state::{store_helper, FlatStateDelta};
-use near_store::flat_state::{FlatStorageError, FlatStorageStateStatus};
 use once_cell::sync::OnceCell;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
