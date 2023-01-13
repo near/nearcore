@@ -170,6 +170,7 @@ serde = { version = "1.0.136", features = ["alloc", "derive", "rc"] }
 serde_ignored = "0.1"
 serde_json = "1.0.68"
 serde_repr = "0.1.8"
+serde_yaml = "0.8.26"
 sha2 = "0.10"
 sha3 = "0.10"
 shell-escape = "0.1.5"
@@ -184,7 +185,7 @@ tempfile = "3.3"
 thiserror = "1.0.30"
 tikv-jemallocator = "0.5.0"
 time = "0.3.9"
-tokio = { version = "1.16.1", features = ["fs", "macros", "net", "rt-multi-thread", "sync", "time"] }
+tokio = { version = "~1.18", features = ["fs", "macros", "net", "rt-multi-thread", "sync", "time"] }
 tokio-stream = { version = "0.1.2", features = ["net"] }
 tokio-util = { version = "0.7.1", features = ["codec", "io"] }
 toml = "0.5.8"
@@ -240,4 +241,4 @@ opt-level = 3
 [workspace.package]
 edition = "2021"
 authors = ["Near Inc <hello@nearprotocol.com>"]
-rust-version = "1.66.0"
+rust-version = "1.66.1"

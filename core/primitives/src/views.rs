@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 
 use near_crypto::{PublicKey, Signature};
 use near_o11y::pretty;
+use strum::IntoEnumIterator;
 
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
 use crate::block::{Block, BlockHeader, Tip};
@@ -30,7 +31,6 @@ use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::{combine_hash, MerklePath};
 use crate::network::PeerId;
-use crate::profile::Cost;
 use crate::receipt::{ActionReceipt, DataReceipt, DataReceiver, Receipt, ReceiptEnum};
 use crate::runtime::config::RuntimeConfig;
 use crate::serialize::{base64_format, dec_format, option_base64_format};
@@ -1266,73 +1266,102 @@ impl Default for ExecutionMetadataView {
 
 impl From<ExecutionMetadata> for ExecutionMetadataView {
     fn from(metadata: ExecutionMetadata) -> Self {
-        let gas_profile = match metadata {
+        let version = match metadata {
+            ExecutionMetadata::V1 => 1,
+            ExecutionMetadata::V2(_) => 2,
+            ExecutionMetadata::V3(_) => 3,
+        };
+        let mut gas_profile = match metadata {
             ExecutionMetadata::V1 => None,
             ExecutionMetadata::V2(profile_data) => {
-                let mut costs: Vec<_> =
-                    Cost::iter()
-                        .filter(|&cost| profile_data[cost] > 0)
-                        .map(|cost| CostGasUsed {
-                            cost_category: match cost {
-                                Cost::ActionCost { .. } => "ACTION_COST",
-                                Cost::ExtCost { .. } => "WASM_HOST_COST",
-                                Cost::WasmInstruction => "WASM_HOST_COST",
-                            }
-                            .to_string(),
-                            cost: match cost {
-                                // preserve old behavior that conflated some action
-                                // costs for profile (duplicates are removed afterwards)
-                                Cost::ActionCost {
-                                    action_cost_kind:
-                                        ActionCosts::deploy_contract_base
-                                        | ActionCosts::deploy_contract_byte,
-                                } => "DEPLOY_CONTRACT".to_owned(),
-                                Cost::ActionCost {
-                                    action_cost_kind:
-                                        ActionCosts::function_call_base
-                                        | ActionCosts::function_call_byte,
-                                } => "FUNCTION_CALL".to_owned(),
-                                Cost::ActionCost {
-                                    action_cost_kind:
-                                        ActionCosts::add_full_access_key
-                                        | ActionCosts::add_function_call_key_base
-                                        | ActionCosts::add_function_call_key_byte,
-                                } => "ADD_KEY".to_owned(),
-                                Cost::ActionCost {
-                                    action_cost_kind:
-                                        ActionCosts::new_action_receipt
-                                        | ActionCosts::new_data_receipt_base,
-                                } => "NEW_RECEIPT".to_owned(),
-                                // other costs have always been mapped one-to-one
-                                Cost::ActionCost { action_cost_kind: action_cost } => {
-                                    format!("{:?}", action_cost).to_ascii_uppercase()
-                                }
-                                Cost::ExtCost { ext_cost_kind: ext_cost } => {
-                                    format!("{:?}", ext_cost).to_ascii_uppercase()
-                                }
-                                Cost::WasmInstruction => "WASM_INSTRUCTION".to_string(),
-                            },
-                            gas_used: profile_data[cost],
+                // Add actions, wasm op, and ext costs in groups.
+
+                // actions should use the old format, since `ActionCosts`
+                // includes more detailed entries than were present in the old
+                // profile
+                let mut costs: Vec<CostGasUsed> = profile_data
+                    .legacy_action_costs()
+                    .into_iter()
+                    .filter(|&(_, gas)| gas > 0)
+                    .map(|(name, gas)| CostGasUsed::action(name.to_string(), gas))
+                    .collect();
+
+                // wasm op is a single cost, for historical reasons it is inaccurately displayed as "wasm host"
+                costs.push(CostGasUsed::wasm_host(
+                    "WASM_INSTRUCTION".to_string(),
+                    profile_data.get_wasm_cost(),
+                ));
+
+                // ext costs are 1-to-1, except for those added later which we will display as 0
+                for ext_cost in ExtCosts::iter() {
+                    costs.push(CostGasUsed::wasm_host(
+                        format!("{:?}", ext_cost).to_ascii_uppercase(),
+                        profile_data.get_ext_cost(ext_cost),
+                    ));
+                }
+
+                Some(costs)
+            }
+            ExecutionMetadata::V3(profile) => {
+                // Add actions, wasm op, and ext costs in groups.
+                // actions costs are 1-to-1
+                let mut costs: Vec<CostGasUsed> = ActionCosts::iter()
+                    .flat_map(|cost| {
+                        let gas_used = profile.get_action_cost(cost);
+                        (gas_used > 0).then(|| {
+                            CostGasUsed::action(
+                                format!("{:?}", cost).to_ascii_uppercase(),
+                                gas_used,
+                            )
                         })
-                        .collect();
+                    })
+                    .collect();
 
-                // The order doesn't really matter, but the default one is just
-                // historical, which is especially unintuitive, so let's sort
-                // lexicographically.
-                //
-                // Can't `sort_by_key` here because lifetime inference in
-                // closures is limited.
-                costs.sort_by(|lhs, rhs| {
-                    lhs.cost_category.cmp(&rhs.cost_category).then(lhs.cost.cmp(&rhs.cost))
-                });
+                // wasm op is a single cost, for historical reasons it is inaccurately displayed as "wasm host"
+                let wasm_gas_used = profile.get_wasm_cost();
+                if wasm_gas_used > 0 {
+                    costs.push(CostGasUsed::wasm_host(
+                        "WASM_INSTRUCTION".to_string(),
+                        wasm_gas_used,
+                    ));
+                }
 
-                // need to remove duplicate entries due to cost conflation
-                costs.dedup();
+                // ext costs are 1-to-1
+                for ext_cost in ExtCosts::iter() {
+                    let gas_used = profile.get_ext_cost(ext_cost);
+                    if gas_used > 0 {
+                        costs.push(CostGasUsed::wasm_host(
+                            format!("{:?}", ext_cost).to_ascii_uppercase(),
+                            gas_used,
+                        ));
+                    }
+                }
 
                 Some(costs)
             }
         };
-        ExecutionMetadataView { version: 1, gas_profile }
+        if let Some(ref mut costs) = gas_profile {
+            // The order doesn't really matter, but the default one is just
+            // historical, which is especially unintuitive, so let's sort
+            // lexicographically.
+            //
+            // Can't `sort_by_key` here because lifetime inference in
+            // closures is limited.
+            costs.sort_by(|lhs, rhs| {
+                lhs.cost_category.cmp(&rhs.cost_category).then_with(|| lhs.cost.cmp(&rhs.cost))
+            });
+        }
+        ExecutionMetadataView { version, gas_profile }
+    }
+}
+
+impl CostGasUsed {
+    pub fn action(cost: String, gas_used: Gas) -> Self {
+        Self { cost_category: "ACTION_COST".to_string(), cost, gas_used }
+    }
+
+    pub fn wasm_host(cost: String, gas_used: Gas) -> Self {
+        Self { cost_category: "WASM_HOST_COST".to_string(), cost, gas_used }
     }
 }
 
@@ -2166,7 +2195,7 @@ impl From<RuntimeConfig> for RuntimeConfigView {
     }
 }
 
-// reverse direction: rosetta adapter uses this, also we use to test that all fields are present in view (TODO)
+// reverse direction: rosetta adapter uses this, also we use to test that all fields are present in view
 impl From<RuntimeConfigView> for RuntimeConfig {
     fn from(config: RuntimeConfigView) -> Self {
         Self {
@@ -2567,5 +2596,64 @@ impl From<ExtCostsConfigView> for near_primitives_core::config::ExtCostsConfig {
                 ExtCosts::alt_bn128_pairing_check_element => view.alt_bn128_pairing_check_element,
         };
         Self { costs }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[cfg(not(feature = "nightly"))]
+    use super::ExecutionMetadataView;
+    use super::RuntimeConfigView;
+    use crate::runtime::config::RuntimeConfig;
+    #[cfg(not(feature = "nightly"))]
+    use crate::transaction::ExecutionMetadata;
+    #[cfg(not(feature = "nightly"))]
+    use near_primitives_core::profile::{ProfileDataV2, ProfileDataV3};
+
+    /// The JSON representation used in RPC responses must not remove or rename
+    /// fields, only adding fields is allowed or we risk breaking clients.
+    #[test]
+    #[cfg(not(feature = "nightly"))]
+    fn test_runtime_config_view() {
+        let config = RuntimeConfig::test();
+        let view = RuntimeConfigView::from(config);
+        insta::assert_json_snapshot!(&view);
+    }
+
+    /// A `RuntimeConfigView` must contain all info to reconstruct a `RuntimeConfig`.
+    #[test]
+    fn test_runtime_config_view_is_complete() {
+        let config = RuntimeConfig::test();
+        let view = RuntimeConfigView::from(config.clone());
+        let reconstructed_config = RuntimeConfig::from(view);
+
+        assert_eq!(config, reconstructed_config);
+    }
+
+    /// `ExecutionMetadataView` with profile V1 displayed on the RPC should not change.
+    #[test]
+    #[cfg(not(feature = "nightly"))]
+    fn test_exec_metadata_v1_view() {
+        let metadata = ExecutionMetadata::V1;
+        let view = ExecutionMetadataView::from(metadata);
+        insta::assert_json_snapshot!(view);
+    }
+
+    /// `ExecutionMetadataView` with profile V2 displayed on the RPC should not change.
+    #[test]
+    #[cfg(not(feature = "nightly"))]
+    fn test_exec_metadata_v2_view() {
+        let metadata = ExecutionMetadata::V2(ProfileDataV2::test());
+        let view = ExecutionMetadataView::from(metadata);
+        insta::assert_json_snapshot!(view);
+    }
+
+    /// `ExecutionMetadataView` with profile V3 displayed on the RPC should not change.
+    #[test]
+    #[cfg(not(feature = "nightly"))]
+    fn test_exec_metadata_v3_view() {
+        let metadata = ExecutionMetadata::V3(ProfileDataV3::test());
+        let view = ExecutionMetadataView::from(metadata);
+        insta::assert_json_snapshot!(view);
     }
 }
