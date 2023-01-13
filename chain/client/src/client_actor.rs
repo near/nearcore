@@ -276,7 +276,7 @@ impl ClientActor {
     /// will prioritize processing messages until mailbox is empty. In such case execution
     /// of any other task scheduled with `run_later` will be delayed. At the same time,
     /// we have several important functions which have to be called regularly, so we put
-    /// these calls into `check_triggers` and call here as a quick hack.
+    /// these calls into `check_triggers` and call it here as a quick hack.
     fn wrap<Req: std::fmt::Debug + actix::Message, Res>(
         &mut self,
         msg: WithSpanContext<Req>,
@@ -1114,12 +1114,18 @@ impl ClientActor {
         });
     }
 
-    /// Call important functions of client, like running single step of state sync or checking if we
-    /// can produce a block.
+    /// Check if the scheduled time of any "triggers" has passed, and if so, call the trigger.
+    /// Triggers are important functions of client, like running single step of state sync or
+    /// checking if we can produce a block.
     ///
-    /// It is called during processing Actix message, and with at most 1 second period in `schedule_triggers`.
-    /// Returns the delay before the next invocation which is a minimum of all durations between
-    /// time of next trigger call and current time, and 1 second.
+    /// It is called before processing Actix message and also in schedule_triggers.
+    /// This is to ensure all triggers enjoy higher priority than any actix message.
+    /// Otherwise due to a bug in Actix library Actix prioritizes processing messages
+    /// while there are messages in mailbox. Because of that we handle scheduling
+    /// triggers with custom `run_timer` function instead of `run_later` in Actix.
+    ///
+    /// Returns the delay before the next time `check_triggers` should be called, which is
+    /// min(time until the closest trigger, 1 second).
     fn check_triggers(&mut self, ctx: &mut Context<ClientActor>) -> Duration {
         // Check block height to trigger expected shutdown
         if let Ok(head) = self.client.chain.head() {
