@@ -16,7 +16,7 @@ use std::borrow::Cow;
 use std::cell::RefCell;
 use std::ffi::c_void;
 use wasmtime::ExternType::Func;
-use wasmtime::{Engine, Linker, Memory, MemoryType, Module, Store, TrapCode};
+use wasmtime::{Engine, Linker, Memory, MemoryType, Module, Store};
 
 type Caller = wasmtime::Caller<'static, ()>;
 thread_local! {
@@ -79,68 +79,43 @@ impl MemoryLike for WasmtimeMemory {
     }
 }
 
-fn trap_to_error(trap: &wasmtime::Trap) -> Result<FunctionCallError, VMRunnerError> {
-    if trap.i32_exit_status() == Some(239) {
-        match imports::wasmtime::last_error() {
-            Some(VMLogicError::HostError(h)) => Ok(FunctionCallError::HostError(h)),
-            Some(VMLogicError::ExternalError(s)) => Err(VMRunnerError::ExternalError(s)),
-            Some(VMLogicError::InconsistentStateError(e)) => {
-                Err(VMRunnerError::InconsistentStateError(e))
-            }
-            None => panic!("Error is not properly set"),
-        }
-    } else {
-        Ok(match trap.trap_code() {
-            Some(TrapCode::StackOverflow) => FunctionCallError::WasmTrap(WasmTrap::StackOverflow),
-            Some(TrapCode::MemoryOutOfBounds) => {
-                FunctionCallError::WasmTrap(WasmTrap::MemoryOutOfBounds)
-            }
-            Some(TrapCode::TableOutOfBounds) => {
-                FunctionCallError::WasmTrap(WasmTrap::MemoryOutOfBounds)
-            }
-            Some(TrapCode::IndirectCallToNull) => {
-                FunctionCallError::WasmTrap(WasmTrap::IndirectCallToNull)
-            }
-            Some(TrapCode::BadSignature) => {
-                FunctionCallError::WasmTrap(WasmTrap::IncorrectCallIndirectSignature)
-            }
-            Some(TrapCode::IntegerOverflow) => {
-                FunctionCallError::WasmTrap(WasmTrap::IllegalArithmetic)
-            }
-            Some(TrapCode::IntegerDivisionByZero) => {
-                FunctionCallError::WasmTrap(WasmTrap::IllegalArithmetic)
-            }
-            Some(TrapCode::BadConversionToInteger) => {
-                FunctionCallError::WasmTrap(WasmTrap::IllegalArithmetic)
-            }
-            Some(TrapCode::UnreachableCodeReached) => {
-                FunctionCallError::WasmTrap(WasmTrap::Unreachable)
-            }
-            Some(TrapCode::Interrupt) => {
-                return Err(VMRunnerError::Nondeterministic("interrupt".to_string()));
-            }
-            _ => {
-                return Err(VMRunnerError::WasmUnknownError {
-                    debug_message: "unknown trap".to_string(),
-                });
-            }
-        })
-    }
-}
-
 impl IntoVMError for anyhow::Error {
     fn into_vm_error(self) -> Result<FunctionCallError, VMRunnerError> {
         let cause = self.root_cause();
-        match cause.downcast_ref::<wasmtime::Trap>() {
-            Some(trap) => trap_to_error(trap),
-            None => Ok(FunctionCallError::LinkError { msg: format!("{:#?}", cause) }),
+        if let Some(container) = cause.downcast_ref::<imports::wasmtime::ErrorContainer>() {
+            use {VMLogicError as LE, VMRunnerError as RE};
+            return match container.take() {
+                Some(LE::HostError(h)) => Ok(FunctionCallError::HostError(h)),
+                Some(LE::ExternalError(s)) => Err(RE::ExternalError(s)),
+                Some(LE::InconsistentStateError(e)) => Err(RE::InconsistentStateError(e)),
+                None => panic!("error has already been taken out of the container?!"),
+            };
         }
-    }
-}
-
-impl IntoVMError for wasmtime::Trap {
-    fn into_vm_error(self) -> Result<FunctionCallError, VMRunnerError> {
-        trap_to_error(&self)
+        if let Some(trap) = cause.downcast_ref::<wasmtime::Trap>() {
+            use wasmtime::Trap as T;
+            let nondeterministic_message = 'nondet: {
+                return Ok(FunctionCallError::WasmTrap(match *trap {
+                    T::StackOverflow => WasmTrap::StackOverflow,
+                    T::MemoryOutOfBounds => WasmTrap::MemoryOutOfBounds,
+                    T::TableOutOfBounds => WasmTrap::MemoryOutOfBounds,
+                    T::IndirectCallToNull => WasmTrap::IndirectCallToNull,
+                    T::BadSignature => WasmTrap::IncorrectCallIndirectSignature,
+                    T::IntegerOverflow => WasmTrap::IllegalArithmetic,
+                    T::IntegerDivisionByZero => WasmTrap::IllegalArithmetic,
+                    T::BadConversionToInteger => WasmTrap::IllegalArithmetic,
+                    T::UnreachableCodeReached => WasmTrap::Unreachable,
+                    T::Interrupt => break 'nondet "interrupt",
+                    T::HeapMisaligned => break 'nondet "heap misaligned",
+                    t => {
+                        return Err(VMRunnerError::WasmUnknownError {
+                            debug_message: format!("unhandled trap type: {:?}", t),
+                        })
+                    }
+                }));
+            };
+            return Err(VMRunnerError::Nondeterministic(nondeterministic_message.into()));
+        }
+        Ok(FunctionCallError::LinkError { msg: format!("{:#?}", cause) })
     }
 }
 
@@ -156,7 +131,7 @@ pub fn get_engine(config: &mut wasmtime::Config) -> Engine {
 
 pub(super) fn default_config() -> wasmtime::Config {
     let mut config = wasmtime::Config::default();
-    config.max_wasm_stack(1024 * 1024 * 1024).unwrap(); // wasm stack metering is implemented by pwasm-utils, we don't want wasmtime to trap before that
+    config.max_wasm_stack(1024 * 1024 * 1024); // wasm stack metering is implemented by instrumentation, we don't want wasmtime to trap before that
     config.wasm_threads(WASM_FEATURES.threads);
     config.wasm_reference_types(WASM_FEATURES.reference_types);
     config.wasm_simd(WASM_FEATURES.simd);
@@ -277,7 +252,7 @@ impl crate::runner::VM for WasmtimeVM {
         }
         match linker.instantiate(&mut store, &module) {
             Ok(instance) => match instance.get_func(&mut store, method_name) {
-                Some(func) => match func.typed::<(), (), _>(&mut store) {
+                Some(func) => match func.typed::<(), ()>(&mut store) {
                     Ok(run) => match run.call(&mut store, ()) {
                         Ok(_) => Ok(VMOutcome::ok(logic)),
                         Err(err) => Ok(VMOutcome::abort(logic, err.into_vm_error()?)),
