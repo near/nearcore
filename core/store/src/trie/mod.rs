@@ -950,7 +950,7 @@ impl Trie {
         key: &[u8],
         mode: KeyLookupMode,
     ) -> Result<Option<ValueRef>, StorageError> {
-        let key_nibbles = NibbleSlice::new(key.clone());
+        let key_nibbles = NibbleSlice::new(key);
         let result = self.lookup(key_nibbles);
 
         // For now, to test correctness, flat storage does double the work and

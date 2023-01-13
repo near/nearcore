@@ -162,6 +162,8 @@ pub struct ClientConfig {
     pub enable_statistics_export: bool,
     /// Number of threads to execute background migration work in client.
     pub client_background_migration_threads: usize,
+    /// Duration to perform background flat storage creation step.
+    pub flat_storage_creation_period: Duration,
 }
 
 impl ClientConfig {
@@ -230,6 +232,7 @@ impl ClientConfig {
             max_gas_burnt_view: None,
             enable_statistics_export: true,
             client_background_migration_threads: 1,
+            flat_storage_creation_period: Duration::from_secs(1),
         }
     }
 }

@@ -83,7 +83,7 @@ impl NeardCmd {
         };
 
         match neard_cmd.subcmd {
-            NeardSubCommand::Init(cmd) => cmd.run(&home_dir),
+            NeardSubCommand::Init(cmd) => cmd.run(&home_dir)?,
             NeardSubCommand::Localnet(cmd) => cmd.run(&home_dir),
             NeardSubCommand::Run(cmd) => cmd.run(
                 &home_dir,
@@ -312,17 +312,16 @@ fn check_release_build(chain: &str) {
 }
 
 impl InitCmd {
-    pub(super) fn run(self, home_dir: &Path) {
+    pub(super) fn run(self, home_dir: &Path) -> anyhow::Result<()> {
         // TODO: Check if `home` exists. If exists check what networks we already have there.
         if (self.download_genesis || self.download_genesis_url.is_some()) && self.genesis.is_some()
         {
-            error!("Please give either --genesis or --download-genesis, not both.");
-            return;
+            anyhow::bail!("Please give either --genesis or --download-genesis, not both.");
         }
 
         self.chain_id.as_ref().map(|chain| check_release_build(chain));
 
-        if let Err(e) = nearcore::init_configs(
+        nearcore::init_configs(
             home_dir,
             self.chain_id.as_deref(),
             self.account_id.and_then(|account_id| account_id.parse().ok()),
@@ -337,9 +336,8 @@ impl InitCmd {
             self.download_config_url.as_deref(),
             self.boot_nodes.as_deref(),
             self.max_gas_burnt_view,
-        ) {
-            error!("Failed to initialize configs: {:#}", e);
-        }
+        )
+        .context("Failed to initialize configs")
     }
 }
 

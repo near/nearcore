@@ -1,8 +1,13 @@
+use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::Tip;
+use near_primitives::hash::CryptoHash;
+use near_store::cold_storage::{update_cold_db, update_cold_head};
 use near_store::{DBCol, NodeStorage, Temperature, FINAL_HEAD_KEY, HEAD_KEY};
+use nearcore::{NearConfig, NightshadeRuntime};
 
 use clap::Parser;
 use std::path::Path;
+use std::sync::Arc;
 
 #[derive(Parser)]
 pub struct ColdStoreCommand {
@@ -17,6 +22,9 @@ enum SubCommand {
     Open,
     /// Open NodeStorage and print cold head, hot head and hot final head.
     Head,
+    /// Copy n blocks to cold storage and update cold HEAD. One by one.
+    /// Updating of HEAD happens in every iteration.
+    CopyNextBlocks(CopyNextBlocksCmd),
 }
 
 impl ColdStoreCommand {
@@ -32,11 +40,28 @@ impl ColdStoreCommand {
             near_config.config.cold_store.as_ref(),
         );
         let store = opener.open().unwrap_or_else(|e| panic!("Error opening storage: {:#}", e));
+
+        let hot_runtime = Arc::new(NightshadeRuntime::from_config(
+            home_dir,
+            store.get_store(Temperature::Hot),
+            &near_config,
+        ));
         match self.subcmd {
             SubCommand::Open => check_open(&store),
             SubCommand::Head => print_heads(&store),
+            SubCommand::CopyNextBlocks(cmd) => {
+                for _ in 0..cmd.number_of_blocks {
+                    copy_next_block(&store, &near_config, &hot_runtime);
+                }
+            }
         }
     }
+}
+
+#[derive(Parser)]
+struct CopyNextBlocksCmd {
+    #[clap(short, long, default_value_t = 1)]
+    number_of_blocks: usize,
 }
 
 fn check_open(store: &NodeStorage) {
@@ -56,4 +81,95 @@ fn print_heads(store: &NodeStorage) {
         "COLD HEAD is at {:#?}",
         store.get_store(Temperature::Cold).get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)
     );
+}
+
+fn copy_next_block(store: &NodeStorage, config: &NearConfig, hot_runtime: &Arc<NightshadeRuntime>) {
+    // Cold HEAD can be not set in testing.
+    // It should be set before the copying of a block in prod,
+    // but we should default it to genesis height here.
+    let cold_head_height = store
+        .get_store(Temperature::Cold)
+        .get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)
+        .unwrap_or_else(|e| panic!("Error reading cold HEAD: {:#}", e))
+        .map_or(config.genesis.config.genesis_height, |t| t.height);
+
+    // If FINAL_HEAD is not set for hot storage though, we default it to 0.
+    // And subsequently fail in assert!(next_height <= hot_final_height).
+    let hot_final_head = store
+        .get_store(Temperature::Hot)
+        .get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)
+        .unwrap_or_else(|e| panic!("Error reading hot FINAL_HEAD: {:#}", e))
+        .map(|t| t.height)
+        .unwrap_or(0);
+
+    let next_height = cold_head_height + 1;
+    println!("Height: {}", next_height);
+    assert!(next_height <= hot_final_head, "Should not copy non final blocks");
+
+    // Here it should be sufficient to just read from hot storage.
+    // Because BlockHeight is never garbage collectable and is not even copied to cold.
+    let cold_head_hash = get_ser_from_store::<CryptoHash>(
+        store,
+        Temperature::Hot,
+        DBCol::BlockHeight,
+        &cold_head_height.to_le_bytes(),
+    )
+    .unwrap_or_else(|| panic!("No block hash in hot storage for height {}", cold_head_height));
+
+    // For copying block we need to have shard_layout.
+    // For that we need epoch_id.
+    // For that we might use prev_block_hash, and because next_hight = cold_head_height + 1,
+    // we use cold_head_hash.
+    update_cold_db(
+        &*store.cold_db().unwrap(),
+        &store.get_store(Temperature::Hot),
+        &hot_runtime
+            .get_shard_layout(&hot_runtime.get_epoch_id_from_prev_block(&cold_head_hash).unwrap())
+            .unwrap(),
+        &next_height,
+    )
+    .expect(&std::format!("Failed to copy block at height {} to cold db", next_height));
+
+    update_cold_head(&*store.cold_db().unwrap(), &store.get_store(Temperature::Hot), &next_height)
+        .expect(&std::format!("Failed to update cold HEAD to {}", next_height));
+}
+
+/// Calls get_ser on Store with provided temperature from provided NodeStorage.
+/// Expects read to not result in errors.
+fn get_ser_from_store<T: near_primitives::borsh::BorshDeserialize>(
+    store: &NodeStorage,
+    temperature: Temperature,
+    col: DBCol,
+    key: &[u8],
+) -> Option<T> {
+    store.get_store(temperature).get_ser(col, key).expect(&std::format!(
+        "Error reading {} {:?} from {:?} store",
+        col,
+        key,
+        temperature
+    ))
+}
+
+/// First try to read col, key from hot storage.
+/// If resulted Option is None, try to read col, key from cold storage.
+/// Returns serialized inner value (not wrapped in option),
+/// or panics, if value isn't found even in cold.
+///
+/// Reads from database are expected to not result in errors.
+///
+/// This function is currently unused, but will be important in the future,
+/// when we start garbage collecting data from hot.
+/// For some columns you can understand the temperature by key.
+/// For others, though, read with fallback is the only working solution right now.
+fn _get_with_fallback<T: near_primitives::borsh::BorshDeserialize>(
+    store: &NodeStorage,
+    col: DBCol,
+    key: &[u8],
+) -> T {
+    let hot_option = get_ser_from_store(store, Temperature::Hot, col, key);
+    match hot_option {
+        Some(value) => value,
+        None => get_ser_from_store(store, Temperature::Cold, col, key)
+            .unwrap_or_else(|| panic!("No value for {} {:?} in any storage", col, key)),
+    }
 }
