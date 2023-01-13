@@ -236,6 +236,7 @@ pub struct ChainGenesis {
     pub protocol_version: ProtocolVersion,
 }
 
+#[derive(Clone)]
 pub struct ChainConfig {
     /// Whether to save `TrieChanges` on disk or not.
     pub save_trie_changes: bool,

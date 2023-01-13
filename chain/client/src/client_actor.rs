@@ -251,6 +251,8 @@ impl Actor for ClientActor {
     type Context = Context<Self>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
+        self.start_flat_storage_creation(ctx);
+
         // Start syncing job.
         self.start_sync(ctx);
 
@@ -1463,6 +1465,26 @@ impl ClientActor {
 
     fn needs_syncing(&self, needs_syncing: bool) -> bool {
         !self.adv.disable_header_sync() && needs_syncing
+    }
+
+    fn start_flat_storage_creation(&mut self, ctx: &mut Context<ClientActor>) {
+        match self.client.run_flat_storage_creation_step() {
+            Ok(false) => {}
+            Ok(true) => {
+                return;
+            }
+            Err(err) => {
+                error!(target: "client", "Error occurred during flat storage creation step: {:?}", err);
+            }
+        }
+
+        near_performance_metrics::actix::run_later(
+            ctx,
+            self.client.config.flat_storage_creation_period,
+            move |act, ctx| {
+                act.start_flat_storage_creation(ctx);
+            },
+        );
     }
 
     /// Starts syncing and then switches to either syncing or regular mode.
