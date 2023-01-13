@@ -343,7 +343,7 @@ mod imp {
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
-use crate::{CryptoHash, Store, StoreUpdate};
+use crate::{metrics, CryptoHash, Store, StoreUpdate};
 pub use imp::{FlatState, FlatStateFactory};
 use near_primitives::state::ValueRef;
 use near_primitives::types::{BlockHeight, RawStateChangesWithTrieKey, ShardId};
@@ -367,6 +367,11 @@ impl<const N: usize> From<[(Vec<u8>, Option<ValueRef>); N]> for FlatStateDelta {
 }
 
 impl FlatStateDelta {
+    /// Assumed number of bytes used to store an entry in the cache.
+    ///
+    /// Based on 36 bytes for `ValueRef` + guessed overhead of 24 bytes for `Vec` and `HashMap`.
+    pub(crate) const PER_ENTRY_OVERHEAD: u64 = 60;
+
     /// Returns `Some(Option<ValueRef>)` from delta for the given key. If key is not present, returns None.
     pub fn get(&self, key: &[u8]) -> Option<Option<ValueRef>> {
         self.0.get(key).cloned()
@@ -379,6 +384,10 @@ impl FlatStateDelta {
 
     pub fn len(&self) -> usize {
         self.0.len()
+    }
+
+    fn total_size(&self) -> u64 {
+        self.0.keys().map(|key| key.len() as u64 + Self::PER_ENTRY_OVERHEAD).sum()
     }
 
     /// Merge two deltas. Values from `other` should override values from `self`.
@@ -424,6 +433,7 @@ impl FlatStateDelta {
     pub fn apply_to_flat_state(self, _store_update: &mut StoreUpdate) {}
 }
 
+use near_o11y::metrics::IntGauge;
 use near_primitives::errors::StorageError;
 #[cfg(feature = "protocol_feature_flat_state")]
 use near_primitives::shard_layout::account_id_to_shard_id;
@@ -486,6 +496,18 @@ struct FlatStorageStateInner {
     /// All these deltas here are stored on disk too.
     #[allow(unused)]
     deltas: HashMap<CryptoHash, Arc<FlatStateDelta>>,
+    #[allow(unused)]
+    metrics: FlatStorageMetrics,
+}
+
+struct FlatStorageMetrics {
+    flat_head_height: IntGauge,
+    cached_blocks: IntGauge,
+    cached_deltas: IntGauge,
+    cached_deltas_num_items: IntGauge,
+    cached_deltas_size: IntGauge,
+    #[allow(unused)]
+    distance_to_head: IntGauge,
 }
 
 /// Number of traversed parts during a single step of fetching state.
@@ -534,6 +556,20 @@ pub enum FlatStorageStateStatus {
     Ready,
     /// Flat storage cannot be created.
     DontCreate,
+}
+
+impl Into<i64> for &FlatStorageStateStatus {
+    /// Converts status to integer to export to prometheus later.
+    /// Cast inside enum does not work because it is not fieldless.
+    fn into(self) -> i64 {
+        match self {
+            FlatStorageStateStatus::Ready => 0,
+            FlatStorageStateStatus::SavingDeltas => 1,
+            FlatStorageStateStatus::FetchingState(_) => 2,
+            FlatStorageStateStatus::CatchingUp => 3,
+            FlatStorageStateStatus::DontCreate => 4,
+        }
+    }
 }
 
 #[cfg(feature = "protocol_feature_flat_state")]
@@ -786,6 +822,7 @@ impl FlatStorageStateInner {
 
             block_hash = block_info.prev_hash;
         }
+        self.metrics.distance_to_head.set(deltas.len() as i64);
 
         Ok(deltas)
     }
@@ -816,6 +853,24 @@ impl FlatStorageState {
             },
         )]);
         let mut deltas = HashMap::new();
+
+        // `itoa` is much faster for printing shard_id to a string than trivial alternatives.
+        let mut buffer = itoa::Buffer::new();
+        let shard_id_label = buffer.format(shard_id);
+        let metrics = FlatStorageMetrics {
+            flat_head_height: metrics::FLAT_STORAGE_HEAD_HEIGHT
+                .with_label_values(&[shard_id_label]),
+            cached_blocks: metrics::FLAT_STORAGE_CACHED_BLOCKS.with_label_values(&[shard_id_label]),
+            cached_deltas: metrics::FLAT_STORAGE_CACHED_DELTAS.with_label_values(&[shard_id_label]),
+            cached_deltas_num_items: metrics::FLAT_STORAGE_CACHED_DELTAS_NUM_ITEMS
+                .with_label_values(&[shard_id_label]),
+            cached_deltas_size: metrics::FLAT_STORAGE_CACHED_DELTAS_SIZE
+                .with_label_values(&[shard_id_label]),
+            distance_to_head: metrics::FLAT_STORAGE_DISTANCE_TO_HEAD
+                .with_label_values(&[shard_id_label]),
+        };
+        metrics.flat_head_height.set(flat_head_height as i64);
+
         for height in flat_head_height + 1..=latest_block_height {
             for hash in chain_access.get_block_hashes_at_height(height) {
                 let block_info = chain_access.get_block_info(&hash);
@@ -828,17 +883,16 @@ impl FlatStorageState {
                     block_info.height
                 );
                 blocks.insert(hash, block_info);
-                deltas.insert(
-                    hash,
-                    store_helper::get_delta(&store, shard_id, hash)
-                        .expect(BORSH_ERR)
-                        .unwrap_or_else(|| {
-                            panic!(
-                                "Cannot find block delta for block {:?} shard {}",
-                                hash, shard_id
-                            )
-                        }),
-                );
+                metrics.cached_blocks.inc();
+                let delta = store_helper::get_delta(&store, shard_id, hash)
+                    .expect(BORSH_ERR)
+                    .unwrap_or_else(|| {
+                        panic!("Cannot find block delta for block {:?} shard {}", hash, shard_id)
+                    });
+                metrics.cached_deltas.inc();
+                metrics.cached_deltas_num_items.add(delta.len() as i64);
+                metrics.cached_deltas_size.add(delta.total_size() as i64);
+                deltas.insert(hash, delta);
             }
         }
 
@@ -848,6 +902,7 @@ impl FlatStorageState {
             flat_head,
             blocks,
             deltas,
+            metrics,
         })))
     }
 
@@ -895,6 +950,7 @@ impl FlatStorageState {
         // TODO (#7327): in case of long forks it can take a while and delay processing of some chunk. Consider
         // avoid iterating over all blocks and making removals lazy.
         let flat_head_height = guard.blocks.get(&guard.flat_head).unwrap().height;
+        guard.metrics.flat_head_height.set(flat_head_height as i64);
         let hashes_to_remove: Vec<_> = guard
             .blocks
             .iter()
@@ -905,9 +961,23 @@ impl FlatStorageState {
         for hash in hashes_to_remove {
             // Note that we have to remove delta for new head but we still need to keep block info, e.g. for knowing
             // height of the head.
-            guard.deltas.remove(&hash);
+            // TODO (#7327): should we throw an error if delta/block is not present as we expect?
+            match guard.deltas.remove(&hash) {
+                Some(delta) => {
+                    guard.metrics.cached_deltas.dec();
+                    guard.metrics.cached_deltas_num_items.sub(delta.len() as i64);
+                    guard.metrics.cached_deltas_size.sub(delta.total_size() as i64);
+                }
+                None => {}
+            }
+
             if &hash != new_head {
-                guard.blocks.remove(&hash);
+                match guard.blocks.remove(&hash) {
+                    Some(_) => {
+                        guard.metrics.cached_blocks.dec();
+                    }
+                    None => {}
+                }
             }
             store_helper::remove_delta(&mut store_update, guard.shard_id, hash);
         }
@@ -944,8 +1014,12 @@ impl FlatStorageState {
         }
         let mut store_update = StoreUpdate::new(guard.store.storage.clone());
         store_helper::set_delta(&mut store_update, guard.shard_id, block_hash.clone(), &delta)?;
+        guard.metrics.cached_deltas.inc();
+        guard.metrics.cached_deltas_num_items.add(delta.len() as i64);
+        guard.metrics.cached_deltas_size.add(delta.total_size() as i64);
         guard.deltas.insert(*block_hash, Arc::new(delta));
         guard.blocks.insert(*block_hash, block);
+        guard.metrics.cached_blocks.inc();
         Ok(store_update)
     }
 

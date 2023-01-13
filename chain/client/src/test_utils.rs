@@ -1635,26 +1635,29 @@ impl TestEnv {
         self.query_account(account_id).amount
     }
 
-    /// Restarts client at given index.  Note that the client is restarted with
-    /// the default runtime adapter (i.e. [`KeyValueRuntime`]).  That is, if
-    /// this `TestEnv` was created with custom runtime adapters that
-    /// customisation will be lost.
+    /// Restarts client at given index. Note that the new client reuses runtime
+    /// adapter of old client.
+    /// TODO (#8269): create new `KeyValueRuntime` for new client. Currently it
+    /// doesn't work because `KeyValueRuntime` misses info about new epochs in
+    /// memory caches.
+    /// Though, it seems that it is not necessary for current use cases.
     pub fn restart(&mut self, idx: usize) {
-        let store = self.clients[idx].chain.store().store().clone();
         let account_id = self.get_client_id(idx).clone();
         let rng_seed = match self.seeds.get(&account_id) {
             Some(seed) => *seed,
             None => TEST_SEED,
         };
         let vs = ValidatorSchedule::new().block_producers_per_epoch(vec![self.validators.clone()]);
-        self.clients[idx] = setup_client(
-            store,
-            vs,
+        let num_validator_seats = vs.all_block_producers().count() as NumSeats;
+        let runtime_adapter = self.clients[idx].runtime_adapter.clone();
+        self.clients[idx] = setup_client_with_runtime(
+            num_validator_seats,
             Some(self.get_client_id(idx).clone()),
             false,
             self.network_adapters[idx].clone(),
             self.client_adapters[idx].clone(),
             self.chain_genesis.clone(),
+            runtime_adapter,
             rng_seed,
             self.archive,
             self.save_trie_changes,
