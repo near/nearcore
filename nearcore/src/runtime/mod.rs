@@ -1788,11 +1788,9 @@ mod test {
             store_update.commit().unwrap();
             let mock_chain = MockChainForFlatStorage::new(0, genesis_hash);
             for shard_id in 0..runtime.num_shards(&EpochId::default()).unwrap() {
+                let status = runtime.get_flat_storage_creation_status(shard_id);
                 if cfg!(feature = "protocol_feature_flat_state") {
-                    assert_eq!(
-                        runtime.get_flat_storage_creation_status(shard_id),
-                        FlatStorageCreationStatus::Ready
-                    );
+                    assert_eq!(status, FlatStorageCreationStatus::Ready);
                     runtime.create_flat_storage_state_for_shard(shard_id, 0, &mock_chain);
                 } else {
                     assert_eq!(status, FlatStorageCreationStatus::DontCreate);
