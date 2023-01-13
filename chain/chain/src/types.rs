@@ -14,7 +14,7 @@ use near_client_primitives::types::StateSplitApplyingStatus;
 use near_pool::types::PoolIterator;
 use near_primitives::challenge::{ChallengesResult, SlashedValidator};
 use near_primitives::checked_feature;
-use near_primitives::errors::InvalidTxError;
+use near_primitives::errors::{InvalidTxError, StorageError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
@@ -300,13 +300,17 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
 
     fn get_flat_storage_state_for_shard(&self, shard_id: ShardId) -> Option<FlatStorageState>;
 
-    /// Tries to create flat storage state for given shard, returns the status of creation.
-    fn try_create_flat_storage_state_for_shard(
+    /// Gets status of flat storage state background creation.
+    fn get_flat_storage_state_status(&self, shard_id: ShardId) -> FlatStorageStateStatus;
+
+    /// Creates flat storage state for given shard.
+    /// TODO (#7327): consider returning flat storage creation errors here
+    fn create_flat_storage_state_for_shard(
         &self,
         shard_id: ShardId,
         latest_block_height: BlockHeight,
         chain_access: &dyn ChainAccessForFlatStorage,
-    ) -> FlatStorageStateStatus;
+    );
 
     /// Removes flat storage state for shard, if it exists.
     /// Used to clear old flat storage data from disk and memory before syncing to newer state.

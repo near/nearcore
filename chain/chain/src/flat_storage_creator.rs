@@ -10,6 +10,7 @@
 //! `Ready`: flat storage is created and it is up-to-date.
 
 use crate::{ChainStore, ChainStoreAccess, RuntimeAdapter};
+use actix::run;
 #[cfg(feature = "protocol_feature_flat_state")]
 use assert_matches::assert_matches;
 use crossbeam_channel::{unbounded, Receiver, Sender};
@@ -379,12 +380,11 @@ impl FlatStorageShardCreator {
                         // If we reached chain final head, we can finish catchup and finally create flat storage.
                         store_helper::finish_catchup(&mut store_update, shard_id);
                         store_update.commit()?;
-                        let status = self.runtime_adapter.try_create_flat_storage_state_for_shard(
+                        self.runtime_adapter.create_flat_storage_state_for_shard(
                             shard_id,
                             chain_store.head().unwrap().height,
                             chain_store,
                         );
-                        assert_eq!(status, FlatStorageStateStatus::Ready);
                         info!(target: "chain", %shard_id, %flat_head, %height, "Flat storage creation done");
                     } else {
                         store_update.commit()?;
@@ -423,11 +423,7 @@ impl FlatStorageCreator {
         let mut creation_needed = false;
         for shard_id in 0..num_shards {
             if runtime_adapter.cares_about_shard(me, &chain_head.prev_block_hash, shard_id, true) {
-                let status = runtime_adapter.try_create_flat_storage_state_for_shard(
-                    shard_id,
-                    chain_store.head().unwrap().height,
-                    chain_store,
-                );
+                let status = runtime_adapter.get_flat_storage_state_status(shard_id);
                 match status {
                     FlatStorageStateStatus::Ready | FlatStorageStateStatus::DontCreate => {}
                     _ => {

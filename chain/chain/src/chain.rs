@@ -3186,16 +3186,11 @@ impl Chain {
             store_update.commit()?;
         }
 
-        match self.runtime_adapter.try_create_flat_storage_state_for_shard(
+        self.runtime_adapter.create_flat_storage_state_for_shard(
             shard_id,
             block_height,
             self.store(),
-        ) {
-            FlatStorageStateStatus::Ready | FlatStorageStateStatus::DontCreate => {}
-            status @ _ => {
-                return Err(Error::StorageError(StorageError::FlatStorageError(format!("Unable to create flat storage during syncing shard {shard_id}, got status {status:?}"))));
-            }
-        }
+        );
 
         let mut height = shard_state_header.chunk_height_included();
         let mut chain_update = self.chain_update();

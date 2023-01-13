@@ -21,7 +21,7 @@ use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::epoch_manager::ValidatorSelectionConfig;
-use near_primitives::errors::{EpochError, InvalidTxError};
+use near_primitives::errors::{EpochError, InvalidTxError, StorageError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::shard_layout;
@@ -832,13 +832,17 @@ impl RuntimeAdapter for KeyValueRuntime {
         None
     }
 
-    fn try_create_flat_storage_state_for_shard(
+    fn get_flat_storage_state_status(&self, _shard_id: ShardId) -> FlatStorageStateStatus {
+        FlatStorageStateStatus::DontCreate
+    }
+
+    fn create_flat_storage_state_for_shard(
         &self,
-        _shard_id: ShardId,
+        shard_id: ShardId,
         _latest_block_height: BlockHeight,
         _chain_access: &dyn ChainAccessForFlatStorage,
-    ) -> FlatStorageStateStatus {
-        FlatStorageStateStatus::DontCreate
+    ) {
+        panic!("Flat storage state can't be created for shard {shard_id} because KeyValueRuntime doesn't support this");
     }
 
     fn remove_flat_storage_state_for_shard(
