@@ -424,7 +424,14 @@ impl FlatStorageCreator {
             if runtime_adapter.cares_about_shard(me, &chain_head.prev_block_hash, shard_id, true) {
                 let status = runtime_adapter.get_flat_storage_creation_status(shard_id);
                 match status {
-                    FlatStorageCreationStatus::Ready | FlatStorageCreationStatus::DontCreate => {}
+                    FlatStorageCreationStatus::Ready => {
+                        runtime_adapter.create_flat_storage_state_for_shard(
+                            shard_id,
+                            chain_store.head().unwrap().height,
+                            chain_store,
+                        );
+                    }
+                    FlatStorageCreationStatus::DontCreate => {}
                     _ => {
                         creation_needed = true;
                         shard_creators.insert(
