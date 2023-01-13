@@ -303,7 +303,8 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
     /// Gets status of flat storage state background creation.
     fn get_flat_storage_creation_status(&self, shard_id: ShardId) -> FlatStorageCreationStatus;
 
-    /// Creates flat storage state for given shard.
+    /// Creates flat storage state for given shard, assuming that all flat storage data
+    /// is already stored in DB.
     /// TODO (#7327): consider returning flat storage creation errors here
     fn create_flat_storage_state_for_shard(
         &self,

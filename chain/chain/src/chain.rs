@@ -84,9 +84,9 @@ use near_primitives::shard_layout::{
     account_id_to_shard_id, account_id_to_shard_uid, ShardLayout, ShardUId,
 };
 use near_primitives::version::PROTOCOL_VERSION;
-use near_store::flat_state::FlatStorageError;
 #[cfg(feature = "protocol_feature_flat_state")]
 use near_store::flat_state::{store_helper, FlatStateDelta};
+use near_store::flat_state::{FlatStorageCreationStatus, FlatStorageError};
 use once_cell::sync::OnceCell;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
@@ -3186,11 +3186,15 @@ impl Chain {
             store_update.commit()?;
         }
 
-        self.runtime_adapter.create_flat_storage_state_for_shard(
-            shard_id,
-            block_height,
-            self.store(),
-        );
+        if self.runtime_adapter.get_flat_storage_creation_status(shard_id)
+            != FlatStorageCreationStatus::DontCreate
+        {
+            self.runtime_adapter.create_flat_storage_state_for_shard(
+                shard_id,
+                block_height,
+                self.store(),
+            );
+        }
 
         let mut height = shard_state_header.chunk_height_included();
         let mut chain_update = self.chain_update();
