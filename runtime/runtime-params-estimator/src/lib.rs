@@ -103,7 +103,6 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::{ExtCosts, VMConfig};
 use near_vm_runner::MockCompiledContractCache;
-use rand::Rng;
 use serde_json::json;
 use utils::{
     average_cost, fn_cost, fn_cost_count, fn_cost_in_contract, fn_cost_with_setup,
@@ -376,9 +375,9 @@ fn action_transfer(ctx: &mut EstimatorContext) -> GasCost {
 fn action_create_account(ctx: &mut EstimatorContext) -> GasCost {
     let total_cost = {
         let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
-            let sender = tb.random_account();
-            let new_account =
-                AccountId::try_from(format!("{}_{}", sender, tb.rng().gen::<u64>())).unwrap();
+            let sender = tb.random_unused_account();
+            // derive a non-existing account id
+            let new_account = AccountId::try_from(format!("{sender}_x")).unwrap();
 
             let actions = vec![
                 Action::CreateAccount(CreateAccountAction {}),
