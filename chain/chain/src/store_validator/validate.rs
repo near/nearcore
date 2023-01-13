@@ -692,7 +692,6 @@ pub(crate) fn outcome_indexed_by_block_hash(
         "Can't get Block {} from DB",
         block_hash
     );
-    let mut outcome_ids = vec![];
     for chunk_header in block.chunks().iter() {
         if chunk_header.height_included() == block.header().height() {
             let shard_uid = sv
@@ -706,21 +705,20 @@ pub(crate) fn outcome_indexed_by_block_hash(
                 DBCol::ChunkExtra,
                 &get_block_shard_uid(block.hash(), &shard_uid),
             ) {
-                outcome_ids.extend(unwrap_or_err_db!(
+                let outcome_ids = unwrap_or_err_db!(
                     sv.store.get_ser::<Vec<CryptoHash>>(
                         DBCol::OutcomeIds,
                         &get_block_shard_id(block.hash(), chunk_header.shard_id())
                     ),
                     "Can't get Outcome ids by Block Hash"
-                ));
+                );
+                if outcome_ids.contains(outcome_id) {
+                    return Ok(());
+                }
             }
         }
-        if !outcome_ids.contains(outcome_id) {
-            println!("outcome ids: {:?}, block: {:?}", outcome_ids, block);
-            err!("Outcome id {:?} is not found in DBCol::OutcomeIds", outcome_id);
-        }
     }
-    Ok(())
+    err!("Outcome id {:?} is not found in DBCol::OutcomeIds", outcome_id)
 }
 
 pub(crate) fn state_sync_info_valid(
