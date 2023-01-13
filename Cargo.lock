@@ -467,7 +467,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5aeeee1a5defa63cba39097a510dfe63ef53658fc8995202a610f6a8a4d03639"
 dependencies = [
  "attohttpc",
- "dirs 4.0.0",
+ "dirs",
  "rust-ini",
  "serde",
  "serde-xml-rs",
@@ -939,7 +939,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "clap 3.1.18",
- "dirs 3.0.2",
+ "dirs",
  "futures",
  "log",
  "near-chain-configs",
@@ -1525,15 +1525,6 @@ dependencies = [
  "block-buffer 0.10.2",
  "crypto-common",
  "subtle",
-]
-
-[[package]]
-name = "dirs"
-version = "3.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "30baa043103c9d0c2a57cf537cc2f35623889dc0d405e6c3cccfadbc81c71309"
-dependencies = [
- "dirs-sys",
 ]
 
 [[package]]
@@ -3766,7 +3757,7 @@ dependencies = [
  "byteorder",
  "chrono",
  "delay-detector",
- "dirs 3.0.2",
+ "dirs",
  "easy-ext",
  "futures",
  "hyper",
