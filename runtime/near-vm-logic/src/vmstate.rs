@@ -69,7 +69,7 @@ impl<'a> Memory<'a> {
         self.0.view_memory(slice).map_err(|_| HostError::MemoryAccessViolation.into())
     }
 
-    #[cfg(feature = "sandbox")]
+    #[cfg(any(test, feature = "sandbox"))]
     /// Like [`Self::view`] but does not pay gas fees.
     pub(super) fn view_for_free(&self, slice: MemSlice) -> Result<Cow<[u8]>> {
         self.0.view_memory(slice).map_err(|_| HostError::MemoryAccessViolation.into())
@@ -92,6 +92,11 @@ impl<'a> Memory<'a> {
     ) -> Result<()> {
         gas_counter.pay_base(write_memory_base)?;
         gas_counter.pay_per(write_memory_byte, buf.len() as _)?;
+        self.0.write_memory(offset, buf).map_err(|_| HostError::MemoryAccessViolation.into())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_for_free(&mut self, offset: u64, buf: &[u8]) -> Result<()> {
         self.0.write_memory(offset, buf).map_err(|_| HostError::MemoryAccessViolation.into())
     }
 
@@ -140,6 +145,11 @@ impl Registers {
         } else {
             Err(HostError::InvalidRegisterId { register_id }.into())
         }
+    }
+
+    #[cfg(test)]
+    pub(super) fn get_for_free<'s>(&'s self, register_id: u64) -> Option<&'s [u8]> {
+        self.registers.get(&register_id).map(|data| &data[..])
     }
 
     /// Returns length of register with given index or None if no such register.

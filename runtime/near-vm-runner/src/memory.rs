@@ -65,5 +65,5 @@ impl MemoryLike for WasmerMemory {
 
 #[test]
 fn test_memory_like() {
-    crate::tests::test_memory_like(|| Box::new(WasmerMemory::new(1, 1)));
+    near_vm_logic::test_utils::test_memory_like(|| Box::new(WasmerMemory::new(1, 1)));
 }
