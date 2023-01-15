@@ -1,82 +1,89 @@
-use crate::{with_ext_cost_counter, VMLogic};
+use crate::tests::TestVMLogic;
+
 use near_primitives_core::{config::ExtCosts, types::Gas};
 use near_vm_errors::VMLogicError;
 use std::collections::HashMap;
 
 type Result<T> = ::std::result::Result<T, VMLogicError>;
 
-pub fn promise_create(
-    logic: &mut crate::VMLogic<'_>,
+pub(super) fn promise_create(
+    logic: &mut TestVMLogic<'_>,
     account_id: &[u8],
     amount: u128,
     gas: Gas,
 ) -> Result<u64> {
-    let method = b"promise_create";
-    let args = b"args";
+    let account_id = logic.internal_mem_write(account_id);
+    let method = logic.internal_mem_write(b"promise_create");
+    let args = logic.internal_mem_write(b"args");
+    let amount = logic.internal_mem_write(&amount.to_le_bytes());
+
     logic.promise_create(
-        account_id.len() as _,
-        account_id.as_ptr() as _,
-        method.len() as _,
-        method.as_ptr() as _,
-        args.len() as _,
-        args.as_ptr() as _,
-        amount.to_le_bytes().as_ptr() as _,
+        account_id.len,
+        account_id.ptr,
+        method.len,
+        method.ptr,
+        args.len,
+        args.ptr,
+        amount.ptr,
         gas,
     )
 }
 
 #[allow(dead_code)]
-pub fn promise_batch_create(logic: &mut VMLogic, account_id: &str) -> Result<u64> {
-    logic.promise_batch_create(account_id.len() as _, account_id.as_ptr() as _)
+pub(super) fn promise_batch_create(logic: &mut TestVMLogic, account_id: &str) -> Result<u64> {
+    let account_id = logic.internal_mem_write(account_id.as_bytes());
+    logic.promise_batch_create(account_id.len, account_id.ptr)
 }
 
 #[allow(dead_code)]
-pub fn promise_batch_action_function_call(
-    logic: &mut VMLogic<'_>,
+pub(super) fn promise_batch_action_function_call(
+    logic: &mut TestVMLogic<'_>,
     promise_index: u64,
     amount: u128,
     gas: Gas,
 ) -> Result<()> {
-    let method_id = b"promise_batch_action";
-    let args = b"promise_batch_action_args";
+    let method_id = logic.internal_mem_write(b"promise_batch_action");
+    let args = logic.internal_mem_write(b"promise_batch_action_args");
+    let amount = logic.internal_mem_write(&amount.to_le_bytes());
 
     logic.promise_batch_action_function_call(
         promise_index,
-        method_id.len() as _,
-        method_id.as_ptr() as _,
-        args.len() as _,
-        args.as_ptr() as _,
-        amount.to_le_bytes().as_ptr() as _,
+        method_id.len,
+        method_id.ptr,
+        args.len,
+        args.ptr,
+        amount.ptr,
         gas,
     )
 }
 
 #[allow(dead_code)]
-pub fn promise_batch_action_function_call_weight(
-    logic: &mut VMLogic<'_>,
+pub(super) fn promise_batch_action_function_call_weight(
+    logic: &mut TestVMLogic<'_>,
     promise_index: u64,
     amount: u128,
     gas: Gas,
     weight: u64,
 ) -> Result<()> {
-    let method_id = b"promise_batch_action";
-    let args = b"promise_batch_action_args";
+    let method_id = logic.internal_mem_write(b"promise_batch_action");
+    let args = logic.internal_mem_write(b"promise_batch_action_args");
+    let amount = logic.internal_mem_write(&amount.to_le_bytes());
 
     logic.promise_batch_action_function_call_weight(
         promise_index,
-        method_id.len() as _,
-        method_id.as_ptr() as _,
-        args.len() as _,
-        args.as_ptr() as _,
-        amount.to_le_bytes().as_ptr() as _,
+        method_id.len,
+        method_id.ptr,
+        args.len,
+        args.ptr,
+        amount.ptr,
         gas,
         weight,
     )
 }
 
 #[allow(dead_code)]
-pub fn promise_batch_action_add_key_with_function_call(
-    logic: &mut VMLogic<'_>,
+pub(super) fn promise_batch_action_add_key_with_function_call(
+    logic: &mut TestVMLogic<'_>,
     promise_index: u64,
     public_key: &[u8],
     nonce: u64,
@@ -84,16 +91,21 @@ pub fn promise_batch_action_add_key_with_function_call(
     receiver_id: &[u8],
     method_names: &[u8],
 ) -> Result<()> {
+    let public_key = logic.internal_mem_write(public_key);
+    let receiver_id = logic.internal_mem_write(receiver_id);
+    let allowance = logic.internal_mem_write(&allowance.to_le_bytes());
+    let method_names = logic.internal_mem_write(method_names);
+
     logic.promise_batch_action_add_key_with_function_call(
         promise_index,
-        public_key.len() as _,
-        public_key.as_ptr() as _,
+        public_key.len,
+        public_key.ptr,
         nonce,
-        allowance.to_le_bytes().as_ptr() as _,
-        receiver_id.len() as _,
-        receiver_id.as_ptr() as _,
-        method_names.len() as _,
-        method_names.as_ptr() as _,
+        allowance.ptr,
+        receiver_id.len,
+        receiver_id.ptr,
+        method_names.len,
+        method_names.ptr,
     )
 }
 
@@ -110,12 +122,12 @@ macro_rules! map(
      };
 );
 
-pub fn reset_costs_counter() {
-    with_ext_cost_counter(|cc| cc.clear())
+pub(super) fn reset_costs_counter() {
+    crate::with_ext_cost_counter(|cc| cc.clear())
 }
 
 #[track_caller]
-pub fn assert_costs(expected: HashMap<ExtCosts, u64>) {
-    with_ext_cost_counter(|cc| assert_eq!(*cc, expected));
+pub(super) fn assert_costs(expected: HashMap<ExtCosts, u64>) {
+    crate::with_ext_cost_counter(|cc| assert_eq!(*cc, expected));
     reset_costs_counter();
 }
