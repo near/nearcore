@@ -12,6 +12,7 @@ use near_store::Store;
 use nearcore::{NearConfig, NightshadeRuntime};
 use s3::serde_types::ListBucketResult;
 use std::fs::DirEntry;
+use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
@@ -68,6 +69,35 @@ impl EpochSelection {
     }
 }
 
+pub(crate) enum Location {
+    Files(PathBuf),
+    S3 { bucket: String, region: String },
+}
+
+impl Location {
+    pub(crate) fn new(
+        root_dir: Option<PathBuf>,
+        s3_bucket_and_region: (Option<String>, Option<String>),
+    ) -> Self {
+        let (s3_bucket, s3_region) = s3_bucket_and_region;
+        assert_eq!(
+            s3_bucket.is_some(),
+            s3_region.is_some(),
+            "None or both of --s3-bucket and --s3-region need to be set"
+        );
+        assert_ne!(
+            root_dir.is_some(),
+            s3_bucket.is_some(),
+            "Only one of --root-dir and --s3 flags can be set"
+        );
+        if let Some(root_dir) = root_dir {
+            Location::Files(root_dir)
+        } else {
+            Location::S3 { bucket: s3_bucket.unwrap(), region: s3_region.unwrap() }
+        }
+    }
+}
+
 /// Returns block hash of the last block of an epoch preceding the given `epoch_info`.
 fn get_prev_hash_of_epoch(
     epoch_info: &EpochInfo,
@@ -110,24 +140,22 @@ pub(crate) fn apply_state_parts(
     home_dir: &Path,
     near_config: NearConfig,
     store: Store,
-    root_dir: Option<PathBuf>,
-    s3_bucket: Option<String>,
-    s3_region: Option<String>,
+    location: Location,
 ) {
     let runtime_adapter: Arc<dyn RuntimeAdapter> =
         Arc::new(NightshadeRuntime::from_config(home_dir, store.clone(), &near_config));
-    let mut epoch_manager =
+    let epoch_manager =
         EpochManager::new_from_genesis_config(store.clone(), &near_config.genesis.config)
             .expect("Failed to start Epoch Manager");
-    let mut chain_store = ChainStore::new(
+    let chain_store = ChainStore::new(
         store.clone(),
         near_config.genesis.config.genesis_height,
         near_config.client_config.save_trie_changes,
     );
 
-    let epoch_id = epoch_selection.to_epoch_id(store, &mut chain_store, &mut epoch_manager);
+    let epoch_id = epoch_selection.to_epoch_id(store, &chain_store, &epoch_manager);
     let epoch = runtime_adapter.get_epoch_info(&epoch_id).unwrap();
-    let sync_prev_hash = get_prev_hash_of_epoch(&epoch, &mut chain_store, &mut epoch_manager);
+    let sync_prev_hash = get_prev_hash_of_epoch(&epoch, &chain_store, &epoch_manager);
     let sync_prev_block = chain_store.get_block(&sync_prev_hash).unwrap();
 
     assert!(runtime_adapter.is_next_block_epoch_start(&sync_prev_hash).unwrap());
@@ -139,30 +167,12 @@ pub(crate) fn apply_state_parts(
     );
     let state_root = sync_prev_block.chunks()[shard_id as usize].prev_state_root();
 
-    let part_storage: Box<dyn StatePartReader> = if let Some(root_dir) = root_dir {
-        if s3_bucket.is_some() || s3_region.is_some() {
-            panic!("Output can only be done to the local filesystem or to S3, not both");
-        }
-        Box::new(FileSystemStorage::new(
-            root_dir,
-            false,
-            &near_config.client_config.chain_id,
-            epoch.epoch_height(),
-            shard_id,
-        ))
-    } else {
-        if s3_bucket.is_none() || s3_region.is_none() {
-            panic!("For storing parts on S3 both --s3-bucket and --s3-region need to be provided");
-        }
-        Box::new(S3Storage::new(
-            &s3_bucket.unwrap(),
-            &s3_region.unwrap(),
-            &near_config.client_config.chain_id,
-            epoch.epoch_height(),
-            shard_id,
-        ))
-    };
-
+    let part_storage = get_state_part_reader(
+        location,
+        &near_config.client_config.chain_id,
+        epoch.epoch_height(),
+        shard_id,
+    );
     let num_parts = part_storage.num_parts();
     tracing::info!(
         target: "state-parts",
@@ -171,12 +181,12 @@ pub(crate) fn apply_state_parts(
         shard_id,
         num_parts,
         ?sync_prev_hash,
-        part_id = if let Some(part_id) = part_id { part_id.to_string() } else { "<all_parts>".to_string() },
+        part_id = format_part_id(part_id),
         "Applying state as seen at the beginning of the specified epoch.",
     );
 
     let timer = Instant::now();
-    for part_id in if let Some(part_id) = part_id { part_id..part_id + 1 } else { 0..num_parts } {
+    for part_id in get_part_ids(part_id, num_parts) {
         let timer = Instant::now();
         assert!(part_id < num_parts, "part_id: {}, num_parts: {}", part_id, num_parts);
         let part = part_storage.read(part_id);
@@ -201,24 +211,22 @@ pub(crate) fn dump_state_parts(
     home_dir: &Path,
     near_config: NearConfig,
     store: Store,
-    root_dir: Option<PathBuf>,
-    s3_bucket: Option<String>,
-    s3_region: Option<String>,
+    location: Location,
 ) {
     let runtime_adapter: Arc<dyn RuntimeAdapter> =
         Arc::new(NightshadeRuntime::from_config(home_dir, store.clone(), &near_config));
-    let mut epoch_manager =
+    let epoch_manager =
         EpochManager::new_from_genesis_config(store.clone(), &near_config.genesis.config)
             .expect("Failed to start Epoch Manager");
-    let mut chain_store = ChainStore::new(
+    let chain_store = ChainStore::new(
         store.clone(),
         near_config.genesis.config.genesis_height,
         near_config.client_config.save_trie_changes,
     );
 
-    let epoch_id = epoch_selection.to_epoch_id(store, &mut chain_store, &mut epoch_manager);
+    let epoch_id = epoch_selection.to_epoch_id(store, &chain_store, &epoch_manager);
     let epoch = runtime_adapter.get_epoch_info(&epoch_id).unwrap();
-    let sync_prev_hash = get_prev_hash_of_epoch(&epoch, &mut chain_store, &mut epoch_manager);
+    let sync_prev_hash = get_prev_hash_of_epoch(&epoch, &chain_store, &epoch_manager);
     let sync_prev_block = chain_store.get_block(&sync_prev_hash).unwrap();
 
     assert!(runtime_adapter.is_next_block_epoch_start(&sync_prev_hash).unwrap());
@@ -240,36 +248,19 @@ pub(crate) fn dump_state_parts(
         shard_id,
         num_parts,
         ?sync_prev_hash,
-        part_id = if let Some(part_id) = part_id { part_id.to_string() } else { "<all_parts>".to_string() },
+        part_id = format_part_id(part_id),
         "Dumping state as seen at the beginning of the specified epoch.",
     );
 
-    let part_storage: Box<dyn StatePartWriter> = if let Some(root_dir) = root_dir {
-        if s3_bucket.is_some() || s3_region.is_some() {
-            panic!("Output can only be done to the local filesystem or to S3, not both");
-        }
-        Box::new(FileSystemStorage::new(
-            root_dir,
-            true,
-            &near_config.client_config.chain_id,
-            epoch.epoch_height(),
-            shard_id,
-        ))
-    } else {
-        if s3_bucket.is_none() || s3_region.is_none() {
-            panic!("For storing parts on S3 both --s3-bucket and --s3-region need to be provided");
-        }
-        Box::new(S3Storage::new(
-            &s3_bucket.unwrap(),
-            &s3_region.unwrap(),
-            &near_config.client_config.chain_id,
-            epoch.epoch_height(),
-            shard_id,
-        ))
-    };
+    let part_storage = get_state_part_writer(
+        location,
+        &near_config.client_config.chain_id,
+        epoch.epoch_height(),
+        shard_id,
+    );
 
     let timer = Instant::now();
-    for part_id in if let Some(part_id) = part_id { part_id..part_id + 1 } else { 0..num_parts } {
+    for part_id in get_part_ids(part_id, num_parts) {
         let timer = Instant::now();
         assert!(part_id < num_parts, "part_id: {}, num_parts: {}", part_id, num_parts);
         let state_part = runtime_adapter
@@ -284,6 +275,20 @@ pub(crate) fn dump_state_parts(
         tracing::info!(target: "state-parts", part_id, part_length = state_part.len(), elapsed_sec = timer.elapsed().as_secs_f64(), "Wrote a state part");
     }
     tracing::info!(target: "state-parts", total_elapsed_sec = timer.elapsed().as_secs_f64(), "Wrote all requested state parts");
+}
+
+fn format_part_id(part_id: Option<u64>) -> String {
+    match part_id {
+        Some(part_id) => part_id.to_string(),
+        None => "<all_parts>".to_string(),
+    }
+}
+
+fn get_part_ids(part_id: Option<u64>, num_parts: u64) -> Range<u64> {
+    match part_id {
+        Some(part_id) => part_id..(part_id + 1),
+        None => 0..num_parts,
+    }
 }
 
 fn location_prefix(chain_id: &str, epoch_height: u64, shard_id: u64) -> String {
@@ -306,6 +311,38 @@ trait StatePartWriter {
 trait StatePartReader {
     fn read(&self, part_id: u64) -> Vec<u8>;
     fn num_parts(&self) -> u64;
+}
+
+fn get_state_part_reader(
+    location: Location,
+    chain_id: &str,
+    epoch_height: u64,
+    shard_id: ShardId,
+) -> Box<dyn StatePartReader> {
+    match location {
+        Location::Files(root_dir) => {
+            Box::new(FileSystemStorage::new(root_dir, false, chain_id, epoch_height, shard_id))
+        }
+        Location::S3 { bucket, region } => {
+            Box::new(S3Storage::new(&bucket, &region, chain_id, epoch_height, shard_id))
+        }
+    }
+}
+
+fn get_state_part_writer(
+    location: Location,
+    chain_id: &str,
+    epoch_height: u64,
+    shard_id: ShardId,
+) -> Box<dyn StatePartWriter> {
+    match location {
+        Location::Files(root_dir) => {
+            Box::new(FileSystemStorage::new(root_dir, true, chain_id, epoch_height, shard_id))
+        }
+        Location::S3 { bucket, region } => {
+            Box::new(S3Storage::new(&bucket, &region, chain_id, epoch_height, shard_id))
+        }
+    }
 }
 
 struct FileSystemStorage {
