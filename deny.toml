@@ -17,11 +17,6 @@ deny = [
 ]
 
 skip = [
-    # See https://github.com/camshaft/bolero/issues/85
-    { name = "crossbeam-channel", version = "=0.4.4" },
-    { name = "crossbeam-utils", version = "=0.7.2" },
-    { name = "strsim", version = "=0.8.0" },
-
     { name = "clap", version = "=2.34.0" },
     # criterion uses clap=2.34.0 which relies on an older textwrap
     { name = "textwrap", version = "=0.11.0" },
@@ -100,4 +95,7 @@ skip = [
 
     # redis we’re using uses ancient sha
     { name = "sha1", version = "=0.6.1" },
+
+    # rust-s3 is using an old version of smartstring
+    { name = "smartstring", version = "=0.2.10" },
 ]
