@@ -410,7 +410,7 @@ mod utf8_mem_violation {
     #[test]
     fn test_good_read() {
         // The data is read correctly but it has invalid UTF-8 thus it ends up
-        // with BadeUTF8 error and user being charged for decoding.
+        // with BadUTF8 error and user being charged for decoding.
         check(true, |logic, slice| logic.log_utf8(slice.len, slice.ptr));
         assert_costs(map! {
             ExtCosts::base: 1,
@@ -469,7 +469,7 @@ mod utf16_mem_violation {
     #[test]
     fn test_good_read() {
         // The data is read correctly but it has invalid UTF-16 thus it ends up
-        // with BadeUTF16 error and user being charged for decoding.
+        // with BadUTF16 error and user being charged for decoding.
         check(true, |logic, slice| logic.log_utf16(slice.len, slice.ptr));
         assert_costs(map! {
             ExtCosts::base: 1,
