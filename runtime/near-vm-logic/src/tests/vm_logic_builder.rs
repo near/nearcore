@@ -97,11 +97,15 @@ impl TestVMLogic<'_> {
     /// makes it convenient to populate the memory with various different data
     /// to later use in function calls.
     pub(super) fn internal_mem_write(&mut self, data: &[u8]) -> MemSlice {
-        let ptr = self.mem_write_offset;
+        let slice = self.internal_mem_write_at(self.mem_write_offset, data);
+        self.mem_write_offset += slice.len;
+        slice
+    }
+
+    /// Writes data into guest memory at given location.
+    pub(super) fn internal_mem_write_at(&mut self, ptr: u64, data: &[u8]) -> MemSlice {
         self.memory().set_for_free(ptr, data).unwrap();
-        let len = data.len() as u64;
-        self.mem_write_offset += len;
-        MemSlice { len, ptr }
+        MemSlice { len: u64::try_from(data.len()).unwrap(), ptr }
     }
 
     /// Reads data from guest memory into a Vector.
