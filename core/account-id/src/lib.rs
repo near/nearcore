@@ -32,6 +32,7 @@
 //!
 //! assert!("ƒelicia.near".parse::<AccountId>().is_err()); // (ƒ is not f)
 //! ```
+#![deny(clippy::integer_arithmetic)]
 
 use std::{fmt, str::FromStr};
 
@@ -129,7 +130,8 @@ impl AccountId {
     /// ```
     pub fn is_sub_account_of(&self, parent: &AccountId) -> bool {
         self.strip_suffix(parent.as_str())
-            .map_or(false, |s| !s.is_empty() && s.find('.') == Some(s.len() - 1))
+            .and_then(|s| s.strip_suffix('.'))
+            .map_or(false, |s| s.find('.').is_none())
     }
 
     /// Returns `true` if the `AccountId` is a 64 characters long hexadecimal.

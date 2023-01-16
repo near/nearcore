@@ -125,13 +125,15 @@ impl<'a, T: std::fmt::Debug> std::fmt::Debug for Slice<'a, T> {
         }
 
         write!(fmt, "({len})")?;
-        fmt.debug_list()
-            .entry(&slice[0])
-            .entry(&slice[1])
-            .entry(&Ellipsis)
-            .entry(&slice[len - 2])
-            .entry(&slice[len - 1])
-            .finish()
+        let mut debug_list = fmt.debug_list();
+        for prefix_entry in slice.iter().take(2) {
+            debug_list.entry(prefix_entry);
+        }
+        debug_list.entry(&Ellipsis);
+        for suffix_entry in slice.iter().skip(len.saturating_sub(2)) {
+            debug_list.entry(suffix_entry);
+        }
+        debug_list.finish()
     }
 }
 
@@ -158,23 +160,27 @@ fn bytes_format(
 
 /// Implementation of [`AbbrBytes`].
 fn truncated_bytes_format(bytes: &[u8], fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    const LIMIT: usize = 128;
+    const OVERALL_LIMIT: usize = 128;
+    const DISPLAY_ASCII_FULL_LIMIT: usize = OVERALL_LIMIT - 2;
+    const DISPLAY_ASCII_PREFIX_LIMIT: usize = OVERALL_LIMIT - 9;
+    const DISPLAY_BASE64_FULL_LIMIT: usize = OVERALL_LIMIT / 4 * 3;
+    const DISPLAY_BASE64_PREFIX_LIMIT: usize = (OVERALL_LIMIT - 8) / 4 * 3;
     let len = bytes.len();
-    if bytes.iter().take(LIMIT - 2).all(|ch| 0x20 <= *ch && *ch <= 0x7E) {
-        if len <= LIMIT - 2 {
+    if bytes.iter().take(DISPLAY_ASCII_FULL_LIMIT).all(|ch| (0x20..=0x7E).contains(ch)) {
+        if len <= DISPLAY_ASCII_FULL_LIMIT {
             // SAFETY: We’ve just checked that the value contains ASCII
             // characters only.
             let value = unsafe { std::str::from_utf8_unchecked(bytes) };
             write!(fmt, "'{value}'")
         } else {
-            let bytes = &bytes[..LIMIT - 9];
+            let bytes = &bytes[..DISPLAY_ASCII_PREFIX_LIMIT];
             let value = unsafe { std::str::from_utf8_unchecked(bytes) };
             write!(fmt, "({len})'{value}'…")
         }
-    } else if bytes.len() <= LIMIT / 4 * 3 {
+    } else if bytes.len() <= DISPLAY_BASE64_FULL_LIMIT {
         std::fmt::Display::fmt(&base64_display(bytes), fmt)
     } else {
-        let bytes = &bytes[..(LIMIT - 8) / 4 * 3];
+        let bytes = &bytes[..DISPLAY_BASE64_PREFIX_LIMIT];
         let value = base64_display(bytes);
         write!(fmt, "({len}){value}…")
     }

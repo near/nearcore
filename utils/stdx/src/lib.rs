@@ -1,5 +1,6 @@
 //! `stdx` crate contains polyfills which should really be in std,
 //! but currently aren't for one reason or another.
+#![deny(clippy::integer_arithmetic)]
 
 // TODO(mina86): Replace usage of the split functions by split_array_ref et al
 // methods of array and slice types once those are stabilised.
@@ -93,7 +94,12 @@ pub fn as_chunks<const N: usize, T>(slice: &[T]) -> (&[[T; N]], &[T]) {
     #[allow(clippy::let_unit_value)]
     let () = AssertNonZero::<N>::OK;
 
+    // Static assert above ensures N != 0, so dividing by N is safe here
+    #[allow(clippy::integer_arithmetic)]
     let len = slice.len() / N;
+    // len * N = (slice.len() / N) * N <= slice.len()
+    // hence len * N doesn't overflow
+    #[allow(clippy::integer_arithmetic)]
     let (head, tail) = slice.split_at(len * N);
 
     // SAFETY: We cast a slice of `len * N` elements into a slice of `len` many
