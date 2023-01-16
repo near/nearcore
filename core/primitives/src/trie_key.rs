@@ -2,7 +2,9 @@ use crate::hash::CryptoHash;
 use crate::types::AccountId;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
+use near_primitives_core::account::id::{AccountRange, AccountRangeBoundary};
 use std::mem::size_of;
+use std::ops::Range;
 
 pub(crate) const ACCOUNT_DATA_SEPARATOR: u8 = b',';
 
@@ -207,6 +209,49 @@ impl TrieKey {
         let mut buf = Vec::with_capacity(self.len());
         self.append_into(&mut buf);
         buf
+    }
+
+    pub fn account_id(&self) -> Option<&AccountId> {
+        match self {
+            TrieKey::Account { account_id } => Some(account_id),
+            TrieKey::ContractCode { account_id } => Some(account_id),
+            TrieKey::AccessKey { account_id, .. } => Some(account_id),
+            TrieKey::ReceivedData { receiver_id, .. } => Some(receiver_id),
+            TrieKey::PostponedReceiptId { receiver_id, .. } => Some(receiver_id),
+            TrieKey::PendingDataCount { receiver_id, .. } => Some(receiver_id),
+            TrieKey::PostponedReceipt { receiver_id, .. } => Some(receiver_id),
+            TrieKey::DelayedReceiptIndices => None,
+            TrieKey::DelayedReceipt { .. } => None,
+            TrieKey::ContractData { account_id, .. } => Some(account_id),
+        }
+    }
+
+    pub fn calc_trie_key_ranges(v: &AccountRange) -> Vec<Range<Vec<u8>>> {
+        let mut res = vec![];
+        for col in col::NON_DELAYED_RECEIPT_COLUMNS.map(|(col, _)| col) {
+            let mut start = vec![col];
+            match v.from {
+                AccountRangeBoundary::Unbounded => {}
+                AccountRangeBoundary::Inclusive(ref account_id) => {
+                    start.extend(account_id.as_bytes())
+                }
+                AccountRangeBoundary::Exlusive(ref account_id) => {
+                    start.extend(account_id.as_bytes());
+                    start.push(b'-');
+                }
+            };
+            let mut end = vec![col];
+            match v.to {
+                AccountRangeBoundary::Unbounded => end.push(u8::MAX),
+                AccountRangeBoundary::Inclusive(ref account_id) => {
+                    end.extend(account_id.as_bytes());
+                    end.push(b'-');
+                }
+                AccountRangeBoundary::Exlusive(ref account_id) => end.extend(account_id.as_bytes()),
+            }
+            res.push(Range { start, end });
+        }
+        res
     }
 }
 

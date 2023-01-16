@@ -1044,27 +1044,30 @@ impl FlatStorageState {
         // TODO (#7327): call it just after we stopped tracking a shard.
         // TODO (#7327): remove FlatStateDeltas. Consider custom serialization of keys to remove them by
         // prefix.
-        // TODO (#7327): support range deletions which are much faster than naive deletions. For that, we
-        // can delete ranges of keys like
-        // [ [0]+boundary_accounts(shard_id) .. [0]+boundary_accounts(shard_id+1) ), etc.
-        // We should also take fixed accounts into account.
         let mut store_update = guard.store.store_update();
-        let mut removed_items = 0;
-        for item in guard.store.iter(crate::DBCol::FlatState) {
-            let (key, _) =
-                item.map_err(|e| StorageError::StorageInconsistentState(e.to_string()))?;
-            let account_id = parse_account_id_from_raw_key(&key)
-                .map_err(|e| StorageError::StorageInconsistentState(e.to_string()))?
-                .ok_or(StorageError::FlatStorageError(format!(
-                    "Failed to find account id in flat storage key {:?}",
-                    key
-                )))?;
-            if account_id_to_shard_id(&account_id, &shard_layout) == shard_id {
-                removed_items += 1;
-                store_update.delete(crate::DBCol::FlatState, &key);
+        if let ShardLayout::V1(shard_layout_v1) = shard_layout {
+            // TODO (#7327): support range deletions which are much faster than naive deletions. For that, we
+            // can delete ranges of keys like
+            // [ [0]+boundary_accounts(shard_id) .. [0]+boundary_accounts(shard_id+1) ), etc.
+            // We should also take fixed accounts into account.
+        } else {
+            let mut removed_items = 0;
+            for item in guard.store.iter(crate::DBCol::FlatState) {
+                let (key, _) =
+                    item.map_err(|e| StorageError::StorageInconsistentState(e.to_string()))?;
+                let account_id = parse_account_id_from_raw_key(&key)
+                    .map_err(|e| StorageError::StorageInconsistentState(e.to_string()))?
+                    .ok_or(StorageError::FlatStorageError(format!(
+                        "Failed to find account id in flat storage key {:?}",
+                        key
+                    )))?;
+                if account_id_to_shard_id(&account_id, &shard_layout) == shard_id {
+                    removed_items += 1;
+                    store_update.delete(crate::DBCol::FlatState, &key);
+                }
             }
+            info!(target: "chain", %shard_id, %removed_items, "Removing old items from flat storage");
         }
-        info!(target: "chain", %shard_id, %removed_items, "Removing old items from flat storage");
 
         store_helper::remove_flat_head(&mut store_update, shard_id);
         store_update.commit().map_err(|_| StorageError::StorageInternalError)?;

@@ -29,6 +29,7 @@ pub mod test_utils;
 pub mod time;
 pub mod transaction;
 pub mod trie_key;
+mod trie_key_shard_assignment;
 pub mod types;
 mod upgrade_schedule;
 pub mod utils;

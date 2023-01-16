@@ -1,6 +1,7 @@
 use std::cmp::Ordering::Greater;
 use std::{fmt, str};
 
+use near_primitives_core::account::id::AccountRange;
 use serde::{Deserialize, Serialize};
 
 use near_primitives_core::types::ShardId;
@@ -92,6 +93,12 @@ pub struct ShardLayoutV1 {
     to_parent_shard_map: Option<Vec<ShardId>>,
     /// Version of the shard layout, this is useful for uniquely identify the shard layout
     version: ShardVersion,
+}
+
+impl ShardLayoutV1 {
+    pub fn account_ranges(&self, shard_id: ShardId) -> Vec<AccountRange> {
+        vec![]
+    }
 }
 
 #[derive(Debug)]

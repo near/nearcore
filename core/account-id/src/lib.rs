@@ -65,6 +65,17 @@ pub use errors::{ParseAccountError, ParseErrorKind};
 #[derive(Eq, Ord, Hash, Clone, Debug, PartialEq, PartialOrd)]
 pub struct AccountId(Box<str>);
 
+pub enum AccountRangeBoundary {
+    Unbounded,
+    Inclusive(AccountId),
+    Exlusive(AccountId),
+}
+
+pub struct AccountRange {
+    pub from: AccountRangeBoundary,
+    pub to: AccountRangeBoundary,
+}
+
 impl AccountId {
     /// Shortest valid length for a NEAR Account ID.
     pub const MIN_LEN: usize = 2;
