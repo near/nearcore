@@ -25,7 +25,6 @@ use near_primitives_core::types::Gas;
 use near_store::db::Database;
 use near_store::test_utils::create_test_store;
 use near_store::TrieDBStorage;
-use near_store::TrieTraversalItem;
 use near_store::{Store, Trie, TrieCache, TrieCachingStorage, TrieConfig};
 use nearcore::{NearConfig, NightshadeRuntime};
 use node_runtime::adapter::ViewRuntimeAdapter;
@@ -866,24 +865,10 @@ pub(crate) fn contract_accounts(
         let flat_state = None;
         let trie = Trie::new(Box::new(storage), state_root, flat_state);
 
-        // construct an iterator over all contract data
-        let mut trie_iter = trie.iter()?;
-        let key = TrieKey::ContractCode { account_id: "xx".parse()? }.to_vec();
-        let (begin,suffix) = key.split_at(key.len() - 2);
-        assert_eq!(suffix, "xx".as_bytes());
-        let end = {
-            let mut tmp = begin.to_vec();
-            *tmp.last_mut().unwrap() += 1;
-            tmp
-        };
-
-        // iterate contracts and print results to stdout
-        for TrieTraversalItem { hash, key } in trie_iter.visit_nodes_interval(begin, &end)? {
-            if let Some(key) = key {
-                match ContractAccount::from_contract_trie_node(&key, hash, &trie) {
-                    Ok(contract) => println!("{contract}"),
-                    Err(err) => println!("unexpected error {err} for key {key:?}"),
-                }
+        for contract in ContractAccount::in_trie(&trie)? {
+            match contract {
+                Ok(contract) => println!("{contract}"),
+                Err(err) => eprintln!("{err}"),
             }
         }
     }
