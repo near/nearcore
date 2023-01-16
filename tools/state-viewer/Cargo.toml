@@ -14,6 +14,7 @@ once_cell.workspace = true
 rand.workspace = true
 rayon.workspace = true
 redis.workspace = true
+rust-s3.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
@@ -47,3 +48,4 @@ nightly = [
 ]
 nightly_protocol = ["nearcore/nightly_protocol"]
 protocol_feature_flat_state = ["nearcore/protocol_feature_flat_state"]
+cold_store = ["near-store/cold_store"]

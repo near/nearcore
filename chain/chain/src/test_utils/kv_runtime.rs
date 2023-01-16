@@ -241,6 +241,10 @@ impl KeyValueRuntime {
         Ok(None)
     }
 
+    /// Get epoch and index of validator set by the hash of previous block.
+    /// Note that it also fills in-memory chain info and there is some
+    /// assumption that it is called for all previous blocks.
+    /// TODO (#8269): should we call it recursively for previous blocks if info is not found?
     fn get_epoch_and_valset(
         &self,
         prev_hash: CryptoHash,
@@ -835,6 +839,14 @@ impl RuntimeAdapter for KeyValueRuntime {
         _chain_access: &dyn ChainAccessForFlatStorage,
     ) -> FlatStorageStateStatus {
         FlatStorageStateStatus::DontCreate
+    }
+
+    fn remove_flat_storage_state_for_shard(
+        &self,
+        _shard_id: ShardId,
+        _epoch_id: &EpochId,
+    ) -> Result<(), Error> {
+        Ok(())
     }
 
     fn set_flat_storage_state_for_genesis(

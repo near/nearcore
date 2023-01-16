@@ -1,4 +1,5 @@
 use near_primitives::shard_layout::ShardUId;
+use std::time::Duration;
 use std::{collections::HashMap, iter::FromIterator};
 
 use crate::trie::DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT;
@@ -87,6 +88,11 @@ pub struct StoreConfig {
     /// Needed to create flat storage which need to happen in parallel
     /// with block processing.
     pub background_migration_threads: usize,
+
+    /// Duration to perform background flat storage creation step. Defines how
+    /// frequently we check creation status and execute work related to it in
+    /// main thread (scheduling and collecting state parts, catching up blocks, etc.).
+    pub flat_storage_creation_period: Duration,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -219,6 +225,12 @@ impl Default for StoreConfig {
             // We checked that this number of threads doesn't impact
             // regular block processing significantly.
             background_migration_threads: 8,
+
+            // It shouldn't be very low, because on single flat storage creation step
+            // we do several disk reads from `FlatStateMisc` and `FlatStateDeltas`.
+            // One second should be enough to save deltas on start and catch up
+            // flat storage head quickly. State read work is much more expensive.
+            flat_storage_creation_period: Duration::from_secs(1),
         }
     }
 }

@@ -1,4 +1,3 @@
-use byteorder::{ByteOrder, LittleEndian};
 use once_cell::sync::Lazy;
 
 use near_chain_configs::Genesis;
@@ -45,10 +44,4 @@ pub fn add_test_contract(genesis: &mut Genesis, account_id: &AccountId) {
         account_id: account_id.clone(),
         code: near_test_contracts::rs_contract().to_vec(),
     });
-}
-
-pub fn encode_int(val: i32) -> [u8; 4] {
-    let mut tmp = [0u8; 4];
-    LittleEndian::write_i32(&mut tmp, val);
-    tmp
 }

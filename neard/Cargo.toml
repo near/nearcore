@@ -16,7 +16,6 @@ ansi_term.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 futures.workspace = true
-near-rust-allocator-proxy = { workspace = true, optional = true }
 once_cell.workspace = true
 openssl-probe.workspace = true
 opentelemetry.workspace = true
@@ -54,7 +53,6 @@ rustc_version = "0.4"
 default = ["json_rpc", "rosetta_rpc"]
 
 performance_stats = ["nearcore/performance_stats"]
-memory_stats = ["nearcore/memory_stats", "near-rust-allocator-proxy"]
 c_memory_stats = ["nearcore/c_memory_stats"]
 test_features = ["nearcore/test_features"]
 expensive_tests = ["nearcore/expensive_tests"]
@@ -64,7 +62,7 @@ rosetta_rpc = ["nearcore/rosetta_rpc"]
 json_rpc = ["nearcore/json_rpc"]
 protocol_feature_fix_staking_threshold = ["nearcore/protocol_feature_fix_staking_threshold"]
 protocol_feature_flat_state = ["nearcore/protocol_feature_flat_state"]
-cold_store = ["nearcore/cold_store", "near-store/cold_store", "near-cold-store-tool/cold_store"]
+cold_store = ["nearcore/cold_store", "near-store/cold_store", "near-state-viewer/cold_store", "near-cold-store-tool/cold_store"]
 
 nightly = [
   "nightly_protocol",

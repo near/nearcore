@@ -10,7 +10,7 @@ pessimistic_gas_price_inflation_denominator: 100
 
 # Account creation config
 min_allowed_top_level_account_length: 32
-registrar_account_id: registrar
+registrar_account_id: "registrar"
 
 # Storage usage config
 storage_amount_per_byte: 100_000_000_000_000_000_000
@@ -156,5 +156,4 @@ max_length_storage_key: 4_194_304
 max_length_storage_value: 4_194_304
 max_promises_per_function_call_action: 1_024
 max_number_input_data_dependencies: 128
-stack_limiter_version: 0
 account_id_validity_rules_version: 0

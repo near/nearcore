@@ -11,7 +11,7 @@ pub use near_crypto;
 use near_crypto::PublicKey;
 pub use near_primitives;
 use near_primitives::contract::ContractCode;
-use near_primitives::profile::ProfileData;
+use near_primitives::profile::ProfileDataV3;
 pub use near_primitives::runtime::apply_state::ApplyState;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::runtime::get_insufficient_storage_stake;
@@ -134,7 +134,7 @@ pub struct ActionResult {
     pub logs: Vec<LogEntry>,
     pub new_receipts: Vec<Receipt>,
     pub validator_proposals: Vec<ValidatorStake>,
-    pub profile: ProfileData,
+    pub profile: ProfileDataV3,
 }
 
 impl ActionResult {
@@ -732,7 +732,7 @@ impl Runtime {
                 gas_burnt: result.gas_burnt,
                 tokens_burnt,
                 executor_id: account_id.clone(),
-                metadata: ExecutionMetadata::V2(result.profile),
+                metadata: ExecutionMetadata::V3(result.profile),
             },
         })
     }
@@ -2447,5 +2447,38 @@ mod tests {
             .get(&key)
             .expect("Compiled contract should be cached")
             .expect("Compilation result should be non-empty");
+    }
+}
+
+/// Interface provided for gas cost estimations.
+pub mod estimator {
+    use super::Runtime;
+    use crate::ApplyStats;
+    use near_primitives::errors::RuntimeError;
+    use near_primitives::receipt::Receipt;
+    use near_primitives::runtime::apply_state::ApplyState;
+    use near_primitives::transaction::ExecutionOutcomeWithId;
+    use near_primitives::types::validator_stake::ValidatorStake;
+    use near_primitives::types::EpochInfoProvider;
+    use near_store::TrieUpdate;
+
+    pub fn apply_action_receipt(
+        state_update: &mut TrieUpdate,
+        apply_state: &ApplyState,
+        receipt: &Receipt,
+        outgoing_receipts: &mut Vec<Receipt>,
+        validator_proposals: &mut Vec<ValidatorStake>,
+        stats: &mut ApplyStats,
+        epoch_info_provider: &dyn EpochInfoProvider,
+    ) -> Result<ExecutionOutcomeWithId, RuntimeError> {
+        Runtime {}.apply_action_receipt(
+            state_update,
+            apply_state,
+            receipt,
+            outgoing_receipts,
+            validator_proposals,
+            stats,
+            epoch_info_provider,
+        )
     }
 }

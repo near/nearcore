@@ -44,7 +44,7 @@ impl Signer for EmptySigner {
 }
 
 /// Signer that keeps secret key in memory.
-#[derive(Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct InMemorySigner {
     pub account_id: AccountId,
     pub public_key: PublicKey,

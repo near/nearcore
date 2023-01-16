@@ -1,7 +1,8 @@
 use crate::test_utils::setup;
-use crate::{Block, Error, Provenance};
+use crate::{Error, Provenance};
 use assert_matches::assert_matches;
 use near_o11y::testonly::init_test_logger;
+use near_primitives::test_utils::TestBlockBuilder;
 use near_primitives::time::Clock;
 use near_primitives::utils::MaybeValidated;
 
@@ -15,7 +16,7 @@ fn challenges_new_head_prev() {
     for i in 0..5 {
         let prev_hash = *chain.head_header().unwrap().hash();
         let prev = chain.get_block(&prev_hash).unwrap();
-        let block = Block::empty(&prev, &*signer);
+        let block = TestBlockBuilder::new(&prev, signer.clone()).build();
         hashes.push(*block.hash());
         chain.process_block_test(&None, block).unwrap();
         assert_eq!(chain.head().unwrap().height, i + 1);
@@ -24,11 +25,12 @@ fn challenges_new_head_prev() {
     assert_eq!(chain.head().unwrap().height, 5);
 
     // The block to be added below after we invalidated fourth block.
-    let last_block = Block::empty(&chain.get_block(&hashes[3]).unwrap(), &*signer);
+    let last_block =
+        TestBlockBuilder::new(&chain.get_block(&hashes[3]).unwrap(), signer.clone()).build();
     assert_eq!(last_block.header().height(), 5);
 
     let prev = chain.get_block(&hashes[1]).unwrap();
-    let challenger_block = Block::empty_with_height(&prev, 3, &*signer);
+    let challenger_block = TestBlockBuilder::new(&prev, signer.clone()).height(3).build();
     let challenger_hash = *challenger_block.hash();
 
     let _ = chain.process_block_test(&None, challenger_block).unwrap();
@@ -64,11 +66,11 @@ fn challenges_new_head_prev() {
     assert_eq!(chain.head_header().unwrap().hash(), &hashes[2]);
 
     // Add two more blocks
-    let b3 = Block::empty(&chain.get_block(&hashes[2]).unwrap(), &*signer);
+    let b3 = TestBlockBuilder::new(&chain.get_block(&hashes[2]).unwrap(), signer.clone()).build();
     let _ = chain.process_block_test(&None, b3.clone()).unwrap();
     assert_eq!(&chain.head().unwrap().last_block_hash, b3.hash());
 
-    let b4 = Block::empty(&b3, &*signer);
+    let b4 = TestBlockBuilder::new(&b3, signer.clone()).build();
     chain.process_block_test(&None, b4.clone()).unwrap();
     let new_head = chain.head().unwrap().last_block_hash;
 
@@ -76,10 +78,10 @@ fn challenges_new_head_prev() {
     assert_eq!(chain.head_header().unwrap().hash(), &new_head);
 
     // Add two more blocks on an alternative chain
-    let b3 = Block::empty(&chain.get_block(&hashes[2]).unwrap(), &*signer);
+    let b3 = TestBlockBuilder::new(&chain.get_block(&hashes[2]).unwrap(), signer.clone()).build();
     let _ = chain.process_block_test(&None, b3.clone()).unwrap();
 
-    let b4 = Block::empty(&b3, &*signer);
+    let b4 = TestBlockBuilder::new(&b3, signer.clone()).build();
     let _ = chain.process_block_test(&None, b4.clone()).unwrap();
     let challenger_hash = b4.hash();
 
@@ -96,7 +98,7 @@ fn test_no_challenge_on_same_header() {
     let (mut chain, _, signer) = setup();
     let prev_hash = *chain.head_header().unwrap().hash();
     let prev = chain.get_block(&prev_hash).unwrap();
-    let block = Block::empty(&prev, &*signer);
+    let block = TestBlockBuilder::new(&prev, signer.clone()).build();
     chain.process_block_test(&None, block.clone()).unwrap();
     assert_eq!(chain.head().unwrap().height, 1);
     let mut challenges = vec![];

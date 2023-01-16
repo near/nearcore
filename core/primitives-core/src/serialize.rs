@@ -98,6 +98,10 @@ pub mod dec_format {
     use serde::de;
     use serde::{Deserializer, Serializer};
 
+    #[derive(thiserror::Error, Debug)]
+    #[error("cannot parse from unit")]
+    pub struct ParseUnitError;
+
     /// Abstraction between integers that we serialise.
     pub trait DecType: Sized {
         /// Formats number as a decimal string; passes `None` as is.
@@ -105,8 +109,8 @@ pub mod dec_format {
 
         /// Constructs Self from a `null` value.  Returns error if this type
         /// does not accept `null` values.
-        fn try_from_unit() -> Result<Self, ()> {
-            Err(())
+        fn try_from_unit() -> Result<Self, ParseUnitError> {
+            Err(ParseUnitError)
         }
 
         /// Tries to parse decimal string as an integer.
@@ -144,7 +148,7 @@ pub mod dec_format {
         fn serialize(&self) -> Option<String> {
             self.as_ref().and_then(DecType::serialize)
         }
-        fn try_from_unit() -> Result<Self, ()> {
+        fn try_from_unit() -> Result<Self, ParseUnitError> {
             Ok(None)
         }
         fn try_from_str(value: &str) -> Result<Self, std::num::ParseIntError> {
@@ -165,7 +169,7 @@ pub mod dec_format {
         }
 
         fn visit_unit<E: de::Error>(self) -> Result<T, E> {
-            T::try_from_unit().map_err(|()| de::Error::invalid_type(de::Unexpected::Option, &self))
+            T::try_from_unit().map_err(|_| de::Error::invalid_type(de::Unexpected::Option, &self))
         }
 
         fn visit_u64<E: de::Error>(self, value: u64) -> Result<T, E> {

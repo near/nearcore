@@ -1,13 +1,10 @@
 use std::cmp::Ordering::Greater;
 use std::{fmt, str};
 
-use byteorder::{LittleEndian, ReadBytesExt};
 use serde::{Deserialize, Serialize};
 
-use near_primitives_core::hash::hash;
 use near_primitives_core::types::ShardId;
 
-use crate::borsh::maybestd::io::Cursor;
 use crate::hash::CryptoHash;
 use crate::types::{AccountId, NumShards};
 use std::collections::HashMap;
@@ -239,8 +236,9 @@ impl ShardLayout {
 pub fn account_id_to_shard_id(account_id: &AccountId, shard_layout: &ShardLayout) -> ShardId {
     match shard_layout {
         ShardLayout::V0(ShardLayoutV0 { num_shards, .. }) => {
-            let mut cursor = Cursor::new(hash(account_id.as_ref().as_bytes()).0);
-            cursor.read_u64::<LittleEndian>().expect("Must not happened") % (num_shards)
+            let hash = CryptoHash::hash_bytes(account_id.as_ref().as_bytes());
+            let (bytes, _) = stdx::split_array::<32, 8, 24>(hash.as_bytes());
+            u64::from_le_bytes(*bytes) % num_shards
         }
         ShardLayout::V1(ShardLayoutV1 { fixed_shards, boundary_accounts, .. }) => {
             for (shard_id, fixed_account) in fixed_shards.iter().enumerate() {

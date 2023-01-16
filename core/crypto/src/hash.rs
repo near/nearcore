@@ -62,13 +62,13 @@ impl<T: AsRef<[u8]> + ?Sized> Hashable for &T {
 
 impl Hashable for Point {
     fn hash_into<D: Update>(self, digest: D) -> D {
-        digest.chain(&self.pack())
+        digest.chain(self.pack())
     }
 }
 
 impl Hashable for Scalar {
     fn hash_into<D: Update>(self, digest: D) -> D {
-        digest.chain(&self.pack())
+        digest.chain(self.pack())
     }
 }
 
