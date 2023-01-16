@@ -1112,13 +1112,14 @@ mod tests {
     fn test_encode_decode() {
         fn test(node: RawTrieNode, encoded: &[u8]) {
             let mut buf = Vec::new();
+            let node = RawTrieNodeWithSize { node, memory_usage: 42 };
             node.encode_into(&mut buf);
             assert_eq!(encoded, buf.as_slice());
-            assert_eq!(node, RawTrieNode::decode(&buf).unwrap());
+            assert_eq!(node, RawTrieNodeWithSize::decode(&buf).unwrap());
 
             // Test that adding garbage at the end fails decoding.
             buf.push(b'!');
-            let got = RawTrieNode::decode(&buf);
+            let got = RawTrieNodeWithSize::decode(&buf);
             assert!(got.is_err(), "got: {got:?}");
         }
 
@@ -1128,7 +1129,16 @@ mod tests {
         let encoded = [
             0, 3, 0, 0, 0, 1, 2, 3, 3, 0, 0, 0, 194, 40, 8, 24, 64, 219, 69, 132, 86, 52, 110, 175,
             57, 198, 165, 200, 83, 237, 211, 11, 194, 83, 251, 33, 145, 138, 234, 226, 7, 242, 186,
-            73,
+            73, 42, 0, 0, 0, 0, 0, 0, 0,
+        ];
+        test(node, &encoded);
+
+        let mut children: [Option<CryptoHash>; 16] = Default::default();
+        children[3] = Some(Trie::EMPTY_ROOT);
+        let node = RawTrieNode::Branch(children, None);
+        let encoded = [
+            1, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 42, 0, 0, 0, 0, 0, 0, 0,
         ];
         test(node, &encoded);
 
@@ -1139,13 +1149,14 @@ mod tests {
             2, 3, 0, 0, 0, 194, 40, 8, 24, 64, 219, 69, 132, 86, 52, 110, 175, 57, 198, 165, 200,
             83, 237, 211, 11, 194, 83, 251, 33, 145, 138, 234, 226, 7, 242, 186, 73, 8, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            42, 0, 0, 0, 0, 0, 0, 0,
         ];
         test(node, &encoded);
 
         let node = RawTrieNode::Extension(vec![123, 245, 255], Trie::EMPTY_ROOT);
         let encoded = [
             3, 3, 0, 0, 0, 123, 245, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 42, 0, 0, 0, 0, 0, 0, 0,
         ];
         test(node, &encoded);
     }
