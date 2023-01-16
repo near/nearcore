@@ -4,17 +4,16 @@ use near_primitives_core::parameter::{FeeParameter, Parameter};
 use near_primitives_core::runtime::fees::{RuntimeFeesConfig, StorageUsageConfig};
 use num_rational::Rational;
 use serde::de::DeserializeOwned;
-use serde_json::json;
 use std::any::Any;
 use std::collections::BTreeMap;
 
 pub(crate) struct ParameterTable {
-    parameters: BTreeMap<Parameter, serde_json::Value>,
+    parameters: BTreeMap<Parameter, serde_yaml::Value>,
 }
 
 /// Changes made to parameters between versions.
 pub(crate) struct ParameterTableDiff {
-    parameters: BTreeMap<Parameter, (serde_json::Value, serde_json::Value)>,
+    parameters: BTreeMap<Parameter, (serde_yaml::Value, serde_yaml::Value)>,
 }
 
 /// Error returned by ParameterTable::from_txt() that parses a runtime
@@ -24,23 +23,21 @@ pub(crate) enum InvalidConfigError {
     #[error("could not parse `{1}` as a parameter")]
     UnknownParameter(#[source] strum::ParseError, String),
     #[error("could not parse `{1}` as a value")]
-    ValueParseError(#[source] serde_json::Error, String),
-    #[error("intermediate JSON created by parser does not match `RuntimeConfig`")]
-    WrongStructure(#[source] serde_json::Error),
+    ValueParseError(#[source] serde_yaml::Error, String),
     #[error("could not parse YAML that defines the structure of the config")]
     InvalidYaml(#[source] serde_yaml::Error),
-    #[error("config diff expected to contain old value `{1}` for parameter `{0}`")]
-    OldValueExists(Parameter, String),
+    #[error("config diff expected to contain old value `{1:?}` for parameter `{0}`")]
+    OldValueExists(Parameter, serde_yaml::Value),
     #[error(
-        "unexpected old value `{1}` for parameter `{0}` in config diff, previous version does not have such a value"
+        "unexpected old value `{1:?}` for parameter `{0}` in config diff, previous version does not have such a value"
     )]
-    NoOldValueExists(Parameter, String),
-    #[error("expected old value `{1}` but found `{2}` for parameter `{0}` in config diff")]
-    WrongOldValue(Parameter, String, String),
+    NoOldValueExists(Parameter, serde_yaml::Value),
+    #[error("expected old value `{1:?}` but found `{2:?}` for parameter `{0}` in config diff")]
+    WrongOldValue(Parameter, serde_yaml::Value, serde_yaml::Value),
     #[error("expected a value for `{0}` but found none")]
     MissingParameter(Parameter),
-    #[error("expected a value of type `{2}` for `{1}` but could not parse it from `{3}`")]
-    WrongValueType(#[source] serde_json::Error, Parameter, &'static str, String),
+    #[error("expected a value of type `{2}` for `{1}` but could not parse it from `{3:?}`")]
+    WrongValueType(#[source] serde_yaml::Error, Parameter, &'static str, serde_yaml::Value),
 }
 
 impl std::str::FromStr for ParameterTable {
@@ -100,8 +97,8 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                 },
                 grow_mem_cost: params.get_parsed(Parameter::WasmGrowMemCost)?,
                 regular_op_cost: params.get_parsed(Parameter::WasmRegularOpCost)?,
-                limit_config: serde_json::from_value(params.json_map(Parameter::vm_limits(), ""))
-                    .map_err(InvalidConfigError::WrongStructure)?,
+                limit_config: serde_yaml::from_value(params.yaml_map(Parameter::vm_limits(), ""))
+                    .map_err(InvalidConfigError::InvalidYaml)?,
             },
             account_creation_config: AccountCreationConfig {
                 min_allowed_top_level_account_length: params
@@ -120,24 +117,24 @@ impl ParameterTable {
         for (key, (before, after)) in diff.parameters {
             if before.is_null() {
                 match self.parameters.get(&key) {
-                    Some(serde_json::Value::Null) | None => {
+                    Some(serde_yaml::Value::Null) | None => {
                         self.parameters.insert(key, after);
                     }
                     Some(old_value) => {
-                        return Err(InvalidConfigError::OldValueExists(key, old_value.to_string()))
+                        return Err(InvalidConfigError::OldValueExists(key, old_value.clone()))
                     }
                 }
             } else {
                 match self.parameters.get(&key) {
-                    Some(serde_json::Value::Null) | None => {
-                        return Err(InvalidConfigError::NoOldValueExists(key, before.to_string()))
+                    Some(serde_yaml::Value::Null) | None => {
+                        return Err(InvalidConfigError::NoOldValueExists(key, before.clone()))
                     }
                     Some(old_value) => {
                         if *old_value != before {
                             return Err(InvalidConfigError::WrongOldValue(
                                 key,
-                                old_value.to_string(),
-                                before.to_string(),
+                                old_value.clone(),
+                                before.clone(),
                             ));
                         } else {
                             self.parameters.insert(key, after);
@@ -149,23 +146,23 @@ impl ParameterTable {
         Ok(())
     }
 
-    fn json_map(
+    fn yaml_map(
         &self,
         params: impl Iterator<Item = &'static Parameter>,
         remove_prefix: &'static str,
-    ) -> serde_json::Value {
-        let mut json = serde_json::Map::new();
+    ) -> serde_yaml::Value {
+        let mut yaml = serde_yaml::Mapping::new();
         for param in params {
             let mut key: &'static str = param.into();
             key = key.strip_prefix(remove_prefix).unwrap_or(key);
             if let Some(value) = self.get(*param) {
-                json.insert(key.to_owned(), value.clone());
+                yaml.insert(key.into(), value.clone());
             }
         }
-        json.into()
+        yaml.into()
     }
 
-    fn get(&self, key: Parameter) -> Option<&serde_json::Value> {
+    fn get(&self, key: Parameter) -> Option<&serde_yaml::Value> {
         self.parameters.get(&key)
     }
 
@@ -174,9 +171,9 @@ impl ParameterTable {
         &self,
         cost: near_primitives_core::config::ActionCosts,
     ) -> near_primitives_core::runtime::fees::Fee {
-        let json = self.fee_json(FeeParameter::from(cost));
-        serde_json::from_value::<near_primitives_core::runtime::fees::Fee>(json)
-            .expect("just constructed a Fee JSON")
+        let yaml = self.fee_yaml(FeeParameter::from(cost));
+        serde_yaml::from_value::<near_primitives_core::runtime::fees::Fee>(yaml)
+            .expect("just constructed a Fee YAML")
     }
 
     /// Read and parse a parameter from the `ParameterTable`.
@@ -185,12 +182,12 @@ impl ParameterTable {
         key: Parameter,
     ) -> Result<T, InvalidConfigError> {
         let value = self.parameters.get(&key).ok_or(InvalidConfigError::MissingParameter(key))?;
-        serde_json::from_value(value.clone()).map_err(|parse_err| {
+        serde_yaml::from_value(value.clone()).map_err(|parse_err| {
             InvalidConfigError::WrongValueType(
                 parse_err,
                 key,
                 std::any::type_name::<T>(),
-                value.to_string(),
+                value.clone(),
             )
         })
     }
@@ -198,23 +195,36 @@ impl ParameterTable {
     /// Read and parse a parameter from the `ParameterTable`.
     fn get_u128(&self, key: Parameter) -> Result<u128, InvalidConfigError> {
         let value = self.parameters.get(&key).ok_or(InvalidConfigError::MissingParameter(key))?;
-
-        near_primitives_core::serialize::dec_format::deserialize(value).map_err(|parse_err| {
-            InvalidConfigError::WrongValueType(
-                parse_err,
-                key,
-                std::any::type_name::<u128>(),
-                value.to_string(),
-            )
-        })
+        match value {
+            // Values larger than u64 are stored as quoted strings, so we parse them as YAML
+            // document to leverage deserialization to u128.
+            serde_yaml::Value::String(v) => serde_yaml::from_str(v).map_err(|parse_err| {
+                InvalidConfigError::WrongValueType(
+                    parse_err,
+                    key,
+                    std::any::type_name::<u128>(),
+                    value.clone(),
+                )
+            }),
+            // If the value is a number (or any other type), the usual conversion should work.
+            _ => serde_yaml::from_value(value.clone()).map_err(|parse_err| {
+                InvalidConfigError::WrongValueType(
+                    parse_err,
+                    key,
+                    std::any::type_name::<u128>(),
+                    value.clone(),
+                )
+            }),
+        }
     }
 
-    fn fee_json(&self, key: FeeParameter) -> serde_json::Value {
-        json!( {
-            "send_sir": self.get(format!("{key}_send_sir").parse().unwrap()),
-            "send_not_sir": self.get(format!("{key}_send_not_sir").parse().unwrap()),
-            "execution": self.get(format!("{key}_execution").parse().unwrap()),
-        })
+    fn fee_yaml(&self, key: FeeParameter) -> serde_yaml::Value {
+        serde_yaml::to_value(BTreeMap::from([
+            ("send_sir", self.get(format!("{key}_send_sir").parse().unwrap())),
+            ("send_not_sir", self.get(format!("{key}_send_not_sir").parse().unwrap())),
+            ("execution", self.get(format!("{key}_execution").parse().unwrap())),
+        ]))
+        .expect("failed to construct fee yaml")
     }
 }
 
@@ -241,13 +251,13 @@ impl std::str::FromStr for ParameterTableDiff {
                 let old_value = if let Some(s) = &value.old {
                     parse_parameter_txt_value(s)?
                 } else {
-                    serde_json::Value::Null
+                    serde_yaml::Value::Null
                 };
 
                 let new_value = if let Some(s) = &value.new {
                     parse_parameter_txt_value(s)?
                 } else {
-                    serde_json::Value::Null
+                    serde_yaml::Value::Null
                 };
 
                 Ok((typed_key, (old_value, new_value)))
@@ -261,9 +271,9 @@ impl std::str::FromStr for ParameterTableDiff {
 ///
 /// A value can be a positive integer or a string, both written without quotes.
 /// Integers can use underlines as separators (for readability).
-fn parse_parameter_txt_value(value: &str) -> Result<serde_json::Value, InvalidConfigError> {
+fn parse_parameter_txt_value(value: &str) -> Result<serde_yaml::Value, InvalidConfigError> {
     if value.is_empty() {
-        return Ok(serde_json::Value::Null);
+        return Ok(serde_yaml::Value::Null);
     }
     if value.bytes().all(|c| c.is_ascii_digit() || c == '_' as u8) {
         let mut raw_number = value.to_owned();
@@ -272,16 +282,13 @@ fn parse_parameter_txt_value(value: &str) -> Result<serde_json::Value, InvalidCo
         // can only store up to `u64::MAX`, which is `18446744073709551615` and
         // has 20 characters.
         if raw_number.len() < 20 {
-            Ok(serde_json::Value::Number(
-                raw_number
-                    .parse()
-                    .map_err(|err| InvalidConfigError::ValueParseError(err, value.to_owned()))?,
-            ))
+            serde_yaml::from_str(&raw_number)
+                .map_err(|err| InvalidConfigError::ValueParseError(err, value.to_owned()))
         } else {
-            Ok(serde_json::Value::String(raw_number))
+            Ok(serde_yaml::Value::String(raw_number))
         }
     } else {
-        Ok(serde_json::Value::String(value.to_owned()))
+        Ok(serde_yaml::Value::String(value.to_owned()))
     }
 }
 
@@ -308,9 +315,9 @@ mod tests {
             (
                 param,
                 if value.is_empty() {
-                    serde_json::Value::Null
+                    serde_yaml::Value::Null
                 } else {
-                    serde_json::from_str(value).expect("Test data has invalid JSON")
+                    serde_yaml::from_str(value).expect("Test data has invalid YAML")
                 },
             )
         }));
@@ -533,8 +540,8 @@ max_memory_pages: { new: 512 }
                 expected,
                 found
             ) => {
-                assert_eq!(expected, "3200000000");
-                assert_eq!(found, "3200000");
+                assert_eq!(expected, serde_yaml::to_value(3200000000i64).unwrap());
+                assert_eq!(found, serde_yaml::to_value(3200000).unwrap());
             }
         );
     }
@@ -547,7 +554,7 @@ max_memory_pages: { new: 512 }
                 &["min_allowed_top_level_account_length: { new: 1_600_000 }"]
             ),
             InvalidConfigError::OldValueExists(Parameter::MinAllowedTopLevelAccountLength, expected) => {
-                assert_eq!(expected, "3200000000");
+                assert_eq!(expected, serde_yaml::to_value(3200000000i64).unwrap());
             }
         );
     }
@@ -560,7 +567,7 @@ max_memory_pages: { new: 512 }
                 &["wasm_regular_op_cost: { old: 3_200_000, new: 1_600_000 }"]
             ),
             InvalidConfigError::NoOldValueExists(Parameter::WasmRegularOpCost, found) => {
-                assert_eq!(found, "3200000");
+                assert_eq!(found, serde_yaml::to_value(3200000).unwrap());
             }
         );
     }
