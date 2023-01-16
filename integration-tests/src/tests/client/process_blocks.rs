@@ -72,7 +72,7 @@ use near_primitives::views::{
     BlockHeaderView, FinalExecutionStatus, QueryRequest, QueryResponseKind,
 };
 use near_store::test_utils::create_test_store;
-use near_store::{get, DBCol, TrieChanges};
+use near_store::{get, DBCol, Store, TrieChanges};
 use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use nearcore::NEAR_BASE;
 use rand::prelude::StdRng;
@@ -90,15 +90,15 @@ pub fn set_block_protocol_version(
 }
 
 pub fn create_nightshade_runtimes(genesis: &Genesis, n: usize) -> Vec<Arc<dyn RuntimeAdapter>> {
-    (0..n)
-        .map(|_| {
-            Arc::new(nearcore::NightshadeRuntime::test(
-                Path::new("../../../.."),
-                create_test_store(),
-                genesis,
-            )) as Arc<dyn RuntimeAdapter>
-        })
-        .collect()
+    (0..n).map(|_| create_nightshade_runtime_with_store(genesis, &create_test_store())).collect()
+}
+
+pub fn create_nightshade_runtime_with_store(
+    genesis: &Genesis,
+    store: &Store,
+) -> Arc<dyn RuntimeAdapter> {
+    Arc::new(nearcore::NightshadeRuntime::test(Path::new("../../../.."), store.clone(), genesis))
+        as Arc<dyn RuntimeAdapter>
 }
 
 /// Produce `blocks_number` block in the given environment, starting from the given height.
