@@ -547,7 +547,7 @@ fn out_of_gas_function_call_byte() {
 }
 
 /// function to trigger base + 40 bytes function call action costs (40 is 26 +
-/// 14  which are arbitrary)
+/// 14 which are arbitrary)
 fn cross_contract_call(logic: &mut VMLogic) -> Result<(), VMLogicError> {
     let account_id = "rick.test";
     let idx = promise_batch_create(logic, account_id)?;
@@ -699,7 +699,7 @@ fn out_of_gas_add_function_call_key_byte() {
 }
 
 /// function to trigger base + 7 bytes action costs for adding a new function
-/// call access key to an accont (7 is arbitrary)
+/// call access key to an account (7 is arbitrary)
 fn promise_function_key(logic: &mut VMLogic) -> Result<(), VMLogicError> {
     let account_id = "alice.test";
     let idx = promise_batch_create(logic, account_id)?;
