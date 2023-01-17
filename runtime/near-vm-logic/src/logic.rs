@@ -383,13 +383,14 @@ impl<'a> VMLogic<'a> {
     fn get_nul_terminated_utf16_len(&mut self, ptr: u64, max_len: u64) -> Result<u64> {
         let mut len = 0;
         loop {
-            if self.memory.get_u16(&mut self.gas_counter, ptr + len)? == 0 {
+            if self.memory.get_u16(&mut self.gas_counter, ptr.saturating_add(len))? == 0 {
                 return Ok(len);
             }
-            len += 2;
-            if len > max_len {
-                return self.total_log_length_exceeded(len);
-            }
+            len = match len.checked_add(2) {
+                Some(len) if len <= max_len => len,
+                Some(len) => return self.total_log_length_exceeded(len),
+                None => return self.total_log_length_exceeded(u64::MAX),
+            };
         }
     }
 
