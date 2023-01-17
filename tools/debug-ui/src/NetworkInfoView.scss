@@ -1,6 +1,4 @@
 .network-info-view {
-    padding: 10px;
-
     .error {
         color: red;
     }
@@ -27,36 +25,5 @@
         vertical-align: center;
         padding: 8px;
         background-color: lightgrey;
-    }
-
-    tr.active {
-        background-color: #eff8bf;
-    }
-
-    .peer_in_sync {
-        background-color: green;
-        color: white;
-    }
-
-    .peer_ahead {
-        background-color: lightblue;
-    }
-
-    .peer_ahead_alot {
-        background-color: blueviolet;
-        color: white;
-    }
-
-    .peer_behind_a_little {
-        background-color: yellowgreen;
-    }
-
-    .peer_behind {
-        background-color: yellow;
-    }
-
-    .peer_far_behind {
-        background-color: red;
-        color: white;
     }
 }
