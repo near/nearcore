@@ -61,6 +61,7 @@ pub(crate) struct ContractAccountIterator<'a> {
 impl<'a> ContractAccountIterator<'a> {
     pub(crate) fn new(trie: &'a Trie) -> anyhow::Result<Self> {
         let mut trie_iter = trie.iter()?;
+        // TODO(#8376): Consider changing the interface to TrieKey to make this easier.
         // `TrieKey::ContractCode` requires a valid `AccountId`, we use "xx"
         let key = TrieKey::ContractCode { account_id: "xx".parse()? }.to_vec();
         let (prefix, suffix) = key.split_at(key.len() - 2);
