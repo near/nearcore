@@ -5,7 +5,6 @@ use crate::network_protocol::{
 };
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
-use crate::peer_manager::peer_manager_actor::Event;
 use crate::tcp;
 use crate::time;
 use crate::types::PeerType;
@@ -160,7 +159,6 @@ impl super::NetworkState {
             requesting_full_sync: false,
             accounts_data: vec![new_data.clone()],
         })));
-        self.config.event_sink.push(Event::Tier1AdvertiseProxies(new_data.clone()));
         Some(new_data)
     }
 

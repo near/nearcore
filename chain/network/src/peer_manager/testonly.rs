@@ -320,7 +320,7 @@ impl ActorHandler {
     pub async fn tier1_advertise_proxies(
         &self,
         clock: &time::Clock,
-    ) -> Vec<Arc<SignedAccountData>> {
+    ) -> Option<Arc<SignedAccountData>> {
         let clock = clock.clone();
         self.with_state(move |s| async move { s.tier1_advertise_proxies(&clock).await }).await
     }

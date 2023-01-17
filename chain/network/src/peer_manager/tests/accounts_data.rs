@@ -146,7 +146,7 @@ async fn gradual_epoch_change() {
         );
 
         let mut want = HashSet::new();
-        // Advance epoch in the given order.
+        tracing::info!(target:"test", "advance epoch in the given order.");
         for id in ids {
             pms[id].set_chain_info(chain_info.clone()).await;
             // In this tests each node is its own proxy, so it can immediately
@@ -156,7 +156,7 @@ async fn gradual_epoch_change() {
             // would be able to connect to B and advertise B as proxy afterwards.
             want.extend(pms[id].tier1_advertise_proxies(&clock.clock()).await);
         }
-        // Wait for data to arrive.
+        tracing::info!(target:"test", "wait for data to arrive.");
         for pm in &mut pms {
             pm.wait_for_accounts_data(&want).await;
         }
