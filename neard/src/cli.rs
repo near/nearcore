@@ -540,7 +540,7 @@ async fn wait_for_interrupt_signal(_home_dir: &Path, rx_crash: &mut Receiver<()>
             "SIGHUP"
          },
          _ = rx_crash.recv() => "ClientActor died",
-    };
+    }
 }
 
 #[derive(Parser)]

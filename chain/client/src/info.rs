@@ -278,7 +278,7 @@ impl InfoHelper {
             rocksdb_metrics::export_stats_as_metrics(statistics);
         }
         if let Some(config_updater) = &config_updater {
-            config_updater.log_error();
+            config_updater.report_status();
         }
         let (cpu_usage, memory_usage) = proc_info.unwrap_or_default();
         let is_validator = validator_info.map(|v| v.is_validator).unwrap_or_default();
