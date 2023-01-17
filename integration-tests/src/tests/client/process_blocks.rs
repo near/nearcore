@@ -1377,6 +1377,7 @@ fn test_bad_chunk_mask() {
                     encoded_chunk.clone(),
                     merkle_paths.clone(),
                     receipts.clone(),
+                    client.validator_signer.as_ref().unwrap().validator_id().clone(),
                 )
                 .unwrap();
         }
@@ -2305,8 +2306,9 @@ fn test_validate_chunk_extra() {
     let mut chain_store =
         ChainStore::new(env.clients[0].chain.store().store().clone(), genesis_height, true);
     let chunk_header = encoded_chunk.cloned_header();
+    let validator_id = env.clients[0].validator_signer.as_ref().unwrap().validator_id().clone();
     env.clients[0]
-        .persist_and_distribute_encoded_chunk(encoded_chunk, merkle_paths, receipts)
+        .persist_and_distribute_encoded_chunk(encoded_chunk, merkle_paths, receipts, validator_id)
         .unwrap();
     env.clients[0].chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());
     env.clients[0].process_blocks_with_missing_chunks(Arc::new(|_| {}));
@@ -2772,11 +2774,14 @@ fn test_epoch_protocol_version_change() {
             create_chunk_on_height(&mut env.clients[index], i);
 
         for j in 0..2 {
+            let validator_id =
+                env.clients[j].validator_signer.as_ref().unwrap().validator_id().clone();
             env.clients[j]
                 .persist_and_distribute_encoded_chunk(
                     encoded_chunk.clone(),
                     merkle_paths.clone(),
                     receipts.clone(),
+                    validator_id,
                 )
                 .unwrap();
         }

@@ -25,11 +25,12 @@ We store the database in RocksDB. This document is an attempt to give hints abou
 - Contract deployments happen with `Column = 0x01`
 - `AdditionalInfo` is the account id for which the contract is being deployed
 - The key value contains the contract code alongside other pieces of data. It is possible to extract the contract code by removing everything until the wasm magic number, 0061736D01000000
-- As such, it is possible to dump all the contracts that were ever deployed on-chain using this command:
+- As such, it is possible to dump all the contracts that were ever deployed on-chain using this command on an archival node:
   ```
-  ldb --db=. scan --column_family=col35 --hex | \
+  ldb --db=~/.near/data scan --column_family=col35 --hex | \
       grep -E '^0x.{64}01' | \
-      sed 's/^.*0061736D01000000/0061736D01000000/' | \
+      sed 's/0061736D01000000/x/' | \
+      sed 's/^.*x/0061736D01000000/' | \
       grep -v ' : '
   ```
   (Note that the last grep is required because not every such value appears to contain contract code)
