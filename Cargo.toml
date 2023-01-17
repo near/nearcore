@@ -105,7 +105,7 @@ crossbeam-channel = "0.5"
 csv = "1.1.1"
 curve25519-dalek = "3"
 derive_more = "0.99.9"
-dirs = "3"
+dirs = "4"
 easy-ext = "0.2"
 ed25519-dalek = "1"
 elastic-array = "0.11"
@@ -163,6 +163,7 @@ reqwest = { version = "0.11.0", features = ["blocking"] }
 ripemd = "0.1.1"
 rlimit = "0.7"
 rocksdb = { version = "0.19.0", default-features = false, features = ["snappy", "lz4", "zstd", "zlib", "jemalloc"] }
+rust-s3 = { version = "0.32.3", features = ["blocking"] }
 rusqlite = {version = "0.27.0", features = ["bundled", "chrono", "functions"] }
 secp256k1 = { version = "0.24", features = ["recovery", "rand-std"] }
 semver = "1.0.4"
@@ -170,6 +171,7 @@ serde = { version = "1.0.136", features = ["alloc", "derive", "rc"] }
 serde_ignored = "0.1"
 serde_json = "1.0.68"
 serde_repr = "0.1.8"
+serde_yaml = "0.8.26"
 sha2 = "0.10"
 sha3 = "0.10"
 shell-escape = "0.1.5"
@@ -184,7 +186,7 @@ tempfile = "3.3"
 thiserror = "1.0.30"
 tikv-jemallocator = "0.5.0"
 time = "0.3.9"
-tokio = { version = "1.16.1", features = ["fs", "macros", "net", "rt-multi-thread", "sync", "time"] }
+tokio = { version = "~1.18", features = ["fs", "macros", "net", "rt-multi-thread", "sync", "time"] }
 tokio-stream = { version = "0.1.2", features = ["net"] }
 tokio-util = { version = "0.7.1", features = ["codec", "io"] }
 toml = "0.5.8"
@@ -198,7 +200,7 @@ wasm-encoder = "0.11.0"
 wasm-smith = "0.10"
 wasmparser = "0.78"
 wasmprinter = "0.2"
-wasmtime = { version = "0.37.0", default-features = false, features = ["cranelift", "wasm-backtrace"] }
+wasmtime = { version = "4.0.0", default-features = false, features = ["cranelift"] }
 wat = "1.0.40"
 xshell = "0.2.1"
 xz2 = "0.1.6"
@@ -240,4 +242,4 @@ opt-level = 3
 [workspace.package]
 edition = "2021"
 authors = ["Near Inc <hello@nearprotocol.com>"]
-rust-version = "1.66.0"
+rust-version = "1.66.1"

@@ -8,7 +8,7 @@ use near_primitives::account::id::AccountId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{BlockHeight, ShardId};
-use near_store::{Mode, Store};
+use near_store::{Mode, NodeStorage, Store, Temperature};
 use nearcore::{load_config, NearConfig};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -39,6 +39,9 @@ pub enum StateViewerSubCommand {
     CheckBlock,
     /// Looks up a certain chunk.
     Chunks(ChunksCmd),
+    /// List account names with contracts deployed.
+    #[clap(alias = "contract_accounts")]
+    ContractAccounts(ContractAccountsCmd),
     /// Dump contract data in storage of given account to binary file.
     #[clap(alias = "dump_account_storage")]
     DumpAccountStorage(DumpAccountStorageCmd),
@@ -82,37 +85,53 @@ pub enum StateViewerSubCommand {
 }
 
 impl StateViewerSubCommand {
-    pub fn run(self, home_dir: &Path, genesis_validation: GenesisValidationMode, mode: Mode) {
+    pub fn run(
+        self,
+        home_dir: &Path,
+        genesis_validation: GenesisValidationMode,
+        mode: Mode,
+        temperature: Temperature,
+    ) {
         let near_config = load_config(home_dir, genesis_validation)
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
+
+        #[cfg(feature = "cold_store")]
+        let cold_store_config: Option<&near_store::StoreConfig> =
+            near_config.config.cold_store.as_ref();
+        #[cfg(not(feature = "cold_store"))]
+        let cold_store_config: Option<std::convert::Infallible> = None;
+
         let store_opener =
-            near_store::NodeStorage::opener(home_dir, &near_config.config.store, None);
-        let store = store_opener.open_in_mode(mode).unwrap();
-        let hot = store.get_store(near_store::Temperature::Hot);
+            NodeStorage::opener(home_dir, &near_config.config.store, cold_store_config);
+
+        let storage = store_opener.open_in_mode(mode).unwrap();
+        let store = storage.get_store(temperature);
+        let db = storage.into_inner(temperature);
         match self {
-            StateViewerSubCommand::Apply(cmd) => cmd.run(home_dir, near_config, hot),
-            StateViewerSubCommand::ApplyChunk(cmd) => cmd.run(home_dir, near_config, hot),
-            StateViewerSubCommand::ApplyRange(cmd) => cmd.run(home_dir, near_config, hot),
-            StateViewerSubCommand::ApplyReceipt(cmd) => cmd.run(home_dir, near_config, hot),
-            StateViewerSubCommand::ApplyTx(cmd) => cmd.run(home_dir, near_config, hot),
-            StateViewerSubCommand::Chain(cmd) => cmd.run(home_dir, near_config, hot),
-            StateViewerSubCommand::CheckBlock => check_block_chunk_existence(near_config, hot),
-            StateViewerSubCommand::Chunks(cmd) => cmd.run(near_config, hot),
-            StateViewerSubCommand::DumpAccountStorage(cmd) => cmd.run(home_dir, near_config, hot),
-            StateViewerSubCommand::DumpCode(cmd) => cmd.run(home_dir, near_config, hot),
-            StateViewerSubCommand::DumpState(cmd) => cmd.run(home_dir, near_config, hot),
-            StateViewerSubCommand::DumpStateParts(cmd) => cmd.run(home_dir, near_config, hot),
-            StateViewerSubCommand::DumpStateRedis(cmd) => cmd.run(home_dir, near_config, hot),
-            StateViewerSubCommand::DumpTx(cmd) => cmd.run(home_dir, near_config, hot),
-            StateViewerSubCommand::EpochInfo(cmd) => cmd.run(home_dir, near_config, hot),
-            StateViewerSubCommand::PartialChunks(cmd) => cmd.run(near_config, hot),
-            StateViewerSubCommand::Peers => peers(store),
-            StateViewerSubCommand::Receipts(cmd) => cmd.run(near_config, hot),
-            StateViewerSubCommand::Replay(cmd) => cmd.run(home_dir, near_config, hot),
+            StateViewerSubCommand::Apply(cmd) => cmd.run(home_dir, near_config, store),
+            StateViewerSubCommand::ApplyChunk(cmd) => cmd.run(home_dir, near_config, store),
+            StateViewerSubCommand::ApplyRange(cmd) => cmd.run(home_dir, near_config, store),
+            StateViewerSubCommand::ApplyReceipt(cmd) => cmd.run(home_dir, near_config, store),
+            StateViewerSubCommand::ApplyTx(cmd) => cmd.run(home_dir, near_config, store),
+            StateViewerSubCommand::Chain(cmd) => cmd.run(home_dir, near_config, store),
+            StateViewerSubCommand::CheckBlock => check_block_chunk_existence(near_config, store),
+            StateViewerSubCommand::Chunks(cmd) => cmd.run(near_config, store),
+            StateViewerSubCommand::ContractAccounts(cmd) => cmd.run(home_dir, near_config, store),
+            StateViewerSubCommand::DumpAccountStorage(cmd) => cmd.run(home_dir, near_config, store),
+            StateViewerSubCommand::DumpCode(cmd) => cmd.run(home_dir, near_config, store),
+            StateViewerSubCommand::DumpState(cmd) => cmd.run(home_dir, near_config, store),
+            StateViewerSubCommand::DumpStateParts(cmd) => cmd.run(home_dir, near_config, store),
+            StateViewerSubCommand::DumpStateRedis(cmd) => cmd.run(home_dir, near_config, store),
+            StateViewerSubCommand::DumpTx(cmd) => cmd.run(home_dir, near_config, store),
+            StateViewerSubCommand::EpochInfo(cmd) => cmd.run(home_dir, near_config, store),
+            StateViewerSubCommand::PartialChunks(cmd) => cmd.run(near_config, store),
+            StateViewerSubCommand::Peers => peers(db),
+            StateViewerSubCommand::Receipts(cmd) => cmd.run(near_config, store),
+            StateViewerSubCommand::Replay(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::RocksDBStats(cmd) => cmd.run(store_opener.path()),
-            StateViewerSubCommand::State => state(home_dir, near_config, hot),
-            StateViewerSubCommand::ViewChain(cmd) => cmd.run(near_config, hot),
-            StateViewerSubCommand::ViewTrie(cmd) => cmd.run(hot),
+            StateViewerSubCommand::State => state(home_dir, near_config, store),
+            StateViewerSubCommand::ViewChain(cmd) => cmd.run(near_config, store),
+            StateViewerSubCommand::ViewTrie(cmd) => cmd.run(store),
         }
     }
 }
@@ -246,6 +265,18 @@ impl ChunksCmd {
 }
 
 #[derive(Parser)]
+pub struct ContractAccountsCmd {
+    // TODO: add filter options, e.g. only contracts that execute certain
+    // actions
+}
+
+impl ContractAccountsCmd {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+        contract_accounts(home_dir, store, near_config).unwrap();
+    }
+}
+
+#[derive(Parser)]
 pub struct DumpAccountStorageCmd {
     #[clap(long)]
     account_id: String,
@@ -342,11 +373,27 @@ pub struct DumpStatePartsCmd {
     part_id: Option<u64>,
     /// Where to write the state parts to.
     #[clap(long)]
-    output_dir: PathBuf,
+    output_dir: Option<PathBuf>,
+    /// S3 bucket to store state parts.
+    #[clap(long)]
+    s3_bucket: Option<String>,
+    /// S3 region to store state parts.
+    #[clap(long)]
+    s3_region: Option<String>,
 }
 
 impl DumpStatePartsCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+        assert_eq!(
+            self.s3_bucket.is_some(),
+            self.s3_region.is_some(),
+            "Need to provide either both or none of --s3-bucket and --s3-region"
+        );
+        let s3 = if let Some(s3_bucket) = self.s3_bucket {
+            Some((s3_bucket, self.s3_region.unwrap()))
+        } else {
+            None
+        };
         dump_state_parts(
             self.epoch_selection,
             self.shard_id,
@@ -354,7 +401,8 @@ impl DumpStatePartsCmd {
             home_dir,
             near_config,
             store,
-            &self.output_dir,
+            self.output_dir,
+            s3,
         );
     }
 }
@@ -494,14 +542,50 @@ impl ViewChainCmd {
     }
 }
 
+pub enum ViewTrieFormat {
+    Full,
+    Pretty,
+}
+
+impl std::str::FromStr for ViewTrieFormat {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, String> {
+        let s = s.to_lowercase();
+        match s.as_str() {
+            "full" => Ok(ViewTrieFormat::Full),
+            "pretty" => Ok(ViewTrieFormat::Pretty),
+            _ => Err(String::from(format!("invalid view trie format string {s}"))),
+        }
+    }
+}
+
 #[derive(Parser)]
 pub struct ViewTrieCmd {
+    /// The format of the output. This can be either `full` or `pretty`.
+    /// The full format will print all the trie nodes and can be rooted anywhere in the trie.
+    /// The pretty format will only print leaf nodes and must be rooted in the state root but is more human friendly.
+    #[clap(long, default_value = "pretty")]
+    format: ViewTrieFormat,
+    /// The hash of the trie node.
+    /// For format=full this can be any node in the trie.
+    /// For format=pretty this must the state root node.
+    /// You can find the state root hash using the `view-state view-chain` command.
     #[clap(long)]
     hash: String,
+    /// The id of the shard, a number between [0-NUM_SHARDS). When looking for particular
+    /// account you will need to know on which shard it's located.
     #[clap(long)]
     shard_id: u32,
+    /// The current shard version based on the shard layout.
+    /// You can find the shard version by using the `view-state view-chain` command.
+    /// It's typically equal to 0 for single shard localnet or the most recent near_primitives::shard_layout::ShardLayout for prod.
     #[clap(long)]
     shard_version: u32,
+    /// The max depth of trie iteration. It's recommended to keep that value small,
+    /// otherwise the output may be really large.
+    /// For format=full this measures depth in terms of number of trie nodes.
+    /// For format=pretty this measures depth in terms of key nibbles.
     #[clap(long)]
     max_depth: u32,
 }
@@ -509,6 +593,15 @@ pub struct ViewTrieCmd {
 impl ViewTrieCmd {
     pub fn run(self, store: Store) {
         let hash = CryptoHash::from_str(&self.hash).unwrap();
-        view_trie(store, hash, self.shard_id, self.shard_version, self.max_depth).unwrap();
+
+        match self.format {
+            ViewTrieFormat::Full => {
+                view_trie(store, hash, self.shard_id, self.shard_version, self.max_depth).unwrap();
+            }
+            ViewTrieFormat::Pretty => {
+                view_trie_leaves(store, hash, self.shard_id, self.shard_version, self.max_depth)
+                    .unwrap();
+            }
+        }
     }
 }

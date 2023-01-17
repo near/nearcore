@@ -10,7 +10,7 @@ use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{BlockHeight, EpochHeight, ShardId};
 use near_store::Store;
 use nearcore::{NearConfig, NightshadeRuntime};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Instant;
@@ -108,7 +108,8 @@ pub(crate) fn dump_state_parts(
     home_dir: &Path,
     near_config: NearConfig,
     store: Store,
-    output_dir: &Path,
+    output_dir: Option<PathBuf>,
+    s3_bucket_and_region: Option<(String, String)>,
 ) {
     let runtime_adapter: Arc<dyn RuntimeAdapter> =
         Arc::new(NightshadeRuntime::from_config(home_dir, store.clone(), &near_config));
@@ -148,7 +149,19 @@ pub(crate) fn dump_state_parts(
         "Dumping state as seen at the beginning of the specified epoch.",
     );
 
-    std::fs::create_dir_all(output_dir).unwrap();
+    let part_storage: Box<dyn StatePartRecorder> = if let Some(output_dir) = output_dir {
+        Box::new(FileSystemStorage::new(output_dir))
+    } else {
+        let (s3_bucket, s3_region) = s3_bucket_and_region.unwrap();
+        Box::new(S3Storage::new(
+            &s3_bucket,
+            &s3_region,
+            &near_config.client_config.chain_id,
+            epoch.epoch_height(),
+            shard_id,
+        ))
+    };
+
     for part_id in if let Some(part_id) = part_id { part_id..part_id + 1 } else { 0..num_parts } {
         let now = Instant::now();
         assert!(part_id < num_parts, "part_id: {}, num_parts: {}", part_id, num_parts);
@@ -160,14 +173,70 @@ pub(crate) fn dump_state_parts(
                 PartId::new(part_id, num_parts),
             )
             .unwrap();
-        let filename = output_dir.join(format!("state_part_{:06}", part_id));
-        let len = state_part.len();
+        part_storage.store(&state_part, part_id, now);
+    }
+}
+
+trait StatePartRecorder {
+    fn store(&self, state_part: &[u8], part_id: u64, timer: Instant);
+}
+
+struct FileSystemStorage {
+    output_dir: PathBuf,
+}
+
+impl FileSystemStorage {
+    fn new(output_dir: PathBuf) -> Self {
+        std::fs::create_dir_all(&output_dir).unwrap();
+        Self { output_dir }
+    }
+}
+
+impl StatePartRecorder for FileSystemStorage {
+    fn store(&self, state_part: &[u8], part_id: u64, timer: Instant) {
+        let filename = self.output_dir.join(format!("state_part_{:06}", part_id));
         std::fs::write(&filename, state_part).unwrap();
-        tracing::info!(
-            target: "dump-state-parts",
-            part_id,
-            part_length = len,
-            ?filename,
-            elapsed_sec = now.elapsed().as_secs_f64());
+        let len = state_part.len();
+        tracing::info!(target: "dump-state-parts", part_id, part_length = len, ?filename, elapsed_sec = timer.elapsed().as_secs_f64(), "Wrote a state part on disk");
+    }
+}
+
+struct S3Storage {
+    prefix: String,
+    bucket: s3::Bucket,
+}
+
+impl S3Storage {
+    fn new(
+        s3_bucket: &str,
+        s3_region: &str,
+        chain_id: &str,
+        epoch_height: u64,
+        shard_id: u64,
+    ) -> Self {
+        let prefix =
+            format!("/chain_id={}/epoch_height={}/shard_id={}", chain_id, epoch_height, shard_id);
+        let bucket = s3::Bucket::new(
+            &s3_bucket,
+            s3_region.parse().unwrap(),
+            s3::creds::Credentials::default().unwrap(),
+        )
+        .unwrap();
+
+        tracing::info!(target: "dump-state-parts", s3_bucket, s3_region, prefix, "Initialized an S3 bucket");
+        Self { prefix, bucket }
+    }
+
+    fn get_location(&self, part_id: u64) -> String {
+        format!("{}/state_part_{:06}", self.prefix, part_id)
+    }
+}
+
+impl StatePartRecorder for S3Storage {
+    fn store(&self, state_part: &[u8], part_id: u64, timer: Instant) {
+        let location = self.get_location(part_id);
+        self.bucket.put_object_blocking(&location, &state_part).unwrap();
+        let len = state_part.len();
+        tracing::info!(target: "dump-state-parts", part_id, part_length = len, ?location, elapsed_sec = timer.elapsed().as_secs_f64(), "Wrote a state part to S3");
     }
 }

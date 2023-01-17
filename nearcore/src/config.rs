@@ -55,9 +55,6 @@ pub const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
 /// Millinear, 1/1000 of NEAR.
 pub const MILLI_NEAR: Balance = NEAR_BASE / 1000;
 
-/// Attonear, 1/10^18 of NEAR.
-pub const ATTO_NEAR: Balance = 1;
-
 /// Block production tracking delay.
 pub const BLOCK_PRODUCTION_TRACKING_DELAY: u64 = 100;
 
@@ -617,6 +614,7 @@ impl NearConfig {
                 max_gas_burnt_view: config.max_gas_burnt_view,
                 enable_statistics_export: config.store.enable_statistics_export,
                 client_background_migration_threads: config.store.background_migration_threads,
+                flat_storage_creation_period: config.store.flat_storage_creation_period,
             },
             network_config: NetworkConfig::new(
                 config.network,

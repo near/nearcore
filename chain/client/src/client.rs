@@ -19,6 +19,7 @@ use near_chain::chain::{
     ApplyStatePartsRequest, BlockCatchUpRequest, BlockMissingChunks, BlocksCatchUpState,
     OrphanMissingChunks, StateSplitRequest, TX_ROUTING_HEIGHT_HORIZON,
 };
+use near_chain::flat_storage_creator::FlatStorageCreator;
 use near_chain::test_utils::format_hash;
 use near_chain::types::{ChainConfig, LatestKnown};
 use near_chain::{
@@ -100,7 +101,6 @@ pub struct Client {
     pub doomslug: Doomslug,
     pub runtime_adapter: Arc<dyn RuntimeAdapter>,
     pub shards_mgr: ShardsManager,
-    me: Option<AccountId>,
     pub sharded_tx_pool: ShardedTransactionPool,
     prev_block_to_chunk_headers_ready_for_inclusion: LruCache<
         CryptoHash,
@@ -145,6 +145,8 @@ pub struct Client {
     /// Cached precomputed set of TIER1 accounts.
     /// See send_network_chain_info().
     tier1_accounts_cache: Option<(EpochId, Arc<AccountKeys>)>,
+    /// Used when it is needed to create flat storage in background for some shards.
+    flat_storage_creator: Option<FlatStorageCreator>,
 }
 
 // Debug information about the upcoming block.
@@ -187,16 +189,24 @@ impl Client {
         } else {
             DoomslugThresholdMode::NoApprovals
         };
+        let chain_config = ChainConfig {
+            save_trie_changes: !config.archive,
+            background_migration_threads: config.client_background_migration_threads,
+        };
         let chain = Chain::new(
             runtime_adapter.clone(),
             &chain_genesis,
             doomslug_threshold_mode,
-            ChainConfig {
-                save_trie_changes: config.save_trie_changes,
-                background_migration_threads: config.client_background_migration_threads,
-            },
+            chain_config.clone(),
         )?;
         let me = validator_signer.as_ref().map(|x| x.validator_id().clone());
+        // Create flat storage or initiate migration to flat storage.
+        let flat_storage_creator = FlatStorageCreator::new(
+            me.as_ref(),
+            runtime_adapter.clone(),
+            chain.store(),
+            chain_config.background_migration_threads,
+        );
         let shards_mgr = ShardsManager::new(
             me.clone(),
             runtime_adapter.clone(),
@@ -263,7 +273,6 @@ impl Client {
             doomslug,
             runtime_adapter,
             shards_mgr,
-            me,
             sharded_tx_pool,
             prev_block_to_chunk_headers_ready_for_inclusion: LruCache::new(
                 CHUNK_HEADERS_FOR_INCLUSION_CACHE_SIZE,
@@ -286,6 +295,7 @@ impl Client {
             block_production_info: BlockProductionTracker::new(),
             chunk_production_info: lru::LruCache::new(PRODUCTION_TIMES_CACHE_SIZE),
             tier1_accounts_cache: None,
+            flat_storage_creator,
         })
     }
 
@@ -1062,7 +1072,12 @@ impl Client {
                 Ok(())
             }
             Err(e) if e.is_bad_data() => {
-                self.ban_peer(peer_id.clone(), ReasonForBan::BadBlockHeader);
+                // We don't ban a peer if the block timestamp is too much in the future since it's possible
+                // that a block is considered valid in one machine and invalid in another machine when their
+                // clocks are not synced.
+                if !matches!(e, near_chain::Error::InvalidBlockFutureTime(_)) {
+                    self.ban_peer(peer_id.clone(), ReasonForBan::BadBlockHeader);
+                }
                 Err(e)
             }
             Err(_) => {
@@ -1453,14 +1468,12 @@ impl Client {
         if let Some(validator_signer) = self.validator_signer.clone() {
             // Reconcile the txpool against the new block *after* we have broadcast it too our peers.
             // This may be slow and we do not want to delay block propagation.
+            let validator_id = validator_signer.validator_id().clone();
             match status {
                 BlockStatus::Next => {
                     // If this block immediately follows the current tip, remove transactions
                     //    from the txpool
-                    self.remove_transactions_for_block(
-                        validator_signer.validator_id().clone(),
-                        &block,
-                    );
+                    self.remove_transactions_for_block(validator_id.clone(), &block);
                 }
                 BlockStatus::Fork => {
                     // If it's a fork, no need to reconcile transactions or produce chunks
@@ -1501,20 +1514,14 @@ impl Client {
                     for to_reintroduce_hash in to_reintroduce {
                         if let Ok(block) = self.chain.get_block(&to_reintroduce_hash) {
                             let block = block.clone();
-                            self.reintroduce_transactions_for_block(
-                                validator_signer.validator_id().clone(),
-                                &block,
-                            );
+                            self.reintroduce_transactions_for_block(validator_id.clone(), &block);
                         }
                     }
 
                     for to_remove_hash in to_remove {
                         if let Ok(block) = self.chain.get_block(&to_remove_hash) {
                             let block = block.clone();
-                            self.remove_transactions_for_block(
-                                validator_signer.validator_id().clone(),
-                                &block,
-                            );
+                            self.remove_transactions_for_block(validator_id.clone(), &block);
                         }
                     }
                 }
@@ -1535,7 +1542,7 @@ impl Client {
                         .get_chunk_producer(&epoch_id, block.header().height() + 1, shard_id)
                         .unwrap();
 
-                    if chunk_proposer == *validator_signer.validator_id() {
+                    if &chunk_proposer == &validator_id {
                         let _span = tracing::debug_span!(
                             target: "client",
                             "on_block_accepted_produce_chunk",
@@ -1558,6 +1565,7 @@ impl Client {
                                     encoded_chunk,
                                     merkle_paths,
                                     receipts,
+                                    validator_id.clone(),
                                 )
                                 .expect("Failed to process produced chunk");
                             }
@@ -1578,17 +1586,18 @@ impl Client {
         encoded_chunk: EncodedShardChunk,
         merkle_paths: Vec<MerklePath>,
         receipts: Vec<Receipt>,
+        validator_id: AccountId,
     ) -> Result<(), Error> {
         let (shard_chunk, partial_chunk) = decode_encoded_chunk(
             &encoded_chunk,
             merkle_paths.clone(),
-            self.me.as_ref(),
+            Some(&validator_id),
             self.runtime_adapter.as_ref(),
         )?;
         persist_chunk(partial_chunk.clone(), Some(shard_chunk), self.chain.mut_store())?;
         self.on_chunk_header_ready_for_inclusion(
             encoded_chunk.cloned_header(),
-            self.me.clone().unwrap(),
+            validator_id.clone(),
         );
         self.shards_mgr.distribute_encoded_chunk(
             partial_chunk,
@@ -2203,6 +2212,17 @@ impl Client {
         //            self.challenges.insert(challenge.hash, challenge);
         //        }
         Ok(())
+    }
+
+    /// Check updates from background flat storage creation processes and possibly update
+    /// creation statuses. Returns boolean indicating if all flat storages are created or
+    /// creation is not needed.
+    pub fn run_flat_storage_creation_step(&mut self) -> Result<bool, Error> {
+        let result = match &mut self.flat_storage_creator {
+            Some(flat_storage_creator) => flat_storage_creator.update_status(self.chain.store())?,
+            None => true,
+        };
+        Ok(result)
     }
 }
 

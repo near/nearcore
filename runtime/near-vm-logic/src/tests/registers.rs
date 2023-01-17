@@ -10,9 +10,7 @@ fn test_one_register() {
 
     logic.wrapped_internal_write_register(0, &[0, 1, 2]).unwrap();
     assert_eq!(logic.register_len(0).unwrap(), 3u64);
-    let buffer = [0u8; 3];
-    logic.read_register(0, buffer.as_ptr() as u64).unwrap();
-    assert_eq!(buffer, [0u8, 1, 2]);
+    logic.assert_read_register(&[0, 1, 2], 0);
 }
 
 #[test]
@@ -37,10 +35,7 @@ fn test_many_registers() {
     for i in 0..max_registers {
         let value = (i * 10).to_le_bytes();
         logic.wrapped_internal_write_register(i, &value).unwrap();
-
-        let buffer = [0u8; std::mem::size_of::<u64>()];
-        logic.read_register(i, buffer.as_ptr() as u64).unwrap();
-        assert_eq!(i * 10, u64::from_le_bytes(buffer));
+        logic.assert_read_register(&(i * 10).to_le_bytes(), i);
     }
 
     // One more register hits the boundary check.
