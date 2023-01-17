@@ -81,8 +81,9 @@ fn is_zero_balance_account(
         return Ok(false);
     }
     // Check whether the account has any data in contract storage
-    for _ in
-        state_update.iter(&trie_key_parsers::get_raw_prefix_for_contract_data(account_id, &[]))?
+    if let Some(_) = state_update
+        .iter(&trie_key_parsers::get_raw_prefix_for_contract_data(account_id, &[]))?
+        .next()
     {
         return Ok(false);
     }

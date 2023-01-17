@@ -622,6 +622,7 @@ pub fn test_create_account_failure_no_funds(node: impl Node) {
     let transaction_result = node_user
         .create_account(account_id.clone(), eve_dot_alice_account(), node.signer().public_key(), 0)
         .unwrap();
+    #[cfg(not(feature = "protocol_feature_zero_balance_account"))]
     assert_matches!(
     &transaction_result.status,
     FinalExecutionStatus::Failure(e) => match &e {
@@ -631,6 +632,8 @@ pub fn test_create_account_failure_no_funds(node: impl Node) {
         },
         _ => panic!("should be ActionError")
     });
+    #[cfg(feature = "protocol_feature_zero_balance_account")]
+    assert_matches!(transaction_result.status, FinalExecutionStatus::SuccessValue(_));
 }
 
 pub fn test_create_account_failure_already_exists(node: impl Node) {
