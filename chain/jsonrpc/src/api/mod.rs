@@ -19,6 +19,7 @@ mod sandbox;
 mod status;
 mod transactions;
 mod validator;
+mod client_config;
 
 pub(crate) trait RpcRequest: Sized {
     fn parse(value: Option<Value>) -> Result<Self, RpcParseError>;

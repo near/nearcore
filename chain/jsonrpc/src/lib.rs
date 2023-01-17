@@ -21,7 +21,7 @@ use near_client::{
     ClientActor, DebugStatus, GetBlock, GetBlockProof, GetChunk, GetExecutionOutcome, GetGasPrice,
     GetMaintenanceWindows, GetNetworkInfo, GetNextLightClientBlock, GetProtocolConfig, GetReceipt,
     GetStateChanges, GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered,
-    ProcessTxRequest, ProcessTxResponse, Query, Status, TxStatus, ViewClientActor,
+    ProcessTxRequest, ProcessTxResponse, Query, Status, TxStatus, ViewClientActor, GetClientConfig
 };
 pub use near_jsonrpc_client as client;
 use near_jsonrpc_primitives::errors::RpcError;
@@ -1089,6 +1089,16 @@ impl JsonRpcHandler {
         let windows = self.view_client_send(GetMaintenanceWindows { account_id }).await?;
         Ok(windows.iter().map(|r| (r.start, r.end)).collect())
     }
+
+    async fn client_config(
+        &self,
+    ) -> Result<
+        near_jsonrpc_primitives::types::client_config::RpcClientConfigResponse,
+        near_jsonrpc_primitives::types::client_config::RpcClientConfigError,
+    > {
+        let client_config = self.client_send(GetClientConfig {}).await?;
+        Ok(near_jsonrpc_primitives::types::client_config::RpcClientConfigResponse { client_config })
+    }
 }
 
 #[cfg(feature = "sandbox")]
@@ -1409,6 +1419,18 @@ pub async fn prometheus_handler() -> Result<HttpResponse, HttpError> {
     }
 }
 
+fn client_config_handler(
+    handler: web::Data<JsonRpcHandler>,
+) -> impl Future<Output = Result<HttpResponse, HttpError>> {
+    let response = async move {
+        match handler.client_config().await {
+            Ok(value) => Ok(HttpResponse::Ok().json(&value)),
+            Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
+        }
+    };
+    response.boxed()
+}
+
 fn get_cors(cors_allowed_origins: &[String]) -> Cors {
     let mut cors = Cors::permissive();
     if cors_allowed_origins != ["*".to_string()] {
@@ -1535,6 +1557,7 @@ pub fn start_http(
             )
             .service(debug_html)
             .service(display_debug_html)
+            .service(web::resource("/client_config").route(web::get().to(client_config_handler)))
     })
     .bind(addr)
     .unwrap()

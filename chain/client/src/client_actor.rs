@@ -36,7 +36,7 @@ use near_chain_configs::ClientConfig;
 use near_chunks::client::ShardsManagerResponse;
 use near_chunks::logic::cares_about_shard_this_or_next_epoch;
 use near_client_primitives::types::{
-    Error, GetNetworkInfo, NetworkInfoResponse, Status, StatusError, StatusSyncInfo, SyncStatus,
+    Error, GetNetworkInfo, NetworkInfoResponse, Status, StatusError, StatusSyncInfo, SyncStatus, GetClientConfig, GetClientConfigError
 };
 use near_dyn_configs::EXPECTED_SHUTDOWN_AT;
 #[cfg(feature = "test_features")]
@@ -1951,6 +1951,21 @@ impl Handler<WithSpanContext<ShardsManagerResponse>> for ClientActor {
                 self.client.on_chunk_header_ready_for_inclusion(chunk_header, chunk_producer);
             }
         }
+    }
+}
+
+impl Handler<WithSpanContext<GetClientConfig>> for ClientActor {
+    type Result = Result<ClientConfig, GetClientConfigError>;
+
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<GetClientConfig>,
+        _: &mut Context<Self>,
+    ) -> Self::Result {
+        let (_span, _msg) = handler_debug_span!(target: "client", msg);
+        let _d = delay_detector::DelayDetector::new(|| "client get client config".into());
+
+        Ok(self.client.config.clone())
     }
 }
 

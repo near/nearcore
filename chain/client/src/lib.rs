@@ -4,7 +4,7 @@ pub use near_client_primitives::types::{
     GetMaintenanceWindows, GetNetworkInfo, GetNextLightClientBlock, GetProtocolConfig, GetReceipt,
     GetStateChanges, GetStateChangesInBlock, GetStateChangesWithCauseInBlock,
     GetStateChangesWithCauseInBlockForTrackedShards, GetValidatorInfo, GetValidatorOrdered, Query,
-    QueryError, Status, StatusResponse, SyncStatus, TxStatus, TxStatusError,
+    QueryError, Status, StatusResponse, SyncStatus, TxStatus, TxStatusError, GetClientConfig
 };
 
 pub use near_client_primitives::debug::DebugStatus;
