@@ -28,6 +28,7 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     // set read_cached_trie_node cost, decrease storage key limit
     (53, include_config!("53.txt")),
     (57, include_config!("57.txt")),
+    (58, include_config!("58.txt")),
 ];
 
 /// Testnet parameters for versions <= 29, which (incorrectly) differed from mainnet parameters

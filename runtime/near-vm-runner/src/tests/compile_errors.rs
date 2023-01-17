@@ -315,7 +315,7 @@ fn test_limit_locals_global() {
     ])
     .expects(&[
         expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 8344766023 used gas 8344766023
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 8358752859 used gas 8358752859
         "#]],
         expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
