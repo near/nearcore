@@ -434,9 +434,7 @@ pub enum ExtCosts {
     alt_bn128_pairing_check_element = 56,
     alt_bn128_g1_sum_base = 57,
     alt_bn128_g1_sum_element = 58,
-    
     ed25519_verify_base = 59,
-    
     ed25519_verify_byte = 60,
 }
 
@@ -506,9 +504,7 @@ impl ExtCosts {
             ExtCosts::ripemd160_base => Parameter::WasmRipemd160Base,
             ExtCosts::ripemd160_block => Parameter::WasmRipemd160Block,
             ExtCosts::ecrecover_base => Parameter::WasmEcrecoverBase,
-            
             ExtCosts::ed25519_verify_base => Parameter::WasmEd25519VerifyBase,
-            
             ExtCosts::ed25519_verify_byte => Parameter::WasmEd25519VerifyByte,
             ExtCosts::log_base => Parameter::WasmLogBase,
             ExtCosts::log_byte => Parameter::WasmLogByte,
