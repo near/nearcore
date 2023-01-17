@@ -1055,6 +1055,9 @@ impl PeerActor {
         match peer_msg.clone() {
             PeerMessage::Disconnect => {
                 tracing::debug!(target: "network", "Disconnect signal. Me: {:?} Peer: {:?}", self.my_node_info.id, self.other_peer_id());
+                self.network_state
+                    .peer_store
+                    .remove_from_recent_connections(self.other_peer_id().unwrap());
                 self.stop(ctx, ClosingReason::DisconnectMessage);
             }
             PeerMessage::Tier1Handshake(_) | PeerMessage::Tier2Handshake(_) => {
@@ -1358,7 +1361,7 @@ impl actix::Actor for PeerActor {
         }
         match &self.peer_status {
             // If PeerActor is in Connecting state, then
-            // it was not registered in the NewtorkState,
+            // it was not registered in the NetworkState,
             // so there is nothing to be done.
             PeerStatus::Connecting(..) => {
                 // TODO(gprusak): reporting ConnectionClosed event is quite scattered right now and

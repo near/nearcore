@@ -473,6 +473,7 @@ impl PeerManagerActor {
                 "Stop active connection"
             );
             p.stop(None);
+            self.state.peer_store.remove_from_recent_connections(&p.peer_info.id);
         }
     }
 
