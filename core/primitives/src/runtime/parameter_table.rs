@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 pub(crate) enum ParameterValue {
     Null,
     U64(u64),
-    Ratio { numerator: u64, denominator: u64 },
+    Rational { numerator: isize, denominator: isize },
     String(String),
 }
 
@@ -91,14 +91,9 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                 action_fees: enum_map::enum_map! {
                     action_cost => params.fee(action_cost)
                 },
-                burnt_gas_reward: Rational::new(
-                    params.get_number(Parameter::BurntGasRewardNumerator)?,
-                    params.get_number(Parameter::BurntGasRewardDenominator)?,
-                ),
-                pessimistic_gas_price_inflation_ratio: Rational::new(
-                    params.get_number(Parameter::PessimisticGasPriceInflationNumerator)?,
-                    params.get_number(Parameter::PessimisticGasPriceInflationDenominator)?,
-                ),
+                burnt_gas_reward: params.get_rational(Parameter::BurntGasReward)?,
+                pessimistic_gas_price_inflation_ratio: params
+                    .get_rational(Parameter::PessimisticGasPriceInflation)?,
                 storage_usage_config: StorageUsageConfig {
                     storage_amount_per_byte: params.get_u128(Parameter::StorageAmountPerByte)?,
                     num_bytes_account: params.get_number(Parameter::StorageNumBytesAccount)?,
@@ -240,6 +235,21 @@ impl ParameterTable {
         let value = self.parameters.get(&key).ok_or(InvalidConfigError::MissingParameter(key))?;
         match value {
             ParameterValue::String(s) => Ok(s.clone()),
+            _ => Err(InvalidConfigError::WrongValueType(
+                key,
+                std::any::type_name::<String>(),
+                value.clone(),
+            )),
+        }
+    }
+
+    /// Read and parse a rational parameter from the `ParameterTable`.
+    fn get_rational(&self, key: Parameter) -> Result<Rational, InvalidConfigError> {
+        let value = self.parameters.get(&key).ok_or(InvalidConfigError::MissingParameter(key))?;
+        match value {
+            ParameterValue::Rational { numerator, denominator } => {
+                Ok(Rational::new(*numerator, *denominator))
+            }
             _ => Err(InvalidConfigError::WrongValueType(
                 key,
                 std::any::type_name::<String>(),
