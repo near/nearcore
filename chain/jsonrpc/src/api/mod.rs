@@ -8,6 +8,7 @@ use near_primitives::borsh::BorshDeserialize;
 mod blocks;
 mod changes;
 mod chunks;
+mod client_config;
 mod config;
 mod gas_price;
 mod light_client;
@@ -19,7 +20,6 @@ mod sandbox;
 mod status;
 mod transactions;
 mod validator;
-mod client_config;
 
 pub(crate) trait RpcRequest: Sized {
     fn parse(value: Option<Value>) -> Result<Self, RpcParseError>;
