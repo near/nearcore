@@ -5,9 +5,7 @@ use crate::NearConfig;
 use borsh::ser::BorshSerialize;
 use borsh::BorshDeserialize;
 use errors::FromStateViewerErrors;
-// #[cfg(feature = "cold_store")]
-use near_chain::types::Tip;
-use near_chain::types::{ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo};
+use near_chain::types::{ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo, Tip};
 use near_chain::{Error, RuntimeAdapter};
 use near_chain_configs::{
     Genesis, GenesisConfig, ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP,

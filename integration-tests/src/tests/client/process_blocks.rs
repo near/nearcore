@@ -76,7 +76,8 @@ use near_store::cold_storage::{update_cold_db, update_cold_head};
 #[cfg(feature = "cold_store")]
 use near_store::db::TestDB;
 #[cfg(feature = "cold_store")]
-use near_store::metadata::{DbKind, DB_VERSION};
+use near_store::metadata::DbKind;
+use near_store::metadata::DB_VERSION;
 #[cfg(feature = "cold_store")]
 use near_store::test_utils::create_test_node_storage_with_cold;
 use near_store::test_utils::create_test_store;
@@ -1518,6 +1519,9 @@ fn test_archival_save_trie_changes() {
         .archive(true)
         .save_trie_changes(true)
         .build();
+
+    env.clients[0].chain.store().store().set_db_version(DB_VERSION).unwrap();
+
     let mut blocks = vec![];
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     blocks.push(genesis_block);

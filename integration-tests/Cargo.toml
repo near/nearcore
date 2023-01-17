@@ -90,5 +90,5 @@ sandbox = [
 ]
 no_cache = ["nearcore/no_cache"]
 cold_store = [
-  "near-store/cold_store",
+  "near-store/cold_store"
 ]
