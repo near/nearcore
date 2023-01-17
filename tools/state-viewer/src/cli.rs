@@ -40,7 +40,7 @@ pub enum StateViewerSubCommand {
     /// Looks up a certain chunk.
     Chunks(ChunksCmd),
     /// List account names with contracts deployed.
-    #[clap(alias = "gas_profile")]
+    #[clap(alias = "contract_accounts")]
     ContractAccounts(ContractAccountsCmd),
     /// Dump contract data in storage of given account to binary file.
     #[clap(alias = "dump_account_storage")]

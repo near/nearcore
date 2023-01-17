@@ -85,12 +85,10 @@ impl Iterator for ContractAccountIterator<'_> {
     type Item = Result<ContractAccount, ContractAccountError>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        while !self.contract_nodes.is_empty() {
+        while let Some(item) = self.contract_nodes.pop_front() {
             // only look at nodes with a value, ignoring intermediate nodes
             // without values
-            if let Some(TrieTraversalItem { hash, key: Some(trie_key) }) =
-                self.contract_nodes.pop_front()
-            {
+            if let TrieTraversalItem { hash, key: Some(trie_key) } = item {
                 let contract = ContractAccount::from_contract_trie_node(&trie_key, hash, self.trie);
                 return Some(contract);
             }
