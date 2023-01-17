@@ -221,7 +221,7 @@ fn test_cold_db_head_update() {
         let cold_head_in_hot = hot_store.get_ser::<Tip>(DBCol::BlockMisc, COLD_HEAD_KEY).unwrap();
         let cold_head_in_cold = cold_store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY).unwrap();
 
-        assert_eq!(head, &cold_head_in_cold, "checking cold_head_in_cold");
-        assert_eq!(head, &cold_head_in_hot, "checking cold_head_in_hot");
+        assert_eq!(head, &cold_head_in_cold);
+        assert_eq!(head, &cold_head_in_hot);
     }
 }
