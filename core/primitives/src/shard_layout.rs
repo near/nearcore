@@ -105,7 +105,35 @@ impl ShardLayoutV1 {
                 }];
             }
         }
-        vec![]
+        let boundary_index = shard_id as usize - self.fixed_shards.len();
+        if boundary_index > self.boundary_accounts.len() {
+            return Vec::new();
+        }
+        let from = if boundary_index == 0 {
+            AccountRangeBoundary::Unbounded
+        } else {
+            AccountRangeBoundary::Inclusive(self.boundary_accounts[boundary_index - 1].clone())
+        };
+        let to = if boundary_index == self.boundary_accounts.len() {
+            AccountRangeBoundary::Unbounded
+        } else {
+            AccountRangeBoundary::Exlusive(self.boundary_accounts[boundary_index].clone())
+        };
+        let mut cur = AccountRange {from, to};
+        let mut fixed_shard_accounts: Vec<_> = self.fixed_shards.iter().collect();
+        fixed_shard_accounts.sort();
+        let mut ans = Vec::new();
+        for account_id in fixed_shard_accounts {
+            if cur.contains(account_id) {
+                ans.push(AccountRange{
+                    from: cur.from,
+                    to: AccountRangeBoundary::Exlusive(account_id.clone())
+                });
+                cur.from = AccountRangeBoundary::Exlusive(account_id.clone());
+            }
+        }
+        ans.push(cur);
+        ans
     }
 }
 
