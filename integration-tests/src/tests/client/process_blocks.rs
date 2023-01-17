@@ -75,7 +75,9 @@ use near_primitives::views::{
 use near_store::cold_storage::{update_cold_db, update_cold_head};
 #[cfg(feature = "cold_store")]
 use near_store::db::TestDB;
-use near_store::metadata::{DbKind, DB_VERSION};
+use near_store::metadata::DbKind;
+#[cfg(feature = "cold_store")]
+use near_store::metadata::DB_VERSION;
 #[cfg(feature = "cold_store")]
 use near_store::test_utils::create_test_node_storage_with_cold;
 use near_store::test_utils::create_test_store;
