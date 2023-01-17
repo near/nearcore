@@ -227,31 +227,31 @@ impl TrieKey {
     }
 
     pub fn calc_trie_key_ranges(v: &AccountRange) -> Vec<Range<Vec<u8>>> {
-        let mut res = vec![];
-        for col in col::NON_DELAYED_RECEIPT_COLUMNS.map(|(col, _)| col) {
-            let mut start = vec![col];
-            match v.from {
-                AccountRangeBoundary::Unbounded => {}
-                AccountRangeBoundary::Inclusive(ref account_id) => {
-                    start.extend(account_id.as_bytes())
-                }
-                AccountRangeBoundary::Exlusive(ref account_id) => {
-                    start.extend(account_id.as_bytes());
-                    start.push(b'-');
-                }
-            };
-            let mut end = vec![col];
-            match v.to {
-                AccountRangeBoundary::Unbounded => end.push(u8::MAX),
-                AccountRangeBoundary::Inclusive(ref account_id) => {
-                    end.extend(account_id.as_bytes());
-                    end.push(b'-');
-                }
-                AccountRangeBoundary::Exlusive(ref account_id) => end.extend(account_id.as_bytes()),
+        Vec::from(
+            col::NON_DELAYED_RECEIPT_COLUMNS.map(|(col, _)| Self::calc_trie_key_range(col, v)),
+        )
+    }
+
+    pub fn calc_trie_key_range(col: u8, v: &AccountRange) -> Range<Vec<u8>> {
+        let mut start = vec![col];
+        match v.from {
+            AccountRangeBoundary::Unbounded => {}
+            AccountRangeBoundary::Inclusive(ref account_id) => start.extend(account_id.as_bytes()),
+            AccountRangeBoundary::Exlusive(ref account_id) => {
+                start.extend(account_id.as_bytes());
+                start.push(b'-');
             }
-            res.push(Range { start, end });
+        };
+        let mut end = vec![col];
+        match v.to {
+            AccountRangeBoundary::Unbounded => end.push(u8::MAX),
+            AccountRangeBoundary::Inclusive(ref account_id) => {
+                end.extend(account_id.as_bytes());
+                end.push(b'-');
+            }
+            AccountRangeBoundary::Exlusive(ref account_id) => end.extend(account_id.as_bytes()),
         }
-        res
+        Range { start, end }
     }
 }
 

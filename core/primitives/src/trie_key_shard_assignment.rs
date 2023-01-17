@@ -2,19 +2,20 @@
 mod tests {
     use std::collections::HashSet;
 
+    use near_crypto::{KeyType, PublicKey};
+    use near_primitives_core::hash::CryptoHash;
     use near_primitives_core::types::AccountId;
 
     use crate::shard_layout::{account_id_to_shard_id, ShardLayout};
     use crate::trie_key::TrieKey;
     use rand::prelude::*;
 
-    const ACCOUNT_ID_CHARS: [char; 5] = ['a', 'b', '-', '_', '.'];
-    const MAX_ACCOUNT_LEN: usize = 5;
-
     #[test]
     fn test_trie_key_shard_assignment() {
-        let trie_keys: Vec<_> =
-            generate_account_ids().iter().flat_map(generate_trie_keys).collect();
+        let trie_keys: Vec<_> = generate_account_ids(&['a', 'b', '-', '_', '.'], 5)
+            .iter()
+            .flat_map(generate_trie_keys)
+            .collect();
         check_shard_assignment(&trie_keys, create_shard_layout(&["ab"], &["aa", "bb"]));
         check_shard_assignment(&trie_keys, create_shard_layout(&[], &["aa", "bb"]));
         check_shard_assignment(
@@ -28,10 +29,10 @@ mod tests {
 
     #[test]
     fn rand_test_trie_key_shard_assignment() {
-        let account_ids = generate_account_ids();
+        let account_ids = generate_account_ids(&['a', 'b', '.'], 4);
         let trie_keys: Vec<_> = account_ids.iter().flat_map(generate_trie_keys).collect();
         let mut rng = StdRng::seed_from_u64(42);
-        for _ in 0..300 {
+        for _ in 0..200 {
             let shard_layout = generate_rand_shard_layout(&mut rng, &account_ids);
             check_shard_assignment(&trie_keys, shard_layout);
         }
@@ -66,17 +67,41 @@ mod tests {
             .collect()
     }
 
-    fn generate_account_ids() -> Vec<AccountId> {
-        generate_superset(&[], &ACCOUNT_ID_CHARS.map(|ch| ch as u8), MAX_ACCOUNT_LEN)
+    fn generate_account_ids(account_id_chars: &[char], max_account_len: usize) -> Vec<AccountId> {
+        let elements: Vec<_> = account_id_chars.iter().map(|&ch| ch as u8).collect();
+        generate_superset(&[], &elements, max_account_len)
             .iter()
             .flat_map(|bytes| std::str::from_utf8(bytes).unwrap().parse::<AccountId>())
             .collect()
     }
 
     fn generate_trie_keys(account_id: &AccountId) -> Vec<TrieKey> {
-        let mut all = vec![];
-        all.push(TrieKey::Account { account_id: account_id.clone() });
-        all
+        vec![
+            TrieKey::Account { account_id: account_id.clone() },
+            TrieKey::ContractCode { account_id: account_id.clone() },
+            TrieKey::AccessKey {
+                account_id: account_id.clone(),
+                public_key: PublicKey::empty(KeyType::ED25519),
+            },
+            TrieKey::ReceivedData {
+                receiver_id: account_id.clone(),
+                data_id: CryptoHash::hash_bytes(&[1]),
+            },
+            TrieKey::PostponedReceiptId {
+                receiver_id: account_id.clone(),
+                data_id: CryptoHash::hash_bytes(&[2]),
+            },
+            TrieKey::PendingDataCount {
+                receiver_id: account_id.clone(),
+                receipt_id: CryptoHash::hash_bytes(&[3]),
+            },
+            TrieKey::PostponedReceipt {
+                receiver_id: account_id.clone(),
+                receipt_id: CryptoHash::hash_bytes(&[4]),
+            },
+            TrieKey::ContractData { account_id: account_id.clone(), key: vec![0] },
+            TrieKey::ContractData { account_id: account_id.clone(), key: vec![] },
+        ]
     }
 
     fn check_shard_assignment(trie_keys: &[TrieKey], shard_layout: ShardLayout) {
