@@ -7,6 +7,7 @@ pub use near_primitives_core::num_rational;
 pub use near_primitives_core::profile;
 pub use near_primitives_core::serialize;
 
+pub mod account_range;
 pub mod block;
 pub mod block_header;
 pub mod challenge;

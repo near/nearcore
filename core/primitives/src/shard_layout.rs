@@ -1,11 +1,11 @@
 use std::cmp::Ordering::Greater;
 use std::{fmt, str};
 
-use near_primitives_core::account::id::AccountRange;
 use serde::{Deserialize, Serialize};
 
 use near_primitives_core::types::ShardId;
 
+use crate::account_range::{AccountRange, AccountRangeBoundary};
 use crate::hash::CryptoHash;
 use crate::types::{AccountId, NumShards};
 use std::collections::HashMap;
@@ -97,6 +97,14 @@ pub struct ShardLayoutV1 {
 
 impl ShardLayoutV1 {
     pub fn account_ranges(&self, shard_id: ShardId) -> Vec<AccountRange> {
+        for (fixed_shard_id, account_id) in self.fixed_shards.iter().enumerate() {
+            if shard_id == fixed_shard_id as ShardId {
+                return vec![AccountRange {
+                    from: AccountRangeBoundary::Inclusive(account_id.clone()),
+                    to: AccountRangeBoundary::Inclusive(account_id.clone()),
+                }];
+            }
+        }
         vec![]
     }
 }
@@ -230,6 +238,13 @@ impl ShardLayout {
     pub fn get_shard_uids(&self) -> Vec<ShardUId> {
         (0..self.num_shards()).map(|x| ShardUId::from_shard_id_and_layout(x, self)).collect()
     }
+
+    pub fn account_ranges(&self, shard_id: ShardId) -> Option<Vec<AccountRange>> {
+        match self {
+            ShardLayout::V0(_) => None,
+            ShardLayout::V1(v1) => Some(v1.account_ranges(shard_id)),
+        }
+    }
 }
 
 /// Maps an account to the shard that it belongs to given a shard_layout
@@ -249,7 +264,7 @@ pub fn account_id_to_shard_id(account_id: &AccountId, shard_layout: &ShardLayout
         }
         ShardLayout::V1(ShardLayoutV1 { fixed_shards, boundary_accounts, .. }) => {
             for (shard_id, fixed_account) in fixed_shards.iter().enumerate() {
-                if is_top_level_account(fixed_account, account_id) {
+                if is_top_level_account(fixed_account, account_id) && fixed_account == account_id {
                     return shard_id as ShardId;
                 }
             }

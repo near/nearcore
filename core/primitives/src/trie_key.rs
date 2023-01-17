@@ -1,8 +1,8 @@
+use crate::account_range::{AccountRange, AccountRangeBoundary};
 use crate::hash::CryptoHash;
 use crate::types::AccountId;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
-use near_primitives_core::account::id::{AccountRange, AccountRangeBoundary};
 use std::mem::size_of;
 use std::ops::Range;
 
