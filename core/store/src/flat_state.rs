@@ -563,10 +563,10 @@ impl Into<i64> for &FlatStorageStateStatus {
     /// Cast inside enum does not work because it is not fieldless.
     fn into(self) -> i64 {
         match self {
-            FlatStorageStateStatus::Ready => 0,
-            FlatStorageStateStatus::SavingDeltas => 1,
-            FlatStorageStateStatus::FetchingState(_) => 2,
-            FlatStorageStateStatus::CatchingUp => 3,
+            FlatStorageStateStatus::SavingDeltas => 0,
+            FlatStorageStateStatus::FetchingState(_) => 1,
+            FlatStorageStateStatus::CatchingUp => 2,
+            FlatStorageStateStatus::Ready => 3,
             FlatStorageStateStatus::DontCreate => 4,
         }
     }
