@@ -49,6 +49,7 @@ pub(crate) enum Error {
     SingleAccountMultipleData,
 }
 
+#[derive(Clone)]
 pub struct LocalData {
     pub signer :Arc<dyn ValidatorSigner>,
     pub data :Arc<AccountData>,
@@ -70,12 +71,6 @@ pub struct CacheSnapshot {
     /// and data about the particular account might be not known at the given moment.
     pub data: im::HashMap<PublicKey, Arc<SignedAccountData>>,
     
-    /// AccountData of this (local) node.
-    /// In case we receive data about this node which is different than local.data,
-    /// We sign local.data with local.signer with a newer version than the received data,
-    /// to override what we received. This may happen in case the node has been restarted
-    /// with a new node key - network knows AccountData with the old node key and we need
-    /// to immediately override it, so that the network can correctly route the messages.
     pub local: Option<LocalData>,
 }
 
@@ -88,30 +83,55 @@ impl CacheSnapshot {
             }
     }
 
-    fn try_insert(&mut self, d: Arc<SignedAccountData>) -> Option<Arc<SignedAccountData>> {
+    /// Inserts d into self.data, if 
+    /// * `d.account_data` is in self.keys AND
+    /// * `d.version > self.data[d.account_data].version`.
+    /// If d would override local for this node, an AccountData based on `self.local` is signed
+    /// and inserted instead to rollback the overriding change (it can happen in case the node has
+    /// been restarted and we observe the old value emitted by the previous run).
+    /// It returns the newly inserted value (or None if nothing changed).
+    /// The returned value should be broadcasted to the network.
+    fn try_insert(&mut self, clock: &time::Clock, d: Arc<SignedAccountData>) -> Option<Arc<SignedAccountData>> {
         if !self.is_new(&d) {
             return None;
         }
+        let d = match &self.local {
+            Some(local) if d.account_key==local.signer.public_key() => Arc::new(VersionedAccountData {
+                data: local.data.as_ref().clone(),
+                account_key: local.signer.public_key().clone(),
+                version: d.version + 1,
+                timestamp: clock.now_utc(),
+            }.sign(local.signer.as_ref()).unwrap()),
+            _ => d,
+        };
         self.data.insert(d.account_key.clone(), d.clone());
         Some(d)
     }
 
-    fn update_local(&mut self, clock: &time::Clock) -> Option<Arc<SignedAccountData>> {
-        let local = match self.local {
-            Some(it) => it,
-            None => return None,
+    /// If `self.signer` is in `self.keys` then inserts `d` signed by `self.signer` into self.data
+    /// and returns the signed value. Otherwise does nothing and returns None.
+    /// Returned value should be broadcasted to the network.
+    /// Note that a new version of data is signed and inserted, even if it
+    /// represents the same data as the previous version - this is a way of informing the nodes on
+    /// the network that the node is actually alive.
+    /// Note that it will become critical in case we make AccountData expirable at some point.
+    fn set_local(&mut self, clock: &time::Clock, local: LocalData) -> Option<Arc<SignedAccountData>> {
+        let account_key = local.signer.public_key();
+        let result = match self.keys.contains(&account_key) {
+            false => None,
+            true => {
+                let d = Arc::new(VersionedAccountData {
+                    data: local.data.as_ref().clone(),
+                    account_key: account_key.clone(),
+                    version: self.data.get(&account_key).map_or(0,|d|d.version) + 1,
+                    timestamp: clock.now_utc(),
+                }.sign(local.signer.as_ref()).unwrap());
+                self.data.insert(account_key, d.clone());
+                Some(d)
+            }
         };
-        let got = self.data.get(&local.signer.public_key());
-        if got == Some(&local.data) { 
-            return None;
-        }
-        let want = VersionedAccountData {
-            data: local.data.clone(),
-            account_key: local.signer.public_key(),
-            version: got.map_or(0,|d|d.version)+1,
-            timestamp: clock.now(),
-        }.sign(local.signer).unwrap();
-        self.data.try_insert(want)
+        self.local = Some(local);
+        result
     }
 }
 
@@ -130,6 +150,10 @@ impl Cache {
     /// Updates the set of important accounts and their public keys.
     /// The AccountData which is no longer important is dropped.
     /// Returns true iff the set of accounts actually changed.
+    /// TODO(gprusak): note that local data won't be generated, even if it could be
+    ///   (i.e. in case self.local.signer was not present in the old key set, but is in the new)
+    ///   so a call to set_local afterwards is required to do that. For now it is fine because
+    ///   the Cache owner is expected to call set_local periodically anyway.
     pub fn set_keys(&self, keys_by_id: Arc<AccountKeys>) -> bool {
         self.0
             .try_update(|mut inner| {
@@ -198,10 +222,10 @@ impl Cache {
         self: &Arc<Self>,
         clock: &time::Clock,
         local: LocalData,
-    ) -> Option<Arc<SignedAccountData>> {
+    ) -> Option<Arc<SignedAccountData>> { 
         self.0.update(|mut inner| {
-            inner.local = Some(local);
-            inner.update_local()
+            let data = inner.set_local(clock,local);
+            (data,inner)
         })
     }
 
@@ -218,8 +242,7 @@ impl Cache {
         let (data, err) = this.verify(data).await;
         // Insert the successfully verified data, even if an error has been encountered.
         let inserted = self.0.update(|mut inner| {
-            let mut inserted : Vec<_> = data.into_iter().filter_map(|d| inner.try_insert(d)).collect();
-            inserted.extend(inner.update_local(clock));
+            let inserted = data.into_iter().filter_map(|d| inner.try_insert(clock,d)).collect();
             (inserted, inner)
         });
         // Return the inserted data.

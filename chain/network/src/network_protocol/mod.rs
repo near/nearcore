@@ -90,7 +90,7 @@ impl std::str::FromStr for PeerAddr {
     }
 }
 
-#[derive(PartialEq, Eq, Debug, Hash)]
+#[derive(Clone, PartialEq, Eq, Debug, Hash)]
 pub struct AccountData {
     pub peer_id: PeerId,
     pub proxies: Vec<PeerAddr>,
@@ -109,7 +109,7 @@ pub struct VersionedAccountData {
 // because it may contain many unknown fields (which are dropped during parsing).
 pub const MAX_ACCOUNT_DATA_SIZE_BYTES: usize = 10000; // 10kB
 
-impl AccountData {
+impl VersionedAccountData {
     /// Serializes AccountData to proto and signs it using `signer`.
     /// Panics if AccountData.account_id doesn't match signer.validator_id(),
     /// as this would likely be a bug.

@@ -72,7 +72,7 @@ impl super::NetworkState {
     pub async fn tier1_advertise_proxies(
         self: &Arc<Self>,
         clock: &time::Clock,
-    ) -> Vec<Arc<SignedAccountData>> {
+    ) -> Option<Arc<SignedAccountData>> {
         // Tier1 advertise proxies calls should be disjoint,
         // to avoid a race condition while connecting to the proxies.
         // TODO(gprusak): there are more corner cases to cover, because
@@ -83,9 +83,7 @@ impl super::NetworkState {
         let accounts_data = self.accounts_data.load();
         let vc = match self.tier1_validator_config(&accounts_data) {
             Some(it) => it,
-            None => {
-                return vec![];
-            }
+            None => return None,
         };
         let proxies = match &vc.proxies {
             config::ValidatorProxies::Dynamic(_) => {
@@ -147,7 +145,6 @@ impl super::NetworkState {
             }
         };
         tracing::info!(target:"network","connected to proxies {my_proxies:?}");
-        let now = clock.now_utc();
         let new_data = self.accounts_data.set_local(clock, accounts_data::LocalData{
             signer: vc.signer.clone(),
             data: Arc::new(AccountData {
@@ -155,13 +152,16 @@ impl super::NetworkState {
                 proxies: my_proxies.clone(),
             }),
         });
+        // Early exit in case this node is not a TIER1 node any more.
+        let new_data = new_data?;
+        // Advertise the new_data.
         self.tier2.broadcast_message(Arc::new(PeerMessage::SyncAccountsData(SyncAccountsData {
             incremental: true,
-            requesting_full_sync: true,
-            accounts_data: new_data.into_iter().collect(),
+            requesting_full_sync: false,
+            accounts_data: vec![new_data.clone()],
         })));
         self.config.event_sink.push(Event::Tier1AdvertiseProxies(new_data.clone()));
-        new_data
+        Some(new_data)
     }
 
     /// Closes TIER1 connections from nodes which are not TIER1 any more.
