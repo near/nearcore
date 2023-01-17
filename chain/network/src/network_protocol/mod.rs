@@ -22,6 +22,7 @@ pub use _proto::network as proto;
 use crate::network_protocol::proto_conv::trace_context::{
     extract_span_context, inject_trace_context,
 };
+use crate::peer::peer_actor::ClosingReason;
 use crate::time;
 use borsh::{BorshDeserialize as _, BorshSerialize as _};
 use near_crypto::PublicKey;
@@ -310,7 +311,7 @@ pub enum PeerMessage {
     Routed(Box<RoutedMessageV2>),
 
     /// Gracefully disconnect from other peer.
-    Disconnect,
+    Disconnect(ClosingReason),
     Challenge(Challenge),
 }
 

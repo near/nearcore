@@ -5,6 +5,7 @@
 //! We need to maintain backwards compatibility, all changes to this file needs to be reviews.
 use crate::network_protocol::edge::{Edge, PartialEdgeInfo};
 use crate::network_protocol::{PeerChainInfoV2, PeerInfo, RoutedMessage};
+use crate::peer::peer_actor::ClosingReason;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::block::{Block, BlockHeader, GenesisId};
 use near_primitives::challenge::Challenge;
@@ -130,7 +131,7 @@ pub(super) enum PeerMessage {
     Routed(Box<RoutedMessage>),
 
     /// Gracefully disconnect from other peer.
-    Disconnect,
+    Disconnect(ClosingReason),
     Challenge(Challenge),
 
     _HandshakeV2,

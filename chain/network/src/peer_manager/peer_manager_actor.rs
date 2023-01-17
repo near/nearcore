@@ -5,7 +5,7 @@ use crate::network_protocol::{
     AccountOrPeerIdOrHash, Edge, PeerIdOrHash, PeerMessage, Ping, Pong, RawRoutedMessage,
     RoutedMessageBody, SignedAccountData, StateResponseInfo,
 };
-use crate::peer::peer_actor::PeerActor;
+use crate::peer::peer_actor::{ClosingReason, PeerActor};
 use crate::peer_manager::connection;
 use crate::peer_manager::network_state::{NetworkState, WhitelistNode};
 use crate::peer_manager::peer_store;
@@ -150,7 +150,9 @@ impl actix::Actor for PeerManagerActor {
     /// Try to gracefully disconnect from connected peers.
     fn stopping(&mut self, _ctx: &mut Self::Context) -> actix::Running {
         tracing::warn!("PeerManager: stopping");
-        self.state.tier2.broadcast_message(Arc::new(PeerMessage::Disconnect));
+        self.state
+            .tier2
+            .broadcast_message(Arc::new(PeerMessage::Disconnect(ClosingReason::Unknown)));
         actix::Running::Stop
     }
 

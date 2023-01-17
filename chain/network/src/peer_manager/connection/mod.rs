@@ -13,6 +13,7 @@ use crate::tcp;
 use crate::time;
 use crate::types::{BlockInfo, FullPeerInfo, PeerChainInfo, PeerType, ReasonForBan};
 use arc_swap::ArcSwap;
+use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 use near_o11y::WithSpanContextExt;
 use near_primitives::block::GenesisId;
@@ -257,8 +258,8 @@ impl Drop for OutboundHandshakePermit {
 #[derive(Clone)]
 pub(crate) struct Pool(Arc<ArcMutex<PoolSnapshot>>);
 
-#[derive(thiserror::Error, Clone, Debug, PartialEq, Eq)]
-pub(crate) enum PoolError {
+#[derive(thiserror::Error, Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub enum PoolError {
     #[error("already connected to this peer")]
     AlreadyConnected,
     #[error("already connected to peer {peer_id} with the same account key {account_key}")]
@@ -287,7 +288,7 @@ impl Pool {
     pub fn insert_ready(&self, peer: Arc<Connection>) -> Result<(), PoolError> {
         self.0.try_update(move |mut pool| {
             let id = peer.peer_info.id.clone();
-            // We support loopback connections for the purpose of 
+            // We support loopback connections for the purpose of
             // validating our own external IP. This is the only case
             // in which we allow 2 connections in a pool to have the same
             // PeerId. The outbound connection is added to the

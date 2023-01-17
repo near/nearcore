@@ -21,6 +21,7 @@ use crate::types::{
 };
 use actix::fut::future::wrap_future;
 use actix::{Actor as _, ActorContext as _, ActorFutureExt as _, AsyncContext as _};
+use borsh::{BorshDeserialize, BorshSerialize};
 use lru::LruCache;
 use near_crypto::Signature;
 use near_o11y::{handler_debug_span, log_assert, pretty, OpenTelemetrySpanExt, WithSpanContext};
@@ -77,8 +78,8 @@ pub struct HandshakeCompletedEvent {
     pub(crate) tier: tcp::Tier,
 }
 
-#[derive(thiserror::Error, Clone, PartialEq, Eq, Debug)]
-pub(crate) enum ClosingReason {
+#[derive(thiserror::Error, Clone, PartialEq, Eq, Debug, BorshSerialize, BorshDeserialize)]
+pub enum ClosingReason {
     #[error("too many inbound connections in connecting state")]
     TooManyInbound,
     #[error("outbound not allowed: {0}")]
@@ -418,6 +419,11 @@ impl PeerActor {
     fn stop(&mut self, ctx: &mut actix::Context<PeerActor>, reason: ClosingReason) {
         // Only the first call to stop sets the closing_reason.
         if self.closing_reason.is_none() {
+            // Send a Disconnect message unless we are closing because we received one
+            if reason != ClosingReason::DisconnectMessage {
+                self.send_message_or_log(&PeerMessage::Disconnect(reason.clone()));
+            }
+
             self.closing_reason = Some(reason);
         }
         ctx.stop();
@@ -1053,11 +1059,15 @@ impl PeerActor {
         .entered();
 
         match peer_msg.clone() {
-            PeerMessage::Disconnect => {
+            PeerMessage::Disconnect(reason) => {
                 tracing::debug!(target: "network", "Disconnect signal. Me: {:?} Peer: {:?}", self.my_node_info.id, self.other_peer_id());
-                self.network_state
-                    .peer_store
-                    .remove_from_recent_connections(self.other_peer_id().unwrap());
+
+                if reason == ClosingReason::PeerManagerRequest {
+                    self.network_state
+                        .peer_store
+                        .remove_from_recent_connections(&self.other_peer_id().unwrap());
+                }
+
                 self.stop(ctx, ClosingReason::DisconnectMessage);
             }
             PeerMessage::Tier1Handshake(_) | PeerMessage::Tier2Handshake(_) => {

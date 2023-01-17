@@ -5,6 +5,7 @@ use crate::network_protocol::proto;
 use crate::network_protocol::proto::peer_message::Message_type as ProtoMT;
 use crate::network_protocol::{PeerMessage, RoutingTableUpdate, SyncAccountsData};
 use crate::network_protocol::{RoutedMessage, RoutedMessageV2};
+use crate::peer::peer_actor::ClosingReason;
 use crate::time::error::ComponentRange;
 use borsh::{BorshDeserialize as _, BorshSerialize as _};
 use near_primitives::block::{Block, BlockHeader};
@@ -144,7 +145,10 @@ impl From<&PeerMessage> for proto::PeerMessage {
                     num_hops: r.num_hops,
                     ..Default::default()
                 }),
-                PeerMessage::Disconnect => ProtoMT::Disconnect(proto::Disconnect::new()),
+                PeerMessage::Disconnect(r) => ProtoMT::Disconnect(proto::Disconnect {
+                    borsh: r.try_to_vec().unwrap(),
+                    ..Default::default()
+                }),
                 PeerMessage::Challenge(r) => ProtoMT::Challenge(proto::Challenge {
                     borsh: r.try_to_vec().unwrap(),
                     ..Default::default()
@@ -157,6 +161,7 @@ impl From<&PeerMessage> for proto::PeerMessage {
 
 pub type ParseTransactionError = borsh::maybestd::io::Error;
 pub type ParseRoutedError = borsh::maybestd::io::Error;
+pub type ParseDisconnectError = borsh::maybestd::io::Error;
 pub type ParseChallengeError = borsh::maybestd::io::Error;
 
 #[derive(thiserror::Error, Debug)]
@@ -189,6 +194,8 @@ pub enum ParsePeerMessageError {
     Transaction(ParseTransactionError),
     #[error("routed: {0}")]
     Routed(ParseRoutedError),
+    #[error("disconnect: {0}")]
+    Disconnect(ParseDisconnectError),
     #[error("challenge: {0}")]
     Challenge(ParseChallengeError),
     #[error("routed_created_at: {0}")]
@@ -267,7 +274,9 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
                     .map_err(Self::Error::RoutedCreatedAtTimestamp)?,
                 num_hops: r.num_hops,
             })),
-            ProtoMT::Disconnect(_) => PeerMessage::Disconnect,
+            ProtoMT::Disconnect(r) => PeerMessage::Disconnect(
+                ClosingReason::try_from_slice(&r.borsh).map_err(Self::Error::Disconnect)?,
+            ),
             ProtoMT::Challenge(c) => PeerMessage::Challenge(
                 Challenge::try_from_slice(&c.borsh).map_err(Self::Error::Challenge)?,
             ),
