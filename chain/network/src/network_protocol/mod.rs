@@ -94,6 +94,11 @@ impl std::str::FromStr for PeerAddr {
 pub struct AccountData {
     pub peer_id: PeerId,
     pub proxies: Vec<PeerAddr>,
+}
+
+#[derive(PartialEq, Eq, Debug, Hash)]
+pub struct VersionedAccountData {
+    pub data: AccountData,
     pub account_key: PublicKey,
     pub version: u64,
     pub timestamp: time::Utc,
@@ -136,6 +141,13 @@ impl AccountData {
     }
 }
 
+impl std::ops::Deref for VersionedAccountData {
+    type Target = AccountData;
+    fn deref(&self) -> &Self::Target {
+        &self.data
+    }
+}
+
 #[derive(Clone, PartialEq, Eq, Debug, Hash)]
 pub struct AccountKeySignedPayload {
     payload: Vec<u8>,
@@ -162,13 +174,13 @@ impl AccountKeySignedPayload {
 // SignedAccountData for tests may get a little tricky).
 #[derive(PartialEq, Eq, Debug, Hash)]
 pub struct SignedAccountData {
-    account_data: AccountData,
+    account_data: VersionedAccountData,
     // Serialized and signed AccountData.
     payload: AccountKeySignedPayload,
 }
 
 impl std::ops::Deref for SignedAccountData {
-    type Target = AccountData;
+    type Target = VersionedAccountData;
     fn deref(&self) -> &Self::Target {
         &self.account_data
     }

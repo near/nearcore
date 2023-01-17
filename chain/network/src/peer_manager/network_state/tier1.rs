@@ -148,41 +148,17 @@ impl super::NetworkState {
         };
         tracing::info!(target:"network","connected to proxies {my_proxies:?}");
         let now = clock.now_utc();
-        let version =
-            self.accounts_data.load().data.get(&vc.signer.public_key()).map_or(0, |d| d.version)
-                + 1;
-        // This unwrap is safe, because we did signed a sample payload during
-        // config validation. See config::Config::new().
-        let my_data = Arc::new(
-            AccountData {
+        let new_data = self.accounts_data.set_local(clock, accounts_data::LocalData{
+            signer: vc.signer.clone(),
+            data: Arc::new(AccountData {
                 peer_id: self.config.node_id(),
-                account_key: vc.signer.public_key(),
                 proxies: my_proxies.clone(),
-                timestamp: now,
-                version,
-            }
-            .sign(vc.signer.as_ref())
-            .unwrap(),
-        );
-        let (new_data, err) = self.accounts_data.insert(vec![my_data]).await;
-        // Inserting node's own AccountData should never fail.
-        if let Some(err) = err {
-            panic!("inserting node's own AccountData to self.state.accounts_data: {err}");
-        }
-        if new_data.is_empty() {
-            // If new_data is empty, it means that accounts_data contains entry newer than `version`.
-            // This means that this node has been restarted and forgot what was the latest `version`
-            // of accounts_data published AND it just learned about it from a peer.
-            // TODO(gprusak): for better resiliency, consider persisting latest version in storage.
-            // TODO(gprusak): consider broadcasting a new version immediately after learning about
-            //   conflicting version.
-            tracing::info!("received a conflicting version of AccountData (expected, iff node has been just restarted)");
-            return vec![];
-        }
+            }),
+        });
         self.tier2.broadcast_message(Arc::new(PeerMessage::SyncAccountsData(SyncAccountsData {
             incremental: true,
             requesting_full_sync: true,
-            accounts_data: new_data.clone(),
+            accounts_data: new_data.into_iter().collect(),
         })));
         self.config.event_sink.push(Event::Tier1AdvertiseProxies(new_data.clone()));
         new_data

@@ -27,12 +27,14 @@
 use crate::concurrency;
 use crate::concurrency::arc_mutex::ArcMutex;
 use crate::network_protocol;
-use crate::network_protocol::SignedAccountData;
+use crate::network_protocol::{AccountData,VersionedAccountData, SignedAccountData};
+use near_primitives::validator_signer::ValidatorSigner;
 use crate::types::AccountKeys;
 use near_crypto::PublicKey;
 use rayon::iter::ParallelBridge;
 use std::collections::HashMap;
 use std::sync::Arc;
+use crate::time;
 
 #[cfg(test)]
 mod tests;
@@ -45,6 +47,11 @@ pub(crate) enum Error {
     DataTooLarge,
     #[error("found multiple entries for the same (epoch_id,account_id)")]
     SingleAccountMultipleData,
+}
+
+pub struct LocalData {
+    pub signer :Arc<dyn ValidatorSigner>,
+    pub data :Arc<AccountData>,
 }
 
 #[derive(Clone)]
@@ -62,6 +69,14 @@ pub struct CacheSnapshot {
     /// as cache is collecting data only about the accounts from `keys`,
     /// and data about the particular account might be not known at the given moment.
     pub data: im::HashMap<PublicKey, Arc<SignedAccountData>>,
+    
+    /// AccountData of this (local) node.
+    /// In case we receive data about this node which is different than local.data,
+    /// We sign local.data with local.signer with a newer version than the received data,
+    /// to override what we received. This may happen in case the node has been restarted
+    /// with a new node key - network knows AccountData with the old node key and we need
+    /// to immediately override it, so that the network can correctly route the messages.
+    pub local: Option<LocalData>,
 }
 
 impl CacheSnapshot {
@@ -80,6 +95,24 @@ impl CacheSnapshot {
         self.data.insert(d.account_key.clone(), d.clone());
         Some(d)
     }
+
+    fn update_local(&mut self, clock: &time::Clock) -> Option<Arc<SignedAccountData>> {
+        let local = match self.local {
+            Some(it) => it,
+            None => return None,
+        };
+        let got = self.data.get(&local.signer.public_key());
+        if got == Some(&local.data) { 
+            return None;
+        }
+        let want = VersionedAccountData {
+            data: local.data.clone(),
+            account_key: local.signer.public_key(),
+            version: got.map_or(0,|d|d.version)+1,
+            timestamp: clock.now(),
+        }.sign(local.signer).unwrap();
+        self.data.try_insert(want)
+    }
 }
 
 pub(crate) struct Cache(ArcMutex<CacheSnapshot>);
@@ -90,6 +123,7 @@ impl Cache {
             keys_by_id: Arc::new(AccountKeys::default()),
             keys: im::HashSet::new(),
             data: im::HashMap::new(),
+            local: None,
         }))
     }
 
@@ -122,7 +156,6 @@ impl Cache {
     ) -> (Vec<Arc<SignedAccountData>>, Option<Error>) {
         // Filter out non-interesting data, so that we never check signatures for valid non-interesting data.
         // Bad peers may force us to check signatures for fake data anyway, but we will ban them after first invalid signature.
-        // It locks epochs for reading for a short period.
         let mut new_data = HashMap::new();
         let inner = self.0.load();
         for d in data {
@@ -161,11 +194,23 @@ impl Cache {
         (data, None)
     }
 
+    pub fn set_local(
+        self: &Arc<Self>,
+        clock: &time::Clock,
+        local: LocalData,
+    ) -> Option<Arc<SignedAccountData>> {
+        self.0.update(|mut inner| {
+            inner.local = Some(local);
+            inner.update_local()
+        })
+    }
+
     /// Verifies the signatures and inserts verified data to the cache.
     /// Returns the data inserted and optionally a verification error.
     /// WriteLock is acquired only for the final update (after verification).
     pub async fn insert(
         self: &Arc<Self>,
+        clock: &time::Clock,
         data: Vec<Arc<SignedAccountData>>,
     ) -> (Vec<Arc<SignedAccountData>>, Option<Error>) {
         let this = self.clone();
@@ -173,7 +218,8 @@ impl Cache {
         let (data, err) = this.verify(data).await;
         // Insert the successfully verified data, even if an error has been encountered.
         let inserted = self.0.update(|mut inner| {
-            let inserted = data.into_iter().filter_map(|d| inner.try_insert(d)).collect();
+            let mut inserted : Vec<_> = data.into_iter().filter_map(|d| inner.try_insert(d)).collect();
+            inserted.extend(inner.update_local(clock));
             (inserted, inner)
         });
         // Return the inserted data.

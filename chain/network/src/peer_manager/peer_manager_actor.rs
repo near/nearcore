@@ -107,7 +107,7 @@ pub enum Event {
     // feel free to add support for more.
     MessageProcessed(tcp::Tier, PeerMessage),
     // Reported every time a new list of proxies has been constructed.
-    Tier1AdvertiseProxies(Vec<Arc<SignedAccountData>>),
+    Tier1AdvertiseProxies(Arc<SignedAccountData>),
     // Reported when a handshake has been started.
     HandshakeStarted(crate::peer::peer_actor::HandshakeStartedEvent),
     // Reported when a handshake has been successfully completed.
