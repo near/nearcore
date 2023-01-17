@@ -1,4 +1,3 @@
-use crate::tests::fixtures::get_context;
 use crate::tests::helpers::*;
 use crate::tests::vm_logic_builder::VMLogicBuilder;
 use crate::{map, ExtCosts};
