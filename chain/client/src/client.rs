@@ -1072,7 +1072,12 @@ impl Client {
                 Ok(())
             }
             Err(e) if e.is_bad_data() => {
-                self.ban_peer(peer_id.clone(), ReasonForBan::BadBlockHeader);
+                // We don't ban a peer if the block timestamp is too much in the future since it's possible
+                // that a block is considered valid in one machine and invalid in another machine when their
+                // clocks are not synced.
+                if !matches!(e, near_chain::Error::InvalidBlockFutureTime(_)) {
+                    self.ban_peer(peer_id.clone(), ReasonForBan::BadBlockHeader);
+                }
                 Err(e)
             }
             Err(_) => {
