@@ -195,9 +195,7 @@ pub fn get_block_shard_id_rev(
     }
     let (block_hash_bytes, shard_id_bytes) = key.split_at(32);
     let block_hash = CryptoHash::try_from(block_hash_bytes)?;
-    let mut shard_id_arr: [u8; 8] = Default::default();
-    shard_id_arr.copy_from_slice(shard_id_bytes);
-    let shard_id = ShardId::from_le_bytes(shard_id_arr);
+    let shard_id = ShardId::from_le_bytes(shard_id_bytes.try_into()?);
     Ok((block_hash, shard_id))
 }
 
@@ -422,14 +420,19 @@ pub fn to_timestamp(time: DateTime<chrono::Utc>) -> u64 {
 
 /// Compute number of seats per shard for given total number of seats and number of shards.
 pub fn get_num_seats_per_shard(num_shards: NumShards, num_seats: NumSeats) -> Vec<NumSeats> {
-    (0..num_shards)
-        .map(|i| {
-            let remainder = num_seats.wrapping_rem(num_shards);
-            let quotient = num_seats.wrapping_div(num_shards);
-            let num = quotient.saturating_add(if i < remainder { 1 } else { 0 });
-            max(num, 1)
-        })
-        .collect()
+    // num_shards ≠ 0 and division/reminder operations are safe on unsigned integers
+    #[allow(clippy::integer_arithmetic)]
+    fn get_shard_num_seats(
+        shard_id: ShardId,
+        num_shards: NumShards,
+        num_seats: NumSeats,
+    ) -> NumSeats {
+        let remainder = num_seats % num_shards;
+        let quotient = num_seats / num_shards;
+        let num = quotient + if shard_id < remainder { 1 } else { 0 };
+        max(num, 1)
+    }
+    (0..num_shards).map(|i| get_shard_num_seats(i, num_shards, num_seats)).collect()
 }
 
 /// Generate random string of given length
