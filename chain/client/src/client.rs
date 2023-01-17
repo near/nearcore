@@ -13,7 +13,6 @@ use near_chunks::logic::{
 };
 use near_client_primitives::debug::ChunkProduction;
 use near_primitives::time::Clock;
-#[cfg(feature = "cold_store")]
 use near_store::metadata::DbKind;
 use tracing::{debug, error, info, trace, warn};
 
@@ -2228,18 +2227,15 @@ impl Client {
             return self.chain.clear_data(tries, &self.config.gc);
         }
 
-        #[cfg(feature = "cold_store")]
-        {
-            // An archival node with split storage should perform garbage collection
-            // on the hot storage. In order to determine if split storage is enabled
-            // *and* that the migration to split storage is finished we can check
-            // the store kind. It's only set to hot after the migration is finished.
-            let store = self.chain.store().store();
-            let kind = store.get_db_kind();
-            if kind == Some(DbKind::Hot) {
-                let tries = self.runtime_adapter.get_tries();
-                return self.chain.clear_data(tries, &self.config.gc);
-            }
+        // An archival node with split storage should perform garbage collection
+        // on the hot storage. In order to determine if split storage is enabled
+        // *and* that the migration to split storage is finished we can check
+        // the store kind. It's only set to hot after the migration is finished.
+        let store = self.chain.store().store();
+        let kind = store.get_db_kind()?;
+        if kind == Some(DbKind::Hot) {
+            let tries = self.runtime_adapter.get_tries();
+            return self.chain.clear_data(tries, &self.config.gc);
         }
 
         // An archival node with legacy storage or in the midst of migration to split
