@@ -480,7 +480,6 @@ pub unsafe fn ecrecover_10k() {
 /// `ed25519_verify_base` computation is more expensive than register writing so
 /// we are okay overcharging it.
 #[no_mangle]
-
 pub unsafe fn ed25519_verify_32b_500() {
     // private key: OReNDSAXOnl-U6Wki95ut01ehQW_9wcAF_utjzRNreg
     // public key: M4QwJx4Sogjr0KcMI_gsvt-lEU6tgd9GWmgejE_JYlA
@@ -519,7 +518,6 @@ pub unsafe fn ed25519_verify_32b_500() {
 
 /// Function to measure `ed25519_verify_bytes`.
 #[no_mangle]
-
 pub unsafe fn ed25519_verify_16kib_64() {
     // 16kB bytes message
     let message = [b'a'; 16384];
