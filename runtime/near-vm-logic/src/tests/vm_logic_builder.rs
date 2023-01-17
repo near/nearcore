@@ -2,7 +2,6 @@ use crate::mocks::mock_external::MockedExternal;
 use crate::mocks::mock_memory::MockedMemory;
 use crate::types::{Gas, PromiseResult};
 use crate::{ActionCosts, MemSlice, VMConfig, VMContext, VMLogic};
-
 use near_primitives_core::runtime::fees::{Fee, RuntimeFeesConfig};
 use near_primitives_core::types::ProtocolVersion;
 
