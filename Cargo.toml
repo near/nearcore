@@ -200,7 +200,7 @@ wasm-encoder = "0.11.0"
 wasm-smith = "0.10"
 wasmparser = "0.78"
 wasmprinter = "0.2"
-wasmtime = { version = "0.37.0", default-features = false, features = ["cranelift", "wasm-backtrace"] }
+wasmtime = { version = "4.0.0", default-features = false, features = ["cranelift"] }
 wat = "1.0.40"
 xshell = "0.2.1"
 xz2 = "0.1.6"
