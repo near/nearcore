@@ -4,7 +4,8 @@ use rand::seq::SliceRandom;
 use rand::Rng;
 
 use crate::db::TestDB;
-use crate::{NodeStorage, ShardTries, Store};
+use crate::metadata::{DbKind, DbVersion, DB_VERSION};
+use crate::{NodeStorage, ShardTries, Store, Temperature};
 use near_primitives::account::id::AccountId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{DataReceipt, Receipt, ReceiptEnum};
@@ -15,19 +16,43 @@ use std::str::from_utf8;
 /// Creates an in-memory node storage.
 ///
 /// In tests you’ll often want to use [`create_test_store`] instead.
-pub fn create_test_node_storage() -> NodeStorage {
-    NodeStorage::new(TestDB::new())
+pub fn create_test_node_storage(version: DbVersion, hot_kind: DbKind) -> NodeStorage {
+    let storage = NodeStorage::new(TestDB::new());
+
+    storage.get_store(Temperature::Hot).set_db_version(version).unwrap();
+    storage.get_store(Temperature::Hot).set_db_kind(hot_kind).unwrap();
+
+    storage
+}
+
+/// Creates an in-memory node storage.
+///
+/// In tests you’ll often want to use [`create_test_store`] instead.
+/// It initializes the db version and db kind to sensible defaults -
+/// the current version and rpc kind.
+pub fn create_test_node_storage_default() -> NodeStorage {
+    create_test_node_storage(DB_VERSION, DbKind::RPC)
 }
 
 /// Creates an in-memory node storage with ColdDB<TestDB>
 #[cfg(feature = "cold_store")]
-pub fn create_test_node_storage_with_cold() -> NodeStorage<TestDB> {
-    NodeStorage::new_with_cold(TestDB::new(), TestDB::default())
+pub fn create_test_node_storage_with_cold(
+    version: DbVersion,
+    hot_kind: DbKind,
+) -> NodeStorage<TestDB> {
+    let storage = NodeStorage::new_with_cold(TestDB::new(), TestDB::default());
+
+    storage.get_store(Temperature::Hot).set_db_version(version).unwrap();
+    storage.get_store(Temperature::Hot).set_db_kind(hot_kind).unwrap();
+    storage.get_store(Temperature::Cold).set_db_version(version).unwrap();
+    storage.get_store(Temperature::Cold).set_db_kind(DbKind::Cold).unwrap();
+
+    storage
 }
 
 /// Creates an in-memory database.
 pub fn create_test_store() -> Store {
-    create_test_node_storage().get_store(crate::Temperature::Hot)
+    create_test_node_storage(DB_VERSION, DbKind::RPC).get_store(crate::Temperature::Hot)
 }
 
 /// Creates a Trie using an in-memory database.

@@ -14,6 +14,8 @@ use near_primitives::transaction::{
 use near_store::cold_storage::{
     test_cold_genesis_update, test_get_store_reads, update_cold_db, update_cold_head,
 };
+use near_store::metadata::DbKind;
+use near_store::metadata::DB_VERSION;
 use near_store::test_utils::create_test_node_storage_with_cold;
 use near_store::{DBCol, Store, Temperature, COLD_HEAD_KEY, HEAD_KEY};
 use nearcore::config::GenesisExt;
@@ -72,8 +74,7 @@ fn test_storage_after_commit_of_cold_update() {
         .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
         .build();
 
-    // TODO construct cold_db with appropriate hot storage
-    let store = create_test_node_storage_with_cold();
+    let store = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
 
     let mut last_hash = *env.clients[0].chain.genesis().hash();
 
@@ -202,7 +203,7 @@ fn test_cold_db_head_update() {
     genesis.config.epoch_length = epoch_length;
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
-    let store = create_test_node_storage_with_cold();
+    let store = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
     let hot_store = &store.get_store(Temperature::Hot);
     let cold_store = &store.get_store(Temperature::Cold);
     let runtime_adapter = create_nightshade_runtime_with_store(&genesis, &hot_store);

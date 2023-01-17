@@ -42,7 +42,7 @@ fn setup_network_node(
     chain_genesis: ChainGenesis,
     config: config::NetworkConfig,
 ) -> Addr<PeerManagerActor> {
-    let store = near_store::test_utils::create_test_node_storage();
+    let store = near_store::test_utils::create_test_node_storage_default();
 
     let num_validators = validators.len() as ValidatorId;
 

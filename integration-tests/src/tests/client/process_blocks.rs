@@ -75,9 +75,7 @@ use near_primitives::views::{
 use near_store::cold_storage::{update_cold_db, update_cold_head};
 #[cfg(feature = "cold_store")]
 use near_store::db::TestDB;
-#[cfg(feature = "cold_store")]
-use near_store::metadata::DbKind;
-use near_store::metadata::DB_VERSION;
+use near_store::metadata::{DbKind, DB_VERSION};
 #[cfg(feature = "cold_store")]
 use near_store::test_utils::create_test_node_storage_with_cold;
 use near_store::test_utils::create_test_store;
@@ -1520,7 +1518,7 @@ fn test_archival_save_trie_changes() {
         .save_trie_changes(true)
         .build();
 
-    env.clients[0].chain.store().store().set_db_version(DB_VERSION).unwrap();
+    env.clients[0].chain.store().store().set_db_kind(DbKind::Archive).unwrap();
 
     let mut blocks = vec![];
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
@@ -1583,11 +1581,6 @@ fn test_archival_gc_common(
     chain_genesis.epoch_length = epoch_length;
 
     let hot_store = &storage.get_store(Temperature::Hot);
-    let cold_store = &storage.get_store(Temperature::Cold);
-
-    // Set the DB_VERSION to the current version.
-    hot_store.set_db_version(DB_VERSION).unwrap();
-    cold_store.set_db_version(DB_VERSION).unwrap();
 
     let runtime_adapter = create_nightshade_runtime_with_store(&genesis, &hot_store);
     let mut env = TestEnv::builder(chain_genesis)
@@ -1651,14 +1644,8 @@ fn test_archival_gc_common(
 #[test]
 #[cfg(feature = "cold_store")]
 fn test_archival_gc_migration() {
-    let storage = create_test_node_storage_with_cold();
-
-    let hot_store = &storage.get_store(Temperature::Hot);
-    let cold_store = &storage.get_store(Temperature::Cold);
-
     // Split storage in the middle of migration has hot store kind set to archive.
-    hot_store.set_db_kind(DbKind::Archive).unwrap();
-    cold_store.set_db_kind(DbKind::Cold).unwrap();
+    let storage = create_test_node_storage_with_cold(DB_VERSION, DbKind::Archive);
 
     let epoch_length = 10;
     let max_height = epoch_length * (DEFAULT_GC_NUM_EPOCHS_TO_KEEP + 2);
@@ -1673,14 +1660,8 @@ fn test_archival_gc_migration() {
 #[test]
 #[cfg(feature = "cold_store")]
 fn test_archival_gc_split_storage_current() {
-    let storage = create_test_node_storage_with_cold();
-
-    let hot_store = &storage.get_store(Temperature::Hot);
-    let cold_store = &storage.get_store(Temperature::Cold);
-
     // Fully migrated split storage has each store configured with kind = temperature.
-    hot_store.set_db_kind(DbKind::Hot).unwrap();
-    cold_store.set_db_kind(DbKind::Cold).unwrap();
+    let storage = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
 
     let epoch_length = 10;
     let max_height = epoch_length * (DEFAULT_GC_NUM_EPOCHS_TO_KEEP + 2);
@@ -1695,14 +1676,8 @@ fn test_archival_gc_split_storage_current() {
 #[test]
 #[cfg(feature = "cold_store")]
 fn test_archival_gc_split_storage_behind() {
-    let storage = create_test_node_storage_with_cold();
-
-    let hot_store = &storage.get_store(Temperature::Hot);
-    let cold_store = &storage.get_store(Temperature::Cold);
-
     // Fully migrated split storage has each store configured with kind = temperature.
-    hot_store.set_db_kind(DbKind::Hot).unwrap();
-    cold_store.set_db_kind(DbKind::Cold).unwrap();
+    let storage = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
 
     let epoch_length = 10;
     let max_height = epoch_length * (DEFAULT_GC_NUM_EPOCHS_TO_KEEP + 2);
