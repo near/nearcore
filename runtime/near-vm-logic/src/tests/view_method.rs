@@ -1,6 +1,5 @@
 use crate::tests::vm_logic_builder::VMLogicBuilder;
 use crate::VMLimitConfig;
-
 use near_primitives_core::config::ViewConfig;
 
 fn view_config() -> Option<ViewConfig> {
