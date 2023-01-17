@@ -533,16 +533,14 @@ async fn wait_for_interrupt_signal(_home_dir: &Path, rx_crash: &mut Receiver<()>
     let mut sigterm = signal(SignalKind::terminate()).unwrap();
     let mut sighup = signal(SignalKind::hangup()).unwrap();
 
-    loop {
-        break tokio::select! {
-             _ = sigint.recv()  => "SIGINT",
-             _ = sigterm.recv() => "SIGTERM",
-             _ = sighup.recv() => {
-                "SIGHUP"
-             },
-             _ = rx_crash.recv() => "ClientActor died",
-        };
-    }
+    tokio::select! {
+         _ = sigint.recv()  => "SIGINT",
+         _ = sigterm.recv() => "SIGTERM",
+         _ = sighup.recv() => {
+            "SIGHUP"
+         },
+         _ = rx_crash.recv() => "ClientActor died",
+    };
 }
 
 #[derive(Parser)]

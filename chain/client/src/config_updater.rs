@@ -1,3 +1,4 @@
+use near_chain_configs::UpdateableClientConfig;
 use near_dyn_configs::{UpdateableConfigLoaderError, UpdateableConfigs};
 use std::sync::Arc;
 use tokio::sync::broadcast::Receiver;
@@ -21,17 +22,14 @@ impl ConfigUpdater {
         Self { rx_config_update, updateable_configs_error: None }
     }
 
-    pub fn update_if_needed(
-        &mut self,
-        client: &mut crate::Client,
-    ) -> Result<(), ClientConfigUpdateError> {
+    pub fn update_if_needed(&mut self, update_client_config_fn: &dyn Fn(UpdateableClientConfig)) {
         // Check if any of the configs were updated. If they did, the receiver
         // will contain a clone of the new configs.
         while let Ok(maybe_updateable_configs) = self.rx_config_update.try_recv() {
             match maybe_updateable_configs {
                 Ok(updateable_configs) => {
                     if let Some(client_config) = updateable_configs.client_config {
-                        client.update_client_config(client_config);
+                        update_client_config_fn(client_config);
                         tracing::info!(target: "config", "Updated ClientConfig");
                     }
                     self.updateable_configs_error = None;
@@ -41,12 +39,15 @@ impl ConfigUpdater {
                 }
             }
         }
-        Ok(())
     }
 
-    pub fn log_error(&self) {
+    /// Prints an error if it's present.
+    pub fn report_status(&self) {
         if let Some(updateable_configs_error) = &self.updateable_configs_error {
-            tracing::warn!(target: "stats", "Dynamically updateable configs are not valid. Please fix this ASAP otherwise the node will be unable to restart: {}", *updateable_configs_error);
+            tracing::warn!(
+                target: "stats",
+                "Dynamically updateable configs are not valid. Please fix this ASAP otherwise the node will probably crash after restart: {}",
+                *updateable_configs_error);
         }
     }
 }

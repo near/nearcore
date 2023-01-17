@@ -1135,9 +1135,9 @@ impl ClientActor {
     /// min(time until the closest trigger, 1 second).
     fn check_triggers(&mut self, ctx: &mut Context<ClientActor>) -> Duration {
         if let Some(config_updater) = &mut self.config_updater {
-            if let Err(err) = config_updater.update_if_needed(&mut self.client) {
-                tracing::warn!("Failed to update the client config: {:?}", err);
-            }
+            config_updater.update_if_needed(&|updateable_client_config| {
+                self.client.update_client_config(updateable_client_config)
+            });
         }
 
         // Check block height to trigger expected shutdown
