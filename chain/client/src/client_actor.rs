@@ -37,7 +37,8 @@ use near_chain_configs::ClientConfig;
 use near_chunks::client::ShardsManagerResponse;
 use near_chunks::logic::cares_about_shard_this_or_next_epoch;
 use near_client_primitives::types::{
-    Error, GetNetworkInfo, NetworkInfoResponse, Status, StatusError, StatusSyncInfo, SyncStatus, GetClientConfig, GetClientConfigError
+    Error, GetClientConfig, GetClientConfigError, GetNetworkInfo, NetworkInfoResponse, Status,
+    StatusError, StatusSyncInfo, SyncStatus,
 };
 #[cfg(feature = "test_features")]
 use near_network::types::NetworkAdversarialMessage;

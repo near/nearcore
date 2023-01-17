@@ -7,7 +7,7 @@ use actix::Message;
 use chrono::DateTime;
 use near_primitives::time::Utc;
 
-use near_chain_configs::{ProtocolConfigView, ClientConfig};
+use near_chain_configs::{ClientConfig, ProtocolConfigView};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
 use near_primitives::network::PeerId;
