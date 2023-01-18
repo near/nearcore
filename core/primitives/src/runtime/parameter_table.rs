@@ -33,8 +33,7 @@ pub(crate) struct ParameterTableDiff {
     parameters: BTreeMap<Parameter, (ParameterValue, ParameterValue)>,
 }
 
-/// Error returned by ParameterTable::from_txt() that parses a runtime
-/// configuration TXT file.
+/// Error returned by ParameterTable::from_str() that parses a runtime configuration YAML file.
 #[derive(thiserror::Error, Debug)]
 pub(crate) enum InvalidConfigError {
     #[error("could not parse `{1}` as a parameter")]
@@ -307,19 +306,23 @@ impl std::str::FromStr for ParameterTableDiff {
     }
 }
 
+/// Parses a value from YAML to a more restricted type of parameter values.
 fn parse_parameter_value(value: &serde_yaml::Value) -> Result<ParameterValue, InvalidConfigError> {
-    Ok(serde_yaml::from_value(process_yaml_value(value)?)
+    Ok(serde_yaml::from_value(canonicalize_yaml_value(value)?)
         .map_err(|err| InvalidConfigError::InvalidYaml(err))?)
 }
 
-fn process_yaml_value(value: &serde_yaml::Value) -> Result<serde_yaml::Value, InvalidConfigError> {
+/// Recursively canonicalizes values inside of the YAML structure.
+fn canonicalize_yaml_value(
+    value: &serde_yaml::Value,
+) -> Result<serde_yaml::Value, InvalidConfigError> {
     Ok(match value {
-        serde_yaml::Value::String(s) => parse_parameter_txt_value(s)?,
+        serde_yaml::Value::String(s) => canonicalize_yaml_string(s)?,
         serde_yaml::Value::Mapping(m) => serde_yaml::Value::Mapping(
             m.iter()
                 .map(|(key, value)| {
-                    let processed_value = process_yaml_value(value)?;
-                    Ok((key.clone(), processed_value))
+                    let canonical_value = canonicalize_yaml_value(value)?;
+                    Ok((key.clone(), canonical_value))
                 })
                 .collect::<Result<_, _>>()?,
         ),
@@ -329,9 +332,12 @@ fn process_yaml_value(value: &serde_yaml::Value) -> Result<serde_yaml::Value, In
 
 /// Parses a value from the custom format for runtime parameter definitions.
 ///
-/// A value can be a positive integer or a string, both written without quotes.
+/// A value can be a positive integer or a string, with or without quotes.
 /// Integers can use underlines as separators (for readability).
-fn parse_parameter_txt_value(value: &str) -> Result<serde_yaml::Value, InvalidConfigError> {
+///
+/// The main purpose of this function is to add support for integers with underscore digit
+/// separators which we use in the config but are not supported in YAML.
+fn canonicalize_yaml_string(value: &str) -> Result<serde_yaml::Value, InvalidConfigError> {
     if value.is_empty() {
         return Ok(serde_yaml::Value::Null);
     }
@@ -424,6 +430,8 @@ min_allowed_top_level_account_length: 32
 
 # Comment line with trailing whitespace # 
 
+# Note the quotes here, they are necessary as otherwise the value can't be parsed by `serde_yaml`
+# due to not fitting into u64 type.
 storage_amount_per_byte: "100000000000000000000"
 storage_num_bytes_account: 100
 storage_num_extra_bytes_record   :   40  
