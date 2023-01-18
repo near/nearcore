@@ -1407,7 +1407,9 @@ impl actix::Handler<stream::Error> for PeerActor {
                 // Connection has been closed.
                 io::ErrorKind::UnexpectedEof
                 | io::ErrorKind::ConnectionReset
-                | io::ErrorKind::BrokenPipe => true,
+                | io::ErrorKind::BrokenPipe
+                // libc::ETIIMEDOUT = 110, translates to io::ErrorKind::TimedOut.
+                | io::ErrorKind::TimedOut => true,
                 // When stopping tokio runtime, an "IO driver has terminated" is sometimes
                 // returned.
                 io::ErrorKind::Other => true,
