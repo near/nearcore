@@ -164,8 +164,6 @@ fn test_promise_batch_action_deploy_contract() {
 #[test]
 fn test_promise_batch_action_transfer() {
     let mut logic_builder = VMLogicBuilder::default();
-    logic_builder.context.account_balance = 100;
-    logic_builder.context.attached_deposit = 10;
     let mut logic = logic_builder.build();
     let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
 
@@ -215,8 +213,6 @@ fn test_promise_batch_action_transfer() {
 #[test]
 fn test_promise_batch_action_stake() {
     let mut logic_builder = VMLogicBuilder::default();
-    // And there are 10N in attached balance to the transaction.
-    logic_builder.context.account_balance = 100;
     let mut logic = logic_builder.build();
     let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
     let key = "ed25519:5do5nkAEVhL8iteDvXNgxi4pWK78Y7DDadX11ArFNyrf"
@@ -270,7 +266,6 @@ fn test_promise_batch_action_stake() {
 #[test]
 fn test_promise_batch_action_add_key_with_function_call() {
     let mut logic_builder = VMLogicBuilder::default();
-    logic_builder.context.account_balance = 100;
     let mut logic = logic_builder.build();
     let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
     let index_ptr = logic.internal_mem_write(&index.to_le_bytes()).ptr;
@@ -358,7 +353,6 @@ fn test_promise_batch_action_add_key_with_function_call() {
 #[test]
 fn test_promise_batch_then() {
     let mut logic_builder = VMLogicBuilder::default();
-    logic_builder.context.account_balance = 100;
     let mut logic = logic_builder.build();
 
     let account_id = b"rick.test";
