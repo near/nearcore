@@ -13,7 +13,7 @@ use near_store::flat_state::{
 use near_store::test_utils::create_test_store;
 #[cfg(feature = "protocol_feature_flat_state")]
 use near_store::DBCol;
-use near_store::TrieTraversalItem;
+use near_store::{Store, TrieTraversalItem};
 use nearcore::config::GenesisExt;
 use std::path::Path;
 use std::str::FromStr;
@@ -26,6 +26,14 @@ const START_HEIGHT: BlockHeight = 4;
 
 /// Number of steps which should be enough to create flat storage.
 const CREATION_TIMEOUT: BlockHeight = 30;
+
+/// Setup environment with one Near client for testing.
+fn setup_env(genesis: &Genesis, store: Store) -> TestEnv {
+    let chain_genesis = ChainGenesis::new(genesis);
+    let runtimes: Vec<Arc<dyn RuntimeAdapter>> =
+        vec![Arc::new(nearcore::NightshadeRuntime::test(Path::new("../../../.."), store, genesis))];
+    TestEnv::builder(chain_genesis.clone()).runtime_adapters(runtimes).build()
+}
 
 /// Waits for flat storage creation on shard 0 for `CREATION_TIMEOUT` blocks.
 /// We have a pause after processing each block because state data is being fetched in rayon threads,
@@ -79,16 +87,11 @@ fn wait_for_flat_storage_creation(env: &mut TestEnv, start_height: BlockHeight) 
 fn test_flat_storage_creation() {
     init_test_logger();
     let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
-    let chain_genesis = ChainGenesis::new(&genesis);
     let store = create_test_store();
 
     // Process some blocks with flat storage. Then remove flat storage data from disk.
     {
-        let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(
-            nearcore::NightshadeRuntime::test(Path::new("../../../.."), store.clone(), &genesis),
-        )];
-        let mut env =
-            TestEnv::builder(chain_genesis.clone()).runtime_adapters(runtimes.clone()).build();
+        let mut env = setup_env(&genesis, store.clone());
         for height in 1..START_HEIGHT {
             env.produce_block(0, height);
         }
@@ -134,12 +137,7 @@ fn test_flat_storage_creation() {
 
     // Create new chain and runtime using the same store. It should produce next blocks normally, but now it should
     // think that flat storage does not exist and background creation should be initiated.
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(nearcore::NightshadeRuntime::test(
-        Path::new("../../../.."),
-        store.clone(),
-        &genesis,
-    ))];
-    let mut env = TestEnv::builder(chain_genesis).runtime_adapters(runtimes.clone()).build();
+    let mut env = setup_env(&genesis, store.clone());
     for height in START_HEIGHT..START_HEIGHT + 2 {
         env.produce_block(0, height);
     }
@@ -196,16 +194,11 @@ fn test_flat_storage_creation_two_shards() {
         1,
         vec![1; num_shards as usize],
     );
-    let chain_genesis = ChainGenesis::new(&genesis);
     let store = create_test_store();
 
     // Process some blocks with flat storages for two shards. Then remove flat storage data from disk for shard 0.
     {
-        let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(
-            nearcore::NightshadeRuntime::test(Path::new("../../../.."), store.clone(), &genesis),
-        )];
-        let mut env =
-            TestEnv::builder(chain_genesis.clone()).runtime_adapters(runtimes.clone()).build();
+        let mut env = setup_env(&genesis, store.clone());
         for height in 1..START_HEIGHT {
             env.produce_block(0, height);
         }
@@ -238,12 +231,7 @@ fn test_flat_storage_creation_two_shards() {
     }
 
     // Check that flat storage is not ready for shard 0 but ready for shard 1.
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(nearcore::NightshadeRuntime::test(
-        Path::new("../../../.."),
-        store.clone(),
-        &genesis,
-    ))];
-    let mut env = TestEnv::builder(chain_genesis).runtime_adapters(runtimes.clone()).build();
+    let mut env = setup_env(&genesis, store.clone());
     assert!(env.clients[0].runtime_adapter.get_flat_storage_state_for_shard(0).is_none());
     assert_eq!(
         store_helper::get_flat_storage_state_status(&store, 0),
@@ -267,7 +255,6 @@ fn test_flat_storage_creation_start_from_state_part() {
     let accounts =
         (0..4).map(|i| AccountId::from_str(&format!("test{}", i)).unwrap()).collect::<Vec<_>>();
     let genesis = Genesis::test(accounts, 1);
-    let chain_genesis = ChainGenesis::new(&genesis);
     let store = create_test_store();
     let shard_layout = ShardLayout::v0_single_shard();
 
@@ -275,11 +262,7 @@ fn test_flat_storage_creation_start_from_state_part() {
     // Split state into two parts and return trie keys corresponding to each part.
     const NUM_PARTS: u64 = 2;
     let trie_keys: Vec<_> = {
-        let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(
-            nearcore::NightshadeRuntime::test(Path::new("../../../.."), store.clone(), &genesis),
-        )];
-        let mut env =
-            TestEnv::builder(chain_genesis.clone()).runtime_adapters(runtimes.clone()).build();
+        let mut env = setup_env(&genesis, store.clone());
         for height in 1..START_HEIGHT {
             env.produce_block(0, height);
         }
@@ -342,10 +325,7 @@ fn test_flat_storage_creation_start_from_state_part() {
         store_update.commit().unwrap();
 
         // Re-create runtime, check that flat storage is not created yet.
-        let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(
-            nearcore::NightshadeRuntime::test(Path::new("../../../.."), store.clone(), &genesis),
-        )];
-        let mut env = TestEnv::builder(chain_genesis).runtime_adapters(runtimes.clone()).build();
+        let mut env = setup_env(&genesis, store.clone());
         assert!(env.clients[0].runtime_adapter.get_flat_storage_state_for_shard(0).is_none());
 
         // Run chain for a couple of blocks and check that flat storage for shard 0 is eventually created.
