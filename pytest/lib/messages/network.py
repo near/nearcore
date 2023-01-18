@@ -64,6 +64,22 @@ class RoutedMessage:
     pass
 
 
+class ClosingReason:
+    pass
+
+
+class PoolError:
+    pass
+
+
+class ReasonForBan:
+    pass
+
+
+class RegisterPeerError:
+    pass
+
+
 class PeerIdOrHash:
     pass
 
@@ -162,7 +178,7 @@ network_schema = [
                 ['Block', Block],
                 ['Transaction', SignedTransaction],
                 ['Routed', RoutedMessage],
-                ['Disconnect', DisconnectReason],
+                ['Disconnect', ClosingReason],
                 ['Challenge', None],  # TODO
                 ['HandshakeV2', HandshakeV2],
                 ['EpochSyncRequest', None],  # TODO
@@ -327,6 +343,80 @@ network_schema = [
                 ['signature', Signature],
                 ['ttl', 'u8'],
                 ['body', RoutedMessageBody],
+            ]
+        }
+    ],
+    [
+        ClosingReason, {
+            'kind':
+                'enum',
+            'field':
+                'enum',
+            'values': [
+                ['TooManyInbound', None],
+                ['OutboundNotAllowed', PoolError],
+                ['Ban', ReasonForBan],
+                ['HandshakeFailed', None],
+                ['RejectedByPeerManager', RegisterPeerError],
+                ['StreamError', None],
+                ['DisallowedMessage', None],
+                ['PeerManagerRequest', None],
+                ['DisconnectMessage', None],
+                ['TooLargeClockSkew', None],
+                ['OwnedAccountMismatch', None],
+                ['Unknown', None],
+            ]
+        }
+    ],
+    [
+        PoolError, {
+            'kind':
+                'enum',
+            'field':
+                'enum',
+            'values': [
+                ['AlreadyConnected', None],
+                ['AlreadyConnectedAccount', (PublicKey, PublicKey)],
+                ['AlreadyStartedConnecting', None],
+                ['UnexpectedLoopConnection', None],
+            ]
+        }
+    ],
+    [
+        ReasonForBan, {
+            'kind':
+                'enum',
+            'field':
+                'enum',
+            'values': [
+                ['None', None],
+                ['BadBlock', None],
+                ['BadBlockHeader', None],
+                ['HeightFraud', None],
+                ['BadHanshake', None],
+                ['Abusive', None],
+                ['InvalidSignature', None],
+                ['InvalidPeerId', None],
+                ['InvalidHash', None],
+                ['InvalidEdge', None],
+                ['Blacklisted', None],
+            ]
+        }
+    ],
+    [
+        RegisterPeerError, {
+            'kind':
+                'enum',
+            'field':
+                'enum',
+            'values': [
+                ['Blacklisted', None],
+                ['Banned', None],
+                ['PoolError', PoolError],
+                ['ConnectionLimitExceeded', None],
+                ['NotTier1Peer', None],
+                ['Tier1InboundDisabled', None],
+                ['InvalidEdge', None],
             ]
         }
     ],
