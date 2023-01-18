@@ -213,7 +213,6 @@ pub static PREFETCH_STAGED_SLOTS: Lazy<IntGaugeVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-#[cfg(feature = "cold_store")]
 pub static COLD_MIGRATION_READS: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
         "near_cold_migration_reads",

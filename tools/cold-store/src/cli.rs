@@ -41,11 +41,8 @@ impl ColdStoreCommand {
         );
         let store = opener.open().unwrap_or_else(|e| panic!("Error opening storage: {:#}", e));
 
-        let hot_runtime = Arc::new(NightshadeRuntime::from_config(
-            home_dir,
-            store.get_store(Temperature::Hot),
-            &near_config,
-        ));
+        let hot_runtime =
+            Arc::new(NightshadeRuntime::from_config(home_dir, store.get_hot_store(), &near_config));
         match self.subcmd {
             SubCommand::Open => check_open(&store),
             SubCommand::Head => print_heads(&store),
@@ -87,6 +84,15 @@ fn print_heads(store: &NodeStorage) {
     println!("COLD STORE HEAD is at {:#?}", head_in_cold);
 
     assert_eq!(cold_head_in_hot.unwrap_or_default(), head_in_cold.unwrap_or_default());
+
+    // cold store
+    if let Some(cold_store) = cold_store {
+        let kind = cold_store.get_db_kind()?;
+        let head_in_cold = cold_store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)?;
+        println!("COLD STORE KIND is {:#?}", kind);
+        println!("COLD STORE HEAD is at {:#?}", head_in_cold);
+    }
+    Ok(())
 }
 
 fn copy_next_block(store: &NodeStorage, config: &NearConfig, hot_runtime: &Arc<NightshadeRuntime>) {

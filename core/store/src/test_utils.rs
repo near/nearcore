@@ -35,7 +35,6 @@ pub fn create_test_node_storage_default() -> NodeStorage {
 }
 
 /// Creates an in-memory node storage with ColdDB<TestDB>
-#[cfg(feature = "cold_store")]
 pub fn create_test_node_storage_with_cold(
     version: DbVersion,
     hot_kind: DbKind,

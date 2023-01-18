@@ -4,7 +4,6 @@ use clap::{Args, Parser};
 use near_amend_genesis::AmendGenesisCommand;
 use near_chain_configs::GenesisValidationMode;
 use near_client::ConfigUpdater;
-#[cfg(feature = "cold_store")]
 use near_cold_store_tool::ColdStoreCommand;
 use near_dyn_configs::{UpdateableConfigLoader, UpdateableConfigLoaderError, UpdateableConfigs};
 use near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofResponse;
@@ -111,7 +110,6 @@ impl NeardCmd {
             NeardSubCommand::AmendGenesis(cmd) => {
                 cmd.run()?;
             }
-            #[cfg(feature = "cold_store")]
             NeardSubCommand::ColdStore(cmd) => {
                 cmd.run(&home_dir);
             }
@@ -222,7 +220,6 @@ pub(super) enum NeardSubCommand {
     /// Amend a genesis/records file created by `dump-state`.
     AmendGenesis(AmendGenesisCommand),
 
-    #[cfg(feature = "cold_store")]
     /// Testing tool for cold storage
     ColdStore(ColdStoreCommand),
 

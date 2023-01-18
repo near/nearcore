@@ -56,10 +56,7 @@ fn open_storage(home_dir: &Path, near_config: &mut NearConfig) -> anyhow::Result
     let opener = NodeStorage::opener(
         home_dir,
         &near_config.config.store,
-        #[cfg(feature = "cold_store")]
         near_config.config.cold_store.as_ref(),
-        #[cfg(not(feature = "cold_store"))]
-        None,
     )
     .with_migrator(&migrator)
     .expect_archive(near_config.client_config.archive);

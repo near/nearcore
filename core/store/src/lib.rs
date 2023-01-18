@@ -41,7 +41,6 @@ pub use crate::trie::{
 };
 pub use flat_state::FlatStateDelta;
 
-#[cfg(feature = "cold_store")]
 pub mod cold_storage;
 mod columns;
 pub mod config;
@@ -68,7 +67,6 @@ pub use crate::opener::{StoreMigrator, StoreOpener, StoreOpenerError};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Temperature {
     Hot,
-    #[cfg(feature = "cold_store")]
     Cold,
 }
 
@@ -79,7 +77,6 @@ impl FromStr for Temperature {
         let s = s.to_lowercase();
         match s.as_str() {
             "hot" => Ok(Temperature::Hot),
-            #[cfg(feature = "cold_store")]
             "cold" => Ok(Temperature::Cold),
             _ => Err(String::from(format!("invalid temperature string {s}"))),
         }
@@ -94,10 +91,7 @@ impl FromStr for Temperature {
 /// the storage.
 pub struct NodeStorage<D = crate::db::RocksDB> {
     hot_storage: Arc<dyn Database>,
-    #[cfg(feature = "cold_store")]
     cold_storage: Option<Arc<crate::db::ColdDB<D>>>,
-    #[cfg(not(feature = "cold_store"))]
-    cold_storage: Option<std::convert::Infallible>,
     _phantom: PhantomData<D>,
 }
 
@@ -116,10 +110,8 @@ pub struct Store {
 
 // Those are temporary.  While cold_store feature is stabilised, remove those
 // type aliases and just use the type directly.
-#[cfg(feature = "cold_store")]
+// TODO
 pub type ColdConfig<'a> = Option<&'a StoreConfig>;
-#[cfg(not(feature = "cold_store"))]
-pub type ColdConfig<'a> = Option<std::convert::Infallible>;
 
 impl NodeStorage {
     /// Initialises a new opener with given home directory and hot and cold
@@ -127,28 +119,19 @@ impl NodeStorage {
     pub fn opener<'a>(
         home_dir: &std::path::Path,
         config: &'a StoreConfig,
-        #[allow(unused_variables)] cold_config: ColdConfig<'a>,
+        cold_config: ColdConfig<'a>,
     ) -> StoreOpener<'a> {
-        StoreOpener::new(
-            home_dir,
-            config,
-            #[cfg(feature = "cold_store")]
-            cold_config,
-        )
+        StoreOpener::new(home_dir, config, cold_config)
     }
 
     /// Constructs new object backed by given database.
     fn from_rocksdb(
         hot_storage: crate::db::RocksDB,
-        #[cfg(feature = "cold_store")] cold_storage: Option<crate::db::RocksDB>,
-        #[cfg(not(feature = "cold_store"))] cold_storage: Option<std::convert::Infallible>,
+        cold_storage: Option<crate::db::RocksDB>,
     ) -> Self {
         let hot_storage = Arc::new(hot_storage);
-        #[cfg(feature = "cold_store")]
         let cold_storage = cold_storage
             .map(|cold_db| Arc::new(crate::db::ColdDB::new(hot_storage.clone(), cold_db)));
-        #[cfg(not(feature = "cold_store"))]
-        let cold_storage = cold_storage.map(|_| unreachable!());
         Self { hot_storage, cold_storage, _phantom: PhantomData {} }
     }
 
@@ -163,12 +146,7 @@ impl NodeStorage {
     pub fn test_opener() -> (tempfile::TempDir, StoreOpener<'static>) {
         static CONFIG: Lazy<StoreConfig> = Lazy::new(StoreConfig::test_config);
         let dir = tempfile::tempdir().unwrap();
-        let opener = StoreOpener::new(
-            dir.path(),
-            &CONFIG,
-            #[cfg(feature = "cold_store")]
-            None,
-        );
+        let opener = StoreOpener::new(dir.path(), &CONFIG, None);
         (dir, opener)
     }
 
@@ -199,10 +177,12 @@ impl<D: Database + 'static> NodeStorage<D> {
     /// data is, simplifying slightly, determined based on height of the block.
     /// Anything above the tail of hot storage is hot and everything else is
     /// cold.
+    ///
+    /// This method panics if trying to access cold store but it wasn't configured.
+    /// Please consider using the get_hot_store and get_cold_store methods to avoid panics.
     pub fn get_store(&self, temp: Temperature) -> Store {
         match temp {
             Temperature::Hot => Store { storage: self.hot_storage.clone() },
-            #[cfg(feature = "cold_store")]
             Temperature::Cold => Store { storage: self.cold_storage.as_ref().unwrap().clone() },
         }
     }
@@ -225,7 +205,6 @@ impl<D: Database + 'static> NodeStorage<D> {
     pub fn _get_inner(&self, temp: Temperature) -> &Arc<dyn Database> {
         match temp {
             Temperature::Hot => &self.hot_storage,
-            #[cfg(feature = "cold_store")]
             Temperature::Cold => todo!(),
         }
     }
@@ -237,14 +216,12 @@ impl<D: Database + 'static> NodeStorage<D> {
     pub fn into_inner(self, temp: Temperature) -> Arc<dyn Database> {
         match temp {
             Temperature::Hot => self.hot_storage,
-            #[cfg(feature = "cold_store")]
             Temperature::Cold => self.cold_storage.unwrap(),
         }
     }
 
     pub fn set_version(&self, version: DbVersion) -> std::io::Result<()> {
         self.get_store(Temperature::Hot).set_db_version(version)?;
-        #[cfg(feature = "cold_store")]
         self.get_store(Temperature::Cold).set_db_version(version)?;
         Ok(())
     }
@@ -268,7 +245,6 @@ impl<D> NodeStorage<D> {
         })
     }
 
-    #[cfg(feature = "cold_store")]
     pub fn new_with_cold(hot: Arc<dyn Database>, cold: D) -> Self {
         Self {
             hot_storage: hot.clone(),
@@ -277,7 +253,6 @@ impl<D> NodeStorage<D> {
         }
     }
 
-    #[cfg(feature = "cold_store")]
     pub fn cold_db(&self) -> io::Result<&Arc<crate::db::ColdDB<D>>> {
         self.cold_storage
             .as_ref()
