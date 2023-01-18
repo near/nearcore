@@ -4,7 +4,7 @@ use crate::concurrency::demux;
 use crate::network_protocol::{
     Edge, EdgeState, Encoding, OwnedAccount, ParsePeerMessageError, PartialEdgeInfo,
     PeerChainInfoV2, PeerIdOrHash, PeerInfo, RawRoutedMessage, RoutedMessageBody, RoutedMessageV2,
-    RoutingTableUpdate, SyncAccountsData,
+    RoutingTableUpdate, StateResponseInfo, SyncAccountsData,
 };
 use crate::peer::stream;
 use crate::peer::tracker::Tracker;
@@ -894,6 +894,10 @@ impl PeerActor {
                 .map(RoutedMessageBody::VersionedStateResponse),
             RoutedMessageBody::VersionedStateResponse(info) => {
                 network_state.client.state_response(info).await;
+                None
+            }
+            RoutedMessageBody::StateResponse(info) => {
+                network_state.client.state_response(StateResponseInfo::V1(info)).await;
                 None
             }
             RoutedMessageBody::BlockApproval(approval) => {
