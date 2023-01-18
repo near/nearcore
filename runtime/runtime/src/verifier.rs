@@ -61,14 +61,8 @@ pub fn validate_transaction(
 
     let sender_is_receiver = &transaction.receiver_id == signer_id;
 
-    tx_cost(
-        &config.transaction_costs,
-        transaction,
-        gas_price,
-        sender_is_receiver,
-        current_protocol_version,
-    )
-    .map_err(|_| InvalidTxError::CostOverflow.into())
+    tx_cost(&config.fees, transaction, gas_price, sender_is_receiver, current_protocol_version)
+        .map_err(|_| InvalidTxError::CostOverflow.into())
 }
 
 /// Verifies the signed transaction on top of given state, charges transaction fees
@@ -889,7 +883,7 @@ mod tests {
     #[test]
     fn test_validate_transaction_invalid_low_balance() {
         let mut config = RuntimeConfig::free();
-        config.storage_amount_per_byte = 10_000_000;
+        config.fees.storage_usage_config.storage_amount_per_byte = 10_000_000;
         let initial_balance = 1_000_000_000;
         let transfer_amount = 950_000_000;
         let (signer, mut state_update, gas_price) =
@@ -916,7 +910,7 @@ mod tests {
             RuntimeError::InvalidTxError(InvalidTxError::LackBalanceForState {
                 signer_id: alice_account(),
                 amount: Balance::from(std::mem::size_of::<Account>() as u64)
-                    * config.storage_amount_per_byte
+                    * config.storage_amount_per_byte()
                     - (initial_balance - transfer_amount)
             })
         );

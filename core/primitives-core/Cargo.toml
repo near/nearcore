@@ -18,17 +18,21 @@ base64.workspace = true
 borsh.workspace = true
 bs58.workspace = true
 derive_more.workspace = true
+enum-map.workspace = true
 num-rational.workspace = true
 serde.workspace = true
 serde_repr.workspace = true
 sha2.workspace = true
 strum.workspace = true
+thiserror.workspace = true
 
 near-account-id = { path = "../account-id", features = ["arbitrary"] }
 
 [dev-dependencies]
 serde_json.workspace = true
+insta.workspace = true
 
 [features]
 default = []
 protocol_feature_ed25519_verify = []
+nightly = ["protocol_feature_ed25519_verify"]

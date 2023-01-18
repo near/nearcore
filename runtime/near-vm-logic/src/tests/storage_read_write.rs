@@ -32,29 +32,22 @@ fn test_storage_read_with_register() {
     logic.wrapped_internal_write_register(1, key).unwrap();
 
     logic.storage_read(u64::MAX, 1 as _, 0).expect("storage read ok");
-    let res = [0u8; 3];
-    logic.read_register(0, res.as_ptr() as _).unwrap();
-    assert_eq!(&res, b"bar");
+    logic.assert_read_register(val, 0);
 }
 
 #[test]
 fn test_storage_remove_with_register() {
     let mut logic_builder = VMLogicBuilder::default();
-
-    let key: &[u8] = b"foo";
-    let val: &[u8] = b"bar";
-
     let mut logic = logic_builder.build(get_context(vec![], false));
-    logic
-        .storage_write(key.len() as _, key.as_ptr() as _, val.len() as _, val.as_ptr() as _, 0)
-        .expect("storage write ok");
+    let key = logic.internal_mem_write(b"foo");
+    let val = logic.internal_mem_write(b"bar");
 
-    logic.wrapped_internal_write_register(1, key).unwrap();
+    logic.storage_write(key.len, key.ptr, val.len, val.ptr, 0).expect("storage write ok");
+
+    logic.wrapped_internal_write_register(1, b"foo").unwrap();
 
     logic.storage_remove(u64::MAX, 1 as _, 0).expect("storage remove ok");
-    let res = [0u8; 3];
-    logic.read_register(0, res.as_ptr() as _).unwrap();
-    assert_eq!(&res, b"bar");
+    logic.assert_read_register(b"bar", 0);
 }
 
 #[test]

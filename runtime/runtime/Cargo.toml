@@ -47,6 +47,7 @@ sandbox = ["near-vm-logic/sandbox", "near-vm-runner/sandbox"]
 
 [dev-dependencies]
 assert_matches.workspace = true
+enum-map.workspace = true
 indicatif.workspace = true
 rayon.workspace = true
 serde_json.workspace = true

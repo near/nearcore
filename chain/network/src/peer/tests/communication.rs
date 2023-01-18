@@ -29,15 +29,14 @@ async fn test_peer_communication(
         chain: chain.clone(),
         network: chain.make_config(&mut rng),
         force_encoding: inbound_encoding,
-        nonce: None,
     };
     let outbound_cfg = PeerConfig {
         chain: chain.clone(),
         network: chain.make_config(&mut rng),
         force_encoding: outbound_encoding,
-        nonce: None,
     };
-    let (outbound_stream, inbound_stream) = tcp::Stream::loopback(inbound_cfg.id()).await;
+    let (outbound_stream, inbound_stream) =
+        tcp::Stream::loopback(inbound_cfg.id(), tcp::Tier::T2).await;
     let mut inbound = PeerHandle::start_endpoint(clock.clock(), inbound_cfg, inbound_stream).await;
     let mut outbound =
         PeerHandle::start_endpoint(clock.clock(), outbound_cfg, outbound_stream).await;
@@ -47,7 +46,7 @@ async fn test_peer_communication(
 
     let message_processed = |want| {
         move |ev| match ev {
-            Event::Network(PME::MessageProcessed(got)) if got == want => Some(()),
+            Event::Network(PME::MessageProcessed(_, got)) if got == want => Some(()),
             _ => None,
         }
     };
@@ -186,15 +185,14 @@ async fn test_handshake(outbound_encoding: Option<Encoding>, inbound_encoding: O
         network: chain.make_config(&mut rng),
         chain: chain.clone(),
         force_encoding: inbound_encoding,
-        nonce: None,
     };
     let outbound_cfg = PeerConfig {
         network: chain.make_config(&mut rng),
         chain: chain.clone(),
         force_encoding: outbound_encoding,
-        nonce: None,
     };
-    let (outbound_stream, inbound_stream) = tcp::Stream::loopback(inbound_cfg.id()).await;
+    let (outbound_stream, inbound_stream) =
+        tcp::Stream::loopback(inbound_cfg.id(), tcp::Tier::T2).await;
     let inbound = PeerHandle::start_endpoint(clock.clock(), inbound_cfg, inbound_stream).await;
     let outbound_port = outbound_stream.local_addr.port();
     let mut outbound = Stream::new(outbound_encoding, outbound_stream);
@@ -208,11 +206,12 @@ async fn test_handshake(outbound_encoding: Option<Encoding>, inbound_encoding: O
         sender_listen_port: Some(outbound_port),
         sender_chain_info: outbound_cfg.chain.get_peer_chain_info(),
         partial_edge_info: outbound_cfg.partial_edge_info(&inbound.cfg.id(), 1),
+        owned_account: None,
     };
     // We will also introduce chain_id mismatch, but ProtocolVersionMismatch is expected to take priority.
     handshake.sender_chain_info.genesis_id.chain_id = "unknown_chain".to_string();
-    outbound.write(&PeerMessage::Handshake(handshake.clone())).await;
-    let resp = outbound.read().await;
+    outbound.write(&PeerMessage::Tier2Handshake(handshake.clone())).await;
+    let resp = outbound.read().await.unwrap();
     assert_matches!(
         resp,
         PeerMessage::HandshakeFailure(_, HandshakeFailureReason::ProtocolVersionMismatch { .. })
@@ -221,8 +220,8 @@ async fn test_handshake(outbound_encoding: Option<Encoding>, inbound_encoding: O
     // Send too new PROTOCOL_VERSION, expect ProtocolVersionMismatch
     handshake.protocol_version = PROTOCOL_VERSION + 1;
     handshake.oldest_supported_version = PROTOCOL_VERSION + 1;
-    outbound.write(&PeerMessage::Handshake(handshake.clone())).await;
-    let resp = outbound.read().await;
+    outbound.write(&PeerMessage::Tier2Handshake(handshake.clone())).await;
+    let resp = outbound.read().await.unwrap();
     assert_matches!(
         resp,
         PeerMessage::HandshakeFailure(_, HandshakeFailureReason::ProtocolVersionMismatch { .. })
@@ -232,8 +231,8 @@ async fn test_handshake(outbound_encoding: Option<Encoding>, inbound_encoding: O
     // We fix protocol_version, but chain_id is still mismatching.
     handshake.protocol_version = PROTOCOL_VERSION;
     handshake.oldest_supported_version = PROTOCOL_VERSION;
-    outbound.write(&PeerMessage::Handshake(handshake.clone())).await;
-    let resp = outbound.read().await;
+    outbound.write(&PeerMessage::Tier2Handshake(handshake.clone())).await;
+    let resp = outbound.read().await.unwrap();
     assert_matches!(
         resp,
         PeerMessage::HandshakeFailure(_, HandshakeFailureReason::GenesisMismatch(_))
@@ -241,9 +240,9 @@ async fn test_handshake(outbound_encoding: Option<Encoding>, inbound_encoding: O
 
     // Send a correct Handshake, expect a matching Handshake response.
     handshake.sender_chain_info = chain.get_peer_chain_info();
-    outbound.write(&PeerMessage::Handshake(handshake.clone())).await;
-    let resp = outbound.read().await;
-    assert_matches!(resp, PeerMessage::Handshake(_));
+    outbound.write(&PeerMessage::Tier2Handshake(handshake.clone())).await;
+    let resp = outbound.read().await.unwrap();
+    assert_matches!(resp, PeerMessage::Tier2Handshake(_));
 }
 
 #[tokio::test]

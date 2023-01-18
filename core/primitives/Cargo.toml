@@ -15,12 +15,12 @@ This crate provides the base set of primitives used by other nearcore crates
 [dependencies]
 arbitrary.workspace = true
 borsh.workspace = true
-byteorder.workspace = true
 bytesize.workspace = true
 cfg-if.workspace = true
 chrono.workspace = true
 derive_more.workspace = true
 easy-ext.workspace = true
+enum-map.workspace = true
 hex.workspace = true
 num-rational.workspace = true
 once_cell.workspace = true
@@ -29,9 +29,12 @@ rand.workspace = true
 reed-solomon-erasure.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+serde_yaml.workspace = true
 smart-default.workspace = true
+stdx.workspace = true
 strum.workspace = true
 thiserror.workspace = true
+tracing.workspace = true
 
 near-crypto = { path = "../crypto" }
 near-o11y = { path = "../o11y" }
@@ -60,9 +63,6 @@ nightly = [
 
 nightly_protocol = []
 
-
-# Shardnet is the experimental network that we deploy for chunk-only producer testing.
-shardnet = ["protocol_feature_reject_blocks_with_outdated_protocol_version"]
 
 [dev-dependencies]
 assert_matches.workspace = true

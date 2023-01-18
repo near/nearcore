@@ -39,7 +39,7 @@ fn test_deploy_max_size_contract() {
     let max_transaction_size = config.wasm_config.limit_config.max_transaction_size;
     let contract_size = max_contract_size.min(max_transaction_size - tx_overhead);
     // Enough token to store contract + 1 NEAR for account
-    let token_balance = config.storage_amount_per_byte * contract_size as u128 + ONE_NEAR;
+    let token_balance = config.storage_amount_per_byte() * contract_size as u128 + ONE_NEAR;
 
     // Create test account
     let transaction_result = node_user
@@ -51,7 +51,7 @@ fn test_deploy_max_size_contract() {
         )
         .unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
-    assert_eq!(transaction_result.receipts_outcome.len(), 2);
+    assert_eq!(transaction_result.receipts_outcome.len(), 1);
 
     // Deploy contract
     let wasm_binary = near_test_contracts::sized_contract(contract_size as usize);

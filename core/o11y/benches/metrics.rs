@@ -24,7 +24,7 @@ fn inc_counter_vec_with_label_values_itoa(bench: &mut Bencher) {
         for shard_id in 0..NUM_SHARDS {
             let mut buffer = itoa::Buffer::new();
             let printed = buffer.format(shard_id);
-            COUNTERS.with_label_values(&[&printed]).inc();
+            COUNTERS.with_label_values(&[printed]).inc();
         }
     });
 }
@@ -80,8 +80,8 @@ fn inc_counter_vec_cached(bench: &mut Bencher) {
         .map(|shard_id| COUNTERS.with_label_values(&[&shard_id.to_string()]))
         .collect();
     bench.iter(|| {
-        for shard_id in 0..NUM_SHARDS {
-            counters[shard_id].inc();
+        for counter in &counters {
+            counter.inc();
         }
     });
 }
@@ -90,8 +90,8 @@ fn inc_counter_vec_cached_str(bench: &mut Bencher) {
     const NUM_SHARDS: usize = 8;
     let shard_ids: Vec<String> = (0..NUM_SHARDS).map(|shard_id| shard_id.to_string()).collect();
     bench.iter(|| {
-        for shard_id in 0..NUM_SHARDS {
-            COUNTERS.with_label_values(&[&shard_ids[shard_id]]).inc();
+        for shard_id in &shard_ids {
+            COUNTERS.with_label_values(&[shard_id]).inc();
         }
     });
 }

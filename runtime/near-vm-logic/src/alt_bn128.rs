@@ -1,4 +1,3 @@
-use crate::array_utils::{join_array, split_array, ArrayChunks};
 use bn::Group;
 use near_vm_errors::{HostError, VMLogicError};
 
@@ -25,22 +24,19 @@ impl From<InvalidInput> for VMLogicError {
 
 pub(crate) fn split_elements<const ELEMENT_SIZE: usize>(
     data: &[u8],
-) -> Result<ArrayChunks<'_, ELEMENT_SIZE>, InvalidInput> {
-    ArrayChunks::new(data).map_err(|()| {
-        let msg =
-            format!("invalid array, byte length {}, element size {}", data.len(), ELEMENT_SIZE);
-        InvalidInput { msg }
-    })
+) -> Result<&[[u8; ELEMENT_SIZE]], InvalidInput> {
+    stdx::as_chunks_exact(data).map_err(|e| InvalidInput { msg: e.to_string() })
 }
 
 const G1_MULTIEXP_ELEMENT_SIZE: usize = POINT_SIZE + SCALAR_SIZE;
 
 pub(crate) fn g1_multiexp(
-    elements: ArrayChunks<'_, G1_MULTIEXP_ELEMENT_SIZE>,
+    elements: &[[u8; G1_MULTIEXP_ELEMENT_SIZE]],
 ) -> Result<[u8; POINT_SIZE], InvalidInput> {
     let elements: Vec<(bn::G1, bn::Fr)> = elements
+        .iter()
         .map(|chunk| {
-            let (g1, fr) = split_array(chunk);
+            let (g1, fr) = stdx::split_array(chunk);
             let g1 = decode_g1(g1)?;
             let fr = decode_fr(fr)?;
             Ok((g1, fr))
@@ -55,12 +51,13 @@ pub(crate) fn g1_multiexp(
 const G1_SUM_ELEMENT_SIZE: usize = BOOL_SIZE + POINT_SIZE;
 
 pub(crate) fn g1_sum(
-    elements: ArrayChunks<'_, G1_SUM_ELEMENT_SIZE>,
+    elements: &[[u8; G1_SUM_ELEMENT_SIZE]],
 ) -> Result<[u8; POINT_SIZE], InvalidInput> {
     let elements: Vec<(bool, bn::G1)> = {
         elements
+            .iter()
             .map(|chunk| {
-                let (sign, g1) = split_array(chunk);
+                let (sign, g1) = stdx::split_array(chunk);
                 let sign = decode_bool(sign)?;
                 let g1 = decode_g1(g1)?;
                 Ok((sign, g1))
@@ -78,11 +75,12 @@ pub(crate) fn g1_sum(
 const PAIRING_CHECK_ELEMENT_SIZE: usize = POINT_SIZE + POINT_SIZE * 2;
 
 pub(crate) fn pairing_check(
-    elements: ArrayChunks<'_, PAIRING_CHECK_ELEMENT_SIZE>,
+    elements: &[[u8; PAIRING_CHECK_ELEMENT_SIZE]],
 ) -> Result<bool, InvalidInput> {
     let elements: Vec<(bn::G1, bn::G2)> = elements
+        .iter()
         .map(|chunk| {
-            let (g1, g2) = split_array(chunk);
+            let (g1, g2) = stdx::split_array(chunk);
             let g1 = decode_g1(g1)?;
             let g2 = decode_g2(g2)?;
             Ok((g1, g2))
@@ -100,7 +98,7 @@ fn encode_g1(val: bn::G1) -> [u8; POINT_SIZE] {
         .unwrap_or_else(|| (bn::Fq::zero(), bn::Fq::zero()));
     let x = encode_fq(x);
     let y = encode_fq(y);
-    join_array(x, y)
+    stdx::join_array(x, y)
 }
 
 fn encode_fq(val: bn::Fq) -> [u8; SCALAR_SIZE] {
@@ -109,11 +107,11 @@ fn encode_fq(val: bn::Fq) -> [u8; SCALAR_SIZE] {
 
 fn encode_u256(val: bn::arith::U256) -> [u8; SCALAR_SIZE] {
     let [lo, hi] = val.0;
-    join_array(lo.to_le_bytes(), hi.to_le_bytes())
+    stdx::join_array(lo.to_le_bytes(), hi.to_le_bytes())
 }
 
 fn decode_g1(raw: &[u8; POINT_SIZE]) -> Result<bn::G1, InvalidInput> {
-    let (x, y) = split_array(raw);
+    let (x, y) = stdx::split_array(raw);
     let x = decode_fq(x)?;
     let y = decode_fq(y)?;
     if x.is_zero() && y.is_zero() {
@@ -131,7 +129,7 @@ fn decode_fq(raw: &[u8; SCALAR_SIZE]) -> Result<bn::Fq, InvalidInput> {
 }
 
 fn decode_g2(raw: &[u8; 2 * POINT_SIZE]) -> Result<bn::G2, InvalidInput> {
-    let (x, y) = split_array(raw);
+    let (x, y) = stdx::split_array(raw);
     let x = decode_fq2(x)?;
     let y = decode_fq2(y)?;
     if x.is_zero() && y.is_zero() {
@@ -144,7 +142,7 @@ fn decode_g2(raw: &[u8; 2 * POINT_SIZE]) -> Result<bn::G2, InvalidInput> {
 }
 
 fn decode_fq2(raw: &[u8; 2 * SCALAR_SIZE]) -> Result<bn::Fq2, InvalidInput> {
-    let (real, imaginary) = split_array(raw);
+    let (real, imaginary) = stdx::split_array(raw);
     let real = decode_fq(real)?;
     let imaginary = decode_fq(imaginary)?;
     Ok(bn::Fq2::new(real, imaginary))
@@ -156,7 +154,7 @@ fn decode_fr(raw: &[u8; SCALAR_SIZE]) -> Result<bn::Fr, InvalidInput> {
 }
 
 fn decode_u256(raw: &[u8; SCALAR_SIZE]) -> bn::arith::U256 {
-    let (lo, hi) = split_array(raw);
+    let (lo, hi) = stdx::split_array(raw);
     let lo = u128::from_le_bytes(*lo);
     let hi = u128::from_le_bytes(*hi);
     bn::arith::U256([lo, hi])

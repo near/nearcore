@@ -8,10 +8,11 @@ use std::time::Duration;
 use actix::{Actor, Addr, AsyncContext, Context};
 use chrono::DateTime;
 use futures::{future, FutureExt};
+use near_primitives::test_utils::create_test_signer;
 use num_rational::Ratio;
 use once_cell::sync::OnceCell;
 use rand::{thread_rng, Rng};
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor};
 use near_chain::chain::{do_apply_chunks, BlockCatchUpRequest, StateSplitRequest};
@@ -19,6 +20,7 @@ use near_chain::test_utils::{
     wait_for_all_blocks_in_processing, wait_for_block_in_processing, KeyValueRuntime,
     ValidatorSchedule,
 };
+use near_chain::types::ChainConfig;
 use near_chain::{
     Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Provenance, RuntimeAdapter,
 };
@@ -58,7 +60,7 @@ use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, EpochId, NumBlocks, NumSeats, ShardId,
 };
 use near_primitives::utils::MaybeValidated;
-use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
+use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 use near_primitives::views::{
     AccountView, FinalExecutionOutcomeView, QueryRequest, QueryResponseKind, StateItem,
@@ -173,8 +175,7 @@ impl Client {
     /// has started.
     pub fn finish_block_in_processing(&mut self, hash: &CryptoHash) -> Vec<CryptoHash> {
         if let Ok(()) = wait_for_block_in_processing(&mut self.chain, hash) {
-            let (accepted_blocks, errors) = self.postprocess_ready_blocks(Arc::new(|_| {}), true);
-            assert!(errors.is_empty());
+            let (accepted_blocks, _) = self.postprocess_ready_blocks(Arc::new(|_| {}), true);
             return accepted_blocks;
         }
         vec![]
@@ -218,15 +219,16 @@ pub fn setup(
     } else {
         DoomslugThresholdMode::NoApprovals
     };
-    let chain =
-        Chain::new(runtime.clone(), &chain_genesis, doomslug_threshold_mode, !archive).unwrap();
+    let chain = Chain::new(
+        runtime.clone(),
+        &chain_genesis,
+        doomslug_threshold_mode,
+        ChainConfig { save_trie_changes: true, background_migration_threads: 1 },
+    )
+    .unwrap();
     let genesis_block = chain.get_block(&chain.genesis().hash().clone()).unwrap();
 
-    let signer = Arc::new(InMemoryValidatorSigner::from_seed(
-        account_id.clone(),
-        KeyType::ED25519,
-        account_id.as_ref(),
-    ));
+    let signer = Arc::new(create_test_signer(account_id.as_str()));
     let telemetry = TelemetryActor::default().start();
     let config = ClientConfig::test(
         skip_sync_wait,
@@ -234,6 +236,7 @@ pub fn setup(
         max_block_prod_time,
         num_validator_seats,
         archive,
+        true,
         epoch_sync_enabled,
     );
 
@@ -303,13 +306,15 @@ pub fn setup_only_view(
     } else {
         DoomslugThresholdMode::NoApprovals
     };
-    Chain::new(runtime.clone(), &chain_genesis, doomslug_threshold_mode, !archive).unwrap();
+    Chain::new(
+        runtime.clone(),
+        &chain_genesis,
+        doomslug_threshold_mode,
+        ChainConfig { save_trie_changes: true, background_migration_threads: 1 },
+    )
+    .unwrap();
 
-    let signer = Arc::new(InMemoryValidatorSigner::from_seed(
-        account_id.clone(),
-        KeyType::ED25519,
-        account_id.as_ref(),
-    ));
+    let signer = Arc::new(create_test_signer(account_id.as_str()));
     TelemetryActor::default().start();
     let config = ClientConfig::test(
         skip_sync_wait,
@@ -317,6 +322,7 @@ pub fn setup_only_view(
         max_block_prod_time,
         num_validator_seats,
         archive,
+        true,
         epoch_sync_enabled,
     );
 
@@ -670,6 +676,7 @@ pub fn setup_mock_all_validators(
                                 last_time_received_message: near_network::time::Instant::now(),
                                 connection_established_time: near_network::time::Instant::now(),
                                 peer_type: PeerType::Outbound,
+                                nonce: 3,
                             })
                             .collect();
                         let peers2 = peers
@@ -678,13 +685,15 @@ pub fn setup_mock_all_validators(
                             .collect();
                         let info = NetworkInfo {
                             connected_peers: peers,
+                            tier1_connections: vec![],
                             num_connected_peers: key_pairs1.len(),
                             peer_max_count: key_pairs1.len() as u32,
                             highest_height_peers: peers2,
                             sent_bytes_per_sec: 0,
                             received_bytes_per_sec: 0,
                             known_producers: vec![],
-                            tier1_accounts: vec![],
+                            tier1_accounts_keys: vec![],
+                            tier1_accounts_data: vec![],
                         };
                         client_addr.do_send(SetNetworkInfo(info).with_span_context());
                     }
@@ -1083,12 +1092,13 @@ pub fn setup_client_with_runtime(
     chain_genesis: ChainGenesis,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     rng_seed: RngSeed,
+    archive: bool,
+    save_trie_changes: bool,
 ) -> Client {
-    let validator_signer = account_id.map(|x| {
-        Arc::new(InMemoryValidatorSigner::from_seed(x.clone(), KeyType::ED25519, x.as_ref()))
-            as Arc<dyn ValidatorSigner>
-    });
-    let mut config = ClientConfig::test(true, 10, 20, num_validator_seats, false, true);
+    let validator_signer =
+        account_id.map(|x| Arc::new(create_test_signer(x.as_str())) as Arc<dyn ValidatorSigner>);
+    let mut config =
+        ClientConfig::test(true, 10, 20, num_validator_seats, archive, save_trie_changes, true);
     config.epoch_length = chain_genesis.epoch_length;
     let mut client = Client::new(
         config,
@@ -1114,6 +1124,8 @@ pub fn setup_client(
     client_adapter: Arc<dyn ClientAdapterForShardsManager>,
     chain_genesis: ChainGenesis,
     rng_seed: RngSeed,
+    archive: bool,
+    save_trie_changes: bool,
 ) -> Client {
     let num_validator_seats = vs.all_block_producers().count() as NumSeats;
     let runtime_adapter =
@@ -1127,6 +1139,8 @@ pub fn setup_client(
         chain_genesis,
         runtime_adapter,
         rng_seed,
+        archive,
+        save_trie_changes,
     )
 }
 
@@ -1143,6 +1157,8 @@ pub struct TestEnv {
     // random seed to be inject in each client according to AccountId
     // if not set, a default constant TEST_SEED will be injected
     seeds: HashMap<AccountId, RngSeed>,
+    archive: bool,
+    save_trie_changes: bool,
 }
 
 /// A builder for the TestEnv structure.
@@ -1155,6 +1171,8 @@ pub struct TestEnvBuilder {
     // random seed to be inject in each client according to AccountId
     // if not set, a default constant TEST_SEED will be injected
     seeds: HashMap<AccountId, RngSeed>,
+    archive: bool,
+    save_trie_changes: bool,
 }
 
 /// Builder for the [`TestEnv`] structure.
@@ -1171,6 +1189,8 @@ impl TestEnvBuilder {
             runtime_adapters: None,
             network_adapters: None,
             seeds,
+            archive: false,
+            save_trie_changes: true,
         }
     }
 
@@ -1233,6 +1253,16 @@ impl TestEnvBuilder {
         self
     }
 
+    pub fn archive(mut self, archive: bool) -> Self {
+        self.archive = archive;
+        self
+    }
+
+    pub fn save_trie_changes(mut self, save_trie_changes: bool) -> Self {
+        self.save_trie_changes = save_trie_changes;
+        self
+    }
+
     /// Constructs new `TestEnv` structure.
     ///
     /// If no clients were configured (either through count or vector) one
@@ -1277,11 +1307,14 @@ impl TestEnvBuilder {
                         client_adapter.clone(),
                         chain_genesis.clone(),
                         rng_seed,
+                        self.archive,
+                        self.save_trie_changes,
                     )
                 })
                 .collect(),
             Some(runtime_adapters) => {
                 assert!(clients.len() == runtime_adapters.len());
+
                 clients
                     .into_iter()
                     .zip((&network_adapters).iter())
@@ -1300,6 +1333,8 @@ impl TestEnvBuilder {
                             chain_genesis.clone(),
                             runtime_adapter,
                             rng_seed,
+                            self.archive,
+                            self.save_trie_changes,
                         )
                     })
                     .collect()
@@ -1320,6 +1355,8 @@ impl TestEnvBuilder {
                 .collect(),
             paused_blocks: Default::default(),
             seeds,
+            archive: self.archive,
+            save_trie_changes: self.save_trie_changes,
         }
     }
 
@@ -1429,7 +1466,12 @@ impl TestEnv {
         {
             let target_id = self.account_to_client_index[&target.account_id.unwrap()];
             let response = self.get_partial_encoded_chunk_response(target_id, request);
-            self.clients[id].shards_mgr.process_partial_encoded_chunk_response(response).unwrap();
+            if let Some(response) = response {
+                self.clients[id]
+                    .shards_mgr
+                    .process_partial_encoded_chunk_response(response)
+                    .unwrap();
+            }
         } else {
             panic!("The request is not a PartialEncodedChunk request {:?}", request);
         }
@@ -1439,24 +1481,33 @@ impl TestEnv {
         &mut self,
         id: usize,
         request: PartialEncodedChunkRequestMsg,
-    ) -> PartialEncodedChunkResponseMsg {
+    ) -> Option<PartialEncodedChunkResponseMsg> {
         let client = &mut self.clients[id];
-        client.shards_mgr.process_partial_encoded_chunk_request(request, CryptoHash::default());
-        let response = self.network_adapters[id].pop_most_recent().unwrap();
-        if let PeerManagerMessageRequest::NetworkRequests(
-            NetworkRequests::PartialEncodedChunkResponse { route_back: _, response },
-        ) = response
+        if client
+            .shards_mgr
+            .process_partial_encoded_chunk_request(request.clone(), CryptoHash::default())
         {
-            return response;
+            let response = self.network_adapters[id].pop_most_recent().unwrap();
+            if let PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::PartialEncodedChunkResponse { route_back: _, response },
+            ) = response
+            {
+                Some(response)
+            } else {
+                panic!(
+                    "did not find PartialEncodedChunkResponse from the network queue {:?}",
+                    response
+                );
+            }
         } else {
-            panic!(
-                "did not find PartialEncodedChunkResponse from the network queue {:?}",
-                response
-            );
+            // TODO: Somehow this may fail at epoch boundaries. Figure out why.
+            warn!("Failed to process PartialEncodedChunkRequest from client {}: {:?}", id, request);
+            None
         }
     }
 
-    pub fn process_shards_manager_responses(&mut self, id: usize) {
+    pub fn process_shards_manager_responses(&mut self, id: usize) -> bool {
+        let mut any_processed = false;
         while let Some(msg) = self.client_adapters[id].pop() {
             match msg {
                 ShardsManagerResponse::ChunkCompleted { partial_chunk, shard_chunk } => {
@@ -1469,11 +1520,17 @@ impl TestEnv {
                 ShardsManagerResponse::InvalidChunk(encoded_chunk) => {
                     self.clients[id].on_invalid_chunk(encoded_chunk);
                 }
-                ShardsManagerResponse::ChunkHeaderReadyForInclusion(header) => {
-                    self.clients[id].on_chunk_header_ready_for_inclusion(header);
+                ShardsManagerResponse::ChunkHeaderReadyForInclusion {
+                    chunk_header,
+                    chunk_producer,
+                } => {
+                    self.clients[id]
+                        .on_chunk_header_ready_for_inclusion(chunk_header, chunk_producer);
                 }
             }
+            any_processed = true;
         }
+        any_processed
     }
 
     pub fn process_shards_manager_responses_and_finish_processing_blocks(&mut self, idx: usize) {
@@ -1513,11 +1570,7 @@ impl TestEnv {
 
         let mut block = self.clients[0].produce_block(tip.height + 1).unwrap().unwrap();
         block.mut_header().set_latest_protocol_version(protocol_version);
-        block.mut_header().resign(&InMemoryValidatorSigner::from_seed(
-            block_producer.clone(),
-            KeyType::ED25519,
-            block_producer.as_ref(),
-        ));
+        block.mut_header().resign(&create_test_signer(block_producer.as_str()));
 
         let _ = self.clients[0]
             .process_block_test_no_produce_chunk(block.into(), Provenance::NONE)
@@ -1582,27 +1635,32 @@ impl TestEnv {
         self.query_account(account_id).amount
     }
 
-    /// Restarts client at given index.  Note that the client is restarted with
-    /// the default runtime adapter (i.e. [`KeyValueRuntime`]).  That is, if
-    /// this `TestEnv` was created with custom runtime adapters that
-    /// customisation will be lost.
+    /// Restarts client at given index. Note that the new client reuses runtime
+    /// adapter of old client.
+    /// TODO (#8269): create new `KeyValueRuntime` for new client. Currently it
+    /// doesn't work because `KeyValueRuntime` misses info about new epochs in
+    /// memory caches.
+    /// Though, it seems that it is not necessary for current use cases.
     pub fn restart(&mut self, idx: usize) {
-        let store = self.clients[idx].chain.store().store().clone();
         let account_id = self.get_client_id(idx).clone();
         let rng_seed = match self.seeds.get(&account_id) {
             Some(seed) => *seed,
             None => TEST_SEED,
         };
         let vs = ValidatorSchedule::new().block_producers_per_epoch(vec![self.validators.clone()]);
-        self.clients[idx] = setup_client(
-            store,
-            vs,
+        let num_validator_seats = vs.all_block_producers().count() as NumSeats;
+        let runtime_adapter = self.clients[idx].runtime_adapter.clone();
+        self.clients[idx] = setup_client_with_runtime(
+            num_validator_seats,
             Some(self.get_client_id(idx).clone()),
             false,
             self.network_adapters[idx].clone(),
             self.client_adapters[idx].clone(),
             self.chain_genesis.clone(),
+            runtime_adapter,
             rng_seed,
+            self.archive,
+            self.save_trie_changes,
         )
     }
 

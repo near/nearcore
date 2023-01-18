@@ -1,6 +1,8 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::io::{Cursor, Read};
+use std::fmt::Write;
+use std::io::Read;
+use std::str;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use byteorder::{LittleEndian, ReadBytesExt};
@@ -12,6 +14,7 @@ pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::ValueRef;
 #[cfg(feature = "protocol_feature_flat_state")]
 use near_primitives::state_record::is_delayed_receipt_key;
+use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{StateRoot, StateRootNode};
 
@@ -21,13 +24,12 @@ pub(crate) use crate::trie::config::DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT;
 use crate::trie::insert_delete::NodesStorage;
 use crate::trie::iterator::TrieIterator;
 pub use crate::trie::nibble_slice::NibbleSlice;
-pub use crate::trie::prefetching_trie_storage::PrefetchApi;
+pub use crate::trie::prefetching_trie_storage::{PrefetchApi, PrefetchError};
 pub use crate::trie::shard_tries::{KeyForStateChanges, ShardTries, WrappedTrieChanges};
-pub use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieStorage};
+pub use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieDBStorage, TrieStorage};
 use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieRecordingStorage};
-use crate::StorageError;
+use crate::{FlatStateDelta, StorageError};
 pub use near_primitives::types::TrieNodesCount;
-use std::fmt::Write;
 
 mod config;
 mod insert_delete;
@@ -338,15 +340,15 @@ const BRANCH_NODE_NO_VALUE: u8 = 1;
 const BRANCH_NODE_WITH_VALUE: u8 = 2;
 const EXTENSION_NODE: u8 = 3;
 
-fn decode_children(cursor: &mut Cursor<&[u8]>) -> Result<[Option<CryptoHash>; 16], std::io::Error> {
+fn decode_children(bytes: &mut &[u8]) -> Result<[Option<CryptoHash>; 16], std::io::Error> {
     let mut children: [Option<CryptoHash>; 16] = Default::default();
-    let bitmap = cursor.read_u16::<LittleEndian>()?;
+    let bitmap = bytes.read_u16::<LittleEndian>()?;
     let mut pos = 1;
     for child in &mut children {
         if bitmap & pos != 0 {
             let mut arr = [0; 32];
-            cursor.read_exact(&mut arr)?;
-            *child = Some(CryptoHash::try_from(&arr[..]).unwrap());
+            bytes.read_exact(&mut arr)?;
+            *child = Some(CryptoHash(arr));
         }
         pos <<= 1;
     }
@@ -399,47 +401,44 @@ impl RawTrieNode {
         }
     }
 
-    #[cfg(test)]
-    fn encode(&self) -> Vec<u8> {
-        let mut out = Vec::new();
-        self.encode_into(&mut out);
-        out
-    }
-
-    fn decode(bytes: &[u8]) -> Result<Self, std::io::Error> {
-        let mut cursor = Cursor::new(bytes);
-        match cursor.read_u8()? {
+    fn decode(mut bytes: &[u8]) -> Result<Self, std::io::Error> {
+        let node = match bytes.read_u8()? {
             LEAF_NODE => {
-                let key_length = cursor.read_u32::<LittleEndian>()?;
+                let key_length = bytes.read_u32::<LittleEndian>()?;
                 let mut key = vec![0; key_length as usize];
-                cursor.read_exact(&mut key)?;
-                let value_length = cursor.read_u32::<LittleEndian>()?;
+                bytes.read_exact(&mut key)?;
+                let value_length = bytes.read_u32::<LittleEndian>()?;
                 let mut arr = [0; 32];
-                cursor.read_exact(&mut arr)?;
+                bytes.read_exact(&mut arr)?;
                 let value_hash = CryptoHash(arr);
-                Ok(RawTrieNode::Leaf(key, value_length, value_hash))
+                RawTrieNode::Leaf(key, value_length, value_hash)
             }
             BRANCH_NODE_NO_VALUE => {
-                let children = decode_children(&mut cursor)?;
-                Ok(RawTrieNode::Branch(children, None))
+                let children = decode_children(&mut bytes)?;
+                RawTrieNode::Branch(children, None)
             }
             BRANCH_NODE_WITH_VALUE => {
-                let value_length = cursor.read_u32::<LittleEndian>()?;
+                let value_length = bytes.read_u32::<LittleEndian>()?;
                 let mut arr = [0; 32];
-                cursor.read_exact(&mut arr)?;
+                bytes.read_exact(&mut arr)?;
                 let value_hash = CryptoHash(arr);
-                let children = decode_children(&mut cursor)?;
-                Ok(RawTrieNode::Branch(children, Some((value_length, value_hash))))
+                let children = decode_children(&mut bytes)?;
+                RawTrieNode::Branch(children, Some((value_length, value_hash)))
             }
             EXTENSION_NODE => {
-                let key_length = cursor.read_u32::<LittleEndian>()?;
+                let key_length = bytes.read_u32::<LittleEndian>()?;
                 let mut key = vec![0; key_length as usize];
-                cursor.read_exact(&mut key)?;
+                bytes.read_exact(&mut key)?;
                 let mut child = [0; 32];
-                cursor.read_exact(&mut child)?;
-                Ok(RawTrieNode::Extension(key, CryptoHash(child)))
+                bytes.read_exact(&mut child)?;
+                RawTrieNode::Extension(key, CryptoHash(child))
             }
-            _ => Err(std::io::Error::new(std::io::ErrorKind::Other, "Wrong type")),
+            _ => return Err(std::io::Error::new(std::io::ErrorKind::Other, "Wrong type")),
+        };
+        if bytes.is_empty() {
+            Ok(node)
+        } else {
+            Err(std::io::Error::new(std::io::ErrorKind::Other, "Spurious data at end"))
         }
     }
 }
@@ -460,10 +459,9 @@ impl RawTrieNodeWithSize {
         if bytes.len() < 8 {
             return Err(std::io::Error::new(std::io::ErrorKind::Other, "Wrong type"));
         }
-        let node = RawTrieNode::decode(&bytes[0..bytes.len() - 8])?;
-        let mut arr: [u8; 8] = Default::default();
-        arr.copy_from_slice(&bytes[bytes.len() - 8..]);
-        let memory_usage = u64::from_le_bytes(arr);
+        let (bytes, memory_usage) = stdx::rsplit_slice(bytes);
+        let node = RawTrieNode::decode(bytes)?;
+        let memory_usage = u64::from_le_bytes(*memory_usage);
         Ok(RawTrieNodeWithSize { node, memory_usage })
     }
 }
@@ -554,8 +552,15 @@ impl TrieChanges {
 pub struct ApplyStatePartResult {
     /// Trie changes after applying state part.
     pub trie_changes: TrieChanges,
+    /// Flat state changes after applying state part, stored as delta.
+    pub flat_state_delta: FlatStateDelta,
     /// Contract codes belonging to the state part.
     pub contract_codes: Vec<ContractCode>,
+}
+
+enum NodeOrValue {
+    Node(RawTrieNodeWithSize),
+    Value(std::sync::Arc<[u8]>),
 }
 
 impl Trie {
@@ -663,14 +668,15 @@ impl Trie {
     }
 
     // Prints the trie nodes starting from hash, up to max_depth depth.
+    // The node hash can be any node in the trie.
     pub fn print_recursive(&self, f: &mut dyn std::io::Write, hash: &CryptoHash, max_depth: u32) {
         match self.retrieve_raw_node_or_value(hash) {
-            Ok(Ok(_)) => {
+            Ok(NodeOrValue::Node(_)) => {
                 let mut prefix: Vec<u8> = Vec::new();
                 self.print_recursive_internal(f, hash, max_depth, &mut "".to_string(), &mut prefix)
                     .expect("write failed");
             }
-            Ok(Err(value_bytes)) => {
+            Ok(NodeOrValue::Value(value_bytes)) => {
                 writeln!(
                     f,
                     "Given node is a value. Len: {}, Data: {:?} ",
@@ -685,17 +691,48 @@ impl Trie {
         };
     }
 
+    // Prints the trie leaves starting from the state root node, up to max_depth depth.
+    // This method can only iterate starting from the root node and it only prints the
+    // leaf nodes but it shows output in more human friendly way.
+    pub fn print_recursive_leaves(&self, f: &mut dyn std::io::Write, max_depth: u32) {
+        let iter = match self.iter_with_max_depth(max_depth as usize) {
+            Ok(iter) => iter,
+            Err(err) => {
+                writeln!(f, "Error when getting the trie iterator: {}", err).expect("write failed");
+                return;
+            }
+        };
+        for node in iter {
+            let (key, value) = match node {
+                Ok((key, value)) => (key, value),
+                Err(err) => {
+                    writeln!(f, "Failed to iterate node with error: {err}").expect("write failed");
+                    continue;
+                }
+            };
+
+            // Try to parse the key in UTF8 which works only for the simplest keys (e.g. account),
+            // or get whitespace padding instead.
+            let key_string = match str::from_utf8(&key) {
+                Ok(value) => String::from(value),
+                Err(_) => " ".repeat(key.len()),
+            };
+            let state_record = StateRecord::from_raw_key_value(key.clone(), value);
+
+            writeln!(f, "{} {state_record:?}", key_string).expect("write failed");
+        }
+    }
+
     // Converts the list of Nibbles to a readable string.
     fn nibbles_to_string(&self, prefix: &[u8]) -> String {
-        let mut result = String::new();
-        for chunk in prefix.chunks(2) {
-            if chunk.len() == 2 {
-                let chr: char = ((chunk[0] * 16) + chunk[1]).into();
-                write!(&mut result, "{}", chr.escape_default()).unwrap();
-            } else {
-                // Final, sole nibble
-                write!(&mut result, " + {:x}", chunk[0]).unwrap();
-            }
+        let (chunks, remainder) = stdx::as_chunks::<2, _>(prefix);
+        let mut result = chunks
+            .into_iter()
+            .map(|chunk| (chunk[0] * 16) + chunk[1])
+            .flat_map(|ch| std::ascii::escape_default(ch).map(char::from))
+            .collect::<String>();
+        if let Some(final_nibble) = remainder.first() {
+            write!(&mut result, "\\x{:x}_", final_nibble).unwrap();
         }
         result
     }
@@ -798,12 +835,14 @@ impl Trie {
     }
 
     // Similar to retrieve_raw_node but handles the case where there is a Value (and not a Node) in the database.
-    fn retrieve_raw_node_or_value(
-        &self,
-        hash: &CryptoHash,
-    ) -> Result<Result<RawTrieNodeWithSize, std::sync::Arc<[u8]>>, StorageError> {
+    // This method is not safe to be used in any real scenario as it can incorrectly interpret a value as a trie node.
+    // It's only provided as a convenience for debugging tools.
+    fn retrieve_raw_node_or_value(&self, hash: &CryptoHash) -> Result<NodeOrValue, StorageError> {
         let bytes = self.storage.retrieve_raw_bytes(hash)?;
-        Ok(RawTrieNodeWithSize::decode(&bytes).map_err(|_| bytes))
+        match RawTrieNodeWithSize::decode(&bytes) {
+            Ok(node) => Ok(NodeOrValue::Node(node)),
+            Err(_) => Ok(NodeOrValue::Value(bytes)),
+        }
     }
 
     fn move_node_to_mutable(
@@ -911,7 +950,7 @@ impl Trie {
         key: &[u8],
         mode: KeyLookupMode,
     ) -> Result<Option<ValueRef>, StorageError> {
-        let key_nibbles = NibbleSlice::new(key.clone());
+        let key_nibbles = NibbleSlice::new(key);
         let result = self.lookup(key_nibbles);
 
         // For now, to test correctness, flat storage does double the work and
@@ -987,7 +1026,14 @@ impl Trie {
     }
 
     pub fn iter<'a>(&'a self) -> Result<TrieIterator<'a>, StorageError> {
-        TrieIterator::new(self)
+        TrieIterator::new(self, None)
+    }
+
+    pub fn iter_with_max_depth<'a>(
+        &'a self,
+        max_depth: usize,
+    ) -> Result<TrieIterator<'a>, StorageError> {
+        TrieIterator::new(self, Some(max_depth))
     }
 
     pub fn get_trie_nodes_count(&self) -> TrieNodesCount {
@@ -1064,25 +1110,55 @@ mod tests {
 
     #[test]
     fn test_encode_decode() {
-        let value = vec![123, 245, 255];
+        fn test(node: RawTrieNode, encoded: &[u8]) {
+            let mut buf = Vec::new();
+            let node = RawTrieNodeWithSize { node, memory_usage: 42 };
+            node.encode_into(&mut buf);
+            assert_eq!(encoded, buf.as_slice());
+            assert_eq!(node, RawTrieNodeWithSize::decode(&buf).unwrap());
+
+            // Test that adding garbage at the end fails decoding.
+            buf.push(b'!');
+            let got = RawTrieNodeWithSize::decode(&buf);
+            assert!(got.is_err(), "got: {got:?}");
+        }
+
         let value_length = 3;
-        let value_hash = hash(&value);
+        let value_hash = CryptoHash::hash_bytes(&[123, 245, 255]);
         let node = RawTrieNode::Leaf(vec![1, 2, 3], value_length, value_hash);
-        let buf = node.encode();
-        let new_node = RawTrieNode::decode(&buf).expect("Failed to deserialize");
-        assert_eq!(node, new_node);
+        let encoded = [
+            0, 3, 0, 0, 0, 1, 2, 3, 3, 0, 0, 0, 194, 40, 8, 24, 64, 219, 69, 132, 86, 52, 110, 175,
+            57, 198, 165, 200, 83, 237, 211, 11, 194, 83, 251, 33, 145, 138, 234, 226, 7, 242, 186,
+            73, 42, 0, 0, 0, 0, 0, 0, 0,
+        ];
+        test(node, &encoded);
+
+        let mut children: [Option<CryptoHash>; 16] = Default::default();
+        children[3] = Some(Trie::EMPTY_ROOT);
+        let node = RawTrieNode::Branch(children, None);
+        let encoded = [
+            1, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 42, 0, 0, 0, 0, 0, 0, 0,
+        ];
+        test(node, &encoded);
 
         let mut children: [Option<CryptoHash>; 16] = Default::default();
         children[3] = Some(Trie::EMPTY_ROOT);
         let node = RawTrieNode::Branch(children, Some((value_length, value_hash)));
-        let buf = node.encode();
-        let new_node = RawTrieNode::decode(&buf).expect("Failed to deserialize");
-        assert_eq!(node, new_node);
+        let encoded = [
+            2, 3, 0, 0, 0, 194, 40, 8, 24, 64, 219, 69, 132, 86, 52, 110, 175, 57, 198, 165, 200,
+            83, 237, 211, 11, 194, 83, 251, 33, 145, 138, 234, 226, 7, 242, 186, 73, 8, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            42, 0, 0, 0, 0, 0, 0, 0,
+        ];
+        test(node, &encoded);
 
         let node = RawTrieNode::Extension(vec![123, 245, 255], Trie::EMPTY_ROOT);
-        let buf = node.encode();
-        let new_node = RawTrieNode::decode(&buf).expect("Failed to deserialize");
-        assert_eq!(node, new_node);
+        let encoded = [
+            3, 3, 0, 0, 0, 123, 245, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 42, 0, 0, 0, 0, 0, 0, 0,
+        ];
+        test(node, &encoded);
     }
 
     #[test]

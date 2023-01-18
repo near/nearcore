@@ -3,11 +3,16 @@ use near_chain::{ChainGenesis, RuntimeAdapter};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_o11y::testonly::init_test_logger;
-use near_store::flat_state::{store_helper, FlatStorageStateStatus};
+use near_primitives_core::types::BlockHeight;
+use near_store::flat_state::{
+    store_helper, FetchingStateStatus, FlatStorageStateStatus, NUM_PARTS_IN_ONE_STEP,
+};
 use near_store::test_utils::create_test_store;
 use nearcore::config::GenesisExt;
 use std::path::Path;
 use std::sync::Arc;
+use std::thread;
+use std::time::Duration;
 
 /// Check correctness of flat storage creation.
 #[test]
@@ -78,6 +83,7 @@ fn test_flat_storage_creation() {
     for i in 4..6 {
         env.produce_block(0, i);
     }
+    assert!(env.clients[0].runtime_adapter.get_flat_storage_state_for_shard(0).is_none());
 
     if !cfg!(feature = "protocol_feature_flat_state") {
         assert_eq!(
@@ -100,14 +106,63 @@ fn test_flat_storage_creation() {
         assert_matches!(store_helper::get_delta(&store, 0, block_hash), Ok(Some(_)));
     }
 
-    // When final head height becomes greater than height on which node started, we must start fetching the state.
+    // Produce new block and run flat storage creation step.
     // We started the node from height 3, and now final head should move to height 4.
+    // Because final head height became greater than height on which node started,
+    // we must start fetching the state.
     env.produce_block(0, 6);
+    assert!(!env.clients[0].run_flat_storage_creation_step().unwrap());
     let final_block_hash = env.clients[0].chain.get_block_hash_by_height(4).unwrap();
+    assert_eq!(store_helper::get_flat_head(&store, 0), Some(final_block_hash));
     assert_eq!(
         store_helper::get_flat_storage_state_status(&store, 0),
-        FlatStorageStateStatus::FetchingState((final_block_hash, 0))
+        FlatStorageStateStatus::FetchingState(FetchingStateStatus {
+            part_id: 0,
+            num_parts_in_step: NUM_PARTS_IN_ONE_STEP,
+            num_parts: 1,
+        })
     );
 
-    // TODO: support next statuses once their logic is implemented.
+    // Run chain for a couple of blocks and check that statuses switch to `CatchingUp` and then to `Ready`.
+    // State is being fetched in rayon threads, but we expect it to finish in <30s because state is small and there is
+    // only one state part.
+    const BLOCKS_TIMEOUT: BlockHeight = 30;
+    let start_height = 8;
+    let mut next_height = start_height;
+    let mut was_catching_up = false;
+    while next_height < start_height + BLOCKS_TIMEOUT {
+        env.produce_block(0, next_height);
+        env.clients[0].run_flat_storage_creation_step().unwrap();
+        next_height += 1;
+        match store_helper::get_flat_storage_state_status(&store, 0) {
+            FlatStorageStateStatus::FetchingState(..) => {
+                assert!(!was_catching_up, "Flat storage state status inconsistency: it was catching up before fetching state");
+            }
+            FlatStorageStateStatus::CatchingUp => {
+                was_catching_up = true;
+            }
+            FlatStorageStateStatus::Ready => {
+                assert!(
+                    was_catching_up,
+                    "Flat storage state is ready but there was no flat storage catchup observed"
+                );
+                break;
+            }
+            status @ _ => {
+                panic!(
+                    "Unexpected flat storage state status for height {next_height}: {:?}",
+                    status
+                );
+            }
+        }
+        thread::sleep(Duration::from_secs(1));
+    }
+    if next_height == start_height + BLOCKS_TIMEOUT {
+        let status = store_helper::get_flat_storage_state_status(&store, 0);
+        panic!("Apparently, node didn't fetch the whole state in {BLOCKS_TIMEOUT} blocks. Current status: {:?}", status);
+    }
+
+    // Finally, check that flat storage state was created.
+    assert!(env.clients[0].run_flat_storage_creation_step().unwrap());
+    assert!(env.clients[0].runtime_adapter.get_flat_storage_state_for_shard(0).is_some());
 }

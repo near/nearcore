@@ -1,5 +1,6 @@
 use crate::network_protocol::Encoding;
 use crate::network_protocol::{RoutedMessageBody, RoutedMessageV2};
+use crate::tcp;
 use crate::time;
 use crate::types::PeerType;
 use near_o11y::metrics::prometheus;
@@ -70,7 +71,7 @@ impl Labels for Connection {
 
 pub(crate) struct MetricGuard<M: prometheus::core::Metric> {
     metric: M,
-    drop: Option<Box<dyn FnOnce()>>,
+    drop: Option<Box<dyn Send + Sync + FnOnce()>>,
 }
 
 impl<M: prometheus::core::Metric> MetricGuard<M> {
@@ -277,15 +278,6 @@ pub(crate) static PEER_MANAGER_MESSAGES_TIME: Lazy<HistogramVec> = Lazy::new(|| 
     )
     .unwrap()
 });
-pub(crate) static ROUTING_TABLE_MESSAGES_TIME: Lazy<HistogramVec> = Lazy::new(|| {
-    try_create_histogram_vec(
-        "near_routing_actor_messages_time",
-        "Time that routing table actor spends on handling different types of messages",
-        &["message"],
-        Some(exponential_buckets(0.0001, 2., 15).unwrap()),
-    )
-    .unwrap()
-});
 pub(crate) static ROUTED_MESSAGE_DROPPED: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
         "near_routed_message_dropped",
@@ -326,9 +318,17 @@ pub(crate) static BROADCAST_MESSAGES: Lazy<IntCounterVec> = Lazy::new(|| {
 static NETWORK_ROUTED_MSG_LATENCY: Lazy<HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(
         "near_network_routed_msg_latency",
-        "Latency of network messages, assuming clocks are perfectly synchronized",
-        &["routed"],
+        "Latency of network messages, assuming clocks are perfectly synchronized. 'tier' indicates what is the tier of the connection on which the message arrived (TIER1 is expected to be faster than TIER2) and 'fastest' indicates whether this was the first copy of the message to arrive.",
+        &["routed","tier","fastest"],
         Some(exponential_buckets(0.0001, 1.6, 20).unwrap()),
+    )
+    .unwrap()
+});
+static NETWORK_ROUTED_MSG_NUM_HOPS: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_network_routed_msg_hops",
+        "Number of peers the routed message travelled through",
+        &["routed", "hops"],
     )
     .unwrap()
 });
@@ -341,15 +341,79 @@ pub(crate) static CONNECTED_TO_MYSELF: Lazy<IntCounter> = Lazy::new(|| {
     .unwrap()
 });
 
-// The routed message received its destination. If the timestamp of creation of this message is
+pub(crate) static ALREADY_CONNECTED_ACCOUNT: Lazy<IntCounter> = Lazy::new(|| {
+    try_create_int_counter(
+        "near_already_connected_account",
+        "A second peer with the same validator key is trying to connect to our node. This means that the validator peer has invalid setup."
+    )
+    .unwrap()
+});
+
+pub(crate) static ACCOUNT_TO_PEER_LOOKUPS: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_account_to_peer_lookups",
+        "number of lookups of peer_id by account_id (for routed messages)",
+        // Source is either "AnnounceAccount" or "AccountData".
+        // We want to deprecate AnnounceAccount, so eventually we want all
+        // lookups to be done via AccountData. For now AnnounceAccount is
+        // used as a fallback.
+        &["source"],
+    )
+    .unwrap()
+});
+
+/// Updated the prometheus metrics about the received routed message `msg`.
+/// `tier` indicates the network over which the message was transmitted.
+/// `fastest` indicates whether this message is the first copy of `msg` received -
+/// important messages are sent multiple times over different routing paths
+/// simultaneously to improve the chance that the message will be delivered on time.
+pub(crate) fn record_routed_msg_metrics(
+    clock: &time::Clock,
+    msg: &RoutedMessageV2,
+    tier: tcp::Tier,
+    fastest: bool,
+) {
+    record_routed_msg_latency(clock, msg, tier, fastest);
+    record_routed_msg_hops(msg);
+}
+
+// The routed message reached its destination. If the timestamp of creation of this message is
 // known, then update the corresponding latency metric histogram.
-pub(crate) fn record_routed_msg_latency(clock: &time::Clock, msg: &RoutedMessageV2) {
+fn record_routed_msg_latency(
+    clock: &time::Clock,
+    msg: &RoutedMessageV2,
+    tier: tcp::Tier,
+    fastest: bool,
+) {
     if let Some(created_at) = msg.created_at {
         let now = clock.now_utc();
         let duration = now - created_at;
         NETWORK_ROUTED_MSG_LATENCY
-            .with_label_values(&[msg.body_variant()])
+            .with_label_values(&[
+                msg.body_variant(),
+                tier.as_ref(),
+                match fastest {
+                    true => "true",
+                    false => "false",
+                },
+            ])
             .observe(duration.as_seconds_f64());
+    }
+}
+
+// The routed message reached its destination. If the number of hops is known, then update the
+// corresponding metric.
+fn record_routed_msg_hops(msg: &RoutedMessageV2) {
+    const MAX_NUM_HOPS: i32 = 20;
+    // We assume that the number of hops is small.
+    // As long as the number of hops is below 10, this metric will not consume too much memory.
+    if let Some(num_hops) = msg.num_hops {
+        if num_hops >= 0 {
+            let num_hops = if num_hops > MAX_NUM_HOPS { MAX_NUM_HOPS } else { num_hops };
+            NETWORK_ROUTED_MSG_NUM_HOPS
+                .with_label_values(&[msg.body_variant(), &num_hops.to_string()])
+                .inc();
+        }
     }
 }
 
@@ -359,6 +423,8 @@ pub(crate) enum MessageDropped {
     UnknownAccount,
     InputTooLong,
     MaxCapacityExceeded,
+    TransactionsPerBlockExceeded,
+    Duplicate,
 }
 
 impl MessageDropped {

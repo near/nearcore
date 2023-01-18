@@ -1,4 +1,4 @@
-pub use crate::tests::network::runner::*;
+use crate::tests::network::runner::*;
 
 /// Spin up four nodes and connect them in a square.
 /// Each node will have at most two connections.

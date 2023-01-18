@@ -3,13 +3,14 @@ use crate::network_protocol::{
     PeerMessage, Ping, RawRoutedMessage, RoutedMessageBody,
 };
 use crate::time::{Duration, Instant, Utc};
+use crate::types::StateResponseInfo;
 use bytes::buf::{Buf, BufMut};
 use bytes::BytesMut;
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use near_primitives::types::{AccountId, BlockHeight, EpochId};
+use near_primitives::types::{AccountId, BlockHeight, EpochId, ShardId};
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 use std::io;
 use std::net::SocketAddr;
@@ -32,9 +33,11 @@ pub struct Connection {
 
 /// The types of messages it's possible to receive from a `Peer`. Any PeerMessage
 /// we receive that doesn't fit one of these will just be logged and dropped.
+#[derive(Debug)]
 pub enum ReceivedMessage {
     AnnounceAccounts(Vec<(AccountId, PeerId, EpochId)>),
     Pong { nonce: u64, source: PeerId },
+    VersionedStateResponse(StateResponseInfo),
 }
 
 impl TryFrom<PeerMessage> for ReceivedMessage {
@@ -46,6 +49,9 @@ impl TryFrom<PeerMessage> for ReceivedMessage {
             PeerMessage::Routed(r) => match &r.body {
                 RoutedMessageBody::Pong(p) => {
                     Ok(Self::Pong { nonce: p.nonce, source: p.source.clone() })
+                }
+                RoutedMessageBody::VersionedStateResponse(state_response_info) => {
+                    Ok(Self::VersionedStateResponse(state_response_info.clone()))
                 }
                 _ => Err(()),
             },
@@ -129,7 +135,7 @@ impl Connection {
         genesis_hash: CryptoHash,
         head_height: BlockHeight,
     ) -> Result<(), ConnectError> {
-        let handshake = PeerMessage::Handshake(Handshake {
+        let handshake = PeerMessage::Tier2Handshake(Handshake {
             protocol_version,
             oldest_supported_version: protocol_version - 2,
             sender_peer_id: self.my_peer_id.clone(),
@@ -149,6 +155,7 @@ impl Connection {
                 1,
                 &self.secret_key,
             ),
+            owned_account: None,
         });
 
         self.write_message(&handshake).await.map_err(ConnectError::IO)?;
@@ -159,7 +166,7 @@ impl Connection {
 
         match message {
             // TODO: maybe check the handshake for sanity
-            PeerMessage::Handshake(_) => {
+            PeerMessage::Tier2Handshake(_) => {
                 tracing::info!(target: "network", "handshake latency: {}", timestamp - start);
             }
             PeerMessage::HandshakeFailure(_peer_info, reason) => {
@@ -254,6 +261,27 @@ impl Connection {
     /// Try to send a Ping message to the given target, with the given nonce and ttl
     pub async fn send_ping(&mut self, target: &PeerId, nonce: u64, ttl: u8) -> anyhow::Result<()> {
         let body = RoutedMessageBody::Ping(Ping { nonce, source: self.my_peer_id.clone() });
+        let msg = RawRoutedMessage { target: PeerIdOrHash::PeerId(target.clone()), body }.sign(
+            &self.secret_key,
+            ttl,
+            Some(Utc::now_utc()),
+        );
+
+        self.write_message(&PeerMessage::Routed(Box::new(msg))).await?;
+
+        Ok(())
+    }
+
+    /// Try to send a StateRequestPart message to the given target, with the given nonce and ttl
+    pub async fn send_state_part_request(
+        &mut self,
+        target: &PeerId,
+        shard_id: ShardId,
+        block_hash: CryptoHash,
+        part_id: u64,
+        ttl: u8,
+    ) -> anyhow::Result<()> {
+        let body = RoutedMessageBody::StateRequestPart(shard_id, block_hash, part_id);
         let msg = RawRoutedMessage { target: PeerIdOrHash::PeerId(target.clone()), body }.sign(
             &self.secret_key,
             ttl,

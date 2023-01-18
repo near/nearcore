@@ -1,3 +1,5 @@
+#![allow(clippy::all)]
+
 use std::mem::size_of;
 
 #[allow(unused)]

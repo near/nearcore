@@ -1,5 +1,6 @@
 use crate::node::{Node, RuntimeNode};
 use near_chain_configs::Genesis;
+use near_primitives::config::ExtCosts;
 use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::serialize::to_base64;
@@ -62,7 +63,7 @@ fn setup_runtime_node_with_contract(wasm_binary: &[u8]) -> RuntimeNode {
         )
         .unwrap();
     assert_eq!(tx_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
-    assert_eq!(tx_result.receipts_outcome.len(), 2);
+    assert_eq!(tx_result.receipts_outcome.len(), 1);
 
     let tx_result =
         node_user.deploy_contract(test_contract_account(), wasm_binary.to_vec()).unwrap();
@@ -224,16 +225,16 @@ fn test_sanity_used_gas() {
     };
     assert_eq!(returned_bytes.len(), num_return_values * size_of::<u64>());
 
-    let mut used_gas = vec![];
-    for i in 0..num_return_values {
-        let bytes = &returned_bytes[i * size_of::<u64>()..(i + 1) * size_of::<u64>()];
-        let val = u64::from_le_bytes(bytes.try_into().unwrap());
-        used_gas.push(val);
-    }
+    let used_gas = stdx::as_chunks_exact::<{ size_of::<u64>() }, _>(&returned_bytes)
+        .unwrap()
+        .iter()
+        .map(|bytes| u64::from_le_bytes(*bytes))
+        .collect::<Vec<_>>();
 
     // Executing `used_gas` costs `base_cost`. When executing `used_gas` twice
     // within a metered block, the returned values should differ by that amount.
-    let base_cost = node.client.read().unwrap().runtime_config.wasm_config.ext_costs.base;
+    let base_cost =
+        node.client.read().unwrap().runtime_config.wasm_config.ext_costs.cost(ExtCosts::base);
     assert_eq!(used_gas[1] - used_gas[0], base_cost);
 
     // The fees for executing a metered block's WASM code should be paid before

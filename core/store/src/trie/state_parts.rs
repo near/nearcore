@@ -10,8 +10,9 @@ use crate::trie::nibble_slice::NibbleSlice;
 use crate::trie::{
     ApplyStatePartResult, NodeHandle, RawTrieNodeWithSize, TrieNode, TrieNodeWithSize,
 };
-use crate::{PartialStorage, StorageError, Trie, TrieChanges};
+use crate::{FlatStateDelta, PartialStorage, StorageError, Trie, TrieChanges};
 use near_primitives::contract::ContractCode;
+use near_primitives::state::ValueRef;
 use near_primitives::state_record::is_contract_code_key;
 
 impl Trie {
@@ -44,8 +45,12 @@ impl Trie {
     fn visit_nodes_for_state_part(&self, part_id: PartId) -> Result<(), StorageError> {
         let path_begin = self.find_path_for_part_boundary(part_id.idx, part_id.total)?;
         let path_end = self.find_path_for_part_boundary(part_id.idx + 1, part_id.total)?;
+
         let mut iterator = self.iter()?;
-        iterator.visit_nodes_interval(&path_begin, &path_end)?;
+        let nodes_list = iterator.visit_nodes_interval(&path_begin, &path_end)?;
+        tracing::debug!(
+            target: "state_parts",
+            num_nodes = nodes_list.len());
 
         // Extra nodes for compatibility with the previous version of computing state parts
         if part_id.idx + 1 != part_id.total {
@@ -64,7 +69,7 @@ impl Trie {
     /// Part part_id has nodes with paths `[path(part_id), path(part_id + 1))`
     /// path is returned as nibbles, last path is `vec![16]`, previous paths end
     /// in nodes
-    pub(crate) fn find_path_for_part_boundary(
+    pub fn find_path_for_part_boundary(
         &self,
         part_id: u64,
         num_parts: u64,
@@ -195,6 +200,7 @@ impl Trie {
         if state_root == &Trie::EMPTY_ROOT {
             return Ok(ApplyStatePartResult {
                 trie_changes: TrieChanges::empty(Trie::EMPTY_ROOT),
+                flat_state_delta: Default::default(),
                 contract_codes: vec![],
             });
         }
@@ -207,11 +213,14 @@ impl Trie {
         let mut iterator = trie.iter()?;
         let trie_traversal_items = iterator.visit_nodes_interval(&path_begin, &path_end)?;
         let mut map = HashMap::new();
+        let mut flat_state_delta = FlatStateDelta::default();
         let mut contract_codes = Vec::new();
         for TrieTraversalItem { hash, key } in trie_traversal_items {
             let value = trie.storage.retrieve_raw_bytes(&hash)?;
             map.entry(hash).or_insert_with(|| (value.to_vec(), 0)).1 += 1;
             if let Some(trie_key) = key {
+                let value_ref = ValueRef::new(&value);
+                flat_state_delta.insert(trie_key.clone(), Some(value_ref));
                 if is_contract_code_key(&trie_key) {
                     contract_codes.push(ContractCode::new(value.to_vec(), None));
                 }
@@ -225,6 +234,7 @@ impl Trie {
                 insertions,
                 deletions,
             },
+            flat_state_delta,
             contract_codes,
         })
     }

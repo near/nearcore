@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use clap::Parser;
-use near_chain::types::Tip;
+use near_chain::types::{ChainConfig, Tip};
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_chain_configs::GenesisValidationMode;
 use near_epoch_manager::types::EpochInfoAggregator;
@@ -237,7 +237,10 @@ fn load_snapshot(load_cmd: LoadCmd) {
         runtime.clone(),
         &chain_genesis,
         DoomslugThresholdMode::TwoThirds,
-        !config.client_config.archive,
+        ChainConfig {
+            save_trie_changes: config.client_config.save_trie_changes,
+            background_migration_threads: 1,
+        },
     )
     .unwrap();
 

@@ -27,13 +27,13 @@ pub type Gas = u64;
 
 /// Weight of unused gas to distribute to scheduled function call actions.
 /// Used in `promise_batch_action_function_call_weight` host function.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GasWeight(pub u64);
 
 /// Result from a gas distribution among function calls with ratios.
 #[must_use]
 #[non_exhaustive]
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum GasDistribution {
     /// All remaining gas was distributed to functions.
     All,

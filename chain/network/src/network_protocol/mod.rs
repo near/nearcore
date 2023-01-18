@@ -37,7 +37,7 @@ use near_primitives::sharding::{
 };
 use near_primitives::syncing::{ShardStateSyncResponse, ShardStateSyncResponseV1};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, EpochId};
+use near_primitives::types::AccountId;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::views::FinalExecutionOutcomeView;
@@ -92,9 +92,10 @@ impl std::str::FromStr for PeerAddr {
 
 #[derive(PartialEq, Eq, Debug, Hash)]
 pub struct AccountData {
-    pub peers: Vec<PeerAddr>,
-    pub account_id: AccountId,
-    pub epoch_id: EpochId,
+    pub peer_id: PeerId,
+    pub proxies: Vec<PeerAddr>,
+    pub account_key: PublicKey,
+    pub version: u64,
     pub timestamp: time::Utc,
 }
 
@@ -115,9 +116,9 @@ impl AccountData {
     /// consistute a cleaner never-panicking interface.
     pub fn sign(self, signer: &dyn ValidatorSigner) -> anyhow::Result<SignedAccountData> {
         assert_eq!(
-            &self.account_id,
-            signer.validator_id(),
-            "AccountData.account_id doesn't match the signer's account_id"
+            self.account_key,
+            signer.public_key(),
+            "AccountData.account_key doesn't match the signer's account_key"
         );
         let payload = proto::AccountKeyPayload::from(&self).write_to_bytes().unwrap();
         if payload.len() > MAX_ACCOUNT_DATA_SIZE_BYTES {
@@ -135,7 +136,7 @@ impl AccountData {
     }
 }
 
-#[derive(PartialEq, Eq, Debug, Hash)]
+#[derive(Clone, PartialEq, Eq, Debug, Hash)]
 pub struct AccountKeySignedPayload {
     payload: Vec<u8>,
     signature: near_crypto::Signature,
@@ -179,6 +180,54 @@ impl SignedAccountData {
     }
 }
 
+/// Proof that a given peer owns the account key.
+/// Included in every handshake sent by a validator node.
+#[derive(Clone, PartialEq, Eq, Debug, Hash)]
+pub struct OwnedAccount {
+    pub(crate) account_key: PublicKey,
+    pub(crate) peer_id: PeerId,
+    pub(crate) timestamp: time::Utc,
+}
+
+impl OwnedAccount {
+    /// Serializes OwnedAccount to proto and signs it using `signer`.
+    /// Panics if OwnedAccount.account_key doesn't match signer.public_key(),
+    /// as this would likely be a bug.
+    pub fn sign(self, signer: &dyn ValidatorSigner) -> SignedOwnedAccount {
+        assert_eq!(
+            self.account_key,
+            signer.public_key(),
+            "OwnedAccount.account_key doesn't match the signer's account_key"
+        );
+        let payload = proto::AccountKeyPayload::from(&self).write_to_bytes().unwrap();
+        let signature = signer.sign_account_key_payload(&payload);
+        SignedOwnedAccount {
+            owned_account: self,
+            payload: AccountKeySignedPayload { payload, signature },
+        }
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Hash)]
+pub struct SignedOwnedAccount {
+    owned_account: OwnedAccount,
+    // Serialized and signed OwnedAccount.
+    payload: AccountKeySignedPayload,
+}
+
+impl std::ops::Deref for SignedOwnedAccount {
+    type Target = OwnedAccount;
+    fn deref(&self) -> &Self::Target {
+        &self.owned_account
+    }
+}
+
+impl SignedOwnedAccount {
+    pub fn payload(&self) -> &AccountKeySignedPayload {
+        &self.payload
+    }
+}
+
 #[derive(PartialEq, Eq, Clone, Debug, Default)]
 pub struct RoutingTableUpdate {
     pub edges: Vec<Edge>,
@@ -215,6 +264,8 @@ pub struct Handshake {
     pub(crate) sender_chain_info: PeerChainInfoV2,
     /// Represents new `edge`. Contains only `none` and `Signature` from the sender.
     pub(crate) partial_edge_info: PartialEdgeInfo,
+    /// Account owned by the sender.
+    pub(crate) owned_account: Option<SignedOwnedAccount>,
 }
 
 #[derive(PartialEq, Eq, Clone, Debug, strum::IntoStaticStr)]
@@ -235,7 +286,8 @@ pub struct SyncAccountsData {
 #[derive(PartialEq, Eq, Clone, Debug, strum::IntoStaticStr, strum::EnumVariantNames)]
 #[allow(clippy::large_enum_variant)]
 pub enum PeerMessage {
-    Handshake(Handshake),
+    Tier1Handshake(Handshake),
+    Tier2Handshake(Handshake),
     HandshakeFailure(PeerInfo, HandshakeFailureReason),
     /// When a failed nonce is used by some peer, this message is sent back as evidence.
     LastEdge(Edge),
@@ -476,6 +528,9 @@ pub struct RoutedMessageV2 {
     pub msg: RoutedMessage,
     /// The time the Routed message was created by `author`.
     pub created_at: Option<time::Utc>,
+    /// Number of peers this routed message travelled through.
+    /// Doesn't include the peers that are the source and the destination of the message.
+    pub num_hops: Option<i32>,
 }
 
 impl std::ops::Deref for RoutedMessageV2 {
@@ -696,6 +751,7 @@ impl RawRoutedMessage {
                 body: self.body,
             },
             created_at: now,
+            num_hops: Some(0),
         }
     }
 }

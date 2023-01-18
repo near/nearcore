@@ -35,7 +35,7 @@ use near_vm_errors::{
     VMRunnerError,
 };
 use near_vm_logic::types::PromiseResult;
-use near_vm_logic::{VMContext, VMOutcome};
+use near_vm_logic::{ActionCosts, VMContext, VMOutcome};
 use near_vm_runner::precompile_contract;
 
 /// Runs given function call with given context / apply state.
@@ -113,7 +113,7 @@ pub(crate) fn execute_function_call(
         runtime_ext,
         context,
         &config.wasm_config,
-        &config.transaction_costs,
+        &config.fees,
         promise_results,
         apply_state.current_protocol_version,
         apply_state.cache.as_deref(),
@@ -608,7 +608,7 @@ pub(crate) fn action_add_key(
             &add_key.access_key,
         );
     };
-    let storage_config = &apply_state.config.transaction_costs.storage_usage_config;
+    let storage_config = &apply_state.config.fees.storage_usage_config;
     account.set_storage_usage(
         account
             .storage_usage()
@@ -684,7 +684,7 @@ pub(crate) fn apply_delegate_action(
     // Therefore Relayer should verify DelegateAction before submitting it because it spends the attached deposit.
 
     let prepaid_send_fees = total_prepaid_send_fees(
-        &apply_state.config.transaction_costs,
+        &apply_state.config.fees,
         &action_receipt.actions,
         apply_state.current_protocol_version,
     )?;
@@ -706,7 +706,7 @@ fn receipt_required_gas(apply_state: &ApplyState, receipt: &Receipt) -> Result<G
         ReceiptEnum::Action(action_receipt) => {
             let mut required_gas = safe_add_gas(
                 total_prepaid_exec_fees(
-                    &apply_state.config.transaction_costs,
+                    &apply_state.config.fees,
                     &action_receipt.actions,
                     &receipt.receiver_id,
                     apply_state.current_protocol_version,
@@ -715,7 +715,7 @@ fn receipt_required_gas(apply_state: &ApplyState, receipt: &Receipt) -> Result<G
             )?;
             required_gas = safe_add_gas(
                 required_gas,
-                apply_state.config.transaction_costs.action_receipt_creation_config.exec_fee(),
+                apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
             )?;
 
             required_gas

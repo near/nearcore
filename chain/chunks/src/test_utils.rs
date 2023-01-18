@@ -6,12 +6,12 @@ use futures::future::BoxFuture;
 use futures::FutureExt;
 use near_network::types::MsgRecipient;
 use near_primitives::receipt::Receipt;
+use near_primitives::test_utils::create_test_signer;
 use near_primitives::time::Clock;
 
 use near_chain::test_utils::{KeyValueRuntime, ValidatorSchedule};
 use near_chain::types::{EpochManagerAdapter, RuntimeAdapter, Tip};
 use near_chain::{Chain, ChainStore};
-use near_crypto::KeyType;
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_o11y::WithSpanContext;
 use near_primitives::block::BlockHeader;
@@ -24,7 +24,6 @@ use near_primitives::sharding::{
 use near_primitives::types::NumShards;
 use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::types::{BlockHeight, MerkleHash};
-use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::Store;
 
@@ -201,11 +200,7 @@ impl ChunkTestFixture {
         let mock_epoch_id = mock_runtime.get_epoch_id_from_prev_block(&mock_ancestor_hash).unwrap();
         let mock_chunk_producer =
             mock_runtime.get_chunk_producer(&mock_epoch_id, mock_height, mock_shard_id).unwrap();
-        let signer = InMemoryValidatorSigner::from_seed(
-            mock_chunk_producer.clone(),
-            KeyType::ED25519,
-            mock_chunk_producer.as_ref(),
-        );
+        let signer = create_test_signer(mock_chunk_producer.as_str());
         let validators: Vec<_> = mock_runtime
             .get_epoch_block_producers_ordered(&EpochId::default(), &CryptoHash::default())
             .unwrap()
@@ -332,7 +327,7 @@ impl ChunkTestFixture {
     pub fn count_chunk_ready_for_inclusion_messages(&self) -> usize {
         let mut chunks_ready = 0;
         while let Some(message) = self.mock_client_adapter.pop() {
-            if let ShardsManagerResponse::ChunkHeaderReadyForInclusion(_) = message {
+            if let ShardsManagerResponse::ChunkHeaderReadyForInclusion { .. } = message {
                 chunks_ready += 1;
             }
         }

@@ -16,10 +16,9 @@ use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::PartialEncodedChunkWithArcReceipts;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::BlockHeight;
-use near_primitives::types::{AccountId, EpochId, ShardId};
-use near_primitives::views::{KnownProducerView, NetworkInfoView, PeerInfoView};
+use near_primitives::types::{AccountId, ShardId};
 use once_cell::sync::OnceCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -27,8 +26,8 @@ use std::sync::Arc;
 /// Exported types, which are part of network protocol.
 pub use crate::network_protocol::{
     Edge, PartialEdgeInfo, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
-    PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerIdOrHash, PeerInfo, Ping, Pong,
-    StateResponseInfo, StateResponseInfoV1, StateResponseInfoV2,
+    PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerInfo, Ping, Pong, StateResponseInfo,
+    StateResponseInfoV1, StateResponseInfoV2,
 };
 
 /// Number of hops a message is allowed to travel before being dropped.
@@ -127,7 +126,7 @@ impl KnownPeerStatus {
 /// Set of account keys.
 /// This is information which chain pushes to network to implement tier1.
 /// See ChainInfo.
-pub type AccountKeys = HashMap<(EpochId, AccountId), PublicKey>;
+pub type AccountKeys = HashMap<AccountId, HashSet<PublicKey>>;
 
 /// Network-relevant data about the chain.
 // TODO(gprusak): it is more like node info, or sth.
@@ -334,53 +333,6 @@ pub struct PeerChainInfo {
     pub archival: bool,
 }
 
-impl From<&FullPeerInfo> for ConnectedPeerInfo {
-    fn from(full_peer_info: &FullPeerInfo) -> Self {
-        ConnectedPeerInfo {
-            full_peer_info: full_peer_info.clone(),
-            received_bytes_per_sec: 0,
-            sent_bytes_per_sec: 0,
-            last_time_peer_requested: time::Instant::now(),
-            last_time_received_message: time::Instant::now(),
-            connection_established_time: time::Instant::now(),
-            peer_type: PeerType::Outbound,
-        }
-    }
-}
-
-impl From<&ConnectedPeerInfo> for PeerInfoView {
-    fn from(connected_peer_info: &ConnectedPeerInfo) -> Self {
-        let full_peer_info = &connected_peer_info.full_peer_info;
-        PeerInfoView {
-            addr: match full_peer_info.peer_info.addr {
-                Some(socket_addr) => socket_addr.to_string(),
-                None => "N/A".to_string(),
-            },
-            account_id: full_peer_info.peer_info.account_id.clone(),
-            height: full_peer_info.chain_info.last_block.map(|x| x.height),
-            block_hash: full_peer_info.chain_info.last_block.map(|x| x.hash),
-            tracked_shards: full_peer_info.chain_info.tracked_shards.clone(),
-            archival: full_peer_info.chain_info.archival,
-            peer_id: full_peer_info.peer_info.id.public_key().clone(),
-            received_bytes_per_sec: connected_peer_info.received_bytes_per_sec,
-            sent_bytes_per_sec: connected_peer_info.sent_bytes_per_sec,
-            last_time_peer_requested_millis: connected_peer_info
-                .last_time_peer_requested
-                .elapsed()
-                .whole_milliseconds() as u64,
-            last_time_received_message_millis: connected_peer_info
-                .last_time_received_message
-                .elapsed()
-                .whole_milliseconds() as u64,
-            connection_established_time_millis: connected_peer_info
-                .connection_established_time
-                .elapsed()
-                .whole_milliseconds() as u64,
-            is_outbound_peer: connected_peer_info.peer_type == PeerType::Outbound,
-        }
-    }
-}
-
 // Information about the connected peer that is shared with the rest of the system.
 #[derive(Debug, Clone)]
 pub struct ConnectedPeerInfo {
@@ -397,10 +349,13 @@ pub struct ConnectedPeerInfo {
     pub connection_established_time: time::Instant,
     /// Who started connection. Inbound (other) or Outbound (us).
     pub peer_type: PeerType,
+    /// Nonce used for the connection with the peer.
+    pub nonce: u64,
 }
 
 #[derive(Debug, Clone, actix::MessageResponse)]
 pub struct NetworkInfo {
+    /// TIER2 connections.
     pub connected_peers: Vec<ConnectedPeerInfo>,
     pub num_connected_peers: usize,
     pub peer_max_count: u32,
@@ -409,36 +364,14 @@ pub struct NetworkInfo {
     pub received_bytes_per_sec: u64,
     /// Accounts of known block and chunk producers from routing table.
     pub known_producers: Vec<KnownProducer>,
-    pub tier1_accounts: Vec<Arc<SignedAccountData>>,
+    /// Collected data about the current TIER1 accounts.
+    pub tier1_accounts_keys: Vec<PublicKey>,
+    pub tier1_accounts_data: Vec<Arc<SignedAccountData>>,
+    /// TIER1 connections.
+    pub tier1_connections: Vec<ConnectedPeerInfo>,
 }
 
-impl From<NetworkInfo> for NetworkInfoView {
-    fn from(network_info: NetworkInfo) -> Self {
-        NetworkInfoView {
-            peer_max_count: network_info.peer_max_count,
-            num_connected_peers: network_info.num_connected_peers,
-            connected_peers: network_info
-                .connected_peers
-                .iter()
-                .map(|full_peer_info| full_peer_info.into())
-                .collect::<Vec<_>>(),
-            known_producers: network_info
-                .known_producers
-                .iter()
-                .map(|it| KnownProducerView {
-                    account_id: it.account_id.clone(),
-                    peer_id: it.peer_id.public_key().clone(),
-                    next_hops: it
-                        .next_hops
-                        .as_ref()
-                        .map(|it| it.iter().map(|peer_id| peer_id.public_key().clone()).collect()),
-                })
-                .collect(),
-        }
-    }
-}
-
-#[derive(Debug, actix::MessageResponse)]
+#[derive(Debug, actix::MessageResponse, PartialEq, Eq)]
 pub enum NetworkResponses {
     NoResponse,
     PingPongInfo { pings: Vec<Ping>, pongs: Vec<Pong> },
@@ -560,7 +493,6 @@ mod tests {
     fn test_enum_size() {
         assert_size!(PeerType);
         assert_size!(RoutedMessageBody);
-        assert_size!(PeerIdOrHash);
         assert_size!(KnownPeerStatus);
         assert_size!(ReasonForBan);
     }

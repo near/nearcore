@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use near_crypto::{EmptySigner, PublicKey, Signature, Signer};
+use near_crypto::{EmptySigner, KeyType, PublicKey, Signature, Signer};
 use near_primitives_core::types::ProtocolVersion;
 
 use crate::account::{AccessKey, AccessKeyPermission, Account};
@@ -17,8 +17,8 @@ use crate::transaction::{
     DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, Transaction,
     TransferAction,
 };
-use crate::types::{AccountId, Balance, BlockHeight, EpochId, EpochInfoProvider, Gas, Nonce};
-use crate::validator_signer::ValidatorSigner;
+use crate::types::{AccountId, Balance, EpochId, EpochInfoProvider, Gas, Nonce};
+use crate::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use crate::version::PROTOCOL_VERSION;
 
 pub fn account_new(amount: Balance, code_hash: CryptoHash) -> Account {
@@ -306,6 +306,99 @@ impl BlockHeader {
     }
 }
 
+/// Builder class for blocks to make testing easier.
+/// # Examples
+///
+/// // TODO(mm-near): change it to doc-tested code once we have easy way to create a genesis block.
+/// let signer = EmptyValidatorSigner::default();
+/// let test_block = test_utils::TestBlockBuilder::new(prev, signer).height(33).build();
+///
+
+pub struct TestBlockBuilder {
+    prev: Block,
+    signer: Arc<dyn ValidatorSigner>,
+    height: u64,
+    epoch_id: EpochId,
+    next_epoch_id: EpochId,
+    next_bp_hash: CryptoHash,
+    approvals: Vec<Option<Signature>>,
+    block_merkle_root: CryptoHash,
+}
+
+impl TestBlockBuilder {
+    pub fn new(prev: &Block, signer: Arc<dyn ValidatorSigner>) -> Self {
+        let mut tree = PartialMerkleTree::default();
+        tree.insert(prev.hash().clone());
+
+        Self {
+            prev: prev.clone(),
+            signer: signer.clone(),
+            height: prev.header().height() + 1,
+            epoch_id: prev.header().epoch_id().clone(),
+            next_epoch_id: if prev.header().prev_hash() == &CryptoHash::default() {
+                EpochId(*prev.hash())
+            } else {
+                prev.header().next_epoch_id().clone()
+            },
+            next_bp_hash: *prev.header().next_bp_hash(),
+            approvals: vec![],
+            block_merkle_root: tree.root(),
+        }
+    }
+    pub fn height(mut self, height: u64) -> Self {
+        self.height = height;
+        self
+    }
+    pub fn epoch_id(mut self, epoch_id: EpochId) -> Self {
+        self.epoch_id = epoch_id;
+        self
+    }
+    pub fn next_epoch_id(mut self, next_epoch_id: EpochId) -> Self {
+        self.next_epoch_id = next_epoch_id;
+        self
+    }
+    pub fn next_bp_hash(mut self, next_bp_hash: CryptoHash) -> Self {
+        self.next_bp_hash = next_bp_hash;
+        self
+    }
+    pub fn approvals(mut self, approvals: Vec<Option<Signature>>) -> Self {
+        self.approvals = approvals;
+        self
+    }
+
+    /// Updates the merkle tree by adding the previous hash, and updates the new block's merkle_root.
+    pub fn block_merkle_tree(mut self, block_merkle_tree: &mut PartialMerkleTree) -> Self {
+        block_merkle_tree.insert(self.prev.hash().clone());
+        self.block_merkle_root = block_merkle_tree.root();
+        self
+    }
+
+    pub fn build(self) -> Block {
+        Block::produce(
+            PROTOCOL_VERSION,
+            PROTOCOL_VERSION,
+            self.prev.header(),
+            self.height,
+            self.prev.header().block_ordinal() + 1,
+            self.prev.chunks().iter().cloned().collect(),
+            self.epoch_id,
+            self.next_epoch_id,
+            None,
+            self.approvals,
+            Ratio::new(0, 1),
+            0,
+            0,
+            Some(0),
+            vec![],
+            vec![],
+            self.signer.as_ref(),
+            self.next_bp_hash,
+            self.block_merkle_root,
+            None,
+        )
+    }
+}
+
 impl Block {
     pub fn mut_header(&mut self) -> &mut BlockHeader {
         match self {
@@ -343,115 +436,6 @@ impl Block {
                 block.chunks = chunks;
             }
         }
-    }
-
-    pub fn empty_with_epoch(
-        prev: &Block,
-        height: BlockHeight,
-        epoch_id: EpochId,
-        next_epoch_id: EpochId,
-        next_bp_hash: CryptoHash,
-        signer: &dyn ValidatorSigner,
-        block_merkle_tree: &mut PartialMerkleTree,
-    ) -> Self {
-        block_merkle_tree.insert(*prev.hash());
-        Self::empty_with_approvals(
-            prev,
-            height,
-            epoch_id,
-            next_epoch_id,
-            vec![],
-            signer,
-            next_bp_hash,
-            block_merkle_tree.root(),
-        )
-    }
-
-    pub fn empty_with_height(
-        prev: &Block,
-        height: BlockHeight,
-        signer: &dyn ValidatorSigner,
-    ) -> Self {
-        Self::empty_with_height_and_block_merkle_tree(
-            prev,
-            height,
-            signer,
-            &mut PartialMerkleTree::default(),
-        )
-    }
-
-    pub fn empty_with_height_and_block_merkle_tree(
-        prev: &Block,
-        height: BlockHeight,
-        signer: &dyn ValidatorSigner,
-        block_merkle_tree: &mut PartialMerkleTree,
-    ) -> Self {
-        Self::empty_with_epoch(
-            prev,
-            height,
-            prev.header().epoch_id().clone(),
-            if prev.header().prev_hash() == &CryptoHash::default() {
-                EpochId(*prev.hash())
-            } else {
-                prev.header().next_epoch_id().clone()
-            },
-            *prev.header().next_bp_hash(),
-            signer,
-            block_merkle_tree,
-        )
-    }
-
-    pub fn empty_with_block_merkle_tree(
-        prev: &Block,
-        signer: &dyn ValidatorSigner,
-        block_merkle_tree: &mut PartialMerkleTree,
-    ) -> Self {
-        Self::empty_with_height_and_block_merkle_tree(
-            prev,
-            prev.header().height() + 1,
-            signer,
-            block_merkle_tree,
-        )
-    }
-
-    pub fn empty(prev: &Block, signer: &dyn ValidatorSigner) -> Self {
-        Self::empty_with_block_merkle_tree(prev, signer, &mut PartialMerkleTree::default())
-    }
-
-    /// This is not suppose to be used outside of chain tests, because this doesn't refer to correct chunks.
-    /// Done because chain tests don't have a good way to store chunks right now.
-    pub fn empty_with_approvals(
-        prev: &Block,
-        height: BlockHeight,
-        epoch_id: EpochId,
-        next_epoch_id: EpochId,
-        approvals: Vec<Option<Signature>>,
-        signer: &dyn ValidatorSigner,
-        next_bp_hash: CryptoHash,
-        block_merkle_root: CryptoHash,
-    ) -> Self {
-        Block::produce(
-            PROTOCOL_VERSION,
-            PROTOCOL_VERSION,
-            prev.header(),
-            height,
-            prev.header().block_ordinal() + 1,
-            prev.chunks().iter().cloned().collect(),
-            epoch_id,
-            next_epoch_id,
-            None,
-            approvals,
-            Ratio::new(0, 1),
-            0,
-            0,
-            Some(0),
-            vec![],
-            vec![],
-            signer,
-            next_bp_hash,
-            block_merkle_root,
-            None,
-        )
     }
 }
 
@@ -492,4 +476,14 @@ impl EpochInfoProvider for MockEpochInfoProvider {
 /// Encode array of `u64` to be passed as a smart contract argument.
 pub fn encode(xs: &[u64]) -> Vec<u8> {
     xs.iter().flat_map(|it| it.to_le_bytes()).collect()
+}
+
+// Helper function that creates a new signer for a given account, that uses the account name as seed.
+// Should be used only in tests.
+pub fn create_test_signer(account_name: &str) -> InMemoryValidatorSigner {
+    InMemoryValidatorSigner::from_seed(
+        account_name.parse().unwrap(),
+        KeyType::ED25519,
+        account_name,
+    )
 }
