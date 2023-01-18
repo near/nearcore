@@ -199,3 +199,44 @@ async fn single_account_multiple_data() {
     // entries has been applied.
     assert_eq!(res.0.as_set(), cache.load().data.values().collect());
 }
+
+/// Test checking that cache immediately overrides any inserted AccountData for local.signer
+/// with local.data.
+#[tokio::test]
+async fn set_local() {
+    let mut rng = make_rng(2947294234);
+    let rng = &mut rng;
+    let clock = time::FakeClock::default();
+
+    let signers: Vec<_> = make_signers(rng, 3);
+    let e0 = Arc::new(data::make_account_keys(&signers[0..1]));
+    let e1 = Arc::new(data::make_account_keys(&signers[1..2]));
+    
+    assert!(cache.set_keys(e0.clone()));
+    let local = LocalData {
+        signer: signers[0],
+        data: make_account_data(rng, &clock.clock(), 1, &signers[0]).data,
+    };
+    let got = cache.set_local(&clock.clock(), local.clone()).unwrap();
+    assert_eq!(local.data, got.data);
+    assert_eq!(local.signer.public_key(),got.account_key);
+
+    // Insert new version while local data is set and local.signer is in cache.keys.
+    // Cache should immediately emit AccountData for local.signer which overrides
+    // the new version received.
+    clock.advance(time::Duration::hours(1));
+    let a0 = Arc::new(make_account_data(rng, &clock.clock(), 7, &signers[0]));
+    let a1 = Arc::new(make_account_data(rng, &clock.clock(), 10, &signers[1]));
+    let a2 = Arc::new(make_account_data(rng, &clock.clock(), 8, &signers[1]));
+    let res = cache.clone().insert(&clock.clock(), vec![a0.clone(), a1.clone(), a2.clone()]).await;
+    assert_eq!([&a0,local], unwrap(res).as_set());
+    assert_eq!(..., cache.load());
+
+    // Insert new version while local data is set but local.signer is not in cache.keys.
+    // local data should be just ignored.
+    
+    // Update local data to a signer in cache.keys.
+
+    // Update local data to a signer outside of cache.keys.
+}
+
