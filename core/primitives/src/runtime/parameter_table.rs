@@ -11,7 +11,6 @@ use std::collections::BTreeMap;
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
 #[serde(untagged)]
 pub(crate) enum ParameterValue {
-    Null,
     U64(u64),
     Rational { numerator: isize, denominator: isize },
     String(String),
@@ -48,7 +47,7 @@ pub(crate) struct ParameterTable {
 
 /// Changes made to parameters between versions.
 pub(crate) struct ParameterTableDiff {
-    parameters: BTreeMap<Parameter, (ParameterValue, ParameterValue)>,
+    parameters: BTreeMap<Parameter, (Option<ParameterValue>, Option<ParameterValue>)>,
 }
 
 /// Error returned by ParameterTable::from_str() that parses a runtime configuration YAML file.
@@ -148,32 +147,28 @@ impl ParameterTable {
         diff: ParameterTableDiff,
     ) -> Result<(), InvalidConfigError> {
         for (key, (before, after)) in diff.parameters {
-            if let ParameterValue::Null = before {
-                match self.parameters.get(&key) {
-                    Some(ParameterValue::Null) | None => {
-                        self.parameters.insert(key, after);
-                    }
-                    Some(old_value) => {
-                        return Err(InvalidConfigError::OldValueExists(key, old_value.clone()))
-                    }
+            let old_value = self.parameters.get(&key);
+            if old_value != before.as_ref() {
+                if old_value.is_none() {
+                    return Err(InvalidConfigError::NoOldValueExists(key, before.unwrap().clone()));
                 }
+                if before.is_none() {
+                    return Err(InvalidConfigError::OldValueExists(
+                        key,
+                        old_value.unwrap().clone(),
+                    ));
+                }
+                return Err(InvalidConfigError::WrongOldValue(
+                    key,
+                    old_value.unwrap().clone(),
+                    before.unwrap().clone(),
+                ));
+            }
+
+            if let Some(new_value) = after {
+                self.parameters.insert(key, new_value);
             } else {
-                match self.parameters.get(&key) {
-                    Some(ParameterValue::Null) | None => {
-                        return Err(InvalidConfigError::NoOldValueExists(key, before.clone()))
-                    }
-                    Some(old_value) => {
-                        if *old_value != before {
-                            return Err(InvalidConfigError::WrongOldValue(
-                                key,
-                                old_value.clone(),
-                                before.clone(),
-                            ));
-                        } else {
-                            self.parameters.insert(key, after);
-                        }
-                    }
-                }
+                self.parameters.remove(&key);
             }
         }
         Ok(())
@@ -303,17 +298,11 @@ impl std::str::FromStr for ParameterTableDiff {
                     .parse()
                     .map_err(|err| InvalidConfigError::UnknownParameter(err, key.to_owned()))?;
 
-                let old_value = if let Some(s) = &value.old {
-                    parse_parameter_value(s)?
-                } else {
-                    ParameterValue::Null
-                };
+                let old_value =
+                    if let Some(s) = &value.old { Some(parse_parameter_value(s)?) } else { None };
 
-                let new_value = if let Some(s) = &value.new {
-                    parse_parameter_value(s)?
-                } else {
-                    ParameterValue::Null
-                };
+                let new_value =
+                    if let Some(s) = &value.new { Some(parse_parameter_value(s)?) } else { None };
 
                 Ok((typed_key, (old_value, new_value)))
             })
@@ -397,17 +386,13 @@ mod tests {
         }
 
         let expected_map = BTreeMap::from_iter(expected.into_iter().map(|(param, value)| {
-            (
-                param,
-                if value.is_empty() {
-                    ParameterValue::Null
-                } else {
-                    parse_parameter_value(
-                        &serde_yaml::from_str(value).expect("Test data has invalid YAML"),
-                    )
-                    .unwrap()
-                },
-            )
+            (param, {
+                assert!(!value.is_empty(), "omit the parameter in the test instead");
+                parse_parameter_value(
+                    &serde_yaml::from_str(value).expect("Test data has invalid YAML"),
+                )
+                .unwrap()
+            })
         }));
 
         assert_eq!(params.parameters, expected_map);
@@ -569,7 +554,6 @@ burnt_gas_reward: {
             &[diff_with_empty_value],
             [
                 (Parameter::RegistrarAccountId, "\"registrar\""),
-                (Parameter::MinAllowedTopLevelAccountLength, ""),
                 (Parameter::StorageAmountPerByte, "\"100000000000000000000\""),
                 (Parameter::StorageNumBytesAccount, "100"),
                 (Parameter::StorageNumExtraBytesRecord, "40"),
@@ -700,7 +684,7 @@ burnt_gas_reward: {
                     .parameters
                     .iter()
                     .map(|(key, value)| (key.to_string(), value))
-                    .collect::<Vec<_>>()
+                    .collect::<BTreeMap<_, _>>()
             )
             .unwrap()
         );
