@@ -431,6 +431,10 @@ min_allowed_top_level_account_length: 32
 storage_amount_per_byte: 100_000_000_000_000_000_000
 storage_num_bytes_account: 100
 storage_num_extra_bytes_record: 40
+burnt_gas_reward: {
+  numerator: 1_000_000,
+  denominator: 300,
+}
 "#;
 
     static BASE_1: &str = r#"
@@ -453,6 +457,10 @@ storage_num_extra_bytes_record   :   40
 registrar_account_id: { old: "registrar", new: "near" }
 min_allowed_top_level_account_length: { old: 32, new: 32_000 }
 wasm_regular_op_cost: { new: 3_856_371 }
+burnt_gas_reward: {
+    old: { numerator: 1_000_000, denominator: 300 },
+    new: { numerator: 2_000_000, denominator: 500 },
+}
 "#;
 
     static DIFF_1: &str = r#"
@@ -461,6 +469,10 @@ registrar_account_id: { old: "near", new: "registrar" }
 storage_num_extra_bytes_record: { old: 40, new: 77 }
 wasm_regular_op_cost: { old: 3_856_371, new: 0 }
 max_memory_pages: { new: 512 }
+burnt_gas_reward: {
+    old: { numerator: 2_000_000, denominator: 500 },
+    new: { numerator: 3_000_000, denominator: 800 },
+}
 "#;
 
     // Tests synthetic small example configurations. For tests with "real"
@@ -485,6 +497,7 @@ max_memory_pages: { new: 512 }
                 (Parameter::StorageAmountPerByte, "\"100000000000000000000\""),
                 (Parameter::StorageNumBytesAccount, "100"),
                 (Parameter::StorageNumExtraBytesRecord, "40"),
+                (Parameter::BurntGasReward, "{ numerator: 1_000_000, denominator: 300 }"),
             ],
         );
     }
@@ -518,6 +531,7 @@ max_memory_pages: { new: 512 }
                 (Parameter::StorageNumBytesAccount, "100"),
                 (Parameter::StorageNumExtraBytesRecord, "40"),
                 (Parameter::WasmRegularOpCost, "3856371"),
+                (Parameter::BurntGasReward, "{ numerator: 2_000_000, denominator: 500 }"),
             ],
         );
     }
@@ -536,6 +550,7 @@ max_memory_pages: { new: 512 }
                 (Parameter::StorageNumExtraBytesRecord, "77"),
                 (Parameter::WasmRegularOpCost, "0"),
                 (Parameter::MaxMemoryPages, "512"),
+                (Parameter::BurntGasReward, "{ numerator: 3_000_000, denominator: 800 }"),
             ],
         );
     }
@@ -552,6 +567,7 @@ max_memory_pages: { new: 512 }
                 (Parameter::StorageAmountPerByte, "\"100000000000000000000\""),
                 (Parameter::StorageNumBytesAccount, "100"),
                 (Parameter::StorageNumExtraBytesRecord, "40"),
+                (Parameter::BurntGasReward, "{ numerator: 1_000_000, denominator: 300 }"),
             ],
         );
     }
