@@ -16,10 +16,26 @@ pub(crate) enum ParameterValue {
 }
 
 impl ParameterValue {
-    fn is_null(&self) -> bool {
+    fn get_u64(&self) -> Option<u64> {
         match self {
-            ParameterValue::Null => true,
-            _ => false,
+            ParameterValue::U64(v) => Some(*v),
+            _ => None,
+        }
+    }
+
+    fn get_rational(&self) -> Option<Rational> {
+        match self {
+            ParameterValue::Rational { numerator, denominator } => {
+                Some(Rational::new(*numerator, *denominator))
+            }
+            _ => None,
+        }
+    }
+
+    fn get_string(&self) -> Option<String> {
+        match self {
+            ParameterValue::String(v) => Some(v.clone()),
+            _ => None,
         }
     }
 }
@@ -54,6 +70,8 @@ pub(crate) enum InvalidConfigError {
     MissingParameter(Parameter),
     #[error("expected a value of type `{1}` for `{0}` but could not parse it from `{2:?}`")]
     WrongValueType(Parameter, &'static str, ParameterValue),
+    #[error("expected an integer of type `{2}` for `{1}` but could not parse it from `{3}`")]
+    WrongIntegerType(#[source] std::num::TryFromIntError, Parameter, &'static str, u64),
 }
 
 impl std::str::FromStr for ParameterTable {
@@ -135,7 +153,7 @@ impl ParameterTable {
         diff: ParameterTableDiff,
     ) -> Result<(), InvalidConfigError> {
         for (key, (before, after)) in diff.parameters {
-            if before.is_null() {
+            if let ParameterValue::Null = before {
                 match self.parameters.get(&key) {
                     Some(ParameterValue::Null) | None => {
                         self.parameters.insert(key, after);
@@ -176,8 +194,11 @@ impl ParameterTable {
             let mut key: &'static str = param.into();
             key = key.strip_prefix(remove_prefix).unwrap_or(key);
             if let Some(value) = self.get(*param) {
-                // TODO(akashin): Handle unwrap.
-                yaml.insert(key.into(), serde_yaml::to_value(value.clone()).unwrap());
+                yaml.insert(
+                    key.into(),
+                    serde_yaml::to_value(value.clone())
+                        .expect("failed to convert parameter value to YAML"),
+                );
             }
         }
         yaml.into()
@@ -201,17 +222,22 @@ impl ParameterTable {
     fn get_number<T>(&self, key: Parameter) -> Result<T, InvalidConfigError>
     where
         T: TryFrom<u64>,
-        <T as std::convert::TryFrom<u64>>::Error: std::fmt::Debug,
+        T::Error: Into<std::num::TryFromIntError>,
     {
         let value = self.parameters.get(&key).ok_or(InvalidConfigError::MissingParameter(key))?;
-        match value {
-            ParameterValue::U64(v) => Ok(T::try_from(*v).unwrap()),
-            _ => Err(InvalidConfigError::WrongValueType(
+        let value_u64 = value.get_u64().ok_or(InvalidConfigError::WrongValueType(
+            key,
+            std::any::type_name::<u64>(),
+            value.clone(),
+        ))?;
+        T::try_from(value_u64).map_err(|err| {
+            InvalidConfigError::WrongIntegerType(
+                err.into(),
                 key,
-                std::any::type_name::<u64>(),
-                value.clone(),
-            )),
-        }
+                std::any::type_name::<T>(),
+                value_u64,
+            )
+        })
     }
 
     /// Read and parse a u128 parameter from the `ParameterTable`.
@@ -232,29 +258,21 @@ impl ParameterTable {
     /// Read and parse a string parameter from the `ParameterTable`.
     fn get_string(&self, key: Parameter) -> Result<String, InvalidConfigError> {
         let value = self.parameters.get(&key).ok_or(InvalidConfigError::MissingParameter(key))?;
-        match value {
-            ParameterValue::String(s) => Ok(s.clone()),
-            _ => Err(InvalidConfigError::WrongValueType(
-                key,
-                std::any::type_name::<String>(),
-                value.clone(),
-            )),
-        }
+        value.get_string().ok_or(InvalidConfigError::WrongValueType(
+            key,
+            std::any::type_name::<String>(),
+            value.clone(),
+        ))
     }
 
     /// Read and parse a rational parameter from the `ParameterTable`.
     fn get_rational(&self, key: Parameter) -> Result<Rational, InvalidConfigError> {
         let value = self.parameters.get(&key).ok_or(InvalidConfigError::MissingParameter(key))?;
-        match value {
-            ParameterValue::Rational { numerator, denominator } => {
-                Ok(Rational::new(*numerator, *denominator))
-            }
-            _ => Err(InvalidConfigError::WrongValueType(
-                key,
-                std::any::type_name::<String>(),
-                value.clone(),
-            )),
-        }
+        value.get_rational().ok_or(InvalidConfigError::WrongValueType(
+            key,
+            std::any::type_name::<Rational>(),
+            value.clone(),
+        ))
     }
 
     fn fee_yaml(&self, key: FeeParameter) -> serde_yaml::Value {
