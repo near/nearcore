@@ -3179,6 +3179,7 @@ impl Chain {
 
         // We synced shard state on top of _previous_ block for chunk in shard state header and applied state parts to
         // flat storage. Now we can set flat head to hash of this block and create flat storage.
+        // TODO (#7327): ensure that no flat storage work is done for `KeyValueRuntime`.
         #[cfg(feature = "protocol_feature_flat_state")]
         {
             let mut store_update = self.runtime_adapter.store().store_update();
@@ -3187,7 +3188,7 @@ impl Chain {
         }
 
         if self.runtime_adapter.get_flat_storage_creation_status(shard_id)
-            != FlatStorageCreationStatus::DontCreate
+            == FlatStorageCreationStatus::Ready
         {
             self.runtime_adapter.create_flat_storage_state_for_shard(
                 shard_id,
