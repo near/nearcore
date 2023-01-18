@@ -225,7 +225,7 @@ impl ParameterTable {
         let value = self.parameters.get(&key).ok_or(InvalidConfigError::MissingParameter(key))?;
         let value_u64 = value.get_u64().ok_or(InvalidConfigError::WrongValueType(
             key,
-            std::any::type_name::<u64>(),
+            std::any::type_name::<T>(),
             value.clone(),
         ))?;
         T::try_from(value_u64).map_err(|err| {
