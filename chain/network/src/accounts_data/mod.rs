@@ -27,14 +27,14 @@
 use crate::concurrency;
 use crate::concurrency::arc_mutex::ArcMutex;
 use crate::network_protocol;
-use crate::network_protocol::{AccountData,VersionedAccountData, SignedAccountData};
-use near_primitives::validator_signer::ValidatorSigner;
+use crate::network_protocol::{AccountData, SignedAccountData, VersionedAccountData};
+use crate::time;
 use crate::types::AccountKeys;
 use near_crypto::PublicKey;
+use near_primitives::validator_signer::ValidatorSigner;
 use rayon::iter::ParallelBridge;
 use std::collections::HashMap;
 use std::sync::Arc;
-use crate::time;
 
 #[cfg(test)]
 mod tests;
@@ -51,8 +51,8 @@ pub(crate) enum Error {
 
 #[derive(Clone)]
 pub struct LocalData {
-    pub signer :Arc<dyn ValidatorSigner>,
-    pub data :Arc<AccountData>,
+    pub signer: Arc<dyn ValidatorSigner>,
+    pub data: Arc<AccountData>,
 }
 
 #[derive(Clone)]
@@ -70,7 +70,7 @@ pub struct CacheSnapshot {
     /// as cache is collecting data only about the accounts from `keys`,
     /// and data about the particular account might be not known at the given moment.
     pub data: im::HashMap<PublicKey, Arc<SignedAccountData>>,
-    
+
     pub local: Option<LocalData>,
 }
 
@@ -93,7 +93,7 @@ impl CacheSnapshot {
     /// following:
     /// * compare `(version,timestamp)` instead of just `version` (UTC timestamps are unlikely to collide
     ///   and we don't care about monotonicity here)
-    /// * add a random_minor_version to AccountData, specifically to avoid collisions 
+    /// * add a random_minor_version to AccountData, specifically to avoid collisions
     ///   (so we would be comparing `(version,random_minor_version)` instead)
     /// * use some crypto hash function `h` and compare `(version,h(data))`. Assuming that `h`
     ///   behaves like a random oracle, the semantics will be equivaluent to
@@ -108,7 +108,7 @@ impl CacheSnapshot {
             }
     }
 
-    /// Inserts d into self.data, if 
+    /// Inserts d into self.data, if
     /// * `d.account_data` is in self.keys AND
     /// * `d.version > self.data[d.account_data].version`.
     /// If d would override local for this node, an AccountData based on `self.local` is signed
@@ -116,17 +116,25 @@ impl CacheSnapshot {
     /// been restarted and we observe the old value emitted by the previous run).
     /// It returns the newly inserted value (or None if nothing changed).
     /// The returned value should be broadcasted to the network.
-    fn try_insert(&mut self, clock: &time::Clock, d: Arc<SignedAccountData>) -> Option<Arc<SignedAccountData>> {
+    fn try_insert(
+        &mut self,
+        clock: &time::Clock,
+        d: Arc<SignedAccountData>,
+    ) -> Option<Arc<SignedAccountData>> {
         if !self.is_new(&d) {
             return None;
         }
         let d = match &self.local {
-            Some(local) if d.account_key==local.signer.public_key() => Arc::new(VersionedAccountData {
-                data: local.data.as_ref().clone(),
-                account_key: local.signer.public_key().clone(),
-                version: d.version + 1,
-                timestamp: clock.now_utc(),
-            }.sign(local.signer.as_ref()).unwrap()),
+            Some(local) if d.account_key == local.signer.public_key() => Arc::new(
+                VersionedAccountData {
+                    data: local.data.as_ref().clone(),
+                    account_key: local.signer.public_key().clone(),
+                    version: d.version + 1,
+                    timestamp: clock.now_utc(),
+                }
+                .sign(local.signer.as_ref())
+                .unwrap(),
+            ),
             _ => d,
         };
         self.data.insert(d.account_key.clone(), d.clone());
@@ -140,17 +148,25 @@ impl CacheSnapshot {
     /// represents the same data as the previous version - this is a way of informing the nodes on
     /// the network that the node is actually alive.
     /// Note that it will become critical in case we make AccountData expirable at some point.
-    fn set_local(&mut self, clock: &time::Clock, local: LocalData) -> Option<Arc<SignedAccountData>> {
+    fn set_local(
+        &mut self,
+        clock: &time::Clock,
+        local: LocalData,
+    ) -> Option<Arc<SignedAccountData>> {
         let account_key = local.signer.public_key();
         let result = match self.keys.contains(&account_key) {
             false => None,
             true => {
-                let d = Arc::new(VersionedAccountData {
-                    data: local.data.as_ref().clone(),
-                    account_key: account_key.clone(),
-                    version: self.data.get(&account_key).map_or(0,|d|d.version) + 1,
-                    timestamp: clock.now_utc(),
-                }.sign(local.signer.as_ref()).unwrap());
+                let d = Arc::new(
+                    VersionedAccountData {
+                        data: local.data.as_ref().clone(),
+                        account_key: account_key.clone(),
+                        version: self.data.get(&account_key).map_or(0, |d| d.version) + 1,
+                        timestamp: clock.now_utc(),
+                    }
+                    .sign(local.signer.as_ref())
+                    .unwrap(),
+                );
                 self.data.insert(account_key, d.clone());
                 Some(d)
             }
@@ -247,10 +263,10 @@ impl Cache {
         self: &Arc<Self>,
         clock: &time::Clock,
         local: LocalData,
-    ) -> Option<Arc<SignedAccountData>> { 
+    ) -> Option<Arc<SignedAccountData>> {
         self.0.update(|mut inner| {
-            let data = inner.set_local(clock,local);
-            (data,inner)
+            let data = inner.set_local(clock, local);
+            (data, inner)
         })
     }
 
@@ -267,7 +283,7 @@ impl Cache {
         let (data, err) = this.verify(data).await;
         // Insert the successfully verified data, even if an error has been encountered.
         let inserted = self.0.update(|mut inner| {
-            let inserted = data.into_iter().filter_map(|d| inner.try_insert(clock,d)).collect();
+            let inserted = data.into_iter().filter_map(|d| inner.try_insert(clock, d)).collect();
             (inserted, inner)
         });
         // Return the inserted data.

@@ -1161,7 +1161,9 @@ impl PeerActor {
                 let network_state = self.network_state.clone();
                 let clock = self.clock.clone();
                 ctx.spawn(wrap_future(async move {
-                    if let Some(err) = network_state.add_accounts_data(&clock, msg.accounts_data).await {
+                    if let Some(err) =
+                        network_state.add_accounts_data(&clock, msg.accounts_data).await
+                    {
                         conn.stop(Some(match err {
                             accounts_data::Error::InvalidSignature => {
                                 ReasonForBan::InvalidSignature

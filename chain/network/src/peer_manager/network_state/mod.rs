@@ -665,6 +665,12 @@ impl NetworkState {
         if self.config.tier1.is_none() {
             return false;
         }
-        self.accounts_data.set_keys(info.tier1_accounts.clone())
+        let has_changed = self.accounts_data.set_keys(info.tier1_accounts.clone());
+        // The set of TIER1 accounts has changed, so we might be missing some accounts_data
+        // that our peers know about.
+        if has_changed {
+            self.tier1_request_full_sync();
+        }
+        has_changed
     }
 }

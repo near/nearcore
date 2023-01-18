@@ -241,6 +241,7 @@ impl PeerManagerActor {
                         async move {
                             loop {
                                 interval.tick(&clock).await;
+                                state.tier1_request_full_sync();
                                 state.tier1_advertise_proxies(&clock).await;
                             }
                         }
@@ -975,10 +976,6 @@ impl actix::Handler<WithSpanContext<SetChainInfo>> for PeerManagerActor {
                 // and this node won't be able to connect to proxies until it happens (and only the
                 // connected proxies are included in the advertisement). We run tier1_advertise_proxies
                 // periodically in the background anyway to cover those cases.
-                //
-                // The set of tier1 accounts has changed, so we might be missing some accounts_data
-                // that our peers know about. tier1_advertise_proxies() has a side effect
-                // of asking peers for a full sync of the accounts_data with the TIER2 peers.
                 state.tier1_advertise_proxies(&clock).await;
             }
             .in_current_span(),

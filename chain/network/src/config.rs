@@ -426,7 +426,7 @@ mod test {
     use crate::config;
     use crate::network_protocol;
     use crate::network_protocol::testonly as data;
-    use crate::network_protocol::{VersionedAccountData, AccountData};
+    use crate::network_protocol::{AccountData, VersionedAccountData};
     use crate::testonly::make_rng;
     use crate::time;
 

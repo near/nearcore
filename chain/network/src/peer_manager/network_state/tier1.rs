@@ -65,6 +65,17 @@ impl super::NetworkState {
         futures_util::future::join_all(handles).await;
     }
 
+    /// Requests direct peers for accounts data full sync.
+    /// Should be called whenever the accounts_data.keys changes, and
+    /// periodically just in case.
+    pub fn tier1_request_full_sync(&self) {
+        self.tier2.broadcast_message(Arc::new(PeerMessage::SyncAccountsData(SyncAccountsData {
+            incremental: true,
+            requesting_full_sync: true,
+            accounts_data: vec![],
+        })));
+    }
+
     /// Tries to connect to ALL trusted proxies from the config, then broadcasts AccountData with
     /// the set of proxies it managed to connect to. This way other TIER1 nodes can just connect
     /// to ANY proxy of this node.
@@ -80,6 +91,9 @@ impl super::NetworkState {
         // handshake on connection attempts, even if another call spawned them.
         let _lock = self.tier1_advertise_proxies_mutex.lock().await;
         let accounts_data = self.accounts_data.load();
+
+        // No matter if this node is a TIER1 node
+
         let vc = match self.tier1_validator_config(&accounts_data) {
             Some(it) => it,
             None => return None,
@@ -144,13 +158,16 @@ impl super::NetworkState {
             }
         };
         tracing::info!(target:"network","connected to proxies {my_proxies:?}");
-        let new_data = self.accounts_data.set_local(clock, accounts_data::LocalData{
-            signer: vc.signer.clone(),
-            data: Arc::new(AccountData {
-                peer_id: self.config.node_id(),
-                proxies: my_proxies.clone(),
-            }),
-        });
+        let new_data = self.accounts_data.set_local(
+            clock,
+            accounts_data::LocalData {
+                signer: vc.signer.clone(),
+                data: Arc::new(AccountData {
+                    peer_id: self.config.node_id(),
+                    proxies: my_proxies.clone(),
+                }),
+            },
+        );
         // Early exit in case this node is not a TIER1 node any more.
         let new_data = new_data?;
         // Advertise the new_data.

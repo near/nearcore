@@ -61,12 +61,15 @@ async fn happy_path() {
     let a5 = Arc::new(make_account_data(rng, &clock.clock(), 1, &signers[5]));
     let res = cache
         .clone()
-        .insert(&clock.clock(),vec![
-            a2.clone(),    // initial value => insert
-            a0new.clone(), // with newer timestamp => insert,
-            a1old.clone(), // with older timestamp => filter out,
-            a5.clone(),    // not in e0 => filter out.
-        ])
+        .insert(
+            &clock.clock(),
+            vec![
+                a2.clone(),    // initial value => insert
+                a0new.clone(), // with newer timestamp => insert,
+                a1old.clone(), // with older timestamp => filter out,
+                a5.clone(),    // not in e0 => filter out.
+            ],
+        )
         .await;
     assert_eq!([&a2, &a0new].as_set(), unwrap(&res).as_set());
     assert_eq!([&a0new, &a1, &a2].as_set(), cache.load().data.values().collect());
@@ -81,10 +84,13 @@ async fn happy_path() {
     // insert some entries again.
     let res = cache
         .clone()
-        .insert(&clock.clock(),vec![
-            a0.clone(), // a0 is not in e1 => filter out
-            a5.clone(), // a5 is in e1 => insert,
-        ])
+        .insert(
+            &clock.clock(),
+            vec![
+                a0.clone(), // a0 is not in e1 => filter out
+                a5.clone(), // a5 is in e1 => insert,
+            ],
+        )
         .await;
     assert_eq!([&a5].as_set(), unwrap(&res).as_set());
     assert_eq!([&a2, &a5].as_set(), cache.load().data.values().collect());
@@ -112,11 +118,14 @@ async fn data_too_large() {
     // too large payload => DataTooLarge
     let res = cache
         .clone()
-        .insert(&clock.clock(),vec![
-            a0.clone(),
-            a1.clone(),
-            a2_too_large.clone(), // invalid entry => DataTooLarge
-        ])
+        .insert(
+            &clock.clock(),
+            vec![
+                a0.clone(),
+                a1.clone(),
+                a2_too_large.clone(), // invalid entry => DataTooLarge
+            ],
+        )
         .await;
     assert_eq!(Some(Error::DataTooLarge), res.1);
     // Partial update is allowed, in case an error is encountered.
@@ -146,11 +155,14 @@ async fn invalid_signature() {
     // invalid signature => InvalidSignature
     let res = cache
         .clone()
-        .insert(&clock.clock(),vec![
-            a0.clone(),
-            a1.clone(),
-            a2_invalid_sig.clone(), // invalid entry => DataTooLarge
-        ])
+        .insert(
+            &clock.clock(),
+            vec![
+                a0.clone(),
+                a1.clone(),
+                a2_invalid_sig.clone(), // invalid entry => DataTooLarge
+            ],
+        )
         .await;
     assert_eq!(Some(Error::InvalidSignature), res.1);
     // Partial update is allowed, in case an error is encountered.
@@ -176,8 +188,10 @@ async fn single_account_multiple_data() {
     let a2new = Arc::new(make_account_data(rng, &clock.clock(), 2, &signers[2]));
 
     // 2 entries for the same (epoch_id,account_id) => SingleAccountMultipleData
-    let res =
-        cache.clone().insert(&clock.clock(),vec![a0.clone(), a1.clone(), a2old.clone(), a2new.clone()]).await;
+    let res = cache
+        .clone()
+        .insert(&clock.clock(), vec![a0.clone(), a1.clone(), a2old.clone(), a2new.clone()])
+        .await;
     assert_eq!(Some(Error::SingleAccountMultipleData), res.1);
     // Partial update is allowed, in case an error is encountered.
     assert_is_superset(&[&a0, &a1, &a2old, &a2new].as_set(), &res.0.as_set());

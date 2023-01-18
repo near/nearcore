@@ -156,8 +156,8 @@ async fn gradual_epoch_change() {
             // would be able to connect to B and advertise B as proxy afterwards.
             want.extend(pms[id].tier1_advertise_proxies(&clock.clock()).await);
         }
-        tracing::info!(target:"test", "wait for data to arrive.");
         for pm in &mut pms {
+            tracing::info!(target:"test", "wait for data to arrive to {}.",pm.cfg.node_id());
             pm.wait_for_accounts_data(&want).await;
         }
     }

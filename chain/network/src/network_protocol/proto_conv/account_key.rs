@@ -4,7 +4,8 @@ use super::*;
 use crate::network_protocol::proto;
 use crate::network_protocol::proto::account_key_payload::Payload_type as ProtoPT;
 use crate::network_protocol::{
-    AccountData, AccountKeySignedPayload, OwnedAccount, VersionedAccountData, SignedAccountData, SignedOwnedAccount,
+    AccountData, AccountKeySignedPayload, OwnedAccount, SignedAccountData, SignedOwnedAccount,
+    VersionedAccountData,
 };
 use protobuf::{Message as _, MessageField as MF};
 

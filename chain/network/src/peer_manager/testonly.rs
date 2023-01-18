@@ -372,10 +372,10 @@ impl ActorHandler {
                     s.accounts_data.load().data.values().cloned().collect::<HashSet<_>>()
                 })
                 .await;
-            tracing::info!(target:"dupa","got = {:?}",got);
             if &got == want {
                 break;
             }
+
             // It is important that we wait for the next PeerMessage::SyncAccountsData to get
             // PROCESSED, not just RECEIVED. Otherwise we would get a race condition.
             events.recv_until(unwrap_sync_accounts_data_processed).await;
