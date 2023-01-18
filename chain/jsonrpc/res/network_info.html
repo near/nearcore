@@ -187,7 +187,7 @@
 
                     let recent_connections = data.status_response.PeerStore.recent_connections
                         .map(peer_id => peer_id.substr(8, 5) + "...");
-                    $(".recent-connections-div").text(": [" + recent_connections.join(", ") + "]");
+                    $(".recent-connections-div").text("Recent connections: [" + recent_connections.join(",") + "]");
 
                     $(".detailed-peer-storage-div").show();
                     $(".detailed-peer-storage-button").text("Refresh");
@@ -294,6 +294,7 @@ Unreachable: <span class="js-unreachable-chunk-producers"></span>
 
             </tbody>
         </table>
+        <br>
         <div class="recent-connections-div"></div>
     </div>
 </body>

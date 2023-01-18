@@ -2,7 +2,7 @@ use crate::client;
 use crate::config;
 use crate::debug::{DebugStatus, GetDebugStatus};
 use crate::network_protocol::{
-    AccountOrPeerIdOrHash, Edge, PeerIdOrHash, PeerMessage, Ping, Pong, RawRoutedMessage,
+    AccountOrPeerIdOrHash, Edge, PeerIdOrHash, PeerInfo, PeerMessage, Ping, Pong, RawRoutedMessage,
     RoutedMessageBody, SignedAccountData, StateResponseInfo,
 };
 use crate::peer::peer_actor::{ClosingReason, PeerActor};
@@ -122,6 +122,9 @@ impl actix::Actor for PeerManagerActor {
     fn started(&mut self, ctx: &mut Self::Context) {
         // Periodically push network information to client.
         self.push_network_info_trigger(ctx, self.state.config.push_info_period);
+
+        // Reconnect to recent connections
+        self.bootstrap_outbound_from_recent_connections(ctx);
 
         // Periodically starts peer monitoring.
         tracing::debug!(target: "network",
@@ -586,6 +589,33 @@ impl PeerManagerActor {
                 act.monitor_peers_trigger(ctx, new_interval, (default_interval, max_interval));
             },
         );
+    }
+
+    fn bootstrap_outbound_from_recent_connections(&self, ctx: &mut actix::Context<Self>) {
+        let recent_connections = self.state.peer_store.get_recent_connections();
+
+        for peer_id in recent_connections {
+            let peer_info = PeerInfo { id: peer_id, addr: None, account_id: None };
+
+            ctx.spawn(wrap_future({
+                let state = self.state.clone();
+                let clock = self.clock.clone();
+                async move {
+                    let result = async {
+                        let stream = tcp::Stream::connect(&peer_info, tcp::Tier::T2).await.context("tcp::Stream::connect()")?;
+                        PeerActor::spawn_and_handshake(clock.clone(),stream,None,state.clone()).await.context("PeerActor::spawn()")?;
+                        anyhow::Ok(())
+                    }.await;
+
+                    if result.is_err() {
+                        tracing::info!(target:"network", ?result, "failed to connect to {peer_info}");
+                    }
+                    if state.peer_store.peer_connection_attempt(&clock, &peer_info.id, result).is_err() {
+                        tracing::error!(target: "network", ?peer_info, "Failed to mark peer as failed.");
+                    }
+                }.instrument(tracing::trace_span!(target: "network", "bootstrap_outbound_from_recent_connections"))
+            }));
+        }
     }
 
     /// Return whether the message is sent or not.
