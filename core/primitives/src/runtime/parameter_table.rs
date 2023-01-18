@@ -18,14 +18,14 @@ pub(crate) enum ParameterValue {
 }
 
 impl ParameterValue {
-    fn get_u64(&self) -> Option<u64> {
+    fn as_u64(&self) -> Option<u64> {
         match self {
             ParameterValue::U64(v) => Some(*v),
             _ => None,
         }
     }
 
-    fn get_rational(&self) -> Option<Rational> {
+    fn as_rational(&self) -> Option<Rational> {
         match self {
             ParameterValue::Rational { numerator, denominator } => {
                 Some(Rational::new(*numerator, *denominator))
@@ -34,9 +34,9 @@ impl ParameterValue {
         }
     }
 
-    fn get_string(&self) -> Option<String> {
+    fn as_str(&self) -> Option<&str> {
         match self {
-            ParameterValue::String(v) => Some(v.clone()),
+            ParameterValue::String(v) => Some(v),
             _ => None,
         }
     }
@@ -223,7 +223,7 @@ impl ParameterTable {
         T::Error: Into<std::num::TryFromIntError>,
     {
         let value = self.parameters.get(&key).ok_or(InvalidConfigError::MissingParameter(key))?;
-        let value_u64 = value.get_u64().ok_or(InvalidConfigError::WrongValueType(
+        let value_u64 = value.as_u64().ok_or(InvalidConfigError::WrongValueType(
             key,
             std::any::type_name::<T>(),
             value.clone(),
@@ -256,20 +256,24 @@ impl ParameterTable {
     /// Read and parse a string parameter from the `ParameterTable`.
     fn get_account_id(&self, key: Parameter) -> Result<AccountId, InvalidConfigError> {
         let value = self.parameters.get(&key).ok_or(InvalidConfigError::MissingParameter(key))?;
-        let value_string = value.get_string().ok_or(InvalidConfigError::WrongValueType(
+        let value_string = value.as_str().ok_or(InvalidConfigError::WrongValueType(
             key,
             std::any::type_name::<String>(),
             value.clone(),
         ))?;
         value_string.parse().map_err(|err| {
-            InvalidConfigError::WrongAccountId(err, Parameter::RegistrarAccountId, value_string)
+            InvalidConfigError::WrongAccountId(
+                err,
+                Parameter::RegistrarAccountId,
+                value_string.to_string(),
+            )
         })
     }
 
     /// Read and parse a rational parameter from the `ParameterTable`.
     fn get_rational(&self, key: Parameter) -> Result<Rational, InvalidConfigError> {
         let value = self.parameters.get(&key).ok_or(InvalidConfigError::MissingParameter(key))?;
-        value.get_rational().ok_or(InvalidConfigError::WrongValueType(
+        value.as_rational().ok_or(InvalidConfigError::WrongValueType(
             key,
             std::any::type_name::<Rational>(),
             value.clone(),
