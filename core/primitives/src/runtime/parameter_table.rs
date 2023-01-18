@@ -191,6 +191,8 @@ impl ParameterTable {
             if let Some(value) = self.get(*param) {
                 yaml.insert(
                     key.into(),
+                    // All parameter values can be serialized as YAML, so we don't ever expect this
+                    // to fail.
                     serde_yaml::to_value(value.clone())
                         .expect("failed to convert parameter value to YAML"),
                 );
@@ -673,6 +675,34 @@ burnt_gas_reward: {
             InvalidConfigError::NoOldValueExists(Parameter::WasmRegularOpCost, found) => {
                 assert_eq!(found, ParameterValue::U64(3200000));
             }
+        );
+    }
+
+    #[test]
+    fn test_parameter_table_yaml_map() {
+        let params: ParameterTable = BASE_0.parse().unwrap();
+        let yaml = params.yaml_map(
+            [
+                Parameter::RegistrarAccountId,
+                Parameter::MinAllowedTopLevelAccountLength,
+                Parameter::StorageAmountPerByte,
+                Parameter::StorageNumBytesAccount,
+                Parameter::StorageNumExtraBytesRecord,
+                Parameter::BurntGasReward,
+            ]
+            .iter(),
+            "",
+        );
+        assert_eq!(
+            yaml,
+            serde_yaml::to_value(
+                params
+                    .parameters
+                    .iter()
+                    .map(|(key, value)| (key.to_string(), value))
+                    .collect::<Vec<_>>()
+            )
+            .unwrap()
         );
     }
 }
