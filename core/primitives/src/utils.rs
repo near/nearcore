@@ -1,7 +1,6 @@
 use std::cmp::max;
 use std::convert::AsRef;
 use std::fmt;
-use std::time::Duration;
 
 use chrono;
 use chrono::{DateTime, NaiveDateTime};
@@ -21,6 +20,9 @@ use std::mem::size_of;
 use std::ops::Deref;
 
 pub mod min_heap;
+
+/// Number of nano seconds in a second.
+const NS_IN_SECOND: u64 = 1_000_000_000;
 
 /// A data structure for tagging data as already being validated to prevent
 /// redundant work.
@@ -406,11 +408,10 @@ macro_rules! unwrap_or_return {
 
 /// Converts timestamp in ns into DateTime UTC time.
 pub fn from_timestamp(timestamp: u64) -> DateTime<chrono::Utc> {
-    let duration = Duration::from_nanos(timestamp);
-    DateTime::from_utc(
-        NaiveDateTime::from_timestamp(duration.as_secs() as i64, duration.subsec_nanos()),
-        chrono::Utc,
-    )
+    let secs =
+        timestamp.checked_div(NS_IN_SECOND).expect("dividing by non-zero const is safe") as i64;
+    let nsecs = timestamp.checked_rem(NS_IN_SECOND).expect("modulo non-zero const is safe") as u32;
+    DateTime::from_utc(NaiveDateTime::from_timestamp(secs, nsecs), chrono::Utc)
 }
 
 /// Converts DateTime UTC time into timestamp in ns.
