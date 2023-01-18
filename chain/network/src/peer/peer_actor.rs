@@ -1066,15 +1066,18 @@ impl PeerActor {
             PeerMessage::Disconnect(reason) => {
                 tracing::debug!(target: "network", "Disconnect signal. Me: {:?} Peer: {:?}", self.my_node_info.id, self.other_peer_id());
 
-                if reason == ClosingReason::PeerManagerRequest {
-                    if self
-                        .network_state
-                        .peer_store
-                        .remove_from_recent_connections(&self.other_peer_id().unwrap())
-                        .is_err()
-                    {
-                        tracing::error!(target: "network", "Failed to remove peer from recent connections.");
+                match reason {
+                    ClosingReason::PeerManagerRequest | ClosingReason::Ban(_) => {
+                        if self
+                            .network_state
+                            .peer_store
+                            .remove_from_recent_connections(&self.other_peer_id().unwrap())
+                            .is_err()
+                        {
+                            tracing::error!(target: "network", "Failed to remove peer from recent connections.");
+                        }
                     }
+                    _ => {}
                 }
 
                 self.stop(ctx, ClosingReason::DisconnectMessage);
