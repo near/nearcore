@@ -37,11 +37,26 @@ fn wait_for_flat_storage_creation(env: &mut TestEnv, start_height: BlockHeight) 
         env.clients[0].run_flat_storage_creation_step().unwrap();
 
         let status = store_helper::get_flat_storage_state_status(&store, 0);
-        let index_prev_status: i64 = (&prev_status).into();
-        let index_status: i64 = (&status).into();
-        assert!(index_prev_status <= index_status, "Inconsistency in flat storage creation: moved from {prev_status:?} to {status:?} for height {next_height}");
+        // Check validity of state transition for flat storage creation.
+        if prev_status != status {
+            match (&prev_status, &status) {
+                (
+                    FlatStorageStateStatus::SavingDeltas,
+                    FlatStorageStateStatus::FetchingState(..),
+                )
+                | (FlatStorageStateStatus::FetchingState(..), FlatStorageStateStatus::CatchingUp)
+                | (FlatStorageStateStatus::CatchingUp, FlatStorageStateStatus::Ready) => {}
+                (_, _) => {
+                    panic!("Inconsistency in flat storage creation: moved from {prev_status:?} to {status:?} for height {next_height}");
+                }
+            }
+        }
+
         prev_status = status;
         next_height += 1;
+        if status == FlatStorageStateStatus::Ready {
+            break;
+        }
 
         thread::sleep(Duration::from_secs(1));
     }

@@ -558,6 +558,13 @@ pub enum FlatStorageStateStatus {
     DontCreate,
 }
 
+/// Checks equality of enum names.
+impl PartialEq<Self> for FlatStorageStateStatus {
+    fn eq(&self, other: &Self) -> bool {
+        std::mem::discriminant(self) == std::mem::discriminant(other)
+    }
+}
+
 impl Into<i64> for &FlatStorageStateStatus {
     /// Converts status to integer to export to prometheus later.
     /// Cast inside enum does not work because it is not fieldless.
