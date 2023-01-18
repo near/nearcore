@@ -1,7 +1,9 @@
 use super::config::{AccountCreationConfig, RuntimeConfig};
+use near_primitives_core::account::id::ParseAccountError;
 use near_primitives_core::config::{ExtCostsConfig, VMConfig};
 use near_primitives_core::parameter::{FeeParameter, Parameter};
 use near_primitives_core::runtime::fees::{RuntimeFeesConfig, StorageUsageConfig};
+use near_primitives_core::types::AccountId;
 use num_rational::Rational;
 use std::collections::BTreeMap;
 
@@ -72,6 +74,8 @@ pub(crate) enum InvalidConfigError {
     WrongValueType(Parameter, &'static str, ParameterValue),
     #[error("expected an integer of type `{2}` for `{1}` but could not parse it from `{3}`")]
     WrongIntegerType(#[source] std::num::TryFromIntError, Parameter, &'static str, u64),
+    #[error("expected an account id for `{1}` but could not parse it from `{2}`")]
+    WrongAccountId(#[source] ParseAccountError, Parameter, String),
 }
 
 impl std::str::FromStr for ParameterTable {
@@ -132,16 +136,7 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
             account_creation_config: AccountCreationConfig {
                 min_allowed_top_level_account_length: params
                     .get_number(Parameter::MinAllowedTopLevelAccountLength)?,
-                registrar_account_id: params
-                    .get_string(Parameter::RegistrarAccountId)?
-                    .parse()
-                    .map_err(|_| {
-                        InvalidConfigError::WrongValueType(
-                            Parameter::RegistrarAccountId,
-                            std::any::type_name::<near_primitives_core::types::AccountId>(),
-                            ParameterValue::Null,
-                        )
-                    })?,
+                registrar_account_id: params.get_account_id(Parameter::RegistrarAccountId)?,
             },
         })
     }
@@ -259,13 +254,16 @@ impl ParameterTable {
     }
 
     /// Read and parse a string parameter from the `ParameterTable`.
-    fn get_string(&self, key: Parameter) -> Result<String, InvalidConfigError> {
+    fn get_account_id(&self, key: Parameter) -> Result<AccountId, InvalidConfigError> {
         let value = self.parameters.get(&key).ok_or(InvalidConfigError::MissingParameter(key))?;
-        value.get_string().ok_or(InvalidConfigError::WrongValueType(
+        let value_string = value.get_string().ok_or(InvalidConfigError::WrongValueType(
             key,
             std::any::type_name::<String>(),
             value.clone(),
-        ))
+        ))?;
+        value_string.parse().map_err(|err| {
+            InvalidConfigError::WrongAccountId(err, Parameter::RegistrarAccountId, value_string)
+        })
     }
 
     /// Read and parse a rational parameter from the `ParameterTable`.
