@@ -51,12 +51,12 @@ fn wait_for_flat_storage_creation(env: &mut TestEnv, start_height: BlockHeight) 
         // Check validity of state transition for flat storage creation.
         match (&prev_status, &status) {
             (FlatStorageStateStatus::SavingDeltas, FlatStorageStateStatus::SavingDeltas)
-            | (FlatStorageStateStatus::SavingDeltas, FlatStorageStateStatus::FetchingState(..))
+            | (FlatStorageStateStatus::SavingDeltas, FlatStorageStateStatus::FetchingState(_))
             | (
-                FlatStorageStateStatus::FetchingState(..),
-                FlatStorageStateStatus::FetchingState(..),
+                FlatStorageStateStatus::FetchingState(_),
+                FlatStorageStateStatus::FetchingState(_),
             )
-            | (FlatStorageStateStatus::FetchingState(..), FlatStorageStateStatus::CatchingUp)
+            | (FlatStorageStateStatus::FetchingState(_), FlatStorageStateStatus::CatchingUp)
             | (FlatStorageStateStatus::CatchingUp, FlatStorageStateStatus::CatchingUp)
             | (FlatStorageStateStatus::CatchingUp, FlatStorageStateStatus::Ready) => {}
             (_, _) => {
