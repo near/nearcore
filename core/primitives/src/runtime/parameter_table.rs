@@ -106,7 +106,7 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
         Ok(RuntimeConfig {
             fees: RuntimeFeesConfig {
                 action_fees: enum_map::enum_map! {
-                    action_cost => params.fee(action_cost)
+                    action_cost => params.get_fee(action_cost)?
                 },
                 burnt_gas_reward: params.get_rational(Parameter::BurntGasReward)?,
                 pessimistic_gas_price_inflation_ratio: params
@@ -209,13 +209,16 @@ impl ParameterTable {
     }
 
     /// Access action fee by `ActionCosts`.
-    fn fee(
+    fn get_fee(
         &self,
         cost: near_primitives_core::config::ActionCosts,
-    ) -> near_primitives_core::runtime::fees::Fee {
-        let yaml = self.fee_yaml(FeeParameter::from(cost));
-        serde_yaml::from_value::<near_primitives_core::runtime::fees::Fee>(yaml)
-            .expect("just constructed a Fee YAML")
+    ) -> Result<near_primitives_core::runtime::fees::Fee, InvalidConfigError> {
+        let key = FeeParameter::from(cost);
+        Ok(near_primitives_core::runtime::fees::Fee {
+            send_sir: self.get_number(format!("{key}_send_sir").parse().unwrap())?,
+            send_not_sir: self.get_number(format!("{key}_send_not_sir").parse().unwrap())?,
+            execution: self.get_number(format!("{key}_execution").parse().unwrap())?,
+        })
     }
 
     /// Read and parse a number parameter from the `ParameterTable`.
@@ -273,15 +276,6 @@ impl ParameterTable {
             std::any::type_name::<Rational>(),
             value.clone(),
         ))
-    }
-
-    fn fee_yaml(&self, key: FeeParameter) -> serde_yaml::Value {
-        serde_yaml::to_value(BTreeMap::from([
-            ("send_sir", self.get(format!("{key}_send_sir").parse().unwrap())),
-            ("send_not_sir", self.get(format!("{key}_send_not_sir").parse().unwrap())),
-            ("execution", self.get(format!("{key}_execution").parse().unwrap())),
-        ]))
-        .expect("failed to construct fee yaml")
     }
 }
 
