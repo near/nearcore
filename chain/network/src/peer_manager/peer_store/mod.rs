@@ -620,9 +620,17 @@ impl PeerStore {
         Ok(())
     }
 
-    pub fn remove_from_recent_connections(&self, peer_id: &PeerId) {
+    pub fn remove_from_recent_connections(&self, peer_id: &PeerId) -> anyhow::Result<()> {
         let mut inner = self.0.lock();
-        inner.recent_connections.retain(|id| id != peer_id);
+
+        let mut recent_connections = inner.recent_connections.clone();
+        recent_connections.retain(|id| id != peer_id);
+
+        if recent_connections != inner.recent_connections {
+            inner.store.set_recent_connections(&recent_connections)?;
+            inner.recent_connections = recent_connections;
+        }
+        Ok(())
     }
 
     pub fn get_recent_connections(&self) -> Vec<PeerId> {
