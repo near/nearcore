@@ -96,8 +96,8 @@ impl GasCounter {
     ///
     /// This function asserts that `gas_burnt <= gas_used`
     fn deduct_gas(&mut self, gas_burnt: Gas, gas_used: Gas) -> Result<()> {
-        assert!(gas_burnt <= gas_used);
-        let promises_gas = gas_used - gas_burnt;
+        let promises_gas =
+            gas_used.checked_sub(gas_burnt).expect("`gas_used` must always exceed `gas_burnt`");
         let new_promises_gas =
             self.promises_gas.checked_add(promises_gas).ok_or(HostError::IntegerOverflow)?;
         let new_burnt_gas =
@@ -107,8 +107,11 @@ impl GasCounter {
         if new_burnt_gas <= self.max_gas_burnt && new_used_gas <= self.prepaid_gas {
             use std::cmp::min;
             if promises_gas != 0 && !self.is_view {
-                self.fast_counter.gas_limit =
-                    min(self.max_gas_burnt, self.prepaid_gas - new_promises_gas);
+                let prepaid_limit = self
+                    .prepaid_gas
+                    .checked_sub(new_promises_gas)
+                    .expect("this cannot fail because of `new_used_gas <= self.prepaid_gas` check");
+                self.fast_counter.gas_limit = min(self.max_gas_burnt, prepaid_limit);
             }
             self.fast_counter.burnt_gas = new_burnt_gas;
             self.promises_gas = new_promises_gas;
@@ -180,7 +183,9 @@ impl GasCounter {
     }
 
     pub fn pay_wasm_gas(&mut self, opcodes: u32) -> Result<()> {
-        let value = Gas::from(opcodes) * self.fast_counter.opcode_cost;
+        let value = Gas::from(opcodes)
+            .checked_mul(self.fast_counter.opcode_cost)
+            .ok_or(HostError::IntegerOverflow)?;
         self.burn_gas(value)
     }
 
@@ -203,7 +208,11 @@ impl GasCounter {
 
     #[inline]
     fn inc_ext_costs_counter(&mut self, cost: ExtCosts, value: u64) {
-        with_ext_cost_counter(|cc| *cc.entry(cost).or_default() += value)
+        with_ext_cost_counter(|cc| {
+            let entry = cc.entry(cost).or_default();
+            *entry =
+                entry.checked_add(value).expect("unable to estimate parameters due to overflow");
+        })
     }
 
     #[inline]
@@ -266,12 +275,14 @@ impl GasCounter {
 
     /// Amount of gas used through promises and amount burned.
     pub fn used_gas(&self) -> Gas {
-        self.promises_gas + self.fast_counter.burnt_gas
+        self.promises_gas
+            .checked_add(self.fast_counter.burnt_gas)
+            .expect("`used_gas` exceeds `u64::MAX`!")
     }
 
     /// Remaining gas based on the amount of prepaid gas not yet used.
     pub fn unused_gas(&self) -> Gas {
-        self.prepaid_gas - self.used_gas()
+        self.prepaid_gas.saturating_sub(self.used_gas())
     }
 
     pub fn profile_data(&self) -> ProfileDataV3 {
