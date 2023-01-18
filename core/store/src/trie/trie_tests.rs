@@ -255,7 +255,10 @@ mod trie_storage_tests {
         for _ in 0..2 {
             let count_before = trie_caching_storage.get_trie_nodes_count();
             let result = trie_caching_storage.retrieve_raw_bytes(&key);
-            let count_delta = trie_caching_storage.get_trie_nodes_count() - count_before;
+            let count_delta = trie_caching_storage
+                .get_trie_nodes_count()
+                .checked_sub(&count_before)
+                .expect("integer overflow when calculating count_delta");
             assert_eq!(result.unwrap().as_ref(), value);
             assert_eq!(count_delta.db_reads, 1);
             assert_eq!(count_delta.mem_reads, 0);

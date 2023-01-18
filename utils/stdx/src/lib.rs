@@ -94,7 +94,7 @@ pub fn as_chunks<const N: usize, T>(slice: &[T]) -> (&[[T; N]], &[T]) {
     #[allow(clippy::let_unit_value)]
     let () = AssertNonZero::<N>::OK;
 
-    // Static assert above ensures N != 0, so dividing by N is safe here
+    // Static assert above ensures N ≠ 0, so division is safe here
     #[allow(clippy::integer_arithmetic)]
     let len = slice.len() / N;
     // len * N = (slice.len() / N) * N <= slice.len()
