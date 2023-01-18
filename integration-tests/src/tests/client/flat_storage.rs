@@ -41,17 +41,18 @@ fn wait_for_flat_storage_creation(env: &mut TestEnv, start_height: BlockHeight) 
 
         let status = store_helper::get_flat_storage_state_status(&store, 0);
         // Check validity of state transition for flat storage creation.
-        if prev_status != status {
-            match (&prev_status, &status) {
-                (
-                    FlatStorageStateStatus::SavingDeltas,
-                    FlatStorageStateStatus::FetchingState(..),
-                )
-                | (FlatStorageStateStatus::FetchingState(..), FlatStorageStateStatus::CatchingUp)
-                | (FlatStorageStateStatus::CatchingUp, FlatStorageStateStatus::Ready) => {}
-                (_, _) => {
-                    panic!("Invalid state transition during flat storage creation: moved from {prev_status:?} to {status:?} for height {next_height}");
-                }
+        match (&prev_status, &status) {
+            (FlatStorageStateStatus::SavingDeltas, FlatStorageStateStatus::SavingDeltas)
+            | (FlatStorageStateStatus::SavingDeltas, FlatStorageStateStatus::FetchingState(..))
+            | (
+                FlatStorageStateStatus::FetchingState(..),
+                FlatStorageStateStatus::FetchingState(..),
+            )
+            | (FlatStorageStateStatus::FetchingState(..), FlatStorageStateStatus::CatchingUp)
+            | (FlatStorageStateStatus::CatchingUp, FlatStorageStateStatus::CatchingUp)
+            | (FlatStorageStateStatus::CatchingUp, FlatStorageStateStatus::Ready) => {}
+            (_, _) => {
+                panic!("Invalid state transition during flat storage creation: moved from {prev_status:?} to {status:?} for height {next_height}");
             }
         }
 
