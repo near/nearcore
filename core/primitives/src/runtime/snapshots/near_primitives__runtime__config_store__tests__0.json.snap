@@ -1,6 +1,6 @@
 ---
 source: core/primitives/src/runtime/config_store.rs
-expression: store.get_config(*version)
+expression: config_view
 ---
 {
   "storage_amount_per_byte": "100000000000000000000",
@@ -84,11 +84,6 @@ expression: store.get_config(*version)
         "send_sir": 147489000000,
         "send_not_sir": 147489000000,
         "execution": 147489000000
-      },
-      "delegate_cost": {
-        "send_sir": 2319861500000,
-        "send_not_sir": 2319861500000,
-        "execution": 2319861500000
       }
     },
     "storage_usage_config": {

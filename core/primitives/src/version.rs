@@ -236,6 +236,8 @@ impl ProtocolFeature {
             ProtocolFeature::Ed25519Verify => 131,
             #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
             ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions => 132,
+            #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+            ProtocolFeature::DelegateAction => 133,
         }
     }
 }

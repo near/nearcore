@@ -73,6 +73,7 @@ pub enum Action {
     AddKey(AddKeyAction),
     DeleteKey(DeleteKeyAction),
     DeleteAccount(DeleteAccountAction),
+    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
     Delegate(SignedDelegateAction),
 }
 
@@ -287,6 +288,7 @@ impl SignedDelegateAction {
     }
 }
 
+#[cfg(feature = "protocol_feature_nep366_delegate_action")]
 impl From<SignedDelegateAction> for Action {
     fn from(delegate_action: SignedDelegateAction) -> Self {
         Self::Delegate(delegate_action)
@@ -540,13 +542,23 @@ pub struct ExecutionOutcomeWithProof {
 }
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::account::{AccessKeyPermission, FunctionCallPermission};
     use borsh::BorshDeserialize;
-
     use near_crypto::{InMemorySigner, KeyType, Signature, Signer};
 
-    use crate::account::{AccessKeyPermission, FunctionCallPermission};
-
-    use super::*;
+    /// A serialized `Action::Delegate(SignedDelegateAction)` for testing.
+    ///
+    /// We want this to be parseable and accepted by protocol versions with meta
+    /// transactions enabled. But it should fail either in parsing or in
+    /// validation when this is included in a receipt for a block of an earlier
+    /// version. For now, it just fails to parse, as a test below checks.
+    const DELEGATE_ACTION_HEX: &str = concat!(
+        "0803000000616161030000006262620100000000010000000000000002000000000000",
+        "0000000000000000000000000000000000000000000000000000000000000000000000",
+        "0000000000000000000000000000000000000000000000000000000000000000000000",
+        "0000000000000000000000000000000000000000000000000000000000"
+    );
 
     #[test]
     fn test_verify_transaction() {
@@ -645,6 +657,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
     fn create_delegate_action(actions: Vec<Action>) -> Action {
         Action::Delegate(SignedDelegateAction {
             delegate_action: DelegateAction {
@@ -683,7 +696,7 @@ mod tests {
         );
 
         let delegate_action =
-        create_delegate_action(vec![Action::CreateAccount(CreateAccountAction {})]);
+            create_delegate_action(vec![Action::CreateAccount(CreateAccountAction {})]);
         let serialized_delegate_action = delegate_action.try_to_vec().expect("Expect ok");
 
         // Valid action
@@ -691,20 +704,44 @@ mod tests {
             Action::try_from_slice(&serialized_delegate_action).expect("Expect ok"),
             delegate_action
         );
-
     }
 
+    /// Check that we will not accept delegate actions with the feature
+    /// disabled.
+    ///
+    /// This test is to ensure that while working on meta transactions, we don't
+    /// accientally start accepting delegate actions in receipts. Otherwise, a
+    /// malicious validator could create receipts that include delegate actions
+    /// and other nodes will accept such a receipt.
+    ///
+    /// TODO: Before stabilizing "protocol_feature_nep366_delegate_action" we
+    /// have to replace this rest with a test that checks that we discard
+    /// delegate actions for earlier versions somewhere in validation.
     #[test]
     #[cfg(not(feature = "protocol_feature_nep366_delegate_action"))]
     fn test_delegate_action_deserialization() {
-        let delegate_action =
-            create_delegate_action(vec![Action::CreateAccount(CreateAccountAction {})]);
-        let serialized_delegate_action = delegate_action.try_to_vec().expect("Expect ok");
+        let serialized_delegate_action = hex::decode(DELEGATE_ACTION_HEX).expect("invalid hex");
 
         // DelegateAction isn't supported
         assert_eq!(
             Action::try_from_slice(&serialized_delegate_action).map_err(|e| e.kind()),
             Err(ErrorKind::InvalidInput)
+        );
+    }
+
+    /// Check that the hard-coded delegate action is valid.
+    #[test]
+    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+    fn test_delegate_action_deserialization_hard_coded() {
+        let serialized_delegate_action = hex::decode(DELEGATE_ACTION_HEX).expect("invalid hex");
+        // The hex data is the same as the one we create below.
+        let delegate_action =
+            create_delegate_action(vec![Action::CreateAccount(CreateAccountAction {})]);
+
+        // Valid action
+        assert_eq!(
+            Action::try_from_slice(&serialized_delegate_action).expect("Expect ok"),
+            delegate_action
         );
     }
 }
