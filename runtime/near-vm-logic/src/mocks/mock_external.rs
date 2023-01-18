@@ -74,7 +74,7 @@ impl External for MockedExternal {
         // Generates some hash for the data ID to receive data. This hash should not be functionally
         // used in any mocked contexts.
         let data_id = hash(&self.data_count.to_le_bytes());
-        self.data_count += 1;
+        self.data_count = self.data_count.checked_add(1).expect("this to take years to overflow");
         data_id
     }
 

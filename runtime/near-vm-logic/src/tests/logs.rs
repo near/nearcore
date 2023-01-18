@@ -447,6 +447,11 @@ mod utf8_mem_violation {
             ExtCosts::utf8_decoding_base: 1,
         });
     }
+
+    #[test]
+    fn test_get_utf8_string_with_huge_ptr() {
+        check(false, |logic, _| logic.log_utf8(1, u64::MAX));
+    }
 }
 
 mod utf16_mem_violation {

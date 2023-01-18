@@ -56,6 +56,9 @@ pub trait MemoryLike {
     /// Returns error if the memory interval isn’t completely inside the smart
     /// contract memory.
     ///
+    /// Note that the implementers must not consider unreasonable addresses such as `u64::MAX` as
+    /// valid.
+    ///
     /// # Potential denial of service
     ///
     /// Note that improper use of this function may lead to denial of service

@@ -210,7 +210,10 @@ impl Registers {
         }
 
         let entry = self.registers.entry(register_id);
-        let calc_usage = |len: u64| len + size_of::<u64>() as u64;
+        let calc_usage = |len: u64| {
+            // This cannot panic: the lengths of registers are limited by `max_register_size`
+            len.checked_add(size_of::<u64>() as u64).unwrap()
+        };
         let old_mem_usage = match &entry {
             Entry::Occupied(entry) => calc_usage(entry.get().len() as u64),
             Entry::Vacant(_) => 0,

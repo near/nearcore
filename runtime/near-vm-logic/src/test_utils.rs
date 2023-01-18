@@ -9,10 +9,12 @@ use crate::{MemSlice, MemoryLike};
 /// Panics if any of the tests fails.
 pub fn test_memory_like(factory: impl FnOnce() -> Box<dyn MemoryLike>) {
     const PAGE: u64 = 0x10000;
+    const PAGE_PLUS_BYTE: u64 = PAGE + 1;
+    const PAGE_MINUS_BYTE: u64 = PAGE - 1;
 
     struct TestContext {
         mem: Box<dyn MemoryLike>,
-        buf: [u8; PAGE as usize + 1],
+        buf: [u8; PAGE_PLUS_BYTE as usize],
     }
 
     impl TestContext {
@@ -61,9 +63,9 @@ pub fn test_memory_like(factory: impl FnOnce() -> Box<dyn MemoryLike>) {
     ctx.test_read(0, PAGE, 0);
 
     // Test out-of-bounds checks.
-    ctx.test_oob(0, PAGE + 1);
+    ctx.test_oob(0, PAGE_PLUS_BYTE);
     ctx.test_oob(1, PAGE);
-    ctx.test_oob(PAGE - 1, 2);
+    ctx.test_oob(PAGE_MINUS_BYTE, 2);
     ctx.test_oob(PAGE, 1);
 
     // None of the writes in OOB should have any effect.
