@@ -1,5 +1,4 @@
 use crate::tests::vm_logic_builder::VMLogicBuilder;
-use crate::VMConfig;
 use near_vm_errors::{HostError, VMLogicError};
 
 #[test]
@@ -61,20 +60,19 @@ fn test_max_register_size() {
 #[test]
 fn test_max_register_memory_limit() {
     let mut logic_builder = VMLogicBuilder::free();
-    let config = VMConfig::free();
-    logic_builder.config = config.clone();
+
+    let limit_config = &logic_builder.config.limit_config;
+    let max_register_size = limit_config.max_register_size;
+    let max_registers = limit_config.registers_memory_limit / max_register_size;
+
     let mut logic = logic_builder.build();
 
-    let max_registers =
-        config.limit_config.registers_memory_limit / config.limit_config.max_register_size;
-
+    let value = vec![1u8; max_register_size as usize];
     for i in 0..max_registers {
-        let value = vec![1u8; config.limit_config.max_register_size as usize];
         logic.wrapped_internal_write_register(i, &value).expect("should be written successfully");
     }
-    let last = vec![1u8; config.limit_config.max_register_size as usize];
     assert_eq!(
-        logic.wrapped_internal_write_register(max_registers, &last),
+        logic.wrapped_internal_write_register(max_registers, &value),
         Err(HostError::MemoryAccessViolation.into())
     );
 }

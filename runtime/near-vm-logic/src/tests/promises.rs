@@ -31,8 +31,7 @@ fn test_promise_results() {
     promise_results.push(PromiseResult::Failed);
     promise_results.push(PromiseResult::NotReady);
 
-    let mut logic_builder = VMLogicBuilder::default();
-    logic_builder.promise_results = promise_results;
+    let mut logic_builder = VMLogicBuilder::default().promise_results(promise_results);
     let mut logic = logic_builder.build();
 
     assert_eq!(logic.promise_results_count(), Ok(3), "Total count of registers must be 3");

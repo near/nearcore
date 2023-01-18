@@ -42,11 +42,9 @@ fn test_invalid_utf8() {
 
 #[test]
 fn test_valid_null_terminated_utf8() {
-    let mut logic_builder = VMLogicBuilder::default();
-
     let cstring = "j ñ r'ø qò$`5 y'5 øò{%÷ `Võ%\x00";
     let string = &cstring[..cstring.len() - 1];
-    logic_builder.config.limit_config.max_total_log_length = string.len() as u64;
+    let mut logic_builder = VMLogicBuilder::default().max_total_log_length(string.len() as u64);
     let mut logic = logic_builder.build();
     let bytes = logic.internal_mem_write(cstring.as_bytes());
     logic.log_utf8(u64::MAX, bytes.ptr).expect("Valid null-terminated utf-8 string_bytes");
@@ -65,10 +63,9 @@ fn test_valid_null_terminated_utf8() {
 
 #[test]
 fn test_log_max_limit() {
-    let mut logic_builder = VMLogicBuilder::default();
     let string = "j ñ r'ø qò$`5 y'5 øò{%÷ `Võ%";
     let limit = string.len() as u64 - 1;
-    logic_builder.config.limit_config.max_total_log_length = limit;
+    let mut logic_builder = VMLogicBuilder::default().max_total_log_length(limit);
     let mut logic = logic_builder.build();
     let bytes = logic.internal_mem_write(string.as_bytes());
 
@@ -88,12 +85,11 @@ fn test_log_max_limit() {
 
 #[test]
 fn test_log_total_length_limit() {
-    let mut logic_builder = VMLogicBuilder::default();
     let string = "j ñ r'ø qò$`5 y'5 øò{%÷ `Võ%".as_bytes();
     let num_logs = 10;
     let limit = string.len() as u64 * num_logs - 1;
-    logic_builder.config.limit_config.max_total_log_length = limit;
-    logic_builder.config.limit_config.max_number_logs = num_logs;
+    let mut logic_builder =
+        VMLogicBuilder::default().max_total_log_length(limit).max_number_logs(num_logs);
     let mut logic = logic_builder.build();
     let bytes = logic.internal_mem_write(string);
 
@@ -111,12 +107,11 @@ fn test_log_total_length_limit() {
 
 #[test]
 fn test_log_number_limit() {
-    let mut logic_builder = VMLogicBuilder::default();
     let string = "blabla";
     let max_number_logs = 3;
-    logic_builder.config.limit_config.max_total_log_length =
-        (string.len() + 1) as u64 * (max_number_logs + 1);
-    logic_builder.config.limit_config.max_number_logs = max_number_logs;
+    let mut logic_builder = VMLogicBuilder::default()
+        .max_total_log_length((string.len() + 1) as u64 * (max_number_logs + 1))
+        .max_number_logs(max_number_logs);
     let mut logic = logic_builder.build();
     let bytes = logic.internal_mem_write(string.as_bytes());
     for _ in 0..max_number_logs {
@@ -155,11 +150,10 @@ fn test_log_utf16_number_limit() {
     let mut bytes = Vec::new();
     append_utf16(&mut bytes, string);
 
-    let mut logic_builder = VMLogicBuilder::default();
     let max_number_logs = 3;
-    logic_builder.config.limit_config.max_total_log_length =
-        (bytes.len() + 1) as u64 * (max_number_logs + 1);
-    logic_builder.config.limit_config.max_number_logs = max_number_logs;
+    let mut logic_builder = VMLogicBuilder::default()
+        .max_total_log_length((bytes.len() + 1) as u64 * (max_number_logs + 1))
+        .max_number_logs(max_number_logs);
 
     let mut logic = logic_builder.build();
     let bytes = logic.internal_mem_write(&bytes);
@@ -189,16 +183,15 @@ fn test_log_utf16_number_limit() {
 
 #[test]
 fn test_log_total_length_limit_mixed() {
-    let mut logic_builder = VMLogicBuilder::default();
-
     let string = "abc";
     let mut utf16_bytes: Vec<u8> = vec![0u8; 0];
     append_utf16(&mut utf16_bytes, string);
 
     let num_logs_each = 10;
     let limit = string.len() as u64 * (num_logs_each * 2 + 1) - 1;
-    logic_builder.config.limit_config.max_total_log_length = limit;
-    logic_builder.config.limit_config.max_number_logs = num_logs_each * 2 + 1;
+    let mut logic_builder = VMLogicBuilder::default()
+        .max_total_log_length(limit)
+        .max_number_logs(num_logs_each * 2 + 1);
     let mut logic = logic_builder.build();
 
     let utf8_bytes = logic.internal_mem_write(string.as_bytes());
@@ -220,10 +213,9 @@ fn test_log_total_length_limit_mixed() {
 
 #[test]
 fn test_log_utf8_max_limit_null_terminated() {
-    let mut logic_builder = VMLogicBuilder::default();
     let bytes = "j ñ r'ø qò$`5 y'5 øò{%÷ `Võ%\x00".as_bytes();
     let limit = (bytes.len() - 2) as u64;
-    logic_builder.config.limit_config.max_total_log_length = limit;
+    let mut logic_builder = VMLogicBuilder::default().max_total_log_length(limit);
     let mut logic = logic_builder.build();
     let bytes = logic.internal_mem_write(bytes);
 
@@ -270,8 +262,7 @@ fn test_valid_log_utf16() {
 
 #[test]
 fn test_valid_log_utf16_max_log_len_not_even() {
-    let mut logic_builder = VMLogicBuilder::default();
-    logic_builder.config.limit_config.max_total_log_length = 5;
+    let mut logic_builder = VMLogicBuilder::default().max_total_log_length(5);
     let mut logic = logic_builder.build();
 
     let string = "ab";
@@ -311,16 +302,16 @@ fn test_valid_log_utf16_max_log_len_not_even() {
 
 #[test]
 fn test_log_utf8_max_limit_null_terminated_fail() {
-    let mut logic_builder = VMLogicBuilder::default();
-    logic_builder.config.limit_config.max_total_log_length = 3;
+    let max_total_log_length = 3;
+    let mut logic_builder = VMLogicBuilder::default().max_total_log_length(max_total_log_length);
     let mut logic = logic_builder.build();
     let bytes = logic.internal_mem_write(b"abcdefgh\0");
     let res = logic.log_utf8(u64::MAX, bytes.ptr);
     assert_eq!(res, Err(HostError::TotalLogLengthExceeded { length: 4, limit: 3 }.into()));
     assert_costs(map! {
         ExtCosts::base: 1,
-        ExtCosts::read_memory_base: logic_builder.config.limit_config.max_total_log_length + 1,
-        ExtCosts::read_memory_byte: logic_builder.config.limit_config.max_total_log_length + 1,
+        ExtCosts::read_memory_base: max_total_log_length + 1,
+        ExtCosts::read_memory_byte: max_total_log_length + 1,
         ExtCosts::utf8_decoding_base: 1,
     });
 }
