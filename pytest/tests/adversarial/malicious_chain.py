@@ -28,6 +28,13 @@ logger.info(f'Waiting for {BLOCKS} blocks...')
 height, _ = utils.wait_for_blocks(nodes[1], target=BLOCKS)
 logger.info(f'Got to {height} blocks, getting to fun stuff')
 
+# first check that nodes 0 and 2 have two peers each, before we check later that
+# they've dropped to just one peer
+network_info0 = nodes[0].json_rpc('network_info', {})['result']
+network_info2 = nodes[2].json_rpc('network_info', {})['result']
+assert network_info0['num_active_peers'] == 2, network_info0['num_active_peers']
+assert network_info2['num_active_peers'] == 2, network_info2['num_active_peers']
+
 nodes[1].get_status(verbose=True)
 
 res = nodes[1].json_rpc('adv_produce_blocks',
