@@ -1,11 +1,10 @@
-use crate::tests::fixtures::get_context;
 use crate::tests::vm_logic_builder::VMLogicBuilder;
 
 #[test]
 fn test_storage_write_counter() {
     let mut logic_builder = VMLogicBuilder::default();
     let data_record_cost = logic_builder.fees_config.storage_usage_config.num_extra_bytes_record;
-    let mut logic = logic_builder.build(get_context(vec![], false));
+    let mut logic = logic_builder.build();
     let key = logic.internal_mem_write(b"foo");
     let val = logic.internal_mem_write(b"bar");
 
@@ -23,7 +22,7 @@ fn test_storage_write_counter() {
 #[test]
 fn test_storage_remove() {
     let mut logic_builder = VMLogicBuilder::default();
-    let mut logic = logic_builder.build(get_context(vec![], false));
+    let mut logic = logic_builder.build();
     let key = logic.internal_mem_write(b"foo");
     let val = logic.internal_mem_write(b"bar");
 

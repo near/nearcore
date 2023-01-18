@@ -21,7 +21,7 @@ use near_primitives_core::types::{
 use near_primitives_core::types::{GasDistribution, GasWeight};
 use near_vm_errors::{FunctionCallError, InconsistentStateError};
 use near_vm_errors::{HostError, VMLogicError};
-use std::mem::size_of;
+use std::ops::Div;
 
 pub type Result<T, E = VMLogicError> = ::std::result::Result<T, E>;
 
@@ -126,6 +126,10 @@ impl PublicKeyBuffer {
 }
 
 impl<'a> VMLogic<'a> {
+    /// # Panics
+    ///
+    /// Will panic if `context.account_balance + context.attached_deposit` cannot compute without
+    /// an overflow.
     pub fn new_with_protocol_version(
         ext: &'a mut dyn External,
         context: VMContext,
@@ -135,8 +139,11 @@ impl<'a> VMLogic<'a> {
         memory: &'a mut dyn MemoryLike,
         current_protocol_version: ProtocolVersion,
     ) -> Self {
-        // Overflow should be checked before calling VMLogic.
-        let current_account_balance = context.account_balance + context.attached_deposit;
+        let current_account_balance =
+            context.account_balance.checked_add(context.attached_deposit).expect(
+                "caller must ensure `ctx.account_balance + ctx.attached_deposit`
+                doesn't overflow",
+            );
         let current_storage_usage = context.storage_usage;
         let max_gas_burnt = match context.view_config {
             Some(ViewConfig { max_gas_burnt: max_gas_burnt_view }) => max_gas_burnt_view,
@@ -317,8 +324,13 @@ impl<'a> VMLogic<'a> {
         } else {
             buf = vec![];
             for i in 0..=max_len {
-                // self.memory_get_u8 will check for u64 overflow on the first iteration (i == 0)
-                let el = self.memory.get_u8(&mut self.gas_counter, ptr + i)?;
+                // When `i = 0` a wrap-around cannot occur here. However, if the initial `ptr` is
+                // large enough that a wrap-around could occur with some `i ∈ 1..=max_len`, the
+                // first access to `get_u8` will already report an access for memory out-of-bounds
+                // (we don't really support memories that large).
+                let address =
+                    ptr.checked_add(i).expect("`Memory` considers unreasonable addresses valid?");
+                let el = self.memory.get_u8(&mut self.gas_counter, address)?;
                 if el == 0 {
                     break;
                 }
@@ -361,14 +373,16 @@ impl<'a> VMLogic<'a> {
     ///
     /// For nul-terminated string:
     /// `read_memory_base * num_bytes / 2 + read_memory_byte * num_bytes + utf16_decoding_base + utf16_decoding_byte * num_bytes`
+    #[allow(clippy::arithmetic_side_effects)] // FIXME: clippy#10209
     fn get_utf16_string(&mut self, len: u64, ptr: u64) -> Result<String> {
+        const U16_SZ: u64 = 2u64;
         self.gas_counter.pay_base(utf16_decoding_base)?;
         let mut u16_buffer;
         let max_len =
             self.config.limit_config.max_total_log_length.saturating_sub(self.total_log_length);
         if len != u64::MAX {
             let input = self.memory.view(&mut self.gas_counter, MemSlice { ptr, len })?;
-            if len % 2 != 0 {
+            if len % U16_SZ != 0 {
                 return Err(HostError::BadUTF16.into());
             }
             if len > max_len {
@@ -378,16 +392,23 @@ impl<'a> VMLogic<'a> {
                 }
                 .into());
             }
-            u16_buffer = vec![0u16; len as usize / 2];
+            u16_buffer = vec![0u16; (len / U16_SZ) as usize];
             byteorder::LittleEndian::read_u16_into(&input, &mut u16_buffer);
         } else {
             u16_buffer = vec![];
-            let limit = max_len / size_of::<u16>() as u64;
+            let limit = max_len / U16_SZ;
             // Takes 2 bytes each iter
             for i in 0..=limit {
-                // self.memory_get_u16 will check for u64 overflow on the first iteration (i == 0)
-                let start = ptr + i * size_of::<u16>() as u64;
-                let el = self.memory.get_u16(&mut self.gas_counter, start)?;
+                // When `i = 0` a wrap-around cannot occur here. However, if the initial `ptr` is
+                // large enough that a wrap-around could occur with some `i ∈ 1..=max_len`, the
+                // first access to `get_u8` will already report an access for memory out-of-bounds
+                // (we don't really support memories that large).
+                let address_offset =
+                    i.checked_mul(U16_SZ).expect("`Memory` considers unreasonable offsets valid?");
+                let address = ptr
+                    .checked_add(address_offset)
+                    .expect("`Memory` considers unreasonable offsets valid?");
+                let el = self.memory.get_u16(&mut self.gas_counter, address)?;
                 if el == 0 {
                     break;
                 }
@@ -395,8 +416,8 @@ impl<'a> VMLogic<'a> {
                     return Err(HostError::TotalLogLengthExceeded {
                         length: self
                             .total_log_length
-                            .saturating_add(i * size_of::<u16>() as u64)
-                            .saturating_add(size_of::<u16>() as u64),
+                            .saturating_add(address_offset)
+                            .saturating_add(U16_SZ),
                         limit: self.config.limit_config.max_total_log_length,
                     }
                     .into());
@@ -404,8 +425,11 @@ impl<'a> VMLogic<'a> {
                 u16_buffer.push(el);
             }
         }
-        self.gas_counter
-            .pay_per(utf16_decoding_byte, u16_buffer.len() as u64 * size_of::<u16>() as u64)?;
+        let decoded_bytes = u64::try_from(u16_buffer.len())
+            .ok()
+            .and_then(|l| l.checked_mul(U16_SZ))
+            .expect("this canoot fail: buffers large enough to overflow this are infeasible");
+        self.gas_counter.pay_per(utf16_decoding_byte, decoded_bytes)?;
         String::from_utf16(&u16_buffer).map_err(|_| HostError::BadUTF16.into())
     }
 
@@ -442,17 +466,21 @@ impl<'a> VMLogic<'a> {
     }
 
     fn checked_push_log(&mut self, message: String) -> Result<()> {
-        // The size of logged data can't be too large. No overflow.
-        self.total_log_length += message.len() as u64;
-        if self.total_log_length > self.config.limit_config.max_total_log_length {
-            return Err(HostError::TotalLogLengthExceeded {
-                length: self.total_log_length,
+        let message_len = u64::try_from(message.len()).unwrap_or(u64::MAX);
+        let new_len = self.total_log_length.saturating_add(message_len);
+        // FIXME: in the future we probably shouldn't increase `total_log_length` if the tests in
+        // this function fail.
+        self.total_log_length = new_len;
+        if new_len <= self.config.limit_config.max_total_log_length && new_len < u64::MAX {
+            self.logs.push(message);
+            Ok(())
+        } else {
+            Err(HostError::TotalLogLengthExceeded {
+                length: new_len,
                 limit: self.config.limit_config.max_total_log_length,
             }
-            .into());
+            .into())
         }
-        self.logs.push(message);
-        Ok(())
     }
 
     fn get_public_key(&mut self, ptr: u64, len: u64) -> Result<PublicKeyBuffer> {
@@ -1004,8 +1032,8 @@ impl<'a> VMLogic<'a> {
             .len()
             .checked_add(8)
             .ok_or(VMLogicError::HostError(HostError::IntegerOverflow))?
-            / 64
-            + 1;
+            .div(64)
+            .wrapping_add(1);
 
         self.gas_counter.pay_per(ripemd160_block, message_blocks as u64)?;
 
@@ -1365,6 +1393,8 @@ impl<'a> VMLogic<'a> {
         promise_idx_ptr: u64,
         promise_idx_count: u64,
     ) -> Result<PromiseIndex> {
+        const U64_SZ: u64 = std::mem::size_of::<u64>() as u64;
+        const U64_USZ: usize = std::mem::size_of::<u64>();
         self.gas_counter.pay_base(base)?;
         if self.context.is_view() {
             return Err(
@@ -1372,16 +1402,14 @@ impl<'a> VMLogic<'a> {
             );
         }
         self.gas_counter.pay_base(promise_and_base)?;
-        let memory_len = promise_idx_count
-            .checked_mul(size_of::<u64>() as u64)
-            .ok_or(HostError::IntegerOverflow)?;
+        let memory_len = promise_idx_count.checked_mul(U64_SZ).ok_or(HostError::IntegerOverflow)?;
         self.gas_counter.pay_per(promise_and_per_promise, memory_len)?;
 
         // Read indices as little endian u64.
         let promise_indices = self
             .memory
             .view(&mut self.gas_counter, MemSlice { ptr: promise_idx_ptr, len: memory_len })?;
-        let promise_indices = stdx::as_chunks_exact::<{ size_of::<u64>() }, u8>(&promise_indices)
+        let promise_indices = stdx::as_chunks_exact::<U64_USZ, u8>(&promise_indices)
             .unwrap()
             .into_iter()
             .map(|bytes| u64::from_le_bytes(*bytes));
@@ -1717,15 +1745,18 @@ impl<'a> VMLogic<'a> {
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
-        let method_name = method_name.into_owned();
-        let arguments = arguments.into_owned();
-        // Input can't be large enough to overflow
-        let num_bytes = method_name.len() as u64 + arguments.len() as u64;
+        // Input can't be large enough to overflow by virtue of the contract having limited
+        // amount memory they can work with and WASM being 32-bit in the first place.
+        let method_name_len = u64::try_from(method_name.len()).unwrap();
+        let arguments_len = u64::try_from(arguments.len()).unwrap();
+        let num_bytes = method_name_len.checked_add(arguments_len).unwrap();
+        let method_name = method_name.into();
+        let arguments = arguments.into();
+
         self.pay_action_base(ActionCosts::function_call_base, sir)?;
         self.pay_action_per_byte(ActionCosts::function_call_byte, num_bytes, sir)?;
         // Prepaid gas
         self.gas_counter.prepay_gas(gas)?;
-
         self.deduct_balance(amount)?;
 
         self.receipt_manager.append_action_function_call_weight(
@@ -1914,8 +1945,18 @@ impl<'a> VMLogic<'a> {
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
-        // +1 is to account for null-terminating characters.
-        let num_bytes = method_names.iter().map(|v| v.len() as u64 + 1).sum::<u64>();
+        // This cannot overflow/panic – the resulting length must be less than
+        // `raw_method_names.len()` in the first place.
+        let num_bytes = method_names.iter().map(|v| v.len()).sum::<usize>();
+        // Account for null-terminating characters.
+        // FIXME(nagisa): why aren't we just charging for `raw_method_names.len()`? We don't store
+        // the nulls anywhere anyway…? And if we consider the separating commas, isn't this
+        // overcounting by 1?
+        let num_bytes = u64::try_from(method_names.len())
+            .unwrap()
+            .checked_add(u64::try_from(num_bytes).unwrap())
+            .unwrap();
+
         self.pay_action_base(ActionCosts::add_function_call_key_base, sir)?;
         self.pay_action_per_byte(ActionCosts::add_function_call_key_byte, num_bytes, sir)?;
 
@@ -2262,21 +2303,20 @@ impl<'a> VMLogic<'a> {
     /// `base +  log_base + log_byte * num_bytes + utf16 decoding cost`
     pub fn abort(&mut self, msg_ptr: u32, filename_ptr: u32, line: u32, col: u32) -> Result<()> {
         self.gas_counter.pay_base(base)?;
-        if msg_ptr < 4 || filename_ptr < 4 {
-            return Err(HostError::BadUTF16.into());
-        }
+        let (msg_addr, fname_addr) = match (msg_ptr.checked_sub(4), filename_ptr.checked_sub(4)) {
+            (None, _) | (_, None) => return Err(HostError::BadUTF16.into()),
+            (Some(msg_addr), Some(fname_addr)) => (u64::from(msg_addr), u64::from(fname_addr)),
+        };
         self.check_can_add_a_log_message()?;
 
-        // Underflow checked above.
-        let msg_len = self.memory.get_u32(&mut self.gas_counter, (msg_ptr - 4) as u64)?;
-        let filename_len = self.memory.get_u32(&mut self.gas_counter, (filename_ptr - 4) as u64)?;
-
-        let msg = self.get_utf16_string(msg_len as u64, msg_ptr as u64)?;
-        let filename = self.get_utf16_string(filename_len as u64, filename_ptr as u64)?;
+        let msg_len = self.memory.get_u32(&mut self.gas_counter, msg_addr)?;
+        let filename_len = self.memory.get_u32(&mut self.gas_counter, fname_addr)?;
+        let msg = self.get_utf16_string(u64::from(msg_len), u64::from(msg_ptr))?;
+        let filename = self.get_utf16_string(u64::from(filename_len), u64::from(filename_ptr))?;
 
         let message = format!("{}, filename: \"{}\" line: {} col: {}", msg, filename, line, col);
         self.gas_counter.pay_base(log_base)?;
-        self.gas_counter.pay_per(log_byte, message.as_bytes().len() as u64)?;
+        self.gas_counter.pay_per(log_byte, u64::try_from(message.as_bytes().len()).unwrap())?;
         self.checked_push_log(format!("ABORT: {}", message))?;
 
         Err(HostError::GuestPanic { panic_msg: message }.into())
@@ -2376,7 +2416,12 @@ impl<'a> VMLogic<'a> {
         let evicted_ptr = self.ext.storage_get(&key, StorageGetMode::Trie)?;
         let evicted =
             Self::deref_value(&mut self.gas_counter, storage_write_evicted_byte, evicted_ptr)?;
-        let nodes_delta = self.ext.get_trie_nodes_count() - nodes_before;
+        let nodes_delta;
+        {
+            #![allow(clippy::arithmetic_side_effects)]
+            // FIXME: write a comment explaining why this cannot panic.
+            nodes_delta = self.ext.get_trie_nodes_count() - nodes_before;
+        };
 
         near_o11y::io_trace!(
             storage_op = "write",
@@ -2411,14 +2456,16 @@ impl<'a> VMLogic<'a> {
                 Ok(1)
             }
             None => {
-                // Inner value can't overflow, because the key/value length is limited.
+                // This computation can't overflow, because the key/value length is limited.
+                let more_len = u64::try_from(value.len())
+                    .unwrap()
+                    .checked_add(u64::try_from(key.len()).unwrap())
+                    .unwrap()
+                    .checked_add(storage_config.num_extra_bytes_record)
+                    .unwrap();
                 self.current_storage_usage = self
                     .current_storage_usage
-                    .checked_add(
-                        value.len() as u64
-                            + key.len() as u64
-                            + storage_config.num_extra_bytes_record,
-                    )
+                    .checked_add(more_len)
                     .ok_or(InconsistentStateError::IntegerOverflow)?;
                 Ok(0)
             }
@@ -2473,7 +2520,13 @@ impl<'a> VMLogic<'a> {
         let read = self.ext.storage_get(&key, StorageGetMode::FlatStorage);
         #[cfg(not(feature = "protocol_feature_flat_state"))]
         let read = self.ext.storage_get(&key, StorageGetMode::Trie);
-        let nodes_delta = self.ext.get_trie_nodes_count() - nodes_before;
+
+        let nodes_delta;
+        {
+            #![allow(clippy::arithmetic_side_effects)]
+            // FIXME: write a comment why this computation cannot overflow.
+            nodes_delta = self.ext.get_trie_nodes_count() - nodes_before;
+        }
         self.gas_counter.add_trie_fees(&nodes_delta)?;
         let read = Self::deref_value(&mut self.gas_counter, storage_read_value_byte, read?)?;
 
@@ -2542,7 +2595,13 @@ impl<'a> VMLogic<'a> {
             Self::deref_value(&mut self.gas_counter, storage_remove_ret_value_byte, removed_ptr)?;
 
         self.ext.storage_remove(&key)?;
-        let nodes_delta = self.ext.get_trie_nodes_count() - nodes_before;
+
+        let nodes_delta;
+        {
+            #![allow(clippy::arithmetic_side_effects)]
+            // FIXME: write a comment why this computation cannot overflow.
+            nodes_delta = self.ext.get_trie_nodes_count() - nodes_before;
+        }
 
         near_o11y::io_trace!(
             storage_op = "remove",
@@ -2557,13 +2616,15 @@ impl<'a> VMLogic<'a> {
         match removed {
             Some(value) => {
                 // Inner value can't overflow, because the key/value length is limited.
+                let less_len = u64::try_from(value.len())
+                    .unwrap()
+                    .checked_add(u64::try_from(key.len()).unwrap())
+                    .unwrap()
+                    .checked_add(storage_config.num_extra_bytes_record)
+                    .unwrap();
                 self.current_storage_usage = self
                     .current_storage_usage
-                    .checked_sub(
-                        value.len() as u64
-                            + key.len() as u64
-                            + storage_config.num_extra_bytes_record,
-                    )
+                    .checked_sub(less_len)
                     .ok_or(InconsistentStateError::IntegerOverflow)?;
                 self.registers.set(
                     &mut self.gas_counter,
@@ -2603,7 +2664,13 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_per(storage_has_key_byte, key.len() as u64)?;
         let nodes_before = self.ext.get_trie_nodes_count();
         let res = self.ext.storage_has_key(&key);
-        let nodes_delta = self.ext.get_trie_nodes_count() - nodes_before;
+
+        let nodes_delta;
+        {
+            #![allow(clippy::arithmetic_side_effects)]
+            // FIXME: write a comment why this computation cannot overflow.
+            nodes_delta = self.ext.get_trie_nodes_count() - nodes_before;
+        }
 
         near_o11y::io_trace!(
             storage_op = "exists",

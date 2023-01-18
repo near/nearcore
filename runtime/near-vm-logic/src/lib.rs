@@ -1,4 +1,5 @@
 #![doc = include_str!("../README.md")]
+#![deny(clippy::arithmetic_side_effects)]
 
 mod alt_bn128;
 mod context;

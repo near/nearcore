@@ -1,4 +1,3 @@
-use crate::tests::fixtures::get_context;
 use crate::tests::helpers::*;
 use crate::tests::vm_logic_builder::VMLogicBuilder;
 use crate::{map, ExtCosts};
@@ -11,7 +10,7 @@ use std::{fmt::Display, fs};
 #[test]
 fn test_sha256() {
     let mut logic_builder = VMLogicBuilder::default();
-    let mut logic = logic_builder.build(get_context(vec![], false));
+    let mut logic = logic_builder.build();
     let data = logic.internal_mem_write(b"tesdsst");
 
     logic.sha256(data.len, data.ptr, 0).unwrap();
@@ -40,7 +39,7 @@ fn test_sha256() {
 #[test]
 fn test_keccak256() {
     let mut logic_builder = VMLogicBuilder::default();
-    let mut logic = logic_builder.build(get_context(vec![], false));
+    let mut logic = logic_builder.build();
 
     let data = logic.internal_mem_write(b"tesdsst");
     logic.keccak256(data.len, data.ptr, 0).unwrap();
@@ -69,7 +68,7 @@ fn test_keccak256() {
 #[test]
 fn test_keccak512() {
     let mut logic_builder = VMLogicBuilder::default();
-    let mut logic = logic_builder.build(get_context(vec![], false));
+    let mut logic = logic_builder.build();
 
     let data = logic.internal_mem_write(b"tesdsst");
     logic.keccak512(data.len, data.ptr, 0).unwrap();
@@ -100,7 +99,7 @@ fn test_keccak512() {
 #[test]
 fn test_ripemd160() {
     let mut logic_builder = VMLogicBuilder::default();
-    let mut logic = logic_builder.build(get_context(vec![], false));
+    let mut logic = logic_builder.build();
 
     let data = logic.internal_mem_write(b"tesdsst");
     logic.ripemd160(data.len, data.ptr, 0).unwrap();
@@ -153,7 +152,7 @@ fn test_ecrecover() {
             .unwrap()
     {
         let mut logic_builder = VMLogicBuilder::default();
-        let mut logic = logic_builder.build(get_context(vec![], false));
+        let mut logic = logic_builder.build();
         let m = logic.internal_mem_write(&m);
         let sig = logic.internal_mem_write(&sig);
 
@@ -184,7 +183,7 @@ fn test_ecrecover() {
 #[test]
 fn test_hash256_register() {
     let mut logic_builder = VMLogicBuilder::default();
-    let mut logic = logic_builder.build(get_context(vec![], false));
+    let mut logic = logic_builder.build();
     let data = b"tesdsst";
     logic.wrapped_internal_write_register(1, data).unwrap();
 
@@ -216,7 +215,7 @@ fn test_key_length_limit() {
     let mut logic_builder = VMLogicBuilder::default();
     let limit = 1024;
     logic_builder.config.limit_config.max_length_storage_key = limit;
-    let mut logic = logic_builder.build(get_context(vec![], false));
+    let mut logic = logic_builder.build();
 
     // Under the limit. Valid calls.
     let key = crate::MemSlice { ptr: 0, len: limit };
@@ -257,7 +256,7 @@ fn test_value_length_limit() {
     let mut logic_builder = VMLogicBuilder::default();
     let limit = 1024;
     logic_builder.config.limit_config.max_length_storage_value = limit;
-    let mut logic = logic_builder.build(get_context(vec![], false));
+    let mut logic = logic_builder.build();
     let key = logic.internal_mem_write(b"hello");
 
     logic
@@ -277,7 +276,7 @@ fn test_num_promises() {
     let mut logic_builder = VMLogicBuilder::default();
     let num_promises = 10;
     logic_builder.config.limit_config.max_promises_per_function_call_action = num_promises;
-    let mut logic = logic_builder.build(get_context(vec![], false));
+    let mut logic = logic_builder.build();
     let account_id = logic.internal_mem_write(b"alice");
     for _ in 0..num_promises {
         logic
@@ -299,7 +298,7 @@ fn test_num_joined_promises() {
     let mut logic_builder = VMLogicBuilder::default();
     let num_deps = 10;
     logic_builder.config.limit_config.max_number_input_data_dependencies = num_deps;
-    let mut logic = logic_builder.build(get_context(vec![], false));
+    let mut logic = logic_builder.build();
     let account_id = logic.internal_mem_write(b"alice");
     let promise_id = logic
         .promise_batch_create(account_id.len, account_id.ptr)
@@ -324,7 +323,7 @@ fn test_num_input_dependencies_recursive_join() {
     let mut logic_builder = VMLogicBuilder::default();
     let num_steps = 10;
     logic_builder.config.limit_config.max_number_input_data_dependencies = 1 << num_steps;
-    let mut logic = logic_builder.build(get_context(vec![], false));
+    let mut logic = logic_builder.build();
     let account_id = logic.internal_mem_write(b"alice");
     let original_promise_id = logic
         .promise_batch_create(account_id.len, account_id.ptr)
@@ -365,7 +364,7 @@ fn test_return_value_limit() {
     let mut logic_builder = VMLogicBuilder::default();
     let limit = 1024;
     logic_builder.config.limit_config.max_length_returned_data = limit;
-    let mut logic = logic_builder.build(get_context(vec![], false));
+    let mut logic = logic_builder.build();
 
     logic.value_return(limit, 0).expect("Returned value length is under the limit");
     assert_eq!(
@@ -379,7 +378,7 @@ fn test_contract_size_limit() {
     let mut logic_builder = VMLogicBuilder::default();
     let limit = 1024;
     logic_builder.config.limit_config.max_contract_size = limit;
-    let mut logic = logic_builder.build(get_context(vec![], false));
+    let mut logic = logic_builder.build();
 
     let account_id = logic.internal_mem_write(b"alice");
 

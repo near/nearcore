@@ -14,6 +14,7 @@ pub(super) struct VMLogicBuilder {
     pub promise_results: Vec<PromiseResult>,
     pub memory: MockedMemory,
     pub current_protocol_version: ProtocolVersion,
+    pub context: VMContext,
 }
 
 impl Default for VMLogicBuilder {
@@ -25,12 +26,14 @@ impl Default for VMLogicBuilder {
             memory: MockedMemory::default(),
             promise_results: vec![],
             current_protocol_version: LATEST_PROTOCOL_VERSION,
+            context: get_context(),
         }
     }
 }
 
 impl VMLogicBuilder {
-    pub fn build(&mut self, context: VMContext) -> TestVMLogic<'_> {
+    pub fn build(&mut self) -> TestVMLogic<'_> {
+        let context = self.context.clone();
         TestVMLogic::from(VMLogic::new_with_protocol_version(
             &mut self.ext,
             context,
@@ -50,6 +53,7 @@ impl VMLogicBuilder {
             memory: MockedMemory::default(),
             promise_results: vec![],
             current_protocol_version: LATEST_PROTOCOL_VERSION,
+            context: get_context(),
         }
     }
 
@@ -61,6 +65,27 @@ impl VMLogicBuilder {
     pub fn gas_fee(mut self, cost: ActionCosts, fee: Fee) -> Self {
         self.fees_config.action_fees[cost] = fee;
         self
+    }
+}
+
+fn get_context() -> VMContext {
+    VMContext {
+        current_account_id: "alice.near".parse().unwrap(),
+        signer_account_id: "bob.near".parse().unwrap(),
+        signer_account_pk: vec![0, 1, 2, 3, 4],
+        predecessor_account_id: "carol.near".parse().unwrap(),
+        input: vec![0, 1, 2, 3, 4],
+        block_height: 10,
+        block_timestamp: 42,
+        epoch_height: 1,
+        account_balance: 100,
+        storage_usage: 0,
+        account_locked_balance: 50,
+        attached_deposit: 10,
+        prepaid_gas: 10u64.pow(14),
+        random_seed: vec![0, 1, 2],
+        view_config: None,
+        output_data_receivers: vec![],
     }
 }
 

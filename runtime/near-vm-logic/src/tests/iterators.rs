@@ -1,12 +1,10 @@
-use crate::tests::fixtures::get_context;
 use crate::tests::vm_logic_builder::VMLogicBuilder;
 use near_vm_errors::{HostError, VMLogicError};
 
 #[test]
 fn test_iterator_deprecated() {
-    let context = get_context(vec![], false);
     let mut logic_builder = VMLogicBuilder::default();
-    let mut logic = logic_builder.build(context);
+    let mut logic = logic_builder.build();
     assert_eq!(
         Err(VMLogicError::HostError(HostError::Deprecated {
             method_name: "storage_iter_prefix".to_string()
