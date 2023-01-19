@@ -8,7 +8,7 @@ use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::types::AccountId;
 use near_primitives_core::types::{BlockHeight, NumShards};
 use near_store::flat_state::{
-    store_helper, FetchingStateStatus, FlatStorageStateStatus, NUM_PARTS_IN_ONE_STEP,
+    store_helper, FetchingStateStatus, FlatStorageCreationStatus, NUM_PARTS_IN_ONE_STEP,
 };
 use near_store::test_utils::create_test_store;
 #[cfg(feature = "protocol_feature_flat_state")]
@@ -103,8 +103,8 @@ fn test_flat_storage_creation() {
             // If chain was initialized from scratch, flat storage state should be created. During block processing, flat
             // storage head should be moved to block `START_HEIGHT - 3`.
             assert_eq!(
-                store_helper::get_flat_storage_state_status(&store, 0),
-                FlatStorageStateStatus::Ready
+                store_helper::get_flat_storage_creation_status(&store, 0),
+                FlatStorageCreationStatus::Ready
             );
             let expected_flat_storage_head =
                 env.clients[0].chain.get_block_hash_by_height(START_HEIGHT - 3).unwrap();
@@ -123,8 +123,8 @@ fn test_flat_storage_creation() {
             }
         } else {
             assert_eq!(
-                store_helper::get_flat_storage_state_status(&store, 0),
-                FlatStorageStateStatus::DontCreate
+                store_helper::get_flat_storage_creation_status(&store, 0),
+                FlatStorageCreationStatus::DontCreate
             );
             assert_eq!(store_helper::get_flat_head(&store, 0), None);
         }
@@ -148,8 +148,8 @@ fn test_flat_storage_creation() {
 
     if !cfg!(feature = "protocol_feature_flat_state") {
         assert_eq!(
-            store_helper::get_flat_storage_state_status(&store, 0),
-            FlatStorageStateStatus::DontCreate
+            store_helper::get_flat_storage_creation_status(&store, 0),
+            FlatStorageCreationStatus::DontCreate
         );
         assert_eq!(store_helper::get_flat_head(&store, 0), None);
         // Stop the test here.
@@ -159,8 +159,8 @@ fn test_flat_storage_creation() {
     // At first, flat storage state should start saving deltas. Deltas for all newly processed blocks should be saved to
     // disk.
     assert_eq!(
-        store_helper::get_flat_storage_state_status(&store, 0),
-        FlatStorageStateStatus::SavingDeltas
+        store_helper::get_flat_storage_creation_status(&store, 0),
+        FlatStorageCreationStatus::SavingDeltas
     );
     for height in START_HEIGHT..START_HEIGHT + 2 {
         let block_hash = env.clients[0].chain.get_block_hash_by_height(height).unwrap();
@@ -176,8 +176,8 @@ fn test_flat_storage_creation() {
     let final_block_hash = env.clients[0].chain.get_block_hash_by_height(START_HEIGHT).unwrap();
     assert_eq!(store_helper::get_flat_head(&store, 0), Some(final_block_hash));
     assert_eq!(
-        store_helper::get_flat_storage_state_status(&store, 0),
-        FlatStorageStateStatus::FetchingState(FetchingStateStatus {
+        store_helper::get_flat_storage_creation_status(&store, 0),
+        FlatStorageCreationStatus::FetchingState(FetchingStateStatus {
             part_id: 0,
             num_parts_in_step: NUM_PARTS_IN_ONE_STEP,
             num_parts: 1,

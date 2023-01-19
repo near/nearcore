@@ -6,6 +6,7 @@ mod fixtures;
 mod gas_counter;
 pub(crate) mod helpers;
 mod iterators;
+mod logs;
 mod miscs;
 mod promises;
 mod registers;
