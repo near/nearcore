@@ -54,6 +54,8 @@ fn runtime_fees_config(cost_table: &CostTable) -> anyhow::Result<RuntimeFeesConf
     let res = RuntimeFeesConfig {
         action_fees: enum_map::enum_map! {
             ActionCosts::create_account => fee(Cost::ActionCreateAccount)?,
+            #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+            ActionCosts::delegate => fee(Cost::ActionDelegate)?,
             ActionCosts::delete_account => fee(Cost::ActionDeleteAccount)?,
             ActionCosts::deploy_contract_base => fee(Cost::ActionDeployContractBase)?,
             ActionCosts::deploy_contract_byte => fee(Cost::ActionDeployContractPerByte)?,
