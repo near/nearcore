@@ -1,10 +1,9 @@
 use super::*;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::Encoding;
-use crate::peer::peer_actor::ClosingReason;
 use crate::testonly::make_rng;
 use crate::time;
-use crate::types::{HandshakeFailureReason, PeerMessage};
+use crate::types::{Disconnect, HandshakeFailureReason, PeerMessage};
 use crate::types::{PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg};
 use anyhow::{bail, Context as _};
 use itertools::Itertools as _;
@@ -123,7 +122,7 @@ fn serialize_deserialize() -> anyhow::Result<()> {
         PeerMessage::Transaction(data::make_signed_transaction(&mut rng)),
         PeerMessage::Routed(routed_message1),
         PeerMessage::Routed(routed_message2),
-        PeerMessage::Disconnect(ClosingReason::Unknown),
+        PeerMessage::Disconnect(Disconnect { allow_reconnect: false }),
         PeerMessage::Challenge(data::make_challenge(&mut rng)),
     ];
 
