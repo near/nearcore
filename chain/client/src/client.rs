@@ -212,7 +212,7 @@ impl Client {
             runtime_adapter.clone(),
             chain.store(),
             chain_config.background_migration_threads,
-        );
+        )?;
         let shards_mgr = ShardsManager::new(
             me.clone(),
             runtime_adapter.clone(),

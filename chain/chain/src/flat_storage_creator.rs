@@ -19,7 +19,7 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::ValueRef;
 use near_primitives::state_part::PartId;
 use near_primitives::types::{AccountId, BlockHeight, ShardId, StateRoot};
-use near_store::flat_state::FlatStorageStateStatus;
+use near_store::flat_state::FlatStorageCreationStatus;
 #[cfg(feature = "protocol_feature_flat_state")]
 use near_store::flat_state::{store_helper, FetchingStateStatus};
 #[cfg(feature = "protocol_feature_flat_state")]
@@ -194,11 +194,11 @@ impl FlatStorageShardCreator {
         thread_pool: &rayon::ThreadPool,
     ) -> Result<bool, Error> {
         let current_status =
-            store_helper::get_flat_storage_state_status(chain_store.store(), self.shard_id);
+            store_helper::get_flat_storage_creation_status(chain_store.store(), self.shard_id);
         self.metrics.status.set((&current_status).into());
         let shard_id = self.shard_id;
         match &current_status {
-            FlatStorageStateStatus::SavingDeltas => {
+            FlatStorageCreationStatus::SavingDeltas => {
                 let final_head = chain_store.final_head()?;
                 let final_height = final_head.height;
 
@@ -254,7 +254,7 @@ impl FlatStorageShardCreator {
                     store_update.commit()?;
                 }
             }
-            FlatStorageStateStatus::FetchingState(fetching_state_status) => {
+            FlatStorageCreationStatus::FetchingState(fetching_state_status) => {
                 let store = self.runtime_adapter.store().clone();
                 let block_hash = store_helper::get_flat_head(&store, shard_id).unwrap();
                 let start_part_id = fetching_state_status.part_id;
@@ -341,7 +341,7 @@ impl FlatStorageShardCreator {
                     }
                 }
             }
-            FlatStorageStateStatus::CatchingUp => {
+            FlatStorageCreationStatus::CatchingUp => {
                 let store = self.runtime_adapter.store();
                 let old_flat_head = store_helper::get_flat_head(store, shard_id).unwrap();
                 let mut flat_head = old_flat_head.clone();
@@ -379,24 +379,23 @@ impl FlatStorageShardCreator {
                         // If we reached chain final head, we can finish catchup and finally create flat storage.
                         store_helper::finish_catchup(&mut store_update, shard_id);
                         store_update.commit()?;
-                        let status = self.runtime_adapter.try_create_flat_storage_state_for_shard(
+                        self.runtime_adapter.create_flat_storage_state_for_shard(
                             shard_id,
                             chain_store.head().unwrap().height,
                             chain_store,
                         );
-                        assert_eq!(status, FlatStorageStateStatus::Ready);
                         info!(target: "chain", %shard_id, %flat_head, %height, "Flat storage creation done");
                     } else {
                         store_update.commit()?;
                     }
                 }
             }
-            FlatStorageStateStatus::Ready => {}
-            FlatStorageStateStatus::DontCreate => {
+            FlatStorageCreationStatus::Ready => {}
+            FlatStorageCreationStatus::DontCreate => {
                 panic!("We initiated flat storage creation for shard {shard_id} but according to flat storage state status in db it cannot be created");
             }
         };
-        Ok(current_status == FlatStorageStateStatus::Ready)
+        Ok(current_status == FlatStorageCreationStatus::Ready)
     }
 }
 
@@ -415,28 +414,30 @@ impl FlatStorageCreator {
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         chain_store: &ChainStore,
         num_threads: usize,
-    ) -> Option<Self> {
-        let chain_head = chain_store.head().unwrap();
-        let num_shards = runtime_adapter.num_shards(&chain_head.epoch_id).unwrap();
-        let start_height = chain_head.height;
+    ) -> Result<Option<Self>, Error> {
+        let chain_head = chain_store.head()?;
+        let num_shards = runtime_adapter.num_shards(&chain_head.epoch_id)?;
         let mut shard_creators: HashMap<ShardId, FlatStorageShardCreator> = HashMap::new();
         let mut creation_needed = false;
         for shard_id in 0..num_shards {
             if runtime_adapter.cares_about_shard(me, &chain_head.prev_block_hash, shard_id, true) {
-                let status = runtime_adapter.try_create_flat_storage_state_for_shard(
-                    shard_id,
-                    chain_store.head().unwrap().height,
-                    chain_store,
-                );
+                let status = runtime_adapter.get_flat_storage_creation_status(shard_id);
                 match status {
-                    FlatStorageStateStatus::Ready | FlatStorageStateStatus::DontCreate => {}
+                    FlatStorageCreationStatus::Ready => {
+                        runtime_adapter.create_flat_storage_state_for_shard(
+                            shard_id,
+                            chain_head.height,
+                            chain_store,
+                        );
+                    }
+                    FlatStorageCreationStatus::DontCreate => {}
                     _ => {
                         creation_needed = true;
                         shard_creators.insert(
                             shard_id,
                             FlatStorageShardCreator::new(
                                 shard_id,
-                                start_height,
+                                chain_head.height,
                                 runtime_adapter.clone(),
                             ),
                         );
@@ -445,14 +446,15 @@ impl FlatStorageCreator {
             }
         }
 
-        if creation_needed {
+        let flat_storage_creator = if creation_needed {
             Some(Self {
                 shard_creators,
                 pool: rayon::ThreadPoolBuilder::new().num_threads(num_threads).build().unwrap(),
             })
         } else {
             None
-        }
+        };
+        Ok(flat_storage_creator)
     }
 
     /// Updates statuses of underlying flat storage creation processes. Returns boolean
