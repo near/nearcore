@@ -519,7 +519,7 @@ pub const NUM_PARTS_IN_ONE_STEP: u64 = 20;
 pub const STATE_PART_MEMORY_LIMIT: bytesize::ByteSize = bytesize::ByteSize(10 * bytesize::MIB);
 
 /// Current step of fetching state to fill flat storage.
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Copy, Clone, Debug, PartialEq, Eq)]
 pub struct FetchingStateStatus {
     /// Number of the first state part to be fetched in this step.
     pub part_id: u64,
@@ -533,7 +533,7 @@ pub struct FetchingStateStatus {
 /// Because this is a heavy work requiring ~5h for testnet rpc node and ~10h for testnet archival node, we do it on
 /// background during regular block processing.
 /// This struct reveals what is the current status of creating flat storage data on disk.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum FlatStorageCreationStatus {
     /// Flat storage state does not exist. We are saving `FlatStorageDelta`s to disk.
     /// During this step, we save current chain head, start saving all deltas for blocks after chain head and wait until
@@ -563,10 +563,10 @@ impl Into<i64> for &FlatStorageCreationStatus {
     /// Cast inside enum does not work because it is not fieldless.
     fn into(self) -> i64 {
         match self {
-            FlatStorageCreationStatus::Ready => 0,
-            FlatStorageCreationStatus::SavingDeltas => 1,
-            FlatStorageCreationStatus::FetchingState(_) => 2,
-            FlatStorageCreationStatus::CatchingUp => 3,
+            FlatStorageCreationStatus::SavingDeltas => 0,
+            FlatStorageCreationStatus::FetchingState(_) => 1,
+            FlatStorageCreationStatus::CatchingUp => 2,
+            FlatStorageCreationStatus::Ready => 3,
             FlatStorageCreationStatus::DontCreate => 4,
         }
     }

@@ -56,7 +56,7 @@ struct FlatStorageCreationMetrics {
 
 /// If we launched a node with enabled flat storage but it doesn't have flat storage data on disk, we have to create it.
 /// This struct is responsible for this process for the given shard.
-/// See doc comment on [`FlatStorageStateStatus`] for the details of the process.
+/// See doc comment on [`FlatStorageCreationStatus`] for the details of the process.
 pub struct FlatStorageShardCreator {
     #[allow(unused)]
     shard_id: ShardId,
