@@ -17,7 +17,7 @@ use tracing::{info, warn};
 
 use near_chain_configs::{
     get_initial_supply, ClientConfig, GCConfig, Genesis, GenesisConfig, GenesisValidationMode,
-    LogSummaryStyle,
+    LogSummaryStyle, MutableConfigValue,
 };
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 #[cfg(feature = "json_rpc")]
@@ -31,8 +31,8 @@ use near_primitives::shard_layout::account_id_to_shard_id;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{
-    AccountId, AccountInfo, Balance, BlockHeightDelta, EpochHeight, Gas, NumBlocks, NumSeats,
-    NumShards, ShardId,
+    AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, EpochHeight, Gas, NumBlocks,
+    NumSeats, NumShards, ShardId,
 };
 use near_primitives::utils::{generate_random_string, get_num_seats_per_shard};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
@@ -201,6 +201,12 @@ fn default_trie_viewer_state_size_limit() -> Option<u64> {
     Some(50_000)
 }
 
+#[derive(thiserror::Error, Debug)]
+pub enum ConfigValidationError {
+    #[error("Configuration with archive = false and save_trie_changes = false is not supported because non-archival nodes must save trie changes in order to do do garbage collection.")]
+    TrieChanges,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Consensus {
     /// Minimum number of peers to start syncing.
@@ -338,6 +344,8 @@ pub struct Config {
     /// Deprecated; use `store.migration_snapshot` instead.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub db_migration_snapshot_path: Option<PathBuf>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_shutdown: Option<BlockHeight>,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -374,6 +382,7 @@ impl Default for Config {
             store: near_store::StoreConfig::default(),
             #[cfg(feature = "cold_store")]
             cold_store: None,
+            expected_shutdown: None,
         }
     }
 }
@@ -411,13 +420,21 @@ impl Config {
             );
         }
 
-        assert!(
-            config.archive || config.save_trie_changes,
-            "Configuration with archive = false and save_trie_changes = false is not supported \
-            because non-archival nodes must save trie changes in order to do do garbage collection."
-        );
-
+        config.validate()?;
         Ok(config)
+    }
+
+    /// Does semantic config validation.
+    /// This is the place to check that all config values make sense and fit well together.
+    /// `validate()` is called every time `config.json` is read.
+    fn validate(&self) -> Result<(), ConfigValidationError> {
+        if self.archive == self.save_trie_changes {
+            Err(ConfigValidationError::TrieChanges)
+        } else {
+            Ok(())
+        }
+        // TODO: Add more config validation.
+        // TODO: Validate `ClientConfig` instead.
     }
 
     pub fn write_to_file(&self, path: &Path) -> std::io::Result<()> {
@@ -571,6 +588,10 @@ impl NearConfig {
                 version: Default::default(),
                 chain_id: genesis.config.chain_id.clone(),
                 rpc_addr: config.rpc_addr().map(|addr| addr.to_owned()),
+                expected_shutdown: MutableConfigValue::new(
+                    config.expected_shutdown,
+                    "expected_shutdown",
+                ),
                 block_production_tracking_delay: config.consensus.block_production_tracking_delay,
                 min_block_production_delay: config.consensus.min_block_production_delay,
                 max_block_production_delay: config.consensus.max_block_production_delay,

@@ -121,7 +121,7 @@ hyper = { version = "0.14", features = ["full"] }
 hyper-tls = "0.5.0"
 im = "15"
 indicatif = { version = "0.15.0", features = ["with_rayon"] }
-insta = "1.14.0"
+insta = { version = "1.26.0", features = ["json", "yaml"] }
 itertools = "0.10.0"
 itoa = "1.0"
 libc = "0.2.81"
