@@ -94,13 +94,9 @@ pub fn as_chunks<const N: usize, T>(slice: &[T]) -> (&[[T; N]], &[T]) {
     #[allow(clippy::let_unit_value)]
     let () = AssertNonZero::<N>::OK;
 
-    // Static assert above ensures N ≠ 0, so division is safe here
-    #[allow(clippy::integer_arithmetic)]
-    let len = slice.len() / N;
-    // len * N = (slice.len() / N) * N <= slice.len()
-    // hence len * N doesn't overflow
-    #[allow(clippy::integer_arithmetic)]
-    let (head, tail) = slice.split_at(len * N);
+    let len = slice.len().checked_div(N).expect("static assert above ensures N ≠ 0");
+    let (head, tail) = slice
+        .split_at(len.checked_mul(N).expect("len * N ≤ slice.len() hence can't overflow here"));
 
     // SAFETY: We cast a slice of `len * N` elements into a slice of `len` many
     // `N` elements chunks.
