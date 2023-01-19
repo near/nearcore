@@ -519,7 +519,7 @@ pub const NUM_PARTS_IN_ONE_STEP: u64 = 20;
 pub const STATE_PART_MEMORY_LIMIT: bytesize::ByteSize = bytesize::ByteSize(10 * bytesize::MIB);
 
 /// Current step of fetching state to fill flat storage.
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Copy, Clone, Debug, PartialEq, Eq)]
 pub struct FetchingStateStatus {
     /// Number of the first state part to be fetched in this step.
     pub part_id: u64,
