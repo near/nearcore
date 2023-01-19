@@ -147,6 +147,8 @@ pub enum ProtocolFeature {
     Ed25519Verify,
     #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
     RejectBlocksWithOutdatedProtocolVersions,
+    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+    DelegateAction,
 }
 
 /// Both, outgoing and incoming tcp connections to peers, will be rejected if `peer's`
@@ -161,7 +163,7 @@ const STABLE_PROTOCOL_VERSION: ProtocolVersion = 58;
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protocol") {
     // On nightly, pick big enough version to support all features.
-    132
+    133
 } else {
     // Enable all stable features.
     STABLE_PROTOCOL_VERSION
@@ -234,6 +236,8 @@ impl ProtocolFeature {
             ProtocolFeature::Ed25519Verify => 131,
             #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
             ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions => 132,
+            #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+            ProtocolFeature::DelegateAction => 133,
         }
     }
 }

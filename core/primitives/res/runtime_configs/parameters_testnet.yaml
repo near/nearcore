@@ -66,6 +66,10 @@ action_add_function_call_key_per_byte_execution: 1_925_331
 action_delete_key_send_sir: 94_946_625_000
 action_delete_key_send_not_sir: 94_946_625_000
 action_delete_key_execution: 94_946_625_000
+# TODO: place-holder values, needs estimation, tracked in #8114
+action_delegate_send_sir: 2_319_861_500_000
+action_delegate_send_not_sir: 2_319_861_500_000
+action_delegate_execution: 2_319_861_500_000
 
 # Smart contract dynamic gas costs
 wasm_regular_op_cost: 3_856_371
