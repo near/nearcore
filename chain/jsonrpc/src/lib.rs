@@ -314,6 +314,9 @@ impl JsonRpcHandler {
                 process_method_call(request, |params| self.tx_status_common(params, false)).await
             }
             "validators" => process_method_call(request, |params| self.validators(params)).await,
+            "client_config" => {
+                process_method_call(request, |_params: ()| self.client_config()).await
+            }
             "EXPERIMENTAL_broadcast_tx_sync" => {
                 process_method_call(request, |params| self.send_tx_sync(params)).await
             }
@@ -1556,9 +1559,11 @@ pub fn start_http(
                 web::resource("/debug/api/block_status/{starting_height}")
                     .route(web::get().to(debug_block_status_handler)),
             )
+            .service(
+                web::resource("/debug/client_config").route(web::get().to(client_config_handler)),
+            )
             .service(debug_html)
             .service(display_debug_html)
-            .service(web::resource("/client_config").route(web::get().to(client_config_handler)))
     })
     .bind(addr)
     .unwrap()
