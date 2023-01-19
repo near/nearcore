@@ -389,7 +389,8 @@ mod trie_storage_tests {
         assert_eq!(trie_cache.get(&key), None);
         let count_before = trie_caching_storage.get_trie_nodes_count();
         let result = trie_caching_storage.retrieve_raw_bytes(&key);
-        let count_delta = trie_caching_storage.get_trie_nodes_count() - count_before;
+        let count_delta =
+            trie_caching_storage.get_trie_nodes_count().checked_sub(&count_before).unwrap();
         assert_eq!(result.unwrap().as_ref(), value);
         assert_eq!(count_delta.db_reads, 0);
         assert_eq!(count_delta.mem_reads, 1);
