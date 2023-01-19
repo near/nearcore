@@ -140,5 +140,3 @@ sandbox = [
   "near-jsonrpc/sandbox",
 ]
 io_trace = ["near-vm-runner/io_trace"]
-
-cold_store = ["near-store/cold_store"]

@@ -71,18 +71,13 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
     BlockHeaderView, FinalExecutionStatus, QueryRequest, QueryResponseKind,
 };
-#[cfg(feature = "cold_store")]
 use near_store::cold_storage::{update_cold_db, update_cold_head};
-#[cfg(feature = "cold_store")]
 use near_store::db::TestDB;
 use near_store::metadata::DbKind;
-#[cfg(feature = "cold_store")]
 use near_store::metadata::DB_VERSION;
-#[cfg(feature = "cold_store")]
 use near_store::test_utils::create_test_node_storage_with_cold;
 use near_store::test_utils::create_test_store;
 use near_store::{get, DBCol, Store, TrieChanges};
-#[cfg(feature = "cold_store")]
 use near_store::{NodeStorage, Temperature};
 use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use nearcore::NEAR_BASE;
@@ -1569,7 +1564,6 @@ fn test_archival_save_trie_changes() {
     }
 }
 
-#[cfg(feature = "cold_store")]
 fn test_archival_gc_common(
     storage: NodeStorage<TestDB>,
     epoch_length: u64,
@@ -1644,7 +1638,6 @@ fn test_archival_gc_common(
 /// date on the hot -> cold block copying is correctly garbage collecting
 /// blocks older than 5 epochs.
 #[test]
-#[cfg(feature = "cold_store")]
 fn test_archival_gc_migration() {
     // Split storage in the middle of migration has hot store kind set to archive.
     let storage = create_test_node_storage_with_cold(DB_VERSION, DbKind::Archive);
@@ -1660,7 +1653,6 @@ fn test_archival_gc_migration() {
 /// date on the hot -> cold block copying is correctly garbage collecting
 /// blocks older than 5 epochs.
 #[test]
-#[cfg(feature = "cold_store")]
 fn test_archival_gc_split_storage_current() {
     // Fully migrated split storage has each store configured with kind = temperature.
     let storage = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
@@ -1676,7 +1668,6 @@ fn test_archival_gc_split_storage_current() {
 /// on the hot -> cold block copying is correctly garbage collecting blocks
 /// older than the cold head.
 #[test]
-#[cfg(feature = "cold_store")]
 fn test_archival_gc_split_storage_behind() {
     // Fully migrated split storage has each store configured with kind = temperature.
     let storage = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
