@@ -50,17 +50,18 @@ fn wait_for_flat_storage_creation(env: &mut TestEnv, start_height: BlockHeight) 
         let status = store_helper::get_flat_storage_state_status(&store, 0);
         // Check validity of state transition for flat storage creation.
         match &prev_status {
-            FlatStorageStateStatus::SavingDeltas => assert_matches!(
+            FlatStorageCreationStatus::SavingDeltas => assert_matches!(
                 status,
-                FlatStorageStateStatus::SavingDeltas | FlatStorageStateStatus::FetchingState(_)
+                FlatStorageCreationStatus::SavingDeltas
+                    | FlatStorageCreationStatus::FetchingState(_)
             ),
-            FlatStorageStateStatus::FetchingState(_) => assert_matches!(
+            FlatStorageCreationStatus::FetchingState(_) => assert_matches!(
                 status,
-                FlatStorageStateStatus::FetchingState(_) | FlatStorageStateStatus::CatchingUp
+                FlatStorageCreationStatus::FetchingState(_) | FlatStorageCreationStatus::CatchingUp
             ),
-            FlatStorageStateStatus::CatchingUp => assert_matches!(
+            FlatStorageCreationStatus::CatchingUp => assert_matches!(
                 status,
-                FlatStorageStateStatus::CatchingUp | FlatStorageStateStatus::Ready
+                FlatStorageCreationStatus::CatchingUp | FlatStorageCreationStatus::Ready
             ),
             _ => {
                 panic!("Invalid status {prev_status:?} observed during flat storage creation for height {next_height}");
@@ -69,7 +70,7 @@ fn wait_for_flat_storage_creation(env: &mut TestEnv, start_height: BlockHeight) 
 
         prev_status = status;
         next_height += 1;
-        if prev_status == FlatStorageStateStatus::Ready {
+        if prev_status == FlatStorageCreationStatus::Ready {
             break;
         }
 
@@ -78,7 +79,7 @@ fn wait_for_flat_storage_creation(env: &mut TestEnv, start_height: BlockHeight) 
     let status = store_helper::get_flat_storage_state_status(&store, 0);
     assert_eq!(
         status,
-        FlatStorageStateStatus::Ready,
+        FlatStorageCreationStatus::Ready,
         "Client couldn't create flat storage until block {next_height}, status: {status:?}"
     );
     assert!(env.clients[0].runtime_adapter.get_flat_storage_state_for_shard(0).is_some());
@@ -210,12 +211,12 @@ fn test_flat_storage_creation_two_shards() {
             if cfg!(feature = "protocol_feature_flat_state") {
                 assert_eq!(
                     store_helper::get_flat_storage_state_status(&store, shard_id),
-                    FlatStorageStateStatus::Ready
+                    FlatStorageCreationStatus::Ready
                 );
             } else {
                 assert_eq!(
                     store_helper::get_flat_storage_state_status(&store, shard_id),
-                    FlatStorageStateStatus::DontCreate
+                    FlatStorageCreationStatus::DontCreate
                 );
             }
         }
@@ -238,12 +239,12 @@ fn test_flat_storage_creation_two_shards() {
     assert!(env.clients[0].runtime_adapter.get_flat_storage_state_for_shard(0).is_none());
     assert_eq!(
         store_helper::get_flat_storage_state_status(&store, 0),
-        FlatStorageStateStatus::SavingDeltas
+        FlatStorageCreationStatus::SavingDeltas
     );
     assert!(env.clients[0].runtime_adapter.get_flat_storage_state_for_shard(1).is_some());
     assert_eq!(
         store_helper::get_flat_storage_state_status(&store, 1),
-        FlatStorageStateStatus::Ready
+        FlatStorageCreationStatus::Ready
     );
 
     wait_for_flat_storage_creation(&mut env, START_HEIGHT);
@@ -273,12 +274,12 @@ fn test_flat_storage_creation_start_from_state_part() {
         if cfg!(feature = "protocol_feature_flat_state") {
             assert_eq!(
                 store_helper::get_flat_storage_state_status(&store, 0),
-                FlatStorageStateStatus::Ready
+                FlatStorageCreationStatus::Ready
             );
         } else {
             assert_eq!(
                 store_helper::get_flat_storage_state_status(&store, 0),
-                FlatStorageStateStatus::DontCreate
+                FlatStorageCreationStatus::DontCreate
             );
             return;
         }
