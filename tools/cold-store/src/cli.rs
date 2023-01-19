@@ -1,7 +1,7 @@
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
-use near_store::cold_storage::{update_cold_db, update_cold_head};
+use near_store::cold_storage::{copy_all_data_to_cold, update_cold_db, update_cold_head};
 use near_store::{DBCol, NodeStorage, Temperature, COLD_HEAD_KEY, FINAL_HEAD_KEY, HEAD_KEY};
 use nearcore::{NearConfig, NightshadeRuntime};
 
@@ -26,6 +26,8 @@ enum SubCommand {
     /// Copy n blocks to cold storage and update cold HEAD. One by one.
     /// Updating of HEAD happens in every iteration.
     CopyNextBlocks(CopyNextBlocksCmd),
+    /// Copy all blocks to cold storage and update cold HEAD.
+    CopyAllBlocks(CopyAllBlocksCmd),
 }
 
 impl ColdStoreCommand {
@@ -52,6 +54,7 @@ impl ColdStoreCommand {
                     copy_next_block(&store, &near_config, &hot_runtime);
                 }
             }
+            SubCommand::CopyAllBlocks(cmd) => copy_all_blocks(&store, cmd.max_batch_size),
         }
     }
 }
@@ -60,6 +63,12 @@ impl ColdStoreCommand {
 struct CopyNextBlocksCmd {
     #[clap(short, long, default_value_t = 1)]
     number_of_blocks: usize,
+}
+
+#[derive(Parser)]
+struct CopyAllBlocksCmd {
+    #[clap(short, long, default_value_t = 0)]
+    max_batch_size: usize,
 }
 
 fn check_open(store: &NodeStorage) {
@@ -141,6 +150,30 @@ fn copy_next_block(store: &NodeStorage, config: &NearConfig, hot_runtime: &Arc<N
 
     update_cold_head(&*store.cold_db().unwrap(), &store.get_store(Temperature::Hot), &next_height)
         .expect(&std::format!("Failed to update cold HEAD to {}", next_height));
+}
+
+fn copy_all_blocks(store: &NodeStorage, max_batch_size: usize) {
+    copy_all_data_to_cold(
+        &*store.cold_db().unwrap(),
+        &store.get_store(Temperature::Hot),
+        max_batch_size,
+    )
+    .expect("Failed to do migration to cold db");
+
+    // If FINAL_HEAD is not set for hot storage though, we default it to 0.
+    let hot_final_head = store
+        .get_store(Temperature::Hot)
+        .get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)
+        .unwrap_or_else(|e| panic!("Error reading hot FINAL_HEAD: {:#}", e))
+        .map(|t| t.height)
+        .unwrap_or(0);
+
+    update_cold_head(
+        &*store.cold_db().unwrap(),
+        &store.get_store(Temperature::Hot),
+        &hot_final_head,
+    )
+    .expect(&std::format!("Failed to update cold HEAD to {}", hot_final_head));
 }
 
 /// Calls get_ser on Store with provided temperature from provided NodeStorage.
