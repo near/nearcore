@@ -4,7 +4,9 @@ use crate::network_protocol::SyncAccountsData;
 use crate::peer;
 use crate::peer_manager;
 use crate::peer_manager::peer_manager_actor::Event as PME;
+use crate::peer_manager::testonly::start as start_pm;
 use crate::peer_manager::testonly;
+use near_store::db::TestDB;
 use crate::tcp;
 use crate::testonly::{make_rng, AsSet as _};
 use crate::time;
@@ -275,44 +277,40 @@ async fn validator_node_restart() {
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     let mut cfg = chain.make_config(rng);
-    let pm0 = start_pm(clock.clock(), TestDB::new(), cfg.clone(), chain.clone());
-    let pm1 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone());
-    pm0.set_chain_info();
-    pm1.set_chain_info();
-
-    pm0.connect_to(&pm1, tcp::Tier::T2).await;
-    pm0.tier1_advertise_proxies();
-    pm1.wait_for_accounts_data(&want).await;
+    let chain_info = testonly::make_chain_info(&chain,&[&cfg]);
+    let pm0 = start_pm(clock.clock(), TestDB::new(), cfg.clone(), chain.clone()).await;
+    let pm1 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
     
-    // restart pm0.
+    pm0.set_chain_info(chain_info.clone()).await;
+    pm1.set_chain_info(chain_info.clone()).await;
+
+    pm0.connect_to(&pm1.peer_info(), tcp::Tier::T2).await;
+    let want = pm0.tier1_advertise_proxies(&clock.clock()).await.unwrap();
+    pm1.wait_for_accounts_data(&HashSet::from([want.clone()])).await;
+    
+    // Restart pm0 with a new node key.
     drop(pm0);
     clock.advance(time::Duration::hours(1));
-    let pm0 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone());
-    pm0.connect_to(&pm1, tcp::Tier::T2).await;
-    // TODO: await for new data with new key.
-
-    ///////////////////////////
-
-        clock.advance(time::Duration::hours(1));
-        let chain_info = testonly::make_chain_info(
-            &chain,
-            &pms.iter().map(|pm| &pm.cfg).collect::<Vec<_>>()[..],
-        );
-
-        let mut want = HashSet::new();
-        tracing::info!(target:"test", "advance epoch in the given order.");
-        for id in ids {
-            pms[id].set_chain_info(chain_info.clone()).await;
-            // In this tests each node is its own proxy, so it can immediately
-            // connect to itself (to verify the public addr) and advertise it.
-            // If some other node B was a proxy for a node A, then first both
-            // A and B would have to update their chain_info, and only then A
-            // would be able to connect to B and advertise B as proxy afterwards.
-            want.extend(pms[id].tier1_advertise_proxies(&clock.clock()).await);
-        }
-        for pm in &mut pms {
-            tracing::info!(target:"test", "wait for data to arrive to {}.",pm.cfg.node_id());
-            pm.wait_for_accounts_data(&want).await;
-        }
-    }
+    cfg.node_key = data::make_secret_key(rng); 
+    let pm0 = start_pm(clock.clock(), TestDB::new(), cfg.clone(), chain.clone()).await;
+    pm0.set_chain_info(chain_info.clone()).await;
+    // Sign AccountData before event connecting to the network.
+    let want2 = pm0.tier1_advertise_proxies(&clock.clock()).await.unwrap();
+    // The versions should collide, because pm0 doesn't know that it has already signed
+    // AccountData with the given version.
+    assert_eq!(want.version,want2.version);
+    assert!(want!=want2);
+    // Connect to the node which knows the old AccountData. 
+    pm0.connect_to(&pm1.peer_info(), tcp::Tier::T2).await;
+   
+    // Now pm0 should learn from pm1 about the conflicting version and should broadcast
+    // new AccountData (with higher version) to override the old AccountData.
+    let pm0_account_key = cfg.validator.as_ref().unwrap().signer.public_key();
+    pm1.wait_for_accounts_data_pred(|accounts_data|{
+        let data = match accounts_data.data.get(&pm0_account_key) {
+            Some(it) => it,
+            None => return false,
+        };
+        data.peer_id == cfg.node_id()
+    }).await;
 }
