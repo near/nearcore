@@ -212,8 +212,9 @@ fn test_hash256_register() {
 
 #[test]
 fn test_key_length_limit() {
+    let mut logic_builder = VMLogicBuilder::default();
     let limit = 1024;
-    let mut logic_builder = VMLogicBuilder::default().max_length_storage_key(limit);
+    logic_builder.config.limit_config.max_length_storage_key = limit;
     let mut logic = logic_builder.build();
 
     // Under the limit. Valid calls.
@@ -252,8 +253,9 @@ fn test_key_length_limit() {
 
 #[test]
 fn test_value_length_limit() {
+    let mut logic_builder = VMLogicBuilder::default();
     let limit = 1024;
-    let mut logic_builder = VMLogicBuilder::default().max_length_storage_value(limit);
+    logic_builder.config.limit_config.max_length_storage_value = limit;
     let mut logic = logic_builder.build();
     let key = logic.internal_mem_write(b"hello");
 
@@ -271,9 +273,9 @@ fn test_value_length_limit() {
 
 #[test]
 fn test_num_promises() {
+    let mut logic_builder = VMLogicBuilder::default();
     let num_promises = 10;
-    let mut logic_builder =
-        VMLogicBuilder::default().max_promises_per_function_call_action(num_promises);
+    logic_builder.config.limit_config.max_promises_per_function_call_action = num_promises;
     let mut logic = logic_builder.build();
     let account_id = logic.internal_mem_write(b"alice");
     for _ in 0..num_promises {
@@ -293,8 +295,9 @@ fn test_num_promises() {
 
 #[test]
 fn test_num_joined_promises() {
+    let mut logic_builder = VMLogicBuilder::default();
     let num_deps = 10;
-    let mut logic_builder = VMLogicBuilder::default().max_number_input_data_dependencies(num_deps);
+    logic_builder.config.limit_config.max_number_input_data_dependencies = num_deps;
     let mut logic = logic_builder.build();
     let account_id = logic.internal_mem_write(b"alice");
     let promise_id = logic
@@ -317,10 +320,9 @@ fn test_num_joined_promises() {
 
 #[test]
 fn test_num_input_dependencies_recursive_join() {
+    let mut logic_builder = VMLogicBuilder::default();
     let num_steps = 10;
-    let max_dependencies = 1 << num_steps;
-    let mut logic_builder =
-        VMLogicBuilder::default().max_number_input_data_dependencies(max_dependencies);
+    logic_builder.config.limit_config.max_number_input_data_dependencies = 1 << num_steps;
     let mut logic = logic_builder.build();
     let account_id = logic.internal_mem_write(b"alice");
     let original_promise_id = logic
@@ -346,8 +348,12 @@ fn test_num_input_dependencies_recursive_join() {
     assert_eq!(
         logic.promise_and(promises_ptr, 3),
         Err(HostError::NumberInputDataDependenciesExceeded {
-            number_of_input_data_dependencies: max_dependencies + 1,
-            limit: max_dependencies,
+            number_of_input_data_dependencies: logic_builder
+                .config
+                .limit_config
+                .max_number_input_data_dependencies
+                + 1,
+            limit: logic_builder.config.limit_config.max_number_input_data_dependencies,
         }
         .into())
     );
@@ -355,8 +361,9 @@ fn test_num_input_dependencies_recursive_join() {
 
 #[test]
 fn test_return_value_limit() {
+    let mut logic_builder = VMLogicBuilder::default();
     let limit = 1024;
-    let mut logic_builder = VMLogicBuilder::default().max_length_returned_data(limit);
+    logic_builder.config.limit_config.max_length_returned_data = limit;
     let mut logic = logic_builder.build();
 
     logic.value_return(limit, 0).expect("Returned value length is under the limit");
@@ -368,8 +375,9 @@ fn test_return_value_limit() {
 
 #[test]
 fn test_contract_size_limit() {
+    let mut logic_builder = VMLogicBuilder::default();
     let limit = 1024;
-    let mut logic_builder = VMLogicBuilder::default().max_contract_size(limit);
+    logic_builder.config.limit_config.max_contract_size = limit;
     let mut logic = logic_builder.build();
 
     let account_id = logic.internal_mem_write(b"alice");

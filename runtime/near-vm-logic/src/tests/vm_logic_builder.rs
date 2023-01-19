@@ -31,15 +31,6 @@ impl Default for VMLogicBuilder {
     }
 }
 
-macro_rules! setter {
-    ($($path:ident).*, $name:ident : $type:ty) => {
-        pub fn $name(mut self, value: $type) -> Self {
-            self. $($path).* . $name = value;
-            self
-        }
-    }
-}
-
 impl VMLogicBuilder {
     pub fn build(&mut self) -> TestVMLogic<'_> {
         let context = self.context.clone();
@@ -66,28 +57,10 @@ impl VMLogicBuilder {
         }
     }
 
-    pub fn view() -> Self {
-        let mut builder = Self::default();
-        builder.context.view_config =
-            Some(crate::ViewConfig { max_gas_burnt: builder.config.limit_config.max_gas_burnt });
-        builder
-    }
-
-    pub fn promise_results(mut self, results: Vec<PromiseResult>) -> Self {
-        self.promise_results = results;
+    pub fn max_gas_burnt(mut self, max_gas_burnt: Gas) -> Self {
+        self.config.limit_config.max_gas_burnt = max_gas_burnt;
         self
     }
-
-    setter!(context, prepaid_gas: Gas);
-    setter!(config.limit_config, max_gas_burnt: Gas);
-    setter!(config.limit_config, max_length_returned_data: u64);
-    setter!(config.limit_config, max_length_storage_key: u64);
-    setter!(config.limit_config, max_length_storage_value: u64);
-    setter!(config.limit_config, max_number_input_data_dependencies: u64);
-    setter!(config.limit_config, max_number_logs: u64);
-    setter!(config.limit_config, max_promises_per_function_call_action: u64);
-    setter!(config.limit_config, max_total_log_length: u64);
-    setter!(config.limit_config, max_contract_size: u64);
 
     pub fn gas_fee(mut self, cost: ActionCosts, fee: Fee) -> Self {
         self.fees_config.action_fees[cost] = fee;
