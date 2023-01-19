@@ -9,6 +9,8 @@ import pathlib
 import sys
 import typing
 
+import unittest
+
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster, LocalNode
@@ -42,42 +44,51 @@ def check_account_status(node: LocalNode,
     return (len(current_keys), int(account_state['amount']))
 
 
-nodes: list[LocalNode] = start_cluster(2, 0, 1, None, [], {})
-height, hash_ = utils.wait_for_blocks(nodes[0], target=10)
+class TestMetaTransactions(unittest.TestCase):
 
-node0_nonce = Nonce()
+    def test_meta_tx(self):
+        nodes: list[LocalNode] = start_cluster(2, 0, 1, None, [], {})
+        _, hash_ = utils.wait_for_blocks(nodes[0], target=10)
 
-CANDIDATE_ACCOUNT = "candidate.test0"
-CANDIDATE_STARTING_AMOUNT = 123 * (10**24)
+        node0_nonce = Nonce()
 
-# create new account
-candidate_key = key.Key.from_random(CANDIDATE_ACCOUNT)
+        CANDIDATE_ACCOUNT = "candidate.test0"
+        CANDIDATE_STARTING_AMOUNT = 123 * (10**24)
 
-tx = transaction.sign_create_account_with_full_access_key_and_balance_tx(
-    nodes[0].signer_key, candidate_key.account_id, candidate_key,
-    CANDIDATE_STARTING_AMOUNT, node0_nonce.use_nonce(),
-    base58.b58decode(hash_.encode('utf8')))
-nodes[0].send_tx_and_wait(tx, 100)
+        # create new account
+        candidate_key = key.Key.from_random(CANDIDATE_ACCOUNT)
 
-assert check_account_status(nodes[0],
-                            CANDIDATE_ACCOUNT) == (1, CANDIDATE_STARTING_AMOUNT)
+        tx = transaction.sign_create_account_with_full_access_key_and_balance_tx(
+            nodes[0].signer_key, candidate_key.account_id, candidate_key,
+            CANDIDATE_STARTING_AMOUNT, node0_nonce.use_nonce(),
+            base58.b58decode(hash_.encode('utf8')))
+        nodes[0].send_tx_and_wait(tx, 100)
 
-candidate_nonce = create_nonce_from_node(nodes[0], candidate_key.account_id,
-                                         candidate_key.pk)
+        self.assertEqual(check_account_status(nodes[0], CANDIDATE_ACCOUNT),
+                         (1, CANDIDATE_STARTING_AMOUNT))
 
-# Now let's prepare the meta transaction.
-new_key = key.Key.from_random("new_key")
-add_new_key_tx = transaction.create_full_access_key_action(new_key.decoded_pk())
-signed_meta_tx = transaction.create_signed_delegated_action(
-    CANDIDATE_ACCOUNT, CANDIDATE_ACCOUNT, [add_new_key_tx],
-    candidate_nonce.use_nonce(), 1000, candidate_key.decoded_pk(),
-    candidate_key.decoded_sk())
+        candidate_nonce = create_nonce_from_node(nodes[0],
+                                                 candidate_key.account_id,
+                                                 candidate_key.pk)
 
-meta_tx = transaction.sign_delegate_action(
-    signed_meta_tx, nodes[0].signer_key, CANDIDATE_ACCOUNT,
-    node0_nonce.use_nonce(), base58.b58decode(hash_.encode('utf8')))
+        # Now let's prepare the meta transaction.
+        new_key = key.Key.from_random("new_key")
+        add_new_key_tx = transaction.create_full_access_key_action(
+            new_key.decoded_pk())
+        signed_meta_tx = transaction.create_signed_delegated_action(
+            CANDIDATE_ACCOUNT, CANDIDATE_ACCOUNT, [add_new_key_tx],
+            candidate_nonce.use_nonce(), 1000, candidate_key.decoded_pk(),
+            candidate_key.decoded_sk())
 
-nodes[0].send_tx_and_wait(meta_tx, 100)
+        meta_tx = transaction.sign_delegate_action(
+            signed_meta_tx, nodes[0].signer_key, CANDIDATE_ACCOUNT,
+            node0_nonce.use_nonce(), base58.b58decode(hash_.encode('utf8')))
 
-assert check_account_status(nodes[0],
-                            CANDIDATE_ACCOUNT) == (2, CANDIDATE_STARTING_AMOUNT)
+        nodes[0].send_tx_and_wait(meta_tx, 100)
+
+        self.assertEqual(check_account_status(nodes[0], CANDIDATE_ACCOUNT),
+                         (2, CANDIDATE_STARTING_AMOUNT))
+
+
+if __name__ == '__main__':
+    unittest.main()
