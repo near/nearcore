@@ -109,6 +109,7 @@ protocol_feature_flat_state = ["near-store/protocol_feature_flat_state", "near-c
 protocol_feature_nep366_delegate_action = [
   "node-runtime/protocol_feature_nep366_delegate_action",
   "near-primitives/protocol_feature_nep366_delegate_action",
+  "near-rosetta-rpc/protocol_feature_nep366_delegate_action",
 ]
 
 nightly = [
