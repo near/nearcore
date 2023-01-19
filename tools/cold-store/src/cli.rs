@@ -2,7 +2,7 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
 use near_store::cold_storage::{update_cold_db, update_cold_head};
-use near_store::{DBCol, NodeStorage, Temperature, FINAL_HEAD_KEY, HEAD_KEY};
+use near_store::{DBCol, NodeStorage, Temperature, COLD_HEAD_KEY, FINAL_HEAD_KEY, HEAD_KEY};
 use nearcore::{NearConfig, NightshadeRuntime};
 
 use clap::Parser;
@@ -70,17 +70,23 @@ fn check_open(store: &NodeStorage) {
 
 fn print_heads(store: &NodeStorage) {
     println!(
-        "HOT HEAD is at {:#?}",
+        "HOT STORE HEAD is at {:#?}",
         store.get_store(Temperature::Hot).get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)
     );
     println!(
-        "HOT FINAL HEAD is at {:#?}",
+        "HOT STORE FINAL_HEAD is at {:#?}",
         store.get_store(Temperature::Hot).get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)
     );
-    println!(
-        "COLD HEAD is at {:#?}",
-        store.get_store(Temperature::Cold).get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)
-    );
+
+    let cold_head_in_hot =
+        store.get_store(Temperature::Hot).get_ser::<Tip>(DBCol::BlockMisc, COLD_HEAD_KEY);
+    println!("HOT STORE COLD_HEAD is at {:#?}", cold_head_in_hot);
+
+    let head_in_cold =
+        store.get_store(Temperature::Cold).get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY);
+    println!("COLD STORE HEAD is at {:#?}", head_in_cold);
+
+    assert_eq!(cold_head_in_hot.unwrap_or_default(), head_in_cold.unwrap_or_default());
 }
 
 fn copy_next_block(store: &NodeStorage, config: &NearConfig, hot_runtime: &Arc<NightshadeRuntime>) {

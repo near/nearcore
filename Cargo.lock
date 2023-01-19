@@ -3727,7 +3727,6 @@ name = "near-vm-logic"
 version = "0.0.0"
 dependencies = [
  "borsh",
- "byteorder",
  "ed25519-dalek",
  "expect-test",
  "hex",
@@ -3923,7 +3922,6 @@ version = "0.0.0"
 dependencies = [
  "assert_matches",
  "borsh",
- "byteorder",
  "enum-map",
  "hex",
  "indicatif",
