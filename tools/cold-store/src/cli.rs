@@ -6,6 +6,7 @@ use near_store::{DBCol, NodeStorage, Temperature, COLD_HEAD_KEY, FINAL_HEAD_KEY,
 use nearcore::{NearConfig, NightshadeRuntime};
 
 use clap::Parser;
+use std::io::Result;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -45,7 +46,7 @@ impl ColdStoreCommand {
             Arc::new(NightshadeRuntime::from_config(home_dir, store.get_hot_store(), &near_config));
         match self.subcmd {
             SubCommand::Open => check_open(&store),
-            SubCommand::Head => print_heads(&store),
+            SubCommand::Head => print_heads(&store).unwrap(),
             SubCommand::CopyNextBlocks(cmd) => {
                 for _ in 0..cmd.number_of_blocks {
                     copy_next_block(&store, &near_config, &hot_runtime);
@@ -65,25 +66,21 @@ fn check_open(store: &NodeStorage) {
     assert!(store.has_cold());
 }
 
-fn print_heads(store: &NodeStorage) {
-    println!(
-        "HOT STORE HEAD is at {:#?}",
-        store.get_store(Temperature::Hot).get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)
-    );
-    println!(
-        "HOT STORE FINAL_HEAD is at {:#?}",
-        store.get_store(Temperature::Hot).get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)
-    );
+fn print_heads(store: &NodeStorage) -> Result<()> {
+    let hot_store = store.get_hot_store();
+    let cold_store = store.get_cold_store();
 
-    let cold_head_in_hot =
-        store.get_store(Temperature::Hot).get_ser::<Tip>(DBCol::BlockMisc, COLD_HEAD_KEY);
-    println!("HOT STORE COLD_HEAD is at {:#?}", cold_head_in_hot);
-
-    let head_in_cold =
-        store.get_store(Temperature::Cold).get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY);
-    println!("COLD STORE HEAD is at {:#?}", head_in_cold);
-
-    assert_eq!(cold_head_in_hot.unwrap_or_default(), head_in_cold.unwrap_or_default());
+    // hot store
+    {
+        let kind = hot_store.get_db_kind()?;
+        let head = hot_store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)?;
+        let final_head = hot_store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?;
+        let cold_head = hot_store.get_ser::<Tip>(DBCol::BlockMisc, COLD_HEAD_KEY)?;
+        println!("HOT STORE KIND is {:#?}", kind);
+        println!("HOT STORE HEAD is at {:#?}", head);
+        println!("HOT STORE FINAL_HEAD is at {:#?}", final_head);
+        println!("HOT STORE COLD_HEAD is at {:#?}", cold_head);
+    }
 
     // cold store
     if let Some(cold_store) = cold_store {

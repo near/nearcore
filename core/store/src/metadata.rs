@@ -56,7 +56,6 @@ fn set_db_metadata(
     let mut store_update = storage.get_store(temp).store_update();
     store_update.set(DBCol::DbVersion, VERSION_KEY, metadata.version.to_string().as_bytes());
     if metadata.version >= DB_VERSION_WITH_KIND {
-        #[allow(unused_mut)]
         let mut kind = metadata.kind;
         if temp == Temperature::Cold {
             kind = Some(DbKind::Cold);

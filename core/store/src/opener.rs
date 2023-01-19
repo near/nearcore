@@ -131,7 +131,7 @@ pub struct StoreOpener<'a> {
     hot: DBOpener<'a>,
 
     /// Opener for an instance of Cold RocksDB store if one was configured.
-    cold: Option<ColdDBOpener<'a>>,
+    cold: Option<DBOpener<'a>>,
 
     /// What kind of database we should expect; if `None`, the kind of the
     /// database is not checked.
@@ -166,11 +166,11 @@ impl<'a> StoreOpener<'a> {
     pub(crate) fn new(
         home_dir: &std::path::Path,
         config: &'a StoreConfig,
-        cold_config: super::ColdConfig<'a>,
+        cold_config: Option<&'a StoreConfig>,
     ) -> Self {
         Self {
             hot: DBOpener::new(home_dir, config, Temperature::Hot),
-            cold: cold_config.map(|config| ColdDBOpener::new(home_dir, config, Temperature::Cold)),
+            cold: cold_config.map(|config| DBOpener::new(home_dir, config, Temperature::Cold)),
             expected_kind: None,
             migrator: None,
         }
@@ -524,13 +524,4 @@ pub trait StoreMigrator {
     /// check support via [`Self::check_support`] method) or if it’s greater or
     /// equal to [`DB_VERSION`].
     fn migrate(&self, storage: &NodeStorage, version: DbVersion) -> anyhow::Result<()>;
-}
-
-// This is only here to make conditional compilation simpler.  Once cold_store
-// feature is stabilised, get rid of it and use DBOpener directly.
-// TODO
-use cold_db_opener::ColdDBOpener;
-
-mod cold_db_opener {
-    pub(super) type ColdDBOpener<'a> = super::DBOpener<'a>;
 }

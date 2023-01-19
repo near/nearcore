@@ -108,18 +108,13 @@ pub struct Store {
     storage: Arc<dyn Database>,
 }
 
-// Those are temporary.  While cold_store feature is stabilised, remove those
-// type aliases and just use the type directly.
-// TODO
-pub type ColdConfig<'a> = Option<&'a StoreConfig>;
-
 impl NodeStorage {
     /// Initialises a new opener with given home directory and hot and cold
     /// store config.
     pub fn opener<'a>(
         home_dir: &std::path::Path,
         config: &'a StoreConfig,
-        cold_config: ColdConfig<'a>,
+        cold_config: Option<&'a StoreConfig>,
     ) -> StoreOpener<'a> {
         StoreOpener::new(home_dir, config, cold_config)
     }
@@ -182,16 +177,26 @@ impl<D: Database + 'static> NodeStorage<D> {
     /// Please consider using the get_hot_store and get_cold_store methods to avoid panics.
     pub fn get_store(&self, temp: Temperature) -> Store {
         match temp {
-            Temperature::Hot => Store { storage: self.hot_storage.clone() },
-            Temperature::Cold => Store { storage: self.cold_storage.as_ref().unwrap().clone() },
+            Temperature::Hot => self.get_hot_store(),
+            Temperature::Cold => self.get_cold_store().unwrap(),
+        }
+    }
+
+    pub fn get_hot_store(&self) -> Store {
+        Store { storage: self.hot_storage.clone() }
+    }
+
+    pub fn get_cold_store(&self) -> Option<Store> {
+        match &self.cold_storage {
+            Some(cold_storage) => Some(Store { storage: cold_storage.clone() }),
+            None => None,
         }
     }
 
     /// Returns underlying database for given temperature.
     ///
-    /// With (currently unimplemented) cold storage, this allows accessing
-    /// underlying hot and cold databases directly bypassing any abstractions
-    /// offered by [`NodeStorage`] or [`Store`] interfaces.
+    /// This allows accessing underlying hot and cold databases directly
+    /// bypassing any abstractions offered by [`NodeStorage`] or [`Store`] interfaces.
     ///
     /// This is useful for certain data which only lives in hot storage and
     /// interfaces which deal with it.  For example, peer store uses hot
@@ -202,17 +207,8 @@ impl<D: Database + 'static> NodeStorage<D> {
     /// well.  For example, garbage collection only ever touches hot storage but
     /// it should go through [`Store`] interface since data it manipulates
     /// (e.g. blocks) are live in both databases.
-    pub fn _get_inner(&self, temp: Temperature) -> &Arc<dyn Database> {
-        match temp {
-            Temperature::Hot => &self.hot_storage,
-            Temperature::Cold => todo!(),
-        }
-    }
-
-    /// Returns underlying database for given temperature.
     ///
-    /// This is like [`Self::get_inner`] but consumes `self` thus avoiding
-    /// `Arc::clone`.
+    /// This method panics if trying to access cold store but it wasn't configured.
     pub fn into_inner(self, temp: Temperature) -> Arc<dyn Database> {
         match temp {
             Temperature::Hot => self.hot_storage,
@@ -221,8 +217,10 @@ impl<D: Database + 'static> NodeStorage<D> {
     }
 
     pub fn set_version(&self, version: DbVersion) -> std::io::Result<()> {
-        self.get_store(Temperature::Hot).set_db_version(version)?;
-        self.get_store(Temperature::Cold).set_db_version(version)?;
+        self.get_hot_store().set_db_version(version)?;
+        if let Some(cold_store) = self.get_cold_store() {
+            cold_store.set_db_version(version)?;
+        }
         Ok(())
     }
 }
