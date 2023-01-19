@@ -8,8 +8,10 @@ use crate::peer_manager::testonly::Event;
 use crate::tcp;
 use crate::testonly::{make_rng, Rng};
 use crate::time;
+use crate::types::{NetworkRequests, NetworkResponses, PeerManagerMessageRequest};
 use near_o11y::testonly::init_test_logger;
-use near_primitives::block_header::{Approval, ApprovalInner};
+use near_o11y::WithSpanContextExt;
+use near_primitives::block_header::{Approval, ApprovalInner, ApprovalMessage};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_store::db::TestDB;
 use rand::Rng as _;
@@ -46,66 +48,46 @@ async fn establish_connections(clock: &time::Clock, pms: &[&peer_manager::teston
     }
 }
 
-// Sends a routed TIER1 message from `from` to `to`.
-// Returns the message body that was sent, or None if the routing information was missing.
 async fn send_tier1_message(
     rng: &mut Rng,
-    clock: &time::Clock,
     from: &peer_manager::testonly::ActorHandler,
     to: &peer_manager::testonly::ActorHandler,
-) -> Option<RoutedMessageBody> {
+) {
     let from_signer = from.cfg.validator.as_ref().unwrap().signer.clone();
     let to_signer = to.cfg.validator.as_ref().unwrap().signer.clone();
     let target = to_signer.validator_id().clone();
-    let want = RoutedMessageBody::BlockApproval(make_block_approval(rng, from_signer.as_ref()));
-    let clock = clock.clone();
-    from.with_state(move |s| async move {
-        if s.send_message_to_account(&clock, &target, want.clone()) {
-            Some(want)
-        } else {
-            None
-        }
-    })
-    .await
-}
-
-// Sends a routed TIER1 message from `from` to `to`, then waits until `to` receives it.
-// `recv_tier` specifies over which network the message is expected to be actually delivered.
-async fn send_and_recv_tier1_message(
-    rng: &mut Rng,
-    clock: &time::Clock,
-    from: &peer_manager::testonly::ActorHandler,
-    to: &peer_manager::testonly::ActorHandler,
-    recv_tier: tcp::Tier,
-) {
+    let want = make_block_approval(rng, from_signer.as_ref());
+    let req = NetworkRequests::Approval {
+        approval_message: ApprovalMessage { approval: want.clone(), target },
+    };
     let mut events = to.events.from_now();
-    let want = send_tier1_message(rng, clock, from, to).await.expect("routing info not available");
+    let resp = from
+        .actix
+        .addr
+        .send(PeerManagerMessageRequest::NetworkRequests(req).with_span_context())
+        .await
+        .unwrap();
+    assert_eq!(NetworkResponses::NoResponse, resp.as_network_response());
     let got = events
         .recv_until(|ev| match ev {
-            Event::PeerManager(PME::MessageProcessed(tier, PeerMessage::Routed(got)))
-                if tier == recv_tier =>
-            {
+            Event::PeerManager(PME::MessageProcessed(tcp::Tier::T1, PeerMessage::Routed(got))) => {
                 Some(got)
             }
             _ => None,
         })
         .await;
     assert_eq!(from.cfg.node_id(), got.author);
-    assert_eq!(want, got.body);
+    assert_eq!(RoutedMessageBody::BlockApproval(want), got.body);
 }
 
 /// Send a message over each connection.
-async fn test_clique(
-    rng: &mut Rng,
-    clock: &time::Clock,
-    pms: &[&peer_manager::testonly::ActorHandler],
-) {
+async fn test_clique(rng: &mut Rng, pms: &[&peer_manager::testonly::ActorHandler]) {
     for from in pms {
         for to in pms {
             if from.cfg.node_id() == to.cfg.node_id() {
                 continue;
             }
-            send_and_recv_tier1_message(rng, clock, from, to, tcp::Tier::T1).await;
+            send_tier1_message(rng, from, to).await;
         }
     }
 }
@@ -119,7 +101,7 @@ async fn first_proxy_advertisement() {
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
-    let pm = start_pm(
+    let pm = peer_manager::testonly::start(
         clock.clock(),
         near_store::db::TestDB::new(),
         chain.make_config(rng),
@@ -151,7 +133,7 @@ async fn direct_connections() {
     let mut pms = vec![];
     for _ in 0..5 {
         pms.push(
-            start_pm(
+            peer_manager::testonly::start(
                 clock.clock(),
                 near_store::db::TestDB::new(),
                 chain.make_config(rng),
@@ -178,7 +160,7 @@ async fn direct_connections() {
     tracing::info!(target:"test", "Establish connections.");
     establish_connections(&clock.clock(), &pms[..]).await;
     tracing::info!(target:"test", "Test clique.");
-    test_clique(rng, &clock.clock(), &pms[..]).await;
+    test_clique(rng, &pms[..]).await;
 }
 
 /// Test which spawns N validators, each with 1 proxy.
@@ -197,7 +179,7 @@ async fn proxy_connections() {
     let mut proxies = vec![];
     for _ in 0..N {
         proxies.push(
-            start_pm(
+            peer_manager::testonly::start(
                 clock.clock(),
                 near_store::db::TestDB::new(),
                 chain.make_config(rng),
@@ -216,13 +198,20 @@ async fn proxy_connections() {
                 peer_id: proxies[i].cfg.node_id(),
                 addr: proxies[i].cfg.node_addr.unwrap(),
             }]);
-        validators
-            .push(start_pm(clock.clock(), near_store::db::TestDB::new(), cfg, chain.clone()).await);
+        validators.push(
+            peer_manager::testonly::start(
+                clock.clock(),
+                near_store::db::TestDB::new(),
+                cfg,
+                chain.clone(),
+            )
+            .await,
+        );
     }
     let validators: Vec<_> = validators.iter().collect();
 
     // Connect validators and proxies in a star topology. Any connected graph would do.
-    let hub = start_pm(
+    let hub = peer_manager::testonly::start(
         clock.clock(),
         near_store::db::TestDB::new(),
         chain.make_config(rng),
@@ -249,7 +238,7 @@ async fn proxy_connections() {
         pm.set_chain_info(chain_info.clone()).await;
     }
     establish_connections(&clock.clock(), &all[..]).await;
-    test_clique(rng, &clock.clock(), &validators[..]).await;
+    test_clique(rng, &validators[..]).await;
 }
 
 #[tokio::test]
@@ -274,7 +263,7 @@ async fn account_keys_change() {
         pm.set_chain_info(chain_info.clone()).await;
     }
     establish_connections(&clock.clock(), &[&v0, &v1, &v2, &hub]).await;
-    test_clique(rng, &clock.clock(), &[&v0, &v1]).await;
+    test_clique(rng, &[&v0, &v1]).await;
 
     // TIER1 nodes in 2nd epoch are {v0,v2}.
     let chain_info = peer_manager::testonly::make_chain_info(&chain, &[&v0.cfg, &v2.cfg]);
@@ -282,7 +271,7 @@ async fn account_keys_change() {
         pm.set_chain_info(chain_info.clone()).await;
     }
     establish_connections(&clock.clock(), &[&v0, &v1, &v2, &hub]).await;
-    test_clique(rng, &clock.clock(), &[&v0, &v2]).await;
+    test_clique(rng, &[&v0, &v2]).await;
 
     drop(v0);
     drop(v1);
@@ -324,6 +313,8 @@ async fn proxy_change() {
     hub.connect_to(&p1.peer_info(), tcp::Tier::T2).await;
     hub.connect_to(&v0.peer_info(), tcp::Tier::T2).await;
     hub.connect_to(&v1.peer_info(), tcp::Tier::T2).await;
+    tracing::info!(target:"dupa","p0 = {}",p0cfg.node_id());
+    tracing::info!(target:"dupa","hub = {}",hub.cfg.node_id());
 
     tracing::info!(target:"test", "p0 goes down");
     drop(p0);
@@ -335,7 +326,7 @@ async fn proxy_change() {
     tracing::info!(target:"test", "TIER1 connections get established: v0 -> p1 <- v1.");
     establish_connections(&clock.clock(), &[&v0, &v1, &p1, &hub]).await;
     tracing::info!(target:"test", "Send message v1 -> v0 over TIER1.");
-    send_and_recv_tier1_message(rng, &clock.clock(), &v1, &v0, tcp::Tier::T1).await;
+    send_tier1_message(rng, &v1, &v0).await;
 
     // Advance time, so that the new AccountsData has newer timestamp.
     clock.advance(time::Duration::hours(1));
@@ -349,42 +340,10 @@ async fn proxy_change() {
     tracing::info!(target:"test", "TIER1 connections get established: v0 -> p0 <- v1.");
     establish_connections(&clock.clock(), &[&v0, &v1, &p0, &hub]).await;
     tracing::info!(target:"test", "Send message v1 -> v0 over TIER1.");
-    send_and_recv_tier1_message(rng, &clock.clock(), &v1, &v0, tcp::Tier::T1).await;
+    send_tier1_message(rng, &v1, &v0).await;
 
     drop(hub);
     drop(v0);
     drop(v1);
     drop(p0);
-}
-
-#[tokio::test]
-async fn tier2_routing_using_accounts_data() {
-    init_test_logger();
-    let mut rng = make_rng(921853233);
-    let rng = &mut rng;
-    let mut clock = time::FakeClock::default();
-    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
-
-    tracing::info!(target:"test", "start 2 nodes and connect them");
-    let pm0 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
-    let pm1 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
-    pm0.connect_to(&pm1.peer_info(), tcp::Tier::T2).await;
-
-    tracing::info!(target:"test", "Try to send a routed message pm0 -> pm1 over TIER2");
-    // It should fail due to missing routing information: neither AccountData or AnnounceAccount is
-    // broadcasted by default in tests.
-    // TODO(gprusak): send_tier1_message sends an Approval message, which is not a valid message to
-    // be sent from a non-TIER1 node. Make it more realistic by sending a Transaction message.
-    assert!(send_tier1_message(rng, &clock.clock(), &pm0, &pm1).await.is_none());
-
-    tracing::info!(target:"test", "propagate AccountsData");
-    let chain_info = peer_manager::testonly::make_chain_info(&chain, &[&pm1.cfg]);
-    for pm in [&pm0, &pm1] {
-        pm.set_chain_info(chain_info.clone()).await;
-    }
-    let data: HashSet<_> = pm1.tier1_advertise_proxies(&clock.clock()).await.into_iter().collect();
-    pm0.wait_for_accounts_data(&data).await;
-
-    tracing::info!(target:"test", "Send a routed message pm0 -> pm1 over TIER2.");
-    send_and_recv_tier1_message(rng, &clock.clock(), &pm0, &pm1, tcp::Tier::T2).await;
 }

@@ -11,6 +11,7 @@ use crate::adapter::{
     RecvPartialEncodedChunkRequest, RecvPartialEncodedChunkResponse, SetNetworkInfo, StateResponse,
 };
 use crate::client::{Client, EPOCH_START_INFO_BLOCKS};
+use crate::config_updater::ConfigUpdater;
 use crate::debug::new_network_info_view;
 use crate::info::{display_sync_status, InfoHelper};
 use crate::metrics::PARTIAL_ENCODED_CHUNK_RESPONSE_DELAY;
@@ -38,7 +39,6 @@ use near_chunks::logic::cares_about_shard_this_or_next_epoch;
 use near_client_primitives::types::{
     Error, GetNetworkInfo, NetworkInfoResponse, Status, StatusError, StatusSyncInfo, SyncStatus,
 };
-use near_dyn_configs::EXPECTED_SHUTDOWN_AT;
 #[cfg(feature = "test_features")]
 use near_network::types::NetworkAdversarialMessage;
 use near_network::types::ReasonForBan;
@@ -69,7 +69,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
-use tokio::sync::oneshot;
+use tokio::sync::broadcast;
 use tracing::{debug, error, info, trace, warn};
 
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.
@@ -116,7 +116,10 @@ pub struct ClientActor {
 
     /// Synchronization measure to allow graceful shutdown.
     /// Informs the system when a ClientActor gets dropped.
-    shutdown_signal: Option<oneshot::Sender<()>>,
+    shutdown_signal: Option<broadcast::Sender<()>>,
+
+    /// Manages updating the config.
+    config_updater: Option<ConfigUpdater>,
 }
 
 /// Blocks the program until given genesis time arrives.
@@ -152,8 +155,9 @@ impl ClientActor {
         enable_doomslug: bool,
         rng_seed: RngSeed,
         ctx: &Context<ClientActor>,
-        shutdown_signal: Option<oneshot::Sender<()>>,
+        shutdown_signal: Option<broadcast::Sender<()>>,
         adv: crate::adversarial::Controls,
+        config_updater: Option<ConfigUpdater>,
     ) -> Result<Self, Error> {
         let state_parts_arbiter = Arbiter::new();
         let self_addr = ctx.address();
@@ -222,7 +226,8 @@ impl ClientActor {
 
             #[cfg(feature = "sandbox")]
             fastforward_delta: 0,
-            shutdown_signal: shutdown_signal,
+            shutdown_signal,
+            config_updater,
         })
     }
 }
@@ -1129,14 +1134,20 @@ impl ClientActor {
     /// Returns the delay before the next time `check_triggers` should be called, which is
     /// min(time until the closest trigger, 1 second).
     fn check_triggers(&mut self, ctx: &mut Context<ClientActor>) -> Duration {
+        if let Some(config_updater) = &mut self.config_updater {
+            config_updater.try_update(&|updateable_client_config| {
+                self.client.update_client_config(updateable_client_config)
+            });
+        }
+
         // Check block height to trigger expected shutdown
         if let Ok(head) = self.client.chain.head() {
-            let block_height_to_shutdown =
-                EXPECTED_SHUTDOWN_AT.load(std::sync::atomic::Ordering::Relaxed);
-            if block_height_to_shutdown > 0 && head.height >= block_height_to_shutdown {
-                info!(target: "client", "Expected shutdown triggered: head block({}) >= ({})", head.height, block_height_to_shutdown);
-                if let Some(tx) = self.shutdown_signal.take() {
-                    let _ = tx.send(()); // Ignore send signal fail, it will send again in next trigger
+            if let Some(block_height_to_shutdown) = self.client.config.expected_shutdown.get() {
+                if head.height >= block_height_to_shutdown {
+                    info!(target: "client", "Expected shutdown triggered: head block({}) >= ({:?})", head.height, block_height_to_shutdown);
+                    if let Some(tx) = self.shutdown_signal.take() {
+                        let _ = tx.send(()); // Ignore send signal fail, it will send again in next trigger
+                    }
                 }
             }
         }
@@ -1755,7 +1766,12 @@ impl ClientActor {
     fn log_summary(&mut self) {
         let _span = tracing::debug_span!(target: "client", "log_summary").entered();
         let _d = delay_detector::DelayDetector::new(|| "client log summary".into());
-        self.info_helper.log_summary(&self.client, &self.node_id, &self.network_info)
+        self.info_helper.log_summary(
+            &self.client,
+            &self.node_id,
+            &self.network_info,
+            &self.config_updater,
+        )
     }
 }
 
@@ -1970,8 +1986,9 @@ pub fn start_client(
     network_adapter: Arc<dyn PeerManagerAdapter>,
     validator_signer: Option<Arc<dyn ValidatorSigner>>,
     telemetry_actor: Addr<TelemetryActor>,
-    sender: Option<oneshot::Sender<()>>,
+    sender: Option<broadcast::Sender<()>>,
     adv: crate::adversarial::Controls,
+    config_updater: Option<ConfigUpdater>,
 ) -> (Addr<ClientActor>, ArbiterHandle) {
     let client_arbiter = Arbiter::new();
     let client_arbiter_handle = client_arbiter.handle();
@@ -1990,6 +2007,7 @@ pub fn start_client(
             ctx,
             sender,
             adv,
+            config_updater,
         )
         .unwrap()
     });

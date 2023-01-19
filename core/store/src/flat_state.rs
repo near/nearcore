@@ -519,7 +519,7 @@ pub const NUM_PARTS_IN_ONE_STEP: u64 = 20;
 pub const STATE_PART_MEMORY_LIMIT: bytesize::ByteSize = bytesize::ByteSize(10 * bytesize::MIB);
 
 /// Current step of fetching state to fill flat storage.
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Copy, Clone, Debug, PartialEq, Eq)]
 pub struct FetchingStateStatus {
     /// Number of the first state part to be fetched in this step.
     pub part_id: u64,
@@ -533,8 +533,8 @@ pub struct FetchingStateStatus {
 /// Because this is a heavy work requiring ~5h for testnet rpc node and ~10h for testnet archival node, we do it on
 /// background during regular block processing.
 /// This struct reveals what is the current status of creating flat storage data on disk.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum FlatStorageStateStatus {
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum FlatStorageCreationStatus {
     /// Flat storage state does not exist. We are saving `FlatStorageDelta`s to disk.
     /// During this step, we save current chain head, start saving all deltas for blocks after chain head and wait until
     /// final chain head moves after saved chain head.
@@ -558,16 +558,16 @@ pub enum FlatStorageStateStatus {
     DontCreate,
 }
 
-impl Into<i64> for &FlatStorageStateStatus {
+impl Into<i64> for &FlatStorageCreationStatus {
     /// Converts status to integer to export to prometheus later.
     /// Cast inside enum does not work because it is not fieldless.
     fn into(self) -> i64 {
         match self {
-            FlatStorageStateStatus::Ready => 0,
-            FlatStorageStateStatus::SavingDeltas => 1,
-            FlatStorageStateStatus::FetchingState(_) => 2,
-            FlatStorageStateStatus::CatchingUp => 3,
-            FlatStorageStateStatus::DontCreate => 4,
+            FlatStorageCreationStatus::SavingDeltas => 0,
+            FlatStorageCreationStatus::FetchingState(_) => 1,
+            FlatStorageCreationStatus::CatchingUp => 2,
+            FlatStorageCreationStatus::Ready => 3,
+            FlatStorageCreationStatus::DontCreate => 4,
         }
     }
 }
@@ -575,7 +575,7 @@ impl Into<i64> for &FlatStorageStateStatus {
 #[cfg(feature = "protocol_feature_flat_state")]
 pub mod store_helper {
     use crate::flat_state::{
-        FetchingStateStatus, FlatStorageError, FlatStorageStateStatus, KeyForFlatStateDelta,
+        FetchingStateStatus, FlatStorageCreationStatus, FlatStorageError, KeyForFlatStateDelta,
     };
     use crate::{FlatStateDelta, Store, StoreUpdate};
     use borsh::BorshSerialize;
@@ -730,19 +730,19 @@ pub mod store_helper {
         store_update.delete(crate::DBCol::FlatStateMisc, &catchup_status_key(shard_id));
     }
 
-    pub fn get_flat_storage_state_status(
+    pub fn get_flat_storage_creation_status(
         store: &Store,
         shard_id: ShardId,
-    ) -> FlatStorageStateStatus {
+    ) -> FlatStorageCreationStatus {
         match get_flat_head(store, shard_id) {
-            None => FlatStorageStateStatus::SavingDeltas,
+            None => FlatStorageCreationStatus::SavingDeltas,
             Some(_) => {
                 if let Some(fetching_state_status) = get_fetching_state_status(store, shard_id) {
-                    FlatStorageStateStatus::FetchingState(fetching_state_status)
+                    FlatStorageCreationStatus::FetchingState(fetching_state_status)
                 } else if get_catchup_status(store, shard_id) {
-                    FlatStorageStateStatus::CatchingUp
+                    FlatStorageCreationStatus::CatchingUp
                 } else {
-                    FlatStorageStateStatus::Ready
+                    FlatStorageCreationStatus::Ready
                 }
             }
         }
@@ -751,7 +751,7 @@ pub mod store_helper {
 
 #[cfg(not(feature = "protocol_feature_flat_state"))]
 pub mod store_helper {
-    use crate::flat_state::{FlatStateDelta, FlatStorageError, FlatStorageStateStatus};
+    use crate::flat_state::{FlatStateDelta, FlatStorageCreationStatus, FlatStorageError};
     use crate::Store;
     use near_primitives::hash::CryptoHash;
     use near_primitives::types::ShardId;
@@ -769,11 +769,11 @@ pub mod store_helper {
         Err(FlatStorageError::StorageInternalError)
     }
 
-    pub fn get_flat_storage_state_status(
+    pub fn get_flat_storage_creation_status(
         _store: &Store,
         _shard_id: ShardId,
-    ) -> FlatStorageStateStatus {
-        FlatStorageStateStatus::DontCreate
+    ) -> FlatStorageCreationStatus {
+        FlatStorageCreationStatus::DontCreate
     }
 }
 

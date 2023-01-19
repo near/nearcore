@@ -51,8 +51,8 @@ use near_primitives::views::{
     LightClientBlockView, SignedTransactionView,
 };
 #[cfg(feature = "protocol_feature_flat_state")]
-use near_store::flat_state;
-use near_store::{DBCol, ShardTries, StorageError, StoreUpdate, WrappedTrieChanges};
+use near_store::{flat_state, StorageError};
+use near_store::{DBCol, ShardTries, StoreUpdate, WrappedTrieChanges};
 
 use crate::block_processing_utils::{
     BlockPreprocessInfo, BlockProcessingArtifact, BlocksInProcessing, DoneApplyChunkCallback,
@@ -86,7 +86,7 @@ use near_primitives::shard_layout::{
 use near_primitives::version::PROTOCOL_VERSION;
 #[cfg(feature = "protocol_feature_flat_state")]
 use near_store::flat_state::{store_helper, FlatStateDelta};
-use near_store::flat_state::{FlatStorageError, FlatStorageStateStatus};
+use near_store::flat_state::{FlatStorageCreationStatus, FlatStorageError};
 use once_cell::sync::OnceCell;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
@@ -3179,6 +3179,7 @@ impl Chain {
 
         // We synced shard state on top of _previous_ block for chunk in shard state header and applied state parts to
         // flat storage. Now we can set flat head to hash of this block and create flat storage.
+        // TODO (#7327): ensure that no flat storage work is done for `KeyValueRuntime`.
         #[cfg(feature = "protocol_feature_flat_state")]
         {
             let mut store_update = self.runtime_adapter.store().store_update();
@@ -3186,15 +3187,14 @@ impl Chain {
             store_update.commit()?;
         }
 
-        match self.runtime_adapter.try_create_flat_storage_state_for_shard(
-            shard_id,
-            block_height,
-            self.store(),
-        ) {
-            FlatStorageStateStatus::Ready | FlatStorageStateStatus::DontCreate => {}
-            status @ _ => {
-                return Err(Error::StorageError(StorageError::FlatStorageError(format!("Unable to create flat storage during syncing shard {shard_id}, got status {status:?}"))));
-            }
+        if self.runtime_adapter.get_flat_storage_creation_status(shard_id)
+            == FlatStorageCreationStatus::Ready
+        {
+            self.runtime_adapter.create_flat_storage_state_for_shard(
+                shard_id,
+                block_height,
+                self.store(),
+            );
         }
 
         let mut height = shard_state_header.chunk_height_included();

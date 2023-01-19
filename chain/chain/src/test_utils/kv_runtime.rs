@@ -51,7 +51,7 @@ use crate::{BlockHeader, RuntimeAdapter};
 use near_primitives::epoch_manager::ShardConfig;
 
 use near_store::flat_state::ChainAccessForFlatStorage;
-use near_store::flat_state::{FlatStorageState, FlatStorageStateStatus};
+use near_store::flat_state::{FlatStorageCreationStatus, FlatStorageState};
 
 use super::ValidatorSchedule;
 
@@ -832,13 +832,17 @@ impl RuntimeAdapter for KeyValueRuntime {
         None
     }
 
-    fn try_create_flat_storage_state_for_shard(
+    fn get_flat_storage_creation_status(&self, _shard_id: ShardId) -> FlatStorageCreationStatus {
+        FlatStorageCreationStatus::DontCreate
+    }
+
+    fn create_flat_storage_state_for_shard(
         &self,
-        _shard_id: ShardId,
+        shard_id: ShardId,
         _latest_block_height: BlockHeight,
         _chain_access: &dyn ChainAccessForFlatStorage,
-    ) -> FlatStorageStateStatus {
-        FlatStorageStateStatus::DontCreate
+    ) {
+        panic!("Flat storage state can't be created for shard {shard_id} because KeyValueRuntime doesn't support this");
     }
 
     fn remove_flat_storage_state_for_shard(

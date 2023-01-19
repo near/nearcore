@@ -1,4 +1,6 @@
-use near_o11y::metrics::{linear_buckets, try_create_histogram_vec, HistogramVec};
+use near_o11y::metrics::{
+    linear_buckets, try_create_histogram_vec, try_create_int_gauge, HistogramVec, IntGauge,
+};
 use once_cell::sync::Lazy;
 
 pub static APPLY_CHUNK_DELAY: Lazy<HistogramVec> = Lazy::new(|| {
@@ -8,7 +10,7 @@ pub static APPLY_CHUNK_DELAY: Lazy<HistogramVec> = Lazy::new(|| {
         &["tgas_ceiling"],
         Some(linear_buckets(0.0, 0.05, 50).unwrap()),
     )
-    .unwrap()
+        .unwrap()
 });
 
 pub static SECONDS_PER_PETAGAS: Lazy<HistogramVec> = Lazy::new(|| {
@@ -21,6 +23,14 @@ pub static SECONDS_PER_PETAGAS: Lazy<HistogramVec> = Lazy::new(|| {
             0.0, 0.1, 0.2, 0.5, 0.7, 0.8, 0.9, 0.95, 0.97, 0.99, 1.0, 1.01, 1.03, 1.05, 1.1, 1.2,
             1.3, 1.5, 2.0, 5.0, 10.0,
         ]),
+    )
+    .unwrap()
+});
+
+pub(crate) static CONFIG_CORRECT: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge(
+        "near_config_correct",
+        "Are the current dynamically loadable configs correct",
     )
     .unwrap()
 });
