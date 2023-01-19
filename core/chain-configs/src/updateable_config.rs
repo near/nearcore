@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex};
 /// When initializing sub-objects (e.g. `ShardsManager`), please make sure to
 /// pass this wrapper instead of passing a value from a single moment in time.
 /// See `expected_shutdown` for an example how to use it.
+/// TODO: custom implementation for Serialize and Deserialize s.t. only value is necessary(JIRA:ND-283)
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MutableConfigValue<T> {
     value: Arc<Mutex<T>>,
