@@ -414,10 +414,9 @@ impl FlatStorageCreator {
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         chain_store: &ChainStore,
         num_threads: usize,
-    ) -> Option<Self> {
-        let chain_head = chain_store.head().unwrap();
-        let num_shards = runtime_adapter.num_shards(&chain_head.epoch_id).unwrap();
-        let start_height = chain_head.height;
+    ) -> Result<Option<Self>, Error> {
+        let chain_head = chain_store.head()?;
+        let num_shards = runtime_adapter.num_shards(&chain_head.epoch_id)?;
         let mut shard_creators: HashMap<ShardId, FlatStorageShardCreator> = HashMap::new();
         let mut creation_needed = false;
         for shard_id in 0..num_shards {
@@ -427,7 +426,7 @@ impl FlatStorageCreator {
                     FlatStorageCreationStatus::Ready => {
                         runtime_adapter.create_flat_storage_state_for_shard(
                             shard_id,
-                            chain_store.head().unwrap().height,
+                            chain_head.height,
                             chain_store,
                         );
                     }
@@ -438,7 +437,7 @@ impl FlatStorageCreator {
                             shard_id,
                             FlatStorageShardCreator::new(
                                 shard_id,
-                                start_height,
+                                chain_head.height,
                                 runtime_adapter.clone(),
                             ),
                         );
@@ -447,14 +446,15 @@ impl FlatStorageCreator {
             }
         }
 
-        if creation_needed {
+        let flat_storage_creator = if creation_needed {
             Some(Self {
                 shard_creators,
                 pool: rayon::ThreadPoolBuilder::new().num_threads(num_threads).build().unwrap(),
             })
         } else {
             None
-        }
+        };
+        Ok(flat_storage_creator)
     }
 
     /// Updates statuses of underlying flat storage creation processes. Returns boolean
