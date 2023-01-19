@@ -36,11 +36,9 @@ pub enum DbKind {
     /// The database is an archive database meaning that it is not garbage
     /// collected and stores all chain data.
     Archive,
-    #[cfg(feature = "cold_store")]
     /// The database is Hot meaning that the node runs in archival mode with
     /// a paired Cold database.
     Hot,
-    #[cfg(feature = "cold_store")]
     /// The database is Cold meaning that the node runs in archival mode with
     /// a paired Hot database.
     Cold,

@@ -8,11 +8,12 @@ use std::{fmt, io};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use metadata::{DbKind, DbVersion, KIND_KEY, VERSION_KEY};
 use once_cell::sync::Lazy;
 
 pub use columns::DBCol;
 pub use db::{
-    CHUNK_TAIL_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
+    CHUNK_TAIL_KEY, COLD_HEAD_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
     LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, TAIL_KEY,
 };
 use near_crypto::PublicKey;
@@ -103,7 +104,7 @@ pub struct NodeStorage<D = crate::db::RocksDB> {
 /// Node’s single storage source.
 ///
 /// Currently, this is somewhat equivalent to [`NodeStorage`] in that for given
-/// note storage you can get only a single [`Store`] object.  This will change
+/// node storage you can get only a single [`Store`] object.  This will change
 /// as we implement cold storage in which case this structure will provide an
 /// interface to access either hot or cold data.  At that point, [`NodeStorage`]
 /// will map to one of two [`Store`] objects depending on the temperature of the
@@ -240,6 +241,13 @@ impl<D: Database + 'static> NodeStorage<D> {
             Temperature::Cold => self.cold_storage.unwrap(),
         }
     }
+
+    pub fn set_version(&self, version: DbVersion) -> std::io::Result<()> {
+        self.get_store(Temperature::Hot).set_db_version(version)?;
+        #[cfg(feature = "cold_store")]
+        self.get_store(Temperature::Cold).set_db_version(version)?;
+        Ok(())
+    }
 }
 
 impl<D> NodeStorage<D> {
@@ -256,8 +264,7 @@ impl<D> NodeStorage<D> {
         Ok(match metadata::DbMetadata::read(self.hot_storage.as_ref())?.kind.unwrap() {
             metadata::DbKind::RPC => false,
             metadata::DbKind::Archive => true,
-            #[cfg(feature = "cold_store")]
-            metadata::DbKind::Hot | metadata::DbKind::Cold => unreachable!(),
+            metadata::DbKind::Hot | metadata::DbKind::Cold => todo!(),
         })
     }
 
@@ -388,6 +395,30 @@ impl Store {
 
     pub fn get_store_statistics(&self) -> Option<StoreStatistics> {
         self.storage.get_store_statistics()
+    }
+}
+
+impl Store {
+    pub fn get_db_version(&self) -> io::Result<DbVersion> {
+        let metadata = metadata::DbMetadata::read(self.storage.as_ref())?;
+        Ok(metadata.version)
+    }
+
+    pub fn set_db_version(&self, version: DbVersion) -> io::Result<()> {
+        let mut store_update = self.store_update();
+        store_update.set(DBCol::DbVersion, VERSION_KEY, version.to_string().as_bytes());
+        store_update.commit()
+    }
+
+    pub fn get_db_kind(&self) -> io::Result<Option<DbKind>> {
+        let metadata = metadata::DbMetadata::read(self.storage.as_ref())?;
+        Ok(metadata.kind)
+    }
+
+    pub fn set_db_kind(&self, kind: DbKind) -> io::Result<()> {
+        let mut store_update = self.store_update();
+        store_update.set(DBCol::DbVersion, KIND_KEY, <&str>::from(kind).as_bytes());
+        store_update.commit()
     }
 }
 
