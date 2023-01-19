@@ -533,7 +533,7 @@ pub struct FetchingStateStatus {
 /// Because this is a heavy work requiring ~5h for testnet rpc node and ~10h for testnet archival node, we do it on
 /// background during regular block processing.
 /// This struct reveals what is the current status of creating flat storage data on disk.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum FlatStorageStateStatus {
     /// Flat storage state does not exist. We are saving `FlatStorageDelta`s to disk.
     /// During this step, we save current chain head, start saving all deltas for blocks after chain head and wait until

@@ -49,24 +49,27 @@ fn wait_for_flat_storage_creation(env: &mut TestEnv, start_height: BlockHeight) 
 
         let status = store_helper::get_flat_storage_state_status(&store, 0);
         // Check validity of state transition for flat storage creation.
-        match (&prev_status, &status) {
-            (FlatStorageStateStatus::SavingDeltas, FlatStorageStateStatus::SavingDeltas)
-            | (FlatStorageStateStatus::SavingDeltas, FlatStorageStateStatus::FetchingState(_))
-            | (
-                FlatStorageStateStatus::FetchingState(_),
-                FlatStorageStateStatus::FetchingState(_),
-            )
-            | (FlatStorageStateStatus::FetchingState(_), FlatStorageStateStatus::CatchingUp)
-            | (FlatStorageStateStatus::CatchingUp, FlatStorageStateStatus::CatchingUp)
-            | (FlatStorageStateStatus::CatchingUp, FlatStorageStateStatus::Ready) => {}
-            (_, _) => {
-                panic!("Invalid state transition during flat storage creation: moved from {prev_status:?} to {status:?} for height {next_height}");
+        match &prev_status {
+            FlatStorageStateStatus::SavingDeltas => assert_matches!(
+                status,
+                FlatStorageStateStatus::SavingDeltas | FlatStorageStateStatus::FetchingState(_)
+            ),
+            FlatStorageStateStatus::FetchingState(_) => assert_matches!(
+                status,
+                FlatStorageStateStatus::FetchingState(_) | FlatStorageStateStatus::CatchingUp
+            ),
+            FlatStorageStateStatus::CatchingUp => assert_matches!(
+                status,
+                FlatStorageStateStatus::CatchingUp | FlatStorageStateStatus::Ready
+            ),
+            _ => {
+                panic!("Invalid status {prev_status:?} observed during flat storage creation for height {next_height}");
             }
         }
 
         prev_status = status;
         next_height += 1;
-        if status == FlatStorageStateStatus::Ready {
+        if prev_status == FlatStorageStateStatus::Ready {
             break;
         }
 
