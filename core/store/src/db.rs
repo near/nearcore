@@ -55,6 +55,7 @@ impl DBOp {
             DBOp::UpdateRefcount { col, .. } => col,
             DBOp::Delete { col, .. } => col,
             DBOp::DeleteAll { col } => col,
+            DBOp::DeleteRange { col, .. } => col,
         }
         .clone()
     }
