@@ -1,8 +1,8 @@
 use crate::mocks::mock_external::MockedExternal;
 use crate::mocks::mock_memory::MockedMemory;
-use crate::types::{Gas, PromiseResult};
-use crate::{ActionCosts, MemSlice, VMConfig, VMContext, VMLogic};
-use near_primitives_core::runtime::fees::{Fee, RuntimeFeesConfig};
+use crate::types::PromiseResult;
+use crate::{MemSlice, VMConfig, VMContext, VMLogic};
+use near_primitives_core::runtime::fees::RuntimeFeesConfig;
 use near_primitives_core::types::ProtocolVersion;
 
 pub(super) const LATEST_PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion::MAX;
@@ -32,6 +32,13 @@ impl Default for VMLogicBuilder {
 }
 
 impl VMLogicBuilder {
+    pub fn view() -> Self {
+        let mut builder = Self::default();
+        let max_gas_burnt = builder.config.limit_config.max_gas_burnt;
+        builder.context.view_config = Some(crate::ViewConfig { max_gas_burnt });
+        builder
+    }
+
     pub fn build(&mut self) -> TestVMLogic<'_> {
         let context = self.context.clone();
         TestVMLogic::from(VMLogic::new_with_protocol_version(
@@ -55,16 +62,6 @@ impl VMLogicBuilder {
             current_protocol_version: LATEST_PROTOCOL_VERSION,
             context: get_context(),
         }
-    }
-
-    pub fn max_gas_burnt(mut self, max_gas_burnt: Gas) -> Self {
-        self.config.limit_config.max_gas_burnt = max_gas_burnt;
-        self
-    }
-
-    pub fn gas_fee(mut self, cost: ActionCosts, fee: Fee) -> Self {
-        self.fees_config.action_fees[cost] = fee;
-        self
     }
 }
 
