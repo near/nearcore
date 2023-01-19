@@ -23,7 +23,7 @@ pub struct MutableConfigValue<T> {
 }
 
 impl<T: Serialize> Serialize for MutableConfigValue<T> {
-    /// Only include the value field of MutableConfigValue in serialized result 
+    /// Only include the value field of MutableConfigValue in serialized result
     /// since field_name and last_update are only relevant for internal monitoring
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
