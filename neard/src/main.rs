@@ -1,5 +1,4 @@
 mod cli;
-mod watchers;
 
 use self::cli::NeardCmd;
 use anyhow::Context;

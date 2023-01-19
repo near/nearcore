@@ -6,7 +6,7 @@ use actix_rt::ArbiterHandle;
 use actix_web;
 use anyhow::Context;
 use near_chain::{Chain, ChainGenesis};
-use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
+use near_client::{start_client, start_view_client, ClientActor, ConfigUpdater, ViewClientActor};
 use near_network::time;
 use near_network::types::NetworkRecipient;
 use near_network::PeerManagerActor;
@@ -15,12 +15,13 @@ use near_store::{DBCol, Mode, NodeStorage, StoreOpenerError, Temperature};
 use near_telemetry::TelemetryActor;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tokio::sync::oneshot;
+use tokio::sync::broadcast;
 use tracing::{info, trace};
 
 pub mod append_only_map;
 pub mod config;
 mod download_file;
+pub mod dyn_config;
 mod metrics;
 pub mod migrations;
 mod runtime;
@@ -153,7 +154,7 @@ pub struct NearNode {
 }
 
 pub fn start_with_config(home_dir: &Path, config: NearConfig) -> anyhow::Result<NearNode> {
-    start_with_config_and_synchronization(home_dir, config, None)
+    start_with_config_and_synchronization(home_dir, config, None, None)
 }
 
 pub fn start_with_config_and_synchronization(
@@ -161,7 +162,8 @@ pub fn start_with_config_and_synchronization(
     mut config: NearConfig,
     // 'shutdown_signal' will notify the corresponding `oneshot::Receiver` when an instance of
     // `ClientActor` gets dropped.
-    shutdown_signal: Option<oneshot::Sender<()>>,
+    shutdown_signal: Option<broadcast::Sender<()>>,
+    config_updater: Option<ConfigUpdater>,
 ) -> anyhow::Result<NearNode> {
     let store = open_storage(home_dir, &mut config)?;
 
@@ -199,8 +201,9 @@ pub fn start_with_config_and_synchronization(
         network_adapter.clone(),
         config.validator_signer,
         telemetry,
-        shutdown_signal,
+        shutdown_signal.clone(),
         adv,
+        config_updater,
     );
 
     #[allow(unused_mut)]
