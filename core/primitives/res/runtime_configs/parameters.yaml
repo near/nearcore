@@ -3,10 +3,14 @@
 # The diffs are stored in files named `NN.txt`, where `NN` is the version.
 
 # Gas economics config
-burnt_gas_reward_numerator: 3
-burnt_gas_reward_denominator: 10
-pessimistic_gas_price_inflation_numerator: 103
-pessimistic_gas_price_inflation_denominator: 100
+burnt_gas_reward: {
+  numerator: 3,
+  denominator: 10,
+}
+pessimistic_gas_price_inflation: {
+  numerator: 103,
+  denominator: 100,
+}
 
 # Account creation config
 min_allowed_top_level_account_length: 32
