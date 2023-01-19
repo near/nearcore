@@ -21,7 +21,6 @@ use crate::types::{
 };
 use actix::fut::future::wrap_future;
 use actix::{Actor as _, ActorContext as _, ActorFutureExt as _, AsyncContext as _};
-use borsh::{BorshDeserialize, BorshSerialize};
 use lru::LruCache;
 use near_crypto::Signature;
 use near_o11y::{handler_debug_span, log_assert, pretty, OpenTelemetrySpanExt, WithSpanContext};
@@ -78,8 +77,8 @@ pub struct HandshakeCompletedEvent {
     pub(crate) tier: tcp::Tier,
 }
 
-#[derive(thiserror::Error, Clone, PartialEq, Eq, Debug, BorshSerialize, BorshDeserialize)]
-pub enum ClosingReason {
+#[derive(thiserror::Error, Clone, PartialEq, Eq, Debug)]
+pub(crate) enum ClosingReason {
     #[error("too many inbound connections in connecting state")]
     TooManyInbound,
     #[error("outbound not allowed: {0}")]

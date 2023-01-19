@@ -160,7 +160,6 @@ impl From<&PeerMessage> for proto::PeerMessage {
 
 pub type ParseTransactionError = borsh::maybestd::io::Error;
 pub type ParseRoutedError = borsh::maybestd::io::Error;
-pub type ParseDisconnectError = borsh::maybestd::io::Error;
 pub type ParseChallengeError = borsh::maybestd::io::Error;
 
 #[derive(thiserror::Error, Debug)]
@@ -193,8 +192,6 @@ pub enum ParsePeerMessageError {
     Transaction(ParseTransactionError),
     #[error("routed: {0}")]
     Routed(ParseRoutedError),
-    #[error("disconnect: {0}")]
-    Disconnect(ParseDisconnectError),
     #[error("challenge: {0}")]
     Challenge(ParseChallengeError),
     #[error("routed_created_at: {0}")]
