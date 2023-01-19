@@ -42,12 +42,12 @@ fn setup_env(genesis: &Genesis, store: Store) -> TestEnv {
 fn wait_for_flat_storage_creation(env: &mut TestEnv, start_height: BlockHeight) -> BlockHeight {
     let store = env.clients[0].runtime_adapter.store().clone();
     let mut next_height = start_height;
-    let mut prev_status = store_helper::get_flat_storage_state_status(&store, 0);
+    let mut prev_status = store_helper::get_flat_storage_creation_status(&store, 0);
     while next_height < start_height + CREATION_TIMEOUT {
         env.produce_block(0, next_height);
         env.clients[0].run_flat_storage_creation_step().unwrap();
 
-        let status = store_helper::get_flat_storage_state_status(&store, 0);
+        let status = store_helper::get_flat_storage_creation_status(&store, 0);
         // Check validity of state transition for flat storage creation.
         match &prev_status {
             FlatStorageCreationStatus::SavingDeltas => assert_matches!(
@@ -76,7 +76,7 @@ fn wait_for_flat_storage_creation(env: &mut TestEnv, start_height: BlockHeight) 
 
         thread::sleep(Duration::from_secs(1));
     }
-    let status = store_helper::get_flat_storage_state_status(&store, 0);
+    let status = store_helper::get_flat_storage_creation_status(&store, 0);
     assert_eq!(
         status,
         FlatStorageCreationStatus::Ready,
@@ -210,12 +210,12 @@ fn test_flat_storage_creation_two_shards() {
         for shard_id in 0..num_shards {
             if cfg!(feature = "protocol_feature_flat_state") {
                 assert_eq!(
-                    store_helper::get_flat_storage_state_status(&store, shard_id),
+                    store_helper::get_flat_storage_creation_status(&store, shard_id),
                     FlatStorageCreationStatus::Ready
                 );
             } else {
                 assert_eq!(
-                    store_helper::get_flat_storage_state_status(&store, shard_id),
+                    store_helper::get_flat_storage_creation_status(&store, shard_id),
                     FlatStorageCreationStatus::DontCreate
                 );
             }
@@ -238,12 +238,12 @@ fn test_flat_storage_creation_two_shards() {
     let mut env = setup_env(&genesis, store.clone());
     assert!(env.clients[0].runtime_adapter.get_flat_storage_state_for_shard(0).is_none());
     assert_eq!(
-        store_helper::get_flat_storage_state_status(&store, 0),
+        store_helper::get_flat_storage_creation_status(&store, 0),
         FlatStorageCreationStatus::SavingDeltas
     );
     assert!(env.clients[0].runtime_adapter.get_flat_storage_state_for_shard(1).is_some());
     assert_eq!(
-        store_helper::get_flat_storage_state_status(&store, 1),
+        store_helper::get_flat_storage_creation_status(&store, 1),
         FlatStorageCreationStatus::Ready
     );
 
@@ -273,12 +273,12 @@ fn test_flat_storage_creation_start_from_state_part() {
 
         if cfg!(feature = "protocol_feature_flat_state") {
             assert_eq!(
-                store_helper::get_flat_storage_state_status(&store, 0),
+                store_helper::get_flat_storage_creation_status(&store, 0),
                 FlatStorageCreationStatus::Ready
             );
         } else {
             assert_eq!(
-                store_helper::get_flat_storage_state_status(&store, 0),
+                store_helper::get_flat_storage_creation_status(&store, 0),
                 FlatStorageCreationStatus::DontCreate
             );
             return;
