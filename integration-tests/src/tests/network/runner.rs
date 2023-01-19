@@ -76,6 +76,7 @@ fn setup_network_node(
         telemetry_actor,
         None,
         adv.clone(),
+        None,
     )
     .0;
     let view_client_actor = start_view_client(

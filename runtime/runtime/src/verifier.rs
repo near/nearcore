@@ -25,6 +25,9 @@ use near_primitives::checked_feature;
 use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::types::BlockHeight;
 
+#[cfg(feature = "protocol_feature_nep366_delegate_action")]
+use near_primitives::transaction::SignedDelegateAction;
+
 /// Validates the transaction without using the state. It allows any node to validate a
 /// transaction before forwarding it to the node that tracks the `signer_id` account.
 pub fn validate_transaction(
@@ -274,6 +277,7 @@ fn validate_data_receipt(
 ///
 /// - Checks limits if applicable.
 /// - Checks that the total number of actions doesn't exceed the limit.
+/// - Checks that there not other action if Action::Delegate is present.
 /// - Validates each individual action.
 /// - Checks that the total prepaid gas doesn't exceed the limit.
 pub(crate) fn validate_actions(
@@ -287,11 +291,21 @@ pub(crate) fn validate_actions(
         });
     }
 
+    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+    let mut found_delegate_action = false;
     let mut iter = actions.iter().peekable();
     while let Some(action) = iter.next() {
         if let Action::DeleteAccount(_) = action {
             if iter.peek().is_some() {
                 return Err(ActionsValidationError::DeleteActionMustBeFinal);
+            }
+        } else {
+            #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+            if let Action::Delegate(_) = action {
+                if found_delegate_action {
+                    return Err(ActionsValidationError::DelegateActionMustBeOnlyOne);
+                }
+                found_delegate_action = true;
             }
         }
         validate_action(limit_config, action)?;
@@ -323,7 +337,19 @@ pub fn validate_action(
         Action::AddKey(a) => validate_add_key_action(limit_config, a),
         Action::DeleteKey(_) => Ok(()),
         Action::DeleteAccount(_) => Ok(()),
+        #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+        Action::Delegate(a) => validate_delegate_action(limit_config, a),
     }
+}
+
+#[cfg(feature = "protocol_feature_nep366_delegate_action")]
+fn validate_delegate_action(
+    limit_config: &VMLimitConfig,
+    signed_delegate_action: &SignedDelegateAction,
+) -> Result<(), ActionsValidationError> {
+    let actions = signed_delegate_action.delegate_action.get_actions();
+    validate_actions(limit_config, &actions)?;
+    Ok(())
 }
 
 /// Validates `DeployContractAction`. Checks that the given contract size doesn't exceed the limit.
@@ -467,6 +493,11 @@ mod tests {
 
     use super::*;
     use crate::near_primitives::shard_layout::ShardUId;
+
+    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+    use near_crypto::Signature;
+    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+    use near_primitives::transaction::{DelegateAction, NonDelegateAction};
 
     /// Initial balance used in tests.
     const TESTING_INIT_BALANCE: Balance = 1_000_000_000 * NEAR_BASE;
@@ -1503,5 +1534,48 @@ mod tests {
             &Action::DeleteAccount(DeleteAccountAction { beneficiary_id: alice_account() }),
         )
         .expect("valid action");
+    }
+
+    #[test]
+    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+    fn test_delegate_action_must_be_only_one() {
+        let signed_delegate_action = SignedDelegateAction {
+            delegate_action: DelegateAction {
+                sender_id: "bob.test.near".parse().unwrap(),
+                receiver_id: "token.test.near".parse().unwrap(),
+                actions: vec![NonDelegateAction(Action::CreateAccount(CreateAccountAction {}))],
+                nonce: 19000001,
+                max_block_height: 57,
+                public_key: PublicKey::empty(KeyType::ED25519),
+            },
+            signature: Signature::default(),
+        };
+        assert_eq!(
+            validate_actions(
+                &VMLimitConfig::test(),
+                &[
+                    Action::Delegate(signed_delegate_action.clone()),
+                    Action::Delegate(signed_delegate_action.clone()),
+                ]
+            ),
+            Err(ActionsValidationError::DelegateActionMustBeOnlyOne),
+        );
+        assert_eq!(
+            validate_actions(
+                &&VMLimitConfig::test(),
+                &[Action::Delegate(signed_delegate_action.clone()),]
+            ),
+            Ok(()),
+        );
+        assert_eq!(
+            validate_actions(
+                &VMLimitConfig::test(),
+                &[
+                    Action::CreateAccount(CreateAccountAction {}),
+                    Action::Delegate(signed_delegate_action.clone()),
+                ]
+            ),
+            Ok(()),
+        );
     }
 }

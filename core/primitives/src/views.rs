@@ -53,6 +53,9 @@ use crate::types::{
 use crate::version::{ProtocolVersion, Version};
 use validator_stake_view::ValidatorStakeView;
 
+#[cfg(feature = "protocol_feature_nep366_delegate_action")]
+use crate::transaction::{DelegateAction, SignedDelegateAction};
+
 /// A view of the account
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
 pub struct AccountView {
@@ -1073,6 +1076,11 @@ pub enum ActionView {
     DeleteAccount {
         beneficiary_id: AccountId,
     },
+    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+    Delegate {
+        delegate_action: DelegateAction,
+        signature: Signature,
+    },
 }
 
 impl From<Action> for ActionView {
@@ -1101,6 +1109,11 @@ impl From<Action> for ActionView {
             Action::DeleteAccount(action) => {
                 ActionView::DeleteAccount { beneficiary_id: action.beneficiary_id }
             }
+            #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+            Action::Delegate(action) => ActionView::Delegate {
+                delegate_action: action.delegate_action,
+                signature: action.signature,
+            },
         }
     }
 }
@@ -1129,6 +1142,13 @@ impl TryFrom<ActionView> for Action {
             }
             ActionView::DeleteAccount { beneficiary_id } => {
                 Action::DeleteAccount(DeleteAccountAction { beneficiary_id })
+            }
+            #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+            ActionView::Delegate { delegate_action, signature } => {
+                Action::Delegate(SignedDelegateAction {
+                    delegate_action: delegate_action,
+                    signature,
+                })
             }
         })
     }
@@ -2109,6 +2129,12 @@ pub struct ActionCreationConfigView {
 
     /// Base cost of deleting an account.
     pub delete_account_cost: Fee,
+
+    /// Base cost for processing a delegate action.
+    ///
+    /// This is on top of the costs for the actions inside the delegate action.
+    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+    pub delegate_cost: Fee,
 }
 
 /// Describes the cost of creating an access key.
@@ -2174,6 +2200,8 @@ impl From<RuntimeConfig> for RuntimeConfigView {
                     },
                     delete_key_cost: config.fees.fee(ActionCosts::delete_key).clone(),
                     delete_account_cost: config.fees.fee(ActionCosts::delete_account).clone(),
+                    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+                    delegate_cost: config.fees.fee(ActionCosts::delegate).clone(),
                 },
                 storage_usage_config: StorageUsageConfigView {
                     num_bytes_account: config.fees.storage_usage_config.num_bytes_account,
@@ -2218,6 +2246,8 @@ impl From<RuntimeConfigView> for RuntimeConfig {
                 action_fees: enum_map::enum_map! {
                     ActionCosts::create_account => config.transaction_costs.action_creation_config.create_account_cost.clone(),
                     ActionCosts::delete_account => config.transaction_costs.action_creation_config.delete_account_cost.clone(),
+                    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+                    ActionCosts::delegate => config.transaction_costs.action_creation_config.delegate_cost.clone(),
                     ActionCosts::deploy_contract_base => config.transaction_costs.action_creation_config.deploy_contract_cost.clone(),
                     ActionCosts::deploy_contract_byte => config.transaction_costs.action_creation_config.deploy_contract_cost_per_byte.clone(),
                     ActionCosts::function_call_base => config.transaction_costs.action_creation_config.function_call_cost.clone(),
