@@ -71,8 +71,19 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
     BlockHeaderView, FinalExecutionStatus, QueryRequest, QueryResponseKind,
 };
+#[cfg(feature = "cold_store")]
+use near_store::cold_storage::{update_cold_db, update_cold_head};
+#[cfg(feature = "cold_store")]
+use near_store::db::TestDB;
+use near_store::metadata::DbKind;
+#[cfg(feature = "cold_store")]
+use near_store::metadata::DB_VERSION;
+#[cfg(feature = "cold_store")]
+use near_store::test_utils::create_test_node_storage_with_cold;
 use near_store::test_utils::create_test_store;
-use near_store::{get, DBCol, TrieChanges};
+use near_store::{get, DBCol, Store, TrieChanges};
+#[cfg(feature = "cold_store")]
+use near_store::{NodeStorage, Temperature};
 use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use nearcore::NEAR_BASE;
 use rand::prelude::StdRng;
@@ -90,15 +101,15 @@ pub fn set_block_protocol_version(
 }
 
 pub fn create_nightshade_runtimes(genesis: &Genesis, n: usize) -> Vec<Arc<dyn RuntimeAdapter>> {
-    (0..n)
-        .map(|_| {
-            Arc::new(nearcore::NightshadeRuntime::test(
-                Path::new("../../../.."),
-                create_test_store(),
-                genesis,
-            )) as Arc<dyn RuntimeAdapter>
-        })
-        .collect()
+    (0..n).map(|_| create_nightshade_runtime_with_store(genesis, &create_test_store())).collect()
+}
+
+pub fn create_nightshade_runtime_with_store(
+    genesis: &Genesis,
+    store: &Store,
+) -> Arc<dyn RuntimeAdapter> {
+    Arc::new(nearcore::NightshadeRuntime::test(Path::new("../../../.."), store.clone(), genesis))
+        as Arc<dyn RuntimeAdapter>
 }
 
 /// Produce `blocks_number` block in the given environment, starting from the given height.
@@ -1487,6 +1498,12 @@ fn test_gc_with_epoch_length() {
     }
 }
 
+/// When an epoch is very long there should not be anything garbage collected unexpectedly
+#[test]
+fn test_gc_long_epoch() {
+    test_gc_with_epoch_length_common(200);
+}
+
 /// Test that producing blocks works in archival mode with save_trie_changes enabled.
 /// In that case garbage collection should not happen but trie changes should be saved to the store.
 #[test]
@@ -1502,6 +1519,9 @@ fn test_archival_save_trie_changes() {
         .archive(true)
         .save_trie_changes(true)
         .build();
+
+    env.clients[0].chain.store().store().set_db_kind(DbKind::Archive).unwrap();
+
     let mut blocks = vec![];
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     blocks.push(genesis_block);
@@ -1549,10 +1569,123 @@ fn test_archival_save_trie_changes() {
     }
 }
 
-/// When an epoch is very long there should not be anything garbage collected unexpectedly
+#[cfg(feature = "cold_store")]
+fn test_archival_gc_common(
+    storage: NodeStorage<TestDB>,
+    epoch_length: u64,
+    max_height: BlockHeight,
+    max_cold_head_height: BlockHeight,
+    legacy: bool,
+) {
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+    genesis.config.epoch_length = epoch_length;
+    let mut chain_genesis = ChainGenesis::test();
+    chain_genesis.epoch_length = epoch_length;
+
+    let hot_store = &storage.get_store(Temperature::Hot);
+
+    let runtime_adapter = create_nightshade_runtime_with_store(&genesis, &hot_store);
+    let mut env = TestEnv::builder(chain_genesis)
+        .runtime_adapters(vec![runtime_adapter])
+        .archive(true)
+        .save_trie_changes(true)
+        .build();
+
+    let mut blocks = vec![];
+    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+    blocks.push(genesis_block);
+
+    for i in 1..=max_height {
+        let block = env.clients[0].produce_block(i).unwrap().unwrap();
+        env.process_block(0, block.clone(), Provenance::PRODUCED);
+
+        let header = block.header();
+        let epoch_id = header.epoch_id();
+        let runtime_adapter = &env.clients[0].runtime_adapter;
+        let shard_layout = runtime_adapter.get_shard_layout(epoch_id).unwrap();
+
+        blocks.push(block);
+
+        if i <= max_cold_head_height {
+            update_cold_db(storage.cold_db().unwrap(), hot_store, &shard_layout, &i).unwrap();
+            update_cold_head(storage.cold_db().unwrap(), &hot_store, &i).unwrap();
+        }
+    }
+
+    // All blocks up until max_gc_height, exclusively, should be garbage collected.
+    // In the '_current' test this will be max_height - 5 epochs
+    // In the '_behind' test this will be the cold head height.
+    // In the '_migration' test this will be 0.
+    let mut max_gc_height = 0;
+    if !legacy {
+        max_gc_height = std::cmp::min(
+            max_height - epoch_length * DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
+            max_cold_head_height,
+        );
+    };
+
+    for i in 0..=max_height {
+        let client = &env.clients[0];
+        let chain = &client.chain;
+        let block = &blocks[i as usize];
+
+        if i < max_gc_height {
+            assert!(chain.get_block(block.hash()).is_err());
+            assert!(chain.get_block_by_height(i).is_err());
+        } else {
+            assert!(chain.get_block(block.hash()).is_ok());
+            assert!(chain.get_block_by_height(i).is_ok());
+            assert!(chain.store().get_all_block_hashes_by_height(i as BlockHeight).is_ok());
+        }
+    }
+}
+
+/// This test verifies that archival node in split storage mode that is up to
+/// date on the hot -> cold block copying is correctly garbage collecting
+/// blocks older than 5 epochs.
 #[test]
-fn test_gc_long_epoch() {
-    test_gc_with_epoch_length_common(200);
+#[cfg(feature = "cold_store")]
+fn test_archival_gc_migration() {
+    // Split storage in the middle of migration has hot store kind set to archive.
+    let storage = create_test_node_storage_with_cold(DB_VERSION, DbKind::Archive);
+
+    let epoch_length = 10;
+    let max_height = epoch_length * (DEFAULT_GC_NUM_EPOCHS_TO_KEEP + 2);
+    let max_cold_head_height = 5;
+
+    test_archival_gc_common(storage, epoch_length, max_height, max_cold_head_height, true);
+}
+
+/// This test verifies that archival node in split storage mode that is up to
+/// date on the hot -> cold block copying is correctly garbage collecting
+/// blocks older than 5 epochs.
+#[test]
+#[cfg(feature = "cold_store")]
+fn test_archival_gc_split_storage_current() {
+    // Fully migrated split storage has each store configured with kind = temperature.
+    let storage = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
+
+    let epoch_length = 10;
+    let max_height = epoch_length * (DEFAULT_GC_NUM_EPOCHS_TO_KEEP + 2);
+    let max_cold_head_height = max_height - 2 * epoch_length;
+
+    test_archival_gc_common(storage, epoch_length, max_height, max_cold_head_height, false);
+}
+
+/// This test verifies that archival node in split storage mode that is behind
+/// on the hot -> cold block copying is correctly garbage collecting blocks
+/// older than the cold head.
+#[test]
+#[cfg(feature = "cold_store")]
+fn test_archival_gc_split_storage_behind() {
+    // Fully migrated split storage has each store configured with kind = temperature.
+    let storage = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
+
+    let epoch_length = 10;
+    let max_height = epoch_length * (DEFAULT_GC_NUM_EPOCHS_TO_KEEP + 2);
+    let max_cold_head_height = 5;
+
+    test_archival_gc_common(storage, epoch_length, max_height, max_cold_head_height, false);
 }
 
 #[test]

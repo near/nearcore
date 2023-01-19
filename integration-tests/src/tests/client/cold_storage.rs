@@ -1,3 +1,4 @@
+use crate::tests::client::process_blocks::create_nightshade_runtime_with_store;
 use crate::tests::client::process_blocks::create_nightshade_runtimes;
 use borsh::BorshDeserialize;
 use near_chain::{ChainGenesis, Provenance};
@@ -13,8 +14,10 @@ use near_primitives::transaction::{
 use near_store::cold_storage::{
     test_cold_genesis_update, test_get_store_reads, update_cold_db, update_cold_head,
 };
+use near_store::metadata::DbKind;
+use near_store::metadata::DB_VERSION;
 use near_store::test_utils::create_test_node_storage_with_cold;
-use near_store::{DBCol, Store, Temperature, HEAD_KEY};
+use near_store::{DBCol, Store, Temperature, COLD_HEAD_KEY, HEAD_KEY};
 use nearcore::config::GenesisExt;
 use strum::IntoEnumIterator;
 
@@ -71,8 +74,7 @@ fn test_storage_after_commit_of_cold_update() {
         .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
         .build();
 
-    // TODO construct cold_db with appropriate hot storage
-    let store = create_test_node_storage_with_cold();
+    let store = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
 
     let mut last_hash = *env.clients[0].chain.genesis().hash();
 
@@ -188,7 +190,7 @@ fn test_storage_after_commit_of_cold_update() {
 }
 
 /// Producing 10 * 5 blocks and updating HEAD of cold storage after each one.
-/// After every update checking that HEAD of cold db and FINAL_HEAD of hot store are equal.
+/// After every update checking that HEAD in cold db, COLD_HEAD in hot db and HEAD in hot store are equal.
 #[test]
 fn test_cold_db_head_update() {
     init_test_logger();
@@ -201,24 +203,26 @@ fn test_cold_db_head_update() {
     genesis.config.epoch_length = epoch_length;
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
-    let mut env = TestEnv::builder(chain_genesis)
-        .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
-        .build();
-
-    let store = create_test_node_storage_with_cold();
+    let store = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
+    let hot_store = &store.get_store(Temperature::Hot);
+    let cold_store = &store.get_store(Temperature::Cold);
+    let runtime_adapter = create_nightshade_runtime_with_store(&genesis, &hot_store);
+    let mut env = TestEnv::builder(chain_genesis).runtime_adapters(vec![runtime_adapter]).build();
 
     for h in 1..max_height {
         env.produce_block(0, h);
         update_cold_head(&*store.cold_db().unwrap(), &env.clients[0].runtime_adapter.store(), &h)
             .unwrap();
 
-        assert_eq!(
-            &store.get_store(Temperature::Cold).get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY).unwrap(),
-            &env.clients[0]
-                .runtime_adapter
-                .store()
-                .get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)
-                .unwrap()
-        );
+        let head = &env.clients[0]
+            .runtime_adapter
+            .store()
+            .get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)
+            .unwrap();
+        let cold_head_in_hot = hot_store.get_ser::<Tip>(DBCol::BlockMisc, COLD_HEAD_KEY).unwrap();
+        let cold_head_in_cold = cold_store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY).unwrap();
+
+        assert_eq!(head, &cold_head_in_cold);
+        assert_eq!(head, &cold_head_in_hot);
     }
 }

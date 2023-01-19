@@ -428,7 +428,7 @@ impl Config {
     /// This is the place to check that all config values make sense and fit well together.
     /// `validate()` is called every time `config.json` is read.
     fn validate(&self) -> Result<(), ConfigValidationError> {
-        if self.archive == self.save_trie_changes {
+        if !self.archive && !self.save_trie_changes {
             Err(ConfigValidationError::TrieChanges)
         } else {
             Ok(())
