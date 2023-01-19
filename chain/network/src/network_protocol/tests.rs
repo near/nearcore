@@ -122,7 +122,7 @@ fn serialize_deserialize() -> anyhow::Result<()> {
         PeerMessage::Transaction(data::make_signed_transaction(&mut rng)),
         PeerMessage::Routed(routed_message1),
         PeerMessage::Routed(routed_message2),
-        PeerMessage::Disconnect(Disconnect { allow_reconnect: false }),
+        PeerMessage::Disconnect(Disconnect { allow_reconnect: true }),
         PeerMessage::Challenge(data::make_challenge(&mut rng)),
     ];
 
