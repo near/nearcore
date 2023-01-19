@@ -263,3 +263,56 @@ async fn rate_limiting() {
 
     drop(pms);
 }
+
+/// When validator node is restarted, it should immediately override
+/// the AccountData that is present in the network from the previous run.
+#[tokio::test]
+async fn validator_node_restart() {
+    init_test_logger();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
+    let mut cfg = chain.make_config(rng);
+    let pm0 = start_pm(clock.clock(), TestDB::new(), cfg.clone(), chain.clone());
+    let pm1 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone());
+    pm0.set_chain_info();
+    pm1.set_chain_info();
+
+    pm0.connect_to(&pm1, tcp::Tier::T2).await;
+    pm0.tier1_advertise_proxies();
+    pm1.wait_for_accounts_data(&want).await;
+    
+    // restart pm0.
+    drop(pm0);
+    clock.advance(time::Duration::hours(1));
+    let pm0 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone());
+    pm0.connect_to(&pm1, tcp::Tier::T2).await;
+    // TODO: await for new data with new key.
+
+    ///////////////////////////
+
+        clock.advance(time::Duration::hours(1));
+        let chain_info = testonly::make_chain_info(
+            &chain,
+            &pms.iter().map(|pm| &pm.cfg).collect::<Vec<_>>()[..],
+        );
+
+        let mut want = HashSet::new();
+        tracing::info!(target:"test", "advance epoch in the given order.");
+        for id in ids {
+            pms[id].set_chain_info(chain_info.clone()).await;
+            // In this tests each node is its own proxy, so it can immediately
+            // connect to itself (to verify the public addr) and advertise it.
+            // If some other node B was a proxy for a node A, then first both
+            // A and B would have to update their chain_info, and only then A
+            // would be able to connect to B and advertise B as proxy afterwards.
+            want.extend(pms[id].tier1_advertise_proxies(&clock.clock()).await);
+        }
+        for pm in &mut pms {
+            tracing::info!(target:"test", "wait for data to arrive to {}.",pm.cfg.node_id());
+            pm.wait_for_accounts_data(&want).await;
+        }
+    }
+}
