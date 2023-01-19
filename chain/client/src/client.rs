@@ -26,7 +26,7 @@ use near_chain::{
     BlockProcessingArtifact, BlockStatus, Chain, ChainGenesis, ChainStoreAccess,
     DoneApplyChunkCallback, Doomslug, DoomslugThresholdMode, Provenance, RuntimeAdapter,
 };
-use near_chain_configs::ClientConfig;
+use near_chain_configs::{ClientConfig, UpdateableClientConfig};
 use near_chunks::ShardsManager;
 use near_network::types::{
     HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter, ReasonForBan,
@@ -149,6 +149,12 @@ pub struct Client {
     flat_storage_creator: Option<FlatStorageCreator>,
 }
 
+impl Client {
+    pub(crate) fn update_client_config(&self, update_client_config: UpdateableClientConfig) {
+        self.config.expected_shutdown.update(update_client_config.expected_shutdown);
+    }
+}
+
 // Debug information about the upcoming block.
 #[derive(Default)]
 pub struct BlockDebugStatus {
@@ -206,7 +212,7 @@ impl Client {
             runtime_adapter.clone(),
             chain.store(),
             chain_config.background_migration_threads,
-        );
+        )?;
         let shards_mgr = ShardsManager::new(
             me.clone(),
             runtime_adapter.clone(),
@@ -1072,7 +1078,12 @@ impl Client {
                 Ok(())
             }
             Err(e) if e.is_bad_data() => {
-                self.ban_peer(peer_id.clone(), ReasonForBan::BadBlockHeader);
+                // We don't ban a peer if the block timestamp is too much in the future since it's possible
+                // that a block is considered valid in one machine and invalid in another machine when their
+                // clocks are not synced.
+                if !matches!(e, near_chain::Error::InvalidBlockFutureTime(_)) {
+                    self.ban_peer(peer_id.clone(), ReasonForBan::BadBlockHeader);
+                }
                 Err(e)
             }
             Err(_) => {

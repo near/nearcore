@@ -246,6 +246,7 @@ pub fn setup_mock_node(
         telemetry,
         None,
         adv.clone(),
+        None,
     );
 
     let view_client = start_view_client(
