@@ -4,7 +4,7 @@ use near_primitives_core::config::{ExtCostsConfig, VMConfig};
 use near_primitives_core::parameter::{FeeParameter, Parameter};
 use near_primitives_core::runtime::fees::{RuntimeFeesConfig, StorageUsageConfig};
 use near_primitives_core::types::AccountId;
-use num_rational::Rational;
+use num_rational::Rational32;
 use std::collections::BTreeMap;
 
 /// Represents values supported by parameter config.
@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 #[serde(untagged)]
 pub(crate) enum ParameterValue {
     U64(u64),
-    Rational { numerator: isize, denominator: isize },
+    Rational { numerator: i32, denominator: i32 },
     String(String),
 }
 
@@ -24,10 +24,10 @@ impl ParameterValue {
         }
     }
 
-    fn as_rational(&self) -> Option<Rational> {
+    fn as_rational(&self) -> Option<Rational32> {
         match self {
             ParameterValue::Rational { numerator, denominator } => {
-                Some(Rational::new(*numerator, *denominator))
+                Some(Rational32::new(*numerator, *denominator))
             }
             _ => None,
         }
@@ -263,11 +263,11 @@ impl ParameterTable {
     }
 
     /// Read and parse a rational parameter from the `ParameterTable`.
-    fn get_rational(&self, key: Parameter) -> Result<Rational, InvalidConfigError> {
+    fn get_rational(&self, key: Parameter) -> Result<Rational32, InvalidConfigError> {
         let value = self.parameters.get(&key).ok_or(InvalidConfigError::MissingParameter(key))?;
         value.as_rational().ok_or(InvalidConfigError::WrongValueType(
             key,
-            std::any::type_name::<Rational>(),
+            std::any::type_name::<Rational32>(),
             value.clone(),
         ))
     }

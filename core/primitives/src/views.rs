@@ -12,7 +12,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::DateTime;
 use near_primitives_core::config::{ActionCosts, ExtCosts, VMConfig};
 use near_primitives_core::runtime::fees::Fee;
-use num_rational::Rational;
+use num_rational::Rational32;
 use serde::{Deserialize, Serialize};
 
 use near_crypto::{PublicKey, Signature};
@@ -2066,10 +2066,10 @@ pub struct RuntimeFeesConfigView {
     pub storage_usage_config: StorageUsageConfigView,
 
     /// Fraction of the burnt gas to reward to the contract account for execution.
-    pub burnt_gas_reward: Rational,
+    pub burnt_gas_reward: Rational32,
 
     /// Pessimistic gas price inflation ratio.
-    pub pessimistic_gas_price_inflation_ratio: Rational,
+    pub pessimistic_gas_price_inflation_ratio: Rational32,
 }
 
 /// The structure describes configuration for creation of new accounts.
