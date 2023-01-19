@@ -49,4 +49,3 @@ nightly = [
 ]
 nightly_protocol = ["nearcore/nightly_protocol"]
 protocol_feature_flat_state = ["nearcore/protocol_feature_flat_state"]
-cold_store = ["near-store/cold_store"]

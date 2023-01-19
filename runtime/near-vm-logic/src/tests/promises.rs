@@ -1,4 +1,3 @@
-use crate::tests::fixtures::get_context;
 use crate::tests::helpers::*;
 use crate::tests::vm_logic_builder::VMLogicBuilder;
 use crate::types::PromiseResult;
@@ -34,7 +33,7 @@ fn test_promise_results() {
 
     let mut logic_builder = VMLogicBuilder::default();
     logic_builder.promise_results = promise_results;
-    let mut logic = logic_builder.build(get_context(vec![], false));
+    let mut logic = logic_builder.build();
 
     assert_eq!(logic.promise_results_count(), Ok(3), "Total count of registers must be 3");
     assert_eq!(logic.promise_result(0, 0), Ok(1), "Must return code 1 on success");
@@ -48,7 +47,7 @@ fn test_promise_results() {
 #[test]
 fn test_promise_batch_action_function_call() {
     let mut logic_builder = VMLogicBuilder::default();
-    let mut logic = logic_builder.build(get_context(vec![], false));
+    let mut logic = logic_builder.build();
     let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
     let index_ptr = logic.internal_mem_write(&index.to_le_bytes()).ptr;
 
@@ -80,7 +79,7 @@ fn test_promise_batch_action_function_call() {
 #[test]
 fn test_promise_batch_action_create_account() {
     let mut logic_builder = VMLogicBuilder::default();
-    let mut logic = logic_builder.build(get_context(vec![], false));
+    let mut logic = logic_builder.build();
     let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
     let index_ptr = logic.internal_mem_write(&index.to_le_bytes()).ptr;
 
@@ -118,7 +117,7 @@ fn test_promise_batch_action_create_account() {
 #[test]
 fn test_promise_batch_action_deploy_contract() {
     let mut logic_builder = VMLogicBuilder::default();
-    let mut logic = logic_builder.build(get_context(vec![], false));
+    let mut logic = logic_builder.build();
     let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
 
     let index_ptr = logic.internal_mem_write(&index.to_le_bytes()).ptr;
@@ -164,11 +163,8 @@ fn test_promise_batch_action_deploy_contract() {
 
 #[test]
 fn test_promise_batch_action_transfer() {
-    let mut context = get_context(vec![], false);
-    context.account_balance = 100;
-    context.attached_deposit = 10;
     let mut logic_builder = VMLogicBuilder::default();
-    let mut logic = logic_builder.build(context);
+    let mut logic = logic_builder.build();
     let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
 
     let index_ptr = logic.internal_mem_write(&index.to_le_bytes()).ptr;
@@ -216,11 +212,8 @@ fn test_promise_batch_action_transfer() {
 
 #[test]
 fn test_promise_batch_action_stake() {
-    let mut context = get_context(vec![], false);
-    // And there are 10N in attached balance to the transaction.
-    context.account_balance = 100;
     let mut logic_builder = VMLogicBuilder::default();
-    let mut logic = logic_builder.build(context);
+    let mut logic = logic_builder.build();
     let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
     let key = "ed25519:5do5nkAEVhL8iteDvXNgxi4pWK78Y7DDadX11ArFNyrf"
         .parse::<PublicKey>()
@@ -272,11 +265,8 @@ fn test_promise_batch_action_stake() {
 
 #[test]
 fn test_promise_batch_action_add_key_with_function_call() {
-    let mut context = get_context(vec![], false);
-    context.account_balance = 100;
-
     let mut logic_builder = VMLogicBuilder::default();
-    let mut logic = logic_builder.build(context);
+    let mut logic = logic_builder.build();
     let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
     let index_ptr = logic.internal_mem_write(&index.to_le_bytes()).ptr;
     let key = "ed25519:5do5nkAEVhL8iteDvXNgxi4pWK78Y7DDadX11ArFNyrf"
@@ -362,10 +352,8 @@ fn test_promise_batch_action_add_key_with_function_call() {
 
 #[test]
 fn test_promise_batch_then() {
-    let mut context = get_context(vec![], false);
-    context.account_balance = 100;
     let mut logic_builder = VMLogicBuilder::default();
-    let mut logic = logic_builder.build(context);
+    let mut logic = logic_builder.build();
 
     let account_id = b"rick.test";
     let index = promise_create(&mut logic, account_id, 0, 0).expect("should create a promise");

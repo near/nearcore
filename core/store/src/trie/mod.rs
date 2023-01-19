@@ -322,8 +322,11 @@ impl std::fmt::Debug for TrieNode {
 #[derive(Debug, Eq, PartialEq)]
 #[allow(clippy::large_enum_variant)]
 pub enum RawTrieNode {
+    /// Leaf(key, value_length, value_hash)
     Leaf(Vec<u8>, u32, CryptoHash),
+    /// Branch(children, (value_length, value_hash))
     Branch([Option<CryptoHash>; 16], Option<(u32, CryptoHash)>),
+    /// Extension(key, child)
     Extension(Vec<u8>, CryptoHash),
 }
 
