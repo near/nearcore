@@ -33,6 +33,7 @@
   - [Run a Node](./practices/workflows/run_a_node.md)
   - [Deploy a Contract](./practices/workflows/deploy_a_contract.md)
   - [Run Gas Estimations](./practices/workflows/gas_estimations.md)
+  - [Localnet on many machines](./practices/workflows/localnet_on_many_machines.md)
 - [Code Style](./practices/style.md)
 - [Documentation](./practices/docs.md)
 - [Tracking Issues](./practices/tracking_issues.md)

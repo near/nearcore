@@ -4,7 +4,7 @@ use crate::concurrency::demux;
 use crate::network_protocol::{
     Edge, EdgeState, Encoding, OwnedAccount, ParsePeerMessageError, PartialEdgeInfo,
     PeerChainInfoV2, PeerIdOrHash, PeerInfo, RawRoutedMessage, RoutedMessageBody, RoutedMessageV2,
-    RoutingTableUpdate, SyncAccountsData,
+    RoutingTableUpdate, StateResponseInfo, SyncAccountsData,
 };
 use crate::peer::stream;
 use crate::peer::tracker::Tracker;
@@ -896,6 +896,10 @@ impl PeerActor {
                 network_state.client.state_response(info).await;
                 None
             }
+            RoutedMessageBody::StateResponse(info) => {
+                network_state.client.state_response(StateResponseInfo::V1(info)).await;
+                None
+            }
             RoutedMessageBody::BlockApproval(approval) => {
                 network_state.client.block_approval(approval, peer_id).await;
                 None
@@ -1403,7 +1407,9 @@ impl actix::Handler<stream::Error> for PeerActor {
                 // Connection has been closed.
                 io::ErrorKind::UnexpectedEof
                 | io::ErrorKind::ConnectionReset
-                | io::ErrorKind::BrokenPipe => true,
+                | io::ErrorKind::BrokenPipe
+                // libc::ETIIMEDOUT = 110, translates to io::ErrorKind::TimedOut.
+                | io::ErrorKind::TimedOut => true,
                 // When stopping tokio runtime, an "IO driver has terminated" is sometimes
                 // returned.
                 io::ErrorKind::Other => true,

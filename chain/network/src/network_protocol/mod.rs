@@ -411,6 +411,10 @@ pub enum RoutedMessageBody {
 
     StateRequestHeader(ShardId, CryptoHash),
     StateRequestPart(ShardId, CryptoHash, u64),
+    /// StateResponse in not produced since protocol version 58.
+    /// We can remove the support for it in protocol version 60.
+    /// It has been obsoleted by VersionedStateResponse which
+    /// is a superset of StateResponse values.
     StateResponse(StateResponseInfoV1),
     PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg),
     PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg),

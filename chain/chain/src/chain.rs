@@ -51,15 +51,14 @@ use near_primitives::views::{
     LightClientBlockView, SignedTransactionView,
 };
 #[cfg(feature = "protocol_feature_flat_state")]
-use near_store::flat_state;
-use near_store::{DBCol, ShardTries, StorageError, StoreUpdate, WrappedTrieChanges};
+use near_store::{flat_state, StorageError};
+use near_store::{DBCol, ShardTries, StoreUpdate, WrappedTrieChanges};
 
 use crate::block_processing_utils::{
     BlockPreprocessInfo, BlockProcessingArtifact, BlocksInProcessing, DoneApplyChunkCallback,
 };
 use crate::blocks_delay_tracker::BlocksDelayTracker;
 use crate::crypto_hash_timer::CryptoHashTimer;
-use crate::flat_storage_creator::FlatStorageCreator;
 use crate::lightclient::get_epoch_block_producers_view;
 use crate::migrations::check_if_block_is_first_with_chunk_of_version;
 use crate::missing_chunks::{BlockLike, MissingChunksPool};
@@ -87,7 +86,7 @@ use near_primitives::shard_layout::{
 use near_primitives::version::PROTOCOL_VERSION;
 #[cfg(feature = "protocol_feature_flat_state")]
 use near_store::flat_state::{store_helper, FlatStateDelta};
-use near_store::flat_state::{FlatStorageError, FlatStorageStateStatus};
+use near_store::flat_state::{FlatStorageCreationStatus, FlatStorageError};
 use once_cell::sync::OnceCell;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
@@ -451,8 +450,6 @@ pub struct Chain {
     apply_chunks_receiver: Receiver<BlockApplyChunksResult>,
     /// Time when head was updated most recently.
     last_time_head_updated: Instant,
-    /// Used when it is needed to create flat storage in background for some shards.
-    flat_storage_creator: Option<FlatStorageCreator>,
 
     invalid_blocks: LruCache<CryptoHash, ()>,
 
@@ -534,7 +531,6 @@ impl Chain {
             apply_chunks_sender: sc,
             apply_chunks_receiver: rc,
             last_time_head_updated: Clock::instant(),
-            flat_storage_creator: None,
             invalid_blocks: LruCache::new(INVALID_CHUNKS_POOL_SIZE),
             pending_state_patch: Default::default(),
             requested_state_parts: StateRequestTracker::new(),
@@ -653,13 +649,6 @@ impl Chain {
         };
         store_update.commit()?;
 
-        // Create flat storage or initiate migration to flat storage.
-        let flat_storage_creator = FlatStorageCreator::new(
-            runtime_adapter.clone(),
-            &store,
-            chain_config.background_migration_threads,
-        );
-
         info!(target: "chain", "Init: header head @ #{} {}; block head @ #{} {}",
               header_head.height, header_head.last_block_hash,
               block_head.height, block_head.last_block_hash);
@@ -692,7 +681,6 @@ impl Chain {
             apply_chunks_sender: sc,
             apply_chunks_receiver: rc,
             last_time_head_updated: Clock::instant(),
-            flat_storage_creator,
             pending_state_patch: Default::default(),
             requested_state_parts: StateRequestTracker::new(),
         })
@@ -2145,21 +2133,11 @@ impl Chain {
                 }
             });
         } else {
-            // If background flat storage creation was initiated, update its creation status, which means executing
-            // some work related to current creation step and possibly moving status forward until flat storage is
-            // finally created.
-            // Note that it doesn't work with state sync / catchup logic.
-            match &mut self.flat_storage_creator {
-                Some(flat_storage_creator) => {
-                    flat_storage_creator.update_status(shard_id, &self.store)?;
-                }
-                None => {
-                    // TODO (#8250): enable this assertion. Currently it doesn't work because runtime may be implemented
-                    // with KeyValueRuntime which doesn't support flat storage.
-                    // #[cfg(feature = "protocol_feature_flat_state")]
-                    // debug_assert!(false, "Flat storage state for shard {shard_id} does not exist and its creation was not initiated");
-                }
-            }
+            // TODO (#8250): come up with correct assertion. Currently it doesn't work because runtime may be
+            // implemented by KeyValueRuntime which doesn't support flat storage, and flat storage background
+            // creation may happen.
+            // #[cfg(feature = "protocol_feature_flat_state")]
+            // debug_assert!(false, "Flat storage state for shard {shard_id} does not exist and its creation was not initiated");
         }
         Ok(())
     }
@@ -3201,6 +3179,7 @@ impl Chain {
 
         // We synced shard state on top of _previous_ block for chunk in shard state header and applied state parts to
         // flat storage. Now we can set flat head to hash of this block and create flat storage.
+        // TODO (#7327): ensure that no flat storage work is done for `KeyValueRuntime`.
         #[cfg(feature = "protocol_feature_flat_state")]
         {
             let mut store_update = self.runtime_adapter.store().store_update();
@@ -3208,15 +3187,14 @@ impl Chain {
             store_update.commit()?;
         }
 
-        match self.runtime_adapter.try_create_flat_storage_state_for_shard(
-            shard_id,
-            block_height,
-            self.store(),
-        ) {
-            FlatStorageStateStatus::Ready | FlatStorageStateStatus::DontCreate => {}
-            status @ _ => {
-                return Err(Error::StorageError(StorageError::FlatStorageError(format!("Unable to create flat storage during syncing shard {shard_id}, got status {status:?}"))));
-            }
+        if self.runtime_adapter.get_flat_storage_creation_status(shard_id)
+            == FlatStorageCreationStatus::Ready
+        {
+            self.runtime_adapter.create_flat_storage_state_for_shard(
+                shard_id,
+                block_height,
+                self.store(),
+            );
         }
 
         let mut height = shard_state_header.chunk_height_included();
@@ -3460,7 +3438,6 @@ impl Chain {
         Ok(self.store.get_outcomes_by_id(id)?.into_iter().map(Into::into).collect())
     }
 
-    /// Returns all tx results given a tx hash, excluding refund receipts
     fn get_recursive_transaction_results(
         &self,
         id: &CryptoHash,
@@ -3469,13 +3446,6 @@ impl Chain {
         let receipt_ids = outcome.outcome.receipt_ids.clone();
         let mut results = vec![outcome];
         for receipt_id in &receipt_ids {
-            // don't include refund receipts to speed up tx status query
-            if let Some(receipt) = self.store.get_receipt(&receipt_id)? {
-                let is_refund = receipt.predecessor_id.is_system();
-                if is_refund {
-                    continue;
-                }
-            }
             results.extend(self.get_recursive_transaction_results(receipt_id)?);
         }
         Ok(results)

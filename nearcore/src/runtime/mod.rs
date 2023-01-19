@@ -48,7 +48,7 @@ use near_primitives::views::{
 };
 use near_store::flat_state::ChainAccessForFlatStorage;
 use near_store::flat_state::{
-    store_helper, FlatStateFactory, FlatStorageState, FlatStorageStateStatus,
+    store_helper, FlatStateFactory, FlatStorageCreationStatus, FlatStorageState,
 };
 use near_store::split_state::get_delayed_receipts;
 use near_store::{
@@ -704,28 +704,20 @@ impl RuntimeAdapter for NightshadeRuntime {
         self.flat_state_factory.get_flat_storage_state_for_shard(shard_id)
     }
 
-    fn try_create_flat_storage_state_for_shard(
+    fn get_flat_storage_creation_status(&self, shard_id: ShardId) -> FlatStorageCreationStatus {
+        store_helper::get_flat_storage_creation_status(&self.store, shard_id)
+    }
+
+    // TODO (#7327): consider passing flat storage errors here to handle them gracefully
+    fn create_flat_storage_state_for_shard(
         &self,
         shard_id: ShardId,
         latest_block_height: BlockHeight,
         chain_access: &dyn ChainAccessForFlatStorage,
-    ) -> FlatStorageStateStatus {
-        let status = store_helper::get_flat_storage_state_status(&self.store, shard_id);
-        match &status {
-            FlatStorageStateStatus::Ready => {
-                let flat_storage_state = FlatStorageState::new(
-                    self.store.clone(),
-                    shard_id,
-                    latest_block_height,
-                    chain_access,
-                );
-                self.flat_state_factory
-                    .add_flat_storage_state_for_shard(shard_id, flat_storage_state);
-            }
-            _ => {}
-        }
-        info!(target: "chain", %shard_id, "Flat storage creation status: {status:?}");
-        status
+    ) {
+        let flat_storage_state =
+            FlatStorageState::new(self.store.clone(), shard_id, latest_block_height, chain_access);
+        self.flat_state_factory.add_flat_storage_state_for_shard(shard_id, flat_storage_state);
     }
 
     fn remove_flat_storage_state_for_shard(
@@ -1796,15 +1788,12 @@ mod test {
             store_update.commit().unwrap();
             let mock_chain = MockChainForFlatStorage::new(0, genesis_hash);
             for shard_id in 0..runtime.num_shards(&EpochId::default()).unwrap() {
-                let status = runtime.try_create_flat_storage_state_for_shard(
-                    shard_id as ShardId,
-                    0,
-                    &mock_chain,
-                );
+                let status = runtime.get_flat_storage_creation_status(shard_id);
                 if cfg!(feature = "protocol_feature_flat_state") {
-                    assert_eq!(status, FlatStorageStateStatus::Ready);
+                    assert_eq!(status, FlatStorageCreationStatus::Ready);
+                    runtime.create_flat_storage_state_for_shard(shard_id, 0, &mock_chain);
                 } else {
-                    assert_eq!(status, FlatStorageStateStatus::DontCreate);
+                    assert_eq!(status, FlatStorageCreationStatus::DontCreate);
                 }
             }
 

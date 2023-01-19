@@ -463,12 +463,29 @@ pub(crate) mod wasmer2 {
 pub(crate) mod wasmtime {
     use super::str_eq;
     use near_vm_logic::{ProtocolVersion, VMLogic, VMLogicError};
-    use std::cell::{RefCell, UnsafeCell};
+    use std::cell::UnsafeCell;
     use std::ffi::c_void;
+
+    /// This is a container from which an error can be taken out by value. This is necessary as
+    /// `anyhow` does not really give any opportunity to grab causes by value and the VM Logic
+    /// errors end up a couple layers deep in a causal chain.
+    #[derive(Debug)]
+    pub(crate) struct ErrorContainer(std::sync::Mutex<Option<VMLogicError>>);
+    impl ErrorContainer {
+        pub(crate) fn take(&self) -> Option<VMLogicError> {
+            let mut guard = self.0.lock().unwrap_or_else(|e| e.into_inner());
+            guard.take()
+        }
+    }
+    impl std::error::Error for ErrorContainer {}
+    impl std::fmt::Display for ErrorContainer {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("VMLogic error occurred and is now stored in an opaque storage container")
+        }
+    }
 
     thread_local! {
         static CALLER_CONTEXT: UnsafeCell<*mut c_void> = UnsafeCell::new(0 as *mut c_void);
-        static EMBEDDER_ERROR: RefCell<Option<VMLogicError>> = RefCell::new(None);
     }
 
     pub(crate) fn link(
@@ -485,7 +502,7 @@ pub(crate) mod wasmtime {
               $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >
             ) => {
                 #[allow(unused_parens)]
-                fn $func(caller: wasmtime::Caller<'_, ()>, $( $arg_name: $arg_type ),* ) -> Result<($( $returns ),*), wasmtime::Trap> {
+                fn $func(caller: wasmtime::Caller<'_, ()>, $( $arg_name: $arg_type ),* ) -> anyhow::Result<($( $returns ),*)> {
                     const IS_GAS: bool = str_eq(stringify!($func), "gas");
                     let _span = if IS_GAS {
                         None
@@ -508,12 +525,7 @@ pub(crate) mod wasmtime {
                     match logic.$func( $( $arg_name as $arg_type, )* ) {
                         Ok(result) => Ok(result as ($( $returns ),* ) ),
                         Err(err) => {
-                            // Wasmtime doesn't have proper mechanism for wrapping custom errors
-                            // into traps. So, just store error into TLS and use special exit code here.
-                            EMBEDDER_ERROR.with(|embedder_error| {
-                                *embedder_error.borrow_mut() = Some(err)
-                            });
-                            Err(wasmtime::Trap::i32_exit(239))
+                            Err(ErrorContainer(std::sync::Mutex::new(Some(err))).into())
                         }
                     }
                 }
@@ -522,10 +534,6 @@ pub(crate) mod wasmtime {
             };
         }
         for_each_available_import!(protocol_version, add_import);
-    }
-
-    pub(crate) fn last_error() -> Option<near_vm_logic::VMLogicError> {
-        EMBEDDER_ERROR.with(|embedder_error| embedder_error.replace(None))
     }
 }
 
