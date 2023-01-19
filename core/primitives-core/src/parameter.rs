@@ -18,10 +18,8 @@ use crate::config::ActionCosts;
 #[strum(serialize_all = "snake_case")]
 pub enum Parameter {
     // Gas economics config
-    BurntGasRewardNumerator,
-    BurntGasRewardDenominator,
-    PessimisticGasPriceInflationNumerator,
-    PessimisticGasPriceInflationDenominator,
+    BurntGasReward,
+    PessimisticGasPriceInflation,
 
     // Account creation config
     MinAllowedTopLevelAccountLength,
