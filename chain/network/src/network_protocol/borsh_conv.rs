@@ -133,7 +133,9 @@ impl TryFrom<&net::PeerMessage> for mem::PeerMessage {
                 created_at: None,
                 num_hops: Some(0),
             })),
-            net::PeerMessage::Disconnect(r) => mem::PeerMessage::Disconnect(r),
+            net::PeerMessage::Disconnect => {
+                mem::PeerMessage::Disconnect(mem::Disconnect { allow_reconnect: true })
+            }
             net::PeerMessage::Challenge(c) => mem::PeerMessage::Challenge(c),
             net::PeerMessage::_HandshakeV2 => return Err(Self::Error::DeprecatedHandshakeV2),
             net::PeerMessage::_EpochSyncRequest => return Err(Self::Error::DeprecatedEpochSync),
@@ -184,7 +186,7 @@ impl From<&mem::PeerMessage> for net::PeerMessage {
             mem::PeerMessage::Block(b) => net::PeerMessage::Block(b),
             mem::PeerMessage::Transaction(t) => net::PeerMessage::Transaction(t),
             mem::PeerMessage::Routed(r) => net::PeerMessage::Routed(Box::new(r.msg.clone())),
-            mem::PeerMessage::Disconnect(r) => net::PeerMessage::Disconnect(r),
+            mem::PeerMessage::Disconnect(_) => net::PeerMessage::Disconnect,
             mem::PeerMessage::Challenge(c) => net::PeerMessage::Challenge(c),
         }
     }

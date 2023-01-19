@@ -22,7 +22,6 @@ pub use _proto::network as proto;
 use crate::network_protocol::proto_conv::trace_context::{
     extract_span_context, inject_trace_context,
 };
-use crate::peer::peer_actor::ClosingReason;
 use crate::time;
 use borsh::{BorshDeserialize as _, BorshSerialize as _};
 use near_crypto::PublicKey;
@@ -284,6 +283,11 @@ pub struct SyncAccountsData {
     pub incremental: bool,
 }
 
+#[derive(PartialEq, Eq, Clone, Debug)]
+pub struct Disconnect {
+    pub allow_reconnect: bool,
+}
+
 #[derive(PartialEq, Eq, Clone, Debug, strum::IntoStaticStr, strum::EnumVariantNames)]
 #[allow(clippy::large_enum_variant)]
 pub enum PeerMessage {
@@ -311,7 +315,7 @@ pub enum PeerMessage {
     Routed(Box<RoutedMessageV2>),
 
     /// Gracefully disconnect from other peer.
-    Disconnect(ClosingReason),
+    Disconnect(Disconnect),
     Challenge(Challenge),
 }
 

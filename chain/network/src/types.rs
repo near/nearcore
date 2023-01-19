@@ -1,6 +1,6 @@
 /// Type that belong to the network protocol.
 pub use crate::network_protocol::{
-    AccountOrPeerIdOrHash, Encoding, Handshake, HandshakeFailureReason, PeerMessage,
+    AccountOrPeerIdOrHash, Disconnect, Encoding, Handshake, HandshakeFailureReason, PeerMessage,
     RoutingTableUpdate, SignedAccountData,
 };
 use crate::routing::routing_table_view::RoutingTableInfo;

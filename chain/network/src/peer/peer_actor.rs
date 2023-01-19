@@ -17,7 +17,7 @@ use crate::stats::metrics;
 use crate::tcp;
 use crate::time;
 use crate::types::{
-    BlockInfo, Handshake, HandshakeFailureReason, PeerMessage, PeerType, ReasonForBan,
+    BlockInfo, Disconnect, Handshake, HandshakeFailureReason, PeerMessage, PeerType, ReasonForBan,
 };
 use actix::fut::future::wrap_future;
 use actix::{Actor as _, ActorContext as _, ActorFutureExt as _, AsyncContext as _};
@@ -419,10 +419,25 @@ impl PeerActor {
     fn stop(&mut self, ctx: &mut actix::Context<PeerActor>, reason: ClosingReason) {
         // Only the first call to stop sets the closing_reason.
         if self.closing_reason.is_none() {
-            // Send a Disconnect message unless we are closing because we received one
-            if reason != ClosingReason::DisconnectMessage {
-                self.send_message_or_log(&PeerMessage::Disconnect(reason.clone()));
-            }
+            // If this node is in the other node's recent_outbound_connections set, the other
+            // node may attempt to re-establish the connection. Setting allow_recent = false
+            // advises the other node to remove this one from recent_outbound_connections.
+            let allow_reconnect = match reason {
+                ClosingReason::TooManyInbound => false, // too many inbound
+                ClosingReason::OutboundNotAllowed(_) => true,
+                ClosingReason::Ban(_) => false, // banned
+                ClosingReason::HandshakeFailed => true,
+                ClosingReason::RejectedByPeerManager(_) => true,
+                ClosingReason::StreamError => true,
+                ClosingReason::DisallowedMessage => false, // misbehaving peer
+                ClosingReason::PeerManagerRequest => false, // closed intentionally
+                ClosingReason::DisconnectMessage => true,
+                ClosingReason::TooLargeClockSkew => true,
+                ClosingReason::OwnedAccountMismatch => false, // misbehaving peer
+                ClosingReason::Unknown => true,
+            };
+
+            self.send_message_or_log(&PeerMessage::Disconnect(Disconnect { allow_reconnect }));
 
             self.closing_reason = Some(reason);
         }
@@ -1063,21 +1078,18 @@ impl PeerActor {
         .entered();
 
         match peer_msg.clone() {
-            PeerMessage::Disconnect(reason) => {
+            PeerMessage::Disconnect(d) => {
                 tracing::debug!(target: "network", "Disconnect signal. Me: {:?} Peer: {:?}", self.my_node_info.id, self.other_peer_id());
 
-                match reason {
-                    ClosingReason::PeerManagerRequest | ClosingReason::Ban(_) => {
-                        if self
-                            .network_state
-                            .peer_store
-                            .remove_from_recent_connections(&self.other_peer_id().unwrap())
-                            .is_err()
-                        {
-                            tracing::error!(target: "network", "Failed to remove peer from recent connections.");
-                        }
+                if !d.allow_reconnect {
+                    if self
+                        .network_state
+                        .peer_store
+                        .remove_from_recent_connections(&self.other_peer_id().unwrap())
+                        .is_err()
+                    {
+                        tracing::error!(target: "network", "Failed to remove peer from recent connections.");
                     }
-                    _ => {}
                 }
 
                 self.stop(ctx, ClosingReason::DisconnectMessage);

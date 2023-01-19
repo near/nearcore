@@ -3,9 +3,8 @@ use super::*;
 
 use crate::network_protocol::proto;
 use crate::network_protocol::proto::peer_message::Message_type as ProtoMT;
-use crate::network_protocol::{PeerMessage, RoutingTableUpdate, SyncAccountsData};
+use crate::network_protocol::{Disconnect, PeerMessage, RoutingTableUpdate, SyncAccountsData};
 use crate::network_protocol::{RoutedMessage, RoutedMessageV2};
-use crate::peer::peer_actor::ClosingReason;
 use crate::time::error::ComponentRange;
 use borsh::{BorshDeserialize as _, BorshSerialize as _};
 use near_primitives::block::{Block, BlockHeader};
@@ -146,7 +145,7 @@ impl From<&PeerMessage> for proto::PeerMessage {
                     ..Default::default()
                 }),
                 PeerMessage::Disconnect(r) => ProtoMT::Disconnect(proto::Disconnect {
-                    borsh: r.try_to_vec().unwrap(),
+                    allow_reconnect: r.allow_reconnect,
                     ..Default::default()
                 }),
                 PeerMessage::Challenge(r) => ProtoMT::Challenge(proto::Challenge {
@@ -274,9 +273,9 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
                     .map_err(Self::Error::RoutedCreatedAtTimestamp)?,
                 num_hops: r.num_hops,
             })),
-            ProtoMT::Disconnect(r) => PeerMessage::Disconnect(
-                ClosingReason::try_from_slice(&r.borsh).map_err(Self::Error::Disconnect)?,
-            ),
+            ProtoMT::Disconnect(d) => {
+                PeerMessage::Disconnect(Disconnect { allow_reconnect: d.allow_reconnect })
+            }
             ProtoMT::Challenge(c) => PeerMessage::Challenge(
                 Challenge::try_from_slice(&c.borsh).map_err(Self::Error::Challenge)?,
             ),
