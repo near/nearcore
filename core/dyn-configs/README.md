@@ -15,3 +15,12 @@ Makes changes to `config.json` and send `SIGHUP` signal to the `neard` process.
 #### Fields of config that can be changed while the node is running:
 
 - `expected_shutdown`: the specified block height neard will gracefully shutdown at.
+
+#### Changing other fields of `config.json`
+
+The changes to other fields of `config.json` will be silently ignored as long as
+`config.json` remains a valid json object and passes internal validation.
+
+Please be careful about making changes to `config.json` because when a node
+starts (or restarts), it checks the validity of the config files and crashes if
+detects any issues.

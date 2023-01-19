@@ -1135,7 +1135,7 @@ impl ClientActor {
     /// min(time until the closest trigger, 1 second).
     fn check_triggers(&mut self, ctx: &mut Context<ClientActor>) -> Duration {
         if let Some(config_updater) = &mut self.config_updater {
-            config_updater.update_if_needed(&|updateable_client_config| {
+            config_updater.try_update(&|updateable_client_config| {
                 self.client.update_client_config(updateable_client_config)
             });
         }
