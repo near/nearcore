@@ -141,7 +141,7 @@ openssl-probe = "0.1.4"
 opentelemetry = { version = "0.17.0", features = ["rt-tokio", "trace"] }
 opentelemetry-otlp = "0.10.0"
 opentelemetry-semantic-conventions = "0.9.0"
-paperclip = { version = "0.7.0", features = ["actix4"] }
+paperclip = { version = "0.8.0", features = ["actix4"] }
 parity-wasm = { version = "0.42", default-features = false }
 parity-wasm_41 = { package = "parity-wasm", version = "0.41" }
 parking_lot = "0.12.1"
@@ -171,7 +171,7 @@ serde = { version = "1.0.136", features = ["alloc", "derive", "rc"] }
 serde_ignored = "0.1"
 serde_json = "1.0.68"
 serde_repr = "0.1.8"
-serde_yaml = "0.8.26"
+serde_yaml = "0.9"
 sha2 = "0.10"
 sha3 = "0.10"
 shell-escape = "0.1.5"
