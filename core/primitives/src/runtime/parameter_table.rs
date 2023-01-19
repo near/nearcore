@@ -80,11 +80,6 @@ pub(crate) enum InvalidConfigError {
 impl std::str::FromStr for ParameterTable {
     type Err = InvalidConfigError;
     fn from_str(arg: &str) -> Result<ParameterTable, InvalidConfigError> {
-        // TODO(#8320): Remove this after migration to `serde_yaml` 0.9 that supports empty strings.
-        if arg.is_empty() {
-            return Ok(ParameterTable { parameters: BTreeMap::new() });
-        }
-
         let yaml_map: BTreeMap<String, serde_yaml::Value> =
             serde_yaml::from_str(arg).map_err(|err| InvalidConfigError::InvalidYaml(err))?;
 
@@ -586,8 +581,7 @@ burnt_gas_reward: {
     fn test_parameter_table_no_key() {
         assert_matches!(
             check_invalid_parameter_table(": 100", &[]),
-            // TODO(#8320): This must be invalid YAML after migration to `serde_yaml` 0.9.
-            InvalidConfigError::UnknownParameter(_, _)
+            InvalidConfigError::InvalidYaml(_)
         );
     }
 

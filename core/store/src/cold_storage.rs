@@ -1,7 +1,7 @@
 use crate::columns::DBKeyType;
-use crate::db::ColdDB;
+use crate::db::{ColdDB, COLD_HEAD_KEY, HEAD_KEY};
 use crate::trie::TrieRefcountChange;
-use crate::{DBCol, DBTransaction, Database, Store, TrieChanges, HEAD_KEY};
+use crate::{DBCol, DBTransaction, Database, Store, TrieChanges};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::block::{Block, BlockHeader, Tip};
@@ -97,7 +97,9 @@ fn copy_from_store<D: Database>(
     return Ok(());
 }
 
-/// This function sets HEAD key in BlockMisc column to the Tip that reflect provided height.
+/// This function sets the cold head to the Tip that reflect provided height in two places:
+/// - In cold storage in HEAD key in BlockMisc column.
+/// - In hot storage in COLD_HEAD key in BlockMisc column.
 /// This function should be used after all of the blocks from genesis to `height` inclusive had been copied.
 ///
 /// This method relies on the fact that BlockHeight and BlockHeader are not garbage collectable.
@@ -114,17 +116,23 @@ pub fn update_cold_head<D: Database>(
 
     let height_key = height.to_le_bytes();
     let block_hash_key = store.get_or_err(DBCol::BlockHeight, &height_key)?.as_slice().to_vec();
+    let tip_header = &store.get_ser_or_err::<BlockHeader>(DBCol::BlockHeader, &block_hash_key)?;
+    let tip = Tip::from_header(tip_header);
 
-    let mut transaction = DBTransaction::new();
-    transaction.set(
-        DBCol::BlockMisc,
-        HEAD_KEY.to_vec(),
-        Tip::from_header(
-            &store.get_ser_or_err::<BlockHeader>(DBCol::BlockHeader, &block_hash_key)?,
-        )
-        .try_to_vec()?,
-    );
-    cold_db.write(transaction)?;
+    // Write HEAD to the cold db.
+    {
+        let mut transaction = DBTransaction::new();
+        transaction.set(DBCol::BlockMisc, HEAD_KEY.to_vec(), tip.try_to_vec()?);
+        cold_db.write(transaction)?;
+    }
+
+    // Write COLD_HEAD to the hot db.
+    {
+        let mut transaction = DBTransaction::new();
+        transaction.set(DBCol::BlockMisc, COLD_HEAD_KEY.to_vec(), tip.try_to_vec()?);
+        hot_store.storage.write(transaction)?;
+    }
+
     return Ok(());
 }
 

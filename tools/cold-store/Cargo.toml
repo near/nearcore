@@ -13,9 +13,3 @@ near-chain-configs = { path = "../../core/chain-configs"}
 near-epoch-manager = { path = "../../chain/epoch-manager" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store"}
-
-[features]
-cold_store = [
-    "near-store/cold_store",
-    "nearcore/cold_store",
-]
