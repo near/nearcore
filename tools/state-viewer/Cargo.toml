@@ -37,6 +37,7 @@ node-runtime = { path = "../../runtime/runtime" }
 [dev-dependencies]
 near-client = { path = "../../chain/client" }
 testlib = { path = "../../test-utils/testlib" }
+insta.workspace = true
 
 [features]
 sandbox = [
