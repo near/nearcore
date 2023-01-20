@@ -3475,7 +3475,6 @@ fn test_catchup_no_sharding_change() {
 
 /// These tests fail on aarch because the WasmtimeVM::precompile method doesn't populate the cache.
 #[cfg(not(all(target_arch = "aarch64", target_vendor = "apple")))]
-
 mod contract_precompilation_tests {
     use super::*;
     use near_primitives::contract::ContractCode;
