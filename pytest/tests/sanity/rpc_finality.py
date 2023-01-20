@@ -65,4 +65,3 @@ class TestRpcFinality(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
-
