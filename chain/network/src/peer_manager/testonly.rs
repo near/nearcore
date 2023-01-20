@@ -1,3 +1,4 @@
+use crate::accounts_data;
 use crate::broadcast;
 use crate::config;
 use crate::network_protocol::testonly as data;
@@ -5,7 +6,6 @@ use crate::network_protocol::{
     EdgeState, Encoding, PeerInfo, PeerMessage, SignedAccountData, SyncAccountsData,
 };
 use crate::peer;
-use crate::accounts_data;
 use crate::peer::peer_actor::ClosingReason;
 use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_manager_actor::Event as PME;
@@ -365,12 +365,13 @@ impl ActorHandler {
     }
 
     // Awaits until the accounts_data state satisfies predicate `pred`.
-    pub async fn wait_for_accounts_data_pred(&self, pred: impl Fn(Arc<accounts_data::CacheSnapshot>) -> bool) {
+    pub async fn wait_for_accounts_data_pred(
+        &self,
+        pred: impl Fn(Arc<accounts_data::CacheSnapshot>) -> bool,
+    ) {
         let mut events = self.events.from_now();
         loop {
-            let got = self
-                .with_state(move |s| async move { s.accounts_data.load() })
-                .await;
+            let got = self.with_state(move |s| async move { s.accounts_data.load() }).await;
             if pred(got) {
                 break;
             }
@@ -384,7 +385,8 @@ impl ActorHandler {
     pub async fn wait_for_accounts_data(&self, want: &HashSet<Arc<SignedAccountData>>) {
         self.wait_for_accounts_data_pred(|cache| {
             &cache.data.values().cloned().collect::<HashSet<_>>() == want
-        }).await
+        })
+        .await
     }
 
     pub async fn wait_for_direct_connection(&self, target_peer_id: PeerId) {

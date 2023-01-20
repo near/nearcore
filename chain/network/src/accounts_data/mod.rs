@@ -75,35 +75,38 @@ pub struct CacheSnapshot {
 }
 
 impl CacheSnapshot {
-    /// Checks if `d.version` is newer (greater) than
-    /// the version of data for `d.account_key` already stored in the Cache.
+    /// Checks if `(d.version,d.timestamp)` is newer (greater) than
+    /// `(old.version,old.timestamp)`, where `old` is the AccountData for
+    /// `d.account_key` already stored in the Cache.
     /// It returns `false` in case `d.account_key` is not in `d.keys`,
     /// because it means that `Cache` is not interested in these data at all.
-    /// TODO(gprusak): note that when the node is restarted, it forgets
+    ///
+    /// Note that when the node is restarted, it forgets
     /// which version it has signed last, so it will again start from version
     /// 0, until it learns from the network about data it already signed in the
     /// previous execution. It means that a node may sign 2 data with the exact same
-    /// version, which will lead to an inconsistent state of the network: some
-    /// nodes will learn about one data with the given version, some about the other.
-    /// It will only get resolved once node emits the next version of the data
-    /// (so after `cfg.advertise_proxies_interval`, with the current implementation).
-    /// This inconsistency is pretty likely in case a node is restarted quickly after the
-    /// initial start (which is likely to happen in tests, for example).
-    /// To fix that we should minimize the change of version collision, by implementing one of the
-    /// following:
-    /// * compare `(version,timestamp)` instead of just `version` (UTC timestamps are unlikely to collide
-    ///   and we don't care about monotonicity here)
-    /// * add a random_minor_version to AccountData, specifically to avoid collisions
+    /// version. To avoid an inconsistent state of the network (i.e. situation in which
+    /// some nodes will learn about one data with the given version, some about the other)
+    /// we introduce a tie breaker in a form of UTC timestamp of signing (note that here
+    /// we do not rely on clock monotonicity, which is not guaranteed for UTC clock,
+    /// just assume that timestamp collision is unlikely).
+    ///
+    /// The alternatives to using a timestamp would be:
+    /// * adding a random_minor_version to AccountData, specifically to avoid collisions
     ///   (so we would be comparing `(version,random_minor_version)` instead)
-    /// * use some crypto hash function `h` and compare `(version,h(data))`. Assuming that `h`
+    /// * using some crypto hash function `h` and compare `(version,h(data))`. Assuming that `h`
     ///   behaves like a random oracle, the semantics will be equivaluent to
     ///   `random_minor_version`, except that if a node signs exactly the same data and in the
     ///   previous run, then there will be a collision. But in such a case it doesn't matter
     ///   since the data is the same.
+    /// * storing `version` of the last signed AccountData in persistent storage,
+    ///   so that the node literally never signs AccountsData with colling versions.
+    ///   This assumption is fragile as long as validators migrate their nodes without copying over
+    ///   the whole storage.
     fn is_new(&self, d: &SignedAccountData) -> bool {
         self.keys.contains(&d.account_key)
             && match self.data.get(&d.account_key) {
-                Some(old) if old.version >= d.version => false,
+                Some(old) if (old.version, old.timestamp) >= (d.version, d.timestamp) => false,
                 _ => true,
             }
     }

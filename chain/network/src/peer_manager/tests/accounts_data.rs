@@ -4,15 +4,15 @@ use crate::network_protocol::SyncAccountsData;
 use crate::peer;
 use crate::peer_manager;
 use crate::peer_manager::peer_manager_actor::Event as PME;
-use crate::peer_manager::testonly::start as start_pm;
 use crate::peer_manager::testonly;
-use near_store::db::TestDB;
+use crate::peer_manager::testonly::start as start_pm;
 use crate::tcp;
 use crate::testonly::{make_rng, AsSet as _};
 use crate::time;
 use crate::types::PeerMessage;
 use itertools::Itertools;
 use near_o11y::testonly::init_test_logger;
+use near_store::db::TestDB;
 use pretty_assertions::assert_eq;
 use rand::seq::SliceRandom as _;
 use std::collections::HashSet;
@@ -271,46 +271,72 @@ async fn rate_limiting() {
 #[tokio::test]
 async fn validator_node_restart() {
     init_test_logger();
-    let mut rng = make_rng(921853233);
-    let rng = &mut rng;
-    let mut clock = time::FakeClock::default();
-    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
-    let mut cfg = chain.make_config(rng);
-    let chain_info = testonly::make_chain_info(&chain,&[&cfg]);
-    let pm0 = start_pm(clock.clock(), TestDB::new(), cfg.clone(), chain.clone()).await;
-    let pm1 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
-    
-    pm0.set_chain_info(chain_info.clone()).await;
-    pm1.set_chain_info(chain_info.clone()).await;
+    const ZERO: time::Duration = time::Duration::ZERO;
+    const SEC: time::Duration = time::Duration::seconds(1);
 
-    pm0.connect_to(&pm1.peer_info(), tcp::Tier::T2).await;
-    let want = pm0.tier1_advertise_proxies(&clock.clock()).await.unwrap();
-    pm1.wait_for_accounts_data(&HashSet::from([want.clone()])).await;
-    
-    // Restart pm0 with a new node key.
-    drop(pm0);
-    clock.advance(time::Duration::hours(1));
-    cfg.node_key = data::make_secret_key(rng); 
-    let pm0 = start_pm(clock.clock(), TestDB::new(), cfg.clone(), chain.clone()).await;
-    pm0.set_chain_info(chain_info.clone()).await;
-    // Sign AccountData before event connecting to the network.
-    let want2 = pm0.tier1_advertise_proxies(&clock.clock()).await.unwrap();
-    // The versions should collide, because pm0 doesn't know that it has already signed
-    // AccountData with the given version.
-    assert_eq!(want.version,want2.version);
-    assert!(want!=want2);
-    // Connect to the node which knows the old AccountData. 
-    pm0.connect_to(&pm1.peer_info(), tcp::Tier::T2).await;
-   
-    // Now pm0 should learn from pm1 about the conflicting version and should broadcast
-    // new AccountData (with higher version) to override the old AccountData.
-    let pm0_account_key = cfg.validator.as_ref().unwrap().signer.public_key();
-    pm1.wait_for_accounts_data_pred(|accounts_data|{
-        let data = match accounts_data.data.get(&pm0_account_key) {
-            Some(it) => it,
-            None => return false,
-        };
-        data.peer_id == cfg.node_id()
-    }).await;
+    // We test restarting node with various number of AccountsData versions
+    // broadcasted before restart, and various downtime (represented as UTC clock shift, which may
+    // be negative).
+    for (n, downtime) in [
+        // If no version was emitted, timestamp is not important
+        (0, -SEC),
+        (0, ZERO),
+        (0, SEC),
+        // If 1 version was emitted, the version will be immediately correctly
+        // overriden as long as timestamp has changed.
+        (1, -SEC),
+        (1, SEC),
+        // If multiple versions were emitted, timestamp is not important
+        (2, -SEC),
+        (2, ZERO),
+        (2, SEC),
+    ] {
+        tracing::info!(target:"test", "test case (n = {n}, downtime = {downtime})");
+
+        let mut rng = make_rng(921853233);
+        let rng = &mut rng;
+        let mut clock = time::FakeClock::default();
+        let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
+        // Start 2 nodes with node pm0 being a validator.
+        let mut cfg = chain.make_config(rng);
+        let chain_info = testonly::make_chain_info(&chain, &[&cfg]);
+        let pm0 = start_pm(clock.clock(), TestDB::new(), cfg.clone(), chain.clone()).await;
+        let pm1 =
+            start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
+        pm0.set_chain_info(chain_info.clone()).await;
+        pm1.set_chain_info(chain_info.clone()).await;
+
+        // Connect the nodes and make pm0 broadcast `n` versions of the AccountData.
+        pm0.connect_to(&pm1.peer_info(), tcp::Tier::T2).await;
+        for _ in 0..n {
+            let want = pm0.tier1_advertise_proxies(&clock.clock()).await.unwrap();
+            pm1.wait_for_accounts_data(&HashSet::from([want.clone()])).await;
+        }
+
+        // Shut down pm0 and restart it after `downtime` with a different node_key.
+        drop(pm0);
+        clock.set_utc(clock.now_utc() + downtime);
+        cfg.node_key = data::make_secret_key(rng);
+        let pm0 = start_pm(clock.clock(), TestDB::new(), cfg.clone(), chain.clone()).await;
+        pm0.set_chain_info(chain_info.clone()).await;
+
+        // Sign AccountData before even connecting to the network.
+        assert!(pm0.tier1_advertise_proxies(&clock.clock()).await.is_some());
+        // Connect to the node which knows the old AccountData.
+        pm0.connect_to(&pm1.peer_info(), tcp::Tier::T2).await;
+
+        // Now pm0 should learn from pm1 about the conflicting version and should broadcast
+        // new AccountData (with higher version) to override the old AccountData.
+        let pm0_account_key = cfg.validator.as_ref().unwrap().signer.public_key();
+        pm1.wait_for_accounts_data_pred(|accounts_data| {
+            let data = match accounts_data.data.get(&pm0_account_key) {
+                Some(it) => it,
+                None => return false,
+            };
+            data.peer_id == cfg.node_id()
+        })
+        .await;
+    }
 }
