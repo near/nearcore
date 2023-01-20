@@ -10,13 +10,14 @@ use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::DateTime;
-use near_primitives_core::config::{ActionCosts, VMConfig};
+use near_primitives_core::config::{ActionCosts, ExtCosts, VMConfig};
 use near_primitives_core::runtime::fees::Fee;
-use num_rational::Rational;
+use num_rational::Rational32;
 use serde::{Deserialize, Serialize};
 
 use near_crypto::{PublicKey, Signature};
 use near_o11y::pretty;
+use strum::IntoEnumIterator;
 
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
 use crate::block::{Block, BlockHeader, Tip};
@@ -30,7 +31,6 @@ use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::{combine_hash, MerklePath};
 use crate::network::PeerId;
-use crate::profile::Cost;
 use crate::receipt::{ActionReceipt, DataReceipt, DataReceiver, Receipt, ReceiptEnum};
 use crate::runtime::config::RuntimeConfig;
 use crate::serialize::{base64_format, dec_format, option_base64_format};
@@ -52,6 +52,9 @@ use crate::types::{
 };
 use crate::version::{ProtocolVersion, Version};
 use validator_stake_view::ValidatorStakeView;
+
+#[cfg(feature = "protocol_feature_nep366_delegate_action")]
+use crate::transaction::{DelegateAction, SignedDelegateAction};
 
 /// A view of the account
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
@@ -364,11 +367,28 @@ pub struct KnownProducerView {
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct Tier1ProxyView {
+    pub addr: std::net::SocketAddr,
+    pub peer_id: PublicKey,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct AccountDataView {
+    pub peer_id: PublicKey,
+    pub proxies: Vec<Tier1ProxyView>,
+    pub account_key: PublicKey,
+    pub timestamp: DateTime<chrono::Utc>,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct NetworkInfoView {
     pub peer_max_count: u32,
     pub num_connected_peers: usize,
     pub connected_peers: Vec<PeerInfoView>,
     pub known_producers: Vec<KnownProducerView>,
+    pub tier1_accounts_keys: Vec<PublicKey>,
+    pub tier1_accounts_data: Vec<AccountDataView>,
+    pub tier1_connections: Vec<PeerInfoView>,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
@@ -1056,6 +1076,11 @@ pub enum ActionView {
     DeleteAccount {
         beneficiary_id: AccountId,
     },
+    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+    Delegate {
+        delegate_action: DelegateAction,
+        signature: Signature,
+    },
 }
 
 impl From<Action> for ActionView {
@@ -1084,6 +1109,11 @@ impl From<Action> for ActionView {
             Action::DeleteAccount(action) => {
                 ActionView::DeleteAccount { beneficiary_id: action.beneficiary_id }
             }
+            #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+            Action::Delegate(action) => ActionView::Delegate {
+                delegate_action: action.delegate_action,
+                signature: action.signature,
+            },
         }
     }
 }
@@ -1112,6 +1142,13 @@ impl TryFrom<ActionView> for Action {
             }
             ActionView::DeleteAccount { beneficiary_id } => {
                 Action::DeleteAccount(DeleteAccountAction { beneficiary_id })
+            }
+            #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+            ActionView::Delegate { delegate_action, signature } => {
+                Action::Delegate(SignedDelegateAction {
+                    delegate_action: delegate_action,
+                    signature,
+                })
             }
         })
     }
@@ -1249,73 +1286,102 @@ impl Default for ExecutionMetadataView {
 
 impl From<ExecutionMetadata> for ExecutionMetadataView {
     fn from(metadata: ExecutionMetadata) -> Self {
-        let gas_profile = match metadata {
+        let version = match metadata {
+            ExecutionMetadata::V1 => 1,
+            ExecutionMetadata::V2(_) => 2,
+            ExecutionMetadata::V3(_) => 3,
+        };
+        let mut gas_profile = match metadata {
             ExecutionMetadata::V1 => None,
             ExecutionMetadata::V2(profile_data) => {
-                let mut costs: Vec<_> =
-                    Cost::iter()
-                        .filter(|&cost| profile_data[cost] > 0)
-                        .map(|cost| CostGasUsed {
-                            cost_category: match cost {
-                                Cost::ActionCost { .. } => "ACTION_COST",
-                                Cost::ExtCost { .. } => "WASM_HOST_COST",
-                                Cost::WasmInstruction => "WASM_HOST_COST",
-                            }
-                            .to_string(),
-                            cost: match cost {
-                                // preserve old behavior that conflated some action
-                                // costs for profile (duplicates are removed afterwards)
-                                Cost::ActionCost {
-                                    action_cost_kind:
-                                        ActionCosts::deploy_contract_base
-                                        | ActionCosts::deploy_contract_byte,
-                                } => "DEPLOY_CONTRACT".to_owned(),
-                                Cost::ActionCost {
-                                    action_cost_kind:
-                                        ActionCosts::function_call_base
-                                        | ActionCosts::function_call_byte,
-                                } => "FUNCTION_CALL".to_owned(),
-                                Cost::ActionCost {
-                                    action_cost_kind:
-                                        ActionCosts::add_full_access_key
-                                        | ActionCosts::add_function_call_key_base
-                                        | ActionCosts::add_function_call_key_byte,
-                                } => "ADD_KEY".to_owned(),
-                                Cost::ActionCost {
-                                    action_cost_kind:
-                                        ActionCosts::new_action_receipt
-                                        | ActionCosts::new_data_receipt_base,
-                                } => "NEW_RECEIPT".to_owned(),
-                                // other costs have always been mapped one-to-one
-                                Cost::ActionCost { action_cost_kind: action_cost } => {
-                                    format!("{:?}", action_cost).to_ascii_uppercase()
-                                }
-                                Cost::ExtCost { ext_cost_kind: ext_cost } => {
-                                    format!("{:?}", ext_cost).to_ascii_uppercase()
-                                }
-                                Cost::WasmInstruction => "WASM_INSTRUCTION".to_string(),
-                            },
-                            gas_used: profile_data[cost],
+                // Add actions, wasm op, and ext costs in groups.
+
+                // actions should use the old format, since `ActionCosts`
+                // includes more detailed entries than were present in the old
+                // profile
+                let mut costs: Vec<CostGasUsed> = profile_data
+                    .legacy_action_costs()
+                    .into_iter()
+                    .filter(|&(_, gas)| gas > 0)
+                    .map(|(name, gas)| CostGasUsed::action(name.to_string(), gas))
+                    .collect();
+
+                // wasm op is a single cost, for historical reasons it is inaccurately displayed as "wasm host"
+                costs.push(CostGasUsed::wasm_host(
+                    "WASM_INSTRUCTION".to_string(),
+                    profile_data.get_wasm_cost(),
+                ));
+
+                // ext costs are 1-to-1, except for those added later which we will display as 0
+                for ext_cost in ExtCosts::iter() {
+                    costs.push(CostGasUsed::wasm_host(
+                        format!("{:?}", ext_cost).to_ascii_uppercase(),
+                        profile_data.get_ext_cost(ext_cost),
+                    ));
+                }
+
+                Some(costs)
+            }
+            ExecutionMetadata::V3(profile) => {
+                // Add actions, wasm op, and ext costs in groups.
+                // actions costs are 1-to-1
+                let mut costs: Vec<CostGasUsed> = ActionCosts::iter()
+                    .flat_map(|cost| {
+                        let gas_used = profile.get_action_cost(cost);
+                        (gas_used > 0).then(|| {
+                            CostGasUsed::action(
+                                format!("{:?}", cost).to_ascii_uppercase(),
+                                gas_used,
+                            )
                         })
-                        .collect();
+                    })
+                    .collect();
 
-                // The order doesn't really matter, but the default one is just
-                // historical, which is especially unintuitive, so let's sort
-                // lexicographically.
-                //
-                // Can't `sort_by_key` here because lifetime inference in
-                // closures is limited.
-                costs.sort_by(|lhs, rhs| {
-                    lhs.cost_category.cmp(&rhs.cost_category).then(lhs.cost.cmp(&rhs.cost))
-                });
+                // wasm op is a single cost, for historical reasons it is inaccurately displayed as "wasm host"
+                let wasm_gas_used = profile.get_wasm_cost();
+                if wasm_gas_used > 0 {
+                    costs.push(CostGasUsed::wasm_host(
+                        "WASM_INSTRUCTION".to_string(),
+                        wasm_gas_used,
+                    ));
+                }
 
-                // need to remove duplicate entries due to cost conflation
-                costs.dedup();
+                // ext costs are 1-to-1
+                for ext_cost in ExtCosts::iter() {
+                    let gas_used = profile.get_ext_cost(ext_cost);
+                    if gas_used > 0 {
+                        costs.push(CostGasUsed::wasm_host(
+                            format!("{:?}", ext_cost).to_ascii_uppercase(),
+                            gas_used,
+                        ));
+                    }
+                }
 
                 Some(costs)
             }
         };
-        ExecutionMetadataView { version: 1, gas_profile }
+        if let Some(ref mut costs) = gas_profile {
+            // The order doesn't really matter, but the default one is just
+            // historical, which is especially unintuitive, so let's sort
+            // lexicographically.
+            //
+            // Can't `sort_by_key` here because lifetime inference in
+            // closures is limited.
+            costs.sort_by(|lhs, rhs| {
+                lhs.cost_category.cmp(&rhs.cost_category).then_with(|| lhs.cost.cmp(&rhs.cost))
+            });
+        }
+        ExecutionMetadataView { version, gas_profile }
+    }
+}
+
+impl CostGasUsed {
+    pub fn action(cost: String, gas_used: Gas) -> Self {
+        Self { cost_category: "ACTION_COST".to_string(), cost, gas_used }
+    }
+
+    pub fn wasm_host(cost: String, gas_used: Gas) -> Self {
+        Self { cost_category: "WASM_HOST_COST".to_string(), cost, gas_used }
     }
 }
 
@@ -1972,17 +2038,14 @@ pub type MaintenanceWindowsView = Vec<Range<BlockHeight>>;
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct RuntimeConfigView {
     /// Amount of yN per byte required to have on the account.  See
-    /// <https://nomicon.io/Economics/README.html#state-stake> for details.
+    /// <https://nomicon.io/Economics/Economic#state-stake> for details.
     #[serde(with = "dec_format")]
     pub storage_amount_per_byte: Balance,
     /// Costs of different actions that need to be performed when sending and
     /// processing transaction and receipts.
     pub transaction_costs: RuntimeFeesConfigView,
     /// Config of wasm operations.
-    ///
-    /// TODO: This should be refactored to `VMConfigView` to detach the config
-    /// format from RPC output.
-    pub wasm_config: VMConfig,
+    pub wasm_config: VMConfigView,
     /// Config that defines rules for account creation.
     pub account_creation_config: AccountCreationConfigView,
 }
@@ -2003,10 +2066,10 @@ pub struct RuntimeFeesConfigView {
     pub storage_usage_config: StorageUsageConfigView,
 
     /// Fraction of the burnt gas to reward to the contract account for execution.
-    pub burnt_gas_reward: Rational,
+    pub burnt_gas_reward: Rational32,
 
     /// Pessimistic gas price inflation ratio.
-    pub pessimistic_gas_price_inflation_ratio: Rational,
+    pub pessimistic_gas_price_inflation_ratio: Rational32,
 }
 
 /// The structure describes configuration for creation of new accounts.
@@ -2066,6 +2129,12 @@ pub struct ActionCreationConfigView {
 
     /// Base cost of deleting an account.
     pub delete_account_cost: Fee,
+
+    /// Base cost for processing a delegate action.
+    ///
+    /// This is on top of the costs for the actions inside the delegate action.
+    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+    pub delegate_cost: Fee,
 }
 
 /// Describes the cost of creating an access key.
@@ -2131,6 +2200,8 @@ impl From<RuntimeConfig> for RuntimeConfigView {
                     },
                     delete_key_cost: config.fees.fee(ActionCosts::delete_key).clone(),
                     delete_account_cost: config.fees.fee(ActionCosts::delete_account).clone(),
+                    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+                    delegate_cost: config.fees.fee(ActionCosts::delegate).clone(),
                 },
                 storage_usage_config: StorageUsageConfigView {
                     num_bytes_account: config.fees.storage_usage_config.num_bytes_account,
@@ -2141,7 +2212,7 @@ impl From<RuntimeConfig> for RuntimeConfigView {
                     .fees
                     .pessimistic_gas_price_inflation_ratio,
             },
-            wasm_config: config.wasm_config,
+            wasm_config: VMConfigView::from(config.wasm_config),
             account_creation_config: AccountCreationConfigView {
                 min_allowed_top_level_account_length: config
                     .account_creation_config
@@ -2152,7 +2223,7 @@ impl From<RuntimeConfig> for RuntimeConfigView {
     }
 }
 
-// reverse direction: rosetta adapter uses this, also we use to test that all fields are present in view (TODO)
+// reverse direction: rosetta adapter uses this, also we use to test that all fields are present in view
 impl From<RuntimeConfigView> for RuntimeConfig {
     fn from(config: RuntimeConfigView) -> Self {
         Self {
@@ -2175,6 +2246,8 @@ impl From<RuntimeConfigView> for RuntimeConfig {
                 action_fees: enum_map::enum_map! {
                     ActionCosts::create_account => config.transaction_costs.action_creation_config.create_account_cost.clone(),
                     ActionCosts::delete_account => config.transaction_costs.action_creation_config.delete_account_cost.clone(),
+                    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+                    ActionCosts::delegate => config.transaction_costs.action_creation_config.delegate_cost.clone(),
                     ActionCosts::deploy_contract_base => config.transaction_costs.action_creation_config.deploy_contract_cost.clone(),
                     ActionCosts::deploy_contract_byte => config.transaction_costs.action_creation_config.deploy_contract_cost_per_byte.clone(),
                     ActionCosts::function_call_base => config.transaction_costs.action_creation_config.function_call_cost.clone(),
@@ -2191,7 +2264,7 @@ impl From<RuntimeConfigView> for RuntimeConfig {
 
                 },
             },
-            wasm_config: config.wasm_config,
+            wasm_config: VMConfig::from(config.wasm_config),
             account_creation_config: crate::runtime::config::AccountCreationConfig {
                 min_allowed_top_level_account_length: config
                     .account_creation_config
@@ -2199,5 +2272,418 @@ impl From<RuntimeConfigView> for RuntimeConfig {
                 registrar_account_id: config.account_creation_config.registrar_account_id,
             },
         }
+    }
+}
+
+#[derive(Clone, Debug, Hash, Serialize, Deserialize, PartialEq, Eq)]
+pub struct VMConfigView {
+    /// Costs for runtime externals
+    pub ext_costs: ExtCostsConfigView,
+
+    /// Gas cost of a growing memory by single page.
+    pub grow_mem_cost: u32,
+    /// Gas cost of a regular operation.
+    pub regular_op_cost: u32,
+
+    /// Describes limits for VM and Runtime.
+    ///
+    /// TODO: Consider changing this to `VMLimitConfigView` to avoid dependency
+    /// on runtime.
+    pub limit_config: near_primitives_core::config::VMLimitConfig,
+}
+
+impl From<VMConfig> for VMConfigView {
+    fn from(config: VMConfig) -> Self {
+        Self {
+            ext_costs: ExtCostsConfigView::from(config.ext_costs),
+            grow_mem_cost: config.grow_mem_cost,
+            regular_op_cost: config.regular_op_cost,
+            limit_config: config.limit_config,
+        }
+    }
+}
+
+impl From<VMConfigView> for VMConfig {
+    fn from(view: VMConfigView) -> Self {
+        Self {
+            ext_costs: near_primitives_core::config::ExtCostsConfig::from(view.ext_costs),
+            grow_mem_cost: view.grow_mem_cost,
+            regular_op_cost: view.regular_op_cost,
+            limit_config: view.limit_config,
+        }
+    }
+}
+
+/// Typed view of ExtCostsConfig to preserve JSON output field names in protocol
+/// config RPC output.
+#[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
+pub struct ExtCostsConfigView {
+    /// Base cost for calling a host function.
+    pub base: Gas,
+
+    /// Base cost of loading a pre-compiled contract
+    pub contract_loading_base: Gas,
+    /// Cost per byte of loading a pre-compiled contract
+    pub contract_loading_bytes: Gas,
+
+    /// Base cost for guest memory read
+    pub read_memory_base: Gas,
+    /// Cost for guest memory read
+    pub read_memory_byte: Gas,
+
+    /// Base cost for guest memory write
+    pub write_memory_base: Gas,
+    /// Cost for guest memory write per byte
+    pub write_memory_byte: Gas,
+
+    /// Base cost for reading from register
+    pub read_register_base: Gas,
+    /// Cost for reading byte from register
+    pub read_register_byte: Gas,
+
+    /// Base cost for writing into register
+    pub write_register_base: Gas,
+    /// Cost for writing byte into register
+    pub write_register_byte: Gas,
+
+    /// Base cost of decoding utf8. It's used for `log_utf8` and `panic_utf8`.
+    pub utf8_decoding_base: Gas,
+    /// Cost per byte of decoding utf8. It's used for `log_utf8` and `panic_utf8`.
+    pub utf8_decoding_byte: Gas,
+
+    /// Base cost of decoding utf16. It's used for `log_utf16`.
+    pub utf16_decoding_base: Gas,
+    /// Cost per byte of decoding utf16. It's used for `log_utf16`.
+    pub utf16_decoding_byte: Gas,
+
+    /// Cost of getting sha256 base
+    pub sha256_base: Gas,
+    /// Cost of getting sha256 per byte
+    pub sha256_byte: Gas,
+
+    /// Cost of getting sha256 base
+    pub keccak256_base: Gas,
+    /// Cost of getting sha256 per byte
+    pub keccak256_byte: Gas,
+
+    /// Cost of getting sha256 base
+    pub keccak512_base: Gas,
+    /// Cost of getting sha256 per byte
+    pub keccak512_byte: Gas,
+
+    /// Cost of getting ripemd160 base
+    pub ripemd160_base: Gas,
+    /// Cost of getting ripemd160 per message block
+    pub ripemd160_block: Gas,
+
+    /// Cost of getting ed25519 base
+    #[cfg(feature = "protocol_feature_ed25519_verify")]
+    pub ed25519_verify_base: Gas,
+    /// Cost of getting ed25519 per byte
+    #[cfg(feature = "protocol_feature_ed25519_verify")]
+    pub ed25519_verify_byte: Gas,
+
+    /// Cost of calling ecrecover
+    pub ecrecover_base: Gas,
+
+    /// Cost for calling logging.
+    pub log_base: Gas,
+    /// Cost for logging per byte
+    pub log_byte: Gas,
+
+    // ###############
+    // # Storage API #
+    // ###############
+    /// Storage trie write key base cost
+    pub storage_write_base: Gas,
+    /// Storage trie write key per byte cost
+    pub storage_write_key_byte: Gas,
+    /// Storage trie write value per byte cost
+    pub storage_write_value_byte: Gas,
+    /// Storage trie write cost per byte of evicted value.
+    pub storage_write_evicted_byte: Gas,
+
+    /// Storage trie read key base cost
+    pub storage_read_base: Gas,
+    /// Storage trie read key per byte cost
+    pub storage_read_key_byte: Gas,
+    /// Storage trie read value cost per byte cost
+    pub storage_read_value_byte: Gas,
+
+    /// Remove key from trie base cost
+    pub storage_remove_base: Gas,
+    /// Remove key from trie per byte cost
+    pub storage_remove_key_byte: Gas,
+    /// Remove key from trie ret value byte cost
+    pub storage_remove_ret_value_byte: Gas,
+
+    /// Storage trie check for key existence cost base
+    pub storage_has_key_base: Gas,
+    /// Storage trie check for key existence per key byte
+    pub storage_has_key_byte: Gas,
+
+    /// Create trie prefix iterator cost base
+    pub storage_iter_create_prefix_base: Gas,
+    /// Create trie prefix iterator cost per byte.
+    pub storage_iter_create_prefix_byte: Gas,
+
+    /// Create trie range iterator cost base
+    pub storage_iter_create_range_base: Gas,
+    /// Create trie range iterator cost per byte of from key.
+    pub storage_iter_create_from_byte: Gas,
+    /// Create trie range iterator cost per byte of to key.
+    pub storage_iter_create_to_byte: Gas,
+
+    /// Trie iterator per key base cost
+    pub storage_iter_next_base: Gas,
+    /// Trie iterator next key byte cost
+    pub storage_iter_next_key_byte: Gas,
+    /// Trie iterator next key byte cost
+    pub storage_iter_next_value_byte: Gas,
+
+    /// Cost per reading trie node from DB
+    pub touching_trie_node: Gas,
+    /// Cost for reading trie node from memory
+    pub read_cached_trie_node: Gas,
+
+    // ###############
+    // # Promise API #
+    // ###############
+    /// Cost for calling `promise_and`
+    pub promise_and_base: Gas,
+    /// Cost for calling `promise_and` for each promise
+    pub promise_and_per_promise: Gas,
+    /// Cost for calling `promise_return`
+    pub promise_return: Gas,
+
+    // ###############
+    // # Validator API #
+    // ###############
+    /// Cost of calling `validator_stake`.
+    pub validator_stake_base: Gas,
+    /// Cost of calling `validator_total_stake`.
+    pub validator_total_stake_base: Gas,
+
+    // Removed parameters, only here for keeping the output backward-compatible.
+    pub contract_compile_base: Gas,
+    pub contract_compile_bytes: Gas,
+
+    // #############
+    // # Alt BN128 #
+    // #############
+    /// Base cost for multiexp
+    pub alt_bn128_g1_multiexp_base: Gas,
+    /// Per element cost for multiexp
+    pub alt_bn128_g1_multiexp_element: Gas,
+    /// Base cost for sum
+    pub alt_bn128_g1_sum_base: Gas,
+    /// Per element cost for sum
+    pub alt_bn128_g1_sum_element: Gas,
+    /// Base cost for pairing check
+    pub alt_bn128_pairing_check_base: Gas,
+    /// Per element cost for pairing check
+    pub alt_bn128_pairing_check_element: Gas,
+}
+
+impl From<near_primitives_core::config::ExtCostsConfig> for ExtCostsConfigView {
+    fn from(config: near_primitives_core::config::ExtCostsConfig) -> Self {
+        Self {
+            base: config.cost(ExtCosts::base),
+            contract_loading_base: config.cost(ExtCosts::contract_loading_base),
+            contract_loading_bytes: config.cost(ExtCosts::contract_loading_bytes),
+            read_memory_base: config.cost(ExtCosts::read_memory_base),
+            read_memory_byte: config.cost(ExtCosts::read_memory_byte),
+            write_memory_base: config.cost(ExtCosts::write_memory_base),
+            write_memory_byte: config.cost(ExtCosts::write_memory_byte),
+            read_register_base: config.cost(ExtCosts::read_register_base),
+            read_register_byte: config.cost(ExtCosts::read_register_byte),
+            write_register_base: config.cost(ExtCosts::write_register_base),
+            write_register_byte: config.cost(ExtCosts::write_register_byte),
+            utf8_decoding_base: config.cost(ExtCosts::utf8_decoding_base),
+            utf8_decoding_byte: config.cost(ExtCosts::utf8_decoding_byte),
+            utf16_decoding_base: config.cost(ExtCosts::utf16_decoding_base),
+            utf16_decoding_byte: config.cost(ExtCosts::utf16_decoding_byte),
+            sha256_base: config.cost(ExtCosts::sha256_base),
+            sha256_byte: config.cost(ExtCosts::sha256_byte),
+            keccak256_base: config.cost(ExtCosts::keccak256_base),
+            keccak256_byte: config.cost(ExtCosts::keccak256_byte),
+            keccak512_base: config.cost(ExtCosts::keccak512_base),
+            keccak512_byte: config.cost(ExtCosts::keccak512_byte),
+            ripemd160_base: config.cost(ExtCosts::ripemd160_base),
+            ripemd160_block: config.cost(ExtCosts::ripemd160_block),
+            #[cfg(feature = "protocol_feature_ed25519_verify")]
+            ed25519_verify_base: config.cost(ExtCosts::ed25519_verify_base),
+            #[cfg(feature = "protocol_feature_ed25519_verify")]
+            ed25519_verify_byte: config.cost(ExtCosts::ed25519_verify_byte),
+            ecrecover_base: config.cost(ExtCosts::ecrecover_base),
+            log_base: config.cost(ExtCosts::log_base),
+            log_byte: config.cost(ExtCosts::log_byte),
+            storage_write_base: config.cost(ExtCosts::storage_write_base),
+            storage_write_key_byte: config.cost(ExtCosts::storage_write_key_byte),
+            storage_write_value_byte: config.cost(ExtCosts::storage_write_value_byte),
+            storage_write_evicted_byte: config.cost(ExtCosts::storage_write_evicted_byte),
+            storage_read_base: config.cost(ExtCosts::storage_read_base),
+            storage_read_key_byte: config.cost(ExtCosts::storage_read_key_byte),
+            storage_read_value_byte: config.cost(ExtCosts::storage_read_value_byte),
+            storage_remove_base: config.cost(ExtCosts::storage_remove_base),
+            storage_remove_key_byte: config.cost(ExtCosts::storage_remove_key_byte),
+            storage_remove_ret_value_byte: config.cost(ExtCosts::storage_remove_ret_value_byte),
+            storage_has_key_base: config.cost(ExtCosts::storage_has_key_base),
+            storage_has_key_byte: config.cost(ExtCosts::storage_has_key_byte),
+            storage_iter_create_prefix_base: config.cost(ExtCosts::storage_iter_create_prefix_base),
+            storage_iter_create_prefix_byte: config.cost(ExtCosts::storage_iter_create_prefix_byte),
+            storage_iter_create_range_base: config.cost(ExtCosts::storage_iter_create_range_base),
+            storage_iter_create_from_byte: config.cost(ExtCosts::storage_iter_create_from_byte),
+            storage_iter_create_to_byte: config.cost(ExtCosts::storage_iter_create_to_byte),
+            storage_iter_next_base: config.cost(ExtCosts::storage_iter_next_base),
+            storage_iter_next_key_byte: config.cost(ExtCosts::storage_iter_next_key_byte),
+            storage_iter_next_value_byte: config.cost(ExtCosts::storage_iter_next_value_byte),
+            touching_trie_node: config.cost(ExtCosts::touching_trie_node),
+            read_cached_trie_node: config.cost(ExtCosts::read_cached_trie_node),
+            promise_and_base: config.cost(ExtCosts::promise_and_base),
+            promise_and_per_promise: config.cost(ExtCosts::promise_and_per_promise),
+            promise_return: config.cost(ExtCosts::promise_return),
+            validator_stake_base: config.cost(ExtCosts::validator_stake_base),
+            validator_total_stake_base: config.cost(ExtCosts::validator_total_stake_base),
+            alt_bn128_g1_multiexp_base: config.cost(ExtCosts::alt_bn128_g1_multiexp_base),
+            alt_bn128_g1_multiexp_element: config.cost(ExtCosts::alt_bn128_g1_multiexp_element),
+            alt_bn128_g1_sum_base: config.cost(ExtCosts::alt_bn128_g1_sum_base),
+            alt_bn128_g1_sum_element: config.cost(ExtCosts::alt_bn128_g1_sum_element),
+            alt_bn128_pairing_check_base: config.cost(ExtCosts::alt_bn128_pairing_check_base),
+            alt_bn128_pairing_check_element: config.cost(ExtCosts::alt_bn128_pairing_check_element),
+            // removed parameters
+            contract_compile_base: 0,
+            contract_compile_bytes: 0,
+        }
+    }
+}
+
+impl From<ExtCostsConfigView> for near_primitives_core::config::ExtCostsConfig {
+    fn from(view: ExtCostsConfigView) -> Self {
+        let costs = enum_map::enum_map! {
+                ExtCosts::base => view.base,
+                ExtCosts::contract_loading_base => view.contract_loading_base,
+                ExtCosts::contract_loading_bytes => view.contract_loading_bytes,
+                ExtCosts::read_memory_base => view.read_memory_base,
+                ExtCosts::read_memory_byte => view.read_memory_byte,
+                ExtCosts::write_memory_base => view.write_memory_base,
+                ExtCosts::write_memory_byte => view.write_memory_byte,
+                ExtCosts::read_register_base => view.read_register_base,
+                ExtCosts::read_register_byte => view.read_register_byte,
+                ExtCosts::write_register_base => view.write_register_base,
+                ExtCosts::write_register_byte => view.write_register_byte,
+                ExtCosts::utf8_decoding_base => view.utf8_decoding_base,
+                ExtCosts::utf8_decoding_byte => view.utf8_decoding_byte,
+                ExtCosts::utf16_decoding_base => view.utf16_decoding_base,
+                ExtCosts::utf16_decoding_byte => view.utf16_decoding_byte,
+                ExtCosts::sha256_base => view.sha256_base,
+                ExtCosts::sha256_byte => view.sha256_byte,
+                ExtCosts::keccak256_base => view.keccak256_base,
+                ExtCosts::keccak256_byte => view.keccak256_byte,
+                ExtCosts::keccak512_base => view.keccak512_base,
+                ExtCosts::keccak512_byte => view.keccak512_byte,
+                ExtCosts::ripemd160_base => view.ripemd160_base,
+                ExtCosts::ripemd160_block => view.ripemd160_block,
+                #[cfg(feature = "protocol_feature_ed25519_verify")]
+                ExtCosts::ed25519_verify_base => view.ed25519_verify_base,
+                #[cfg(feature = "protocol_feature_ed25519_verify")]
+                ExtCosts::ed25519_verify_byte => view.ed25519_verify_byte,
+                ExtCosts::ecrecover_base => view.ecrecover_base,
+                ExtCosts::log_base => view.log_base,
+                ExtCosts::log_byte => view.log_byte,
+                ExtCosts::storage_write_base => view.storage_write_base,
+                ExtCosts::storage_write_key_byte => view.storage_write_key_byte,
+                ExtCosts::storage_write_value_byte => view.storage_write_value_byte,
+                ExtCosts::storage_write_evicted_byte => view.storage_write_evicted_byte,
+                ExtCosts::storage_read_base => view.storage_read_base,
+                ExtCosts::storage_read_key_byte => view.storage_read_key_byte,
+                ExtCosts::storage_read_value_byte => view.storage_read_value_byte,
+                ExtCosts::storage_remove_base => view.storage_remove_base,
+                ExtCosts::storage_remove_key_byte => view.storage_remove_key_byte,
+                ExtCosts::storage_remove_ret_value_byte => view.storage_remove_ret_value_byte,
+                ExtCosts::storage_has_key_base => view.storage_has_key_base,
+                ExtCosts::storage_has_key_byte => view.storage_has_key_byte,
+                ExtCosts::storage_iter_create_prefix_base => view.storage_iter_create_prefix_base,
+                ExtCosts::storage_iter_create_prefix_byte => view.storage_iter_create_prefix_byte,
+                ExtCosts::storage_iter_create_range_base => view.storage_iter_create_range_base,
+                ExtCosts::storage_iter_create_from_byte => view.storage_iter_create_from_byte,
+                ExtCosts::storage_iter_create_to_byte => view.storage_iter_create_to_byte,
+                ExtCosts::storage_iter_next_base => view.storage_iter_next_base,
+                ExtCosts::storage_iter_next_key_byte => view.storage_iter_next_key_byte,
+                ExtCosts::storage_iter_next_value_byte => view.storage_iter_next_value_byte,
+                ExtCosts::touching_trie_node => view.touching_trie_node,
+                ExtCosts::read_cached_trie_node => view.read_cached_trie_node,
+                ExtCosts::promise_and_base => view.promise_and_base,
+                ExtCosts::promise_and_per_promise => view.promise_and_per_promise,
+                ExtCosts::promise_return => view.promise_return,
+                ExtCosts::validator_stake_base => view.validator_stake_base,
+                ExtCosts::validator_total_stake_base => view.validator_total_stake_base,
+                ExtCosts::alt_bn128_g1_multiexp_base => view.alt_bn128_g1_multiexp_base,
+                ExtCosts::alt_bn128_g1_multiexp_element => view.alt_bn128_g1_multiexp_element,
+                ExtCosts::alt_bn128_g1_sum_base => view.alt_bn128_g1_sum_base,
+                ExtCosts::alt_bn128_g1_sum_element => view.alt_bn128_g1_sum_element,
+                ExtCosts::alt_bn128_pairing_check_base => view.alt_bn128_pairing_check_base,
+                ExtCosts::alt_bn128_pairing_check_element => view.alt_bn128_pairing_check_element,
+        };
+        Self { costs }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[cfg(not(feature = "nightly"))]
+    use super::ExecutionMetadataView;
+    use super::RuntimeConfigView;
+    use crate::runtime::config::RuntimeConfig;
+    #[cfg(not(feature = "nightly"))]
+    use crate::transaction::ExecutionMetadata;
+    #[cfg(not(feature = "nightly"))]
+    use near_primitives_core::profile::{ProfileDataV2, ProfileDataV3};
+
+    /// The JSON representation used in RPC responses must not remove or rename
+    /// fields, only adding fields is allowed or we risk breaking clients.
+    #[test]
+    #[cfg(not(feature = "nightly"))]
+    fn test_runtime_config_view() {
+        let config = RuntimeConfig::test();
+        let view = RuntimeConfigView::from(config);
+        insta::assert_json_snapshot!(&view);
+    }
+
+    /// A `RuntimeConfigView` must contain all info to reconstruct a `RuntimeConfig`.
+    #[test]
+    fn test_runtime_config_view_is_complete() {
+        let config = RuntimeConfig::test();
+        let view = RuntimeConfigView::from(config.clone());
+        let reconstructed_config = RuntimeConfig::from(view);
+
+        assert_eq!(config, reconstructed_config);
+    }
+
+    /// `ExecutionMetadataView` with profile V1 displayed on the RPC should not change.
+    #[test]
+    #[cfg(not(feature = "nightly"))]
+    fn test_exec_metadata_v1_view() {
+        let metadata = ExecutionMetadata::V1;
+        let view = ExecutionMetadataView::from(metadata);
+        insta::assert_json_snapshot!(view);
+    }
+
+    /// `ExecutionMetadataView` with profile V2 displayed on the RPC should not change.
+    #[test]
+    #[cfg(not(feature = "nightly"))]
+    fn test_exec_metadata_v2_view() {
+        let metadata = ExecutionMetadata::V2(ProfileDataV2::test());
+        let view = ExecutionMetadataView::from(metadata);
+        insta::assert_json_snapshot!(view);
+    }
+
+    /// `ExecutionMetadataView` with profile V3 displayed on the RPC should not change.
+    #[test]
+    #[cfg(not(feature = "nightly"))]
+    fn test_exec_metadata_v3_view() {
+        let metadata = ExecutionMetadata::V3(ProfileDataV3::test());
+        let view = ExecutionMetadataView::from(metadata);
+        insta::assert_json_snapshot!(view);
     }
 }

@@ -8,6 +8,7 @@
 pub fn split_array<const N: usize, const L: usize, const R: usize>(
     xs: &[u8; N],
 ) -> (&[u8; L], &[u8; R]) {
+    #[allow(clippy::let_unit_value)]
     let () = AssertEqSum::<N, L, R>::OK;
 
     let (left, right) = xs.split_at(L);
@@ -18,6 +19,7 @@ pub fn split_array<const N: usize, const L: usize, const R: usize>(
 pub fn split_array_mut<const N: usize, const L: usize, const R: usize>(
     xs: &mut [u8; N],
 ) -> (&mut [u8; L], &mut [u8; R]) {
+    #[allow(clippy::let_unit_value)]
     let () = AssertEqSum::<N, L, R>::OK;
 
     let (left, right) = xs.split_at_mut(L);
@@ -70,6 +72,7 @@ pub fn join_array<const N: usize, const L: usize, const R: usize>(
     left: [u8; L],
     right: [u8; R],
 ) -> [u8; N] {
+    #[allow(clippy::let_unit_value)]
     let () = AssertEqSum::<N, L, R>::OK;
 
     let mut res = [0; N];
@@ -84,8 +87,65 @@ fn test_join() {
     assert_eq!([0, 1, 2, 3], join_array([0, 1], [2, 3]));
 }
 
+/// Splits a slice into a slice of N-element arrays.
+// TODO(mina86): Replace with [T]::as_chunks once that’s stabilised.
+pub fn as_chunks<const N: usize, T>(slice: &[T]) -> (&[[T; N]], &[T]) {
+    #[allow(clippy::let_unit_value)]
+    let () = AssertNonZero::<N>::OK;
+
+    let len = slice.len() / N;
+    let (head, tail) = slice.split_at(len * N);
+
+    // SAFETY: We cast a slice of `len * N` elements into a slice of `len` many
+    // `N` elements chunks.
+    let head = unsafe { std::slice::from_raw_parts(head.as_ptr().cast(), len) };
+    (head, tail)
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub struct InexactChunkingError {
+    slice_len: usize,
+    chunk_size: usize,
+}
+impl std::error::Error for InexactChunkingError {}
+impl std::fmt::Display for InexactChunkingError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "slice of size {} cannot be precisely split into chunks of size {}",
+            self.slice_len, self.chunk_size
+        )
+    }
+}
+
+/// Like `as_chunks` but returns an error if there’s a remainder.
+pub fn as_chunks_exact<const N: usize, T>(slice: &[T]) -> Result<&[[T; N]], InexactChunkingError> {
+    let (chunks, remainder) = as_chunks(slice);
+    if remainder.is_empty() {
+        Ok(chunks)
+    } else {
+        Err(InexactChunkingError { slice_len: slice.len(), chunk_size: N })
+    }
+}
+
+#[test]
+fn test_as_chunks() {
+    assert_eq!((&[[0, 1], [2, 3]][..], &[4][..]), as_chunks::<2, _>(&[0, 1, 2, 3, 4]));
+    assert_eq!(Ok(&[[0, 1], [2, 3]][..]), as_chunks_exact::<2, _>(&[0, 1, 2, 3]));
+    assert_eq!(
+        Err(InexactChunkingError { slice_len: 5, chunk_size: 2 }),
+        as_chunks_exact::<2, _>(&[0, 1, 2, 3, 4])
+    );
+}
+
 /// Asserts, at compile time, that `S == A + B`.
 struct AssertEqSum<const S: usize, const A: usize, const B: usize>;
 impl<const S: usize, const A: usize, const B: usize> AssertEqSum<S, A, B> {
-    const OK: () = [()][A + B - S];
+    const OK: () = assert!(S == A + B);
+}
+
+/// Asserts, at compile time, that `N` is non-zero.
+struct AssertNonZero<const N: usize>;
+impl<const N: usize> AssertNonZero<N> {
+    const OK: () = assert!(N != 0);
 }

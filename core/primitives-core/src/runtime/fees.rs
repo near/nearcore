@@ -7,7 +7,7 @@ use enum_map::EnumMap;
 use serde::{Deserialize, Serialize};
 
 use crate::config::ActionCosts;
-use crate::num_rational::Rational;
+use crate::num_rational::Rational32;
 use crate::types::{Balance, Gas};
 
 /// Costs associated with an object that can only be sent over the network (and executed
@@ -54,10 +54,10 @@ pub struct RuntimeFeesConfig {
     pub storage_usage_config: StorageUsageConfig,
 
     /// Fraction of the burnt gas to reward to the contract account for execution.
-    pub burnt_gas_reward: Rational,
+    pub burnt_gas_reward: Rational32,
 
     /// Pessimistic gas price inflation ratio.
-    pub pessimistic_gas_price_inflation_ratio: Rational,
+    pub pessimistic_gas_price_inflation_ratio: Rational32,
 }
 
 /// Describes the cost of creating a data receipt, `DataReceipt`.
@@ -108,6 +108,9 @@ pub struct ActionCreationConfig {
 
     /// Base cost of deleting an account.
     pub delete_account_cost: Fee,
+
+    /// Base cost of a delegate action
+    pub delegate_cost: Fee,
 }
 
 /// Describes the cost of creating an access key.
@@ -142,8 +145,8 @@ impl RuntimeFeesConfig {
     pub fn test() -> Self {
         Self {
             storage_usage_config: StorageUsageConfig::test(),
-            burnt_gas_reward: Rational::new(3, 10),
-            pessimistic_gas_price_inflation_ratio: Rational::new(103, 100),
+            burnt_gas_reward: Rational32::new(3, 10),
+            pessimistic_gas_price_inflation_ratio: Rational32::new(103, 100),
             action_fees: enum_map::enum_map! {
                 ActionCosts::create_account => Fee {
                     send_sir: 99607375000,
@@ -220,6 +223,12 @@ impl RuntimeFeesConfig {
                     send_not_sir: 59357464,
                     execution: 59357464,
                 },
+                #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+                ActionCosts::delegate => Fee {
+                    send_sir: 2319861500000,
+                    send_not_sir: 2319861500000,
+                    execution: 2319861500000,
+                },
             },
         }
     }
@@ -230,8 +239,8 @@ impl RuntimeFeesConfig {
                 _ => Fee { send_sir: 0, send_not_sir: 0, execution: 0 }
             },
             storage_usage_config: StorageUsageConfig::free(),
-            burnt_gas_reward: Rational::from_integer(0),
-            pessimistic_gas_price_inflation_ratio: Rational::from_integer(0),
+            burnt_gas_reward: Rational32::from_integer(0),
+            pessimistic_gas_price_inflation_ratio: Rational32::from_integer(0),
         }
     }
 

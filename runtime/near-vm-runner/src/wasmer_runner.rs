@@ -332,15 +332,10 @@ impl Wasmer0VM {
                     }
                 };
 
-                let module = match stored_module {
-                    Some(it) => it,
-                    None => match self.compile_and_cache(code, cache)? {
-                        Ok(it) => it,
-                        Err(it) => return Ok(Err(it)),
-                    },
-                };
-
-                Ok(Ok(module))
+                Ok(match stored_module {
+                    Some(it) => Ok(it),
+                    None => self.compile_and_cache(code, cache)?,
+                })
             };
 
         #[cfg(feature = "no_cache")]

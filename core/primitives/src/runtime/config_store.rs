@@ -13,25 +13,25 @@ macro_rules! include_config {
 
 /// The base config file with all initial parameter values defined.
 /// Later version are calculated by applying diffs to this base.
-static BASE_CONFIG: &str = include_config!("parameters.txt");
+static BASE_CONFIG: &str = include_config!("parameters.yaml");
 
 /// Stores pairs of protocol versions for which runtime config was updated and
 /// the file containing the diffs in bytes.
 static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
-    (42, include_config!("42.txt")),
-    (48, include_config!("48.txt")),
-    (49, include_config!("49.txt")),
-    (50, include_config!("50.txt")),
+    (42, include_config!("42.yaml")),
+    (48, include_config!("48.yaml")),
+    (49, include_config!("49.yaml")),
+    (50, include_config!("50.yaml")),
     // max_gas_burnt increased to 300 TGas
-    (52, include_config!("52.txt")),
+    (52, include_config!("52.yaml")),
     // Increased deployment costs, increased wasmer2 stack_limit, added limiting of contract locals,
     // set read_cached_trie_node cost, decrease storage key limit
-    (53, include_config!("53.txt")),
-    (57, include_config!("57.txt")),
+    (53, include_config!("53.yaml")),
+    (57, include_config!("57.yaml")),
 ];
 
 /// Testnet parameters for versions <= 29, which (incorrectly) differed from mainnet parameters
-pub static INITIAL_TESTNET_CONFIG: &str = include_config!("parameters_testnet.txt");
+pub static INITIAL_TESTNET_CONFIG: &str = include_config!("parameters_testnet.yaml");
 
 /// Stores runtime config for each protocol version where it was updated.
 #[derive(Debug)]
@@ -109,7 +109,7 @@ mod tests {
     use crate::version::ProtocolFeature::{
         LowerDataReceiptAndEcrecoverBaseCost, LowerStorageCost, LowerStorageKeyLimit,
     };
-    use near_primitives_core::config::ActionCosts;
+    use near_primitives_core::config::{ActionCosts, ExtCosts};
 
     const GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
     const RECEIPTS_DEPTH: u64 = 63;
@@ -212,8 +212,8 @@ mod tests {
         let base_cfg = store.get_config(LowerStorageCost.protocol_version());
         let new_cfg = store.get_config(LowerDataReceiptAndEcrecoverBaseCost.protocol_version());
         assert!(
-            base_cfg.wasm_config.ext_costs.ecrecover_base
-                > new_cfg.wasm_config.ext_costs.ecrecover_base
+            base_cfg.wasm_config.ext_costs.cost(ExtCosts::ecrecover_base)
+                > new_cfg.wasm_config.ext_costs.cost(ExtCosts::ecrecover_base)
         );
     }
 

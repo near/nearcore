@@ -1,3 +1,4 @@
+use crate::config_updater::ConfigUpdater;
 use crate::{metrics, rocksdb_metrics, SyncStatus};
 use actix::Addr;
 use itertools::Itertools;
@@ -10,12 +11,15 @@ use near_primitives::telemetry::{
 };
 use near_primitives::time::{Clock, Instant};
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, EpochHeight, Gas, NumBlocks, ShardId,
+    AccountId, Balance, BlockHeight, EpochHeight, EpochId, Gas, NumBlocks, ShardId,
+    ValidatorInfoIdentifier,
 };
+use near_primitives::unwrap_or_return;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::Version;
 use near_primitives::views::{
-    CatchupStatusView, CurrentEpochValidatorInfo, EpochValidatorInfo, ValidatorKickoutView,
+    CatchupStatusView, ChunkProcessingStatus, CurrentEpochValidatorInfo, EpochValidatorInfo,
+    ValidatorKickoutView,
 };
 use near_store::db::StoreStatistics;
 use near_telemetry::{telemetry, TelemetryActor};
@@ -27,7 +31,7 @@ use tracing::info;
 
 const TERAGAS: f64 = 1_000_000_000_000_f64;
 
-pub struct ValidatorInfoHelper {
+struct ValidatorInfoHelper {
     pub is_validator: bool,
     pub num_validators: usize,
 }
@@ -116,7 +120,84 @@ impl InfoHelper {
         metrics::EPOCH_HEIGHT.set(epoch_height as i64);
     }
 
-    pub fn info(
+    /// Print current summary.
+    pub fn log_summary(
+        &mut self,
+        client: &crate::client::Client,
+        node_id: &PeerId,
+        network_info: &NetworkInfo,
+        config_updater: &Option<ConfigUpdater>,
+    ) {
+        let is_syncing = client.sync_status.is_syncing();
+        let head = unwrap_or_return!(client.chain.head());
+        let validator_info = if !is_syncing {
+            let validators = unwrap_or_return!(client
+                .runtime_adapter
+                .get_epoch_block_producers_ordered(&head.epoch_id, &head.last_block_hash));
+            let num_validators = validators.len();
+            let account_id = client.validator_signer.as_ref().map(|x| x.validator_id());
+            let is_validator = if let Some(account_id) = account_id {
+                match client.runtime_adapter.get_validator_by_account_id(
+                    &head.epoch_id,
+                    &head.last_block_hash,
+                    account_id,
+                ) {
+                    Ok((_, is_slashed)) => !is_slashed,
+                    Err(_) => false,
+                }
+            } else {
+                false
+            };
+            Some(ValidatorInfoHelper { is_validator, num_validators })
+        } else {
+            None
+        };
+
+        let header_head = unwrap_or_return!(client.chain.header_head());
+        let validator_epoch_stats = if is_syncing {
+            // EpochManager::get_validator_info method (which is what runtime
+            // adapter calls) is expensive when node is syncing so we’re simply
+            // not collecting the statistics.  The statistics are used to update
+            // a few Prometheus metrics only so we prefer to leave the metrics
+            // unset until node finishes synchronising.  TODO(#6763): If we
+            // manage to get get_validator_info fasts again (or return an error
+            // if computation would be too slow), remove the ‘if is_syncing’
+            // check.
+            Default::default()
+        } else {
+            let epoch_identifier = ValidatorInfoIdentifier::BlockHash(header_head.last_block_hash);
+            client
+                .runtime_adapter
+                .get_validator_info(epoch_identifier)
+                .map(get_validator_epoch_stats)
+                .unwrap_or_default()
+        };
+        let statistics = if client.config.enable_statistics_export {
+            client.chain.store().get_store_statistics()
+        } else {
+            None
+        };
+        self.info(
+            &head,
+            &client.sync_status,
+            client.get_catchup_status().unwrap_or_default(),
+            node_id,
+            network_info,
+            validator_info,
+            validator_epoch_stats,
+            client
+                .runtime_adapter
+                .get_estimated_protocol_upgrade_block_height(head.last_block_hash)
+                .unwrap_or(None)
+                .unwrap_or(0),
+            statistics,
+            &client.config,
+            config_updater,
+        );
+        self.log_chain_processing_info(client, &head.epoch_id);
+    }
+
+    fn info(
         &mut self,
         head: &Tip,
         sync_status: &SyncStatus,
@@ -128,6 +209,7 @@ impl InfoHelper {
         protocol_upgrade_block_height: BlockHeight,
         statistics: Option<StoreStatistics>,
         client_config: &ClientConfig,
+        config_updater: &Option<ConfigUpdater>,
     ) {
         let use_colour = matches!(self.log_summary_style, LogSummaryStyle::Colored);
         let paint = |colour: ansi_term::Colour, text: Option<String>| match text {
@@ -190,12 +272,14 @@ impl InfoHelper {
             paint(ansi_term::Colour::Blue, machine_info_log),
         );
         if catchup_status_log != "" {
-            info!(target:"stats", "Catchups\n{}", catchup_status_log);
+            info!(target: "stats", "Catchups\n{}", catchup_status_log);
         }
         if let Some(statistics) = statistics {
             rocksdb_metrics::export_stats_as_metrics(statistics);
         }
-
+        if let Some(config_updater) = &config_updater {
+            config_updater.report_status();
+        }
         let (cpu_usage, memory_usage) = proc_info.unwrap_or_default();
         let is_validator = validator_info.map(|v| v.is_validator).unwrap_or_default();
         (metrics::IS_VALIDATOR.set(is_validator as i64));
@@ -302,6 +386,22 @@ impl InfoHelper {
             serde_json::to_value(&info).expect("Telemetry must serialize to json")
         }
     }
+
+    fn log_chain_processing_info(&mut self, client: &crate::Client, epoch_id: &EpochId) {
+        let chain = &client.chain;
+        let use_colour = matches!(self.log_summary_style, LogSummaryStyle::Colored);
+        let info = chain.get_chain_processing_info();
+        let blocks_info = BlocksInfo { blocks_info: info.blocks_info, use_colour };
+        tracing::debug!(
+            target: "stats",
+            "{:?} Orphans: {} With missing chunks: {} In processing {}{}",
+            epoch_id,
+            info.num_orphans,
+            info.num_blocks_missing_chunks,
+            info.num_blocks_in_processing,
+            blocks_info,
+        );
+    }
 }
 
 fn extra_telemetry_info(client_config: &ClientConfig) -> serde_json::Value {
@@ -394,6 +494,75 @@ pub fn display_sync_status(sync_status: &SyncStatus, head: &Tip) -> String {
     }
 }
 
+/// Displays ` {} for {}ms` if second item is `Some`.
+struct FormatMillis(&'static str, Option<u128>);
+
+impl std::fmt::Display for FormatMillis {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.1.map_or(Ok(()), |ms| write!(fmt, " {} for {ms}ms", self.0))
+    }
+}
+
+/// Formats information about each block.  Each information line is *preceded*
+/// by a new line character.  There’s no final new line character.  This is
+/// meant to be used in logging where final new line is not desired.
+struct BlocksInfo {
+    blocks_info: Vec<near_primitives::views::BlockProcessingInfo>,
+    use_colour: bool,
+}
+
+impl std::fmt::Display for BlocksInfo {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let paint = |colour: ansi_term::Colour, text: String| {
+            if self.use_colour {
+                colour.bold().paint(text)
+            } else {
+                ansi_term::Style::default().paint(text)
+            }
+        };
+
+        for block_info in self.blocks_info.iter() {
+            let mut all_chunks_received = true;
+            let chunk_status = block_info
+                .chunks_info
+                .iter()
+                .map(|chunk_info| {
+                    if let Some(chunk_info) = chunk_info {
+                        all_chunks_received &=
+                            matches!(chunk_info.status, ChunkProcessingStatus::Completed);
+                        match chunk_info.status {
+                            ChunkProcessingStatus::Completed => '✔',
+                            ChunkProcessingStatus::Requested => '⬇',
+                            ChunkProcessingStatus::NeedToRequest => '.',
+                        }
+                    } else {
+                        'X'
+                    }
+                })
+                .collect::<String>();
+
+            let chunk_status_color = if all_chunks_received {
+                ansi_term::Colour::Green
+            } else {
+                ansi_term::Colour::White
+            };
+
+            let chunk_status = paint(chunk_status_color, chunk_status);
+            let in_progress = FormatMillis("in progress", Some(block_info.in_progress_ms));
+            let in_orphan = FormatMillis("orphan", block_info.orphaned_ms);
+            let missing_chunks = FormatMillis("missing chunks", block_info.missing_chunks_ms);
+
+            write!(
+                fmt,
+                "\n  {} {} {:?}{in_progress}{in_orphan}{missing_chunks} Chunks:({chunk_status}))",
+                block_info.height, block_info.hash, block_info.block_status,
+            )?;
+        }
+
+        Ok(())
+    }
+}
+
 /// Format number using SI prefixes.
 struct PrettyNumber(u64, &'static str);
 
@@ -472,7 +641,7 @@ impl ValidatorProductionStats {
 }
 
 /// Converts EpochValidatorInfo into a vector of ValidatorProductionStats.
-pub fn get_validator_epoch_stats(
+fn get_validator_epoch_stats(
     current_validator_epoch_info: EpochValidatorInfo,
 ) -> Vec<ValidatorProductionStats> {
     let mut stats = vec![];
@@ -519,7 +688,7 @@ mod tests {
 
     #[test]
     fn telemetry_info() {
-        let config = ClientConfig::test(false, 1230, 2340, 50, false, true);
+        let config = ClientConfig::test(false, 1230, 2340, 50, false, true, true);
         let info_helper = InfoHelper::new(None, &config, None);
 
         let store = near_store::test_utils::create_test_store();
@@ -560,7 +729,9 @@ mod tests {
                 sent_bytes_per_sec: 0,
                 received_bytes_per_sec: 0,
                 known_producers: vec![],
-                tier1_accounts: vec![],
+                tier1_connections: vec![],
+                tier1_accounts_keys: vec![],
+                tier1_accounts_data: vec![],
             },
             &config,
             0.0,

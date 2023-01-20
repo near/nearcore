@@ -1,5 +1,3 @@
-use std::str::FromStr;
-
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 
@@ -149,26 +147,23 @@ pub enum ProtocolFeature {
     Ed25519Verify,
     #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
     RejectBlocksWithOutdatedProtocolVersions,
-    #[cfg(feature = "shardnet")]
-    ShardnetShardLayoutUpgrade,
+    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+    DelegateAction,
 }
 
 /// Both, outgoing and incoming tcp connections to peers, will be rejected if `peer's`
 /// protocol version is lower than this.
-pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion =
-    if cfg!(feature = "shardnet") { PROTOCOL_VERSION - 1 } else { STABLE_PROTOCOL_VERSION - 2 };
+pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_VERSION - 2;
 
 /// Current protocol version used on the mainnet.
 /// Some features (e. g. FixStorageUsage) require that there is at least one epoch with exactly
 /// the corresponding version
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 57;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 58;
 
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protocol") {
     // On nightly, pick big enough version to support all features.
-    132
-} else if cfg!(feature = "shardnet") {
-    102
+    133
 } else {
     // Enable all stable features.
     STABLE_PROTOCOL_VERSION
@@ -182,12 +177,8 @@ pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protoco
 /// it’s set according to the schedule for that protocol upgrade.  Release
 /// candidates usually have separate schedule to final releases.
 pub const PROTOCOL_UPGRADE_SCHEDULE: Lazy<ProtocolUpgradeVotingSchedule> = Lazy::new(|| {
-    if cfg!(feature = "shardnet") {
-        ProtocolUpgradeVotingSchedule::from_str("2022-09-05 15:00:00").unwrap()
-    } else {
-        // Update to according to schedule when making a release.
-        ProtocolUpgradeVotingSchedule::default()
-    }
+    // Update to according to schedule when making a release.
+    ProtocolUpgradeVotingSchedule::default()
 });
 
 /// Gives new clients an option to upgrade without announcing that they support
@@ -236,8 +227,7 @@ impl ProtocolFeature {
             ProtocolFeature::ChunkOnlyProducers | ProtocolFeature::MaxKickoutStake => 56,
             ProtocolFeature::AccountIdInFunctionCallPermission => 57,
 
-            // Nightly & shardnet features, this is to make feature MaxKickoutStake not enabled on
-            // shardnet
+            // Nightly features
             #[cfg(feature = "protocol_feature_fix_staking_threshold")]
             ProtocolFeature::FixStakingThreshold => 126,
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
@@ -245,15 +235,9 @@ impl ProtocolFeature {
             #[cfg(feature = "protocol_feature_ed25519_verify")]
             ProtocolFeature::Ed25519Verify => 131,
             #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
-            ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions => {
-                if cfg!(feature = "shardnet") {
-                    102
-                } else {
-                    132
-                }
-            }
-            #[cfg(feature = "shardnet")]
-            ProtocolFeature::ShardnetShardLayoutUpgrade => 102,
+            ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions => 132,
+            #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+            ProtocolFeature::DelegateAction => 133,
         }
     }
 }

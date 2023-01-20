@@ -36,11 +36,9 @@ pub enum DbKind {
     /// The database is an archive database meaning that it is not garbage
     /// collected and stores all chain data.
     Archive,
-    #[cfg(feature = "cold_store")]
     /// The database is Hot meaning that the node runs in archival mode with
     /// a paired Cold database.
     Hot,
-    #[cfg(feature = "cold_store")]
     /// The database is Cold meaning that the node runs in archival mode with
     /// a paired Hot database.
     Cold,
@@ -58,14 +56,12 @@ fn set_db_metadata(
     let mut store_update = storage.get_store(temp).store_update();
     store_update.set(DBCol::DbVersion, VERSION_KEY, metadata.version.to_string().as_bytes());
     if metadata.version >= DB_VERSION_WITH_KIND {
-        #[allow(unused_mut)]
         let mut kind = metadata.kind;
-        #[cfg(feature = "cold_store")]
-        if matches!(temp, Temperature::Cold) || storage.has_cold() {
-            kind = Some(if matches!(temp, Temperature::Hot) { DbKind::Hot } else { DbKind::Cold });
+        if temp == Temperature::Cold {
+            kind = Some(DbKind::Cold);
         }
-        if let Some(kind) = kind.map(|kind| <&str>::from(kind).as_bytes()) {
-            store_update.set(DBCol::DbVersion, KIND_KEY, kind);
+        if let Some(kind) = kind {
+            store_update.set(DBCol::DbVersion, KIND_KEY, <&str>::from(kind).as_bytes());
         }
     }
     store_update.commit()
@@ -76,7 +72,6 @@ pub(super) fn set_store_metadata(
     metadata: DbMetadata,
 ) -> std::io::Result<()> {
     set_db_metadata(storage, Temperature::Hot, metadata)?;
-    #[cfg(feature = "cold_store")]
     if storage.has_cold() {
         set_db_metadata(storage, Temperature::Cold, metadata)?;
     }

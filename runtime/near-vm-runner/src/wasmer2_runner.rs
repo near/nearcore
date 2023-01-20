@@ -14,7 +14,8 @@ use near_vm_errors::{
 };
 use near_vm_logic::gas_counter::FastGasCounter;
 use near_vm_logic::types::{PromiseResult, ProtocolVersion};
-use near_vm_logic::{External, MemoryLike, VMConfig, VMContext, VMLogic, VMOutcome};
+use near_vm_logic::{External, MemSlice, MemoryLike, VMConfig, VMContext, VMLogic, VMOutcome};
+use std::borrow::Cow;
 use std::hash::{Hash, Hasher};
 use std::mem::size_of;
 use std::sync::Arc;
@@ -59,28 +60,47 @@ impl Wasmer2Memory {
         )?)))
     }
 
-    // Returns the pointer to memory at the specified offset and the size of the buffer starting at
-    // the returned pointer.
-    fn data_offset(&self, offset: u64) -> Option<(*mut u8, usize)> {
-        let size = self.0.size().bytes().0;
-        let offset = usize::try_from(offset).ok()?;
-        // `checked_sub` here verifies that offsetting the buffer by offset still lands us
-        // in-bounds of the allocated object.
-        let remaining = size.checked_sub(offset)?;
-        Some(unsafe {
-            // SAFETY: we verified that offsetting the base pointer by `offset` still lands us
-            // in-bounds of the original object.
-            (self.0.vmmemory().as_ref().base.add(offset), remaining)
-        })
+    /// Returns pointer to memory at the specified offset provided that there’s
+    /// enough space in the buffer starting at the returned pointer.
+    ///
+    /// Safety: Caller must guarantee that the returned pointer is not used
+    /// after guest memory mapping is changed (e.g. grown).
+    unsafe fn get_ptr(&self, offset: u64, len: usize) -> Result<*mut u8, ()> {
+        let offset = usize::try_from(offset).map_err(|_| ())?;
+        // SAFETY: Caller promisses memory mapping won’t change.
+        let vmmem = unsafe { self.0.vmmemory().as_ref() };
+        // `checked_sub` here verifies that offsetting the buffer by offset
+        // still lands us in-bounds of the allocated object.
+        let remaining = vmmem.current_length.checked_sub(offset).ok_or(())?;
+        if len <= remaining {
+            Ok(vmmem.base.add(offset))
+        } else {
+            Err(())
+        }
     }
 
-    fn get_memory_buffer(&self, offset: u64, len: usize) -> *mut u8 {
-        let memory = self.data_offset(offset).map(|(data, remaining)| (data, len <= remaining));
-        if let Some((ptr, true)) = memory {
-            ptr
-        } else {
-            panic!("memory access out of bounds")
-        }
+    /// Returns shared reference to slice in guest memory at given offset.
+    ///
+    /// Safety: Caller must guarantee that guest memory mapping is not changed
+    /// (e.g. grown) while the slice is held.
+    unsafe fn get(&self, offset: u64, len: usize) -> Result<&[u8], ()> {
+        // SAFETY: Caller promisses memory mapping won’t change.
+        let ptr = unsafe { self.get_ptr(offset, len)? };
+        // SAFETY: get_ptr verifies that [ptr, ptr+len) is valid slice.
+        Ok(unsafe { core::slice::from_raw_parts(ptr, len) })
+    }
+
+    /// Returns shared reference to slice in guest memory at given offset.
+    ///
+    /// Safety: Caller must guarantee that guest memory mapping is not changed
+    /// (e.g. grown) while the slice is held.
+    unsafe fn get_mut(&mut self, offset: u64, len: usize) -> Result<&mut [u8], ()> {
+        // SAFETY: Caller promisses memory mapping won’t change.
+        let ptr = unsafe { self.get_ptr(offset, len)? };
+        // SAFETY: get_ptr verifies that [ptr, ptr+len) is valid slice and since
+        // we’re holding exclusive self reference another mut reference won’t be
+        // created
+        Ok(unsafe { core::slice::from_raw_parts_mut(ptr, len) })
     }
 
     pub(crate) fn vm(&self) -> VMMemory {
@@ -89,37 +109,30 @@ impl Wasmer2Memory {
 }
 
 impl MemoryLike for Wasmer2Memory {
-    fn fits_memory(&self, offset: u64, len: u64) -> bool {
-        self.data_offset(offset)
-            .and_then(|(_, remaining)| {
-                let len = usize::try_from(len).ok()?;
-                Some(len <= remaining)
-            })
-            .unwrap_or(false)
+    fn fits_memory(&self, slice: MemSlice) -> Result<(), ()> {
+        // SAFETY: Contracts are executed on a single thread thus we know no one
+        // will change guest memory mapping under us.
+        unsafe { self.get_ptr(slice.ptr, slice.len()?) }.map(|_| ())
     }
 
-    fn read_memory(&self, offset: u64, buffer: &mut [u8]) {
-        unsafe {
-            let memory = self.get_memory_buffer(offset, buffer.len());
-            // SAFETY: we verified indices into are valid and the pointer will always be valid as
-            // well. Our runtime is currently only executing Wasm code on a single thread, so data
-            // races aren't a concern here.
-            std::ptr::copy_nonoverlapping(memory, buffer.as_mut_ptr(), buffer.len());
-        }
+    fn view_memory(&self, slice: MemSlice) -> Result<Cow<[u8]>, ()> {
+        // SAFETY: Firstly, contracts are executed on a single thread thus we
+        // know no one will change guest memory mapping under us.  Secondly, the
+        // way MemoryLike interface is used we know the memory mapping won’t be
+        // changed by the caller while it holds the slice reference.
+        unsafe { self.get(slice.ptr, slice.len()?) }.map(Cow::Borrowed)
     }
 
-    fn read_memory_u8(&self, offset: u64) -> u8 {
-        unsafe { *self.get_memory_buffer(offset, 1) }
+    fn read_memory(&self, offset: u64, buffer: &mut [u8]) -> Result<(), ()> {
+        // SAFETY: Contracts are executed on a single thread thus we know no one
+        // will change guest memory mapping under us.
+        Ok(buffer.copy_from_slice(unsafe { self.get(offset, buffer.len())? }))
     }
 
-    fn write_memory(&mut self, offset: u64, buffer: &[u8]) {
-        unsafe {
-            let memory = self.get_memory_buffer(offset, buffer.len());
-            // SAFETY: we verified indices into are valid and the pointer will always be valid as
-            // well. Our runtime is currently only executing Wasm code on a single thread, so data
-            // races aren't a concern here.
-            std::ptr::copy_nonoverlapping(buffer.as_ptr(), memory, buffer.len());
-        }
+    fn write_memory(&mut self, offset: u64, buffer: &[u8]) -> Result<(), ()> {
+        // SAFETY: Contracts are executed on a single thread thus we know no one
+        // will change guest memory mapping under us.
+        Ok(unsafe { self.get_mut(offset, buffer.len())? }.copy_from_slice(buffer))
     }
 }
 
@@ -276,12 +289,10 @@ impl Wasmer2VM {
         let prepared_code = prepare::prepare_contract(code.code(), &self.config)
             .map_err(CompilationError::PrepareError)?;
 
-        self.engine
-            .validate(&prepared_code)
-            .map_err(|err| {
-                tracing::error!(?err, "wasmer failed to validate the prepared code (this is defense-in-depth, the error was recovered from but should be reported to pagoda)");
-                CompilationError::WasmerCompileError { msg: err.to_string() }
-            })?;
+        debug_assert!(
+            matches!(self.engine.validate(&prepared_code), Ok(_)),
+            "wasmer failed to validate the prepared code"
+        );
         let executable = self
             .engine
             .compile_universal(&prepared_code, &self)
@@ -370,22 +381,18 @@ impl Wasmer2VM {
                 }
             };
 
-            let artifact: VMArtifact = match stored_artifact {
-                Some(it) => it,
-                None => {
-                    let executable_or_error = self.compile_and_cache(code, cache)?;
-                    match executable_or_error {
-                        Ok(executable) => self
-                            .engine
-                            .load_universal_executable(&executable)
-                            .map(Arc::new)
-                            .map_err(|err| VMRunnerError::LoadingError(err.to_string()))?,
-                        Err(it) => return Ok(Err(it)),
-                    }
+            Ok(if let Some(it) = stored_artifact {
+                Ok(it)
+            } else {
+                match self.compile_and_cache(code, cache)? {
+                    Ok(executable) => Ok(self
+                        .engine
+                        .load_universal_executable(&executable)
+                        .map(Arc::new)
+                        .map_err(|err| VMRunnerError::LoadingError(err.to_string()))?),
+                    Err(err) => Err(err),
                 }
-            };
-
-            Ok(Ok(artifact))
+            })
         };
 
         #[cfg(feature = "no_cache")]
@@ -661,91 +668,7 @@ impl crate::runner::VM for Wasmer2VM {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use assert_matches::assert_matches;
-    use wasmer_types::WASM_PAGE_SIZE;
-
-    #[test]
-    fn get_memory_buffer() {
-        let memory = super::Wasmer2Memory::new(1, 1).unwrap();
-        // these should not panic with memory out of bounds
-        memory.get_memory_buffer(0, WASM_PAGE_SIZE);
-        memory.get_memory_buffer(WASM_PAGE_SIZE as u64 - 1, 1);
-        memory.get_memory_buffer(WASM_PAGE_SIZE as u64, 0);
-    }
-
-    #[test]
-    #[should_panic]
-    fn get_memory_buffer_oob1() {
-        let memory = super::Wasmer2Memory::new(1, 1).unwrap();
-        memory.get_memory_buffer(1 + WASM_PAGE_SIZE as u64, 0);
-    }
-
-    #[test]
-    #[should_panic]
-    fn get_memory_buffer_oob2() {
-        let memory = super::Wasmer2Memory::new(1, 1).unwrap();
-        memory.get_memory_buffer(WASM_PAGE_SIZE as u64, 1);
-    }
-
-    #[test]
-    fn memory_data_offset() {
-        let memory = super::Wasmer2Memory::new(1, 1).unwrap();
-        assert_matches!(memory.data_offset(0), Some((_, size)) => assert_eq!(size, WASM_PAGE_SIZE));
-        assert_matches!(memory.data_offset(WASM_PAGE_SIZE as u64), Some((_, size)) => {
-            assert_eq!(size, 0)
-        });
-        assert_matches!(memory.data_offset(WASM_PAGE_SIZE as u64 + 1), None);
-        assert_matches!(memory.data_offset(0xFFFF_FFFF_FFFF_FFFF), None);
-    }
-
-    #[test]
-    fn memory_read() {
-        let memory = super::Wasmer2Memory::new(1, 1).unwrap();
-        let mut buffer = vec![42; WASM_PAGE_SIZE];
-        near_vm_logic::MemoryLike::read_memory(&memory, 0, &mut buffer);
-        // memory should be zeroed at creation.
-        assert!(buffer.iter().all(|&v| v == 0));
-    }
-
-    #[test]
-    #[should_panic]
-    fn memory_read_oob() {
-        let memory = super::Wasmer2Memory::new(1, 1).unwrap();
-        let mut buffer = vec![42; WASM_PAGE_SIZE + 1];
-        near_vm_logic::MemoryLike::read_memory(&memory, 0, &mut buffer);
-    }
-
-    #[test]
-    fn memory_write() {
-        let mut memory = super::Wasmer2Memory::new(1, 1).unwrap();
-        let mut buffer = vec![42; WASM_PAGE_SIZE];
-        near_vm_logic::MemoryLike::write_memory(
-            &mut memory,
-            WASM_PAGE_SIZE as u64 / 2,
-            &buffer[..WASM_PAGE_SIZE / 2],
-        );
-        near_vm_logic::MemoryLike::read_memory(&memory, 0, &mut buffer);
-        assert!(buffer[..WASM_PAGE_SIZE / 2].iter().all(|&v| v == 0));
-        assert!(buffer[WASM_PAGE_SIZE / 2..].iter().all(|&v| v == 42));
-        // Now the buffer is half 0s and half 42s
-
-        near_vm_logic::MemoryLike::write_memory(
-            &mut memory,
-            0,
-            &buffer[WASM_PAGE_SIZE / 4..3 * (WASM_PAGE_SIZE / 4)],
-        );
-        near_vm_logic::MemoryLike::read_memory(&memory, 0, &mut buffer);
-        assert!(buffer[..WASM_PAGE_SIZE / 4].iter().all(|&v| v == 0));
-        assert!(buffer[WASM_PAGE_SIZE / 4..].iter().all(|&v| v == 42));
-    }
-
-    #[test]
-    #[should_panic]
-    fn memory_write_oob() {
-        let mut memory = super::Wasmer2Memory::new(1, 1).unwrap();
-        let mut buffer = vec![42; WASM_PAGE_SIZE + 1];
-        near_vm_logic::MemoryLike::write_memory(&mut memory, 0, &mut buffer);
-    }
+#[test]
+fn test_memory_like() {
+    near_vm_logic::test_utils::test_memory_like(|| Box::new(Wasmer2Memory::new(1, 1).unwrap()));
 }

@@ -1,13 +1,11 @@
 use crate::receipt_manager::ReceiptMetadata;
-use crate::tests::fixtures::get_context;
 use crate::tests::helpers::*;
-use crate::tests::vm_logic_builder::VMLogicBuilder;
+use crate::tests::vm_logic_builder::{TestVMLogic, VMLogicBuilder};
 use crate::types::Gas;
-use crate::{VMConfig, VMLogic};
+use crate::{MemSlice, VMConfig};
 use borsh::BorshSerialize;
 use expect_test::expect;
-use near_account_id::AccountId;
-use near_primitives::config::ActionCosts;
+use near_primitives::config::{ActionCosts, ExtCosts};
 use near_primitives::runtime::fees::Fee;
 use near_primitives::transaction::{Action, FunctionCallAction};
 use near_vm_errors::{HostError, VMLogicError};
@@ -16,8 +14,10 @@ use near_vm_errors::{HostError, VMLogicError};
 fn test_dont_burn_gas_when_exceeding_attached_gas_limit() {
     let gas_limit = 10u64.pow(14);
 
-    let mut logic_builder = VMLogicBuilder::default().max_gas_burnt(gas_limit * 2);
-    let mut logic = logic_builder.build_with_prepaid_gas(gas_limit);
+    let mut logic_builder = VMLogicBuilder::default();
+    logic_builder.config.limit_config.max_gas_burnt = gas_limit * 2;
+    logic_builder.context.prepaid_gas = gas_limit;
+    let mut logic = logic_builder.build();
 
     let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
     promise_batch_action_function_call(&mut logic, index, 0, gas_limit * 2)
@@ -34,8 +34,10 @@ fn test_limit_wasm_gas_after_attaching_gas() {
     let gas_limit = 10u64.pow(14);
     let op_limit = op_limit(gas_limit);
 
-    let mut logic_builder = VMLogicBuilder::default().max_gas_burnt(gas_limit * 2);
-    let mut logic = logic_builder.build_with_prepaid_gas(gas_limit);
+    let mut logic_builder = VMLogicBuilder::default();
+    logic_builder.config.limit_config.max_gas_burnt = gas_limit * 2;
+    logic_builder.context.prepaid_gas = gas_limit;
+    let mut logic = logic_builder.build();
 
     let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
     promise_batch_action_function_call(&mut logic, index, 0, gas_limit / 2)
@@ -53,8 +55,10 @@ fn test_cant_burn_more_than_max_gas_burnt_gas() {
     let gas_limit = 10u64.pow(14);
     let op_limit = op_limit(gas_limit);
 
-    let mut logic_builder = VMLogicBuilder::default().max_gas_burnt(gas_limit);
-    let mut logic = logic_builder.build_with_prepaid_gas(gas_limit * 2);
+    let mut logic_builder = VMLogicBuilder::default();
+    logic_builder.config.limit_config.max_gas_burnt = gas_limit;
+    logic_builder.context.prepaid_gas = gas_limit * 2;
+    let mut logic = logic_builder.build();
 
     logic.gas(op_limit * 3).expect_err("should fail with gas limit");
     let outcome = logic.compute_outcome_and_distribute_gas();
@@ -68,8 +72,10 @@ fn test_cant_burn_more_than_prepaid_gas() {
     let gas_limit = 10u64.pow(14);
     let op_limit = op_limit(gas_limit);
 
-    let mut logic_builder = VMLogicBuilder::default().max_gas_burnt(gas_limit * 2);
-    let mut logic = logic_builder.build_with_prepaid_gas(gas_limit);
+    let mut logic_builder = VMLogicBuilder::default();
+    logic_builder.config.limit_config.max_gas_burnt = gas_limit * 2;
+    logic_builder.context.prepaid_gas = gas_limit;
+    let mut logic = logic_builder.build();
 
     logic.gas(op_limit * 3).expect_err("should fail with gas limit");
     let outcome = logic.compute_outcome_and_distribute_gas();
@@ -83,8 +89,10 @@ fn test_hit_max_gas_burnt_limit() {
     let gas_limit = 10u64.pow(14);
     let op_limit = op_limit(gas_limit);
 
-    let mut logic_builder = VMLogicBuilder::default().max_gas_burnt(gas_limit);
-    let mut logic = logic_builder.build_with_prepaid_gas(gas_limit * 3);
+    let mut logic_builder = VMLogicBuilder::default();
+    logic_builder.config.limit_config.max_gas_burnt = gas_limit;
+    logic_builder.context.prepaid_gas = gas_limit * 3;
+    let mut logic = logic_builder.build();
 
     promise_create(&mut logic, b"rick.test", 0, gas_limit / 2).expect("should create a promise");
     logic.gas(op_limit * 2).expect_err("should fail with gas limit");
@@ -99,8 +107,10 @@ fn test_hit_prepaid_gas_limit() {
     let gas_limit = 10u64.pow(14);
     let op_limit = op_limit(gas_limit);
 
-    let mut logic_builder = VMLogicBuilder::default().max_gas_burnt(gas_limit * 3);
-    let mut logic = logic_builder.build_with_prepaid_gas(gas_limit);
+    let mut logic_builder = VMLogicBuilder::default();
+    logic_builder.config.limit_config.max_gas_burnt = gas_limit * 3;
+    logic_builder.context.prepaid_gas = gas_limit;
+    let mut logic = logic_builder.build();
 
     promise_create(&mut logic, b"rick.test", 0, gas_limit / 2).expect("should create a promise");
     logic.gas(op_limit * 2).expect_err("should fail with gas limit");
@@ -126,8 +136,10 @@ fn assert_with_gas(receipt: &ReceiptMetadata, expcted_gas: Gas) {
 fn function_call_weight_check(function_calls: &[(Gas, u64, Gas)]) {
     let gas_limit = 10_000_000_000;
 
-    let mut logic_builder = VMLogicBuilder::free().max_gas_burnt(gas_limit);
-    let mut logic = logic_builder.build_with_prepaid_gas(gas_limit);
+    let mut logic_builder = VMLogicBuilder::free();
+    logic_builder.config.limit_config.max_gas_burnt = gas_limit;
+    logic_builder.context.prepaid_gas = gas_limit;
+    let mut logic = logic_builder.build();
 
     let mut ratios = vec![];
 
@@ -212,8 +224,10 @@ fn function_call_weight_basic_cases_test() {
 fn function_call_no_weight_refund() {
     let gas_limit = 10u64.pow(14);
 
-    let mut logic_builder = VMLogicBuilder::default().max_gas_burnt(gas_limit);
-    let mut logic = logic_builder.build_with_prepaid_gas(gas_limit);
+    let mut logic_builder = VMLogicBuilder::default();
+    logic_builder.config.limit_config.max_gas_burnt = gas_limit;
+    logic_builder.context.prepaid_gas = gas_limit;
+    let mut logic = logic_builder.build();
 
     let index = promise_batch_create(&mut logic, "rick.test").expect("should create a promise");
     promise_batch_action_function_call_weight(&mut logic, index, 0, 1000, 0)
@@ -223,6 +237,83 @@ fn function_call_no_weight_refund() {
 
     // Verify that unused gas was not allocated to function call
     assert!(outcome.used_gas < gas_limit);
+}
+
+#[test]
+fn test_overflowing_burn_gas_with_promises_gas() {
+    let gas_limit = 3 * 10u64.pow(14);
+    let mut logic_builder = VMLogicBuilder::default();
+    logic_builder.config.limit_config.max_gas_burnt = gas_limit;
+    logic_builder.context.prepaid_gas = gas_limit;
+    let mut logic = logic_builder.build();
+
+    let account_id = logic.internal_mem_write(b"rick.test");
+    let args = logic.internal_mem_write(b"");
+    let num_100u128 = logic.internal_mem_write(&100u128.to_le_bytes());
+    let num_10u128 = logic.internal_mem_write(&10u128.to_le_bytes());
+
+    let index = promise_batch_create(&mut logic, "rick.test").expect("should create a promise");
+    logic.promise_batch_action_transfer(index, num_100u128.ptr).unwrap();
+    let call_id = logic.promise_batch_then(index, account_id.len, account_id.ptr).unwrap();
+
+    let needed_gas_charge = u64::max_value() - logic.gas_counter().used_gas() - 1;
+    let function_name_len =
+        needed_gas_charge / logic.config().ext_costs.cost(ExtCosts::read_memory_byte);
+    let result = logic.promise_batch_action_function_call(
+        call_id,
+        function_name_len,
+        /* function_name_ptr: */ 0,
+        args.len,
+        args.ptr,
+        num_10u128.ptr,
+        10000,
+    );
+    assert!(matches!(
+        result,
+        Err(near_vm_errors::VMLogicError::HostError(near_vm_errors::HostError::GasLimitExceeded))
+    ));
+    assert_eq!(logic.gas_counter().used_gas(), gas_limit);
+}
+
+#[test]
+fn test_overflowing_burn_gas_with_promises_gas_2() {
+    let gas_limit = 3 * 10u64.pow(14);
+    let mut logic_builder = VMLogicBuilder::default();
+    logic_builder.config.limit_config.max_gas_burnt = gas_limit;
+    logic_builder.context.prepaid_gas = gas_limit / 2;
+    let mut logic = logic_builder.build();
+
+    let account_id = logic.internal_mem_write(b"rick.test");
+    let args = logic.internal_mem_write(b"");
+    let num_100u128 = logic.internal_mem_write(&100u128.to_le_bytes());
+
+    let index = promise_batch_create(&mut logic, "rick.test").expect("should create a promise");
+    logic.promise_batch_action_transfer(index, num_100u128.ptr).unwrap();
+    logic.promise_batch_then(index, account_id.len, account_id.ptr).unwrap();
+    let minimum_prepay = logic.gas_counter().used_gas();
+    let mut logic_builder = logic_builder;
+    logic_builder.context.prepaid_gas = minimum_prepay;
+    let mut logic = logic_builder.build();
+    let index = promise_batch_create(&mut logic, "rick.test").expect("should create a promise");
+    logic.promise_batch_action_transfer(index, num_100u128.ptr).unwrap();
+    let call_id = logic.promise_batch_then(index, account_id.len, account_id.ptr).unwrap();
+    let needed_gas_charge = u64::max_value() - logic.gas_counter().used_gas() - 1;
+    let function_name_len =
+        needed_gas_charge / logic.config().ext_costs.cost(ExtCosts::read_memory_byte);
+    let result = logic.promise_batch_action_function_call(
+        call_id,
+        function_name_len,
+        /* function_name_ptr: */ 0,
+        args.len,
+        args.ptr,
+        10u128.to_le_bytes().as_ptr() as _,
+        10000,
+    );
+    assert!(matches!(
+        result,
+        Err(near_vm_errors::VMLogicError::HostError(near_vm_errors::HostError::GasExceeded))
+    ));
+    assert_eq!(logic.gas_counter().used_gas(), minimum_prepay);
 }
 
 /// Check consistent result when exceeding gas limit on a specific action gas parameter.
@@ -245,7 +336,7 @@ fn function_call_no_weight_refund() {
 fn check_action_gas_exceeds_limit(
     cost: ActionCosts,
     num_action_paid: u64,
-    exercise_action: impl FnOnce(&mut VMLogic) -> Result<(), VMLogicError>,
+    exercise_action: impl FnOnce(&mut TestVMLogic) -> Result<(), VMLogicError>,
 ) {
     // Create a logic parametrized such that it will fail with out-of-gas when specified action is deducted.
     let gas_limit = 10u64.pow(13);
@@ -255,9 +346,12 @@ fn check_action_gas_exceeds_limit(
         send_not_sir: gas_limit / num_action_paid + 10,
         execution: 1, // exec part is `used`, make it small
     };
-    let mut logic_builder = VMLogicBuilder::default().max_gas_burnt(gas_limit).gas_fee(cost, fee);
-    let output_receivers = vec!["alice.test".parse().unwrap()];
-    let mut logic = logic_builder.build_with_output_receivers(gas_attached, output_receivers);
+    let mut logic_builder = VMLogicBuilder::default();
+    logic_builder.config.limit_config.max_gas_burnt = gas_limit;
+    logic_builder.fees_config.action_fees[cost] = fee;
+    logic_builder.context.prepaid_gas = gas_attached;
+    logic_builder.context.output_data_receivers = vec!["alice.test".parse().unwrap()];
+    let mut logic = logic_builder.build();
 
     let result = exercise_action(&mut logic);
     assert!(result.is_err(), "expected out-of-gas error for {cost:?} but was ok");
@@ -294,7 +388,7 @@ fn check_action_gas_exceeds_attached(
     cost: ActionCosts,
     num_action_paid: u64,
     expected: expect_test::Expect,
-    exercise_action: impl FnOnce(&mut VMLogic) -> Result<(), VMLogicError>,
+    exercise_action: impl FnOnce(&mut TestVMLogic) -> Result<(), VMLogicError>,
 ) {
     // Create a logic parametrized such that it will fail with out-of-gas when specified action is deducted.
     let gas_limit = 10u64.pow(14);
@@ -304,9 +398,12 @@ fn check_action_gas_exceeds_attached(
         send_not_sir: 10, // make it easy to distinguish `sir` / `not_sir`
         execution: gas_attached / num_action_paid + 1,
     };
-    let mut logic_builder = VMLogicBuilder::default().max_gas_burnt(gas_limit).gas_fee(cost, fee);
-    let output_receivers = vec!["alice.test".parse().unwrap()];
-    let mut logic = logic_builder.build_with_output_receivers(gas_attached, output_receivers);
+    let mut logic_builder = VMLogicBuilder::default();
+    logic_builder.config.limit_config.max_gas_burnt = gas_limit;
+    logic_builder.fees_config.action_fees[cost] = fee;
+    logic_builder.context.prepaid_gas = gas_attached;
+    logic_builder.context.output_data_receivers = vec!["alice.test".parse().unwrap()];
+    let mut logic = logic_builder.build();
 
     let result = exercise_action(&mut logic);
     assert!(result.is_err(), "expected out-of-gas error for {cost:?} but was ok");
@@ -366,7 +463,7 @@ fn out_of_gas_new_action_receipt() {
     );
 
     /// function to trigger action receipt action cost
-    fn create_action_receipt(logic: &mut VMLogic) -> Result<(), VMLogicError> {
+    fn create_action_receipt(logic: &mut TestVMLogic) -> Result<(), VMLogicError> {
         promise_batch_create(logic, "rick.test")?;
         Ok(())
     }
@@ -389,14 +486,6 @@ fn out_of_gas_new_data_receipt() {
     );
 }
 
-/// function to trigger action + data receipt action costs
-fn create_promise_dependency(logic: &mut VMLogic) -> Result<(), VMLogicError> {
-    let account_id = "rick.test";
-    let idx = promise_batch_create(logic, account_id)?;
-    logic.promise_batch_then(idx, account_id.len() as _, account_id.as_ptr() as _)?;
-    Ok(())
-}
-
 /// see longer comment above for how this test works
 #[test]
 fn out_of_gas_new_data_receipt_byte() {
@@ -411,9 +500,10 @@ fn out_of_gas_new_data_receipt_byte() {
     );
 
     // value return will pay for the cost of returned data dependency bytes, if there are any.
-    fn value_return(logic: &mut VMLogic) -> Result<(), VMLogicError> {
-        let value: &[u8; 11] = b"lorem ipsum";
-        logic.value_return(11, value.as_ptr() as u64)?;
+    fn value_return(logic: &mut TestVMLogic) -> Result<(), VMLogicError> {
+        // 11 characters long string
+        let value = logic.internal_mem_write(b"lorem ipsum");
+        logic.value_return(11, value.ptr)?;
         Ok(())
     }
 }
@@ -430,7 +520,7 @@ fn out_of_gas_create_account() {
         create_account,
     );
 
-    fn create_account(logic: &mut VMLogic) -> Result<(), VMLogicError> {
+    fn create_account(logic: &mut TestVMLogic) -> Result<(), VMLogicError> {
         let account_id = "rick.test";
         let idx = promise_batch_create(logic, account_id)?;
         logic.promise_batch_action_create_account(idx)?;
@@ -450,15 +540,12 @@ fn out_of_gas_delete_account() {
         delete_account,
     );
 
-    fn delete_account(logic: &mut VMLogic) -> Result<(), VMLogicError> {
+    fn delete_account(logic: &mut TestVMLogic) -> Result<(), VMLogicError> {
         let beneficiary_account_id = "alice.test";
         let deleted_account_id = "bob.test";
         let idx = promise_batch_create(logic, deleted_account_id)?;
-        logic.promise_batch_action_delete_account(
-            idx,
-            beneficiary_account_id.len() as _,
-            beneficiary_account_id.as_ptr() as _,
-        )?;
+        let beneficiary = logic.internal_mem_write(beneficiary_account_id.as_bytes());
+        logic.promise_batch_action_delete_account(idx, beneficiary.len, beneficiary.ptr)?;
         Ok(())
     }
 }
@@ -490,11 +577,11 @@ fn out_of_gas_deploy_contract_byte() {
 }
 
 /// function to trigger base + 26 bytes deployment costs (26 is arbitrary)
-fn deploy_contract(logic: &mut VMLogic) -> Result<(), VMLogicError> {
+fn deploy_contract(logic: &mut TestVMLogic) -> Result<(), VMLogicError> {
     let account_id = "rick.test";
     let idx = promise_batch_create(logic, account_id)?;
-    let code = b"lorem ipsum with length 26";
-    logic.promise_batch_action_deploy_contract(idx, code.len() as u64, code.as_ptr() as u64)?;
+    let code = logic.internal_mem_write(b"lorem ipsum with length 26");
+    logic.promise_batch_action_deploy_contract(idx, code.len, code.ptr)?;
     Ok(())
 }
 
@@ -548,41 +635,32 @@ fn out_of_gas_function_call_byte() {
 
 /// function to trigger base + 40 bytes function call action costs (40 is 26 +
 /// 14 which are arbitrary)
-fn cross_contract_call(logic: &mut VMLogic) -> Result<(), VMLogicError> {
+fn cross_contract_call(logic: &mut TestVMLogic) -> Result<(), VMLogicError> {
     let account_id = "rick.test";
     let idx = promise_batch_create(logic, account_id)?;
     let arg = b"lorem ipsum with length 26";
     let name = b"fn_with_len_14";
-    let attached_balance = &1u128;
+    let attached_balance = 1u128;
     let gas = 1; // attaching very little gas so it doesn't cause gas exceeded on its own
-    logic.promise_batch_action_function_call(
-        idx,
-        name.len() as u64,
-        name.as_ptr() as u64,
-        arg.len() as u64,
-        arg.as_ptr() as u64,
-        attached_balance as *const u128 as u64,
-        gas,
-    )?;
+    promise_batch_action_function_call_ext(logic, idx, name, arg, attached_balance, gas)?;
     Ok(())
 }
 
 /// same as `cross_contract_call` but splits gas remainder among outgoing calls
-fn cross_contract_call_gas_weight(logic: &mut VMLogic) -> Result<(), VMLogicError> {
+fn cross_contract_call_gas_weight(logic: &mut TestVMLogic) -> Result<(), VMLogicError> {
     let account_id = "rick.test";
     let idx = promise_batch_create(logic, account_id)?;
     let arg = b"lorem ipsum with length 26";
     let name = b"fn_with_len_14";
-    let attached_balance = &1u128;
+    let attached_balance = 1u128;
     let gas = 1; // attaching very little gas so it doesn't cause gas exceeded on its own
     let gas_weight = 1;
-    logic.promise_batch_action_function_call_weight(
+    promise_batch_action_function_call_weight_ext(
+        logic,
         idx,
-        name.len() as u64,
-        name.as_ptr() as u64,
-        arg.len() as u64,
-        arg.as_ptr() as u64,
-        attached_balance as *const u128 as u64,
+        name,
+        arg,
+        attached_balance,
         gas,
         gas_weight,
     )?;
@@ -601,11 +679,11 @@ fn out_of_gas_transfer() {
         promise_transfer,
     );
 
-    fn promise_transfer(logic: &mut VMLogic) -> Result<(), VMLogicError> {
+    fn promise_transfer(logic: &mut TestVMLogic) -> Result<(), VMLogicError> {
         let account_id = "alice.test";
         let idx = promise_batch_create(logic, account_id)?;
-        let attached_balance = &1u128;
-        logic.promise_batch_action_transfer(idx, attached_balance as *const u128 as u64)?;
+        let attached_balance = logic.internal_mem_write(&1u128.to_be_bytes());
+        logic.promise_batch_action_transfer(idx, attached_balance.ptr)?;
         Ok(())
     }
 }
@@ -622,17 +700,12 @@ fn out_of_gas_stake() {
         promise_stake,
     );
 
-    fn promise_stake(logic: &mut VMLogic) -> Result<(), VMLogicError> {
+    fn promise_stake(logic: &mut TestVMLogic) -> Result<(), VMLogicError> {
         let account_id = "pool.test";
         let idx = promise_batch_create(logic, account_id)?;
-        let attached_balance = &1u128;
-        let pk = test_pk();
-        logic.promise_batch_action_stake(
-            idx,
-            attached_balance as *const u128 as u64,
-            pk.len() as u64,
-            pk.as_ptr() as u64,
-        )?;
+        let attached_balance = logic.internal_mem_write(&1u128.to_be_bytes());
+        let pk = write_test_pk(logic);
+        logic.promise_batch_action_stake(idx, attached_balance.ptr, pk.len, pk.ptr)?;
         Ok(())
     }
 }
@@ -649,17 +722,12 @@ fn out_of_gas_add_full_access_key() {
         promise_full_access_key,
     );
 
-    fn promise_full_access_key(logic: &mut VMLogic) -> Result<(), VMLogicError> {
+    fn promise_full_access_key(logic: &mut TestVMLogic) -> Result<(), VMLogicError> {
         let account_id = "alice.test";
         let idx = promise_batch_create(logic, account_id)?;
         let pk = test_pk();
         let nonce = 0;
-        logic.promise_batch_action_add_key_with_full_access(
-            idx,
-            pk.len() as u64,
-            pk.as_ptr() as u64,
-            nonce,
-        )?;
+        promise_batch_action_add_key_with_full_access(logic, idx, &pk, nonce)?;
         Ok(())
     }
 }
@@ -700,23 +768,21 @@ fn out_of_gas_add_function_call_key_byte() {
 
 /// function to trigger base + 7 bytes action costs for adding a new function
 /// call access key to an account (7 is arbitrary)
-fn promise_function_key(logic: &mut VMLogic) -> Result<(), VMLogicError> {
+fn promise_function_key(logic: &mut TestVMLogic) -> Result<(), VMLogicError> {
     let account_id = "alice.test";
     let idx = promise_batch_create(logic, account_id)?;
-    let allowance = &1u128;
+    let allowance = 1u128;
     let pk = test_pk();
     let nonce = 0;
     let methods = b"foo,baz";
-    logic.promise_batch_action_add_key_with_function_call(
+    promise_batch_action_add_key_with_function_call(
+        logic,
         idx,
-        pk.len() as u64,
-        pk.as_ptr() as u64,
+        &pk,
         nonce,
-        allowance as *const u128 as u64,
-        account_id.len() as u64,
-        account_id.as_ptr() as u64,
-        methods.len() as u64,
-        methods.as_ptr() as u64,
+        allowance,
+        account_id.as_bytes(),
+        methods,
     )?;
     Ok(())
 }
@@ -733,42 +799,22 @@ fn out_of_gas_delete_key() {
         promise_delete_key,
     );
 
-    fn promise_delete_key(logic: &mut VMLogic) -> Result<(), VMLogicError> {
+    fn promise_delete_key(logic: &mut TestVMLogic) -> Result<(), VMLogicError> {
         let account_id = "alice.test";
         let idx = promise_batch_create(logic, account_id)?;
-        let pk = test_pk();
-        logic.promise_batch_action_delete_key(idx, pk.len() as u64, pk.as_ptr() as u64)?;
+        let pk = write_test_pk(logic);
+        logic.promise_batch_action_delete_key(idx, pk.len, pk.ptr)?;
         Ok(())
     }
 }
 
-impl VMLogicBuilder {
-    fn max_gas_burnt(mut self, max_gas_burnt: Gas) -> Self {
-        self.config.limit_config.max_gas_burnt = max_gas_burnt;
-        self
-    }
-
-    fn gas_fee(mut self, cost: ActionCosts, fee: Fee) -> Self {
-        self.fees_config.action_fees[cost] = fee;
-        self
-    }
-
-    fn build_with_prepaid_gas(&mut self, prepaid_gas: Gas) -> VMLogic<'_> {
-        let mut context = get_context(vec![], false);
-        context.prepaid_gas = prepaid_gas;
-        self.build(context)
-    }
-
-    fn build_with_output_receivers(
-        &mut self,
-        prepaid_gas: Gas,
-        output_data_receivers: Vec<AccountId>,
-    ) -> VMLogic<'_> {
-        let mut context = get_context(vec![], false);
-        context.prepaid_gas = prepaid_gas;
-        context.output_data_receivers = output_data_receivers;
-        self.build(context)
-    }
+/// function to trigger action + data receipt action costs
+fn create_promise_dependency(logic: &mut TestVMLogic) -> Result<(), VMLogicError> {
+    let account_id = "rick.test";
+    let idx = promise_batch_create(logic, account_id)?;
+    let account_id = logic.internal_mem_write(account_id.as_bytes());
+    logic.promise_batch_then(idx, account_id.len, account_id.ptr)?;
+    Ok(())
 }
 
 /// Given the limit in gas, compute the corresponding limit in wasm ops for use
@@ -784,4 +830,8 @@ fn test_pk() -> Vec<u8> {
         .try_to_vec()
         .unwrap();
     pk
+}
+
+fn write_test_pk(logic: &mut TestVMLogic) -> MemSlice {
+    logic.internal_mem_write(&test_pk())
 }

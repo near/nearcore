@@ -11,10 +11,9 @@ use crate::adapter::{
     RecvPartialEncodedChunkRequest, RecvPartialEncodedChunkResponse, SetNetworkInfo, StateResponse,
 };
 use crate::client::{Client, EPOCH_START_INFO_BLOCKS};
+use crate::config_updater::ConfigUpdater;
 use crate::debug::new_network_info_view;
-use crate::info::{
-    display_sync_status, get_validator_epoch_stats, InfoHelper, ValidatorInfoHelper,
-};
+use crate::info::{display_sync_status, InfoHelper};
 use crate::metrics::PARTIAL_ENCODED_CHUNK_RESPONSE_DELAY;
 use crate::sync::state::{StateSync, StateSyncResult};
 use crate::{metrics, StatusResponse};
@@ -38,10 +37,8 @@ use near_chain_configs::ClientConfig;
 use near_chunks::client::ShardsManagerResponse;
 use near_chunks::logic::cares_about_shard_this_or_next_epoch;
 use near_client_primitives::types::{
-    Error, GetNetworkInfo, NetworkInfoResponse, ShardSyncDownload, ShardSyncStatus, Status,
-    StatusError, StatusSyncInfo, SyncStatus,
+    Error, GetNetworkInfo, NetworkInfoResponse, Status, StatusError, StatusSyncInfo, SyncStatus,
 };
-use near_dyn_configs::EXPECTED_SHUTDOWN_AT;
 #[cfg(feature = "test_features")]
 use near_network::types::NetworkAdversarialMessage;
 use near_network::types::ReasonForBan;
@@ -58,7 +55,7 @@ use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::state_part::PartId;
 use near_primitives::syncing::StatePartKey;
 use near_primitives::time::{Clock, Utc};
-use near_primitives::types::{BlockHeight, ValidatorInfoIdentifier};
+use near_primitives::types::BlockHeight;
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::{from_timestamp, MaybeValidated};
 use near_primitives::validator_signer::ValidatorSigner;
@@ -72,7 +69,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
-use tokio::sync::oneshot;
+use tokio::sync::broadcast;
 use tracing::{debug, error, info, trace, warn};
 
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.
@@ -119,7 +116,10 @@ pub struct ClientActor {
 
     /// Synchronization measure to allow graceful shutdown.
     /// Informs the system when a ClientActor gets dropped.
-    shutdown_signal: Option<oneshot::Sender<()>>,
+    shutdown_signal: Option<broadcast::Sender<()>>,
+
+    /// Manages updating the config.
+    config_updater: Option<ConfigUpdater>,
 }
 
 /// Blocks the program until given genesis time arrives.
@@ -155,8 +155,9 @@ impl ClientActor {
         enable_doomslug: bool,
         rng_seed: RngSeed,
         ctx: &Context<ClientActor>,
-        shutdown_signal: Option<oneshot::Sender<()>>,
+        shutdown_signal: Option<broadcast::Sender<()>>,
         adv: crate::adversarial::Controls,
+        config_updater: Option<ConfigUpdater>,
     ) -> Result<Self, Error> {
         let state_parts_arbiter = Arbiter::new();
         let self_addr = ctx.address();
@@ -193,13 +194,15 @@ impl ClientActor {
             node_id,
             network_info: NetworkInfo {
                 connected_peers: vec![],
+                tier1_connections: vec![],
                 num_connected_peers: 0,
                 peer_max_count: 0,
                 highest_height_peers: vec![],
                 received_bytes_per_sec: 0,
                 sent_bytes_per_sec: 0,
                 known_producers: vec![],
-                tier1_accounts: vec![],
+                tier1_accounts_keys: vec![],
+                tier1_accounts_data: vec![],
             },
             last_validator_announce_time: None,
             info_helper,
@@ -223,7 +226,8 @@ impl ClientActor {
 
             #[cfg(feature = "sandbox")]
             fastforward_delta: 0,
-            shutdown_signal: shutdown_signal,
+            shutdown_signal,
+            config_updater,
         })
     }
 }
@@ -252,6 +256,8 @@ impl Actor for ClientActor {
     type Context = Context<Self>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
+        self.start_flat_storage_creation(ctx);
+
         // Start syncing job.
         self.start_sync(ctx);
 
@@ -271,6 +277,13 @@ impl Actor for ClientActor {
 }
 
 impl ClientActor {
+    /// Wrapper for processing actix message which must be called after receiving it.
+    ///
+    /// Due to a bug in Actix library, while there are messages in mailbox, Actix
+    /// will prioritize processing messages until mailbox is empty. In such case execution
+    /// of any other task scheduled with `run_later` will be delayed. At the same time,
+    /// we have several important functions which have to be called regularly, so we put
+    /// these calls into `check_triggers` and call it here as a quick hack.
     fn wrap<Req: std::fmt::Debug + actix::Message, Res>(
         &mut self,
         msg: WithSpanContext<Req>,
@@ -497,6 +510,8 @@ impl Handler<WithSpanContext<BlockApproval>> for ClientActor {
     }
 }
 
+/// StateResponse is used during StateSync and catchup.
+/// It contains either StateSync header information (that tells us how many parts there are etc) or a single part.
 impl Handler<WithSpanContext<StateResponse>> for ClientActor {
     type Result = ();
 
@@ -513,111 +528,30 @@ impl Handler<WithSpanContext<StateResponse>> for ClientActor {
                    state_response.part().as_ref().map(|(part_id, data)| (part_id, data.len()))
             );
             // Get the download that matches the shard_id and hash
-            let download = {
-                let mut download: Option<&mut ShardSyncDownload> = None;
 
-                // ... It could be that the state was requested by the state sync
-                if let SyncStatus::StateSync(sync_hash, shards_to_download) =
-                    &mut this.client.sync_status
-                {
-                    if hash == *sync_hash {
-                        if let Some(part_id) = state_response.part_id() {
-                            this.client
-                                .state_sync
-                                .received_requested_part(part_id, shard_id, hash);
-                        }
-
-                        if let Some(shard_download) = shards_to_download.get_mut(&shard_id) {
-                            assert!(
-                                download.is_none(),
-                                "Internal downloads set has duplicates"
-                            );
-                            download = Some(shard_download);
-                        } else {
-                            // This may happen because of sending too many StateRequests to different peers.
-                            // For example, we received StateResponse after StateSync completion.
-                        }
-                    }
-                }
-
-                // ... Or one of the catchups
-                if let Some((_, shards_to_download, _)) =
-                    this.client.catchup_state_syncs.get_mut(&hash)
-                {
-                    if let Some(part_id) = state_response.part_id() {
-                        this.client.state_sync.received_requested_part(part_id, shard_id, hash);
-                    }
-
+            // ... It could be that the state was requested by the state sync
+            if let SyncStatus::StateSync(sync_hash, shards_to_download) =
+                &mut this.client.sync_status
+            {
+                if hash == *sync_hash {
                     if let Some(shard_download) = shards_to_download.get_mut(&shard_id) {
-                        assert!(download.is_none(), "Internal downloads set has duplicates");
-                        download = Some(shard_download);
-                    } else {
-                        // This may happen because of sending too many StateRequests to different peers.
-                        // For example, we received StateResponse after StateSync completion.
+                        this.client.state_sync.update_download_on_state_response_message(shard_download, hash, shard_id, state_response, &mut this.client.chain);
+                        return;
                     }
                 }
-                // We should not be requesting the same state twice.
-                download
-            };
-
-            if let Some(shard_sync_download) = download {
-                match shard_sync_download.status {
-                    ShardSyncStatus::StateDownloadHeader => {
-                        if let Some(header) = state_response.take_header() {
-                            if !shard_sync_download.downloads[0].done {
-                                match this.client.chain.set_state_header(shard_id, hash, header)
-                                {
-                                    Ok(()) => {
-                                        shard_sync_download.downloads[0].done = true;
-                                    }
-                                    Err(err) => {
-                                        error!(target: "sync", "State sync set_state_header error, shard = {}, hash = {}: {:?}", shard_id, hash, err);
-                                        shard_sync_download.downloads[0].error = true;
-                                    }
-                                }
-                            }
-                        } else {
-                            // No header found.
-                            // It may happen because requested node couldn't build state response.
-                            if !shard_sync_download.downloads[0].done {
-                                info!(target: "sync", "state_response doesn't have header, should be re-requested, shard = {}, hash = {}", shard_id, hash);
-                                shard_sync_download.downloads[0].error = true;
-                            }
-                        }
-                    }
-                    ShardSyncStatus::StateDownloadParts => {
-                        if let Some(part) = state_response.take_part() {
-                            let num_parts = shard_sync_download.downloads.len() as u64;
-                            let (part_id, data) = part;
-                            if part_id >= num_parts {
-                                error!(target: "sync", "State sync received incorrect part_id # {:?} for hash {:?}, potential malicious peer", part_id, hash);
-                                return;
-                            }
-                            if !shard_sync_download.downloads[part_id as usize].done {
-                                match this.client.chain.set_state_part(
-                                    shard_id,
-                                    hash,
-                                    PartId::new(part_id, num_parts),
-                                    &data,
-                                ) {
-                                    Ok(()) => {
-                                        shard_sync_download.downloads[part_id as usize].done =
-                                            true;
-                                    }
-                                    Err(err) => {
-                                        error!(target: "sync", "State sync set_state_part error, shard = {}, part = {}, hash = {}: {:?}", shard_id, part_id, hash, err);
-                                        shard_sync_download.downloads[part_id as usize].error =
-                                            true;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    _ => {}
-                }
-            } else {
-                error!(target: "sync", "State sync received hash {} that we're not expecting, potential malicious peer", hash);
             }
+
+            // ... Or one of the catchups
+            if let Some((state_sync, shards_to_download, _)) =
+                this.client.catchup_state_syncs.get_mut(&hash)
+            {
+                if let Some(shard_download) = shards_to_download.get_mut(&shard_id) {
+                    state_sync.update_download_on_state_response_message(shard_download, hash, shard_id, state_response, &mut this.client.chain);
+                    return;
+                }
+            }
+
+            error!(target: "sync", "State sync received hash {} that we're not expecting, potential malicious peer or a very delayed response.", hash);
         })
     }
 }
@@ -1187,19 +1121,33 @@ impl ClientActor {
         });
     }
 
+    /// Check if the scheduled time of any "triggers" has passed, and if so, call the trigger.
+    /// Triggers are important functions of client, like running single step of state sync or
+    /// checking if we can produce a block.
+    ///
+    /// It is called before processing Actix message and also in schedule_triggers.
+    /// This is to ensure all triggers enjoy higher priority than any actix message.
+    /// Otherwise due to a bug in Actix library Actix prioritizes processing messages
+    /// while there are messages in mailbox. Because of that we handle scheduling
+    /// triggers with custom `run_timer` function instead of `run_later` in Actix.
+    ///
+    /// Returns the delay before the next time `check_triggers` should be called, which is
+    /// min(time until the closest trigger, 1 second).
     fn check_triggers(&mut self, ctx: &mut Context<ClientActor>) -> Duration {
-        // There is a bug in Actix library. While there are messages in mailbox, Actix
-        // will prioritize processing messages until mailbox is empty. Execution of any other task
-        // scheduled with run_later will be delayed.
+        if let Some(config_updater) = &mut self.config_updater {
+            config_updater.try_update(&|updateable_client_config| {
+                self.client.update_client_config(updateable_client_config)
+            });
+        }
 
         // Check block height to trigger expected shutdown
         if let Ok(head) = self.client.chain.head() {
-            let block_height_to_shutdown =
-                EXPECTED_SHUTDOWN_AT.load(std::sync::atomic::Ordering::Relaxed);
-            if block_height_to_shutdown > 0 && head.height >= block_height_to_shutdown {
-                info!(target: "client", "Expected shutdown triggered: head block({}) >= ({})", head.height, block_height_to_shutdown);
-                if let Some(tx) = self.shutdown_signal.take() {
-                    let _ = tx.send(()); // Ignore send signal fail, it will send again in next trigger
+            if let Some(block_height_to_shutdown) = self.client.config.expected_shutdown.get() {
+                if head.height >= block_height_to_shutdown {
+                    info!(target: "client", "Expected shutdown triggered: head block({}) >= ({:?})", head.height, block_height_to_shutdown);
+                    if let Some(tx) = self.shutdown_signal.take() {
+                        let _ = tx.send(()); // Ignore send signal fail, it will send again in next trigger
+                    }
                 }
             }
         }
@@ -1530,6 +1478,26 @@ impl ClientActor {
         !self.adv.disable_header_sync() && needs_syncing
     }
 
+    fn start_flat_storage_creation(&mut self, ctx: &mut Context<ClientActor>) {
+        match self.client.run_flat_storage_creation_step() {
+            Ok(false) => {}
+            Ok(true) => {
+                return;
+            }
+            Err(err) => {
+                error!(target: "client", "Error occurred during flat storage creation step: {:?}", err);
+            }
+        }
+
+        near_performance_metrics::actix::run_later(
+            ctx,
+            self.client.config.flat_storage_creation_period,
+            move |act, ctx| {
+                act.start_flat_storage_creation(ctx);
+            },
+        );
+    }
+
     /// Starts syncing and then switches to either syncing or regular mode.
     fn start_sync(&mut self, ctx: &mut Context<ClientActor>) {
         // Wait for connections reach at least minimum peers unless skipping sync.
@@ -1605,9 +1573,11 @@ impl ClientActor {
         );
     }
 
+    /// Runs given callback if the time now is at least `next_attempt`.
+    /// Returns time for next run which should be made based on given `delay` between runs.
     fn run_timer<F>(
         &mut self,
-        duration: Duration,
+        delay: Duration,
         next_attempt: DateTime<Utc>,
         ctx: &mut Context<ClientActor>,
         f: F,
@@ -1626,7 +1596,7 @@ impl ClientActor {
         f(self, ctx);
         timer.observe_duration();
 
-        now.checked_add_signed(chrono::Duration::from_std(duration).unwrap()).unwrap()
+        now.checked_add_signed(chrono::Duration::from_std(delay).unwrap()).unwrap()
     }
 
     fn sync_wait_period(&self) -> Duration {
@@ -1796,73 +1766,12 @@ impl ClientActor {
     fn log_summary(&mut self) {
         let _span = tracing::debug_span!(target: "client", "log_summary").entered();
         let _d = delay_detector::DelayDetector::new(|| "client log summary".into());
-        let is_syncing = self.client.sync_status.is_syncing();
-        let head = unwrap_or_return!(self.client.chain.head());
-        let validator_info = if !is_syncing {
-            let validators = unwrap_or_return!(self
-                .client
-                .runtime_adapter
-                .get_epoch_block_producers_ordered(&head.epoch_id, &head.last_block_hash));
-            let num_validators = validators.len();
-            let account_id = self.client.validator_signer.as_ref().map(|x| x.validator_id());
-            let is_validator = if let Some(account_id) = account_id {
-                match self.client.runtime_adapter.get_validator_by_account_id(
-                    &head.epoch_id,
-                    &head.last_block_hash,
-                    account_id,
-                ) {
-                    Ok((_, is_slashed)) => !is_slashed,
-                    Err(_) => false,
-                }
-            } else {
-                false
-            };
-            Some(ValidatorInfoHelper { is_validator, num_validators })
-        } else {
-            None
-        };
-
-        let header_head = unwrap_or_return!(self.client.chain.header_head());
-        let validator_epoch_stats = if is_syncing {
-            // EpochManager::get_validator_info method (which is what runtime
-            // adapter calls) is expensive when node is syncing so we’re simply
-            // not collecting the statistics.  The statistics are used to update
-            // a few Prometheus metrics only so we prefer to leave the metrics
-            // unset until node finishes synchronising.  TODO(#6763): If we
-            // manage to get get_validator_info fasts again (or return an error
-            // if computation would be too slow), remove the ‘if is_syncing’
-            // check.
-            Default::default()
-        } else {
-            let epoch_identifier = ValidatorInfoIdentifier::BlockHash(header_head.last_block_hash);
-            self.client
-                .runtime_adapter
-                .get_validator_info(epoch_identifier)
-                .map(get_validator_epoch_stats)
-                .unwrap_or_default()
-        };
-        let statistics = if self.client.config.enable_statistics_export {
-            self.client.chain.store().get_store_statistics()
-        } else {
-            None
-        };
-        self.info_helper.info(
-            &head,
-            &self.client.sync_status,
-            self.client.get_catchup_status().unwrap_or_default(),
+        self.info_helper.log_summary(
+            &self.client,
             &self.node_id,
             &self.network_info,
-            validator_info,
-            validator_epoch_stats,
-            self.client
-                .runtime_adapter
-                .get_estimated_protocol_upgrade_block_height(head.last_block_hash)
-                .unwrap_or(None)
-                .unwrap_or(0),
-            statistics,
-            &self.client.config,
-        );
-        debug!(target: "stats", "{}", self.client.chain.print_chain_processing_info_to_string(self.client.config.log_summary_style).unwrap_or(String::from("Upcoming block info failed.")));
+            &self.config_updater,
+        )
     }
 }
 
@@ -2077,8 +1986,9 @@ pub fn start_client(
     network_adapter: Arc<dyn PeerManagerAdapter>,
     validator_signer: Option<Arc<dyn ValidatorSigner>>,
     telemetry_actor: Addr<TelemetryActor>,
-    sender: Option<oneshot::Sender<()>>,
+    sender: Option<broadcast::Sender<()>>,
     adv: crate::adversarial::Controls,
+    config_updater: Option<ConfigUpdater>,
 ) -> (Addr<ClientActor>, ArbiterHandle) {
     let client_arbiter = Arbiter::new();
     let client_arbiter_handle = client_arbiter.handle();
@@ -2097,6 +2007,7 @@ pub fn start_client(
             ctx,
             sender,
             adv,
+            config_updater,
         )
         .unwrap()
     });

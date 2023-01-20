@@ -1,9 +1,8 @@
 use near_primitives::runtime::config::AccountCreationConfig;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::runtime::fees::{Fee, RuntimeFeesConfig};
-use near_primitives::types::Gas;
 use near_primitives::version::PROTOCOL_VERSION;
-use near_vm_logic::{ActionCosts, ExtCostsConfig, VMConfig};
+use near_vm_logic::{ActionCosts, ExtCosts, ExtCostsConfig, VMConfig};
 use node_runtime::config::RuntimeConfig;
 
 use anyhow::Context;
@@ -55,6 +54,8 @@ fn runtime_fees_config(cost_table: &CostTable) -> anyhow::Result<RuntimeFeesConf
     let res = RuntimeFeesConfig {
         action_fees: enum_map::enum_map! {
             ActionCosts::create_account => fee(Cost::ActionCreateAccount)?,
+            #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+            ActionCosts::delegate => fee(Cost::ActionDelegate)?,
             ActionCosts::delete_account => fee(Cost::ActionDeleteAccount)?,
             ActionCosts::deploy_contract_base => fee(Cost::ActionDeployContractBase)?,
             ActionCosts::deploy_contract_byte => fee(Cost::ActionDeployContractPerByte)?,
@@ -76,80 +77,82 @@ fn runtime_fees_config(cost_table: &CostTable) -> anyhow::Result<RuntimeFeesConf
 }
 
 fn ext_costs_config(cost_table: &CostTable) -> anyhow::Result<ExtCostsConfig> {
-    let get = |cost: Cost| -> anyhow::Result<Gas> {
-        cost_table.get(cost).with_context(|| format!("undefined cost: {}", cost))
-    };
+    Ok(ExtCostsConfig {
+        costs: enum_map::enum_map! {
+            // TODO: storage_iter_* operations below are deprecated, so just hardcode zero price,
+            // and remove those operations ASAP.
+            ExtCosts::storage_iter_create_prefix_base => 0,
+            ExtCosts::storage_iter_create_prefix_byte => 0,
+            ExtCosts::storage_iter_create_range_base => 0,
+            ExtCosts::storage_iter_create_from_byte => 0,
+            ExtCosts::storage_iter_create_to_byte => 0,
+            ExtCosts::storage_iter_next_base => 0,
+            ExtCosts::storage_iter_next_key_byte => 0,
+            ExtCosts::storage_iter_next_value_byte => 0,
+            // TODO: accurately price host functions that expose validator information.
+            ExtCosts::validator_stake_base => 303944908800,
+            ExtCosts::validator_total_stake_base => 303944908800,
+            cost => {
+                let estimation = estimation(cost).with_context(|| format!("external WASM cost has no estimation defined: {}", cost))?;
+                cost_table.get(estimation).with_context(|| format!("undefined external WASM cost: {}", cost))?
+            },
+        },
+    })
+}
 
-    let res = ExtCostsConfig {
-        base: get(Cost::HostFunctionCall)?,
-        contract_loading_base: 0,
-        contract_loading_bytes: 0,
-        read_memory_base: get(Cost::ReadMemoryBase)?,
-        read_memory_byte: get(Cost::ReadMemoryByte)?,
-        write_memory_base: get(Cost::WriteMemoryBase)?,
-        write_memory_byte: get(Cost::WriteMemoryByte)?,
-        read_register_base: get(Cost::ReadRegisterBase)?,
-        read_register_byte: get(Cost::ReadRegisterByte)?,
-        write_register_base: get(Cost::WriteRegisterBase)?,
-        write_register_byte: get(Cost::WriteRegisterByte)?,
-        utf8_decoding_base: get(Cost::Utf8DecodingBase)?,
-        utf8_decoding_byte: get(Cost::Utf8DecodingByte)?,
-        utf16_decoding_base: get(Cost::Utf16DecodingBase)?,
-        utf16_decoding_byte: get(Cost::Utf16DecodingByte)?,
-        sha256_base: get(Cost::Sha256Base)?,
-        sha256_byte: get(Cost::Sha256Byte)?,
-        keccak256_base: get(Cost::Keccak256Base)?,
-        keccak256_byte: get(Cost::Keccak256Byte)?,
-        keccak512_base: get(Cost::Keccak512Base)?,
-        keccak512_byte: get(Cost::Keccak512Byte)?,
-        ripemd160_base: get(Cost::Ripemd160Base)?,
-        ripemd160_block: get(Cost::Ripemd160Block)?,
-        ecrecover_base: get(Cost::EcrecoverBase)?,
+fn estimation(cost: ExtCosts) -> Option<Cost> {
+    Some(match cost {
+        ExtCosts::base => Cost::HostFunctionCall,
+        ExtCosts::read_memory_base => Cost::ReadMemoryBase,
+        ExtCosts::read_memory_byte => Cost::ReadMemoryByte,
+        ExtCosts::write_memory_base => Cost::WriteMemoryBase,
+        ExtCosts::write_memory_byte => Cost::WriteMemoryByte,
+        ExtCosts::read_register_base => Cost::ReadRegisterBase,
+        ExtCosts::read_register_byte => Cost::ReadRegisterByte,
+        ExtCosts::write_register_base => Cost::WriteRegisterBase,
+        ExtCosts::write_register_byte => Cost::WriteRegisterByte,
+        ExtCosts::utf8_decoding_base => Cost::Utf8DecodingBase,
+        ExtCosts::utf8_decoding_byte => Cost::Utf8DecodingByte,
+        ExtCosts::utf16_decoding_base => Cost::Utf16DecodingBase,
+        ExtCosts::utf16_decoding_byte => Cost::Utf16DecodingByte,
+        ExtCosts::sha256_base => Cost::Sha256Base,
+        ExtCosts::sha256_byte => Cost::Sha256Byte,
+        ExtCosts::keccak256_base => Cost::Keccak256Base,
+        ExtCosts::keccak256_byte => Cost::Keccak256Byte,
+        ExtCosts::keccak512_base => Cost::Keccak512Base,
+        ExtCosts::keccak512_byte => Cost::Keccak512Byte,
+        ExtCosts::ripemd160_base => Cost::Ripemd160Base,
+        ExtCosts::ripemd160_block => Cost::Ripemd160Block,
+        ExtCosts::ecrecover_base => Cost::EcrecoverBase,
         #[cfg(feature = "protocol_feature_ed25519_verify")]
-        ed25519_verify_base: get(Cost::Ed25519VerifyBase)?,
+        ExtCosts::ed25519_verify_base => Cost::Ed25519VerifyBase,
         #[cfg(feature = "protocol_feature_ed25519_verify")]
-        ed25519_verify_byte: get(Cost::Ed25519VerifyByte)?,
-        log_base: get(Cost::LogBase)?,
-        log_byte: get(Cost::LogByte)?,
-        storage_write_base: get(Cost::StorageWriteBase)?,
-        storage_write_key_byte: get(Cost::StorageWriteKeyByte)?,
-        storage_write_value_byte: get(Cost::StorageWriteValueByte)?,
-        storage_write_evicted_byte: get(Cost::StorageWriteEvictedByte)?,
-        storage_read_base: get(Cost::StorageReadBase)?,
-        storage_read_key_byte: get(Cost::StorageReadKeyByte)?,
-        storage_read_value_byte: get(Cost::StorageReadValueByte)?,
-        storage_remove_base: get(Cost::StorageRemoveBase)?,
-        storage_remove_key_byte: get(Cost::StorageRemoveKeyByte)?,
-        storage_remove_ret_value_byte: get(Cost::StorageRemoveRetValueByte)?,
-        storage_has_key_base: get(Cost::StorageHasKeyBase)?,
-        storage_has_key_byte: get(Cost::StorageHasKeyByte)?,
-        // TODO: storage_iter_* operations below are deprecated, so just hardcode zero price,
-        // and remove those operations ASAP.
-        storage_iter_create_prefix_base: 0,
-        storage_iter_create_prefix_byte: 0,
-        storage_iter_create_range_base: 0,
-        storage_iter_create_from_byte: 0,
-        storage_iter_create_to_byte: 0,
-        storage_iter_next_base: 0,
-        storage_iter_next_key_byte: 0,
-        storage_iter_next_value_byte: 0,
-        touching_trie_node: get(Cost::TouchingTrieNode)?,
-        read_cached_trie_node: get(Cost::ReadCachedTrieNode)?,
-        promise_and_base: get(Cost::PromiseAndBase)?,
-        promise_and_per_promise: get(Cost::PromiseAndPerPromise)?,
-        promise_return: get(Cost::PromiseReturn)?,
-        // TODO: accurately price host functions that expose validator information.
-        validator_stake_base: 303944908800,
-        validator_total_stake_base: 303944908800,
-        _unused1: 0,
-        _unused2: 0,
-        alt_bn128_g1_sum_base: get(Cost::AltBn128G1SumBase)?,
-        alt_bn128_g1_sum_element: get(Cost::AltBn128G1SumElement)?,
-        alt_bn128_g1_multiexp_base: get(Cost::AltBn128G1MultiexpBase)?,
-        alt_bn128_g1_multiexp_element: get(Cost::AltBn128G1MultiexpElement)?,
-        alt_bn128_pairing_check_base: get(Cost::AltBn128PairingCheckBase)?,
-        alt_bn128_pairing_check_element: get(Cost::AltBn128PairingCheckElement)?,
-    };
-
-    Ok(res)
+        ExtCosts::ed25519_verify_byte => Cost::Ed25519VerifyByte,
+        ExtCosts::log_base => Cost::LogBase,
+        ExtCosts::log_byte => Cost::LogByte,
+        ExtCosts::storage_write_base => Cost::StorageWriteBase,
+        ExtCosts::storage_write_key_byte => Cost::StorageWriteKeyByte,
+        ExtCosts::storage_write_value_byte => Cost::StorageWriteValueByte,
+        ExtCosts::storage_write_evicted_byte => Cost::StorageWriteEvictedByte,
+        ExtCosts::storage_read_base => Cost::StorageReadBase,
+        ExtCosts::storage_read_key_byte => Cost::StorageReadKeyByte,
+        ExtCosts::storage_read_value_byte => Cost::StorageReadValueByte,
+        ExtCosts::storage_remove_base => Cost::StorageRemoveBase,
+        ExtCosts::storage_remove_key_byte => Cost::StorageRemoveKeyByte,
+        ExtCosts::storage_remove_ret_value_byte => Cost::StorageRemoveRetValueByte,
+        ExtCosts::storage_has_key_base => Cost::StorageHasKeyBase,
+        ExtCosts::storage_has_key_byte => Cost::StorageHasKeyByte,
+        ExtCosts::touching_trie_node => Cost::TouchingTrieNode,
+        ExtCosts::read_cached_trie_node => Cost::ReadCachedTrieNode,
+        ExtCosts::promise_and_base => Cost::PromiseAndBase,
+        ExtCosts::promise_and_per_promise => Cost::PromiseAndPerPromise,
+        ExtCosts::promise_return => Cost::PromiseReturn,
+        ExtCosts::alt_bn128_g1_sum_base => Cost::AltBn128G1SumBase,
+        ExtCosts::alt_bn128_g1_sum_element => Cost::AltBn128G1SumElement,
+        ExtCosts::alt_bn128_g1_multiexp_base => Cost::AltBn128G1MultiexpBase,
+        ExtCosts::alt_bn128_g1_multiexp_element => Cost::AltBn128G1MultiexpElement,
+        ExtCosts::alt_bn128_pairing_check_base => Cost::AltBn128PairingCheckBase,
+        ExtCosts::alt_bn128_pairing_check_element => Cost::AltBn128PairingCheckElement,
+        _ => return None,
+    })
 }

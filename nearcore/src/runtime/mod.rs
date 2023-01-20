@@ -5,7 +5,7 @@ use crate::NearConfig;
 use borsh::ser::BorshSerialize;
 use borsh::BorshDeserialize;
 use errors::FromStateViewerErrors;
-use near_chain::types::{ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo};
+use near_chain::types::{ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo, Tip};
 use near_chain::{Error, RuntimeAdapter};
 use near_chain_configs::{
     Genesis, GenesisConfig, ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
@@ -18,6 +18,7 @@ use near_o11y::log_assert;
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::challenge::ChallengesResult;
+use near_primitives::config::ExtCosts;
 use near_primitives::contract::ContractCode;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::EpochConfig;
@@ -47,13 +48,14 @@ use near_primitives::views::{
 };
 use near_store::flat_state::ChainAccessForFlatStorage;
 use near_store::flat_state::{
-    store_helper, FlatStateFactory, FlatStorageState, FlatStorageStateStatus,
+    store_helper, FlatStateFactory, FlatStorageCreationStatus, FlatStorageState,
 };
+use near_store::metadata::DbKind;
 use near_store::split_state::get_delayed_receipts;
 use near_store::{
     get_genesis_hash, get_genesis_state_roots, set_genesis_hash, set_genesis_state_roots,
     ApplyStatePartResult, DBCol, PartialStorage, ShardTries, Store, StoreCompiledContractCache,
-    StoreUpdate, Trie, TrieConfig, WrappedTrieChanges,
+    StoreUpdate, Trie, TrieConfig, WrappedTrieChanges, COLD_HEAD_KEY,
 };
 use near_vm_runner::precompile_contract;
 use node_runtime::adapter::ViewRuntimeAdapter;
@@ -612,6 +614,37 @@ impl NightshadeRuntime {
         });
         Ok(())
     }
+
+    fn get_gc_stop_height_impl(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error> {
+        let epoch_manager = self.epoch_manager.read();
+        // an epoch must have a first block.
+        let epoch_first_block = *epoch_manager.get_block_info(block_hash)?.epoch_first_block();
+        let epoch_first_block_info = epoch_manager.get_block_info(&epoch_first_block)?;
+        // maintain pointers to avoid cloning.
+        let mut last_block_in_prev_epoch = *epoch_first_block_info.prev_hash();
+        let mut epoch_start_height = epoch_first_block_info.height();
+        for _ in 0..self.gc_num_epochs_to_keep - 1 {
+            let epoch_first_block =
+                *epoch_manager.get_block_info(&last_block_in_prev_epoch)?.epoch_first_block();
+            let epoch_first_block_info = epoch_manager.get_block_info(&epoch_first_block)?;
+            epoch_start_height = epoch_first_block_info.height();
+            last_block_in_prev_epoch = *epoch_first_block_info.prev_hash();
+        }
+
+        // An archival node with split storage should perform garbage collection
+        // on the hot storage but not beyond the COLD_HEAD. In order to determine
+        // if split storage is enabled *and* that the migration to split storage
+        // is finished we can check the store kind. It's only set to hot after the
+        // migration is finished.
+        let kind = self.store.get_db_kind()?;
+        let cold_head = self.store.get_ser::<Tip>(DBCol::BlockMisc, COLD_HEAD_KEY)?;
+
+        if let (Some(DbKind::Hot), Some(cold_head)) = (kind, cold_head) {
+            let cold_head_height = cold_head.height;
+            return Ok(std::cmp::min(epoch_start_height, cold_head_height + 1));
+        }
+        Ok(epoch_start_height)
+    }
 }
 
 fn format_total_gas_burnt(gas: Gas) -> String {
@@ -703,27 +736,32 @@ impl RuntimeAdapter for NightshadeRuntime {
         self.flat_state_factory.get_flat_storage_state_for_shard(shard_id)
     }
 
-    fn try_create_flat_storage_state_for_shard(
+    fn get_flat_storage_creation_status(&self, shard_id: ShardId) -> FlatStorageCreationStatus {
+        store_helper::get_flat_storage_creation_status(&self.store, shard_id)
+    }
+
+    // TODO (#7327): consider passing flat storage errors here to handle them gracefully
+    fn create_flat_storage_state_for_shard(
         &self,
         shard_id: ShardId,
         latest_block_height: BlockHeight,
         chain_access: &dyn ChainAccessForFlatStorage,
-    ) -> FlatStorageStateStatus {
-        let status = store_helper::get_flat_storage_state_status(&self.store, shard_id);
-        match &status {
-            FlatStorageStateStatus::Ready => {
-                let flat_storage_state = FlatStorageState::new(
-                    self.store.clone(),
-                    shard_id,
-                    latest_block_height,
-                    chain_access,
-                );
-                self.flat_state_factory
-                    .add_flat_storage_state_for_shard(shard_id, flat_storage_state);
-            }
-            _ => {}
-        }
-        status
+    ) {
+        let flat_storage_state =
+            FlatStorageState::new(self.store.clone(), shard_id, latest_block_height, chain_access);
+        self.flat_state_factory.add_flat_storage_state_for_shard(shard_id, flat_storage_state);
+    }
+
+    fn remove_flat_storage_state_for_shard(
+        &self,
+        shard_id: ShardId,
+        epoch_id: &EpochId,
+    ) -> Result<(), Error> {
+        let shard_layout = self.get_shard_layout(epoch_id)?;
+        self.flat_state_factory
+            .remove_flat_storage_state_for_shard(shard_id, shard_layout)
+            .map_err(|e| Error::StorageError(e))?;
+        Ok(())
     }
 
     fn set_flat_storage_state_for_genesis(
@@ -830,8 +868,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         // of parameters, this corresponds to about 13megs worth of
         // transactions.
         let size_limit = transactions_gas_limit
-            / (runtime_config.wasm_config.ext_costs.storage_write_value_byte
-                + runtime_config.wasm_config.ext_costs.storage_read_value_byte);
+            / (runtime_config.wasm_config.ext_costs.cost(ExtCosts::storage_write_value_byte)
+                + runtime_config.wasm_config.ext_costs.cost(ExtCosts::storage_read_value_byte));
 
         while total_gas_burnt < transactions_gas_limit && total_size < size_limit {
             if let Some(iter) = pool_iterator.next() {
@@ -895,24 +933,14 @@ impl RuntimeAdapter for NightshadeRuntime {
     }
 
     fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> BlockHeight {
-        (|| -> Result<BlockHeight, Error> {
-            let epoch_manager = self.epoch_manager.read();
-            // an epoch must have a first block.
-            let epoch_first_block = *epoch_manager.get_block_info(block_hash)?.epoch_first_block();
-            let epoch_first_block_info = epoch_manager.get_block_info(&epoch_first_block)?;
-            // maintain pointers to avoid cloning.
-            let mut last_block_in_prev_epoch = *epoch_first_block_info.prev_hash();
-            let mut epoch_start_height = epoch_first_block_info.height();
-            for _ in 0..self.gc_num_epochs_to_keep - 1 {
-                let epoch_first_block =
-                    *epoch_manager.get_block_info(&last_block_in_prev_epoch)?.epoch_first_block();
-                let epoch_first_block_info = epoch_manager.get_block_info(&epoch_first_block)?;
-                epoch_start_height = epoch_first_block_info.height();
-                last_block_in_prev_epoch = *epoch_first_block_info.prev_hash();
+        let result = self.get_gc_stop_height_impl(block_hash);
+        match result {
+            Ok(gc_stop_height) => gc_stop_height,
+            Err(error) => {
+                error!(target: "runtime", "Error when getting the gc stop height. Error: {}", error);
+                self.genesis_config.genesis_height
             }
-            Ok(epoch_start_height)
-        }())
-        .unwrap_or(self.genesis_config.genesis_height)
+        }
     }
 
     fn add_validator_proposals(
@@ -1338,12 +1366,14 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> Result<(), Error> {
         let part = BorshDeserialize::try_from_slice(data)
             .expect("Part was already validated earlier, so could never fail here");
-        let ApplyStatePartResult { trie_changes, contract_codes } =
+        let ApplyStatePartResult { trie_changes, flat_state_delta, contract_codes } =
             Trie::apply_state_part(state_root, part_id, part);
         let tries = self.get_tries();
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, epoch_id)?;
         let mut store_update = tries.store_update();
         tries.apply_all(&trie_changes, shard_uid, &mut store_update);
+        debug!(target: "chain", %shard_id, "Inserting {} values to flat storage", flat_state_delta.len());
+        flat_state_delta.apply_to_flat_state(&mut store_update);
         self.precompile_contracts(epoch_id, contract_codes)?;
         Ok(store_update.commit()?)
     }
@@ -1527,6 +1557,7 @@ mod test {
     use std::collections::BTreeSet;
 
     use near_chain::{Chain, ChainGenesis};
+    use near_primitives::test_utils::create_test_signer;
     use near_primitives::types::validator_stake::ValidatorStake;
     use num_rational::Ratio;
 
@@ -1541,7 +1572,7 @@ mod test {
     use near_primitives::types::{
         BlockHeightDelta, Nonce, ValidatorId, ValidatorInfoIdentifier, ValidatorKickoutReason,
     };
-    use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
+    use near_primitives::validator_signer::ValidatorSigner;
     use near_primitives::views::{
         AccountView, CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo,
         ValidatorKickoutView,
@@ -1779,15 +1810,12 @@ mod test {
             store_update.commit().unwrap();
             let mock_chain = MockChainForFlatStorage::new(0, genesis_hash);
             for shard_id in 0..runtime.num_shards(&EpochId::default()).unwrap() {
-                let status = runtime.try_create_flat_storage_state_for_shard(
-                    shard_id as ShardId,
-                    0,
-                    &mock_chain,
-                );
+                let status = runtime.get_flat_storage_creation_status(shard_id);
                 if cfg!(feature = "protocol_feature_flat_state") {
-                    assert_eq!(status, FlatStorageStateStatus::Ready);
+                    assert_eq!(status, FlatStorageCreationStatus::Ready);
+                    runtime.create_flat_storage_state_for_shard(shard_id, 0, &mock_chain);
                 } else {
-                    assert_eq!(status, FlatStorageStateStatus::DontCreate);
+                    assert_eq!(status, FlatStorageCreationStatus::DontCreate);
                 }
             }
 
@@ -1957,10 +1985,8 @@ mod test {
             .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
             .collect::<Vec<_>>();
         let mut env = TestEnv::new(vec![validators.clone()], 2, false);
-        let block_producers: Vec<_> = validators
-            .iter()
-            .map(|id| InMemoryValidatorSigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
-            .collect();
+        let block_producers: Vec<_> =
+            validators.iter().map(|id| create_test_signer(id.as_str())).collect();
         let signer = InMemorySigner::from_seed(
             validators[0].clone(),
             KeyType::ED25519,
@@ -1969,11 +1995,7 @@ mod test {
         // test1 doubles stake and the new account stakes the same, so test2 will be kicked out.`
         let staking_transaction = stake(1, &signer, &block_producers[0], TESTING_INIT_STAKE * 2);
         let new_account = AccountId::try_from(format!("test{}", num_nodes + 1)).unwrap();
-        let new_validator = InMemoryValidatorSigner::from_seed(
-            new_account.clone(),
-            KeyType::ED25519,
-            new_account.as_ref(),
-        );
+        let new_validator = create_test_signer(new_account.as_str());
         let new_signer =
             InMemorySigner::from_seed(new_account.clone(), KeyType::ED25519, new_account.as_ref());
         let create_account_transaction = SignedTransaction::create_account(
@@ -2057,10 +2079,8 @@ mod test {
             .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
             .collect::<Vec<_>>();
         let mut env = TestEnv::new(vec![validators.clone()], 2, false);
-        let block_producers: Vec<_> = validators
-            .iter()
-            .map(|id| InMemoryValidatorSigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
-            .collect();
+        let block_producers: Vec<_> =
+            validators.iter().map(|id| create_test_signer(id.as_str())).collect();
         let signer = InMemorySigner::from_seed(
             validators[0].clone(),
             KeyType::ED25519,
@@ -2098,10 +2118,8 @@ mod test {
             .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
             .collect::<Vec<_>>();
         let mut env = TestEnv::new(vec![validators.clone()], 4, false);
-        let block_producers: Vec<_> = validators
-            .iter()
-            .map(|id| InMemoryValidatorSigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
-            .collect();
+        let block_producers: Vec<_> =
+            validators.iter().map(|id| create_test_signer(id.as_str())).collect();
         let signers: Vec<_> = validators
             .iter()
             .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
@@ -2202,10 +2220,8 @@ mod test {
             .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
             .collect::<Vec<_>>();
         let mut env = TestEnv::new(vec![validators.clone()], 5, false);
-        let block_producers: Vec<_> = validators
-            .iter()
-            .map(|id| InMemoryValidatorSigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
-            .collect();
+        let block_producers: Vec<_> =
+            validators.iter().map(|id| create_test_signer(id.as_str())).collect();
         let signers: Vec<_> = validators
             .iter()
             .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
@@ -2275,10 +2291,8 @@ mod test {
             .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
             .collect::<Vec<_>>();
         let mut env = TestEnv::new(vec![validators.clone()], 2, false);
-        let block_producers: Vec<_> = validators
-            .iter()
-            .map(|id| InMemoryValidatorSigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
-            .collect();
+        let block_producers: Vec<_> =
+            validators.iter().map(|id| create_test_signer(id.as_str())).collect();
         let signer = InMemorySigner::from_seed(
             validators[0].clone(),
             KeyType::ED25519,
@@ -2370,10 +2384,8 @@ mod test {
             .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
             .collect::<Vec<_>>();
         let mut env = TestEnv::new(vec![validators.clone()], 2, false);
-        let block_producers: Vec<_> = validators
-            .iter()
-            .map(|id| InMemoryValidatorSigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
-            .collect();
+        let block_producers: Vec<_> =
+            validators.iter().map(|id| create_test_signer(id.as_str())).collect();
         let signer = InMemorySigner::from_seed(
             validators[0].clone(),
             KeyType::ED25519,
@@ -2521,10 +2533,8 @@ mod test {
             TrackedConfig::Accounts(vec![validators[1].clone()]),
             true,
         );
-        let block_producers: Vec<_> = validators
-            .iter()
-            .map(|id| InMemoryValidatorSigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
-            .collect();
+        let block_producers: Vec<_> =
+            validators.iter().map(|id| create_test_signer(id.as_str())).collect();
         let signer = InMemorySigner::from_seed(
             validators[1].clone(),
             KeyType::ED25519,
@@ -2635,10 +2645,8 @@ mod test {
             .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
             .collect::<Vec<_>>();
         let mut env = TestEnv::new(vec![validators.clone()], 3, false);
-        let block_producers: Vec<_> = validators
-            .iter()
-            .map(|id| InMemoryValidatorSigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
-            .collect();
+        let block_producers: Vec<_> =
+            validators.iter().map(|id| create_test_signer(id.as_str())).collect();
 
         let signer = InMemorySigner::from_seed(
             validators[2].clone(),
@@ -2824,10 +2832,8 @@ mod test {
             // validator
             20000,
         );
-        let block_producers: Vec<_> = validators
-            .iter()
-            .map(|id| InMemoryValidatorSigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
-            .collect();
+        let block_producers: Vec<_> =
+            validators.iter().map(|id| create_test_signer(id.as_str())).collect();
         let signers: Vec<_> = validators
             .iter()
             .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
@@ -2896,10 +2902,8 @@ mod test {
             // validator
             20000,
         );
-        let block_producers: Vec<_> = validators
-            .iter()
-            .map(|id| InMemoryValidatorSigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
-            .collect();
+        let block_producers: Vec<_> =
+            validators.iter().map(|id| create_test_signer(id.as_str())).collect();
         let signers: Vec<_> = validators
             .iter()
             .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
@@ -2952,10 +2956,8 @@ mod test {
         let validators =
             (0..num_nodes).map(|i| format!("test{}", i + 1).parse().unwrap()).collect::<Vec<_>>();
         let mut env = TestEnv::new(vec![validators.clone()], epoch_length, true);
-        let block_producers: Vec<_> = validators
-            .iter()
-            .map(|id| InMemoryValidatorSigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
-            .collect();
+        let block_producers: Vec<_> =
+            validators.iter().map(|id| create_test_signer(id.as_str())).collect();
 
         for _ in 0..(epoch_length + 1) {
             env.step_default(vec![]);
@@ -2984,10 +2986,8 @@ mod test {
             .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
             .collect::<Vec<_>>();
         let mut env = TestEnv::new(vec![validators.clone()], 4, false);
-        let block_producers: Vec<_> = validators
-            .iter()
-            .map(|id| InMemoryValidatorSigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
-            .collect();
+        let block_producers: Vec<_> =
+            validators.iter().map(|id| create_test_signer(id.as_str())).collect();
         let signers: Vec<_> = validators
             .iter()
             .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
@@ -3033,10 +3033,8 @@ mod test {
             .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
             .collect::<Vec<_>>();
         let mut env = TestEnv::new(vec![validators.clone()], 4, false);
-        let block_producers: Vec<_> = validators
-            .iter()
-            .map(|id| InMemoryValidatorSigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
-            .collect();
+        let block_producers: Vec<_> =
+            validators.iter().map(|id| create_test_signer(id.as_str())).collect();
         let signers: Vec<_> = validators
             .iter()
             .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
@@ -3058,10 +3056,8 @@ mod test {
             .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
             .collect::<Vec<_>>();
         let mut env = TestEnv::new(vec![validators.clone()], 4, false);
-        let block_producers: Vec<_> = validators
-            .iter()
-            .map(|id| InMemoryValidatorSigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
-            .collect();
+        let block_producers: Vec<_> =
+            validators.iter().map(|id| create_test_signer(id.as_str())).collect();
         let signers: Vec<_> = validators
             .iter()
             .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))

@@ -27,6 +27,7 @@ use tracing_subscriber::{fmt, reload, EnvFilter, Layer, Registry};
 /// Custom tracing subscriber implementation that produces IO traces.
 pub mod context;
 mod io_tracer;
+pub mod log_config;
 pub mod macros;
 pub mod metrics;
 pub mod pretty;
@@ -79,7 +80,8 @@ type TracingLayer<Inner> = Layered<
 static DEFAULT_OTLP_LEVEL: OnceCell<OpenTelemetryLevel> = OnceCell::new();
 
 /// The default value for the `RUST_LOG` environment variable if one isn't specified otherwise.
-pub const DEFAULT_RUST_LOG: &'static str = "tokio_reactor=info,\
+pub const DEFAULT_RUST_LOG: &str = "tokio_reactor=info,\
+     config=info,\
      near=info,\
      recompress=info,\
      stats=info,\
@@ -87,7 +89,6 @@ pub const DEFAULT_RUST_LOG: &'static str = "tokio_reactor=info,\
      db=info,\
      delay_detector=info,\
      near-performance-metrics=info,\
-     near-rust-allocator-proxy=info,\
      warn";
 
 /// The resource representing a registered subscriber.
@@ -359,6 +360,12 @@ pub fn default_subscriber(
     }
 }
 
+pub fn set_default_otlp_level(options: &Options) {
+    // Record the initial tracing level specified as a command-line flag. Use this recorded value to
+    // reset opentelemetry filter when the LogConfig file gets deleted.
+    DEFAULT_OTLP_LEVEL.set(options.opentelemetry).unwrap();
+}
+
 /// Constructs a subscriber set to the option appropriate for the NEAR code.
 ///
 /// The subscriber enables logging, tracing and io tracing.
@@ -379,9 +386,7 @@ pub async fn default_subscriber_with_opentelemetry(
 
     let subscriber = tracing_subscriber::registry();
 
-    // Record the initial tracing level specified as a command-line flag. Use this recorded value to
-    // reset opentelemetry filter when the LogConfig file gets deleted.
-    DEFAULT_OTLP_LEVEL.set(options.opentelemetry).unwrap();
+    set_default_otlp_level(options);
 
     let (subscriber, handle) = add_non_blocking_log_layer(
         env_filter,
@@ -439,6 +444,20 @@ pub enum ReloadError {
     ReloadOpentelemetryLayer(#[source] reload::Error),
     #[error("could not create the log filter")]
     Parse(#[source] BuildEnvFilterError),
+}
+
+pub fn reload_log_config(config: Option<&log_config::LogConfig>) -> Result<(), Vec<ReloadError>> {
+    if let Some(config) = config {
+        reload(
+            config.rust_log.as_ref().map(|s| s.as_str()),
+            config.verbose_module.as_ref().map(|s| s.as_str()),
+            config.opentelemetry_level,
+        )
+    } else {
+        // When the LOG_CONFIG_FILENAME is not available, reset to the tracing and logging config
+        // when the node was started.
+        reload(None, None, None)
+    }
 }
 
 /// Constructs new filters for the logging and opentelemetry layers.
