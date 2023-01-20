@@ -17,7 +17,6 @@ This crate implements the specification of the interface that Near blockchain ex
 [dependencies]
 bn.workspace = true
 borsh.workspace = true
-byteorder.workspace = true
 ed25519-dalek.workspace = true
 ripemd.workspace = true
 serde.workspace = true

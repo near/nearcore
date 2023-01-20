@@ -39,6 +39,9 @@ pub enum StateViewerSubCommand {
     CheckBlock,
     /// Looks up a certain chunk.
     Chunks(ChunksCmd),
+    /// List account names with contracts deployed.
+    #[clap(alias = "contract_accounts")]
+    ContractAccounts(ContractAccountsCmd),
     /// Dump contract data in storage of given account to binary file.
     #[clap(alias = "dump_account_storage")]
     DumpAccountStorage(DumpAccountStorageCmd),
@@ -92,11 +95,8 @@ impl StateViewerSubCommand {
         let near_config = load_config(home_dir, genesis_validation)
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
 
-        #[cfg(feature = "cold_store")]
         let cold_store_config: Option<&near_store::StoreConfig> =
             near_config.config.cold_store.as_ref();
-        #[cfg(not(feature = "cold_store"))]
-        let cold_store_config: Option<std::convert::Infallible> = None;
 
         let store_opener =
             NodeStorage::opener(home_dir, &near_config.config.store, cold_store_config);
@@ -113,6 +113,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::Chain(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::CheckBlock => check_block_chunk_existence(near_config, store),
             StateViewerSubCommand::Chunks(cmd) => cmd.run(near_config, store),
+            StateViewerSubCommand::ContractAccounts(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::DumpAccountStorage(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::DumpCode(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::DumpState(cmd) => cmd.run(home_dir, near_config, store),
@@ -257,6 +258,18 @@ impl ChunksCmd {
     pub fn run(self, near_config: NearConfig, store: Store) {
         let chunk_hash = ChunkHash::from(CryptoHash::from_str(&self.chunk_hash).unwrap());
         get_chunk(chunk_hash, near_config, store)
+    }
+}
+
+#[derive(Parser)]
+pub struct ContractAccountsCmd {
+    // TODO: add filter options, e.g. only contracts that execute certain
+    // actions
+}
+
+impl ContractAccountsCmd {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+        contract_accounts(home_dir, store, near_config).unwrap();
     }
 }
 
