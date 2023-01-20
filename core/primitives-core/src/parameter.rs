@@ -18,10 +18,8 @@ use crate::config::ActionCosts;
 #[strum(serialize_all = "snake_case")]
 pub enum Parameter {
     // Gas economics config
-    BurntGasRewardNumerator,
-    BurntGasRewardDenominator,
-    PessimisticGasPriceInflationNumerator,
-    PessimisticGasPriceInflationDenominator,
+    BurntGasReward,
+    PessimisticGasPriceInflation,
 
     // Account creation config
     MinAllowedTopLevelAccountLength,
@@ -81,6 +79,9 @@ pub enum Parameter {
     ActionDeleteKeySendSir,
     ActionDeleteKeySendNotSir,
     ActionDeleteKeyExecution,
+    ActionDelegateSendSir,
+    ActionDelegateSendNotSir,
+    ActionDelegateExecution,
 
     // Smart contract dynamic gas costs
     WasmRegularOpCost,
@@ -207,6 +208,7 @@ pub enum FeeParameter {
     ActionAddFunctionCallKey,
     ActionAddFunctionCallKeyPerByte,
     ActionDeleteKey,
+    ActionDelegate,
 }
 
 impl Parameter {
@@ -252,6 +254,8 @@ impl From<ActionCosts> for FeeParameter {
         match other {
             ActionCosts::create_account => Self::ActionCreateAccount,
             ActionCosts::delete_account => Self::ActionDeleteAccount,
+            #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+            ActionCosts::delegate => Self::ActionDelegate,
             ActionCosts::deploy_contract_base => Self::ActionDeployContract,
             ActionCosts::deploy_contract_byte => Self::ActionDeployContractPerByte,
             ActionCosts::function_call_base => Self::ActionFunctionCall,

@@ -4,7 +4,7 @@ use near_primitives_core::config::ExtCosts::read_cached_trie_node;
 use near_primitives_core::config::ExtCosts::touching_trie_node;
 use near_primitives_core::{
     config::{ActionCosts, ExtCosts, ExtCostsConfig},
-    profile::ProfileData,
+    profile::ProfileDataV3,
     types::Gas,
 };
 use std::collections::HashMap;
@@ -58,7 +58,7 @@ pub struct GasCounter {
     /// FIXME(nagisa): why do we store a copy both here and in the VMLogic???
     ext_costs_config: ExtCostsConfig,
     /// Where to store profile data, if needed.
-    profile: ProfileData,
+    profile: ProfileDataV3,
 }
 
 impl GasCounter {
@@ -274,7 +274,7 @@ impl GasCounter {
         self.prepaid_gas - self.used_gas()
     }
 
-    pub fn profile_data(&self) -> ProfileData {
+    pub fn profile_data(&self) -> ProfileDataV3 {
         self.profile.clone()
     }
 }

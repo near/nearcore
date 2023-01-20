@@ -1,20 +1,17 @@
 #[cfg(unix)]
-use crate::watchers::Watcher;
-use crate::watchers::{
-    dyn_config_watcher::DynConfig, log_config_watcher::LogConfig, UpdateBehavior,
-};
 use anyhow::Context;
 use clap::{Args, Parser};
 use near_amend_genesis::AmendGenesisCommand;
 use near_chain_configs::GenesisValidationMode;
-#[cfg(feature = "cold_store")]
+use near_client::ConfigUpdater;
 use near_cold_store_tool::ColdStoreCommand;
+use near_dyn_configs::{UpdateableConfigLoader, UpdateableConfigLoaderError, UpdateableConfigs};
 use near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofResponse;
 use near_mirror::MirrorCommand;
 use near_o11y::tracing_subscriber::EnvFilter;
 use near_o11y::{
     default_subscriber, default_subscriber_with_opentelemetry, BuildEnvFilterError,
-    EnvFilterBuilder, OpenTelemetryLevel,
+    EnvFilterBuilder,
 };
 use near_ping::PingCommand;
 use near_primitives::hash::CryptoHash;
@@ -29,8 +26,9 @@ use std::fs::File;
 use std::io::BufReader;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use tokio::sync::oneshot;
-use tokio::sync::oneshot::Receiver;
+use std::sync::Arc;
+use tokio::sync::broadcast;
+use tokio::sync::broadcast::Receiver;
 use tracing::{debug, error, info, warn};
 
 /// NEAR Protocol Node
@@ -83,7 +81,7 @@ impl NeardCmd {
         };
 
         match neard_cmd.subcmd {
-            NeardSubCommand::Init(cmd) => cmd.run(&home_dir),
+            NeardSubCommand::Init(cmd) => cmd.run(&home_dir)?,
             NeardSubCommand::Localnet(cmd) => cmd.run(&home_dir),
             NeardSubCommand::Run(cmd) => cmd.run(
                 &home_dir,
@@ -94,7 +92,7 @@ impl NeardCmd {
 
             NeardSubCommand::StateViewer(cmd) => {
                 let mode = if cmd.readwrite { Mode::ReadWrite } else { Mode::ReadOnly };
-                cmd.subcmd.run(&home_dir, genesis_validation, mode);
+                cmd.subcmd.run(&home_dir, genesis_validation, mode, cmd.store_temperature);
             }
 
             NeardSubCommand::RecompressStorage(cmd) => {
@@ -112,7 +110,6 @@ impl NeardCmd {
             NeardSubCommand::AmendGenesis(cmd) => {
                 cmd.run()?;
             }
-            #[cfg(feature = "cold_store")]
             NeardSubCommand::ColdStore(cmd) => {
                 cmd.run(&home_dir);
             }
@@ -131,6 +128,10 @@ pub(super) struct StateViewerCommand {
     /// In case an operation needs to write to caches, a read-write mode may be needed.
     #[clap(long, short = 'w')]
     readwrite: bool,
+    /// What store temperature should the state viewer open. Allowed values are hot and cold but
+    /// cold is only available when cold_store feature is enabled.
+    #[clap(long, short = 't', default_value = "hot")]
+    store_temperature: near_store::Temperature,
     #[clap(subcommand)]
     subcmd: StateViewerSubCommand,
 }
@@ -219,7 +220,6 @@ pub(super) enum NeardSubCommand {
     /// Amend a genesis/records file created by `dump-state`.
     AmendGenesis(AmendGenesisCommand),
 
-    #[cfg(feature = "cold_store")]
     /// Testing tool for cold storage
     ColdStore(ColdStoreCommand),
 
@@ -308,17 +308,16 @@ fn check_release_build(chain: &str) {
 }
 
 impl InitCmd {
-    pub(super) fn run(self, home_dir: &Path) {
+    pub(super) fn run(self, home_dir: &Path) -> anyhow::Result<()> {
         // TODO: Check if `home` exists. If exists check what networks we already have there.
         if (self.download_genesis || self.download_genesis_url.is_some()) && self.genesis.is_some()
         {
-            error!("Please give either --genesis or --download-genesis, not both.");
-            return;
+            anyhow::bail!("Please give either --genesis or --download-genesis, not both.");
         }
 
         self.chain_id.as_ref().map(|chain| check_release_build(chain));
 
-        if let Err(e) = nearcore::init_configs(
+        nearcore::init_configs(
             home_dir,
             self.chain_id.as_deref(),
             self.account_id.and_then(|account_id| account_id.parse().ok()),
@@ -333,9 +332,8 @@ impl InitCmd {
             self.download_config_url.as_deref(),
             self.boot_nodes.as_deref(),
             self.max_gas_burnt_view,
-        ) {
-            error!("Failed to initialize configs: {:#}", e);
-        }
+        )
+        .context("Failed to initialize configs")
     }
 }
 
@@ -455,7 +453,9 @@ impl RunCmd {
             }
         }
 
-        let (tx, rx) = oneshot::channel::<()>();
+        let (tx_crash, mut rx_crash) = broadcast::channel::<()>(16);
+        let (tx_config_update, rx_config_update) =
+            broadcast::channel::<Result<UpdateableConfigs, Arc<UpdateableConfigLoaderError>>>(16);
         let sys = actix::System::new();
 
         sys.block_on(async move {
@@ -474,11 +474,31 @@ impl RunCmd {
             .await
             .global();
 
-            let nearcore::NearNode { rpc_servers, .. } =
-                nearcore::start_with_config_and_synchronization(home_dir, near_config, Some(tx))
-                    .expect("start_with_config");
+            let updateable_configs = nearcore::dyn_config::read_updateable_configs(home_dir)
+                .unwrap_or_else(|e| panic!("Error reading dynamic configs: {:#}", e));
+            let mut updateable_config_loader =
+                UpdateableConfigLoader::new(updateable_configs.clone(), tx_config_update);
+            let config_updater = ConfigUpdater::new(rx_config_update);
 
-            let sig = wait_for_interrupt_signal(home_dir, rx).await;
+            let nearcore::NearNode { rpc_servers, .. } =
+                nearcore::start_with_config_and_synchronization(
+                    home_dir,
+                    near_config,
+                    Some(tx_crash),
+                    Some(config_updater),
+                )
+                .expect("start_with_config");
+
+            let sig = loop {
+                let sig = wait_for_interrupt_signal(home_dir, &mut rx_crash).await;
+                if sig == "SIGHUP" {
+                    let maybe_updateable_configs =
+                        nearcore::dyn_config::read_updateable_configs(home_dir);
+                    updateable_config_loader.reload(maybe_updateable_configs);
+                } else {
+                    break sig;
+                }
+            };
             warn!(target: "neard", "{}, stopping... this may take a few minutes.", sig);
             futures::future::join_all(rpc_servers.iter().map(|(name, server)| async move {
                 server.stop(true).await;
@@ -486,9 +506,9 @@ impl RunCmd {
             }))
             .await;
             actix::System::current().stop();
-
             // Disable the subscriber to properly shutdown the tracer.
-            near_o11y::reload(Some("error"), None, Some(OpenTelemetryLevel::OFF)).unwrap();
+            near_o11y::reload(Some("error"), None, Some(near_o11y::OpenTelemetryLevel::OFF))
+                .unwrap();
         });
         sys.run().unwrap();
         info!(target: "neard", "Waiting for RocksDB to gracefully shutdown");
@@ -497,38 +517,26 @@ impl RunCmd {
 }
 
 #[cfg(not(unix))]
-async fn wait_for_interrupt_signal(_home_dir: &Path, mut _rx_crash: Receiver<()>) -> &str {
+async fn wait_for_interrupt_signal(_home_dir: &Path, mut _rx_crash: &Receiver<()>) -> &str {
     // TODO(#6372): Support graceful shutdown on windows.
     tokio::signal::ctrl_c().await.unwrap();
     "Ctrl+C"
 }
 
 #[cfg(unix)]
-fn update_watchers(home_dir: &Path, behavior: UpdateBehavior) {
-    LogConfig::update(home_dir.join("log_config.json"), &behavior);
-    DynConfig::update(home_dir.join("dyn_config.json"), &behavior);
-}
-
-#[cfg(unix)]
-async fn wait_for_interrupt_signal(home_dir: &Path, mut rx_crash: Receiver<()>) -> &str {
-    // Apply all watcher config file if it exists.
-    update_watchers(&home_dir, UpdateBehavior::UpdateOnlyIfExists);
-
+async fn wait_for_interrupt_signal(_home_dir: &Path, rx_crash: &mut Receiver<()>) -> &'static str {
     use tokio::signal::unix::{signal, SignalKind};
     let mut sigint = signal(SignalKind::interrupt()).unwrap();
     let mut sigterm = signal(SignalKind::terminate()).unwrap();
     let mut sighup = signal(SignalKind::hangup()).unwrap();
 
-    loop {
-        break tokio::select! {
-             _ = sigint.recv()  => "SIGINT",
-             _ = sigterm.recv() => "SIGTERM",
-             _ = sighup.recv() => {
-                update_watchers(&home_dir, UpdateBehavior::UpdateOrReset);
-                continue;
-             },
-             _ = &mut rx_crash => "ClientActor died",
-        };
+    tokio::select! {
+         _ = sigint.recv()  => "SIGINT",
+         _ = sigterm.recv() => "SIGTERM",
+         _ = sighup.recv() => {
+            "SIGHUP"
+         },
+         _ = rx_crash.recv() => "ClientActor died",
     }
 }
 
@@ -793,7 +801,7 @@ mod tests {
             )
         );
 
-        // Proof with a wroing outcome (as user specified wrong shard).
+        // Proof with a wrong outcome (as user specified wrong shard).
         assert_eq!(
             VerifyProofSubCommand::verify_json(
                 serde_json::from_slice(include_bytes!("../res/invalid_proof.json")).unwrap()

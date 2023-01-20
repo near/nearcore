@@ -5,7 +5,10 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use near_primitives::types::{AccountId, BlockHeightDelta, Gas, NumBlocks, NumSeats, ShardId};
+use crate::MutableConfigValue;
+use near_primitives::types::{
+    AccountId, BlockHeight, BlockHeightDelta, Gas, NumBlocks, NumSeats, ShardId,
+};
 use near_primitives::version::Version;
 
 pub const TEST_STATE_SYNC_TIMEOUT: u64 = 5;
@@ -70,7 +73,8 @@ impl GCConfig {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+/// ClientConfig where some fields can be updated at runtime.
+#[derive(Clone)]
 pub struct ClientConfig {
     /// Version of the binary.
     pub version: Version,
@@ -78,6 +82,8 @@ pub struct ClientConfig {
     pub chain_id: String,
     /// Listening rpc port for status.
     pub rpc_addr: Option<String>,
+    /// Graceful shutdown at expected block height.
+    pub expected_shutdown: MutableConfigValue<Option<BlockHeight>>,
     /// Duration to check for producing / skipping block.
     pub block_production_tracking_delay: Duration,
     /// Minimum duration before producing block.
@@ -162,6 +168,8 @@ pub struct ClientConfig {
     pub enable_statistics_export: bool,
     /// Number of threads to execute background migration work in client.
     pub client_background_migration_threads: usize,
+    /// Duration to perform background flat storage creation step.
+    pub flat_storage_creation_period: Duration,
 }
 
 impl ClientConfig {
@@ -180,10 +188,11 @@ impl ClientConfig {
             because non-archival nodes must save trie changes in order to do do garbage collection."
         );
 
-        ClientConfig {
+        Self {
             version: Default::default(),
             chain_id: "unittest".to_string(),
             rpc_addr: Some("0.0.0.0:3030".to_string()),
+            expected_shutdown: MutableConfigValue::new(None, "expected_shutdown"),
             block_production_tracking_delay: Duration::from_millis(std::cmp::max(
                 10,
                 min_block_prod_time / 5,
@@ -230,6 +239,7 @@ impl ClientConfig {
             max_gas_burnt_view: None,
             enable_statistics_export: true,
             client_background_migration_threads: 1,
+            flat_storage_creation_period: Duration::from_secs(1),
         }
     }
 }
