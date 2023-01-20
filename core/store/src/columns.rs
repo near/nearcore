@@ -397,7 +397,6 @@ impl DBCol {
     }
 
     /// Whether this column exists in cold storage.
-    #[cfg(feature = "cold_store")]
     pub(crate) const fn is_in_colddb(&self) -> bool {
         matches!(*self, DBCol::DbVersion | DBCol::BlockMisc) || self.is_cold()
     }

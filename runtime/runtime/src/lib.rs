@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
 
+use config::total_prepaid_send_fees;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use tracing::debug;
 
@@ -443,6 +444,17 @@ impl Runtime {
                     apply_state.current_protocol_version,
                 )?;
             }
+            #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+            Action::Delegate(signed_delegate_action) => {
+                apply_delegate_action(
+                    state_update,
+                    apply_state,
+                    action_receipt,
+                    account_id,
+                    signed_delegate_action,
+                    &mut result,
+                )?;
+            }
         };
         Ok(result)
     }
@@ -747,7 +759,14 @@ impl Runtime {
         transaction_costs: &RuntimeFeesConfig,
     ) -> Result<Balance, RuntimeError> {
         let total_deposit = total_deposit(&action_receipt.actions)?;
-        let prepaid_gas = total_prepaid_gas(&action_receipt.actions)?;
+        let prepaid_gas = safe_add_gas(
+            total_prepaid_gas(&action_receipt.actions)?,
+            total_prepaid_send_fees(
+                transaction_costs,
+                &action_receipt.actions,
+                current_protocol_version,
+            )?,
+        )?;
         let prepaid_exec_gas = safe_add_gas(
             total_prepaid_exec_fees(
                 transaction_costs,
@@ -792,6 +811,7 @@ impl Runtime {
                 )?,
             )?;
         }
+
         if deposit_refund > 0 {
             result
                 .new_receipts

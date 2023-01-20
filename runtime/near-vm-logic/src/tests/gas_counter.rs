@@ -1,5 +1,4 @@
 use crate::receipt_manager::ReceiptMetadata;
-use crate::tests::fixtures::get_context_with_prepaid_gas;
 use crate::tests::helpers::*;
 use crate::tests::vm_logic_builder::{TestVMLogic, VMLogicBuilder};
 use crate::types::Gas;
@@ -14,8 +13,10 @@ use near_vm_errors::{HostError, VMLogicError};
 fn test_dont_burn_gas_when_exceeding_attached_gas_limit() {
     let gas_limit = 10u64.pow(14);
 
-    let mut logic_builder = VMLogicBuilder::default().max_gas_burnt(gas_limit * 2);
-    let mut logic = logic_builder.build(get_context_with_prepaid_gas(gas_limit));
+    let mut logic_builder = VMLogicBuilder::default();
+    logic_builder.config.limit_config.max_gas_burnt = gas_limit * 2;
+    logic_builder.context.prepaid_gas = gas_limit;
+    let mut logic = logic_builder.build();
 
     let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
     promise_batch_action_function_call(&mut logic, index, 0, gas_limit * 2)
@@ -32,8 +33,10 @@ fn test_limit_wasm_gas_after_attaching_gas() {
     let gas_limit = 10u64.pow(14);
     let op_limit = op_limit(gas_limit);
 
-    let mut logic_builder = VMLogicBuilder::default().max_gas_burnt(gas_limit * 2);
-    let mut logic = logic_builder.build(get_context_with_prepaid_gas(gas_limit));
+    let mut logic_builder = VMLogicBuilder::default();
+    logic_builder.config.limit_config.max_gas_burnt = gas_limit * 2;
+    logic_builder.context.prepaid_gas = gas_limit;
+    let mut logic = logic_builder.build();
 
     let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
     promise_batch_action_function_call(&mut logic, index, 0, gas_limit / 2)
@@ -51,8 +54,10 @@ fn test_cant_burn_more_than_max_gas_burnt_gas() {
     let gas_limit = 10u64.pow(14);
     let op_limit = op_limit(gas_limit);
 
-    let mut logic_builder = VMLogicBuilder::default().max_gas_burnt(gas_limit);
-    let mut logic = logic_builder.build(get_context_with_prepaid_gas(gas_limit * 2));
+    let mut logic_builder = VMLogicBuilder::default();
+    logic_builder.config.limit_config.max_gas_burnt = gas_limit;
+    logic_builder.context.prepaid_gas = gas_limit * 2;
+    let mut logic = logic_builder.build();
 
     logic.gas(op_limit * 3).expect_err("should fail with gas limit");
     let outcome = logic.compute_outcome_and_distribute_gas();
@@ -66,8 +71,10 @@ fn test_cant_burn_more_than_prepaid_gas() {
     let gas_limit = 10u64.pow(14);
     let op_limit = op_limit(gas_limit);
 
-    let mut logic_builder = VMLogicBuilder::default().max_gas_burnt(gas_limit * 2);
-    let mut logic = logic_builder.build(get_context_with_prepaid_gas(gas_limit));
+    let mut logic_builder = VMLogicBuilder::default();
+    logic_builder.config.limit_config.max_gas_burnt = gas_limit * 2;
+    logic_builder.context.prepaid_gas = gas_limit;
+    let mut logic = logic_builder.build();
 
     logic.gas(op_limit * 3).expect_err("should fail with gas limit");
     let outcome = logic.compute_outcome_and_distribute_gas();
@@ -81,8 +88,10 @@ fn test_hit_max_gas_burnt_limit() {
     let gas_limit = 10u64.pow(14);
     let op_limit = op_limit(gas_limit);
 
-    let mut logic_builder = VMLogicBuilder::default().max_gas_burnt(gas_limit);
-    let mut logic = logic_builder.build(get_context_with_prepaid_gas(gas_limit * 3));
+    let mut logic_builder = VMLogicBuilder::default();
+    logic_builder.config.limit_config.max_gas_burnt = gas_limit;
+    logic_builder.context.prepaid_gas = gas_limit * 3;
+    let mut logic = logic_builder.build();
 
     promise_create(&mut logic, b"rick.test", 0, gas_limit / 2).expect("should create a promise");
     logic.gas(op_limit * 2).expect_err("should fail with gas limit");
@@ -97,8 +106,10 @@ fn test_hit_prepaid_gas_limit() {
     let gas_limit = 10u64.pow(14);
     let op_limit = op_limit(gas_limit);
 
-    let mut logic_builder = VMLogicBuilder::default().max_gas_burnt(gas_limit * 3);
-    let mut logic = logic_builder.build(get_context_with_prepaid_gas(gas_limit));
+    let mut logic_builder = VMLogicBuilder::default();
+    logic_builder.config.limit_config.max_gas_burnt = gas_limit * 3;
+    logic_builder.context.prepaid_gas = gas_limit;
+    let mut logic = logic_builder.build();
 
     promise_create(&mut logic, b"rick.test", 0, gas_limit / 2).expect("should create a promise");
     logic.gas(op_limit * 2).expect_err("should fail with gas limit");
@@ -124,8 +135,10 @@ fn assert_with_gas(receipt: &ReceiptMetadata, expcted_gas: Gas) {
 fn function_call_weight_check(function_calls: &[(Gas, u64, Gas)]) {
     let gas_limit = 10_000_000_000;
 
-    let mut logic_builder = VMLogicBuilder::free().max_gas_burnt(gas_limit);
-    let mut logic = logic_builder.build(get_context_with_prepaid_gas(gas_limit));
+    let mut logic_builder = VMLogicBuilder::free();
+    logic_builder.config.limit_config.max_gas_burnt = gas_limit;
+    logic_builder.context.prepaid_gas = gas_limit;
+    let mut logic = logic_builder.build();
 
     let mut ratios = vec![];
 
@@ -210,8 +223,10 @@ fn function_call_weight_basic_cases_test() {
 fn function_call_no_weight_refund() {
     let gas_limit = 10u64.pow(14);
 
-    let mut logic_builder = VMLogicBuilder::default().max_gas_burnt(gas_limit);
-    let mut logic = logic_builder.build(get_context_with_prepaid_gas(gas_limit));
+    let mut logic_builder = VMLogicBuilder::default();
+    logic_builder.config.limit_config.max_gas_burnt = gas_limit;
+    logic_builder.context.prepaid_gas = gas_limit;
+    let mut logic = logic_builder.build();
 
     let index = promise_batch_create(&mut logic, "rick.test").expect("should create a promise");
     promise_batch_action_function_call_weight(&mut logic, index, 0, 1000, 0)
@@ -226,8 +241,10 @@ fn function_call_no_weight_refund() {
 #[test]
 fn test_overflowing_burn_gas_with_promises_gas() {
     let gas_limit = 3 * 10u64.pow(14);
-    let mut logic_builder = VMLogicBuilder::default().max_gas_burnt(gas_limit);
-    let mut logic = logic_builder.build(get_context_with_prepaid_gas(gas_limit));
+    let mut logic_builder = VMLogicBuilder::default();
+    logic_builder.config.limit_config.max_gas_burnt = gas_limit;
+    logic_builder.context.prepaid_gas = gas_limit;
+    let mut logic = logic_builder.build();
 
     let account_id = logic.internal_mem_write(b"rick.test");
     let args = logic.internal_mem_write(b"");
@@ -260,8 +277,10 @@ fn test_overflowing_burn_gas_with_promises_gas() {
 #[test]
 fn test_overflowing_burn_gas_with_promises_gas_2() {
     let gas_limit = 3 * 10u64.pow(14);
-    let mut logic_builder = VMLogicBuilder::default().max_gas_burnt(gas_limit);
-    let mut logic = logic_builder.build(get_context_with_prepaid_gas(gas_limit / 2));
+    let mut logic_builder = VMLogicBuilder::default();
+    logic_builder.config.limit_config.max_gas_burnt = gas_limit;
+    logic_builder.context.prepaid_gas = gas_limit / 2;
+    let mut logic = logic_builder.build();
 
     let account_id = logic.internal_mem_write(b"rick.test");
     let args = logic.internal_mem_write(b"");
@@ -271,7 +290,9 @@ fn test_overflowing_burn_gas_with_promises_gas_2() {
     logic.promise_batch_action_transfer(index, num_100u128.ptr).unwrap();
     logic.promise_batch_then(index, account_id.len, account_id.ptr).unwrap();
     let minimum_prepay = logic.gas_counter().used_gas();
-    let mut logic = logic_builder.build(get_context_with_prepaid_gas(minimum_prepay));
+    let mut logic_builder = logic_builder;
+    logic_builder.context.prepaid_gas = minimum_prepay;
+    let mut logic = logic_builder.build();
     let index = promise_batch_create(&mut logic, "rick.test").expect("should create a promise");
     logic.promise_batch_action_transfer(index, num_100u128.ptr).unwrap();
     let call_id = logic.promise_batch_then(index, account_id.len, account_id.ptr).unwrap();
@@ -313,8 +334,11 @@ fn check_action_gas_exceeds_limit(
         send_not_sir: gas_limit / num_action_paid + 10,
         execution: 1, // exec part is `used`, make it small
     };
-    let mut logic_builder = VMLogicBuilder::default().max_gas_burnt(gas_limit).gas_fee(cost, fee);
-    let mut logic = logic_builder.build(get_context_with_prepaid_gas(gas_attached));
+    let mut logic_builder = VMLogicBuilder::default();
+    logic_builder.config.limit_config.max_gas_burnt = gas_limit;
+    logic_builder.fees_config.action_fees[cost] = fee;
+    logic_builder.context.prepaid_gas = gas_attached;
+    let mut logic = logic_builder.build();
 
     let result = exercise_action(&mut logic);
     assert!(result.is_err(), "expected out-of-gas error for {cost:?} but was ok");
@@ -356,8 +380,11 @@ fn check_action_gas_exceeds_attached(
         send_not_sir: 10, // make it easy to distinguish `sir` / `not_sir`
         execution: gas_attached / num_action_paid + 1,
     };
-    let mut logic_builder = VMLogicBuilder::default().max_gas_burnt(gas_limit).gas_fee(cost, fee);
-    let mut logic = logic_builder.build(get_context_with_prepaid_gas(gas_attached));
+    let mut logic_builder = VMLogicBuilder::default();
+    logic_builder.config.limit_config.max_gas_burnt = gas_limit;
+    logic_builder.fees_config.action_fees[cost] = fee;
+    logic_builder.context.prepaid_gas = gas_attached;
+    let mut logic = logic_builder.build();
 
     let result = exercise_action(&mut logic);
     assert!(result.is_err(), "expected out-of-gas error for {cost:?} but was ok");

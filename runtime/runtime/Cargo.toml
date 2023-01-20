@@ -8,7 +8,6 @@ edition.workspace = true
 
 [dependencies]
 borsh.workspace = true
-byteorder.workspace = true
 hex.workspace = true
 num-bigint.workspace = true
 num-rational.workspace = true
@@ -36,6 +35,7 @@ default = []
 dump_errors_schema = ["near-vm-errors/dump_errors_schema"]
 protocol_feature_flat_state = ["near-store/protocol_feature_flat_state", "near-vm-logic/protocol_feature_flat_state"]
 no_cpu_compatibility_checks = ["near-vm-runner/no_cpu_compatibility_checks"]
+protocol_feature_nep366_delegate_action = []
 
 no_cache = [
   "near-vm-runner/no_cache",

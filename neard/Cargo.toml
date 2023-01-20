@@ -32,6 +32,7 @@ tracing.workspace = true
 nearcore = { path = "../nearcore" }
 near-amend-genesis = { path = "../tools/amend-genesis" }
 near-chain-configs = { path = "../core/chain-configs" }
+near-client = { path = "../chain/client" }
 near-cold-store-tool = { path = "../tools/cold-store", package = "cold-store-tool" }
 near-dyn-configs = { path = "../core/dyn-configs" }
 near-jsonrpc-primitives = { path = "../chain/jsonrpc-primitives" }
@@ -62,7 +63,7 @@ rosetta_rpc = ["nearcore/rosetta_rpc"]
 json_rpc = ["nearcore/json_rpc"]
 protocol_feature_fix_staking_threshold = ["nearcore/protocol_feature_fix_staking_threshold"]
 protocol_feature_flat_state = ["nearcore/protocol_feature_flat_state"]
-cold_store = ["nearcore/cold_store", "near-store/cold_store", "near-state-viewer/cold_store", "near-cold-store-tool/cold_store"]
+protocol_feature_nep366_delegate_action = ["nearcore/protocol_feature_nep366_delegate_action"]
 
 nightly = [
   "nightly_protocol",

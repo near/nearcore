@@ -35,6 +35,17 @@ use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{VMContext, VMOutcome};
 use near_vm_runner::precompile_contract;
 
+#[cfg(feature = "protocol_feature_nep366_delegate_action")]
+use crate::config::{total_prepaid_exec_fees, total_prepaid_gas, total_prepaid_send_fees};
+#[cfg(feature = "protocol_feature_nep366_delegate_action")]
+use near_primitives::errors::InvalidAccessKeyError;
+#[cfg(feature = "protocol_feature_nep366_delegate_action")]
+use near_primitives::transaction::{DelegateAction, SignedDelegateAction};
+#[cfg(feature = "protocol_feature_nep366_delegate_action")]
+use near_primitives::types::Gas;
+#[cfg(feature = "protocol_feature_nep366_delegate_action")]
+use near_vm_logic::ActionCosts;
+
 /// Runs given function call with given context / apply state.
 pub(crate) fn execute_function_call(
     apply_state: &ApplyState,
@@ -624,6 +635,221 @@ pub(crate) fn action_add_key(
     Ok(())
 }
 
+#[cfg(feature = "protocol_feature_nep366_delegate_action")]
+pub(crate) fn apply_delegate_action(
+    state_update: &mut TrieUpdate,
+    apply_state: &ApplyState,
+    action_receipt: &ActionReceipt,
+    sender_id: &AccountId,
+    signed_delegate_action: &SignedDelegateAction,
+    result: &mut ActionResult,
+) -> Result<(), RuntimeError> {
+    let delegate_action = &signed_delegate_action.delegate_action;
+
+    if !signed_delegate_action.verify() {
+        result.result = Err(ActionErrorKind::DelegateActionInvalidSignature.into());
+        return Ok(());
+    }
+    if apply_state.block_height > delegate_action.max_block_height {
+        result.result = Err(ActionErrorKind::DelegateActionExpired.into());
+        return Ok(());
+    }
+    if delegate_action.sender_id.as_str() != sender_id.as_str() {
+        result.result = Err(ActionErrorKind::DelegateActionSenderDoesNotMatchTxReceiver {
+            sender_id: delegate_action.sender_id.clone(),
+            receiver_id: sender_id.clone(),
+        }
+        .into());
+        return Ok(());
+    }
+
+    validate_delegate_action_key(state_update, apply_state, delegate_action, result)?;
+    if result.result.is_err() {
+        // Validation failed. Need to return Ok() because this is not a runtime error.
+        // "result.result" will be return to the User as the action execution result.
+        return Ok(());
+    }
+
+    // Generate a new receipt from DelegateAction.
+    let new_receipt = Receipt {
+        predecessor_id: sender_id.clone(),
+        receiver_id: delegate_action.receiver_id.clone(),
+        receipt_id: CryptoHash::default(),
+
+        receipt: ReceiptEnum::Action(ActionReceipt {
+            signer_id: action_receipt.signer_id.clone(),
+            signer_public_key: action_receipt.signer_public_key.clone(),
+            gas_price: action_receipt.gas_price,
+            output_data_receivers: vec![],
+            input_data_ids: vec![],
+            actions: delegate_action.get_actions(),
+        }),
+    };
+
+    // Note, Relayer prepaid all fees and all things required by actions: attached deposits and attached gas.
+    // If something goes wrong, deposit is refunded to the predecessor, this is sender_id/Sender in DelegateAction.
+    // Gas is refunded to the signer, this is Relayer.
+    // Some contracts refund the deposit. Usually they refund the deposit to the predecessor and this is sender_id/Sender from DelegateAction.
+    // Therefore Relayer should verify DelegateAction before submitting it because it spends the attached deposit.
+
+    let prepaid_send_fees = total_prepaid_send_fees(
+        &apply_state.config.fees,
+        &action_receipt.actions,
+        apply_state.current_protocol_version,
+    )?;
+    let required_gas = receipt_required_gas(apply_state, &new_receipt)?;
+    // This gas will be burnt by the receiver of the created receipt,
+    result.gas_used = safe_add_gas(result.gas_used, required_gas)?;
+    // This gas was prepaid on Relayer shard. Need to burn it because the receipt is going to be sent.
+    // gas_used is incremented because otherwise the gas will be refunded. Refund function checks only gas_used.
+    result.gas_used = safe_add_gas(result.gas_used, prepaid_send_fees)?;
+    result.gas_burnt = safe_add_gas(result.gas_burnt, prepaid_send_fees)?;
+    result.new_receipts.push(new_receipt);
+
+    Ok(())
+}
+
+/// Returns Gas amount is required to execute Receipt and all actions it contains
+#[cfg(feature = "protocol_feature_nep366_delegate_action")]
+fn receipt_required_gas(apply_state: &ApplyState, receipt: &Receipt) -> Result<Gas, RuntimeError> {
+    Ok(match &receipt.receipt {
+        ReceiptEnum::Action(action_receipt) => {
+            let mut required_gas = safe_add_gas(
+                total_prepaid_exec_fees(
+                    &apply_state.config.fees,
+                    &action_receipt.actions,
+                    &receipt.receiver_id,
+                    apply_state.current_protocol_version,
+                )?,
+                total_prepaid_gas(&action_receipt.actions)?,
+            )?;
+            required_gas = safe_add_gas(
+                required_gas,
+                apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
+            )?;
+
+            required_gas
+        }
+        ReceiptEnum::Data(_) => 0,
+    })
+}
+
+/// Validate access key which was used for signing DelegateAction:
+///
+/// - Checks whether the access key is present fo given public_key and sender_id.
+/// - Validates nonce and updates it if it's ok.
+/// - Validates access key permissions.
+#[cfg(feature = "protocol_feature_nep366_delegate_action")]
+fn validate_delegate_action_key(
+    state_update: &mut TrieUpdate,
+    apply_state: &ApplyState,
+    delegate_action: &DelegateAction,
+    result: &mut ActionResult,
+) -> Result<(), RuntimeError> {
+    // 'delegate_action.sender_id' account existence must be checked by a caller
+    let mut access_key = match get_access_key(
+        state_update,
+        &delegate_action.sender_id,
+        &delegate_action.public_key,
+    )? {
+        Some(access_key) => access_key,
+        None => {
+            result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(
+                InvalidAccessKeyError::AccessKeyNotFound {
+                    account_id: delegate_action.sender_id.clone(),
+                    public_key: delegate_action.public_key.clone(),
+                },
+            )
+            .into());
+            return Ok(());
+        }
+    };
+
+    if delegate_action.nonce <= access_key.nonce {
+        result.result = Err(ActionErrorKind::DelegateActionInvalidNonce {
+            delegate_nonce: delegate_action.nonce,
+            ak_nonce: access_key.nonce,
+        }
+        .into());
+        return Ok(());
+    }
+
+    let upper_bound = apply_state.block_height
+        * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
+    if delegate_action.nonce >= upper_bound {
+        result.result = Err(ActionErrorKind::DelegateActionNonceTooLarge {
+            delegate_nonce: delegate_action.nonce,
+            upper_bound,
+        }
+        .into());
+        return Ok(());
+    }
+
+    access_key.nonce = delegate_action.nonce;
+
+    let actions = delegate_action.get_actions();
+
+    // The restriction of "function call" access keys:
+    // the transaction must contain the only `FunctionCall` if "function call" access key is used
+    if let AccessKeyPermission::FunctionCall(ref function_call_permission) = access_key.permission {
+        if actions.len() != 1 {
+            result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(
+                InvalidAccessKeyError::RequiresFullAccess,
+            )
+            .into());
+            return Ok(());
+        }
+        if let Some(Action::FunctionCall(ref function_call)) = actions.get(0) {
+            if function_call.deposit > 0 {
+                result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(
+                    InvalidAccessKeyError::DepositWithFunctionCall,
+                )
+                .into());
+            }
+            if delegate_action.receiver_id.as_ref() != function_call_permission.receiver_id {
+                result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(
+                    InvalidAccessKeyError::ReceiverMismatch {
+                        tx_receiver: delegate_action.receiver_id.clone(),
+                        ak_receiver: function_call_permission.receiver_id.clone(),
+                    },
+                )
+                .into());
+                return Ok(());
+            }
+            if !function_call_permission.method_names.is_empty()
+                && function_call_permission
+                    .method_names
+                    .iter()
+                    .all(|method_name| &function_call.method_name != method_name)
+            {
+                result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(
+                    InvalidAccessKeyError::MethodNameMismatch {
+                        method_name: function_call.method_name.clone(),
+                    },
+                )
+                .into());
+                return Ok(());
+            }
+        } else {
+            // There should Action::FunctionCall when "function call" permission is used
+            result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(
+                InvalidAccessKeyError::RequiresFullAccess,
+            )
+            .into());
+            return Ok(());
+        }
+    };
+
+    set_access_key(
+        state_update,
+        delegate_action.sender_id.clone(),
+        delegate_action.public_key.clone(),
+        &access_key,
+    );
+
+    Ok(())
+}
+
 pub(crate) fn check_actor_permissions(
     action: &Action,
     account: &Option<Account>,
@@ -657,6 +883,8 @@ pub(crate) fn check_actor_permissions(
             }
         }
         Action::CreateAccount(_) | Action::FunctionCall(_) | Action::Transfer(_) => (),
+        #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+        Action::Delegate(_) => (),
     };
     Ok(())
 }
@@ -731,18 +959,43 @@ pub(crate) fn check_account_existence(
                 .into());
             }
         }
+        #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+        Action::Delegate(_) => {
+            if account.is_none() {
+                return Err(ActionErrorKind::AccountDoesNotExist {
+                    account_id: account_id.clone(),
+                }
+                .into());
+            }
+        }
     };
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
+
     use near_primitives::hash::hash;
     use near_primitives::trie_key::TrieKey;
     use near_store::test_utils::create_tries;
 
     use super::*;
     use crate::near_primitives::shard_layout::ShardUId;
+
+    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+    use near_primitives::account::FunctionCallPermission;
+    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+    use near_primitives::errors::InvalidAccessKeyError;
+    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+    use near_primitives::runtime::migration_data::MigrationFlags;
+    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+    use near_primitives::transaction::{CreateAccountAction, NonDelegateAction};
+    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+    use near_primitives::types::{EpochId, StateChangeCause};
+    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+    use near_store::set_account;
+    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+    use std::sync::Arc;
 
     fn test_action_create_account(
         account_id: AccountId,
@@ -919,6 +1172,604 @@ mod tests {
                     account_id: "alice".parse().unwrap()
                 }
             })
+        );
+    }
+
+    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+    fn create_delegate_action_receipt() -> (ActionReceipt, SignedDelegateAction) {
+        let signed_delegate_action = SignedDelegateAction {
+            delegate_action: DelegateAction {
+                sender_id: "bob.test.near".parse().unwrap(),
+                receiver_id: "token.test.near".parse().unwrap(),
+                actions: vec![
+                    NonDelegateAction(
+                        Action::FunctionCall(
+                            FunctionCallAction {
+                                 method_name: "ft_transfer".parse().unwrap(),
+                                 args: vec![123, 34, 114, 101, 99, 101, 105, 118, 101, 114, 95, 105, 100, 34, 58, 34, 106, 97, 110, 101, 46, 116, 101, 115, 116, 46, 110, 101, 97, 114, 34, 44, 34, 97, 109, 111, 117, 110, 116, 34, 58, 34, 52, 34, 125],
+                                 gas: 30000000000000,
+                                 deposit: 1,
+                            }
+                        )
+                    )
+                ],
+                nonce: 19000001,
+                max_block_height: 57,
+                public_key: "ed25519:HaYUbyeiNRnyHtQceRgT3gyMBigZFEW9EYYU1KTHtdR1".parse::<PublicKey>().unwrap(),
+            },
+            signature: "ed25519:2b1NHmrj7LVgA5H9aDtQmd6JgZqy4nPAYHtNQc88PiEY3xMjpkKMDN1wVWZaXMGx9tjWbXzp4jXSCyTPqUfPdRUB".parse().unwrap()
+        };
+
+        let action_receipt = ActionReceipt {
+            signer_id: "alice.test.near".parse().unwrap(),
+            signer_public_key: PublicKey::empty(near_crypto::KeyType::ED25519),
+            gas_price: 1,
+            output_data_receivers: Vec::new(),
+            input_data_ids: Vec::new(),
+            actions: vec![Action::Delegate(signed_delegate_action.clone())],
+        };
+
+        (action_receipt, signed_delegate_action)
+    }
+
+    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+    fn create_apply_state(block_height: BlockHeight) -> ApplyState {
+        ApplyState {
+            block_height,
+            prev_block_hash: CryptoHash::default(),
+            block_hash: CryptoHash::default(),
+            epoch_id: EpochId::default(),
+            epoch_height: 3,
+            gas_price: 2,
+            block_timestamp: 1,
+            gas_limit: None,
+            random_seed: CryptoHash::default(),
+            current_protocol_version: 1,
+            config: Arc::new(RuntimeConfig::test()),
+            cache: None,
+            is_new_chunk: false,
+            migration_data: Arc::default(),
+            migration_flags: MigrationFlags::default(),
+        }
+    }
+
+    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+    fn setup_account(
+        account_id: &AccountId,
+        public_key: &PublicKey,
+        access_key: &AccessKey,
+    ) -> TrieUpdate {
+        let tries = create_tries();
+        let mut state_update =
+            tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
+        let account = Account::new(100, 0, CryptoHash::default(), 100);
+        set_account(&mut state_update, account_id.clone(), &account);
+        set_access_key(&mut state_update, account_id.clone(), public_key.clone(), access_key);
+
+        state_update.commit(StateChangeCause::InitialState);
+        let trie_changes = state_update.finalize().unwrap().0;
+        let mut store_update = tries.store_update();
+        let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
+        store_update.commit().unwrap();
+
+        tries.new_trie_update(ShardUId::single_shard(), root)
+    }
+
+    #[test]
+    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+    fn test_delegate_action() {
+        let mut result = ActionResult::default();
+        let (action_receipt, signed_delegate_action) = create_delegate_action_receipt();
+        let sender_id = signed_delegate_action.delegate_action.sender_id.clone();
+        let sender_pub_key = signed_delegate_action.delegate_action.public_key.clone();
+        let access_key = AccessKey { nonce: 19000000, permission: AccessKeyPermission::FullAccess };
+
+        let apply_state =
+            create_apply_state(signed_delegate_action.delegate_action.max_block_height);
+        let mut state_update = setup_account(&sender_id, &sender_pub_key, &access_key);
+
+        apply_delegate_action(
+            &mut state_update,
+            &apply_state,
+            &action_receipt,
+            &sender_id,
+            &signed_delegate_action,
+            &mut result,
+        )
+        .expect("Expect ok");
+
+        assert!(result.result.is_ok(), "Result error: {:?}", result.result.err());
+        assert_eq!(
+            result.new_receipts,
+            vec![Receipt {
+                predecessor_id: sender_id.clone(),
+                receiver_id: signed_delegate_action.delegate_action.receiver_id.clone(),
+                receipt_id: CryptoHash::default(),
+                receipt: ReceiptEnum::Action(ActionReceipt {
+                    signer_id: action_receipt.signer_id.clone(),
+                    signer_public_key: action_receipt.signer_public_key.clone(),
+                    gas_price: action_receipt.gas_price,
+                    output_data_receivers: Vec::new(),
+                    input_data_ids: Vec::new(),
+                    actions: signed_delegate_action.delegate_action.get_actions(),
+                })
+            }]
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+    fn test_delegate_action_signature_verification() {
+        let mut result = ActionResult::default();
+        let (action_receipt, mut signed_delegate_action) = create_delegate_action_receipt();
+        let sender_id = signed_delegate_action.delegate_action.sender_id.clone();
+        let sender_pub_key = signed_delegate_action.delegate_action.public_key.clone();
+        let access_key = AccessKey { nonce: 19000000, permission: AccessKeyPermission::FullAccess };
+
+        let apply_state =
+            create_apply_state(signed_delegate_action.delegate_action.max_block_height);
+        let mut state_update = setup_account(&sender_id, &sender_pub_key, &access_key);
+
+        // Corrupt receiver_id. Signature verifycation must fail.
+        signed_delegate_action.delegate_action.receiver_id = "www.test.near".parse().unwrap();
+
+        apply_delegate_action(
+            &mut state_update,
+            &apply_state,
+            &action_receipt,
+            &sender_id,
+            &signed_delegate_action,
+            &mut result,
+        )
+        .expect("Expect ok");
+
+        assert_eq!(result.result, Err(ActionErrorKind::DelegateActionInvalidSignature.into()));
+    }
+
+    #[test]
+    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+    fn test_delegate_action_max_height() {
+        let mut result = ActionResult::default();
+        let (action_receipt, signed_delegate_action) = create_delegate_action_receipt();
+        let sender_id = signed_delegate_action.delegate_action.sender_id.clone();
+        let sender_pub_key = signed_delegate_action.delegate_action.public_key.clone();
+        let access_key = AccessKey { nonce: 19000000, permission: AccessKeyPermission::FullAccess };
+
+        // Setup current block as higher than max_block_height. Must fail.
+        let apply_state =
+            create_apply_state(signed_delegate_action.delegate_action.max_block_height + 1);
+        let mut state_update = setup_account(&sender_id, &sender_pub_key, &access_key);
+
+        apply_delegate_action(
+            &mut state_update,
+            &apply_state,
+            &action_receipt,
+            &sender_id,
+            &signed_delegate_action,
+            &mut result,
+        )
+        .expect("Expect ok");
+
+        assert_eq!(result.result, Err(ActionErrorKind::DelegateActionExpired.into()));
+    }
+
+    #[test]
+    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+    fn test_delegate_action_validate_sender_account() {
+        let mut result = ActionResult::default();
+        let (action_receipt, signed_delegate_action) = create_delegate_action_receipt();
+        let sender_id = signed_delegate_action.delegate_action.sender_id.clone();
+        let sender_pub_key = signed_delegate_action.delegate_action.public_key.clone();
+        let access_key = AccessKey { nonce: 19000000, permission: AccessKeyPermission::FullAccess };
+
+        let apply_state =
+            create_apply_state(signed_delegate_action.delegate_action.max_block_height);
+        let mut state_update = setup_account(&sender_id, &sender_pub_key, &access_key);
+
+        // Use a different sender_id. Must fail.
+        apply_delegate_action(
+            &mut state_update,
+            &apply_state,
+            &action_receipt,
+            &"www.test.near".parse().unwrap(),
+            &signed_delegate_action,
+            &mut result,
+        )
+        .expect("Expect ok");
+
+        assert_eq!(
+            result.result,
+            Err(ActionErrorKind::DelegateActionSenderDoesNotMatchTxReceiver {
+                sender_id: sender_id.clone(),
+                receiver_id: "www.test.near".parse().unwrap(),
+            }
+            .into())
+        );
+
+        // Sender account doesn't exist. Must fail.
+        assert_eq!(
+            check_account_existence(
+                &Action::Delegate(signed_delegate_action),
+                &mut None,
+                &sender_id,
+                1,
+                false,
+                false
+            ),
+            Err(ActionErrorKind::AccountDoesNotExist { account_id: sender_id.clone() }.into())
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+    fn test_validate_delegate_action_key_update_nonce() {
+        let (_, signed_delegate_action) = create_delegate_action_receipt();
+        let sender_id = signed_delegate_action.delegate_action.sender_id.clone();
+        let sender_pub_key = signed_delegate_action.delegate_action.public_key.clone();
+        let access_key = AccessKey { nonce: 19000000, permission: AccessKeyPermission::FullAccess };
+
+        let apply_state =
+            create_apply_state(signed_delegate_action.delegate_action.max_block_height);
+        let mut state_update = setup_account(&sender_id, &sender_pub_key, &access_key);
+
+        // Everything is ok
+        let mut result = ActionResult::default();
+        validate_delegate_action_key(
+            &mut state_update,
+            &apply_state,
+            &signed_delegate_action.delegate_action,
+            &mut result,
+        )
+        .expect("Expect ok");
+        assert!(result.result.is_ok(), "Result error: {:?}", result.result);
+
+        // Must fail, Nonce had been updated by previous step.
+        result = ActionResult::default();
+        validate_delegate_action_key(
+            &mut state_update,
+            &apply_state,
+            &signed_delegate_action.delegate_action,
+            &mut result,
+        )
+        .expect("Expect ok");
+        assert_eq!(
+            result.result,
+            Err(ActionErrorKind::DelegateActionInvalidNonce {
+                delegate_nonce: signed_delegate_action.delegate_action.nonce,
+                ak_nonce: signed_delegate_action.delegate_action.nonce,
+            }
+            .into())
+        );
+
+        // Increment nonce. Must pass.
+        result = ActionResult::default();
+        let mut delegate_action = signed_delegate_action.delegate_action.clone();
+        delegate_action.nonce += 1;
+        validate_delegate_action_key(
+            &mut state_update,
+            &apply_state,
+            &delegate_action,
+            &mut result,
+        )
+        .expect("Expect ok");
+        assert!(result.result.is_ok(), "Result error: {:?}", result.result);
+    }
+
+    #[test]
+    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+    fn test_delegate_action_key_doesnt_exist() {
+        let mut result = ActionResult::default();
+        let (_, signed_delegate_action) = create_delegate_action_receipt();
+        let sender_id = signed_delegate_action.delegate_action.sender_id.clone();
+        let sender_pub_key = signed_delegate_action.delegate_action.public_key.clone();
+        let access_key = AccessKey { nonce: 19000000, permission: AccessKeyPermission::FullAccess };
+
+        let apply_state =
+            create_apply_state(signed_delegate_action.delegate_action.max_block_height);
+        let mut state_update = setup_account(
+            &sender_id,
+            &PublicKey::empty(near_crypto::KeyType::ED25519),
+            &access_key,
+        );
+
+        validate_delegate_action_key(
+            &mut state_update,
+            &apply_state,
+            &signed_delegate_action.delegate_action,
+            &mut result,
+        )
+        .expect("Expect ok");
+        assert_eq!(
+            result.result,
+            Err(ActionErrorKind::DelegateActionAccessKeyError(
+                InvalidAccessKeyError::AccessKeyNotFound {
+                    account_id: sender_id.clone(),
+                    public_key: sender_pub_key.clone(),
+                },
+            )
+            .into())
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+    fn test_delegate_action_key_incorrect_nonce() {
+        let mut result = ActionResult::default();
+        let (_, signed_delegate_action) = create_delegate_action_receipt();
+        let sender_id = signed_delegate_action.delegate_action.sender_id.clone();
+        let sender_pub_key = signed_delegate_action.delegate_action.public_key.clone();
+        let access_key = AccessKey {
+            nonce: signed_delegate_action.delegate_action.nonce,
+            permission: AccessKeyPermission::FullAccess,
+        };
+
+        let apply_state =
+            create_apply_state(signed_delegate_action.delegate_action.max_block_height);
+        let mut state_update = setup_account(&sender_id, &sender_pub_key, &access_key);
+
+        validate_delegate_action_key(
+            &mut state_update,
+            &apply_state,
+            &signed_delegate_action.delegate_action,
+            &mut result,
+        )
+        .expect("Expect ok");
+        assert_eq!(
+            result.result,
+            Err(ActionErrorKind::DelegateActionInvalidNonce {
+                delegate_nonce: signed_delegate_action.delegate_action.nonce,
+                ak_nonce: signed_delegate_action.delegate_action.nonce,
+            }
+            .into())
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+    fn test_delegate_action_key_nonce_too_large() {
+        let mut result = ActionResult::default();
+        let (_, signed_delegate_action) = create_delegate_action_receipt();
+        let sender_id = signed_delegate_action.delegate_action.sender_id.clone();
+        let sender_pub_key = signed_delegate_action.delegate_action.public_key.clone();
+        let access_key = AccessKey { nonce: 19000000, permission: AccessKeyPermission::FullAccess };
+
+        let apply_state = create_apply_state(1);
+        let mut state_update = setup_account(&sender_id, &sender_pub_key, &access_key);
+
+        validate_delegate_action_key(
+            &mut state_update,
+            &apply_state,
+            &signed_delegate_action.delegate_action,
+            &mut result,
+        )
+        .expect("Expect ok");
+        assert_eq!(
+            result.result,
+            Err(ActionErrorKind::DelegateActionNonceTooLarge {
+                delegate_nonce: signed_delegate_action.delegate_action.nonce,
+                upper_bound: 1000000,
+            }
+            .into())
+        );
+    }
+
+    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+    fn test_delegate_action_key_permissions(
+        access_key: &AccessKey,
+        delegate_action: &DelegateAction,
+    ) -> ActionResult {
+        let mut result = ActionResult::default();
+        let sender_id = delegate_action.sender_id.clone();
+        let sender_pub_key = delegate_action.public_key.clone();
+
+        let apply_state = create_apply_state(delegate_action.max_block_height);
+        let mut state_update = setup_account(&sender_id, &sender_pub_key, &access_key);
+
+        validate_delegate_action_key(
+            &mut state_update,
+            &apply_state,
+            &delegate_action,
+            &mut result,
+        )
+        .expect("Expect ok");
+
+        result
+    }
+
+    #[test]
+    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+    fn test_delegate_action_key_permissions_fncall() {
+        let (_, signed_delegate_action) = create_delegate_action_receipt();
+        let access_key = AccessKey {
+            nonce: 19000000,
+            permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                allowance: None,
+                receiver_id: signed_delegate_action.delegate_action.receiver_id.to_string(),
+                method_names: vec!["test_method".parse().unwrap()],
+            }),
+        };
+
+        let mut delegate_action = signed_delegate_action.delegate_action.clone();
+        delegate_action.actions =
+            vec![NonDelegateAction(Action::FunctionCall(FunctionCallAction {
+                args: Vec::new(),
+                deposit: 0,
+                gas: 300,
+                method_name: "test_method".parse().unwrap(),
+            }))];
+        let result = test_delegate_action_key_permissions(&access_key, &delegate_action);
+        assert!(result.result.is_ok(), "Result error {:?}", result.result);
+    }
+
+    #[test]
+    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+    fn test_delegate_action_key_permissions_incorrect_action() {
+        let (_, signed_delegate_action) = create_delegate_action_receipt();
+        let access_key = AccessKey {
+            nonce: 19000000,
+            permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                allowance: None,
+                receiver_id: signed_delegate_action.delegate_action.receiver_id.to_string(),
+                method_names: vec!["test_method".parse().unwrap()],
+            }),
+        };
+
+        let mut delegate_action = signed_delegate_action.delegate_action.clone();
+        delegate_action.actions =
+            vec![NonDelegateAction(Action::CreateAccount(CreateAccountAction {}))];
+
+        let result = test_delegate_action_key_permissions(&access_key, &delegate_action);
+
+        assert_eq!(
+            result.result,
+            Err(ActionErrorKind::DelegateActionAccessKeyError(
+                InvalidAccessKeyError::RequiresFullAccess,
+            )
+            .into())
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+    fn test_delegate_action_key_permissions_actions_number() {
+        let (_, signed_delegate_action) = create_delegate_action_receipt();
+        let access_key = AccessKey {
+            nonce: 19000000,
+            permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                allowance: None,
+                receiver_id: signed_delegate_action.delegate_action.receiver_id.to_string(),
+                method_names: vec!["test_method".parse().unwrap()],
+            }),
+        };
+
+        let mut delegate_action = signed_delegate_action.delegate_action.clone();
+        delegate_action.actions = vec![
+            NonDelegateAction(Action::FunctionCall(FunctionCallAction {
+                args: Vec::new(),
+                deposit: 0,
+                gas: 300,
+                method_name: "test_method".parse().unwrap(),
+            })),
+            NonDelegateAction(Action::FunctionCall(FunctionCallAction {
+                args: Vec::new(),
+                deposit: 0,
+                gas: 300,
+                method_name: "test_method".parse().unwrap(),
+            })),
+        ];
+
+        let result = test_delegate_action_key_permissions(&access_key, &delegate_action);
+
+        assert_eq!(
+            result.result,
+            Err(ActionErrorKind::DelegateActionAccessKeyError(
+                InvalidAccessKeyError::RequiresFullAccess,
+            )
+            .into())
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+    fn test_delegate_action_key_permissions_fncall_deposit() {
+        let (_, signed_delegate_action) = create_delegate_action_receipt();
+        let access_key = AccessKey {
+            nonce: 19000000,
+            permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                allowance: None,
+                receiver_id: signed_delegate_action.delegate_action.receiver_id.to_string(),
+                method_names: Vec::new(),
+            }),
+        };
+
+        let mut delegate_action = signed_delegate_action.delegate_action.clone();
+        delegate_action.actions =
+            vec![NonDelegateAction(Action::FunctionCall(FunctionCallAction {
+                args: Vec::new(),
+                deposit: 1,
+                gas: 300,
+                method_name: "test_method".parse().unwrap(),
+            }))];
+
+        let result = test_delegate_action_key_permissions(&access_key, &delegate_action);
+
+        assert_eq!(
+            result.result,
+            Err(ActionErrorKind::DelegateActionAccessKeyError(
+                InvalidAccessKeyError::DepositWithFunctionCall,
+            )
+            .into())
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+    fn test_delegate_action_key_permissions_receiver_id() {
+        let (_, signed_delegate_action) = create_delegate_action_receipt();
+        let access_key = AccessKey {
+            nonce: 19000000,
+            permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                allowance: None,
+                receiver_id: "another.near".parse().unwrap(),
+                method_names: Vec::new(),
+            }),
+        };
+
+        let mut delegate_action = signed_delegate_action.delegate_action.clone();
+        delegate_action.actions =
+            vec![NonDelegateAction(Action::FunctionCall(FunctionCallAction {
+                args: Vec::new(),
+                deposit: 0,
+                gas: 300,
+                method_name: "test_method".parse().unwrap(),
+            }))];
+
+        let result = test_delegate_action_key_permissions(&access_key, &delegate_action);
+
+        assert_eq!(
+            result.result,
+            Err(ActionErrorKind::DelegateActionAccessKeyError(
+                InvalidAccessKeyError::ReceiverMismatch {
+                    tx_receiver: delegate_action.receiver_id.clone(),
+                    ak_receiver: "another.near".parse().unwrap(),
+                },
+            )
+            .into())
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+    fn test_delegate_action_key_permissions_method() {
+        let (_, signed_delegate_action) = create_delegate_action_receipt();
+        let access_key = AccessKey {
+            nonce: 19000000,
+            permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                allowance: None,
+                receiver_id: signed_delegate_action.delegate_action.receiver_id.to_string(),
+                method_names: vec!["another_method".parse().unwrap()],
+            }),
+        };
+
+        let mut delegate_action = signed_delegate_action.delegate_action.clone();
+        delegate_action.actions =
+            vec![NonDelegateAction(Action::FunctionCall(FunctionCallAction {
+                args: Vec::new(),
+                deposit: 0,
+                gas: 300,
+                method_name: "test_method".parse().unwrap(),
+            }))];
+
+        let result = test_delegate_action_key_permissions(&access_key, &delegate_action);
+
+        assert_eq!(
+            result.result,
+            Err(ActionErrorKind::DelegateActionAccessKeyError(
+                InvalidAccessKeyError::MethodNameMismatch {
+                    method_name: "test_method".parse().unwrap(),
+                },
+            )
+            .into())
         );
     }
 }
