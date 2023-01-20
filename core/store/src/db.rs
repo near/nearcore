@@ -61,19 +61,6 @@ impl DBOp {
     }
 }
 
-impl DBOp {
-    pub fn col(&self) -> DBCol {
-        match self {
-            DBOp::Set { col, .. } => col,
-            DBOp::Insert { col, .. } => col,
-            DBOp::UpdateRefcount { col, .. } => col,
-            DBOp::Delete { col, .. } => col,
-            DBOp::DeleteAll { col } => col,
-        }
-        .clone()
-    }
-}
-
 impl DBTransaction {
     pub fn new() -> Self {
         Self { ops: Vec::new() }

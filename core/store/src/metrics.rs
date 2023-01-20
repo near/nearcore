@@ -315,7 +315,6 @@ pub mod flat_state_metrics {
         .unwrap()
     });
 }
-#[cfg(feature = "cold_store")]
 pub static COLD_MIGRATION_INITIAL_WRITES: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
         "near_cold_migration_initial_writes",
