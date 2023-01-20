@@ -1,4 +1,5 @@
-#[cfg(all(feature = "wasmer0_vm", feature = "wasmer2_vm"))]
+// This test fails on aarch because wasmer0 and wasmer2 are not available.
+#[cfg(not(all(target_arch = "aarch64", target_vendor = "apple")))]
 mod test_wasmer2_upgrade {
     use crate::tests::client::process_blocks::{create_nightshade_runtimes, deploy_test_contract};
     use near_chain::ChainGenesis;
