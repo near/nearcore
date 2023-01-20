@@ -1,3 +1,4 @@
+#![deny(clippy::integer_arithmetic)]
 use borsh::{BorshDeserialize, BorshSerialize};
 use derive_more::{AsRef as DeriveAsRef, From as DeriveFrom};
 use once_cell::sync::Lazy;
