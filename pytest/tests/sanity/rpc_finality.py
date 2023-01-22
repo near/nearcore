@@ -1,19 +1,18 @@
 #!/usr/bin/env python3
-# The test launches two validating node out of three validators.
-# Transfer some tokens between two accounts (thus changing state).
-# Query for no finality, doomslug finality
-# Nov 2021 - the test was fixed, but it now check for both finalities.
-# We might want to update it in the future in order to be able to 'exactly' find
-# the moment when doomslug is there, but finality is not.
+# The test does the token transfer between the accounts, and tries to
+# stop the network just in the right moment (so that the block with the refund receipt
+# is not finalized).
+# This way, we can verify that our json RPC returns correct values for different finality requests.
 
-import sys, time, base58
+import sys
 import pathlib
 
 import unittest
+from typing import List
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
-
-from cluster import start_cluster
+import utils
+from cluster import start_cluster, LocalNode
 from configured_logger import logger
 from transaction import sign_payment_tx
 
@@ -21,46 +20,79 @@ from transaction import sign_payment_tx
 class TestRpcFinality(unittest.TestCase):
 
     def test_finality(self):
-        nodes = start_cluster(4, 1, 1, None,
-                              [["min_gas_price", 0], ["epoch_length", 100]], {})
+        # set higher block delay to make test more reliable.
+        min_block_delay = 3
 
-        time.sleep(3)
-        # kill one validating node so that no block can be finalized
-        nodes[2].kill()
-        time.sleep(1)
+        consensus = {
+            "consensus": {
+                "min_block_production_delay": {
+                    "secs": min_block_delay,
+                    "nanos": 0,
+                },
+                "max_block_production_delay": {
+                    "secs": min_block_delay * 2,
+                    "nanos": 0,
+                },
+                "max_block_wait_delay": {
+                    "secs": min_block_delay * 3,
+                    "nanos": 0,
+                }
+            }
+        }
 
-        acc0_balance = int(nodes[0].get_account('test0')['result']['amount'])
-        acc1_balance = int(nodes[0].get_account('test1')['result']['amount'])
+        config = {node_id: {"consensus": consensus} for node_id in range(3)}
+
+        nodes: List[LocalNode] = start_cluster(3, 0, 1, None, [
+            ["min_gas_price", 0],
+            ["epoch_length", 100],
+        ], config)
+
+        utils.wait_for_blocks(nodes[0], target=3)
+
+        balances = {
+            account: int(nodes[0].get_account('test0')['result']['amount'])
+            for account in ['test0', 'test1']
+        }
 
         token_transfer = 10
         latest_block_hash = nodes[0].get_latest_block().hash_bytes
         tx = sign_payment_tx(nodes[0].signer_key, 'test1', token_transfer, 1,
                              latest_block_hash)
         logger.info("About to send payment")
-        logger.info(nodes[0].send_tx_and_wait(tx, timeout=200))
+        # this transaction will be added to the block (probably around block 5)
+        # and the the receipts & transfers will happen in the next block (block 6).
+        # This function should return as soon as block 6 arrives in node0.
+        logger.info(nodes[0].send_tx_and_wait(tx, timeout=10))
         logger.info("Done")
 
-        # wait for doomslug finality
-        time.sleep(5)
-        for i in range(2):
-            acc_id = 'test0' if i == 0 else 'test1'
-            acc_no_finality = nodes[0].get_account(acc_id)
-            acc_doomslug_finality = nodes[0].get_account(acc_id, "near-final")
-            acc_nfg_finality = nodes[0].get_account(acc_id, "final")
-            if i == 0:
-                self.assertEqual(int(acc_no_finality['result']['amount']),
-                                 acc0_balance - token_transfer)
-                self.assertEqual(int(acc_doomslug_finality['result']['amount']),
-                                 acc0_balance - token_transfer)
-                self.assertEqual(int(acc_nfg_finality['result']['amount']),
-                                 acc0_balance - token_transfer)
+        # kill one validating node so that block cannot be finalized.
+        nodes[2].kill()
+
+        print(
+            f"Block height is {nodes[0].get_latest_block().height} (should be 6)"
+        )
+
+        # So now the situation is following:
+        # Block 6 (head) - has the final receipt (that adds state to test1)
+        # Block 5 (doomslug) - has the transaction (so this is the moment when state is removed from test0)
+        # Block 4 (final) - has no information about the transaction.
+
+        # So with optimistic finality: test0 = -10, test1 = +10
+        # with doomslug (state as of block 5): test0 = -10, test1 = 0
+        # with final (state as of block 4): test0 = 0, test1 = 0
+
+        for acc_id in ['test0', 'test1']:
+            amounts = [
+                int(nodes[0].get_account(acc_id, finality)['result']['amount'])
+                - balances[acc_id]
+                for finality in ["optimistic", "near-final", "final"]
+            ]
+            print(f"Account amounts: {acc_id}: {amounts}")
+
+            if acc_id == 'test0':
+                self.assertEqual([-10, -10, 0], amounts)
             else:
-                self.assertEqual(int(acc_no_finality['result']['amount']),
-                                 acc1_balance + token_transfer)
-                self.assertEqual(int(acc_doomslug_finality['result']['amount']),
-                                 acc1_balance + token_transfer)
-                self.assertEqual(int(acc_nfg_finality['result']['amount']),
-                                 acc1_balance + token_transfer)
+                self.assertEqual([10, 0, 0], amounts)
 
 
 if __name__ == '__main__':
