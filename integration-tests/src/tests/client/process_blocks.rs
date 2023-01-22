@@ -3473,6 +3473,7 @@ fn test_catchup_no_sharding_change() {
     }
 }
 
+/// These tests fail on aarch because the WasmtimeVM::precompile method doesn't populate the cache.
 mod contract_precompilation_tests {
     use super::*;
     use near_primitives::contract::ContractCode;
@@ -3511,6 +3512,7 @@ mod contract_precompilation_tests {
     }
 
     #[test]
+    #[cfg_attr(all(target_arch = "aarch64", target_vendor = "apple"), ignore)]
     fn test_sync_and_call_cached_contract() {
         let num_clients = 2;
         let stores: Vec<Store> = (0..num_clients).map(|_| create_test_store()).collect();
@@ -3613,6 +3615,7 @@ mod contract_precompilation_tests {
     }
 
     #[test]
+    #[cfg_attr(all(target_arch = "aarch64", target_vendor = "apple"), ignore)]
     fn test_two_deployments() {
         let num_clients = 2;
         let stores: Vec<Store> = (0..num_clients).map(|_| create_test_store()).collect();
@@ -3694,6 +3697,7 @@ mod contract_precompilation_tests {
     }
 
     #[test]
+    #[cfg_attr(all(target_arch = "aarch64", target_vendor = "apple"), ignore)]
     fn test_sync_after_delete_account() {
         let num_clients = 3;
         let stores: Vec<Store> = (0..num_clients).map(|_| create_test_store()).collect();
