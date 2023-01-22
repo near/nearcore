@@ -117,6 +117,13 @@ impl KnownPeerState {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct ConnectionInfo {
+    pub peer_info: PeerInfo,
+    pub first_connected: time::Utc,
+    pub last_connected: time::Utc,
+}
+
 impl KnownPeerStatus {
     pub fn is_banned(&self) -> bool {
         matches!(self, KnownPeerStatus::Banned(_, _))

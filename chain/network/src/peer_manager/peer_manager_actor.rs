@@ -2,7 +2,7 @@ use crate::client;
 use crate::config;
 use crate::debug::{DebugStatus, GetDebugStatus};
 use crate::network_protocol::{
-    AccountOrPeerIdOrHash, Disconnect, Edge, PeerIdOrHash, PeerInfo, PeerMessage, Ping, Pong,
+    AccountOrPeerIdOrHash, Disconnect, Edge, PeerIdOrHash, PeerMessage, Ping, Pong,
     RawRoutedMessage, RoutedMessageBody, SignedAccountData,
 };
 use crate::peer::peer_actor::PeerActor;
@@ -25,7 +25,9 @@ use near_o11y::{handler_debug_span, handler_trace_span, OpenTelemetrySpanExt, Wi
 use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::views::{EdgeView, KnownPeerStateView, NetworkGraphView, PeerStoreView};
+use near_primitives::views::{
+    ConnectionInfoView, EdgeView, KnownPeerStateView, NetworkGraphView, PeerStoreView,
+};
 use rand::seq::IteratorRandom;
 use rand::thread_rng;
 use rand::Rng;
@@ -478,9 +480,7 @@ impl PeerManagerActor {
                 "Stop active connection"
             );
             p.stop(None);
-            if self.state.peer_store.remove_from_recent_connections(&p.peer_info.id).is_err() {
-                tracing::error!(target: "network", "Failed to remove peer from recent connections.");
-            }
+            self.state.remove_from_recent_outbound_connections(&p.peer_info.id);
         }
     }
 
@@ -558,29 +558,7 @@ impl PeerManagerActor {
         metrics::PEER_UNRELIABLE.set(unreliable_peers.len() as i64);
         self.state.graph.set_unreliable_peers(unreliable_peers);
 
-        // Find all outbound connections established at least RECENT_CONNECTIONS_MIN_DURATION ago
-        let now = self.clock.now();
-        let mut recent_connections: Vec<Arc<connection::Connection>> = self
-            .state
-            .tier2
-            .load()
-            .ready
-            .values()
-            .filter(|c| {
-                c.peer_type == PeerType::Outbound
-                    && now - c.established_time > peer_store::RECENT_CONNECTIONS_MIN_DURATION
-            })
-            .cloned()
-            .collect();
-        // Sort by most recently established first
-        recent_connections.sort_by_key(|c| c.established_time);
-        recent_connections.reverse();
-        // Push recent connections to the peer store
-        let recent_connections_peer_ids =
-            recent_connections.iter().map(|c| c.peer_info.id.clone()).collect();
-        if self.state.peer_store.push_recent_connections(recent_connections_peer_ids).is_err() {
-            tracing::error!(target: "network", "Failed to store recent connections");
-        }
+        self.state.update_recent_outbound_connections(&self.clock);
 
         let new_interval = min(max_interval, interval * EXPONENTIAL_BACKOFF_RATIO);
 
@@ -594,11 +572,8 @@ impl PeerManagerActor {
     }
 
     fn bootstrap_outbound_from_recent_connections(&self, ctx: &mut actix::Context<Self>) {
-        let recent_connections = self.state.peer_store.get_recent_connections();
-
-        for peer_id in recent_connections {
-            let peer_info = PeerInfo { id: peer_id, addr: None, account_id: None };
-
+        for conn in self.state.get_recent_outbound_connections() {
+            let peer_info = conn.peer_info.clone();
             ctx.spawn(wrap_future({
                 let state = self.state.clone();
                 let clock = self.clock.clone();
@@ -1092,9 +1067,22 @@ impl actix::Handler<GetDebugStatus> for PeerManagerActor {
                         -a.last_seen,
                     )
                 });
+
+                // TODO: this doesn't really live in the PeerStore
+                let recent_outbound_connections_view = self
+                    .state
+                    .get_recent_outbound_connections()
+                    .iter()
+                    .map(|c| ConnectionInfoView {
+                        peer_id: c.peer_info.id.clone(),
+                        first_connected: c.first_connected.unix_timestamp(),
+                        last_connected: c.last_connected.unix_timestamp(),
+                    })
+                    .collect::<Vec<_>>();
+
                 DebugStatus::PeerStore(PeerStoreView {
                     peer_states: peer_states_view,
-                    recent_connections: self.state.peer_store.get_recent_connections(),
+                    recent_outbound_connections: recent_outbound_connections_view,
                 })
             }
             GetDebugStatus::Graph => DebugStatus::Graph(NetworkGraphView {

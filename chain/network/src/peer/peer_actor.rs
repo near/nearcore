@@ -1081,14 +1081,8 @@ impl PeerActor {
                 tracing::debug!(target: "network", "Disconnect signal. Me: {:?} Peer: {:?}", self.my_node_info.id, self.other_peer_id());
 
                 if !d.allow_reconnect {
-                    if self
-                        .network_state
-                        .peer_store
-                        .remove_from_recent_connections(&self.other_peer_id().unwrap())
-                        .is_err()
-                    {
-                        tracing::error!(target: "network", "Failed to remove peer from recent connections.");
-                    }
+                    self.network_state
+                        .remove_from_recent_outbound_connections(self.other_peer_id().unwrap())
                 }
 
                 self.stop(ctx, ClosingReason::DisconnectMessage);

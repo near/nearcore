@@ -1,6 +1,5 @@
 use crate::blacklist;
 use crate::network_protocol::PeerInfo;
-use crate::peer_manager::peer_manager_actor::MAX_TIER2_PEERS;
 use crate::store;
 use crate::time;
 use crate::types::{KnownPeerState, KnownPeerStatus, ReasonForBan};
@@ -23,9 +22,6 @@ mod tests;
 
 /// How often to update the KnownPeerState.last_seen in storage.
 const UPDATE_LAST_SEEN_INTERVAL: time::Duration = time::Duration::minutes(1);
-
-/// How long a connection should survive before it can enter the recent connections set.
-pub const RECENT_CONNECTIONS_MIN_DURATION: time::Duration = time::Duration::minutes(10);
 
 /// Level of trust we have about a new (PeerId, Addr) pair.
 #[derive(Eq, PartialEq, Debug, Clone, Copy)]
@@ -86,8 +82,6 @@ struct Inner {
     // It can happens that some peers don't have known address, so
     // they will not be present in this list, otherwise they will be present.
     addr_peers: HashMap<SocketAddr, VerifiedPeer>,
-    // A list of peers we'll attempt to reconnect to after node restart or upon disconnection.
-    recent_connections: Vec<PeerId>,
 }
 
 impl Inner {
@@ -398,15 +392,12 @@ impl PeerStore {
             }
         }
 
-        let recent_connections = store.get_recent_connections();
-
         let mut peer_store = Inner {
             config,
             store,
             boot_nodes,
             peer_states: peerid_2_state,
             addr_peers: addr_2_peer,
-            recent_connections: recent_connections,
         };
         peer_store.delete_peers(&peers_to_delete)?;
         Ok(PeerStore(Mutex::new(peer_store)))
@@ -595,46 +586,6 @@ impl PeerStore {
     /// See also [`Self::add_indirect_peers`] and [`Self::add_signed_peer`].
     pub fn add_direct_peer(&self, clock: &time::Clock, peer_info: PeerInfo) -> anyhow::Result<()> {
         self.0.lock().add_peer(clock, peer_info, TrustLevel::Direct)
-    }
-
-    /// Accepts a time-ordered list of recently connected peers and merges it with the store's
-    /// list of recent connections, evicting the oldest peers if MAX_TIER2_PEERS is reached.
-    pub fn push_recent_connections(
-        &self,
-        mut recent_connections: Vec<PeerId>,
-    ) -> anyhow::Result<()> {
-        let mut inner = self.0.lock();
-
-        let included = HashSet::<PeerId>::from_iter(recent_connections.clone());
-
-        for peer_id in &inner.recent_connections {
-            if !included.contains(&peer_id) && recent_connections.len() < MAX_TIER2_PEERS {
-                recent_connections.push(peer_id.clone());
-            }
-        }
-
-        if recent_connections != inner.recent_connections {
-            inner.store.set_recent_connections(&recent_connections)?;
-            inner.recent_connections = recent_connections;
-        }
-        Ok(())
-    }
-
-    pub fn remove_from_recent_connections(&self, peer_id: &PeerId) -> anyhow::Result<()> {
-        let mut inner = self.0.lock();
-
-        let mut recent_connections = inner.recent_connections.clone();
-        recent_connections.retain(|id| id != peer_id);
-
-        if recent_connections != inner.recent_connections {
-            inner.store.set_recent_connections(&recent_connections)?;
-            inner.recent_connections = recent_connections;
-        }
-        Ok(())
-    }
-
-    pub fn get_recent_connections(&self) -> Vec<PeerId> {
-        self.0.lock().recent_connections.clone()
     }
 
     pub fn load(&self) -> HashMap<PeerId, KnownPeerState> {

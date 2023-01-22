@@ -2,11 +2,10 @@ use crate::network_protocol::PeerMessage;
 use crate::peer_manager::connection;
 /// This file is contains all types used for communication between `Actors` within this crate.
 /// They are not meant to be used outside.
-use borsh::{BorshDeserialize, BorshSerialize};
 use std::fmt::Debug;
 use std::sync::Arc;
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RegisterPeerError {
     Blacklisted,
     Banned,

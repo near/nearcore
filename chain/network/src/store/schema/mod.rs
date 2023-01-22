@@ -101,6 +101,36 @@ impl BorshRepr for KnownPeerStateRepr {
     }
 }
 
+/// A Borsh representation of the primitives::ConnectionInfo.
+#[derive(BorshSerialize, BorshDeserialize)]
+pub struct ConnectionInfoRepr {
+    peer_info: primitives::PeerInfo,
+    /// UNIX timestamps in nanos.
+    first_connected: u64,
+    last_connected: u64,
+}
+
+impl BorshRepr for ConnectionInfoRepr {
+    type T = primitives::ConnectionInfo;
+    fn to_repr(s: &primitives::ConnectionInfo) -> Self {
+        Self {
+            peer_info: s.peer_info.clone(),
+            first_connected: s.first_connected.unix_timestamp_nanos() as u64,
+            last_connected: s.last_connected.unix_timestamp_nanos() as u64,
+        }
+    }
+
+    fn from_repr(s: Self) -> Result<primitives::ConnectionInfo, Error> {
+        Ok(primitives::ConnectionInfo {
+            peer_info: s.peer_info,
+            first_connected: time::Utc::from_unix_timestamp_nanos(s.first_connected as i128)
+                .map_err(invalid_data)?,
+            last_connected: time::Utc::from_unix_timestamp_nanos(s.last_connected as i128)
+                .map_err(invalid_data)?,
+        })
+    }
+}
+
 #[derive(BorshSerialize, BorshDeserialize)]
 pub struct EdgeRepr {
     key: (PeerId, PeerId),
@@ -145,11 +175,11 @@ impl Column for Peers {
     type Value = KnownPeerStateRepr;
 }
 
-pub struct RecentConnections;
-impl Column for RecentConnections {
-    const COL: DBCol = DBCol::RecentConnections;
+pub struct RecentOutboundConnections;
+impl Column for RecentOutboundConnections {
+    const COL: DBCol = DBCol::RecentOutboundConnections;
     type Key = Borsh<()>;
-    type Value = Vec<Borsh<PeerId>>;
+    type Value = Vec<ConnectionInfoRepr>;
 }
 
 pub struct PeerComponent;

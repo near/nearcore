@@ -185,9 +185,9 @@
                         $(".tbody-detailed-peer-storage").append(row);
                     });
 
-                    let recent_connections = data.status_response.PeerStore.recent_connections
-                        .map(peer_id => peer_id.substr(8, 5) + "...");
-                    $(".recent-connections-div").text("Recent connections: [" + recent_connections.join(",") + "]");
+                    let recent_outbound_connections = data.status_response.PeerStore.recent_outbound_connections
+                        .map(conn_info => conn_info.peer_id.substr(8, 5) + "...");
+                    $(".recent-connections-div").text("Recent outbound connections: [" + recent_outbound_connections.join(",") + "]");
 
                     $(".detailed-peer-storage-div").show();
                     $(".detailed-peer-storage-button").text("Refresh");

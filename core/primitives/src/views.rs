@@ -264,6 +264,14 @@ pub struct KnownPeerStateView {
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub struct ConnectionInfoView {
+    pub peer_id: PeerId,
+    pub first_connected: i64,
+    pub last_connected: i64,
+}
+
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum QueryResponseKind {
     ViewAccount(AccountView),
@@ -418,7 +426,7 @@ pub enum SyncStatusView {
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct PeerStoreView {
     pub peer_states: Vec<KnownPeerStateView>,
-    pub recent_connections: Vec<PeerId>,
+    pub recent_outbound_connections: Vec<ConnectionInfoView>,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
