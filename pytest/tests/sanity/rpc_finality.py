@@ -40,17 +40,7 @@ class TestRpcFinality(unittest.TestCase):
             }
         }
 
-        config = {
-            0: {
-                "consensus": consensus
-            },
-            1: {
-                "consensus": consensus
-            },
-            2: {
-                "consensus": consensus
-            },
-        }
+        config = {node_id: {"consensus": consensus} for node_id in range(3)}
 
         nodes: List[LocalNode] = start_cluster(3, 0, 1, None, [
             ["min_gas_price", 0],
