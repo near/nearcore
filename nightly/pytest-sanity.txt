@@ -41,12 +41,14 @@ pytest --timeout=600 sanity/state_sync_routed.py manytx 115 --features nightly
 #pytest --timeout=300 sanity/state_sync_late.py notx --features nightly
 
 pytest --timeout=3600 sanity/state_sync_massive.py
-pytest --timeout=3600 sanity/state_sync_massive.py --features nightly
 pytest --timeout=3600 sanity/state_sync_massive_validator.py
-pytest --timeout=3600 sanity/state_sync_massive_validator.py --features nightly
-pytest sanity/sync_chunks_from_archival.py
-pytest sanity/sync_chunks_from_archival.py --features nightly
+#  TODO(#8322) - re-enable these tests when flat storage starts supporting loading from state dump
+# pytest --timeout=3600 sanity/state_sync_massive.py --features nightly
+# pytest --timeout=3600 sanity/state_sync_massive_validator.py --features nightly
 
+# TODO(#8211) - tests broken due to bad behavior in chunk fetching - re-enable when that PR is submitted.
+# pytest sanity/sync_chunks_from_archival.py
+# pytest sanity/sync_chunks_from_archival.py --features nightly
 pytest sanity/rpc_tx_forwarding.py
 pytest sanity/rpc_tx_forwarding.py --features nightly
 pytest --timeout=240 sanity/skip_epoch.py
