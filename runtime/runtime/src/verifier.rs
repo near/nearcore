@@ -27,34 +27,46 @@ use crate::near_primitives::trie_key::trie_key_parsers;
 use crate::VerificationResult;
 use near_primitives::hash::CryptoHash;
 
-/// Checks if given account has enough balance for storage stake, and returns:
-///  - None if account has enough balance or is a zero-balance account
-///  - Some(insufficient_balance) if account doesn't have enough and how much need to be added,
-///  - Err(message) if account has invalid storage usage or amount/locked.
-///
+/// Possible errors when checking whether an account has enough tokens for storage staking
 /// Read details of state staking
 /// <https://nomicon.io/Economics/README.html#state-stake>.
-pub fn get_insufficient_storage_stake(
+pub enum StorageStakingError {
+    /// An account does not have enough and the additional amount needed for storage staking
+    LackBalanceForStorageStaking(Balance),
+    /// Storage consistency error: an account has invalid storage usage or amount or locked amount
+    StorageError(String),
+}
+
+/// Checks if given account has enough balance for storage stake, and returns:
+///  - Ok(()) if account has enough balance or is a zero-balance account
+///  - Err(StorageStakingError::LackBalanceForStorageStaking(amount)) if account doesn't have enough and how much need to be added,
+///  - Err(StorageStakingError::StorageError(err)) if account has invalid storage usage or amount/locked.
+pub fn check_storage_stake(
     account_id: &AccountId,
     account: &Account,
     runtime_config: &RuntimeConfig,
     state_update: &mut TrieUpdate,
     current_protocol_version: ProtocolVersion,
-) -> Result<Option<Balance>, String> {
+) -> Result<(), StorageStakingError> {
     let required_amount = Balance::from(account.storage_usage())
         .checked_mul(runtime_config.storage_amount_per_byte())
         .ok_or_else(|| {
             format!("Account's storage_usage {} overflows multiplication", account.storage_usage())
-        })?;
-    let available_amount = account.amount().checked_add(account.locked()).ok_or_else(|| {
-        format!(
-            "Account's amount {} and locked {} overflow addition",
-            account.amount(),
-            account.locked()
-        )
-    })?;
+        })
+        .map_err(StorageStakingError::StorageError)?;
+    let available_amount = account
+        .amount()
+        .checked_add(account.locked())
+        .ok_or_else(|| {
+            format!(
+                "Account's amount {} and locked {} overflow addition",
+                account.amount(),
+                account.locked()
+            )
+        })
+        .map_err(StorageStakingError::StorageError)?;
     if available_amount >= required_amount {
-        Ok(None)
+        Ok(())
     } else {
         // Check if the account is a zero balance account. The check is delayed until here because
         // it requires storage reads
@@ -63,14 +75,18 @@ pub fn get_insufficient_storage_stake(
             ZeroBalanceAccount,
             current_protocol_version
         ) && is_zero_balance_account(account_id, account, state_update)
-            .map_err(|e| e.to_string())?
+            .map_err(|e| StorageStakingError::StorageError(e.to_string()))?
         {
-            return Ok(None);
+            return Ok(());
         }
-        Ok(Some(required_amount - available_amount))
+        Err(StorageStakingError::LackBalanceForStorageStaking(required_amount - available_amount))
     }
 }
 
+/// Zero Balance Account introduced in NEP 448 https://github.com/near/NEPs/pull/448
+/// An account is a zero balance account if and only if the following holds:
+/// - it has at most 2 full access keys and at most 2 function call access keys
+/// - it does not have any contract deployed or store any contract data
 fn is_zero_balance_account(
     account_id: &AccountId,
     account: &Account,
@@ -241,22 +257,16 @@ pub fn verify_and_charge_transaction(
         }
     }
 
-    match get_insufficient_storage_stake(
-        signer_id,
-        &signer,
-        config,
-        state_update,
-        current_protocol_version,
-    ) {
-        Ok(None) => {}
-        Ok(Some(amount)) => {
+    match check_storage_stake(signer_id, &signer, config, state_update, current_protocol_version) {
+        Ok(()) => {}
+        Err(StorageStakingError::LackBalanceForStorageStaking(amount)) => {
             return Err(InvalidTxError::LackBalanceForState {
                 signer_id: signer_id.clone(),
                 amount,
             }
             .into())
         }
-        Err(err) => {
+        Err(StorageStakingError::StorageError(err)) => {
             return Err(RuntimeError::StorageError(StorageError::StorageInconsistentState(err)))
         }
     };
@@ -722,6 +732,9 @@ mod tests {
             (account, state_update)
         }
 
+        /// Testing all combination of access keys and contract code/data deployed in this test
+        /// to make sure that an account is zero balance only if it has <=2 full access keys and
+        /// <= function call access keys and doesn't have contract code or contract data
         #[test]
         fn test_zero_balance_account_with_keys_and_contract() {
             for num_full_access_key in 0..10 {
@@ -737,7 +750,6 @@ mod tests {
                             )
                             .parse()
                             .unwrap();
-                            println!("account_id: {}", account_id);
                             let has_contract_code = i == 0;
                             let has_contract_data = j == 0;
                             let (account, mut state_update) = set_up_test_account(

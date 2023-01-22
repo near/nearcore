@@ -148,6 +148,7 @@ pub enum ProtocolFeature {
     #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
     RejectBlocksWithOutdatedProtocolVersions,
     #[cfg(feature = "protocol_feature_zero_balance_account")]
+    /// NEP 448: https://github.com/near/NEPs/pull/448
     ZeroBalanceAccount,
 }
 

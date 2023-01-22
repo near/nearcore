@@ -1,3 +1,6 @@
+use std::path::Path;
+use std::sync::Arc;
+
 use assert_matches::assert_matches;
 
 use near_chain::ChainGenesis;
@@ -6,19 +9,47 @@ use near_client::adapter::ProcessTxResponse;
 use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_primitives::account::id::AccountId;
+use near_primitives::account::AccessKey;
+use near_primitives::config::ExtCostsConfig;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidTxError, TxExecutionError};
+use near_primitives::runtime::config::RuntimeConfig;
+use near_primitives::runtime::config_store::RuntimeConfigStore;
+use near_primitives::runtime::fees::StorageUsageConfig;
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::transaction::{AddKeyAction, SignedTransaction};
+use near_primitives::transaction::Action::AddKey;
+use near_primitives::transaction::{Action, AddKeyAction, DeleteKeyAction, SignedTransaction};
 use near_primitives::version::ProtocolFeature;
 use near_primitives::views::{FinalExecutionStatus, QueryRequest, QueryResponseKind};
+use near_store::test_utils::create_test_store;
 use nearcore::config::GenesisExt;
+use nearcore::{NightshadeRuntime, TrackedConfig};
 
 use crate::tests::client::runtimes::create_nightshade_runtimes;
-use near_primitives::account::AccessKey;
-use near_primitives::config::ActionCosts;
-use near_primitives::runtime::config::RuntimeConfig;
-use near_primitives::transaction::Action::AddKey;
-use near_primitives::types::Balance;
+
+/// Assert that an account exists and has zero balance
+fn assert_zero_balance_account(env: &mut TestEnv, account_id: &AccountId) {
+    let head = env.clients[0].chain.head().unwrap();
+    let head_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
+    let response = env.clients[0]
+        .runtime_adapter
+        .query(
+            ShardUId::single_shard(),
+            &head_block.chunks()[0].prev_state_root(),
+            head.height,
+            0,
+            &head.prev_block_hash,
+            &head.last_block_hash,
+            head_block.header().epoch_id(),
+            &QueryRequest::ViewAccount { account_id: account_id.clone() },
+        )
+        .unwrap();
+    match response.kind {
+        QueryResponseKind::ViewAccount(view) => {
+            assert_eq!(view.amount, 0);
+        }
+        _ => panic!("wrong query response"),
+    }
+}
 
 /// Test 2 things: 1) a valid zero balance account can be created and 2) a nonzero balance account
 /// (one with a contract deployed) cannot be created without maintaining an initial balance
@@ -55,27 +86,7 @@ fn test_zero_balance_account_creation() {
         env.produce_block(0, i);
     }
     // new account should have been created
-    let head = env.clients[0].chain.head().unwrap();
-    let head_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
-    let response = env.clients[0]
-        .runtime_adapter
-        .query(
-            ShardUId::single_shard(),
-            &head_block.chunks()[0].prev_state_root(),
-            head.height,
-            0,
-            &head.prev_block_hash,
-            &head.last_block_hash,
-            head_block.header().epoch_id(),
-            &QueryRequest::ViewAccount { account_id: new_account_id.clone() },
-        )
-        .unwrap();
-    match response.kind {
-        QueryResponseKind::ViewAccount(view) => {
-            assert_eq!(view.amount, 0);
-        }
-        _ => panic!("wrong query response"),
-    }
+    assert_zero_balance_account(&mut env, &new_account_id);
 
     // create a zero balance account with contract deployed. The transaction should fail
     let new_account_id: AccountId = "hell.test0".parse().unwrap();
@@ -115,10 +126,25 @@ fn test_zero_balance_account_add_key() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = ProtocolFeature::ZeroBalanceAccount.protocol_version();
-    let min_gas_price = genesis.config.min_gas_price;
-    let mut env = TestEnv::builder(ChainGenesis::test())
-        .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
-        .build();
+    // create free runtime config for transaction costs to make it easier to assert
+    // the exact amount of tokens on accounts
+    let mut runtime_config = RuntimeConfig::free();
+    runtime_config.fees.storage_usage_config = StorageUsageConfig {
+        storage_amount_per_byte: 10u128.pow(19),
+        num_bytes_account: 100,
+        num_extra_bytes_record: 40,
+    };
+    runtime_config.wasm_config.ext_costs = ExtCostsConfig::test();
+    let runtime_config_store = RuntimeConfigStore::with_one_config(runtime_config);
+    let nightshade_runtime = Arc::new(NightshadeRuntime::test_with_runtime_config_store(
+        Path::new("."),
+        create_test_store(),
+        &genesis,
+        TrackedConfig::new_empty(),
+        runtime_config_store,
+    ));
+    let mut env =
+        TestEnv::builder(ChainGenesis::test()).runtime_adapters(vec![nightshade_runtime]).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
 
     let new_account_id: AccountId = "hello.test0".parse().unwrap();
@@ -147,14 +173,18 @@ fn test_zero_balance_account_add_key() {
     let new_key2 = PublicKey::from_seed(KeyType::ED25519, "random2");
 
     let head = env.clients[0].chain.head().unwrap();
+    let nonce = head.height * AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER + 1;
     let add_key_tx = SignedTransaction::from_actions(
-        head.height * AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER + 1,
+        nonce,
         new_account_id.clone(),
         new_account_id.clone(),
         &new_signer,
         vec![
             AddKey(AddKeyAction { public_key: new_key1, access_key: AccessKey::full_access() }),
-            AddKey(AddKeyAction { public_key: new_key2, access_key: AccessKey::full_access() }),
+            AddKey(AddKeyAction {
+                public_key: new_key2.clone(),
+                access_key: AccessKey::full_access(),
+            }),
         ],
         *genesis_block.hash(),
     );
@@ -166,24 +196,35 @@ fn test_zero_balance_account_add_key() {
 
     // since the account is no longer zero balance account, it cannot transfer all its tokens out
     // and must keep some amount for storage staking
-    let transaction_costs = RuntimeConfig::test().fees;
-    let send_money_total_gas = transaction_costs.fee(ActionCosts::transfer).send_fee(false)
-        + transaction_costs.fee(ActionCosts::new_action_receipt).send_fee(false)
-        + transaction_costs.fee(ActionCosts::transfer).exec_fee()
-        + transaction_costs.fee(ActionCosts::new_action_receipt).exec_fee();
-    let total_cost = send_money_total_gas as Balance * min_gas_price;
-
-    let head = env.clients[0].chain.head().unwrap();
     let send_money_tx = SignedTransaction::send_money(
-        head.height * AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER + 1,
+        nonce + 10,
         new_account_id.clone(),
         signer0.account_id.clone(),
         &new_signer,
-        amount - total_cost,
+        amount,
         *genesis_block.hash(),
     );
-    let res = env.clients[0].process_tx(send_money_tx, false, false);
+    let res = env.clients[0].process_tx(send_money_tx.clone(), false, false);
     assert_matches!(res, ProcessTxResponse::InvalidTx(InvalidTxError::LackBalanceForState { .. }));
+
+    let delete_key_tx = SignedTransaction::from_actions(
+        nonce + 1,
+        new_account_id.clone(),
+        new_account_id.clone(),
+        &new_signer,
+        vec![Action::DeleteKey(DeleteKeyAction { public_key: new_key2 })],
+        *genesis_block.hash(),
+    );
+    env.clients[0].process_tx(delete_key_tx, false, false);
+    for i in 10..15 {
+        env.produce_block(0, i);
+    }
+    let res = env.clients[0].process_tx(send_money_tx, false, false);
+    assert_matches!(res, ProcessTxResponse::ValidTx);
+    for i in 15..20 {
+        env.produce_block(0, i);
+    }
+    assert_zero_balance_account(&mut env, &new_account_id);
 }
 
 /// Test that zero balance accounts cannot be created before the upgrade but can succeed after
