@@ -17,6 +17,9 @@ import sys, time
 import pathlib
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
+from configured_logger import logger
+from cluster import init_cluster, spin_up_node, load_config
+import utils
 
 if len(sys.argv) < 3:
     logger.info("python state_sync.py [notx, onetx, manytx] <launch_at_block>")
@@ -24,10 +27,6 @@ if len(sys.argv) < 3:
 
 mode = sys.argv[1]
 assert mode in ['notx', 'onetx', 'manytx']
-
-from cluster import init_cluster, spin_up_node, load_config
-from configured_logger import logger
-import utils
 
 START_AT_BLOCK = int(sys.argv[2])
 TIMEOUT = 150 + START_AT_BLOCK * 10
