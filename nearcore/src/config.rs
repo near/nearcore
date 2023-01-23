@@ -11,6 +11,7 @@ use near_primitives::test_utils::create_test_signer;
 use near_primitives::time::Clock;
 use num_rational::Rational32;
 use serde::{Deserialize, Serialize};
+use json_comments::StripComments;
 #[cfg(test)]
 use tempfile::tempdir;
 use tracing::{info, warn};
@@ -398,8 +399,10 @@ impl Config {
         let contents = std::fs::read_to_string(path)
             .with_context(|| format!("Failed to read config from {}", path.display()))?;
         let mut unrecognised_fields = Vec::new();
+        let mut contents_without_comments = String::new();
+        StripComments::new(contents.as_bytes()).read_to_string(&mut contents_without_comments).unwrap();
         let config: Config = serde_ignored::deserialize(
-            &mut serde_json::Deserializer::from_str(&contents),
+            &mut serde_json::Deserializer::from_str(&contents_without_comments),
             |field| {
                 let field = field.to_string();
                 // TODO(mina86): Remove this deprecation notice some time by the

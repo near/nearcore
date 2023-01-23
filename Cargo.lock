@@ -2501,6 +2501,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "json_comments"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "41ee439ee368ba4a77ac70d04f14015415af8600d6c894dc1f11bd79758c57d5"
+
+[[package]]
 name = "keccak"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3016,6 +3022,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "derive_more",
+ "json_comments",
  "near-crypto",
  "near-o11y",
  "near-primitives",
@@ -3833,6 +3840,7 @@ dependencies = [
  "hyper",
  "hyper-tls",
  "indicatif",
+ "json_comments",
  "near-actix-test-utils",
  "near-chain",
  "near-chain-configs",
