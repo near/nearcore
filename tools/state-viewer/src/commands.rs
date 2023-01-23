@@ -670,6 +670,36 @@ pub(crate) fn verify_flat_storage(
     }
 }
 
+pub(crate) fn stress_test_flat_storage(
+    _shard_id: Option<ShardId>,
+    height: Option<BlockHeight>,
+    home_dir: &Path,
+    near_config: NearConfig,
+    store: Store,
+) {
+    let chain_store = ChainStore::new(
+        store.clone(),
+        near_config.genesis.config.genesis_height,
+        near_config.client_config.save_trie_changes,
+    );
+    let mut height = match height {
+        Some(h) => h,
+        None => {
+            let head = chain_store.head().unwrap();
+            head.height
+        }
+    };
+    let _runtime = NightshadeRuntime::from_config(home_dir, store, &near_config);
+    for _ in 0..100 {
+        let block_hash =
+            chain_store.get_block_hash_by_height(height.clone()).expect("Block does not exist");
+        let header = chain_store.get_block_header(&block_hash).unwrap();
+        let prev_hash = header.prev_hash();
+        height = chain_store.get_block_header(prev_hash).unwrap().height().clone();
+        eprintln!("{}", height);
+    }
+}
+
 pub(crate) fn view_chain(
     height: Option<BlockHeight>,
     view_block: bool,

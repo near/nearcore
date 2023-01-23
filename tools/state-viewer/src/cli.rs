@@ -78,6 +78,8 @@ pub enum StateViewerSubCommand {
     State,
     #[clap(alias = "verify_flat_storage")]
     VerifyFlatStorage(VerifyFlatStorageCmd),
+    #[clap(alias = "stress_test_flat_storage")]
+    StressTestFlatStorage(StressTestFlatStorageCmd),
     /// View head of the storage.
     #[clap(alias = "view_chain")]
     ViewChain(ViewChainCmd),
@@ -133,6 +135,9 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::RocksDBStats(cmd) => cmd.run(store_opener.path()),
             StateViewerSubCommand::State => state(home_dir, near_config, store),
             StateViewerSubCommand::VerifyFlatStorage(cmd) => cmd.run(home_dir, near_config, store),
+            StateViewerSubCommand::StressTestFlatStorage(cmd) => {
+                cmd.run(home_dir, near_config, store)
+            }
             StateViewerSubCommand::ViewChain(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::ViewTrie(cmd) => cmd.run(store),
         }
@@ -538,6 +543,20 @@ pub struct VerifyFlatStorageCmd {
 impl VerifyFlatStorageCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
         verify_flat_storage(self.shard_id, home_dir, near_config, store);
+    }
+}
+
+#[derive(Parser)]
+pub struct StressTestFlatStorageCmd {
+    #[clap(long)]
+    shard_id: Option<ShardId>,
+    #[clap(long)]
+    height: Option<BlockHeight>,
+}
+
+impl StressTestFlatStorageCmd {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+        stress_test_flat_storage(self.shard_id, self.height, home_dir, near_config, store);
     }
 }
 
