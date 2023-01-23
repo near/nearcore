@@ -619,6 +619,7 @@ fn verify_flat_storage_for_shard(
     runtime: &dyn RuntimeAdapter,
     chain_head: Tip,
 ) {
+    eprintln!("inside vfsss");
     // consider avoiding passing latest height
     let latest_height = chain_head.height;
     runtime.create_flat_storage_state_for_shard(shard_id, latest_height, chain_store);
@@ -639,7 +640,8 @@ fn verify_flat_storage_for_shard(
             let account_id = parse_account_id_from_raw_key(&key).unwrap().unwrap();
             if account_id_to_shard_id(&account_id, &shard_layout) == shard_id {
                 let value = trie.storage.retrieve_raw_bytes(&value_ref.hash).unwrap();
-                eprintln!("{:?} {:?}", key, value_ref);
+                let sr = StateRecord::from_raw_key_value(key.to_vec(), value.to_vec()).unwrap();
+                eprintln!("{}", sr);
             }
         }
     }
@@ -652,7 +654,7 @@ pub(crate) fn verify_flat_storage(
     near_config: NearConfig,
     store: Store,
 ) {
-    eprintln!("inside vfs");
+    eprintln!("inside vfs {:?}", shard_id);
     let chain_store = ChainStore::new(
         store.clone(),
         near_config.genesis.config.genesis_height,
