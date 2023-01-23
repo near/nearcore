@@ -33,6 +33,15 @@ impl ParameterValue {
         }
     }
 
+    fn as_u128(&self) -> Option<u128> {
+        match self {
+            ParameterValue::U64(v) => Some(u128::from(*v)),
+            // TODO(akashin): Refactor this to use `TryFrom` and properly propagate an error.
+            ParameterValue::String(s) => s.parse().ok(),
+            _ => None,
+        }
+    }
+
     fn as_str(&self) -> Option<&str> {
         match self {
             ParameterValue::String(v) => Some(v),
@@ -233,16 +242,11 @@ impl ParameterTable {
     /// Read and parse a u128 parameter from the `ParameterTable`.
     fn get_u128(&self, key: Parameter) -> Result<u128, InvalidConfigError> {
         let value = self.parameters.get(&key).ok_or(InvalidConfigError::MissingParameter(key))?;
-        match value {
-            ParameterValue::U64(v) => Ok(u128::from(*v)),
-            ParameterValue::String(s) => serde_yaml::from_str(s)
-                .map_err(|err| InvalidConfigError::ValueParseError(err, s.to_owned())),
-            _ => Err(InvalidConfigError::WrongValueType(
-                key,
-                std::any::type_name::<u128>(),
-                value.clone(),
-            )),
-        }
+        value.as_u128().ok_or(InvalidConfigError::WrongValueType(
+            key,
+            std::any::type_name::<u128>(),
+            value.clone(),
+        ))
     }
 
     /// Read and parse a string parameter from the `ParameterTable`.
