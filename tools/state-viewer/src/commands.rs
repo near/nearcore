@@ -705,12 +705,13 @@ pub(crate) fn stress_test_flat_storage(
             head.height
         }
     };
-    let runtime_adapter = NightshadeRuntime::from_config(home_dir, store, &near_config);
+    let runtime_adapter: Arc<dyn RuntimeAdapter> =
+        Arc::new(NightshadeRuntime::from_config(home_dir, store, &near_config));
     for _ in 0..100 {
         let block_hash =
             chain_store.get_block_hash_by_height(height.clone()).expect("Block does not exist");
-        let (_, apply_result) =
-            apply_block(block_hash, shard_id, runtime_adapter.clone(), &mut chain_store);
+        let (_, _apply_result) =
+            apply_block(block_hash, shard_id, &runtime_adapter, &mut chain_store);
 
         let header = chain_store.get_block_header(&block_hash).unwrap();
         let prev_hash = header.prev_hash();
