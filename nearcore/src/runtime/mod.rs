@@ -873,8 +873,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         // of parameters, this corresponds to about 13megs worth of
         // transactions.
         let size_limit = transactions_gas_limit
-            / (runtime_config.wasm_config.ext_costs.cost(ExtCosts::storage_write_value_byte)
-                + runtime_config.wasm_config.ext_costs.cost(ExtCosts::storage_read_value_byte));
+            / (runtime_config.wasm_config.ext_costs.gas_cost(ExtCosts::storage_write_value_byte)
+                + runtime_config.wasm_config.ext_costs.gas_cost(ExtCosts::storage_read_value_byte));
 
         while total_gas_burnt < transactions_gas_limit && total_size < size_limit {
             if let Some(iter) = pool_iterator.next() {
