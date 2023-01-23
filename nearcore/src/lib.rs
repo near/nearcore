@@ -1,3 +1,4 @@
+use crate::cold_storage::spawn_cold_store_loop;
 pub use crate::config::{init_configs, load_config, load_test_config, NearConfig, NEAR_BASE};
 pub use crate::runtime::NightshadeRuntime;
 pub use crate::shard_tracker::TrackedConfig;
@@ -5,20 +6,26 @@ use actix::{Actor, Addr};
 use actix_rt::ArbiterHandle;
 use actix_web;
 use anyhow::Context;
+use cold_storage::ColdStoreLoopHandle;
 use near_chain::{Chain, ChainGenesis};
 use near_client::{start_client, start_view_client, ClientActor, ConfigUpdater, ViewClientActor};
+
 use near_network::time;
 use near_network::types::NetworkRecipient;
 use near_network::PeerManagerActor;
 use near_primitives::block::GenesisId;
+
 use near_store::{DBCol, Mode, NodeStorage, StoreOpenerError, Temperature};
 use near_telemetry::TelemetryActor;
 use std::path::{Path, PathBuf};
+
 use std::sync::Arc;
+
 use tokio::sync::broadcast;
 use tracing::{info, trace};
 
 pub mod append_only_map;
+mod cold_storage;
 pub mod config;
 mod download_file;
 pub mod dyn_config;
@@ -148,6 +155,7 @@ pub struct NearNode {
     pub view_client: Addr<ViewClientActor>,
     pub arbiters: Vec<ArbiterHandle>,
     pub rpc_servers: Vec<(&'static str, actix_web::dev::ServerHandle)>,
+    pub cold_store_loop_handle: Option<ColdStoreLoopHandle>,
 }
 
 pub fn start_with_config(home_dir: &Path, config: NearConfig) -> anyhow::Result<NearNode> {
@@ -169,6 +177,8 @@ pub fn start_with_config_and_synchronization(
         store.get_store(Temperature::Hot),
         &config,
     ));
+
+    let cold_store_loop_handle = spawn_cold_store_loop(&config, &store, runtime.clone())?;
 
     let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();
     let chain_genesis = ChainGenesis::new(&config.genesis);
@@ -249,6 +259,7 @@ pub fn start_with_config_and_synchronization(
         view_client,
         rpc_servers,
         arbiters: vec![client_arbiter_handle],
+        cold_store_loop_handle,
     })
 }
 
