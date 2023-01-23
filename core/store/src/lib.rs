@@ -83,6 +83,11 @@ impl FromStr for Temperature {
     }
 }
 
+#[cfg(feature = "protocol_feature_flat_state")]
+const STATE_COLUMNS: [DBCol; 2] = [DBCol::State, DbCol::FlatState];
+#[cfg(not(feature = "protocol_feature_flat_state"))]
+const STATE_COLUMNS: [DBCol; 1] = [DBCol::State];
+
 /// Node’s storage holding chain and all other necessary data.
 ///
 /// The eventual goal is to implement cold storage at which point this structure
@@ -324,21 +329,10 @@ impl Store {
     pub fn save_state_to_file(&self, filename: &Path) -> io::Result<()> {
         let file = File::create(filename)?;
         let mut file = BufWriter::new(file);
-        let columns = [
-            DBCol::State,
-            #[cfg(feature = "protocol_feature_flat_state")]
-            DBCol::FlatState,
-        ];
-        for column in columns {
-            let column_index: u8 = match column {
-                DBCol::State => 0,
-                #[cfg(feature = "protocol_feature_flat_state")]
-                DBCol::FlatState => 1,
-                _ => unimplemented!(),
-            };
+        for (column_index, &column) in STATE_COLUMNS.iter().enumerate() {
             for item in self.storage.iter_raw_bytes(column) {
                 let (key, value) = item?;
-                file.write_u8(column_index)?;
+                file.write_u8(column_index as u8)?;
                 file.write_u32::<LittleEndian>(key.len() as u32)?;
                 file.write_all(&key)?;
                 file.write_u32::<LittleEndian>(value.len() as u32)?;
@@ -358,17 +352,7 @@ impl Store {
                 Err(err) if err.kind() == io::ErrorKind::UnexpectedEof => break,
                 Err(err) => return Err(err),
             };
-            let column = match column_index {
-                0 => DBCol::State,
-                #[cfg(feature = "protocol_feature_flat_state")]
-                1 => DBCol::FlatState,
-                other => {
-                    return Err(io::Error::new(
-                        io::ErrorKind::Other,
-                        format!("unknown column index {other}"),
-                    ))
-                }
-            };
+            let column = STATE_COLUMNS[column_index as usize];
             let key_len = file.read_u32::<LittleEndian>()? as usize;
             let mut key = vec![0; key_len];
             file.read_exact(&mut key)?;

@@ -26,9 +26,7 @@ impl StateDump {
         };
         let store = node_storage.get_store(Temperature::Hot);
         let state_file = dir.join(STATE_DUMP_FILE);
-        store
-            .load_state_from_file(state_file.as_path())
-            .expect("Failed to read state dump");
+        store.load_state_from_file(state_file.as_path()).expect("Failed to read state dump");
         let roots_files = dir.join(GENESIS_ROOTS_FILE);
         let mut file = File::open(roots_files).expect("Failed to open genesis roots file.");
         let mut data = vec![];
