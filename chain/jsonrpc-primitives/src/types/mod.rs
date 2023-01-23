@@ -1,6 +1,7 @@
 pub mod blocks;
 pub mod changes;
 pub mod chunks;
+pub mod client_config;
 pub mod config;
 pub mod gas_price;
 pub mod light_client;
