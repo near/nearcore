@@ -216,7 +216,7 @@ impl NightshadeRuntime {
         let mut state_file = home_dir.to_path_buf();
         state_file.push(STATE_DUMP_FILE);
         store
-            .load_from_file(DBCol::State, state_file.as_path())
+            .load_state_from_file(state_file.as_path())
             .expect("Failed to read state dump");
         let mut roots_files = home_dir.to_path_buf();
         roots_files.push(GENESIS_ROOTS_FILE);

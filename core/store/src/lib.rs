@@ -321,29 +321,55 @@ impl Store {
             .map(|item| item.and_then(|(key, value)| Ok((key, T::try_from_slice(value.as_ref())?))))
     }
 
-    pub fn save_to_file(&self, column: DBCol, filename: &Path) -> io::Result<()> {
+    pub fn save_state_to_file(&self, filename: &Path) -> io::Result<()> {
         let file = File::create(filename)?;
         let mut file = BufWriter::new(file);
-        for item in self.storage.iter_raw_bytes(column) {
-            let (key, value) = item?;
-            file.write_u32::<LittleEndian>(key.len() as u32)?;
-            file.write_all(&key)?;
-            file.write_u32::<LittleEndian>(value.len() as u32)?;
-            file.write_all(&value)?;
+        let columns = [
+            DBCol::State,
+            #[cfg(feature = "protocol_feature_flat_state")]
+            DBCol::FlatState,
+        ];
+        for column in columns {
+            let column_index: u8 = match column {
+                DBCol::State => 0,
+                #[cfg(feature = "protocol_feature_flat_state")]
+                DBCol::FlatState => 1,
+                _ => unimplemented!(),
+            };
+            for item in self.storage.iter_raw_bytes(column) {
+                let (key, value) = item?;
+                file.write_u8(column_index)?;
+                file.write_u32::<LittleEndian>(key.len() as u32)?;
+                file.write_all(&key)?;
+                file.write_u32::<LittleEndian>(value.len() as u32)?;
+                file.write_all(&value)?;
+            }
         }
         Ok(())
     }
 
-    pub fn load_from_file(&self, column: DBCol, filename: &Path) -> io::Result<()> {
+    pub fn load_state_from_file(&self, filename: &Path) -> io::Result<()> {
         let file = File::open(filename)?;
         let mut file = BufReader::new(file);
         let mut transaction = DBTransaction::new();
         loop {
-            let key_len = match file.read_u32::<LittleEndian>() {
-                Ok(key_len) => key_len as usize,
+            let column_index = match file.read_u8() {
+                Ok(column_index) => column_index,
                 Err(err) if err.kind() == io::ErrorKind::UnexpectedEof => break,
                 Err(err) => return Err(err),
             };
+            let column = match column_index {
+                0 => DBCol::State,
+                #[cfg(feature = "protocol_feature_flat_state")]
+                1 => DBCol::FlatState,
+                other => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::Other,
+                        format!("unknown column index {other}"),
+                    ))
+                }
+            };
+            let key_len = file.read_u32::<LittleEndian>()? as usize;
             let mut key = vec![0; key_len];
             file.read_exact(&mut key)?;
 
