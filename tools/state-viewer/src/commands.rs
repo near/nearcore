@@ -634,15 +634,20 @@ fn verify_flat_storage_for_shard(
     #[cfg(feature = "protocol_feature_flat_state")]
     {
         eprintln!("inside cfg");
-        for item in runtime.store().iter_prefix_ser::<ValueRef>(DBCol::FlatState, &[]) {
-            eprintln!("item");
+        for (i, item) in
+            runtime.store().iter_prefix_ser::<ValueRef>(DBCol::FlatState, &[]).enumerate()
+        {
+            // eprintln!("item");
             let (key, value_ref) = item.unwrap();
             let account_id = parse_account_id_from_raw_key(&key).unwrap().unwrap();
-            if account_id_to_shard_id(&account_id, &shard_layout) == shard_id {
-                let value = trie.storage.retrieve_raw_bytes(&value_ref.hash).unwrap();
-                let sr = StateRecord::from_raw_key_value(key.to_vec(), value.to_vec()).unwrap();
-                eprintln!("{}", sr);
+            if i % 100_000 == 0 {
+                eprintln!("iter {} {:?} {:?}", i, key, value_ref);
             }
+            // if account_id_to_shard_id(&account_id, &shard_layout) == shard_id {
+            // let value = trie.storage.retrieve_raw_bytes(&value_ref.hash).unwrap();
+            // let sr = StateRecord::from_raw_key_value(key.to_vec(), value.to_vec()).unwrap();
+            // eprintln!("{}", sr);
+            // }
         }
     }
     drop(trie);
@@ -688,7 +693,7 @@ pub(crate) fn stress_test_flat_storage(
     near_config: NearConfig,
     store: Store,
 ) {
-    let chain_store = ChainStore::new(
+    let mut chain_store = ChainStore::new(
         store.clone(),
         near_config.genesis.config.genesis_height,
         near_config.client_config.save_trie_changes,
@@ -700,10 +705,13 @@ pub(crate) fn stress_test_flat_storage(
             head.height
         }
     };
-    let _runtime = NightshadeRuntime::from_config(home_dir, store, &near_config);
+    let runtime_adapter = NightshadeRuntime::from_config(home_dir, store, &near_config);
     for _ in 0..100 {
         let block_hash =
             chain_store.get_block_hash_by_height(height.clone()).expect("Block does not exist");
+        let (_, apply_result) =
+            apply_block(block_hash, shard_id, runtime_adapter.clone(), &mut chain_store);
+
         let header = chain_store.get_block_header(&block_hash).unwrap();
         let prev_hash = header.prev_hash();
         height = chain_store.get_block_header(prev_hash).unwrap().height().clone();
