@@ -64,7 +64,6 @@ json_rpc = ["nearcore/json_rpc"]
 protocol_feature_fix_staking_threshold = ["nearcore/protocol_feature_fix_staking_threshold"]
 protocol_feature_flat_state = ["nearcore/protocol_feature_flat_state"]
 protocol_feature_nep366_delegate_action = ["nearcore/protocol_feature_nep366_delegate_action"]
-cold_store = ["nearcore/cold_store", "near-store/cold_store", "near-state-viewer/cold_store", "near-cold-store-tool/cold_store"]
 
 nightly = [
   "nightly_protocol",

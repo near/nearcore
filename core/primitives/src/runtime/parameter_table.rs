@@ -4,7 +4,7 @@ use near_primitives_core::config::{ExtCostsConfig, VMConfig};
 use near_primitives_core::parameter::{FeeParameter, Parameter};
 use near_primitives_core::runtime::fees::{RuntimeFeesConfig, StorageUsageConfig};
 use near_primitives_core::types::AccountId;
-use num_rational::Rational;
+use num_rational::Rational32;
 use std::collections::BTreeMap;
 
 /// Represents values supported by parameter config.
@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 #[serde(untagged)]
 pub(crate) enum ParameterValue {
     U64(u64),
-    Rational { numerator: isize, denominator: isize },
+    Rational { numerator: i32, denominator: i32 },
     String(String),
 }
 
@@ -24,11 +24,20 @@ impl ParameterValue {
         }
     }
 
-    fn as_rational(&self) -> Option<Rational> {
+    fn as_rational(&self) -> Option<Rational32> {
         match self {
             ParameterValue::Rational { numerator, denominator } => {
-                Some(Rational::new(*numerator, *denominator))
+                Some(Rational32::new(*numerator, *denominator))
             }
+            _ => None,
+        }
+    }
+
+    fn as_u128(&self) -> Option<u128> {
+        match self {
+            ParameterValue::U64(v) => Some(u128::from(*v)),
+            // TODO(akashin): Refactor this to use `TryFrom` and properly propagate an error.
+            ParameterValue::String(s) => s.parse().ok(),
             _ => None,
         }
     }
@@ -80,11 +89,6 @@ pub(crate) enum InvalidConfigError {
 impl std::str::FromStr for ParameterTable {
     type Err = InvalidConfigError;
     fn from_str(arg: &str) -> Result<ParameterTable, InvalidConfigError> {
-        // TODO(#8320): Remove this after migration to `serde_yaml` 0.9 that supports empty strings.
-        if arg.is_empty() {
-            return Ok(ParameterTable { parameters: BTreeMap::new() });
-        }
-
         let yaml_map: BTreeMap<String, serde_yaml::Value> =
             serde_yaml::from_str(arg).map_err(|err| InvalidConfigError::InvalidYaml(err))?;
 
@@ -238,16 +242,11 @@ impl ParameterTable {
     /// Read and parse a u128 parameter from the `ParameterTable`.
     fn get_u128(&self, key: Parameter) -> Result<u128, InvalidConfigError> {
         let value = self.parameters.get(&key).ok_or(InvalidConfigError::MissingParameter(key))?;
-        match value {
-            ParameterValue::U64(v) => Ok(u128::from(*v)),
-            ParameterValue::String(s) => serde_yaml::from_str(s)
-                .map_err(|err| InvalidConfigError::ValueParseError(err, s.to_owned())),
-            _ => Err(InvalidConfigError::WrongValueType(
-                key,
-                std::any::type_name::<u128>(),
-                value.clone(),
-            )),
-        }
+        value.as_u128().ok_or(InvalidConfigError::WrongValueType(
+            key,
+            std::any::type_name::<u128>(),
+            value.clone(),
+        ))
     }
 
     /// Read and parse a string parameter from the `ParameterTable`.
@@ -268,11 +267,11 @@ impl ParameterTable {
     }
 
     /// Read and parse a rational parameter from the `ParameterTable`.
-    fn get_rational(&self, key: Parameter) -> Result<Rational, InvalidConfigError> {
+    fn get_rational(&self, key: Parameter) -> Result<Rational32, InvalidConfigError> {
         let value = self.parameters.get(&key).ok_or(InvalidConfigError::MissingParameter(key))?;
         value.as_rational().ok_or(InvalidConfigError::WrongValueType(
             key,
-            std::any::type_name::<Rational>(),
+            std::any::type_name::<Rational32>(),
             value.clone(),
         ))
     }
@@ -586,8 +585,7 @@ burnt_gas_reward: {
     fn test_parameter_table_no_key() {
         assert_matches!(
             check_invalid_parameter_table(": 100", &[]),
-            // TODO(#8320): This must be invalid YAML after migration to `serde_yaml` 0.9.
-            InvalidConfigError::UnknownParameter(_, _)
+            InvalidConfigError::InvalidYaml(_)
         );
     }
 

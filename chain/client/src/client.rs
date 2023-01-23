@@ -13,6 +13,7 @@ use near_chunks::logic::{
 };
 use near_client_primitives::debug::ChunkProduction;
 use near_primitives::time::Clock;
+use near_store::metadata::DbKind;
 use tracing::{debug, error, info, trace, warn};
 
 use near_chain::chain::{
@@ -1454,13 +1455,7 @@ impl Client {
                     height = block.header().height())
                 .entered();
                 let _gc_timer = metrics::GC_TIME.start_timer();
-
-                let result = if self.config.archive {
-                    self.chain.clear_archive_data(self.config.gc.gc_blocks_limit)
-                } else {
-                    let tries = self.runtime_adapter.get_tries();
-                    self.chain.clear_data(tries, &self.config.gc)
-                };
+                let result = self.clear_data();
                 log_assert!(result.is_ok(), "Can't clear old data, {:?}", result);
             }
 
@@ -2229,6 +2224,29 @@ impl Client {
             None => true,
         };
         Ok(result)
+    }
+
+    fn clear_data(&mut self) -> Result<(), near_chain::Error> {
+        // A RPC node should do regular garbage collection.
+        if !self.config.archive {
+            let tries = self.runtime_adapter.get_tries();
+            return self.chain.clear_data(tries, &self.config.gc);
+        }
+
+        // An archival node with split storage should perform garbage collection
+        // on the hot storage. In order to determine if split storage is enabled
+        // *and* that the migration to split storage is finished we can check
+        // the store kind. It's only set to hot after the migration is finished.
+        let store = self.chain.store().store();
+        let kind = store.get_db_kind()?;
+        if kind == Some(DbKind::Hot) {
+            let tries = self.runtime_adapter.get_tries();
+            return self.chain.clear_data(tries, &self.config.gc);
+        }
+
+        // An archival node with legacy storage or in the midst of migration to split
+        // storage should do the legacy clear_archive_data.
+        self.chain.clear_archive_data(self.config.gc.gc_blocks_limit)
     }
 }
 

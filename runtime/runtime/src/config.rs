@@ -8,7 +8,7 @@ use num_traits::pow::Pow;
 use near_primitives::account::AccessKeyPermission;
 use near_primitives::errors::IntegerOverflowError;
 // Just re-exporting RuntimeConfig for backwards compatibility.
-pub use near_primitives::num_rational::Rational;
+pub use near_primitives::num_rational::Rational32;
 pub use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::runtime::fees::{transfer_exec_fee, transfer_send_fee, RuntimeFeesConfig};
 use near_primitives::transaction::{
@@ -37,7 +37,7 @@ pub struct TransactionCost {
 /// Multiplies `gas_price` by the power of `inflation_base` with exponent `inflation_exponent`.
 pub fn safe_gas_price_inflated(
     gas_price: Balance,
-    inflation_base: Rational,
+    inflation_base: Rational32,
     inflation_exponent: u8,
 ) -> Result<Balance, IntegerOverflowError> {
     let numer = BigUint::from(*inflation_base.numer() as usize).pow(inflation_exponent as u32);
@@ -400,10 +400,10 @@ mod tests {
 
     #[test]
     fn test_safe_gas_price_inflated() {
-        assert_eq!(safe_gas_price_inflated(10000, Rational::new(101, 100), 1).unwrap(), 10100);
-        assert_eq!(safe_gas_price_inflated(10000, Rational::new(101, 100), 2).unwrap(), 10201);
+        assert_eq!(safe_gas_price_inflated(10000, Rational32::new(101, 100), 1).unwrap(), 10100);
+        assert_eq!(safe_gas_price_inflated(10000, Rational32::new(101, 100), 2).unwrap(), 10201);
         // Rounded up
-        assert_eq!(safe_gas_price_inflated(10000, Rational::new(101, 100), 3).unwrap(), 10304);
-        assert_eq!(safe_gas_price_inflated(10000, Rational::new(101, 100), 32).unwrap(), 13750);
+        assert_eq!(safe_gas_price_inflated(10000, Rational32::new(101, 100), 3).unwrap(), 10304);
+        assert_eq!(safe_gas_price_inflated(10000, Rational32::new(101, 100), 32).unwrap(), 13750);
     }
 }

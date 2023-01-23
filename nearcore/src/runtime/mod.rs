@@ -5,7 +5,7 @@ use crate::NearConfig;
 use borsh::ser::BorshSerialize;
 use borsh::BorshDeserialize;
 use errors::FromStateViewerErrors;
-use near_chain::types::{ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo};
+use near_chain::types::{ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo, Tip};
 use near_chain::{Error, RuntimeAdapter};
 use near_chain_configs::{
     Genesis, GenesisConfig, ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
@@ -50,11 +50,12 @@ use near_store::flat_state::ChainAccessForFlatStorage;
 use near_store::flat_state::{
     store_helper, FlatStateFactory, FlatStorageCreationStatus, FlatStorageState,
 };
+use near_store::metadata::DbKind;
 use near_store::split_state::get_delayed_receipts;
 use near_store::{
     get_genesis_hash, get_genesis_state_roots, set_genesis_hash, set_genesis_state_roots,
     ApplyStatePartResult, DBCol, PartialStorage, ShardTries, Store, StoreCompiledContractCache,
-    StoreUpdate, Trie, TrieConfig, WrappedTrieChanges,
+    StoreUpdate, Trie, TrieConfig, WrappedTrieChanges, COLD_HEAD_KEY,
 };
 use near_vm_runner::precompile_contract;
 use node_runtime::adapter::ViewRuntimeAdapter;
@@ -613,6 +614,37 @@ impl NightshadeRuntime {
         });
         Ok(())
     }
+
+    fn get_gc_stop_height_impl(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error> {
+        let epoch_manager = self.epoch_manager.read();
+        // an epoch must have a first block.
+        let epoch_first_block = *epoch_manager.get_block_info(block_hash)?.epoch_first_block();
+        let epoch_first_block_info = epoch_manager.get_block_info(&epoch_first_block)?;
+        // maintain pointers to avoid cloning.
+        let mut last_block_in_prev_epoch = *epoch_first_block_info.prev_hash();
+        let mut epoch_start_height = epoch_first_block_info.height();
+        for _ in 0..self.gc_num_epochs_to_keep - 1 {
+            let epoch_first_block =
+                *epoch_manager.get_block_info(&last_block_in_prev_epoch)?.epoch_first_block();
+            let epoch_first_block_info = epoch_manager.get_block_info(&epoch_first_block)?;
+            epoch_start_height = epoch_first_block_info.height();
+            last_block_in_prev_epoch = *epoch_first_block_info.prev_hash();
+        }
+
+        // An archival node with split storage should perform garbage collection
+        // on the hot storage but not beyond the COLD_HEAD. In order to determine
+        // if split storage is enabled *and* that the migration to split storage
+        // is finished we can check the store kind. It's only set to hot after the
+        // migration is finished.
+        let kind = self.store.get_db_kind()?;
+        let cold_head = self.store.get_ser::<Tip>(DBCol::BlockMisc, COLD_HEAD_KEY)?;
+
+        if let (Some(DbKind::Hot), Some(cold_head)) = (kind, cold_head) {
+            let cold_head_height = cold_head.height;
+            return Ok(std::cmp::min(epoch_start_height, cold_head_height + 1));
+        }
+        Ok(epoch_start_height)
+    }
 }
 
 fn format_total_gas_burnt(gas: Gas) -> String {
@@ -901,24 +933,14 @@ impl RuntimeAdapter for NightshadeRuntime {
     }
 
     fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> BlockHeight {
-        (|| -> Result<BlockHeight, Error> {
-            let epoch_manager = self.epoch_manager.read();
-            // an epoch must have a first block.
-            let epoch_first_block = *epoch_manager.get_block_info(block_hash)?.epoch_first_block();
-            let epoch_first_block_info = epoch_manager.get_block_info(&epoch_first_block)?;
-            // maintain pointers to avoid cloning.
-            let mut last_block_in_prev_epoch = *epoch_first_block_info.prev_hash();
-            let mut epoch_start_height = epoch_first_block_info.height();
-            for _ in 0..self.gc_num_epochs_to_keep - 1 {
-                let epoch_first_block =
-                    *epoch_manager.get_block_info(&last_block_in_prev_epoch)?.epoch_first_block();
-                let epoch_first_block_info = epoch_manager.get_block_info(&epoch_first_block)?;
-                epoch_start_height = epoch_first_block_info.height();
-                last_block_in_prev_epoch = *epoch_first_block_info.prev_hash();
+        let result = self.get_gc_stop_height_impl(block_hash);
+        match result {
+            Ok(gc_stop_height) => gc_stop_height,
+            Err(error) => {
+                error!(target: "runtime", "Error when getting the gc stop height. Error: {}", error);
+                self.genesis_config.genesis_height
             }
-            Ok(epoch_start_height)
-        }())
-        .unwrap_or(self.genesis_config.genesis_height)
+        }
     }
 
     fn add_validator_proposals(

@@ -329,7 +329,7 @@ pub struct Config {
     /// Different parameters to configure underlying storage.
     pub store: near_store::StoreConfig,
     /// Different parameters to configure underlying cold storage.
-    #[cfg(feature = "cold_store")]
+    /// This feature is under development, do not use in production.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cold_store: Option<near_store::StoreConfig>,
 
@@ -380,7 +380,6 @@ impl Default for Config {
             db_migration_snapshot_path: None,
             use_db_migration_snapshot: None,
             store: near_store::StoreConfig::default(),
-            #[cfg(feature = "cold_store")]
             cold_store: None,
             expected_shutdown: None,
         }
@@ -428,7 +427,7 @@ impl Config {
     /// This is the place to check that all config values make sense and fit well together.
     /// `validate()` is called every time `config.json` is read.
     fn validate(&self) -> Result<(), ConfigValidationError> {
-        if self.archive == self.save_trie_changes {
+        if !self.archive && !self.save_trie_changes {
             Err(ConfigValidationError::TrieChanges)
         } else {
             Ok(())
