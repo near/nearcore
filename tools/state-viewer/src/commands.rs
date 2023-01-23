@@ -20,15 +20,19 @@ use near_primitives::shard_layout::account_id_to_shard_id;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::ChunkHash;
+#[cfg(feature = "protocol_feature_flat_state")]
 use near_primitives::state::ValueRef;
 use near_primitives::state_record::StateRecord;
+#[cfg(feature = "protocol_feature_flat_state")]
 use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_raw_key;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{chunk_extra::ChunkExtra, BlockHeight, ShardId, StateRoot};
 use near_primitives_core::types::Gas;
 use near_store::db::Database;
 use near_store::test_utils::create_test_store;
-use near_store::{DBCol, TrieDBStorage};
+#[cfg(feature = "protocol_feature_flat_state")]
+use near_store::DBCol;
+use near_store::TrieDBStorage;
 use near_store::{Store, Trie, TrieCache, TrieCachingStorage, TrieConfig};
 use nearcore::{NearConfig, NightshadeRuntime};
 use node_runtime::adapter::ViewRuntimeAdapter;
