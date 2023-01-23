@@ -69,7 +69,6 @@ impl<'a> Memory<'a> {
         self.0.view_memory(slice).map_err(|_| HostError::MemoryAccessViolation.into())
     }
 
-    #[cfg(any(test, feature = "sandbox"))]
     /// Like [`Self::view`] but does not pay gas fees.
     pub(super) fn view_for_free(&self, slice: MemSlice) -> Result<Cow<[u8]>> {
         self.0.view_memory(slice).map_err(|_| HostError::MemoryAccessViolation.into())

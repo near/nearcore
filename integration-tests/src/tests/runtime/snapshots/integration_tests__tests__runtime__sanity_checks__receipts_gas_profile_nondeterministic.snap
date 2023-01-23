@@ -20,4 +20,5 @@ expression: receipts_gas_profile
             gas_used: 1645512,
         },
     ],
+    [],
 ]

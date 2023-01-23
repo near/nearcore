@@ -3,7 +3,7 @@ use crate::config;
 use crate::debug::{DebugStatus, GetDebugStatus};
 use crate::network_protocol::{
     AccountOrPeerIdOrHash, Edge, PeerIdOrHash, PeerMessage, Ping, Pong, RawRoutedMessage,
-    RoutedMessageBody, SignedAccountData, StateResponseInfo,
+    RoutedMessageBody, SignedAccountData,
 };
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
@@ -724,12 +724,7 @@ impl PeerManagerActor {
                 }
             }
             NetworkRequests::StateResponse { route_back, response } => {
-                let body = match response {
-                    StateResponseInfo::V1(response) => RoutedMessageBody::StateResponse(response),
-                    response @ StateResponseInfo::V2(_) => {
-                        RoutedMessageBody::VersionedStateResponse(response)
-                    }
-                };
+                let body = RoutedMessageBody::VersionedStateResponse(response);
                 if self.state.send_message_to_peer(
                     &self.clock,
                     tcp::Tier::T2,
