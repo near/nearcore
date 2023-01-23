@@ -76,6 +76,7 @@ impl NeardCmd {
 
         let home_dir = neard_cmd.opts.home.clone();
         let genesis_validation = if neard_cmd.opts.unsafe_fast_startup {
+            eprintln!("unsafe fast");
             GenesisValidationMode::UnsafeFast
         } else {
             GenesisValidationMode::Full
@@ -92,6 +93,7 @@ impl NeardCmd {
             ),
 
             NeardSubCommand::StateViewer(cmd) => {
+                eprintln!("inside cmd");
                 let mode = if cmd.readwrite { Mode::ReadWrite } else { Mode::ReadOnly };
                 cmd.subcmd.run(&home_dir, genesis_validation, mode, cmd.store_temperature);
             }

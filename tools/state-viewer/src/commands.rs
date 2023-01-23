@@ -622,15 +622,13 @@ fn verify_flat_storage_for_shard(
     // consider avoiding passing latest height
     let latest_height = chain_head.height;
     runtime.create_flat_storage_state_for_shard(shard_id, latest_height, chain_store);
-    // let flat_storage_state = runtime.get_flat_storage_state_for_shard(shard_id).unwrap();
-    // let flat_head = flat_storage_state.head();
+    let flat_storage_state = runtime.get_flat_storage_state_for_shard(shard_id).unwrap();
+    let flat_head = flat_storage_state.head();
     // let flat_head_block = chain_store.get_block(&flat_head).unwrap();
-    // let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
-    // let chunk_extra = chain_store.get_chunk_extra(&flat_head, &shard_uid).unwrap();
-    // let state_root = chunk_extra.state_root().clone();
-    // let trie = runtime
-    //     .get_trie_for_shard(shard_id, &flat_head, chunk_extra.state_root().clone(), false)
-    //     .unwrap();
+    let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
+    let chunk_extra = chain_store.get_chunk_extra(&flat_head, &shard_uid).unwrap();
+    let state_root = chunk_extra.state_root().clone();
+    let trie = runtime.get_trie_for_shard(shard_id, &flat_head, state_root, false).unwrap();
     #[cfg(feature = "protocol_feature_flat_state")]
     {
         let shard_layout = runtime.get_shard_layout(&chain_head.epoch_id).unwrap();
@@ -638,6 +636,7 @@ fn verify_flat_storage_for_shard(
             let (key, value_ref) = item.unwrap();
             let account_id = parse_account_id_from_raw_key(&key).unwrap().unwrap();
             if account_id_to_shard_id(&account_id, &shard_layout) == shard_id {
+                let value = trie.storage.retrieve_raw_bytes(&value_ref.hash).unwrap();
                 eprintln!("{:?} {:?}", key, value_ref);
             }
         }
@@ -650,6 +649,7 @@ pub(crate) fn verify_flat_storage(
     near_config: NearConfig,
     store: Store,
 ) {
+    eprintln!("inside vfs");
     let chain_store = ChainStore::new(
         store.clone(),
         near_config.genesis.config.genesis_height,
