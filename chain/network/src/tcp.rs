@@ -2,7 +2,6 @@ use crate::network_protocol::PeerInfo;
 use anyhow::{anyhow, Context as _};
 use near_primitives::network::PeerId;
 use std::sync::Arc;
-use futures::{FutureExt as _};
 use std::fmt;
 
 /// TCP connections established by a node belong to different logical networks (aka tiers),
@@ -151,25 +150,15 @@ impl AsRef<std::net::SocketAddr> for ListenerAddr {
 
 impl ListenerAddr {
     pub fn new(addr: std::net::SocketAddr) -> std::io::Result<Self> {
-        // tokio::new::TcpListener::bind is async only because it accepts anything that asynchronously resolves to SocketAddr.
-        // It is obviously a design flaw, because SocketAddr could be resolved independently and
-        // that would make bind() synchronous.
-        //
-        // Here we assume a specific implementation of tokio::net::TcpListener::bind which, when
-        // given an already-resolved SocketAddr, is synchronous as a whole. We use now_or_never()
-        // which calls poll() once, and we panic if that was not enough to complete the future.
-        // Alternatives:
-        // * construct std::net::TcpListener and reimplement all the configuration
-        //   that tokio::net::TcpListener::bind does by hand.
-        // * provide 2 separate constructors: one for async context, which binds immediately, and
-        //   one for sync context, which postpones binding until ListenerAddr::listener() is
-        //   called.
-        let listener = tokio::net::TcpListener::bind(addr).now_or_never().expect("TcpListener::bind() has not resolved immediately")?;
+        let listener = std::net::TcpListener::bind(addr)?;
+        // tokio::net::TcpListener::from_std() assumes that the socket is nonblocking.
+        // We need to configure it manually here.
+        listener.set_nonblocking(true)?;
         Ok(Self{
             // We fetch local_addr(), because addr.port() could have been 0, in which case an
             // arbitrary free port will be allocated.
             addr: listener.local_addr()?,
-            raw: Arc::new(listener.into_std()?),
+            raw: Arc::new(listener),
         })
     }
 
