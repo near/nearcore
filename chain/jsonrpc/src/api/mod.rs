@@ -8,6 +8,7 @@ use near_primitives::borsh::BorshDeserialize;
 mod blocks;
 mod changes;
 mod chunks;
+mod client_config;
 mod config;
 mod gas_price;
 mod light_client;
