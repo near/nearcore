@@ -25,7 +25,6 @@ use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{chunk_extra::ChunkExtra, BlockHeight, ShardId, StateRoot};
 use near_primitives_core::types::Gas;
 use near_store::db::Database;
-use near_store::flat_state::FlatStorageState;
 use near_store::test_utils::create_test_store;
 use near_store::{DBCol, TrieDBStorage};
 use near_store::{Store, Trie, TrieCache, TrieCachingStorage, TrieConfig};
@@ -620,7 +619,7 @@ fn verify_flat_storage_for_shard(
     // let flat_storage_state = runtime.get_flat_storage_state_for_shard(shard_id).unwrap();
     // let flat_head = flat_storage_state.head();
     // let flat_head_block = chain_store.get_block(&flat_head).unwrap();
-    // let shard_layout = runtime.get_shard_layout(&chain_head.epoch_id).unwrap();
+    let shard_layout = runtime.get_shard_layout(&chain_head.epoch_id).unwrap();
     // let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
     // let chunk_extra = chain_store.get_chunk_extra(&flat_head, &shard_uid).unwrap();
     // let state_root = chunk_extra.state_root().clone();
@@ -629,9 +628,8 @@ fn verify_flat_storage_for_shard(
     //     .unwrap();
     #[cfg(feature = "protocol_feature_flat_state")]
     {
-        for item in runtime.store().iter_prefix_ser(DBCol::FlatState, &[]) {
-            let (key, value_ref_ser) = item.unwrap();
-            let value_ref = ValueRef::decode(value_ref_ser);
+        for item in runtime.store().iter_prefix_ser::<ValueRef>(DBCol::FlatState, &[]) {
+            let (key, value_ref) = item.unwrap();
             let account_id = parse_account_id_from_raw_key(&key).unwrap().unwrap();
             if account_id_to_shard_id(&account_id, &shard_layout) == shard_id {
                 eprintln!("{:?} {:?}", key, value_ref);
