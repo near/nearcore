@@ -3,6 +3,7 @@ use derive_more::{AsRef as DeriveAsRef, From as DeriveFrom};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 
+use std::ops;
 use std::sync::Arc;
 
 use near_crypto::PublicKey;
@@ -954,12 +955,14 @@ pub struct TrieNodesCount {
     pub mem_reads: u64,
 }
 
-impl TrieNodesCount {
-    /// Used to determine the number of trie nodes charged during some operation.
-    pub fn checked_sub(self, other: &Self) -> Option<Self> {
-        Some(Self {
-            db_reads: self.db_reads.checked_sub(other.db_reads)?,
-            mem_reads: self.mem_reads.checked_sub(other.mem_reads)?,
-        })
+/// Used to determine the number of trie nodes charged during some operation. Panics on underflow.
+impl ops::Sub for TrieNodesCount {
+    type Output = Self;
+
+    fn sub(self, other: Self) -> Self::Output {
+        Self {
+            db_reads: self.db_reads - other.db_reads,
+            mem_reads: self.mem_reads - other.mem_reads,
+        }
     }
 }
