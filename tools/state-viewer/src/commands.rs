@@ -632,7 +632,9 @@ fn verify_flat_storage_for_shard(
     let trie = runtime.get_trie_for_shard(shard_id, &flat_head, state_root, false).unwrap();
     #[cfg(feature = "protocol_feature_flat_state")]
     {
+        eprintln!("inside cfg");
         for item in runtime.store().iter_prefix_ser::<ValueRef>(DBCol::FlatState, &[]) {
+            eprintln!("item");
             let (key, value_ref) = item.unwrap();
             let account_id = parse_account_id_from_raw_key(&key).unwrap().unwrap();
             if account_id_to_shard_id(&account_id, &shard_layout) == shard_id {
