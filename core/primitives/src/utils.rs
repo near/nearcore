@@ -425,7 +425,7 @@ pub fn get_num_seats_per_shard(num_shards: NumShards, num_seats: NumSeats) -> Ve
         .map(|shard_id| {
             let remainder =
                 num_seats.checked_rem(num_shards).expect("num_shards ≠ 0 is guaranteed here");
-            let quotient = num_seats.checked_div(num_shards).expect("ditto");
+            let quotient = num_seats.checked_div(num_shards).expect("num_shards ≠ 0 is guaranteed here");
             let num = quotient
                 .checked_add(if shard_id < remainder { 1 } else { 0 })
                 .expect("overflow is impossible here");
