@@ -617,23 +617,25 @@ fn verify_flat_storage_for_shard(
     // consider avoiding passing latest height
     let latest_height = chain_head.height;
     runtime.create_flat_storage_state_for_shard(shard_id, latest_height, chain_store);
-    let flat_storage_state = runtime.get_flat_storage_state_for_shard(shard_id).unwrap();
-    let flat_head = flat_storage_state.head();
-    let flat_head_block = chain_store.get_block(&flat_head).unwrap();
-    let shard_layout = runtime.get_shard_layout(&chain_head.epoch_id).unwrap();
-    let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
-    let chunk_extra = chain_store.get_chunk_extra(&flat_head, &shard_uid).unwrap();
-    let state_root = chunk_extra.state_root().clone();
-    let trie = runtime
-        .get_trie_for_shard(shard_id, &flat_head, chunk_extra.state_root().clone(), false)
-        .unwrap();
+    // let flat_storage_state = runtime.get_flat_storage_state_for_shard(shard_id).unwrap();
+    // let flat_head = flat_storage_state.head();
+    // let flat_head_block = chain_store.get_block(&flat_head).unwrap();
+    // let shard_layout = runtime.get_shard_layout(&chain_head.epoch_id).unwrap();
+    // let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
+    // let chunk_extra = chain_store.get_chunk_extra(&flat_head, &shard_uid).unwrap();
+    // let state_root = chunk_extra.state_root().clone();
+    // let trie = runtime
+    //     .get_trie_for_shard(shard_id, &flat_head, chunk_extra.state_root().clone(), false)
+    //     .unwrap();
     #[cfg(feature = "protocol_feature_flat_state")]
-    for item in runtime.store().iter_prefix_ser(DBCol::FlatState, &[]) {
-        let (key, value_ref_ser) = item.unwrap();
-        let value_ref = ValueRef::decode(value_ref_ser);
-        let account_id = parse_account_id_from_raw_key(&key).unwrap().unwrap();
-        if account_id_to_shard_id(&account_id, &shard_layout) == shard_id {
-            eprintln!("{:?} {:?}", key, value_ref);
+    {
+        for item in runtime.store().iter_prefix_ser(DBCol::FlatState, &[]) {
+            let (key, value_ref_ser) = item.unwrap();
+            let value_ref = ValueRef::decode(value_ref_ser);
+            let account_id = parse_account_id_from_raw_key(&key).unwrap().unwrap();
+            if account_id_to_shard_id(&account_id, &shard_layout) == shard_id {
+                eprintln!("{:?} {:?}", key, value_ref);
+            }
         }
     }
 }
