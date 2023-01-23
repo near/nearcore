@@ -84,7 +84,7 @@ impl FromStr for Temperature {
 }
 
 #[cfg(feature = "protocol_feature_flat_state")]
-const STATE_COLUMNS: [DBCol; 2] = [DBCol::State, DbCol::FlatState];
+const STATE_COLUMNS: [DBCol; 2] = [DBCol::State, DBCol::FlatState];
 #[cfg(not(feature = "protocol_feature_flat_state"))]
 const STATE_COLUMNS: [DBCol; 1] = [DBCol::State];
 
