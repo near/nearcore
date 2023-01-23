@@ -267,6 +267,7 @@ pub struct KnownPeerStateView {
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct ConnectionInfoView {
     pub peer_id: PeerId,
+    pub addr: String,
     pub first_connected: i64,
     pub last_connected: i64,
 }
@@ -426,6 +427,10 @@ pub enum SyncStatusView {
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct PeerStoreView {
     pub peer_states: Vec<KnownPeerStateView>,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct RecentOutboundConnectionsView {
     pub recent_outbound_connections: Vec<ConnectionInfoView>,
 }
 

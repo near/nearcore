@@ -27,6 +27,7 @@ use near_primitives::block::GenesisId;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::views::{
     ConnectionInfoView, EdgeView, KnownPeerStateView, NetworkGraphView, PeerStoreView,
+    RecentOutboundConnectionsView,
 };
 use rand::seq::IteratorRandom;
 use rand::thread_rng;
@@ -1068,22 +1069,7 @@ impl actix::Handler<GetDebugStatus> for PeerManagerActor {
                     )
                 });
 
-                // TODO: this doesn't really live in the PeerStore
-                let recent_outbound_connections_view = self
-                    .state
-                    .get_recent_outbound_connections()
-                    .iter()
-                    .map(|c| ConnectionInfoView {
-                        peer_id: c.peer_info.id.clone(),
-                        first_connected: c.first_connected.unix_timestamp(),
-                        last_connected: c.last_connected.unix_timestamp(),
-                    })
-                    .collect::<Vec<_>>();
-
-                DebugStatus::PeerStore(PeerStoreView {
-                    peer_states: peer_states_view,
-                    recent_outbound_connections: recent_outbound_connections_view,
-                })
+                DebugStatus::PeerStore(PeerStoreView { peer_states: peer_states_view })
             }
             GetDebugStatus::Graph => DebugStatus::Graph(NetworkGraphView {
                 edges: self
@@ -1098,6 +1084,21 @@ impl actix::Handler<GetDebugStatus> for PeerManagerActor {
                     })
                     .collect(),
             }),
+            GetDebugStatus::RecentOutboundConnections => {
+                DebugStatus::RecentOutboundConnections(RecentOutboundConnectionsView {
+                    recent_outbound_connections: self
+                        .state
+                        .get_recent_outbound_connections()
+                        .iter()
+                        .map(|c| ConnectionInfoView {
+                            peer_id: c.peer_info.id.clone(),
+                            addr: format!("{:?}", c.peer_info.addr),
+                            first_connected: c.first_connected.unix_timestamp(),
+                            last_connected: c.last_connected.unix_timestamp(),
+                        })
+                        .collect::<Vec<_>>(),
+                })
+            }
         }
     }
 }
