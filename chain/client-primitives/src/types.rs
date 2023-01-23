@@ -7,7 +7,7 @@ use actix::Message;
 use chrono::DateTime;
 use near_primitives::time::Utc;
 
-use near_chain_configs::ProtocolConfigView;
+use near_chain_configs::{ClientConfig, ProtocolConfigView};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
 use near_primitives::network::PeerId;
@@ -932,6 +932,33 @@ pub enum GetMaintenanceWindowsError {
 }
 
 impl From<near_chain_primitives::Error> for GetMaintenanceWindowsError {
+    fn from(error: near_chain_primitives::Error) -> Self {
+        match error {
+            near_chain_primitives::Error::IOErr(error) => Self::IOError(error.to_string()),
+            _ => Self::Unreachable(error.to_string()),
+        }
+    }
+}
+
+pub struct GetClientConfig {}
+
+impl Message for GetClientConfig {
+    type Result = Result<ClientConfig, GetClientConfigError>;
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum GetClientConfigError {
+    #[error("IO Error: {0}")]
+    IOError(String),
+    // NOTE: Currently, the underlying errors are too broad, and while we tried to handle
+    // expected cases, we cannot statically guarantee that no other errors will be returned
+    // in the future.
+    // TODO #3851: Remove this variant once we can exhaustively match all the underlying errors
+    #[error("It is a bug if you receive this error type, please, report this incident: https://github.com/near/nearcore/issues/new/choose. Details: {0}")]
+    Unreachable(String),
+}
+
+impl From<near_chain_primitives::Error> for GetClientConfigError {
     fn from(error: near_chain_primitives::Error) -> Self {
         match error {
             near_chain_primitives::Error::IOErr(error) => Self::IOError(error.to_string()),
