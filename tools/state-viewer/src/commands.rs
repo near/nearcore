@@ -710,8 +710,12 @@ pub(crate) fn stress_test_flat_storage(
     for _ in 0..100 {
         let block_hash =
             chain_store.get_block_hash_by_height(height.clone()).expect("Block does not exist");
-        let (_, _apply_result) =
-            apply_block(block_hash, shard_id.unwrap_or(0), &runtime_adapter, &mut chain_store);
+        let (_, _apply_result) = apply_block(
+            block_hash,
+            shard_id.unwrap_or(0),
+            runtime_adapter.as_ref(),
+            &mut chain_store,
+        );
 
         let header = chain_store.get_block_header(&block_hash).unwrap();
         let prev_hash = header.prev_hash();
