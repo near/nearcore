@@ -1,6 +1,9 @@
 use crate::network_protocol::PeerInfo;
 use anyhow::{anyhow, Context as _};
 use near_primitives::network::PeerId;
+use std::sync::Arc;
+use futures::{FutureExt as _};
+use std::fmt;
 
 /// TCP connections established by a node belong to different logical networks (aka tiers),
 /// which serve different purpose.
@@ -118,15 +121,64 @@ impl Stream {
     }
 }
 
+/// ListenerAddr is a cloneable owner of a TCP socket, which can be turned into a
+/// Listener. Since it actually keeps ownership of a system resource - TCP socket bound to a
+/// specific local port, it allows to avoid a race condition in tests where multiple tests would
+/// try to use the same port.
+///
+/// We make it cloneable, so that it can be included in a cloneable config and reused when a node
+/// instance is being restarted in test.
+/// TODO(gprusak): we lose the compilation-time check that would ensure that only one node instance
+/// is using the given socket - expressing that would require the node to return the socket
+/// ownership during shutdown and that would be ugly and hard to maintain. However we could rather
+/// cheaply implement a runtime check which would panic in case multiple nodes were trying to start
+/// listening on the same socket.
+#[derive(Clone)]
+pub struct ListenerAddr{
+    raw: Arc<std::net::TcpListener>,
+    addr: std::net::SocketAddr,
+}
+
+impl fmt::Debug for ListenerAddr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.addr.fmt(f)
+    }
+}
+
+impl AsRef<std::net::SocketAddr> for ListenerAddr {
+    fn as_ref(&self) -> &std::net::SocketAddr { &self.addr }
+}
+
+impl ListenerAddr {
+    pub fn new(addr: std::net::SocketAddr) -> std::io::Result<Self> {
+        // tokio::new::TcpListener::bind is async only because it accepts anything that asynchronously resolves to SocketAddr.
+        // It is obviously a design flaw, because SocketAddr could be resolved independently and
+        // that would make bind() synchronous.
+        //
+        // Here we assume a specific implementation of tokio::net::TcpListener::bind which, when
+        // given an already-resolved SocketAddr, is synchronous as a whole. We use now_or_never()
+        // which calls poll() once, and we panic if that was not enough to complete the future.
+        // Alternatives:
+        // * construct std::net::TcpListener and reimplement all the configuration
+        //   that tokio::net::TcpListener::bind does by hand.
+        // * provide 2 separate constructors: one for async context, which binds immediately, and
+        //   one for sync context, which postpones binding until ListenerAddr::listener() is
+        //   called.
+        let listener = tokio::net::TcpListener::bind(addr).now_or_never().expect("TcpListener::bind() has not resolved immediately");
+        Ok(Self{
+            raw: Arc::new(listener?.into_std()?),
+            addr,
+        })
+    }
+
+    pub(crate) fn listener(&self) -> std::io::Result<Listener> {
+        Ok(Listener(tokio::net::TcpListener::from_std(self.raw.try_clone()?)?))
+    }
+}
+
 pub(crate) struct Listener(tokio::net::TcpListener);
 
 impl Listener {
-    // TODO(gprusak): this shouldn't be async. It is only
-    // because TcpListener accepts anything that asynchronously resolves to SocketAddr.
-    pub async fn bind(addr: std::net::SocketAddr) -> std::io::Result<Self> {
-        Ok(Self(tokio::net::TcpListener::bind(addr).await?))
-    }
-
     pub async fn accept(&mut self) -> std::io::Result<Stream> {
         let (stream, _) = self.0.accept().await?;
         Stream::new(stream, StreamType::Inbound)
