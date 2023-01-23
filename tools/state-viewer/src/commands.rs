@@ -15,8 +15,10 @@ use near_network::iter_peers_from_store;
 use near_primitives::account::id::AccountId;
 use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::hash::CryptoHash;
+#[cfg(feature = "protocol_feature_flat_state")]
+use near_primitives::shard_layout::account_id_to_shard_id;
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout};
 use near_primitives::sharding::ChunkHash;
 use near_primitives::state::ValueRef;
 use near_primitives::state_record::StateRecord;
@@ -619,7 +621,6 @@ fn verify_flat_storage_for_shard(
     // let flat_storage_state = runtime.get_flat_storage_state_for_shard(shard_id).unwrap();
     // let flat_head = flat_storage_state.head();
     // let flat_head_block = chain_store.get_block(&flat_head).unwrap();
-    let shard_layout = runtime.get_shard_layout(&chain_head.epoch_id).unwrap();
     // let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
     // let chunk_extra = chain_store.get_chunk_extra(&flat_head, &shard_uid).unwrap();
     // let state_root = chunk_extra.state_root().clone();
@@ -628,6 +629,7 @@ fn verify_flat_storage_for_shard(
     //     .unwrap();
     #[cfg(feature = "protocol_feature_flat_state")]
     {
+        let shard_layout = runtime.get_shard_layout(&chain_head.epoch_id).unwrap();
         for item in runtime.store().iter_prefix_ser::<ValueRef>(DBCol::FlatState, &[]) {
             let (key, value_ref) = item.unwrap();
             let account_id = parse_account_id_from_raw_key(&key).unwrap().unwrap();
