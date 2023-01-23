@@ -1079,15 +1079,15 @@ impl FlatStorageState {
         guard.flat_head.clone()
     }
 
-    pub fn iter_head(&self) {
-        let guard = self.0.read().expect(POISONED_LOCK_ERR);
-        for item in guard.store.iter(crate::DBCol::FlatState) {
-    }
+    // pub fn iter_head(&self) {
+    //     let guard = self.0.read().expect(POISONED_LOCK_ERR);
+    //     for item in guard.store.iter(crate::DBCol::FlatState) {
+    // }
 }
 
-pub struct FlatStorageHeadIterator {
-    state: FlatStorageState
-}
+// pub struct FlatStorageHeadIterator {
+//     state: FlatStorageState,
+// }
 
 #[cfg(test)]
 #[cfg(feature = "protocol_feature_flat_state")]
