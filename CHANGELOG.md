@@ -5,6 +5,7 @@
 ### Protocol Changes
 
 ### Non-protocol Changes
+* `/debug` page now has client_config linked. You can also check your client_config directly at /debug/client_config
 
 ## 1.31.0
 
