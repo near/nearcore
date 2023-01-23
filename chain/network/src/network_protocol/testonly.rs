@@ -16,6 +16,7 @@ use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, EncodedShardChunkBody, PartialEncodedChunkPart,
     ReedSolomonWrapper, ShardChunk,
 };
+use crate::tcp;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, StateRoot};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
@@ -303,9 +304,8 @@ impl Chain {
     }
 
     pub fn make_config<R: Rng>(&self, rng: &mut R) -> config::NetworkConfig {
-        let port = crate::test_utils::open_port();
         let seed = &rng.gen::<u64>().to_string();
-        let mut cfg = config::NetworkConfig::from_seed(&seed, port);
+        let mut cfg = config::NetworkConfig::from_seed(&seed, tcp::ListenerAddr::new_localhost());
         // Currently, in unit tests PeerManagerActor is not allowed to try to establish
         // connections on its own.
         cfg.outbound_disabled = true;

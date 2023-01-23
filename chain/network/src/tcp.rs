@@ -98,13 +98,13 @@ impl Stream {
     /// Returns a pair of streams: (outbound,inbound).
     #[cfg(test)]
     pub async fn loopback(peer_id: PeerId, tier: Tier) -> (Stream, Stream) {
-        let localhost = std::net::SocketAddr::new(std::net::Ipv4Addr::LOCALHOST.into(), 0);
-        let mut listener = Listener::bind(localhost).await.unwrap();
+        let listener_addr = ListenerAddr::new_localhost();
         let peer_info = PeerInfo {
             id: peer_id,
-            addr: Some(listener.0.local_addr().unwrap()),
+            addr: Some(*listener_addr.as_ref()),
             account_id: None,
         };
+        let mut listener = listener_addr.listener().unwrap();
         let (outbound, inbound) =
             tokio::join!(Stream::connect(&peer_info, tier), listener.accept());
         (outbound.unwrap(), inbound.unwrap())
@@ -164,11 +164,18 @@ impl ListenerAddr {
         // * provide 2 separate constructors: one for async context, which binds immediately, and
         //   one for sync context, which postpones binding until ListenerAddr::listener() is
         //   called.
-        let listener = tokio::net::TcpListener::bind(addr).now_or_never().expect("TcpListener::bind() has not resolved immediately");
+        let listener = tokio::net::TcpListener::bind(addr).now_or_never().expect("TcpListener::bind() has not resolved immediately")?;
         Ok(Self{
-            raw: Arc::new(listener?.into_std()?),
-            addr,
+            // We fetch local_addr(), because addr.port() could have been 0, in which case an
+            // arbitrary free port will be allocated.
+            addr: listener.local_addr()?,
+            raw: Arc::new(listener.into_std()?),
         })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn new_localhost() -> Self {
+        Self::new("127.0.0.1:0".parse().unwrap()).unwrap()
     }
 
     pub(crate) fn listener(&self) -> std::io::Result<Listener> {

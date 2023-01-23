@@ -428,25 +428,26 @@ mod test {
     use crate::network_protocol::AccountData;
     use crate::testonly::make_rng;
     use crate::time;
+    use crate::tcp;
 
     #[test]
     fn test_network_config() {
-        let nc = config::NetworkConfig::from_seed("123", 213);
+        let nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::new_localhost());
         assert!(nc.verify().is_ok());
 
-        let mut nc = config::NetworkConfig::from_seed("123", 213);
+        let mut nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::new_localhost());
         nc.ideal_connections_lo = nc.ideal_connections_hi + 1;
         assert!(nc.verify().is_err());
 
-        let mut nc = config::NetworkConfig::from_seed("123", 213);
+        let mut nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::new_localhost());
         nc.ideal_connections_hi = nc.max_num_peers + 1;
         assert!(nc.verify().is_err());
 
-        let mut nc = config::NetworkConfig::from_seed("123", 213);
+        let mut nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::new_localhost());
         nc.safe_set_size = nc.minimum_outbound_peers;
         assert!(nc.verify().is_err());
 
-        let mut nc = config::NetworkConfig::from_seed("123", 213);
+        let mut nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::new_localhost());
         nc.peer_recent_time_window = UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE;
         assert!(nc.verify().is_err());
     }
