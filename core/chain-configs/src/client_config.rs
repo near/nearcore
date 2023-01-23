@@ -74,7 +74,7 @@ impl GCConfig {
 }
 
 /// ClientConfig where some fields can be updated at runtime.
-#[derive(Clone)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ClientConfig {
     /// Version of the binary.
     pub version: Version,
