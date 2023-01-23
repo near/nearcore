@@ -643,11 +643,11 @@ fn verify_flat_storage_for_shard(
             if i % 100_000 == 0 {
                 eprintln!("iter {} {:?} {:?}", i, key, value_ref);
             }
-            // if account_id_to_shard_id(&account_id, &shard_layout) == shard_id {
-            // let value = trie.storage.retrieve_raw_bytes(&value_ref.hash).unwrap();
-            // let sr = StateRecord::from_raw_key_value(key.to_vec(), value.to_vec()).unwrap();
-            // eprintln!("{}", sr);
-            // }
+            if account_id_to_shard_id(&account_id, &shard_layout) == shard_id {
+                // let value = trie.storage.retrieve_raw_bytes(&value_ref.hash).unwrap();
+                // let sr = StateRecord::from_raw_key_value(key.to_vec(), value.to_vec()).unwrap();
+                // eprintln!("{}", sr);
+            }
         }
     }
     drop(trie);
