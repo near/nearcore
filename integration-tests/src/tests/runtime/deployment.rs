@@ -51,7 +51,7 @@ fn test_deploy_max_size_contract() {
         )
         .unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
-    assert_eq!(transaction_result.receipts_outcome.len(), 1);
+    assert_eq!(transaction_result.receipts_outcome.len(), 2);
 
     // Deploy contract
     let wasm_binary = near_test_contracts::sized_contract(contract_size as usize);

@@ -460,7 +460,13 @@
         "FunctionCallError",
         "NewReceiptValidationError",
         "OnlyImplicitAccountCreationAllowed",
-        "DeleteAccountWithLargeState"
+        "DeleteAccountWithLargeState",
+        "DelegateActionInvalidSignature",
+        "DelegateActionSenderDoesNotMatchTxReceiver",
+        "DelegateActionExpired",
+        "DelegateActionAccessKeyError",
+        "DelegateActionInvalidNonce",
+        "DelegateActionNonceTooLarge"
       ],
       "props": {
         "index": ""
@@ -480,7 +486,9 @@
         "FunctionCallMethodNameLengthExceeded",
         "FunctionCallArgumentsLengthExceeded",
         "UnsuitableStakingKey",
-        "FunctionCallZeroAttachedGas"
+        "FunctionCallZeroAttachedGas",
+        "DelegateActionCantContainNestedOne",
+        "DelegateActionMustBeOnlyOne"
       ],
       "props": {}
     },
@@ -554,6 +562,50 @@
         "account_id": "",
         "predecessor_id": "",
         "registrar_account_id": ""
+      }
+    },
+    "DelegateActionCantContainNestedOne": {
+      "name": "DelegateActionCantContainNestedOne",
+      "subtypes": [],
+      "props": {}
+    },
+    "DelegateActionExpired": {
+      "name": "DelegateActionExpired",
+      "subtypes": [],
+      "props": {}
+    },
+    "DelegateActionInvalidNonce": {
+      "name": "DelegateActionInvalidNonce",
+      "subtypes": [],
+      "props": {
+        "ak_nonce": "",
+        "delegate_nonce": ""
+      }
+    },
+    "DelegateActionInvalidSignature": {
+      "name": "DelegateActionInvalidSignature",
+      "subtypes": [],
+      "props": {}
+    },
+    "DelegateActionMustBeOnlyOne": {
+      "name": "DelegateActionMustBeOnlyOne",
+      "subtypes": [],
+      "props": {}
+    },
+    "DelegateActionNonceTooLarge": {
+      "name": "DelegateActionNonceTooLarge",
+      "subtypes": [],
+      "props": {
+        "delegate_nonce": "",
+        "upper_bound": ""
+      }
+    },
+    "DelegateActionSenderDoesNotMatchTxReceiver": {
+      "name": "DelegateActionSenderDoesNotMatchTxReceiver",
+      "subtypes": [],
+      "props": {
+        "receiver_id": "",
+        "sender_id": ""
       }
     },
     "DeleteAccountStaking": {

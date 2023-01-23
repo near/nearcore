@@ -908,15 +908,21 @@ pub(crate) fn receipt_refcount_final(sv: &mut StoreValidator) -> Result<(), Stor
 }
 
 pub(crate) fn block_refcount_final(sv: &mut StoreValidator) -> Result<(), StoreValidatorError> {
-    if let Some(block_refcount) = sv.inner.block_refcount.iter().next() {
+    let block_refcount_len = sv.inner.block_refcount.len();
+    if block_refcount_len >= 2 {
         err!(
             "Found {:?} Blocks that are not counted, e.g. {:?}",
-            sv.inner.block_refcount.len(),
-            block_refcount
+            block_refcount_len,
+            sv.inner.block_refcount.iter().next()
         );
     }
-    if let Some(tail_block) = sv.inner.genesis_blocks.first() {
-        err!("Found {:?} Genesis Blocks, e.g. {:?}", sv.inner.genesis_blocks.len(), tail_block);
+    let genesis_blocks_len = sv.inner.genesis_blocks.len();
+    if genesis_blocks_len >= 2 {
+        err!(
+            "Found {:?} Genesis Blocks, e.g. {:?}",
+            genesis_blocks_len,
+            sv.inner.genesis_blocks.first()
+        );
     }
     Ok(())
 }

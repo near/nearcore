@@ -43,6 +43,40 @@ def sign_and_serialize_transaction(receiverId, nonce, actions, blockHash,
     return BinarySerializer(schema).serialize(signedTx)
 
 
+def compute_delegated_action_hash(senderId, receiverId, actions, nonce,
+                                  maxBlockHeight, publicKey):
+    delegateAction = DelegateAction()
+    delegateAction.senderId = senderId
+    delegateAction.receiverId = receiverId
+    delegateAction.actions = actions
+    delegateAction.nonce = nonce
+    delegateAction.maxBlockHeight = maxBlockHeight
+    delegateAction.publicKey = PublicKey()
+    delegateAction.publicKey.keyType = 0
+    delegateAction.publicKey.data = publicKey
+    msg = BinarySerializer(schema).serialize(delegateAction)
+    hash_ = hashlib.sha256(msg).digest()
+
+    return delegateAction, hash_
+
+
+# Used by meta-transactions.
+# Creates a SignedDelegate that is later put into the DelegateAction by relayer.
+def create_signed_delegated_action(senderId, receiverId, actions, nonce,
+                                   maxBlockHeight, publicKey, sk):
+    delegated_action, hash_ = compute_delegated_action_hash(
+        senderId, receiverId, actions, nonce, maxBlockHeight, publicKey)
+
+    signature = Signature()
+    signature.keyType = 0
+    signature.data = SigningKey(sk).sign(hash_)
+
+    signedDA = SignedDelegate()
+    signedDA.delegateAction = delegated_action
+    signedDA.signature = signature
+    return signedDA
+
+
 def create_create_account_action():
     createAccount = CreateAccount()
     action = Action()
@@ -131,6 +165,22 @@ def create_delete_account_action(beneficiary):
     action.enum = 'deleteAccount'
     action.deleteAccount = deleteAccount
     return action
+
+
+def create_delegate_action(signedDelegate):
+    action = Action()
+    action.enum = 'delegate'
+    action.delegate = signedDelegate
+    return action
+
+
+def sign_delegate_action(signedDelegate, signer_key, contract_id, nonce,
+                         blockHash):
+    action = create_delegate_action(signedDelegate)
+    return sign_and_serialize_transaction(contract_id, nonce, [action],
+                                          blockHash, signer_key.account_id,
+                                          signer_key.decoded_pk(),
+                                          signer_key.decoded_sk())
 
 
 def sign_create_account_tx(creator_key, new_account_id, nonce, block_hash):

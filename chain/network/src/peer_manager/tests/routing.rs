@@ -874,7 +874,7 @@ async fn max_num_peers_limit() {
     drop(pm3);
 }
 
-/// Test that TTL is handled properly.
+// test that TTL is handled property.
 #[tokio::test]
 async fn ttl() {
     init_test_logger();
@@ -928,8 +928,8 @@ async fn ttl() {
     }
 }
 
-/// After the initial exchange, all subsequent SyncRoutingTable messages are
-/// expected to contain only the diff of the known data.
+// After the initial exchange, all subsequent SyncRoutingTable messages are
+// expected to contain only the diff of the known data.
 #[tokio::test]
 async fn repeated_data_in_sync_routing_table() {
     init_test_logger();

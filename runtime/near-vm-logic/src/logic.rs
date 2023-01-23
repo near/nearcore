@@ -5,7 +5,6 @@ use crate::receipt_manager::ReceiptManager;
 use crate::types::{PromiseIndex, PromiseResult, ReceiptIndex, ReturnData};
 use crate::utils::split_method_names;
 use crate::{ReceiptMetadata, StorageGetMode, ValuePtr};
-use byteorder::ByteOrder;
 use near_crypto::Secp256K1Signature;
 use near_primitives::checked_feature;
 use near_primitives::config::ViewConfig;
@@ -307,11 +306,7 @@ impl<'a> VMLogic<'a> {
             self.config.limit_config.max_total_log_length.saturating_sub(self.total_log_length);
         if len != u64::MAX {
             if len > max_len {
-                return Err(HostError::TotalLogLengthExceeded {
-                    length: self.total_log_length.saturating_add(len),
-                    limit: self.config.limit_config.max_total_log_length,
-                }
-                .into());
+                return self.total_log_length_exceeded(len);
             }
             buf = self.memory.view(&mut self.gas_counter, MemSlice { ptr, len })?.into_owned();
         } else {
@@ -323,11 +318,7 @@ impl<'a> VMLogic<'a> {
                     break;
                 }
                 if i == max_len {
-                    return Err(HostError::TotalLogLengthExceeded {
-                        length: self.total_log_length.saturating_add(max_len).saturating_add(1),
-                        limit: self.config.limit_config.max_total_log_length,
-                    }
-                    .into());
+                    return self.total_log_length_exceeded(max_len.saturating_add(1));
                 }
                 buf.push(el);
             }
@@ -361,52 +352,46 @@ impl<'a> VMLogic<'a> {
     ///
     /// For nul-terminated string:
     /// `read_memory_base * num_bytes / 2 + read_memory_byte * num_bytes + utf16_decoding_base + utf16_decoding_byte * num_bytes`
-    fn get_utf16_string(&mut self, len: u64, ptr: u64) -> Result<String> {
+    fn get_utf16_string(&mut self, mut len: u64, ptr: u64) -> Result<String> {
         self.gas_counter.pay_base(utf16_decoding_base)?;
-        let mut u16_buffer;
         let max_len =
             self.config.limit_config.max_total_log_length.saturating_sub(self.total_log_length);
-        if len != u64::MAX {
-            let input = self.memory.view(&mut self.gas_counter, MemSlice { ptr, len })?;
-            if len % 2 != 0 {
-                return Err(HostError::BadUTF16.into());
-            }
-            if len > max_len {
-                return Err(HostError::TotalLogLengthExceeded {
-                    length: self.total_log_length.saturating_add(len),
-                    limit: self.config.limit_config.max_total_log_length,
-                }
-                .into());
-            }
-            u16_buffer = vec![0u16; len as usize / 2];
-            byteorder::LittleEndian::read_u16_into(&input, &mut u16_buffer);
+
+        let mem_view = if len == u64::MAX {
+            len = self.get_nul_terminated_utf16_len(ptr, max_len)?;
+            self.memory.view_for_free(MemSlice { ptr, len })
         } else {
-            u16_buffer = vec![];
-            let limit = max_len / size_of::<u16>() as u64;
-            // Takes 2 bytes each iter
-            for i in 0..=limit {
-                // self.memory_get_u16 will check for u64 overflow on the first iteration (i == 0)
-                let start = ptr + i * size_of::<u16>() as u64;
-                let el = self.memory.get_u16(&mut self.gas_counter, start)?;
-                if el == 0 {
-                    break;
-                }
-                if i == limit {
-                    return Err(HostError::TotalLogLengthExceeded {
-                        length: self
-                            .total_log_length
-                            .saturating_add(i * size_of::<u16>() as u64)
-                            .saturating_add(size_of::<u16>() as u64),
-                        limit: self.config.limit_config.max_total_log_length,
-                    }
-                    .into());
-                }
-                u16_buffer.push(el);
-            }
+            self.memory.view(&mut self.gas_counter, MemSlice { ptr, len })
+        }?;
+
+        let input = stdx::as_chunks_exact(&mem_view).map_err(|_| HostError::BadUTF16)?;
+        if len > max_len {
+            return self.total_log_length_exceeded(len);
         }
-        self.gas_counter
-            .pay_per(utf16_decoding_byte, u16_buffer.len() as u64 * size_of::<u16>() as u64)?;
-        String::from_utf16(&u16_buffer).map_err(|_| HostError::BadUTF16.into())
+
+        self.gas_counter.pay_per(utf16_decoding_byte, len)?;
+        char::decode_utf16(input.into_iter().copied().map(u16::from_le_bytes))
+            .collect::<Result<String, _>>()
+            .map_err(|_| HostError::BadUTF16.into())
+    }
+
+    /// Helper function to get length of NUL-terminated UTF-16 formatted string
+    /// in guest memory.
+    ///
+    /// In other words, counts how many bytes are there to first pair of NUL
+    /// bytes.
+    fn get_nul_terminated_utf16_len(&mut self, ptr: u64, max_len: u64) -> Result<u64> {
+        let mut len = 0;
+        loop {
+            if self.memory.get_u16(&mut self.gas_counter, ptr.saturating_add(len))? == 0 {
+                return Ok(len);
+            }
+            len = match len.checked_add(2) {
+                Some(len) if len <= max_len => len,
+                Some(len) => return self.total_log_length_exceeded(len),
+                None => return self.total_log_length_exceeded(u64::MAX),
+            };
+        }
     }
 
     // ####################################################
@@ -445,14 +430,18 @@ impl<'a> VMLogic<'a> {
         // The size of logged data can't be too large. No overflow.
         self.total_log_length += message.len() as u64;
         if self.total_log_length > self.config.limit_config.max_total_log_length {
-            return Err(HostError::TotalLogLengthExceeded {
-                length: self.total_log_length,
-                limit: self.config.limit_config.max_total_log_length,
-            }
-            .into());
+            return self.total_log_length_exceeded(0);
         }
         self.logs.push(message);
         Ok(())
+    }
+
+    fn total_log_length_exceeded<T>(&self, add_len: u64) -> Result<T> {
+        Err(HostError::TotalLogLengthExceeded {
+            length: self.total_log_length.saturating_add(add_len),
+            limit: self.config.limit_config.max_total_log_length,
+        }
+        .into())
     }
 
     fn get_public_key(&mut self, ptr: u64, len: u64) -> Result<PublicKeyBuffer> {

@@ -1,4 +1,4 @@
-use near_primitives::num_rational::Rational;
+use near_primitives::num_rational::Rational32;
 use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::runtime::fees::{Fee, RuntimeFeesConfig, StorageUsageConfig};
 use rand::{thread_rng, RngCore};
@@ -20,8 +20,8 @@ pub fn random_config() -> RuntimeConfig {
                 num_extra_bytes_record: rng.next_u64() % 10000,
                 storage_amount_per_byte: rng.next_u64() as u128,
             },
-            burnt_gas_reward: Rational::new((rng.next_u32() % 100).try_into().unwrap(), 100),
-            pessimistic_gas_price_inflation_ratio: Rational::new(
+            burnt_gas_reward: Rational32::new((rng.next_u32() % 100).try_into().unwrap(), 100),
+            pessimistic_gas_price_inflation_ratio: Rational32::new(
                 (101 + rng.next_u32() % 10).try_into().unwrap(),
                 100,
             ),

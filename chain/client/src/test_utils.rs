@@ -265,6 +265,7 @@ pub fn setup(
         ctx,
         None,
         adv,
+        None,
     )
     .unwrap();
     (genesis_block, client, view_client_addr)
