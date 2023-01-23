@@ -1073,6 +1073,20 @@ impl FlatStorageState {
 
     #[cfg(not(feature = "protocol_feature_flat_state"))]
     pub fn clear_state(&self, _shard_layout: ShardLayout) {}
+
+    pub fn head(&self) -> CryptoHash {
+        let guard = self.0.read().expect(POISONED_LOCK_ERR);
+        guard.flat_head.clone()
+    }
+
+    pub fn iter_head(&self) {
+        let guard = self.0.read().expect(POISONED_LOCK_ERR);
+        for item in guard.store.iter(crate::DBCol::FlatState) {
+    }
+}
+
+pub struct FlatStorageHeadIterator {
+    state: FlatStorageState
 }
 
 #[cfg(test)]

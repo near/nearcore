@@ -13,18 +13,21 @@ use near_chain_configs::GenesisChangeConfig;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_network::iter_peers_from_store;
 use near_primitives::account::id::AccountId;
-use near_primitives::block::{Block, BlockHeader};
+use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
+use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout};
 use near_primitives::sharding::ChunkHash;
+use near_primitives::state::ValueRef;
 use near_primitives::state_record::StateRecord;
+use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_raw_key;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{chunk_extra::ChunkExtra, BlockHeight, ShardId, StateRoot};
 use near_primitives_core::types::Gas;
 use near_store::db::Database;
+use near_store::flat_state::FlatStorageState;
 use near_store::test_utils::create_test_store;
-use near_store::TrieDBStorage;
+use near_store::{DBCol, TrieDBStorage};
 use near_store::{Store, Trie, TrieCache, TrieCachingStorage, TrieConfig};
 use nearcore::{NearConfig, NightshadeRuntime};
 use node_runtime::adapter::ViewRuntimeAdapter;
@@ -600,6 +603,68 @@ pub(crate) fn state(home_dir: &Path, near_config: NearConfig, store: Store) {
             let (key, value) = item.unwrap();
             if let Some(state_record) = StateRecord::from_raw_key_value(key, value) {
                 println!("{}", state_record);
+            }
+        }
+    }
+}
+
+fn verify_flat_storage_for_shard(
+    shard_id: ShardId,
+    chain_store: &ChainStore,
+    runtime: &dyn RuntimeAdapter,
+    chain_head: Tip,
+) {
+    // consider avoiding passing latest height
+    let latest_height = chain_head.height;
+    runtime.create_flat_storage_state_for_shard(shard_id, latest_height, chain_store);
+    let flat_storage_state = runtime.get_flat_storage_state_for_shard(shard_id).unwrap();
+    let flat_head = flat_storage_state.head();
+    let flat_head_block = chain_store.get_block(&flat_head).unwrap();
+    let shard_layout = runtime.get_shard_layout(&chain_head.epoch_id).unwrap();
+    let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
+    let chunk_extra = chain_store.get_chunk_extra(&flat_head, &shard_uid).unwrap();
+    let state_root = chunk_extra.state_root().clone();
+    let trie = runtime
+        .get_trie_for_shard(shard_id, &flat_head, chunk_extra.state_root().clone(), false)
+        .unwrap();
+    #[cfg(feature = "protocol_feature_flat_state")]
+    for item in runtime.store().iter_prefix_ser(DBCol::FlatState, &[]) {
+        let (key, value_ref_ser) = item.unwrap();
+        let value_ref = ValueRef::decode(value_ref_ser);
+        let account_id = parse_account_id_from_raw_key(&key).unwrap().unwrap();
+        if account_id_to_shard_id(&account_id, &shard_layout) == shard_id {
+            eprintln!("{:?} {:?}", key, value_ref);
+        }
+    }
+}
+
+pub(crate) fn verify_flat_storage(
+    shard_id: Option<ShardId>,
+    home_dir: &Path,
+    near_config: NearConfig,
+    store: Store,
+) {
+    let chain_store = ChainStore::new(
+        store.clone(),
+        near_config.genesis.config.genesis_height,
+        near_config.client_config.save_trie_changes,
+    );
+    let chain_head = chain_store.head().unwrap();
+    let runtime = NightshadeRuntime::from_config(home_dir, store, &near_config);
+    match shard_id {
+        Some(shard_id) => {
+            verify_flat_storage_for_shard(shard_id, &chain_store, &runtime, chain_head.clone())
+        }
+        None => {
+            for shard_id in 0..runtime.num_shards(&chain_head.epoch_id).unwrap() {
+                if runtime.cares_about_shard(None, &chain_head.prev_block_hash, shard_id, false) {
+                    verify_flat_storage_for_shard(
+                        shard_id,
+                        &chain_store,
+                        &runtime,
+                        chain_head.clone(),
+                    );
+                }
             }
         }
     }

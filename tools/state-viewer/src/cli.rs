@@ -76,6 +76,8 @@ pub enum StateViewerSubCommand {
     RocksDBStats(RocksDBStatsCmd),
     /// Iterates over a trie and prints the StateRecords.
     State,
+    #[clap(alias = "verify_flat_storage")]
+    VerifyFlatStorage(VerifyFlatStorageCmd),
     /// View head of the storage.
     #[clap(alias = "view_chain")]
     ViewChain(ViewChainCmd),
@@ -130,6 +132,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::Replay(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::RocksDBStats(cmd) => cmd.run(store_opener.path()),
             StateViewerSubCommand::State => state(home_dir, near_config, store),
+            StateViewerSubCommand::VerifyFlatStorage(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ViewChain(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::ViewTrie(cmd) => cmd.run(store),
         }
@@ -523,6 +526,18 @@ pub struct RocksDBStatsCmd {
 impl RocksDBStatsCmd {
     pub fn run(self, store_dir: &Path) {
         get_rocksdb_stats(store_dir, self.file).expect("Couldn't get RocksDB stats");
+    }
+}
+
+#[derive(Parser)]
+pub struct VerifyFlatStorageCmd {
+    #[clap(long)]
+    shard_id: Option<ShardId>,
+}
+
+impl VerifyFlatStorageCmd {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+        verify_flat_storage(self.shard_id, home_dir, near_config, store);
     }
 }
 
