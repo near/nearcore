@@ -14,49 +14,113 @@ pub(crate) enum ParameterValue {
     U64(u64),
     Rational { numerator: i32, denominator: i32 },
     Fee { send_sir: u64, send_not_sir: u64, execution: u64 },
+    // Can be used to store either a string or u128. Ideally, we would use a dedicated enum member
+    // for u128, but this is currently impossible to express in YAML (see
+    // `canonicalize_yaml_string`).
     String(String),
 }
 
-impl ParameterValue {
-    fn as_u64(&self) -> Option<u64> {
-        match self {
-            ParameterValue::U64(v) => Some(*v),
-            _ => None,
-        }
-    }
+#[derive(thiserror::Error, Debug)]
+pub(crate) enum ValueConversionError {
+    #[error("expected a value of type `{0}`, but could not parse it from `{1:?}`")]
+    ParseType(&'static str, ParameterValue),
 
-    fn as_rational(&self) -> Option<Rational32> {
-        match self {
-            ParameterValue::Rational { numerator, denominator } => {
-                Some(Rational32::new(*numerator, *denominator))
+    #[error("expected an integer of type `{1}` but could not parse it from `{2:?}`")]
+    ParseInt(#[source] std::num::ParseIntError, &'static str, ParameterValue),
+
+    #[error("expected an integer of type `{1}` but could not parse it from `{2:?}`")]
+    TryFromInt(#[source] std::num::TryFromIntError, &'static str, ParameterValue),
+
+    #[error("expected an account id, but could not parse it from `{1}`")]
+    ParseAccountId(#[source] ParseAccountError, String),
+}
+
+macro_rules! implement_conversion_to {
+    ($($ty: ty),*) => {
+        $(impl TryFrom<&ParameterValue> for $ty {
+            type Error = ValueConversionError;
+            fn try_from(value: &ParameterValue) -> Result<Self, Self::Error> {
+                match value {
+                    ParameterValue::U64(v) => <$ty>::try_from(*v).map_err(|err| {
+                        ValueConversionError::TryFromInt(
+                            err.into(),
+                            std::any::type_name::<$ty>(),
+                            value.clone(),
+                        )
+                    }),
+                    _ => Err(ValueConversionError::ParseType(
+                            std::any::type_name::<$ty>(), value.clone()
+                    )),
+                }
             }
-            _ => None,
+        })*
+    }
+}
+
+implement_conversion_to!(u64, u32, u16, u8, i64, i32, i16, i8, usize, isize);
+
+impl TryFrom<&ParameterValue> for u128 {
+    type Error = ValueConversionError;
+
+    fn try_from(value: &ParameterValue) -> Result<Self, Self::Error> {
+        match value {
+            ParameterValue::U64(v) => Ok(u128::from(*v)),
+            ParameterValue::String(s) => s.parse().map_err(|err| {
+                ValueConversionError::ParseInt(err, std::any::type_name::<u128>(), value.clone())
+            }),
+            _ => Err(ValueConversionError::ParseType(std::any::type_name::<u128>(), value.clone())),
         }
     }
+}
 
-    fn as_u128(&self) -> Option<u128> {
-        match self {
-            ParameterValue::U64(v) => Some(u128::from(*v)),
-            // TODO(akashin): Refactor this to use `TryFrom` and properly propagate an error.
-            ParameterValue::String(s) => s.parse().ok(),
-            _ => None,
+impl TryFrom<&ParameterValue> for Rational32 {
+    type Error = ValueConversionError;
+
+    fn try_from(value: &ParameterValue) -> Result<Self, Self::Error> {
+        match value {
+            &ParameterValue::Rational { numerator, denominator } => {
+                Ok(Rational32::new(numerator, denominator))
+            }
+            _ => Err(ValueConversionError::ParseType(
+                std::any::type_name::<Rational32>(),
+                value.clone(),
+            )),
         }
     }
+}
 
-    fn as_fee(&self) -> Option<Fee> {
-        match self {
+impl TryFrom<&ParameterValue> for Fee {
+    type Error = ValueConversionError;
+
+    fn try_from(value: &ParameterValue) -> Result<Self, Self::Error> {
+        match value {
             &ParameterValue::Fee { send_sir, send_not_sir, execution } => {
-                Some(Fee { send_sir, send_not_sir, execution })
+                Ok(Fee { send_sir, send_not_sir, execution })
             }
-            _ => None,
+            _ => Err(ValueConversionError::ParseType(std::any::type_name::<Fee>(), value.clone())),
         }
     }
+}
 
-    fn as_str(&self) -> Option<&str> {
-        match self {
-            ParameterValue::String(v) => Some(v),
-            _ => None,
+impl<'a> TryFrom<&'a ParameterValue> for &'a str {
+    type Error = ValueConversionError;
+
+    fn try_from(value: &'a ParameterValue) -> Result<Self, Self::Error> {
+        match value {
+            ParameterValue::String(v) => Ok(v),
+            _ => {
+                Err(ValueConversionError::ParseType(std::any::type_name::<String>(), value.clone()))
+            }
         }
+    }
+}
+
+impl TryFrom<&ParameterValue> for AccountId {
+    type Error = ValueConversionError;
+
+    fn try_from(value: &ParameterValue) -> Result<Self, Self::Error> {
+        let value: &str = value.try_into()?;
+        value.parse().map_err(|err| ValueConversionError::ParseAccountId(err, value.to_string()))
     }
 }
 
@@ -134,12 +198,8 @@ pub(crate) enum InvalidConfigError {
     WrongOldValue(Parameter, ParameterValue, ParameterValue),
     #[error("expected a value for `{0}` but found none")]
     MissingParameter(Parameter),
-    #[error("expected a value of type `{1}` for `{0}` but could not parse it from `{2:?}`")]
-    WrongValueType(Parameter, &'static str, ParameterValue),
-    #[error("expected an integer of type `{2}` for `{1}` but could not parse it from `{3}`")]
-    WrongIntegerType(#[source] std::num::TryFromIntError, Parameter, &'static str, u64),
-    #[error("expected an account id for `{1}` but could not parse it from `{2}`")]
-    WrongAccountId(#[source] ParseAccountError, Parameter, String),
+    #[error("failed to convert a value for `{1}`")]
+    ValueConversionError(#[source] ValueConversionError, Parameter),
 }
 
 impl std::str::FromStr for ParameterTable {
@@ -171,31 +231,30 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                 action_fees: enum_map::enum_map! {
                     action_cost => params.get_fee(action_cost)?
                 },
-                burnt_gas_reward: params.get_rational(Parameter::BurntGasReward)?,
+                burnt_gas_reward: params.get(Parameter::BurntGasReward)?,
                 pessimistic_gas_price_inflation_ratio: params
-                    .get_rational(Parameter::PessimisticGasPriceInflation)?,
+                    .get(Parameter::PessimisticGasPriceInflation)?,
                 storage_usage_config: StorageUsageConfig {
-                    storage_amount_per_byte: params.get_u128(Parameter::StorageAmountPerByte)?,
-                    num_bytes_account: params.get_number(Parameter::StorageNumBytesAccount)?,
-                    num_extra_bytes_record: params
-                        .get_number(Parameter::StorageNumExtraBytesRecord)?,
+                    storage_amount_per_byte: params.get(Parameter::StorageAmountPerByte)?,
+                    num_bytes_account: params.get(Parameter::StorageNumBytesAccount)?,
+                    num_extra_bytes_record: params.get(Parameter::StorageNumExtraBytesRecord)?,
                 },
             },
             wasm_config: VMConfig {
                 ext_costs: ExtCostsConfig {
                     costs: enum_map::enum_map! {
-                        cost => params.get_number(cost.param())?
+                        cost => params.get(cost.param())?
                     },
                 },
-                grow_mem_cost: params.get_number(Parameter::WasmGrowMemCost)?,
-                regular_op_cost: params.get_number(Parameter::WasmRegularOpCost)?,
+                grow_mem_cost: params.get(Parameter::WasmGrowMemCost)?,
+                regular_op_cost: params.get(Parameter::WasmRegularOpCost)?,
                 limit_config: serde_yaml::from_value(params.yaml_map(Parameter::vm_limits()))
                     .map_err(InvalidConfigError::InvalidYaml)?,
             },
             account_creation_config: AccountCreationConfig {
                 min_allowed_top_level_account_length: params
-                    .get_number(Parameter::MinAllowedTopLevelAccountLength)?,
-                registrar_account_id: params.get_account_id(Parameter::RegistrarAccountId)?,
+                    .get(Parameter::MinAllowedTopLevelAccountLength)?,
+                registrar_account_id: params.get(Parameter::RegistrarAccountId)?,
             },
         })
     }
@@ -238,14 +297,19 @@ impl ParameterTable {
         // All parameter values can be serialized as YAML, so we don't ever expect this to fail.
         serde_yaml::to_value(
             params
-                .filter_map(|param| Some((param.to_string(), self.get(*param)?)))
+                .filter_map(|param| Some((param.to_string(), self.parameters.get(param)?)))
                 .collect::<BTreeMap<_, _>>(),
         )
         .expect("failed to convert parameter values to YAML")
     }
 
-    fn get(&self, key: Parameter) -> Option<&ParameterValue> {
-        self.parameters.get(&key)
+    /// Read and parse a typed parameter from the `ParameterTable`.
+    fn get<'a, T>(&'a self, key: Parameter) -> Result<T, InvalidConfigError>
+    where
+        T: TryFrom<&'a ParameterValue, Error = ValueConversionError>,
+    {
+        let value = self.parameters.get(&key).ok_or(InvalidConfigError::MissingParameter(key))?;
+        value.try_into().map_err(|err| InvalidConfigError::ValueConversionError(err, key))
     }
 
     /// Access action fee by `ActionCosts`.
@@ -254,71 +318,7 @@ impl ParameterTable {
         cost: near_primitives_core::config::ActionCosts,
     ) -> Result<near_primitives_core::runtime::fees::Fee, InvalidConfigError> {
         let key: Parameter = format!("{}", FeeParameter::from(cost)).parse().unwrap();
-        let value = self.parameters.get(&key).ok_or(InvalidConfigError::MissingParameter(key))?;
-        value.as_fee().ok_or(InvalidConfigError::WrongValueType(
-            key,
-            std::any::type_name::<Fee>(),
-            value.clone(),
-        ))
-    }
-
-    /// Read and parse a number parameter from the `ParameterTable`.
-    fn get_number<T>(&self, key: Parameter) -> Result<T, InvalidConfigError>
-    where
-        T: TryFrom<u64>,
-        T::Error: Into<std::num::TryFromIntError>,
-    {
-        let value = self.parameters.get(&key).ok_or(InvalidConfigError::MissingParameter(key))?;
-        let value_u64 = value.as_u64().ok_or(InvalidConfigError::WrongValueType(
-            key,
-            std::any::type_name::<T>(),
-            value.clone(),
-        ))?;
-        T::try_from(value_u64).map_err(|err| {
-            InvalidConfigError::WrongIntegerType(
-                err.into(),
-                key,
-                std::any::type_name::<T>(),
-                value_u64,
-            )
-        })
-    }
-
-    /// Read and parse a u128 parameter from the `ParameterTable`.
-    fn get_u128(&self, key: Parameter) -> Result<u128, InvalidConfigError> {
-        let value = self.parameters.get(&key).ok_or(InvalidConfigError::MissingParameter(key))?;
-        value.as_u128().ok_or(InvalidConfigError::WrongValueType(
-            key,
-            std::any::type_name::<u128>(),
-            value.clone(),
-        ))
-    }
-
-    /// Read and parse a string parameter from the `ParameterTable`.
-    fn get_account_id(&self, key: Parameter) -> Result<AccountId, InvalidConfigError> {
-        let value = self.parameters.get(&key).ok_or(InvalidConfigError::MissingParameter(key))?;
-        let value_string = value.as_str().ok_or(InvalidConfigError::WrongValueType(
-            key,
-            std::any::type_name::<String>(),
-            value.clone(),
-        ))?;
-        value_string.parse().map_err(|err| {
-            InvalidConfigError::WrongAccountId(
-                err,
-                Parameter::RegistrarAccountId,
-                value_string.to_string(),
-            )
-        })
-    }
-
-    /// Read and parse a rational parameter from the `ParameterTable`.
-    fn get_rational(&self, key: Parameter) -> Result<Rational32, InvalidConfigError> {
-        let value = self.parameters.get(&key).ok_or(InvalidConfigError::MissingParameter(key))?;
-        value.as_rational().ok_or(InvalidConfigError::WrongValueType(
-            key,
-            std::any::type_name::<Rational32>(),
-            value.clone(),
-        ))
+        self.get(key)
     }
 }
 
