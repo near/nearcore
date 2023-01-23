@@ -278,12 +278,17 @@ e / 5
 f % 7
 ```
 
-This convention may be enforced by the `clippy::integer_arithmetic` lint.
+If you’re confident the arithmetic operation cannot fail,
+`x.checked_[add|sub|mul|div](y).expect("explanation why the operation is safe")` is a great
+alternative, as it neatly documents not just the infallibility, but also _why_ that is the case.
+
+This convention may be enforced by the `clippy::arithmetic_side_effects` and
+`clippy::integer_arithmetic` lints.
 
 **Rationale:** By default the outcome of an overflowing computation in Rust depends on a few
 factors, most notably the compilation flags used. The quick explanation is that in debug mode the
-computations may panic if the result has overflowed, and when built with optimizations enabled,
-these computations will wrap-around instead.
+computations may panic (cause side effects) if the result has overflowed, and when built with
+optimizations enabled, these computations will wrap-around instead.
 
 For nearcore and neard we have opted to enable the panicking behaviour regardless of the
 optimization level. By doing it this we hope to prevent accidental stabilization of protocol
