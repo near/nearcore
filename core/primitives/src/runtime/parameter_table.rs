@@ -60,8 +60,52 @@ impl ParameterValue {
     }
 }
 
+fn format_number(mut n: u64) -> String {
+    let mut parts = Vec::new();
+    while n >= 1000 {
+        parts.push(format!("{:03?}", n % 1000));
+        n /= 1000;
+    }
+    parts.push(n.to_string());
+    parts.reverse();
+    parts.join("_")
+}
+
+impl core::fmt::Display for ParameterValue {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        match self {
+            ParameterValue::U64(v) => write!(f, "{}", format_number(*v)),
+            ParameterValue::Rational { numerator, denominator } => {
+                write!(f, "{numerator} / {denominator}")
+            }
+            ParameterValue::Fee { send_sir, send_not_sir, execution } => {
+                write!(
+                    f,
+                    r#"
+- send_sir:     {}
+- send_not_sir: {}
+- execution:    {}"#,
+                    format_number(*send_sir),
+                    format_number(*send_not_sir),
+                    format_number(*execution)
+                )
+            }
+            ParameterValue::String(v) => write!(f, "{v}"),
+        }
+    }
+}
+
 pub(crate) struct ParameterTable {
     parameters: BTreeMap<Parameter, ParameterValue>,
+}
+
+impl core::fmt::Display for ParameterTable {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        for (key, value) in &self.parameters {
+            write!(f, "{key:40}{value}\n")?
+        }
+        Ok(())
+    }
 }
 
 /// Changes made to parameters between versions.
