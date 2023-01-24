@@ -32,7 +32,7 @@ use near_store::db::Database;
 use near_store::test_utils::create_test_store;
 #[cfg(feature = "protocol_feature_flat_state")]
 use near_store::DBCol;
-use near_store::TrieDBStorage;
+use near_store::{FlatStateDelta, TrieDBStorage};
 use near_store::{Store, Trie, TrieCache, TrieCachingStorage, TrieConfig};
 use nearcore::{NearConfig, NightshadeRuntime};
 use node_runtime::adapter::ViewRuntimeAdapter;
@@ -642,9 +642,10 @@ fn verify_flat_storage_for_shard(
             let account_id = parse_account_id_from_raw_key(&key).unwrap();
             match account_id {
                 None => {
+                    eprintln!("wtf {} {:?} {}", i, key, value_ref.hash);
                     let value = trie.storage.retrieve_raw_bytes(&value_ref.hash).unwrap();
                     let sr = StateRecord::from_raw_key_value(key.to_vec(), value.to_vec()).unwrap();
-                    eprintln!("wtf {} {:?}", i, sr);
+                    eprintln!("state record: {}", sr);
                 }
                 Some(account_id) => {
                     if i % 100_000 == 0 {
@@ -725,9 +726,10 @@ pub(crate) fn stress_test_flat_storage(
             runtime_adapter.as_ref(),
             &mut chain_store,
         );
+        let old_delta = FlatStateDelta::default();
         for state_change in apply_result.trie_changes.state_changes() {
-            let _key = state_change.trie_key.clone();
-            let _value = state_change.changes.last().unwrap().data.clone();
+            let key = state_change.trie_key.clone();
+            let value = state_change.changes.last().unwrap().data.clone();
         }
         let header = chain_store.get_block_header(&block_hash).unwrap();
         let prev_hash = header.prev_hash();
