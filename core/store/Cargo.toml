@@ -56,7 +56,6 @@ no_cache = []
 single_thread_rocksdb = [] # Deactivate RocksDB IO background threads
 test_features = []
 protocol_feature_flat_state = []
-cold_store = []
 
 nightly_protocol = []
 nightly = [

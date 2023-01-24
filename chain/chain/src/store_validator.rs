@@ -24,7 +24,7 @@ use near_store::db::refcount;
 use near_store::{DBCol, Store, TrieChanges};
 use validate::StoreValidatorError;
 
-use crate::RuntimeAdapter;
+use crate::RuntimeWithEpochManagerAdapter;
 use near_primitives::shard_layout::get_block_shard_uid_rev;
 use near_primitives::time::Clock;
 
@@ -69,7 +69,7 @@ pub struct ErrorMessage {
 pub struct StoreValidator {
     me: Option<AccountId>,
     config: GenesisConfig,
-    runtime_adapter: Arc<dyn RuntimeAdapter>,
+    runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
     store: Store,
     inner: StoreValidatorCache,
     timeout: Option<u64>,
@@ -84,7 +84,7 @@ impl StoreValidator {
     pub fn new(
         me: Option<AccountId>,
         config: GenesisConfig,
-        runtime_adapter: Arc<dyn RuntimeAdapter>,
+        runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
         store: Store,
         is_archival: bool,
     ) -> Self {

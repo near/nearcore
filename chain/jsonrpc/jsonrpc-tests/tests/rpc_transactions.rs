@@ -1,10 +1,8 @@
 use std::sync::{Arc, Mutex};
-use std::{thread, time};
 
 use actix::{Actor, System};
 use borsh::BorshSerialize;
 use futures::{future, FutureExt, TryFutureExt};
-use serde_json::json;
 
 use near_actix_test_utils::run_actix;
 use near_crypto::{InMemorySigner, KeyType};
@@ -96,50 +94,6 @@ fn test_send_tx_commit() {
         let bytes = tx.try_to_vec().unwrap();
         let result = client.broadcast_tx_commit(to_base64(&bytes)).await.unwrap();
         assert_eq!(result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
-    });
-}
-
-/// Test get_recursive_transaction_results (called by get_final_transaction_result)
-/// only returns non-refund receipts
-#[test]
-fn test_refunds_not_in_receipts() {
-    test_with_client!(test_utils::NodeType::Validator, client, async move {
-        let block_hash = client.block(BlockReference::latest()).await.unwrap().header.hash;
-        let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
-        let tx = SignedTransaction::send_money(
-            1,
-            "test1".parse().unwrap(),
-            "test2".parse().unwrap(),
-            &signer,
-            100,
-            block_hash,
-        );
-        let bytes = tx.try_to_vec().unwrap();
-        client.broadcast_tx_commit(to_base64(&bytes)).await.unwrap();
-        let mut tx_status = json!(client.EXPERIMENTAL_tx_status(to_base64(&bytes)).await.unwrap());
-        for _ in 1..10 {
-            // poll every 10 milliseconds for updated tx status
-            thread::sleep(time::Duration::from_millis(10));
-            tx_status = json!(client.EXPERIMENTAL_tx_status(to_base64(&bytes)).await.unwrap());
-            let receipts = tx_status.get("receipts");
-            if receipts.is_some() {
-                if !receipts.unwrap().as_array().unwrap().is_empty() {
-                    break;
-                }
-            }
-        }
-        if let Some(receipt) = tx_status.get("receipts") {
-            if !receipt.as_array().unwrap().is_empty() {
-                let receipt_predecessor_id = receipt.get("predecessor_id");
-                if receipt_predecessor_id.is_some() {
-                    let is_refund = receipt["predecessor_id"].get("is_system").unwrap().as_bool();
-                    if is_refund.is_some() {
-                        assert!(!is_refund.unwrap());
-                    }
-                }
-            }
-        }
-        assert!(tx_status.get("receipts").unwrap().as_array().is_some());
     });
 }
 

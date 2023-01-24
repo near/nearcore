@@ -1,4 +1,5 @@
 use crate::apply_chain_range::apply_chain_range;
+use crate::contract_accounts::ContractAccount;
 use crate::state_dump::state_dump;
 use crate::state_dump::state_dump_redis;
 use crate::tx_dump::dump_tx_from_block;
@@ -6,14 +7,18 @@ use crate::{apply_chunk, epoch_info};
 use ansi_term::Color::Red;
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
+use near_chain::types::RuntimeAdapter;
 use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo};
-use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, Error, RuntimeAdapter};
+use near_chain::{
+    ChainStore, ChainStoreAccess, ChainStoreUpdate, Error, RuntimeWithEpochManagerAdapter,
+};
 use near_chain_configs::GenesisChangeConfig;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_network::iter_peers_from_store;
 use near_primitives::account::id::AccountId;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::CryptoHash;
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::state_record::StateRecord;
@@ -22,6 +27,7 @@ use near_primitives::types::{chunk_extra::ChunkExtra, BlockHeight, ShardId, Stat
 use near_primitives_core::types::Gas;
 use near_store::db::Database;
 use near_store::test_utils::create_test_store;
+use near_store::TrieDBStorage;
 use near_store::{Store, Trie, TrieCache, TrieCachingStorage, TrieConfig};
 use nearcore::{NearConfig, NightshadeRuntime};
 use node_runtime::adapter::ViewRuntimeAdapter;
@@ -35,7 +41,7 @@ use std::sync::Arc;
 pub(crate) fn apply_block(
     block_hash: CryptoHash,
     shard_id: ShardId,
-    runtime_adapter: &dyn RuntimeAdapter,
+    runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
     chain_store: &mut ChainStore,
 ) -> (Block, ApplyTransactionResult) {
     let block = chain_store.get_block(&block_hash).unwrap();
@@ -125,7 +131,7 @@ pub(crate) fn apply_block_at_height(
         near_config.genesis.config.genesis_height,
         near_config.client_config.save_trie_changes,
     );
-    let runtime_adapter: Arc<dyn RuntimeAdapter> =
+    let runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter> =
         Arc::new(NightshadeRuntime::from_config(home_dir, store, &near_config));
     let block_hash = chain_store.get_block_hash_by_height(height).unwrap();
     let (block, apply_result) =
@@ -418,7 +424,7 @@ pub(crate) fn peers(db: Arc<dyn Database>) {
 pub(crate) fn print_apply_block_result(
     block: &Block,
     apply_result: &ApplyTransactionResult,
-    runtime_adapter: &dyn RuntimeAdapter,
+    runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
     chain_store: &mut ChainStore,
     shard_id: ShardId,
 ) {
@@ -717,7 +723,7 @@ pub(crate) fn print_epoch_info(
     let mut epoch_manager =
         EpochManager::new_from_genesis_config(store.clone(), &near_config.genesis.config)
             .expect("Failed to start Epoch Manager");
-    let runtime_adapter: Arc<dyn RuntimeAdapter> =
+    let runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter> =
         Arc::new(NightshadeRuntime::from_config(&home_dir, store.clone(), &near_config));
 
     epoch_info::print_epoch_info(
@@ -840,4 +846,34 @@ fn format_hash(h: CryptoHash, show_full_hashes: bool) -> String {
 
 pub fn chunk_mask_to_str(mask: &[bool]) -> String {
     mask.iter().map(|f| if *f { '.' } else { 'X' }).collect()
+}
+
+pub(crate) fn contract_accounts(
+    home_dir: &Path,
+    store: Store,
+    near_config: NearConfig,
+) -> anyhow::Result<()> {
+    let (_runtime, state_roots, _header) = load_trie(store.clone(), home_dir, &near_config);
+
+    for (shard_id, &state_root) in state_roots.iter().enumerate() {
+        eprintln!("Starting shard {shard_id}");
+        // TODO: This assumes simple nightshade layout, it will need an update when we reshard.
+        let shard_uid = ShardUId::from_shard_id_and_layout(
+            shard_id as u64,
+            &ShardLayout::get_simple_nightshade_layout(),
+        );
+        // Use simple non-caching storage, we don't expect many duplicate lookups while iterating.
+        let storage = TrieDBStorage::new(store.clone(), shard_uid);
+        // We don't need flat state to traverse all accounts.
+        let flat_state = None;
+        let trie = Trie::new(Box::new(storage), state_root, flat_state);
+
+        for contract in ContractAccount::in_trie(&trie)? {
+            match contract {
+                Ok(contract) => println!("{contract}"),
+                Err(err) => eprintln!("{err}"),
+            }
+        }
+    }
+    Ok(())
 }

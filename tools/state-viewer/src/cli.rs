@@ -39,6 +39,9 @@ pub enum StateViewerSubCommand {
     CheckBlock,
     /// Looks up a certain chunk.
     Chunks(ChunksCmd),
+    /// List account names with contracts deployed.
+    #[clap(alias = "contract_accounts")]
+    ContractAccounts(ContractAccountsCmd),
     /// Dump contract data in storage of given account to binary file.
     #[clap(alias = "dump_account_storage")]
     DumpAccountStorage(DumpAccountStorageCmd),
@@ -92,11 +95,8 @@ impl StateViewerSubCommand {
         let near_config = load_config(home_dir, genesis_validation)
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
 
-        #[cfg(feature = "cold_store")]
         let cold_store_config: Option<&near_store::StoreConfig> =
             near_config.config.cold_store.as_ref();
-        #[cfg(not(feature = "cold_store"))]
-        let cold_store_config: Option<std::convert::Infallible> = None;
 
         let store_opener =
             NodeStorage::opener(home_dir, &near_config.config.store, cold_store_config);
@@ -113,6 +113,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::Chain(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::CheckBlock => check_block_chunk_existence(near_config, store),
             StateViewerSubCommand::Chunks(cmd) => cmd.run(near_config, store),
+            StateViewerSubCommand::ContractAccounts(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::DumpAccountStorage(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::DumpCode(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::DumpState(cmd) => cmd.run(home_dir, near_config, store),
@@ -261,6 +262,18 @@ impl ChunksCmd {
 }
 
 #[derive(Parser)]
+pub struct ContractAccountsCmd {
+    // TODO: add filter options, e.g. only contracts that execute certain
+    // actions
+}
+
+impl ContractAccountsCmd {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+        contract_accounts(home_dir, store, near_config).unwrap();
+    }
+}
+
+#[derive(Parser)]
 pub struct DumpAccountStorageCmd {
     #[clap(long)]
     account_id: String,
@@ -357,11 +370,27 @@ pub struct DumpStatePartsCmd {
     part_id: Option<u64>,
     /// Where to write the state parts to.
     #[clap(long)]
-    output_dir: PathBuf,
+    output_dir: Option<PathBuf>,
+    /// S3 bucket to store state parts.
+    #[clap(long)]
+    s3_bucket: Option<String>,
+    /// S3 region to store state parts.
+    #[clap(long)]
+    s3_region: Option<String>,
 }
 
 impl DumpStatePartsCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+        assert_eq!(
+            self.s3_bucket.is_some(),
+            self.s3_region.is_some(),
+            "Need to provide either both or none of --s3-bucket and --s3-region"
+        );
+        let s3 = if let Some(s3_bucket) = self.s3_bucket {
+            Some((s3_bucket, self.s3_region.unwrap()))
+        } else {
+            None
+        };
         dump_state_parts(
             self.epoch_selection,
             self.shard_id,
@@ -369,7 +398,8 @@ impl DumpStatePartsCmd {
             home_dir,
             near_config,
             store,
-            &self.output_dir,
+            self.output_dir,
+            s3,
         );
     }
 }

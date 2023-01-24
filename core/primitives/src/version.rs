@@ -147,6 +147,8 @@ pub enum ProtocolFeature {
     Ed25519Verify,
     #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
     RejectBlocksWithOutdatedProtocolVersions,
+    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+    DelegateAction,
     #[cfg(feature = "protocol_feature_zero_balance_account")]
     /// NEP 448: https://github.com/near/NEPs/pull/448
     ZeroBalanceAccount,
@@ -159,12 +161,12 @@ pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_V
 /// Current protocol version used on the mainnet.
 /// Some features (e. g. FixStorageUsage) require that there is at least one epoch with exactly
 /// the corresponding version
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 57;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 58;
 
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protocol") {
     // On nightly, pick big enough version to support all features.
-    133
+    134
 } else {
     // Enable all stable features.
     STABLE_PROTOCOL_VERSION
@@ -237,8 +239,10 @@ impl ProtocolFeature {
             ProtocolFeature::Ed25519Verify => 131,
             #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
             ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions => 132,
+            #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+            ProtocolFeature::DelegateAction => 133,
             #[cfg(feature = "protocol_feature_zero_balance_account")]
-            ProtocolFeature::ZeroBalanceAccount => 133,
+            ProtocolFeature::ZeroBalanceAccount => 134,
         }
     }
 }

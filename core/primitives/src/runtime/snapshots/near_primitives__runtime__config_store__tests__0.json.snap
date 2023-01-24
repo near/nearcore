@@ -1,6 +1,6 @@
 ---
 source: core/primitives/src/runtime/config_store.rs
-expression: store.get_config(*version)
+expression: config_view
 ---
 {
   "storage_amount_per_byte": "100000000000000000000",
