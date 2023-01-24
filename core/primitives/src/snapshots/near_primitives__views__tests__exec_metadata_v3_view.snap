@@ -127,6 +127,16 @@ expression: view
     },
     {
       "cost_category": "WASM_HOST_COST",
+      "cost": "ED25519_VERIFY_BASE",
+      "gas_used": "59"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "ED25519_VERIFY_BYTE",
+      "gas_used": "60"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
       "cost": "KECCAK256_BASE",
       "gas_used": "17"
     },

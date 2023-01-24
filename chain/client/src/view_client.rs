@@ -14,7 +14,7 @@ use tracing::{debug, error, info, trace, warn};
 
 use near_chain::{
     get_epoch_block_producers_view, Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode,
-    RuntimeAdapter,
+    RuntimeWithEpochManagerAdapter,
 };
 use near_chain_configs::{ClientConfig, ProtocolConfigView};
 use near_client_primitives::types::{
@@ -93,7 +93,7 @@ pub struct ViewClientActor {
     /// Validator account (if present).
     validator_account_id: Option<AccountId>,
     chain: Chain,
-    runtime_adapter: Arc<dyn RuntimeAdapter>,
+    runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
     network_adapter: Arc<dyn PeerManagerAdapter>,
     pub config: ClientConfig,
     request_manager: Arc<RwLock<ViewClientRequestManager>>,
@@ -119,7 +119,7 @@ impl ViewClientActor {
     pub fn new(
         validator_account_id: Option<AccountId>,
         chain_genesis: &ChainGenesis,
-        runtime_adapter: Arc<dyn RuntimeAdapter>,
+        runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
         network_adapter: Arc<dyn PeerManagerAdapter>,
         config: ClientConfig,
         request_manager: Arc<RwLock<ViewClientRequestManager>>,
@@ -1426,7 +1426,7 @@ impl Handler<WithSpanContext<GetMaintenanceWindows>> for ViewClientActor {
 pub fn start_view_client(
     validator_account_id: Option<AccountId>,
     chain_genesis: ChainGenesis,
-    runtime_adapter: Arc<dyn RuntimeAdapter>,
+    runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
     network_adapter: Arc<dyn PeerManagerAdapter>,
     config: ClientConfig,
     adv: crate::adversarial::Controls,

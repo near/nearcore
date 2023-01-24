@@ -22,7 +22,8 @@ use near_chain::test_utils::{
 };
 use near_chain::types::ChainConfig;
 use near_chain::{
-    Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Provenance, RuntimeAdapter,
+    Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Provenance,
+    RuntimeWithEpochManagerAdapter,
 };
 use near_chain_configs::ClientConfig;
 use near_chunks::client::{ClientAdapterForShardsManager, ShardsManagerResponse};
@@ -1091,7 +1092,7 @@ pub fn setup_client_with_runtime(
     network_adapter: Arc<dyn PeerManagerAdapter>,
     client_adapter: Arc<dyn ClientAdapterForShardsManager>,
     chain_genesis: ChainGenesis,
-    runtime_adapter: Arc<dyn RuntimeAdapter>,
+    runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
     rng_seed: RngSeed,
     archive: bool,
     save_trie_changes: bool,
@@ -1167,7 +1168,7 @@ pub struct TestEnvBuilder {
     chain_genesis: ChainGenesis,
     clients: Vec<AccountId>,
     validators: Vec<AccountId>,
-    runtime_adapters: Option<Vec<Arc<dyn RuntimeAdapter>>>,
+    runtime_adapters: Option<Vec<Arc<dyn RuntimeWithEpochManagerAdapter>>>,
     network_adapters: Option<Vec<Arc<MockPeerManagerAdapter>>>,
     // random seed to be inject in each client according to AccountId
     // if not set, a default constant TEST_SEED will be injected
@@ -1239,7 +1240,10 @@ impl TestEnvBuilder {
     /// The vector must have the same number of elements as they are clients
     /// (one by default).  If that does not hold, [`Self::build`] method will
     /// panic.
-    pub fn runtime_adapters(mut self, adapters: Vec<Arc<dyn RuntimeAdapter>>) -> Self {
+    pub fn runtime_adapters(
+        mut self,
+        adapters: Vec<Arc<dyn RuntimeWithEpochManagerAdapter>>,
+    ) -> Self {
         self.runtime_adapters = Some(adapters);
         self
     }
