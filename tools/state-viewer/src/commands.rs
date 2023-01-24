@@ -794,7 +794,8 @@ pub(crate) fn stress_test_flat_storage(
     for block_hash in block_hashes.drain(..).rev() {
         let header = chain_store.get_block_header(&block_hash).unwrap();
         eprintln!("^ {}", header.height());
-        let delta = store_helper::get_delta(&store, shard_id, block_hash.clone()).unwrap().unwrap();
+        let delta =
+            *store_helper::get_delta(&store, shard_id, block_hash.clone()).unwrap().unwrap();
         let mut store_update = store.store_update();
         store_helper::set_flat_head(&mut store_update, shard_id, &block_hash);
         delta.apply_to_flat_state(&mut store_update);
