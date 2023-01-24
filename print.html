@@ -4099,6 +4099,41 @@ straightforward to differentiate between the built-in derivations and those prov
 external crates. The surprise factor for derivations sharing a name with the standard
 library traits (<code>Display</code>) is reduced and it also acts as natural mechanism to tell apart names
 prone to collision (<code>Serialize</code>), all without needing to look up the list of imports.</p>
+<h3 id="arithmetic-integer-operations"><a class="header" href="#arithmetic-integer-operations">Arithmetic integer operations</a></h3>
+<p>Use methods with an appropriate overflow handling over plain arithmetic operators (<code>+-*/%</code>) when
+dealing with integers.</p>
+<pre><code>// GOOD
+a.wrapping_add(b);
+c.saturating_sub(2);
+d.widening_mul(3);   // NB: unstable at the time of writing
+e.overflowing_div(5);
+f.checked_rem(7);
+
+// BAD
+a + b
+c - 2
+d * 3
+e / 5
+f % 7
+</code></pre>
+<p>If you’re confident the arithmetic operation cannot fail,
+<code>x.checked_[add|sub|mul|div](y).expect(&quot;explanation why the operation is safe&quot;)</code> is a great
+alternative, as it neatly documents not just the infallibility, but also <em>why</em> that is the case.</p>
+<p>This convention may be enforced by the <code>clippy::arithmetic_side_effects</code> and
+<code>clippy::integer_arithmetic</code> lints.</p>
+<p><strong>Rationale:</strong> By default the outcome of an overflowing computation in Rust depends on a few
+factors, most notably the compilation flags used. The quick explanation is that in debug mode the
+computations may panic (cause side effects) if the result has overflowed, and when built with
+optimizations enabled, these computations will wrap-around instead.</p>
+<p>For nearcore and neard we have opted to enable the panicking behaviour regardless of the
+optimization level. By doing it this we hope to prevent accidental stabilization of protocol
+mis-features that depend on incorrect handling of these overflows or similarly scary silent bugs.
+The downside to this approach is that any such arithmetic operation now may cause a node to crash,
+much like indexing a vector with <code>a[idx]</code> may cause a crash when <code>idx</code> is out-of-bounds. Unlike
+indexing, however, developers and reviewers are not used to treating integer arithmetic operations
+with the due suspicion. Having to make a choice, and explicitly spell out, how an overflow case
+ought to be handled will result in an easier to review and understand code and a more resilient
+project overall.</p>
 <h2 id="standard-naming"><a class="header" href="#standard-naming">Standard Naming</a></h2>
 <ul>
 <li>Use <code>-</code> rather than <code>_</code> in crate names and in corresponding folder names.</li>
