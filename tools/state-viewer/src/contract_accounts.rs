@@ -85,13 +85,13 @@ pub(crate) struct ContractAccountFilter {
     pub(crate) receipts_out: bool,
 
     /// Only produce output for the selected account Ids.
-    #[clap(long)]
+    #[clap(long, use_value_delimiter = true)]
     select_accounts: Option<Vec<AccountId>>,
     /// Do not look up details for the accounts listed here.
     ///
     /// This can be useful to avoid spending a long time reading through
     /// receipts that are for some of the largest accounts.
-    #[clap(long)]
+    #[clap(long, use_value_delimiter = true)]
     skip_accounts: Option<Vec<AccountId>>,
 }
 
