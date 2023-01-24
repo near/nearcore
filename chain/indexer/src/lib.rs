@@ -38,7 +38,9 @@ pub struct InitConfigArgs {
     pub download_genesis: bool,
     /// Specify a custom download URL for the genesis file.
     pub download_genesis_url: Option<String>,
-    /// Download the verified NEAR config file automtically.
+    /// Specify a custom download URL for the records file.
+    pub download_records_url: Option<String>,
+    /// Download the verified NEAR config file automatically.
     pub download_config: bool,
     /// Specify a custom download URL for the config file.
     pub download_config_url: Option<String>,
@@ -77,6 +79,8 @@ pub struct IndexerConfig {
     pub sync_mode: SyncModeEnum,
     /// Whether await for node to be synced or not
     pub await_for_node_synced: AwaitForNodeSyncedEnum,
+    /// Tells whether to validate the genesis file before starting
+    pub validate_genesis: bool,
 }
 
 /// This is the core component, which handles `nearcore` and internal `streamer`.
@@ -96,8 +100,13 @@ impl Indexer {
             indexer_config.home_dir.display()
         );
 
+        let genesis_validation_mode = if indexer_config.validate_genesis {
+            GenesisValidationMode::Full
+        } else {
+            GenesisValidationMode::UnsafeFast
+        };
         let near_config =
-            nearcore::config::load_config(&indexer_config.home_dir, GenesisValidationMode::Full)
+            nearcore::config::load_config(&indexer_config.home_dir, genesis_validation_mode)
                 .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
 
         assert!(
@@ -155,6 +164,7 @@ pub fn indexer_init_configs(
         params.genesis.as_deref(),
         params.download_genesis,
         params.download_genesis_url.as_deref(),
+        params.download_records_url.as_deref(),
         params.download_config,
         params.download_config_url.as_deref(),
         params.boot_nodes.as_deref(),

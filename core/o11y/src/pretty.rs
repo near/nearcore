@@ -1,3 +1,5 @@
+use std::ops::RangeInclusive;
+
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::serialize::base64_display;
 
@@ -101,6 +103,34 @@ impl<'a> std::fmt::Display for StorageKey<'a> {
     }
 }
 
+/// A wrapper for slices which formats the slice limiting the length.
+///
+/// If the slice has no more than five elements, it’s printed in full.
+/// Otherwise, only the first two and last two elements are printed to limit the
+/// length of the formatted value.
+pub struct Slice<'a, T>(pub &'a [T]);
+
+impl<'a, T: std::fmt::Debug> std::fmt::Debug for Slice<'a, T> {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let slice = self.0;
+
+        struct Ellipsis;
+
+        impl std::fmt::Debug for Ellipsis {
+            fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                fmt.write_str("…")
+            }
+        }
+
+        if let [a, b, _c, .., _x, y, z] = slice {
+            write!(fmt, "({})", slice.len())?;
+            fmt.debug_list().entry(a).entry(b).entry(&Ellipsis).entry(y).entry(z).finish()
+        } else {
+            std::fmt::Debug::fmt(&slice, fmt)
+        }
+    }
+}
+
 /// Implementation of [`Bytes`] and [`StorageKey`] formatting.
 ///
 /// If the `consider_hash` argument is false, formats bytes as described in
@@ -124,27 +154,30 @@ fn bytes_format(
 
 /// Implementation of [`AbbrBytes`].
 fn truncated_bytes_format(bytes: &[u8], fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    const LIMIT: usize = 128;
+    const PRINTABLE_ASCII: RangeInclusive<u8> = 0x20..=0x7E;
+    const OVERALL_LIMIT: usize = 128;
+    const DISPLAY_ASCII_FULL_LIMIT: usize = OVERALL_LIMIT - 2;
+    const DISPLAY_ASCII_PREFIX_LIMIT: usize = OVERALL_LIMIT - 9;
+    const DISPLAY_BASE64_FULL_LIMIT: usize = OVERALL_LIMIT / 4 * 3;
+    const DISPLAY_BASE64_PREFIX_LIMIT: usize = (OVERALL_LIMIT - 8) / 4 * 3;
     let len = bytes.len();
-    if bytes.iter().take(LIMIT - 2).all(|ch| 0x20 <= *ch && *ch <= 0x7E) {
-        if len <= LIMIT - 2 {
+    if bytes.iter().take(DISPLAY_ASCII_FULL_LIMIT).all(|ch| PRINTABLE_ASCII.contains(ch)) {
+        if len <= DISPLAY_ASCII_FULL_LIMIT {
             // SAFETY: We’ve just checked that the value contains ASCII
             // characters only.
             let value = unsafe { std::str::from_utf8_unchecked(bytes) };
             write!(fmt, "'{value}'")
         } else {
-            let bytes = &bytes[..LIMIT - 9];
+            let bytes = &bytes[..DISPLAY_ASCII_PREFIX_LIMIT];
             let value = unsafe { std::str::from_utf8_unchecked(bytes) };
             write!(fmt, "({len})'{value}'…")
         }
+    } else if bytes.len() <= DISPLAY_BASE64_FULL_LIMIT {
+        std::fmt::Display::fmt(&base64_display(bytes), fmt)
     } else {
-        if bytes.len() <= LIMIT / 4 * 3 {
-            std::fmt::Display::fmt(&base64_display(bytes), fmt)
-        } else {
-            let bytes = &bytes[..(LIMIT - 8) / 4 * 3];
-            let value = base64_display(bytes);
-            write!(fmt, "({len}){value}…")
-        }
+        let bytes = &bytes[..DISPLAY_BASE64_PREFIX_LIMIT];
+        let value = base64_display(bytes);
+        write!(fmt, "({len}){value}…")
     }
 }
 
@@ -211,4 +244,22 @@ fn test_truncated_bytes() {
 #[test]
 fn test_storage_key() {
     do_test_bytes_formatting!(StorageKey, true, false);
+}
+
+#[test]
+fn test_slice() {
+    macro_rules! test {
+        ($want:literal, $fmt:literal, $len:expr) => {
+            assert_eq!(
+                $want,
+                format!($fmt, Slice(&[0u8, 11, 22, 33, 44, 55, 66, 77, 88, 99][..$len]))
+            )
+        };
+    }
+
+    test!("[]", "{:?}", 0);
+    test!("[0, 11, 22, 33]", "{:?}", 4);
+    test!("[0, b, 16, 21]", "{:x?}", 4);
+    test!("(10)[0, 11, …, 88, 99]", "{:?}", 10);
+    test!("(10)[0, b, …, 58, 63]", "{:x?}", 10);
 }

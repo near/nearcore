@@ -57,9 +57,11 @@
 //! digging deeper.
 //!
 
+mod action_costs;
 mod cost;
 mod cost_table;
 mod costs_to_runtime_config;
+// Encapsulates the runtime so that it can be run separately from the rest of the node.
 mod estimator_context;
 mod gas_cost;
 mod qemu;
@@ -74,8 +76,6 @@ pub mod utils;
 
 // Runs a VM (Default: Wasmer) on the given contract and measures the time it takes to do a single operation.
 pub mod vm_estimator;
-// Encapsulates the runtime so that it can be run separately from the rest of the node.
-pub mod testbed;
 // Prepares transactions and feeds them to the testbed in batches. Performs the warm up, takes care
 // of nonces.
 pub mod config;
@@ -103,7 +103,6 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::{ExtCosts, VMConfig};
 use near_vm_runner::MockCompiledContractCache;
-use rand::Rng;
 use serde_json::json;
 use utils::{
     average_cost, fn_cost, fn_cost_count, fn_cost_in_contract, fn_cost_with_setup,
@@ -129,18 +128,69 @@ pub use crate::rocksdb::RocksDBTestConfig;
 static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::ActionReceiptCreation, action_receipt_creation),
     (Cost::ActionSirReceiptCreation, action_sir_receipt_creation),
+    (Cost::ActionReceiptCreationSendSir, action_costs::new_action_receipt_send_sir),
+    (Cost::ActionReceiptCreationSendNotSir, action_costs::new_action_receipt_send_not_sir),
+    (Cost::ActionReceiptCreationExec, action_costs::new_action_receipt_exec),
     (Cost::ActionTransfer, action_transfer),
+    (Cost::ActionTransferSendSir, action_costs::transfer_send_sir),
+    (Cost::ActionTransferSendNotSir, action_costs::transfer_send_not_sir),
+    (Cost::ActionTransferExec, action_costs::transfer_exec),
     (Cost::ActionCreateAccount, action_create_account),
+    (Cost::ActionCreateAccountSendSir, action_costs::create_account_send_sir),
+    (Cost::ActionCreateAccountSendNotSir, action_costs::create_account_send_not_sir),
+    (Cost::ActionCreateAccountExec, action_costs::create_account_exec),
     (Cost::ActionDeleteAccount, action_delete_account),
+    (Cost::ActionDeleteAccountSendSir, action_costs::delete_account_send_sir),
+    (Cost::ActionDeleteAccountSendNotSir, action_costs::delete_account_send_not_sir),
+    (Cost::ActionDeleteAccountExec, action_costs::delete_account_exec),
     (Cost::ActionAddFullAccessKey, action_add_full_access_key),
+    (Cost::ActionAddFullAccessKeySendSir, action_costs::add_full_access_key_send_sir),
+    (Cost::ActionAddFullAccessKeySendNotSir, action_costs::add_full_access_key_send_not_sir),
+    (Cost::ActionAddFullAccessKeyExec, action_costs::add_full_access_key_exec),
     (Cost::ActionAddFunctionAccessKeyBase, action_add_function_access_key_base),
+    (
+        Cost::ActionAddFunctionAccessKeyBaseSendSir,
+        action_costs::add_function_call_key_base_send_sir,
+    ),
+    (
+        Cost::ActionAddFunctionAccessKeyBaseSendNotSir,
+        action_costs::add_function_call_key_base_send_not_sir,
+    ),
+    (Cost::ActionAddFunctionAccessKeyBaseExec, action_costs::add_function_call_key_base_exec),
     (Cost::ActionAddFunctionAccessKeyPerByte, action_add_function_access_key_per_byte),
+    (
+        Cost::ActionAddFunctionAccessKeyPerByteSendSir,
+        action_costs::add_function_call_key_byte_send_sir,
+    ),
+    (
+        Cost::ActionAddFunctionAccessKeyPerByteSendNotSir,
+        action_costs::add_function_call_key_byte_send_not_sir,
+    ),
+    (Cost::ActionAddFunctionAccessKeyPerByteExec, action_costs::add_function_call_key_byte_exec),
     (Cost::ActionDeleteKey, action_delete_key),
+    (Cost::ActionDeleteKeySendSir, action_costs::delete_key_send_sir),
+    (Cost::ActionDeleteKeySendNotSir, action_costs::delete_key_send_not_sir),
+    (Cost::ActionDeleteKeyExec, action_costs::delete_key_exec),
     (Cost::ActionStake, action_stake),
+    (Cost::ActionStakeSendNotSir, action_costs::stake_send_not_sir),
+    (Cost::ActionStakeSendSir, action_costs::stake_send_sir),
+    (Cost::ActionStakeExec, action_costs::stake_exec),
     (Cost::ActionDeployContractBase, action_deploy_contract_base),
+    (Cost::ActionDeployContractBaseSendNotSir, action_costs::deploy_contract_base_send_not_sir),
+    (Cost::ActionDeployContractBaseSendSir, action_costs::deploy_contract_base_send_sir),
+    (Cost::ActionDeployContractBaseExec, action_costs::deploy_contract_base_exec),
     (Cost::ActionDeployContractPerByte, action_deploy_contract_per_byte),
+    (Cost::ActionDeployContractPerByteSendNotSir, action_costs::deploy_contract_byte_send_not_sir),
+    (Cost::ActionDeployContractPerByteSendSir, action_costs::deploy_contract_byte_send_sir),
+    (Cost::ActionDeployContractPerByteExec, action_costs::deploy_contract_byte_exec),
     (Cost::ActionFunctionCallBase, action_function_call_base),
+    (Cost::ActionFunctionCallBaseSendNotSir, action_costs::function_call_base_send_not_sir),
+    (Cost::ActionFunctionCallBaseSendSir, action_costs::function_call_base_send_sir),
+    (Cost::ActionFunctionCallBaseExec, action_costs::function_call_base_exec),
     (Cost::ActionFunctionCallPerByte, action_function_call_per_byte),
+    (Cost::ActionFunctionCallPerByteSendNotSir, action_costs::function_call_byte_send_not_sir),
+    (Cost::ActionFunctionCallPerByteSendSir, action_costs::function_call_byte_send_sir),
+    (Cost::ActionFunctionCallPerByteExec, action_costs::function_call_byte_exec),
     (Cost::HostFunctionCall, host_function_call),
     (Cost::WasmInstruction, wasm_instruction),
     (Cost::DataReceiptCreationBase, data_receipt_creation_base),
@@ -168,9 +218,7 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::Ripemd160Base, ripemd160_base),
     (Cost::Ripemd160Block, ripemd160_block),
     (Cost::EcrecoverBase, ecrecover_base),
-    #[cfg(feature = "protocol_feature_ed25519_verify")]
     (Cost::Ed25519VerifyBase, ed25519_verify_base),
-    #[cfg(feature = "protocol_feature_ed25519_verify")]
     (Cost::Ed25519VerifyByte, ed25519_verify_byte),
     (Cost::AltBn128G1MultiexpBase, alt_bn128g1_multiexp_base),
     (Cost::AltBn128G1MultiexpElement, alt_bn128g1_multiexp_element),
@@ -325,9 +373,9 @@ fn action_transfer(ctx: &mut EstimatorContext) -> GasCost {
 fn action_create_account(ctx: &mut EstimatorContext) -> GasCost {
     let total_cost = {
         let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
-            let sender = tb.random_account();
-            let new_account =
-                AccountId::try_from(format!("{}_{}", sender, tb.rng().gen::<u64>())).unwrap();
+            let sender = tb.random_unused_account();
+            // derive a non-existing account id
+            let new_account = AccountId::try_from(format!("{sender}_x")).unwrap();
 
             let actions = vec![
                 Action::CreateAccount(CreateAccountAction {}),
@@ -931,16 +979,24 @@ fn ecrecover_base(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost(ctx, "ecrecover_10k", ExtCosts::ecrecover_base, 10_000)
 }
 
-#[cfg(feature = "protocol_feature_ed25519_verify")]
-// TODO: gas estimation will be calculated later -> setting a placeholder for now
 fn ed25519_verify_base(ctx: &mut EstimatorContext) -> GasCost {
-    fn_cost(ctx, "ed25519_verify_10k", ExtCosts::ed25519_verify_base, 10_000)
+    if ctx.cached.ed25519_verify_base.is_none() {
+        let cost = fn_cost(ctx, "ed25519_verify_32b_500", ExtCosts::ed25519_verify_base, 500);
+        ctx.cached.ed25519_verify_base = Some(cost);
+    }
+    ctx.cached.ed25519_verify_base.clone().unwrap()
 }
 
-#[cfg(feature = "protocol_feature_ed25519_verify")]
-// TODO: gas estimation will be calculated later -> setting a placeholder for now
 fn ed25519_verify_byte(ctx: &mut EstimatorContext) -> GasCost {
-    fn_cost(ctx, "ed25519_verify_10k", ExtCosts::ed25519_verify_byte, 960000)
+    let base = ed25519_verify_base(ctx);
+    // inside the WASM function, there are 64 calls to `ed25519_verify`.
+    let base_call_num = 64;
+    // each call checks a message of size 16kiB
+    let iteration_bytes = 16384;
+    let total_bytes = base_call_num * iteration_bytes;
+    let byte = fn_cost(ctx, "ed25519_verify_16kib_64", ExtCosts::ed25519_verify_byte, total_bytes);
+    // need to subtract the base cost, which has already been divided by the number of bytes per iteration
+    byte - base / iteration_bytes
 }
 
 fn alt_bn128g1_multiexp_base(ctx: &mut EstimatorContext) -> GasCost {

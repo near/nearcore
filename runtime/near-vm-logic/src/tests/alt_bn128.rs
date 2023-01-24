@@ -1,4 +1,4 @@
-use super::{fixtures::get_context, vm_logic_builder::VMLogicBuilder};
+use super::vm_logic_builder::VMLogicBuilder;
 use near_vm_errors::{HostError, VMLogicError};
 use std::fmt::Write;
 
@@ -89,14 +89,13 @@ fn test_alt_bn128_g1_multiexp() {
     #[track_caller]
     fn check(input: &[u8], expected: Result<&[u8], &str>) {
         let mut logic_builder = VMLogicBuilder::default();
-        let mut logic = logic_builder.build(get_context(vec![], false));
+        let mut logic = logic_builder.build();
+        let input = logic.internal_mem_write(input);
 
-        let res = logic.alt_bn128_g1_multiexp(input.len() as _, input.as_ptr() as _, 0);
+        let res = logic.alt_bn128_g1_multiexp(input.len, input.ptr, 0);
         if let Some(((), expected)) = check_result(res, expected) {
-            let len = logic.register_len(0).unwrap();
-            let mut res = vec![0u8; len as usize];
-            logic.read_register(0, res.as_mut_ptr() as _).unwrap();
-            assert_eq!(res, expected)
+            let got = logic.registers().get_for_free(0).unwrap();
+            assert_eq_points(&expected, got);
         }
     }
     #[track_caller]
@@ -136,7 +135,7 @@ fn test_alt_bn128_g1_multiexp() {
         ],
     );
 
-    check_err(b"XXXX", "invalid array, byte length 4, element size 96");
+    check_err(b"XXXX", "slice of size 4 cannot be precisely split into chunks of size 96");
     check_err(
         &le_bytes![0x92  0x2944829dcfa7dd72bb04d12e46869e6a6c8162698f9a6c35724f91f597e25fc4 0x112b450c0769c7cd80ffa552aaab2153adb5646664ee091639784a7f887411f7],
         "invalid g1",
@@ -154,14 +153,13 @@ fn test_alt_bn128_g1_sum() {
     #[track_caller]
     fn check(input: &[u8], expected: Result<&[u8], &str>) {
         let mut logic_builder = VMLogicBuilder::default();
-        let mut logic = logic_builder.build(get_context(vec![], false));
+        let mut logic = logic_builder.build();
+        let input = logic.internal_mem_write(input);
 
-        let res = logic.alt_bn128_g1_sum(input.len() as _, input.as_ptr() as _, 0);
+        let res = logic.alt_bn128_g1_sum(input.len, input.ptr, 0);
         if let Some(((), expected)) = check_result(res, expected) {
-            let len = logic.register_len(0).unwrap();
-            let mut res = vec![0u8; len as usize];
-            logic.read_register(0, res.as_mut_ptr() as _).unwrap();
-            assert_eq_points(&res, expected)
+            let got = logic.registers().get_for_free(0).unwrap();
+            assert_eq_points(&expected, got);
         }
     }
     #[track_caller]
@@ -201,7 +199,7 @@ fn test_alt_bn128_g1_sum() {
         ],
     );
 
-    check_err(&[92], "invalid array, byte length 1, element size 65");
+    check_err(&[92], "slice of size 1 cannot be precisely split into chunks of size 65");
     check_err(
         &le_bytes![
             0u8  0x111 0x222
@@ -219,9 +217,10 @@ fn test_alt_bn128_pairing_check() {
     #[track_caller]
     fn check(input: &[u8], expected: Result<u64, &str>) {
         let mut logic_builder = VMLogicBuilder::default();
-        let mut logic = logic_builder.build(get_context(vec![], false));
+        let mut logic = logic_builder.build();
+        let input = logic.internal_mem_write(input);
 
-        let res = logic.alt_bn128_pairing_check(input.len() as _, input.as_ptr() as _);
+        let res = logic.alt_bn128_pairing_check(input.len, input.ptr);
         if let Some((res, expected)) = check_result(res, expected) {
             assert_eq!(res, expected)
         }
@@ -267,6 +266,6 @@ fn test_alt_bn128_pairing_check() {
         0,
     );
 
-    check_err(b"XXXX", "invalid array, byte length 4, element size 192");
+    check_err(b"XXXX", "slice of size 4 cannot be precisely split into chunks of size 192");
     check_err(&le_bytes![0x0 0x0  0x0 0x0 0x0 0x0, 0x0 0x0  0x0 0x0 0x0 0x111], "invalid g2");
 }

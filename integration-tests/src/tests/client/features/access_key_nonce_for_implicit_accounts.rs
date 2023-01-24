@@ -3,10 +3,10 @@ use crate::tests::client::process_blocks::{
 };
 use assert_matches::assert_matches;
 use near_chain::chain::NUM_ORPHAN_ANCESTORS_CHECK;
-use near_chain::{ChainGenesis, Error, Provenance, RuntimeAdapter};
+use near_chain::{ChainGenesis, Error, Provenance, RuntimeWithEpochManagerAdapter};
 use near_chain_configs::Genesis;
-use near_client::adapter::NetworkClientResponses;
 use near_client::test_utils::{create_chunk_with_transactions, TestEnv};
+use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_network::types::{MsgRecipient, NetworkRequests, PeerManagerMessageRequest};
 use near_o11y::testonly::init_test_logger;
@@ -93,13 +93,13 @@ fn test_transaction_hash_collision() {
         *genesis_block.hash(),
     );
     let res = env.clients[0].process_tx(create_account_tx, false, false);
-    assert_matches!(res, NetworkClientResponses::ValidTx);
+    assert_matches!(res, ProcessTxResponse::ValidTx);
     for i in 4..8 {
         env.produce_block(0, i);
     }
 
     let res = env.clients[0].process_tx(send_money_tx, false, false);
-    assert_matches!(res, NetworkClientResponses::InvalidTx(_));
+    assert_matches!(res, ProcessTxResponse::InvalidTx(_));
 }
 
 /// Helper for checking that duplicate transactions from implicit accounts are properly rejected.
@@ -108,7 +108,7 @@ fn test_transaction_hash_collision() {
 /// should fail since the protocol upgrade.
 fn get_status_of_tx_hash_collision_for_implicit_account(
     protocol_version: ProtocolVersion,
-) -> NetworkClientResponses {
+) -> ProcessTxResponse {
     let epoch_length = 100;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
@@ -197,7 +197,7 @@ fn test_transaction_hash_collision_for_implicit_account_fail() {
     let protocol_version = ProtocolFeature::AccessKeyNonceForImplicitAccounts.protocol_version();
     assert_matches!(
         get_status_of_tx_hash_collision_for_implicit_account(protocol_version),
-        NetworkClientResponses::InvalidTx(InvalidTxError::InvalidNonce { .. })
+        ProcessTxResponse::InvalidTx(InvalidTxError::InvalidNonce { .. })
     );
 }
 
@@ -208,7 +208,7 @@ fn test_transaction_hash_collision_for_implicit_account_ok() {
         ProtocolFeature::AccessKeyNonceForImplicitAccounts.protocol_version() - 1;
     assert_matches!(
         get_status_of_tx_hash_collision_for_implicit_account(protocol_version),
-        NetworkClientResponses::ValidTx
+        ProcessTxResponse::ValidTx
     );
 }
 
@@ -236,8 +236,14 @@ fn test_chunk_transaction_validity() {
     }
     let (encoded_shard_chunk, merkle_path, receipts, block) =
         create_chunk_with_transactions(&mut env.clients[0], vec![tx]);
+    let validator_id = env.clients[0].validator_signer.as_ref().unwrap().validator_id().clone();
     env.clients[0]
-        .persist_and_distribute_encoded_chunk(encoded_shard_chunk, merkle_path, receipts)
+        .persist_and_distribute_encoded_chunk(
+            encoded_shard_chunk,
+            merkle_path,
+            receipts,
+            validator_id,
+        )
         .unwrap();
     let res = env.clients[0].process_block_test(block.into(), Provenance::NONE);
     assert_matches!(res.unwrap_err(), Error::InvalidTransactions);
@@ -263,10 +269,7 @@ fn test_transaction_nonce_too_large() {
         *genesis_block.hash(),
     );
     let res = env.clients[0].process_tx(tx, false, false);
-    assert_matches!(
-        res,
-        NetworkClientResponses::InvalidTx(InvalidTxError::InvalidAccessKeyError(_))
-    );
+    assert_matches!(res, ProcessTxResponse::InvalidTx(InvalidTxError::InvalidAccessKeyError(_)));
 }
 
 /// This test tests the logic regarding requesting chunks for orphan.
@@ -314,7 +317,7 @@ fn test_request_chunks_for_orphan() {
     genesis.config.num_block_producer_seats_per_shard =
         vec![num_validators, num_validators, num_validators, num_validators];
     let chain_genesis = ChainGenesis::new(&genesis);
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = (0..2)
+    let runtimes: Vec<Arc<dyn RuntimeWithEpochManagerAdapter>> = (0..2)
         .map(|_| {
             Arc::new(nearcore::NightshadeRuntime::test_with_runtime_config_store(
                 Path::new("."),
@@ -322,7 +325,7 @@ fn test_request_chunks_for_orphan() {
                 &genesis,
                 TrackedConfig::AllShards,
                 RuntimeConfigStore::test(),
-            )) as Arc<dyn RuntimeAdapter>
+            )) as Arc<dyn RuntimeWithEpochManagerAdapter>
         })
         .collect();
     let mut env = TestEnv::builder(chain_genesis)
@@ -461,7 +464,7 @@ fn test_processing_chunks_sanity() {
     genesis.config.num_block_producer_seats_per_shard =
         vec![num_validators, num_validators, num_validators, num_validators];
     let chain_genesis = ChainGenesis::new(&genesis);
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = (0..2)
+    let runtimes: Vec<Arc<dyn RuntimeWithEpochManagerAdapter>> = (0..2)
         .map(|_| {
             Arc::new(nearcore::NightshadeRuntime::test_with_runtime_config_store(
                 Path::new("."),
@@ -469,7 +472,7 @@ fn test_processing_chunks_sanity() {
                 &genesis,
                 TrackedConfig::AllShards,
                 RuntimeConfigStore::test(),
-            )) as Arc<dyn RuntimeAdapter>
+            )) as Arc<dyn RuntimeWithEpochManagerAdapter>
         })
         .collect();
     let mut env = TestEnv::builder(chain_genesis)
@@ -571,7 +574,7 @@ impl ChunkForwardingOptimizationTestData {
             config.num_block_producer_seats = num_block_producers as u64;
         }
         let chain_genesis = ChainGenesis::new(&genesis);
-        let runtimes: Vec<Arc<dyn RuntimeAdapter>> = (0..num_clients)
+        let runtimes: Vec<Arc<dyn RuntimeWithEpochManagerAdapter>> = (0..num_clients)
             .map(|_| {
                 Arc::new(nearcore::NightshadeRuntime::test_with_runtime_config_store(
                     Path::new("."),
@@ -579,7 +582,7 @@ impl ChunkForwardingOptimizationTestData {
                     &genesis,
                     TrackedConfig::AllShards,
                     RuntimeConfigStore::test(),
-                )) as Arc<dyn RuntimeAdapter>
+                )) as Arc<dyn RuntimeWithEpochManagerAdapter>
             })
             .collect();
         let env = TestEnv::builder(chain_genesis)
@@ -733,6 +736,7 @@ fn test_chunk_forwarding_optimization() {
         }
         debug!(target: "test", "======= Height {} ======", height + 1);
         test.process_network_messages();
+        test.env.process_shards_manager_responses(0);
 
         let block = test.env.clients[0].produce_block(height + 1).unwrap().unwrap();
         if block.header().height() > 1 {
@@ -809,7 +813,7 @@ fn test_processing_blocks_async() {
     genesis.config.num_block_producer_seats_per_shard =
         vec![num_validators, num_validators, num_validators, num_validators];
     let chain_genesis = ChainGenesis::new(&genesis);
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = (0..2)
+    let runtimes: Vec<Arc<dyn RuntimeWithEpochManagerAdapter>> = (0..2)
         .map(|_| {
             Arc::new(nearcore::NightshadeRuntime::test_with_runtime_config_store(
                 Path::new("."),
@@ -817,7 +821,7 @@ fn test_processing_blocks_async() {
                 &genesis,
                 TrackedConfig::AllShards,
                 RuntimeConfigStore::test(),
-            )) as Arc<dyn RuntimeAdapter>
+            )) as Arc<dyn RuntimeWithEpochManagerAdapter>
         })
         .collect();
     let mut env = TestEnv::builder(chain_genesis)

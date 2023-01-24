@@ -1,16 +1,19 @@
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Write};
+use std::marker::PhantomData;
 use std::path::Path;
+use std::str::FromStr;
 use std::sync::Arc;
 use std::{fmt, io};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use metadata::{DbKind, DbVersion, KIND_KEY, VERSION_KEY};
 use once_cell::sync::Lazy;
 
 pub use columns::DBCol;
 pub use db::{
-    CHUNK_TAIL_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
+    CHUNK_TAIL_KEY, COLD_HEAD_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
     LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, TAIL_KEY,
 };
 use near_crypto::PublicKey;
@@ -28,16 +31,16 @@ use crate::db::{
     refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database, StoreStatistics,
     GENESIS_JSON_HASH_KEY, GENESIS_STATE_ROOTS_KEY,
 };
-pub use crate::trie::iterator::TrieIterator;
+pub use crate::trie::iterator::{TrieIterator, TrieTraversalItem};
 pub use crate::trie::update::{TrieUpdate, TrieUpdateIterator, TrieUpdateValuePtr};
 pub use crate::trie::{
     estimator, split_state, ApplyStatePartResult, KeyForStateChanges, KeyLookupMode, NibbleSlice,
-    PartialStorage, PrefetchApi, RawTrieNode, RawTrieNodeWithSize, ShardTries, Trie, TrieAccess,
-    TrieCache, TrieCachingStorage, TrieChanges, TrieConfig, TrieStorage, WrappedTrieChanges,
+    PartialStorage, PrefetchApi, PrefetchError, RawTrieNode, RawTrieNodeWithSize, ShardTries, Trie,
+    TrieAccess, TrieCache, TrieCachingStorage, TrieChanges, TrieConfig, TrieDBStorage, TrieStorage,
+    WrappedTrieChanges,
 };
 pub use flat_state::FlatStateDelta;
 
-#[cfg(feature = "cold_store")]
 pub mod cold_storage;
 mod columns;
 pub mod config;
@@ -47,10 +50,12 @@ pub mod metadata;
 mod metrics;
 pub mod migrations;
 mod opener;
+mod sync_utils;
 pub mod test_utils;
 mod trie;
 
 pub use crate::config::{Mode, StoreConfig};
+pub use crate::metrics::{flat_state_metrics, FLAT_STORAGE_HEAD_HEIGHT};
 pub use crate::opener::{StoreMigrator, StoreOpener, StoreOpenerError};
 
 /// Specifies temperature of a storage.
@@ -59,11 +64,23 @@ pub use crate::opener::{StoreMigrator, StoreOpener, StoreOpenerError};
 /// In the future, certain parts of the code may need to access hot or cold
 /// storage.  Specifically, querying an old block will require reading it from
 /// the cold storage.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Temperature {
     Hot,
-    #[cfg(feature = "cold_store")]
     Cold,
+}
+
+impl FromStr for Temperature {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, String> {
+        let s = s.to_lowercase();
+        match s.as_str() {
+            "hot" => Ok(Temperature::Hot),
+            "cold" => Ok(Temperature::Cold),
+            _ => Err(String::from(format!("invalid temperature string {s}"))),
+        }
+    }
 }
 
 /// Node’s storage holding chain and all other necessary data.
@@ -72,18 +89,16 @@ pub enum Temperature {
 /// will provide interface to access hot and cold storage.  This is in contrast
 /// to [`Store`] which will abstract access to only one of the temperatures of
 /// the storage.
-pub struct NodeStorage {
+pub struct NodeStorage<D = crate::db::RocksDB> {
     hot_storage: Arc<dyn Database>,
-    #[cfg(feature = "cold_store")]
-    cold_storage: Option<Arc<crate::db::ColdDB>>,
-    #[cfg(not(feature = "cold_store"))]
-    cold_storage: Option<std::convert::Infallible>,
+    cold_storage: Option<Arc<crate::db::ColdDB<D>>>,
+    _phantom: PhantomData<D>,
 }
 
 /// Node’s single storage source.
 ///
 /// Currently, this is somewhat equivalent to [`NodeStorage`] in that for given
-/// note storage you can get only a single [`Store`] object.  This will change
+/// node storage you can get only a single [`Store`] object.  This will change
 /// as we implement cold storage in which case this structure will provide an
 /// interface to access either hot or cold data.  At that point, [`NodeStorage`]
 /// will map to one of two [`Store`] objects depending on the temperature of the
@@ -93,22 +108,26 @@ pub struct Store {
     storage: Arc<dyn Database>,
 }
 
-// Those are temporary.  While cold_store feature is stabilised, remove those
-// type aliases and just use the type directly.
-#[cfg(feature = "cold_store")]
-pub type ColdConfig<'a> = Option<&'a StoreConfig>;
-#[cfg(not(feature = "cold_store"))]
-pub type ColdConfig<'a> = Option<std::convert::Infallible>;
-
 impl NodeStorage {
     /// Initialises a new opener with given home directory and hot and cold
     /// store config.
     pub fn opener<'a>(
         home_dir: &std::path::Path,
         config: &'a StoreConfig,
-        cold_config: ColdConfig<'a>,
+        cold_config: Option<&'a StoreConfig>,
     ) -> StoreOpener<'a> {
         StoreOpener::new(home_dir, config, cold_config)
+    }
+
+    /// Constructs new object backed by given database.
+    fn from_rocksdb(
+        hot_storage: crate::db::RocksDB,
+        cold_storage: Option<crate::db::RocksDB>,
+    ) -> Self {
+        let hot_storage = Arc::new(hot_storage);
+        let cold_storage = cold_storage
+            .map(|cold_db| Arc::new(crate::db::ColdDB::new(hot_storage.clone(), cold_db)));
+        Self { hot_storage, cold_storage, _phantom: PhantomData {} }
     }
 
     /// Initialises an opener for a new temporary test store.
@@ -136,24 +155,11 @@ impl NodeStorage {
     /// possibly [`crate::test_utils::create_test_store`] (depending whether you
     /// need [`NodeStorage`] or [`Store`] object.
     pub fn new(storage: Arc<dyn Database>) -> Self {
-        Self { hot_storage: storage, cold_storage: None }
+        Self { hot_storage: storage, cold_storage: None, _phantom: PhantomData {} }
     }
+}
 
-    /// Constructs new object backed by given database.
-    fn from_rocksdb(
-        hot_storage: crate::db::RocksDB,
-        #[cfg(feature = "cold_store")] cold_storage: Option<crate::db::RocksDB>,
-        #[cfg(not(feature = "cold_store"))] cold_storage: Option<std::convert::Infallible>,
-    ) -> Self {
-        Self {
-            hot_storage: Arc::new(hot_storage),
-            #[cfg(feature = "cold_store")]
-            cold_storage: cold_storage.map(|db| Arc::new(db.into())),
-            #[cfg(not(feature = "cold_store"))]
-            cold_storage: cold_storage.map(|_| unreachable!()),
-        }
-    }
-
+impl<D: Database + 'static> NodeStorage<D> {
     /// Returns storage for given temperature.
     ///
     /// Some data live only in hot and some only in cold storage (which is at
@@ -166,19 +172,31 @@ impl NodeStorage {
     /// data is, simplifying slightly, determined based on height of the block.
     /// Anything above the tail of hot storage is hot and everything else is
     /// cold.
+    ///
+    /// This method panics if trying to access cold store but it wasn't configured.
+    /// Please consider using the get_hot_store and get_cold_store methods to avoid panics.
     pub fn get_store(&self, temp: Temperature) -> Store {
         match temp {
-            Temperature::Hot => Store { storage: self.hot_storage.clone() },
-            #[cfg(feature = "cold_store")]
-            Temperature::Cold => Store { storage: self.cold_storage.as_ref().unwrap().clone() },
+            Temperature::Hot => self.get_hot_store(),
+            Temperature::Cold => self.get_cold_store().unwrap(),
+        }
+    }
+
+    pub fn get_hot_store(&self) -> Store {
+        Store { storage: self.hot_storage.clone() }
+    }
+
+    pub fn get_cold_store(&self) -> Option<Store> {
+        match &self.cold_storage {
+            Some(cold_storage) => Some(Store { storage: cold_storage.clone() }),
+            None => None,
         }
     }
 
     /// Returns underlying database for given temperature.
     ///
-    /// With (currently unimplemented) cold storage, this allows accessing
-    /// underlying hot and cold databases directly bypassing any abstractions
-    /// offered by [`NodeStorage`] or [`Store`] interfaces.
+    /// This allows accessing underlying hot and cold databases directly
+    /// bypassing any abstractions offered by [`NodeStorage`] or [`Store`] interfaces.
     ///
     /// This is useful for certain data which only lives in hot storage and
     /// interfaces which deal with it.  For example, peer store uses hot
@@ -189,26 +207,25 @@ impl NodeStorage {
     /// well.  For example, garbage collection only ever touches hot storage but
     /// it should go through [`Store`] interface since data it manipulates
     /// (e.g. blocks) are live in both databases.
-    pub fn _get_inner(&self, temp: Temperature) -> &Arc<dyn Database> {
-        match temp {
-            Temperature::Hot => &self.hot_storage,
-            #[cfg(feature = "cold_store")]
-            Temperature::Cold => todo!(),
-        }
-    }
-
-    /// Returns underlying database for given temperature.
     ///
-    /// This is like [`Self::get_inner`] but consumes `self` thus avoiding
-    /// `Arc::clone`.
+    /// This method panics if trying to access cold store but it wasn't configured.
     pub fn into_inner(self, temp: Temperature) -> Arc<dyn Database> {
         match temp {
             Temperature::Hot => self.hot_storage,
-            #[cfg(feature = "cold_store")]
             Temperature::Cold => self.cold_storage.unwrap(),
         }
     }
 
+    pub fn set_version(&self, version: DbVersion) -> std::io::Result<()> {
+        self.get_hot_store().set_db_version(version)?;
+        if let Some(cold_store) = self.get_cold_store() {
+            cold_store.set_db_version(version)?;
+        }
+        Ok(())
+    }
+}
+
+impl<D> NodeStorage<D> {
     /// Returns whether the storage has a cold database.
     pub fn has_cold(&self) -> bool {
         self.cold_storage.is_some()
@@ -222,9 +239,22 @@ impl NodeStorage {
         Ok(match metadata::DbMetadata::read(self.hot_storage.as_ref())?.kind.unwrap() {
             metadata::DbKind::RPC => false,
             metadata::DbKind::Archive => true,
-            #[cfg(feature = "cold_store")]
-            metadata::DbKind::Hot | metadata::DbKind::Cold => unreachable!(),
+            metadata::DbKind::Hot | metadata::DbKind::Cold => todo!(),
         })
+    }
+
+    pub fn new_with_cold(hot: Arc<dyn Database>, cold: D) -> Self {
+        Self {
+            hot_storage: hot.clone(),
+            cold_storage: Some(Arc::new(crate::db::ColdDB::<D>::new(hot, cold))),
+            _phantom: PhantomData::<D> {},
+        }
+    }
+
+    pub fn cold_db(&self) -> io::Result<&Arc<crate::db::ColdDB<D>>> {
+        self.cold_storage
+            .as_ref()
+            .map_or(Err(io::Error::new(io::ErrorKind::NotFound, "ColdDB Not Found")), |c| Ok(c))
     }
 }
 
@@ -338,6 +368,30 @@ impl Store {
 
     pub fn get_store_statistics(&self) -> Option<StoreStatistics> {
         self.storage.get_store_statistics()
+    }
+}
+
+impl Store {
+    pub fn get_db_version(&self) -> io::Result<DbVersion> {
+        let metadata = metadata::DbMetadata::read(self.storage.as_ref())?;
+        Ok(metadata.version)
+    }
+
+    pub fn set_db_version(&self, version: DbVersion) -> io::Result<()> {
+        let mut store_update = self.store_update();
+        store_update.set(DBCol::DbVersion, VERSION_KEY, version.to_string().as_bytes());
+        store_update.commit()
+    }
+
+    pub fn get_db_kind(&self) -> io::Result<Option<DbKind>> {
+        let metadata = metadata::DbMetadata::read(self.storage.as_ref())?;
+        Ok(metadata.kind)
+    }
+
+    pub fn set_db_kind(&self, kind: DbKind) -> io::Result<()> {
+        let mut store_update = self.store_update();
+        store_update.set(DBCol::DbVersion, KIND_KEY, <&str>::from(kind).as_bytes());
+        store_update.commit()
     }
 }
 
@@ -488,6 +542,12 @@ impl StoreUpdate {
         self.transaction.delete_all(column);
     }
 
+    /// Deletes the given key range from the database including `from`
+    /// and excluding `to` keys.
+    pub fn delete_range(&mut self, column: DBCol, from: &[u8], to: &[u8]) {
+        self.transaction.delete_range(column, from.to_vec(), to.to_vec());
+    }
+
     /// Sets reference to the trie to clear cache on the commit.
     ///
     /// Panics if shard_tries are already set to a different object.
@@ -547,7 +607,9 @@ impl StoreUpdate {
                         DBOp::Set { col, key, .. }
                         | DBOp::Insert { col, key, .. }
                         | DBOp::Delete { col, key } => Some((*col as u8, key)),
-                        DBOp::UpdateRefcount { .. } | DBOp::DeleteAll { .. } => None,
+                        DBOp::UpdateRefcount { .. }
+                        | DBOp::DeleteAll { .. }
+                        | DBOp::DeleteRange { .. } => None,
                     })
                     .collect::<Vec<_>>();
                 non_refcount_keys.len()
@@ -573,6 +635,9 @@ impl StoreUpdate {
                 }
                 DBOp::DeleteAll { col } => {
                     tracing::trace!(target: "store", db_op = "delete_all", col = %col)
+                }
+                DBOp::DeleteRange { col, from, to } => {
+                    tracing::trace!(target: "store", db_op = "delete_range", col = %col, from = %pretty::StorageKey(from), to = %pretty::StorageKey(to))
                 }
             }
         }
@@ -608,6 +673,12 @@ impl fmt::Debug for StoreUpdate {
                 }
                 DBOp::Delete { col, key } => writeln!(f, "  - {col} {}", pretty::StorageKey(key))?,
                 DBOp::DeleteAll { col } => writeln!(f, "  - {col} (all)")?,
+                DBOp::DeleteRange { col, from, to } => writeln!(
+                    f,
+                    "  - {col} [{}, {})",
+                    pretty::StorageKey(from),
+                    pretty::StorageKey(to)
+                )?,
             }
         }
         writeln!(f, "}}")

@@ -6,28 +6,33 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use lru::LruCache;
 use near_chunks::client::{ClientAdapterForShardsManager, ShardedTransactionPool};
 use near_chunks::logic::{
     cares_about_shard_this_or_next_epoch, decode_encoded_chunk, persist_chunk,
 };
 use near_client_primitives::debug::ChunkProduction;
 use near_primitives::time::Clock;
+use near_store::metadata::DbKind;
 use tracing::{debug, error, info, trace, warn};
 
-use crate::adapter::NetworkClientResponses;
 use near_chain::chain::{
     ApplyStatePartsRequest, BlockCatchUpRequest, BlockMissingChunks, BlocksCatchUpState,
     OrphanMissingChunks, StateSplitRequest, TX_ROUTING_HEIGHT_HORIZON,
 };
+use near_chain::flat_storage_creator::FlatStorageCreator;
 use near_chain::test_utils::format_hash;
-use near_chain::types::LatestKnown;
+use near_chain::types::{ChainConfig, LatestKnown};
 use near_chain::{
     BlockProcessingArtifact, BlockStatus, Chain, ChainGenesis, ChainStoreAccess,
-    DoneApplyChunkCallback, Doomslug, DoomslugThresholdMode, Provenance, RuntimeAdapter,
+    DoneApplyChunkCallback, Doomslug, DoomslugThresholdMode, Provenance,
+    RuntimeWithEpochManagerAdapter,
 };
-use near_chain_configs::ClientConfig;
+use near_chain_configs::{ClientConfig, UpdateableClientConfig};
 use near_chunks::ShardsManager;
-use near_network::types::{FullPeerInfo, NetworkRequests, PeerManagerAdapter, ReasonForBan};
+use near_network::types::{
+    HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter, ReasonForBan,
+};
 use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, Tip};
 use near_primitives::challenge::{Challenge, ChallengeBody};
 use near_primitives::hash::CryptoHash;
@@ -44,9 +49,13 @@ use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
 
+use crate::adapter::ProcessTxResponse;
 use crate::debug::BlockProductionTracker;
 use crate::debug::PRODUCTION_TIMES_CACHE_SIZE;
-use crate::sync::{BlockSync, EpochSync, HeaderSync, StateSync, StateSyncResult};
+use crate::sync::block::BlockSync;
+use crate::sync::epoch::EpochSync;
+use crate::sync::header::HeaderSync;
+use crate::sync::state::{StateSync, StateSyncResult};
 use crate::{metrics, SyncStatus};
 use near_client_primitives::types::{Error, ShardSyncDownload, ShardSyncStatus};
 use near_network::types::{AccountKeys, ChainInfo, PeerManagerMessageRequest, SetChainInfo};
@@ -55,9 +64,11 @@ use near_primitives::block_header::ApprovalType;
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::network::PeerId;
 use near_primitives::version::PROTOCOL_VERSION;
-use near_primitives::views::CatchupStatusView;
+use near_primitives::views::{CatchupStatusView, DroppedReason};
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
+const CHUNK_HEADERS_FOR_INCLUSION_CACHE_SIZE: usize = 2048;
+const NUM_EPOCH_CHUNK_PRODUCERS_TO_KEEP_IN_BLOCKLIST: usize = 1000;
 
 /// The time we wait for the response to a Epoch Sync request before retrying
 // TODO #3488 set 30_000
@@ -77,9 +88,10 @@ pub struct Client {
     pub adv_produce_blocks: bool,
     #[cfg(feature = "test_features")]
     pub adv_produce_blocks_only_valid: bool,
-    /// Controls the height which is broadcasted to other peers.
     #[cfg(feature = "test_features")]
-    pub adv_sync_height: Option<BlockHeight>,
+    pub produce_invalid_chunks: bool,
+    #[cfg(feature = "test_features")]
+    pub produce_invalid_tx_in_chunks: bool,
 
     /// Fast Forward accrued delta height used to calculate fast forwarded timestamps for each block.
     #[cfg(feature = "sandbox")]
@@ -89,10 +101,14 @@ pub struct Client {
     pub sync_status: SyncStatus,
     pub chain: Chain,
     pub doomslug: Doomslug,
-    pub runtime_adapter: Arc<dyn RuntimeAdapter>,
+    pub runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
     pub shards_mgr: ShardsManager,
-    me: Option<AccountId>,
     pub sharded_tx_pool: ShardedTransactionPool,
+    prev_block_to_chunk_headers_ready_for_inclusion: LruCache<
+        CryptoHash,
+        HashMap<ShardId, (ShardChunkHeader, chrono::DateTime<chrono::Utc>, AccountId)>,
+    >,
+    pub do_not_include_chunks_from: LruCache<(EpochId, AccountId), ()>,
     /// Network adapter.
     network_adapter: Arc<dyn PeerManagerAdapter>,
     /// Signer for block producer (if present).
@@ -131,6 +147,14 @@ pub struct Client {
     /// Cached precomputed set of TIER1 accounts.
     /// See send_network_chain_info().
     tier1_accounts_cache: Option<(EpochId, Arc<AccountKeys>)>,
+    /// Used when it is needed to create flat storage in background for some shards.
+    flat_storage_creator: Option<FlatStorageCreator>,
+}
+
+impl Client {
+    pub(crate) fn update_client_config(&self, update_client_config: UpdateableClientConfig) {
+        self.config.expected_shutdown.update(update_client_config.expected_shutdown);
+    }
 }
 
 // Debug information about the upcoming block.
@@ -161,7 +185,7 @@ impl Client {
     pub fn new(
         config: ClientConfig,
         chain_genesis: ChainGenesis,
-        runtime_adapter: Arc<dyn RuntimeAdapter>,
+        runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
         network_adapter: Arc<dyn PeerManagerAdapter>,
         client_adapter: Arc<dyn ClientAdapterForShardsManager>,
         validator_signer: Option<Arc<dyn ValidatorSigner>>,
@@ -173,13 +197,24 @@ impl Client {
         } else {
             DoomslugThresholdMode::NoApprovals
         };
+        let chain_config = ChainConfig {
+            save_trie_changes: !config.archive,
+            background_migration_threads: config.client_background_migration_threads,
+        };
         let chain = Chain::new(
             runtime_adapter.clone(),
             &chain_genesis,
             doomslug_threshold_mode,
-            !config.archive,
+            chain_config.clone(),
         )?;
         let me = validator_signer.as_ref().map(|x| x.validator_id().clone());
+        // Create flat storage or initiate migration to flat storage.
+        let flat_storage_creator = FlatStorageCreator::new(
+            me.as_ref(),
+            runtime_adapter.clone(),
+            chain.store(),
+            chain_config.background_migration_threads,
+        )?;
         let shards_mgr = ShardsManager::new(
             me.clone(),
             runtime_adapter.clone(),
@@ -235,7 +270,9 @@ impl Client {
             #[cfg(feature = "test_features")]
             adv_produce_blocks_only_valid: false,
             #[cfg(feature = "test_features")]
-            adv_sync_height: None,
+            produce_invalid_chunks: false,
+            #[cfg(feature = "test_features")]
+            produce_invalid_tx_in_chunks: false,
             #[cfg(feature = "sandbox")]
             accrued_fastforward_delta: 0,
             config,
@@ -244,8 +281,13 @@ impl Client {
             doomslug,
             runtime_adapter,
             shards_mgr,
-            me,
             sharded_tx_pool,
+            prev_block_to_chunk_headers_ready_for_inclusion: LruCache::new(
+                CHUNK_HEADERS_FOR_INCLUSION_CACHE_SIZE,
+            ),
+            do_not_include_chunks_from: LruCache::new(
+                NUM_EPOCH_CHUNK_PRODUCERS_TO_KEEP_IN_BLOCKLIST,
+            ),
             network_adapter,
             validator_signer,
             pending_approvals: lru::LruCache::new(num_block_producer_seats),
@@ -261,6 +303,7 @@ impl Client {
             block_production_info: BlockProductionTracker::new(),
             chunk_production_info: lru::LruCache::new(PRODUCTION_TIMES_CACHE_SIZE),
             tier1_accounts_cache: None,
+            flat_storage_creator,
         })
     }
 
@@ -402,6 +445,53 @@ impl Client {
         Ok(false)
     }
 
+    pub fn get_chunk_headers_ready_for_inclusion(
+        &self,
+        epoch_id: &EpochId,
+        prev_block_hash: &CryptoHash,
+    ) -> HashMap<ShardId, (ShardChunkHeader, chrono::DateTime<chrono::Utc>, AccountId)> {
+        self.prev_block_to_chunk_headers_ready_for_inclusion
+            .peek(prev_block_hash)
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|(_, (chunk_header, _, chunk_producer))| {
+                let banned = self
+                    .do_not_include_chunks_from
+                    .contains(&(epoch_id.clone(), chunk_producer.clone()));
+                if banned {
+                    warn!(
+                        target: "client",
+                        "Not including chunk {:?} from banned validator {}",
+                        chunk_header.chunk_hash(),
+                        chunk_producer);
+                    metrics::CHUNK_DROPPED_BECAUSE_OF_BANNED_CHUNK_PRODUCER.inc();
+                }
+                !banned
+            })
+            .collect()
+    }
+
+    pub fn num_chunk_headers_ready_for_inclusion(
+        &self,
+        epoch_id: &EpochId,
+        prev_block_hash: &CryptoHash,
+    ) -> usize {
+        let entries =
+            match self.prev_block_to_chunk_headers_ready_for_inclusion.peek(prev_block_hash) {
+                Some(entries) => entries,
+                None => return 0,
+            };
+        entries
+            .values()
+            .filter(|(_, _, chunk_producer)| {
+                !self
+                    .do_not_include_chunks_from
+                    .contains(&(epoch_id.clone(), chunk_producer.clone()))
+            })
+            .count()
+    }
+
     /// Produce block if we are block producer for given `next_height` block height.
     /// Either returns produced block (not applied) or error.
     pub fn produce_block(&mut self, next_height: BlockHeight) -> Result<Option<Block>, Error> {
@@ -464,7 +554,7 @@ impl Client {
             }
         }
 
-        let new_chunks = self.shards_mgr.prepare_chunks(&prev_hash);
+        let new_chunks = self.get_chunk_headers_ready_for_inclusion(&epoch_id, &prev_hash);
         debug!(target: "client", "{:?} Producing block at height {}, parent {} @ {}, {} new chunks", validator_signer.validator_id(),
                next_height, prev.height(), format_hash(head.last_block_hash), new_chunks.len());
 
@@ -556,7 +646,7 @@ impl Client {
         );
 
         // Collect new chunks.
-        for (shard_id, (mut chunk_header, _)) in new_chunks {
+        for (shard_id, (mut chunk_header, _, _)) in new_chunks {
             *chunk_header.height_included_mut() = next_height;
             chunks[shard_id as usize] = chunk_header;
         }
@@ -679,6 +769,13 @@ impl Client {
 
         let prev_block_header = self.chain.get_block_header(&prev_block_hash)?;
         let transactions = self.prepare_transactions(shard_id, &chunk_extra, &prev_block_header)?;
+        let transactions = transactions;
+        #[cfg(feature = "test_features")]
+        let transactions = Self::maybe_insert_invalid_transaction(
+            transactions,
+            prev_block_hash,
+            self.produce_invalid_tx_in_chunks,
+        );
         let num_filtered_transactions = transactions.len();
         let (tx_root, _) = merklize(&transactions);
         let outgoing_receipts = self.chain.get_outgoing_receipts_for_shard(
@@ -705,13 +802,16 @@ impl Client {
         let (outgoing_receipts_root, _) = merklize(&outgoing_receipts_hashes);
 
         let protocol_version = self.runtime_adapter.get_epoch_protocol_version(epoch_id)?;
+        let gas_used = chunk_extra.gas_used();
+        #[cfg(feature = "test_features")]
+        let gas_used = if self.produce_invalid_chunks { gas_used + 1 } else { gas_used };
         let (encoded_chunk, merkle_paths) = ShardsManager::create_encoded_shard_chunk(
             prev_block_hash,
             *chunk_extra.state_root(),
             *chunk_extra.outcome_root(),
             next_height,
             shard_id,
-            chunk_extra.gas_used(),
+            gas_used,
             chunk_extra.gas_limit(),
             chunk_extra.balance_burnt(),
             chunk_extra.validator_proposals().collect(),
@@ -745,6 +845,27 @@ impl Client {
             },
         );
         Ok(Some((encoded_chunk, merkle_paths, outgoing_receipts)))
+    }
+
+    #[cfg(feature = "test_features")]
+    fn maybe_insert_invalid_transaction(
+        mut txs: Vec<SignedTransaction>,
+        prev_block_hash: CryptoHash,
+        insert: bool,
+    ) -> Vec<SignedTransaction> {
+        if insert {
+            txs.push(SignedTransaction::new(
+                near_crypto::Signature::empty(near_crypto::KeyType::ED25519),
+                near_primitives::transaction::Transaction::new(
+                    "test".parse().unwrap(),
+                    near_crypto::PublicKey::empty(near_crypto::KeyType::SECP256K1),
+                    "other".parse().unwrap(),
+                    3,
+                    prev_block_hash,
+                ),
+            ));
+        }
+        txs
     }
 
     /// Prepares an ordered list of valid transactions from the pool up the limits.
@@ -856,6 +977,7 @@ impl Client {
             } else {
                 debug!(target: "client", error = %err, "Process block: refused by chain");
             }
+            self.chain.blocks_delay_tracker.mark_block_errored(&hash, err.to_string());
         }
     }
 
@@ -871,9 +993,13 @@ impl Client {
         was_requested: bool,
         apply_chunks_done_callback: DoneApplyChunkCallback,
     ) -> Result<(), near_chain::Error> {
+        self.chain.blocks_delay_tracker.mark_block_received(&block, Clock::instant(), Clock::utc());
         // To protect ourselves from spamming, we do some pre-check on block height before we do any
         // real processing.
         if !self.check_block_height(&block, was_requested)? {
+            self.chain
+                .blocks_delay_tracker
+                .mark_block_dropped(block.hash(), DroppedReason::HeightProcessed);
             return Ok(());
         }
         let prev_hash = *block.header().prev_hash();
@@ -954,7 +1080,12 @@ impl Client {
                 Ok(())
             }
             Err(e) if e.is_bad_data() => {
-                self.ban_peer(peer_id.clone(), ReasonForBan::BadBlockHeader);
+                // We don't ban a peer if the block timestamp is too much in the future since it's possible
+                // that a block is considered valid in one machine and invalid in another machine when their
+                // clocks are not synced.
+                if !matches!(e, near_chain::Error::InvalidBlockFutureTime(_)) {
+                    self.ban_peer(peer_id.clone(), ReasonForBan::BadBlockHeader);
+                }
                 Err(e)
             }
             Err(_) => {
@@ -1071,8 +1202,12 @@ impl Client {
         &mut self,
         block_processing_artifacts: BlockProcessingArtifact,
     ) {
-        let BlockProcessingArtifact { orphans_missing_chunks, blocks_missing_chunks, challenges } =
-            block_processing_artifacts;
+        let BlockProcessingArtifact {
+            orphans_missing_chunks,
+            blocks_missing_chunks,
+            challenges,
+            invalid_chunks,
+        } = block_processing_artifacts;
         // Send out challenges that accumulated via on_challenge.
         self.send_challenges(challenges);
         // For any missing chunk, call the ShardsManager with it so that it may apply forwarded parts.
@@ -1091,6 +1226,34 @@ impl Client {
         }
         // Request any (still) missing chunks.
         self.request_missing_chunks(blocks_missing_chunks, orphans_missing_chunks);
+
+        for chunk_header in invalid_chunks {
+            if let Err(err) = self.ban_chunk_producer_for_producing_invalid_chunk(chunk_header) {
+                error!(target: "client", "Failed to ban chunk producer for producing invalid chunk: {:?}", err);
+            }
+        }
+    }
+
+    fn ban_chunk_producer_for_producing_invalid_chunk(
+        &mut self,
+        chunk_header: ShardChunkHeader,
+    ) -> Result<(), Error> {
+        let epoch_id =
+            self.runtime_adapter.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
+        let chunk_producer = self.runtime_adapter.get_chunk_producer(
+            &epoch_id,
+            chunk_header.height_created(),
+            chunk_header.shard_id(),
+        )?;
+        error!(
+            target: "client",
+            "Banning chunk producer {} for epoch {:?} for producing invalid chunk {:?}",
+            chunk_producer,
+            epoch_id,
+            chunk_header.chunk_hash());
+        metrics::CHUNK_PRODUCER_BANNED_FOR_EPOCH.inc();
+        self.do_not_include_chunks_from.put((epoch_id, chunk_producer), ());
+        Ok(())
     }
 
     fn rebroadcast_block(&mut self, block: &Block) {
@@ -1130,6 +1293,20 @@ impl Client {
         if let Err(err) = update.commit() {
             error!(target: "client", "Error saving invalid chunk: {:?}", err);
         }
+    }
+
+    pub fn on_chunk_header_ready_for_inclusion(
+        &mut self,
+        chunk_header: ShardChunkHeader,
+        chunk_producer: AccountId,
+    ) {
+        let prev_block_hash = chunk_header.prev_block_hash();
+        self.prev_block_to_chunk_headers_ready_for_inclusion
+            .get_or_insert(prev_block_hash.clone(), || HashMap::new());
+        self.prev_block_to_chunk_headers_ready_for_inclusion
+            .get_mut(prev_block_hash)
+            .unwrap()
+            .insert(chunk_header.shard_id(), (chunk_header, chrono::Utc::now(), chunk_producer));
     }
 
     pub fn sync_block_headers(
@@ -1279,13 +1456,7 @@ impl Client {
                     height = block.header().height())
                 .entered();
                 let _gc_timer = metrics::GC_TIME.start_timer();
-
-                let result = if self.config.archive {
-                    self.chain.clear_archive_data(self.config.gc.gc_blocks_limit)
-                } else {
-                    let tries = self.runtime_adapter.get_tries();
-                    self.chain.clear_data(tries, &self.config.gc)
-                };
+                let result = self.clear_data();
                 log_assert!(result.is_ok(), "Can't clear old data, {:?}", result);
             }
 
@@ -1299,14 +1470,12 @@ impl Client {
         if let Some(validator_signer) = self.validator_signer.clone() {
             // Reconcile the txpool against the new block *after* we have broadcast it too our peers.
             // This may be slow and we do not want to delay block propagation.
+            let validator_id = validator_signer.validator_id().clone();
             match status {
                 BlockStatus::Next => {
                     // If this block immediately follows the current tip, remove transactions
                     //    from the txpool
-                    self.remove_transactions_for_block(
-                        validator_signer.validator_id().clone(),
-                        &block,
-                    );
+                    self.remove_transactions_for_block(validator_id.clone(), &block);
                 }
                 BlockStatus::Fork => {
                     // If it's a fork, no need to reconcile transactions or produce chunks
@@ -1347,20 +1516,14 @@ impl Client {
                     for to_reintroduce_hash in to_reintroduce {
                         if let Ok(block) = self.chain.get_block(&to_reintroduce_hash) {
                             let block = block.clone();
-                            self.reintroduce_transactions_for_block(
-                                validator_signer.validator_id().clone(),
-                                &block,
-                            );
+                            self.reintroduce_transactions_for_block(validator_id.clone(), &block);
                         }
                     }
 
                     for to_remove_hash in to_remove {
                         if let Ok(block) = self.chain.get_block(&to_remove_hash) {
                             let block = block.clone();
-                            self.remove_transactions_for_block(
-                                validator_signer.validator_id().clone(),
-                                &block,
-                            );
+                            self.remove_transactions_for_block(validator_id.clone(), &block);
                         }
                     }
                 }
@@ -1381,7 +1544,7 @@ impl Client {
                         .get_chunk_producer(&epoch_id, block.header().height() + 1, shard_id)
                         .unwrap();
 
-                    if chunk_proposer == *validator_signer.validator_id() {
+                    if &chunk_proposer == &validator_id {
                         let _span = tracing::debug_span!(
                             target: "client",
                             "on_block_accepted_produce_chunk",
@@ -1404,6 +1567,7 @@ impl Client {
                                     encoded_chunk,
                                     merkle_paths,
                                     receipts,
+                                    validator_id.clone(),
                                 )
                                 .expect("Failed to process produced chunk");
                             }
@@ -1424,14 +1588,19 @@ impl Client {
         encoded_chunk: EncodedShardChunk,
         merkle_paths: Vec<MerklePath>,
         receipts: Vec<Receipt>,
+        validator_id: AccountId,
     ) -> Result<(), Error> {
         let (shard_chunk, partial_chunk) = decode_encoded_chunk(
             &encoded_chunk,
             merkle_paths.clone(),
-            self.me.as_ref(),
+            Some(&validator_id),
             self.runtime_adapter.as_ref(),
         )?;
         persist_chunk(partial_chunk.clone(), Some(shard_chunk), self.chain.mut_store())?;
+        self.on_chunk_header_ready_for_inclusion(
+            encoded_chunk.cloned_header(),
+            validator_id.clone(),
+        );
         self.shards_mgr.distribute_encoded_chunk(
             partial_chunk,
             encoded_chunk,
@@ -1521,7 +1690,10 @@ impl Client {
         error: near_chain::Error,
     ) {
         let is_validator =
-            |epoch_id, block_hash, account_id, runtime_adapter: &Arc<dyn RuntimeAdapter>| {
+            |epoch_id,
+             block_hash,
+             account_id,
+             runtime_adapter: &Arc<dyn RuntimeWithEpochManagerAdapter>| {
                 match runtime_adapter.get_validator_by_account_id(epoch_id, block_hash, account_id)
                 {
                     Ok((_, is_slashed)) => !is_slashed,
@@ -1552,7 +1724,7 @@ impl Client {
         }
     }
 
-    /// Collects block approvals. Returns false if block approval is invalid.
+    /// Collects block approvals.
     ///
     /// We send the approval to doomslug given the epoch of the current tip iff:
     ///  1. We are the block producer for the target height in the tip's epoch;
@@ -1570,8 +1742,27 @@ impl Client {
         let parent_hash = match inner {
             ApprovalInner::Endorsement(parent_hash) => *parent_hash,
             ApprovalInner::Skip(parent_height) => {
-                match self.chain.get_block_header_by_height(*parent_height) {
-                    Ok(header) => *header.hash(),
+                match self.chain.store().get_all_block_hashes_by_height(*parent_height) {
+                    Ok(hashes) => {
+                        // If there is more than one block at the height, all of them will be
+                        // eligible to build the next block on, so we just pick one.
+                        let hash = hashes.values().flatten().next();
+                        match hash {
+                            Some(hash) => *hash,
+                            None => {
+                                self.handle_process_approval_error(
+                                    approval,
+                                    approval_type,
+                                    true,
+                                    near_chain::Error::Other(format!(
+                                        "Cannot find any block on height {}",
+                                        parent_height
+                                    )),
+                                );
+                                return;
+                            }
+                        }
+                    }
                     Err(e) => {
                         self.handle_process_approval_error(approval, approval_type, true, e);
                         return;
@@ -1717,11 +1908,11 @@ impl Client {
         tx: SignedTransaction,
         is_forwarded: bool,
         check_only: bool,
-    ) -> NetworkClientResponses {
+    ) -> ProcessTxResponse {
         unwrap_or_return!(self.process_tx_internal(&tx, is_forwarded, check_only), {
             let me = self.validator_signer.as_ref().map(|vs| vs.validator_id());
             warn!(target: "client", "I'm: {:?} Dropping tx: {:?}", me, tx);
-            NetworkClientResponses::NoResponse
+            ProcessTxResponse::NoResponse
         })
     }
 
@@ -1763,7 +1954,7 @@ impl Client {
         tx: &SignedTransaction,
         is_forwarded: bool,
         check_only: bool,
-    ) -> Result<NetworkClientResponses, Error> {
+    ) -> Result<ProcessTxResponse, Error> {
         let head = self.chain.head()?;
         let me = self.validator_signer.as_ref().map(|vs| vs.validator_id());
         let cur_block_header = self.chain.head_header()?;
@@ -1777,7 +1968,7 @@ impl Client {
             transaction_validity_period,
         ) {
             debug!(target: "client", "Invalid tx: expired or from a different fork -- {:?}", tx);
-            return Ok(NetworkClientResponses::InvalidTx(e));
+            return Ok(ProcessTxResponse::InvalidTx(e));
         }
         let gas_price = cur_block_header.gas_price();
         let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(&head.last_block_hash)?;
@@ -1790,7 +1981,7 @@ impl Client {
             .expect("no storage errors")
         {
             debug!(target: "client", "Invalid tx during basic validation: {:?}", err);
-            return Ok(NetworkClientResponses::InvalidTx(err));
+            return Ok(ProcessTxResponse::InvalidTx(err));
         }
 
         let shard_id =
@@ -1808,7 +1999,7 @@ impl Client {
                         return Err(Error::Other("Node has not caught up yet".to_string()));
                     } else {
                         self.forward_tx(&epoch_id, tx)?;
-                        return Ok(NetworkClientResponses::RequestRouted);
+                        return Ok(ProcessTxResponse::RequestRouted);
                     }
                 }
             };
@@ -1818,9 +2009,9 @@ impl Client {
                 .expect("no storage errors")
             {
                 debug!(target: "client", "Invalid tx: {:?}", err);
-                Ok(NetworkClientResponses::InvalidTx(err))
+                Ok(ProcessTxResponse::InvalidTx(err))
             } else if check_only {
-                Ok(NetworkClientResponses::ValidTx)
+                Ok(ProcessTxResponse::ValidTx)
             } else {
                 let active_validator = self.active_validator(shard_id)?;
 
@@ -1842,30 +2033,30 @@ impl Client {
                     if !is_forwarded {
                         self.possibly_forward_tx_to_next_epoch(tx)?;
                     }
-                    Ok(NetworkClientResponses::ValidTx)
+                    Ok(ProcessTxResponse::ValidTx)
                 } else if !is_forwarded {
                     trace!(target: "client", shard_id, "Forwarding a transaction.");
                     metrics::TRANSACTION_RECEIVED_NON_VALIDATOR.inc();
                     self.forward_tx(&epoch_id, tx)?;
-                    Ok(NetworkClientResponses::RequestRouted)
+                    Ok(ProcessTxResponse::RequestRouted)
                 } else {
                     trace!(target: "client", shard_id, "Non-validator received a forwarded transaction, dropping it.");
                     metrics::TRANSACTION_RECEIVED_NON_VALIDATOR_FORWARDED.inc();
-                    Ok(NetworkClientResponses::NoResponse)
+                    Ok(ProcessTxResponse::NoResponse)
                 }
             }
         } else if check_only {
-            Ok(NetworkClientResponses::DoesNotTrackShard)
+            Ok(ProcessTxResponse::DoesNotTrackShard)
         } else {
             if is_forwarded {
                 // received forwarded transaction but we are not tracking the shard
                 debug!(target: "client", "Received forwarded transaction but no tracking shard {}, I'm {:?}", shard_id, me);
-                return Ok(NetworkClientResponses::NoResponse);
+                return Ok(ProcessTxResponse::NoResponse);
             }
             // We are not tracking this shard, so there is no way to validate this tx. Just rerouting.
 
             self.forward_tx(&epoch_id, tx)?;
-            Ok(NetworkClientResponses::RequestRouted)
+            Ok(ProcessTxResponse::RequestRouted)
         }
     }
 
@@ -1893,7 +2084,7 @@ impl Client {
     /// Walks through all the ongoing state syncs for future epochs and processes them
     pub fn run_catchup(
         &mut self,
-        highest_height_peers: &[FullPeerInfo],
+        highest_height_peers: &[HighestHeightPeerInfo],
         state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
         block_catch_up_task_scheduler: &dyn Fn(BlockCatchUpRequest),
         state_split_scheduler: &dyn Fn(StateSplitRequest),
@@ -2027,6 +2218,40 @@ impl Client {
         //        }
         Ok(())
     }
+
+    /// Check updates from background flat storage creation processes and possibly update
+    /// creation statuses. Returns boolean indicating if all flat storages are created or
+    /// creation is not needed.
+    pub fn run_flat_storage_creation_step(&mut self) -> Result<bool, Error> {
+        let result = match &mut self.flat_storage_creator {
+            Some(flat_storage_creator) => flat_storage_creator.update_status(self.chain.store())?,
+            None => true,
+        };
+        Ok(result)
+    }
+
+    fn clear_data(&mut self) -> Result<(), near_chain::Error> {
+        // A RPC node should do regular garbage collection.
+        if !self.config.archive {
+            let tries = self.runtime_adapter.get_tries();
+            return self.chain.clear_data(tries, &self.config.gc);
+        }
+
+        // An archival node with split storage should perform garbage collection
+        // on the hot storage. In order to determine if split storage is enabled
+        // *and* that the migration to split storage is finished we can check
+        // the store kind. It's only set to hot after the migration is finished.
+        let store = self.chain.store().store();
+        let kind = store.get_db_kind()?;
+        if kind == Some(DbKind::Hot) {
+            let tries = self.runtime_adapter.get_tries();
+            return self.chain.clear_data(tries, &self.config.gc);
+        }
+
+        // An archival node with legacy storage or in the midst of migration to split
+        // storage should do the legacy clear_archive_data.
+        self.chain.clear_archive_data(self.config.gc.gc_blocks_limit)
+    }
 }
 
 /* implements functions used to communicate with network */
@@ -2100,30 +2325,32 @@ impl Client {
         // require some tuning in the future. In particular, if we decide that connecting to
         // block & chunk producers of the next expoch is too expensive, we can postpone it
         // till almost the end of this epoch.
-        let mut accounts = HashMap::new();
+        let mut account_keys = AccountKeys::new();
         for epoch_id in [&tip.epoch_id, &tip.next_epoch_id] {
             // We assume here that calls to get_epoch_chunk_producers and get_epoch_block_producers_ordered
             // are cheaper than block processing (and that they will work with both this and
             // the next epoch). The caching on top of that (in tier1_accounts_cache field) is just
             // a defence in depth, based on the previous experience with expensive
-            // RuntimeAdapter::get_validators_info call.
-            accounts.extend(
-                self.runtime_adapter.get_epoch_chunk_producers(epoch_id)?.iter().map(|it| {
-                    ((epoch_id.clone(), it.account_id().clone()), it.public_key().clone())
-                }),
-            );
-            accounts.extend(
-                self.runtime_adapter
-                    .get_epoch_block_producers_ordered(epoch_id, &tip.last_block_hash)?
-                    .iter()
-                    .map(|(it, _)| {
-                        ((epoch_id.clone(), it.account_id().clone()), it.public_key().clone())
-                    }),
-            );
+            // RuntimeWithEpochManagerAdapter::get_validators_info call.
+            for cp in self.runtime_adapter.get_epoch_chunk_producers(epoch_id)? {
+                account_keys
+                    .entry(cp.account_id().clone())
+                    .or_default()
+                    .insert(cp.public_key().clone());
+            }
+            for (bp, _) in self
+                .runtime_adapter
+                .get_epoch_block_producers_ordered(epoch_id, &tip.last_block_hash)?
+            {
+                account_keys
+                    .entry(bp.account_id().clone())
+                    .or_default()
+                    .insert(bp.public_key().clone());
+            }
         }
-        let accounts = Arc::new(accounts);
-        self.tier1_accounts_cache = Some((tip.epoch_id.clone(), accounts.clone()));
-        Ok(accounts)
+        let account_keys = Arc::new(account_keys);
+        self.tier1_accounts_cache = Some((tip.epoch_id.clone(), account_keys.clone()));
+        Ok(account_keys)
     }
 
     /// send_network_chain_info sends ChainInfo to PeerManagerActor.
@@ -2155,11 +2382,9 @@ impl Client {
             (0..num_shards).collect()
         };
         let tier1_accounts = self.get_tier1_accounts(&tip)?;
-        let height = tip.height;
-        #[cfg(feature = "test_features")]
-        let height = self.adv_sync_height.unwrap_or(height);
+        let block = self.chain.get_block(&tip.last_block_hash)?;
         self.network_adapter.do_send(
-            SetChainInfo(ChainInfo { height, tracked_shards, tier1_accounts }).with_span_context(),
+            SetChainInfo(ChainInfo { block, tracked_shards, tier1_accounts }).with_span_context(),
         );
         Ok(())
     }

@@ -4,14 +4,14 @@ use std::time::Duration;
 
 use actix::{Actor, Addr, System};
 use futures::{future, FutureExt};
+use near_primitives::test_utils::create_test_signer;
 
 use crate::genesis_helpers::genesis_block;
 use crate::test_helpers::heavy_test;
 use near_actix_test_utils::run_actix;
 use near_chain::Block;
 use near_chain_configs::Genesis;
-use near_client::adapter::NetworkClientMessages;
-use near_client::{ClientActor, GetBlock};
+use near_client::{BlockResponse, ClientActor, GetBlock, ProcessTxRequest};
 use near_crypto::{InMemorySigner, KeyType};
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeoutActor};
 use near_network::types::PeerInfo;
@@ -24,7 +24,7 @@ use near_primitives::num_rational::Ratio;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{BlockHeightDelta, EpochId};
-use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
+use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use nearcore::config::{GenesisExt, TESTING_INIT_STAKE};
 use nearcore::{load_test_config, start_with_config, NearConfig};
@@ -89,8 +89,12 @@ fn add_blocks(
         );
         block_merkle_tree.insert(*block.hash());
         let _ = client.do_send(
-            NetworkClientMessages::Block(block.clone(), PeerInfo::random().id, false)
-                .with_span_context(),
+            BlockResponse {
+                block: block.clone(),
+                peer_id: PeerInfo::random().id,
+                was_requested: false,
+            }
+            .with_span_context(),
         );
         blocks.push(block);
         prev = &blocks[blocks.len() - 1];
@@ -129,11 +133,7 @@ fn sync_nodes() {
             let nearcore::NearNode { client: client1, .. } =
                 start_with_config(dir1.path(), near1).expect("start_with_config");
 
-            let signer = InMemoryValidatorSigner::from_seed(
-                "other".parse().unwrap(),
-                KeyType::ED25519,
-                "other",
-            );
+            let signer = create_test_signer("other");
             let _ =
                 add_blocks(vec![genesis_block], client1, 13, genesis.config.epoch_length, &signer);
 
@@ -180,11 +180,7 @@ fn sync_after_sync_nodes() {
             let nearcore::NearNode { view_client: view_client2, .. } =
                 start_with_config(dir2.path(), near2).expect("start_with_config");
 
-            let signer = InMemoryValidatorSigner::from_seed(
-                "other".parse().unwrap(),
-                KeyType::ED25519,
-                "other",
-            );
+            let signer = create_test_signer("other");
             let blocks = add_blocks(
                 vec![genesis_block],
                 client1.clone(),
@@ -277,7 +273,7 @@ fn sync_state_stake_change() {
             actix::spawn(
                 client1
                     .send(
-                        NetworkClientMessages::Transaction {
+                        ProcessTxRequest {
                             transaction: unstake_transaction,
                             is_forwarded: false,
                             check_only: false,

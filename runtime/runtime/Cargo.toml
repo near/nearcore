@@ -4,13 +4,10 @@ version = "0.0.0"
 license = "MIT OR Apache-2.0"
 authors.workspace = true
 publish = false
-# Please update rust-toolchain.toml as well when changing version here:
-rust-version.workspace = true
 edition.workspace = true
 
 [dependencies]
 borsh.workspace = true
-byteorder.workspace = true
 hex.workspace = true
 num-bigint.workspace = true
 num-rational.workspace = true
@@ -37,7 +34,10 @@ near-vm-runner = { path = "../../runtime/near-vm-runner" }
 default = []
 dump_errors_schema = ["near-vm-errors/dump_errors_schema"]
 protocol_feature_flat_state = ["near-store/protocol_feature_flat_state", "near-vm-logic/protocol_feature_flat_state"]
+protocol_feature_zero_balance_account = ["near-primitives/protocol_feature_zero_balance_account"]
+nightly_protocol = ["near-primitives/nightly_protocol"]
 no_cpu_compatibility_checks = ["near-vm-runner/no_cpu_compatibility_checks"]
+protocol_feature_nep366_delegate_action = []
 
 no_cache = [
   "near-vm-runner/no_cache",
@@ -48,6 +48,7 @@ sandbox = ["near-vm-logic/sandbox", "near-vm-runner/sandbox"]
 
 [dev-dependencies]
 assert_matches.workspace = true
+enum-map.workspace = true
 indicatif.workspace = true
 rayon.workspace = true
 serde_json.workspace = true

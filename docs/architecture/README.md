@@ -39,16 +39,16 @@ missing bits of history from more up-to-date peer nodes.
 
 Major components of nearcore:
 
-* JSON RPC. This HTTP RPC interface is how `neard` communicates with
+* **JSON RPC**. This HTTP RPC interface is how `neard` communicates with
   non-blockchain outside world. For example, to submit a transaction, some
   client sends an RPC request with it to some node in the network. From that
   node, the transaction propagates through the network, until it is included in
   some block. Similarly, a client can send an HTTP request to a node to learn
-  about current state of the blockchain. The JSON RPC interface is documented
+  about current state of the blockchain. The **JSON RPC** interface is documented
   [here](https://docs.near.org/api/rpc/introduction).
 
-* Network. If RPC is aimed "outside" the blockchain, "network" is how peer
-  `neard` nodes communicate with each other within blockchain. RPC carries
+* **Network**. If RPC is aimed "outside" the blockchain, "network" is how peer
+  `neard` nodes communicate with each other within the blockchain. RPC carries
   requests from users of the blockchain, while network carries various messages
   needed to implement consensus. Two directly connected nodes communicate by
   sending protobuf-encoded messages over TCP. A node also includes logic to
@@ -57,44 +57,44 @@ Major components of nearcore:
   network participant. From this bootstrap connection, the node learns how to
   communicate with any other node in the network.
 
-* Client. Somewhat confusingly named, client is the logical state of the
-  blockchain. After receiving and decoding a request, both RPC and network
-  usually forward it in the parsed form to the client. Internally, client is
-  split in two somewhat independent components: chain and runtime.
+* **Client**. Somewhat confusingly named, **client** is the logical state of the
+  blockchain. After receiving and decoding a request, both **RPC** and **network**
+  usually forward it in the parsed form to the **client**. Internally, **client** is
+  split in two somewhat independent components: **chain** and **runtime**.
 
-* Chain. The job of chain, in a nutshell, is to determine a global order of
-  transactions. Chain builds and maintains the blockchain data structure. This
+* **Chain**. The job of **chain**, in a nutshell, is to determine a global order of
+  transactions. **Chain** builds and maintains the blockchain data structure. This
   includes block and chunk production and processing, consensus, and validator
-  selection. However, chain is not responsible for actually applying
+  selection. However, **chain** is not responsible for actually applying
   transactions and receipts.
 
-* Runtime. If chain selects the _order_ of transactions, Runtime applies
-  transaction to the state. Chain guarantees that everyone agrees on the order
-  and content of transactions, and Runtime guarantees that each transaction is
+* **Runtime**. If **chain** selects the _order_ of transactions, **Runtime** applies
+  transaction to the state. **Chain** guarantees that everyone agrees on the order
+  and content of transactions, and **Runtime** guarantees that each transaction is
   fully deterministic. It follows that everyone agrees on the "current state" of
   the blockchain. Some transactions are as simple as "transfer X tokens from
   Alice to Bob". But a much more powerful class of transactions is supported:
   "run this arbitrary WebAssembly code in the context of the current state of
   the chain". Running such "smart contract" transactions securely and
-  efficiently is a major part of what runtime does. Today, runtime uses a JIT
+  efficiently is a major part of what **Runtime** does. Today, **Runtime** uses a JIT
   compiler to do that.
 
-* Storage. Storage is more of a cross-cutting concern, than an isolated
+* **Storage**. **Storage** is more of a cross-cutting concern, than an isolated
   component. Many parts of a node want to durably persist various bits of state
   to disk. One notable case is the logical state of the blockchain, and, in
-  particular, data associated with each account. Logically, the state of account
+  particular, data associated with each account. Logically, the state of an account
   on a chain is a key-value map: `HashMap<Vec<u8>, Vec<u8>>`. But there is a
   twist: it should be possible to provide a succinct proof that a particular key
   indeed holds a particular value. To allow that internally the state is
   implemented as a persistent (in both senses, "functional" and "on disk")
   merkle-patricia trie.
 
-* Parameter Estimator. One kind of transaction we support is "run this
+* **Parameter Estimator**. One kind of transaction we support is "run this
   arbitrary, Turing-complete computation". To protect from a `loop {}`
-  transaction halting the whole network, runtime implements resource limiting:
+  transaction halting the whole network, **Runtime** implements resource limiting:
   each transaction runs with a certain finite amount of "gas", and each
-  operation costs a certain amount of gas to perform. Parameter estimator is
-  essentially a set of benchmark used to estimate relative gas costs of
+  operation costs a certain amount of gas to perform. **Parameter estimator** is
+  essentially a set of benchmarks used to estimate relative gas costs of
   various operations.
 
 ## Entry Points
@@ -113,7 +113,7 @@ contract with the outside world -- the peer-to-peer network.
 
 `Runtime::apply` in the `runtime` crate is the entry point for transaction
 processing logic. This is where state transitions actually happen, after chain
-decided that, according to distributed consensus, which transitions need  to
+decided, according to distributed consensus, which transitions need  to
 happen.
 
 ## Code Map
@@ -141,11 +141,11 @@ This crate contains most of the chain logic (consensus, block processing, etc).
 happens.
 
 **Architecture Invariant**: interface between chain and runtime is defined by
-`RuntimeAdapter`. All invocations of runtime goes through `RuntimeAdapter`
+`RuntimeWithEpochManagerAdapter`. All invocations of runtime go through `RuntimeWithEpochManagerAdapter`
 
 **State update**
 
-The blockchain state can be changed in the following two ways:
+The blockchain state of a node can be changed in the following two ways:
 
 * Applying a chunk. This is how the state is normally updated: through
   `Runtime::apply`.
@@ -181,6 +181,7 @@ orchestrates all the communications from network to other components and from
 other components to network. `Peer` is responsible for low-level network
 communications from and to a given peer. Peer manager runs in one thread while
 each `Peer` runs in its own thread.
+<!--TODO: Maybe add more clarification about what Peer is? -->
 
 **Architecture Invariant**: Network communicates to `Client` through
 `NetworkClientMessages` and to `ViewClient` through `NetworkViewClientMessages`.
@@ -192,7 +193,7 @@ Conversely, `Client` and `ViewClient` communicates to network through
 This crate is responsible for determining validators and other epoch related
 information such as epoch id for each epoch.
 
-Note: `EpochManager` is constructed in `NightshadeRuntime` rather than in
+**Note**: `EpochManager` is constructed in `NightshadeRuntime` rather than in
 `Chain`, partially because we had this idea of making epoch manager a smart
 contract.
 
@@ -210,7 +211,7 @@ the other hand, are sent to `ClientActor` for further processing.
 
 This crate contains the main entry point to runtime -- `Runtime::apply`. This
 function takes `ApplyState`, which contains necessary information passed from
-chain to runtime, and a list of `SignedTransaction` and a list of `Receipt`, and
+chain to runtime, a list of `SignedTransaction` and a list of `Receipt`, and
 returns a `ApplyResult`, which includes state changes, execution outcomes, etc.
 
 **Architecture Invariant**: The state update is only finalized at the end of
@@ -243,11 +244,12 @@ contracts on NEAR.
 
 As mentioned before, `neard` is the crate that contains that main entry points.
 All the actors are spawned in `start_with_config`. It is also worth noting that
-`NightshadeRuntime` is the struct that implements `RuntimeAdapter`.
+`NightshadeRuntime` is the struct that implements `RuntimeWithEpochManagerAdapter`.
+<!-- TODO: Maybe add RuntimeWithEpochManagerAdapter mention or explanation in runtime/runtime chapter? -->
 
 ### `core/store/src/db.rs`
 
-This file contains schema (DBCol) of our internal RocksDB storage - a good
+This file contains the schema (DBCol) of our internal RocksDB storage - a good
 starting point when reading the code base.
 
 ## Cross Cutting Concerns
@@ -262,12 +264,12 @@ more information on the usage.
 ### Testing
 
 Rust has built-in support for writing unit tests by marking functions
-with `#[test]` directive.  Take full advantage of that!  Testing not
-only confirms that what was written works the way it was intended but
-also help during refactoring since the caught unintended behaviour
+with the `#[test]` directive.  Take full advantage of that!  Testing not
+only confirms that what was written works the way it was intended to but
+also helps during refactoring since it catches unintended behaviour
 changes.
 
-Not all tests are created equal though and while some can need only
+Not all tests are created equal though and while some may only need
 milliseconds to run, others may run for several seconds or even
 minutes.  Tests that take a long time should be marked as such with an
 `expensive_tests` feature, for example:
@@ -298,6 +300,6 @@ For more details regarding nightly tests see `nightly/README.md`.
 
 Note that what counts as a slow test isn’t exactly defined as of now.
 If it takes just a couple seconds than it’s probably fine.  Anything
-slower should probably be classified as expensive test.  In
+slower should probably be classified as an expensive test.  In
 particular, if libtest complains the test takes more than 60 seconds
-than it definitely is.
+than it definitely is and expensive test.

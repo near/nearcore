@@ -2,7 +2,7 @@
 //! This client works completely synchronously and must be operated by some async actor outside.
 
 use assert_matches::assert_matches;
-use near_chain::{ChainGenesis, RuntimeAdapter};
+use near_chain::{ChainGenesis, RuntimeWithEpochManagerAdapter};
 use near_chain_configs::Genesis;
 use near_chunks::test_utils::ChunkTestFixture;
 use near_chunks::ProcessPartialEncodedChunkResult;
@@ -16,6 +16,7 @@ use near_primitives::hash::hash;
 use near_primitives::network::PeerId;
 use near_primitives::sharding::ShardChunkHeaderInner;
 use near_primitives::sharding::{PartialEncodedChunk, ShardChunkHeader};
+use near_primitives::test_utils::create_test_signer;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_store::test_utils::create_test_store;
@@ -24,19 +25,22 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
-pub fn create_nightshade_runtimes(genesis: &Genesis, n: usize) -> Vec<Arc<dyn RuntimeAdapter>> {
+pub fn create_nightshade_runtimes(
+    genesis: &Genesis,
+    n: usize,
+) -> Vec<Arc<dyn RuntimeWithEpochManagerAdapter>> {
     (0..n)
         .map(|_| {
             Arc::new(nearcore::NightshadeRuntime::test(
                 Path::new("../../../.."),
                 create_test_store(),
                 genesis,
-            )) as Arc<dyn RuntimeAdapter>
+            )) as Arc<dyn RuntimeWithEpochManagerAdapter>
         })
         .collect()
 }
 
-fn create_runtimes(n: usize) -> Vec<Arc<dyn RuntimeAdapter>> {
+fn create_runtimes(n: usize) -> Vec<Arc<dyn RuntimeWithEpochManagerAdapter>> {
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     create_nightshade_runtimes(&genesis, n)
 }
@@ -45,8 +49,7 @@ fn create_runtimes(n: usize) -> Vec<Arc<dyn RuntimeAdapter>> {
 fn test_pending_approvals() {
     let mut env =
         TestEnv::builder(ChainGenesis::test()).runtime_adapters(create_runtimes(1)).build();
-    let signer =
-        InMemoryValidatorSigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let signer = create_test_signer("test0");
     let parent_hash = hash(&[1]);
     let approval = Approval::new(parent_hash, 0, 1, &signer);
     let peer_id = PeerId::random();
@@ -66,8 +69,7 @@ fn test_invalid_approvals() {
         .runtime_adapters(create_runtimes(1))
         .network_adapters(vec![network_adapter])
         .build();
-    let signer =
-        InMemoryValidatorSigner::from_seed("random".parse().unwrap(), KeyType::ED25519, "random");
+    let signer = create_test_signer("random");
     let parent_hash = hash(&[1]);
     // Approval not from a validator. Should be dropped
     let approval = Approval::new(parent_hash, 1, 3, &signer);

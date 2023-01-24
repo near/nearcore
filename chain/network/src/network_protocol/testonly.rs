@@ -129,28 +129,27 @@ pub fn make_partial_edge<R: Rng>(rng: &mut R) -> PartialEdgeInfo {
     )
 }
 
-pub fn make_edge(a: &InMemorySigner, b: &InMemorySigner) -> Edge {
-    let (a, b) = if a.public_key < b.public_key { (a, b) } else { (b, a) };
-    let ap = PeerId::new(a.public_key.clone());
-    let bp = PeerId::new(b.public_key.clone());
-    let nonce = 1; // Make it an active edge.
+pub fn make_edge(a: &SecretKey, b: &SecretKey, nonce: u64) -> Edge {
+    let (a, b) = if a.public_key() < b.public_key() { (a, b) } else { (b, a) };
+    let ap = PeerId::new(a.public_key());
+    let bp = PeerId::new(b.public_key());
     let hash = Edge::build_hash(&ap, &bp, nonce);
-    Edge::new(ap, bp, nonce, a.secret_key.sign(hash.as_ref()), b.secret_key.sign(hash.as_ref()))
+    Edge::new(ap, bp, nonce, a.sign(hash.as_ref()), b.sign(hash.as_ref()))
 }
 
-pub fn make_edge_tombstone(a: &InMemorySigner, b: &InMemorySigner) -> Edge {
-    make_edge(a, b).remove_edge(PeerId::new(a.public_key.clone()), &a.secret_key)
+pub fn make_edge_tombstone(a: &SecretKey, b: &SecretKey) -> Edge {
+    make_edge(a, b, 1).remove_edge(PeerId::new(a.public_key()), &a)
 }
 
 pub fn make_routing_table<R: Rng>(rng: &mut R) -> RoutingTableUpdate {
-    let signers: Vec<_> = (0..7).map(|_| make_signer(rng)).collect();
+    let signers: Vec<_> = (0..7).map(|_| make_secret_key(rng)).collect();
     RoutingTableUpdate {
         accounts: (0..10).map(|_| make_announce_account(rng)).collect(),
         edges: {
             let mut e = vec![];
             for i in 0..signers.len() {
                 for j in 0..i {
-                    e.push(make_edge(&signers[i], &signers[j]));
+                    e.push(make_edge(&signers[i], &signers[j], 1));
                 }
             }
             e
@@ -230,15 +229,23 @@ impl ChunkSet {
     }
 }
 
-pub fn make_epoch_id<R: Rng>(rng: &mut R) -> EpochId {
-    EpochId(CryptoHash::hash_bytes(&rng.gen::<[u8; 19]>()))
+pub fn make_hash<R: Rng>(rng: &mut R) -> CryptoHash {
+    CryptoHash::hash_bytes(&rng.gen::<[u8; 19]>())
+}
+
+pub fn make_account_keys(signers: &[InMemoryValidatorSigner]) -> AccountKeys {
+    let mut account_keys = AccountKeys::new();
+    for s in signers {
+        account_keys.entry(s.validator_id().clone()).or_default().insert(s.public_key());
+    }
+    account_keys
 }
 
 pub struct Chain {
     pub genesis_id: GenesisId,
     pub blocks: Vec<Block>,
     pub chunks: HashMap<ChunkHash, ShardChunk>,
-    pub tier1_accounts: Vec<(EpochId, InMemoryValidatorSigner)>,
+    pub tier1_accounts: Vec<InMemoryValidatorSigner>,
 }
 
 impl Chain {
@@ -257,9 +264,7 @@ impl Chain {
                 hash: Default::default(),
             },
             blocks,
-            tier1_accounts: (0..10)
-                .map(|_| (make_epoch_id(rng), make_validator_signer(rng)))
-                .collect(),
+            tier1_accounts: (0..10).map(|_| make_validator_signer(rng)).collect(),
             chunks: chunks.chunks,
         }
     }
@@ -273,18 +278,13 @@ impl Chain {
     }
 
     pub fn get_tier1_accounts(&self) -> AccountKeys {
-        self.tier1_accounts
-            .iter()
-            .map(|(epoch_id, v)| {
-                ((epoch_id.clone(), v.validator_id().clone()), v.public_key().clone())
-            })
-            .collect()
+        make_account_keys(&self.tier1_accounts)
     }
 
     pub fn get_chain_info(&self) -> ChainInfo {
         ChainInfo {
             tracked_shards: Default::default(),
-            height: self.height(),
+            block: self.blocks.last().unwrap().clone(),
             tier1_accounts: Arc::new(self.get_tier1_accounts()),
         }
     }
@@ -319,16 +319,12 @@ impl Chain {
     ) -> Vec<Arc<SignedAccountData>> {
         self.tier1_accounts
             .iter()
-            .map(|(epoch_id, v)| {
+            .map(|v| {
+                let peer_id = make_peer_id(rng);
                 Arc::new(
-                    make_account_data(
-                        rng,
-                        clock.now_utc(),
-                        epoch_id.clone(),
-                        v.validator_id().clone(),
-                    )
-                    .sign(v)
-                    .unwrap(),
+                    make_account_data(rng, 1, clock.now_utc(), v.public_key(), peer_id)
+                        .sign(v)
+                        .unwrap(),
                 )
             })
             .collect()
@@ -348,6 +344,7 @@ pub fn make_handshake<R: Rng>(rng: &mut R, chain: &Chain) -> Handshake {
         sender_listen_port: Some(rng.gen()),
         sender_chain_info: chain.get_peer_chain_info(),
         partial_edge_info: make_partial_edge(rng),
+        owned_account: None,
     }
 }
 
@@ -378,12 +375,13 @@ pub fn make_peer_addr(rng: &mut impl Rng, ip: net::IpAddr) -> PeerAddr {
 
 pub fn make_account_data(
     rng: &mut impl Rng,
+    version: u64,
     timestamp: time::Utc,
-    epoch_id: EpochId,
-    account_id: AccountId,
+    account_key: PublicKey,
+    peer_id: PeerId,
 ) -> AccountData {
     AccountData {
-        peers: vec![
+        proxies: vec![
             // Can't inline make_ipv4/ipv6 calls, because 2-phase borrow
             // doesn't work.
             {
@@ -399,18 +397,17 @@ pub fn make_account_data(
                 make_peer_addr(rng, ip)
             },
         ],
-        account_id,
-        epoch_id,
+        peer_id,
+        account_key,
+        version,
         timestamp,
     }
 }
 
 pub fn make_signed_account_data(rng: &mut impl Rng, clock: &time::Clock) -> SignedAccountData {
     let signer = make_validator_signer(rng);
-    let epoch_id = make_epoch_id(rng);
-    make_account_data(rng, clock.now_utc(), epoch_id, signer.validator_id().clone())
-        .sign(&signer)
-        .unwrap()
+    let peer_id = make_peer_id(rng);
+    make_account_data(rng, 1, clock.now_utc(), signer.public_key(), peer_id).sign(&signer).unwrap()
 }
 
 // Accessors for creating malformed SignedAccountData

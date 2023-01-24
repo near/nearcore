@@ -129,7 +129,8 @@ impl AccountId {
     /// ```
     pub fn is_sub_account_of(&self, parent: &AccountId) -> bool {
         self.strip_suffix(parent.as_str())
-            .map_or(false, |s| !s.is_empty() && s.find('.') == Some(s.len() - 1))
+            .and_then(|s| s.strip_suffix('.'))
+            .map_or(false, |s| !s.contains('.'))
     }
 
     /// Returns `true` if the `AccountId` is a 64 characters long hexadecimal.
@@ -299,7 +300,7 @@ impl AccountId {
     /// ```
     #[doc(hidden)]
     #[cfg(feature = "internal_unstable")]
-    #[deprecated(since = "#4440", note = "AccountId construction without validation is illegal")]
+    #[deprecated = "AccountId construction without validation is illegal since #4440"]
     pub fn new_unvalidated(account_id: String) -> Self {
         Self(account_id.into_boxed_str())
     }
@@ -439,7 +440,7 @@ mod tests {
         }
 
         for account_id in BAD_ACCOUNT_IDS.iter().cloned() {
-            if let Ok(_) = AccountId::validate(account_id) {
+            if AccountId::validate(account_id).is_ok() {
                 panic!("Invalid account id {:?} marked valid", account_id);
             }
         }

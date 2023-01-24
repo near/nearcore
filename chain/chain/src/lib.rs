@@ -6,7 +6,9 @@ pub use near_chain_primitives::{self, Error};
 pub use near_primitives::receipt::ReceiptResult;
 pub use store::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 pub use store_validator::{ErrorMessage, StoreValidator};
-pub use types::{Block, BlockHeader, BlockStatus, ChainGenesis, Provenance, RuntimeAdapter};
+pub use types::{
+    Block, BlockHeader, BlockStatus, ChainGenesis, Provenance, RuntimeWithEpochManagerAdapter,
+};
 
 mod block_processing_utils;
 pub mod blocks_delay_tracker;
@@ -14,10 +16,12 @@ pub mod chain;
 pub mod chunks_store;
 pub mod crypto_hash_timer;
 mod doomslug;
+pub mod flat_storage_creator;
 mod lightclient;
 mod metrics;
 pub mod migrations;
 pub mod missing_chunks;
+mod state_request_tracker;
 mod store;
 pub mod store_validator;
 pub mod test_utils;

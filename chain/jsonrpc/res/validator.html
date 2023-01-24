@@ -346,7 +346,7 @@
                                 chunk_cell.append("<b>F + " + time_delta + "ms</b><br>")
                                 if (thresholdApprovalTime != null) {
                                     let time_since_threshold = Date.parse(chunk_collection_time) - thresholdApprovalTime;
-                                    let text = $("<span><b>T + " + time_since_threshold+ "ms</b><br></span>");
+                                    let text = $("<span><b>T + " + time_since_threshold + "ms</b><br></span>");
                                     if (time_since_threshold > 300) {
                                         text.addClass('chunk-delay-red')
                                     } else if (time_since_threshold > 150) {
@@ -389,6 +389,12 @@
                 $('.js-tbody-production').append($("<tr><td colspan=10><b>HEAD</b></td></tr>"));
             }
 
+            for (let [epoch_id, chunk_producers] of data.status_response.ValidatorStatus.banned_chunk_producers) {
+                $('#banned-chunk-producers').append(
+                    $('<p>')
+                        .text('Banned chunk producers for epoch ' + epoch_id + ': ' + chunk_producers.join(', '))
+                );
+            }
         };
 
         $(document).ready(() => {
@@ -396,7 +402,7 @@
             $('span').text("Loading...");
             $.ajax({
                 type: "GET",
-                url: "/debug/api/validator_status",
+                url: "../api/validator_status",
                 success: data => {
                     process_validator_status(data);
                 },
@@ -426,7 +432,8 @@
             Shards can either be produced by this validator (marked as 'ME') or received from other
             validators.<br>
             Shards have missing chunks are marked as grey. <br>
-            We also mark shards arrival time in color. Shards that are delayed by more than 150ms after T are marked as orange,
+            We also mark shards arrival time in color. Shards that are delayed by more than 150ms after T are marked as
+            orange,
             and ones delayed more than 300 marked as red.<br>
             <b>Approvals</b><br>
             Green field means that validators endorses the PREVIOUS block.<br>
@@ -434,6 +441,7 @@
             Other colors means different amount of skips.
 
         </p>
+        <div id="banned-chunk-producers"></div>
         <table>
             <thead>
                 <tr class="js-thead-production">

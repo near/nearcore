@@ -1,5 +1,5 @@
 // to specify a part we always specify both part_id and num_parts together
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct PartId {
     pub idx: u64,
     pub total: u64,

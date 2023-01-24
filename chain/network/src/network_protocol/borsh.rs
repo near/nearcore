@@ -115,7 +115,7 @@ pub(super) enum PeerMessage {
     /// Contains accounts and edge information.
     SyncRoutingTable(RoutingTableUpdate),
     RequestUpdateNonce(PartialEdgeInfo),
-    ResponseUpdateNonce(Edge),
+    _ResponseUpdateNonce,
 
     PeersRequest,
     PeersResponse(Vec<PeerInfo>),

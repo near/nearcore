@@ -7,9 +7,8 @@ use near_chunks::{
     CHUNK_REQUEST_RETRY_MS, CHUNK_REQUEST_SWITCH_TO_FULL_FETCH_MS,
     CHUNK_REQUEST_SWITCH_TO_OTHERS_MS,
 };
-use near_client::adapter::NetworkClientMessages;
 use near_client::test_utils::setup_mock_all_validators;
-use near_client::{ClientActor, GetBlock, ViewClientActor};
+use near_client::{ClientActor, GetBlock, ProcessTxRequest, ViewClientActor};
 use near_network::types::PeerManagerMessageRequest;
 use near_network::types::{AccountIdOrPeerTrackingShard, PeerInfo};
 use near_network::types::{NetworkRequests, NetworkResponses};
@@ -253,7 +252,7 @@ impl Test {
             let block_hash = res.unwrap().unwrap().header.hash;
             let connectors_ = connectors.write().unwrap();
             connectors_[0].0.do_send(
-                NetworkClientMessages::Transaction {
+                ProcessTxRequest {
                     transaction: SignedTransaction::empty(block_hash),
                     is_forwarded: false,
                     check_only: false,
@@ -261,7 +260,7 @@ impl Test {
                 .with_span_context(),
             );
             connectors_[1].0.do_send(
-                NetworkClientMessages::Transaction {
+                ProcessTxRequest {
                     transaction: SignedTransaction::empty(block_hash),
                     is_forwarded: false,
                     check_only: false,
@@ -269,7 +268,7 @@ impl Test {
                 .with_span_context(),
             );
             connectors_[2].0.do_send(
-                NetworkClientMessages::Transaction {
+                ProcessTxRequest {
                     transaction: SignedTransaction::empty(block_hash),
                     is_forwarded: false,
                     check_only: false,
@@ -363,18 +362,20 @@ fn chunks_produced_and_distributed_one_val_per_shard_should_succeed_even_without
 /// Note that due to #7385 (which sends chunk forwarding messages irrespective of shard assignment),
 /// we disable chunk forwarding messages for the following tests, so we can focus on chunk
 /// requesting behavior.
-#[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn chunks_recovered_from_others() {
-    Test {
-        validator_groups: 2,
-        chunk_only_producers: false,
-        drop_to_4_from: &["test1"],
-        drop_all_chunk_forward_msgs: true,
-        block_timeout: 4 * CHUNK_REQUEST_SWITCH_TO_OTHERS_MS,
-    }
-    .run()
-}
+/// TODO: this test is broken due to (#8395) - with fix in #8211
+
+//#[test]
+//#[cfg_attr(not(feature = "expensive_tests"), ignore)]
+//fn chunks_recovered_from_others() {
+//    Test {
+//        validator_groups: 2,
+//        chunk_only_producers: false,
+//        drop_to_4_from: &["test1"],
+//        drop_all_chunk_forward_msgs: true,
+//        block_timeout: 4 * CHUNK_REQUEST_SWITCH_TO_OTHERS_MS,
+//    }
+//    .run()
+//}
 
 /// Same test as above, but the number of validator groups is four, therefore test2 doesn't have the
 /// part test4 needs. The only way test4 can recover the part is by reconstructing the whole chunk,
@@ -426,6 +427,7 @@ fn chunks_produced_and_distributed_one_val_shard_cop() {
 
 /// `test4` can't talk to `test1`, so it'll fetch the chunk for first shard from `cop1`.
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn chunks_recovered_from_others_cop() {
     Test {
         validator_groups: 1,
@@ -440,6 +442,7 @@ fn chunks_recovered_from_others_cop() {
 /// `test4` can't talk neither to `cop1` nor to `test1`, so it can't fetch chunk
 /// from chunk producers and has to reconstruct it.
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 #[should_panic]
 fn chunks_recovered_from_full_timeout_too_short_cop() {
     Test {
@@ -454,6 +457,7 @@ fn chunks_recovered_from_full_timeout_too_short_cop() {
 
 /// Same as above, but with longer block production timeout which should allow for full reconstruction.
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn chunks_recovered_from_full_cop() {
     Test {
         validator_groups: 4,

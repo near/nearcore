@@ -1,7 +1,10 @@
 use near_client_primitives::debug::{
     DebugBlockStatusData, EpochInfoView, TrackedShardsView, ValidatorStatus,
 };
-use near_primitives::views::{CatchupStatusView, PeerStoreView, SyncStatusView};
+use near_primitives::views::{
+    CatchupStatusView, ChainProcessingInfo, NetworkGraphView, PeerStoreView,
+    RequestedStatePartsView, SyncStatusView,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -22,6 +25,10 @@ pub enum DebugStatusResponse {
     // Detailed information about the validator (approvals, block & chunk production etc.)
     ValidatorStatus(ValidatorStatus),
     PeerStore(PeerStoreView),
+    ChainProcessingStatus(ChainProcessingInfo),
+    // The state parts already requested.
+    RequestedStateParts(Vec<RequestedStatePartsView>),
+    NetworkGraph(NetworkGraphView),
 }
 
 #[cfg(feature = "debug_types")]

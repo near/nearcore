@@ -3,7 +3,6 @@ name = "themis"
 version = "0.0.0"
 authors.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 publish = false
 license = "MIT OR Apache-2.0"
 description = "https://en.wikipedia.org/wiki/Themis"

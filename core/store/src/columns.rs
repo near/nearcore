@@ -35,7 +35,9 @@ pub enum DBCol {
     /// - *Rows*: block hash (CryptoHash)
     /// - *Content type*: [near_primitives::block_header::BlockHeader]
     BlockHeader,
-    /// Column that stores mapping from block height to block hash.
+    /// Column that stores mapping from block height to block hash on the current canonical chain.
+    /// (if you want to see all the blocks that we got for a given height, for example due to double signing etc,
+    /// look at BlockPerHeight column).
     /// - *Rows*: height (u64)
     /// - *Content type*: block hash (CryptoHash)
     BlockHeight,
@@ -105,6 +107,8 @@ pub enum DBCol {
     /// - *Content type*: BlockExtra
     BlockExtra,
     /// Store hash of all block per each height, to detect double signs.
+    /// In most cases, it is better to get the value from BlockHeight column instead (which
+    /// keeps the hash of the block from canonical chain)
     /// - *Rows*: int (height of the block)
     /// - *Content type*: Map: EpochId -> Set of BlockHash(CryptoHash)
     BlockPerHeight,
@@ -180,7 +184,12 @@ pub enum DBCol {
     /// - *Rows*: BlockHash || TrieKey (TrieKey is written via custom to_vec)
     /// - *Column type*: TrieKey, new value and reason for change (RawStateChangesWithTrieKey)
     StateChanges,
-    /// Mapping from Block to its refcount. (Refcounts are used in handling chain forks)
+    /// Mapping from Block to its refcount (number of blocks that use this block as a parent). (Refcounts are used in handling chain forks).
+    /// In following example:
+    ///     1 -> 2 -> 3 -> 5
+    ///           \ --> 4
+    /// The block '2' will have a refcount equal to 2.
+    ///
     /// - *Rows*: BlockHash (CryptoHash)
     /// - *Column type*: refcount (u64)
     BlockRefCount,
@@ -197,6 +206,8 @@ pub enum DBCol {
     /// - *Column type*: Vec<ChunkHash (CryptoHash)>
     ChunkHashesByHeight,
     /// Mapping from block ordinal number (number of the block in the chain) to the BlockHash.
+    /// Note: that it can be different than BlockHeight - if we have skipped some heights when creating the blocks.
+    ///       for example in chain 1->3, the second block has height 3, but ordinal 2.
     /// - *Rows*: ordinal (u64)
     /// - *Column type*: BlockHash (CryptoHash)
     BlockOrdinal,
@@ -215,7 +226,9 @@ pub enum DBCol {
     /// - *Rows*: height (u64)
     /// - *Column type*: empty
     ProcessedBlockHeights,
-    /// Mapping from receipt hash to Receipt.
+    /// Mapping from receipt hash to Receipt. Note that this doesn't store _all_
+    /// receipts. Some receipts are ephemeral and get processed after creation
+    /// without getting into the database at all.
     /// - *Rows*: receipt (CryptoHash)
     /// - *Column type*: Receipt
     Receipts,
@@ -250,9 +263,10 @@ pub enum DBCol {
     /// - *Column type*: `FlatStateDelta`
     #[cfg(feature = "protocol_feature_flat_state")]
     FlatStateDeltas,
-    /// Miscellaneous data for flat state. Currently stores flat state head for each shard.
-    /// - *Rows*: shard id
-    /// - *Column type*: block hash (CryptoHash)
+    /// Miscellaneous data for flat state. Stores intermediate flat storage creation statuses and flat
+    /// state heads for each shard.
+    /// - *Rows*: Unique key prefix (e.g. `FLAT_STATE_HEAD_KEY_PREFIX`) + ShardId
+    /// - *Column type*: FetchingStateStatus || flat storage catchup status (bool) || flat storage head (CryptoHash)
     // TODO (#7327): use only during testing, come up with proper format.
     #[cfg(feature = "protocol_feature_flat_state")]
     FlatStateMisc,
@@ -366,11 +380,36 @@ impl DBCol {
     }
 
     /// Whether this column should be copied to the cold storage.
+    ///
+    /// This doesn’t include DbVersion and BlockMisc columns which are present
+    /// int cold database but rather than being copied from hot database are
+    /// maintained separately.
     pub const fn is_cold(&self) -> bool {
         match self {
-            DBCol::Block => true,
+            DBCol::Block
+            | DBCol::BlockExtra
+            | DBCol::BlockInfo
+            | DBCol::ChunkExtra
+            | DBCol::Chunks
+            | DBCol::IncomingReceipts
+            | DBCol::NextBlockHashes
+            | DBCol::OutcomeIds
+            | DBCol::OutgoingReceipts
+            | DBCol::ReceiptIdToShardId
+            | DBCol::Receipts
+            | DBCol::State
+            | DBCol::StateChanges
+            | DBCol::StateChangesForSplitStates
+            | DBCol::StateHeaders
+            | DBCol::TransactionResultForBlock
+            | DBCol::Transactions => true,
             _ => false,
         }
+    }
+
+    /// Whether this column exists in cold storage.
+    pub(crate) const fn is_in_colddb(&self) -> bool {
+        matches!(*self, DBCol::DbVersion | DBCol::BlockMisc) || self.is_cold()
     }
 
     /// Vector of DBKeyType s concatenation of which results in key for the column.

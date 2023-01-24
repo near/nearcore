@@ -1,6 +1,4 @@
 use chrono::DateTime;
-use near_chain_configs::LogSummaryStyle;
-use near_chain_primitives::Error;
 use near_primitives::block::{Block, Tip};
 use near_primitives::borsh::maybestd::collections::hash_map::Entry;
 use near_primitives::hash::CryptoHash;
@@ -9,14 +7,14 @@ use near_primitives::time::Clock;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::views::{
     BlockProcessingInfo, BlockProcessingStatus, ChainProcessingInfo, ChunkProcessingInfo,
-    ChunkProcessingStatus,
+    ChunkProcessingStatus, DroppedReason,
 };
 use std::collections::{BTreeMap, HashMap};
 use std::mem;
 use std::time::Instant;
 use tracing::error;
 
-use crate::{metrics, Chain, ChainStoreAccess, RuntimeAdapter};
+use crate::{metrics, Chain, ChainStoreAccess, RuntimeWithEpochManagerAdapter};
 
 const BLOCK_DELAY_TRACKING_COUNT: u64 = 50;
 
@@ -58,6 +56,10 @@ pub struct BlockTrackingStats {
     pub removed_from_missing_chunks_timestamp: Option<Instant>,
     /// Timestamp when block was done processing
     pub processed_timestamp: Option<Instant>,
+    /// Whether the block is not processed because of different reasons
+    pub dropped: Option<DroppedReason>,
+    /// Stores the error message encountered during the processing of this block
+    pub error: Option<String>,
     /// Only contains new chunks that belong to this block, if the block doesn't produce a new chunk
     /// for a shard, the corresponding item will be None.
     pub chunks: Vec<Option<ChunkHash>>,
@@ -90,7 +92,7 @@ impl ChunkTrackingStats {
     fn to_chunk_processing_info(
         &self,
         chunk_hash: ChunkHash,
-        runtime_adapter: &dyn RuntimeAdapter,
+        runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
     ) -> ChunkProcessingInfo {
         let status = if self.completed_timestamp.is_some() {
             ChunkProcessingStatus::Completed
@@ -164,9 +166,27 @@ impl BlocksDelayTracker {
                 removed_from_orphan_timestamp: None,
                 removed_from_missing_chunks_timestamp: None,
                 processed_timestamp: None,
+                dropped: None,
+                error: None,
                 chunks,
             });
             self.blocks_height_map.entry(height).or_insert(vec![]).push(*block_hash);
+        }
+    }
+
+    pub fn mark_block_dropped(&mut self, block_hash: &CryptoHash, reason: DroppedReason) {
+        if let Some(block_entry) = self.blocks.get_mut(block_hash) {
+            block_entry.dropped = Some(reason);
+        } else {
+            error!(target:"blocks_delay_tracker", "block {:?} was dropped but was not marked received", block_hash);
+        }
+    }
+
+    pub fn mark_block_errored(&mut self, block_hash: &CryptoHash, err: String) {
+        if let Some(block_entry) = self.blocks.get_mut(block_hash) {
+            block_entry.error = Some(err);
+        } else {
+            error!(target:"blocks_delay_tracker", "block {:?} was errored but was not marked received", block_hash);
         }
     }
 
@@ -333,7 +353,7 @@ impl BlocksDelayTracker {
         block_height: BlockHeight,
         block_hash: &CryptoHash,
         chain: &Chain,
-        runtime_adapter: &dyn RuntimeAdapter,
+        runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
     ) -> Option<BlockProcessingInfo> {
         self.blocks.get(block_hash).map(|block_stats| {
             let chunks_info: Vec<_> = block_stats
@@ -350,7 +370,7 @@ impl BlocksDelayTracker {
                 })
                 .collect();
             let now = Clock::instant();
-            let block_status = chain.get_block_status(block_hash);
+            let block_status = chain.get_block_status(block_hash, block_stats);
             let in_progress_ms = block_stats
                 .processed_timestamp
                 .unwrap_or(now)
@@ -391,7 +411,11 @@ impl BlocksDelayTracker {
 }
 
 impl Chain {
-    fn get_block_status(&self, block_hash: &CryptoHash) -> BlockProcessingStatus {
+    fn get_block_status(
+        &self,
+        block_hash: &CryptoHash,
+        block_info: &BlockTrackingStats,
+    ) -> BlockProcessingStatus {
         if self.is_orphan(block_hash) {
             return BlockProcessingStatus::Orphan;
         }
@@ -402,7 +426,13 @@ impl Chain {
             return BlockProcessingStatus::InProcessing;
         }
         if self.store().block_exists(block_hash).unwrap_or_default() {
-            return BlockProcessingStatus::Processed;
+            return BlockProcessingStatus::Accepted;
+        }
+        if let Some(dropped_reason) = &block_info.dropped {
+            return BlockProcessingStatus::Dropped(dropped_reason.clone());
+        }
+        if let Some(error) = &block_info.error {
+            return BlockProcessingStatus::Error(error.clone());
         }
         return BlockProcessingStatus::Unknown;
     }
@@ -449,86 +479,5 @@ impl Chain {
             blocks_info,
             floating_chunks_info,
         }
-    }
-
-    pub fn print_chain_processing_info_to_string(
-        &self,
-        log_summary_style: LogSummaryStyle,
-    ) -> Result<String, Error> {
-        let chain_info = self.get_chain_processing_info();
-        let blocks_info = chain_info.blocks_info;
-        let use_colour = matches!(log_summary_style, LogSummaryStyle::Colored);
-        let paint = |colour: ansi_term::Colour, text: Option<String>| match text {
-            None => ansi_term::Style::default().paint(""),
-            Some(text) if use_colour => colour.bold().paint(text),
-            Some(text) => ansi_term::Style::default().paint(text),
-        };
-
-        // Returns a status line for each block - also prints what is happening to its chunks.
-        let next_blocks_log = blocks_info
-            .into_iter()
-            .flat_map(|block_info| {
-                let mut all_chunks_received = true;
-                let chunk_status_str = block_info
-                    .chunks_info
-                    .iter()
-                    .map(|chunk_info| {
-                        if let Some(chunk_info) = chunk_info {
-                            all_chunks_received &=
-                                matches!(chunk_info.status, ChunkProcessingStatus::Completed);
-                            match chunk_info.status {
-                                ChunkProcessingStatus::Completed => "✔",
-                                ChunkProcessingStatus::Requested => "⬇",
-                                ChunkProcessingStatus::NeedToRequest => ".",
-                            }
-                        } else {
-                            "X"
-                        }
-                    })
-                    .collect::<Vec<&str>>()
-                    .join("");
-
-                let chunk_status_color = if all_chunks_received {
-                    ansi_term::Colour::Green
-                } else {
-                    ansi_term::Colour::White
-                };
-
-                let chunk_status_str = paint(chunk_status_color, Some(chunk_status_str));
-
-                let in_progress_str = format!("in progress for {:?}ms", block_info.in_progress_ms);
-
-                let in_orphan_str = match block_info.orphaned_ms {
-                    Some(duration) => format!("orphan for {:?}ms", duration),
-                    None => "".to_string(),
-                };
-
-                let missing_chunks_str = match block_info.missing_chunks_ms {
-                    Some(duration) => format!("missing chunks for {:?}ms", duration),
-                    None => "".to_string(),
-                };
-
-                Some(format!(
-                    "{} {} {:?} {} {} {} Chunks:({}))",
-                    block_info.height,
-                    block_info.hash,
-                    block_info.block_status,
-                    in_progress_str,
-                    in_orphan_str,
-                    missing_chunks_str,
-                    chunk_status_str,
-                ))
-            })
-            .collect::<Vec<String>>();
-
-        Ok(format!(
-            "{:?} Orphans: {} With missing chunks: {} In processing {}{}{}",
-            self.head()?.epoch_id,
-            self.orphans_len(),
-            self.blocks_with_missing_chunks_len(),
-            self.blocks_in_processing_len(),
-            if next_blocks_log.len() > 0 { "\n" } else { "" },
-            next_blocks_log.join("\n")
-        ))
     }
 }

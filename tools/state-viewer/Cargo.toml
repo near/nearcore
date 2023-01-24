@@ -3,8 +3,6 @@ name = "state-viewer"
 version = "0.0.0"
 authors.workspace = true
 publish = false
-# Please update rust-toolchain.toml as well when changing version here:
-rust-version.workspace = true
 edition.workspace = true
 
 [dependencies]
@@ -16,9 +14,11 @@ once_cell.workspace = true
 rand.workspace = true
 rayon.workspace = true
 redis.workspace = true
+rust-s3.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
+thiserror.workspace = true
 tracing.workspace = true
 
 near-chain = { path = "../../chain/chain" }

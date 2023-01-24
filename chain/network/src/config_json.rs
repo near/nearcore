@@ -55,13 +55,7 @@ fn default_peer_expiration_duration() -> Duration {
 
 // If non-zero - we'll skip sending tombstones during initial sync and for that many seconds after start.
 fn default_skip_tombstones() -> i64 {
-    // Enable by default in shardnet only.
-    if cfg!(feature = "shardnet") {
-        // Skip sending tombstones during sync and 240 seconds after start.
-        240
-    } else {
-        0
-    }
+    0
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -158,6 +152,10 @@ pub struct Config {
     /// This setup is not reliable in presence of byzantine peers.
     #[serde(default)]
     pub public_addrs: Vec<PeerAddr>,
+    /// For local tests only (localnet). Allows specifying IPs from private range
+    /// (which are not visible from the public internet) in public_addrs field.
+    #[serde(default)]
+    pub allow_private_ip_in_public_addrs: bool,
     /// List of endpoints of trusted [STUN servers](https://datatracker.ietf.org/doc/html/rfc8489).
     ///
     /// Used only if this node is a validator and public_ips is empty (see
@@ -170,6 +168,23 @@ pub struct Config {
     // Field names in here can change/disappear at any moment without warning.
     #[serde(default)]
     pub experimental: ExperimentalConfig,
+}
+
+fn default_tier1_enable_inbound() -> bool {
+    true
+}
+/// This default will be changed over the next releases.
+/// It allows us to gradually roll out the TIER1 feature.
+fn default_tier1_enable_outbound() -> bool {
+    false
+}
+
+fn default_tier1_connect_interval() -> Duration {
+    Duration::from_secs(60)
+}
+
+fn default_tier1_new_connections_per_attempt() -> u64 {
+    50
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -188,6 +203,22 @@ pub struct ExperimentalConfig {
     // compatibility.
     #[serde(default = "default_skip_tombstones")]
     pub skip_sending_tombstones_seconds: i64,
+
+    /// See `near_network::config::Tier1::enable_inbound`.
+    #[serde(default = "default_tier1_enable_inbound")]
+    pub tier1_enable_inbound: bool,
+
+    /// See `near_network::config::Tier1::enable_outbound`.
+    #[serde(default = "default_tier1_enable_outbound")]
+    pub tier1_enable_outbound: bool,
+
+    /// See `near_network::config::Tier1::connect_interval`.
+    #[serde(default = "default_tier1_connect_interval")]
+    pub tier1_connect_interval: Duration,
+
+    /// See `near_network::config::Tier1::new_connections_per_attempt`.
+    #[serde(default = "default_tier1_new_connections_per_attempt")]
+    pub tier1_new_connections_per_attempt: u64,
 }
 
 impl Default for ExperimentalConfig {
@@ -196,6 +227,10 @@ impl Default for ExperimentalConfig {
             inbound_disabled: false,
             connect_only_to_boot_nodes: false,
             skip_sending_tombstones_seconds: default_skip_tombstones(),
+            tier1_enable_inbound: default_tier1_enable_inbound(),
+            tier1_enable_outbound: default_tier1_enable_outbound(),
+            tier1_connect_interval: default_tier1_connect_interval(),
+            tier1_new_connections_per_attempt: default_tier1_new_connections_per_attempt(),
         }
     }
 }
@@ -222,6 +257,7 @@ impl Default for Config {
             monitor_peers_max_period: default_monitor_peers_max_period(),
             peer_expiration_duration: default_peer_expiration_duration(),
             public_addrs: vec![],
+            allow_private_ip_in_public_addrs: false,
             trusted_stun_servers: vec![],
             experimental: Default::default(),
         }

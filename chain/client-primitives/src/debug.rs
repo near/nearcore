@@ -6,7 +6,11 @@ use std::collections::HashMap;
 use crate::types::StatusError;
 use actix::Message;
 use chrono::DateTime;
-use near_primitives::views::{CatchupStatusView, EpochValidatorInfo, SyncStatusView};
+use near_primitives::types::EpochId;
+use near_primitives::views::{
+    CatchupStatusView, ChainProcessingInfo, EpochValidatorInfo, RequestedStatePartsView,
+    SyncStatusView,
+};
 use near_primitives::{
     block_header::ApprovalInner,
     hash::CryptoHash,
@@ -162,6 +166,8 @@ pub struct ValidatorStatus {
     // Sorted by block height inversely (high to low)
     // The range of heights are controlled by constants in client_actor.rs
     pub production: Vec<(BlockHeight, ProductionAtHeight)>,
+    // Chunk producers that this node has banned.
+    pub banned_chunk_producers: Vec<(EpochId, Vec<AccountId>)>,
 }
 
 // Different debug requests that can be sent by HTML pages, via GET.
@@ -178,6 +184,10 @@ pub enum DebugStatus {
     ValidatorStatus,
     // Request for the current catchup status
     CatchupStatus,
+    // Request for the current state of chain processing (blocks in progress etc).
+    ChainProcessingStatus,
+    // The state parts already requested.
+    RequestedStateParts,
 }
 
 impl Message for DebugStatus {
@@ -195,4 +205,8 @@ pub enum DebugStatusResponse {
     BlockStatus(DebugBlockStatusData),
     // Detailed information about the validator (approvals, block & chunk production etc.)
     ValidatorStatus(ValidatorStatus),
+    // Detailed information about chain processing (blocks in progress etc).
+    ChainProcessingStatus(ChainProcessingInfo),
+    // The state parts already requested.
+    RequestedStateParts(Vec<RequestedStatePartsView>),
 }

@@ -19,10 +19,14 @@ mod _proto {
 
 pub use _proto::network as proto;
 
+use crate::network_protocol::proto_conv::trace_context::{
+    extract_span_context, inject_trace_context,
+};
 use crate::time;
 use borsh::{BorshDeserialize as _, BorshSerialize as _};
 use near_crypto::PublicKey;
 use near_crypto::Signature;
+use near_o11y::OpenTelemetrySpanExt;
 use near_primitives::block::{Approval, Block, BlockHeader, GenesisId};
 use near_primitives::challenge::Challenge;
 use near_primitives::hash::CryptoHash;
@@ -33,14 +37,16 @@ use near_primitives::sharding::{
 };
 use near_primitives::syncing::{ShardStateSyncResponse, ShardStateSyncResponseV1};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, EpochId};
+use near_primitives::types::AccountId;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::views::FinalExecutionOutcomeView;
 use protobuf::Message as _;
 use std::collections::HashSet;
 use std::fmt;
+use std::fmt::Debug;
 use std::sync::Arc;
+use tracing::Span;
 
 #[derive(PartialEq, Eq, Clone, Debug, Hash)]
 pub struct PeerAddr {
@@ -86,9 +92,10 @@ impl std::str::FromStr for PeerAddr {
 
 #[derive(PartialEq, Eq, Debug, Hash)]
 pub struct AccountData {
-    pub peers: Vec<PeerAddr>,
-    pub account_id: AccountId,
-    pub epoch_id: EpochId,
+    pub peer_id: PeerId,
+    pub proxies: Vec<PeerAddr>,
+    pub account_key: PublicKey,
+    pub version: u64,
     pub timestamp: time::Utc,
 }
 
@@ -109,9 +116,9 @@ impl AccountData {
     /// consistute a cleaner never-panicking interface.
     pub fn sign(self, signer: &dyn ValidatorSigner) -> anyhow::Result<SignedAccountData> {
         assert_eq!(
-            &self.account_id,
-            signer.validator_id(),
-            "AccountData.account_id doesn't match the signer's account_id"
+            self.account_key,
+            signer.public_key(),
+            "AccountData.account_key doesn't match the signer's account_key"
         );
         let payload = proto::AccountKeyPayload::from(&self).write_to_bytes().unwrap();
         if payload.len() > MAX_ACCOUNT_DATA_SIZE_BYTES {
@@ -129,7 +136,7 @@ impl AccountData {
     }
 }
 
-#[derive(PartialEq, Eq, Debug, Hash)]
+#[derive(Clone, PartialEq, Eq, Debug, Hash)]
 pub struct AccountKeySignedPayload {
     payload: Vec<u8>,
     signature: near_crypto::Signature,
@@ -173,6 +180,54 @@ impl SignedAccountData {
     }
 }
 
+/// Proof that a given peer owns the account key.
+/// Included in every handshake sent by a validator node.
+#[derive(Clone, PartialEq, Eq, Debug, Hash)]
+pub struct OwnedAccount {
+    pub(crate) account_key: PublicKey,
+    pub(crate) peer_id: PeerId,
+    pub(crate) timestamp: time::Utc,
+}
+
+impl OwnedAccount {
+    /// Serializes OwnedAccount to proto and signs it using `signer`.
+    /// Panics if OwnedAccount.account_key doesn't match signer.public_key(),
+    /// as this would likely be a bug.
+    pub fn sign(self, signer: &dyn ValidatorSigner) -> SignedOwnedAccount {
+        assert_eq!(
+            self.account_key,
+            signer.public_key(),
+            "OwnedAccount.account_key doesn't match the signer's account_key"
+        );
+        let payload = proto::AccountKeyPayload::from(&self).write_to_bytes().unwrap();
+        let signature = signer.sign_account_key_payload(&payload);
+        SignedOwnedAccount {
+            owned_account: self,
+            payload: AccountKeySignedPayload { payload, signature },
+        }
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Hash)]
+pub struct SignedOwnedAccount {
+    owned_account: OwnedAccount,
+    // Serialized and signed OwnedAccount.
+    payload: AccountKeySignedPayload,
+}
+
+impl std::ops::Deref for SignedOwnedAccount {
+    type Target = OwnedAccount;
+    fn deref(&self) -> &Self::Target {
+        &self.owned_account
+    }
+}
+
+impl SignedOwnedAccount {
+    pub fn payload(&self) -> &AccountKeySignedPayload {
+        &self.payload
+    }
+}
+
 #[derive(PartialEq, Eq, Clone, Debug, Default)]
 pub struct RoutingTableUpdate {
     pub edges: Vec<Edge>,
@@ -209,6 +264,8 @@ pub struct Handshake {
     pub(crate) sender_chain_info: PeerChainInfoV2,
     /// Represents new `edge`. Contains only `none` and `Signature` from the sender.
     pub(crate) partial_edge_info: PartialEdgeInfo,
+    /// Account owned by the sender.
+    pub(crate) owned_account: Option<SignedOwnedAccount>,
 }
 
 #[derive(PartialEq, Eq, Clone, Debug, strum::IntoStaticStr)]
@@ -229,14 +286,14 @@ pub struct SyncAccountsData {
 #[derive(PartialEq, Eq, Clone, Debug, strum::IntoStaticStr, strum::EnumVariantNames)]
 #[allow(clippy::large_enum_variant)]
 pub enum PeerMessage {
-    Handshake(Handshake),
+    Tier1Handshake(Handshake),
+    Tier2Handshake(Handshake),
     HandshakeFailure(PeerInfo, HandshakeFailureReason),
     /// When a failed nonce is used by some peer, this message is sent back as evidence.
     LastEdge(Edge),
     /// Contains accounts and edge information.
     SyncRoutingTable(RoutingTableUpdate),
     RequestUpdateNonce(PartialEdgeInfo),
-    ResponseUpdateNonce(Edge),
 
     SyncAccountsData(SyncAccountsData),
 
@@ -282,10 +339,17 @@ pub enum ParsePeerMessageError {
 }
 
 impl PeerMessage {
+    /// Serializes a message in the given encoding.
+    /// If the encoding is `Proto`, then also attaches current Span's context to the message.
     pub(crate) fn serialize(&self, enc: Encoding) -> Vec<u8> {
         match enc {
             Encoding::Borsh => borsh_::PeerMessage::from(self).try_to_vec().unwrap(),
-            Encoding::Proto => proto::PeerMessage::from(self).write_to_bytes().unwrap(),
+            Encoding::Proto => {
+                let mut msg = proto::PeerMessage::from(self);
+                let cx = Span::current().context();
+                msg.trace_context = inject_trace_context(&cx);
+                msg.write_to_bytes().unwrap()
+            }
         }
     }
 
@@ -293,15 +357,20 @@ impl PeerMessage {
         enc: Encoding,
         data: &[u8],
     ) -> Result<PeerMessage, ParsePeerMessageError> {
+        let span = tracing::trace_span!(target: "network", "deserialize").entered();
         Ok(match enc {
             Encoding::Borsh => (&borsh_::PeerMessage::try_from_slice(data)
                 .map_err(ParsePeerMessageError::BorshDecode)?)
                 .try_into()
                 .map_err(ParsePeerMessageError::BorshConv)?,
-            Encoding::Proto => (&proto::PeerMessage::parse_from_bytes(data)
-                .map_err(ParsePeerMessageError::ProtoDecode)?)
-                .try_into()
-                .map_err(ParsePeerMessageError::ProtoConv)?,
+            Encoding::Proto => {
+                let proto_msg: proto::PeerMessage = proto::PeerMessage::parse_from_bytes(data)
+                    .map_err(ParsePeerMessageError::ProtoDecode)?;
+                if let Ok(extracted_span_context) = extract_span_context(&proto_msg.trace_context) {
+                    span.clone().or_current().add_link(extracted_span_context);
+                }
+                (&proto_msg).try_into().map_err(|err| ParsePeerMessageError::ProtoConv(err))?
+            }
         })
     }
 
@@ -342,6 +411,10 @@ pub enum RoutedMessageBody {
 
     StateRequestHeader(ShardId, CryptoHash),
     StateRequestPart(ShardId, CryptoHash, u64),
+    /// StateResponse in not produced since protocol version 58.
+    /// We can remove the support for it in protocol version 60.
+    /// It has been obsoleted by VersionedStateResponse which
+    /// is a superset of StateResponse values.
     StateResponse(StateResponseInfoV1),
     PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg),
     PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg),
@@ -459,6 +532,9 @@ pub struct RoutedMessageV2 {
     pub msg: RoutedMessage,
     /// The time the Routed message was created by `author`.
     pub created_at: Option<time::Utc>,
+    /// Number of peers this routed message travelled through.
+    /// Doesn't include the peers that are the source and the destination of the message.
+    pub num_hops: Option<i32>,
 }
 
 impl std::ops::Deref for RoutedMessageV2 {
@@ -679,6 +755,7 @@ impl RawRoutedMessage {
                 body: self.body,
             },
             created_at: now,
+            num_hops: Some(0),
         }
     }
 }

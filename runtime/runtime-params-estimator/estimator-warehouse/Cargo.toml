@@ -3,8 +3,6 @@ authors.workspace = true
 name = "estimator-warehouse"
 version = "0.0.0"
 publish = false
-# Please update rust-toolchain.toml as well when changing version here:
-rust-version.workspace = true
 edition.workspace = true
 
 [dependencies]

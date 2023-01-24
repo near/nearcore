@@ -95,7 +95,7 @@ use near_primitives::time::Utc;
 use rand::seq::{IteratorRandom, SliceRandom};
 use tracing::{debug, error, warn};
 
-use near_chain::{byzantine_assert, RuntimeAdapter};
+use near_chain::{byzantine_assert, RuntimeWithEpochManagerAdapter};
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
@@ -288,7 +288,7 @@ impl Seal<'_> {
 
 pub struct SealsManager {
     me: Option<AccountId>,
-    runtime_adapter: Arc<dyn RuntimeAdapter>,
+    runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
 
     active_demurs: HashMap<ChunkHash, ActiveSealDemur>,
     past_seals: BTreeMap<BlockHeight, HashSet<ChunkHash>>,
@@ -296,7 +296,10 @@ pub struct SealsManager {
 }
 
 impl SealsManager {
-    fn new(me: Option<AccountId>, runtime_adapter: Arc<dyn RuntimeAdapter>) -> Self {
+    fn new(
+        me: Option<AccountId>,
+        runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
+    ) -> Self {
         Self {
             me,
             runtime_adapter,
@@ -474,7 +477,7 @@ pub struct ShardsManager {
     me: Option<AccountId>,
     store: ReadOnlyChunksStore,
 
-    runtime_adapter: Arc<dyn RuntimeAdapter>,
+    runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
     peer_manager_adapter: Arc<dyn PeerManagerAdapter>,
     client_adapter: Arc<dyn ClientAdapterForShardsManager>,
     rs: ReedSolomonWrapper,
@@ -493,7 +496,7 @@ pub struct ShardsManager {
 impl ShardsManager {
     pub fn new(
         me: Option<AccountId>,
-        runtime_adapter: Arc<dyn RuntimeAdapter>,
+        runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
         network_adapter: Arc<dyn PeerManagerAdapter>,
         client_adapter: Arc<dyn ClientAdapterForShardsManager>,
         store: ReadOnlyChunksStore,
@@ -603,32 +606,28 @@ impl ShardsManager {
                 continue;
             }
 
-            let need_to_fetch_part = if request_full || seal.contains_part_ord(&part_ord) {
-                true
+            // Note: If request_from_archival is true, we potentially call
+            // get_part_owner unnecessarily.  It’s probably not worth optimising
+            // though unless you can think of a concise way to do it.
+            let part_owner = self.runtime_adapter.get_part_owner(&epoch_id, part_ord)?;
+            let we_own_part = Some(&part_owner) == me;
+            if !request_full && !we_own_part && !seal.contains_part_ord(&part_ord) {
+                continue;
+            }
+
+            // This is false positive, similar to what was reported here:
+            // https://github.com/rust-lang/rust-clippy/issues/5940
+            #[allow(clippy::if_same_then_else)]
+            let fetch_from = if request_from_archival {
+                shard_representative_target.clone()
+            } else if we_own_part {
+                // If missing own part, request it from the chunk producer / node tracking shard
+                shard_representative_target.clone()
             } else {
-                if let Some(me) = me {
-                    &self.runtime_adapter.get_part_owner(&epoch_id, part_ord)? == me
-                } else {
-                    false
-                }
+                Some(part_owner)
             };
 
-            if need_to_fetch_part {
-                let fetch_from = if request_from_archival {
-                    shard_representative_target.clone()
-                } else {
-                    let part_owner = self.runtime_adapter.get_part_owner(&epoch_id, part_ord)?;
-
-                    if Some(&part_owner) == me {
-                        // If missing own part, request it from the chunk producer / node tracking shard
-                        shard_representative_target.clone()
-                    } else {
-                        Some(part_owner)
-                    }
-                };
-
-                bp_to_parts.entry(fetch_from).or_default().push(part_ord);
-            }
+            bp_to_parts.entry(fetch_from).or_default().push(part_ord);
         }
 
         let shards_to_fetch_receipts =
@@ -648,7 +647,16 @@ impl ShardsManager {
         for (target_account, part_ords) in bp_to_parts {
             // extra check that we are not sending request to ourselves.
             if no_account_id || me != target_account.as_ref() {
-                let parts_count = part_ords.len();
+                let prefer_peer = request_from_archival || rand::thread_rng().gen::<bool>();
+                debug!(
+                    target: "chunks",
+                    ?part_ords,
+                    shard_id,
+                    ?target_account,
+                    prefer_peer,
+                    "Requesting parts",
+                );
+
                 let request = PartialEncodedChunkRequestMsg {
                     chunk_hash: chunk_hash.clone(),
                     part_ords,
@@ -660,12 +668,11 @@ impl ShardsManager {
                 };
                 let target = AccountIdOrPeerTrackingShard {
                     account_id: target_account,
-                    prefer_peer: request_from_archival || rand::thread_rng().gen::<bool>(),
+                    prefer_peer,
                     shard_id,
                     only_archival: request_from_archival,
                     min_height: height.saturating_sub(CHUNK_REQUEST_PEER_HORIZON),
                 };
-                debug!(target: "chunks", "Requesting {} parts for shard {} from {:?} prefer {}", parts_count, shard_id, target.account_id, target.prefer_peer);
 
                 self.peer_manager_adapter.do_send(
                     PeerManagerMessageRequest::NetworkRequests(
@@ -951,17 +958,6 @@ impl ShardsManager {
         }
     }
 
-    pub fn num_chunks_for_block(&mut self, prev_block_hash: &CryptoHash) -> ShardId {
-        self.encoded_chunks.num_chunks_for_block(prev_block_hash)
-    }
-
-    pub fn prepare_chunks(
-        &mut self,
-        prev_block_hash: &CryptoHash,
-    ) -> HashMap<ShardId, (ShardChunkHeader, chrono::DateTime<chrono::Utc>)> {
-        self.encoded_chunks.get_chunk_headers_for_block(prev_block_hash)
-    }
-
     pub fn receipts_recipient_filter<T>(
         from_shard_id: ShardId,
         tracking_shards: T,
@@ -986,11 +982,12 @@ impl ShardsManager {
             .collect()
     }
 
+    /// Returns true if we were able to answer the request. This is for testing.
     pub fn process_partial_encoded_chunk_request(
         &mut self,
         request: PartialEncodedChunkRequestMsg,
         route_back: CryptoHash,
-    ) {
+    ) -> bool {
         let _span = tracing::debug_span!(
             target: "chunks",
             "process_partial_encoded_chunk_request",
@@ -1016,8 +1013,10 @@ impl ShardsManager {
                     NetworkRequests::PartialEncodedChunkResponse { route_back, response },
                 )
                 .with_span_context(),
-            )
+            );
+            return true;
         }
+        false
     }
 
     fn prepare_partial_encoded_chunk_response(
@@ -1596,8 +1595,14 @@ impl ShardsManager {
             partial_encoded_chunk.map(|chunk| PartialEncodedChunkV2::from(chunk));
         let header = &partial_encoded_chunk.header;
         let chunk_hash = header.chunk_hash();
-        debug!(target: "chunks", ?chunk_hash, height=header.height_created(), shard_id=header.shard_id(), "Process partial encoded chunk:  parts {}",
-               partial_encoded_chunk.get_inner().parts.len());
+        debug!(
+            target: "chunks",
+            ?chunk_hash,
+            height = header.height_created(),
+            shard_id = header.shard_id(),
+            parts = ?partial_encoded_chunk.get_inner().parts.iter().map(|p| p.part_ord).collect::<Vec<_>>(),
+            "Process partial encoded chunk",
+        );
         // Verify the partial encoded chunk is valid and worth processing
         // 1.a Leave if we received known chunk
         if let Some(entry) = self.encoded_chunks.get(&chunk_hash) {
@@ -1809,7 +1814,10 @@ impl ShardsManager {
         // self.seals_mgr.track_seals();
 
         if have_all_parts && self.seals_mgr.should_trust_chunk_producer(&chunk_producer) {
-            self.encoded_chunks.insert_chunk_header(header.shard_id(), header.clone());
+            if self.encoded_chunks.mark_chunk_for_inclusion(&chunk_hash) {
+                self.client_adapter
+                    .chunk_header_ready_for_inclusion(header.clone(), chunk_producer);
+            }
         }
         // we can safely unwrap here because we already checked that chunk_hash exist in encoded_chunks
         let entry = self.encoded_chunks.get(&chunk_hash).unwrap();
@@ -1898,7 +1906,7 @@ impl ShardsManager {
     /// complete when a new block is accepted.
     pub fn check_incomplete_chunks(&mut self, prev_block_hash: &CryptoHash) {
         let mut chunks_to_process = vec![];
-        for chunk_hashes in self.encoded_chunks.get_incomplete_chunks(prev_block_hash) {
+        if let Some(chunk_hashes) = self.encoded_chunks.get_incomplete_chunks(prev_block_hash) {
             for chunk_hash in chunk_hashes {
                 if let Some(entry) = self.encoded_chunks.get(chunk_hash) {
                     chunks_to_process.push(entry.header.clone());
@@ -2168,7 +2176,7 @@ impl ShardsManager {
 
         // Add it to the set of chunks to be included in the next block
         self.encoded_chunks.merge_in_partial_encoded_chunk(&partial_chunk.clone().into());
-        self.encoded_chunks.insert_chunk_header(shard_id, chunk_header);
+        self.encoded_chunks.mark_chunk_for_inclusion(&chunk_header.chunk_hash());
 
         Ok(())
     }
@@ -2179,12 +2187,12 @@ mod test {
 
     use assert_matches::assert_matches;
     use near_chain::types::EpochManagerAdapter;
+    use near_primitives::test_utils::create_test_signer;
     use std::sync::Arc;
     use std::time::Duration;
 
     use near_chain::test_utils::{KeyValueRuntime, ValidatorSchedule};
-    use near_chain::{Chain, ChainStore, RuntimeAdapter};
-    use near_crypto::KeyType;
+    use near_chain::{Chain, ChainStore};
     use near_network::test_utils::MockPeerManagerAdapter;
     use near_network::types::NetworkRequests;
     use near_o11y::testonly::init_test_logger;
@@ -2193,7 +2201,6 @@ mod test {
     use near_primitives::merkle::merklize;
     use near_primitives::sharding::ReedSolomonWrapper;
     use near_primitives::types::EpochId;
-    use near_primitives::validator_signer::InMemoryValidatorSigner;
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::create_test_store;
 
@@ -2272,8 +2279,7 @@ mod test {
             chain_store.new_read_only_chunks_store(),
             None,
         );
-        let signer =
-            InMemoryValidatorSigner::from_seed("test".parse().unwrap(), KeyType::ED25519, "test");
+        let signer = create_test_signer("test");
         let mut rs = ReedSolomonWrapper::new(4, 10);
         let shard_layout = runtime_adapter.get_shard_layout(&EpochId::default()).unwrap();
         let (encoded_chunk, proof) = ShardsManager::create_encoded_shard_chunk(
@@ -2911,6 +2917,7 @@ mod test {
                 panic!("Unexpected process_result: {:?}", process_result);
             }
         }
+        assert_eq!(fixture.count_chunk_completion_messages(), 1);
         // Requesting it again should not send any actual requests as the chunk is already
         // complete. Sleeping and resending later should also not send any requests.
         shards_manager.request_chunk_single(
@@ -3054,5 +3061,25 @@ mod test {
         assert_eq!(source, "chunk");
         assert!(response.is_some());
         assert_eq!(response.unwrap().parts.len(), fixture.all_part_ords.len());
+    }
+
+    #[test]
+    fn test_report_chunk_for_inclusion_to_client() {
+        let fixture = ChunkTestFixture::default();
+        let mut shards_manager = ShardsManager::new(
+            Some(fixture.mock_chunk_part_owner.clone()),
+            fixture.mock_runtime.clone(),
+            fixture.mock_network.clone(),
+            fixture.mock_client_adapter.clone(),
+            fixture.chain_store.new_read_only_chunks_store(),
+            None,
+        );
+        let part = fixture.make_partial_encoded_chunk(&fixture.mock_part_ords);
+        shards_manager.process_partial_encoded_chunk(part.clone().into()).unwrap();
+        assert_eq!(fixture.count_chunk_ready_for_inclusion_messages(), 1);
+
+        // test that chunk inclusion message is only sent once.
+        shards_manager.process_partial_encoded_chunk(part.into()).unwrap();
+        assert_eq!(fixture.count_chunk_ready_for_inclusion_messages(), 0);
     }
 }

@@ -3,8 +3,6 @@ name = "near-performance-metrics"
 version = "0.0.0"
 authors.workspace = true
 edition.workspace = true
-# Please update rust-toolchain.toml as well when changing version here:
-rust-version.workspace = true
 publish = false
 
 [dependencies]
@@ -14,7 +12,6 @@ bytes.workspace = true
 bytesize = { workspace = true, optional = true }
 futures.workspace = true
 libc.workspace = true
-near-rust-allocator-proxy = { workspace = true, optional = true }
 once_cell.workspace = true
 strum.workspace = true
 tokio.workspace = true
@@ -23,5 +20,4 @@ tracing.workspace = true
 
 [features]
 c_memory_stats = []
-memory_stats = []
-performance_stats = ["bytesize", "near-rust-allocator-proxy"]
+performance_stats = ["bytesize"]

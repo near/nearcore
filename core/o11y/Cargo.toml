@@ -16,7 +16,6 @@ near-primitives-core = { path = "../../core/primitives-core" }
 
 actix.workspace = true
 atty.workspace = true
-backtrace.workspace = true
 clap.workspace = true
 once_cell.workspace = true
 opentelemetry.workspace = true

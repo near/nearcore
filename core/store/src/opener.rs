@@ -3,7 +3,7 @@ use crate::db::rocksdb::RocksDB;
 use crate::metadata::{
     set_store_metadata, set_store_version, DbKind, DbMetadata, DbVersion, DB_VERSION,
 };
-use crate::{Mode, NodeStorage, StoreConfig};
+use crate::{Mode, NodeStorage, StoreConfig, Temperature};
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreOpenerError {
@@ -131,7 +131,7 @@ pub struct StoreOpener<'a> {
     hot: DBOpener<'a>,
 
     /// Opener for an instance of Cold RocksDB store if one was configured.
-    cold: Option<ColdDBOpener<'a>>,
+    cold: Option<DBOpener<'a>>,
 
     /// What kind of database we should expect; if `None`, the kind of the
     /// database is not checked.
@@ -152,6 +152,13 @@ struct DBOpener<'a> {
 
     /// Configuration as provided by the user.
     config: &'a StoreConfig,
+
+    /// Temperature of the database.
+    ///
+    /// This affects whether refcount merge operator is configured on reference
+    /// counted column.  It’s important that the value is correct.  RPC and
+    /// Archive databases are considered hot.
+    temp: Temperature,
 }
 
 impl<'a> StoreOpener<'a> {
@@ -159,11 +166,11 @@ impl<'a> StoreOpener<'a> {
     pub(crate) fn new(
         home_dir: &std::path::Path,
         config: &'a StoreConfig,
-        cold_config: super::ColdConfig<'a>,
+        cold_config: Option<&'a StoreConfig>,
     ) -> Self {
         Self {
-            hot: DBOpener::new(home_dir, config, "data"),
-            cold: cold_config.map(|config| ColdDBOpener::new(home_dir, config, "cold-data")),
+            hot: DBOpener::new(home_dir, config, Temperature::Hot),
+            cold: cold_config.map(|config| DBOpener::new(home_dir, config, Temperature::Cold)),
             expected_kind: None,
             migrator: None,
         }
@@ -222,25 +229,22 @@ impl<'a> StoreOpener<'a> {
 
         if let Some(hot_meta) = hot_meta {
             if let Some(Some(cold_meta)) = cold_meta {
-                assert!(cfg!(feature = "cold_store"));
                 // If cold database exists, hot and cold databases must have the
-                // same version and to be Hot and Cold kinds respectively.
+                // same version and to be Hot and Cold or Archive and Cold kinds respectively.
                 if hot_meta.version != cold_meta.version {
                     return Err(StoreOpenerError::HotColdVersionMismatch {
                         hot_version: hot_meta.version,
                         cold_version: cold_meta.version,
                     });
                 }
-                #[cfg(feature = "cold_store")]
-                if hot_meta.kind != Some(DbKind::Hot) {
+                if !matches!(hot_meta.kind, Some(DbKind::Hot) | Some(DbKind::Archive)) {
                     return Err(StoreOpenerError::DbKindMismatch {
                         which: "Hot",
                         got: hot_meta.kind,
                         want: DbKind::Hot,
                     });
                 }
-                #[cfg(feature = "cold_store")]
-                if cold_meta.kind != Some(DbKind::Cold) {
+                if !matches!(cold_meta.kind, Some(DbKind::Cold)) {
                     return Err(StoreOpenerError::DbKindMismatch {
                         which: "Cold",
                         got: cold_meta.kind,
@@ -250,7 +254,6 @@ impl<'a> StoreOpener<'a> {
             } else if cold_meta.is_some() {
                 // If cold database is configured and hot database exists,
                 // cold database must exist as well.
-                assert!(cfg!(feature = "cold_store"));
                 return Err(StoreOpenerError::HotColdExistenceMismatch);
             } else if !matches!(hot_meta.kind, None | Some(DbKind::RPC | DbKind::Archive)) {
                 // If cold database is not configured, hot database must be
@@ -281,13 +284,9 @@ impl<'a> StoreOpener<'a> {
         tracing::info!(target: "near", path=%self.path().display(),
                        "Opening an existing RocksDB database");
         let (storage, hot_meta, cold_meta) = self.open_storage(mode, DB_VERSION)?;
-        if let Some(_cold_meta) = cold_meta {
-            assert!(cfg!(feature = "cold_store"));
-            // open_storage has verified this.
-            #[cfg(feature = "cold_store")]
-            assert_eq!(Some(DbKind::Hot), hot_meta.kind);
-            #[cfg(feature = "cold_store")]
-            assert_eq!(Some(DbKind::Cold), _cold_meta.kind);
+        if let Some(cold_meta) = cold_meta {
+            assert!(matches!(hot_meta.kind, Some(DbKind::Hot) | Some(DbKind::Archive)));
+            assert!(matches!(cold_meta.kind, Some(DbKind::Cold)));
         } else {
             self.ensure_kind(&storage, hot_meta)?;
         }
@@ -417,17 +416,14 @@ impl<'a> StoreOpener<'a> {
         // Those are mostly sanity checks.  If any of those conditions fails
         // than either there’s bug in code or someone does something weird on
         // the file system and tries to switch databases under us.
-        if let Some(_cold_meta) = cold_meta {
-            #[cfg(feature = "cold_store")]
-            if hot_meta.kind != Some(DbKind::Hot) {
+        if let Some(cold_meta) = cold_meta {
+            if !matches!(hot_meta.kind, Some(DbKind::Hot) | Some(DbKind::Archive)) {
                 Err((hot_meta.kind, "Hot"))
-            } else if _cold_meta.kind != Some(DbKind::Cold) {
-                Err((_cold_meta.kind, "Cold"))
+            } else if !matches!(cold_meta.kind, Some(DbKind::Cold)) {
+                Err((cold_meta.kind, "Cold"))
             } else {
                 Ok(())
             }
-            #[cfg(not(feature = "cold_store"))]
-            Ok(())
         } else if matches!(hot_meta.kind, None | Some(DbKind::RPC | DbKind::Archive)) {
             Ok(())
         } else {
@@ -449,10 +445,11 @@ impl<'a> DBOpener<'a> {
     ///
     /// The path to the database is resolved based on the path in config with
     /// given home_dir as base directory for resolving relative paths.
-    fn new(home_dir: &std::path::Path, config: &'a StoreConfig, default_path: &str) -> Self {
-        let path =
-            home_dir.join(config.path.as_deref().unwrap_or(std::path::Path::new(default_path)));
-        Self { path, config }
+    fn new(home_dir: &std::path::Path, config: &'a StoreConfig, temp: Temperature) -> Self {
+        let path = if temp == Temperature::Hot { "data" } else { "cold-data" };
+        let path = config.path.as_deref().unwrap_or(std::path::Path::new(path));
+        let path = home_dir.join(path);
+        Self { path, config, temp }
     }
 
     /// Returns version of the database or `None` if it doesn’t exist.
@@ -484,7 +481,7 @@ impl<'a> DBOpener<'a> {
     ///
     /// Use [`Self::create`] to create a new database.
     fn open(&self, mode: Mode, want_version: DbVersion) -> std::io::Result<(RocksDB, DbMetadata)> {
-        let db = RocksDB::open(&self.path, &self.config, mode)?;
+        let db = RocksDB::open(&self.path, &self.config, mode, self.temp)?;
         let metadata = DbMetadata::read(&db)?;
         if want_version != metadata.version {
             let msg = format!("unexpected DbVersion {}; expected {want_version}", metadata.version);
@@ -496,12 +493,12 @@ impl<'a> DBOpener<'a> {
 
     /// Creates a new database.
     fn create(&self) -> std::io::Result<RocksDB> {
-        RocksDB::open(&self.path, &self.config, Mode::Create)
+        RocksDB::open(&self.path, &self.config, Mode::Create, self.temp)
     }
 
     /// Creates a new snapshot for the database.
     fn snapshot(&self) -> Result<Snapshot, SnapshotError> {
-        Snapshot::new(&self.path, &self.config)
+        Snapshot::new(&self.path, &self.config, self.temp)
     }
 }
 
@@ -527,52 +524,4 @@ pub trait StoreMigrator {
     /// check support via [`Self::check_support`] method) or if it’s greater or
     /// equal to [`DB_VERSION`].
     fn migrate(&self, storage: &NodeStorage, version: DbVersion) -> anyhow::Result<()>;
-}
-
-// This is only here to make conditional compilation simpler.  Once cold_store
-// feature is stabilised, get rid of it and use DBOpener directly.
-use cold_db_opener::ColdDBOpener;
-
-#[cfg(feature = "cold_store")]
-mod cold_db_opener {
-    pub(super) type ColdDBOpener<'a> = super::DBOpener<'a>;
-}
-
-#[cfg(not(feature = "cold_store"))]
-mod cold_db_opener {
-    use super::*;
-
-    pub(super) enum OpenerImpl {}
-
-    impl OpenerImpl {
-        pub(super) fn new(
-            _home_dir: &std::path::Path,
-            _config: std::convert::Infallible,
-            _default_path: &str,
-        ) -> Self {
-            unreachable!()
-        }
-
-        pub(super) fn get_metadata(&self) -> std::io::Result<Option<DbMetadata>> {
-            unreachable!()
-        }
-
-        pub(super) fn open(
-            &self,
-            _mode: Mode,
-            _want_version: DbVersion,
-        ) -> std::io::Result<(std::convert::Infallible, DbMetadata)> {
-            unreachable!()
-        }
-
-        pub(super) fn create(&self) -> std::io::Result<std::convert::Infallible> {
-            unreachable!()
-        }
-
-        pub(super) fn snapshot(&self) -> Result<Snapshot, SnapshotError> {
-            Ok(Snapshot::none())
-        }
-    }
-
-    pub(super) type ColdDBOpener<'a> = OpenerImpl;
 }
