@@ -649,16 +649,21 @@ fn verify_flat_storage_for_shard(
                 }
                 Some(account_id) => {
                     if i % 100_000 == 0 {
-                        let value = trie.storage.retrieve_raw_bytes(&value_ref.hash).unwrap();
+                        let key_shard_id = account_id_to_shard_id(&account_id, &shard_layout);
+                        let trie_storage = TrieDBStorage::new(
+                            runtime.store().clone(),
+                            ShardUId::from_shard_id_and_layout(key_shard_id, &shard_layout),
+                        );
+                        let value = trie_storage.retrieve_raw_bytes(&value_ref.hash).unwrap();
                         let sr =
                             StateRecord::from_raw_key_value(key.to_vec(), value.to_vec()).unwrap();
                         eprintln!("iter {} state record: {:?}", i, sr);
                     }
-                    if account_id_to_shard_id(&account_id, &shard_layout) == shard_id {
-                        // let value = trie.storage.retrieve_raw_bytes(&value_ref.hash).unwrap();
-                        // let sr = StateRecord::from_raw_key_value(key.to_vec(), value.to_vec()).unwrap();
-                        // eprintln!("{}", sr);
-                    }
+                    // if account_id_to_shard_id(&account_id, &shard_layout) == shard_id {
+                    // let value = trie.storage.retrieve_raw_bytes(&value_ref.hash).unwrap();
+                    // let sr = StateRecord::from_raw_key_value(key.to_vec(), value.to_vec()).unwrap();
+                    // eprintln!("{}", sr);
+                    // }
                 }
             }
         }
@@ -770,7 +775,9 @@ pub(crate) fn stress_test_flat_storage(
             old_delta.insert(key.to_vec(), prev_value_ref);
             new_delta.insert(key.to_vec(), value_ref);
         }
-        height = chain_store.get_block_header(prev_hash).unwrap().height().clone();
+
+        let mut store_update =
+            height = chain_store.get_block_header(prev_hash).unwrap().height().clone();
         eprintln!("{}", height);
     }
 }
