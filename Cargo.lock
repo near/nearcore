@@ -3427,6 +3427,7 @@ dependencies = [
  "rand_xorshift",
  "rayon",
  "rlimit",
+ "rustix",
  "serde",
  "smart-default",
  "strum",

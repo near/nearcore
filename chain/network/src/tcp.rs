@@ -1,8 +1,11 @@
 use crate::network_protocol::PeerInfo;
 use anyhow::{anyhow, Context as _};
 use near_primitives::network::PeerId;
-use std::sync::Arc;
+use std::sync::{Arc};
 use std::fmt;
+
+/// Size of the awaiting connections queue of a TCP listener socket.
+const LISTENER_BACKLOG : i32 = 128;
 
 /// TCP connections established by a node belong to different logical networks (aka tiers),
 /// which serve different purpose.
@@ -134,7 +137,7 @@ impl Stream {
 /// listening on the same socket.
 #[derive(Clone)]
 pub struct ListenerAddr{
-    raw: Arc<std::net::TcpListener>,
+    raw: Arc<tokio::sync::Mutex<std::net::TcpListener>>,
     addr: std::net::SocketAddr,
 }
 
@@ -154,11 +157,14 @@ impl ListenerAddr {
         // tokio::net::TcpListener::from_std() assumes that the socket is nonblocking.
         // We need to configure it manually here.
         listener.set_nonblocking(true)?;
+        // Set listening backlog to 0, so that all incoming connections are rejected,
+        // until a Listener is actually constructed.
+        rustix::net::listen(&listener,0)?;
         Ok(Self{
             // We fetch local_addr(), because addr.port() could have been 0, in which case an
             // arbitrary free port will be allocated.
             addr: listener.local_addr()?,
-            raw: Arc::new(listener),
+            raw: Arc::new(tokio::sync::Mutex::new(listener)),
         })
     }
 
@@ -168,15 +174,38 @@ impl ListenerAddr {
     }
 
     pub(crate) fn listener(&self) -> std::io::Result<Listener> {
-        Ok(Listener(tokio::net::TcpListener::from_std(self.raw.try_clone()?)?))
+        let guard = self.clone().raw.try_lock_owned().map_err(|_|std::io::Error::from(std::io::ErrorKind::AddrInUse))?;
+        let listener = tokio::net::TcpListener::from_std(guard.try_clone()?)?;
+        rustix::net::listen(guard.try_clone()?, LISTENER_BACKLOG)?;
+        Ok(Listener {
+            addr: self.addr,
+            inner: listener,
+            guard,
+        })
     }
 }
 
-pub(crate) struct Listener(tokio::net::TcpListener);
+pub(crate) struct Listener {
+    addr: std::net::SocketAddr,
+    inner: tokio::net::TcpListener,
+    guard: tokio::sync::OwnedMutexGuard<std::net::TcpListener>,
+}
+
+impl Drop for Listener {
+    fn drop(&mut self) {
+        let res = (|| -> std::io::Result<()> {
+            rustix::net::listen(self.guard.try_clone()?,0)?;
+            Ok(())
+        })();
+        if let Err(err) = res {
+            tracing::error!(target:"network", "failed to close backlog for TCP listener socket {}: {err}",self.addr);
+        }
+    }
+}
 
 impl Listener {
     pub async fn accept(&mut self) -> std::io::Result<Stream> {
-        let (stream, _) = self.0.accept().await?;
+        let (stream, _) = self.inner.accept().await?;
         Stream::new(stream, StreamType::Inbound)
     }
 }
