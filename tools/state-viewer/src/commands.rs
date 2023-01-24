@@ -776,8 +776,8 @@ pub(crate) fn stress_test_flat_storage(
             new_delta.insert(key.to_vec(), value_ref);
         }
 
-        let mut store_update =
-            height = chain_store.get_block_header(prev_hash).unwrap().height().clone();
+        let mut _store_update = store.store_update();
+        height = chain_store.get_block_header(prev_hash).unwrap().height().clone();
         eprintln!("{}", height);
     }
 }
