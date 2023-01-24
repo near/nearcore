@@ -740,13 +740,13 @@ pub(crate) fn stress_test_flat_storage(
         let (_, apply_result) =
             apply_block(block_hash, shard_id, runtime_adapter.as_ref(), &mut chain_store);
 
-        let shard_layout = runtime.get_shard_layout(&prev_header.epoch_id()).unwrap();
+        let shard_layout = runtime_adapter.get_shard_layout(&prev_header.epoch_id()).unwrap();
         let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
         let chunk_extra = chain_store.get_chunk_extra(&prev_hash, &shard_uid).unwrap();
         let state_root = chunk_extra.state_root().clone();
         let prev_trie =
-            runtime_adapter.get_trie_for_shard(shard_id, &flat_head, state_root, false).unwrap();
-        let trie_storage = prev_trie.storage.clone();
+            runtime_adapter.get_trie_for_shard(shard_id, &block_hash, state_root, false).unwrap();
+        let trie_storage = TrieDBStorage::new(store.clone(), shard_uid);
         let mut old_delta = FlatStateDelta::default();
         let mut new_delta = FlatStateDelta::default();
         for state_change in apply_result.trie_changes.state_changes() {
@@ -763,8 +763,8 @@ pub(crate) fn stress_test_flat_storage(
             let prev_value_ref = prev_trie.get_ref(&key.to_vec(), KeyLookupMode::Trie).unwrap();
             eprintln!(
                 "{:?} -> {:?}",
-                to_state_record(trie_storage.as_ref(), key.to_vec(), prev_value_ref.clone()),
-                to_state_record(trie_storage.as_ref(), key.to_vec(), value_ref.clone())
+                to_state_record(&trie_storage, key.to_vec(), prev_value_ref.clone()),
+                to_state_record(&trie_storage, key.to_vec(), value_ref.clone())
             );
 
             old_delta.insert(key.to_vec(), prev_value_ref);
