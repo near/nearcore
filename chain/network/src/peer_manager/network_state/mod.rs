@@ -54,7 +54,8 @@ pub const PRUNE_EDGES_AFTER: time::Duration = time::Duration::minutes(30);
 /// The maximum number of stored recent outbound connections.
 pub const RECENT_OUTBOUND_CONNECTIONS_LIMIT: usize = 40;
 /// How long a connection should survive before it can enter recent outbound connections
-pub const RECENT_OUTBOUND_CONNECTIONS_MIN_DURATION: time::Duration = time::Duration::minutes(10);
+pub(crate) const RECENT_OUTBOUND_CONNECTIONS_MIN_DURATION: time::Duration =
+    time::Duration::minutes(10);
 
 impl WhitelistNode {
     pub fn from_peer_info(pi: &PeerInfo) -> anyhow::Result<Self> {
@@ -702,6 +703,7 @@ impl NetworkState {
         // Order by most recently connected first
         let mut updated: Vec<ConnectionInfo> = updated.values().cloned().collect();
         updated.sort_by_key(|c| c.last_connected);
+        updated.reverse();
 
         // Evict the longest-disconnected connections, if needed
         updated.truncate(RECENT_OUTBOUND_CONNECTIONS_LIMIT);
@@ -709,7 +711,9 @@ impl NetworkState {
         if let Err(err) = self.store.lock().set_recent_outbound_connections(&updated) {
             tracing::error!(target: "network", ?err, "Failed to save recent outbound connections");
         }
-        *self.recent_outbound_connections.lock() = updated;
+        *self.recent_outbound_connections.lock() = updated.clone();
+
+        self.config.event_sink.push(Event::RecentOutboundConnectionsUpdated(updated));
     }
 
     /// Sets the chain info, and updates the set of TIER1 keys.

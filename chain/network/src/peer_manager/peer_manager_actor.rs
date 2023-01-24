@@ -14,9 +14,9 @@ use crate::store;
 use crate::tcp;
 use crate::time;
 use crate::types::{
-    ConnectedPeerInfo, GetNetworkInfo, HighestHeightPeerInfo, KnownProducer, NetworkInfo,
-    NetworkRequests, NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
-    PeerType, SetChainInfo,
+    ConnectedPeerInfo, ConnectionInfo, GetNetworkInfo, HighestHeightPeerInfo, KnownProducer,
+    NetworkInfo, NetworkRequests, NetworkResponses, PeerManagerMessageRequest,
+    PeerManagerMessageResponse, PeerType, SetChainInfo,
 };
 use actix::fut::future::wrap_future;
 use actix::{Actor as _, AsyncContext as _};
@@ -73,7 +73,8 @@ pub const MAX_TIER2_PEERS: usize = 128;
 const PREFER_PREVIOUSLY_CONNECTED_PEER: f64 = 0.6;
 
 /// How often to update the recent outbound connections in storage.
-const UPDATE_RECENT_OUTBOUND_CONNECTIONS_INTERVAL: time::Duration = time::Duration::minutes(1);
+pub(crate) const UPDATE_RECENT_OUTBOUND_CONNECTIONS_INTERVAL: time::Duration =
+    time::Duration::minutes(1);
 
 /// Actor that manages peers connections.
 pub struct PeerManagerActor {
@@ -120,6 +121,8 @@ pub enum Event {
     HandshakeCompleted(crate::peer::peer_actor::HandshakeCompletedEvent),
     // Reported when the TCP connection has been closed.
     ConnectionClosed(crate::peer::peer_actor::ConnectionClosedEvent),
+    // Reported when recent outbound connections are updated periodically.
+    RecentOutboundConnectionsUpdated(Vec<ConnectionInfo>),
 }
 
 impl actix::Actor for PeerManagerActor {
@@ -142,6 +145,7 @@ impl actix::Actor for PeerManagerActor {
             (MONITOR_PEERS_INITIAL_DURATION, self.state.config.monitor_peers_max_period),
         );
 
+        // Periodically fix local edges.
         let clock = self.clock.clone();
         let state = self.state.clone();
         ctx.spawn(wrap_future(async move {
@@ -152,11 +156,17 @@ impl actix::Actor for PeerManagerActor {
             }
         }));
 
-        // Periodically update recent outbound connections in storage.
-        self.update_recent_outbound_connections_trigger(
-            ctx,
-            UPDATE_RECENT_OUTBOUND_CONNECTIONS_INTERVAL,
-        );
+        // Periodically update the recent outbound connections in storage.
+        let clock = self.clock.clone();
+        let state = self.state.clone();
+        ctx.spawn(wrap_future(async move {
+            let mut interval =
+                time::Interval::new(clock.now(), UPDATE_RECENT_OUTBOUND_CONNECTIONS_INTERVAL);
+            loop {
+                interval.tick(&clock).await;
+                state.update_recent_outbound_connections(&clock);
+            }
+        }));
 
         // Periodically prints bandwidth stats for each peer.
         self.report_bandwidth_stats_trigger(ctx, REPORT_BANDWIDTH_STATS_TRIGGER_INTERVAL);
@@ -286,23 +296,6 @@ impl PeerManagerActor {
             state,
             clock,
         }))
-    }
-
-    /// Periodically updates the recent outbound connections in storage.
-    fn update_recent_outbound_connections_trigger(
-        &mut self,
-        ctx: &mut actix::Context<Self>,
-        every: time::Duration,
-    ) {
-        self.state.update_recent_outbound_connections(&self.clock);
-
-        near_performance_metrics::actix::run_later(
-            ctx,
-            every.try_into().unwrap(),
-            move |act, ctx| {
-                act.update_recent_outbound_connections_trigger(ctx, every);
-            },
-        );
     }
 
     /// Periodically prints bandwidth stats for each peer.
