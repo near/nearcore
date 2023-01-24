@@ -124,6 +124,8 @@ expression: config_view
       "keccak512_byte": 36649701,
       "ripemd160_base": 853675086,
       "ripemd160_block": 680107584,
+      "ed25519_verify_base": 210000000000,
+      "ed25519_verify_byte": 9000000,
       "ecrecover_base": 278821988457,
       "log_base": 3543313050,
       "log_byte": 13198791,
