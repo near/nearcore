@@ -136,7 +136,7 @@ impl ActorHandler {
     pub fn peer_info(&self) -> PeerInfo {
         PeerInfo {
             id: PeerId::new(self.cfg.node_key.public_key()),
-            addr: self.cfg.node_addr.as_ref().map(|a|*a.as_ref()),
+            addr: self.cfg.node_addr.as_ref().map(|a| *a.as_ref()),
             account_id: None,
         }
     }

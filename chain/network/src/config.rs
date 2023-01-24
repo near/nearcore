@@ -5,8 +5,8 @@ use crate::network_protocol::PeerInfo;
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::peer_store;
 use crate::sink::Sink;
-use crate::time;
 use crate::tcp;
+use crate::time;
 use crate::types::ROUTED_MESSAGE_TTL;
 use anyhow::Context;
 use near_crypto::{KeyType, SecretKey};
@@ -217,7 +217,9 @@ impl NetworkConfig {
             }),
             node_addr: match cfg.addr.as_str() {
                 "" => None,
-                addr => Some(tcp::ListenerAddr::new(addr.parse().context("Failed to parse SocketAddr")?)?),
+                addr => Some(tcp::ListenerAddr::new(
+                    addr.parse().context("Failed to parse SocketAddr")?,
+                )?),
             },
             peer_store: peer_store::Config {
                 boot_nodes: if cfg.boot_nodes.is_empty() {
@@ -426,9 +428,9 @@ mod test {
     use crate::network_protocol;
     use crate::network_protocol::testonly as data;
     use crate::network_protocol::AccountData;
+    use crate::tcp;
     use crate::testonly::make_rng;
     use crate::time;
-    use crate::tcp;
 
     #[test]
     fn test_network_config() {

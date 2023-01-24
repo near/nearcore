@@ -1,8 +1,8 @@
 use crate::network_protocol::PeerInfo;
 use anyhow::{anyhow, Context as _};
 use near_primitives::network::PeerId;
-use std::sync::{Arc,Mutex};
 use std::fmt;
+use std::sync::{Arc, Mutex};
 
 /// TCP connections established by a node belong to different logical networks (aka tiers),
 /// which serve different purpose.
@@ -98,11 +98,8 @@ impl Stream {
     #[cfg(test)]
     pub async fn loopback(peer_id: PeerId, tier: Tier) -> (Stream, Stream) {
         let listener_addr = ListenerAddr::new_localhost();
-        let peer_info = PeerInfo {
-            id: peer_id,
-            addr: Some(*listener_addr.as_ref()),
-            account_id: None,
-        };
+        let peer_info =
+            PeerInfo { id: peer_id, addr: Some(*listener_addr.as_ref()), account_id: None };
         let mut listener = listener_addr.listener().unwrap();
         let (outbound, inbound) =
             tokio::join!(Stream::connect(&peer_info, tier), listener.accept());
@@ -120,20 +117,18 @@ impl Stream {
     }
 }
 
-/// ListenerAddr is a cloneable owner of a TCP socket, which can be turned into a
-/// Listener. Since it actually keeps ownership of a system resource - TCP socket bound to a
-/// specific local port, it allows to avoid a race condition in tests where multiple tests would
-/// try to use the same port.
+/// ListenerAddr is a wrapper of std::net::SocketAddr which "owns" the port.
+/// It does that by keeping an open dummy TCP socket, bound to the addr (on a best effort basis)
+/// whenever the port is not in use. Thanks to this semantics, if you run multiple tests
+/// in parallel on a single machine (even in separate processes) they won't try to use the same
+/// ports. It is especially important in test scenarios when you restart a node and want it to
+/// reuse the same port.
 ///
-/// We make it cloneable, so that it can be included in a cloneable config and reused when a node
-/// instance is being restarted in test.
-/// TODO(gprusak): we lose the compilation-time check that would ensure that only one node instance
-/// is using the given socket - expressing that would require the node to return the socket
-/// ownership during shutdown and that would be ugly and hard to maintain. However we could rather
-/// cheaply implement a runtime check which would panic in case multiple nodes were trying to start
-/// listening on the same socket.
+/// This solution is still prone to race conditions, because you cannot close a socket and bind the
+/// same address to another socket atomically, but the time windows during which a race condition
+/// may arise is very small.
 #[derive(Clone)]
-pub struct ListenerAddr{
+pub struct ListenerAddr {
     raw: Arc<Mutex<Option<PlaceholderSocket>>>,
     addr: std::net::SocketAddr,
 }
@@ -145,9 +140,12 @@ impl fmt::Debug for ListenerAddr {
 }
 
 impl AsRef<std::net::SocketAddr> for ListenerAddr {
-    fn as_ref(&self) -> &std::net::SocketAddr { &self.addr }
+    fn as_ref(&self) -> &std::net::SocketAddr {
+        &self.addr
+    }
 }
 
+/// Dummy TCP socket bound to the address owned by ListenerAddr.
 struct PlaceholderSocket(rustix::fd::OwnedFd);
 
 impl PlaceholderSocket {
@@ -158,9 +156,9 @@ impl PlaceholderSocket {
         };
         let t = rustix::net::SocketType::STREAM;
         let p = rustix::net::Protocol::TCP;
-        let socket = rustix::net::socket(f,t,p)?;
-        rustix::net::sockopt::set_socket_reuseaddr(&socket,true)?;
-        rustix::net::bind(&socket,&addr)?;
+        let socket = rustix::net::socket(f, t, p)?;
+        rustix::net::sockopt::set_socket_reuseaddr(&socket, true)?;
+        rustix::net::bind(&socket, &addr)?;
         Ok(Self(socket))
     }
 
@@ -176,7 +174,7 @@ impl PlaceholderSocket {
 impl ListenerAddr {
     pub fn new(addr: std::net::SocketAddr) -> std::io::Result<Self> {
         let socket = PlaceholderSocket::new(addr)?;
-        Ok(Self{
+        Ok(Self {
             // We fetch local_addr(), because addr.port() could have been 0, in which case an
             // arbitrary free port will be allocated.
             addr: socket.local_addr()?,
@@ -184,21 +182,25 @@ impl ListenerAddr {
         })
     }
 
+    /// Constructs a ListenerAddr owning a random port on localhost.
     #[cfg(test)]
     pub(crate) fn new_localhost() -> Self {
         Self::new("127.0.0.1:0".parse().unwrap()).unwrap()
     }
 
+    /// Constructs a Listener out of ListenerAddr.
+    /// ListenerAddr drops the ownership of the port, so that a
+    /// TCP listener socket can be bound to it.
+    /// TODO(gprusak): improve it, so that the Placeholder socket is just upgraded to a listener socket.
     pub(crate) fn listener(&self) -> std::io::Result<Listener> {
         drop(self.clone().raw.lock().unwrap().take());
+        // We use std::net::TcpListener::bind rather than tokio::net::TcpListener::bind, because
+        // the tokio one is async for stupid reasons.
         let inner = std::net::TcpListener::bind(self.addr)?;
         // tokio::net::TcpListener::from_std() assumes that the socket is nonblocking.
         // We need to configure it manually here.
         inner.set_nonblocking(true)?;
-        Ok(Listener {
-            inner: Some(tokio::net::TcpListener::from_std(inner)?),
-            addr: self.clone(),   
-        })
+        Ok(Listener { inner: Some(tokio::net::TcpListener::from_std(inner)?), addr: self.clone() })
     }
 }
 
@@ -210,9 +212,18 @@ pub(crate) struct Listener {
 impl Drop for Listener {
     fn drop(&mut self) {
         drop(self.inner.take());
+        // Recreate the placeholder socket when dropping the listener.
         match PlaceholderSocket::new(self.addr.addr) {
-            Ok(socket) => { *self.addr.raw.lock().unwrap() = Some(socket); }
-            Err(err) => { near_o11y::log_assert!(false,"failed to guard port {} after closing TCP listener: {err}",self.addr.addr); }
+            Ok(socket) => {
+                *self.addr.raw.lock().unwrap() = Some(socket);
+            }
+            Err(err) => {
+                near_o11y::log_assert!(
+                    false,
+                    "failed to guard port {} after closing TCP listener: {err}",
+                    self.addr.addr
+                );
+            }
         }
     }
 }
