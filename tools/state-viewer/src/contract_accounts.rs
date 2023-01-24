@@ -239,7 +239,9 @@ impl<T: Iterator<Item = Result<ContractAccount>>> Summary for T {
         let iterate_receipts = filter.actions || filter.receipts_in || filter.receipts_out;
         if iterate_receipts {
             for pair in store.iter(near_store::DBCol::Receipts) {
-                if let Err(e) = try_find_actions(pair, &mut contracts, store, filter) {
+                if let Err(e) =
+                    try_find_actions_spawned_by_receipt(pair, &mut contracts, store, filter)
+                {
                     eprintln!("skipping receipt due to {e}");
                     errors.push(e);
                 }
@@ -249,8 +251,17 @@ impl<T: Iterator<Item = Result<ContractAccount>>> Summary for T {
     }
 }
 
-// todo: filter for receiver, -> outcome -> receipt.actions
-fn try_find_actions(
+/// Given a receipt, search for all actions in its outgoing receipts.
+///
+/// Technically, this involves looking up the execution outcome(s) of the
+/// receipt and subsequently looking up each receipt in the outgoing receipt id
+/// list. Actions found in any of those receipts will be added to the accounts
+/// list of actions.
+///
+/// If any of the receipts are missing, this will return an error and stop
+/// processing receipts that would come later. Changes made to the action set by
+/// already processed receipts will not be reverted.
+fn try_find_actions_spawned_by_receipt(
     raw_kv_pair: std::io::Result<(Box<[u8]>, Box<[u8]>)>,
     accounts: &mut BTreeMap<AccountId, ContractInfo>,
     store: &Store,
@@ -265,9 +276,11 @@ fn try_find_actions(
     let receipt = Receipt::deserialize(&mut raw_value.as_ref())
         .map_err(|e| ContractAccountError::InvalidReceipt(e, key))?;
 
-    // TODO: consider entry API
+    // Note: We could use the entry API here to avoid the double hash, but we
+    // would have to clone the key string. It's unclear which is better, I will
+    // avoid the entry API because normal contains/get_mut seems simpler.
     if accounts.contains_key(&receipt.receiver_id) {
-        // yes, this is a contract in our list
+        // yes, this is a contract in our map (skip/select filtering has already been applied when constructing the map)
         let entry = accounts.get_mut(&receipt.receiver_id).unwrap();
         if filter.receipts_in {
             *entry.receipts_in.get_or_insert(0) += 1;
@@ -656,6 +669,7 @@ mod tests {
         )
     }
 
+    /// A filter that collects all data.
     fn full_filter() -> ContractAccountFilter {
         ContractAccountFilter {
             code_size: true,
@@ -667,7 +681,7 @@ mod tests {
         }
     }
 
-    // TODO: dedup from runtime crate?
+    /// Create a test receipt from sender to receiver with the given actions.
     fn create_receipt_with_actions(sender: &str, receiver: &str, actions: Vec<Action>) -> Receipt {
         let sender_id: AccountId = sender.parse().unwrap();
         let signer =
