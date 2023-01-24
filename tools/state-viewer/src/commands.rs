@@ -32,7 +32,7 @@ use near_store::db::Database;
 use near_store::test_utils::create_test_store;
 #[cfg(feature = "protocol_feature_flat_state")]
 use near_store::DBCol;
-use near_store::{FlatStateDelta, TrieDBStorage};
+use near_store::{FlatStateDelta, KeyLookupMode, TrieDBStorage, TrieStorage};
 use near_store::{Store, Trie, TrieCache, TrieCachingStorage, TrieConfig};
 use nearcore::{NearConfig, NightshadeRuntime};
 use node_runtime::adapter::ViewRuntimeAdapter;
@@ -646,13 +646,13 @@ fn verify_flat_storage_for_shard(
             match account_id {
                 None => {
                     eprintln!("wtf {} {:?} {}", i, key, value_ref.hash);
-                    let value = trie.storage.retrieve_raw_bytes(&value_ref.hash).unwrap();
-                    let sr = StateRecord::from_raw_key_value(key.to_vec(), value.to_vec()).unwrap();
-                    eprintln!("state record: {}", sr);
                 }
                 Some(account_id) => {
                     if i % 100_000 == 0 {
-                        eprintln!("iter {} {:?} {:?}", i, key, value_ref);
+                        let value = trie.storage.retrieve_raw_bytes(&value_ref.hash).unwrap();
+                        let sr =
+                            StateRecord::from_raw_key_value(key.to_vec(), value.to_vec()).unwrap();
+                        eprintln!("iter {} state record: {:?}", i, sr);
                     }
                     if account_id_to_shard_id(&account_id, &shard_layout) == shard_id {
                         // let value = trie.storage.retrieve_raw_bytes(&value_ref.hash).unwrap();
@@ -699,43 +699,77 @@ pub(crate) fn verify_flat_storage(
     }
 }
 
+fn to_state_record(
+    trie_storage: &dyn TrieStorage,
+    key: Vec<u8>,
+    value_ref: Option<ValueRef>,
+) -> Option<StateRecord> {
+    match value_ref {
+        Some(value_ref) => {
+            let value = trie_storage.retrieve_raw_bytes(&value_ref.hash).unwrap().to_vec();
+            Some(StateRecord::from_raw_key_value(key, value).unwrap())
+        }
+        None => None,
+    }
+}
+
 pub(crate) fn stress_test_flat_storage(
     shard_id: Option<ShardId>,
-    height: Option<BlockHeight>,
+    _height: Option<BlockHeight>,
     home_dir: &Path,
     near_config: NearConfig,
     store: Store,
 ) {
+    let shard_id = shard_id.unwrap_or(0);
     let mut chain_store = ChainStore::new(
         store.clone(),
         near_config.genesis.config.genesis_height,
         near_config.client_config.save_trie_changes,
     );
-    let mut height = match height {
-        Some(h) => h,
-        None => {
-            let head = chain_store.head().unwrap();
-            head.height
-        }
-    };
+    let final_head = chain_store.final_head().unwrap();
+    let mut height = final_head.height;
     let runtime_adapter: Arc<dyn RuntimeAdapter> =
         Arc::new(NightshadeRuntime::from_config(home_dir, store, &near_config));
     for _ in 0..100 {
         let block_hash =
             chain_store.get_block_hash_by_height(height.clone()).expect("Block does not exist");
-        let (_, apply_result) = apply_block(
-            block_hash,
-            shard_id.unwrap_or(0),
-            runtime_adapter.as_ref(),
-            &mut chain_store,
-        );
-        let _old_delta = FlatStateDelta::default();
-        for state_change in apply_result.trie_changes.state_changes() {
-            let _key = state_change.trie_key.clone();
-            let _value = state_change.changes.last().unwrap().data.clone();
-        }
         let header = chain_store.get_block_header(&block_hash).unwrap();
         let prev_hash = header.prev_hash();
+        let prev_header = chain_store.get_block_header(&prev_hash).unwrap();
+
+        let (_, apply_result) =
+            apply_block(block_hash, shard_id, runtime_adapter.as_ref(), &mut chain_store);
+
+        let shard_layout = runtime.get_shard_layout(&prev_header.epoch_id()).unwrap();
+        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
+        let chunk_extra = chain_store.get_chunk_extra(&prev_hash, &shard_uid).unwrap();
+        let state_root = chunk_extra.state_root().clone();
+        let prev_trie =
+            runtime_adapter.get_trie_for_shard(shard_id, &flat_head, state_root, false).unwrap();
+        let trie_storage = prev_trie.storage.clone();
+        let mut old_delta = FlatStateDelta::default();
+        let mut new_delta = FlatStateDelta::default();
+        for state_change in apply_result.trie_changes.state_changes() {
+            let key = state_change.trie_key.clone();
+            if is_delayed_receipt_key(&key.to_vec()) {
+                continue;
+            }
+
+            let value = state_change.changes.last().unwrap().data.clone();
+            let value_ref = match value {
+                Some(value) => Some(ValueRef::new(&value)),
+                None => None,
+            };
+            let prev_value_ref = prev_trie.get_ref(&key.to_vec(), KeyLookupMode::Trie).unwrap();
+            eprintln!(
+                "{:?} -> {:?}",
+                to_state_record(trie_storage.as_ref(), key.to_vec(), prev_value_ref.clone()),
+                to_state_record(trie_storage.as_ref(), key.to_vec(), value_ref.clone())
+            );
+
+            old_delta.insert(key.to_vec(), prev_value_ref);
+            new_delta.insert(key.to_vec(), value_ref);
+        }
         height = chain_store.get_block_header(prev_hash).unwrap().height().clone();
         eprintln!("{}", height);
     }
