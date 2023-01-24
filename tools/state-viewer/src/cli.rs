@@ -306,12 +306,12 @@ impl ChunksCmd {
 #[derive(Parser)]
 pub struct ContractAccountsCmd {
     #[clap(flatten)]
-    fields: ContractAccountFilter,
+    filter: ContractAccountFilter,
 }
 
 impl ContractAccountsCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
-        contract_accounts(home_dir, store, near_config, self.fields).unwrap();
+        contract_accounts(home_dir, store, near_config, self.filter).unwrap();
     }
 }
 

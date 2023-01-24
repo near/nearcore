@@ -52,7 +52,11 @@ pub(crate) struct ContractInfo {
 
 /// Describe the desired output of a `ContractAccountIterator`.
 ///
-/// The default filter displays nothing but the account names.
+/// The default filter displays nothing but the account names, for all accounts
+/// in all shards.
+///
+/// Selecting specific accounts or skipping accounts with a lot of traffic can
+/// speed up the command drastically.
 ///
 /// By selecting only the required fields, the iterator can be more efficient.
 /// For example, finding all invoked actions is very slow.
@@ -65,7 +69,12 @@ pub(crate) struct ContractAccountFilter {
     /// Print the size of the source WASM.
     #[clap(long)]
     pub(crate) code_size: bool,
-    /// Print the actions invoked from within each contract,
+    /// Print the actions invoked from within each contract.
+    ///
+    /// Note: This will not include actions from an original transaction. It
+    /// only looks at the actions inside receipts spawned by other receipts.
+    /// This allows to look at on-chain actions only, which are more susceptible
+    /// to gas cost changes.
     #[clap(long)]
     pub(crate) actions: bool,
     /// Print the number of action receipts received.
@@ -74,6 +83,16 @@ pub(crate) struct ContractAccountFilter {
     /// Print the number of action receipts sent.
     #[clap(long)]
     pub(crate) receipts_out: bool,
+
+    /// Only produce output for the selected account Ids.
+    #[clap(long)]
+    select_accounts: Option<Vec<AccountId>>,
+    /// Do not look up details for the accounts listed here.
+    ///
+    /// This can be useful to avoid spending a long time reading through
+    /// receipts that are for some of the largest accounts.
+    #[clap(long)]
+    skip_accounts: Option<Vec<AccountId>>,
 }
 
 pub(crate) struct ContractAccountIterator {
@@ -147,14 +166,11 @@ impl ContractAccount {
     /// This will not populate fields, such as the actions field, that require
     /// to iterate entire columns. Calling `summary` populates the remaining fields.
     fn read_streaming_fields(
-        trie_key: &[u8],
+        account_id: AccountId,
         value_hash: CryptoHash,
         trie: &Trie,
         filter: &ContractAccountFilter,
     ) -> Result<Self> {
-        let account_id = parse_account_id_from_contract_code_key(trie_key)
-            .map_err(|err| ContractAccountError::InvalidKey(err, trie_key.to_vec()))?;
-
         let get_code = || {
             trie.storage
                 .retrieve_raw_bytes(&value_hash)
@@ -316,9 +332,17 @@ impl Iterator for ContractAccountIterator {
             // only look at nodes with a value, ignoring intermediate nodes
             // without values
             if let TrieTraversalItem { hash, key: Some(trie_key) } = item {
-                // Here we can only look at fields that be efficiently computed in one go
+                let account_id = parse_account_id_from_contract_code_key(&trie_key)
+                    .map_err(|err| ContractAccountError::InvalidKey(err, trie_key.to_vec()));
+                let Ok(account_id) = account_id else { return Some(Err(account_id.unwrap_err())) };
+
+                if !self.filter.include_account(&account_id) {
+                    return None;
+                }
+
+                // Here we can only look at fields that can be efficiently computed in one go.
                 let contract = ContractAccount::read_streaming_fields(
-                    &trie_key,
+                    account_id,
                     hash,
                     &self.trie,
                     &self.filter,
@@ -400,6 +424,16 @@ impl ContractAccountFilter {
             write!(out, " {}", "ACTIONS")?;
         }
         writeln!(out,)
+    }
+
+    fn include_account(&self, account: &AccountId) -> bool {
+        if let Some(include) = &self.select_accounts {
+            return include.contains(account);
+        }
+        if let Some(exclude) = &self.skip_accounts {
+            return !exclude.contains(account);
+        }
+        true
     }
 }
 
@@ -628,6 +662,8 @@ mod tests {
             actions: true,
             receipts_in: true,
             receipts_out: true,
+            select_accounts: None,
+            skip_accounts: None,
         }
     }
 
