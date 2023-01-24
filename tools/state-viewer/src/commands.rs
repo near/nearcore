@@ -22,7 +22,7 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::ChunkHash;
 #[cfg(feature = "protocol_feature_flat_state")]
 use near_primitives::state::ValueRef;
-use near_primitives::state_record::StateRecord;
+use near_primitives::state_record::{is_delayed_receipt_key, StateRecord};
 #[cfg(feature = "protocol_feature_flat_state")]
 use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_raw_key;
 use near_primitives::trie_key::TrieKey;
@@ -639,6 +639,9 @@ fn verify_flat_storage_for_shard(
         {
             // eprintln!("item");
             let (key, value_ref) = item.unwrap();
+            if is_delayed_receipt_key(key) {
+                continue;
+            }
             let account_id = parse_account_id_from_raw_key(&key).unwrap();
             match account_id {
                 None => {
