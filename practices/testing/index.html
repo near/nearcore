@@ -195,7 +195,7 @@ first one has some tests still scheduled to run.</p>
 <p>Different levels of the reference implementation have different infrastructure
 available to test them.</p>
 <h2 id="client"><a class="header" href="#client">Client</a></h2>
-<p>Client is separated from the runtime via a <code>RuntimeAdapter</code> trait. In production
+<p>Client is separated from the runtime via a <code>RuntimeWithEpochManagerAdapter</code> trait. In production
 it uses <code>NightshadeRuntime</code> that uses real runtime and epoch managers. To test
 client without instantiating runtime and epoch manager, we have a mock runtime
 <code>KeyValueRuntime</code>.</p>
