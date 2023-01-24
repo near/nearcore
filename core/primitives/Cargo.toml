@@ -48,9 +48,6 @@ dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]
 protocol_feature_fix_staking_threshold = []
 protocol_feature_fix_contract_loading_cost = []
 protocol_feature_reject_blocks_with_outdated_protocol_version = []
-protocol_feature_ed25519_verify = [
-  "near-primitives-core/protocol_feature_ed25519_verify"
-]
 protocol_feature_zero_balance_account = []
 protocol_feature_nep366_delegate_action = [
   "near-primitives-core/protocol_feature_nep366_delegate_action"
@@ -60,7 +57,6 @@ nightly = [
   "protocol_feature_fix_staking_threshold",
   "protocol_feature_fix_contract_loading_cost",
   "protocol_feature_reject_blocks_with_outdated_protocol_version",
-  "protocol_feature_ed25519_verify",
   "protocol_feature_nep366_delegate_action",
   "protocol_feature_zero_balance_account"
 ]
