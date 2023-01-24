@@ -302,9 +302,7 @@ impl ExtCostsConfig {
             ExtCosts::keccak512_base => SAFETY_MULTIPLIER * 1937129412,
             ExtCosts::keccak512_byte => SAFETY_MULTIPLIER * 12216567,
             ExtCosts::ripemd160_base => SAFETY_MULTIPLIER * 284558362,
-            #[cfg(feature = "protocol_feature_ed25519_verify")]
             ExtCosts::ed25519_verify_base => SAFETY_MULTIPLIER * 1513656750,
-            #[cfg(feature = "protocol_feature_ed25519_verify")]
             ExtCosts::ed25519_verify_byte => SAFETY_MULTIPLIER * 7157035,
             ExtCosts::ripemd160_block => SAFETY_MULTIPLIER * 226702528,
             ExtCosts::ecrecover_base => SAFETY_MULTIPLIER * 1121789875000,
@@ -436,9 +434,7 @@ pub enum ExtCosts {
     alt_bn128_pairing_check_element = 56,
     alt_bn128_g1_sum_base = 57,
     alt_bn128_g1_sum_element = 58,
-    #[cfg(feature = "protocol_feature_ed25519_verify")]
     ed25519_verify_base = 59,
-    #[cfg(feature = "protocol_feature_ed25519_verify")]
     ed25519_verify_byte = 60,
 }
 
@@ -508,9 +504,7 @@ impl ExtCosts {
             ExtCosts::ripemd160_base => Parameter::WasmRipemd160Base,
             ExtCosts::ripemd160_block => Parameter::WasmRipemd160Block,
             ExtCosts::ecrecover_base => Parameter::WasmEcrecoverBase,
-            #[cfg(feature = "protocol_feature_ed25519_verify")]
             ExtCosts::ed25519_verify_base => Parameter::WasmEd25519VerifyBase,
-            #[cfg(feature = "protocol_feature_ed25519_verify")]
             ExtCosts::ed25519_verify_byte => Parameter::WasmEd25519VerifyByte,
             ExtCosts::log_base => Parameter::WasmLogBase,
             ExtCosts::log_byte => Parameter::WasmLogByte,
