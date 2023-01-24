@@ -1,6 +1,6 @@
 use crate::epoch_info::iterate_and_filter;
 use clap::Subcommand;
-use near_chain::{ChainStore, ChainStoreAccess, RuntimeAdapter};
+use near_chain::{ChainStore, ChainStoreAccess, RuntimeWithEpochManagerAdapter};
 use near_epoch_manager::EpochManager;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::state_part::PartId;
@@ -111,7 +111,7 @@ pub(crate) fn dump_state_parts(
     output_dir: Option<PathBuf>,
     s3_bucket_and_region: Option<(String, String)>,
 ) {
-    let runtime_adapter: Arc<dyn RuntimeAdapter> =
+    let runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter> =
         Arc::new(NightshadeRuntime::from_config(home_dir, store.clone(), &near_config));
     let mut epoch_manager =
         EpochManager::new_from_genesis_config(store.clone(), &near_config.genesis.config)
