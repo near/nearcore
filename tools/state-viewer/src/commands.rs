@@ -726,10 +726,10 @@ pub(crate) fn stress_test_flat_storage(
             runtime_adapter.as_ref(),
             &mut chain_store,
         );
-        let old_delta = FlatStateDelta::default();
+        let _old_delta = FlatStateDelta::default();
         for state_change in apply_result.trie_changes.state_changes() {
-            let key = state_change.trie_key.clone();
-            let value = state_change.changes.last().unwrap().data.clone();
+            let _key = state_change.trie_key.clone();
+            let _value = state_change.changes.last().unwrap().data.clone();
         }
         let header = chain_store.get_block_header(&block_hash).unwrap();
         let prev_hash = header.prev_hash();
