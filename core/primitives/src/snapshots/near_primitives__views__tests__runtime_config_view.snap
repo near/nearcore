@@ -124,6 +124,8 @@ expression: "&view"
       "keccak512_byte": 36649701,
       "ripemd160_base": 853675086,
       "ripemd160_block": 680107584,
+      "ed25519_verify_base": 4540970250,
+      "ed25519_verify_byte": 21471105,
       "ecrecover_base": 3365369625000,
       "log_base": 3543313050,
       "log_byte": 13198791,

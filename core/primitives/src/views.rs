@@ -2377,10 +2377,8 @@ pub struct ExtCostsConfigView {
     pub ripemd160_block: Gas,
 
     /// Cost of getting ed25519 base
-    #[cfg(feature = "protocol_feature_ed25519_verify")]
     pub ed25519_verify_base: Gas,
     /// Cost of getting ed25519 per byte
-    #[cfg(feature = "protocol_feature_ed25519_verify")]
     pub ed25519_verify_byte: Gas,
 
     /// Cost of calling ecrecover
@@ -2511,9 +2509,7 @@ impl From<near_primitives_core::config::ExtCostsConfig> for ExtCostsConfigView {
             keccak512_byte: config.cost(ExtCosts::keccak512_byte),
             ripemd160_base: config.cost(ExtCosts::ripemd160_base),
             ripemd160_block: config.cost(ExtCosts::ripemd160_block),
-            #[cfg(feature = "protocol_feature_ed25519_verify")]
             ed25519_verify_base: config.cost(ExtCosts::ed25519_verify_base),
-            #[cfg(feature = "protocol_feature_ed25519_verify")]
             ed25519_verify_byte: config.cost(ExtCosts::ed25519_verify_byte),
             ecrecover_base: config.cost(ExtCosts::ecrecover_base),
             log_base: config.cost(ExtCosts::log_base),
@@ -2584,9 +2580,7 @@ impl From<ExtCostsConfigView> for near_primitives_core::config::ExtCostsConfig {
                 ExtCosts::keccak512_byte => view.keccak512_byte,
                 ExtCosts::ripemd160_base => view.ripemd160_base,
                 ExtCosts::ripemd160_block => view.ripemd160_block,
-                #[cfg(feature = "protocol_feature_ed25519_verify")]
                 ExtCosts::ed25519_verify_base => view.ed25519_verify_base,
-                #[cfg(feature = "protocol_feature_ed25519_verify")]
                 ExtCosts::ed25519_verify_byte => view.ed25519_verify_byte,
                 ExtCosts::ecrecover_base => view.ecrecover_base,
                 ExtCosts::log_base => view.log_base,

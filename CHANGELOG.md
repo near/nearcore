@@ -3,6 +3,10 @@
 ## [unreleased]
 
 ### Protocol Changes
+* Stabilize `ed25519_verify` feature: introducing a host function to verify
+ed25519 signatures efficiently.
+[#8098](https://github.com/near/nearcore/pull/8098)
+[NEP-364](https://github.com/near/NEPs/pull/364)
 
 ### Non-protocol Changes
 * `/debug` page now has client_config linked. You can also check your client_config directly at /debug/client_config
