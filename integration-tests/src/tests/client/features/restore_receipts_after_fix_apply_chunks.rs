@@ -1,5 +1,5 @@
 use crate::tests::client::process_blocks::set_block_protocol_version;
-use near_chain::{ChainGenesis, Provenance, RuntimeAdapter};
+use near_chain::{ChainGenesis, Provenance, RuntimeWithEpochManagerAdapter};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_o11y::testonly::init_test_logger;
@@ -38,7 +38,7 @@ fn run_test(
     let migration_data = load_migration_data(&genesis.config.chain_id);
 
     let mut env = TestEnv::builder(chain_genesis)
-        .runtime_adapters(vec![Arc::new(runtime) as Arc<dyn RuntimeAdapter>])
+        .runtime_adapters(vec![Arc::new(runtime) as Arc<dyn RuntimeWithEpochManagerAdapter>])
         .build();
 
     let get_restored_receipt_hashes = |migration_data: &MigrationData| -> HashSet<CryptoHash> {
