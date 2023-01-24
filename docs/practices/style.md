@@ -257,6 +257,49 @@ external crates. The surprise factor for derivations sharing a name with the sta
 library traits (`Display`) is reduced and it also acts as natural mechanism to tell apart names
 prone to collision (`Serialize`), all without needing to look up the list of imports.
 
+### Arithmetic integer operations
+
+Use methods with an appropriate overflow handling over plain arithmetic operators (`+-*/%`) when
+dealing with integers.
+
+```
+// GOOD
+a.wrapping_add(b);
+c.saturating_sub(2);
+d.widening_mul(3);   // NB: unstable at the time of writing
+e.overflowing_div(5);
+f.checked_rem(7);
+
+// BAD
+a + b
+c - 2
+d * 3
+e / 5
+f % 7
+```
+
+If you’re confident the arithmetic operation cannot fail,
+`x.checked_[add|sub|mul|div](y).expect("explanation why the operation is safe")` is a great
+alternative, as it neatly documents not just the infallibility, but also _why_ that is the case.
+
+This convention may be enforced by the `clippy::arithmetic_side_effects` and
+`clippy::integer_arithmetic` lints.
+
+**Rationale:** By default the outcome of an overflowing computation in Rust depends on a few
+factors, most notably the compilation flags used. The quick explanation is that in debug mode the
+computations may panic (cause side effects) if the result has overflowed, and when built with
+optimizations enabled, these computations will wrap-around instead.
+
+For nearcore and neard we have opted to enable the panicking behaviour regardless of the
+optimization level. By doing it this we hope to prevent accidental stabilization of protocol
+mis-features that depend on incorrect handling of these overflows or similarly scary silent bugs.
+The downside to this approach is that any such arithmetic operation now may cause a node to crash,
+much like indexing a vector with `a[idx]` may cause a crash when `idx` is out-of-bounds. Unlike
+indexing, however, developers and reviewers are not used to treating integer arithmetic operations
+with the due suspicion. Having to make a choice, and explicitly spell out, how an overflow case
+ought to be handled will result in an easier to review and understand code and a more resilient
+project overall.
+
 ## Standard Naming
 
 * Use `-` rather than `_` in crate names and in corresponding folder names.
