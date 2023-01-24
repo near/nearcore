@@ -236,14 +236,23 @@ impl<T: Iterator<Item = Result<ContractAccount>>> Summary for T {
             })
             .collect();
 
+        eprintln!("Done collecting {} contracts.", contracts.len());
+
         let iterate_receipts = filter.actions || filter.receipts_in || filter.receipts_out;
         if iterate_receipts {
+            eprintln!("Iterating all receipts in the database. This might take a while...");
+            let mut receipts_done = 0;
             for pair in store.iter(near_store::DBCol::Receipts) {
                 if let Err(e) =
                     try_find_actions_spawned_by_receipt(pair, &mut contracts, store, filter)
                 {
                     eprintln!("skipping receipt due to {e}");
                     errors.push(e);
+                }
+                receipts_done += 1;
+                // give some feedback on progress to the user
+                if receipts_done % 100_000 == 0 {
+                    eprintln!("Processed {receipts_done} receipts");
                 }
             }
         }
