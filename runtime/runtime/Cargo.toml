@@ -34,6 +34,8 @@ near-vm-runner = { path = "../../runtime/near-vm-runner" }
 default = []
 dump_errors_schema = ["near-vm-errors/dump_errors_schema"]
 protocol_feature_flat_state = ["near-store/protocol_feature_flat_state", "near-vm-logic/protocol_feature_flat_state"]
+protocol_feature_zero_balance_account = ["near-primitives/protocol_feature_zero_balance_account"]
+nightly_protocol = ["near-primitives/nightly_protocol"]
 no_cpu_compatibility_checks = ["near-vm-runner/no_cpu_compatibility_checks"]
 protocol_feature_nep366_delegate_action = []
 

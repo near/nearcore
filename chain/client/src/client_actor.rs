@@ -31,7 +31,7 @@ use near_chain::test_utils::format_hash;
 use near_chain::ChainStoreAccess;
 use near_chain::{
     byzantine_assert, near_chain_primitives, Block, BlockHeader, BlockProcessingArtifact,
-    ChainGenesis, DoneApplyChunkCallback, Provenance, RuntimeAdapter,
+    ChainGenesis, DoneApplyChunkCallback, Provenance, RuntimeWithEpochManagerAdapter,
 };
 use near_chain_configs::ClientConfig;
 use near_chunks::client::ShardsManagerResponse;
@@ -148,7 +148,7 @@ impl ClientActor {
         address: Addr<ClientActor>,
         config: ClientConfig,
         chain_genesis: ChainGenesis,
-        runtime_adapter: Arc<dyn RuntimeAdapter>,
+        runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
         node_id: PeerId,
         network_adapter: Arc<dyn PeerManagerAdapter>,
         validator_signer: Option<Arc<dyn ValidatorSigner>>,
@@ -1997,7 +1997,7 @@ pub fn random_seed_from_thread() -> RngSeed {
 pub fn start_client(
     client_config: ClientConfig,
     chain_genesis: ChainGenesis,
-    runtime_adapter: Arc<dyn RuntimeAdapter>,
+    runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
     node_id: PeerId,
     network_adapter: Arc<dyn PeerManagerAdapter>,
     validator_signer: Option<Arc<dyn ValidatorSigner>>,

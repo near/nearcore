@@ -8,7 +8,7 @@ use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::ApplyTransactionResult;
-use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, RuntimeAdapter};
+use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, RuntimeWithEpochManagerAdapter};
 use near_chain_configs::Genesis;
 use near_primitives::borsh::maybestd::sync::Arc;
 use near_primitives::hash::CryptoHash;
@@ -115,7 +115,7 @@ fn apply_block_from_range(
     shard_id: ShardId,
     store: Store,
     genesis: &Genesis,
-    runtime_adapter: Arc<dyn RuntimeAdapter>,
+    runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
     progress_reporter: &ProgressReporter,
     verbose_output: bool,
     csv_file_mutex: &Mutex<Option<&mut File>>,
@@ -351,7 +351,7 @@ pub fn apply_chain_range(
         only_contracts,
         sequential)
     .entered();
-    let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(runtime);
+    let runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter> = Arc::new(runtime);
     let chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height, false);
     let end_height = end_height.unwrap_or_else(|| chain_store.head().unwrap().height);
     let start_height = start_height.unwrap_or_else(|| chain_store.tail().unwrap());

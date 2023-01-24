@@ -4,8 +4,8 @@ pub mod state_dump;
 
 use crate::state_dump::StateDump;
 use indicatif::{ProgressBar, ProgressStyle};
-use near_chain::types::BlockHeaderInfo;
-use near_chain::{Block, Chain, ChainStore, RuntimeAdapter};
+use near_chain::types::{BlockHeaderInfo, RuntimeAdapter};
+use near_chain::{Block, Chain, ChainStore};
 use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::account::{AccessKey, Account};

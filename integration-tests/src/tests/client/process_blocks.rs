@@ -18,7 +18,7 @@ use near_chain::types::LatestKnown;
 use near_chain::validate::validate_chunk_with_chunk_extra;
 use near_chain::{
     Block, BlockProcessingArtifact, ChainGenesis, ChainStore, ChainStoreAccess, Error, Provenance,
-    RuntimeAdapter,
+    RuntimeWithEpochManagerAdapter,
 };
 use near_chain_configs::{ClientConfig, Genesis, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
 use near_chunks::{ChunkStatus, ShardsManager};
@@ -95,16 +95,19 @@ pub fn set_block_protocol_version(
     block.mut_header().resign(&validator_signer);
 }
 
-pub fn create_nightshade_runtimes(genesis: &Genesis, n: usize) -> Vec<Arc<dyn RuntimeAdapter>> {
+pub fn create_nightshade_runtimes(
+    genesis: &Genesis,
+    n: usize,
+) -> Vec<Arc<dyn RuntimeWithEpochManagerAdapter>> {
     (0..n).map(|_| create_nightshade_runtime_with_store(genesis, &create_test_store())).collect()
 }
 
 pub fn create_nightshade_runtime_with_store(
     genesis: &Genesis,
     store: &Store,
-) -> Arc<dyn RuntimeAdapter> {
+) -> Arc<dyn RuntimeWithEpochManagerAdapter> {
     Arc::new(nearcore::NightshadeRuntime::test(Path::new("../../../.."), store.clone(), genesis))
-        as Arc<dyn RuntimeAdapter>
+        as Arc<dyn RuntimeWithEpochManagerAdapter>
 }
 
 /// Produce `blocks_number` block in the given environment, starting from the given height.
@@ -2129,11 +2132,9 @@ fn test_invalid_block_root() {
 fn test_incorrect_validator_key_produce_block() {
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 2);
     let chain_genesis = ChainGenesis::new(&genesis);
-    let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(nearcore::NightshadeRuntime::test(
-        Path::new("../../../.."),
-        create_test_store(),
-        &genesis,
-    ));
+    let runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter> = Arc::new(
+        nearcore::NightshadeRuntime::test(Path::new("../../../.."), create_test_store(), &genesis),
+    );
     let signer = Arc::new(InMemoryValidatorSigner::from_seed(
         "test0".parse().unwrap(),
         KeyType::ED25519,
@@ -3025,7 +3026,7 @@ fn test_query_final_state() {
     }
 
     let query_final_state = |chain: &mut near_chain::Chain,
-                             runtime_adapter: Arc<dyn RuntimeAdapter>,
+                             runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
                              account_id: AccountId| {
         let final_head = chain.store().final_head().unwrap();
         let last_final_block = chain.get_block(&final_head.last_block_hash).unwrap();
@@ -3526,7 +3527,7 @@ mod contract_precompilation_tests {
                     Path::new("../../../.."),
                     store.clone(),
                     &genesis,
-                )) as Arc<dyn RuntimeAdapter>
+                )) as Arc<dyn RuntimeWithEpochManagerAdapter>
             })
             .collect();
 
@@ -3629,7 +3630,7 @@ mod contract_precompilation_tests {
                     Path::new("../../../.."),
                     store.clone(),
                     &genesis,
-                )) as Arc<dyn RuntimeAdapter>
+                )) as Arc<dyn RuntimeWithEpochManagerAdapter>
             })
             .collect();
 
@@ -3713,7 +3714,7 @@ mod contract_precompilation_tests {
                     Path::new("../../../.."),
                     store.clone(),
                     &genesis,
-                )) as Arc<dyn RuntimeAdapter>
+                )) as Arc<dyn RuntimeWithEpochManagerAdapter>
             })
             .collect();
 
