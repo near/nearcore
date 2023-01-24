@@ -1,11 +1,8 @@
 use crate::network_protocol::PeerInfo;
 use anyhow::{anyhow, Context as _};
 use near_primitives::network::PeerId;
-use std::sync::{Arc};
+use std::sync::{Arc,Mutex};
 use std::fmt;
-
-/// Size of the awaiting connections queue of a TCP listener socket.
-const LISTENER_BACKLOG : i32 = 128;
 
 /// TCP connections established by a node belong to different logical networks (aka tiers),
 /// which serve different purpose.
@@ -137,7 +134,7 @@ impl Stream {
 /// listening on the same socket.
 #[derive(Clone)]
 pub struct ListenerAddr{
-    raw: Arc<tokio::sync::Mutex<std::net::TcpListener>>,
+    raw: Arc<Mutex<Option<PlaceholderSocket>>>,
     addr: std::net::SocketAddr,
 }
 
@@ -151,20 +148,39 @@ impl AsRef<std::net::SocketAddr> for ListenerAddr {
     fn as_ref(&self) -> &std::net::SocketAddr { &self.addr }
 }
 
+struct PlaceholderSocket(rustix::fd::OwnedFd);
+
+impl PlaceholderSocket {
+    fn new(addr: std::net::SocketAddr) -> std::io::Result<Self> {
+        let f = match &addr {
+            std::net::SocketAddr::V4(_) => rustix::net::AddressFamily::INET,
+            std::net::SocketAddr::V6(_) => rustix::net::AddressFamily::INET6,
+        };
+        let t = rustix::net::SocketType::STREAM;
+        let p = rustix::net::Protocol::TCP;
+        let socket = rustix::net::socket(f,t,p)?;
+        rustix::net::sockopt::set_socket_reuseaddr(&socket,true)?;
+        rustix::net::bind(&socket,&addr)?;
+        Ok(Self(socket))
+    }
+
+    fn local_addr(&self) -> std::io::Result<std::net::SocketAddr> {
+        Ok(match rustix::net::getsockname(&self.0)? {
+            rustix::net::SocketAddrAny::V4(addr) => std::net::SocketAddr::V4(addr),
+            rustix::net::SocketAddrAny::V6(addr) => std::net::SocketAddr::V6(addr),
+            _ => panic!("unexpected socket addr"),
+        })
+    }
+}
+
 impl ListenerAddr {
     pub fn new(addr: std::net::SocketAddr) -> std::io::Result<Self> {
-        let listener = std::net::TcpListener::bind(addr)?;
-        // tokio::net::TcpListener::from_std() assumes that the socket is nonblocking.
-        // We need to configure it manually here.
-        listener.set_nonblocking(true)?;
-        // Set listening backlog to 0, so that all incoming connections are rejected,
-        // until a Listener is actually constructed.
-        rustix::net::listen(&listener,0)?;
+        let socket = PlaceholderSocket::new(addr)?;
         Ok(Self{
             // We fetch local_addr(), because addr.port() could have been 0, in which case an
             // arbitrary free port will be allocated.
-            addr: listener.local_addr()?,
-            raw: Arc::new(tokio::sync::Mutex::new(listener)),
+            addr: socket.local_addr()?,
+            raw: Arc::new(Mutex::new(Some(socket))),
         })
     }
 
@@ -174,38 +190,36 @@ impl ListenerAddr {
     }
 
     pub(crate) fn listener(&self) -> std::io::Result<Listener> {
-        let guard = self.clone().raw.try_lock_owned().map_err(|_|std::io::Error::from(std::io::ErrorKind::AddrInUse))?;
-        let listener = tokio::net::TcpListener::from_std(guard.try_clone()?)?;
-        rustix::net::listen(guard.try_clone()?, LISTENER_BACKLOG)?;
+        drop(self.clone().raw.lock().unwrap().take());
+        let inner = std::net::TcpListener::bind(self.addr)?;
+        // tokio::net::TcpListener::from_std() assumes that the socket is nonblocking.
+        // We need to configure it manually here.
+        inner.set_nonblocking(true)?;
         Ok(Listener {
-            addr: self.addr,
-            inner: listener,
-            guard,
+            inner: Some(tokio::net::TcpListener::from_std(inner)?),
+            addr: self.clone(),   
         })
     }
 }
 
 pub(crate) struct Listener {
-    addr: std::net::SocketAddr,
-    inner: tokio::net::TcpListener,
-    guard: tokio::sync::OwnedMutexGuard<std::net::TcpListener>,
+    addr: ListenerAddr,
+    inner: Option<tokio::net::TcpListener>,
 }
 
 impl Drop for Listener {
     fn drop(&mut self) {
-        let res = (|| -> std::io::Result<()> {
-            rustix::net::listen(self.guard.try_clone()?,0)?;
-            Ok(())
-        })();
-        if let Err(err) = res {
-            tracing::error!(target:"network", "failed to close backlog for TCP listener socket {}: {err}",self.addr);
+        drop(self.inner.take());
+        match PlaceholderSocket::new(self.addr.addr) {
+            Ok(socket) => { *self.addr.raw.lock().unwrap() = Some(socket); }
+            Err(err) => { near_o11y::log_assert!(false,"failed to guard port {} after closing TCP listener: {err}",self.addr.addr); }
         }
     }
 }
 
 impl Listener {
     pub async fn accept(&mut self) -> std::io::Result<Stream> {
-        let (stream, _) = self.inner.accept().await?;
+        let (stream, _) = self.inner.as_mut().unwrap().accept().await?;
         Stream::new(stream, StreamType::Inbound)
     }
 }
