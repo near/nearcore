@@ -220,7 +220,10 @@ impl Inner {
         for peer in next_hops.keys() {
             self.peer_reachable_at.insert(peer.clone(), now);
         }
-        self.prune_unreachable_peers(now - self.config.prune_unreachable_peers_after);
+        if let Some(unreachable_since) = now.checked_sub(self.config.prune_unreachable_peers_after)
+        {
+            self.prune_unreachable_peers(unreachable_since);
+        }
         let mut local_edges = HashMap::new();
         for e in self.edges.clone().values() {
             if let Some(other) = e.other(&self.config.node_id) {

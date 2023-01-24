@@ -45,8 +45,10 @@ use near_store::{
     DBCol, PartialStorage, ShardTries, Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges,
 };
 
-use crate::types::{ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo};
-use crate::{BlockHeader, RuntimeAdapter};
+use crate::types::{
+    ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo, RuntimeAdapter,
+};
+use crate::{BlockHeader, RuntimeWithEpochManagerAdapter};
 
 use near_primitives::epoch_manager::ShardConfig;
 
@@ -1360,3 +1362,5 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(HashMap::new())
     }
 }
+
+impl RuntimeWithEpochManagerAdapter for KeyValueRuntime {}

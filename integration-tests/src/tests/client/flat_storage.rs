@@ -1,6 +1,6 @@
 /// Tests which check correctness of background flat storage creation.
 use assert_matches::assert_matches;
-use near_chain::{ChainGenesis, RuntimeAdapter};
+use near_chain::{ChainGenesis, RuntimeWithEpochManagerAdapter};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_o11y::testonly::init_test_logger;
@@ -30,7 +30,7 @@ const CREATION_TIMEOUT: BlockHeight = 30;
 /// Setup environment with one Near client for testing.
 fn setup_env(genesis: &Genesis, store: Store) -> TestEnv {
     let chain_genesis = ChainGenesis::new(genesis);
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> =
+    let runtimes: Vec<Arc<dyn RuntimeWithEpochManagerAdapter>> =
         vec![Arc::new(nearcore::NightshadeRuntime::test(Path::new("../../../.."), store, genesis))];
     TestEnv::builder(chain_genesis.clone()).runtime_adapters(runtimes).build()
 }

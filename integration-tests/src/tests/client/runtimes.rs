@@ -2,7 +2,7 @@
 //! This client works completely synchronously and must be operated by some async actor outside.
 
 use assert_matches::assert_matches;
-use near_chain::{ChainGenesis, RuntimeAdapter};
+use near_chain::{ChainGenesis, RuntimeWithEpochManagerAdapter};
 use near_chain_configs::Genesis;
 use near_chunks::test_utils::ChunkTestFixture;
 use near_chunks::ProcessPartialEncodedChunkResult;
@@ -25,19 +25,22 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
-pub fn create_nightshade_runtimes(genesis: &Genesis, n: usize) -> Vec<Arc<dyn RuntimeAdapter>> {
+pub fn create_nightshade_runtimes(
+    genesis: &Genesis,
+    n: usize,
+) -> Vec<Arc<dyn RuntimeWithEpochManagerAdapter>> {
     (0..n)
         .map(|_| {
             Arc::new(nearcore::NightshadeRuntime::test(
                 Path::new("../../../.."),
                 create_test_store(),
                 genesis,
-            )) as Arc<dyn RuntimeAdapter>
+            )) as Arc<dyn RuntimeWithEpochManagerAdapter>
         })
         .collect()
 }
 
-fn create_runtimes(n: usize) -> Vec<Arc<dyn RuntimeAdapter>> {
+fn create_runtimes(n: usize) -> Vec<Arc<dyn RuntimeWithEpochManagerAdapter>> {
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     create_nightshade_runtimes(&genesis, n)
 }

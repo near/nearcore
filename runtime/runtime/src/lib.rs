@@ -4,7 +4,6 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use config::total_prepaid_send_fees;
-use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use tracing::debug;
 
 use near_chain_configs::Genesis;
@@ -15,8 +14,8 @@ use near_primitives::contract::ContractCode;
 use near_primitives::profile::ProfileDataV3;
 pub use near_primitives::runtime::apply_state::ApplyState;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
-use near_primitives::runtime::get_insufficient_storage_stake;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
+use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::transaction::ExecutionMetadata;
 use near_primitives::version::{
     is_implicit_account_creation_enabled, ProtocolFeature, ProtocolVersion,
@@ -61,7 +60,7 @@ use crate::config::{
 };
 use crate::genesis::{GenesisStateApplier, StorageComputer};
 use crate::prefetch::TriePrefetcher;
-use crate::verifier::validate_receipt;
+use crate::verifier::{check_storage_stake, validate_receipt, StorageStakingError};
 pub use crate::verifier::{validate_transaction, verify_and_charge_transaction};
 
 mod actions;
@@ -550,21 +549,33 @@ impl Runtime {
         // Going to check balance covers account's storage.
         if result.result.is_ok() {
             if let Some(ref mut account) = account {
-                if let Some(amount) = get_insufficient_storage_stake(account, &apply_state.config)
-                    .map_err(StorageError::StorageInconsistentState)?
-                {
-                    result.merge(ActionResult {
-                        result: Err(ActionError {
-                            index: None,
-                            kind: ActionErrorKind::LackBalanceForState {
-                                account_id: account_id.clone(),
-                                amount,
-                            },
-                        }),
-                        ..Default::default()
-                    })?;
-                } else {
-                    set_account(state_update, account_id.clone(), account);
+                match check_storage_stake(
+                    account_id,
+                    account,
+                    &apply_state.config,
+                    state_update,
+                    apply_state.current_protocol_version,
+                ) {
+                    Ok(()) => {
+                        set_account(state_update, account_id.clone(), account);
+                    }
+                    Err(StorageStakingError::LackBalanceForStorageStaking(amount)) => {
+                        result.merge(ActionResult {
+                            result: Err(ActionError {
+                                index: None,
+                                kind: ActionErrorKind::LackBalanceForState {
+                                    account_id: account_id.clone(),
+                                    amount,
+                                },
+                            }),
+                            ..Default::default()
+                        })?;
+                    }
+                    Err(StorageStakingError::StorageError(err)) => {
+                        return Err(RuntimeError::StorageError(
+                            StorageError::StorageInconsistentState(err),
+                        ))
+                    }
                 }
             }
         }
@@ -2472,8 +2483,6 @@ mod tests {
 
 /// Interface provided for gas cost estimations.
 pub mod estimator {
-    use super::Runtime;
-    use crate::ApplyStats;
     use near_primitives::errors::RuntimeError;
     use near_primitives::receipt::Receipt;
     use near_primitives::runtime::apply_state::ApplyState;
@@ -2481,6 +2490,10 @@ pub mod estimator {
     use near_primitives::types::validator_stake::ValidatorStake;
     use near_primitives::types::EpochInfoProvider;
     use near_store::TrieUpdate;
+
+    use crate::ApplyStats;
+
+    use super::Runtime;
 
     pub fn apply_action_receipt(
         state_update: &mut TrieUpdate,
