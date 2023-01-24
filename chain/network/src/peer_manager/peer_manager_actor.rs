@@ -72,6 +72,9 @@ pub const MAX_TIER2_PEERS: usize = 128;
 /// Otherwise, we'd pick any peer that we've heard about.
 const PREFER_PREVIOUSLY_CONNECTED_PEER: f64 = 0.6;
 
+/// How often to update the recent outbound connections in storage.
+const UPDATE_RECENT_OUTBOUND_CONNECTIONS_INTERVAL: time::Duration = time::Duration::seconds(10);
+
 /// Actor that manages peers connections.
 pub struct PeerManagerActor {
     pub(crate) clock: time::Clock,
@@ -148,6 +151,12 @@ impl actix::Actor for PeerManagerActor {
                 state.fix_local_edges(&clock, FIX_LOCAL_EDGES_TIMEOUT).await;
             }
         }));
+
+        // Periodically update recent outbound connections in storage.
+        self.update_recent_outbound_connections_trigger(
+            ctx,
+            UPDATE_RECENT_OUTBOUND_CONNECTIONS_INTERVAL,
+        );
 
         // Periodically prints bandwidth stats for each peer.
         self.report_bandwidth_stats_trigger(ctx, REPORT_BANDWIDTH_STATS_TRIGGER_INTERVAL);
@@ -277,6 +286,23 @@ impl PeerManagerActor {
             state,
             clock,
         }))
+    }
+
+    /// Periodically updates the recent outbound connections in storage.
+    fn update_recent_outbound_connections_trigger(
+        &mut self,
+        ctx: &mut actix::Context<Self>,
+        every: time::Duration,
+    ) {
+        self.state.update_recent_outbound_connections(&self.clock);
+
+        near_performance_metrics::actix::run_later(
+            ctx,
+            every.try_into().unwrap(),
+            move |act, ctx| {
+                act.update_recent_outbound_connections_trigger(ctx, every);
+            },
+        );
     }
 
     /// Periodically prints bandwidth stats for each peer.
@@ -558,8 +584,6 @@ impl PeerManagerActor {
         let unreliable_peers = self.unreliable_peers();
         metrics::PEER_UNRELIABLE.set(unreliable_peers.len() as i64);
         self.state.graph.set_unreliable_peers(unreliable_peers);
-
-        self.state.update_recent_outbound_connections(&self.clock);
 
         let new_interval = min(max_interval, interval * EXPONENTIAL_BACKOFF_RATIO);
 
