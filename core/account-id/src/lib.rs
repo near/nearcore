@@ -32,7 +32,6 @@
 //!
 //! assert!("ƒelicia.near".parse::<AccountId>().is_err()); // (ƒ is not f)
 //! ```
-#![deny(clippy::integer_arithmetic)]
 
 use std::{fmt, str::FromStr};
 
