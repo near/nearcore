@@ -639,7 +639,7 @@ fn verify_flat_storage_for_shard(
         {
             // eprintln!("item");
             let (key, value_ref) = item.unwrap();
-            if is_delayed_receipt_key(key) {
+            if is_delayed_receipt_key(key.as_ref()) {
                 continue;
             }
             let account_id = parse_account_id_from_raw_key(&key).unwrap();
