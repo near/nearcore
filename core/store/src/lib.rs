@@ -1106,23 +1106,36 @@ mod tests {
             ][..], buffer.as_slice());
         }
 
-        // Fresh storage, should have no data.
+        {
+            // Fresh storage, should have no data.
+            let store = crate::test_utils::create_test_store();
+            assert_eq!(None, store.get(DBCol::State, &[1]).unwrap());
+            assert_eq!(None, store.get(DBCol::State, &[2]).unwrap());
+
+            // Read data from file.
+            store.load_state_from_file(tmp.path()).unwrap();
+            assert_eq!(Some(&[1u8][..]), store.get(DBCol::State, &[1]).unwrap().as_deref());
+            assert_eq!(Some(&[2u8][..]), store.get(DBCol::State, &[2]).unwrap().as_deref());
+
+            // Key &[2] should have refcount of two so once decreased it should
+            // still exist.
+            let mut store_update = store.store_update();
+            store_update.decrement_refcount(DBCol::State, &[1]);
+            store_update.decrement_refcount(DBCol::State, &[2]);
+            store_update.commit().unwrap();
+            assert_eq!(None, store.get(DBCol::State, &[1]).unwrap());
+            assert_eq!(Some(&[2u8][..]), store.get(DBCol::State, &[2]).unwrap().as_deref());
+        }
+
+        // Verify detection of corrupt file.
+        let file = std::fs::File::options().write(true).open(tmp.path()).unwrap();
+        let len = file.metadata().unwrap().len();
+        file.set_len(len.saturating_sub(1)).unwrap();
+        core::mem::drop(file);
         let store = crate::test_utils::create_test_store();
-        assert_eq!(None, store.get(DBCol::State, &[1]).unwrap());
-        assert_eq!(None, store.get(DBCol::State, &[2]).unwrap());
-
-        // Read data from file.
-        store.load_state_from_file(tmp.path()).unwrap();
-        assert_eq!(Some(&[1u8][..]), store.get(DBCol::State, &[1]).unwrap().as_deref());
-        assert_eq!(Some(&[2u8][..]), store.get(DBCol::State, &[2]).unwrap().as_deref());
-
-        // Key &[2] should have refcount of two so once decreased it should
-        // still exist.
-        let mut store_update = store.store_update();
-        store_update.decrement_refcount(DBCol::State, &[1]);
-        store_update.decrement_refcount(DBCol::State, &[2]);
-        store_update.commit().unwrap();
-        assert_eq!(None, store.get(DBCol::State, &[1]).unwrap());
-        assert_eq!(Some(&[2u8][..]), store.get(DBCol::State, &[2]).unwrap().as_deref());
+        assert_eq!(
+            std::io::ErrorKind::UnexpectedEof,
+            store.load_state_from_file(tmp.path()).unwrap_err().kind()
+        );
     }
 }
