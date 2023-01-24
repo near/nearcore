@@ -29,6 +29,7 @@ use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{chunk_extra::ChunkExtra, BlockHeight, ShardId, StateRoot};
 use near_primitives_core::types::Gas;
 use near_store::db::Database;
+use near_store::flat_state::store_helper;
 use near_store::test_utils::create_test_store;
 #[cfg(feature = "protocol_feature_flat_state")]
 use near_store::DBCol;
@@ -48,6 +49,7 @@ pub(crate) fn apply_block(
     shard_id: ShardId,
     runtime_adapter: &dyn RuntimeAdapter,
     chain_store: &mut ChainStore,
+    use_flat_storage: bool,
 ) -> (Block, ApplyTransactionResult) {
     let block = chain_store.get_block(&block_hash).unwrap();
     let height = block.header().height();
@@ -92,7 +94,7 @@ pub(crate) fn apply_block(
                 true,
                 is_first_block_with_chunk_of_version,
                 Default::default(),
-                false,
+                use_flat_storage,
             )
             .unwrap()
     } else {
@@ -117,7 +119,7 @@ pub(crate) fn apply_block(
                 false,
                 false,
                 Default::default(),
-                false,
+                use_flat_storage,
             )
             .unwrap()
     };
@@ -140,7 +142,7 @@ pub(crate) fn apply_block_at_height(
         Arc::new(NightshadeRuntime::from_config(home_dir, store, &near_config));
     let block_hash = chain_store.get_block_hash_by_height(height).unwrap();
     let (block, apply_result) =
-        apply_block(block_hash, shard_id, runtime_adapter.as_ref(), &mut chain_store);
+        apply_block(block_hash, shard_id, runtime_adapter.as_ref(), &mut chain_store, false);
     print_apply_block_result(
         &block,
         &apply_result,
@@ -735,15 +737,17 @@ pub(crate) fn stress_test_flat_storage(
     let mut height = final_head.height;
     let runtime_adapter: Arc<dyn RuntimeAdapter> =
         Arc::new(NightshadeRuntime::from_config(home_dir, store.clone(), &near_config));
+    let mut block_hashes = vec![];
     for _ in 0..100 {
         let block_hash =
             chain_store.get_block_hash_by_height(height.clone()).expect("Block does not exist");
+        block_hashes.push(block_hash.clone());
         let header = chain_store.get_block_header(&block_hash).unwrap();
         let prev_hash = header.prev_hash();
         let prev_header = chain_store.get_block_header(&prev_hash).unwrap();
 
         let (_, apply_result) =
-            apply_block(block_hash, shard_id, runtime_adapter.as_ref(), &mut chain_store);
+            apply_block(block_hash, shard_id, runtime_adapter.as_ref(), &mut chain_store, false);
 
         let shard_layout = runtime_adapter.get_shard_layout(&prev_header.epoch_id()).unwrap();
         let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
@@ -776,9 +780,25 @@ pub(crate) fn stress_test_flat_storage(
             new_delta.insert(key.to_vec(), value_ref);
         }
 
-        let mut _store_update = store.store_update();
+        // MOVING BACKWARDS, RECORDING DELTAS
+        let mut store_update = store.store_update();
+        old_delta.apply_to_flat_state(&mut store_update);
+        store_helper::set_delta(&mut store_update, shard_id, block_hash, &new_delta).unwrap();
+        store_helper::set_flat_head(&mut store_update, shard_id, &prev_hash);
+        store_update.commit().unwrap();
+
         height = chain_store.get_block_header(prev_hash).unwrap().height().clone();
         eprintln!("{}", height);
+    }
+
+    for block_hash in block_hashes.drain(..).rev() {
+        let header = chain_store.get_block_header(&block_hash).unwrap();
+        eprintln!("^ {}", header.height());
+        let delta = store_helper::get_delta(&store, shard_id, block_hash.clone()).unwrap().unwrap();
+        let mut store_update = store.store_update();
+        store_helper::set_flat_head(&mut store_update, shard_id, &block_hash);
+        delta.apply_to_flat_state(&mut store_update);
+        store_update.commit().unwrap();
     }
 }
 

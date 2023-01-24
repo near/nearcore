@@ -187,7 +187,7 @@ fn apply_tx_in_block(
                 HashType::Tx => {
                     println!("Found tx in block {} shard {}. equivalent command:\nview_state apply --height {} --shard-id {}\n",
                              &block_hash, shard_id, chain_store.get_block_header(&block_hash)?.height(), shard_id);
-                    let (block, apply_result) = crate::commands::apply_block(block_hash, shard_id, runtime, chain_store);
+                    let (block, apply_result) = crate::commands::apply_block(block_hash, shard_id, runtime, chain_store, false);
                     crate::commands::print_apply_block_result(&block, &apply_result, runtime, chain_store, shard_id);
                     Ok(apply_result)
                 },
@@ -291,7 +291,7 @@ fn apply_receipt_in_block(
                 HashType::Receipt => {
                     println!("Found receipt in block {}. Receiver is in shard {}. equivalent command:\nview_state apply --height {} --shard-id {}\n",
                              &block_hash, shard_id, chain_store.get_block_header(&block_hash)?.height(), shard_id);
-                    let (block, apply_result) = crate::commands::apply_block(block_hash, shard_id, runtime, chain_store);
+                    let (block, apply_result) = crate::commands::apply_block(block_hash, shard_id, runtime, chain_store, false);
                     crate::commands::print_apply_block_result(&block, &apply_result, runtime, chain_store, shard_id);
                     Ok(apply_result)
                 },
