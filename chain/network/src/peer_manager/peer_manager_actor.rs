@@ -73,7 +73,7 @@ pub const MAX_TIER2_PEERS: usize = 128;
 const PREFER_PREVIOUSLY_CONNECTED_PEER: f64 = 0.6;
 
 /// How often to update the recent outbound connections in storage.
-const UPDATE_RECENT_OUTBOUND_CONNECTIONS_INTERVAL: time::Duration = time::Duration::seconds(10);
+const UPDATE_RECENT_OUTBOUND_CONNECTIONS_INTERVAL: time::Duration = time::Duration::minutes(1);
 
 /// Actor that manages peers connections.
 pub struct PeerManagerActor {

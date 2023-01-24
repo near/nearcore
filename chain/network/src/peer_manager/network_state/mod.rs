@@ -663,35 +663,40 @@ impl NetworkState {
         let now = clock.now();
         let now_utc = clock.now_utc();
 
-        // Collect the live outbound connections established at least RECENT_OUTBOUND_CONNECTIONS_MIN_DURATION ago
+        // Start with connections already in storage
         let mut updated: HashMap<PeerId, ConnectionInfo> = self
-            .tier2
-            .load()
-            .ready
-            .values()
-            .filter(|c| {
-                c.peer_type == PeerType::Outbound
-                    && now - c.established_time > RECENT_OUTBOUND_CONNECTIONS_MIN_DURATION
-            })
-            .map(|c| {
-                (
+            .recent_outbound_connections
+            .lock()
+            .iter()
+            .map(|c| (c.peer_info.id.clone(), c.clone()))
+            .collect();
+
+        // Add information about live outbound connections
+        for c in self.tier2.load().ready.values() {
+            if c.peer_type != PeerType::Outbound {
+                continue;
+            }
+
+            // If this connection is already in storage, update its last_connected time
+            if let Some(stored) = updated.get_mut(&c.peer_info.id) {
+                stored.last_connected = now_utc;
+                continue;
+            }
+
+            // If this connection is not in storage and has lasted long enough, add it as a new entry
+            let connected_duration: time::Duration = now - c.established_time;
+            if connected_duration > RECENT_OUTBOUND_CONNECTIONS_MIN_DURATION {
+                let first_connected: time::Utc = now_utc - connected_duration;
+
+                updated.insert(
                     c.peer_info.id.clone(),
                     ConnectionInfo {
                         peer_info: c.peer_info.clone(),
-                        first_connected: now_utc + (now - c.established_time),
+                        first_connected: first_connected,
                         last_connected: now_utc,
                     },
-                )
-            })
-            .collect();
-
-        // Merge already stored connection info
-        for stored in self.recent_outbound_connections.lock().iter() {
-            let peer_id = stored.peer_info.id.clone();
-            updated
-                .entry(peer_id)
-                .and_modify(|c| c.first_connected = stored.first_connected)
-                .or_insert(stored.clone());
+                );
+            }
         }
 
         // Order by most recently connected first
@@ -704,6 +709,7 @@ impl NetworkState {
         if let Err(err) = self.store.lock().set_recent_outbound_connections(&updated) {
             tracing::error!(target: "network", ?err, "Failed to save recent outbound connections");
         }
+        *self.recent_outbound_connections.lock() = updated;
     }
 
     /// Sets the chain info, and updates the set of TIER1 keys.
