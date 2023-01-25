@@ -532,12 +532,14 @@ impl NetworkState {
 
     pub async fn add_accounts_data(
         self: &Arc<Self>,
+        clock: &time::Clock,
         accounts_data: Vec<Arc<SignedAccountData>>,
     ) -> Option<accounts_data::Error> {
         let this = self.clone();
+        let clock = clock.clone();
         self.spawn(async move {
             // Verify and add the new data to the internal state.
-            let (new_data, err) = this.accounts_data.clone().insert(accounts_data).await;
+            let (new_data, err) = this.accounts_data.clone().insert(&clock, accounts_data).await;
             // Broadcast any new data we have found, even in presence of an error.
             // This will prevent a malicious peer from forcing us to re-verify valid
             // datasets. See accounts_data::Cache documentation for details.
@@ -648,6 +650,12 @@ impl NetworkState {
         if self.config.tier1.is_none() {
             return false;
         }
-        self.accounts_data.set_keys(info.tier1_accounts.clone())
+        let has_changed = self.accounts_data.set_keys(info.tier1_accounts.clone());
+        // The set of TIER1 accounts has changed, so we might be missing some accounts_data
+        // that our peers know about.
+        if has_changed {
+            self.tier1_request_full_sync();
+        }
+        has_changed
     }
 }
