@@ -84,7 +84,7 @@ use std::collections::{btree_map, hash_map, BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use adapter::ShardsManagerRequest;
+use adapter::ShardsManagerRequestFromClient;
 use chrono::DateTime;
 use client::ClientAdapterForShardsManager;
 use logic::{
@@ -95,6 +95,7 @@ use metrics::{
     PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_HEADER, PARTIAL_ENCODED_CHUNK_RESPONSE_DELAY,
 };
 use near_chain::chunks_store::ReadOnlyChunksStore;
+use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_primitives::time::Utc;
 use rand::seq::{IteratorRandom, SliceRandom};
 use tracing::{debug, error, warn};
@@ -2164,51 +2165,17 @@ impl ShardsManager {
         Ok(())
     }
 
-    pub fn handle_request(&mut self, request: ShardsManagerRequest) {
+    pub fn handle_client_request(&mut self, request: ShardsManagerRequestFromClient) {
         match request {
-            ShardsManagerRequest::ProcessPartialEncodedChunk(partial_encoded_chunk) => {
-                if let Err(e) = self.process_partial_encoded_chunk(partial_encoded_chunk.into()) {
-                    warn!(target: "chunks", "Error processing partial encoded chunk: {:?}", e);
-                }
-            }
-            ShardsManagerRequest::ProcessPartialEncodedChunkForward(
-                partial_encoded_chunk_forward,
-            ) => {
-                if let Err(e) =
-                    self.process_partial_encoded_chunk_forward(partial_encoded_chunk_forward)
-                {
-                    warn!(target: "chunks", "Error processing partial encoded chunk forward: {:?}", e);
-                }
-            }
-            ShardsManagerRequest::ProcessPartialEncodedChunkResponse {
-                partial_encoded_chunk_response,
-                received_time,
-            } => {
-                PARTIAL_ENCODED_CHUNK_RESPONSE_DELAY.observe(received_time.elapsed().as_secs_f64());
-                if let Err(e) =
-                    self.process_partial_encoded_chunk_response(partial_encoded_chunk_response)
-                {
-                    warn!(target: "chunks", "Error processing partial encoded chunk response: {:?}", e);
-                }
-            }
-            ShardsManagerRequest::ProcessPartialEncodedChunkRequest {
-                partial_encoded_chunk_request,
-                route_back,
-            } => {
-                self.process_partial_encoded_chunk_request(
-                    partial_encoded_chunk_request,
-                    route_back,
-                );
-            }
-            ShardsManagerRequest::ProcessChunkHeaderFromBlock(chunk_header) => {
+            ShardsManagerRequestFromClient::ProcessChunkHeaderFromBlock(chunk_header) => {
                 if let Err(e) = self.process_chunk_header_from_block(&chunk_header) {
                     warn!(target: "chunks", "Error processing chunk header from block: {:?}", e);
                 }
             }
-            ShardsManagerRequest::UpdateChainHeads { head, header_head } => {
+            ShardsManagerRequestFromClient::UpdateChainHeads { head, header_head } => {
                 self.update_chain_heads(head, header_head)
             }
-            ShardsManagerRequest::DistributeEncodedChunk {
+            ShardsManagerRequestFromClient::DistributeEncodedChunk {
                 partial_chunk,
                 encoded_chunk,
                 merkle_paths,
@@ -2223,16 +2190,55 @@ impl ShardsManager {
                     warn!(target: "chunks", "Error distributing encoded chunk: {:?}", e);
                 }
             }
-            ShardsManagerRequest::RequestChunks { chunks_to_request, prev_hash } => {
+            ShardsManagerRequestFromClient::RequestChunks { chunks_to_request, prev_hash } => {
                 self.request_chunks(chunks_to_request, prev_hash)
             }
-            ShardsManagerRequest::RequestChunksForOrphan {
+            ShardsManagerRequestFromClient::RequestChunksForOrphan {
                 chunks_to_request,
                 epoch_id,
                 ancestor_hash,
             } => self.request_chunks_for_orphan(chunks_to_request, &epoch_id, ancestor_hash),
-            ShardsManagerRequest::CheckIncompleteChunks(prev_block_hash) => {
+            ShardsManagerRequestFromClient::CheckIncompleteChunks(prev_block_hash) => {
                 self.check_incomplete_chunks(&prev_block_hash)
+            }
+        }
+    }
+
+    pub fn handle_network_request(&mut self, request: ShardsManagerRequestFromNetwork) {
+        match request {
+            ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(partial_encoded_chunk) => {
+                if let Err(e) = self.process_partial_encoded_chunk(partial_encoded_chunk.into()) {
+                    warn!(target: "chunks", "Error processing partial encoded chunk: {:?}", e);
+                }
+            }
+            ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(
+                partial_encoded_chunk_forward,
+            ) => {
+                if let Err(e) =
+                    self.process_partial_encoded_chunk_forward(partial_encoded_chunk_forward)
+                {
+                    warn!(target: "chunks", "Error processing partial encoded chunk forward: {:?}", e);
+                }
+            }
+            ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkResponse {
+                partial_encoded_chunk_response,
+                received_time,
+            } => {
+                PARTIAL_ENCODED_CHUNK_RESPONSE_DELAY.observe(received_time.elapsed().as_secs_f64());
+                if let Err(e) =
+                    self.process_partial_encoded_chunk_response(partial_encoded_chunk_response)
+                {
+                    warn!(target: "chunks", "Error processing partial encoded chunk response: {:?}", e);
+                }
+            }
+            ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkRequest {
+                partial_encoded_chunk_request,
+                route_back,
+            } => {
+                self.process_partial_encoded_chunk_request(
+                    partial_encoded_chunk_request,
+                    route_back,
+                );
             }
         }
     }

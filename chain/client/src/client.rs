@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use lru::LruCache;
-use near_chunks::adapter::ShardsManagerAdapter;
+use near_chunks::adapter::ShardsManagerAdapterForClient;
 use near_chunks::client::ShardedTransactionPool;
 use near_chunks::logic::{
     cares_about_shard_this_or_next_epoch, decode_encoded_chunk, persist_chunk,
@@ -103,7 +103,7 @@ pub struct Client {
     pub chain: Chain,
     pub doomslug: Doomslug,
     pub runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
-    pub shards_manager_adapter: Arc<dyn ShardsManagerAdapter>,
+    pub shards_manager_adapter: Arc<dyn ShardsManagerAdapterForClient>,
     pub sharded_tx_pool: ShardedTransactionPool,
     prev_block_to_chunk_headers_ready_for_inclusion: LruCache<
         CryptoHash,
@@ -188,7 +188,7 @@ impl Client {
         chain_genesis: ChainGenesis,
         runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
         network_adapter: Arc<dyn PeerManagerAdapter>,
-        shards_manager_adapter: Arc<dyn ShardsManagerAdapter>,
+        shards_manager_adapter: Arc<dyn ShardsManagerAdapterForClient>,
         validator_signer: Option<Arc<dyn ValidatorSigner>>,
         enable_doomslug: bool,
         rng_seed: RngSeed,

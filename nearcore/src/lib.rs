@@ -231,9 +231,7 @@ pub fn start_with_config_and_synchronization(
         store.into_inner(near_store::Temperature::Hot),
         config.network_config,
         Arc::new(near_client::adapter::Adapter::new(client_actor.clone(), view_client.clone())),
-        Arc::new(near_chunks::adapter::ShardsManagerAdapterAsAdapterForNetwork::new(
-            shards_manager_adapter,
-        )),
+        shards_manager_adapter,
         genesis_id,
     )
     .context("PeerManager::spawn()")?;

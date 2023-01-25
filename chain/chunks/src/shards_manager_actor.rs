@@ -2,11 +2,13 @@ use std::{sync::Arc, time::Duration};
 
 use actix::{Actor, Addr, Arbiter, ArbiterHandle, Context, Handler};
 use near_chain::{chunks_store::ReadOnlyChunksStore, types::Tip, RuntimeWithEpochManagerAdapter};
-use near_network::types::PeerManagerAdapter;
+use near_network::{shards_manager::ShardsManagerRequestFromNetwork, types::PeerManagerAdapter};
 use near_primitives::types::AccountId;
 use near_store::{DBCol, Store, HEADER_HEAD_KEY, HEAD_KEY};
 
-use crate::{adapter::ShardsManagerRequest, client::ClientAdapterForShardsManager, ShardsManager};
+use crate::{
+    adapter::ShardsManagerRequestFromClient, client::ClientAdapterForShardsManager, ShardsManager,
+};
 
 pub struct ShardsManagerActor {
     shards_mgr: ShardsManager,
@@ -39,11 +41,19 @@ impl Actor for ShardsManagerActor {
     }
 }
 
-impl Handler<ShardsManagerRequest> for ShardsManagerActor {
+impl Handler<ShardsManagerRequestFromClient> for ShardsManagerActor {
     type Result = ();
 
-    fn handle(&mut self, msg: ShardsManagerRequest, _ctx: &mut Context<Self>) {
-        self.shards_mgr.handle_request(msg);
+    fn handle(&mut self, msg: ShardsManagerRequestFromClient, _ctx: &mut Context<Self>) {
+        self.shards_mgr.handle_client_request(msg);
+    }
+}
+
+impl Handler<ShardsManagerRequestFromNetwork> for ShardsManagerActor {
+    type Result = ();
+
+    fn handle(&mut self, msg: ShardsManagerRequestFromNetwork, _ctx: &mut Context<Self>) {
+        self.shards_mgr.handle_network_request(msg);
     }
 }
 

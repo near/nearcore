@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use actix::MailboxError;
 use futures::future::BoxFuture;
 use futures::FutureExt;
+use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::types::MsgRecipient;
 use near_primitives::receipt::Receipt;
 use near_primitives::test_utils::create_test_signer;
@@ -27,7 +28,7 @@ use near_primitives::types::{BlockHeight, MerkleHash};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::Store;
 
-use crate::adapter::ShardsManagerRequest;
+use crate::adapter::ShardsManagerRequestFromClient;
 use crate::client::ShardsManagerResponse;
 use crate::{
     Seal, SealsManager, ShardsManager, ACCEPTING_SEAL_PERIOD_MS, PAST_SEAL_HEIGHT_HORIZON,
@@ -396,50 +397,44 @@ impl MockClientAdapterForShardsManager {
     }
 }
 
-#[derive(Default)]
-pub struct MockShardsManagerAdapter {
-    pub requests: Arc<RwLock<VecDeque<ShardsManagerRequest>>>,
-}
-
-impl MsgRecipient<ShardsManagerRequest> for MockShardsManagerAdapter {
-    fn send(&self, msg: ShardsManagerRequest) -> BoxFuture<'static, Result<(), MailboxError>> {
-        self.do_send(msg);
-        futures::future::ok(()).boxed()
-    }
-
-    fn do_send(&self, msg: ShardsManagerRequest) {
-        self.requests.write().unwrap().push_back(msg);
-    }
-}
-
-impl MockShardsManagerAdapter {
-    pub fn pop(&self) -> Option<ShardsManagerRequest> {
-        self.requests.write().unwrap().pop_front()
-    }
-    pub fn pop_most_recent(&self) -> Option<ShardsManagerRequest> {
-        self.requests.write().unwrap().pop_back()
-    }
-}
-
 // Allows ShardsManagerActor-like behavior, except without having to spawn an actor,
 // and without having to manually route ShardsManagerRequest messages. This only works
 // for single-threaded (synchronous) tests. The ShardsManager is immediately called
 // upon receiving a ShardsManagerRequest message.
+#[derive(Clone)]
 pub struct SynchronousShardsManagerAdapter {
     // Need a mutex here even though we only support single-threaded tests, because
     // MsgRecipient requires Sync.
     pub shards_manager: Arc<Mutex<ShardsManager>>,
 }
 
-impl MsgRecipient<ShardsManagerRequest> for SynchronousShardsManagerAdapter {
-    fn send(&self, msg: ShardsManagerRequest) -> BoxFuture<'static, Result<(), MailboxError>> {
+impl MsgRecipient<ShardsManagerRequestFromClient> for SynchronousShardsManagerAdapter {
+    fn send(
+        &self,
+        msg: ShardsManagerRequestFromClient,
+    ) -> BoxFuture<'static, Result<(), MailboxError>> {
         self.do_send(msg);
         futures::future::ok(()).boxed()
     }
 
-    fn do_send(&self, msg: ShardsManagerRequest) {
+    fn do_send(&self, msg: ShardsManagerRequestFromClient) {
         let mut shards_manager = self.shards_manager.lock().unwrap();
-        shards_manager.handle_request(msg);
+        shards_manager.handle_client_request(msg);
+    }
+}
+
+impl MsgRecipient<ShardsManagerRequestFromNetwork> for SynchronousShardsManagerAdapter {
+    fn send(
+        &self,
+        msg: ShardsManagerRequestFromNetwork,
+    ) -> BoxFuture<'static, Result<(), MailboxError>> {
+        self.do_send(msg);
+        futures::future::ok(()).boxed()
+    }
+
+    fn do_send(&self, msg: ShardsManagerRequestFromNetwork) {
+        let mut shards_manager = self.shards_manager.lock().unwrap();
+        shards_manager.handle_network_request(msg);
     }
 }
 
@@ -447,4 +442,17 @@ impl SynchronousShardsManagerAdapter {
     pub fn new(shards_manager: ShardsManager) -> Self {
         Self { shards_manager: Arc::new(Mutex::new(shards_manager)) }
     }
+}
+
+pub struct NoopShardsManagerAdapterForClient {}
+
+impl MsgRecipient<ShardsManagerRequestFromClient> for NoopShardsManagerAdapterForClient {
+    fn send(
+        &self,
+        _msg: ShardsManagerRequestFromClient,
+    ) -> BoxFuture<'static, Result<(), MailboxError>> {
+        futures::future::ok(()).boxed()
+    }
+
+    fn do_send(&self, _msg: ShardsManagerRequestFromClient) {}
 }

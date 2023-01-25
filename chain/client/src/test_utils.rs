@@ -10,6 +10,9 @@ use chrono::DateTime;
 use futures::{future, FutureExt};
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_chunks::ShardsManager;
+use near_network::shards_manager::{
+    ShardsManagerAdapterForNetwork, ShardsManagerRequestFromNetwork,
+};
 use near_primitives::test_utils::create_test_signer;
 use num_rational::Ratio;
 use once_cell::sync::OnceCell;
@@ -28,14 +31,14 @@ use near_chain::{
     RuntimeWithEpochManagerAdapter,
 };
 use near_chain_configs::ClientConfig;
-use near_chunks::adapter::ShardsManagerAdapter;
+use near_chunks::adapter::{ShardsManagerAdapterForClient, ShardsManagerRequestFromClient};
 use near_chunks::client::{ClientAdapterForShardsManager, ShardsManagerResponse};
 use near_chunks::test_utils::{MockClientAdapterForShardsManager, SynchronousShardsManagerAdapter};
 use near_client_primitives::types::Error;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_network::types::{
-    AccountOrPeerIdOrHash, HighestHeightPeerInfo, PartialEncodedChunkRequestMsg,
+    AccountOrPeerIdOrHash, HighestHeightPeerInfo, MsgRecipient, PartialEncodedChunkRequestMsg,
     PartialEncodedChunkResponseMsg, PeerInfo, PeerType,
 };
 use near_network::types::{BlockInfo, PeerChainInfo};
@@ -200,7 +203,7 @@ pub fn setup(
     transaction_validity_period: NumBlocks,
     genesis_time: DateTime<Utc>,
     ctx: &Context<ClientActor>,
-) -> (Block, ClientActor, Addr<ViewClientActor>, Arc<dyn ShardsManagerAdapter>) {
+) -> (Block, ClientActor, Addr<ViewClientActor>, Arc<dyn ShardsManagerAdapterForTest>) {
     let store = create_test_store();
     let num_validator_seats = vs.all_block_producers().count() as NumSeats;
     let runtime = Arc::new(KeyValueRuntime::new_with_validators_and_no_gc(
@@ -404,7 +407,7 @@ pub fn setup_mock_with_validity_period_and_no_epoch_sync(
 ) -> ActorHandlesForTesting {
     let network_adapter = Arc::new(NetworkRecipient::default());
     let mut vca: Option<Addr<ViewClientActor>> = None;
-    let mut sma: Option<Arc<dyn ShardsManagerAdapter>> = None;
+    let mut sma: Option<Arc<dyn ShardsManagerAdapterForTest>> = None;
     let client_addr = ClientActor::create(|ctx: &mut Context<ClientActor>| {
         let vs = ValidatorSchedule::new().block_producers_per_epoch(vec![validators]);
         let (_, client, view_client_addr, shards_manager_adapter) = setup(
@@ -544,7 +547,7 @@ impl BlockStats {
 pub struct ActorHandlesForTesting {
     pub client_actor: Addr<ClientActor>,
     pub view_client_actor: Addr<ViewClientActor>,
-    pub shards_manager_adapter: Arc<dyn ShardsManagerAdapter>,
+    pub shards_manager_adapter: Arc<dyn ShardsManagerAdapterForTest>,
 }
 
 fn send_chunks<T, I, F>(
@@ -556,7 +559,7 @@ fn send_chunks<T, I, F>(
 ) where
     T: Eq,
     I: Iterator<Item = (usize, T)>,
-    F: Fn(&Arc<dyn ShardsManagerAdapter>),
+    F: Fn(&Arc<dyn ShardsManagerAdapterForTest>),
 {
     for (i, name) in recipients {
         if name == target {
@@ -1131,7 +1134,7 @@ pub fn setup_client_with_runtime(
     account_id: Option<AccountId>,
     enable_doomslug: bool,
     network_adapter: Arc<dyn PeerManagerAdapter>,
-    shards_manager_adapter: Arc<dyn ShardsManagerAdapter>,
+    shards_manager_adapter: Arc<dyn ShardsManagerAdapterForTest>,
     chain_genesis: ChainGenesis,
     runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
     rng_seed: RngSeed,
@@ -1148,7 +1151,7 @@ pub fn setup_client_with_runtime(
         chain_genesis,
         runtime_adapter,
         network_adapter,
-        shards_manager_adapter,
+        shards_manager_adapter.for_client(),
         validator_signer,
         enable_doomslug,
         rng_seed,
@@ -1164,7 +1167,7 @@ pub fn setup_client(
     account_id: Option<AccountId>,
     enable_doomslug: bool,
     network_adapter: Arc<dyn PeerManagerAdapter>,
-    shards_manager_adapter: Arc<dyn ShardsManagerAdapter>,
+    shards_manager_adapter: Arc<dyn ShardsManagerAdapterForTest>,
     chain_genesis: ChainGenesis,
     rng_seed: RngSeed,
     archive: bool,
@@ -1193,7 +1196,7 @@ pub fn setup_synchronous_shards_manager(
     network_adapter: Arc<dyn PeerManagerAdapter>,
     runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
     chain_genesis: &ChainGenesis,
-) -> Arc<dyn ShardsManagerAdapter> {
+) -> Arc<dyn ShardsManagerAdapterForTest> {
     // Initialize the chain, to make sure that if the store is empty, we write the genesis
     // into the store, and as a short cut to get the parameters needed to instantiate
     // ShardsManager. This way we don't have to wait to construct the Client first.
@@ -1256,6 +1259,28 @@ pub fn setup_client_with_synchronous_shards_manager(
     )
 }
 
+/// A combined trait bound for both the client side and network side of the ShardsManager API.
+pub trait ShardsManagerAdapterForTest:
+    ShardsManagerAdapterForClient + ShardsManagerAdapterForNetwork
+{
+    fn for_client(&self) -> Arc<dyn ShardsManagerAdapterForClient>;
+    fn for_network(&self) -> Arc<dyn ShardsManagerAdapterForNetwork>;
+}
+
+impl<
+        A: MsgRecipient<ShardsManagerRequestFromClient>
+            + MsgRecipient<ShardsManagerRequestFromNetwork>
+            + Clone,
+    > ShardsManagerAdapterForTest for A
+{
+    fn for_client(&self) -> Arc<dyn ShardsManagerAdapterForClient> {
+        Arc::new(self.clone())
+    }
+    fn for_network(&self) -> Arc<dyn ShardsManagerAdapterForNetwork> {
+        Arc::new(self.clone())
+    }
+}
+
 /// An environment for writing integration tests with multiple clients.
 /// This environment can simulate near nodes without network and it can be configured to use different runtimes.
 pub struct TestEnv {
@@ -1263,7 +1288,7 @@ pub struct TestEnv {
     pub validators: Vec<AccountId>,
     pub network_adapters: Vec<Arc<MockPeerManagerAdapter>>,
     pub client_adapters: Vec<Arc<MockClientAdapterForShardsManager>>,
-    pub shards_manager_adapters: Vec<Arc<dyn ShardsManagerAdapter>>,
+    pub shards_manager_adapters: Vec<Arc<dyn ShardsManagerAdapterForTest>>,
     pub clients: Vec<Client>,
     account_to_client_index: HashMap<AccountId, usize>,
     paused_blocks: Arc<Mutex<HashMap<CryptoHash, Arc<OnceCell<()>>>>>,
@@ -1544,7 +1569,7 @@ impl TestEnv {
         &mut self.clients[self.account_to_client_index[account_id]]
     }
 
-    pub fn shards_manager(&self, account: &AccountId) -> &Arc<dyn ShardsManagerAdapter> {
+    pub fn shards_manager(&self, account: &AccountId) -> &Arc<dyn ShardsManagerAdapterForTest> {
         &self.shards_manager_adapters[self.account_to_client_index[account]]
     }
 

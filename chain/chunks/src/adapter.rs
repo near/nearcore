@@ -1,14 +1,6 @@
-use std::{sync::Arc, time::Instant};
-
 use actix::Message;
 use near_chain::types::Tip;
-use near_network::{
-    shards_manager::ShardsManagerAdapterForNetwork,
-    types::{
-        MsgRecipient, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
-        PartialEncodedChunkResponseMsg,
-    },
-};
+use near_network::types::MsgRecipient;
 use near_primitives::{
     hash::CryptoHash,
     merkle::MerklePath,
@@ -17,37 +9,14 @@ use near_primitives::{
     types::EpochId,
 };
 
-/// The interface of ShardsManager which can be used by any component that wishes to send a message
-/// to it. It is thread safe (messages are posted to a dedicated thread that runs the
+/// The interface of ShardsManager that faces the Client.
+/// It is thread safe (messages are posted to a dedicated thread that runs the
 /// ShardsManager).
-pub trait ShardsManagerAdapter: Send + Sync + 'static {
-    /// Processes a PartialEncodedChunk received from the network.
-    /// These are received from chunk producers, containing owned parts and tracked
-    /// receipt proofs.
-    fn process_partial_encoded_chunk(&self, partial_encoded_chunk: PartialEncodedChunk);
-    /// Processes a PartialEncodedChunkForwardMsg received from the network.
-    /// These are received from part owners as an optimization (of the otherwise
-    /// reactive path of requesting parts that are missing).
-    fn process_partial_encoded_chunk_forward(
-        &self,
-        partial_encoded_chunk_forward: PartialEncodedChunkForwardMsg,
-    );
-    /// Processes a PartialEncodedChunkResponseMsg received from the network.
-    /// These are received in response to the PartialEncodedChunkRequestMsg
-    /// we have sent earlier.
-    fn process_partial_encoded_chunk_response(
-        &self,
-        partial_encoded_chunk_response: PartialEncodedChunkResponseMsg,
-        received_time: Instant,
-    );
-    /// Processes a PartialEncodedChunkRequestMsg received from the network.
-    /// These are received from another node when they think we have the parts
-    /// or receipt proofs they need.
-    fn process_partial_encoded_chunk_request(
-        &self,
-        partial_encoded_chunk_request: PartialEncodedChunkRequestMsg,
-        route_back: CryptoHash,
-    );
+/// See also ShardsManagerAdapterForNetwork, which is the interface given to
+/// the networking component.
+/// See also ClientAdapterForShardsManager, which is the other direction - the
+/// interface of the Client given to the ShardsManager.
+pub trait ShardsManagerAdapterForClient: Send + Sync + 'static {
     /// Processes the header seen from a block we received, if we have not already received the
     /// header earlier from the chunk producer (via PartialEncodedChunk).
     /// This can happen if we are not a validator, or if we are a validator but somehow missed
@@ -93,17 +62,7 @@ pub trait ShardsManagerAdapter: Send + Sync + 'static {
 
 #[derive(Message)]
 #[rtype(result = "()")]
-pub enum ShardsManagerRequest {
-    ProcessPartialEncodedChunk(PartialEncodedChunk),
-    ProcessPartialEncodedChunkForward(PartialEncodedChunkForwardMsg),
-    ProcessPartialEncodedChunkResponse {
-        partial_encoded_chunk_response: PartialEncodedChunkResponseMsg,
-        received_time: Instant,
-    },
-    ProcessPartialEncodedChunkRequest {
-        partial_encoded_chunk_request: PartialEncodedChunkRequestMsg,
-        route_back: CryptoHash,
-    },
+pub enum ShardsManagerRequestFromClient {
     ProcessChunkHeaderFromBlock(ShardChunkHeader),
     UpdateChainHeads {
         head: Tip,
@@ -127,43 +86,14 @@ pub enum ShardsManagerRequest {
     CheckIncompleteChunks(CryptoHash),
 }
 
-impl<A: MsgRecipient<ShardsManagerRequest>> ShardsManagerAdapter for A {
-    fn process_partial_encoded_chunk(&self, partial_encoded_chunk: PartialEncodedChunk) {
-        self.do_send(ShardsManagerRequest::ProcessPartialEncodedChunk(partial_encoded_chunk));
-    }
-    fn process_partial_encoded_chunk_forward(
-        &self,
-        partial_encoded_chunk_forward: PartialEncodedChunkForwardMsg,
-    ) {
-        self.do_send(ShardsManagerRequest::ProcessPartialEncodedChunkForward(
-            partial_encoded_chunk_forward,
+impl<A: MsgRecipient<ShardsManagerRequestFromClient>> ShardsManagerAdapterForClient for A {
+    fn process_chunk_header_from_block(&self, chunk_header: &ShardChunkHeader) {
+        self.do_send(ShardsManagerRequestFromClient::ProcessChunkHeaderFromBlock(
+            chunk_header.clone(),
         ));
     }
-    fn process_partial_encoded_chunk_response(
-        &self,
-        partial_encoded_chunk_response: PartialEncodedChunkResponseMsg,
-        received_time: Instant,
-    ) {
-        self.do_send(ShardsManagerRequest::ProcessPartialEncodedChunkResponse {
-            partial_encoded_chunk_response,
-            received_time,
-        });
-    }
-    fn process_partial_encoded_chunk_request(
-        &self,
-        partial_encoded_chunk_request: PartialEncodedChunkRequestMsg,
-        route_back: CryptoHash,
-    ) {
-        self.do_send(ShardsManagerRequest::ProcessPartialEncodedChunkRequest {
-            partial_encoded_chunk_request,
-            route_back,
-        });
-    }
-    fn process_chunk_header_from_block(&self, chunk_header: &ShardChunkHeader) {
-        self.do_send(ShardsManagerRequest::ProcessChunkHeaderFromBlock(chunk_header.clone()));
-    }
     fn update_chain_heads(&self, head: Tip, header_head: Tip) {
-        self.do_send(ShardsManagerRequest::UpdateChainHeads { head, header_head });
+        self.do_send(ShardsManagerRequestFromClient::UpdateChainHeads { head, header_head });
     }
     fn distribute_encoded_chunk(
         &self,
@@ -172,7 +102,7 @@ impl<A: MsgRecipient<ShardsManagerRequest>> ShardsManagerAdapter for A {
         merkle_paths: Vec<MerklePath>,
         outgoing_receipts: Vec<Receipt>,
     ) {
-        self.do_send(ShardsManagerRequest::DistributeEncodedChunk {
+        self.do_send(ShardsManagerRequestFromClient::DistributeEncodedChunk {
             partial_chunk,
             encoded_chunk,
             merkle_paths,
@@ -180,7 +110,10 @@ impl<A: MsgRecipient<ShardsManagerRequest>> ShardsManagerAdapter for A {
         });
     }
     fn request_chunks(&self, chunks_to_request: Vec<ShardChunkHeader>, prev_hash: CryptoHash) {
-        self.do_send(ShardsManagerRequest::RequestChunks { chunks_to_request, prev_hash });
+        self.do_send(ShardsManagerRequestFromClient::RequestChunks {
+            chunks_to_request,
+            prev_hash,
+        });
     }
     fn request_chunks_for_orphan(
         &self,
@@ -188,55 +121,13 @@ impl<A: MsgRecipient<ShardsManagerRequest>> ShardsManagerAdapter for A {
         epoch_id: EpochId,
         ancestor_hash: CryptoHash,
     ) {
-        self.do_send(ShardsManagerRequest::RequestChunksForOrphan {
+        self.do_send(ShardsManagerRequestFromClient::RequestChunksForOrphan {
             chunks_to_request,
             epoch_id,
             ancestor_hash,
         });
     }
     fn check_incomplete_chunks(&self, prev_block_hash: CryptoHash) {
-        self.do_send(ShardsManagerRequest::CheckIncompleteChunks(prev_block_hash));
-    }
-}
-
-/// Implements the ShardsManagerAdapterForNetwork trait for ShardsManagerAdapter.
-pub struct ShardsManagerAdapterAsAdapterForNetwork {
-    pub adapter: Arc<dyn ShardsManagerAdapter>,
-}
-
-impl ShardsManagerAdapterAsAdapterForNetwork {
-    pub fn new(adapter: Arc<dyn ShardsManagerAdapter>) -> Self {
-        Self { adapter }
-    }
-}
-
-impl ShardsManagerAdapterForNetwork for ShardsManagerAdapterAsAdapterForNetwork {
-    fn process_partial_encoded_chunk(&self, partial_encoded_chunk: PartialEncodedChunk) {
-        self.adapter.process_partial_encoded_chunk(partial_encoded_chunk)
-    }
-
-    fn process_partial_encoded_chunk_forward(
-        &self,
-        partial_encoded_chunk_forward: PartialEncodedChunkForwardMsg,
-    ) {
-        self.adapter.process_partial_encoded_chunk_forward(partial_encoded_chunk_forward)
-    }
-
-    fn process_partial_encoded_chunk_response(
-        &self,
-        partial_encoded_chunk_response: PartialEncodedChunkResponseMsg,
-        received_time: Instant,
-    ) {
-        self.adapter
-            .process_partial_encoded_chunk_response(partial_encoded_chunk_response, received_time)
-    }
-
-    fn process_partial_encoded_chunk_request(
-        &self,
-        partial_encoded_chunk_request: PartialEncodedChunkRequestMsg,
-        route_back: CryptoHash,
-    ) {
-        self.adapter
-            .process_partial_encoded_chunk_request(partial_encoded_chunk_request, route_back)
+        self.do_send(ShardsManagerRequestFromClient::CheckIncompleteChunks(prev_block_hash));
     }
 }

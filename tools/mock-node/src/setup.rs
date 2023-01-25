@@ -293,9 +293,7 @@ pub fn setup_mock_node(
             setup_mock_peer_manager_actor(
                 chain,
                 Arc::new(near_client::adapter::Adapter::new(client1, view_client1)),
-                Arc::new(near_chunks::adapter::ShardsManagerAdapterAsAdapterForNetwork::new(
-                    shards_manager_adapter,
-                )),
+                shards_manager_adapter,
                 &genesis_config,
                 block_production_delay,
                 client_start_height,

@@ -106,9 +106,7 @@ fn setup_network_node(
         db.clone(),
         config,
         Arc::new(near_client::adapter::Adapter::new(client_actor, view_client_actor)),
-        Arc::new(near_chunks::adapter::ShardsManagerAdapterAsAdapterForNetwork::new(
-            shards_manager_adapter,
-        )),
+        shards_manager_adapter,
         genesis_id,
     )
     .unwrap();

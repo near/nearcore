@@ -32,7 +32,7 @@ use near_chain::{
     ChainGenesis, DoneApplyChunkCallback, Provenance, RuntimeWithEpochManagerAdapter,
 };
 use near_chain_configs::ClientConfig;
-use near_chunks::adapter::ShardsManagerAdapter;
+use near_chunks::adapter::ShardsManagerAdapterForClient;
 use near_chunks::client::ShardsManagerResponse;
 use near_chunks::logic::cares_about_shard_this_or_next_epoch;
 use near_client_primitives::types::{
@@ -1894,7 +1894,7 @@ pub fn start_client(
     runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
     node_id: PeerId,
     network_adapter: Arc<dyn PeerManagerAdapter>,
-    shards_manager_adapter: Arc<dyn ShardsManagerAdapter>,
+    shards_manager_adapter: Arc<dyn ShardsManagerAdapterForClient>,
     validator_signer: Option<Arc<dyn ValidatorSigner>>,
     telemetry_actor: Addr<TelemetryActor>,
     sender: Option<broadcast::Sender<()>>,
