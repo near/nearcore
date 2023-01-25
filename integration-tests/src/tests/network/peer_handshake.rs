@@ -20,7 +20,7 @@ use std::sync::Arc;
 fn make_peer_manager(
     seed: &str,
     node_addr: tcp::ListenerAddr,
-    boot_nodes: Vec<(&str, u16)>,
+    boot_nodes: Vec<(&str, std::net::SocketAddr)>,
     peer_max_count: u32,
 ) -> actix::Addr<PeerManagerActor> {
     let mut config = config::NetworkConfig::from_seed(seed, node_addr);
@@ -46,8 +46,8 @@ fn peer_handshake() {
     run_actix(async {
         let addr1 = tcp::ListenerAddr::new_for_test();
         let addr2 = tcp::ListenerAddr::new_for_test();
-        let pm1 = make_peer_manager("test1", addr1.clone(), vec![("test2", addr2.port())], 10);
-        let _pm2 = make_peer_manager("test2", addr2.clone(), vec![("test1", addr1.port())], 10);
+        let pm1 = make_peer_manager("test1", addr1.clone(), vec![("test2", *addr2)], 10);
+        let _pm2 = make_peer_manager("test2", addr2.clone(), vec![("test1", *addr1)], 10);
         wait_or_timeout(100, 2000, || async {
             let info = pm1.send(GetInfo {}.with_span_context()).await.unwrap();
             if info.num_connected_peers == 1 {
@@ -75,7 +75,7 @@ fn peers_connect_all() {
             let pm = make_peer_manager(
                 &format!("test{}", i),
                 tcp::ListenerAddr::new_for_test(),
-                vec![("test", addr.port())],
+                vec![("test", *addr)],
                 10,
             );
             peers.push(pm);
@@ -120,14 +120,14 @@ fn peer_recover() {
         let _pm1 = make_peer_manager(
             "test1",
             tcp::ListenerAddr::new_for_test(),
-            vec![("test0", addr0.port())],
+            vec![("test0", *addr0)],
             1,
         );
 
         let mut pm2 = Arc::new(make_peer_manager(
             "test2",
             tcp::ListenerAddr::new_for_test(),
-            vec![("test0", addr0.port())],
+            vec![("test0", *addr0)],
             1,
         ));
 
@@ -165,7 +165,7 @@ fn peer_recover() {
                     pm2 = Arc::new(make_peer_manager(
                         "test2",
                         tcp::ListenerAddr::new_for_test(),
-                        vec![("test0", addr0.port())],
+                        vec![("test0", *addr0)],
                         1,
                     ));
 

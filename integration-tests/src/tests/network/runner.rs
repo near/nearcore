@@ -25,7 +25,7 @@ use near_telemetry::{TelemetryActor, TelemetryConfig};
 use std::collections::HashSet;
 use std::future::Future;
 use std::iter::Iterator;
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::{Ipv6Addr, SocketAddr};
 use std::pin::Pin;
 use std::sync::Arc;
 use tracing::debug;
@@ -297,7 +297,7 @@ impl Runner {
 
     /// Add node `v` to the whitelist of node `u`.
     /// If passed `v` an entry of the following form is added to the whitelist:
-    ///     PEER_ID_OF_NODE_V@127.0.0.1:PORT_OF_NODE_V
+    ///     PEER_ID_OF_NODE_V@localhost:PORT_OF_NODE_V
     pub fn add_to_whitelist(mut self, u: usize, v: usize) -> Self {
         self.test_config[u].whitelist.insert(v);
         self
@@ -383,7 +383,7 @@ impl Runner {
             .iter()
             .map(|x| match x {
                 Some(x) => blacklist::Entry::from_addr(self.test_config[*x].addr()),
-                None => blacklist::Entry::from_ip(Ipv4Addr::LOCALHOST.into()),
+                None => blacklist::Entry::from_ip(Ipv6Addr::LOCALHOST.into()),
             })
             .collect();
         let whitelist =

@@ -20,7 +20,7 @@ use near_o11y::WithSpanContextExt;
 fn make_peer_manager(
     seed: &str,
     addr: tcp::ListenerAddr,
-    boot_nodes: Vec<(&str, u16)>,
+    boot_nodes: Vec<(&str, std::net::SocketAddr)>,
 ) -> actix::Addr<PeerManagerActor> {
     let mut config = config::NetworkConfig::from_seed(seed, addr);
     config.peer_store.boot_nodes = convert_boot_nodes(boot_nodes);
@@ -69,7 +69,7 @@ fn stress_test() {
                 Arc::new(make_peer_manager(
                     format!("test{}", ix).as_str(),
                     addrs[ix].clone(),
-                    boot_nodes.iter().map(|(acc, addr)| (acc.as_str(), addr.port())).collect(),
+                    boot_nodes.iter().map(|(acc, addr)| (acc.as_str(), *addr)).collect(),
                 ))
             })
             .collect();
@@ -124,7 +124,7 @@ fn stress_test() {
                     pms[0] = Arc::new(make_peer_manager(
                         "test0",
                         addrs[0].clone(),
-                        boot_nodes.iter().map(|(acc, addr)| (acc.as_str(), addr.port())).collect(),
+                        boot_nodes.iter().map(|(acc, addr)| (acc.as_str(), *addr)).collect(),
                     ));
 
                     let pm0 = pms[0].clone();

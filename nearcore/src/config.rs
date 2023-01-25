@@ -1348,10 +1348,10 @@ pub fn load_config(
     NearConfig::new(config, genesis, network_signer.into(), validator_signer)
 }
 
-pub fn load_test_config(seed: &str, port: u16, genesis: Genesis) -> NearConfig {
+pub fn load_test_config(seed: &str, addr: std::net::SocketAddr, genesis: Genesis) -> NearConfig {
     let mut config = Config::default();
-    config.network.addr = format!("0.0.0.0:{}", port);
-    config.set_rpc_addr(format!("0.0.0.0:{}", open_port()));
+    config.network.addr = addr.to_string();
+    config.set_rpc_addr(open_port().to_string());
     config.consensus.min_block_production_delay =
         Duration::from_millis(FAST_MIN_BLOCK_PRODUCTION_DELAY);
     config.consensus.max_block_production_delay =
