@@ -143,7 +143,10 @@ pub struct ListenerAddr {
 
 impl fmt::Debug for ListenerAddr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.addr.fmt(f)
+        f.debug_struct("ListenerAddr")
+            .field("addr", &self.addr)
+            .field("has_guard", &self.guard.is_some())
+            .finish()
     }
 }
 
