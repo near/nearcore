@@ -2,7 +2,7 @@ use super::config::{AccountCreationConfig, RuntimeConfig};
 use near_primitives_core::account::id::ParseAccountError;
 use near_primitives_core::config::{ExtCostsConfig, VMConfig};
 use near_primitives_core::parameter::{FeeParameter, Parameter};
-use near_primitives_core::runtime::fees::{RuntimeFeesConfig, StorageUsageConfig};
+use near_primitives_core::runtime::fees::{Fee, RuntimeFeesConfig, StorageUsageConfig};
 use near_primitives_core::types::AccountId;
 use num_rational::Rational32;
 use std::collections::BTreeMap;
@@ -13,6 +13,7 @@ use std::collections::BTreeMap;
 pub(crate) enum ParameterValue {
     U64(u64),
     Rational { numerator: i32, denominator: i32 },
+    Fee { send_sir: u64, send_not_sir: u64, execution: u64 },
     String(String),
 }
 
@@ -38,6 +39,15 @@ impl ParameterValue {
             ParameterValue::U64(v) => Some(u128::from(*v)),
             // TODO(akashin): Refactor this to use `TryFrom` and properly propagate an error.
             ParameterValue::String(s) => s.parse().ok(),
+            _ => None,
+        }
+    }
+
+    fn as_fee(&self) -> Option<Fee> {
+        match self {
+            &ParameterValue::Fee { send_sir, send_not_sir, execution } => {
+                Some(Fee { send_sir, send_not_sir, execution })
+            }
             _ => None,
         }
     }
@@ -209,12 +219,13 @@ impl ParameterTable {
         &self,
         cost: near_primitives_core::config::ActionCosts,
     ) -> Result<near_primitives_core::runtime::fees::Fee, InvalidConfigError> {
-        let key = FeeParameter::from(cost);
-        Ok(near_primitives_core::runtime::fees::Fee {
-            send_sir: self.get_number(format!("{key}_send_sir").parse().unwrap())?,
-            send_not_sir: self.get_number(format!("{key}_send_not_sir").parse().unwrap())?,
-            execution: self.get_number(format!("{key}_execution").parse().unwrap())?,
-        })
+        let key: Parameter = format!("{}", FeeParameter::from(cost)).parse().unwrap();
+        let value = self.parameters.get(&key).ok_or(InvalidConfigError::MissingParameter(key))?;
+        value.as_fee().ok_or(InvalidConfigError::WrongValueType(
+            key,
+            std::any::type_name::<Fee>(),
+            value.clone(),
+        ))
     }
 
     /// Read and parse a number parameter from the `ParameterTable`.
