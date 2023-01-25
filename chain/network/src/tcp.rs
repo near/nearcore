@@ -54,9 +54,9 @@ pub(crate) struct Socket(tokio::net::TcpSocket);
 
 #[cfg(test)]
 impl Socket {
-    pub fn bind_v4() -> Self {
-        let socket = tokio::net::TcpSocket::new_v4().unwrap();
-        socket.bind("127.0.0.1:0".parse().unwrap()).unwrap();
+    pub fn bind() -> Self {
+        let socket = tokio::net::TcpSocket::new_v6().unwrap();
+        socket.bind("[::1]:0".parse().unwrap()).unwrap();
         Self(socket)
     }
 
@@ -161,10 +161,10 @@ impl ListenerAddr {
 
     /// TEST-ONLY: constructs a ListenerAddr owning a random port on localhost.
     pub fn new_for_test() -> Self {
-        let guard = tokio::net::TcpSocket::new_v4().unwrap();
+        let guard = tokio::net::TcpSocket::new_v6().unwrap();
         guard.set_reuseaddr(true).unwrap();
         guard.set_reuseport(true).unwrap();
-        guard.bind("127.0.0.1:0".parse().unwrap()).unwrap();
+        guard.bind("[::1]:0".parse().unwrap()).unwrap();
         Self { addr: guard.local_addr().unwrap(), guard: Arc::new(Some(guard)) }
     }
 

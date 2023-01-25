@@ -25,7 +25,7 @@ use pretty_assertions::assert_eq;
 use rand::seq::IteratorRandom;
 use rand::Rng as _;
 use std::collections::HashSet;
-use std::net::Ipv4Addr;
+use std::net::Ipv6Addr;
 use std::sync::Arc;
 
 fn abort_on_panic() {
@@ -783,7 +783,7 @@ async fn blacklist_all() {
     tracing::info!(target:"test", "start two nodes with 0 blacklisting everything");
     let mut cfgs = make_configs(&chain, rng, 2, 2, true);
     cfgs[0].peer_store.blacklist =
-        [blacklist::Entry::from_ip(Ipv4Addr::LOCALHOST.into())].into_iter().collect();
+        [blacklist::Entry::from_ip(Ipv6Addr::LOCALHOST.into())].into_iter().collect();
 
     let pm0 = start_pm(clock.clock(), TestDB::new(), cfgs[0].clone(), chain.clone()).await;
     let pm1 = start_pm(clock.clock(), TestDB::new(), cfgs[1].clone(), chain.clone()).await;
