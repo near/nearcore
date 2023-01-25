@@ -8,6 +8,7 @@ use near_primitives::account::id::AccountId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{BlockHeight, ShardId};
+use near_primitives_core::types::BlockHeightDelta;
 use near_store::{Mode, NodeStorage, Store, Temperature};
 use nearcore::{load_config, NearConfig};
 use std::path::{Path, PathBuf};
@@ -551,12 +552,23 @@ pub struct StressTestFlatStorageCmd {
     #[clap(long)]
     shard_id: Option<ShardId>,
     #[clap(long)]
-    height: Option<BlockHeight>,
+    steps: Option<u64>,
+    #[clap(long)]
+    mode: u8,
+    // 0: move flat storage backwards, write fake deltas
+    // 1: apply blocks forward, simulate reading deltas
 }
 
 impl StressTestFlatStorageCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
-        stress_test_flat_storage(self.shard_id, self.height, home_dir, near_config, store);
+        stress_test_flat_storage(
+            self.shard_id,
+            self.steps,
+            self.mode,
+            home_dir,
+            near_config,
+            store,
+        );
     }
 }
 

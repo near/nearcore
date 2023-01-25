@@ -37,6 +37,7 @@ use near_store::{FlatStateDelta, KeyLookupMode, TrieDBStorage, TrieStorage};
 use near_store::{Store, Trie, TrieCache, TrieCachingStorage, TrieConfig};
 use nearcore::{NearConfig, NightshadeRuntime};
 use node_runtime::adapter::ViewRuntimeAdapter;
+use rand::{Rng, SeedableRng};
 use serde_json::json;
 use std::collections::HashMap;
 use std::fs::{self, File};
@@ -722,11 +723,13 @@ fn to_state_record(
 
 pub(crate) fn stress_test_flat_storage(
     shard_id: Option<ShardId>,
-    _height: Option<BlockHeight>,
+    steps: Option<u64>,
+    mode: u8,
     home_dir: &Path,
     near_config: NearConfig,
     store: Store,
 ) {
+    let steps = steps.unwrap_or(100);
     let shard_id = shard_id.unwrap_or(0);
     let mut chain_store = ChainStore::new(
         store.clone(),
@@ -735,74 +738,99 @@ pub(crate) fn stress_test_flat_storage(
     );
     let final_head = chain_store.final_head().unwrap();
     let mut height = final_head.height;
+    let start_hash = final_head.last_block_hash;
     let runtime_adapter: Arc<dyn RuntimeAdapter> =
         Arc::new(NightshadeRuntime::from_config(home_dir, store.clone(), &near_config));
-    let mut block_hashes = vec![];
-    for _ in 0..100 {
-        let block_hash =
-            chain_store.get_block_hash_by_height(height.clone()).expect("Block does not exist");
-        block_hashes.push(block_hash.clone());
-        let header = chain_store.get_block_header(&block_hash).unwrap();
-        let prev_hash = header.prev_hash();
-        let prev_header = chain_store.get_block_header(&prev_hash).unwrap();
 
-        let (_, apply_result) =
-            apply_block(block_hash, shard_id, runtime_adapter.as_ref(), &mut chain_store, false);
+    let mut rng = SeedableRng::seed_from_u64(123);
 
-        let shard_layout = runtime_adapter.get_shard_layout(&prev_header.epoch_id()).unwrap();
-        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
-        let chunk_extra = chain_store.get_chunk_extra(&prev_hash, &shard_uid).unwrap();
-        let state_root = chunk_extra.state_root().clone();
-        let prev_trie =
-            runtime_adapter.get_trie_for_shard(shard_id, &block_hash, state_root, false).unwrap();
-        let trie_storage = TrieDBStorage::new(store.clone(), shard_uid);
-        let mut old_delta = FlatStateDelta::default();
-        let mut new_delta = FlatStateDelta::default();
-        for state_change in apply_result.trie_changes.state_changes() {
-            let key = state_change.trie_key.clone();
-            if is_delayed_receipt_key(&key.to_vec()) {
-                continue;
-            }
+    if mode == 0 {
+        for _ in 0..steps {
+            let block_hash =
+                chain_store.get_block_hash_by_height(height.clone()).expect("Block does not exist");
+            let header = chain_store.get_block_header(&block_hash).unwrap();
+            let prev_hash = header.prev_hash();
+            let prev_header = chain_store.get_block_header(&prev_hash).unwrap();
 
-            let value = state_change.changes.last().unwrap().data.clone();
-            let value_ref = match value {
-                Some(value) => Some(ValueRef::new(&value)),
-                None => None,
-            };
-            let prev_value_ref = prev_trie.get_ref(&key.to_vec(), KeyLookupMode::Trie).unwrap();
-            eprintln!(
-                "{:?} -> {:?}",
-                to_state_record(&trie_storage, key.to_vec(), prev_value_ref.clone()),
-                to_state_record(&trie_storage, key.to_vec(), value_ref.clone())
+            let (_, apply_result) = apply_block(
+                block_hash,
+                shard_id,
+                runtime_adapter.as_ref(),
+                &mut chain_store,
+                false,
             );
 
-            old_delta.insert(key.to_vec(), prev_value_ref);
-            new_delta.insert(key.to_vec(), value_ref);
+            let shard_layout = runtime_adapter.get_shard_layout(&prev_header.epoch_id()).unwrap();
+            let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
+            let chunk_extra = chain_store.get_chunk_extra(&prev_hash, &shard_uid).unwrap();
+            let state_root = chunk_extra.state_root().clone();
+            let prev_trie = runtime_adapter
+                .get_trie_for_shard(shard_id, &block_hash, state_root, false)
+                .unwrap();
+            let trie_storage = TrieDBStorage::new(store.clone(), shard_uid);
+            let mut old_delta = FlatStateDelta::default();
+            let mut new_delta = FlatStateDelta::default();
+            for state_change in apply_result.trie_changes.state_changes() {
+                let key = state_change.trie_key.clone();
+                if is_delayed_receipt_key(&key.to_vec()) {
+                    continue;
+                }
+
+                let value = state_change.changes.last().unwrap().data.clone();
+                let value_ref = match value {
+                    Some(value) => Some(ValueRef::new(&value)),
+                    None => None,
+                };
+                let prev_value_ref = prev_trie.get_ref(&key.to_vec(), KeyLookupMode::Trie).unwrap();
+                eprintln!(
+                    "{:?} -> {:?}",
+                    to_state_record(&trie_storage, key.to_vec(), prev_value_ref.clone()),
+                    to_state_record(&trie_storage, key.to_vec(), value_ref.clone())
+                );
+
+                old_delta.insert(key.to_vec(), prev_value_ref);
+                new_delta.insert(key.to_vec(), value_ref);
+            }
+
+            // MOVING BACKWARDS, RECORDING DELTAS
+            let mut store_update = store.store_update();
+            old_delta.apply_to_flat_state(&mut store_update);
+            // add fake delta items
+            for i in 0..50_000_000 / 1_000 {
+                // 50 MB / key length
+                let mut key = vec![100u8]; // start from non-existent byte
+                key.extend_from_slice(&vec![rng.gen_range(0..20); 900]); // 900 B per length + 100 B approximate overhead
+                new_delta.insert(key, Some(ValueRef::new(&[i])));
+            }
+            store_helper::set_delta(&mut store_update, shard_id, block_hash, &new_delta).unwrap();
+            store_helper::set_flat_head(&mut store_update, shard_id, &prev_hash);
+            store_update.commit().unwrap();
+
+            height = chain_store.get_block_header(prev_hash).unwrap().height().clone();
+            eprintln!("{}", height);
+        }
+    } else if mode == 1 {
+        let mut block_hashes = vec![];
+        let mut block_hash = start_hash;
+        for _ in 0..steps {
+            block_hashes.push(block_hash);
+            let header = chain_store.get_block_header(&block_hash).unwrap();
+            block_hash = header.prev_hash().clone();
         }
 
-        // MOVING BACKWARDS, RECORDING DELTAS
-        let mut store_update = store.store_update();
-        old_delta.apply_to_flat_state(&mut store_update);
-        store_helper::set_delta(&mut store_update, shard_id, block_hash, &new_delta).unwrap();
-        store_helper::set_flat_head(&mut store_update, shard_id, &prev_hash);
-        store_update.commit().unwrap();
-
-        height = chain_store.get_block_header(prev_hash).unwrap().height().clone();
-        eprintln!("{}", height);
-    }
-
-    for block_hash in block_hashes.drain(..).rev() {
-        let header = chain_store.get_block_header(&block_hash).unwrap();
-        eprintln!("^ {}", header.height());
-        let delta = store_helper::get_delta(&store, shard_id, block_hash.clone())
-            .unwrap()
-            .unwrap()
-            .as_ref()
-            .clone();
-        let mut store_update = store.store_update();
-        store_helper::set_flat_head(&mut store_update, shard_id, &block_hash);
-        delta.apply_to_flat_state(&mut store_update);
-        store_update.commit().unwrap();
+        for block_hash in block_hashes.drain(..).rev() {
+            let header = chain_store.get_block_header(&block_hash).unwrap();
+            let delta = store_helper::get_delta(&store, shard_id, block_hash.clone())
+                .unwrap()
+                .unwrap()
+                .as_ref()
+                .clone();
+            eprintln!("^ {}, len = {}", header.height(), delta.len());
+            let mut store_update = store.store_update();
+            // store_helper::set_flat_head(&mut store_update, shard_id, &block_hash);
+            // delta.apply_to_flat_state(&mut store_update);
+            store_update.commit().unwrap();
+        }
     }
 }
 
