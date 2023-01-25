@@ -311,7 +311,8 @@ pub struct Config {
     pub tracked_shards: Vec<ShardId>,
     #[serde(skip_serializing_if = "is_false")]
     pub archive: bool,
-    pub save_trie_changes: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub save_trie_changes: Option<bool>,
     pub log_summary_style: LogSummaryStyle,
     /// Garbage collection configuration.
     #[serde(default, flatten)]
@@ -369,7 +370,7 @@ impl Default for Config {
             tracked_accounts: vec![],
             tracked_shards: vec![],
             archive: false,
-            save_trie_changes: true,
+            save_trie_changes: None,
             log_summary_style: LogSummaryStyle::Colored,
             gc: GCConfig::default(),
             epoch_sync_enabled: true,
@@ -427,7 +428,7 @@ impl Config {
     /// This is the place to check that all config values make sense and fit well together.
     /// `validate()` is called every time `config.json` is read.
     fn validate(&self) -> Result<(), ConfigValidationError> {
-        if !self.archive && !self.save_trie_changes {
+        if self.archive == false && self.save_trie_changes == Some(false) {
             Err(ConfigValidationError::TrieChanges)
         } else {
             Ok(())
@@ -624,7 +625,7 @@ impl NearConfig {
                 tracked_accounts: config.tracked_accounts,
                 tracked_shards: config.tracked_shards,
                 archive: config.archive,
-                save_trie_changes: config.save_trie_changes,
+                save_trie_changes: config.save_trie_changes.unwrap_or(!config.archive),
                 log_summary_style: config.log_summary_style,
                 gc: config.gc,
                 view_client_threads: config.view_client_threads,
