@@ -7,8 +7,11 @@ use crate::{apply_chunk, epoch_info};
 use ansi_term::Color::Red;
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
+use near_chain::types::RuntimeAdapter;
 use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo};
-use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, Error, RuntimeAdapter};
+use near_chain::{
+    ChainStore, ChainStoreAccess, ChainStoreUpdate, Error, RuntimeWithEpochManagerAdapter,
+};
 use near_chain_configs::GenesisChangeConfig;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_network::iter_peers_from_store;
@@ -38,7 +41,7 @@ use std::sync::Arc;
 pub(crate) fn apply_block(
     block_hash: CryptoHash,
     shard_id: ShardId,
-    runtime_adapter: &dyn RuntimeAdapter,
+    runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
     chain_store: &mut ChainStore,
 ) -> (Block, ApplyTransactionResult) {
     let block = chain_store.get_block(&block_hash).unwrap();
@@ -128,7 +131,7 @@ pub(crate) fn apply_block_at_height(
         near_config.genesis.config.genesis_height,
         near_config.client_config.save_trie_changes,
     );
-    let runtime_adapter: Arc<dyn RuntimeAdapter> =
+    let runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter> =
         Arc::new(NightshadeRuntime::from_config(home_dir, store, &near_config));
     let block_hash = chain_store.get_block_hash_by_height(height).unwrap();
     let (block, apply_result) =
@@ -421,7 +424,7 @@ pub(crate) fn peers(db: Arc<dyn Database>) {
 pub(crate) fn print_apply_block_result(
     block: &Block,
     apply_result: &ApplyTransactionResult,
-    runtime_adapter: &dyn RuntimeAdapter,
+    runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
     chain_store: &mut ChainStore,
     shard_id: ShardId,
 ) {
@@ -720,7 +723,7 @@ pub(crate) fn print_epoch_info(
     let mut epoch_manager =
         EpochManager::new_from_genesis_config(store.clone(), &near_config.genesis.config)
             .expect("Failed to start Epoch Manager");
-    let runtime_adapter: Arc<dyn RuntimeAdapter> =
+    let runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter> =
         Arc::new(NightshadeRuntime::from_config(&home_dir, store.clone(), &near_config));
 
     epoch_info::print_epoch_info(

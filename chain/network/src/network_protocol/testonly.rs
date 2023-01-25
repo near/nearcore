@@ -379,25 +379,27 @@ pub fn make_account_data(
     timestamp: time::Utc,
     account_key: PublicKey,
     peer_id: PeerId,
-) -> AccountData {
-    AccountData {
-        proxies: vec![
-            // Can't inline make_ipv4/ipv6 calls, because 2-phase borrow
-            // doesn't work.
-            {
-                let ip = make_ipv4(rng);
-                make_peer_addr(rng, ip)
-            },
-            {
-                let ip = make_ipv4(rng);
-                make_peer_addr(rng, ip)
-            },
-            {
-                let ip = make_ipv6(rng);
-                make_peer_addr(rng, ip)
-            },
-        ],
-        peer_id,
+) -> VersionedAccountData {
+    VersionedAccountData {
+        data: AccountData {
+            proxies: vec![
+                // Can't inline make_ipv4/ipv6 calls, because 2-phase borrow
+                // doesn't work.
+                {
+                    let ip = make_ipv4(rng);
+                    make_peer_addr(rng, ip)
+                },
+                {
+                    let ip = make_ipv4(rng);
+                    make_peer_addr(rng, ip)
+                },
+                {
+                    let ip = make_ipv6(rng);
+                    make_peer_addr(rng, ip)
+                },
+            ],
+            peer_id,
+        },
         account_key,
         version,
         timestamp,

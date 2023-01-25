@@ -95,7 +95,7 @@ use near_primitives::time::Utc;
 use rand::seq::{IteratorRandom, SliceRandom};
 use tracing::{debug, error, warn};
 
-use near_chain::{byzantine_assert, RuntimeAdapter};
+use near_chain::{byzantine_assert, RuntimeWithEpochManagerAdapter};
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
@@ -288,7 +288,7 @@ impl Seal<'_> {
 
 pub struct SealsManager {
     me: Option<AccountId>,
-    runtime_adapter: Arc<dyn RuntimeAdapter>,
+    runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
 
     active_demurs: HashMap<ChunkHash, ActiveSealDemur>,
     past_seals: BTreeMap<BlockHeight, HashSet<ChunkHash>>,
@@ -296,7 +296,10 @@ pub struct SealsManager {
 }
 
 impl SealsManager {
-    fn new(me: Option<AccountId>, runtime_adapter: Arc<dyn RuntimeAdapter>) -> Self {
+    fn new(
+        me: Option<AccountId>,
+        runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
+    ) -> Self {
         Self {
             me,
             runtime_adapter,
@@ -474,7 +477,7 @@ pub struct ShardsManager {
     me: Option<AccountId>,
     store: ReadOnlyChunksStore,
 
-    runtime_adapter: Arc<dyn RuntimeAdapter>,
+    runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
     peer_manager_adapter: Arc<dyn PeerManagerAdapter>,
     client_adapter: Arc<dyn ClientAdapterForShardsManager>,
     rs: ReedSolomonWrapper,
@@ -493,7 +496,7 @@ pub struct ShardsManager {
 impl ShardsManager {
     pub fn new(
         me: Option<AccountId>,
-        runtime_adapter: Arc<dyn RuntimeAdapter>,
+        runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
         network_adapter: Arc<dyn PeerManagerAdapter>,
         client_adapter: Arc<dyn ClientAdapterForShardsManager>,
         store: ReadOnlyChunksStore,

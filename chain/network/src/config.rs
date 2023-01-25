@@ -427,7 +427,7 @@ mod test {
     use crate::config;
     use crate::network_protocol;
     use crate::network_protocol::testonly as data;
-    use crate::network_protocol::AccountData;
+    use crate::network_protocol::{AccountData, VersionedAccountData};
     use crate::tcp;
     use crate::testonly::make_rng;
     use crate::time;
@@ -462,16 +462,18 @@ mod test {
         let clock = time::FakeClock::default();
         let signer = data::make_validator_signer(&mut rng);
 
-        let ad = AccountData {
-            proxies: (0..config::MAX_PEER_ADDRS)
-                .map(|_| {
-                    // Using IPv6 gives maximal size of the resulting config.
-                    let ip = data::make_ipv6(&mut rng);
-                    data::make_peer_addr(&mut rng, ip)
-                })
-                .collect(),
+        let ad = VersionedAccountData {
+            data: AccountData {
+                proxies: (0..config::MAX_PEER_ADDRS)
+                    .map(|_| {
+                        // Using IPv6 gives maximal size of the resulting config.
+                        let ip = data::make_ipv6(&mut rng);
+                        data::make_peer_addr(&mut rng, ip)
+                    })
+                    .collect(),
+                peer_id: data::make_peer_id(&mut rng),
+            },
             account_key: signer.public_key(),
-            peer_id: data::make_peer_id(&mut rng),
             version: 0,
             timestamp: clock.now_utc(),
         };

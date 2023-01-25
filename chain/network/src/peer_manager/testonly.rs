@@ -1,3 +1,4 @@
+use crate::accounts_data;
 use crate::broadcast;
 use crate::config;
 use crate::network_protocol::testonly as data;
@@ -55,7 +56,7 @@ pub(crate) struct ActorHandler {
     pub actix: ActixSystem<PeerManagerActor>,
 }
 
-pub fn unwrap_sync_accounts_data_processed(ev: Event) -> Option<SyncAccountsData> {
+pub(crate) fn unwrap_sync_accounts_data_processed(ev: Event) -> Option<SyncAccountsData> {
     match ev {
         Event::PeerManager(PME::MessageProcessed(
             tcp::Tier::T2,
@@ -320,7 +321,7 @@ impl ActorHandler {
     pub async fn tier1_advertise_proxies(
         &self,
         clock: &time::Clock,
-    ) -> Vec<Arc<SignedAccountData>> {
+    ) -> Option<Arc<SignedAccountData>> {
         let clock = clock.clone();
         self.with_state(move |s| async move { s.tier1_advertise_proxies(&clock).await }).await
     }
@@ -363,23 +364,29 @@ impl ActorHandler {
             .unwrap();
     }
 
-    // Awaits until the accounts_data state matches `want`.
-    pub async fn wait_for_accounts_data(&self, want: &HashSet<Arc<SignedAccountData>>) {
+    // Awaits until the accounts_data state satisfies predicate `pred`.
+    pub async fn wait_for_accounts_data_pred(
+        &self,
+        pred: impl Fn(Arc<accounts_data::CacheSnapshot>) -> bool,
+    ) {
         let mut events = self.events.from_now();
         loop {
-            let got = self
-                .with_state(move |s| async move {
-                    s.accounts_data.load().data.values().cloned().collect::<HashSet<_>>()
-                })
-                .await;
-            tracing::info!(target:"dupa","got = {:?}",got);
-            if &got == want {
+            let got = self.with_state(move |s| async move { s.accounts_data.load() }).await;
+            if pred(got) {
                 break;
             }
             // It is important that we wait for the next PeerMessage::SyncAccountsData to get
             // PROCESSED, not just RECEIVED. Otherwise we would get a race condition.
             events.recv_until(unwrap_sync_accounts_data_processed).await;
         }
+    }
+
+    // Awaits until the accounts_data state matches `want`.
+    pub async fn wait_for_accounts_data(&self, want: &HashSet<Arc<SignedAccountData>>) {
+        self.wait_for_accounts_data_pred(|cache| {
+            &cache.data.values().cloned().collect::<HashSet<_>>() == want
+        })
+        .await
     }
 
     pub async fn wait_for_direct_connection(&self, target_peer_id: PeerId) {

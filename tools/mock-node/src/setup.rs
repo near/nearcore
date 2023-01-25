@@ -3,10 +3,9 @@
 use crate::{MockNetworkConfig, MockPeerManagerActor};
 use actix::{Actor, Addr, Arbiter};
 use anyhow::Context;
+use near_chain::types::RuntimeAdapter;
 use near_chain::ChainStoreUpdate;
-use near_chain::{
-    Chain, ChainGenesis, ChainStore, ChainStoreAccess, DoomslugThresholdMode, RuntimeAdapter,
-};
+use near_chain::{Chain, ChainGenesis, ChainStore, ChainStoreAccess, DoomslugThresholdMode};
 use near_chain_configs::GenesisConfig;
 use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
