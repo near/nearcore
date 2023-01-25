@@ -715,9 +715,7 @@ async fn blacklist_01() {
     tracing::info!(target:"test", "start two nodes with 0 blacklisting 1");
     let mut cfgs = make_configs(&chain, rng, 2, 2, true);
     cfgs[0].peer_store.blacklist =
-        [blacklist::Entry::from_addr(**cfgs[1].node_addr.as_ref().unwrap())]
-            .into_iter()
-            .collect();
+        [blacklist::Entry::from_addr(**cfgs[1].node_addr.as_ref().unwrap())].into_iter().collect();
 
     let pm0 = start_pm(clock.clock(), TestDB::new(), cfgs[0].clone(), chain.clone()).await;
     let pm1 = start_pm(clock.clock(), TestDB::new(), cfgs[1].clone(), chain.clone()).await;
@@ -751,9 +749,7 @@ async fn blacklist_10() {
     tracing::info!(target:"test", "start two nodes with 1 blacklisting 0");
     let mut cfgs = make_configs(&chain, rng, 2, 2, true);
     cfgs[1].peer_store.blacklist =
-        [blacklist::Entry::from_addr(**cfgs[0].node_addr.as_ref().unwrap())]
-            .into_iter()
-            .collect();
+        [blacklist::Entry::from_addr(**cfgs[0].node_addr.as_ref().unwrap())].into_iter().collect();
 
     let pm0 = start_pm(clock.clock(), TestDB::new(), cfgs[0].clone(), chain.clone()).await;
     let pm1 = start_pm(clock.clock(), TestDB::new(), cfgs[1].clone(), chain.clone()).await;

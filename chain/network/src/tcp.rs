@@ -2,9 +2,9 @@ use crate::network_protocol::PeerInfo;
 use anyhow::{anyhow, Context as _};
 use near_primitives::network::PeerId;
 use std::fmt;
-use std::sync::{Arc};
+use std::sync::Arc;
 
-const LISTENER_BACKLOG : u32 = 128;
+const LISTENER_BACKLOG: u32 = 128;
 
 /// TCP connections established by a node belong to different logical networks (aka tiers),
 /// which serve different purpose.
@@ -53,7 +53,7 @@ pub(crate) struct StreamId {
 pub(crate) struct Socket(tokio::net::TcpSocket);
 
 #[cfg(test)]
-impl Socket { 
+impl Socket {
     pub fn bind_v4() -> Self {
         let socket = tokio::net::TcpSocket::new_v4().unwrap();
         socket.bind("127.0.0.1:0".parse().unwrap()).unwrap();
@@ -100,8 +100,7 @@ impl Stream {
     #[cfg(test)]
     pub async fn loopback(peer_id: PeerId, tier: Tier) -> (Stream, Stream) {
         let listener_addr = ListenerAddr::new_for_test();
-        let peer_info =
-            PeerInfo { id: peer_id, addr: Some(*listener_addr), account_id: None };
+        let peer_info = PeerInfo { id: peer_id, addr: Some(*listener_addr), account_id: None };
         let mut listener = listener_addr.listener().unwrap();
         let (outbound, inbound) =
             tokio::join!(Stream::connect(&peer_info, tier), listener.accept());
@@ -117,7 +116,7 @@ impl Stream {
             }
         }
     }
-} 
+}
 
 /// In production code ListenerAddr is isomorphic to std::net::SocketAddr.
 /// In tests it additionally allows to "reserve" a random unused TCP port:
@@ -149,7 +148,9 @@ impl fmt::Debug for ListenerAddr {
 
 impl std::ops::Deref for ListenerAddr {
     type Target = std::net::SocketAddr;
-    fn deref(&self) -> &Self::Target { &self.addr }
+    fn deref(&self) -> &Self::Target {
+        &self.addr
+    }
 }
 
 impl ListenerAddr {
@@ -164,7 +165,7 @@ impl ListenerAddr {
         guard.set_reuseaddr(true).unwrap();
         guard.set_reuseport(true).unwrap();
         guard.bind("127.0.0.1:0".parse().unwrap()).unwrap();
-        Self{addr:guard.local_addr().unwrap(), guard: Arc::new(Some(guard)) }
+        Self { addr: guard.local_addr().unwrap(), guard: Arc::new(Some(guard)) }
     }
 
     /// Constructs a Listener out of ListenerAddr.
