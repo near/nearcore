@@ -38,6 +38,7 @@ use near_store::{Store, Trie, TrieCache, TrieCachingStorage, TrieConfig};
 use nearcore::{NearConfig, NightshadeRuntime};
 use node_runtime::adapter::ViewRuntimeAdapter;
 use rand::{Rng, SeedableRng};
+use rand_chacha::ChaCha20Rng;
 use serde_json::json;
 use std::collections::HashMap;
 use std::fs::{self, File};
@@ -742,7 +743,7 @@ pub(crate) fn stress_test_flat_storage(
     let runtime_adapter: Arc<dyn RuntimeAdapter> =
         Arc::new(NightshadeRuntime::from_config(home_dir, store.clone(), &near_config));
 
-    let mut rng = SeedableRng::seed_from_u64(123);
+    let mut rng: ChaCha20Rng = SeedableRng::seed_from_u64(123);
 
     if mode == 0 {
         for _ in 0..steps {

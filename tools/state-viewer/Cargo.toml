@@ -12,6 +12,7 @@ borsh.workspace = true
 clap.workspace = true
 once_cell.workspace = true
 rand.workspace = true
+rand_chacha.workspace = true
 rayon.workspace = true
 redis.workspace = true
 rust-s3.workspace = true
