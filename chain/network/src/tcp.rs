@@ -183,8 +183,7 @@ impl ListenerAddr {
     }
 
     /// Constructs a ListenerAddr owning a random port on localhost.
-    #[cfg(test)]
-    pub(crate) fn new_localhost() -> Self {
+    pub fn new_localhost() -> Self {
         Self::new("127.0.0.1:0".parse().unwrap()).unwrap()
     }
 

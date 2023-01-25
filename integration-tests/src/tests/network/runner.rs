@@ -8,7 +8,7 @@ use near_network::actix::ActixSystem;
 use near_network::blacklist;
 use near_network::config;
 use near_network::tcp;
-use near_network::test_utils::{expected_routing_tables, open_port, peer_id_from_seed, GetInfo};
+use near_network::test_utils::{expected_routing_tables, peer_id_from_seed, GetInfo};
 use near_network::time;
 use near_network::types::NetworkRecipient;
 use near_network::types::{
@@ -25,7 +25,7 @@ use near_telemetry::{TelemetryActor, TelemetryConfig};
 use std::collections::HashSet;
 use std::future::Future;
 use std::iter::Iterator;
-use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+use std::net::{Ipv4Addr, SocketAddr};
 use std::pin::Pin;
 use std::sync::Arc;
 use tracing::debug;
@@ -235,7 +235,7 @@ struct TestConfig {
     archive: bool,
 
     account_id: AccountId,
-    port: u16,
+    node_addr: tcp::ListenerAddr,
 }
 
 impl TestConfig {
@@ -254,13 +254,12 @@ impl TestConfig {
             archive: false,
 
             account_id: format!("test{}", id).parse().unwrap(),
-            port: open_port(),
+            node_addr: tcp::ListenerAddr::new_localhost(),
         }
     }
 
     fn addr(&self) -> SocketAddr {
-        let ip = Ipv4Addr::LOCALHOST;
-        SocketAddr::V4(SocketAddrV4::new(ip, self.port))
+        *self.node_addr.as_ref()
     }
 
     fn peer_id(&self) -> PeerId {
@@ -390,7 +389,8 @@ impl Runner {
         let whitelist =
             config.whitelist.iter().map(|ix| self.test_config[*ix].peer_info()).collect();
 
-        let mut network_config = config::NetworkConfig::from_seed(&config.account_id, config.port);
+        let mut network_config =
+            config::NetworkConfig::from_seed(&config.account_id, config.node_addr.clone());
         network_config.peer_store.ban_window = config.ban_window;
         network_config.max_num_peers = config.max_num_peers;
         network_config.ttl_account_id_router = time::Duration::seconds(5);
