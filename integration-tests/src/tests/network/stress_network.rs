@@ -59,13 +59,10 @@ fn stress_test() {
 
     run_actix(async {
         let num_nodes = 7;
-        let addrs: Vec<_> = (0..num_nodes).map(|_| tcp::ListenerAddr::new_localhost()).collect();
+        let addrs: Vec<_> = (0..num_nodes).map(|_| tcp::ListenerAddr::new_for_test()).collect();
 
-        let boot_nodes: Vec<_> = addrs
-            .iter()
-            .enumerate()
-            .map(|(ix, addr)| (format!("test{}", ix), *addr.as_ref()))
-            .collect();
+        let boot_nodes: Vec<_> =
+            addrs.iter().enumerate().map(|(ix, addr)| (format!("test{}", ix), **addr)).collect();
 
         let mut pms: Vec<_> = (0..num_nodes)
             .map(|ix| {

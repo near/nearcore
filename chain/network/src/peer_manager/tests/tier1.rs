@@ -120,7 +120,7 @@ async fn first_proxy_advertisement() {
         got[0].proxies,
         vec![PeerAddr {
             peer_id: pm.cfg.node_id(),
-            addr: *pm.cfg.node_addr.as_ref().unwrap().as_ref()
+            addr: **pm.cfg.node_addr.as_ref().unwrap()
         }]
     );
 }
@@ -199,7 +199,7 @@ async fn proxy_connections() {
         cfg.validator.as_mut().unwrap().proxies =
             config::ValidatorProxies::Static(vec![PeerAddr {
                 peer_id: proxies[i].cfg.node_id(),
-                addr: *proxies[i].cfg.node_addr.as_ref().unwrap().as_ref(),
+                addr: **proxies[i].cfg.node_addr.as_ref().unwrap(),
             }]);
         validators.push(
             peer_manager::testonly::start(
@@ -300,8 +300,8 @@ async fn proxy_change() {
     let p1cfg = chain.make_config(rng);
     let mut v0cfg = chain.make_config(rng);
     v0cfg.validator.as_mut().unwrap().proxies = config::ValidatorProxies::Static(vec![
-        PeerAddr { peer_id: p0cfg.node_id(), addr: *p0cfg.node_addr.as_ref().unwrap().as_ref() },
-        PeerAddr { peer_id: p1cfg.node_id(), addr: *p1cfg.node_addr.as_ref().unwrap().as_ref() },
+        PeerAddr { peer_id: p0cfg.node_id(), addr: **p0cfg.node_addr.as_ref().unwrap() },
+        PeerAddr { peer_id: p1cfg.node_id(), addr: **p1cfg.node_addr.as_ref().unwrap() },
     ]);
     let mut v1cfg = chain.make_config(rng);
     v1cfg.validator.as_mut().unwrap().proxies = config::ValidatorProxies::Static(vec![]);

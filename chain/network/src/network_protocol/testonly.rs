@@ -305,7 +305,7 @@ impl Chain {
 
     pub fn make_config<R: Rng>(&self, rng: &mut R) -> config::NetworkConfig {
         let seed = &rng.gen::<u64>().to_string();
-        let mut cfg = config::NetworkConfig::from_seed(&seed, tcp::ListenerAddr::new_localhost());
+        let mut cfg = config::NetworkConfig::from_seed(&seed, tcp::ListenerAddr::new_for_test());
         // Currently, in unit tests PeerManagerActor is not allowed to try to establish
         // connections on its own.
         cfg.outbound_disabled = true;

@@ -509,7 +509,7 @@ impl PeerManagerActor {
                 |peer_state| {
                     // Ignore connecting to ourself
                     self.my_peer_id == peer_state.peer_info.id
-                    || self.state.config.node_addr.as_ref().map(|a|*a.as_ref()) == peer_state.peer_info.addr
+                    || self.state.config.node_addr.as_ref().map(|a|**a) == peer_state.peer_info.addr
                     // Or to peers we are currently trying to connect to
                     || tier2.outbound_handshakes.contains(&peer_state.peer_info.id)
                 },

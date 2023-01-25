@@ -254,12 +254,12 @@ impl TestConfig {
             archive: false,
 
             account_id: format!("test{}", id).parse().unwrap(),
-            node_addr: tcp::ListenerAddr::new_localhost(),
+            node_addr: tcp::ListenerAddr::new_for_test(),
         }
     }
 
     fn addr(&self) -> SocketAddr {
-        *self.node_addr.as_ref()
+        *self.node_addr
     }
 
     fn peer_id(&self) -> PeerId {

@@ -2,7 +2,9 @@ use crate::network_protocol::PeerInfo;
 use anyhow::{anyhow, Context as _};
 use near_primitives::network::PeerId;
 use std::fmt;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc};
+
+const LISTENER_BACKLOG : u32 = 128;
 
 /// TCP connections established by a node belong to different logical networks (aka tiers),
 /// which serve different purpose.
@@ -51,7 +53,7 @@ pub(crate) struct StreamId {
 pub(crate) struct Socket(tokio::net::TcpSocket);
 
 #[cfg(test)]
-impl Socket {
+impl Socket { 
     pub fn bind_v4() -> Self {
         let socket = tokio::net::TcpSocket::new_v4().unwrap();
         socket.bind("127.0.0.1:0".parse().unwrap()).unwrap();
@@ -97,9 +99,9 @@ impl Stream {
     /// Returns a pair of streams: (outbound,inbound).
     #[cfg(test)]
     pub async fn loopback(peer_id: PeerId, tier: Tier) -> (Stream, Stream) {
-        let listener_addr = ListenerAddr::new_localhost();
+        let listener_addr = ListenerAddr::new_for_test();
         let peer_info =
-            PeerInfo { id: peer_id, addr: Some(*listener_addr.as_ref()), account_id: None };
+            PeerInfo { id: peer_id, addr: Some(*listener_addr), account_id: None };
         let mut listener = listener_addr.listener().unwrap();
         let (outbound, inbound) =
             tokio::join!(Stream::connect(&peer_info, tier), listener.accept());
@@ -115,21 +117,27 @@ impl Stream {
             }
         }
     }
-}
+} 
 
-/// ListenerAddr is a wrapper of std::net::SocketAddr which "owns" the port.
-/// It does that by keeping an open dummy TCP socket, bound to the addr (on a best effort basis)
-/// whenever the port is not in use. Thanks to this semantics, if you run multiple tests
-/// in parallel on a single machine (even in separate processes) they won't try to use the same
-/// ports. It is especially important in test scenarios when you restart a node and want it to
-/// reuse the same port.
-///
-/// This solution is still prone to race conditions, because you cannot close a socket and bind the
-/// same address to another socket atomically, but the time windows during which a race condition
-/// may arise is very small.
+/// In production code ListenerAddr is isomorphic to std::net::SocketAddr.
+/// In tests it additionally allows to "reserve" a random unused TCP port:
+/// * it allows to avoid race conditions in tests which require a dedicated TCP port to spawn a
+///   node on (and potentially restart it every now and then).
+/// * it is implemented by usign SO_REUSEPORT socket option (do not confuse with SO_REUSEADDR),
+///   which allows multiple sockets to share a port. new_for_test() creates a socket and binds
+///   it to a random unused local port (without starting a TCP listener).
+///   This socket won't be used for anything but telling the OS that the given TCP port is in use.
+///   However thanks to SO_REUSEPORT we can create another socket bind it to the same port
+///   and make it a listener.
+/// * The drawback of this solution that it is hard to detect a situation in which multiple
+///   listener sockets in test are bound to the same port. TODO(gprusak): we can prevent creating
+///   multiple listeners for a single port within the same process by implementing a global register
+///   of ports in use.
 #[derive(Clone)]
 pub struct ListenerAddr {
-    raw: Arc<Mutex<Option<PlaceholderSocket>>>,
+    /// A test-only guard ensuring that OS considers the given TCP port to be in use (in prod,
+    /// guard should be always None).
+    guard: Arc<Option<tokio::net::TcpSocket>>,
     addr: std::net::SocketAddr,
 }
 
@@ -139,97 +147,46 @@ impl fmt::Debug for ListenerAddr {
     }
 }
 
-impl AsRef<std::net::SocketAddr> for ListenerAddr {
-    fn as_ref(&self) -> &std::net::SocketAddr {
-        &self.addr
-    }
-}
-
-/// Dummy TCP socket bound to the address owned by ListenerAddr.
-struct PlaceholderSocket(rustix::fd::OwnedFd);
-
-impl PlaceholderSocket {
-    fn new(addr: std::net::SocketAddr) -> std::io::Result<Self> {
-        let f = match &addr {
-            std::net::SocketAddr::V4(_) => rustix::net::AddressFamily::INET,
-            std::net::SocketAddr::V6(_) => rustix::net::AddressFamily::INET6,
-        };
-        let t = rustix::net::SocketType::STREAM;
-        let p = rustix::net::Protocol::TCP;
-        let socket = rustix::net::socket(f, t, p)?;
-        rustix::net::sockopt::set_socket_reuseaddr(&socket, true)?;
-        rustix::net::bind(&socket, &addr)?;
-        Ok(Self(socket))
-    }
-
-    fn local_addr(&self) -> std::io::Result<std::net::SocketAddr> {
-        Ok(match rustix::net::getsockname(&self.0)? {
-            rustix::net::SocketAddrAny::V4(addr) => std::net::SocketAddr::V4(addr),
-            rustix::net::SocketAddrAny::V6(addr) => std::net::SocketAddr::V6(addr),
-            _ => panic!("unexpected socket addr"),
-        })
-    }
+impl std::ops::Deref for ListenerAddr {
+    type Target = std::net::SocketAddr;
+    fn deref(&self) -> &Self::Target { &self.addr }
 }
 
 impl ListenerAddr {
-    pub fn new(addr: std::net::SocketAddr) -> std::io::Result<Self> {
-        let socket = PlaceholderSocket::new(addr)?;
-        Ok(Self {
-            // We fetch local_addr(), because addr.port() could have been 0, in which case an
-            // arbitrary free port will be allocated.
-            addr: socket.local_addr()?,
-            raw: Arc::new(Mutex::new(Some(socket))),
-        })
+    pub fn new(addr: std::net::SocketAddr) -> Self {
+        assert!(addr.port()!=0, "using an arbitrary port for the tcp::Listener is allowed only in tests and only via new_for_test() method");
+        Self { addr, guard: Arc::new(None) }
     }
 
-    /// Constructs a ListenerAddr owning a random port on localhost.
-    pub fn new_localhost() -> Self {
-        Self::new("127.0.0.1:0".parse().unwrap()).unwrap()
+    /// TEST-ONLY: constructs a ListenerAddr owning a random port on localhost.
+    pub fn new_for_test() -> Self {
+        let guard = tokio::net::TcpSocket::new_v4().unwrap();
+        guard.set_reuseaddr(true).unwrap();
+        guard.set_reuseport(true).unwrap();
+        guard.bind("127.0.0.1:0".parse().unwrap()).unwrap();
+        Self{addr:guard.local_addr().unwrap(), guard: Arc::new(Some(guard)) }
     }
 
     /// Constructs a Listener out of ListenerAddr.
-    /// ListenerAddr drops the ownership of the port, so that a
-    /// TCP listener socket can be bound to it.
-    /// TODO(gprusak): improve it, so that the Placeholder socket is just upgraded to a listener socket.
     pub(crate) fn listener(&self) -> std::io::Result<Listener> {
-        drop(self.clone().raw.lock().unwrap().take());
-        // We use std::net::TcpListener::bind rather than tokio::net::TcpListener::bind, because
-        // the tokio one is async for stupid reasons.
-        let inner = std::net::TcpListener::bind(self.addr)?;
-        // tokio::net::TcpListener::from_std() assumes that the socket is nonblocking.
-        // We need to configure it manually here.
-        inner.set_nonblocking(true)?;
-        Ok(Listener { inner: Some(tokio::net::TcpListener::from_std(inner)?), addr: self.clone() })
-    }
-}
-
-pub(crate) struct Listener {
-    addr: ListenerAddr,
-    inner: Option<tokio::net::TcpListener>,
-}
-
-impl Drop for Listener {
-    fn drop(&mut self) {
-        drop(self.inner.take());
-        // Recreate the placeholder socket when dropping the listener.
-        match PlaceholderSocket::new(self.addr.addr) {
-            Ok(socket) => {
-                *self.addr.raw.lock().unwrap() = Some(socket);
-            }
-            Err(err) => {
-                near_o11y::log_assert!(
-                    false,
-                    "failed to guard port {} after closing TCP listener: {err}",
-                    self.addr.addr
-                );
-            }
+        let socket = match self.addr {
+            std::net::SocketAddr::V4(_) => tokio::net::TcpSocket::new_v4()?,
+            std::net::SocketAddr::V6(_) => tokio::net::TcpSocket::new_v6()?,
+        };
+        if self.guard.is_some() {
+            socket.set_reuseport(true)?;
         }
+        socket.set_reuseaddr(true)?;
+        socket.bind(self.addr)?;
+        Ok(Listener(socket.listen(LISTENER_BACKLOG)?))
     }
 }
+
+pub(crate) struct Listener(tokio::net::TcpListener);
 
 impl Listener {
     pub async fn accept(&mut self) -> std::io::Result<Stream> {
-        let (stream, _) = self.inner.as_mut().unwrap().accept().await?;
+        let (stream, _) = self.0.accept().await?;
         Stream::new(stream, StreamType::Inbound)
     }
 }

@@ -258,7 +258,7 @@ impl PeerActor {
         };
         let my_node_info = PeerInfo {
             id: network_state.config.node_id(),
-            addr: network_state.config.node_addr.as_ref().map(|a| a.as_ref().clone()),
+            addr: network_state.config.node_addr.as_ref().map(|a| **a),
             account_id: network_state.config.validator.as_ref().map(|v| v.account_id()),
         };
         // recv is the HandshakeSignal returned by this spawn_inner() call.
@@ -395,7 +395,7 @@ impl PeerActor {
                 .config
                 .node_addr
                 .as_ref()
-                .map(|a| a.as_ref().port()),
+                .map(|a| a.port()),
             sender_chain_info: PeerChainInfoV2 {
                 genesis_id: self.network_state.genesis_id.clone(),
                 // TODO: remove `height` from PeerChainInfo

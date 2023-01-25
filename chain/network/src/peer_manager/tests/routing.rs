@@ -667,7 +667,7 @@ fn make_configs(
         .iter()
         .map(|c| PeerInfo {
             id: c.node_id(),
-            addr: c.node_addr.as_ref().map(|a| *a.as_ref()),
+            addr: c.node_addr.as_ref().map(|a| **a),
             account_id: None,
         })
         .collect();
@@ -715,7 +715,7 @@ async fn blacklist_01() {
     tracing::info!(target:"test", "start two nodes with 0 blacklisting 1");
     let mut cfgs = make_configs(&chain, rng, 2, 2, true);
     cfgs[0].peer_store.blacklist =
-        [blacklist::Entry::from_addr(*cfgs[1].node_addr.as_ref().unwrap().as_ref())]
+        [blacklist::Entry::from_addr(**cfgs[1].node_addr.as_ref().unwrap())]
             .into_iter()
             .collect();
 
@@ -751,7 +751,7 @@ async fn blacklist_10() {
     tracing::info!(target:"test", "start two nodes with 1 blacklisting 0");
     let mut cfgs = make_configs(&chain, rng, 2, 2, true);
     cfgs[1].peer_store.blacklist =
-        [blacklist::Entry::from_addr(*cfgs[0].node_addr.as_ref().unwrap().as_ref())]
+        [blacklist::Entry::from_addr(**cfgs[0].node_addr.as_ref().unwrap())]
             .into_iter()
             .collect();
 

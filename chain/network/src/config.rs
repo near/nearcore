@@ -219,7 +219,7 @@ impl NetworkConfig {
                 "" => None,
                 addr => Some(tcp::ListenerAddr::new(
                     addr.parse().context("Failed to parse SocketAddr")?,
-                )?),
+                )),
             },
             peer_store: peer_store::Config {
                 boot_nodes: if cfg.boot_nodes.is_empty() {
@@ -304,7 +304,7 @@ impl NetworkConfig {
         let validator = ValidatorConfig {
             signer: Arc::new(create_test_signer(seed)),
             proxies: ValidatorProxies::Static(vec![PeerAddr {
-                addr: *node_addr.as_ref(),
+                addr: *node_addr,
                 peer_id: PeerId::new(node_key.public_key()),
             }]),
         };
@@ -434,22 +434,22 @@ mod test {
 
     #[test]
     fn test_network_config() {
-        let nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::new_localhost());
+        let nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::new_for_test());
         assert!(nc.verify().is_ok());
 
-        let mut nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::new_localhost());
+        let mut nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::new_for_test());
         nc.ideal_connections_lo = nc.ideal_connections_hi + 1;
         assert!(nc.verify().is_err());
 
-        let mut nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::new_localhost());
+        let mut nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::new_for_test());
         nc.ideal_connections_hi = nc.max_num_peers + 1;
         assert!(nc.verify().is_err());
 
-        let mut nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::new_localhost());
+        let mut nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::new_for_test());
         nc.safe_set_size = nc.minimum_outbound_peers;
         assert!(nc.verify().is_err());
 
-        let mut nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::new_localhost());
+        let mut nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::new_for_test());
         nc.peer_recent_time_window = UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE;
         assert!(nc.verify().is_err());
     }

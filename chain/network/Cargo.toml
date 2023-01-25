@@ -32,7 +32,6 @@ protobuf.workspace = true
 rand.workspace = true
 rand_xorshift.workspace = true
 rayon.workspace = true
-rustix.workspace = true
 serde.workspace = true
 smart-default.workspace = true
 strum.workspace = true
