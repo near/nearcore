@@ -28,19 +28,9 @@ use std::collections::HashSet;
 use std::net::Ipv6Addr;
 use std::sync::Arc;
 
-fn abort_on_panic() {
-    let orig_hook = std::panic::take_hook();
-    std::panic::set_hook(Box::new(move |panic_info| {
-        orig_hook(panic_info);
-        // TODO(gprusak): print stacktrace?
-        std::process::abort();
-    }));
-}
-
 // test routing in a two-node network before and after connecting the nodes
 #[tokio::test]
 async fn simple() {
-    abort_on_panic();
     init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
@@ -71,7 +61,6 @@ async fn simple() {
 // test routing for three nodes in a line
 #[tokio::test]
 async fn three_nodes_path() {
-    abort_on_panic();
     init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
@@ -113,7 +102,6 @@ async fn three_nodes_path() {
 // test routing for three nodes in a line, then test routing after completing the triangle
 #[tokio::test]
 async fn three_nodes_star() {
-    abort_on_panic();
     init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
@@ -178,7 +166,6 @@ async fn three_nodes_star() {
 // then test routing after joining them into a square
 #[tokio::test]
 async fn join_components() {
-    abort_on_panic();
     init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
@@ -250,7 +237,6 @@ async fn join_components() {
 // test routing for three nodes in a line, then test dropping the middle node
 #[tokio::test]
 async fn simple_remove() {
-    abort_on_panic();
     init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
@@ -342,7 +328,6 @@ pub async fn wait_for_message_dropped(events: &mut broadcast::Receiver<Event>) {
 // test ping in a two-node network
 #[tokio::test]
 async fn ping_simple() {
-    abort_on_panic();
     init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
@@ -381,7 +366,6 @@ async fn ping_simple() {
 // test ping without a direct connection
 #[tokio::test]
 async fn ping_jump() {
-    abort_on_panic();
     init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
@@ -437,7 +421,6 @@ async fn ping_jump() {
 // test that ping over an indirect connection with ttl=2 is delivered
 #[tokio::test]
 async fn test_dont_drop_after_ttl() {
-    abort_on_panic();
     init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
@@ -495,7 +478,6 @@ async fn test_dont_drop_after_ttl() {
 // test that ping over an indirect connection with ttl=1 is dropped
 #[tokio::test]
 async fn test_drop_after_ttl() {
-    abort_on_panic();
     init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
@@ -549,7 +531,6 @@ async fn test_drop_after_ttl() {
 // test dropping behavior for duplicate messages
 #[tokio::test]
 async fn test_dropping_duplicate_messages() {
-    abort_on_panic();
     init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
@@ -681,7 +662,6 @@ fn make_configs(
 // test bootstrapping a two-node network with one boot node
 #[tokio::test]
 async fn from_boot_nodes() {
-    abort_on_panic();
     init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
@@ -705,7 +685,6 @@ async fn from_boot_nodes() {
 // test node 0 blacklisting node 1
 #[tokio::test]
 async fn blacklist_01() {
-    abort_on_panic();
     init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
@@ -739,7 +718,6 @@ async fn blacklist_01() {
 // test node 1 blacklisting node 0
 #[tokio::test]
 async fn blacklist_10() {
-    abort_on_panic();
     init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
@@ -773,7 +751,6 @@ async fn blacklist_10() {
 // test node 0 blacklisting all nodes
 #[tokio::test]
 async fn blacklist_all() {
-    abort_on_panic();
     init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
@@ -808,7 +785,6 @@ async fn blacklist_all() {
 // Spawn a fourth node and see it fail to connect since the first three are at max capacity.
 #[tokio::test]
 async fn max_num_peers_limit() {
-    abort_on_panic();
     init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
