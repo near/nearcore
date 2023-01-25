@@ -22,7 +22,7 @@ async fn check_recent_outbound_connections(pm: &ActorHandler, wanted: Vec<PeerId
 }
 
 #[tokio::test]
-async fn test_simple_recent_outbound_connection() {
+async fn test_recent_outbound_connection() {
     init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
@@ -58,7 +58,7 @@ async fn test_simple_recent_outbound_connection() {
 }
 
 #[tokio::test]
-async fn test_retain_outbound_connection_after_disconnect() {
+async fn test_recent_outbound_connection_after_disconnect() {
     init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
@@ -134,4 +134,34 @@ async fn test_outbound_connection_storage_order() {
     drop(pm1);
     drop(pm2);
     drop(pm3);
+}
+
+#[tokio::test]
+async fn test_reconnect_after_restart_outbound_side() {
+    init_test_logger();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
+    let pm0_db = TestDB::new();
+    let pm0 = start_pm(clock.clock(), pm0_db.clone(), chain.make_config(rng), chain.clone()).await;
+    let pm1 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
+
+    let id1 = pm1.cfg.node_id();
+
+    // connect pm0 to pm1
+    pm0.connect_to(&pm1.peer_info(), tcp::Tier::T2).await;
+
+    clock.advance(RECENT_OUTBOUND_CONNECTIONS_MIN_DURATION);
+    clock.advance(UPDATE_RECENT_OUTBOUND_CONNECTIONS_INTERVAL);
+
+    // check that pm0 stores the outbound connection to pm1
+    check_recent_outbound_connections(&pm0, vec![id1.clone()]).await;
+
+    drop(pm0);
+
+    // start a new pm0 with the same db and see that it reestablishes the connection to pm1
+    let pm0 = start_pm(clock.clock(), pm0_db, chain.make_config(rng), chain.clone()).await;
+    pm0.wait_for_direct_connection(id1.clone()).await;
 }
