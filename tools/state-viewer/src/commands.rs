@@ -742,7 +742,10 @@ pub(crate) fn stress_test_flat_storage(
     let start_hash = final_head.last_block_hash;
     let runtime_adapter: Arc<dyn RuntimeAdapter> =
         Arc::new(NightshadeRuntime::from_config(home_dir, store.clone(), &near_config));
-
+    let flat_head = chain_store
+        .get_block_header(&store_helper::get_flat_head(&store, shard_id).unwrap())
+        .unwrap();
+    eprintln!("shard id = {} flat_head = {} {}", shard_id, flat_head.height(), flat_head.hash());
     let mut rng: ChaCha20Rng = SeedableRng::seed_from_u64(123);
 
     if mode == 0 {
@@ -811,7 +814,8 @@ pub(crate) fn stress_test_flat_storage(
             height = chain_store.get_block_header(prev_hash).unwrap().height().clone();
             eprintln!("{}", height);
         }
-    } else if mode == 1 {
+    } else {
+        // simulate block processing
         let mut block_hashes = vec![];
         let mut block_hash = start_hash;
         for _ in 0..steps {
@@ -832,6 +836,10 @@ pub(crate) fn stress_test_flat_storage(
             // store_helper::set_flat_head(&mut store_update, shard_id, &block_hash);
             // delta.apply_to_flat_state(&mut store_update);
             // store_update.commit().unwrap();
+        }
+
+        if mode == 2 {
+            // move flat head forward
         }
     }
 }
