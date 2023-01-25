@@ -119,6 +119,7 @@ impl Stream {
 }
 
 /// In production code ListenerAddr is isomorphic to std::net::SocketAddr.
+///
 /// In tests it additionally allows to "reserve" a random unused TCP port:
 /// * it allows to avoid race conditions in tests which require a dedicated TCP port to spawn a
 ///   node on (and potentially restart it every now and then).
@@ -142,7 +143,10 @@ pub struct ListenerAddr {
 
 impl fmt::Debug for ListenerAddr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.addr.fmt(f)
+        f.debug_struct("ListenerAddr")
+            .field("addr", &self.addr)
+            .field("has_guard", &self.guard.is_some())
+            .finish()
     }
 }
 
@@ -155,7 +159,11 @@ impl std::ops::Deref for ListenerAddr {
 
 impl ListenerAddr {
     pub fn new(addr: std::net::SocketAddr) -> Self {
-        assert!(addr.port()!=0, "using an arbitrary port for the tcp::Listener is allowed only in tests and only via new_for_test() method");
+        assert!(
+            addr.port() != 0, 
+            "using an arbitrary port for the tcp::Listener is allowed only \
+             in tests and only via new_for_test() method"
+         );
         Self { addr, guard: Arc::new(None) }
     }
 
