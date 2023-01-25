@@ -218,9 +218,7 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::Ripemd160Base, ripemd160_base),
     (Cost::Ripemd160Block, ripemd160_block),
     (Cost::EcrecoverBase, ecrecover_base),
-    #[cfg(feature = "protocol_feature_ed25519_verify")]
     (Cost::Ed25519VerifyBase, ed25519_verify_base),
-    #[cfg(feature = "protocol_feature_ed25519_verify")]
     (Cost::Ed25519VerifyByte, ed25519_verify_byte),
     (Cost::AltBn128G1MultiexpBase, alt_bn128g1_multiexp_base),
     (Cost::AltBn128G1MultiexpElement, alt_bn128g1_multiexp_element),
@@ -981,7 +979,6 @@ fn ecrecover_base(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost(ctx, "ecrecover_10k", ExtCosts::ecrecover_base, 10_000)
 }
 
-#[cfg(feature = "protocol_feature_ed25519_verify")]
 fn ed25519_verify_base(ctx: &mut EstimatorContext) -> GasCost {
     if ctx.cached.ed25519_verify_base.is_none() {
         let cost = fn_cost(ctx, "ed25519_verify_32b_500", ExtCosts::ed25519_verify_base, 500);
@@ -990,7 +987,6 @@ fn ed25519_verify_base(ctx: &mut EstimatorContext) -> GasCost {
     ctx.cached.ed25519_verify_base.clone().unwrap()
 }
 
-#[cfg(feature = "protocol_feature_ed25519_verify")]
 fn ed25519_verify_byte(ctx: &mut EstimatorContext) -> GasCost {
     let base = ed25519_verify_base(ctx);
     // inside the WASM function, there are 64 calls to `ed25519_verify`.

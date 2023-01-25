@@ -195,10 +195,9 @@ pub fn get_block_shard_id_rev(
             std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid key length").into()
         );
     }
-    let block_hash = CryptoHash::try_from(&key[..32])?;
-    let mut shard_id_arr: [u8; 8] = Default::default();
-    shard_id_arr.copy_from_slice(&key[key.len() - 8..]);
-    let shard_id = ShardId::from_le_bytes(shard_id_arr);
+    let (block_hash_bytes, shard_id_bytes) = key.split_at(32);
+    let block_hash = CryptoHash::try_from(block_hash_bytes)?;
+    let shard_id = ShardId::from_le_bytes(shard_id_bytes.try_into()?);
     Ok((block_hash, shard_id))
 }
 
@@ -264,7 +263,7 @@ pub fn create_action_hash(
 ) -> CryptoHash {
     // Action hash uses the same input as a new receipt ID, so to avoid hash conflicts we use the
     // salt starting from the `u64` going backward.
-    let salt = u64::max_value() - action_index as u64;
+    let salt = u64::MAX.wrapping_sub(action_index as u64);
     create_hash_upgradable(protocol_version, &receipt.receipt_id, prev_block_hash, block_hash, salt)
 }
 
@@ -302,8 +301,8 @@ pub fn create_random_seed(
         // Generates random seed from random_seed and action_hash.
         // Since every action hash is unique, the seed will be unique per receipt and even
         // per action within a receipt.
-        let mut bytes: Vec<u8> =
-            Vec::with_capacity(size_of::<CryptoHash>() + size_of::<CryptoHash>());
+        const BYTES_LEN: usize = size_of::<CryptoHash>() + size_of::<CryptoHash>();
+        let mut bytes: Vec<u8> = Vec::with_capacity(BYTES_LEN);
         bytes.extend_from_slice(action_hash.as_ref());
         bytes.extend_from_slice(random_seed.as_ref());
         hash(&bytes)
@@ -326,9 +325,9 @@ fn create_hash_upgradable(
     if protocol_version < CREATE_HASH_PROTOCOL_VERSION {
         create_nonce_with_nonce(base, salt)
     } else {
-        let mut bytes: Vec<u8> = Vec::with_capacity(
-            size_of::<CryptoHash>() + size_of::<CryptoHash>() + size_of::<u64>(),
-        );
+        const BYTES_LEN: usize =
+            size_of::<CryptoHash>() + size_of::<CryptoHash>() + size_of::<u64>();
+        let mut bytes: Vec<u8> = Vec::with_capacity(BYTES_LEN);
         bytes.extend_from_slice(base.as_ref());
         let extra_hash_used =
             if protocol_version < CREATE_RECEIPT_ID_SWITCH_TO_CURRENT_BLOCK_VERSION {
@@ -409,13 +408,10 @@ macro_rules! unwrap_or_return {
 
 /// Converts timestamp in ns into DateTime UTC time.
 pub fn from_timestamp(timestamp: u64) -> DateTime<chrono::Utc> {
-    DateTime::from_utc(
-        NaiveDateTime::from_timestamp(
-            (timestamp / NS_IN_SECOND) as i64,
-            (timestamp % NS_IN_SECOND) as u32,
-        ),
-        chrono::Utc,
-    )
+    let secs =
+        timestamp.checked_div(NS_IN_SECOND).expect("dividing by non-zero const is safe") as i64;
+    let nsecs = timestamp.checked_rem(NS_IN_SECOND).expect("modulo non-zero const is safe") as u32;
+    DateTime::from_utc(NaiveDateTime::from_timestamp(secs, nsecs), chrono::Utc)
 }
 
 /// Converts DateTime UTC time into timestamp in ns.
@@ -426,13 +422,14 @@ pub fn to_timestamp(time: DateTime<chrono::Utc>) -> u64 {
 /// Compute number of seats per shard for given total number of seats and number of shards.
 pub fn get_num_seats_per_shard(num_shards: NumShards, num_seats: NumSeats) -> Vec<NumSeats> {
     (0..num_shards)
-        .map(|i| {
-            let remainder = num_seats % num_shards;
-            let num = if i < remainder as u64 {
-                num_seats / num_shards + 1
-            } else {
-                num_seats / num_shards
-            };
+        .map(|shard_id| {
+            let remainder =
+                num_seats.checked_rem(num_shards).expect("num_shards ≠ 0 is guaranteed here");
+            let quotient =
+                num_seats.checked_div(num_shards).expect("num_shards ≠ 0 is guaranteed here");
+            let num = quotient
+                .checked_add(if shard_id < remainder { 1 } else { 0 })
+                .expect("overflow is impossible here");
             max(num, 1)
         })
         .collect()

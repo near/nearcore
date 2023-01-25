@@ -35,7 +35,7 @@ use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
 use tracing::{debug, error, info, warn};
 
-use near_chain::{Chain, RuntimeAdapter};
+use near_chain::{Chain, RuntimeWithEpochManagerAdapter};
 use near_network::types::{
     HighestHeightPeerInfo, NetworkRequests, NetworkResponses, PeerManagerAdapter,
 };
@@ -170,7 +170,7 @@ impl StateSync {
         sync_hash: CryptoHash,
         new_shard_sync: &mut HashMap<u64, ShardSyncDownload>,
         chain: &mut Chain,
-        runtime_adapter: &Arc<dyn RuntimeAdapter>,
+        runtime_adapter: &Arc<dyn RuntimeWithEpochManagerAdapter>,
         highest_height_peers: &[HighestHeightPeerInfo],
         tracking_shards: Vec<ShardId>,
         now: DateTime<Utc>,
@@ -517,7 +517,7 @@ impl StateSync {
         me: &Option<AccountId>,
         shard_id: ShardId,
         chain: &Chain,
-        runtime_adapter: &Arc<dyn RuntimeAdapter>,
+        runtime_adapter: &Arc<dyn RuntimeWithEpochManagerAdapter>,
         sync_hash: CryptoHash,
         highest_height_peers: &[HighestHeightPeerInfo],
     ) -> Result<Vec<AccountOrPeerIdOrHash>, Error> {
@@ -572,7 +572,7 @@ impl StateSync {
         me: &Option<AccountId>,
         shard_id: ShardId,
         chain: &Chain,
-        runtime_adapter: &Arc<dyn RuntimeAdapter>,
+        runtime_adapter: &Arc<dyn RuntimeWithEpochManagerAdapter>,
         sync_hash: CryptoHash,
         shard_sync_download: ShardSyncDownload,
         highest_height_peers: &[HighestHeightPeerInfo],
@@ -693,7 +693,7 @@ impl StateSync {
         sync_hash: CryptoHash,
         new_shard_sync: &mut HashMap<u64, ShardSyncDownload>,
         chain: &mut Chain,
-        runtime_adapter: &Arc<dyn RuntimeAdapter>,
+        runtime_adapter: &Arc<dyn RuntimeWithEpochManagerAdapter>,
         highest_height_peers: &[HighestHeightPeerInfo],
         // Shards to sync.
         tracking_shards: Vec<ShardId>,
@@ -941,7 +941,7 @@ mod test {
                     *request_hash,
                     &mut new_shard_sync,
                     &mut chain,
-                    &(kv as Arc<dyn RuntimeAdapter>),
+                    &(kv as Arc<dyn RuntimeWithEpochManagerAdapter>),
                     &[],
                     vec![0],
                     &apply_parts_fn,
