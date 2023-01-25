@@ -797,11 +797,12 @@ pub(crate) fn stress_test_flat_storage(
             let mut store_update = store.store_update();
             old_delta.apply_to_flat_state(&mut store_update);
             // add fake delta items
-            for i in 0..50_000_000 / 1_000 {
+            for i in 0..50_000_000u32 / 1_000 {
                 // 50 MB / key length
                 let mut key = vec![100u8]; // start from non-existent byte
                 key.extend_from_slice(&vec![rng.gen_range(0..20); 900]); // 900 B per length + 100 B approximate overhead
-                new_delta.insert(key, Some(ValueRef::new(&[i])));
+                new_delta
+                    .insert(key, Some(ValueRef::new(&[(i / 256 % 256) as u8, (i % 256) as u8])));
             }
             store_helper::set_delta(&mut store_update, shard_id, block_hash, &new_delta).unwrap();
             store_helper::set_flat_head(&mut store_update, shard_id, &prev_hash);
