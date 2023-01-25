@@ -1,15 +1,18 @@
 use crate::network_protocol::testonly as data;
 use crate::peer_manager::network_state::RECENT_OUTBOUND_CONNECTIONS_MIN_DURATION;
+//use crate::peer_manager::network_state::RECONNECT_ATTEMPT_INTERVAL;
 use crate::peer_manager::peer_manager_actor::UPDATE_RECENT_OUTBOUND_CONNECTIONS_INTERVAL;
 use crate::peer_manager::testonly::start as start_pm;
 use crate::peer_manager::testonly::ActorHandler;
 use crate::tcp;
 use crate::testonly::make_rng;
 use crate::time;
+//use core::time::Duration;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::network::PeerId;
 use near_store::db::TestDB;
 use std::sync::Arc;
+//use std::thread::sleep;
 
 async fn check_recent_outbound_connections(pm: &ActorHandler, wanted: Vec<PeerId>) {
     let got: Vec<PeerId> = pm
@@ -164,4 +167,47 @@ async fn test_reconnect_after_restart_outbound_side() {
     // start a new pm0 with the same db and see that it reestablishes the connection to pm1
     let pm0 = start_pm(clock.clock(), pm0_db, chain.make_config(rng), chain.clone()).await;
     pm0.wait_for_direct_connection(id1.clone()).await;
+
+    drop(pm0);
+    drop(pm1);
 }
+
+/*#[tokio::test]
+async fn test_reconnect_after_restart_inbound_side() {
+    init_test_logger();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
+    let pm0 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
+
+    let pm1_cfg = chain.make_config(rng);
+    let pm1 = start_pm(clock.clock(), TestDB::new(), pm1_cfg.clone(), chain.clone()).await;
+
+    let id0 = pm0.cfg.node_id().clone();
+    let id1 = pm1.cfg.node_id().clone();
+
+    // connect pm0 to pm1
+    pm0.connect_to(&pm1.peer_info(), tcp::Tier::T2).await;
+
+    clock.advance(RECENT_OUTBOUND_CONNECTIONS_MIN_DURATION);
+    clock.advance(UPDATE_RECENT_OUTBOUND_CONNECTIONS_INTERVAL);
+
+    // check that pm0 stores the outbound connection to pm1
+    check_recent_outbound_connections(&pm0, vec![id1.clone()]).await;
+
+    //drop(pm1);
+    pm1.disconnect(&id0);
+    pm0.wait_for_num_connected_peers(0).await;
+
+    // start a new pm1 with the same config and see that pm0 reconnects to it
+    //let pm1 = start_pm(clock.clock(), TestDB::new(), pm1_cfg.clone(), chain.clone()).await;
+
+    clock.advance(RECONNECT_ATTEMPT_INTERVAL);
+
+    pm0.wait_for_direct_connection(id1.clone()).await;
+
+    drop(pm0);
+    drop(pm1);
+}*/

@@ -7,6 +7,7 @@ use crate::network_protocol::{
 };
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
+use crate::peer_manager::network_state::RECONNECT_ATTEMPT_INTERVAL;
 use crate::peer_manager::network_state::{NetworkState, WhitelistNode};
 use crate::peer_manager::peer_store;
 use crate::stats::metrics;
@@ -161,6 +162,17 @@ impl actix::Actor for PeerManagerActor {
             loop {
                 interval.tick(&clock).await;
                 state.update_recent_outbound_connections(&clock);
+            }
+        }));
+
+        // Periodically make pending reconnect attempts.
+        let clock = self.clock.clone();
+        let state = self.state.clone();
+        ctx.spawn(wrap_future(async move {
+            let mut interval = time::Interval::new(clock.now(), RECONNECT_ATTEMPT_INTERVAL);
+            loop {
+                interval.tick(&clock).await;
+                state.reestablish_outbound_connections(&clock);
             }
         }));
 

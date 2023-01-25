@@ -9,7 +9,9 @@ use crate::network_protocol::{
 use crate::peer::stream;
 use crate::peer::tracker::Tracker;
 use crate::peer_manager::connection;
-use crate::peer_manager::network_state::{NetworkState, PRUNE_EDGES_AFTER};
+use crate::peer_manager::network_state::{
+    NetworkState, PRUNE_EDGES_AFTER, RECENT_OUTBOUND_CONNECTION_MAX_RECONNECT_ATTEMPTS,
+};
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::private_actix::{RegisterPeerError, SendMessage};
 use crate::routing::edge::verify_nonce;
@@ -1432,6 +1434,13 @@ impl actix::Actor for PeerActor {
                     self.stream_id,
                     self.closing_reason.clone().unwrap_or(ClosingReason::Unknown),
                 );
+
+                if network_state.is_recent_outbound_connection(&conn.peer_info.id) {
+                    network_state.set_reconnect_attempts(
+                        &conn.peer_info,
+                        RECENT_OUTBOUND_CONNECTION_MAX_RECONNECT_ATTEMPTS,
+                    );
+                }
             }
         }
         actix::Arbiter::current().stop();

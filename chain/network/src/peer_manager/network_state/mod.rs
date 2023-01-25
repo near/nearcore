@@ -7,6 +7,7 @@ use crate::network_protocol::{
     Edge, EdgeState, PartialEdgeInfo, PeerIdOrHash, PeerInfo, PeerMessage, Ping, Pong,
     RawRoutedMessage, RoutedMessageBody, RoutedMessageV2, SignedAccountData,
 };
+use crate::peer::peer_actor::PeerActor;
 use crate::peer::peer_actor::{ClosingReason, ConnectionClosedEvent};
 use crate::peer_manager::connection;
 use crate::peer_manager::peer_manager_actor::Event;
@@ -18,6 +19,7 @@ use crate::store;
 use crate::tcp;
 use crate::time;
 use crate::types::{ChainInfo, ConnectionInfo, PeerType, ReasonForBan};
+use anyhow::Context;
 use arc_swap::ArcSwap;
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
@@ -56,6 +58,10 @@ pub const RECENT_OUTBOUND_CONNECTIONS_LIMIT: usize = 40;
 /// How long a connection should survive before it can enter recent outbound connections
 pub(crate) const RECENT_OUTBOUND_CONNECTIONS_MIN_DURATION: time::Duration =
     time::Duration::minutes(10);
+/// Number of times to attempt to re-establish a recent outbound connection after it disconnects.
+pub(crate) const RECENT_OUTBOUND_CONNECTION_MAX_RECONNECT_ATTEMPTS: usize = 6;
+/// How long to wait between attempts to re-establish a recent outbound connection.
+pub(crate) const RECONNECT_ATTEMPT_INTERVAL: time::Duration = time::Duration::seconds(10);
 
 impl WhitelistNode {
     pub fn from_peer_info(pi: &PeerInfo) -> anyhow::Result<Self> {
@@ -115,6 +121,8 @@ pub(crate) struct NetworkState {
     /// Information about recent outbound connections which lasted for at least
     /// RECENT_OUTBOUND_CONNECTIONS_MIN_DURATION
     pub recent_outbound_connections: Arc<Mutex<Vec<ConnectionInfo>>>,
+    /// Number of remaining attempts to re-establish a recent outbound connection
+    pub pending_reconnect_attempts: Arc<Mutex<HashMap<PeerId, (PeerInfo, usize)>>>,
 
     /// Hashes of the body of recently received routed messages.
     /// It allows us to determine whether messages arrived faster over TIER1 or TIER2 network.
@@ -186,6 +194,7 @@ impl NetworkState {
             accounts_data: Arc::new(accounts_data::Cache::new()),
             tier1_route_back: Mutex::new(RouteBackCache::default()),
             recent_outbound_connections: Arc::new(Mutex::new(stored_recent_outbound_connections)),
+            pending_reconnect_attempts: Arc::new(Mutex::new(HashMap::new())),
             recent_routed_messages: Mutex::new(lru::LruCache::new(
                 RECENT_ROUTED_MESSAGES_CACHE_SIZE,
             )),
@@ -334,6 +343,9 @@ impl NetworkState {
                     if let Err(err) = this.peer_store.peer_connected(&clock, peer_info) {
                         tracing::error!(target: "network", ?err, "Failed to save peer data");
                     }
+
+                    tracing::debug!(target: "network", "Clearing remaining reconnect attempts to {} due to successful connection", &conn.peer_info.id);
+                    this.pending_reconnect_attempts.lock().remove(&conn.peer_info.id);
                 }
             }
             Ok(())
@@ -665,8 +677,53 @@ impl NetworkState {
         .unwrap()
     }
 
+    pub fn set_reconnect_attempts(self: &Arc<Self>, peer_info: &PeerInfo, num_attempts: usize) {
+        self.pending_reconnect_attempts
+            .lock()
+            .insert(peer_info.id.clone(), (peer_info.clone(), num_attempts));
+    }
+
+    pub fn reestablish_outbound_connections(self: &Arc<Self>, clock: &time::Clock) {
+        let mut pending_attempts = self.pending_reconnect_attempts.lock();
+
+        pending_attempts.retain(|_peer_id, (peer_info, attempts)| {
+            let state = self.clone();
+            let clock = clock.clone();
+            let peer_info = peer_info.clone();
+
+            tracing::debug!(target:"network", "Attempting to reconnect to {} ({} attempts remaining)", peer_info.id, attempts);
+
+            self.spawn(async move {
+                let result = async {
+                    let stream = tcp::Stream::connect(&peer_info, tcp::Tier::T2).await.context("tcp::Stream::connect()")?;
+                    PeerActor::spawn_and_handshake(clock.clone(),stream,None,state.clone()).await.context("PeerActor::spawn()")?;
+                    anyhow::Ok(())
+                }.await;
+
+                if result.is_err() {
+                    tracing::info!(target:"network", ?result, "failed to connect to {peer_info}");
+                    if state.peer_store.peer_connection_attempt(&clock, &peer_info.id, result).is_err() {
+                        tracing::error!(target: "network", ?peer_info, "Failed to mark peer as failed.");
+                    }
+                }
+            });
+
+            *attempts -= 1;
+            *attempts > 0
+        });
+    }
+
     pub fn get_recent_outbound_connections(&self) -> Vec<ConnectionInfo> {
         return self.recent_outbound_connections.lock().clone();
+    }
+
+    pub fn is_recent_outbound_connection(&self, peer_id: &PeerId) -> bool {
+        for info in self.recent_outbound_connections.lock().iter() {
+            if info.peer_info.id == *peer_id {
+                return true;
+            }
+        }
+        return false;
     }
 
     pub fn remove_from_recent_outbound_connections(&self, peer_id: &PeerId) {
@@ -675,6 +732,8 @@ impl NetworkState {
         if let Err(err) = self.store.lock().set_recent_outbound_connections(&connections) {
             tracing::error!(target: "network", ?err, "Failed to save recent outbound connections");
         }
+
+        self.pending_reconnect_attempts.lock().remove(peer_id);
     }
 
     pub fn update_recent_outbound_connections(&self, clock: &time::Clock) {
