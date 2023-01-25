@@ -881,7 +881,6 @@ async fn max_num_peers_limit() {
 // test that TTL is handled property.
 #[tokio::test]
 async fn ttl() {
-    abort_on_panic();
     init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
@@ -937,7 +936,6 @@ async fn ttl() {
 // expected to contain only the diff of the known data.
 #[tokio::test]
 async fn repeated_data_in_sync_routing_table() {
-    abort_on_panic();
     init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
@@ -1042,7 +1040,6 @@ async fn wait_for_edges(
 // edges which it learned about before the restart.
 #[tokio::test]
 async fn no_edge_broadcast_after_restart() {
-    abort_on_panic();
     init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
@@ -1106,7 +1103,6 @@ async fn no_edge_broadcast_after_restart() {
 
 #[tokio::test]
 async fn square() {
-    abort_on_panic();
     init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
@@ -1160,7 +1156,6 @@ async fn square() {
 
 #[tokio::test]
 async fn fix_local_edges() {
-    abort_on_panic();
     init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
@@ -1215,7 +1210,6 @@ async fn fix_local_edges() {
 
 #[tokio::test]
 async fn do_not_block_announce_account_broadcast() {
-    abort_on_panic();
     init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
@@ -1254,7 +1248,6 @@ async fn do_not_block_announce_account_broadcast() {
 /// Do four rounds where 2, 3, 4 tries to connect to 0 and check that connection between 0 and 1 was never dropped.
 #[tokio::test]
 async fn archival_node() {
-    abort_on_panic();
     init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
@@ -1348,7 +1341,6 @@ async fn wait_for_stream_closed(
 /// Check two peers are able to connect again after one peers is banned and unbanned.
 #[tokio::test]
 async fn connect_to_unbanned_peer() {
-    abort_on_panic();
     init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
