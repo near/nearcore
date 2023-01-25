@@ -7,7 +7,7 @@ use near_primitives::receipt::Receipt;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::test_utils::MockEpochInfoProvider;
-use near_primitives::transaction::{ExecutionOutcome, ExecutionStatus, SignedTransaction};
+use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
 use near_primitives::types::{Gas, MerkleHash};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::{ShardTries, ShardUId, Store, StoreCompiledContractCache, TrieUpdate};
@@ -295,7 +295,8 @@ impl Testbed<'_> {
     pub(crate) fn verify_transaction(
         &mut self,
         tx: &SignedTransaction,
-    ) -> Result<node_runtime::VerificationResult, near_primitives::errors::RuntimeError> {
+        metric: GasMetric,
+    ) -> GasCost {
         let mut state_update = TrieUpdate::new(Rc::new(self.trie()));
         // gas price and block height can be anything, it doesn't affect performance
         // but making it too small affects max_depth and thus pessimistic inflation
@@ -303,6 +304,8 @@ impl Testbed<'_> {
         let block_height = None;
         // do a full verification
         let verify_signature = true;
+
+        let clock = GasCost::measure(metric);
         node_runtime::verify_and_charge_transaction(
             &self.apply_state.config,
             &mut state_update,
@@ -312,18 +315,21 @@ impl Testbed<'_> {
             block_height,
             PROTOCOL_VERSION,
         )
+        .expect("tx verification should not fail in estimator");
+        clock.elapsed()
     }
 
     /// Process only the execution step of an action receipt.
     ///
     /// Use this method to estimate action exec costs.
-    pub(crate) fn apply_action_receipt(&mut self, receipt: &Receipt) -> ExecutionOutcome {
+    pub(crate) fn apply_action_receipt(&mut self, receipt: &Receipt, metric: GasMetric) -> GasCost {
         let mut state_update = TrieUpdate::new(Rc::new(self.trie()));
         let mut outgoing_receipts = vec![];
         let mut validator_proposals = vec![];
         let mut stats = node_runtime::ApplyStats::default();
         // TODO: mock is not accurate, potential DB requests are skipped in the mock!
         let epoch_info_provider = MockEpochInfoProvider::new([].into_iter());
+        let clock = GasCost::measure(metric);
         let exec_result = node_runtime::estimator::apply_action_receipt(
             &mut state_update,
             &self.apply_state,
@@ -334,7 +340,13 @@ impl Testbed<'_> {
             &epoch_info_provider,
         )
         .expect("applying receipt in estimator should not fail");
-        exec_result.outcome
+        let gas = clock.elapsed();
+        match exec_result.outcome.status {
+            ExecutionStatus::Unknown => panic!("receipt not applied"),
+            ExecutionStatus::Failure(err) => panic!("failed apply, {err:?}"),
+            ExecutionStatus::SuccessValue(_) | ExecutionStatus::SuccessReceiptId(_) => (),
+        }
+        gas
     }
 
     /// Instantiate a new trie for the estimator.

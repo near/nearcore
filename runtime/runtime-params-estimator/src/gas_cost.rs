@@ -76,6 +76,21 @@ impl GasCost {
         result
     }
 
+    /// Like cmp::Ord::min but operates on heterogenous types (GasCost + Gas).
+    pub(crate) fn min_gas(mut self, gas: Gas) -> Self {
+        if self.to_gas() < gas {
+            let to_add = Ratio::from(gas - self.to_gas());
+            if let Some(qemu) = &mut self.qemu {
+                qemu.instructions += to_add / GAS_IN_INSTR;
+            } else if let Some(time_ns) = &mut self.time_ns {
+                *time_ns += to_add / GAS_IN_NS;
+            } else {
+                self.time_ns = Some(to_add / GAS_IN_NS);
+            }
+        }
+        self
+    }
+
     pub(crate) fn is_uncertain(&self) -> bool {
         self.uncertain.is_some()
     }

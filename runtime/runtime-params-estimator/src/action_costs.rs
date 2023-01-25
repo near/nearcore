@@ -7,15 +7,15 @@
 //! the picture should be fairly complete.
 
 use crate::estimator_context::{EstimatorContext, Testbed};
-use crate::gas_cost::GasCost;
+use crate::gas_cost::{GasCost, NonNegativeTolerance};
 use crate::transaction_builder::AccountRequirement;
 use crate::utils::average_cost;
 use near_crypto::{KeyType, PublicKey};
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, Receipt};
-use near_primitives::transaction::{Action, ExecutionStatus};
-use near_primitives::types::AccountId;
+use near_primitives::transaction::Action;
+use near_primitives::types::{AccountId, Gas};
 use std::iter;
 
 /// A builder object for constructing action cost estimations.
@@ -61,6 +61,20 @@ struct ActionEstimation {
     /// subtract the cost of an empty receipt from the measured cost
     /// (`fasle` is only really useful for action receipt creation cost)
     subtract_base: bool,
+    /// Constant to which the estimation is rounded up in case the estimation
+    /// turns out smaller, to avoid unstable estimations.
+    ///
+    /// The costs computed here are often very small. The noise can be larger
+    /// than the measurement in many cases. However, we also don't care too much
+    /// about the exact value as long as it is small enough. "Small enough" has
+    /// to be defined per parameter, as it is usually higher for base costs
+    /// compared to per-byte costs. This field is used to set the threshold,
+    /// everything below it will be rounded up.
+    ///
+    /// This is also used to set the tolerance towards the negative. Results in
+    /// the range [-min_gas,+min_gas] are set to min_gas and marked as good
+    /// results. Anything below -min_gas is set to zero and marked as underflow.
+    min_gas: Gas,
 }
 
 impl ActionEstimation {
@@ -86,6 +100,8 @@ impl ActionEstimation {
             warmup: ctx.config.warmup_iters_per_block,
             metric: ctx.config.metric,
             subtract_base: true,
+            // by default, 1 Ggas ~ 1us is the smallest value we care about.
+            min_gas: 1_000_000_000,
         }
     }
 
@@ -107,6 +123,8 @@ impl ActionEstimation {
             warmup: ctx.config.warmup_iters_per_block,
             metric: ctx.config.metric,
             subtract_base: true,
+            // by default, 1 Ggas ~ 1us is the smallest value we care about.
+            min_gas: 1_000_000_000,
         }
     }
 
@@ -147,6 +165,13 @@ impl ActionEstimation {
         self
     }
 
+    /// Set the smallest gas value for which we need accurate estimations,
+    /// values below will be clamped.
+    fn min_gas(mut self, gas: Gas) -> Self {
+        self.min_gas = gas;
+        self
+    }
+
     /// Estimate the gas cost for converting an action in a transaction to one in an
     /// action receipt, without network costs.
     ///
@@ -178,9 +203,7 @@ impl ActionEstimation {
         let predecessor_id = tb.account_by_requirement(self.predecessor, Some(&signer_id));
         let receiver_id = tb.account_by_requirement(self.receiver, Some(&signer_id));
         let tx = tb.transaction_from_actions(predecessor_id, receiver_id, actions);
-        let clock = GasCost::measure(self.metric);
-        testbed.verify_transaction(&tx).expect("tx verification should not fail in estimator");
-        clock.elapsed()
+        testbed.verify_transaction(&tx, self.metric)
     }
 
     /// Estimate the cost of applying a set of actions once.
@@ -207,15 +230,7 @@ impl ActionEstimation {
             receipt_id: CryptoHash::new(),
             receipt: near_primitives::receipt::ReceiptEnum::Action(action_receipt),
         };
-        let clock = GasCost::measure(self.metric);
-        let outcome = testbed.apply_action_receipt(&receipt);
-        let gas = clock.elapsed();
-        match outcome.status {
-            ExecutionStatus::Unknown => panic!("receipt not applied"),
-            ExecutionStatus::Failure(err) => panic!("failed apply, {err:?}"),
-            ExecutionStatus::SuccessValue(_) | ExecutionStatus::SuccessReceiptId(_) => (),
-        }
-        gas
+        testbed.apply_action_receipt(&receipt, self.metric)
     }
 
     /// Take a function that executes a list of actions on a testbed, execute
@@ -245,7 +260,18 @@ impl ActionEstimation {
             if self.subtract_base { estimated_fn(self, testbed, vec![]) } else { GasCost::zero() };
 
         let cost_per_tx = average_cost(gas_results);
-        (cost_per_tx - base) / self.inner_iters as u64
+        let gas_tolerance = self.inner_iters as u64 * self.min_gas;
+        let gas_per_action = cost_per_tx
+            .saturating_sub(&base, &NonNegativeTolerance::AbsoluteTolerance(gas_tolerance))
+            / self.inner_iters as u64;
+
+        // Set small (but not underflowed) results to the minimum value.
+        // This avoids flaky estimation results.
+        if !gas_per_action.is_uncertain() {
+            gas_per_action.min_gas(self.min_gas)
+        } else {
+            gas_per_action
+        }
     }
 }
 
@@ -317,6 +343,7 @@ pub(crate) fn deploy_contract_byte_send_sir(ctx: &mut EstimatorContext) -> GasCo
     ActionEstimation::new_sir(ctx)
         .add_action(deploy_action(ActionSize::Max))
         .inner_iters(1) // circumvent TX size limit
+        .min_gas(1_000_000) // 1 ns accuracy for per-byte cost
         .verify_cost(&mut ctx.testbed())
         / ActionSize::Max.deploy_contract()
 }
@@ -325,6 +352,7 @@ pub(crate) fn deploy_contract_byte_send_not_sir(ctx: &mut EstimatorContext) -> G
     ActionEstimation::new(ctx)
         .add_action(deploy_action(ActionSize::Max))
         .inner_iters(1) // circumvent TX size limit
+        .min_gas(1_000_000) // 1 ns accuracy for per-byte cost
         .verify_cost(&mut ctx.testbed())
         / ActionSize::Max.deploy_contract()
 }
@@ -333,6 +361,7 @@ pub(crate) fn deploy_contract_byte_exec(ctx: &mut EstimatorContext) -> GasCost {
     ActionEstimation::new_sir(ctx)
         .add_action(deploy_action(ActionSize::Max))
         .inner_iters(1) // circumvent TX size limit
+        .min_gas(1_000_000) // 1 ns accuracy for per-byte cost
         .apply_cost(&mut ctx.testbed())
         / ActionSize::Max.deploy_contract()
 }
@@ -358,6 +387,7 @@ pub(crate) fn function_call_base_exec(ctx: &mut EstimatorContext) -> GasCost {
 pub(crate) fn function_call_byte_send_sir(ctx: &mut EstimatorContext) -> GasCost {
     ActionEstimation::new_sir(ctx)
         .add_action(function_call_action(ActionSize::Max))
+        .min_gas(1_000_000) // 1 ns accuracy for per-byte cost
         .verify_cost(&mut ctx.testbed())
         / ActionSize::Max.function_call_payload()
 }
@@ -365,6 +395,7 @@ pub(crate) fn function_call_byte_send_sir(ctx: &mut EstimatorContext) -> GasCost
 pub(crate) fn function_call_byte_send_not_sir(ctx: &mut EstimatorContext) -> GasCost {
     ActionEstimation::new(ctx)
         .add_action(function_call_action(ActionSize::Max))
+        .min_gas(1_000_000) // 1 ns accuracy for per-byte cost
         .verify_cost(&mut ctx.testbed())
         / ActionSize::Max.function_call_payload()
 }
@@ -372,6 +403,7 @@ pub(crate) fn function_call_byte_send_not_sir(ctx: &mut EstimatorContext) -> Gas
 pub(crate) fn function_call_byte_exec(ctx: &mut EstimatorContext) -> GasCost {
     ActionEstimation::new_sir(ctx)
         .add_action(function_call_action(ActionSize::Max))
+        .min_gas(1_000_000) // 1 ns accuracy for per-byte cost
         .apply_cost(&mut ctx.testbed())
         / ActionSize::Max.function_call_payload()
 }
@@ -451,6 +483,7 @@ pub(crate) fn add_function_call_key_base_exec(ctx: &mut EstimatorContext) -> Gas
 pub(crate) fn add_function_call_key_byte_send_sir(ctx: &mut EstimatorContext) -> GasCost {
     ActionEstimation::new_sir(ctx)
         .add_action(add_fn_access_key_action(ActionSize::Max))
+        .min_gas(1_000_000) // 1 ns accuracy for per-byte cost
         .verify_cost(&mut ctx.testbed())
         / ActionSize::Max.key_methods_list()
 }
@@ -458,6 +491,7 @@ pub(crate) fn add_function_call_key_byte_send_sir(ctx: &mut EstimatorContext) ->
 pub(crate) fn add_function_call_key_byte_send_not_sir(ctx: &mut EstimatorContext) -> GasCost {
     ActionEstimation::new(ctx)
         .add_action(add_fn_access_key_action(ActionSize::Max))
+        .min_gas(1_000_000) // 1 ns accuracy for per-byte cost
         .verify_cost(&mut ctx.testbed())
         / ActionSize::Max.key_methods_list()
 }
@@ -466,6 +500,7 @@ pub(crate) fn add_function_call_key_byte_exec(ctx: &mut EstimatorContext) -> Gas
     ActionEstimation::new_sir(ctx)
         .add_action(add_fn_access_key_action(ActionSize::Max))
         .inner_iters(1) // adding the same key a second time would fail
+        .min_gas(1_000_000) // 1 ns accuracy for per-byte cost
         .apply_cost(&mut ctx.testbed())
         / ActionSize::Max.key_methods_list()
 }
