@@ -143,12 +143,14 @@ pub enum ProtocolFeature {
     /// Charge for contract loading before it happens.
     #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
     FixContractLoadingCost,
-    #[cfg(feature = "protocol_feature_ed25519_verify")]
     Ed25519Verify,
     #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
     RejectBlocksWithOutdatedProtocolVersions,
     #[cfg(feature = "protocol_feature_nep366_delegate_action")]
     DelegateAction,
+    #[cfg(feature = "protocol_feature_zero_balance_account")]
+    /// NEP 448: https://github.com/near/NEPs/pull/448
+    ZeroBalanceAccount,
 }
 
 /// Both, outgoing and incoming tcp connections to peers, will be rejected if `peer's`
@@ -163,7 +165,7 @@ const STABLE_PROTOCOL_VERSION: ProtocolVersion = 58;
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protocol") {
     // On nightly, pick big enough version to support all features.
-    133
+    134
 } else {
     // Enable all stable features.
     STABLE_PROTOCOL_VERSION
@@ -226,18 +228,19 @@ impl ProtocolFeature {
             ProtocolFeature::AltBn128 => 55,
             ProtocolFeature::ChunkOnlyProducers | ProtocolFeature::MaxKickoutStake => 56,
             ProtocolFeature::AccountIdInFunctionCallPermission => 57,
+            ProtocolFeature::Ed25519Verify => 58,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_fix_staking_threshold")]
             ProtocolFeature::FixStakingThreshold => 126,
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             ProtocolFeature::FixContractLoadingCost => 129,
-            #[cfg(feature = "protocol_feature_ed25519_verify")]
-            ProtocolFeature::Ed25519Verify => 131,
             #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
             ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions => 132,
             #[cfg(feature = "protocol_feature_nep366_delegate_action")]
             ProtocolFeature::DelegateAction => 133,
+            #[cfg(feature = "protocol_feature_zero_balance_account")]
+            ProtocolFeature::ZeroBalanceAccount => 134,
         }
     }
 }

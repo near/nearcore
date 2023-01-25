@@ -3,7 +3,7 @@ use borsh::BorshDeserialize;
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::ApplyTransactionResult;
-use near_chain::{ChainStore, ChainStoreAccess, RuntimeAdapter};
+use near_chain::{ChainStore, ChainStoreAccess, RuntimeWithEpochManagerAdapter};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::combine_hash;
 use near_primitives::receipt::Receipt;
@@ -72,7 +72,7 @@ fn get_incoming_receipts(
 
 // returns (apply_result, gas limit)
 pub(crate) fn apply_chunk(
-    runtime: &dyn RuntimeAdapter,
+    runtime: &dyn RuntimeWithEpochManagerAdapter,
     chain_store: &mut ChainStore,
     chunk_hash: ChunkHash,
     target_height: Option<u64>,
@@ -149,7 +149,7 @@ enum HashType {
 fn find_tx_or_receipt(
     hash: &CryptoHash,
     block_hash: &CryptoHash,
-    runtime: &dyn RuntimeAdapter,
+    runtime: &dyn RuntimeWithEpochManagerAdapter,
     chain_store: &mut ChainStore,
 ) -> anyhow::Result<Option<(HashType, ShardId)>> {
     let block = chain_store.get_block(&block_hash)?;
@@ -176,7 +176,7 @@ fn find_tx_or_receipt(
 }
 
 fn apply_tx_in_block(
-    runtime: &dyn RuntimeAdapter,
+    runtime: &dyn RuntimeWithEpochManagerAdapter,
     chain_store: &mut ChainStore,
     tx_hash: &CryptoHash,
     block_hash: CryptoHash,
@@ -203,7 +203,7 @@ fn apply_tx_in_block(
 }
 
 fn apply_tx_in_chunk(
-    runtime: &dyn RuntimeAdapter,
+    runtime: &dyn RuntimeWithEpochManagerAdapter,
     store: Store,
     chain_store: &mut ChainStore,
     tx_hash: &CryptoHash,
@@ -262,7 +262,7 @@ fn apply_tx_in_chunk(
 
 pub(crate) fn apply_tx(
     genesis_height: BlockHeight,
-    runtime: &dyn RuntimeAdapter,
+    runtime: &dyn RuntimeWithEpochManagerAdapter,
     store: Store,
     tx_hash: CryptoHash,
 ) -> anyhow::Result<Vec<ApplyTransactionResult>> {
@@ -277,7 +277,7 @@ pub(crate) fn apply_tx(
 }
 
 fn apply_receipt_in_block(
-    runtime: &dyn RuntimeAdapter,
+    runtime: &dyn RuntimeWithEpochManagerAdapter,
     chain_store: &mut ChainStore,
     id: &CryptoHash,
     block_hash: CryptoHash,
@@ -305,7 +305,7 @@ fn apply_receipt_in_block(
 }
 
 fn apply_receipt_in_chunk(
-    runtime: &dyn RuntimeAdapter,
+    runtime: &dyn RuntimeWithEpochManagerAdapter,
     store: Store,
     chain_store: &mut ChainStore,
     id: &CryptoHash,
@@ -390,7 +390,7 @@ fn apply_receipt_in_chunk(
 
 pub(crate) fn apply_receipt(
     genesis_height: BlockHeight,
-    runtime: &dyn RuntimeAdapter,
+    runtime: &dyn RuntimeWithEpochManagerAdapter,
     store: Store,
     id: CryptoHash,
 ) -> anyhow::Result<Vec<ApplyTransactionResult>> {

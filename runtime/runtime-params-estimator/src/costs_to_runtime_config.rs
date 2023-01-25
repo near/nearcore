@@ -124,9 +124,7 @@ fn estimation(cost: ExtCosts) -> Option<Cost> {
         ExtCosts::ripemd160_base => Cost::Ripemd160Base,
         ExtCosts::ripemd160_block => Cost::Ripemd160Block,
         ExtCosts::ecrecover_base => Cost::EcrecoverBase,
-        #[cfg(feature = "protocol_feature_ed25519_verify")]
         ExtCosts::ed25519_verify_base => Cost::Ed25519VerifyBase,
-        #[cfg(feature = "protocol_feature_ed25519_verify")]
         ExtCosts::ed25519_verify_byte => Cost::Ed25519VerifyByte,
         ExtCosts::log_base => Cost::LogBase,
         ExtCosts::log_byte => Cost::LogByte,
