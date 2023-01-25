@@ -39,7 +39,7 @@ pub fn start_all_with_validity_period_and_no_epoch_sync(
         enable_doomslug,
     );
 
-    let addr = format!("127.0.0.1:{}", open_port());
+    let addr = open_port().to_string();
     start_http(
         RpcConfig::new(&addr),
         TEST_GENESIS_CONFIG.clone(),
