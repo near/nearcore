@@ -3191,6 +3191,7 @@ impl Chain {
         {
             // If block_hash is equal to default - this means that we're all the way back at genesis.
             // So we don't have to add the storage state for shard in such case.
+            // TODO(8438) - add additional test scenarios for this case.
             if *block_hash != CryptoHash::default() {
                 let block_height = self.get_block_header(block_hash)?.height();
 
