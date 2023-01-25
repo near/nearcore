@@ -14,9 +14,9 @@ use crate::store;
 use crate::tcp;
 use crate::time;
 use crate::types::{
-    ConnectedPeerInfo, ConnectionInfo, GetNetworkInfo, HighestHeightPeerInfo, KnownProducer,
-    NetworkInfo, NetworkRequests, NetworkResponses, PeerManagerMessageRequest,
-    PeerManagerMessageResponse, PeerType, SetChainInfo,
+    ConnectedPeerInfo, GetNetworkInfo, HighestHeightPeerInfo, KnownProducer, NetworkInfo,
+    NetworkRequests, NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
+    PeerType, SetChainInfo,
 };
 use actix::fut::future::wrap_future;
 use actix::{Actor as _, AsyncContext as _};
@@ -119,8 +119,6 @@ pub enum Event {
     HandshakeCompleted(crate::peer::peer_actor::HandshakeCompletedEvent),
     // Reported when the TCP connection has been closed.
     ConnectionClosed(crate::peer::peer_actor::ConnectionClosedEvent),
-    // Reported when recent outbound connections are updated periodically.
-    RecentOutboundConnectionsUpdated(Vec<ConnectionInfo>),
 }
 
 impl actix::Actor for PeerManagerActor {

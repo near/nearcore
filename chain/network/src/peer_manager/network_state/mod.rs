@@ -715,8 +715,6 @@ impl NetworkState {
             tracing::error!(target: "network", ?err, "Failed to save recent outbound connections");
         }
         *self.recent_outbound_connections.lock() = updated.clone();
-
-        self.config.event_sink.push(Event::RecentOutboundConnectionsUpdated(updated));
     }
 
     /// Sets the chain info, and updates the set of TIER1 keys.
