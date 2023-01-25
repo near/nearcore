@@ -93,11 +93,7 @@ impl super::NetworkState {
         let accounts_data = self.accounts_data.load();
 
         // No matter if this node is a TIER1 node
-
-        let vc = match self.tier1_validator_config(&accounts_data) {
-            Some(it) => it,
-            None => return None,
-        };
+        let vc = self.tier1_validator_config(&accounts_data)?;
         let proxies = match &vc.proxies {
             config::ValidatorProxies::Dynamic(_) => {
                 // TODO(gprusak): If Dynamic are specified,
