@@ -119,6 +119,7 @@ impl Stream {
 }
 
 /// In production code ListenerAddr is isomorphic to std::net::SocketAddr.
+///
 /// In tests it additionally allows to "reserve" a random unused TCP port:
 /// * it allows to avoid race conditions in tests which require a dedicated TCP port to spawn a
 ///   node on (and potentially restart it every now and then).
