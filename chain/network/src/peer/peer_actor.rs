@@ -418,26 +418,6 @@ impl PeerActor {
     fn stop(&mut self, ctx: &mut actix::Context<PeerActor>, reason: ClosingReason) {
         // Only the first call to stop sets the closing_reason.
         if self.closing_reason.is_none() {
-            // If this node is in the other node's recent_outbound_connections set, the other
-            // node may attempt to re-establish the connection. Setting allow_recent = false
-            // advises the other node to remove this one from recent_outbound_connections.
-            let allow_reconnect = match reason {
-                ClosingReason::TooManyInbound => false, // too many inbound
-                ClosingReason::OutboundNotAllowed(_) => true,
-                ClosingReason::Ban(_) => false, // banned
-                ClosingReason::HandshakeFailed => true,
-                ClosingReason::RejectedByPeerManager(_) => true,
-                ClosingReason::StreamError => true,
-                ClosingReason::DisallowedMessage => false, // misbehaving peer
-                ClosingReason::PeerManagerRequest => false, // closed intentionally
-                ClosingReason::DisconnectMessage => true,
-                ClosingReason::TooLargeClockSkew => true,
-                ClosingReason::OwnedAccountMismatch => false, // misbehaving peer
-                ClosingReason::Unknown => true,
-            };
-
-            self.send_message_or_log(&PeerMessage::Disconnect(Disconnect { allow_reconnect }));
-
             self.closing_reason = Some(reason);
         }
         ctx.stop();
@@ -1384,8 +1364,30 @@ impl actix::Actor for PeerActor {
             }
             Some(reason) => {
                 tracing::info!(target: "network", "{:?}: Peer {} disconnected, reason: {reason}", self.my_node_info.id, self.peer_info);
+                let allow_reconnect = match reason {
+                    ClosingReason::TooManyInbound => false, // too many inbound
+                    ClosingReason::OutboundNotAllowed(_) => true,
+                    ClosingReason::Ban(_) => false, // banned
+                    ClosingReason::HandshakeFailed => true,
+                    ClosingReason::RejectedByPeerManager(_) => true,
+                    ClosingReason::StreamError => true,
+                    ClosingReason::DisallowedMessage => false, // misbehaving peer
+                    ClosingReason::PeerManagerRequest => false, // closed intentionally
+                    ClosingReason::DisconnectMessage => true,
+                    ClosingReason::TooLargeClockSkew => true,
+                    ClosingReason::OwnedAccountMismatch => false, // misbehaving peer
+                    ClosingReason::Unknown => true,
+                };
+
+                if !allow_reconnect {
+                    self.network_state
+                        .remove_from_recent_outbound_connections(self.other_peer_id().unwrap());
+                }
+
+                self.send_message_or_log(&PeerMessage::Disconnect(Disconnect { allow_reconnect }));
             }
         }
+
         match &self.peer_status {
             // If PeerActor is in Connecting state, then
             // it was not registered in the NetworkState,

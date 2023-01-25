@@ -700,9 +700,10 @@ impl NetworkState {
             }
         }
 
-        // Order by most recently connected first
+        // Order by last_connected, with longer-disconnected nodes appearing later
+        // Break ties by first_connected for convenience when testing
         let mut updated: Vec<ConnectionInfo> = updated.values().cloned().collect();
-        updated.sort_by_key(|c| c.last_connected);
+        updated.sort_by_key(|c| (c.last_connected, c.first_connected));
         updated.reverse();
 
         // Evict the longest-disconnected connections, if needed
