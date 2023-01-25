@@ -18,18 +18,12 @@ TIMEOUT = 300
 
 consensus_config = {
     "consensus": {
+        # We're generating 150 blocks here - lower the min production delay to speed
+        # up the test running time a little.
         "min_block_production_delay": {
             "secs": 0,
             "nanos": 100000000
         },
-        "max_block_production_delay": {
-            "secs": 0,
-            "nanos": 400000000
-        },
-        "max_block_wait_delay": {
-            "secs": 0,
-            "nanos": 400000000
-        }
     }
 }
 
@@ -42,31 +36,20 @@ nodes = start_cluster(
      [
          "records", 0, "Account", "account", "locked",
          "60000000000000000000000000000000"
-     ], ["total_supply", "5010000000000000000000000000000000"]], {
-         0: consensus_config,
-         1: consensus_config,
-         2: consensus_config,
-         3: consensus_config
-     })
+     ], ["total_supply", "5010000000000000000000000000000000"]],
+    {x: consensus_config for x in range(4)})
 
-node0_height, _ = utils.wait_for_blocks(nodes[0],
-                                        target=TARGET_HEIGHT,
-                                        verbose=True)
+node0_height, _ = utils.wait_for_blocks(nodes[0], target=TARGET_HEIGHT)
 
 logger.info('Kill node 1')
 nodes[1].kill()
 
-node0_height, _ = utils.wait_for_blocks(nodes[0],
-                                        target=AFTER_SYNC_HEIGHT,
-                                        verbose=True)
+node0_height, _ = utils.wait_for_blocks(nodes[0], target=AFTER_SYNC_HEIGHT)
 
 logger.info('Restart node 1')
 nodes[1].start(boot_node=nodes[1])
-time.sleep(3)
 
-node1_height, _ = utils.wait_for_blocks(nodes[1],
-                                        target=node0_height,
-                                        verbose=True)
+node1_height, _ = utils.wait_for_blocks(nodes[1], target=node0_height)
 
 epoch_id = nodes[1].json_rpc('block', [node1_height],
                              timeout=15)['result']['header']['epoch_id']
@@ -83,7 +66,6 @@ for height in range(max(node1_height - 10, epoch_start_height),
     if 'result' in block0:
         blocks_count += 1
 assert blocks_count > 0
-time.sleep(1)
 
 # all old data should be GCed
 blocks_count = 0
