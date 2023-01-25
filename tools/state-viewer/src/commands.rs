@@ -828,10 +828,10 @@ pub(crate) fn stress_test_flat_storage(
                 .as_ref()
                 .clone();
             eprintln!("^ {}, len = {}", header.height(), delta.len());
-            let mut store_update = store.store_update();
+            // let mut store_update = store.store_update();
             // store_helper::set_flat_head(&mut store_update, shard_id, &block_hash);
             // delta.apply_to_flat_state(&mut store_update);
-            store_update.commit().unwrap();
+            // store_update.commit().unwrap();
         }
     }
 }
