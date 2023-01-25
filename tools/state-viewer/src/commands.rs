@@ -29,7 +29,7 @@ use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{chunk_extra::ChunkExtra, BlockHeight, ShardId, StateRoot};
 use near_primitives_core::types::Gas;
 use near_store::db::Database;
-use near_store::flat_state::store_helper;
+use near_store::flat_state::{store_helper, BlockInfo};
 use near_store::test_utils::create_test_store;
 #[cfg(feature = "protocol_feature_flat_state")]
 use near_store::DBCol;
@@ -773,7 +773,7 @@ pub(crate) fn stress_test_flat_storage(
                 .unwrap();
             let trie_storage = TrieDBStorage::new(store.clone(), shard_uid);
             let mut old_delta = FlatStateDelta::default();
-            let mut new_delta = FlatStateDelta::default();
+            // let mut new_delta = FlatStateDelta::default();
             for state_change in apply_result.trie_changes.state_changes() {
                 let key = state_change.trie_key.clone();
                 if is_delayed_receipt_key(&key.to_vec()) {
@@ -793,23 +793,12 @@ pub(crate) fn stress_test_flat_storage(
                 );
 
                 old_delta.insert(key.to_vec(), prev_value_ref);
-                new_delta.insert(key.to_vec(), value_ref);
+                // new_delta.insert(key.to_vec(), value_ref);
             }
 
             // MOVING BACKWARDS, RECORDING DELTAS
             let mut store_update = store.store_update();
             old_delta.apply_to_flat_state(&mut store_update);
-            // add fake delta items
-            let delta_items = 50_000_000u32 / 1_000;
-            for i in 0..delta_items {
-                // 50 MB / key length
-                let mut key = vec![100u8]; // start from non-existent byte
-                key.extend_from_slice(&(0..900).map(|_| rng.gen_range(0..20)).collect::<Vec<_>>()); // 900 B per length + 100 B approximate overhead
-                new_delta
-                    .insert(key, Some(ValueRef::new(&[(i / 256 % 256) as u8, (i % 256) as u8])));
-            }
-            eprintln!("len = {}", new_delta.len());
-            store_helper::set_delta(&mut store_update, shard_id, block_hash, &new_delta).unwrap();
             store_helper::set_flat_head(&mut store_update, shard_id, &prev_hash);
             store_update.commit().unwrap();
 
@@ -826,14 +815,46 @@ pub(crate) fn stress_test_flat_storage(
             block_hash = header.prev_hash().clone();
         }
 
+        let fss_height =
+            chain_store.get_block_header(block_hashes.last().unwrap()).unwrap().height().clone();
+        runtime_adapter.create_flat_storage_state_for_shard(shard_id, fss_height, &chain_store);
         for block_hash in block_hashes.drain(..).rev() {
             let header = chain_store.get_block_header(&block_hash).unwrap();
-            let delta = store_helper::get_delta(&store, shard_id, block_hash.clone())
-                .unwrap()
-                .unwrap()
-                .as_ref()
-                .clone();
-            eprintln!("^ {}, len = {}", header.height(), delta.len());
+            // let delta = store_helper::get_delta(&store, shard_id, block_hash.clone())
+            //     .unwrap()
+            //     .unwrap()
+            //     .as_ref()
+            //     .clone();
+            eprintln!("apply {} {}", header.height(), header.hash());
+
+            let (_, apply_result) =
+                apply_block(block_hash, shard_id, runtime_adapter.as_ref(), &mut chain_store, true);
+            let mut delta =
+                FlatStateDelta::from_state_changes(apply_result.trie_changes.state_changes());
+            // add fake delta items
+            let delta_items = 50_000_000u32 / 1_000;
+            for i in 0..delta_items {
+                // 50 MB / key length
+                let mut key = vec![100u8]; // start from non-existent byte
+                key.extend_from_slice(&(0..900).map(|_| rng.gen_range(0..20)).collect::<Vec<_>>()); // 900 B per length + 100 B approximate overhead
+                delta.insert(key, Some(ValueRef::new(&[(i / 256 % 256) as u8, (i % 256) as u8])));
+            }
+            eprintln!("len = {}", delta.len());
+            let flat_storage_state =
+                runtime_adapter.get_flat_storage_state_for_shard(shard_id).unwrap();
+            let store_update = flat_storage_state
+                .add_block(
+                    &block_hash,
+                    delta,
+                    BlockInfo {
+                        hash: block_hash,
+                        height: header.height(),
+                        prev_hash: header.prev_hash().clone(),
+                    },
+                )
+                .unwrap();
+            store_update.commit().unwrap();
+
             // let mut store_update = store.store_update();
             // store_helper::set_flat_head(&mut store_update, shard_id, &block_hash);
             // delta.apply_to_flat_state(&mut store_update);
