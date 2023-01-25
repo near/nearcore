@@ -115,9 +115,8 @@ async fn first_proxy_advertisement() {
     // You might want to set it explicitly within this test to not rely on defaults.
     pm.set_chain_info(chain_info).await;
     let got = pm.tier1_advertise_proxies(&clock.clock()).await;
-    tracing::info!(target:"test", "awaiting for Tier1AdvertiseProxies");
     assert_eq!(
-        got[0].proxies,
+        got.unwrap().proxies,
         vec![PeerAddr { peer_id: pm.cfg.node_id(), addr: pm.cfg.node_addr.unwrap() }]
     );
 }

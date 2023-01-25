@@ -217,9 +217,7 @@ impl NightshadeRuntime {
         error!(target: "near", "Loading genesis from a state dump file. Do not use this outside of genesis-tools");
         let mut state_file = home_dir.to_path_buf();
         state_file.push(STATE_DUMP_FILE);
-        store
-            .load_from_file(DBCol::State, state_file.as_path())
-            .expect("Failed to read state dump");
+        store.load_state_from_file(state_file.as_path()).expect("Failed to read state dump");
         let mut roots_files = home_dir.to_path_buf();
         roots_files.push(GENESIS_ROOTS_FILE);
         let data = fs::read(roots_files).expect("Failed to read genesis roots file.");

@@ -39,15 +39,17 @@ fn bad_account_data_size() {
     // rule of thumb: 1000x IPv6 should be considered too much.
     let signer = data::make_validator_signer(&mut rng);
 
-    let ad = AccountData {
-        proxies: (0..1000)
-            .map(|_| {
-                let ip = data::make_ipv6(&mut rng);
-                data::make_peer_addr(&mut rng, ip)
-            })
-            .collect(),
+    let ad = VersionedAccountData {
+        data: AccountData {
+            proxies: (0..1000)
+                .map(|_| {
+                    let ip = data::make_ipv6(&mut rng);
+                    data::make_peer_addr(&mut rng, ip)
+                })
+                .collect(),
+            peer_id: data::make_peer_id(&mut rng),
+        },
         account_key: signer.public_key(),
-        peer_id: data::make_peer_id(&mut rng),
         version: rng.gen(),
         timestamp: clock.now_utc(),
     };

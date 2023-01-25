@@ -12,7 +12,7 @@
 //!    as observed by the machine. The time::Instant itself doesn't
 //!    translate to any specific timestamp, so it is not meaningful for
 //!    anyone other than the machine doing the measurement.
-//! 2. utc_now() (aka POSIX CLOCK_REALTIME, aka time::Utc)
+//! 2. now_utc() (aka POSIX CLOCK_REALTIME, aka time::Utc)
 //!    expected to approximate the (global) UTC time.
 //!    There is NO guarantee that the subsequent reads will be monotonic,
 //!    as CLOCK_REALTIME it configurable in the OS settings, or can be updated
