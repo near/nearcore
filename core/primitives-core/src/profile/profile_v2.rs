@@ -219,19 +219,31 @@ impl Index<ExtCosts> for ProfileDataV2 {
 }
 
 impl BorshDeserialize for DataArray {
-    fn deserialize(buf: &mut &[u8]) -> Result<Self, std::io::Error> {
-        let data_vec: Vec<u64> = BorshDeserialize::deserialize(buf)?;
-        let mut data_array = [0; Self::LEN];
-        let len = Self::LEN.min(data_vec.len());
-        data_array[0..len].copy_from_slice(&data_vec[0..len]);
-        Ok(Self(Box::new(data_array)))
+    fn deserialize_reader<R: std::io::Read>(rd: &mut R) -> std::io::Result<Self> {
+        // Note that this code is slightly unoptimised.  It may lead to three
+        // separate memory allocations.  (Once when reading initial Vec, second
+        // when resizing to Self::LEN and third one when trimming excess
+        // capacity when converting into a box).  We don’t care.
+        let mut vec: Vec<u64> = BorshDeserialize::deserialize_reader(rd)?;
+        if vec.len() > Self::LEN {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("got {} but expected at most {} elements", vec.len(), Self::LEN),
+            ));
+        }
+        vec.resize(Self::LEN, 0);
+        Ok(Self(vec.into_boxed_slice().try_into().unwrap()))
     }
 }
 
 impl BorshSerialize for DataArray {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> Result<(), std::io::Error> {
-        let v: Vec<_> = self.0.as_ref().to_vec();
-        BorshSerialize::serialize(&v, writer)
+        // Despite DataArray being fixed size, we’re serialising it as
+        // dynamically-sized array.  My, mina86’s, guess is that it’s because
+        // borsh didn’t used to have implementation for [T; N].  If it wasn’t
+        // for that, we could just slap derive(BorshDeserialize, BorshSerialize)
+        // on DataArray.
+        (&self.0[..]).serialize(writer)
     }
 }
 

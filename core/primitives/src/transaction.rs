@@ -229,20 +229,19 @@ impl From<NonDelegateAction> for Action {
 }
 
 impl borsh::de::BorshDeserialize for NonDelegateAction {
-    fn deserialize(buf: &mut &[u8]) -> ::core::result::Result<Self, borsh::maybestd::io::Error> {
-        if buf.is_empty() {
+    fn deserialize_reader<R: borsh::maybestd::io::Read>(
+        rd: &mut R,
+    ) -> ::core::result::Result<Self, borsh::maybestd::io::Error> {
+        let tag = u8::deserialize_reader(rd)?;
+        if tag == ACTION_DELEGATE_NUMBER {
             return Err(Error::new(
                 ErrorKind::InvalidInput,
-                "Failed to deserialize DelegateAction",
+                "DelegateAction mustn't contain a nested one",
             ));
         }
-        match buf[0] {
-            ACTION_DELEGATE_NUMBER => Err(Error::new(
-                ErrorKind::InvalidInput,
-                "DelegateAction mustn't contain a nested one",
-            )),
-            _ => Ok(Self(borsh::BorshDeserialize::deserialize(buf)?)),
-        }
+        let buf = std::slice::from_ref(&tag);
+        let mut rd = borsh::maybestd::io::Read::chain(buf, rd);
+        borsh::BorshDeserialize::deserialize_reader(&mut rd).map(Self)
     }
 }
 
@@ -273,7 +272,7 @@ pub struct SignedDelegateAction {
 
 #[cfg(not(feature = "protocol_feature_nep366_delegate_action"))]
 impl borsh::de::BorshDeserialize for SignedDelegateAction {
-    fn deserialize(_buf: &mut &[u8]) -> ::core::result::Result<Self, borsh::maybestd::io::Error> {
+    fn deserialize_reader<R: std::io::Read>(_rd: &mut R) -> std::io::Result<Self> {
         return Err(Error::new(ErrorKind::InvalidInput, "Delegate action isn't supported"));
     }
 }
