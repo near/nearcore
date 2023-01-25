@@ -127,6 +127,7 @@ pub const MINIMUM_STAKE_DIVISOR: u64 = 10;
 pub const PROTOCOL_UPGRADE_NUM_EPOCHS: EpochHeight = 2;
 
 pub const CONFIG_FILENAME: &str = "config.json";
+pub const CONFIG_OVERRIDE_FILENAME: &str = "near_config_override.json";
 pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";
 pub const NODE_KEY_FILE: &str = "node_key.json";
 pub const VALIDATOR_KEY_FILE: &str = "validator_key.json";
@@ -658,6 +659,10 @@ impl NearConfig {
             return Some(&rpc.addr);
         }
         None
+    }
+
+    pub fn override_from_file(self, _filename: &str) -> anyhow::Result<Self> {
+        Ok(self)
     }
 }
 
@@ -1345,7 +1350,11 @@ pub fn load_config(
                         "Validator must track all shards. Please change `tracked_shards` field in config.json to be any non-empty vector");
     }
 
-    NearConfig::new(config, genesis, network_signer.into(), validator_signer)
+    let near_config = NearConfig::new(config, genesis, network_signer.into(), validator_signer);
+    if let Ok(nc) = near_config {
+        return nc.override_from_file(CONFIG_OVERRIDE_FILENAME);
+    }
+    near_config
 }
 
 pub fn load_test_config(seed: &str, port: u16, genesis: Genesis) -> NearConfig {
@@ -1512,4 +1521,50 @@ fn test_create_testnet_configs() {
 
     assert_eq!(genesis.config.validators.len() as u64, num_shards);
     assert_eq!(genesis.config.shard_layout.num_shards(), num_shards);
+}
+
+#[test]
+fn test_near_config_override() {
+    // TODO add debug logs in file
+
+    let temp_dir = tempdir().unwrap();
+
+    init_configs(
+        &temp_dir.path(),
+        Some("localnet"),
+        None,
+        Some("seed1"),
+        3,
+        false,
+        None,
+        false,
+        None,
+        None,
+        false,
+        None,
+        None,
+        None,
+    )
+    .unwrap();
+
+    let canonical_config = load_config(&temp_dir.path(), GenesisValidationMode::Full)
+    .expect("Failed to create NearConfig without override");
+
+    // TODO add wrong fields and ignored fields
+    let override_json_str = serde_json::to_string_pretty(&serde_json::json!({
+        "client_config": {
+            "min_num_peers": 0
+        }
+    })).unwrap();
+
+    let mut file = File::create(temp_dir.path().join(CONFIG_OVERRIDE_FILENAME)).unwrap();
+    file.write_all(override_json_str.as_bytes()).unwrap();
+
+    let override_config = load_config(&temp_dir.path(), GenesisValidationMode::Full)
+    .expect("Failed to create NearConfig with override");
+
+    assert_eq!(override_config.client_config.min_num_peers, 0);
+
+    // TODO also check callback messages
+
 }
