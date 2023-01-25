@@ -49,12 +49,17 @@ pub(crate) enum Error {
     SingleAccountMultipleData,
 }
 
+/// Most up-to-date AccountData of this node and a signer
+/// to sign it with when there is a need to override some
+/// already signed data received from the network. See `Cache::set_local`
+/// for more details.
 #[derive(Clone)]
 pub struct LocalData {
     pub signer: Arc<dyn ValidatorSigner>,
     pub data: Arc<AccountData>,
 }
 
+/// See module-level documentation.
 #[derive(Clone)]
 pub struct CacheSnapshot {
     /// Map from account ID to account key.
@@ -144,13 +149,19 @@ impl CacheSnapshot {
         Some(d)
     }
 
-    /// If `self.signer` is in `self.keys` then inserts `d` signed by `self.signer` into self.data
-    /// and returns the signed value. Otherwise does nothing and returns None.
-    /// Returned value should be broadcasted to the network.
-    /// Note that a new version of data is signed and inserted, even if it
-    /// represents the same data as the previous version - this is a way of informing the nodes on
-    /// the network that the node is actually alive.
-    /// Note that it will become critical in case we make AccountData expirable at some point.
+    /// Set the information about this node's account (i.e. AccountData for this node).
+    /// It should be called whenever AccountData for the current node changes. This function
+    /// is expected to be called periodically, even if AccountData doesn't change.
+    ///
+    /// If `self.signer` is in `self.keys` then it means that this node is a TIER1 node and
+    /// the new AccountData should be broadcasted immediately - set_local() will return a value
+    /// to be broadcasted then. Even if the AccountData didn't change since the last call to
+    /// set_local(), a value to be broadcasted will be returned (just with newer timestamp).
+    /// It is important to tell the network that "yes, I'm still alive, my AccountData didn't
+    /// change" (eventually we might want to use the timestamp set expiration date on AccountData).
+    ///
+    /// If `self.signer` is not in `self.keys` (this is not a TIER1 node), set_local() returns
+    /// None.
     fn set_local(
         &mut self,
         clock: &time::Clock,

@@ -90,23 +90,52 @@ impl std::str::FromStr for PeerAddr {
     }
 }
 
+/// AccountData is a piece of global state that a validator
+/// signs and broadcasts to the network. It is essentially
+/// the data that a validator wants to share with the network.
+/// All the nodes in the network are collecting the account data
+/// broadcasted by the validators.
+/// Since the number of the validators is bounded and their
+/// identity is known (and the maximal size of allowed AccountData is bounded)
+/// the global state that is distributed in the form of AccountData is bounded
+/// as well.
 #[derive(Clone, PartialEq, Eq, Debug, Hash)]
 pub struct AccountData {
+    /// ID of the node that handles the account key (aka validator key).
     pub peer_id: PeerId,
+    /// Proxy nodes that are directly connected to the validator node
+    /// (this list may include the validator node itself).
+    /// TIER1 nodes should connect to one of the proxies to sent TIER1
+    /// messages to the validator.
     pub proxies: Vec<PeerAddr>,
 }
 
+/// Wrapper of the AccountData which adds metadata to it.
+/// It allows to decide which AccountData is newer (authoritative)
+/// and discard the older versions.
 #[derive(PartialEq, Eq, Debug, Hash)]
 pub struct VersionedAccountData {
+    /// The wrapped account data.
     pub data: AccountData,
+    /// Account key of the validator signing this AccountData.
     pub account_key: PublicKey,
+    /// Version of the AccountData. Each network node stores only
+    /// the newest version of the data per validator. The newest AccountData
+    /// is the one with the lexicographically biggest (version,timestamp) tuple:
+    /// * version is a manually incremented version counter. In case a validator
+    ///   (after a restart/crash/state loss) learns from the network that it has
+    ///   already published AccountData with some version, it can immediately
+    ///   override it by signing and broadcasting AccountData with a higher version.
+    /// * timestamp is a version tie breaker, introduced only to minimize
+    ///   the risk of version collision (see accounts_data/mod.rs).
     pub version: u64,
+    /// UTC timestamp of when the AccountData has been signed.
     pub timestamp: time::Utc,
 }
 
-// Limit on the size of the serialized AccountData message.
-// It is important to have such a constraint on the serialized proto,
-// because it may contain many unknown fields (which are dropped during parsing).
+/// Limit on the size of the serialized AccountData message.
+/// It is important to have such a constraint on the serialized proto,
+/// because it may contain many unknown fields (which are dropped during parsing).
 pub const MAX_ACCOUNT_DATA_SIZE_BYTES: usize = 10000; // 10kB
 
 impl VersionedAccountData {
