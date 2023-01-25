@@ -1,4 +1,5 @@
 #![doc = include_str!("../README.md")]
+#![deny(clippy::integer_arithmetic)]
 
 pub use {tracing, tracing_appender, tracing_subscriber};
 
