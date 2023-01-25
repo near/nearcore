@@ -156,7 +156,11 @@ impl std::ops::Deref for ListenerAddr {
 
 impl ListenerAddr {
     pub fn new(addr: std::net::SocketAddr) -> Self {
-        assert!(addr.port()!=0, "using an arbitrary port for the tcp::Listener is allowed only in tests and only via new_for_test() method");
+        assert!(
+            addr.port() != 0, 
+            "using an arbitrary port for the tcp::Listener is allowed only \
+             in tests and only via new_for_test() method"
+         );
         Self { addr, guard: Arc::new(None) }
     }
 
