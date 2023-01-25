@@ -1397,8 +1397,9 @@ impl actix::Actor for PeerActor {
                 };
 
                 if !allow_reconnect {
-                    self.network_state
-                        .remove_from_recent_outbound_connections(self.other_peer_id().unwrap());
+                    if let Some(other_peer) = self.other_peer_id() {
+                        self.network_state.remove_from_recent_outbound_connections(other_peer);
+                    }
                 }
 
                 self.send_message_or_log(&PeerMessage::Disconnect(Disconnect { allow_reconnect }));
