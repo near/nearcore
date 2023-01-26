@@ -367,14 +367,14 @@ fn chunks_produced_and_distributed_one_val_per_shard_should_succeed_even_without
 #[test]
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn chunks_recovered_from_others() {
-    //    Test {
-    //        validator_groups: 2,
-    //        chunk_only_producers: false,
-    //        drop_to_4_from: &["test1"],
-    //        drop_all_chunk_forward_msgs: true,
-    //        block_timeout: 4 * CHUNK_REQUEST_SWITCH_TO_OTHERS_MS,
-    //    }
-    //    .run()
+    Test {
+        validator_groups: 2,
+        chunk_only_producers: false,
+        drop_to_4_from: &["test1"],
+        drop_all_chunk_forward_msgs: true,
+        block_timeout: 4 * CHUNK_REQUEST_SWITCH_TO_OTHERS_MS,
+    }
+    .run()
 }
 
 /// Same test as above, but the number of validator groups is four, therefore test2 doesn't have the
