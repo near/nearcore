@@ -966,7 +966,7 @@ impl FlatStorageState {
             let gc_height = guard
                 .blocks
                 .get(&block)
-                .ok_or(self.create_block_not_supported_error(&block))?
+                .ok_or(guard.create_block_not_supported_error(&block))?
                 .height;
             let hashes_to_remove: Vec<_> = guard
                 .blocks
@@ -1007,7 +1007,7 @@ impl FlatStorageState {
         let flat_head_height = guard
             .blocks
             .get(&new_head)
-            .ok_or(self.create_block_not_supported_error(&new_head))?
+            .ok_or(guard.create_block_not_supported_error(&new_head))?
             .height;
         guard.metrics.flat_head_height.set(flat_head_height as i64);
         info!(target: "chain", %shard_id, %new_head, %flat_head_height, "Moved flat storage head");
