@@ -133,9 +133,9 @@ impl TryFrom<&net::PeerMessage> for mem::PeerMessage {
                 created_at: None,
                 num_hops: Some(0),
             })),
-            net::PeerMessage::Disconnect => {
-                mem::PeerMessage::Disconnect(mem::Disconnect { allow_reconnect: true })
-            }
+            net::PeerMessage::Disconnect => mem::PeerMessage::Disconnect(mem::Disconnect {
+                remove_from_recent_outbound_connections: false,
+            }),
             net::PeerMessage::Challenge(c) => mem::PeerMessage::Challenge(c),
             net::PeerMessage::_HandshakeV2 => return Err(Self::Error::DeprecatedHandshakeV2),
             net::PeerMessage::_EpochSyncRequest => return Err(Self::Error::DeprecatedEpochSync),

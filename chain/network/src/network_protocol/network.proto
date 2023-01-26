@@ -347,7 +347,7 @@ message RoutedMessage {
 // Disconnect is send by a node before closing a TCP connection.
 // There is no guarantee that it will be sent in all circumstances.
 message Disconnect {
-  bool allow_reconnect = 1;
+  bool remove_from_recent_outbound_connections = 1;
 }
 
 // Wrapper of borsh-encoded Challenge

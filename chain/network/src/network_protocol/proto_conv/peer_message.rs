@@ -145,7 +145,8 @@ impl From<&PeerMessage> for proto::PeerMessage {
                     ..Default::default()
                 }),
                 PeerMessage::Disconnect(r) => ProtoMT::Disconnect(proto::Disconnect {
-                    allow_reconnect: r.allow_reconnect,
+                    remove_from_recent_outbound_connections: r
+                        .remove_from_recent_outbound_connections,
                     ..Default::default()
                 }),
                 PeerMessage::Challenge(r) => ProtoMT::Challenge(proto::Challenge {
@@ -270,9 +271,9 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
                     .map_err(Self::Error::RoutedCreatedAtTimestamp)?,
                 num_hops: r.num_hops,
             })),
-            ProtoMT::Disconnect(d) => {
-                PeerMessage::Disconnect(Disconnect { allow_reconnect: d.allow_reconnect })
-            }
+            ProtoMT::Disconnect(d) => PeerMessage::Disconnect(Disconnect {
+                remove_from_recent_outbound_connections: d.remove_from_recent_outbound_connections,
+            }),
             ProtoMT::Challenge(c) => PeerMessage::Challenge(
                 Challenge::try_from_slice(&c.borsh).map_err(Self::Error::Challenge)?,
             ),

@@ -197,7 +197,7 @@ impl actix::Actor for PeerManagerActor {
     fn stopping(&mut self, _ctx: &mut Self::Context) -> actix::Running {
         tracing::warn!("PeerManager: stopping");
         self.state.tier2.broadcast_message(Arc::new(PeerMessage::Disconnect(Disconnect {
-            allow_reconnect: true,
+            remove_from_recent_outbound_connections: false,
         })));
         actix::Running::Stop
     }
