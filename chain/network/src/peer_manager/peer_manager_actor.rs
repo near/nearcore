@@ -181,9 +181,9 @@ impl actix::Actor for PeerManagerActor {
 
                     if result.is_err() {
                         tracing::info!(target:"network", ?result, "failed to connect to {peer_info}");
-                        if state.peer_store.peer_connection_attempt(&clock, &peer_info.id, result).is_err() {
-                            tracing::error!(target: "network", ?peer_info, "Failed to mark peer as failed.");
-                        }
+                    }
+                    if state.peer_store.peer_connection_attempt(&clock, &peer_info.id, result).is_err() {
+                        tracing::error!(target: "network", ?peer_info, "Failed to mark peer as failed.");
                     }
                 }
             }

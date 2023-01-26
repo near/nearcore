@@ -453,7 +453,6 @@ impl PeerStore {
     }
 
     /// Records the last attempt to connect to peer.
-    /// Marks the peer as Unknown (as we failed to connect to it).
     pub fn peer_connection_attempt(
         &self,
         clock: &time::Clock,
@@ -465,6 +464,7 @@ impl PeerStore {
 
         if let Some(peer_state) = inner.peer_states.get_mut(peer_id) {
             if result.is_err() {
+                // Marks the peer status as Unknown (as we failed to connect to it).
                 peer_state.status = KnownPeerStatus::Unknown;
             }
             peer_state.last_outbound_attempt =
