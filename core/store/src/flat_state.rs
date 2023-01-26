@@ -65,12 +65,12 @@ mod imp {
 
     use crate::{Store, StoreUpdate};
 
-    /// Struct for getting value references from the flat storage.
+    /// Struct for getting value references from the flat storage, corresponding
+    /// to some block defined in `blocks_to_head`.
     ///
     /// The main interface is the `get_ref` method, which is called in `Trie::get`
-    /// `Trie::get_ref`
-    /// because they are the same for each shard and they are requested only
-    /// once during applying chunk.
+    /// and `Trie::get_ref` because they are the same for each shard and they are
+    /// requested only once during applying chunk.
     // TODO (#7327): lock flat state when `get_ref` is called or head is being updated. Otherwise, `apply_chunks` and
     // `postprocess_block` parallel execution may corrupt the state.
     #[derive(Clone)]
@@ -79,8 +79,9 @@ mod imp {
         /// It should store all trie keys and values/value refs for the state on top of
         /// flat_storage_state.head, except for delayed receipt keys.
         store: Store,
-        /// Blocks ordered from block for which `FlatState` was created to the flat state head.
-        /// Used to access flat storage deltas.
+        /// Blocks ordered from block for which this `FlatState` was created to the
+        /// flat state head, so they come in backwards chain order.
+        /// Used to find updates for state keys in flat storage deltas.
         blocks_to_head: Vec<CryptoHash>,
         /// In-memory cache for the key value pairs stored on disk.
         #[allow(unused)]
@@ -359,7 +360,7 @@ pub struct KeyForFlatStateDelta {
 
 /// Delta of the state for some shard and block, stores mapping from keys to value refs or None, if key was removed in
 /// this block.
-#[derive(BorshSerialize, BorshDeserialize, Default, Debug, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Default, Debug, PartialEq, Eq)]
 pub struct FlatStateDelta(HashMap<Vec<u8>, Option<ValueRef>>);
 
 impl<const N: usize> From<[(Vec<u8>, Option<ValueRef>); N]> for FlatStateDelta {
@@ -794,12 +795,13 @@ impl FlatStorageStateInner {
         FlatStorageError::BlockNotSupported((self.flat_head, *block_hash))
     }
 
+    /// Gets delta for the given block and shard `self.shard_id`.
     fn get_delta(&self, block_hash: &CryptoHash) -> Result<Arc<FlatStateDelta>, FlatStorageError> {
         // ! change to reading Ds from disk
         Ok(self.deltas.get(block_hash).unwrap().clone())
     }
 
-    /// Get deltas between blocks `target_block_hash`(inclusive) to flat head(exclusive),
+    /// Get sequence of blocks `target_block_hash` (inclusive) to flat head (exclusive)
     /// in backwards chain order. Returns an error if there is no path between them.
     fn get_blocks_to_head(
         &self,
@@ -909,6 +911,8 @@ impl FlatStorageState {
         })))
     }
 
+    /// Gets delta for the given block and shard id which `FlatStorageState`
+    /// corresponds to.
     #[cfg(feature = "protocol_feature_flat_state")]
     fn get_delta(&self, block_hash: &CryptoHash) -> Result<Arc<FlatStateDelta>, FlatStorageError> {
         let guard = self.0.write().expect(POISONED_LOCK_ERR);
@@ -916,12 +920,13 @@ impl FlatStorageState {
     }
 
     #[cfg(not(feature = "protocol_feature_flat_state"))]
+    #[allow(unused)]
     fn get_delta(&self, _block_hash: &CryptoHash) -> Result<Arc<FlatStateDelta>, FlatStorageError> {
         Err(FlatStorageError::StorageInternalError)
     }
 
-    /// Get deltas between blocks `target_block_hash`(inclusive) to flat head(inclusive),
-    /// in backwards chain order. Returns an error if there is no path between these two them.
+    /// Get sequence of blocks `target_block_hash` (inclusive) to flat head (exclusive)
+    /// in backwards chain order. Returns an error if there is no path between them.
     #[cfg(feature = "protocol_feature_flat_state")]
     fn get_blocks_to_head(
         &self,
@@ -949,7 +954,7 @@ impl FlatStorageState {
         let blocks = guard.get_blocks_to_head(new_head)?;
         for block in blocks.into_iter().rev() {
             let mut store_update = StoreUpdate::new(guard.store.storage.clone());
-            let delta = guard.get_delta(&block);
+            let delta = guard.get_delta(&block)?.as_ref().clone();
             delta.apply_to_flat_state(&mut store_update);
             store_helper::set_flat_head(&mut store_update, guard.shard_id, &block);
 
@@ -957,7 +962,7 @@ impl FlatStorageState {
             // Do it for each head update separately to ensure that old data is removed properly if node was
             // interrupted in the middle.
             // TODO (#7327): in case of long forks it can take a while and delay processing of some chunk.
-            // Consider avoid iterating over all blocks and making removals lazy.
+            // Consider avoid iterating over all blocks and make removals lazy.
             let gc_height = guard.blocks.get(&block).unwrap().height;
             let hashes_to_remove: Vec<_> = guard
                 .blocks
@@ -979,7 +984,7 @@ impl FlatStorageState {
                     None => {}
                 }
 
-                // Note that wу need to keep block info for new flat storage head to know its height.
+                // Note that we need to keep block info for new flat storage head to know its height.
                 if &hash != new_head {
                     match guard.blocks.remove(&hash) {
                         Some(_) => {
