@@ -567,8 +567,7 @@ impl Handler<WithSpanContext<RecvPartialEncodedChunkRequest>> for ClientActor {
     ) {
         self.wrap(msg, ctx, "RecvPartialEncodedChunkRequest", |this, msg| {
             let RecvPartialEncodedChunkRequest(part_request_msg, route_back) = msg;
-            let _ = this
-                .client
+            this.client
                 .shards_mgr
                 .process_partial_encoded_chunk_request(part_request_msg, route_back);
         })
