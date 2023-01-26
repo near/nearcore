@@ -76,10 +76,9 @@ tests when run as the main module rather than just defining the tests
 function.  To make that happen it’s best to implement the tests using
 the python's unittest framework but trigger them manually from within
 the `__main__` condition like so:
-```
-if __name__ == "__main__":
-    unittest.main()
-```
+
+    if __name__ == "__main__":
+        unittest.main()
 
 Alternatively, using the legacy way, the tests can be defined as
 `test_<foo>` functions with test bodies and than executed in

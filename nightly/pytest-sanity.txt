@@ -147,3 +147,4 @@ pytest sanity/meta_tx.py --features nightly
 
 # Tests for split storage and split storage migration
 pytest sanity/split_storage.py
+pytest sanity/split_storage.py --features nightly

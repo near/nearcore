@@ -31,11 +31,16 @@ impl ColdStoreLoopHandle {
     }
 }
 
-/// The status of the cold store loop indicates if the loop should sleep before
-/// the next copy attempt or if it should actively continue copying.
-enum ColdStoreLoopStatus {
-    Sleep,
-    Continue,
+/// The ColdStoreCopyResult indicates if and what block was copied.
+enum ColdStoreCopyResult {
+    // No block was copied. The cold head is up to date with the final head.
+    NoBlockCopied,
+    /// The final head block was copied. This is the latest block
+    /// that could be copied until new block is finalized.
+    LatestBlockCopied,
+    /// A block older than the final head block was copied. There
+    /// are more blocks that can be copied immediately.
+    OtherBlockCopied,
 }
 
 // Checks if cold store head is behind the final head and if so copies data
@@ -46,7 +51,7 @@ fn cold_store_copy(
     cold_db: &Arc<ColdDB>,
     genesis_height: BlockHeight,
     runtime: &Arc<NightshadeRuntime>,
-) -> anyhow::Result<ColdStoreLoopStatus> {
+) -> anyhow::Result<ColdStoreCopyResult> {
     // If COLD_HEAD is not set for hot storage we default it to genesis_height.
     let cold_head = cold_store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)?;
     let cold_head_height = cold_head.map_or(genesis_height, |tip| tip.height);
@@ -66,7 +71,7 @@ fn cold_store_copy(
     }
 
     if cold_head_height >= hot_final_head_height {
-        return Ok(ColdStoreLoopStatus::Sleep);
+        return Ok(ColdStoreCopyResult::NoBlockCopied);
     }
 
     // TODO - there may be holes in the chain where there is no block at a given height
@@ -78,14 +83,8 @@ fn cold_store_copy(
     // Because BlockHeight is never garbage collectable and is not even copied to cold.
     let cold_head_hash =
         hot_store.get_ser::<CryptoHash>(DBCol::BlockHeight, &cold_head_height.to_le_bytes())?;
-    let cold_head_hash = match cold_head_hash {
-        Some(cold_head_hash) => cold_head_hash,
-        None => {
-            return Err(anyhow::anyhow!(
-                "Failed to read the cold head hash at height {cold_head_height}"
-            ))
-        }
-    };
+    let cold_head_hash = cold_head_hash
+        .ok_or(anyhow::anyhow!("Failed to read the cold head hash at height {cold_head_height}"))?;
 
     // The previous block is the cold head so we can use it to get epoch id.
     let epoch_id = &runtime.get_epoch_id_from_prev_block(&cold_head_hash)?;
@@ -96,9 +95,9 @@ fn cold_store_copy(
     update_cold_head(cold_db, hot_store, &next_height)?;
 
     if next_height >= hot_final_head_height {
-        Ok(ColdStoreLoopStatus::Sleep)
+        Ok(ColdStoreCopyResult::LatestBlockCopied)
     } else {
-        Ok(ColdStoreLoopStatus::Continue)
+        Ok(ColdStoreCopyResult::OtherBlockCopied)
     }
 }
 
@@ -125,15 +124,25 @@ fn cold_store_loop(
         }
         let status = cold_store_copy(&hot_store, &cold_store, &cold_db, genesis_height, &runtime);
 
+        let sleep_duration = std::time::Duration::from_secs(1);
         match status {
             Err(err) => {
                 tracing::error!(target:"cold_store", "cold_store_copy failed with error : {err}");
-                std::thread::sleep(std::time::Duration::from_secs(1));
+                std::thread::sleep(sleep_duration);
             }
-            Ok(ColdStoreLoopStatus::Sleep) => {
-                std::thread::sleep(std::time::Duration::from_secs(1));
+            // If no block was copied the cold head is up to date with final head and
+            // this loop should sleep while waiting for a new block to get finalized.
+            Ok(ColdStoreCopyResult::NoBlockCopied) => {
+                std::thread::sleep(sleep_duration);
             }
-            Ok(ColdStoreLoopStatus::Continue) => {
+            // The final head block was copied. There are no more blocks to be copied now
+            // this loop should sleep while waiting for a new block to get finalized.
+            Ok(ColdStoreCopyResult::LatestBlockCopied) => {
+                std::thread::sleep(sleep_duration);
+            }
+            // A block older than the final head was copied. We should continue copying
+            // until cold head reaches final head.
+            Ok(ColdStoreCopyResult::OtherBlockCopied) => {
                 continue;
             }
         }
