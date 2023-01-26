@@ -24,7 +24,7 @@ use near_primitives::views::{
     StateChangesKindsView, StateChangesRequestView, StateChangesView, SyncStatusView,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// Combines errors coming from chain, tx pool and block producer.
 #[derive(Debug, thiserror::Error)]
@@ -964,6 +964,46 @@ impl From<near_chain_primitives::Error> for GetClientConfigError {
             near_chain_primitives::Error::IOErr(error) => Self::IOError(error.to_string()),
             _ => Self::Unreachable(error.to_string()),
         }
+    }
+}
+
+pub struct GetSplitStorageInfo {}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct GetSplitStorageInfoResult {
+    pub head_height: Option<BlockHeight>,
+    pub final_head_height: Option<BlockHeight>,
+    pub cold_head_height: Option<BlockHeight>,
+}
+
+impl Message for GetSplitStorageInfo {
+    type Result = Result<GetSplitStorageInfoResult, GetSplitStorageInfoError>;
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum GetSplitStorageInfoError {
+    #[error("IO Error: {0}")]
+    IOError(String),
+    // NOTE: Currently, the underlying errors are too broad, and while we tried to handle
+    // expected cases, we cannot statically guarantee that no other errors will be returned
+    // in the future.
+    // TODO #3851: Remove this variant once we can exhaustively match all the underlying errors
+    #[error("It is a bug if you receive this error type, please, report this incident: https://github.com/near/nearcore/issues/new/choose. Details: {0}")]
+    Unreachable(String),
+}
+
+impl From<near_chain_primitives::Error> for GetSplitStorageInfoError {
+    fn from(error: near_chain_primitives::Error) -> Self {
+        match error {
+            near_chain_primitives::Error::IOErr(error) => Self::IOError(error.to_string()),
+            _ => Self::Unreachable(error.to_string()),
+        }
+    }
+}
+
+impl From<std::io::Error> for GetSplitStorageInfoError {
+    fn from(error: std::io::Error) -> Self {
+        Self::IOError(error.to_string())
     }
 }
 
