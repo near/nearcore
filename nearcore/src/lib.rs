@@ -9,21 +9,16 @@ use anyhow::Context;
 use cold_storage::ColdStoreLoopHandle;
 use near_chain::{Chain, ChainGenesis};
 use near_client::{start_client, start_view_client, ClientActor, ConfigUpdater, ViewClientActor};
-
 use near_network::time;
 use near_network::types::NetworkRecipient;
 use near_network::PeerManagerActor;
 use near_primitives::block::GenesisId;
-
 use near_store::{DBCol, Mode, NodeStorage, StoreOpenerError, Temperature};
 use near_telemetry::TelemetryActor;
 use std::path::{Path, PathBuf};
-
 use std::sync::Arc;
-
 use tokio::sync::broadcast;
 use tracing::{info, trace};
-
 pub mod append_only_map;
 mod cold_storage;
 pub mod config;
@@ -155,6 +150,8 @@ pub struct NearNode {
     pub view_client: Addr<ViewClientActor>,
     pub arbiters: Vec<ArbiterHandle>,
     pub rpc_servers: Vec<(&'static str, actix_web::dev::ServerHandle)>,
+    /// The cold_store_loop_handle will only be set if the cold store is configured.
+    /// It's a handle to a background thread that copies data from the hot store to the cold store.
     pub cold_store_loop_handle: Option<ColdStoreLoopHandle>,
 }
 

@@ -47,29 +47,31 @@ fn cold_store_copy(
     genesis_height: BlockHeight,
     runtime: &Arc<NightshadeRuntime>,
 ) -> anyhow::Result<ColdStoreLoopStatus> {
+    // If COLD_HEAD is not set for hot storage we default it to genesis_height.
     let cold_head = cold_store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)?;
-    let cold_head_height = match cold_head {
-        Some(cold_head) => cold_head.height,
-        None => genesis_height,
-    };
+    let cold_head_height = cold_head.map_or(genesis_height, |tip| tip.height);
 
-    // If FINAL_HEAD is not set for hot storage though, we default it to 0.
+    // If FINAL_HEAD is not set for hot storage we default it to genesis_height.
     let hot_final_head = hot_store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?;
-    let hot_final_head_height = match hot_final_head {
-        Some(hot_final_head) => hot_final_head.height,
-        None => genesis_height,
-    };
+    let hot_final_head_height = hot_final_head.map_or(genesis_height, |tip| tip.height);
 
     tracing::debug!(target: "cold_store", "cold store loop, cold_head {}, hot_final_head {}", cold_head_height, hot_final_head_height);
 
     if cold_head_height > hot_final_head_height {
-        tracing::error!(target: "cold_store", "Error, cold head is ahead of final head, this should never take place!");
+        return Err(anyhow::anyhow!(
+            "Cold head is ahead of final head. cold head height: {} final head height {}",
+            cold_head_height,
+            hot_final_head_height
+        ));
     }
 
     if cold_head_height >= hot_final_head_height {
         return Ok(ColdStoreLoopStatus::Sleep);
     }
 
+    // TODO - there may be holes in the chain where there is no block at a given height
+    // We should make sure to fix the current implementation to account for that.
+    // https://pagodaplatform.atlassian.net/browse/ND-285
     let next_height = cold_head_height + 1;
 
     // Here it should be sufficient to just read from hot storage.
@@ -78,7 +80,11 @@ fn cold_store_copy(
         hot_store.get_ser::<CryptoHash>(DBCol::BlockHeight, &cold_head_height.to_le_bytes())?;
     let cold_head_hash = match cold_head_hash {
         Some(cold_head_hash) => cold_head_hash,
-        None => return Err(anyhow::anyhow!("Failed to read the cold head hash")),
+        None => {
+            return Err(anyhow::anyhow!(
+                "Failed to read the cold head hash at height {cold_head_height}"
+            ))
+        }
     };
 
     // The previous block is the cold head so we can use it to get epoch id.
@@ -146,7 +152,6 @@ pub fn spawn_cold_store_loop(
     storage: &NodeStorage,
     runtime: Arc<NightshadeRuntime>,
 ) -> anyhow::Result<Option<ColdStoreLoopHandle>> {
-    tracing::info!("tracing info spawn cold store loop");
     let hot_store = storage.get_hot_store();
     let cold_store = match storage.get_cold_store() {
         Some(cold_store) => cold_store,
@@ -167,6 +172,7 @@ pub fn spawn_cold_store_loop(
     let keep_going = Arc::new(AtomicBool::new(true));
     let keep_going_clone = keep_going.clone();
 
+    tracing::info!(target:"cold_store", "Spawning cold store loop");
     let join_handle =
         std::thread::Builder::new().name("cold_store_loop".to_string()).spawn(move || {
             cold_store_loop(
