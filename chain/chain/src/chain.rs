@@ -3172,7 +3172,6 @@ impl Chain {
         let chunk = shard_state_header.cloned_chunk();
 
         let block_hash = chunk.prev_block();
-        let block_height = self.get_block_header(block_hash)?.height();
 
         // Flat storage must not exist at this point because leftover keys corrupt its state.
         assert!(self.runtime_adapter.get_flat_storage_state_for_shard(shard_id).is_none());
@@ -3190,11 +3189,18 @@ impl Chain {
         if self.runtime_adapter.get_flat_storage_creation_status(shard_id)
             == FlatStorageCreationStatus::Ready
         {
-            self.runtime_adapter.create_flat_storage_state_for_shard(
-                shard_id,
-                block_height,
-                self.store(),
-            );
+            // If block_hash is equal to default - this means that we're all the way back at genesis.
+            // So we don't have to add the storage state for shard in such case.
+            // TODO(8438) - add additional test scenarios for this case.
+            if *block_hash != CryptoHash::default() {
+                let block_height = self.get_block_header(block_hash)?.height();
+
+                self.runtime_adapter.create_flat_storage_state_for_shard(
+                    shard_id,
+                    block_height,
+                    self.store(),
+                );
+            }
         }
 
         let mut height = shard_state_header.chunk_height_included();

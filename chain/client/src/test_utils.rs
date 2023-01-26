@@ -12,7 +12,7 @@ use near_primitives::test_utils::create_test_signer;
 use num_rational::Ratio;
 use once_cell::sync::OnceCell;
 use rand::{thread_rng, Rng};
-use tracing::{info, warn};
+use tracing::info;
 
 use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor};
 use near_chain::chain::{do_apply_chunks, BlockCatchUpRequest, StateSplitRequest};
@@ -1488,26 +1488,21 @@ impl TestEnv {
         request: PartialEncodedChunkRequestMsg,
     ) -> Option<PartialEncodedChunkResponseMsg> {
         let client = &mut self.clients[id];
-        if client
+        client
             .shards_mgr
-            .process_partial_encoded_chunk_request(request.clone(), CryptoHash::default())
+            .process_partial_encoded_chunk_request(request.clone(), CryptoHash::default());
+
+        let response = self.network_adapters[id].pop_most_recent().unwrap();
+        if let PeerManagerMessageRequest::NetworkRequests(
+            NetworkRequests::PartialEncodedChunkResponse { route_back: _, response },
+        ) = response
         {
-            let response = self.network_adapters[id].pop_most_recent().unwrap();
-            if let PeerManagerMessageRequest::NetworkRequests(
-                NetworkRequests::PartialEncodedChunkResponse { route_back: _, response },
-            ) = response
-            {
-                Some(response)
-            } else {
-                panic!(
-                    "did not find PartialEncodedChunkResponse from the network queue {:?}",
-                    response
-                );
-            }
+            Some(response)
         } else {
-            // TODO: Somehow this may fail at epoch boundaries. Figure out why.
-            warn!("Failed to process PartialEncodedChunkRequest from client {}: {:?}", id, request);
-            None
+            panic!(
+                "did not find PartialEncodedChunkResponse from the network queue {:?}",
+                response
+            );
         }
     }
 
