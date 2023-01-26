@@ -52,10 +52,6 @@ async fn test_recent_outbound_connection() {
 
     // check that pm2 stores the outbound connection to pm0
     check_recent_outbound_connections(&pm2, vec![id0.clone()]).await;
-
-    drop(pm0);
-    drop(pm1);
-    drop(pm2);
 }
 
 #[tokio::test]
@@ -87,9 +83,6 @@ async fn test_recent_outbound_connection_after_disconnect() {
     // check that pm0 retains the stored outbound connection to pm1 after disconnect
     clock.advance(UPDATE_RECENT_OUTBOUND_CONNECTIONS_INTERVAL);
     check_recent_outbound_connections(&pm0, vec![id1.clone()]).await;
-
-    drop(pm0);
-    drop(pm1);
 }
 
 #[tokio::test]
@@ -130,11 +123,6 @@ async fn test_outbound_connection_storage_order() {
     pm0.wait_for_num_connected_peers(2).await;
     clock.advance(UPDATE_RECENT_OUTBOUND_CONNECTIONS_INTERVAL);
     check_recent_outbound_connections(&pm0, vec![id3.clone(), id1.clone(), id2.clone()]).await;
-
-    drop(pm0);
-    drop(pm1);
-    drop(pm2);
-    drop(pm3);
 }
 
 #[tokio::test]
@@ -164,9 +152,6 @@ async fn test_reconnect_after_restart_outbound_side() {
     drop(pm0);
     let pm0 = start_pm(clock.clock(), pm0_db, chain.make_config(rng), chain.clone()).await;
     pm0.wait_for_direct_connection(id1.clone()).await;
-
-    drop(pm0);
-    drop(pm1);
 }
 
 #[tokio::test]
@@ -202,10 +187,7 @@ async fn test_reconnect_after_restart_inbound_side() {
 
     // drop pm1 and start it again with the same config, check that pm0 reconnects
     drop(pm1);
-    let pm1 = start_pm(clock.clock(), TestDB::new(), pm1_cfg.clone(), chain.clone()).await;
+    let _pm1 = start_pm(clock.clock(), TestDB::new(), pm1_cfg.clone(), chain.clone()).await;
     clock.advance(RECONNECT_ATTEMPT_INTERVAL);
     pm0.wait_for_direct_connection(id1.clone()).await;
-
-    drop(pm0);
-    drop(pm1);
 }
