@@ -797,8 +797,13 @@ impl FlatStorageStateInner {
 
     /// Gets delta for the given block and shard `self.shard_id`.
     fn get_delta(&self, block_hash: &CryptoHash) -> Result<Arc<FlatStateDelta>, FlatStorageError> {
-        // ! change to reading Ds from disk
-        Ok(self.deltas.get(block_hash).unwrap().clone())
+        // TODO (#7327): add limitation on cached deltas number to limit RAM usage
+        // and read single `ValueRef` from delta if it is not cached.
+        Ok(self
+            .deltas
+            .get(block_hash)
+            .ok_or(self.create_block_not_supported_error(block_hash))?
+            .clone())
     }
 
     /// Get sequence of blocks `target_block_hash` (inclusive) to flat head (exclusive)
