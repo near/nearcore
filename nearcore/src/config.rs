@@ -1121,7 +1121,7 @@ pub fn create_testnet_configs_from_seeds(
         shard_layout,
     );
     let mut configs = vec![];
-    let first_node_port = open_port();
+    let first_node_addr = open_port();
     for i in 0..seeds.len() {
         let mut config = Config::default();
         config.rpc.get_or_insert(Default::default()).enable_debug_rpc = true;
@@ -1129,12 +1129,12 @@ pub fn create_testnet_configs_from_seeds(
         config.consensus.max_block_production_delay = Duration::from_millis(2000);
         if local_ports {
             config.network.addr =
-                format!("127.0.0.1:{}", if i == 0 { first_node_port } else { open_port() });
-            config.set_rpc_addr(format!("127.0.0.1:{}", open_port()));
+                if i == 0 { first_node_addr.to_string() } else { open_port().to_string() };
+            config.set_rpc_addr(open_port().to_string());
             config.network.boot_nodes = if i == 0 {
                 "".to_string()
             } else {
-                format!("{}@127.0.0.1:{}", network_signers[0].public_key, first_node_port)
+                format!("{}@{}", network_signers[0].public_key, first_node_addr)
             };
             config.network.skip_sync_wait = num_validator_seats == 1;
         }
