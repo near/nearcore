@@ -10,7 +10,7 @@ use near_vm_runner::internal::VMKind;
 use replay::ReplayCmd;
 use runtime_params_estimator::config::{Config, GasMetric};
 use runtime_params_estimator::{
-    costs_to_runtime_config, CostTable, QemuCommandBuilder, RocksDBTestConfig,
+    costs_to_runtime_config, Cost, CostTable, QemuCommandBuilder, RocksDBTestConfig,
 };
 use std::env;
 use std::fmt::Write;
@@ -63,8 +63,8 @@ struct CliArgs {
     #[clap(long, requires("costs-file"))]
     compare_to: Option<PathBuf>,
     /// Coma-separated lists of a subset of costs to estimate.
-    #[clap(long)]
-    costs: Option<String>,
+    #[clap(long, use_value_delimiter = true)]
+    costs: Option<Vec<Cost>>,
     /// Build and run the estimator inside a docker container via QEMU.
     #[clap(long)]
     docker: bool,
@@ -258,7 +258,6 @@ fn main() -> anyhow::Result<()> {
         None => VMKind::for_protocol_version(PROTOCOL_VERSION),
         Some(other) => unreachable!("Unknown vm_kind {}", other),
     };
-    let costs_to_measure = cli_args.costs.map(|it| it.split(',').map(str::to_string).collect());
 
     let config = Config {
         warmup_iters_per_block,
@@ -268,7 +267,7 @@ fn main() -> anyhow::Result<()> {
         state_dump_path: state_dump_path,
         metric,
         vm_kind,
-        costs_to_measure,
+        costs_to_measure: cli_args.costs,
         rocksdb_test_config,
         debug: cli_args.debug,
         json_output: cli_args.json_output,
@@ -446,7 +445,9 @@ fn read_costs_table(path: &Path) -> anyhow::Result<CostTable> {
     fs::read_to_string(&path)
         .with_context(|| format!("failed to read costs file: {}", path.display()))?
         .parse::<CostTable>()
-        .map_err(|()| anyhow::format_err!("failed to parse costs file: {}", path.display()))
+        .map_err(|e| {
+            anyhow::format_err!("failed to parse costs file at {} due to {e}", path.display())
+        })
 }
 
 fn exec(command: &str) -> anyhow::Result<String> {

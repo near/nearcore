@@ -7,7 +7,6 @@ use std::sync::Arc;
 use std::{fmt, io};
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use metadata::{DbKind, DbVersion, KIND_KEY, VERSION_KEY};
 use once_cell::sync::Lazy;
 
@@ -82,6 +81,12 @@ impl FromStr for Temperature {
         }
     }
 }
+
+#[cfg(feature = "protocol_feature_flat_state")]
+const STATE_COLUMNS: [DBCol; 2] = [DBCol::State, DBCol::FlatState];
+#[cfg(not(feature = "protocol_feature_flat_state"))]
+const STATE_COLUMNS: [DBCol; 1] = [DBCol::State];
+const STATE_FILE_END_MARK: u8 = 255;
 
 /// Node’s storage holding chain and all other necessary data.
 ///
@@ -321,39 +326,58 @@ impl Store {
             .map(|item| item.and_then(|(key, value)| Ok((key, T::try_from_slice(value.as_ref())?))))
     }
 
-    pub fn save_to_file(&self, column: DBCol, filename: &Path) -> io::Result<()> {
+    /// Saves state (`State` and `FlatState` columns) to given file.
+    ///
+    /// The format of the file is a list of `(column_index as u8, key_length as
+    /// u32, key, value_length as u32, value)` records terminated by a single
+    /// 255 byte.  `column_index` refers to state columns listed in
+    /// `STATE_COLUMNS` array.
+    pub fn save_state_to_file(&self, filename: &Path) -> io::Result<()> {
         let file = File::create(filename)?;
         let mut file = BufWriter::new(file);
-        for item in self.storage.iter_raw_bytes(column) {
-            let (key, value) = item?;
-            file.write_u32::<LittleEndian>(key.len() as u32)?;
-            file.write_all(&key)?;
-            file.write_u32::<LittleEndian>(value.len() as u32)?;
-            file.write_all(&value)?;
+        for (column_index, &column) in STATE_COLUMNS.iter().enumerate() {
+            assert!(column_index < STATE_FILE_END_MARK.into());
+            let column_index = column_index.try_into().unwrap();
+            for item in self.storage.iter_raw_bytes(column) {
+                let (key, value) = item?;
+                file.write_all(&[column_index])?;
+                file.write_all(&u32::try_from(key.len()).unwrap().to_le_bytes())?;
+                file.write_all(&key)?;
+                file.write_all(&u32::try_from(value.len()).unwrap().to_le_bytes())?;
+                file.write_all(&value)?;
+            }
         }
-        Ok(())
+        file.write_all(&[STATE_FILE_END_MARK])
     }
 
-    pub fn load_from_file(&self, column: DBCol, filename: &Path) -> io::Result<()> {
+    /// Loads state (`State` and `FlatState` columns) from given file.
+    ///
+    /// See [`Self::save_state_to_file`] for description of the file format.
+    pub fn load_state_from_file(&self, filename: &Path) -> io::Result<()> {
         let file = File::open(filename)?;
         let mut file = BufReader::new(file);
         let mut transaction = DBTransaction::new();
         loop {
-            let key_len = match file.read_u32::<LittleEndian>() {
-                Ok(key_len) => key_len as usize,
-                Err(err) if err.kind() == io::ErrorKind::UnexpectedEof => break,
-                Err(err) => return Err(err),
-            };
-            let mut key = vec![0; key_len];
-            file.read_exact(&mut key)?;
-
-            let value_len = file.read_u32::<LittleEndian>()? as usize;
-            let mut value = vec![0; value_len];
-            file.read_exact(&mut value)?;
-
+            let mut column_index = [0u8; 1];
+            file.read_exact(&mut column_index)?;
+            if column_index[0] == STATE_FILE_END_MARK {
+                break;
+            }
+            let column = STATE_COLUMNS[column_index[0] as usize];
+            let key = Self::read_vec(&mut file)?;
+            let value = Self::read_vec(&mut file)?;
             transaction.set(column, key, value);
         }
         self.storage.write(transaction)
+    }
+
+    fn read_vec(rd: &mut impl io::BufRead) -> io::Result<Vec<u8>> {
+        let mut bytes = [0; 4];
+        rd.read_exact(&mut bytes)?;
+        // TODO(mina86): Use read_buf_exact once read_buf stabilises.
+        let mut vec = vec![0; u32::from_le_bytes(bytes) as usize];
+        rd.read_exact(&mut vec)?;
+        Ok(vec)
     }
 
     /// If the storage is backed by disk, flushes any in-memory data to disk.
@@ -1051,5 +1075,67 @@ mod tests {
         assert_eq!((), cache.put(&key, record.clone()).unwrap());
         assert_eq!(Some(record), cache.get(&key).unwrap());
         assert_eq!(true, cache.has(&key).unwrap());
+    }
+
+    /// Check saving and reading columns to/from a file.
+    #[test]
+    fn test_save_to_file() {
+        let mut tmp = tempfile::NamedTempFile::new().unwrap();
+
+        {
+            let store = crate::test_utils::create_test_store();
+            let mut store_update = store.store_update();
+            store_update.increment_refcount(DBCol::State, &[1], &[1]);
+            store_update.increment_refcount(DBCol::State, &[2], &[2]);
+            store_update.increment_refcount(DBCol::State, &[2], &[2]);
+            store_update.commit().unwrap();
+            store.save_state_to_file(tmp.path()).unwrap();
+        }
+
+        // Verify expected encoding.
+        {
+            let mut buffer = Vec::new();
+            std::io::Read::read_to_end(tmp.as_file_mut(), &mut buffer).unwrap();
+            #[rustfmt::skip]
+            assert_eq!(&[
+                /* column: */ 0, /* key len: */ 1, 0, 0, 0, /* key: */ 1,
+                                 /* val len: */ 9, 0, 0, 0, /* val: */ 1, 1, 0, 0, 0, 0, 0, 0, 0,
+                /* column: */ 0, /* key len: */ 1, 0, 0, 0, /* key: */ 2,
+                                 /* val len: */ 9, 0, 0, 0, /* val: */ 2, 2, 0, 0, 0, 0, 0, 0, 0,
+                /* end mark: */ 255,
+            ][..], buffer.as_slice());
+        }
+
+        {
+            // Fresh storage, should have no data.
+            let store = crate::test_utils::create_test_store();
+            assert_eq!(None, store.get(DBCol::State, &[1]).unwrap());
+            assert_eq!(None, store.get(DBCol::State, &[2]).unwrap());
+
+            // Read data from file.
+            store.load_state_from_file(tmp.path()).unwrap();
+            assert_eq!(Some(&[1u8][..]), store.get(DBCol::State, &[1]).unwrap().as_deref());
+            assert_eq!(Some(&[2u8][..]), store.get(DBCol::State, &[2]).unwrap().as_deref());
+
+            // Key &[2] should have refcount of two so once decreased it should
+            // still exist.
+            let mut store_update = store.store_update();
+            store_update.decrement_refcount(DBCol::State, &[1]);
+            store_update.decrement_refcount(DBCol::State, &[2]);
+            store_update.commit().unwrap();
+            assert_eq!(None, store.get(DBCol::State, &[1]).unwrap());
+            assert_eq!(Some(&[2u8][..]), store.get(DBCol::State, &[2]).unwrap().as_deref());
+        }
+
+        // Verify detection of corrupt file.
+        let file = std::fs::File::options().write(true).open(tmp.path()).unwrap();
+        let len = file.metadata().unwrap().len();
+        file.set_len(len.saturating_sub(1)).unwrap();
+        core::mem::drop(file);
+        let store = crate::test_utils::create_test_store();
+        assert_eq!(
+            std::io::ErrorKind::UnexpectedEof,
+            store.load_state_from_file(tmp.path()).unwrap_err().kind()
+        );
     }
 }

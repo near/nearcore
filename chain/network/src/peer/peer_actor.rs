@@ -363,6 +363,13 @@ impl PeerActor {
             // peer message type for that and then we can enable this check again.
             //PeerMessage::Block(b) if self.tracker.lock().has_received(b.hash()) => return,
             PeerMessage::BlockRequest(h) => self.tracker.lock().push_request(*h),
+            PeerMessage::SyncAccountsData(d) => metrics::SYNC_ACCOUNTS_DATA
+                .with_label_values(&[
+                    "sent",
+                    metrics::bool_to_str(d.incremental),
+                    metrics::bool_to_str(d.requesting_full_sync),
+                ])
+                .inc(),
             _ => (),
         };
 
@@ -1138,6 +1145,13 @@ impl PeerActor {
                 }));
             }
             PeerMessage::SyncAccountsData(msg) => {
+                metrics::SYNC_ACCOUNTS_DATA
+                    .with_label_values(&[
+                        "received",
+                        metrics::bool_to_str(msg.incremental),
+                        metrics::bool_to_str(msg.requesting_full_sync),
+                    ])
+                    .inc();
                 let network_state = self.network_state.clone();
                 // In case a full sync is requested, immediately send what we got.
                 // It is a microoptimization: we do not send back the data we just received.
@@ -1163,8 +1177,11 @@ impl PeerActor {
                     return;
                 }
                 let network_state = self.network_state.clone();
+                let clock = self.clock.clone();
                 ctx.spawn(wrap_future(async move {
-                    if let Some(err) = network_state.add_accounts_data(msg.accounts_data).await {
+                    if let Some(err) =
+                        network_state.add_accounts_data(&clock, msg.accounts_data).await
+                    {
                         conn.stop(Some(match err {
                             accounts_data::Error::InvalidSignature => {
                                 ReasonForBan::InvalidSignature

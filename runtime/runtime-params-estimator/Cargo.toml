@@ -70,6 +70,8 @@ nightly_protocol = [
   "near-test-contracts/nightly",
   "protocol_feature_nep366_delegate_action",
 ]
-protocol_feature_nep366_delegate_action = []
+protocol_feature_nep366_delegate_action = [
+  "nearcore/protocol_feature_nep366_delegate_action",
+]
 sandbox = ["node-runtime/sandbox"]
 io_trace = ["near-store/io_trace", "near-o11y/io_trace", "near-vm-logic/io_trace"]
