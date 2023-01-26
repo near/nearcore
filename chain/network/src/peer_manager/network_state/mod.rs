@@ -398,13 +398,6 @@ impl NetworkState {
             this.config
                 .event_sink
                 .push(Event::ConnectionClosed(ConnectionClosedEvent { stream_id, reason }));
-
-            if this.is_recent_outbound_connection(&peer_id) {
-                this.set_reconnect_attempts(
-                    &conn.peer_info,
-                    RECENT_OUTBOUND_CONNECTION_MAX_RECONNECT_ATTEMPTS,
-                );
-            }
         });
     }
 
