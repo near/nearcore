@@ -118,11 +118,6 @@ fn cold_store_loop(
 ) {
     tracing::info!(target: "cold_store", "starting cold store loop");
 
-    // TODO - is there a better way to schedule a function to run periodically?
-    // NOTE - sleeping here, if spawned in rayon, would likely hog the thread forever
-    // which is why this method is spawned in rust native thread. The hope is that
-    // the OS will correctly handle this thread sleeping and return the CPU time to
-    // other threads.
     loop {
         if !keep_going.load(std::sync::atomic::Ordering::SeqCst) {
             tracing::debug!(target: "cold_store", "stopping the cold store loop");
@@ -147,6 +142,11 @@ fn cold_store_loop(
 
 /// Spawns the cold store loop in a background thread and returns ColdStoreLoopHandle.
 /// If cold store is not configured it does nothing and returns None.
+/// The cold store loop is spawned in a rust native thread because it's quite heavy
+/// and it is not suitable for async frameworks such as actix or tokio. It's not suitable
+/// for async because RocksDB itself doesn't support async. Running this in an async
+/// environment would just hog a thread while synchronously waiting for the IO operations
+/// to finish.
 pub fn spawn_cold_store_loop(
     config: &NearConfig,
     storage: &NodeStorage,
