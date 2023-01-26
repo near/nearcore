@@ -93,7 +93,7 @@ mod imp {
     }
 
     #[derive(Clone)]
-    struct FlatStateCache {
+    pub struct FlatStateCache {
         // TODO: add implementation
     }
 
@@ -963,7 +963,11 @@ impl FlatStorageState {
             // interrupted in the middle.
             // TODO (#7327): in case of long forks it can take a while and delay processing of some chunk.
             // Consider avoid iterating over all blocks and make removals lazy.
-            let gc_height = guard.blocks.get(&block).unwrap().height;
+            let gc_height = guard
+                .blocks
+                .get(&block)
+                .ok_or(self.create_block_not_supported_error(&block))?
+                .height;
             let hashes_to_remove: Vec<_> = guard
                 .blocks
                 .iter()
@@ -1000,7 +1004,11 @@ impl FlatStorageState {
 
         let shard_id = guard.shard_id;
         guard.flat_head = *new_head;
-        let flat_head_height = guard.blocks.get(&new_head).unwrap().height;
+        let flat_head_height = guard
+            .blocks
+            .get(&new_head)
+            .ok_or(self.create_block_not_supported_error(&new_head))?
+            .height;
         guard.metrics.flat_head_height.set(flat_head_height as i64);
         info!(target: "chain", %shard_id, %new_head, %flat_head_height, "Moved flat storage head");
 
