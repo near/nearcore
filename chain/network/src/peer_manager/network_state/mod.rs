@@ -7,7 +7,6 @@ use crate::network_protocol::{
     Edge, EdgeState, PartialEdgeInfo, PeerIdOrHash, PeerInfo, PeerMessage, Ping, Pong,
     RawRoutedMessage, RoutedMessageBody, RoutedMessageV2, SignedAccountData,
 };
-use crate::peer::peer_actor::PeerActor;
 use crate::peer::peer_actor::{ClosingReason, ConnectionClosedEvent};
 use crate::peer_manager::connection;
 use crate::peer_manager::peer_manager_actor::Event;
@@ -19,7 +18,6 @@ use crate::store;
 use crate::tcp;
 use crate::time;
 use crate::types::{ChainInfo, ConnectionInfo, PeerType, ReasonForBan};
-use anyhow::Context;
 use arc_swap::ArcSwap;
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
@@ -683,34 +681,18 @@ impl NetworkState {
             .insert(peer_info.id.clone(), (peer_info.clone(), num_attempts));
     }
 
-    pub fn reestablish_outbound_connections(self: &Arc<Self>, clock: &time::Clock) {
+    pub fn get_peers_pending_reconnect(&self) -> Vec<PeerInfo> {
+        let mut peer_infos = Vec::<PeerInfo>::new();
+
         let mut pending_attempts = self.pending_reconnect_attempts.lock();
-
         pending_attempts.retain(|_peer_id, (peer_info, attempts)| {
-            let state = self.clone();
-            let clock = clock.clone();
-            let peer_info = peer_info.clone();
-
-            tracing::debug!(target:"network", "Attempting to reconnect to {} ({} attempts remaining)", peer_info.id, attempts);
-
-            self.spawn(async move {
-                let result = async {
-                    let stream = tcp::Stream::connect(&peer_info, tcp::Tier::T2).await.context("tcp::Stream::connect()")?;
-                    PeerActor::spawn_and_handshake(clock.clone(),stream,None,state.clone()).await.context("PeerActor::spawn()")?;
-                    anyhow::Ok(())
-                }.await;
-
-                if result.is_err() {
-                    tracing::info!(target:"network", ?result, "failed to connect to {peer_info}");
-                    if state.peer_store.peer_connection_attempt(&clock, &peer_info.id, result).is_err() {
-                        tracing::error!(target: "network", ?peer_info, "Failed to mark peer as failed.");
-                    }
-                }
-            });
+            peer_infos.push(peer_info.clone());
 
             *attempts -= 1;
-            *attempts > 0
+            return *attempts > 0;
         });
+
+        return peer_infos;
     }
 
     pub fn get_recent_outbound_connections(&self) -> Vec<ConnectionInfo> {

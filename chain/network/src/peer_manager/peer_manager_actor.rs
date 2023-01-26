@@ -172,7 +172,20 @@ impl actix::Actor for PeerManagerActor {
             let mut interval = time::Interval::new(clock.now(), RECONNECT_ATTEMPT_INTERVAL);
             loop {
                 interval.tick(&clock).await;
-                state.reestablish_outbound_connections(&clock);
+                for peer_info in state.get_peers_pending_reconnect() {
+                    let result = async {
+                        let stream = tcp::Stream::connect(&peer_info, tcp::Tier::T2).await.context("tcp::Stream::connect()")?;
+                        PeerActor::spawn_and_handshake(clock.clone(),stream,None,state.clone()).await.context("PeerActor::spawn()")?;
+                        anyhow::Ok(())
+                    }.await;
+
+                    if result.is_err() {
+                        tracing::info!(target:"network", ?result, "failed to connect to {peer_info}");
+                        if state.peer_store.peer_connection_attempt(&clock, &peer_info.id, result).is_err() {
+                            tracing::error!(target: "network", ?peer_info, "Failed to mark peer as failed.");
+                        }
+                    }
+                }
             }
         }));
 
