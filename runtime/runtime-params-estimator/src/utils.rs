@@ -206,7 +206,7 @@ pub(crate) fn fn_cost_with_setup(
 
         // flat storage check: we only expect TTN costs for writes
         #[cfg(feature = "protocol_feature_flat_state")]
-        // TODO(#7327): This assertion is ignored, we know flat storage doesn't
+        // TODO(#8322): This assertion is ignored, we know flat storage doesn't
         // work for the estimator. Remove cfg once it once it works.
         #[cfg(ignore)]
         {
