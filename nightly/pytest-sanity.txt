@@ -143,3 +143,7 @@ pytest sanity/recompress_storage.py --features nightly
 
 # This is the test for meta transactions.
 pytest sanity/meta_tx.py --features nightly
+
+# Tests for split storage and split storage migration
+pytest sanity/split_storage.py
+pytest sanity/split_storage.py --features nightly

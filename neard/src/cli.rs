@@ -480,7 +480,7 @@ impl RunCmd {
                 UpdateableConfigLoader::new(updateable_configs.clone(), tx_config_update);
             let config_updater = ConfigUpdater::new(rx_config_update);
 
-            let nearcore::NearNode { rpc_servers, .. } =
+            let nearcore::NearNode { rpc_servers, cold_store_loop_handle, .. } =
                 nearcore::start_with_config_and_synchronization(
                     home_dir,
                     near_config,
@@ -500,6 +500,7 @@ impl RunCmd {
                 }
             };
             warn!(target: "neard", "{}, stopping... this may take a few minutes.", sig);
+            cold_store_loop_handle.map(|handle| handle.stop());
             futures::future::join_all(rpc_servers.iter().map(|(name, server)| async move {
                 server.stop(true).await;
                 debug!(target: "neard", "{} server stopped", name);
@@ -533,9 +534,7 @@ async fn wait_for_interrupt_signal(_home_dir: &Path, rx_crash: &mut Receiver<()>
     tokio::select! {
          _ = sigint.recv()  => "SIGINT",
          _ = sigterm.recv() => "SIGTERM",
-         _ = sighup.recv() => {
-            "SIGHUP"
-         },
+         _ = sighup.recv() => "SIGHUP",
          _ = rx_crash.recv() => "ClientActor died",
     }
 }
