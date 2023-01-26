@@ -81,7 +81,7 @@ mod imp {
         store: Store,
         /// The block for which key-value pairs of its state will be retrieved. The flat state
         /// will reflect the state AFTER the block is applied.
-        block_hash: CryptoHash,
+        blocks_to_head: Vec<CryptoHash>,
         /// In-memory cache for the key value pairs stored on disk.
         #[allow(unused)]
         cache: FlatStateCache,
@@ -97,6 +97,15 @@ mod imp {
     }
 
     impl FlatState {
+        pub fn new(
+            store: Store,
+            block_hash: CryptoHash,
+            cache: FlatStateCache,
+            flat_storage_state: FlatStorageState,
+        ) -> Self {
+            let blocks_to_head = flat_storage_state.get_blocks_to_head(&block_hash).unwrap();
+            Self { store, blocks_to_head, cache, flat_storage_state }
+        }
         /// Returns value reference using raw trie key, taken from the state
         /// corresponding to `FlatState::block_hash`.
         ///
@@ -108,7 +117,7 @@ mod imp {
         pub fn get_ref(&self, key: &[u8]) -> Result<Option<ValueRef>, crate::StorageError> {
             // Take deltas ordered from `self.block_hash` to flat state head.
             // In other words, order of deltas is the opposite of the order of blocks in chain.
-            let deltas = self.flat_storage_state.get_deltas_between_blocks(&self.block_hash)?;
+            let deltas = self.flat_storage_state.get_blocks_to_head(&self.block_hash)?;
             for delta in deltas {
                 // If we found a key in delta, we can return a value because it is the most recent key update.
                 match delta.get(key) {
@@ -230,12 +239,7 @@ mod imp {
                         }
                     }
                 };
-                Some(FlatState {
-                    store: self.0.store.clone(),
-                    block_hash,
-                    cache,
-                    flat_storage_state,
-                })
+                Some(FlatState::new(self.0.store.clone(), block_hash, cache, flat_storage_state))
             }
         }
 
@@ -792,16 +796,21 @@ impl FlatStorageStateInner {
         FlatStorageError::BlockNotSupported((self.flat_head, *block_hash))
     }
 
+    fn get_delta(&self, block_hash: &CryptoHash) -> Arc<FlatStateDelta> {
+        // ! change to reading Ds from disk
+        self.deltas.get(block_hash).unwrap().clone()
+    }
+
     /// Get deltas between blocks `target_block_hash`(inclusive) to flat head(exclusive),
     /// in backwards chain order. Returns an error if there is no path between them.
-    fn get_deltas_between_blocks(
+    fn get_blocks_to_head(
         &self,
         target_block_hash: &CryptoHash,
-    ) -> Result<Vec<Arc<FlatStateDelta>>, FlatStorageError> {
+    ) -> Result<Vec<CryptoHash>, FlatStorageError> {
         let flat_head_info = self.blocks.get(&self.flat_head).unwrap();
 
         let mut block_hash = target_block_hash.clone();
-        let mut deltas = vec![];
+        let mut blocks = vec![];
         while block_hash != self.flat_head {
             let block_info = self
                 .blocks
@@ -812,19 +821,12 @@ impl FlatStorageStateInner {
                 return Err(self.create_block_not_supported_error(target_block_hash));
             }
 
-            let delta = self
-                .deltas
-                .get(&block_hash)
-                // panic here because we already checked that the block is in self.blocks, so it
-                // should be in self.deltas too
-                .unwrap_or_else(|| panic!("block delta for {:?} is not available", block_hash));
-            deltas.push(delta.clone());
-
+            blocks.push(block_hash);
             block_hash = block_info.prev_hash;
         }
-        self.metrics.distance_to_head.set(deltas.len() as i64);
+        self.metrics.distance_to_head.set(blocks.len() as i64);
 
-        Ok(deltas)
+        Ok(blocks)
     }
 }
 
@@ -909,20 +911,20 @@ impl FlatStorageState {
     /// Get deltas between blocks `target_block_hash`(inclusive) to flat head(inclusive),
     /// in backwards chain order. Returns an error if there is no path between these two them.
     #[cfg(feature = "protocol_feature_flat_state")]
-    fn get_deltas_between_blocks(
+    fn get_blocks_to_head(
         &self,
         target_block_hash: &CryptoHash,
-    ) -> Result<Vec<Arc<FlatStateDelta>>, FlatStorageError> {
+    ) -> Result<Vec<CryptoHash>, FlatStorageError> {
         let guard = self.0.write().expect(POISONED_LOCK_ERR);
-        guard.get_deltas_between_blocks(target_block_hash)
+        guard.get_blocks_to_head(target_block_hash)
     }
 
     #[cfg(not(feature = "protocol_feature_flat_state"))]
     #[allow(unused)]
-    fn get_deltas_between_blocks(
+    fn get_blocks_to_head(
         &self,
         _target_block_hash: &CryptoHash,
-    ) -> Result<Vec<FlatStateDelta>, crate::StorageError> {
+    ) -> Result<Vec<CryptoHash>, FlatStorageError> {
         Ok(vec![])
     }
 
@@ -932,9 +934,10 @@ impl FlatStorageState {
     #[cfg(feature = "protocol_feature_flat_state")]
     pub fn update_flat_head(&self, new_head: &CryptoHash) -> Result<(), FlatStorageError> {
         let mut guard = self.0.write().expect(POISONED_LOCK_ERR);
-        let deltas = guard.get_deltas_between_blocks(new_head)?;
+        let blocks = guard.get_blocks_to_head(new_head)?;
         let mut merged_delta = FlatStateDelta::default();
-        for delta in deltas.into_iter().rev() {
+        for block in blocks.into_iter().rev() {
+            let delta = guard.get_delta(&block);
             merged_delta.merge(delta.as_ref());
         }
 
@@ -1407,7 +1410,7 @@ mod tests {
         // 2. Check that the flat_state at block i reads the value of key &[1] as &[i]
         for i in 0..10 {
             let block_hash = chain.get_block_hash(i);
-            let deltas = flat_storage_state.get_deltas_between_blocks(&block_hash).unwrap();
+            let deltas = flat_storage_state.get_blocks_to_head(&block_hash).unwrap();
             assert_eq!(deltas.len(), i as usize);
             let flat_state =
                 flat_state_factory.new_flat_state_for_shard(0, Some(block_hash), false).unwrap();
@@ -1428,8 +1431,7 @@ mod tests {
 
         // 4. Create a flat_state0 at block 10 and flat_state1 at block 4
         //    Verify that they return the correct values
-        let deltas =
-            flat_storage_state.get_deltas_between_blocks(&chain.get_block_hash(10)).unwrap();
+        let deltas = flat_storage_state.get_blocks_to_head(&chain.get_block_hash(10)).unwrap();
         assert_eq!(deltas.len(), 10);
         let flat_state0 = flat_state_factory
             .new_flat_state_for_shard(0, Some(chain.get_block_hash(10)), false)
@@ -1454,8 +1456,7 @@ mod tests {
         // and flat_state1 returns an error. Also check that DBCol::FlatState is updated correctly
         flat_storage_state.update_flat_head(&chain.get_block_hash(5)).unwrap();
         assert_eq!(store_helper::get_ref(&store, &[1]).unwrap(), Some(ValueRef::new(&[5])));
-        let deltas =
-            flat_storage_state.get_deltas_between_blocks(&chain.get_block_hash(10)).unwrap();
+        let deltas = flat_storage_state.get_blocks_to_head(&chain.get_block_hash(10)).unwrap();
         assert_eq!(deltas.len(), 5);
         assert_eq!(flat_state0.get_ref(&[1]).unwrap(), None);
         assert_eq!(flat_state0.get_ref(&[2]).unwrap(), Some(ValueRef::new(&[1])));
@@ -1469,8 +1470,7 @@ mod tests {
         // 6. Move the flat head to block 10, verify that flat_state0 still returns the same values
         //    Also checks that DBCol::FlatState is updated correctly.
         flat_storage_state.update_flat_head(&chain.get_block_hash(10)).unwrap();
-        let deltas =
-            flat_storage_state.get_deltas_between_blocks(&chain.get_block_hash(10)).unwrap();
+        let deltas = flat_storage_state.get_blocks_to_head(&chain.get_block_hash(10)).unwrap();
         assert_eq!(deltas.len(), 0);
         assert_eq!(store_helper::get_ref(&store, &[1]).unwrap(), None);
         assert_eq!(store_helper::get_ref(&store, &[2]).unwrap(), Some(ValueRef::new(&[1])));
