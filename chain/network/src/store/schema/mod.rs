@@ -69,7 +69,7 @@ impl From<KnownPeerStatus> for primitives::KnownPeerStatus {
 /// to the KnownPeerStateRepr, but in the following PR the
 /// timestamp type (currently u64), will be replaced with time::Utc.
 #[derive(BorshSerialize, BorshDeserialize)]
-pub struct KnownPeerStateRepr {
+pub(super) struct KnownPeerStateRepr {
     peer_info: primitives::PeerInfo,
     status: KnownPeerStatus,
     /// UNIX timestamps in nanos.
@@ -103,7 +103,7 @@ impl BorshRepr for KnownPeerStateRepr {
 
 /// A Borsh representation of the primitives::ConnectionInfo.
 #[derive(BorshSerialize, BorshDeserialize)]
-pub struct ConnectionInfoRepr {
+pub(super) struct ConnectionInfoRepr {
     peer_info: primitives::PeerInfo,
     /// UNIX timestamps in nanos.
     first_connected: u64,
@@ -132,7 +132,7 @@ impl BorshRepr for ConnectionInfoRepr {
 }
 
 #[derive(BorshSerialize, BorshDeserialize)]
-pub struct EdgeRepr {
+pub(super) struct EdgeRepr {
     key: (PeerId, PeerId),
     nonce: u64,
     signature0: Signature,
@@ -161,42 +161,42 @@ impl BorshRepr for EdgeRepr {
 /////////////////////////////////////////////
 // Columns
 
-pub struct AccountAnnouncements;
+pub(super) struct AccountAnnouncements;
 impl Column for AccountAnnouncements {
     const COL: DBCol = DBCol::AccountAnnouncements;
     type Key = AccountIdFormat;
     type Value = Borsh<AnnounceAccount>;
 }
 
-pub struct Peers;
+pub(super) struct Peers;
 impl Column for Peers {
     const COL: DBCol = DBCol::Peers;
     type Key = Borsh<PeerId>;
     type Value = KnownPeerStateRepr;
 }
 
-pub struct RecentOutboundConnections;
+pub(super) struct RecentOutboundConnections;
 impl Column for RecentOutboundConnections {
     const COL: DBCol = DBCol::RecentOutboundConnections;
     type Key = Borsh<()>;
     type Value = Vec<ConnectionInfoRepr>;
 }
 
-pub struct PeerComponent;
+pub(super) struct PeerComponent;
 impl Column for PeerComponent {
     const COL: DBCol = DBCol::PeerComponent;
     type Key = Borsh<PeerId>;
     type Value = Borsh<u64>;
 }
 
-pub struct ComponentEdges;
+pub(super) struct ComponentEdges;
 impl Column for ComponentEdges {
     const COL: DBCol = DBCol::ComponentEdges;
     type Key = U64LE;
     type Value = Vec<EdgeRepr>;
 }
 
-pub struct LastComponentNonce;
+pub(super) struct LastComponentNonce;
 impl Column for LastComponentNonce {
     const COL: DBCol = DBCol::LastComponentNonce;
     type Key = Borsh<()>;
