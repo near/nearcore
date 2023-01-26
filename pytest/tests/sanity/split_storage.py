@@ -49,16 +49,16 @@ class TestRpcFinality(unittest.TestCase):
         logger.info(
             f"split storage info \n{json.dumps(split_storage_info, indent=2)}")
 
-        assert "error" not in split_storage_info
-        assert "result" in split_storage_info
+        self.assertNotIn("error", split_storage_info)
+        self.assertIn("result", split_storage_info)
         result = split_storage_info["result"]
         head_height = result["head_height"]
         final_head_height = result["final_head_height"]
         cold_head_height = result["cold_head_height"]
 
-        assert head_height >= n
-        assert final_head_height >= n - 3
-        assert cold_head_height >= final_head_height - 3
+        self.assertGreaterEqual(head_height, n)
+        self.assertGreaterEqual(final_head_height, n - 3)
+        self.assertGreaterEqual(cold_head_height, final_head_height - 3)
 
         node.kill(gentle=True)
 
