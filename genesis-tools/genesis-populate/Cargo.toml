@@ -25,5 +25,5 @@ protocol_feature_flat_state = [
 ]
 nightly = [
   "protocol_feature_flat_state",
-  "nearcore/nightly"
+  "nearcore/nightly",
 ]
