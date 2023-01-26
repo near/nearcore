@@ -362,7 +362,6 @@ fn chunks_produced_and_distributed_one_val_per_shard_should_succeed_even_without
 /// Note that due to #7385 (which sends chunk forwarding messages irrespective of shard assignment),
 /// we disable chunk forwarding messages for the following tests, so we can focus on chunk
 /// requesting behavior.
-/// TODO: this test is broken due to (#8395) - with fix in #8211
 
 #[test]
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
