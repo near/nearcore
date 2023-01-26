@@ -167,6 +167,38 @@ async fn test_reconnect_after_restart_inbound_side() {
     let pm1_cfg = chain.make_config(rng);
     let pm1 = start_pm(clock.clock(), TestDB::new(), pm1_cfg.clone(), chain.clone()).await;
 
+    let id1 = pm1.cfg.node_id().clone();
+
+    // connect pm0 to pm1
+    pm0.connect_to(&pm1.peer_info(), tcp::Tier::T2).await;
+
+    clock.advance(RECENT_OUTBOUND_CONNECTIONS_MIN_DURATION);
+    clock.advance(UPDATE_RECENT_OUTBOUND_CONNECTIONS_INTERVAL);
+
+    // check that pm0 stores the outbound connection to pm1
+    check_recent_outbound_connections(&pm0, vec![id1.clone()]).await;
+
+    // drop pm1 and start it again with the same config, check that pm0 reconnects
+    tracing::debug!(target:"network", "dropping pm1");
+    drop(pm1);
+    let _pm1 = start_pm(clock.clock(), TestDB::new(), pm1_cfg.clone(), chain.clone()).await;
+    clock.advance(RECONNECT_ATTEMPT_INTERVAL);
+    pm0.wait_for_direct_connection(id1.clone()).await;
+}
+
+#[tokio::test]
+async fn test_reconnect_after_disconnect_inbound_side() {
+    init_test_logger();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
+    let pm0 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
+
+    let pm1_cfg = chain.make_config(rng);
+    let pm1 = start_pm(clock.clock(), TestDB::new(), pm1_cfg.clone(), chain.clone()).await;
+
     let id0 = pm0.cfg.node_id().clone();
     let id1 = pm1.cfg.node_id().clone();
 
@@ -179,15 +211,11 @@ async fn test_reconnect_after_restart_inbound_side() {
     // check that pm0 stores the outbound connection to pm1
     check_recent_outbound_connections(&pm0, vec![id1.clone()]).await;
 
-    // have pm1 simply stop the connection and check that pm0 reconnects
+    // have pm1 disconnect gracefully from pm0
     pm1.disconnect(&id0).await;
     pm0.wait_for_num_connected_peers(0).await;
-    clock.advance(RECONNECT_ATTEMPT_INTERVAL);
-    pm0.wait_for_direct_connection(id1.clone()).await;
 
-    // drop pm1 and start it again with the same config, check that pm0 reconnects
-    drop(pm1);
-    let _pm1 = start_pm(clock.clock(), TestDB::new(), pm1_cfg.clone(), chain.clone()).await;
+    // check that pm0 reconnects
     clock.advance(RECONNECT_ATTEMPT_INTERVAL);
     pm0.wait_for_direct_connection(id1.clone()).await;
 }

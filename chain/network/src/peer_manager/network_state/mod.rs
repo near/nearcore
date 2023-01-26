@@ -342,8 +342,9 @@ impl NetworkState {
                         tracing::error!(target: "network", ?err, "Failed to save peer data");
                     }
 
-                    tracing::debug!(target: "network", "Clearing remaining reconnect attempts to {} due to successful connection", &conn.peer_info.id);
-                    this.pending_reconnect_attempts.lock().remove(&conn.peer_info.id);
+                    if let Some(_) = this.pending_reconnect_attempts.lock().remove(&conn.peer_info.id) {
+                        tracing::debug!(target: "network", "Clearing remaining reconnect attempts to {} due to successful connection", &conn.peer_info.id);
+                    }
                 }
             }
             Ok(())
@@ -397,6 +398,13 @@ impl NetworkState {
             this.config
                 .event_sink
                 .push(Event::ConnectionClosed(ConnectionClosedEvent { stream_id, reason }));
+
+            /*if this.is_recent_outbound_connection(&peer_id) {
+                this.set_reconnect_attempts(
+                    &conn.peer_info,
+                    RECENT_OUTBOUND_CONNECTION_MAX_RECONNECT_ATTEMPTS,
+                );
+            }*/
         });
     }
 
