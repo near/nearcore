@@ -285,6 +285,11 @@ fn try_find_actions_spawned_by_receipt(
     let receipt = Receipt::deserialize(&mut raw_value.as_ref())
         .map_err(|e| ContractAccountError::InvalidReceipt(e, key))?;
 
+    // Skip refunds.
+    if receipt.receiver_id.is_system() {
+        return Ok(());
+    }
+
     // Note: We could use the entry API here to avoid the double hash, but we
     // would have to clone the key string. It's unclear which is better, I will
     // avoid the entry API because normal contains/get_mut seems simpler.
