@@ -69,6 +69,7 @@ impl TriePrefetcher {
                 let trie_root = *trie.get_root();
                 let shard_uid = prefetch_api.shard_uid;
                 let metrics_labels: [&str; 1] = [&shard_uid.shard_id.to_string()];
+                return None;
                 return Some(Self {
                     prefetch_api,
                     trie_root,

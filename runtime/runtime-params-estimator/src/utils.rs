@@ -208,7 +208,6 @@ pub(crate) fn fn_cost_with_setup(
         #[cfg(feature = "protocol_feature_flat_state")]
         // TODO(#8322): This assertion is ignored, we know flat storage doesn't
         // work for the estimator. Remove cfg once it once it works.
-        #[cfg(ignore)]
         {
             let is_write = *ext_costs.get(&ExtCosts::storage_write_base).unwrap_or(&0) > 0
                 || *ext_costs.get(&ExtCosts::storage_remove_base).unwrap_or(&0) > 0;

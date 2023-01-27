@@ -10,6 +10,7 @@ use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionOutcome, ExecutionStatus, SignedTransaction};
 use near_primitives::types::{Gas, MerkleHash};
 use near_primitives::version::PROTOCOL_VERSION;
+use near_store::flat_state::FlatStateFactory;
 use near_store::{ShardTries, ShardUId, Store, StoreCompiledContractCache, TrieUpdate};
 use near_store::{TrieCache, TrieCachingStorage, TrieConfig};
 use near_vm_logic::{ExtCosts, VMLimitConfig};
@@ -71,7 +72,7 @@ impl<'c> EstimatorContext<'c> {
             store.clone(),
             trie_config,
             &shard_uids,
-            near_store::flat_state::FlatStateFactory::new(store.clone()),
+            create_flat_state_factory(store.clone()),
         );
 
         Testbed {
@@ -133,6 +134,44 @@ impl<'c> EstimatorContext<'c> {
             migration_flags: MigrationFlags::default(),
         }
     }
+}
+
+fn create_flat_state_factory(store: Store) -> FlatStateFactory {
+    use near_store::flat_state::{store_helper, BlockInfo, FlatStorageState, ChainAccessForFlatStorage};
+    use near_primitives::types::{BlockHeight};
+    use near_primitives::hash::{CryptoHash};
+    use std::collections::HashSet;
+
+    struct ChainAccess;
+
+    impl ChainAccessForFlatStorage for ChainAccess {
+        fn get_block_info(&self, block_hash: &CryptoHash) -> BlockInfo {
+            BlockInfo {
+                hash: block_hash.clone(),
+                prev_hash: Default::default(),
+                height: 0
+            }
+        }
+
+        fn get_block_hashes_at_height(&self, _block_height: BlockHeight) -> HashSet<CryptoHash> {
+            unimplemented!()
+        }
+    }
+
+    let shard_id = 0;
+    let block_height = 0;
+    let mut store_update = store.store_update();
+    store_helper::set_flat_head(&mut store_update, shard_id, &Default::default());
+    store_update.commit().expect("failed to set flat head");
+    let factory = FlatStateFactory::new(store.clone());
+    let flat_storage_state = FlatStorageState::new(
+        store.clone(),
+        shard_id,
+        block_height,
+        &ChainAccess{}
+    );
+    factory.add_flat_storage_state_for_shard(shard_id, flat_storage_state);
+    factory
 }
 
 /// A single isolated instance of runtime.
@@ -253,13 +292,15 @@ impl Testbed<'_> {
                 Default::default(),
             )
             .unwrap();
-
         let mut store_update = self.tries.store_update();
         self.root = self.tries.apply_all(
             &apply_result.trie_changes,
             ShardUId::single_shard(),
             &mut store_update,
         );
+        #[cfg(feature = "protocol_feature_flat_state")]
+        near_store::FlatStateDelta::from_state_changes(&apply_result.state_changes)
+            .apply_to_flat_state(&mut store_update);
         store_update.commit().unwrap();
         self.apply_state.block_height += 1;
 
@@ -339,6 +380,6 @@ impl Testbed<'_> {
 
     /// Instantiate a new trie for the estimator.
     fn trie(&mut self) -> near_store::Trie {
-        self.tries.get_trie_for_shard(ShardUId::single_shard(), self.root.clone())
+        self.tries.get_trie_with_block_hash_for_shard(ShardUId::single_shard(), self.root.clone(), &Default::default())
     }
 }
