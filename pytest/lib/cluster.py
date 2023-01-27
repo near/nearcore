@@ -796,6 +796,18 @@ def apply_config_changes(node_dir, client_config_change):
         json.dump(config_json, fd, indent=2)
 
 
+def get_config_json(node_dir):
+    fname = os.path.join(node_dir, 'config.json')
+    with open(fname) as fd:
+        return json.load(fd)
+
+
+def set_config_json(node_dir, config_json):
+    fname = os.path.join(node_dir, 'config.json')
+    with open(fname, 'w') as fd:
+        json.dump(config_json, fd, indent=2)
+
+
 def start_cluster(num_nodes,
                   num_observers,
                   num_shards,

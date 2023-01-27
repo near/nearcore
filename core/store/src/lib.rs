@@ -256,10 +256,8 @@ impl<D> NodeStorage<D> {
         }
     }
 
-    pub fn cold_db(&self) -> io::Result<&Arc<crate::db::ColdDB<D>>> {
-        self.cold_storage
-            .as_ref()
-            .map_or(Err(io::Error::new(io::ErrorKind::NotFound, "ColdDB Not Found")), |c| Ok(c))
+    pub fn cold_db(&self) -> Option<&Arc<crate::db::ColdDB<D>>> {
+        self.cold_storage.as_ref()
     }
 }
 

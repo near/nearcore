@@ -10,6 +10,9 @@ use actix_web::HttpRequest;
 use actix_web::{get, http, middleware, web, App, Error as HttpError, HttpResponse, HttpServer};
 use futures::Future;
 use futures::FutureExt;
+use near_client_primitives::types::GetSplitStorageInfo;
+
+use near_jsonrpc_primitives::types::split_storage::RpcSplitStorageInfoResponse;
 use near_network::PeerManagerActor;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -355,6 +358,9 @@ impl JsonRpcHandler {
             }
             "EXPERIMENTAL_maintenance_windows" => {
                 process_method_call(request, |params| self.maintenance_windows(params)).await
+            }
+            "EXPERIMENTAL_split_storage_info" => {
+                process_method_call(request, |params| self.split_storage_info(params)).await
             }
             #[cfg(feature = "sandbox")]
             "sandbox_patch_state" => {
@@ -1102,6 +1108,17 @@ impl JsonRpcHandler {
     > {
         let client_config = self.client_send(GetClientConfig {}).await?;
         Ok(near_jsonrpc_primitives::types::client_config::RpcClientConfigResponse { client_config })
+    }
+
+    pub async fn split_storage_info(
+        &self,
+        _request_data: near_jsonrpc_primitives::types::split_storage::RpcSplitStorageInfoRequest,
+    ) -> Result<
+        near_jsonrpc_primitives::types::split_storage::RpcSplitStorageInfoResponse,
+        near_jsonrpc_primitives::types::split_storage::RpcSplitStorageInfoError,
+    > {
+        let split_storage = self.view_client_send(GetSplitStorageInfo {}).await?;
+        Ok(RpcSplitStorageInfoResponse { result: split_storage })
     }
 }
 
