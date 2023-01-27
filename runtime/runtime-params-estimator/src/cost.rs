@@ -4,7 +4,7 @@ use std::str::FromStr;
 /// Kinds of things we measure in parameter estimator and charge for in runtime.
 ///
 /// TODO: Deduplicate this enum with `ExtCosts` and `ActionCosts`.
-#[derive(Copy, Clone, PartialEq, Eq, Debug, PartialOrd, Ord)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug, PartialOrd, Ord, clap::ArgEnum)]
 #[repr(u8)]
 pub enum Cost {
     // Every set of actions in a transaction needs to be transformed into a
@@ -733,7 +733,7 @@ impl fmt::Display for Cost {
 }
 
 impl FromStr for Cost {
-    type Err = ();
+    type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         // Ridiculously inefficient, but shouldn't mater.
@@ -742,6 +742,6 @@ impl FromStr for Cost {
                 return Ok(cost);
             }
         }
-        Err(())
+        anyhow::bail!("failed parsing {s} as Cost");
     }
 }

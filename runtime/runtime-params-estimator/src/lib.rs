@@ -278,7 +278,7 @@ pub fn run(config: Config) -> CostTable {
 
     for (cost, f) in ALL_COSTS.iter().copied() {
         if let Some(costs) = &ctx.config.costs_to_measure {
-            if !costs.contains(&format!("{:?}", cost)) {
+            if !costs.contains(&cost) {
                 continue;
             }
         }

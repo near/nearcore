@@ -17,6 +17,7 @@ mod network_info;
 mod query;
 mod receipts;
 mod sandbox;
+mod split_storage;
 mod status;
 mod transactions;
 mod validator;
