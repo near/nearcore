@@ -8,10 +8,8 @@ def install_jq(project, host, user='ubuntu'):
 
 def get_canonical_md5sum(project, host, user='ubuntu'):
     install_jq(project, host, user)
-    return run_on_machine(
-        "jq --sort-keys . ~/.near/config.json | md5sum",
-        user, host, project
-    )
+    return run_on_machine("jq --sort-keys . ~/.near/config.json | md5sum", user,
+                          host, project)
 
 
 def display_hashes(names, hashes):

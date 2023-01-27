@@ -2,10 +2,12 @@ import subprocess
 
 
 def get_zone(project, host):
-    zone_call = subprocess.run([
-        "gcloud compute instances list \
-        --project={} | grep ^{} | awk -F ' ' '{{print $2}}'"
-        .format(project, host)],
+    zone_call = subprocess.run(
+        [
+            "gcloud compute instances list \
+        --project={} | grep ^{} | awk -F ' ' '{{print $2}}'".format(
+                project, host)
+        ],
         stdout=subprocess.PIPE,
         check=True,
         text=True,
@@ -17,8 +19,10 @@ def get_zone(project, host):
 def run_on_machine(command, user, host, project):
     zone = get_zone(project, host)
     call = subprocess.run(
-        ["gcloud compute ssh {}@{} --command='{}' --project {} --zone {} "
-         .format(user, host, command, project, zone)],
+        [
+            "gcloud compute ssh {}@{} --command='{}' --project {} --zone {} ".
+            format(user, host, command, project, zone)
+        ],
         stdout=subprocess.PIPE,
         check=True,
         text=True,

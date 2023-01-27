@@ -7,10 +7,8 @@ def get_neard_info(project, host, user='ubuntu'):
 
 
 def display_neard_info(hosts, neard_info, user='ubuntu'):
-    display_table([
-        [host] + neard_info.split(' ')[1:]
-        for (host, neard_info) in zip(hosts, neard_infos)
-    ])
+    display_table([[host] + neard_info.split(' ')[1:]
+                   for (host, neard_info) in zip(hosts, neard_infos)])
 
 
 """
