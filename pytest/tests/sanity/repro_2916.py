@@ -74,7 +74,7 @@ async def main():
             except (concurrent.futures._base.TimeoutError,
                     asyncio.exceptions.TimeoutError):
                 assert False, "A response is always expected for partial encoded chunk request."
-            
+
             for receipt_proof in response.Routed.body.PartialEncodedChunkResponse.receipts:
                 shard_proof = receipt_proof.f2
                 assert shard_proof.from_shard_id == shard_ord, \
@@ -90,7 +90,7 @@ async def main():
                     tracking_shards_scenario = [1, 0]
                 else:
                     tracking_shards_scenario = [0, 1]
-            
+
             if tracking_shards_scenario == [0, 1]:
                 if shard_ord == 0:
                     assert received_receipt_shards == set([0, 1]), \
