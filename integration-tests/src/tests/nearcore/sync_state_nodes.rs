@@ -142,7 +142,7 @@ fn sync_state_nodes_multishard() {
 
             let mut near1 = load_test_config("test1", port1, genesis.clone());
             near1.network_config.peer_store.boot_nodes =
-                convert_boot_nodes(vec![("test3", port3), ("test4", port4)]);
+                convert_boot_nodes(vec![("test3", *port3), ("test4", *port4)]);
             near1.client_config.min_num_peers = 2;
             near1.client_config.min_block_production_delay = Duration::from_millis(200);
             near1.client_config.max_block_production_delay = Duration::from_millis(400);
@@ -150,7 +150,7 @@ fn sync_state_nodes_multishard() {
 
             let mut near3 = load_test_config("test3", port3, genesis.clone());
             near3.network_config.peer_store.boot_nodes =
-                convert_boot_nodes(vec![("test1", port1), ("test4", port4)]);
+                convert_boot_nodes(vec![("test1", *port1), ("test4", *port4)]);
             near3.client_config.min_num_peers = 2;
             near3.client_config.min_block_production_delay =
                 near1.client_config.min_block_production_delay;
@@ -160,7 +160,7 @@ fn sync_state_nodes_multishard() {
 
             let mut near4 = load_test_config("test4", port4, genesis.clone());
             near4.network_config.peer_store.boot_nodes =
-                convert_boot_nodes(vec![("test1", port1), ("test3", port3)]);
+                convert_boot_nodes(vec![("test1", *port1), ("test3", *port3)]);
             near4.client_config.min_num_peers = 2;
             near4.client_config.min_block_production_delay =
                 near1.client_config.min_block_production_delay;
@@ -207,9 +207,9 @@ fn sync_state_nodes_multishard() {
                                             Duration::from_millis(400);
                                         near2.network_config.peer_store.boot_nodes =
                                             convert_boot_nodes(vec![
-                                                ("test1", port1),
-                                                ("test3", port3),
-                                                ("test4", port4),
+                                                ("test1", *port1),
+                                                ("test3", *port3),
+                                                ("test4", *port4),
                                             ]);
                                         near2.client_config.epoch_sync_enabled = false;
 
