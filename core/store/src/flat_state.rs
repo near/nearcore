@@ -521,6 +521,7 @@ pub const STATE_PART_MEMORY_LIMIT: bytesize::ByteSize = bytesize::ByteSize(10 * 
 /// Current step of fetching state to fill flat storage.
 #[derive(BorshSerialize, BorshDeserialize, Copy, Clone, Debug, PartialEq, Eq)]
 pub struct FetchingStateStatus {
+    pub block_hash: CryptoHash,
     /// Number of the first state part to be fetched in this step.
     pub part_id: u64,
     /// Number of parts fetched in one step.
@@ -551,7 +552,7 @@ pub enum FlatStorageCreationStatus {
     /// Flat storage data exists on disk but its head is too far away from chain final head. We apply deltas from disk
     /// until the head reaches final head.
     #[allow(unused)]
-    CatchingUp,
+    CatchingUp(CryptoHash),
     /// Flat storage is ready to use.
     Ready,
     /// Flat storage cannot be created.
@@ -565,7 +566,7 @@ impl Into<i64> for &FlatStorageCreationStatus {
         match self {
             FlatStorageCreationStatus::SavingDeltas => 0,
             FlatStorageCreationStatus::FetchingState(_) => 1,
-            FlatStorageCreationStatus::CatchingUp => 2,
+            FlatStorageCreationStatus::CatchingUp(_) => 2,
             FlatStorageCreationStatus::Ready => 3,
             FlatStorageCreationStatus::DontCreate => 4,
         }
@@ -578,15 +579,18 @@ pub mod store_helper {
         FetchingStateStatus, FlatStorageCreationStatus, FlatStorageError, KeyForFlatStateDelta,
     };
     use crate::{FlatStateDelta, Store, StoreUpdate};
-    use borsh::BorshSerialize;
+    use borsh::{BorshSerialize, BorshDeserialize};
     use near_primitives::hash::CryptoHash;
     use near_primitives::state::ValueRef;
     use near_primitives::types::ShardId;
     use std::sync::Arc;
+    use byteorder::ReadBytesExt;
+
+    const FETCHING_STATE: u8 = 0;
+    const CATCHING_UP: u8 = 1;
 
     pub const FLAT_STATE_HEAD_KEY_PREFIX: &[u8; 4] = b"HEAD";
-    pub const FETCHING_STATE_STEP_KEY_PREFIX: &[u8; 4] = b"STEP";
-    pub const CATCHUP_KEY_PREFIX: &[u8; 7] = b"CATCHUP";
+    pub const FLAT_STATE_CREATION_STATUS_KEY_PREFIX: &[u8; 6] = b"STATUS";
 
     pub fn get_delta(
         store: &Store,
@@ -667,67 +671,32 @@ pub mod store_helper {
         }
     }
 
-    fn fetching_state_status_key(shard_id: ShardId) -> Vec<u8> {
-        let mut fetching_state_step_key = FETCHING_STATE_STEP_KEY_PREFIX.to_vec();
-        fetching_state_step_key.extend_from_slice(&shard_id.try_to_vec().unwrap());
-        fetching_state_step_key
-    }
-
-    fn get_fetching_state_status(store: &Store, shard_id: ShardId) -> Option<FetchingStateStatus> {
-        store.get_ser(crate::DBCol::FlatStateMisc, &fetching_state_status_key(shard_id)).expect(
-            format!("Error reading fetching step for flat state for shard {shard_id}").as_str(),
-        )
+    fn creation_status_key(shard_id: ShardId) -> Vec<u8> {
+        let mut key = FLAT_STATE_CREATION_STATUS_KEY_PREFIX.to_vec();
+        key.extend_from_slice(&shard_id.try_to_vec().unwrap());
+        key
     }
 
     pub fn set_fetching_state_status(
         store_update: &mut StoreUpdate,
         shard_id: ShardId,
-        value: FetchingStateStatus,
+        status: FetchingStateStatus,
     ) {
+        let mut value = vec![FETCHING_STATE];
+        value.extend_from_slice(&status.try_to_vec().unwrap());
         store_update
-            .set_ser(crate::DBCol::FlatStateMisc, &fetching_state_status_key(shard_id), &value)
+            .set_ser(crate::DBCol::FlatStateMisc, &creation_status_key(shard_id), &value)
             .expect(
                 format!("Error setting fetching step for shard {shard_id} to {:?}", value).as_str(),
             );
     }
 
-    pub fn remove_fetching_state_status(store_update: &mut StoreUpdate, shard_id: ShardId) {
-        store_update.delete(crate::DBCol::FlatStateMisc, &fetching_state_status_key(shard_id));
-    }
-
-    fn catchup_status_key(shard_id: ShardId) -> Vec<u8> {
-        let mut catchup_status_key = CATCHUP_KEY_PREFIX.to_vec();
-        catchup_status_key.extend_from_slice(&shard_id.try_to_vec().unwrap());
-        catchup_status_key
-    }
-
-    fn get_catchup_status(store: &Store, shard_id: ShardId) -> bool {
-        let status: Option<bool> =
-            store.get_ser(crate::DBCol::FlatStateMisc, &catchup_status_key(shard_id)).expect(
-                format!("Error reading catchup status for flat state for shard {shard_id}")
-                    .as_str(),
-            );
-        match status {
-            None => false,
-            Some(status) => {
-                assert!(
-                    status,
-                    "Catchup status for flat state for shard {} must be true if stored",
-                    shard_id
-                );
-                true
-            }
-        }
-    }
-
-    pub fn start_catchup(store_update: &mut StoreUpdate, shard_id: ShardId) {
+    pub fn set_catchup_status(store_update: &mut StoreUpdate, shard_id: ShardId, block_hash: &CryptoHash) {
+        let mut value = vec![CATCHING_UP];
+        value.extend_from_slice(block_hash.as_bytes());
         store_update
-            .set_ser(crate::DBCol::FlatStateMisc, &catchup_status_key(shard_id), &true)
+            .set_ser(crate::DBCol::FlatStateMisc, &creation_status_key(shard_id), &value)
             .expect(format!("Error setting catchup status for shard {shard_id}").as_str());
-    }
-
-    pub fn finish_catchup(store_update: &mut StoreUpdate, shard_id: ShardId) {
-        store_update.delete(crate::DBCol::FlatStateMisc, &catchup_status_key(shard_id));
     }
 
     pub fn get_flat_storage_creation_status(
@@ -735,17 +704,37 @@ pub mod store_helper {
         shard_id: ShardId,
     ) -> FlatStorageCreationStatus {
         match get_flat_head(store, shard_id) {
-            None => FlatStorageCreationStatus::SavingDeltas,
             Some(_) => {
-                if let Some(fetching_state_status) = get_fetching_state_status(store, shard_id) {
-                    FlatStorageCreationStatus::FetchingState(fetching_state_status)
-                } else if get_catchup_status(store, shard_id) {
-                    FlatStorageCreationStatus::CatchingUp
-                } else {
-                    FlatStorageCreationStatus::Ready
-                }
+                return FlatStorageCreationStatus::Ready;
+            },
+            None => {},
+        }
+
+        let bytes_slice = store
+            .get(crate::DBCol::FlatStateMisc, &creation_status_key(shard_id))
+            .expect("Error reading status from storage");
+        let mut bytes = match bytes_slice {
+            None => {
+                return FlatStorageCreationStatus::SavingDeltas;
+            }
+            Some(value) => value.as_slice(),
+        };
+
+        let value_type = bytes.read_u8().unwrap();
+        match value_type {
+            FETCHING_STATE =>
+                FlatStorageCreationStatus::FetchingState(FetchingStateStatus::try_from_slice(bytes).unwrap()),
+            CATCHING_UP => {
+                FlatStorageCreationStatus::CatchingUp(CryptoHash::try_from_slice(bytes).unwrap()),
+            }
+            value@ _ => {
+                panic!("Unexpected value type during getting flat storage creation status: {value}");
             }
         }
+    }
+
+    pub fn remove_flat_storage_creation_status(store_update: &mut StoreUpdate, shard_id: ShardId) {
+        store_update.delete(crate::DBCol::FlatStateMisc, &catchup_status_key(shard_id));
     }
 }
 
