@@ -8,6 +8,7 @@ use near_cold_store_tool::ColdStoreCommand;
 use near_dyn_configs::{UpdateableConfigLoader, UpdateableConfigLoaderError, UpdateableConfigs};
 use near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofResponse;
 use near_mirror::MirrorCommand;
+use near_network::tcp;
 use near_o11y::tracing_subscriber::EnvFilter;
 use near_o11y::{
     default_subscriber, default_subscriber_with_opentelemetry, BuildEnvFilterError,
@@ -422,7 +423,8 @@ impl RunCmd {
             near_config.rpc_config = None;
         } else {
             if let Some(rpc_addr) = self.rpc_addr {
-                near_config.rpc_config.get_or_insert(Default::default()).addr = rpc_addr;
+                near_config.rpc_config.get_or_insert(Default::default()).addr =
+                    tcp::ListenerAddr::new(rpc_addr.parse().unwrap());
             }
             if let Some(rpc_prometheus_addr) = self.rpc_prometheus_addr {
                 near_config.rpc_config.get_or_insert(Default::default()).prometheus_addr =

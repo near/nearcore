@@ -44,8 +44,8 @@ fn peer_handshake() {
     init_test_logger();
 
     run_actix(async {
-        let addr1 = tcp::ListenerAddr::new_for_test();
-        let addr2 = tcp::ListenerAddr::new_for_test();
+        let addr1 = tcp::ListenerAddr::reserve_for_test();
+        let addr2 = tcp::ListenerAddr::reserve_for_test();
         let pm1 = make_peer_manager("test1", addr1.clone(), vec![("test2", *addr2)], 10);
         let _pm2 = make_peer_manager("test2", addr2.clone(), vec![("test1", *addr1)], 10);
         wait_or_timeout(100, 2000, || async {
@@ -66,7 +66,7 @@ fn peers_connect_all() {
     init_test_logger();
 
     run_actix(async {
-        let addr = tcp::ListenerAddr::new_for_test();
+        let addr = tcp::ListenerAddr::reserve_for_test();
         let _pm = make_peer_manager("test", addr.clone(), vec![], 10);
         let mut peers = vec![];
 
@@ -74,7 +74,7 @@ fn peers_connect_all() {
         for i in 0..num_peers {
             let pm = make_peer_manager(
                 &format!("test{}", i),
-                tcp::ListenerAddr::new_for_test(),
+                tcp::ListenerAddr::reserve_for_test(),
                 vec![("test", *addr)],
                 10,
             );
@@ -115,18 +115,18 @@ fn peer_recover() {
     init_test_logger();
 
     run_actix(async {
-        let addr0 = tcp::ListenerAddr::new_for_test();
+        let addr0 = tcp::ListenerAddr::reserve_for_test();
         let pm0 = Arc::new(make_peer_manager("test0", addr0.clone(), vec![], 2));
         let _pm1 = make_peer_manager(
             "test1",
-            tcp::ListenerAddr::new_for_test(),
+            tcp::ListenerAddr::reserve_for_test(),
             vec![("test0", *addr0)],
             1,
         );
 
         let mut pm2 = Arc::new(make_peer_manager(
             "test2",
-            tcp::ListenerAddr::new_for_test(),
+            tcp::ListenerAddr::reserve_for_test(),
             vec![("test0", *addr0)],
             1,
         ));
@@ -164,7 +164,7 @@ fn peer_recover() {
                     // Start node2 from scratch again.
                     pm2 = Arc::new(make_peer_manager(
                         "test2",
-                        tcp::ListenerAddr::new_for_test(),
+                        tcp::ListenerAddr::reserve_for_test(),
                         vec![("test0", *addr0)],
                         1,
                     ));

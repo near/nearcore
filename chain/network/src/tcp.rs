@@ -1,10 +1,17 @@
 use crate::network_protocol::PeerInfo;
 use anyhow::{anyhow, Context as _};
 use near_primitives::network::PeerId;
+use once_cell::sync::Lazy;
+use std::collections::HashMap;
 use std::fmt;
-use std::sync::Arc;
+use std::sync::Mutex;
 
 const LISTENER_BACKLOG: u32 = 128;
+
+/// TEST-ONLY: guards ensuring that OS considers the given TCP listener port to be in use until
+/// this OS process is terminated.
+static RESERVED_LISTENER_ADDRS: Lazy<Mutex<HashMap<std::net::SocketAddr, tokio::net::TcpSocket>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
 
 /// TCP connections established by a node belong to different logical networks (aka tiers),
 /// which serve different purpose.
@@ -99,7 +106,7 @@ impl Stream {
     /// Returns a pair of streams: (outbound,inbound).
     #[cfg(test)]
     pub async fn loopback(peer_id: PeerId, tier: Tier) -> (Stream, Stream) {
-        let listener_addr = ListenerAddr::new_for_test();
+        let listener_addr = ListenerAddr::reserve_for_test();
         let peer_info = PeerInfo { id: peer_id, addr: Some(*listener_addr), account_id: None };
         let mut listener = listener_addr.listener().unwrap();
         let (outbound, inbound) =
@@ -133,27 +140,25 @@ impl Stream {
 ///   listener sockets in test are bound to the same port. TODO(gprusak): we can prevent creating
 ///   multiple listeners for a single port within the same process by implementing a global register
 ///   of ports in use.
-#[derive(Clone)]
-pub struct ListenerAddr {
-    /// A test-only guard ensuring that OS considers the given TCP port to be in use (in prod,
-    /// guard should be always None).
-    guard: Arc<Option<tokio::net::TcpSocket>>,
-    addr: std::net::SocketAddr,
-}
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, PartialEq, Eq)]
+pub struct ListenerAddr(std::net::SocketAddr);
 
 impl fmt::Debug for ListenerAddr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("ListenerAddr")
-            .field("addr", &self.addr)
-            .field("has_guard", &self.guard.is_some())
-            .finish()
+        self.0.fmt(f)
+    }
+}
+
+impl fmt::Display for ListenerAddr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
     }
 }
 
 impl std::ops::Deref for ListenerAddr {
     type Target = std::net::SocketAddr;
     fn deref(&self) -> &Self::Target {
-        &self.addr
+        &self.0
     }
 }
 
@@ -161,32 +166,39 @@ impl ListenerAddr {
     pub fn new(addr: std::net::SocketAddr) -> Self {
         assert!(
             addr.port() != 0,
-            "using an arbitrary port for the tcp::Listener is allowed only \
-             in tests and only via new_for_test() method"
+            "using an anyport (i.e. 0) for the tcp::ListenerAddr is allowed only \
+             in tests and only via reserve_for_test() method"
         );
-        Self { addr, guard: Arc::new(None) }
+        Self(addr)
     }
 
-    /// TEST-ONLY: constructs a ListenerAddr owning a random port on localhost.
-    pub fn new_for_test() -> Self {
+    /// TEST-ONLY: reserves a random port on localhost for a TCP listener.
+    pub fn reserve_for_test() -> Self {
         let guard = tokio::net::TcpSocket::new_v6().unwrap();
         guard.set_reuseaddr(true).unwrap();
         guard.set_reuseport(true).unwrap();
         guard.bind("[::1]:0".parse().unwrap()).unwrap();
-        Self { addr: guard.local_addr().unwrap(), guard: Arc::new(Some(guard)) }
+        let addr = guard.local_addr().unwrap();
+        RESERVED_LISTENER_ADDRS.lock().unwrap().insert(addr, guard);
+        Self(addr)
+    }
+
+    /// Constructs a std::net::TcpListener, for usage outside of near_network.
+    pub fn std_listener(&self) -> std::io::Result<std::net::TcpListener> {
+        self.listener()?.0.into_std()
     }
 
     /// Constructs a Listener out of ListenerAddr.
     pub(crate) fn listener(&self) -> std::io::Result<Listener> {
-        let socket = match self.addr {
+        let socket = match &self.0 {
             std::net::SocketAddr::V4(_) => tokio::net::TcpSocket::new_v4()?,
             std::net::SocketAddr::V6(_) => tokio::net::TcpSocket::new_v6()?,
         };
-        if self.guard.is_some() {
+        if RESERVED_LISTENER_ADDRS.lock().unwrap().contains_key(&self.0) {
             socket.set_reuseport(true)?;
         }
         socket.set_reuseaddr(true)?;
-        socket.bind(self.addr)?;
+        socket.bind(self.0)?;
         Ok(Listener(socket.listen(LISTENER_BACKLOG)?))
     }
 }

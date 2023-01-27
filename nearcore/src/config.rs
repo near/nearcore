@@ -23,7 +23,7 @@ use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 #[cfg(feature = "json_rpc")]
 use near_jsonrpc::RpcConfig;
 use near_network::config::NetworkConfig;
-use near_network::test_utils::open_port;
+use near_network::tcp;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
 #[cfg(test)]
@@ -442,16 +442,16 @@ impl Config {
         file.write_all(str.as_bytes())
     }
 
-    pub fn rpc_addr(&self) -> Option<&str> {
+    pub fn rpc_addr(&self) -> Option<String> {
         #[cfg(feature = "json_rpc")]
         if let Some(rpc) = &self.rpc {
-            return Some(&rpc.addr);
+            return Some(rpc.addr.to_string());
         }
         None
     }
 
     #[allow(unused_variables)]
-    pub fn set_rpc_addr(&mut self, addr: String) {
+    pub fn set_rpc_addr(&mut self, addr: tcp::ListenerAddr) {
         #[cfg(feature = "json_rpc")]
         {
             self.rpc.get_or_insert(Default::default()).addr = addr;
@@ -652,10 +652,10 @@ impl NearConfig {
         })
     }
 
-    pub fn rpc_addr(&self) -> Option<&str> {
+    pub fn rpc_addr(&self) -> Option<String> {
         #[cfg(feature = "json_rpc")]
         if let Some(rpc) = &self.rpc_config {
-            return Some(&rpc.addr);
+            return Some(rpc.addr.to_string());
         }
         None
     }
@@ -1121,16 +1121,19 @@ pub fn create_testnet_configs_from_seeds(
         shard_layout,
     );
     let mut configs = vec![];
-    let first_node_addr = open_port();
+    let first_node_addr = tcp::ListenerAddr::reserve_for_test();
     for i in 0..seeds.len() {
         let mut config = Config::default();
         config.rpc.get_or_insert(Default::default()).enable_debug_rpc = true;
         config.consensus.min_block_production_delay = Duration::from_millis(600);
         config.consensus.max_block_production_delay = Duration::from_millis(2000);
         if local_ports {
-            config.network.addr =
-                if i == 0 { first_node_addr.to_string() } else { open_port().to_string() };
-            config.set_rpc_addr(open_port().to_string());
+            config.network.addr = if i == 0 {
+                first_node_addr.to_string()
+            } else {
+                tcp::ListenerAddr::reserve_for_test().to_string()
+            };
+            config.set_rpc_addr(tcp::ListenerAddr::reserve_for_test());
             config.network.boot_nodes = if i == 0 {
                 "".to_string()
             } else {
@@ -1348,10 +1351,10 @@ pub fn load_config(
     NearConfig::new(config, genesis, network_signer.into(), validator_signer)
 }
 
-pub fn load_test_config(seed: &str, addr: std::net::SocketAddr, genesis: Genesis) -> NearConfig {
+pub fn load_test_config(seed: &str, addr: tcp::ListenerAddr, genesis: Genesis) -> NearConfig {
     let mut config = Config::default();
     config.network.addr = addr.to_string();
-    config.set_rpc_addr(open_port().to_string());
+    config.set_rpc_addr(tcp::ListenerAddr::reserve_for_test());
     config.consensus.min_block_production_delay =
         Duration::from_millis(FAST_MIN_BLOCK_PRODUCTION_DELAY);
     config.consensus.max_block_production_delay =

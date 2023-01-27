@@ -254,7 +254,7 @@ impl TestConfig {
             archive: false,
 
             account_id: format!("test{}", id).parse().unwrap(),
-            node_addr: tcp::ListenerAddr::new_for_test(),
+            node_addr: tcp::ListenerAddr::reserve_for_test(),
         }
     }
 

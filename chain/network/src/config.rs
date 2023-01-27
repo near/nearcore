@@ -434,22 +434,22 @@ mod test {
 
     #[test]
     fn test_network_config() {
-        let nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::new_for_test());
+        let nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::reserve_for_test());
         assert!(nc.verify().is_ok());
 
-        let mut nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::new_for_test());
+        let mut nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::reserve_for_test());
         nc.ideal_connections_lo = nc.ideal_connections_hi + 1;
         assert!(nc.verify().is_err());
 
-        let mut nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::new_for_test());
+        let mut nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::reserve_for_test());
         nc.ideal_connections_hi = nc.max_num_peers + 1;
         assert!(nc.verify().is_err());
 
-        let mut nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::new_for_test());
+        let mut nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::reserve_for_test());
         nc.safe_set_size = nc.minimum_outbound_peers;
         assert!(nc.verify().is_err());
 
-        let mut nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::new_for_test());
+        let mut nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::reserve_for_test());
         nc.peer_recent_time_window = UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE;
         assert!(nc.verify().is_err());
     }

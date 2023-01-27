@@ -8,7 +8,8 @@ use crate::test_helpers::heavy_test;
 use near_actix_test_utils::run_actix;
 use near_chain_configs::Genesis;
 use near_client::GetBlock;
-use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeoutActor};
+use near_network::tcp;
+use near_network::test_utils::{convert_boot_nodes, WaitOrTimeoutActor};
 use near_o11y::testonly::init_integration_logger;
 use near_o11y::WithSpanContextExt;
 use nearcore::{config::GenesisExt, load_test_config, start_with_config};
@@ -22,7 +23,8 @@ fn sync_state_nodes() {
 
         let genesis = Genesis::test(vec!["test1".parse().unwrap()], 1);
 
-        let (port1, port2) = (open_port(), open_port());
+        let (port1, port2) =
+            (tcp::ListenerAddr::reserve_for_test(), tcp::ListenerAddr::reserve_for_test());
         let mut near1 = load_test_config("test1", port1, genesis.clone());
         near1.network_config.peer_store.boot_nodes = convert_boot_nodes(vec![]);
         near1.client_config.min_num_peers = 0;
@@ -57,7 +59,7 @@ fn sync_state_nodes() {
                                         near2.client_config.skip_sync_wait = false;
                                         near2.client_config.min_num_peers = 1;
                                         near2.network_config.peer_store.boot_nodes =
-                                            convert_boot_nodes(vec![("test1", port1)]);
+                                            convert_boot_nodes(vec![("test1", *port1)]);
                                         near2.client_config.epoch_sync_enabled = false;
 
                                         let dir2 = tempfile::Builder::new()
@@ -131,7 +133,12 @@ fn sync_state_nodes_multishard() {
         genesis.config.epoch_length = 150; // so that by the time test2 joins it is not kicked out yet
 
         run_actix(async move {
-            let (port1, port2, port3, port4) = (open_port(), open_port(), open_port(), open_port());
+            let (port1, port2, port3, port4) = (
+                tcp::ListenerAddr::reserve_for_test(),
+                tcp::ListenerAddr::reserve_for_test(),
+                tcp::ListenerAddr::reserve_for_test(),
+                tcp::ListenerAddr::reserve_for_test(),
+            );
 
             let mut near1 = load_test_config("test1", port1, genesis.clone());
             near1.network_config.peer_store.boot_nodes =
@@ -280,7 +287,8 @@ fn sync_empty_state() {
         genesis.config.epoch_length = 20;
 
         run_actix(async move {
-            let (port1, port2) = (open_port(), open_port());
+            let (port1, port2) =
+                (tcp::ListenerAddr::reserve_for_test(), tcp::ListenerAddr::reserve_for_test());
             let state_sync_horizon = 10;
             let block_header_fetch_horizon = 1;
             let block_fetch_horizon = 1;
@@ -319,7 +327,7 @@ fn sync_empty_state() {
                                     if view_client2_holder2.is_none() {
                                         let mut near2 = load_test_config("test2", port2, genesis2);
                                         near2.network_config.peer_store.boot_nodes =
-                                            convert_boot_nodes(vec![("test1", port1)]);
+                                            convert_boot_nodes(vec![("test1", *port1)]);
                                         near2.client_config.min_num_peers = 1;
                                         near2.client_config.min_block_production_delay =
                                             Duration::from_millis(200);
