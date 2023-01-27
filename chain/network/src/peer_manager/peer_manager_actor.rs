@@ -172,7 +172,11 @@ impl actix::Actor for PeerManagerActor {
             let mut interval = time::Interval::new(clock.now(), RECONNECT_ATTEMPT_INTERVAL);
             loop {
                 interval.tick(&clock).await;
-                for peer_info in state.get_peers_pending_reconnect() {
+                tracing::info!(target:"dupa", "reconnecting...");
+                let pending = state.get_peers_pending_reconnect();
+                tracing::info!(target:"dupa", "{} pending_reconnect = {:?}",state.config.node_id(), pending);
+                for peer_info in pending {
+                    tracing::info!(target:"dupa", "reconnecting to {peer_info}");
                     let result = async {
                         let stream = tcp::Stream::connect(&peer_info, tcp::Tier::T2).await.context("tcp::Stream::connect()")?;
                         PeerActor::spawn_and_handshake(clock.clone(),stream,None,state.clone()).await.context("PeerActor::spawn()")?;
@@ -186,6 +190,7 @@ impl actix::Actor for PeerManagerActor {
                         tracing::error!(target: "network", ?peer_info, "Failed to mark peer as failed.");
                     }
                 }
+                tracing::info!(target:"dupa", "reconnecting done");
             }
         }));
 

@@ -169,19 +169,19 @@ async fn test_reconnect_after_restart_inbound_side() {
 
     let id1 = pm1.cfg.node_id().clone();
 
-    // connect pm0 to pm1
+    tracing::info!(target:"test","connect pm0 to pm1");
     pm0.connect_to(&pm1.peer_info(), tcp::Tier::T2).await;
 
     clock.advance(RECENT_OUTBOUND_CONNECTIONS_MIN_DURATION);
     clock.advance(UPDATE_RECENT_OUTBOUND_CONNECTIONS_INTERVAL);
 
-    // check that pm0 stores the outbound connection to pm1
+    tracing::info!(target:"test","check that {} stores the outbound connection to {}",pm0.cfg.node_id(),pm1.cfg.node_id());
     check_recent_outbound_connections(&pm0, vec![id1.clone()]).await;
 
-    // drop pm1 and start it again with the same config, check that pm0 reconnects
-    tracing::debug!(target:"network", "dropping pm1");
+    tracing::info!(target:"test","drop {} and start it again with the same config, check that pm0 reconnects",pm1.cfg.node_id());
     drop(pm1);
     let _pm1 = start_pm(clock.clock(), TestDB::new(), pm1_cfg.clone(), chain.clone()).await;
+    tracing::info!(target:"test","awaiting reconnect attempt");
     clock.advance(RECONNECT_ATTEMPT_INTERVAL);
     pm0.wait_for_direct_connection(id1.clone()).await;
 }
@@ -202,20 +202,20 @@ async fn test_reconnect_after_disconnect_inbound_side() {
     let id0 = pm0.cfg.node_id().clone();
     let id1 = pm1.cfg.node_id().clone();
 
-    // connect pm0 to pm1
+    tracing::info!(target:"test", "connect pm0 to pm1");
     pm0.connect_to(&pm1.peer_info(), tcp::Tier::T2).await;
 
     clock.advance(RECENT_OUTBOUND_CONNECTIONS_MIN_DURATION);
     clock.advance(UPDATE_RECENT_OUTBOUND_CONNECTIONS_INTERVAL);
 
-    // check that pm0 stores the outbound connection to pm1
+    tracing::info!(target:"test", "check that pm0 stores the outbound connection to pm1");
     check_recent_outbound_connections(&pm0, vec![id1.clone()]).await;
 
-    // have pm1 disconnect gracefully from pm0
+    tracing::info!(target:"test", "have pm1 disconnect gracefully from pm0");
     pm1.disconnect(&id0).await;
     pm0.wait_for_num_connected_peers(0).await;
 
-    // check that pm0 reconnects
+    tracing::info!(target:"test", "check that pm0 reconnects");
     clock.advance(RECONNECT_ATTEMPT_INTERVAL);
     pm0.wait_for_direct_connection(id1.clone()).await;
 }

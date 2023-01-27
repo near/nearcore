@@ -677,9 +677,11 @@ impl NetworkState {
     }
 
     pub fn set_reconnect_attempts(self: &Arc<Self>, peer_info: &PeerInfo, num_attempts: usize) {
+        tracing::info!(target:"dupa", "{} set_reconnect_attempts({})",self.config.node_id(), peer_info.id);
         self.pending_reconnect_attempts
             .lock()
             .insert(peer_info.id.clone(), (peer_info.clone(), num_attempts));
+        tracing::info!(target:"dupa", "{} set_reconnect_attempts({}) DONE",self.config.node_id(), peer_info.id);
     }
 
     pub fn get_peers_pending_reconnect(&self) -> Vec<PeerInfo> {
