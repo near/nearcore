@@ -6,7 +6,7 @@
 /// letting through requests at frequency `qps`.
 /// In case a number of requests come after a period of inactivity, semaphore will immediately
 /// let through up to `burst` requests, before going into the previous mode.
-#[derive(Copy, Clone, serde::Deserialize)]
+#[derive(Copy, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Limit {
     pub burst: u64,
     pub qps: f64,

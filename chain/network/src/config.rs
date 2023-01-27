@@ -16,7 +16,7 @@ use near_primitives::validator_signer::ValidatorSigner;
 use std::collections::HashSet;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
-use serde::Deserialize;
+use serde::{Serialize, Deserialize};
 
 /// How much height horizon to give to consider peer up to date.
 pub const HIGHEST_PEER_HORIZON: u64 = 5;
@@ -76,7 +76,7 @@ fn default_event_sink() -> Sink<Event> {
     Sink::null()
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Tier1 {
     /// Interval between attempts to connect to proxies of other TIER1 nodes.
     pub connect_interval: time::Duration,
@@ -98,7 +98,7 @@ pub struct Tier1 {
 }
 
 /// Validated configuration for the peer-to-peer manager.
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct NetworkConfig {
     pub node_addr: Option<SocketAddr>,
     pub node_key: SecretKey,

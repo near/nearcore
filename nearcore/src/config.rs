@@ -566,7 +566,7 @@ impl Genesis {
     }
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct NearConfig {
     pub config: Config,
     pub client_config: ClientConfig,
@@ -672,23 +672,25 @@ impl NearConfig {
             return Ok(self)
         }
 
-        let override_json = serde_json::from_reader(std::io::BufReader::new(File::open(path)?))
+        let override_string = fs::read_to_string(path)?;
+
+        let override_json = serde_json::from_str(&override_string)
             .with_context(|| format!("Failed to read override JSON from {}", path.display()))?;
 
-        let mut fields_to_value = NearConfig::get_fields_to_value(override_json, &mut vec![])?;
+        let mut fields_to_value = NearConfig::get_fields_to_value(&override_json, &mut vec![])?;
 
         Ok(self)
     }
 
-    pub fn get_fields_to_value(json_subtree: serde_json::Value, mut fields_prefix: &mut Vec<String>) -> anyhow::Result<HashMap<Vector<String>, String>> {
+    pub fn get_fields_to_value(json_subtree: &serde_json::Value, mut fields_prefix: &mut Vec<String>) -> anyhow::Result<HashMap<Vec<String>, String>> {
         let mut result = HashMap::default();
         match json_subtree {
             serde_json::Value::String(value) => {
-                return Ok({fields_prefix.clone(): value})
+                return Ok(HashMap::from([(fields_prefix.clone(), value.clone())]))
             }
             serde_json::Value::Object(map) => {
-                for (key, value) in map.iter_values() {
-                    fields_prefix.push(key);
+                for (key, value) in map.iter() {
+                    fields_prefix.push(key.clone());
                     result.extend(NearConfig::get_fields_to_value(value, fields_prefix)?);
                     fields_prefix.pop();
                 }

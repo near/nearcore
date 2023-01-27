@@ -11,7 +11,7 @@ use std::net::{SocketAddr, ToSocketAddrs};
 use std::str::FromStr;
 
 /// Peer information.
-#[derive(borsh::BorshSerialize, borsh::BorshDeserialize, serde::Deserialize, Clone, Debug, Eq, PartialEq)]
+#[derive(borsh::BorshSerialize, borsh::BorshDeserialize, serde::Serialize, serde::Deserialize, Clone, Debug, Eq, PartialEq)]
 pub struct PeerInfo {
     pub id: PeerId,
     pub addr: Option<SocketAddr>,
