@@ -13,7 +13,8 @@ use near_chain::Block;
 use near_chain_configs::Genesis;
 use near_client::{BlockResponse, ClientActor, GetBlock, ProcessTxRequest};
 use near_crypto::{InMemorySigner, KeyType};
-use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeoutActor};
+use near_network::tcp;
+use near_network::test_utils::{convert_boot_nodes, WaitOrTimeoutActor};
 use near_network::types::PeerInfo;
 use near_o11y::testonly::init_integration_logger;
 use near_o11y::WithSpanContextExt;
@@ -107,13 +108,14 @@ fn setup_configs() -> (Genesis, Block, NearConfig, NearConfig) {
     genesis.config.epoch_length = 5;
     let genesis_block = genesis_block(&genesis);
 
-    let (port1, port2) = (open_port(), open_port());
+    let (port1, port2) =
+        (tcp::ListenerAddr::reserve_for_test(), tcp::ListenerAddr::reserve_for_test());
     let mut near1 = load_test_config("test1", port1, genesis.clone());
-    near1.network_config.peer_store.boot_nodes = convert_boot_nodes(vec![("test2", port2)]);
+    near1.network_config.peer_store.boot_nodes = convert_boot_nodes(vec![("test2", *port2)]);
     near1.client_config.min_num_peers = 1;
     near1.client_config.epoch_sync_enabled = false;
     let mut near2 = load_test_config("test2", port2, genesis.clone());
-    near2.network_config.peer_store.boot_nodes = convert_boot_nodes(vec![("test1", port1)]);
+    near2.network_config.peer_store.boot_nodes = convert_boot_nodes(vec![("test1", *port1)]);
     near2.client_config.min_num_peers = 1;
     near2.client_config.epoch_sync_enabled = false;
     (genesis, genesis_block, near1, near2)
@@ -235,14 +237,15 @@ fn sync_state_stake_change() {
         genesis.config.epoch_length = 5;
         genesis.config.block_producer_kickout_threshold = 80;
 
-        let (port1, port2) = (open_port(), open_port());
+        let (port1, port2) =
+            (tcp::ListenerAddr::reserve_for_test(), tcp::ListenerAddr::reserve_for_test());
         let mut near1 = load_test_config("test1", port1, genesis.clone());
-        near1.network_config.peer_store.boot_nodes = convert_boot_nodes(vec![("test2", port2)]);
+        near1.network_config.peer_store.boot_nodes = convert_boot_nodes(vec![("test2", *port2)]);
         near1.client_config.min_num_peers = 0;
         near1.client_config.min_block_production_delay = Duration::from_millis(200);
         near1.client_config.epoch_sync_enabled = false;
         let mut near2 = load_test_config("test2", port2, genesis.clone());
-        near2.network_config.peer_store.boot_nodes = convert_boot_nodes(vec![("test1", port1)]);
+        near2.network_config.peer_store.boot_nodes = convert_boot_nodes(vec![("test1", *port1)]);
         near2.client_config.min_block_production_delay = Duration::from_millis(200);
         near2.client_config.min_num_peers = 1;
         near2.client_config.skip_sync_wait = false;

@@ -137,7 +137,7 @@ impl ActorHandler {
     pub fn peer_info(&self) -> PeerInfo {
         PeerInfo {
             id: PeerId::new(self.cfg.node_key.public_key()),
-            addr: self.cfg.node_addr.clone(),
+            addr: self.cfg.node_addr.as_ref().map(|a| **a),
             account_id: None,
         }
     }
@@ -202,7 +202,7 @@ impl ActorHandler {
         // 1. reserve a TCP port
         // 2. snapshot event stream
         // 3. establish connection.
-        let socket = tcp::Socket::bind_v4();
+        let socket = tcp::Socket::bind();
         let events = self.events.from_now();
         let stream = socket.connect(&self.peer_info(), tcp::Tier::T2).await;
         let stream_id = stream.id();
