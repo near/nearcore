@@ -387,6 +387,7 @@ impl FlatStorageShardCreator {
                             &mut store_update,
                             shard_id,
                         );
+                        store_helper::set_flat_head(&mut store_update, shard_id, &flat_head);
                         store_update.commit()?;
                         self.runtime_adapter.create_flat_storage_state_for_shard(
                             shard_id,
