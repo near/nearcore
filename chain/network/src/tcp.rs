@@ -125,21 +125,27 @@ impl Stream {
     }
 }
 
-/// In production code ListenerAddr is isomorphic to std::net::SocketAddr.
+/// ListenerAddr is isomorphic to std::net::SocketAddr, but it should be used
+/// solely for opening a TCP listener socket on it.
 ///
 /// In tests it additionally allows to "reserve" a random unused TCP port:
 /// * it allows to avoid race conditions in tests which require a dedicated TCP port to spawn a
 ///   node on (and potentially restart it every now and then).
 /// * it is implemented by usign SO_REUSEPORT socket option (do not confuse with SO_REUSEADDR),
-///   which allows multiple sockets to share a port. new_for_test() creates a socket and binds
+///   which allows multiple sockets to share a port. reserve_for_test() creates a socket and binds
 ///   it to a random unused local port (without starting a TCP listener).
 ///   This socket won't be used for anything but telling the OS that the given TCP port is in use.
 ///   However thanks to SO_REUSEPORT we can create another socket bind it to the same port
 ///   and make it a listener.
+/// * The reserved port stays reserved until the process terminates - hence during a process
+///   lifetime reserve_for_test() should be called a small amount of times (~1000 should be fine,
+///   there are only 2^16 ports on a network interface). TODO(gprusak): we may want to track the
+///   lifecycle of ListenerAddr (for example via reference counter), so that we can reuse the port
+///   after all the references are dropped.
 /// * The drawback of this solution that it is hard to detect a situation in which multiple
 ///   listener sockets in test are bound to the same port. TODO(gprusak): we can prevent creating
-///   multiple listeners for a single port within the same process by implementing a global register
-///   of ports in use.
+///   multiple listeners for a single port within the same process by adding a mutex to the port
+///   guard.
 #[derive(serde::Serialize, serde::Deserialize, Clone, Copy, PartialEq, Eq)]
 pub struct ListenerAddr(std::net::SocketAddr);
 
