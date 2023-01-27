@@ -4,6 +4,7 @@ use crate::config;
 use crate::network_protocol::{
     Edge, PartialEdgeInfo, PeerInfo, RawRoutedMessage, RoutedMessageBody,
 };
+use crate::tcp;
 use crate::time;
 use crate::types::{AccountKeys, ChainInfo, Handshake, RoutingTableUpdate};
 use near_crypto::{InMemorySigner, KeyType, SecretKey};
@@ -303,9 +304,9 @@ impl Chain {
     }
 
     pub fn make_config<R: Rng>(&self, rng: &mut R) -> config::NetworkConfig {
-        let port = crate::test_utils::open_port();
         let seed = &rng.gen::<u64>().to_string();
-        let mut cfg = config::NetworkConfig::from_seed(&seed, port);
+        let mut cfg =
+            config::NetworkConfig::from_seed(&seed, tcp::ListenerAddr::reserve_for_test());
         // Currently, in unit tests PeerManagerActor is not allowed to try to establish
         // connections on its own.
         cfg.outbound_disabled = true;
