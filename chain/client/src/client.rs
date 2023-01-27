@@ -198,7 +198,7 @@ impl Client {
             DoomslugThresholdMode::NoApprovals
         };
         let chain_config = ChainConfig {
-            save_trie_changes: !config.archive,
+            save_trie_changes: config.save_trie_changes,
             background_migration_threads: config.client_background_migration_threads,
         };
         let chain = Chain::new(
