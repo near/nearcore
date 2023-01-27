@@ -521,6 +521,7 @@ pub const STATE_PART_MEMORY_LIMIT: bytesize::ByteSize = bytesize::ByteSize(10 * 
 /// Current step of fetching state to fill flat storage.
 #[derive(BorshSerialize, BorshDeserialize, Copy, Clone, Debug, PartialEq, Eq)]
 pub struct FetchingStateStatus {
+    /// Hash of block on top of which we create flat storage.
     pub block_hash: CryptoHash,
     /// Number of the first state part to be fetched in this step.
     pub part_id: u64,
@@ -549,8 +550,9 @@ pub enum FlatStorageCreationStatus {
     /// the saved step again.
     #[allow(unused)]
     FetchingState(FetchingStateStatus),
-    /// Flat storage data exists on disk but its head is too far away from chain final head. We apply deltas from disk
-    /// until the head reaches final head.
+    /// Flat storage data exists on disk but block which is corresponds to is earlier than chain final head.
+    /// We apply deltas from disk until the head reaches final head.
+    /// Includes block hash of flat storage head.
     #[allow(unused)]
     CatchingUp(CryptoHash),
     /// Flat storage is ready to use.
@@ -586,9 +588,13 @@ pub mod store_helper {
     use near_primitives::types::ShardId;
     use std::sync::Arc;
 
+    /// Prefixes determining type of flat storage creation status stored in DB.
+    /// Note that non-existent status is treated as SavingDeltas if flat storage
+    /// does not exist and Ready if it does.
     const FETCHING_STATE: u8 = 0;
     const CATCHING_UP: u8 = 1;
 
+    /// Prefixes for keys in `FlatStateMisc` DB column.
     pub const FLAT_STATE_HEAD_KEY_PREFIX: &[u8; 4] = b"HEAD";
     pub const FLAT_STATE_CREATION_STATUS_KEY_PREFIX: &[u8; 6] = b"STATUS";
 
@@ -688,19 +694,21 @@ pub mod store_helper {
                 value.extend_from_slice(&status.try_to_vec().unwrap());
                 value
             }
-            FlatStorageCreationStatus::CatchingUp(status) => {
+            FlatStorageCreationStatus::CatchingUp(block_hash) => {
                 let mut value = vec![CATCHING_UP];
                 value.extend_from_slice(block_hash.as_bytes());
             }
             status @ _ => {
-                panic!("Attempted to write incorrect flat storage creation status {status} for shard {shard_id}");
+                panic!("Attempted to write incorrect flat storage creation status {status:?} for shard {shard_id}");
             }
         };
         store_update
             .set_ser(crate::DBCol::FlatStateMisc, &creation_status_key(shard_id), &value)
             .expect(
-                format!("Error setting flat storage creation status {status} for shard {shard_id}")
-                    .as_str(),
+                format!(
+                    "Error setting flat storage creation status {status:?} for shard {shard_id}"
+                )
+                .as_str(),
             );
     }
 
