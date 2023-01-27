@@ -372,7 +372,7 @@ impl FlatStorageShardCreator {
                     merged_delta.merge(delta.as_ref());
                 }
 
-                if old_flat_head != flat_head {
+                if old_flat_head != &flat_head {
                     // If flat head changes, save all changes to store.
                     let old_height = chain_store.get_block_height(&old_flat_head).unwrap();
                     let height = chain_store.get_block_height(&flat_head).unwrap();
