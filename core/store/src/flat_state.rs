@@ -697,6 +697,7 @@ pub mod store_helper {
             FlatStorageCreationStatus::CatchingUp(block_hash) => {
                 let mut value = vec![CATCHING_UP];
                 value.extend_from_slice(block_hash.as_bytes());
+                value
             }
             status @ _ => {
                 panic!("Attempted to write incorrect flat storage creation status {status:?} for shard {shard_id}");
