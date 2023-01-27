@@ -1,31 +1,29 @@
 use crate::tests::network::runner::*;
-use near_network::time;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::Arc;
-
 use actix::Actor;
 use actix::System;
 use futures::{future, FutureExt};
-use near_primitives::block::GenesisId;
-
 use near_actix_test_utils::run_actix;
-use near_o11y::testonly::init_test_logger;
-
 use near_network::config;
+use near_network::tcp;
 use near_network::test_utils::{
-    convert_boot_nodes, open_port, wait_or_timeout, GetInfo, StopSignal, WaitOrTimeoutActor,
+    convert_boot_nodes, wait_or_timeout, GetInfo, StopSignal, WaitOrTimeoutActor,
 };
+use near_network::time;
 use near_network::PeerManagerActor;
+use near_o11y::testonly::init_test_logger;
 use near_o11y::WithSpanContextExt;
+use near_primitives::block::GenesisId;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::Arc;
 
 #[cfg(test)]
 fn make_peer_manager(
     seed: &str,
-    port: u16,
-    boot_nodes: Vec<(&str, u16)>,
+    node_addr: tcp::ListenerAddr,
+    boot_nodes: Vec<(&str, std::net::SocketAddr)>,
     peer_max_count: u32,
 ) -> actix::Addr<PeerManagerActor> {
-    let mut config = config::NetworkConfig::from_seed(seed, port);
+    let mut config = config::NetworkConfig::from_seed(seed, node_addr);
     config.peer_store.boot_nodes = convert_boot_nodes(boot_nodes);
     config.max_num_peers = peer_max_count;
     config.ideal_connections_hi = peer_max_count;
@@ -46,9 +44,10 @@ fn peer_handshake() {
     init_test_logger();
 
     run_actix(async {
-        let (port1, port2) = (open_port(), open_port());
-        let pm1 = make_peer_manager("test1", port1, vec![("test2", port2)], 10);
-        let _pm2 = make_peer_manager("test2", port2, vec![("test1", port1)], 10);
+        let addr1 = tcp::ListenerAddr::reserve_for_test();
+        let addr2 = tcp::ListenerAddr::reserve_for_test();
+        let pm1 = make_peer_manager("test1", addr1.clone(), vec![("test2", *addr2)], 10);
+        let _pm2 = make_peer_manager("test2", addr2.clone(), vec![("test1", *addr1)], 10);
         wait_or_timeout(100, 2000, || async {
             let info = pm1.send(GetInfo {}.with_span_context()).await.unwrap();
             if info.num_connected_peers == 1 {
@@ -67,14 +66,18 @@ fn peers_connect_all() {
     init_test_logger();
 
     run_actix(async {
-        let port = open_port();
-        let _pm = make_peer_manager("test", port, vec![], 10);
+        let addr = tcp::ListenerAddr::reserve_for_test();
+        let _pm = make_peer_manager("test", addr.clone(), vec![], 10);
         let mut peers = vec![];
 
         let num_peers = 5;
         for i in 0..num_peers {
-            let pm =
-                make_peer_manager(&format!("test{}", i), open_port(), vec![("test", port)], 10);
+            let pm = make_peer_manager(
+                &format!("test{}", i),
+                tcp::ListenerAddr::reserve_for_test(),
+                vec![("test", *addr)],
+                10,
+            );
             peers.push(pm);
         }
         let flags = Arc::new(AtomicUsize::new(0));
@@ -112,11 +115,21 @@ fn peer_recover() {
     init_test_logger();
 
     run_actix(async {
-        let port0 = open_port();
-        let pm0 = Arc::new(make_peer_manager("test0", port0, vec![], 2));
-        let _pm1 = make_peer_manager("test1", open_port(), vec![("test0", port0)], 1);
+        let addr0 = tcp::ListenerAddr::reserve_for_test();
+        let pm0 = Arc::new(make_peer_manager("test0", addr0.clone(), vec![], 2));
+        let _pm1 = make_peer_manager(
+            "test1",
+            tcp::ListenerAddr::reserve_for_test(),
+            vec![("test0", *addr0)],
+            1,
+        );
 
-        let mut pm2 = Arc::new(make_peer_manager("test2", open_port(), vec![("test0", port0)], 1));
+        let mut pm2 = Arc::new(make_peer_manager(
+            "test2",
+            tcp::ListenerAddr::reserve_for_test(),
+            vec![("test0", *addr0)],
+            1,
+        ));
 
         let state = Arc::new(AtomicUsize::new(0));
         let flag = Arc::new(AtomicBool::new(false));
@@ -151,8 +164,8 @@ fn peer_recover() {
                     // Start node2 from scratch again.
                     pm2 = Arc::new(make_peer_manager(
                         "test2",
-                        open_port(),
-                        vec![("test0", port0)],
+                        tcp::ListenerAddr::reserve_for_test(),
+                        vec![("test0", *addr0)],
                         1,
                     ));
 

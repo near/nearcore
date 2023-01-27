@@ -311,7 +311,8 @@ mod tests {
     use near_chain_configs::Genesis;
     use near_client::{GetBlock, ProcessTxRequest};
     use near_crypto::{InMemorySigner, KeyType};
-    use near_network::test_utils::{open_port, WaitOrTimeoutActor};
+    use near_network::tcp;
+    use near_network::test_utils::WaitOrTimeoutActor;
     use near_o11y::testonly::init_integration_logger;
     use near_o11y::WithSpanContextExt;
     use near_primitives::hash::CryptoHash;
@@ -337,7 +338,8 @@ mod tests {
         let mut genesis =
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.epoch_length = 10;
-        let mut near_config = load_test_config("test0", open_port(), genesis.clone());
+        let mut near_config =
+            load_test_config("test0", tcp::ListenerAddr::reserve_for_test(), genesis.clone());
         near_config.client_config.min_num_peers = 0;
 
         let dir = tempfile::Builder::new().prefix("test0").tempdir().unwrap();
@@ -417,7 +419,7 @@ mod tests {
         // start the mock network to simulate a new node "test1" to sync up
         // start the client at height 10 (end of the first epoch)
         let dir1 = tempfile::Builder::new().prefix("test1").tempdir().unwrap();
-        let mut near_config1 = load_test_config("", open_port(), genesis);
+        let mut near_config1 = load_test_config("", tcp::ListenerAddr::reserve_for_test(), genesis);
         near_config1.client_config.min_num_peers = 1;
         near_config1.client_config.tracked_shards =
             (0..near_config1.genesis.config.shard_layout.num_shards()).collect();
