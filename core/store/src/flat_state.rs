@@ -703,14 +703,7 @@ pub mod store_helper {
                 panic!("Attempted to write incorrect flat storage creation status {status:?} for shard {shard_id}");
             }
         };
-        store_update
-            .set(crate::DBCol::FlatStateMisc, &creation_status_key(shard_id), &value)
-            .expect(
-                format!(
-                    "Error setting flat storage creation status {status:?} for shard {shard_id}"
-                )
-                .as_str(),
-            );
+        store_update.set(crate::DBCol::FlatStateMisc, &creation_status_key(shard_id), &value);
     }
 
     pub fn get_flat_storage_creation_status(
