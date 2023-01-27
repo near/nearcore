@@ -3,7 +3,7 @@ use crate::config;
 use crate::debug::{DebugStatus, GetDebugStatus};
 use crate::network_protocol::{
     AccountOrPeerIdOrHash, Edge, PeerIdOrHash, PeerMessage, Ping, Pong, RawRoutedMessage,
-    RoutedMessageBody, SignedAccountData,
+    RoutedMessageBody,
 };
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
@@ -106,8 +106,6 @@ pub enum Event {
     // actually complete. Currently this event is reported only for some message types,
     // feel free to add support for more.
     MessageProcessed(tcp::Tier, PeerMessage),
-    // Reported every time a new list of proxies has been constructed.
-    Tier1AdvertiseProxies(Vec<Arc<SignedAccountData>>),
     // Reported when a handshake has been started.
     HandshakeStarted(crate::peer::peer_actor::HandshakeStartedEvent),
     // Reported when a handshake has been successfully completed.
@@ -243,6 +241,7 @@ impl PeerManagerActor {
                         async move {
                             loop {
                                 interval.tick(&clock).await;
+                                state.tier1_request_full_sync();
                                 state.tier1_advertise_proxies(&clock).await;
                             }
                         }
@@ -972,10 +971,6 @@ impl actix::Handler<WithSpanContext<SetChainInfo>> for PeerManagerActor {
                 // and this node won't be able to connect to proxies until it happens (and only the
                 // connected proxies are included in the advertisement). We run tier1_advertise_proxies
                 // periodically in the background anyway to cover those cases.
-                //
-                // The set of tier1 accounts has changed, so we might be missing some accounts_data
-                // that our peers know about. tier1_advertise_proxies() has a side effect
-                // of asking peers for a full sync of the accounts_data with the TIER2 peers.
                 state.tier1_advertise_proxies(&clock).await;
             }
             .in_current_span(),

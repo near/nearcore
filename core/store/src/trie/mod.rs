@@ -322,8 +322,11 @@ impl std::fmt::Debug for TrieNode {
 #[derive(Debug, Eq, PartialEq)]
 #[allow(clippy::large_enum_variant)]
 pub enum RawTrieNode {
+    /// Leaf(key, value_length, value_hash)
     Leaf(Vec<u8>, u32, CryptoHash),
+    /// Branch(children, (value_length, value_hash))
     Branch([Option<CryptoHash>; 16], Option<(u32, CryptoHash)>),
+    /// Extension(key, child)
     Extension(Vec<u8>, CryptoHash),
 }
 
@@ -1531,9 +1534,9 @@ mod tests {
         ];
         let root = test_populate_trie(&tries, &empty_root, ShardUId::single_shard(), changes);
         let dir = tempfile::Builder::new().prefix("test_dump_load_trie").tempdir().unwrap();
-        store.save_to_file(DBCol::State, &dir.path().join("test.bin")).unwrap();
+        store.save_state_to_file(&dir.path().join("test.bin")).unwrap();
         let store2 = create_test_store();
-        store2.load_from_file(DBCol::State, &dir.path().join("test.bin")).unwrap();
+        store2.load_state_from_file(&dir.path().join("test.bin")).unwrap();
         let tries2 = ShardTries::test(store2, 1);
         let trie2 = tries2.get_trie_for_shard(ShardUId::single_shard(), root.clone());
         assert_eq!(trie2.get(b"doge").unwrap().unwrap(), b"coin");

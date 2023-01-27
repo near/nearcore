@@ -4,7 +4,6 @@ use clap::{Args, Parser};
 use near_amend_genesis::AmendGenesisCommand;
 use near_chain_configs::GenesisValidationMode;
 use near_client::ConfigUpdater;
-#[cfg(feature = "cold_store")]
 use near_cold_store_tool::ColdStoreCommand;
 use near_dyn_configs::{UpdateableConfigLoader, UpdateableConfigLoaderError, UpdateableConfigs};
 use near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofResponse;
@@ -111,7 +110,6 @@ impl NeardCmd {
             NeardSubCommand::AmendGenesis(cmd) => {
                 cmd.run()?;
             }
-            #[cfg(feature = "cold_store")]
             NeardSubCommand::ColdStore(cmd) => {
                 cmd.run(&home_dir);
             }
@@ -222,7 +220,6 @@ pub(super) enum NeardSubCommand {
     /// Amend a genesis/records file created by `dump-state`.
     AmendGenesis(AmendGenesisCommand),
 
-    #[cfg(feature = "cold_store")]
     /// Testing tool for cold storage
     ColdStore(ColdStoreCommand),
 
@@ -483,7 +480,7 @@ impl RunCmd {
                 UpdateableConfigLoader::new(updateable_configs.clone(), tx_config_update);
             let config_updater = ConfigUpdater::new(rx_config_update);
 
-            let nearcore::NearNode { rpc_servers, .. } =
+            let nearcore::NearNode { rpc_servers, cold_store_loop_handle, .. } =
                 nearcore::start_with_config_and_synchronization(
                     home_dir,
                     near_config,
@@ -503,6 +500,7 @@ impl RunCmd {
                 }
             };
             warn!(target: "neard", "{}, stopping... this may take a few minutes.", sig);
+            cold_store_loop_handle.map(|handle| handle.stop());
             futures::future::join_all(rpc_servers.iter().map(|(name, server)| async move {
                 server.stop(true).await;
                 debug!(target: "neard", "{} server stopped", name);
@@ -536,9 +534,7 @@ async fn wait_for_interrupt_signal(_home_dir: &Path, rx_crash: &mut Receiver<()>
     tokio::select! {
          _ = sigint.recv()  => "SIGINT",
          _ = sigterm.recv() => "SIGTERM",
-         _ = sighup.recv() => {
-            "SIGHUP"
-         },
+         _ = sighup.recv() => "SIGHUP",
          _ = rx_crash.recv() => "ClientActor died",
     }
 }

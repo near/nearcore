@@ -271,7 +271,7 @@ impl ChainGenesis {
 /// Bridge between the chain and the runtime.
 /// Main function is to update state given transactions.
 /// Additionally handles validators.
-pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
+pub trait RuntimeAdapter: Send + Sync {
     /// Get store and genesis state roots
     fn genesis_state(&self) -> (Store, Vec<StateRoot>);
 
@@ -580,6 +580,8 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
 
     fn get_protocol_config(&self, epoch_id: &EpochId) -> Result<ProtocolConfig, Error>;
 }
+
+pub trait RuntimeWithEpochManagerAdapter: RuntimeAdapter + EpochManagerAdapter {}
 
 /// The last known / checked height and time when we have processed it.
 /// Required to keep track of skipped blocks and not fallback to produce blocks at lower height.

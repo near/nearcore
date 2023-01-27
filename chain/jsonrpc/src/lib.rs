@@ -10,6 +10,9 @@ use actix_web::HttpRequest;
 use actix_web::{get, http, middleware, web, App, Error as HttpError, HttpResponse, HttpServer};
 use futures::Future;
 use futures::FutureExt;
+use near_client_primitives::types::GetSplitStorageInfo;
+
+use near_jsonrpc_primitives::types::split_storage::RpcSplitStorageInfoResponse;
 use near_network::PeerManagerActor;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -18,10 +21,11 @@ use tracing::info;
 
 use near_chain_configs::GenesisConfig;
 use near_client::{
-    ClientActor, DebugStatus, GetBlock, GetBlockProof, GetChunk, GetExecutionOutcome, GetGasPrice,
-    GetMaintenanceWindows, GetNetworkInfo, GetNextLightClientBlock, GetProtocolConfig, GetReceipt,
-    GetStateChanges, GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered,
-    ProcessTxRequest, ProcessTxResponse, Query, Status, TxStatus, ViewClientActor,
+    ClientActor, DebugStatus, GetBlock, GetBlockProof, GetChunk, GetClientConfig,
+    GetExecutionOutcome, GetGasPrice, GetMaintenanceWindows, GetNetworkInfo,
+    GetNextLightClientBlock, GetProtocolConfig, GetReceipt, GetStateChanges,
+    GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered, ProcessTxRequest,
+    ProcessTxResponse, Query, Status, TxStatus, ViewClientActor,
 };
 pub use near_jsonrpc_client as client;
 use near_jsonrpc_primitives::errors::RpcError;
@@ -313,6 +317,9 @@ impl JsonRpcHandler {
                 process_method_call(request, |params| self.tx_status_common(params, false)).await
             }
             "validators" => process_method_call(request, |params| self.validators(params)).await,
+            "client_config" => {
+                process_method_call(request, |_params: ()| self.client_config()).await
+            }
             "EXPERIMENTAL_broadcast_tx_sync" => {
                 process_method_call(request, |params| self.send_tx_sync(params)).await
             }
@@ -351,6 +358,9 @@ impl JsonRpcHandler {
             }
             "EXPERIMENTAL_maintenance_windows" => {
                 process_method_call(request, |params| self.maintenance_windows(params)).await
+            }
+            "EXPERIMENTAL_split_storage_info" => {
+                process_method_call(request, |params| self.split_storage_info(params)).await
             }
             #[cfg(feature = "sandbox")]
             "sandbox_patch_state" => {
@@ -1089,6 +1099,27 @@ impl JsonRpcHandler {
         let windows = self.view_client_send(GetMaintenanceWindows { account_id }).await?;
         Ok(windows.iter().map(|r| (r.start, r.end)).collect())
     }
+
+    async fn client_config(
+        &self,
+    ) -> Result<
+        near_jsonrpc_primitives::types::client_config::RpcClientConfigResponse,
+        near_jsonrpc_primitives::types::client_config::RpcClientConfigError,
+    > {
+        let client_config = self.client_send(GetClientConfig {}).await?;
+        Ok(near_jsonrpc_primitives::types::client_config::RpcClientConfigResponse { client_config })
+    }
+
+    pub async fn split_storage_info(
+        &self,
+        _request_data: near_jsonrpc_primitives::types::split_storage::RpcSplitStorageInfoRequest,
+    ) -> Result<
+        near_jsonrpc_primitives::types::split_storage::RpcSplitStorageInfoResponse,
+        near_jsonrpc_primitives::types::split_storage::RpcSplitStorageInfoError,
+    > {
+        let split_storage = self.view_client_send(GetSplitStorageInfo {}).await?;
+        Ok(RpcSplitStorageInfoResponse { result: split_storage })
+    }
 }
 
 #[cfg(feature = "sandbox")]
@@ -1409,6 +1440,18 @@ pub async fn prometheus_handler() -> Result<HttpResponse, HttpError> {
     }
 }
 
+fn client_config_handler(
+    handler: web::Data<JsonRpcHandler>,
+) -> impl Future<Output = Result<HttpResponse, HttpError>> {
+    let response = async move {
+        match handler.client_config().await {
+            Ok(value) => Ok(HttpResponse::Ok().json(&value)),
+            Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
+        }
+    };
+    response.boxed()
+}
+
 fn get_cors(cors_allowed_origins: &[String]) -> Cors {
     let mut cors = Cors::permissive();
     if cors_allowed_origins != ["*".to_string()] {
@@ -1532,6 +1575,9 @@ pub fn start_http(
             .service(
                 web::resource("/debug/api/block_status/{starting_height}")
                     .route(web::get().to(debug_block_status_handler)),
+            )
+            .service(
+                web::resource("/debug/client_config").route(web::get().to(client_config_handler)),
             )
             .service(debug_html)
             .service(display_debug_html)

@@ -13,6 +13,7 @@ use near_chunks::logic::{
 };
 use near_client_primitives::debug::ChunkProduction;
 use near_primitives::time::Clock;
+use near_store::metadata::DbKind;
 use tracing::{debug, error, info, trace, warn};
 
 use near_chain::chain::{
@@ -24,7 +25,8 @@ use near_chain::test_utils::format_hash;
 use near_chain::types::{ChainConfig, LatestKnown};
 use near_chain::{
     BlockProcessingArtifact, BlockStatus, Chain, ChainGenesis, ChainStoreAccess,
-    DoneApplyChunkCallback, Doomslug, DoomslugThresholdMode, Provenance, RuntimeAdapter,
+    DoneApplyChunkCallback, Doomslug, DoomslugThresholdMode, Provenance,
+    RuntimeWithEpochManagerAdapter,
 };
 use near_chain_configs::{ClientConfig, UpdateableClientConfig};
 use near_chunks::ShardsManager;
@@ -99,7 +101,7 @@ pub struct Client {
     pub sync_status: SyncStatus,
     pub chain: Chain,
     pub doomslug: Doomslug,
-    pub runtime_adapter: Arc<dyn RuntimeAdapter>,
+    pub runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
     pub shards_mgr: ShardsManager,
     pub sharded_tx_pool: ShardedTransactionPool,
     prev_block_to_chunk_headers_ready_for_inclusion: LruCache<
@@ -183,7 +185,7 @@ impl Client {
     pub fn new(
         config: ClientConfig,
         chain_genesis: ChainGenesis,
-        runtime_adapter: Arc<dyn RuntimeAdapter>,
+        runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
         network_adapter: Arc<dyn PeerManagerAdapter>,
         client_adapter: Arc<dyn ClientAdapterForShardsManager>,
         validator_signer: Option<Arc<dyn ValidatorSigner>>,
@@ -1454,13 +1456,7 @@ impl Client {
                     height = block.header().height())
                 .entered();
                 let _gc_timer = metrics::GC_TIME.start_timer();
-
-                let result = if self.config.archive {
-                    self.chain.clear_archive_data(self.config.gc.gc_blocks_limit)
-                } else {
-                    let tries = self.runtime_adapter.get_tries();
-                    self.chain.clear_data(tries, &self.config.gc)
-                };
+                let result = self.clear_data();
                 log_assert!(result.is_ok(), "Can't clear old data, {:?}", result);
             }
 
@@ -1694,7 +1690,10 @@ impl Client {
         error: near_chain::Error,
     ) {
         let is_validator =
-            |epoch_id, block_hash, account_id, runtime_adapter: &Arc<dyn RuntimeAdapter>| {
+            |epoch_id,
+             block_hash,
+             account_id,
+             runtime_adapter: &Arc<dyn RuntimeWithEpochManagerAdapter>| {
                 match runtime_adapter.get_validator_by_account_id(epoch_id, block_hash, account_id)
                 {
                     Ok((_, is_slashed)) => !is_slashed,
@@ -2230,6 +2229,29 @@ impl Client {
         };
         Ok(result)
     }
+
+    fn clear_data(&mut self) -> Result<(), near_chain::Error> {
+        // A RPC node should do regular garbage collection.
+        if !self.config.archive {
+            let tries = self.runtime_adapter.get_tries();
+            return self.chain.clear_data(tries, &self.config.gc);
+        }
+
+        // An archival node with split storage should perform garbage collection
+        // on the hot storage. In order to determine if split storage is enabled
+        // *and* that the migration to split storage is finished we can check
+        // the store kind. It's only set to hot after the migration is finished.
+        let store = self.chain.store().store();
+        let kind = store.get_db_kind()?;
+        if kind == Some(DbKind::Hot) {
+            let tries = self.runtime_adapter.get_tries();
+            return self.chain.clear_data(tries, &self.config.gc);
+        }
+
+        // An archival node with legacy storage or in the midst of migration to split
+        // storage should do the legacy clear_archive_data.
+        self.chain.clear_archive_data(self.config.gc.gc_blocks_limit)
+    }
 }
 
 /* implements functions used to communicate with network */
@@ -2309,7 +2331,7 @@ impl Client {
             // are cheaper than block processing (and that they will work with both this and
             // the next epoch). The caching on top of that (in tier1_accounts_cache field) is just
             // a defence in depth, based on the previous experience with expensive
-            // RuntimeAdapter::get_validators_info call.
+            // RuntimeWithEpochManagerAdapter::get_validators_info call.
             for cp in self.runtime_adapter.get_epoch_chunk_producers(epoch_id)? {
                 account_keys
                     .entry(cp.account_id().clone())
