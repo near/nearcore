@@ -364,7 +364,7 @@ impl Iterator for ContractAccountIterator {
                 let Ok(account_id) = account_id else { return Some(Err(account_id.unwrap_err())) };
 
                 if !self.filter.include_account(&account_id) {
-                    return None;
+                    continue;
                 }
 
                 // Here we can only look at fields that can be efficiently computed in one go.
