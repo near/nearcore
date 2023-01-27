@@ -579,12 +579,12 @@ pub mod store_helper {
         FetchingStateStatus, FlatStorageCreationStatus, FlatStorageError, KeyForFlatStateDelta,
     };
     use crate::{FlatStateDelta, Store, StoreUpdate};
-    use borsh::{BorshSerialize, BorshDeserialize};
+    use borsh::{BorshDeserialize, BorshSerialize};
+    use byteorder::ReadBytesExt;
     use near_primitives::hash::CryptoHash;
     use near_primitives::state::ValueRef;
     use near_primitives::types::ShardId;
     use std::sync::Arc;
-    use byteorder::ReadBytesExt;
 
     const FETCHING_STATE: u8 = 0;
     const CATCHING_UP: u8 = 1;
@@ -691,7 +691,11 @@ pub mod store_helper {
             );
     }
 
-    pub fn set_catchup_status(store_update: &mut StoreUpdate, shard_id: ShardId, block_hash: &CryptoHash) {
+    pub fn set_catchup_status(
+        store_update: &mut StoreUpdate,
+        shard_id: ShardId,
+        block_hash: &CryptoHash,
+    ) {
         let mut value = vec![CATCHING_UP];
         value.extend_from_slice(block_hash.as_bytes());
         store_update
@@ -706,8 +710,8 @@ pub mod store_helper {
         match get_flat_head(store, shard_id) {
             Some(_) => {
                 return FlatStorageCreationStatus::Ready;
-            },
-            None => {},
+            }
+            None => {}
         }
 
         let bytes_slice = store
@@ -722,19 +726,22 @@ pub mod store_helper {
 
         let value_type = bytes.read_u8().unwrap();
         match value_type {
-            FETCHING_STATE =>
-                FlatStorageCreationStatus::FetchingState(FetchingStateStatus::try_from_slice(bytes).unwrap()),
+            FETCHING_STATE => FlatStorageCreationStatus::FetchingState(
+                FetchingStateStatus::try_from_slice(bytes).unwrap(),
+            ),
             CATCHING_UP => {
-                FlatStorageCreationStatus::CatchingUp(CryptoHash::try_from_slice(bytes).unwrap()),
+                FlatStorageCreationStatus::CatchingUp(CryptoHash::try_from_slice(bytes).unwrap())
             }
-            value@ _ => {
-                panic!("Unexpected value type during getting flat storage creation status: {value}");
+            value @ _ => {
+                panic!(
+                    "Unexpected value type during getting flat storage creation status: {value}"
+                );
             }
         }
     }
 
     pub fn remove_flat_storage_creation_status(store_update: &mut StoreUpdate, shard_id: ShardId) {
-        store_update.delete(crate::DBCol::FlatStateMisc, &catchup_status_key(shard_id));
+        store_update.delete(crate::DBCol::FlatStateMisc, &creation_status_key(shard_id));
     }
 }
 

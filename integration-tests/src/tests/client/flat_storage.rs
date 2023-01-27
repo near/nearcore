@@ -176,7 +176,7 @@ fn test_flat_storage_creation() {
     env.produce_block(0, START_HEIGHT + 2);
     assert!(!env.clients[0].run_flat_storage_creation_step().unwrap());
     let final_block_hash = env.clients[0].chain.get_block_hash_by_height(START_HEIGHT).unwrap();
-    assert_eq!(store_helper::get_flat_head(&store, 0), Some(final_block_hash));
+    assert_eq!(store_helper::get_flat_head(&store, 0), None);
     assert_eq!(
         store_helper::get_flat_storage_creation_status(&store, 0),
         FlatStorageCreationStatus::FetchingState(FetchingStateStatus {
@@ -324,6 +324,7 @@ fn test_flat_storage_creation_start_from_state_part() {
         for key in trie_keys[1].iter() {
             store_update.delete(DBCol::FlatState, key);
         }
+        store_helper::remove_flat_head(&mut store_update, 0);
         store_helper::set_fetching_state_status(
             &mut store_update,
             0,
