@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs;
 use std::fs::File;
 use std::io::{Read, Write};
@@ -200,6 +201,10 @@ fn default_view_client_throttle_period() -> Duration {
 
 fn default_trie_viewer_state_size_limit() -> Option<u64> {
     Some(50_000)
+}
+
+fn default_validator_signer() -> Option<Arc<dyn ValidatorSigner>> {
+    None
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -561,7 +566,7 @@ impl Genesis {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Deserialize)]
 pub struct NearConfig {
     pub config: Config,
     pub client_config: ClientConfig,
@@ -572,6 +577,7 @@ pub struct NearConfig {
     pub rosetta_rpc_config: Option<RosettaRpcConfig>,
     pub telemetry_config: TelemetryConfig,
     pub genesis: Genesis,
+    #[serde(skip, default = "default_validator_signer")]
     pub validator_signer: Option<Arc<dyn ValidatorSigner>>,
 }
 
@@ -661,8 +667,37 @@ impl NearConfig {
         None
     }
 
-    pub fn override_from_file(self, _filename: &str) -> anyhow::Result<Self> {
+    pub fn override_from_file(mut self, path: &Path) -> anyhow::Result<Self> {
+        if !path.exists() {
+            return Ok(self)
+        }
+
+        let override_json = serde_json::from_reader(std::io::BufReader::new(File::open(path)?))
+            .with_context(|| format!("Failed to read override JSON from {}", path.display()))?;
+
+        let mut fields_to_value = NearConfig::get_fields_to_value(override_json, &mut vec![])?;
+
         Ok(self)
+    }
+
+    pub fn get_fields_to_value(json_subtree: serde_json::Value, mut fields_prefix: &mut Vec<String>) -> anyhow::Result<HashMap<Vector<String>, String>> {
+        let mut result = HashMap::default();
+        match json_subtree {
+            serde_json::Value::String(value) => {
+                return Ok({fields_prefix.clone(): value})
+            }
+            serde_json::Value::Object(map) => {
+                for (key, value) in map.iter_values() {
+                    fields_prefix.push(key);
+                    result.extend(NearConfig::get_fields_to_value(value, fields_prefix)?);
+                    fields_prefix.pop();
+                }
+                return Ok(result);
+            }
+            _ => {
+                return Err(anyhow!("Override JSON should be a nested dict with string values"));
+            }
+        }
     }
 }
 
@@ -1352,7 +1387,7 @@ pub fn load_config(
 
     let near_config = NearConfig::new(config, genesis, network_signer.into(), validator_signer);
     if let Ok(nc) = near_config {
-        return nc.override_from_file(CONFIG_OVERRIDE_FILENAME);
+        return nc.override_from_file(&dir.join(CONFIG_OVERRIDE_FILENAME));
     }
     near_config
 }
@@ -1532,7 +1567,7 @@ fn test_near_config_override() {
     init_configs(
         &temp_dir.path(),
         Some("localnet"),
-        None,
+        Some(AccountId::from_str("test1").unwrap()),
         Some("seed1"),
         3,
         false,
@@ -1560,11 +1595,20 @@ fn test_near_config_override() {
     let mut file = File::create(temp_dir.path().join(CONFIG_OVERRIDE_FILENAME)).unwrap();
     file.write_all(override_json_str.as_bytes()).unwrap();
 
+    assert!(temp_dir.path().join(CONFIG_OVERRIDE_FILENAME).exists());
+
     let override_config = load_config(&temp_dir.path(), GenesisValidationMode::Full)
     .expect("Failed to create NearConfig with override");
+
+    // TODO check that skipped fields still the same
+    assert_eq!(canonical_config.network_config.validator.is_some(), override_config.network_config.validator.is_some());
+    // This check doesn't make sense, but let's do it anyway.
+    assert_eq!(canonical_config.client_config.expected_shutdown.get(), override_config.client_config.expected_shutdown.get());
+    assert_eq!(canonical_config.validator_signer.is_some(), override_config.validator_signer.is_some());
+
+
 
     assert_eq!(override_config.client_config.min_num_peers, 0);
 
     // TODO also check callback messages
-
 }

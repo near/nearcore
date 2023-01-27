@@ -49,7 +49,7 @@ impl VerifiedPeer {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, serde::Deserialize)]
 pub struct Config {
     /// A list of nodes to connect to on the first run of the neard server.
     /// Once it connects to some of them, the server will learn about other

@@ -36,6 +36,23 @@ pub type Instant = time::Instant;
 pub type Utc = time::OffsetDateTime;
 pub type Duration = time::Duration;
 
+/*
+#[derive(Deserialize)]
+#[serde(remote = "time::duration::Padding")]
+pub enum PaddingForSerde {
+    Optimize,
+}
+
+#[derive(Deserialize)]
+#[serde(remote = "time::Duration")]
+pub struct DurationForSerde {
+    seconds: i64,
+    nanoseconds: i32,
+    padding: time::duration::Padding,
+
+}
+ */
+
 // Instant doesn't have a deterministic contructor,
 // however since Instant is not convertible to an unix timestamp,
 // we can snapshot Instant::now() once and treat it as a constant.

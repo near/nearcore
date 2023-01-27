@@ -7,7 +7,7 @@ use std::net;
 /// it is presented as IPv6.
 /// TODO: alternatively we could use IpAddr::to_canonical(), but then the variants of
 /// the Entry enum would have to be private.
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy, serde::Deserialize)]
 pub enum Entry {
     Ip(net::Ipv6Addr),
     IpPort(net::Ipv6Addr, u16),
@@ -45,7 +45,7 @@ impl std::str::FromStr for Entry {
 
 /// A blacklist for socket addresses.  Supports adding individual IP:port tuples
 /// to the blacklist or entire IPs.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, serde::Deserialize)]
 pub struct Blacklist(HashSet<Entry>);
 
 // TODO(CP-34): merge Blacklist with whitelist functionality and replace them with sth

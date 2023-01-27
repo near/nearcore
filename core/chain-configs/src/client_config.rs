@@ -67,6 +67,10 @@ fn default_gc_num_epochs_to_keep() -> u64 {
     GCConfig::default().gc_num_epochs_to_keep()
 }
 
+fn default_expected_shutdown() -> MutableConfigValue<Option<BlockHeight>> {
+    MutableConfigValue::new(None, "expected_shutdown")
+}
+
 impl GCConfig {
     pub fn gc_num_epochs_to_keep(&self) -> u64 {
         max(MIN_GC_NUM_EPOCHS_TO_KEEP, self.gc_num_epochs_to_keep)
@@ -74,7 +78,7 @@ impl GCConfig {
 }
 
 /// ClientConfig where some fields can be updated at runtime.
-#[derive(Clone)]
+#[derive(Clone, Deserialize)]
 pub struct ClientConfig {
     /// Version of the binary.
     pub version: Version,
@@ -83,6 +87,7 @@ pub struct ClientConfig {
     /// Listening rpc port for status.
     pub rpc_addr: Option<String>,
     /// Graceful shutdown at expected block height.
+    #[serde(skip, default = "default_expected_shutdown")]
     pub expected_shutdown: MutableConfigValue<Option<BlockHeight>>,
     /// Duration to check for producing / skipping block.
     pub block_production_tracking_delay: Duration,
