@@ -250,7 +250,11 @@ impl FlatStorageShardCreator {
 
                     let mut store_update = chain_store.store().store_update();
                     self.metrics.flat_head_height.set(final_head.height as i64);
-                    store_helper::set_fetching_state_status(&mut store_update, shard_id, status);
+                    store_helper::set_flat_storage_creation_status(
+                        &mut store_update,
+                        shard_id,
+                        FlatStorageCreationStatus::FetchingState(status),
+                    );
                     store_update.commit()?;
                 }
             }
@@ -326,19 +330,19 @@ impl FlatStorageShardCreator {
                                 num_parts,
                             };
                             debug!(target: "chain", %shard_id, %block_hash, ?new_status);
-                            store_helper::set_fetching_state_status(
+                            store_helper::set_flat_storage_creation_status(
                                 &mut store_update,
                                 shard_id,
-                                new_status,
+                                FlatStorageCreationStatus::FetchingState(new_status),
                             );
                         } else {
                             // If all parts were fetched, we can start catchup.
                             info!(target: "chain", %shard_id, %block_hash, "Finished fetching state");
                             self.metrics.remaining_state_parts.set(0);
-                            store_helper::set_catchup_status(
+                            store_helper::set_flat_storage_creation_status(
                                 &mut store_update,
                                 shard_id,
-                                &block_hash,
+                                FlatStorageCreationStatus::CatchingUp(block_hash),
                             );
                         }
                         store_update.commit()?;
@@ -375,7 +379,11 @@ impl FlatStorageShardCreator {
                     debug!(target: "chain", %shard_id, %old_flat_head, %old_height, %flat_head, %height, "Catching up flat head");
                     self.metrics.flat_head_height.set(height as i64);
                     let mut store_update = self.runtime_adapter.store().store_update();
-                    store_helper::set_catchup_status(&mut store_update, shard_id, &flat_head);
+                    store_helper::set_flat_storage_creation_status(
+                        &mut store_update,
+                        shard_id,
+                        FlatStorageCreationStatus::CatchingUp(flat_head),
+                    );
                     merged_delta.apply_to_flat_state(&mut store_update);
 
                     if flat_head == chain_final_head.last_block_hash {

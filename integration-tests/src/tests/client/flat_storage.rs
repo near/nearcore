@@ -325,15 +325,15 @@ fn test_flat_storage_creation_start_from_state_part() {
             store_update.delete(DBCol::FlatState, key);
         }
         store_helper::remove_flat_head(&mut store_update, 0);
-        store_helper::set_fetching_state_status(
+        store_helper::set_flat_storage_creation_status(
             &mut store_update,
             0,
-            FetchingStateStatus {
+            FlatStorageCreationStatus::FetchingState(FetchingStateStatus {
                 block_hash: flat_head,
                 part_id: 1,
                 num_parts_in_step: 1,
                 num_parts: NUM_PARTS,
-            },
+            }),
         );
         store_update.commit().unwrap();
 

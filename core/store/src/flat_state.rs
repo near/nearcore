@@ -677,30 +677,31 @@ pub mod store_helper {
         key
     }
 
-    pub fn set_fetching_state_status(
+    pub fn set_flat_storage_creation_status(
         store_update: &mut StoreUpdate,
         shard_id: ShardId,
-        status: FetchingStateStatus,
+        status: FlatStorageCreationStatus,
     ) {
-        let mut value = vec![FETCHING_STATE];
-        value.extend_from_slice(&status.try_to_vec().unwrap());
+        let value = match status {
+            FlatStorageCreationStatus::FetchingState(status) => {
+                let mut value = vec![FETCHING_STATE];
+                value.extend_from_slice(&status.try_to_vec().unwrap());
+                value
+            }
+            FlatStorageCreationStatus::CatchingUp(status) => {
+                let mut value = vec![CATCHING_UP];
+                value.extend_from_slice(block_hash.as_bytes());
+            }
+            status @ _ => {
+                panic!("Attempted to write incorrect flat storage creation status {status} for shard {shard_id}");
+            }
+        };
         store_update
             .set_ser(crate::DBCol::FlatStateMisc, &creation_status_key(shard_id), &value)
             .expect(
-                format!("Error setting fetching step for shard {shard_id} to {:?}", value).as_str(),
+                format!("Error setting flat storage creation status {status} for shard {shard_id}")
+                    .as_str(),
             );
-    }
-
-    pub fn set_catchup_status(
-        store_update: &mut StoreUpdate,
-        shard_id: ShardId,
-        block_hash: &CryptoHash,
-    ) {
-        let mut value = vec![CATCHING_UP];
-        value.extend_from_slice(block_hash.as_bytes());
-        store_update
-            .set_ser(crate::DBCol::FlatStateMisc, &creation_status_key(shard_id), &value)
-            .expect(format!("Error setting catchup status for shard {shard_id}").as_str());
     }
 
     pub fn get_flat_storage_creation_status(
@@ -714,28 +715,27 @@ pub mod store_helper {
             None => {}
         }
 
-        let bytes_slice = store
+        let value = store
             .get(crate::DBCol::FlatStateMisc, &creation_status_key(shard_id))
             .expect("Error reading status from storage");
-        let mut bytes = match bytes_slice {
-            None => {
-                return FlatStorageCreationStatus::SavingDeltas;
-            }
-            Some(value) => value.as_slice(),
-        };
-
-        let value_type = bytes.read_u8().unwrap();
-        match value_type {
-            FETCHING_STATE => FlatStorageCreationStatus::FetchingState(
-                FetchingStateStatus::try_from_slice(bytes).unwrap(),
-            ),
-            CATCHING_UP => {
-                FlatStorageCreationStatus::CatchingUp(CryptoHash::try_from_slice(bytes).unwrap())
-            }
-            value @ _ => {
-                panic!(
-                    "Unexpected value type during getting flat storage creation status: {value}"
-                );
+        match value {
+            None => FlatStorageCreationStatus::SavingDeltas,
+            Some(bytes) => {
+                let mut bytes = bytes.as_slice();
+                let status_type = bytes.read_u8().unwrap();
+                match status_type {
+                    FETCHING_STATE => FlatStorageCreationStatus::FetchingState(
+                        FetchingStateStatus::try_from_slice(bytes).unwrap(),
+                    ),
+                    CATCHING_UP => FlatStorageCreationStatus::CatchingUp(
+                        CryptoHash::try_from_slice(bytes).unwrap(),
+                    ),
+                    value @ _ => {
+                        panic!(
+                            "Unexpected value type during getting flat storage creation status: {value}"
+                        );
+                    }
+                }
             }
         }
     }
