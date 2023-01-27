@@ -704,7 +704,7 @@ pub mod store_helper {
             }
         };
         store_update
-            .set_ser(crate::DBCol::FlatStateMisc, &creation_status_key(shard_id), &value)
+            .set(crate::DBCol::FlatStateMisc, &creation_status_key(shard_id), &value)
             .expect(
                 format!(
                     "Error setting flat storage creation status {status:?} for shard {shard_id}"
