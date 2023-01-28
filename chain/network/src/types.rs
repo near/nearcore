@@ -154,6 +154,13 @@ pub struct ChainInfo {
 
 #[derive(Debug, actix::Message)]
 #[rtype(result = "()")]
+pub struct SpawnReconnectLoop {
+    // Info for the peer to which we wish to reconnect
+    pub peer_info: PeerInfo,
+}
+
+#[derive(Debug, actix::Message)]
+#[rtype(result = "()")]
 pub struct SetChainInfo(pub ChainInfo);
 
 #[derive(Debug, actix::Message)]

@@ -1,9 +1,10 @@
 use crate::broadcast;
 use crate::network_protocol::testonly as data;
 use crate::peer_manager::network_state::RECENT_OUTBOUND_CONNECTIONS_MIN_DURATION;
-use crate::peer_manager::network_state::RECONNECT_ATTEMPT_INTERVAL;
 use crate::peer_manager::peer_manager_actor::Event as PME;
-use crate::peer_manager::peer_manager_actor::UPDATE_RECENT_OUTBOUND_CONNECTIONS_INTERVAL;
+use crate::peer_manager::peer_manager_actor::{
+    RECONNECT_ATTEMPT_INTERVAL, UPDATE_RECENT_OUTBOUND_CONNECTIONS_INTERVAL,
+};
 use crate::peer_manager::testonly::start as start_pm;
 use crate::peer_manager::testonly::ActorHandler;
 use crate::peer_manager::testonly::Event;

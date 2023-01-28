@@ -101,6 +101,7 @@ impl PeerHandle {
         network_cfg.event_sink = send.sink().compose(Event::Network);
         let network_state = Arc::new(NetworkState::new(
             &clock,
+            None,
             store.clone(),
             peer_store::PeerStore::new(&clock, network_cfg.peer_store.clone(), store.clone())
                 .unwrap(),

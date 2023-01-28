@@ -7,7 +7,6 @@ use crate::network_protocol::{
 };
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
-use crate::peer_manager::network_state::RECONNECT_ATTEMPT_INTERVAL;
 use crate::peer_manager::network_state::{NetworkState, WhitelistNode};
 use crate::peer_manager::peer_store;
 use crate::stats::metrics;
@@ -17,7 +16,7 @@ use crate::time;
 use crate::types::{
     ConnectedPeerInfo, GetNetworkInfo, HighestHeightPeerInfo, KnownProducer, NetworkInfo,
     NetworkRequests, NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
-    PeerType, SetChainInfo,
+    PeerType, SetChainInfo, SpawnReconnectLoop,
 };
 use actix::fut::future::wrap_future;
 use actix::{Actor as _, AsyncContext as _};
@@ -48,6 +47,11 @@ const MONITOR_PEERS_INITIAL_DURATION: time::Duration = time::Duration::milliseco
 const FIX_LOCAL_EDGES_INTERVAL: time::Duration = time::Duration::seconds(60);
 /// How much time we give fix_local_edges() to resolve the discrepancies, before forcing disconnect.
 const FIX_LOCAL_EDGES_TIMEOUT: time::Duration = time::Duration::seconds(6);
+
+/// Number of times to attempt reconnection when trying to re-establish a connection.
+const MAX_RECONNECT_ATTEMPTS: usize = 6;
+/// How long to wait between reconnection attempts.
+pub(crate) const RECONNECT_ATTEMPT_INTERVAL: time::Duration = time::Duration::seconds(10);
 
 /// How often to report bandwidth stats.
 const REPORT_BANDWIDTH_STATS_TRIGGER_INTERVAL: time::Duration =
@@ -165,30 +169,6 @@ impl actix::Actor for PeerManagerActor {
             }
         }));
 
-        // Periodically make pending reconnect attempts.
-        let clock = self.clock.clone();
-        let state = self.state.clone();
-        ctx.spawn(wrap_future(async move {
-            let mut interval = time::Interval::new(clock.now(), RECONNECT_ATTEMPT_INTERVAL);
-            loop {
-                interval.tick(&clock).await;
-                for peer_info in state.get_peers_pending_reconnect() {
-                    let result = async {
-                        let stream = tcp::Stream::connect(&peer_info, tcp::Tier::T2).await.context("tcp::Stream::connect()")?;
-                        PeerActor::spawn_and_handshake(clock.clone(),stream,None,state.clone()).await.context("PeerActor::spawn()")?;
-                        anyhow::Ok(())
-                    }.await;
-
-                    if result.is_err() {
-                        tracing::info!(target:"network", ?result, "failed to connect to {peer_info}");
-                    }
-                    if state.peer_store.peer_connection_attempt(&clock, &peer_info.id, result).is_err() {
-                        tracing::error!(target: "network", ?peer_info, "Failed to mark peer as failed.");
-                    }
-                }
-            }
-        }));
-
         // Periodically prints bandwidth stats for each peer.
         self.report_bandwidth_stats_trigger(ctx, REPORT_BANDWIDTH_STATS_TRIGGER_INTERVAL);
     }
@@ -236,16 +216,20 @@ impl PeerManagerActor {
         let my_peer_id = config.node_id();
         let arbiter = actix::Arbiter::new().handle();
         let clock = clock.clone();
-        let state = Arc::new(NetworkState::new(
-            &clock,
-            store.clone(),
-            peer_store,
-            config.clone(),
-            genesis_id,
-            client,
-            whitelist_nodes,
-        ));
-        arbiter.spawn({
+
+        Ok(Self::start_in_arbiter(&arbiter.clone(), move |ctx| {
+            let state = Arc::new(NetworkState::new(
+                &clock,
+                Some(ctx.address()),
+                store.clone(),
+                peer_store,
+                config.clone(),
+                genesis_id,
+                client,
+                whitelist_nodes,
+            ));
+
+            arbiter.spawn({
             let arbiter = arbiter.clone();
             let state = state.clone();
             let clock = clock.clone();
@@ -312,11 +296,8 @@ impl PeerManagerActor {
                 }
             }
         });
-        Ok(Self::start_in_arbiter(&arbiter, move |_ctx| Self {
-            my_peer_id: my_peer_id.clone(),
-            started_connect_attempts: false,
-            state,
-            clock,
+
+            Self { my_peer_id: my_peer_id.clone(), started_connect_attempts: false, state, clock }
         }))
     }
 
@@ -998,6 +979,42 @@ impl PeerManagerActor {
                 PeerManagerMessageResponse::PingTo
             }
         }
+    }
+}
+
+impl actix::Handler<WithSpanContext<SpawnReconnectLoop>> for PeerManagerActor {
+    type Result = ();
+    fn handle(&mut self, msg: WithSpanContext<SpawnReconnectLoop>, ctx: &mut Self::Context) {
+        let (_span, SpawnReconnectLoop { peer_info }) = handler_trace_span!(target: "network", msg);
+        let _timer = metrics::PEER_MANAGER_MESSAGES_TIME
+            .with_label_values(&["SpawnReconnectLoop"])
+            .start_timer();
+
+        let state = self.state.clone();
+        let clock = self.clock.clone();
+
+        ctx.spawn(wrap_future(async move {
+            let mut interval = time::Interval::new(clock.now(), RECONNECT_ATTEMPT_INTERVAL);
+            for _attempt in 0..MAX_RECONNECT_ATTEMPTS {
+                let result = async {
+                    let stream = tcp::Stream::connect(&peer_info, tcp::Tier::T2).await.context("tcp::Stream::connect()")?;
+                    PeerActor::spawn_and_handshake(clock.clone(),stream,None,state.clone()).await.context("PeerActor::spawn()")?;
+                    anyhow::Ok(())
+                }.await;
+
+                if result.is_err() {
+                    tracing::info!(target:"network", ?result, "Failed to connect to {peer_info}");
+                } else {
+                    break;
+                }
+
+                if state.peer_store.peer_connection_attempt(&clock, &peer_info.id, result).is_err() {
+                    tracing::error!(target: "network", ?peer_info, "Failed to store connection attempt.");
+                }
+
+                interval.tick(&clock).await;
+            }
+        }));
     }
 }
 
