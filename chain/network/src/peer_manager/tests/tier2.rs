@@ -260,18 +260,32 @@ async fn test_reconnect_after_restart_outbound_side_multi() {
     let pm4 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
 
     let id1 = pm1.cfg.node_id();
-    let id2 = pm1.cfg.node_id();
-    let id3 = pm1.cfg.node_id();
-    let id4 = pm1.cfg.node_id();
+    let id2 = pm2.cfg.node_id();
+    let id3 = pm3.cfg.node_id();
+    let id4 = pm4.cfg.node_id();
 
-    tracing::info!(target:"test", "connect pm0 to pm1, pm2, pm3, pm4");
+    tracing::info!(target:"test", "connect pm0 to other pms, in order");
     pm0.connect_to(&pm1.peer_info(), tcp::Tier::T2).await;
+    pm0.wait_for_direct_connection(id1.clone()).await;
+    clock.advance(time::Duration::seconds(1));
     pm0.connect_to(&pm2.peer_info(), tcp::Tier::T2).await;
+    pm0.wait_for_direct_connection(id2.clone()).await;
+    clock.advance(time::Duration::seconds(1));
     pm0.connect_to(&pm3.peer_info(), tcp::Tier::T2).await;
+    pm0.wait_for_direct_connection(id3.clone()).await;
+    clock.advance(time::Duration::seconds(1));
     pm0.connect_to(&pm4.peer_info(), tcp::Tier::T2).await;
+    pm0.wait_for_direct_connection(id4.clone()).await;
 
     clock.advance(STORED_CONNECTIONS_MIN_DURATION);
     clock.advance(UPDATE_RECENT_OUTBOUND_CONNECTIONS_INTERVAL);
+
+    tracing::info!(target:"test", "check that pm0 stores the outbound connections");
+    check_recent_outbound_connections(
+        &pm0,
+        vec![id4.clone(), id3.clone(), id2.clone(), id1.clone()],
+    )
+    .await;
 
     tracing::info!(target:"test", "drop pm0 and start it again with the same db");
     drop(pm0);
