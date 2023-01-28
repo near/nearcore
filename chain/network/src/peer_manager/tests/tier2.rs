@@ -1,6 +1,6 @@
 use crate::broadcast;
 use crate::network_protocol::testonly as data;
-use crate::peer_manager::network_state::RECENT_OUTBOUND_CONNECTIONS_MIN_DURATION;
+use crate::peer_manager::connection_store::STORED_CONNECTIONS_MIN_DURATION;
 use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::peer_manager::peer_manager_actor::{
     RECONNECT_ATTEMPT_INTERVAL, UPDATE_RECENT_OUTBOUND_CONNECTIONS_INTERVAL,
@@ -19,7 +19,11 @@ use std::sync::Arc;
 async fn check_recent_outbound_connections(pm: &ActorHandler, wanted: Vec<PeerId>) {
     let got: Vec<PeerId> = pm
         .with_state(move |s| async move {
-            s.get_recent_outbound_connections().iter().map(|c| c.peer_info.id.clone()).collect()
+            s.connection_store
+                .get_recent_outbound_connections()
+                .iter()
+                .map(|c| c.peer_info.id.clone())
+                .collect()
         })
         .await;
 
@@ -54,7 +58,7 @@ async fn test_recent_outbound_connection() {
     pm0.connect_to(&pm1.peer_info(), tcp::Tier::T2).await;
     pm2.connect_to(&pm0.peer_info(), tcp::Tier::T2).await;
 
-    clock.advance(RECENT_OUTBOUND_CONNECTIONS_MIN_DURATION);
+    clock.advance(STORED_CONNECTIONS_MIN_DURATION);
     clock.advance(UPDATE_RECENT_OUTBOUND_CONNECTIONS_INTERVAL);
 
     tracing::info!(target:"test", "check that pm0 stores the outbound connection to pm1");
@@ -84,7 +88,7 @@ async fn test_storage_after_disconnect() {
     tracing::info!(target:"test", "connect pm0 to pm1");
     pm0.connect_to(&pm1.peer_info(), tcp::Tier::T2).await;
 
-    clock.advance(RECENT_OUTBOUND_CONNECTIONS_MIN_DURATION);
+    clock.advance(STORED_CONNECTIONS_MIN_DURATION);
     clock.advance(UPDATE_RECENT_OUTBOUND_CONNECTIONS_INTERVAL);
 
     tracing::info!(target:"test", "check that pm0 stores the outbound connection to pm1");
@@ -129,7 +133,7 @@ async fn test_outbound_connection_storage_order() {
     pm0.wait_for_direct_connection(id3.clone()).await;
 
     tracing::info!(target:"test", "check that the outbound connections are stored");
-    clock.advance(RECENT_OUTBOUND_CONNECTIONS_MIN_DURATION);
+    clock.advance(STORED_CONNECTIONS_MIN_DURATION);
     clock.advance(UPDATE_RECENT_OUTBOUND_CONNECTIONS_INTERVAL);
     check_recent_outbound_connections(&pm0, vec![id3.clone(), id2.clone(), id1.clone()]).await;
 
@@ -158,7 +162,7 @@ async fn test_reconnect_after_restart_outbound_side() {
     tracing::info!(target:"test", "connect pm0 to pm1");
     pm0.connect_to(&pm1.peer_info(), tcp::Tier::T2).await;
 
-    clock.advance(RECENT_OUTBOUND_CONNECTIONS_MIN_DURATION);
+    clock.advance(STORED_CONNECTIONS_MIN_DURATION);
     clock.advance(UPDATE_RECENT_OUTBOUND_CONNECTIONS_INTERVAL);
 
     tracing::info!(target:"test", "check that pm0 stores the outbound connection to pm1");
@@ -188,7 +192,7 @@ async fn test_reconnect_after_restart_inbound_side() {
     tracing::info!(target:"test", "connect pm0 to pm1");
     pm0.connect_to(&pm1.peer_info(), tcp::Tier::T2).await;
 
-    clock.advance(RECENT_OUTBOUND_CONNECTIONS_MIN_DURATION);
+    clock.advance(STORED_CONNECTIONS_MIN_DURATION);
     clock.advance(UPDATE_RECENT_OUTBOUND_CONNECTIONS_INTERVAL);
 
     tracing::info!(target:"test", "check that pm0 stores the outbound connection to pm1");
@@ -224,7 +228,7 @@ async fn test_reconnect_after_disconnect_inbound_side() {
     tracing::info!(target:"test", "connect pm0 to pm1");
     pm0.connect_to(&pm1.peer_info(), tcp::Tier::T2).await;
 
-    clock.advance(RECENT_OUTBOUND_CONNECTIONS_MIN_DURATION);
+    clock.advance(STORED_CONNECTIONS_MIN_DURATION);
     clock.advance(UPDATE_RECENT_OUTBOUND_CONNECTIONS_INTERVAL);
 
     tracing::info!(target:"test", "check that pm0 stores the outbound connection to pm1");
@@ -266,7 +270,7 @@ async fn test_reconnect_after_restart_outbound_side_multi() {
     pm0.connect_to(&pm3.peer_info(), tcp::Tier::T2).await;
     pm0.connect_to(&pm4.peer_info(), tcp::Tier::T2).await;
 
-    clock.advance(RECENT_OUTBOUND_CONNECTIONS_MIN_DURATION);
+    clock.advance(STORED_CONNECTIONS_MIN_DURATION);
     clock.advance(UPDATE_RECENT_OUTBOUND_CONNECTIONS_INTERVAL);
 
     tracing::info!(target:"test", "drop pm0 and start it again with the same db");

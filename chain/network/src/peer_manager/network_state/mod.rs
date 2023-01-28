@@ -9,6 +9,7 @@ use crate::network_protocol::{
 };
 use crate::peer::peer_actor::{ClosingReason, ConnectionClosedEvent};
 use crate::peer_manager::connection;
+use crate::peer_manager::connection_store;
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::peer_store;
 use crate::private_actix::RegisterPeerError;
@@ -17,7 +18,7 @@ use crate::stats::metrics;
 use crate::store;
 use crate::tcp;
 use crate::time;
-use crate::types::{ChainInfo, ConnectionInfo, PeerType, ReasonForBan, SpawnReconnectLoop};
+use crate::types::{ChainInfo, PeerType, ReasonForBan, SpawnReconnectLoop};
 use crate::PeerManagerActor;
 use actix::Addr;
 use arc_swap::ArcSwap;
@@ -27,7 +28,6 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::types::AccountId;
 use parking_lot::Mutex;
-use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -53,12 +53,6 @@ const PRUNE_UNREACHABLE_PEERS_AFTER: time::Duration = time::Duration::hours(1);
 
 /// Remove the edges that were created more that this duration ago.
 pub const PRUNE_EDGES_AFTER: time::Duration = time::Duration::minutes(30);
-
-/// The maximum number of stored recent outbound connections.
-pub const RECENT_OUTBOUND_CONNECTIONS_LIMIT: usize = 40;
-/// How long a connection should survive before it can enter recent outbound connections
-pub(crate) const RECENT_OUTBOUND_CONNECTIONS_MIN_DURATION: time::Duration =
-    time::Duration::minutes(10);
 
 impl WhitelistNode {
     pub fn from_peer_info(pi: &PeerInfo) -> anyhow::Result<Self> {
@@ -96,8 +90,6 @@ pub(crate) struct NetworkState {
     pub peer_manager_actor: Option<Addr<PeerManagerActor>>,
     /// PeerManager config.
     pub config: config::VerifiedConfig,
-    /// Store for read/write access to recent outbound connections.
-    pub store: Mutex<store::Store>,
     /// When network state has been constructed.
     pub created_at: time::Instant,
     /// GenesisId of the chain.
@@ -115,12 +107,10 @@ pub(crate) struct NetworkState {
     pub inbound_handshake_permits: Arc<tokio::sync::Semaphore>,
     /// Peer store that provides read/write access to peers.
     pub peer_store: peer_store::PeerStore,
+    /// Connection store that provides read/write access to stored connections.
+    pub connection_store: connection_store::ConnectionStore,
     /// A graph of the whole NEAR network.
     pub graph: Arc<crate::routing::Graph>,
-
-    /// Information about recent outbound connections which lasted for at least
-    /// RECENT_OUTBOUND_CONNECTIONS_MIN_DURATION
-    pub recent_outbound_connections: Arc<Mutex<Vec<ConnectionInfo>>>,
 
     /// Hashes of the body of recently received routed messages.
     /// It allows us to determine whether messages arrived faster over TIER1 or TIER2 network.
@@ -170,12 +160,9 @@ impl NetworkState {
         client: Arc<dyn client::Client>,
         whitelist_nodes: Vec<WhitelistNode>,
     ) -> Self {
-        let stored_recent_outbound_connections = store.get_recent_outbound_connections();
-
         Self {
             runtime: Runtime::new(),
             peer_manager_actor,
-            store: Mutex::new(store.clone()),
             graph: Arc::new(crate::routing::Graph::new(
                 crate::routing::GraphConfig {
                     node_id: config.node_id(),
@@ -191,9 +178,9 @@ impl NetworkState {
             tier1: connection::Pool::new(config.node_id()),
             inbound_handshake_permits: Arc::new(tokio::sync::Semaphore::new(LIMIT_PENDING_PEERS)),
             peer_store,
+            connection_store: connection_store::ConnectionStore::new(store.clone()).unwrap(),
             accounts_data: Arc::new(accounts_data::Cache::new()),
             tier1_route_back: Mutex::new(RouteBackCache::default()),
-            recent_outbound_connections: Arc::new(Mutex::new(stored_recent_outbound_connections)),
             recent_routed_messages: Mutex::new(lru::LruCache::new(
                 RECENT_ROUTED_MESSAGES_CACHE_SIZE,
             )),
@@ -689,79 +676,11 @@ impl NetworkState {
     }
 
     fn should_reestablish_connection(&self, peer_info: &PeerInfo) -> bool {
-        for info in self.recent_outbound_connections.lock().iter() {
-            if info.peer_info.id == peer_info.id {
-                return true;
-            }
-        }
-        return false;
+        return self.connection_store.has_recent_outbound_connection(&peer_info.id);
     }
 
-    pub fn get_recent_outbound_connections(&self) -> Vec<ConnectionInfo> {
-        return self.recent_outbound_connections.lock().clone();
-    }
-
-    pub fn remove_from_recent_outbound_connections(&self, peer_id: &PeerId) {
-        let mut connections = self.recent_outbound_connections.lock();
-        connections.retain(|c| c.peer_info.id != *peer_id);
-        if let Err(err) = self.store.lock().set_recent_outbound_connections(&connections) {
-            tracing::error!(target: "network", ?err, "Failed to save recent outbound connections");
-        }
-    }
-
-    pub fn update_recent_outbound_connections(&self, clock: &time::Clock) {
-        let now = clock.now();
-        let now_utc = clock.now_utc();
-
-        // Start with connections already in storage
-        let mut updated: HashMap<PeerId, ConnectionInfo> = self
-            .recent_outbound_connections
-            .lock()
-            .iter()
-            .map(|c| (c.peer_info.id.clone(), c.clone()))
-            .collect();
-
-        // Add information about live outbound connections
-        for c in self.tier2.load().ready.values() {
-            if c.peer_type != PeerType::Outbound {
-                continue;
-            }
-
-            // If this connection is already in storage, update its last_connected time
-            if let Some(stored) = updated.get_mut(&c.peer_info.id) {
-                stored.last_connected = now_utc;
-                continue;
-            }
-
-            // If this connection is not in storage and has lasted long enough, add it as a new entry
-            let connected_duration: time::Duration = now - c.established_time;
-            if connected_duration > RECENT_OUTBOUND_CONNECTIONS_MIN_DURATION {
-                let first_connected: time::Utc = now_utc - connected_duration;
-
-                updated.insert(
-                    c.peer_info.id.clone(),
-                    ConnectionInfo {
-                        peer_info: c.peer_info.clone(),
-                        first_connected: first_connected,
-                        last_connected: now_utc,
-                    },
-                );
-            }
-        }
-
-        // Order by last_connected, with longer-disconnected nodes appearing later
-        // Break ties by first_connected for convenience when testing
-        let mut updated: Vec<ConnectionInfo> = updated.values().cloned().collect();
-        updated.sort_by_key(|c| (c.last_connected, c.first_connected));
-        updated.reverse();
-
-        // Evict the longest-disconnected connections, if needed
-        updated.truncate(RECENT_OUTBOUND_CONNECTIONS_LIMIT);
-
-        if let Err(err) = self.store.lock().set_recent_outbound_connections(&updated) {
-            tracing::error!(target: "network", ?err, "Failed to save recent outbound connections");
-        }
-        *self.recent_outbound_connections.lock() = updated.clone();
+    pub fn update_recent_outbound_connections(self: &Arc<Self>, clock: &time::Clock) {
+        self.connection_store.update(clock, self.clone());
     }
 
     /// Sets the chain info, and updates the set of TIER1 keys.

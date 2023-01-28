@@ -503,7 +503,7 @@ impl PeerManagerActor {
                 "Stop active connection"
             );
             p.stop(None);
-            self.state.remove_from_recent_outbound_connections(&p.peer_info.id);
+            self.state.connection_store.remove_from_recent_outbound_connections(&p.peer_info.id);
         }
     }
 
@@ -593,7 +593,7 @@ impl PeerManagerActor {
     }
 
     fn bootstrap_outbound_from_recent_connections(&self, ctx: &mut actix::Context<Self>) {
-        for conn in self.state.get_recent_outbound_connections() {
+        for conn in self.state.connection_store.get_recent_outbound_connections() {
             let peer_info = conn.peer_info.clone();
             ctx.spawn(wrap_future({
                 let state = self.state.clone();
@@ -1140,6 +1140,7 @@ impl actix::Handler<GetDebugStatus> for PeerManagerActor {
                 DebugStatus::RecentOutboundConnections(RecentOutboundConnectionsView {
                     recent_outbound_connections: self
                         .state
+                        .connection_store
                         .get_recent_outbound_connections()
                         .iter()
                         .map(|c| ConnectionInfoView {

@@ -1104,6 +1104,7 @@ impl PeerActor {
 
                 if d.remove_from_recent_outbound_connections {
                     self.network_state
+                        .connection_store
                         .remove_from_recent_outbound_connections(self.other_peer_id().unwrap())
                 }
 
@@ -1419,7 +1420,9 @@ impl actix::Actor for PeerActor {
 
                 if !reason.allow_reconnect_outbound() {
                     if let Some(other_peer) = self.other_peer_id() {
-                        self.network_state.remove_from_recent_outbound_connections(other_peer);
+                        self.network_state
+                            .connection_store
+                            .remove_from_recent_outbound_connections(other_peer);
                     }
                 }
 
