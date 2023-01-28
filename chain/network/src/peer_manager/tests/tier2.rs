@@ -68,7 +68,7 @@ async fn test_recent_outbound_connection() {
 }
 
 #[tokio::test]
-async fn test_recent_outbound_connection_after_disconnect() {
+async fn test_storage_after_disconnect() {
     init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
