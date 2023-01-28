@@ -239,3 +239,43 @@ async fn test_reconnect_after_disconnect_inbound_side() {
     clock.advance(RECONNECT_ATTEMPT_INTERVAL);
     pm0.wait_for_direct_connection(id1.clone()).await;
 }
+
+#[tokio::test]
+async fn test_reconnect_after_restart_outbound_side_multi() {
+    init_test_logger();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
+    let pm0_db = TestDB::new();
+    let pm0 = start_pm(clock.clock(), pm0_db.clone(), chain.make_config(rng), chain.clone()).await;
+    let pm1 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
+    let pm2 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
+    let pm3 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
+    let pm4 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
+
+    let id1 = pm1.cfg.node_id();
+    let id2 = pm1.cfg.node_id();
+    let id3 = pm1.cfg.node_id();
+    let id4 = pm1.cfg.node_id();
+
+    tracing::info!(target:"test", "connect pm0 to pm1, pm2, pm3, pm4");
+    pm0.connect_to(&pm1.peer_info(), tcp::Tier::T2).await;
+    pm0.connect_to(&pm2.peer_info(), tcp::Tier::T2).await;
+    pm0.connect_to(&pm3.peer_info(), tcp::Tier::T2).await;
+    pm0.connect_to(&pm4.peer_info(), tcp::Tier::T2).await;
+
+    clock.advance(RECENT_OUTBOUND_CONNECTIONS_MIN_DURATION);
+    clock.advance(UPDATE_RECENT_OUTBOUND_CONNECTIONS_INTERVAL);
+
+    tracing::info!(target:"test", "drop pm0 and start it again with the same db");
+    drop(pm0);
+    let pm0 = start_pm(clock.clock(), pm0_db, chain.make_config(rng), chain.clone()).await;
+
+    tracing::info!(target:"test", "wait for pm0 to reconnect to the other nodes");
+    pm0.wait_for_direct_connection(id1.clone()).await;
+    pm0.wait_for_direct_connection(id2.clone()).await;
+    pm0.wait_for_direct_connection(id3.clone()).await;
+    pm0.wait_for_direct_connection(id4.clone()).await;
+}
