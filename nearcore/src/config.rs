@@ -1593,7 +1593,6 @@ fn test_near_config_override() {
     let canonical_config = load_config(&temp_dir.path(), GenesisValidationMode::Full)
         .expect("Failed to create NearConfig without override");
 
-    // TODO add wrong fields and ignored fields
     let override_json_str = serde_json::to_string_pretty(&serde_json::json!({
         "client_config": {
             "min_num_peers": 1234321,
