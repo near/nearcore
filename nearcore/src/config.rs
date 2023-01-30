@@ -668,7 +668,7 @@ impl NearConfig {
 
     pub fn override_from_file(mut self, path: &Path) -> anyhow::Result<Self> {
         if !path.exists() {
-            return Ok(self)
+            return Ok(self);
         }
 
         let mut original_json = serde_json::to_value(&self)?;
@@ -680,16 +680,31 @@ impl NearConfig {
         };
 
         let mut ignored_field = vec![];
-        NearConfig::override_json(&mut original_json, override_json, &mut ignored_field, "".to_string())?;
+        NearConfig::override_json(
+            &mut original_json,
+            override_json,
+            &mut ignored_field,
+            "".to_string(),
+        )?;
 
         let self_json_str = serde_json::to_string(&original_json)?;
-        serde::de::Deserialize::deserialize_in_place(&mut serde_json::Deserializer::from_str(&self_json_str), &mut self)
-        .with_context(|| format!("Failed to read FULL override JSON from {} in place", self_json_str))?;
+        serde::de::Deserialize::deserialize_in_place(
+            &mut serde_json::Deserializer::from_str(&self_json_str),
+            &mut self,
+        )
+        .with_context(|| {
+            format!("Failed to read FULL override JSON from {} in place", self_json_str)
+        })?;
 
         Ok(self)
     }
 
-    pub fn override_json(main_json: &mut serde_json::Value, override_json: serde_json::Value, ignored_fields: &mut Vec<String>, cur_path: String) -> anyhow::Result<()> {
+    pub fn override_json(
+        main_json: &mut serde_json::Value,
+        override_json: serde_json::Value,
+        ignored_fields: &mut Vec<String>,
+        cur_path: String,
+    ) -> anyhow::Result<()> {
         match override_json {
             serde_json::Value::Object(map) => {
                 for (key, value) in map.into_iter() {
@@ -1588,7 +1603,7 @@ fn test_near_config_override() {
         None,
         None,
     )
-        .unwrap();
+    .unwrap();
 
     let canonical_config = load_config(&temp_dir.path(), GenesisValidationMode::Full)
         .expect("Failed to create NearConfig without override");
@@ -1606,7 +1621,8 @@ fn test_near_config_override() {
             ],
         },
         "validator_signer": "shouldn't matter and should be ignored",
-    })).unwrap();
+    }))
+    .unwrap();
 
     let mut file = File::create(temp_dir.path().join(CONFIG_OVERRIDE_FILENAME)).unwrap();
     file.write_all(override_json_str.as_bytes()).unwrap();
@@ -1617,10 +1633,19 @@ fn test_near_config_override() {
         .expect("Failed to create NearConfig with override");
 
     // Check ignored fields in some way
-    assert_eq!(canonical_config.network_config.validator.is_some(), override_config.network_config.validator.is_some());
+    assert_eq!(
+        canonical_config.network_config.validator.is_some(),
+        override_config.network_config.validator.is_some()
+    );
     // This check doesn't make sense, but let's do it anyway.
-    assert_eq!(canonical_config.client_config.expected_shutdown.get(), override_config.client_config.expected_shutdown.get());
-    assert_eq!(canonical_config.validator_signer.is_some(), override_config.validator_signer.is_some());
+    assert_eq!(
+        canonical_config.client_config.expected_shutdown.get(),
+        override_config.client_config.expected_shutdown.get()
+    );
+    assert_eq!(
+        canonical_config.validator_signer.is_some(),
+        override_config.validator_signer.is_some()
+    );
 
     // Check override value
     assert_eq!(override_config.client_config.min_num_peers, 1234321);
