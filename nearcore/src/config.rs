@@ -1654,6 +1654,8 @@ fn test_near_config_override() {
         canonical_config.validator_signer.is_some(),
         override_config.validator_signer.is_some()
     );
+    // Assert that default_validator_signer, which returns None, wasn't taken for the end result.
+    assert!(override_config.validator_signer.is_some());
 
     // Check override value
     assert_eq!(override_config.client_config.min_num_peers, 1234321);
