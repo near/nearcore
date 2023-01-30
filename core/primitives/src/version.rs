@@ -1,5 +1,6 @@
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
+use std::str::FromStr;
 
 use crate::types::Balance;
 
@@ -174,10 +175,8 @@ pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protoco
 /// nightly builds will vote for new protocols immediately).  On release builds
 /// it’s set according to the schedule for that protocol upgrade.  Release
 /// candidates usually have separate schedule to final releases.
-pub const PROTOCOL_UPGRADE_SCHEDULE: Lazy<ProtocolUpgradeVotingSchedule> = Lazy::new(|| {
-    // Update to according to schedule when making a release.
-    ProtocolUpgradeVotingSchedule::default()
-});
+pub const PROTOCOL_UPGRADE_SCHEDULE: Lazy<ProtocolUpgradeVotingSchedule> =
+    Lazy::new(|| ProtocolUpgradeVotingSchedule::from_str("2023-02-02 15:00:00").unwrap());
 
 /// Gives new clients an option to upgrade without announcing that they support
 /// the new version.  This gives non-validator nodes time to upgrade.  See
