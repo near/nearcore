@@ -196,6 +196,7 @@ tracing-appender = "0.2.2"
 tracing-opentelemetry = "0.17.0"
 tracing-span-tree = "0.1"
 tracing-subscriber = { version = "0.3.15", features = ["env-filter", "fmt", "registry", "std"] }
+turn = "0.5"
 validator = "0.12"
 wasm-encoder = "0.11.0"
 wasm-smith = "0.10"
@@ -203,6 +204,7 @@ wasmparser = "0.78"
 wasmprinter = "0.2"
 wasmtime = { version = "4.0.0", default-features = false, features = ["cranelift"] }
 wat = "1.0.40"
+webrtc-util = "0.5"
 xshell = "0.2.1"
 xz2 = "0.1.6"
 

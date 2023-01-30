@@ -57,6 +57,8 @@ criterion.workspace = true
 pretty_assertions.workspace = true
 tempfile.workspace = true
 rlimit.workspace = true
+turn.workspace = true
+webrtc-util.workspace = true
 
 [features]
 delay_detector = ["delay-detector/delay_detector"]
