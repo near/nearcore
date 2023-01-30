@@ -8,7 +8,7 @@ use near_primitives::types::MaybeBlockId;
 use super::{parse_params, RpcFrom, RpcRequest};
 
 impl RpcRequest for RpcGasPriceRequest {
-    fn parse(value: Option<Value>) -> Result<Self, RpcParseError> {
+    fn parse(value: Value) -> Result<Self, RpcParseError> {
         parse_params::<(MaybeBlockId,)>(value).map(|(block_id,)| Self { block_id })
     }
 }
