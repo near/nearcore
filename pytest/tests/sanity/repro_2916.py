@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # Spins up two nodes with two shards, waits for couple blocks, snapshots the
 # latest chunks, and requests both chunks from the first node, asking for
-# receipts for both shards in both requests. We expect the first node to
-# respond to exactly one of the requests, for the shard it tracks (for the
+# receipts for both shards in both requests. We expect the first node have full
+# responses for only one of these shards -- the shard it tracks (for the
 # shard it doesn't track it will only have the receipts to the shard it does
 # track).
 #
@@ -40,7 +40,7 @@ async def main():
     assert all([len(x) == 32 for x in chunk_hashes])
 
     my_key_pair_nacl = nacl.signing.SigningKey.generate()
-    received_responses = [None, None]
+    tracking_shards_scenario = None  # will be either [0, 1] or [1, 0]; we'll detect
 
     # step = 0: before the node is killed
     # step = 1: after the node is killed
@@ -64,7 +64,7 @@ async def main():
 
             await conn0.send(peer_message)
 
-            received_response = False
+            received_receipt_shards = set()
 
             def predicate(response):
                 return response.enum == 'Routed' and response.Routed.body.enum == 'PartialEncodedChunkResponse'
@@ -73,24 +73,38 @@ async def main():
                 response = await asyncio.wait_for(conn0.recv(predicate), 5)
             except (concurrent.futures._base.TimeoutError,
                     asyncio.exceptions.TimeoutError):
-                response = None
+                assert False, "A response is always expected for partial encoded chunk request."
 
-            if response is not None:
-                logger.info("Received response for shard %s" % shard_ord)
-                received_response = True
-            else:
-                logger.info("Didn't receive response for shard %s" % shard_ord)
+            for receipt_proof in response.Routed.body.PartialEncodedChunkResponse.receipts:
+                shard_proof = receipt_proof.f2
+                assert shard_proof.from_shard_id == shard_ord, \
+                    "Basic correctness check failed: the receipt for chunk of shard {} has the wrong from_shard_id {}".format(shard_ord, shard_proof.from_shard_id)
+                received_receipt_shards.add(shard_proof.to_shard_id)
 
-            if step == 0:
-                received_responses[shard_ord] = received_response
-            else:
-                assert received_responses[
-                    shard_ord] == received_response, "The response doesn't match for the chunk in shard %s. Received response before node killed: %s, after: %s" % (
-                        shard_ord, received_responses[shard_ord],
-                        received_response)
+            if step == 0 and shard_ord == 0:
+                # detect how the two validators decided who tracks which shard.
+                if received_receipt_shards == set([1]):
+                    # if the first validator only responded receipt to shard 1, then
+                    # it's only tracking shard 1. (Otherwise it should respond with [0, 1]
+                    # since it tracks all receipts coming from shard 0.)
+                    tracking_shards_scenario = [1, 0]
+                else:
+                    tracking_shards_scenario = [0, 1]
 
-        # we expect first node to only respond to one of the chunk requests, for the shard assigned to it
-        assert received_responses[0] != received_responses[1], received_responses
+            if tracking_shards_scenario == [0, 1]:
+                if shard_ord == 0:
+                    assert received_receipt_shards == set([0, 1]), \
+                        "Request to node 0 (tracks shard 0), chunk 0, expected receipts to [0, 1], actual {}".format(received_receipt_shards)
+                else:
+                    assert received_receipt_shards == set([0]), \
+                        "Request to node 0 (tracks shard 0), chunk 1, expected receipts to [0], actual {}".format(received_receipt_shards)
+            else:  # [1, 0]
+                if shard_ord == 0:
+                    assert received_receipt_shards == set([1]), \
+                        "Request to node 0 (tracks shard 1), chunk 0, expected receipts to [1], actual {}".format(received_receipt_shards)
+                else:
+                    assert received_receipt_shards == set([0, 1]), \
+                        "Request to node 0 (tracks shard 1), chunk 1, expected receipts to [0, 1], actual {}".format(received_receipt_shards)
 
         if step == 0:
             logger.info("Killing and restarting nodes")
