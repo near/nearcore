@@ -25,7 +25,7 @@ pub struct ProfileDataV2 {
 struct DataArray(Box<[u64; Self::LEN]>);
 
 impl DataArray {
-    const LEN: usize = if cfg!(feature = "protocol_feature_ed25519_verify") { 72 } else { 70 };
+    const LEN: usize = 72;
 }
 
 impl ProfileDataV2 {

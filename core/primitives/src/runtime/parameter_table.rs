@@ -2,9 +2,9 @@ use super::config::{AccountCreationConfig, RuntimeConfig};
 use near_primitives_core::account::id::ParseAccountError;
 use near_primitives_core::config::{ExtCostsConfig, VMConfig};
 use near_primitives_core::parameter::{FeeParameter, Parameter};
-use near_primitives_core::runtime::fees::{RuntimeFeesConfig, StorageUsageConfig};
+use near_primitives_core::runtime::fees::{Fee, RuntimeFeesConfig, StorageUsageConfig};
 use near_primitives_core::types::AccountId;
-use num_rational::Rational;
+use num_rational::Rational32;
 use std::collections::BTreeMap;
 
 /// Represents values supported by parameter config.
@@ -12,7 +12,8 @@ use std::collections::BTreeMap;
 #[serde(untagged)]
 pub(crate) enum ParameterValue {
     U64(u64),
-    Rational { numerator: isize, denominator: isize },
+    Rational { numerator: i32, denominator: i32 },
+    Fee { send_sir: u64, send_not_sir: u64, execution: u64 },
     String(String),
 }
 
@@ -24,10 +25,28 @@ impl ParameterValue {
         }
     }
 
-    fn as_rational(&self) -> Option<Rational> {
+    fn as_rational(&self) -> Option<Rational32> {
         match self {
             ParameterValue::Rational { numerator, denominator } => {
-                Some(Rational::new(*numerator, *denominator))
+                Some(Rational32::new(*numerator, *denominator))
+            }
+            _ => None,
+        }
+    }
+
+    fn as_u128(&self) -> Option<u128> {
+        match self {
+            ParameterValue::U64(v) => Some(u128::from(*v)),
+            // TODO(akashin): Refactor this to use `TryFrom` and properly propagate an error.
+            ParameterValue::String(s) => s.parse().ok(),
+            _ => None,
+        }
+    }
+
+    fn as_fee(&self) -> Option<Fee> {
+        match self {
+            &ParameterValue::Fee { send_sir, send_not_sir, execution } => {
+                Some(Fee { send_sir, send_not_sir, execution })
             }
             _ => None,
         }
@@ -41,8 +60,54 @@ impl ParameterValue {
     }
 }
 
+fn format_number(mut n: u64) -> String {
+    let mut parts = Vec::new();
+    while n >= 1000 {
+        parts.push(format!("{:03?}", n % 1000));
+        n /= 1000;
+    }
+    parts.push(n.to_string());
+    parts.reverse();
+    parts.join("_")
+}
+
+impl core::fmt::Display for ParameterValue {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        match self {
+            ParameterValue::U64(v) => write!(f, "{:>20}", format_number(*v)),
+            ParameterValue::Rational { numerator, denominator } => {
+                write!(f, "{numerator} / {denominator}")
+            }
+            ParameterValue::Fee { send_sir, send_not_sir, execution } => {
+                write!(
+                    f,
+                    r#"
+- send_sir:     {:>20}
+- send_not_sir: {:>20}
+- execution:    {:>20}"#,
+                    format_number(*send_sir),
+                    format_number(*send_not_sir),
+                    format_number(*execution)
+                )
+            }
+            ParameterValue::String(v) => write!(f, "{v}"),
+        }
+    }
+}
+
 pub(crate) struct ParameterTable {
     parameters: BTreeMap<Parameter, ParameterValue>,
+}
+
+/// Formats `ParameterTable` in human-readable format which is a subject to change and is not
+/// intended to be parsed back.
+impl core::fmt::Display for ParameterTable {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        for (key, value) in &self.parameters {
+            write!(f, "{key:40}{value}\n")?
+        }
+        Ok(())
+    }
 }
 
 /// Changes made to parameters between versions.
@@ -124,7 +189,7 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                 },
                 grow_mem_cost: params.get_number(Parameter::WasmGrowMemCost)?,
                 regular_op_cost: params.get_number(Parameter::WasmRegularOpCost)?,
-                limit_config: serde_yaml::from_value(params.yaml_map(Parameter::vm_limits(), ""))
+                limit_config: serde_yaml::from_value(params.yaml_map(Parameter::vm_limits()))
                     .map_err(InvalidConfigError::InvalidYaml)?,
             },
             account_creation_config: AccountCreationConfig {
@@ -169,26 +234,14 @@ impl ParameterTable {
         Ok(())
     }
 
-    fn yaml_map(
-        &self,
-        params: impl Iterator<Item = &'static Parameter>,
-        remove_prefix: &'static str,
-    ) -> serde_yaml::Value {
-        let mut yaml = serde_yaml::Mapping::new();
-        for param in params {
-            let mut key: &'static str = param.into();
-            key = key.strip_prefix(remove_prefix).unwrap_or(key);
-            if let Some(value) = self.get(*param) {
-                yaml.insert(
-                    key.into(),
-                    // All parameter values can be serialized as YAML, so we don't ever expect this
-                    // to fail.
-                    serde_yaml::to_value(value.clone())
-                        .expect("failed to convert parameter value to YAML"),
-                );
-            }
-        }
-        yaml.into()
+    fn yaml_map(&self, params: impl Iterator<Item = &'static Parameter>) -> serde_yaml::Value {
+        // All parameter values can be serialized as YAML, so we don't ever expect this to fail.
+        serde_yaml::to_value(
+            params
+                .filter_map(|param| Some((param.to_string(), self.get(*param)?)))
+                .collect::<BTreeMap<_, _>>(),
+        )
+        .expect("failed to convert parameter values to YAML")
     }
 
     fn get(&self, key: Parameter) -> Option<&ParameterValue> {
@@ -200,12 +253,13 @@ impl ParameterTable {
         &self,
         cost: near_primitives_core::config::ActionCosts,
     ) -> Result<near_primitives_core::runtime::fees::Fee, InvalidConfigError> {
-        let key = FeeParameter::from(cost);
-        Ok(near_primitives_core::runtime::fees::Fee {
-            send_sir: self.get_number(format!("{key}_send_sir").parse().unwrap())?,
-            send_not_sir: self.get_number(format!("{key}_send_not_sir").parse().unwrap())?,
-            execution: self.get_number(format!("{key}_execution").parse().unwrap())?,
-        })
+        let key: Parameter = format!("{}", FeeParameter::from(cost)).parse().unwrap();
+        let value = self.parameters.get(&key).ok_or(InvalidConfigError::MissingParameter(key))?;
+        value.as_fee().ok_or(InvalidConfigError::WrongValueType(
+            key,
+            std::any::type_name::<Fee>(),
+            value.clone(),
+        ))
     }
 
     /// Read and parse a number parameter from the `ParameterTable`.
@@ -233,16 +287,11 @@ impl ParameterTable {
     /// Read and parse a u128 parameter from the `ParameterTable`.
     fn get_u128(&self, key: Parameter) -> Result<u128, InvalidConfigError> {
         let value = self.parameters.get(&key).ok_or(InvalidConfigError::MissingParameter(key))?;
-        match value {
-            ParameterValue::U64(v) => Ok(u128::from(*v)),
-            ParameterValue::String(s) => serde_yaml::from_str(s)
-                .map_err(|err| InvalidConfigError::ValueParseError(err, s.to_owned())),
-            _ => Err(InvalidConfigError::WrongValueType(
-                key,
-                std::any::type_name::<u128>(),
-                value.clone(),
-            )),
-        }
+        value.as_u128().ok_or(InvalidConfigError::WrongValueType(
+            key,
+            std::any::type_name::<u128>(),
+            value.clone(),
+        ))
     }
 
     /// Read and parse a string parameter from the `ParameterTable`.
@@ -263,11 +312,11 @@ impl ParameterTable {
     }
 
     /// Read and parse a rational parameter from the `ParameterTable`.
-    fn get_rational(&self, key: Parameter) -> Result<Rational, InvalidConfigError> {
+    fn get_rational(&self, key: Parameter) -> Result<Rational32, InvalidConfigError> {
         let value = self.parameters.get(&key).ok_or(InvalidConfigError::MissingParameter(key))?;
         value.as_rational().ok_or(InvalidConfigError::WrongValueType(
             key,
-            std::any::type_name::<Rational>(),
+            std::any::type_name::<Rational32>(),
             value.clone(),
         ))
     }
@@ -669,7 +718,6 @@ burnt_gas_reward: {
                 Parameter::BurntGasReward,
             ]
             .iter(),
-            "",
         );
         assert_eq!(
             yaml,

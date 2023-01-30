@@ -122,8 +122,9 @@ impl PublicKey {
     // `is_empty` always returns false, so there is no point in adding it
     #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
+        const ED25519_LEN: usize = ed25519_dalek::PUBLIC_KEY_LENGTH + 1;
         match self {
-            Self::ED25519(_) => ed25519_dalek::PUBLIC_KEY_LENGTH + 1,
+            Self::ED25519(_) => ED25519_LEN,
             Self::SECP256K1(_) => 65,
         }
     }
@@ -708,7 +709,7 @@ fn decode_bs58_impl(dst: &mut [u8], encoded: &str) -> Result<(), DecodeBs58Error
         Ok(received) if received == expected => Ok(()),
         Ok(received) => Err(DecodeBs58Error::BadLength { expected, received }),
         Err(bs58::decode::Error::BufferTooSmall) => {
-            Err(DecodeBs58Error::BadLength { expected, received: expected + 1 })
+            Err(DecodeBs58Error::BadLength { expected, received: expected.saturating_add(1) })
         }
         Err(err) => Err(DecodeBs58Error::BadData(err.to_string())),
     }

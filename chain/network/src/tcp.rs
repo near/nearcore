@@ -1,6 +1,17 @@
 use crate::network_protocol::PeerInfo;
 use anyhow::{anyhow, Context as _};
 use near_primitives::network::PeerId;
+use once_cell::sync::Lazy;
+use std::collections::HashMap;
+use std::fmt;
+use std::sync::Mutex;
+
+const LISTENER_BACKLOG: u32 = 128;
+
+/// TEST-ONLY: guards ensuring that OS considers the given TCP listener port to be in use until
+/// this OS process is terminated.
+static RESERVED_LISTENER_ADDRS: Lazy<Mutex<HashMap<std::net::SocketAddr, tokio::net::TcpSocket>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
 
 /// TCP connections established by a node belong to different logical networks (aka tiers),
 /// which serve different purpose.
@@ -50,9 +61,9 @@ pub(crate) struct Socket(tokio::net::TcpSocket);
 
 #[cfg(test)]
 impl Socket {
-    pub fn bind_v4() -> Self {
-        let socket = tokio::net::TcpSocket::new_v4().unwrap();
-        socket.bind("127.0.0.1:0".parse().unwrap()).unwrap();
+    pub fn bind() -> Self {
+        let socket = tokio::net::TcpSocket::new_v6().unwrap();
+        socket.bind("[::1]:0".parse().unwrap()).unwrap();
         Self(socket)
     }
 
@@ -95,13 +106,9 @@ impl Stream {
     /// Returns a pair of streams: (outbound,inbound).
     #[cfg(test)]
     pub async fn loopback(peer_id: PeerId, tier: Tier) -> (Stream, Stream) {
-        let localhost = std::net::SocketAddr::new(std::net::Ipv4Addr::LOCALHOST.into(), 0);
-        let mut listener = Listener::bind(localhost).await.unwrap();
-        let peer_info = PeerInfo {
-            id: peer_id,
-            addr: Some(listener.0.local_addr().unwrap()),
-            account_id: None,
-        };
+        let listener_addr = ListenerAddr::reserve_for_test();
+        let peer_info = PeerInfo { id: peer_id, addr: Some(*listener_addr), account_id: None };
+        let mut listener = listener_addr.listener().unwrap();
         let (outbound, inbound) =
             tokio::join!(Stream::connect(&peer_info, tier), listener.accept());
         (outbound.unwrap(), inbound.unwrap())
@@ -118,15 +125,93 @@ impl Stream {
     }
 }
 
+/// ListenerAddr is isomorphic to std::net::SocketAddr, but it should be used
+/// solely for opening a TCP listener socket on it.
+///
+/// In tests it additionally allows to "reserve" a random unused TCP port:
+/// * it allows to avoid race conditions in tests which require a dedicated TCP port to spawn a
+///   node on (and potentially restart it every now and then).
+/// * it is implemented by usign SO_REUSEPORT socket option (do not confuse with SO_REUSEADDR),
+///   which allows multiple sockets to share a port. reserve_for_test() creates a socket and binds
+///   it to a random unused local port (without starting a TCP listener).
+///   This socket won't be used for anything but telling the OS that the given TCP port is in use.
+///   However thanks to SO_REUSEPORT we can create another socket bind it to the same port
+///   and make it a listener.
+/// * The reserved port stays reserved until the process terminates - hence during a process
+///   lifetime reserve_for_test() should be called a small amount of times (~1000 should be fine,
+///   there are only 2^16 ports on a network interface). TODO(gprusak): we may want to track the
+///   lifecycle of ListenerAddr (for example via reference counter), so that we can reuse the port
+///   after all the references are dropped.
+/// * The drawback of this solution that it is hard to detect a situation in which multiple
+///   listener sockets in test are bound to the same port. TODO(gprusak): we can prevent creating
+///   multiple listeners for a single port within the same process by adding a mutex to the port
+///   guard.
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, PartialEq, Eq)]
+pub struct ListenerAddr(std::net::SocketAddr);
+
+impl fmt::Debug for ListenerAddr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl fmt::Display for ListenerAddr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl std::ops::Deref for ListenerAddr {
+    type Target = std::net::SocketAddr;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl ListenerAddr {
+    pub fn new(addr: std::net::SocketAddr) -> Self {
+        assert!(
+            addr.port() != 0,
+            "using an anyport (i.e. 0) for the tcp::ListenerAddr is allowed only \
+             in tests and only via reserve_for_test() method"
+        );
+        Self(addr)
+    }
+
+    /// TEST-ONLY: reserves a random port on localhost for a TCP listener.
+    pub fn reserve_for_test() -> Self {
+        let guard = tokio::net::TcpSocket::new_v6().unwrap();
+        guard.set_reuseaddr(true).unwrap();
+        guard.set_reuseport(true).unwrap();
+        guard.bind("[::1]:0".parse().unwrap()).unwrap();
+        let addr = guard.local_addr().unwrap();
+        RESERVED_LISTENER_ADDRS.lock().unwrap().insert(addr, guard);
+        Self(addr)
+    }
+
+    /// Constructs a std::net::TcpListener, for usage outside of near_network.
+    pub fn std_listener(&self) -> std::io::Result<std::net::TcpListener> {
+        self.listener()?.0.into_std()
+    }
+
+    /// Constructs a Listener out of ListenerAddr.
+    pub(crate) fn listener(&self) -> std::io::Result<Listener> {
+        let socket = match &self.0 {
+            std::net::SocketAddr::V4(_) => tokio::net::TcpSocket::new_v4()?,
+            std::net::SocketAddr::V6(_) => tokio::net::TcpSocket::new_v6()?,
+        };
+        if RESERVED_LISTENER_ADDRS.lock().unwrap().contains_key(&self.0) {
+            socket.set_reuseport(true)?;
+        }
+        socket.set_reuseaddr(true)?;
+        socket.bind(self.0)?;
+        Ok(Listener(socket.listen(LISTENER_BACKLOG)?))
+    }
+}
+
 pub(crate) struct Listener(tokio::net::TcpListener);
 
 impl Listener {
-    // TODO(gprusak): this shouldn't be async. It is only
-    // because TcpListener accepts anything that asynchronously resolves to SocketAddr.
-    pub async fn bind(addr: std::net::SocketAddr) -> std::io::Result<Self> {
-        Ok(Self(tokio::net::TcpListener::bind(addr).await?))
-    }
-
     pub async fn accept(&mut self) -> std::io::Result<Stream> {
         let (stream, _) = self.0.accept().await?;
         Stream::new(stream, StreamType::Inbound)

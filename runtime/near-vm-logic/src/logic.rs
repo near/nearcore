@@ -701,12 +701,6 @@ impl<'a> VMLogic<'a> {
     pub fn attached_deposit(&mut self, balance_ptr: u64) -> Result<()> {
         self.gas_counter.pay_base(base)?;
 
-        if self.context.is_view() {
-            return Err(HostError::ProhibitedInView {
-                method_name: "attached_deposit".to_string(),
-            }
-            .into());
-        }
         self.memory.set_u128(&mut self.gas_counter, balance_ptr, self.context.attached_deposit)
     }
 
@@ -1131,7 +1125,6 @@ impl<'a> VMLogic<'a> {
     /// `input_cost(num_bytes_signature) + input_cost(num_bytes_message) +
     ///  input_cost(num_bytes_public_key) + ed25519_verify_base +
     ///  ed25519_verify_byte * num_bytes_message`
-    #[cfg(feature = "protocol_feature_ed25519_verify")]
     pub fn ed25519_verify(
         &mut self,
         signature_len: u64,

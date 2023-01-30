@@ -1,3 +1,5 @@
+use std::ops::RangeInclusive;
+
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::serialize::base64_display;
 
@@ -111,10 +113,6 @@ pub struct Slice<'a, T>(pub &'a [T]);
 impl<'a, T: std::fmt::Debug> std::fmt::Debug for Slice<'a, T> {
     fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let slice = self.0;
-        let len = slice.len();
-        if len <= 5 {
-            return std::fmt::Debug::fmt(&slice, fmt);
-        }
 
         struct Ellipsis;
 
@@ -124,14 +122,12 @@ impl<'a, T: std::fmt::Debug> std::fmt::Debug for Slice<'a, T> {
             }
         }
 
-        write!(fmt, "({len})")?;
-        fmt.debug_list()
-            .entry(&slice[0])
-            .entry(&slice[1])
-            .entry(&Ellipsis)
-            .entry(&slice[len - 2])
-            .entry(&slice[len - 1])
-            .finish()
+        if let [a, b, _c, .., _x, y, z] = slice {
+            write!(fmt, "({})", slice.len())?;
+            fmt.debug_list().entry(a).entry(b).entry(&Ellipsis).entry(y).entry(z).finish()
+        } else {
+            std::fmt::Debug::fmt(&slice, fmt)
+        }
     }
 }
 
@@ -158,23 +154,28 @@ fn bytes_format(
 
 /// Implementation of [`AbbrBytes`].
 fn truncated_bytes_format(bytes: &[u8], fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    const LIMIT: usize = 128;
+    const PRINTABLE_ASCII: RangeInclusive<u8> = 0x20..=0x7E;
+    const OVERALL_LIMIT: usize = 128;
+    const DISPLAY_ASCII_FULL_LIMIT: usize = OVERALL_LIMIT - 2;
+    const DISPLAY_ASCII_PREFIX_LIMIT: usize = OVERALL_LIMIT - 9;
+    const DISPLAY_BASE64_FULL_LIMIT: usize = OVERALL_LIMIT / 4 * 3;
+    const DISPLAY_BASE64_PREFIX_LIMIT: usize = (OVERALL_LIMIT - 8) / 4 * 3;
     let len = bytes.len();
-    if bytes.iter().take(LIMIT - 2).all(|ch| 0x20 <= *ch && *ch <= 0x7E) {
-        if len <= LIMIT - 2 {
+    if bytes.iter().take(DISPLAY_ASCII_FULL_LIMIT).all(|ch| PRINTABLE_ASCII.contains(ch)) {
+        if len <= DISPLAY_ASCII_FULL_LIMIT {
             // SAFETY: We’ve just checked that the value contains ASCII
             // characters only.
             let value = unsafe { std::str::from_utf8_unchecked(bytes) };
             write!(fmt, "'{value}'")
         } else {
-            let bytes = &bytes[..LIMIT - 9];
+            let bytes = &bytes[..DISPLAY_ASCII_PREFIX_LIMIT];
             let value = unsafe { std::str::from_utf8_unchecked(bytes) };
             write!(fmt, "({len})'{value}'…")
         }
-    } else if bytes.len() <= LIMIT / 4 * 3 {
+    } else if bytes.len() <= DISPLAY_BASE64_FULL_LIMIT {
         std::fmt::Display::fmt(&base64_display(bytes), fmt)
     } else {
-        let bytes = &bytes[..(LIMIT - 8) / 4 * 3];
+        let bytes = &bytes[..DISPLAY_BASE64_PREFIX_LIMIT];
         let value = base64_display(bytes);
         write!(fmt, "({len}){value}…")
     }

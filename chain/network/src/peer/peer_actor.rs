@@ -258,7 +258,7 @@ impl PeerActor {
         };
         let my_node_info = PeerInfo {
             id: network_state.config.node_id(),
-            addr: network_state.config.node_addr.clone(),
+            addr: network_state.config.node_addr.as_ref().map(|a| **a),
             account_id: network_state.config.validator.as_ref().map(|v| v.account_id()),
         };
         // recv is the HandshakeSignal returned by this spawn_inner() call.
@@ -363,6 +363,13 @@ impl PeerActor {
             // peer message type for that and then we can enable this check again.
             //PeerMessage::Block(b) if self.tracker.lock().has_received(b.hash()) => return,
             PeerMessage::BlockRequest(h) => self.tracker.lock().push_request(*h),
+            PeerMessage::SyncAccountsData(d) => metrics::SYNC_ACCOUNTS_DATA
+                .with_label_values(&[
+                    "sent",
+                    metrics::bool_to_str(d.incremental),
+                    metrics::bool_to_str(d.requesting_full_sync),
+                ])
+                .inc(),
             _ => (),
         };
 
@@ -390,7 +397,7 @@ impl PeerActor {
             oldest_supported_version: PEER_MIN_ALLOWED_PROTOCOL_VERSION,
             sender_peer_id: self.network_state.config.node_id(),
             target_peer_id: spec.peer_id,
-            sender_listen_port: self.network_state.config.node_addr.map(|a| a.port()),
+            sender_listen_port: self.network_state.config.node_addr.as_ref().map(|a| a.port()),
             sender_chain_info: PeerChainInfoV2 {
                 genesis_id: self.network_state.genesis_id.clone(),
                 // TODO: remove `height` from PeerChainInfo
@@ -1138,6 +1145,13 @@ impl PeerActor {
                 }));
             }
             PeerMessage::SyncAccountsData(msg) => {
+                metrics::SYNC_ACCOUNTS_DATA
+                    .with_label_values(&[
+                        "received",
+                        metrics::bool_to_str(msg.incremental),
+                        metrics::bool_to_str(msg.requesting_full_sync),
+                    ])
+                    .inc();
                 let network_state = self.network_state.clone();
                 // In case a full sync is requested, immediately send what we got.
                 // It is a microoptimization: we do not send back the data we just received.
@@ -1163,8 +1177,11 @@ impl PeerActor {
                     return;
                 }
                 let network_state = self.network_state.clone();
+                let clock = self.clock.clone();
                 ctx.spawn(wrap_future(async move {
-                    if let Some(err) = network_state.add_accounts_data(msg.accounts_data).await {
+                    if let Some(err) =
+                        network_state.add_accounts_data(&clock, msg.accounts_data).await
+                    {
                         conn.stop(Some(match err {
                             accounts_data::Error::InvalidSignature => {
                                 ReasonForBan::InvalidSignature
