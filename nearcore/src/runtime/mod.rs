@@ -5,8 +5,10 @@ use crate::NearConfig;
 use borsh::ser::BorshSerialize;
 use borsh::BorshDeserialize;
 use errors::FromStateViewerErrors;
-use near_chain::types::{ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo, Tip};
-use near_chain::{Error, RuntimeAdapter};
+use near_chain::types::{
+    ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo, RuntimeAdapter, Tip,
+};
+use near_chain::{Error, RuntimeWithEpochManagerAdapter};
 use near_chain_configs::{
     Genesis, GenesisConfig, ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
     MIN_GC_NUM_EPOCHS_TO_KEEP,
@@ -215,9 +217,7 @@ impl NightshadeRuntime {
         error!(target: "near", "Loading genesis from a state dump file. Do not use this outside of genesis-tools");
         let mut state_file = home_dir.to_path_buf();
         state_file.push(STATE_DUMP_FILE);
-        store
-            .load_from_file(DBCol::State, state_file.as_path())
-            .expect("Failed to read state dump");
+        store.load_state_from_file(state_file.as_path()).expect("Failed to read state dump");
         let mut roots_files = home_dir.to_path_buf();
         roots_files.push(GENESIS_ROOTS_FILE);
         let data = fs::read(roots_files).expect("Failed to read genesis roots file.");
@@ -1456,6 +1456,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(epoch_manager.will_shard_layout_change(parent_hash)?)
     }
 }
+
+impl RuntimeWithEpochManagerAdapter for NightshadeRuntime {}
 
 impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
     fn view_account(

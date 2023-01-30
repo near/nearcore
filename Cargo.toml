@@ -74,7 +74,7 @@ actix-rt = "2"
 actix-web = "4.0.1"
 ansi_term = "0.12"
 anyhow = "1.0.62"
-arbitrary = { version = "1", features = ["derive"] }
+arbitrary = { version = "1.2.3", features = ["derive"] }
 arc-swap = "1.5"
 assert_matches = "1.5.0"
 async-recursion = "0.3.2"

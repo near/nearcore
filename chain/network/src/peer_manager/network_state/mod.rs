@@ -474,11 +474,11 @@ impl NetworkState {
         msg: RoutedMessageBody,
     ) -> bool {
         let mut success = false;
+        let accounts_data = self.accounts_data.load();
         // All TIER1 messages are being sent over both TIER1 and TIER2 connections for now,
         // so that we can actually observe the latency/reliability improvements in practice:
         // for each message we track over which network tier it arrived faster?
         if tcp::Tier::T1.is_allowed_routed(&msg) {
-            let accounts_data = self.accounts_data.load();
             for key in accounts_data.keys_by_id.get(account_id).iter().flat_map(|keys| keys.iter())
             {
                 let data = match accounts_data.data.get(key) {
@@ -503,19 +503,34 @@ impl NetworkState {
             }
         }
 
-        let target = match self.graph.routing_table.account_owner(account_id) {
-            Some(peer_id) => peer_id,
-            None => {
-                // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
-                metrics::MessageDropped::UnknownAccount.inc(&msg);
-                tracing::debug!(target: "network",
-                       account_id = ?self.config.validator.as_ref().map(|v|v.account_id()),
-                       to = ?account_id,
-                       ?msg,"Drop message: unknown account",
-                );
-                tracing::trace!(target: "network", known_peers = ?self.graph.routing_table.get_accounts_keys(), "Known peers");
-                return false;
-            }
+        let peer_id_from_account_data = accounts_data
+            .keys_by_id
+            .get(account_id)
+            .iter()
+            .flat_map(|keys| keys.iter())
+            .flat_map(|key| accounts_data.data.get(key))
+            .next()
+            .map(|data| data.peer_id.clone());
+        // Find the target peer_id:
+        // - first look it up in self.accounts_data
+        // - if missing, fall back to lookup in self.graph.routing_table
+        // We want to deprecate self.graph.routing_table.account_owner in the next release.
+        let target = if let Some(peer_id) = peer_id_from_account_data {
+            metrics::ACCOUNT_TO_PEER_LOOKUPS.with_label_values(&["AccountData"]).inc();
+            peer_id
+        } else if let Some(peer_id) = self.graph.routing_table.account_owner(account_id) {
+            metrics::ACCOUNT_TO_PEER_LOOKUPS.with_label_values(&["AnnounceAccount"]).inc();
+            peer_id
+        } else {
+            // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
+            metrics::MessageDropped::UnknownAccount.inc(&msg);
+            tracing::debug!(target: "network",
+                   account_id = ?self.config.validator.as_ref().map(|v|v.account_id()),
+                   to = ?account_id,
+                   ?msg,"Drop message: unknown account",
+            );
+            tracing::trace!(target: "network", known_peers = ?self.graph.routing_table.get_accounts_keys(), "Known peers");
+            return false;
         };
 
         let msg = RawRoutedMessage { target: PeerIdOrHash::PeerId(target), body: msg };
@@ -532,12 +547,14 @@ impl NetworkState {
 
     pub async fn add_accounts_data(
         self: &Arc<Self>,
+        clock: &time::Clock,
         accounts_data: Vec<Arc<SignedAccountData>>,
     ) -> Option<accounts_data::Error> {
         let this = self.clone();
+        let clock = clock.clone();
         self.spawn(async move {
             // Verify and add the new data to the internal state.
-            let (new_data, err) = this.accounts_data.clone().insert(accounts_data).await;
+            let (new_data, err) = this.accounts_data.clone().insert(&clock, accounts_data).await;
             // Broadcast any new data we have found, even in presence of an error.
             // This will prevent a malicious peer from forcing us to re-verify valid
             // datasets. See accounts_data::Cache documentation for details.
@@ -648,6 +665,12 @@ impl NetworkState {
         if self.config.tier1.is_none() {
             return false;
         }
-        self.accounts_data.set_keys(info.tier1_accounts.clone())
+        let has_changed = self.accounts_data.set_keys(info.tier1_accounts.clone());
+        // The set of TIER1 accounts has changed, so we might be missing some accounts_data
+        // that our peers know about.
+        if has_changed {
+            self.tier1_request_full_sync();
+        }
+        has_changed
     }
 }

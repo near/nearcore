@@ -39,7 +39,6 @@ pub(crate) struct CachedCosts {
     pub(crate) apply_block: Option<GasCost>,
     pub(crate) touching_trie_node_read: Option<GasCost>,
     pub(crate) touching_trie_node_write: Option<GasCost>,
-    #[cfg(feature = "protocol_feature_ed25519_verify")]
     pub(crate) ed25519_verify_base: Option<GasCost>,
 }
 

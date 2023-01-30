@@ -744,8 +744,8 @@ impl From<BlockHeaderView> for BlockHeader {
             next_bp_hash: view.next_bp_hash,
             block_merkle_root: view.block_merkle_root,
         };
-        let last_header_v2_version =
-            Some(crate::version::ProtocolFeature::BlockHeaderV3.protocol_version() - 1);
+        const LAST_HEADER_V2_VERSION: ProtocolVersion =
+            crate::version::ProtocolFeature::BlockHeaderV3.protocol_version() - 1;
         if view.latest_protocol_version <= 29 {
             let validator_proposals = view
                 .validator_proposals
@@ -777,9 +777,7 @@ impl From<BlockHeaderView> for BlockHeader {
             };
             header.init();
             BlockHeader::BlockHeaderV1(Arc::new(header))
-        } else if last_header_v2_version.is_none()
-            || view.latest_protocol_version <= last_header_v2_version.unwrap()
-        {
+        } else if view.latest_protocol_version <= LAST_HEADER_V2_VERSION {
             let validator_proposals = view
                 .validator_proposals
                 .into_iter()
@@ -1449,7 +1447,7 @@ impl From<ExecutionStatusView> for PartialExecutionStatus {
 impl ExecutionOutcomeView {
     // Same behavior as ExecutionOutcomeWithId's to_hashes.
     pub fn to_hashes(&self, id: CryptoHash) -> Vec<CryptoHash> {
-        let mut result = Vec::with_capacity(2 + self.logs.len());
+        let mut result = Vec::with_capacity(self.logs.len().saturating_add(2));
         result.push(id);
         result.push(CryptoHash::hash_borsh(&PartialExecutionOutcome::from(self)));
         result.extend(self.logs.iter().map(|log| hash(log.as_bytes())));
@@ -2377,10 +2375,8 @@ pub struct ExtCostsConfigView {
     pub ripemd160_block: Gas,
 
     /// Cost of getting ed25519 base
-    #[cfg(feature = "protocol_feature_ed25519_verify")]
     pub ed25519_verify_base: Gas,
     /// Cost of getting ed25519 per byte
-    #[cfg(feature = "protocol_feature_ed25519_verify")]
     pub ed25519_verify_byte: Gas,
 
     /// Cost of calling ecrecover
@@ -2511,9 +2507,7 @@ impl From<near_primitives_core::config::ExtCostsConfig> for ExtCostsConfigView {
             keccak512_byte: config.cost(ExtCosts::keccak512_byte),
             ripemd160_base: config.cost(ExtCosts::ripemd160_base),
             ripemd160_block: config.cost(ExtCosts::ripemd160_block),
-            #[cfg(feature = "protocol_feature_ed25519_verify")]
             ed25519_verify_base: config.cost(ExtCosts::ed25519_verify_base),
-            #[cfg(feature = "protocol_feature_ed25519_verify")]
             ed25519_verify_byte: config.cost(ExtCosts::ed25519_verify_byte),
             ecrecover_base: config.cost(ExtCosts::ecrecover_base),
             log_base: config.cost(ExtCosts::log_base),
@@ -2584,9 +2578,7 @@ impl From<ExtCostsConfigView> for near_primitives_core::config::ExtCostsConfig {
                 ExtCosts::keccak512_byte => view.keccak512_byte,
                 ExtCosts::ripemd160_base => view.ripemd160_base,
                 ExtCosts::ripemd160_block => view.ripemd160_block,
-                #[cfg(feature = "protocol_feature_ed25519_verify")]
                 ExtCosts::ed25519_verify_base => view.ed25519_verify_base,
-                #[cfg(feature = "protocol_feature_ed25519_verify")]
                 ExtCosts::ed25519_verify_byte => view.ed25519_verify_byte,
                 ExtCosts::ecrecover_base => view.ecrecover_base,
                 ExtCosts::log_base => view.log_base,

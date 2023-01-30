@@ -16,7 +16,7 @@ async fn test_raw_conn_pings() {
 
     let cfg = chain.make_config(rng);
     let peer_id = cfg.node_id();
-    let addr = cfg.node_addr.unwrap();
+    let addr = **cfg.node_addr.as_ref().unwrap();
     let genesis_id = chain.genesis_id.clone();
     let _pm = crate::peer_manager::testonly::start(
         clock.clock(),
@@ -73,7 +73,7 @@ async fn test_raw_conn_state_parts() {
 
     let cfg = chain.make_config(rng);
     let peer_id = cfg.node_id();
-    let addr = cfg.node_addr.unwrap();
+    let addr = **cfg.node_addr.as_ref().unwrap();
     let genesis_id = chain.genesis_id.clone();
     let _pm = crate::peer_manager::testonly::start(
         clock.clock(),

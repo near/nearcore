@@ -67,10 +67,6 @@ fn default_gc_num_epochs_to_keep() -> u64 {
     GCConfig::default().gc_num_epochs_to_keep()
 }
 
-fn default_expected_shutdown() -> MutableConfigValue<Option<BlockHeight>> {
-    MutableConfigValue::new(None, "expected_shutdown")
-}
-
 impl GCConfig {
     pub fn gc_num_epochs_to_keep(&self) -> u64 {
         max(MIN_GC_NUM_EPOCHS_TO_KEEP, self.gc_num_epochs_to_keep)
@@ -78,7 +74,7 @@ impl GCConfig {
 }
 
 /// ClientConfig where some fields can be updated at runtime.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ClientConfig {
     /// Version of the binary.
     pub version: Version,
@@ -87,7 +83,6 @@ pub struct ClientConfig {
     /// Listening rpc port for status.
     pub rpc_addr: Option<String>,
     /// Graceful shutdown at expected block height.
-    #[serde(skip, default = "default_expected_shutdown")]
     pub expected_shutdown: MutableConfigValue<Option<BlockHeight>>,
     /// Duration to check for producing / skipping block.
     pub block_production_tracking_delay: Duration,
@@ -153,9 +148,10 @@ pub struct ClientConfig {
     pub tracked_shards: Vec<ShardId>,
     /// Not clear old data, set `true` for archive nodes.
     pub archive: bool,
-    /// Save trie changes. Must be set to true if either of the following is true
-    /// - archive is false - non archival nodes need trie changes for garbage collection
-    /// - the node will be migrated to split storage in the near future - split storage nodes need trie changes for hot storage garbage collection
+    /// save_trie_changes should be set to true iff
+    /// - archive if false - non-archivale nodes need trie changes to perform garbage collection
+    /// - archive is true, cold_store is configured and migration to split_storage is finished - node
+    /// working in split storage mode needs trie changes in order to do garbage collection on hot.
     pub save_trie_changes: bool,
     /// Number of threads for ViewClientActor pool.
     pub view_client_threads: usize,

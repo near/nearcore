@@ -59,7 +59,7 @@ available to test them.
 
 ## Client
 
-Client is separated from the runtime via a `RuntimeAdapter` trait. In production
+Client is separated from the runtime via a `RuntimeWithEpochManagerAdapter` trait. In production
 it uses `NightshadeRuntime` that uses real runtime and epoch managers. To test
 client without instantiating runtime and epoch manager, we have a mock runtime
 `KeyValueRuntime`.
