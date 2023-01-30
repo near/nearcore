@@ -12,7 +12,7 @@ use near_primitives::test_utils::create_test_signer;
 use num_rational::Ratio;
 use once_cell::sync::OnceCell;
 use rand::{thread_rng, Rng};
-use tracing::{info, warn};
+use tracing::info;
 
 use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor};
 use near_chain::chain::{do_apply_chunks, BlockCatchUpRequest, StateSplitRequest};
@@ -22,7 +22,8 @@ use near_chain::test_utils::{
 };
 use near_chain::types::ChainConfig;
 use near_chain::{
-    Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Provenance, RuntimeAdapter,
+    Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Provenance,
+    RuntimeWithEpochManagerAdapter,
 };
 use near_chain_configs::ClientConfig;
 use near_chunks::client::{ClientAdapterForShardsManager, ShardsManagerResponse};
@@ -223,7 +224,7 @@ pub fn setup(
         runtime.clone(),
         &chain_genesis,
         doomslug_threshold_mode,
-        ChainConfig { save_trie_changes: !archive, background_migration_threads: 1 },
+        ChainConfig { save_trie_changes: true, background_migration_threads: 1 },
     )
     .unwrap();
     let genesis_block = chain.get_block(&chain.genesis().hash().clone()).unwrap();
@@ -236,6 +237,7 @@ pub fn setup(
         max_block_prod_time,
         num_validator_seats,
         archive,
+        true,
         epoch_sync_enabled,
     );
 
@@ -264,6 +266,7 @@ pub fn setup(
         ctx,
         None,
         adv,
+        None,
     )
     .unwrap();
     (genesis_block, client, view_client_addr)
@@ -309,7 +312,7 @@ pub fn setup_only_view(
         runtime.clone(),
         &chain_genesis,
         doomslug_threshold_mode,
-        ChainConfig { save_trie_changes: !archive, background_migration_threads: 1 },
+        ChainConfig { save_trie_changes: true, background_migration_threads: 1 },
     )
     .unwrap();
 
@@ -321,6 +324,7 @@ pub fn setup_only_view(
         max_block_prod_time,
         num_validator_seats,
         archive,
+        true,
         epoch_sync_enabled,
     );
 
@@ -1088,12 +1092,15 @@ pub fn setup_client_with_runtime(
     network_adapter: Arc<dyn PeerManagerAdapter>,
     client_adapter: Arc<dyn ClientAdapterForShardsManager>,
     chain_genesis: ChainGenesis,
-    runtime_adapter: Arc<dyn RuntimeAdapter>,
+    runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
     rng_seed: RngSeed,
+    archive: bool,
+    save_trie_changes: bool,
 ) -> Client {
     let validator_signer =
         account_id.map(|x| Arc::new(create_test_signer(x.as_str())) as Arc<dyn ValidatorSigner>);
-    let mut config = ClientConfig::test(true, 10, 20, num_validator_seats, false, true);
+    let mut config =
+        ClientConfig::test(true, 10, 20, num_validator_seats, archive, save_trie_changes, true);
     config.epoch_length = chain_genesis.epoch_length;
     let mut client = Client::new(
         config,
@@ -1119,6 +1126,8 @@ pub fn setup_client(
     client_adapter: Arc<dyn ClientAdapterForShardsManager>,
     chain_genesis: ChainGenesis,
     rng_seed: RngSeed,
+    archive: bool,
+    save_trie_changes: bool,
 ) -> Client {
     let num_validator_seats = vs.all_block_producers().count() as NumSeats;
     let runtime_adapter =
@@ -1132,6 +1141,8 @@ pub fn setup_client(
         chain_genesis,
         runtime_adapter,
         rng_seed,
+        archive,
+        save_trie_changes,
     )
 }
 
@@ -1148,6 +1159,8 @@ pub struct TestEnv {
     // random seed to be inject in each client according to AccountId
     // if not set, a default constant TEST_SEED will be injected
     seeds: HashMap<AccountId, RngSeed>,
+    archive: bool,
+    save_trie_changes: bool,
 }
 
 /// A builder for the TestEnv structure.
@@ -1155,11 +1168,13 @@ pub struct TestEnvBuilder {
     chain_genesis: ChainGenesis,
     clients: Vec<AccountId>,
     validators: Vec<AccountId>,
-    runtime_adapters: Option<Vec<Arc<dyn RuntimeAdapter>>>,
+    runtime_adapters: Option<Vec<Arc<dyn RuntimeWithEpochManagerAdapter>>>,
     network_adapters: Option<Vec<Arc<MockPeerManagerAdapter>>>,
     // random seed to be inject in each client according to AccountId
     // if not set, a default constant TEST_SEED will be injected
     seeds: HashMap<AccountId, RngSeed>,
+    archive: bool,
+    save_trie_changes: bool,
 }
 
 /// Builder for the [`TestEnv`] structure.
@@ -1176,6 +1191,8 @@ impl TestEnvBuilder {
             runtime_adapters: None,
             network_adapters: None,
             seeds,
+            archive: false,
+            save_trie_changes: true,
         }
     }
 
@@ -1223,7 +1240,10 @@ impl TestEnvBuilder {
     /// The vector must have the same number of elements as they are clients
     /// (one by default).  If that does not hold, [`Self::build`] method will
     /// panic.
-    pub fn runtime_adapters(mut self, adapters: Vec<Arc<dyn RuntimeAdapter>>) -> Self {
+    pub fn runtime_adapters(
+        mut self,
+        adapters: Vec<Arc<dyn RuntimeWithEpochManagerAdapter>>,
+    ) -> Self {
         self.runtime_adapters = Some(adapters);
         self
     }
@@ -1235,6 +1255,16 @@ impl TestEnvBuilder {
     /// panic.
     pub fn network_adapters(mut self, adapters: Vec<Arc<MockPeerManagerAdapter>>) -> Self {
         self.network_adapters = Some(adapters);
+        self
+    }
+
+    pub fn archive(mut self, archive: bool) -> Self {
+        self.archive = archive;
+        self
+    }
+
+    pub fn save_trie_changes(mut self, save_trie_changes: bool) -> Self {
+        self.save_trie_changes = save_trie_changes;
         self
     }
 
@@ -1282,11 +1312,14 @@ impl TestEnvBuilder {
                         client_adapter.clone(),
                         chain_genesis.clone(),
                         rng_seed,
+                        self.archive,
+                        self.save_trie_changes,
                     )
                 })
                 .collect(),
             Some(runtime_adapters) => {
                 assert!(clients.len() == runtime_adapters.len());
+
                 clients
                     .into_iter()
                     .zip((&network_adapters).iter())
@@ -1305,6 +1338,8 @@ impl TestEnvBuilder {
                             chain_genesis.clone(),
                             runtime_adapter,
                             rng_seed,
+                            self.archive,
+                            self.save_trie_changes,
                         )
                     })
                     .collect()
@@ -1325,6 +1360,8 @@ impl TestEnvBuilder {
                 .collect(),
             paused_blocks: Default::default(),
             seeds,
+            archive: self.archive,
+            save_trie_changes: self.save_trie_changes,
         }
     }
 
@@ -1451,26 +1488,21 @@ impl TestEnv {
         request: PartialEncodedChunkRequestMsg,
     ) -> Option<PartialEncodedChunkResponseMsg> {
         let client = &mut self.clients[id];
-        if client
+        client
             .shards_mgr
-            .process_partial_encoded_chunk_request(request.clone(), CryptoHash::default())
+            .process_partial_encoded_chunk_request(request.clone(), CryptoHash::default());
+
+        let response = self.network_adapters[id].pop_most_recent().unwrap();
+        if let PeerManagerMessageRequest::NetworkRequests(
+            NetworkRequests::PartialEncodedChunkResponse { route_back: _, response },
+        ) = response
         {
-            let response = self.network_adapters[id].pop_most_recent().unwrap();
-            if let PeerManagerMessageRequest::NetworkRequests(
-                NetworkRequests::PartialEncodedChunkResponse { route_back: _, response },
-            ) = response
-            {
-                Some(response)
-            } else {
-                panic!(
-                    "did not find PartialEncodedChunkResponse from the network queue {:?}",
-                    response
-                );
-            }
+            Some(response)
         } else {
-            // TODO: Somehow this may fail at epoch boundaries. Figure out why.
-            warn!("Failed to process PartialEncodedChunkRequest from client {}: {:?}", id, request);
-            None
+            panic!(
+                "did not find PartialEncodedChunkResponse from the network queue {:?}",
+                response
+            );
         }
     }
 
@@ -1603,27 +1635,32 @@ impl TestEnv {
         self.query_account(account_id).amount
     }
 
-    /// Restarts client at given index.  Note that the client is restarted with
-    /// the default runtime adapter (i.e. [`KeyValueRuntime`]).  That is, if
-    /// this `TestEnv` was created with custom runtime adapters that
-    /// customisation will be lost.
+    /// Restarts client at given index. Note that the new client reuses runtime
+    /// adapter of old client.
+    /// TODO (#8269): create new `KeyValueRuntime` for new client. Currently it
+    /// doesn't work because `KeyValueRuntime` misses info about new epochs in
+    /// memory caches.
+    /// Though, it seems that it is not necessary for current use cases.
     pub fn restart(&mut self, idx: usize) {
-        let store = self.clients[idx].chain.store().store().clone();
         let account_id = self.get_client_id(idx).clone();
         let rng_seed = match self.seeds.get(&account_id) {
             Some(seed) => *seed,
             None => TEST_SEED,
         };
         let vs = ValidatorSchedule::new().block_producers_per_epoch(vec![self.validators.clone()]);
-        self.clients[idx] = setup_client(
-            store,
-            vs,
+        let num_validator_seats = vs.all_block_producers().count() as NumSeats;
+        let runtime_adapter = self.clients[idx].runtime_adapter.clone();
+        self.clients[idx] = setup_client_with_runtime(
+            num_validator_seats,
             Some(self.get_client_id(idx).clone()),
             false,
             self.network_adapters[idx].clone(),
             self.client_adapters[idx].clone(),
             self.chain_genesis.clone(),
+            runtime_adapter,
             rng_seed,
+            self.archive,
+            self.save_trie_changes,
         )
     }
 

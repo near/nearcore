@@ -289,7 +289,7 @@ pub enum HostError {
     Ed25519VerifyInvalidInput { msg: String },
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum VMLogicError {
     /// Errors coming from native Wasm VM.
     HostError(HostError),
@@ -505,14 +505,18 @@ pub struct AnyError {
     any: Box<dyn AnyEq>,
 }
 
+#[derive(Debug, thiserror::Error)]
+#[error("failed to downcast")]
+pub struct DowncastFailedError;
+
 impl AnyError {
     pub fn new<E: Any + Eq + Send + Sync + 'static>(err: E) -> AnyError {
         AnyError { any: Box::new(err) }
     }
-    pub fn downcast<E: Any + Eq + Send + Sync + 'static>(self) -> Result<E, ()> {
+    pub fn downcast<E: Any + Eq + Send + Sync + 'static>(self) -> Result<E, DowncastFailedError> {
         match self.any.into_any().downcast::<E>() {
             Ok(it) => Ok(*it),
-            Err(_) => Err(()),
+            Err(_) => Err(DowncastFailedError),
         }
     }
 }
@@ -545,7 +549,7 @@ impl<T: Any + Eq + Sized + Send + Sync> AnyEq for T {
         }
     }
     fn as_any(&self) -> &dyn Any {
-        &*self
+        self
     }
     fn into_any(self: Box<Self>) -> Box<dyn Any> {
         self

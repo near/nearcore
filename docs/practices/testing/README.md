@@ -11,8 +11,10 @@
 4. The general rule of thumb for a reviewer is to first review the tests, and
    ensure that they can convince themselves that the code change that passes the
    tests must be correct. Only then the code should be reviewed.
-5. Have the assertions in the tests as specific as possible. For example, do not
-   do `assert!(result.is_err())`, expect the specific error instead.
+5. Have the assertions in the tests as specific as possible,
+   however do not make the tests change-detectors of the concrete implementation.
+   (assert only properties which are required for correctness).
+   For example, do not do `assert!(result.is_err())`, expect the specific error instead.
 
 # Tests hierarchy
 
@@ -21,9 +23,10 @@ In the NEAR Reference Client we largely split tests into three categories:
 1. **Relatively cheap sanity or fast fuzz tests**: It includes all the `#[test]`
    Rust tests not decorated by features. Our repo is configured in such a way
    that all such tests are run on every PR and failing at least one of them is
-   blocking the PR from being pushed.
+   blocking the PR from being merged.
 
-To run such tests locally run `cargo test --all`
+To run such tests locally run `cargo nextest run --all`.
+It requires nextest harness which can be installed by running `cargo install cargo-nextest` first.
 
 2. **Expensive tests**: This includes all the fuzzy tests that run many iterations,
    as well as tests that spin up multiple nodes and run them until they reach a
@@ -31,9 +34,9 @@ To run such tests locally run `cargo test --all`
    `#[cfg(feature="expensive-tests")]`. It is not trivial to enable features
    that are not declared in the top-level crate, and thus the easiest way to run
    such tests is to enable all the features by passing `--all-features` to
-   `cargo test`, e.g:
+   `cargo nextest run`, e.g:
 
-`cargo test --package near-client --test cross_shard_tx
+`cargo nextest run --package near-client --test cross_shard_tx
 tests::test_cross_shard_tx --all-features`
 
 3. **Python tests**: We have an infrastructure to spin up nodes, both locally and
@@ -51,14 +54,14 @@ first one has some tests still scheduled to run.
 
 # Test infrastructure
 
-Different levels of the reference implementation have different infrastructure
+Different levels of the reference implementation have different infrastructures
 available to test them.
 
 ## Client
 
-The client is separated from the runtime via a `RuntimeAdapter` trait. In production,
-it uses the `NightshadeRuntime` that uses real runtime and epoch managers. To test
-the client without instantiating the runtime and epoch manager, we have a mock runtime
+The Client is separated from the runtime via a `RuntimeWithEpochManagerAdapter` trait.
+In production, it uses `NightshadeRuntime` which uses real runtime and epoch managers.
+To test the client without instantiating runtime and epoch manager, we have a mock runtime
 `KeyValueRuntime`.
 
 Most of the tests in the client work by setting up either a single node (via
@@ -119,15 +122,15 @@ or for promises in runtime
 
 ## Python tests
 
-See [this
-page](https://github.com/nearprotocol/nearcore/wiki/Writing-integration-tests-for-nearcore)
+See
+[this page](https://github.com/nearprotocol/nearcore/wiki/Writing-integration-tests-for-nearcore)
 for detailed coverage of how to write a python test.
 
 We have a python library that allows one to create and run python tests.
 
 To run python tests, from the `nearcore` repo the first time, do the following:
 
-```
+```shell
 cd pytest
 virtualenv . --python=python3
 . .env/bin/activate
@@ -140,7 +143,7 @@ all the required packages specified in the `requirements.txt` file and run the
 `tests/sanity/block_production.py` file. After the first time, we only need to
 activate the environment and can then run the tests:
 
-```
+```shell
 cd pytest
 . .env/bin/activate
 python tests/sanity/block_production.py

@@ -1,7 +1,8 @@
 use crate::{ChainError, SourceBlock};
 use anyhow::Context;
 use async_trait::async_trait;
-use near_chain::{ChainStore, ChainStoreAccess, RuntimeAdapter};
+use near_chain::types::RuntimeAdapter;
+use near_chain::{ChainStore, ChainStoreAccess};
 use near_chain_configs::GenesisValidationMode;
 use near_crypto::PublicKey;
 use near_epoch_manager::EpochManagerAdapter;
@@ -45,7 +46,7 @@ impl ChainAccess {
         let chain = ChainStore::new(
             store.clone(),
             config.genesis.config.genesis_height,
-            !config.client_config.archive,
+            config.client_config.save_trie_changes,
         );
         let runtime = NightshadeRuntime::from_config(home.as_ref(), store, &config);
         Ok(Self { chain, runtime })

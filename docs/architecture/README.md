@@ -141,7 +141,7 @@ This crate contains most of the chain logic (consensus, block processing, etc).
 happens.
 
 **Architecture Invariant**: interface between chain and runtime is defined by
-`RuntimeAdapter`. All invocations of runtime go through `RuntimeAdapter`
+`RuntimeWithEpochManagerAdapter`. All invocations of runtime go through `RuntimeWithEpochManagerAdapter`
 
 **State update**
 
@@ -244,8 +244,8 @@ contracts on NEAR.
 
 As mentioned before, `neard` is the crate that contains that main entry points.
 All the actors are spawned in `start_with_config`. It is also worth noting that
-`NightshadeRuntime` is the struct that implements `RuntimeAdapter`.
-<!-- TODO: Maybe add RuntimeAdapter mention or explanation in runtime/runtime chapter? -->
+`NightshadeRuntime` is the struct that implements `RuntimeWithEpochManagerAdapter`.
+<!-- TODO: Maybe add RuntimeWithEpochManagerAdapter mention or explanation in runtime/runtime chapter? -->
 
 ### `core/store/src/db.rs`
 

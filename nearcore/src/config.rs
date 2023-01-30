@@ -17,13 +17,13 @@ use tracing::{info, warn};
 
 use near_chain_configs::{
     get_initial_supply, ClientConfig, GCConfig, Genesis, GenesisConfig, GenesisValidationMode,
-    LogSummaryStyle,
+    LogSummaryStyle, MutableConfigValue,
 };
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 #[cfg(feature = "json_rpc")]
 use near_jsonrpc::RpcConfig;
 use near_network::config::NetworkConfig;
-use near_network::test_utils::open_port;
+use near_network::tcp;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
 #[cfg(test)]
@@ -31,8 +31,8 @@ use near_primitives::shard_layout::account_id_to_shard_id;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{
-    AccountId, AccountInfo, Balance, BlockHeightDelta, EpochHeight, Gas, NumBlocks, NumSeats,
-    NumShards, ShardId,
+    AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, EpochHeight, Gas, NumBlocks,
+    NumSeats, NumShards, ShardId,
 };
 use near_primitives::utils::{generate_random_string, get_num_seats_per_shard};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
@@ -54,9 +54,6 @@ pub const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
 
 /// Millinear, 1/1000 of NEAR.
 pub const MILLI_NEAR: Balance = NEAR_BASE / 1000;
-
-/// Attonear, 1/10^18 of NEAR.
-pub const ATTO_NEAR: Balance = 1;
 
 /// Block production tracking delay.
 pub const BLOCK_PRODUCTION_TRACKING_DELAY: u64 = 100;
@@ -204,6 +201,12 @@ fn default_trie_viewer_state_size_limit() -> Option<u64> {
     Some(50_000)
 }
 
+#[derive(thiserror::Error, Debug)]
+pub enum ConfigValidationError {
+    #[error("Configuration with archive = false and save_trie_changes = false is not supported because non-archival nodes must save trie changes in order to do do garbage collection.")]
+    TrieChanges,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Consensus {
     /// Minimum number of peers to start syncing.
@@ -308,6 +311,14 @@ pub struct Config {
     pub tracked_shards: Vec<ShardId>,
     #[serde(skip_serializing_if = "is_false")]
     pub archive: bool,
+    /// If save_trie_changes is not set it will get inferred from the `archive` field as follows:
+    /// save_trie_changes = !archive
+    /// save_trie_changes should be set to true iff
+    /// - archive if false - non-archival nodes need trie changes to perform garbage collection
+    /// - archive is true, cold_store is configured and migration to split_storage is finished - node
+    /// working in split storage mode needs trie changes in order to do garbage collection on hot.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub save_trie_changes: Option<bool>,
     pub log_summary_style: LogSummaryStyle,
     /// Garbage collection configuration.
     #[serde(default, flatten)]
@@ -325,7 +336,7 @@ pub struct Config {
     /// Different parameters to configure underlying storage.
     pub store: near_store::StoreConfig,
     /// Different parameters to configure underlying cold storage.
-    #[cfg(feature = "cold_store")]
+    /// This feature is under development, do not use in production.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cold_store: Option<near_store::StoreConfig>,
 
@@ -340,6 +351,8 @@ pub struct Config {
     /// Deprecated; use `store.migration_snapshot` instead.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub db_migration_snapshot_path: Option<PathBuf>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_shutdown: Option<BlockHeight>,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -363,6 +376,7 @@ impl Default for Config {
             tracked_accounts: vec![],
             tracked_shards: vec![],
             archive: false,
+            save_trie_changes: None,
             log_summary_style: LogSummaryStyle::Colored,
             gc: GCConfig::default(),
             epoch_sync_enabled: true,
@@ -373,8 +387,8 @@ impl Default for Config {
             db_migration_snapshot_path: None,
             use_db_migration_snapshot: None,
             store: near_store::StoreConfig::default(),
-            #[cfg(feature = "cold_store")]
             cold_store: None,
+            expected_shutdown: None,
         }
     }
 }
@@ -384,7 +398,7 @@ impl Config {
         let contents = std::fs::read_to_string(path)
             .with_context(|| format!("Failed to read config from {}", path.display()))?;
         let mut unrecognised_fields = Vec::new();
-        let config = serde_ignored::deserialize(
+        let config: Config = serde_ignored::deserialize(
             &mut serde_json::Deserializer::from_str(&contents),
             |field| {
                 let field = field.to_string();
@@ -411,7 +425,22 @@ impl Config {
                 path.display(),
             );
         }
+
+        config.validate()?;
         Ok(config)
+    }
+
+    /// Does semantic config validation.
+    /// This is the place to check that all config values make sense and fit well together.
+    /// `validate()` is called every time `config.json` is read.
+    fn validate(&self) -> Result<(), ConfigValidationError> {
+        if self.archive == false && self.save_trie_changes == Some(false) {
+            Err(ConfigValidationError::TrieChanges)
+        } else {
+            Ok(())
+        }
+        // TODO: Add more config validation.
+        // TODO: Validate `ClientConfig` instead.
     }
 
     pub fn write_to_file(&self, path: &Path) -> std::io::Result<()> {
@@ -420,16 +449,16 @@ impl Config {
         file.write_all(str.as_bytes())
     }
 
-    pub fn rpc_addr(&self) -> Option<&str> {
+    pub fn rpc_addr(&self) -> Option<String> {
         #[cfg(feature = "json_rpc")]
         if let Some(rpc) = &self.rpc {
-            return Some(&rpc.addr);
+            return Some(rpc.addr.to_string());
         }
         None
     }
 
     #[allow(unused_variables)]
-    pub fn set_rpc_addr(&mut self, addr: String) {
+    pub fn set_rpc_addr(&mut self, addr: tcp::ListenerAddr) {
         #[cfg(feature = "json_rpc")]
         {
             self.rpc.get_or_insert(Default::default()).addr = addr;
@@ -565,6 +594,10 @@ impl NearConfig {
                 version: Default::default(),
                 chain_id: genesis.config.chain_id.clone(),
                 rpc_addr: config.rpc_addr().map(|addr| addr.to_owned()),
+                expected_shutdown: MutableConfigValue::new(
+                    config.expected_shutdown,
+                    "expected_shutdown",
+                ),
                 block_production_tracking_delay: config.consensus.block_production_tracking_delay,
                 min_block_production_delay: config.consensus.min_block_production_delay,
                 max_block_production_delay: config.consensus.max_block_production_delay,
@@ -598,6 +631,7 @@ impl NearConfig {
                 tracked_accounts: config.tracked_accounts,
                 tracked_shards: config.tracked_shards,
                 archive: config.archive,
+                save_trie_changes: config.save_trie_changes.unwrap_or(!config.archive),
                 log_summary_style: config.log_summary_style,
                 gc: config.gc,
                 view_client_threads: config.view_client_threads,
@@ -607,6 +641,7 @@ impl NearConfig {
                 max_gas_burnt_view: config.max_gas_burnt_view,
                 enable_statistics_export: config.store.enable_statistics_export,
                 client_background_migration_threads: config.store.background_migration_threads,
+                flat_storage_creation_period: config.store.flat_storage_creation_period,
             },
             network_config: NetworkConfig::new(
                 config.network,
@@ -624,10 +659,10 @@ impl NearConfig {
         })
     }
 
-    pub fn rpc_addr(&self) -> Option<&str> {
+    pub fn rpc_addr(&self) -> Option<String> {
         #[cfg(feature = "json_rpc")]
         if let Some(rpc) = &self.rpc_config {
-            return Some(&rpc.addr);
+            return Some(rpc.addr.to_string());
         }
         None
     }
@@ -1055,6 +1090,7 @@ pub fn create_testnet_configs_from_seeds(
     local_ports: bool,
     archive: bool,
     fixed_shards: Option<Vec<String>>,
+    tracked_shards: Vec<u64>,
 ) -> (Vec<Config>, Vec<InMemoryValidatorSigner>, Vec<InMemorySigner>, Genesis) {
     let num_validator_seats = (seeds.len() - num_non_validator_seats as usize) as NumSeats;
     let validator_signers =
@@ -1092,24 +1128,28 @@ pub fn create_testnet_configs_from_seeds(
         shard_layout,
     );
     let mut configs = vec![];
-    let first_node_port = open_port();
+    let first_node_addr = tcp::ListenerAddr::reserve_for_test();
     for i in 0..seeds.len() {
         let mut config = Config::default();
         config.rpc.get_or_insert(Default::default()).enable_debug_rpc = true;
         config.consensus.min_block_production_delay = Duration::from_millis(600);
         config.consensus.max_block_production_delay = Duration::from_millis(2000);
         if local_ports {
-            config.network.addr =
-                format!("127.0.0.1:{}", if i == 0 { first_node_port } else { open_port() });
-            config.set_rpc_addr(format!("127.0.0.1:{}", open_port()));
+            config.network.addr = if i == 0 {
+                first_node_addr.to_string()
+            } else {
+                tcp::ListenerAddr::reserve_for_test().to_string()
+            };
+            config.set_rpc_addr(tcp::ListenerAddr::reserve_for_test());
             config.network.boot_nodes = if i == 0 {
                 "".to_string()
             } else {
-                format!("{}@127.0.0.1:{}", network_signers[0].public_key, first_node_port)
+                format!("{}@{}", network_signers[0].public_key, first_node_addr)
             };
             config.network.skip_sync_wait = num_validator_seats == 1;
         }
         config.archive = archive;
+        config.tracked_shards = tracked_shards.clone();
         config.consensus.min_num_peers =
             std::cmp::min(num_validator_seats as usize - 1, config.consensus.min_num_peers);
         configs.push(config);
@@ -1127,6 +1167,7 @@ pub fn create_testnet_configs(
     local_ports: bool,
     archive: bool,
     fixed_shards: bool,
+    tracked_shards: Vec<u64>,
 ) -> (Vec<Config>, Vec<InMemoryValidatorSigner>, Vec<InMemorySigner>, Genesis, Vec<InMemorySigner>)
 {
     let fixed_shards = if fixed_shards {
@@ -1152,6 +1193,7 @@ pub fn create_testnet_configs(
         local_ports,
         archive,
         fixed_shards,
+        tracked_shards,
     );
 
     (configs, validator_signers, network_signers, genesis, shard_keys)
@@ -1166,6 +1208,7 @@ pub fn init_testnet_configs(
     local_ports: bool,
     archive: bool,
     fixed_shards: bool,
+    tracked_shards: Vec<u64>,
 ) {
     let (configs, validator_signers, network_signers, genesis, shard_keys) = create_testnet_configs(
         num_shards,
@@ -1175,6 +1218,7 @@ pub fn init_testnet_configs(
         local_ports,
         archive,
         fixed_shards,
+        tracked_shards,
     );
     for i in 0..(num_validator_seats + num_non_validator_seats) as usize {
         let node_dir = dir.join(format!("{}{}", prefix, i));
@@ -1314,10 +1358,10 @@ pub fn load_config(
     NearConfig::new(config, genesis, network_signer.into(), validator_signer)
 }
 
-pub fn load_test_config(seed: &str, port: u16, genesis: Genesis) -> NearConfig {
+pub fn load_test_config(seed: &str, addr: tcp::ListenerAddr, genesis: Genesis) -> NearConfig {
     let mut config = Config::default();
-    config.network.addr = format!("0.0.0.0:{}", port);
-    config.set_rpc_addr(format!("0.0.0.0:{}", open_port()));
+    config.network.addr = addr.to_string();
+    config.set_rpc_addr(tcp::ListenerAddr::reserve_for_test());
     config.consensus.min_block_production_delay =
         Duration::from_millis(FAST_MIN_BLOCK_PRODUCTION_DELAY);
     config.consensus.max_block_production_delay =
@@ -1414,4 +1458,68 @@ fn test_config_from_file() {
             config.telemetry.endpoints
         );
     }
+}
+
+#[test]
+fn test_create_testnet_configs() {
+    let num_shards = 4;
+    let num_validator_seats = 4;
+    let num_non_validator_seats = 8;
+    let prefix = "node";
+    let local_ports = true;
+
+    // Set all supported options to true and verify config and genesis.
+
+    let archive = true;
+    let fixed_shards = true;
+    let tracked_shards: Vec<u64> = vec![0, 1, 3];
+
+    let (configs, _validator_signers, _network_signers, genesis, _shard_keys) =
+        create_testnet_configs(
+            num_shards,
+            num_validator_seats,
+            num_non_validator_seats,
+            prefix,
+            local_ports,
+            archive,
+            fixed_shards,
+            tracked_shards.clone(),
+        );
+
+    assert_eq!(configs.len() as u64, num_validator_seats + num_non_validator_seats);
+
+    for config in configs {
+        assert_eq!(config.archive, true);
+        assert_eq!(config.tracked_shards, tracked_shards);
+    }
+
+    assert_eq!(genesis.config.validators.len(), num_shards as usize);
+    assert_eq!(genesis.config.shard_layout.num_shards(), num_shards);
+
+    // Set all supported options to false and verify config and genesis.
+
+    let archive = false;
+    let fixed_shards = false;
+    let tracked_shards: Vec<u64> = vec![];
+
+    let (configs, _validator_signers, _network_signers, genesis, _shard_keys) =
+        create_testnet_configs(
+            num_shards,
+            num_validator_seats,
+            num_non_validator_seats,
+            prefix,
+            local_ports,
+            archive,
+            fixed_shards,
+            tracked_shards.clone(),
+        );
+    assert_eq!(configs.len() as u64, num_validator_seats + num_non_validator_seats);
+
+    for config in configs {
+        assert_eq!(config.archive, false);
+        assert_eq!(config.tracked_shards, tracked_shards);
+    }
+
+    assert_eq!(genesis.config.validators.len() as u64, num_shards);
+    assert_eq!(genesis.config.shard_layout.num_shards(), num_shards);
 }

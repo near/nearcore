@@ -419,6 +419,8 @@ impl From<NearActions> for Vec<crate::models::Operation> {
                     );
                     operations.push(deploy_contract_operation);
                 }
+                #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+                near_primitives::transaction::Action::Delegate(_) => todo!(),
             }
         }
         operations

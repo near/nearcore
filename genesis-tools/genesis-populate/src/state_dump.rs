@@ -1,7 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::types::StateRoot;
 use near_store::db::TestDB;
-use near_store::{DBCol, Store, Temperature};
+use near_store::{Store, Temperature};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -26,9 +26,7 @@ impl StateDump {
         };
         let store = node_storage.get_store(Temperature::Hot);
         let state_file = dir.join(STATE_DUMP_FILE);
-        store
-            .load_from_file(DBCol::State, state_file.as_path())
-            .expect("Failed to read state dump");
+        store.load_state_from_file(state_file.as_path()).expect("Failed to read state dump");
         let roots_files = dir.join(GENESIS_ROOTS_FILE);
         let mut file = File::open(roots_files).expect("Failed to open genesis roots file.");
         let mut data = vec![];
@@ -41,7 +39,7 @@ impl StateDump {
     pub fn save_to_dir(self, dir: PathBuf) -> std::result::Result<(), Box<dyn std::error::Error>> {
         let mut dump_path = dir.clone();
         dump_path.push(STATE_DUMP_FILE);
-        self.store.save_to_file(DBCol::State, dump_path.as_path())?;
+        self.store.save_state_to_file(dump_path.as_path())?;
         {
             let mut roots_files = dir;
             roots_files.push(GENESIS_ROOTS_FILE);

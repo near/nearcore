@@ -1,6 +1,6 @@
 use std::{collections::HashSet, path::Path, sync::Arc};
 
-use near_chain::{ChainGenesis, Provenance, RuntimeAdapter};
+use near_chain::{ChainGenesis, Provenance, RuntimeWithEpochManagerAdapter};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
@@ -48,7 +48,7 @@ impl AdversarialBehaviorTestData {
             config.chunk_producer_kickout_threshold = 50;
         }
         let chain_genesis = ChainGenesis::new(&genesis);
-        let runtimes: Vec<Arc<dyn RuntimeAdapter>> = (0..num_clients)
+        let runtimes: Vec<Arc<dyn RuntimeWithEpochManagerAdapter>> = (0..num_clients)
             .map(|_| {
                 Arc::new(nearcore::NightshadeRuntime::test_with_runtime_config_store(
                     Path::new("."),
@@ -56,7 +56,7 @@ impl AdversarialBehaviorTestData {
                     &genesis,
                     TrackedConfig::AllShards,
                     RuntimeConfigStore::test(),
-                )) as Arc<dyn RuntimeAdapter>
+                )) as Arc<dyn RuntimeWithEpochManagerAdapter>
             })
             .collect();
         let env = TestEnv::builder(chain_genesis)

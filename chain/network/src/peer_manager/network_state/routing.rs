@@ -90,17 +90,26 @@ impl NetworkState {
         // instead, however that would be backward incompatible, so it can be introduced in
         // PROTOCOL_VERSION 60 earliest.
         let (edges, ok) = self.graph.verify(edges).await;
-        let result = match ok {
-            true => Ok(()),
-            false => Err(ReasonForBan::InvalidEdge),
-        };
-        // Skip recomputation if no new edges have been verified.
-        if edges.len() == 0 {
-            return result;
+        // Recompute if there are new edges which have been verified.
+        if !edges.is_empty() {
+            self.recompute_added_edges(clock.clone(), edges).await;
         }
+        // self.graph.verify() returns a partial result if it encountered an invalid edge:
+        // Edge verification is expensive, and it would be an attack vector if we dropped on the
+        // floor valid edges verified so far: an attacker could prepare a SyncRoutingTable
+        // containing a lot of valid edges, except for the last one, and send it repeatedly to a
+        // node. The node would then validate all the edges every time, then reject the whole set
+        // because just the last edge was invalid. Instead, we accept all the edges verified so
+        // far and return an error only afterwards.
+        if ok {
+            Ok(())
+        } else {
+            Err(ReasonForBan::InvalidEdge)
+        }
+    }
 
+    async fn recompute_added_edges(self: &Arc<Self>, clock: time::Clock, edges: Vec<Edge>) {
         let this = self.clone();
-        let clock = clock.clone();
         let _ = self
             .add_edges_demux
             .call(edges, |edges: Vec<Vec<Edge>>| async move {
@@ -123,13 +132,5 @@ impl NetworkState {
                 results
             })
             .await;
-        // self.graph.verify() returns a partial result if it encountered an invalid edge:
-        // Edge verification is expensive, and it would be an attack vector if we dropped on the
-        // floor valid edges verified so far: an attacker could prepare a SyncRoutingTable
-        // containing a lot of valid edges, except for the last one, and send it repeatedly to a
-        // node. The node would then validate all the edges every time, then reject the whole set
-        // because just the last edge was invalid. Instead, we accept all the edges verified so
-        // far and return an error only afterwards.
-        result
     }
 }

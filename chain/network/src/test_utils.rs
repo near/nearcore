@@ -1,5 +1,4 @@
 use crate::network_protocol::PeerInfo;
-use crate::types::ReasonForBan;
 use crate::types::{
     MsgRecipient, NetworkInfo, NetworkResponses, PeerManagerMessageRequest,
     PeerManagerMessageResponse, SetChainInfo,
@@ -14,39 +13,12 @@ use near_primitives::hash::hash;
 use near_primitives::network::PeerId;
 use near_primitives::types::EpochId;
 use near_primitives::utils::index_to_bytes;
-use once_cell::sync::Lazy;
 use rand::{thread_rng, RngCore};
-use std::collections::{HashMap, HashSet, VecDeque};
-use std::net::TcpListener;
+use std::collections::{HashMap, VecDeque};
 use std::ops::ControlFlow;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 use tokio::sync::Notify;
 use tracing::debug;
-
-static OPENED_PORTS: Lazy<Mutex<HashSet<u16>>> = Lazy::new(|| Mutex::new(HashSet::new()));
-
-/// Returns available port.
-pub fn open_port() -> u16 {
-    // Use port 0 to allow the OS to assign an open port.
-    // TcpListener's Drop impl will unbind the port as soon as listener goes out of scope.
-    // We retry multiple times and store selected port in OPENED_PORTS to avoid port collision among
-    // multiple tests.
-    let max_attempts = 100;
-
-    for _ in 0..max_attempts {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let port = listener.local_addr().unwrap().port();
-
-        let mut opened_ports = OPENED_PORTS.lock().unwrap();
-
-        if !opened_ports.contains(&port) {
-            opened_ports.insert(port);
-            return port;
-        }
-    }
-
-    panic!("Failed to find an open port after {} attempts.", max_attempts);
-}
 
 // `peer_id_from_seed` generate `PeerId` from seed for unit tests
 pub fn peer_id_from_seed(seed: &str) -> PeerId {
@@ -54,11 +26,11 @@ pub fn peer_id_from_seed(seed: &str) -> PeerId {
 }
 
 // `convert_boot_nodes` generate list of `PeerInfos` for unit tests
-pub fn convert_boot_nodes(boot_nodes: Vec<(&str, u16)>) -> Vec<PeerInfo> {
+pub fn convert_boot_nodes(boot_nodes: Vec<(&str, std::net::SocketAddr)>) -> Vec<PeerInfo> {
     let mut result = vec![];
-    for (peer_seed, port) in boot_nodes {
+    for (peer_seed, addr) in boot_nodes {
         let id = peer_id_from_seed(peer_seed);
-        result.push(PeerInfo::new(id, format!("127.0.0.1:{}", port).parse().unwrap()))
+        result.push(PeerInfo::new(id, addr));
     }
     result
 }
@@ -251,35 +223,6 @@ impl Handler<WithSpanContext<StopSignal>> for PeerManagerActor {
         } else {
             ctx.stop();
         }
-    }
-}
-
-/// Ban peer for unit tests.
-/// Calls `try_ban_peer` in `PeerManagerActor`.
-#[derive(Message)]
-#[rtype(result = "()")]
-pub struct BanPeerSignal {
-    pub peer_id: PeerId,
-    pub ban_reason: ReasonForBan,
-}
-
-impl BanPeerSignal {
-    pub fn new(peer_id: PeerId) -> Self {
-        Self { peer_id, ban_reason: ReasonForBan::None }
-    }
-}
-
-impl Handler<WithSpanContext<BanPeerSignal>> for PeerManagerActor {
-    type Result = ();
-
-    fn handle(
-        &mut self,
-        msg: WithSpanContext<BanPeerSignal>,
-        _ctx: &mut Self::Context,
-    ) -> Self::Result {
-        let (_span, msg) = handler_debug_span!(target: "network", msg);
-        debug!(target: "network", "Ban peer: {:?}", msg.peer_id);
-        self.state.disconnect_and_ban(&self.clock, &msg.peer_id, msg.ban_reason);
     }
 }
 

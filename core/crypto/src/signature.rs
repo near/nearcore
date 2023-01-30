@@ -119,9 +119,12 @@ pub enum PublicKey {
 }
 
 impl PublicKey {
+    // `is_empty` always returns false, so there is no point in adding it
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
+        const ED25519_LEN: usize = ed25519_dalek::PUBLIC_KEY_LENGTH + 1;
         match self {
-            Self::ED25519(_) => ed25519_dalek::PUBLIC_KEY_LENGTH + 1,
+            Self::ED25519(_) => ED25519_LEN,
             Self::SECP256K1(_) => 65,
         }
     }
@@ -490,6 +493,9 @@ pub enum Signature {
     SECP256K1(Secp256K1Signature),
 }
 
+// This `Hash` implementation is safe since it retains the property
+// `k1 == k2 ⇒ hash(k1) == hash(k2)`.
+#[allow(clippy::derive_hash_xor_eq)]
 impl Hash for Signature {
     fn hash<H: Hasher>(&self, state: &mut H) {
         match self {
@@ -703,7 +709,7 @@ fn decode_bs58_impl(dst: &mut [u8], encoded: &str) -> Result<(), DecodeBs58Error
         Ok(received) if received == expected => Ok(()),
         Ok(received) => Err(DecodeBs58Error::BadLength { expected, received }),
         Err(bs58::decode::Error::BufferTooSmall) => {
-            Err(DecodeBs58Error::BadLength { expected, received: expected + 1 })
+            Err(DecodeBs58Error::BadLength { expected, received: expected.saturating_add(1) })
         }
         Err(err) => Err(DecodeBs58Error::BadData(err.to_string())),
     }
@@ -745,7 +751,7 @@ mod tests {
 
     #[test]
     fn test_sign_verify() {
-        for key_type in vec![KeyType::ED25519, KeyType::SECP256K1] {
+        for key_type in [KeyType::ED25519, KeyType::SECP256K1] {
             let secret_key = SecretKey::from_random(key_type);
             let public_key = secret_key.public_key();
             use sha2::Digest;
@@ -812,7 +818,7 @@ mod tests {
     fn test_borsh_serialization() {
         use sha2::Digest;
         let data = sha2::Sha256::digest(b"123").to_vec();
-        for key_type in vec![KeyType::ED25519, KeyType::SECP256K1] {
+        for key_type in [KeyType::ED25519, KeyType::SECP256K1] {
             let sk = SecretKey::from_seed(key_type, "test");
             let pk = sk.public_key();
             let bytes = pk.try_to_vec().unwrap();

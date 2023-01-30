@@ -35,7 +35,7 @@ use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
 use tracing::{debug, error, info, warn};
 
-use near_chain::{Chain, RuntimeAdapter};
+use near_chain::{Chain, RuntimeWithEpochManagerAdapter};
 use near_network::types::{
     HighestHeightPeerInfo, NetworkRequests, NetworkResponses, PeerManagerAdapter,
 };
@@ -170,7 +170,7 @@ impl StateSync {
         sync_hash: CryptoHash,
         new_shard_sync: &mut HashMap<u64, ShardSyncDownload>,
         chain: &mut Chain,
-        runtime_adapter: &Arc<dyn RuntimeAdapter>,
+        runtime_adapter: &Arc<dyn RuntimeWithEpochManagerAdapter>,
         highest_height_peers: &[HighestHeightPeerInfo],
         tracking_shards: Vec<ShardId>,
         now: DateTime<Utc>,
@@ -179,21 +179,6 @@ impl StateSync {
     ) -> Result<(bool, bool), near_chain::Error> {
         let mut all_done = true;
         let mut update_sync_status = false;
-        let init_sync_download = ShardSyncDownload {
-            downloads: vec![
-                DownloadStatus {
-                    start_time: now,
-                    prev_update_time: now,
-                    run_me: Arc::new(AtomicBool::new(true)),
-                    error: false,
-                    done: false,
-                    state_requests_count: 0,
-                    last_target: None,
-                };
-                1
-            ],
-            status: ShardSyncStatus::StateDownloadHeader,
-        };
 
         let prev_hash = *chain.get_block_header(&sync_hash)?.prev_hash();
         let prev_epoch_id = chain.get_block_header(&prev_hash)?.epoch_id().clone();
@@ -212,8 +197,9 @@ impl StateSync {
             let shard_sync_download = new_shard_sync.entry(shard_id).or_insert_with(|| {
                 need_shard = true;
                 update_sync_status = true;
-                init_sync_download.clone()
+                ShardSyncDownload::new(now)
             });
+
             let old_status = shard_sync_download.status.clone();
             let mut this_done = false;
             match &shard_sync_download.status {
@@ -308,7 +294,7 @@ impl StateSync {
                             // Cannot finalize the downloaded state.
                             // The reasonable behavior here is to start from the very beginning.
                             error!(target: "sync", "State sync finalizing error, shard = {}, hash = {}: {:?}", shard_id, sync_hash, e);
-                            *shard_sync_download = init_sync_download.clone();
+                            *shard_sync_download = ShardSyncDownload::new(now);
                             chain.clear_downloaded_parts(shard_id, sync_hash, state_num_parts)?;
                         }
                     }
@@ -329,7 +315,7 @@ impl StateSync {
                                 // Cannot finalize the downloaded state.
                                 // The reasonable behavior here is to start from the very beginning.
                                 error!(target: "sync", "State sync finalizing error, shard = {}, hash = {}: {:?}", shard_id, sync_hash, e);
-                                *shard_sync_download = init_sync_download.clone();
+                                *shard_sync_download = ShardSyncDownload::new(now);
                                 let shard_state_header =
                                     chain.get_state_header(shard_id, sync_hash)?;
                                 let state_num_parts = get_num_state_parts(
@@ -531,7 +517,7 @@ impl StateSync {
         me: &Option<AccountId>,
         shard_id: ShardId,
         chain: &Chain,
-        runtime_adapter: &Arc<dyn RuntimeAdapter>,
+        runtime_adapter: &Arc<dyn RuntimeWithEpochManagerAdapter>,
         sync_hash: CryptoHash,
         highest_height_peers: &[HighestHeightPeerInfo],
     ) -> Result<Vec<AccountOrPeerIdOrHash>, Error> {
@@ -586,7 +572,7 @@ impl StateSync {
         me: &Option<AccountId>,
         shard_id: ShardId,
         chain: &Chain,
-        runtime_adapter: &Arc<dyn RuntimeAdapter>,
+        runtime_adapter: &Arc<dyn RuntimeWithEpochManagerAdapter>,
         sync_hash: CryptoHash,
         shard_sync_download: ShardSyncDownload,
         highest_height_peers: &[HighestHeightPeerInfo],
@@ -707,7 +693,7 @@ impl StateSync {
         sync_hash: CryptoHash,
         new_shard_sync: &mut HashMap<u64, ShardSyncDownload>,
         chain: &mut Chain,
-        runtime_adapter: &Arc<dyn RuntimeAdapter>,
+        runtime_adapter: &Arc<dyn RuntimeWithEpochManagerAdapter>,
         highest_height_peers: &[HighestHeightPeerInfo],
         // Shards to sync.
         tracking_shards: Vec<ShardId>,
@@ -892,13 +878,13 @@ mod test {
 
     use actix::System;
     use near_actix_test_utils::run_actix;
-    use near_chain::{test_utils::process_block_sync, Block, BlockProcessingArtifact, Provenance};
+    use near_chain::{test_utils::process_block_sync, BlockProcessingArtifact, Provenance};
 
     use near_epoch_manager::EpochManagerAdapter;
     use near_network::test_utils::MockPeerManagerAdapter;
     use near_primitives::{
-        merkle::PartialMerkleTree,
         syncing::{ShardStateSyncResponseHeader, ShardStateSyncResponseV2},
+        test_utils::TestBlockBuilder,
         types::EpochId,
     };
 
@@ -919,17 +905,13 @@ mod test {
         for _ in 0..(chain.epoch_length + 1) {
             let prev = chain.get_block(&chain.head().unwrap().last_block_hash).unwrap();
             let block = if kv.is_next_block_epoch_start(prev.hash()).unwrap() {
-                Block::empty_with_epoch(
-                    &prev,
-                    prev.header().height() + 1,
-                    prev.header().next_epoch_id().clone(),
-                    EpochId { 0: *prev.hash() },
-                    *prev.header().next_bp_hash(),
-                    &*signer,
-                    &mut PartialMerkleTree::default(),
-                )
+                TestBlockBuilder::new(&prev, signer.clone())
+                    .epoch_id(prev.header().next_epoch_id().clone())
+                    .next_epoch_id(EpochId { 0: *prev.hash() })
+                    .next_bp_hash(*prev.header().next_bp_hash())
+                    .build()
             } else {
-                Block::empty(&prev, &*signer)
+                TestBlockBuilder::new(&prev, signer.clone()).build()
             };
 
             process_block_sync(
@@ -959,7 +941,7 @@ mod test {
                     *request_hash,
                     &mut new_shard_sync,
                     &mut chain,
-                    &(kv as Arc<dyn RuntimeAdapter>),
+                    &(kv as Arc<dyn RuntimeWithEpochManagerAdapter>),
                     &[],
                     vec![0],
                     &apply_parts_fn,

@@ -45,13 +45,15 @@ use near_store::{
     DBCol, PartialStorage, ShardTries, Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges,
 };
 
-use crate::types::{ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo};
-use crate::{BlockHeader, RuntimeAdapter};
+use crate::types::{
+    ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo, RuntimeAdapter,
+};
+use crate::{BlockHeader, RuntimeWithEpochManagerAdapter};
 
 use near_primitives::epoch_manager::ShardConfig;
 
 use near_store::flat_state::ChainAccessForFlatStorage;
-use near_store::flat_state::{FlatStorageState, FlatStorageStateStatus};
+use near_store::flat_state::{FlatStorageCreationStatus, FlatStorageState};
 
 use super::ValidatorSchedule;
 
@@ -241,6 +243,10 @@ impl KeyValueRuntime {
         Ok(None)
     }
 
+    /// Get epoch and index of validator set by the hash of previous block.
+    /// Note that it also fills in-memory chain info and there is some
+    /// assumption that it is called for all previous blocks.
+    /// TODO (#8269): should we call it recursively for previous blocks if info is not found?
     fn get_epoch_and_valset(
         &self,
         prev_hash: CryptoHash,
@@ -828,13 +834,25 @@ impl RuntimeAdapter for KeyValueRuntime {
         None
     }
 
-    fn try_create_flat_storage_state_for_shard(
+    fn get_flat_storage_creation_status(&self, _shard_id: ShardId) -> FlatStorageCreationStatus {
+        FlatStorageCreationStatus::DontCreate
+    }
+
+    fn create_flat_storage_state_for_shard(
         &self,
-        _shard_id: ShardId,
+        shard_id: ShardId,
         _latest_block_height: BlockHeight,
         _chain_access: &dyn ChainAccessForFlatStorage,
-    ) -> FlatStorageStateStatus {
-        FlatStorageStateStatus::DontCreate
+    ) {
+        panic!("Flat storage state can't be created for shard {shard_id} because KeyValueRuntime doesn't support this");
+    }
+
+    fn remove_flat_storage_state_for_shard(
+        &self,
+        _shard_id: ShardId,
+        _epoch_id: &EpochId,
+    ) -> Result<(), Error> {
+        Ok(())
     }
 
     fn set_flat_storage_state_for_genesis(
@@ -1344,3 +1362,5 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(HashMap::new())
     }
 }
+
+impl RuntimeWithEpochManagerAdapter for KeyValueRuntime {}

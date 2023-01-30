@@ -3,7 +3,7 @@ use crate::config;
 use crate::debug::{DebugStatus, GetDebugStatus};
 use crate::network_protocol::{
     AccountOrPeerIdOrHash, Edge, PeerIdOrHash, PeerMessage, Ping, Pong, RawRoutedMessage,
-    RoutedMessageBody, SignedAccountData, StateResponseInfo,
+    RoutedMessageBody,
 };
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
@@ -106,8 +106,6 @@ pub enum Event {
     // actually complete. Currently this event is reported only for some message types,
     // feel free to add support for more.
     MessageProcessed(tcp::Tier, PeerMessage),
-    // Reported every time a new list of proxies has been constructed.
-    Tier1AdvertiseProxies(Vec<Arc<SignedAccountData>>),
     // Reported when a handshake has been started.
     HandshakeStarted(crate::peer::peer_actor::HandshakeStartedEvent),
     // Reported when a handshake has been successfully completed.
@@ -203,9 +201,9 @@ impl PeerManagerActor {
             let clock = clock.clone();
             async move {
                 // Start server if address provided.
-                if let Some(server_addr) = state.config.node_addr {
+                if let Some(server_addr) = &state.config.node_addr {
                     tracing::debug!(target: "network", at = ?server_addr, "starting public server");
-                    let mut listener = match tcp::Listener::bind(server_addr).await {
+                    let mut listener = match server_addr.listener() {
                         Ok(it) => it,
                         Err(e) => {
                             panic!("failed to start listening on server_addr={server_addr:?} e={e:?}")
@@ -243,6 +241,7 @@ impl PeerManagerActor {
                         async move {
                             loop {
                                 interval.tick(&clock).await;
+                                state.tier1_request_full_sync();
                                 state.tier1_advertise_proxies(&clock).await;
                             }
                         }
@@ -509,7 +508,7 @@ impl PeerManagerActor {
                 |peer_state| {
                     // Ignore connecting to ourself
                     self.my_peer_id == peer_state.peer_info.id
-                    || self.state.config.node_addr == peer_state.peer_info.addr
+                    || self.state.config.node_addr.as_ref().map(|a|**a) == peer_state.peer_info.addr
                     // Or to peers we are currently trying to connect to
                     || tier2.outbound_handshakes.contains(&peer_state.peer_info.id)
                 },
@@ -724,12 +723,7 @@ impl PeerManagerActor {
                 }
             }
             NetworkRequests::StateResponse { route_back, response } => {
-                let body = match response {
-                    StateResponseInfo::V1(response) => RoutedMessageBody::StateResponse(response),
-                    response @ StateResponseInfo::V2(_) => {
-                        RoutedMessageBody::VersionedStateResponse(response)
-                    }
-                };
+                let body = RoutedMessageBody::VersionedStateResponse(response);
                 if self.state.send_message_to_peer(
                     &self.clock,
                     tcp::Tier::T2,
@@ -977,10 +971,6 @@ impl actix::Handler<WithSpanContext<SetChainInfo>> for PeerManagerActor {
                 // and this node won't be able to connect to proxies until it happens (and only the
                 // connected proxies are included in the advertisement). We run tier1_advertise_proxies
                 // periodically in the background anyway to cover those cases.
-                //
-                // The set of tier1 accounts has changed, so we might be missing some accounts_data
-                // that our peers know about. tier1_advertise_proxies() has a side effect
-                // of asking peers for a full sync of the accounts_data with the TIER2 peers.
                 state.tier1_advertise_proxies(&clock).await;
             }
             .in_current_span(),

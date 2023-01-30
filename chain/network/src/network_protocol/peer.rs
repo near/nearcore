@@ -71,35 +71,29 @@ impl FromStr for PeerInfo {
     ///
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let chunks: Vec<&str> = s.split('@').collect();
-        let addr;
-        let account_id;
-
-        if chunks.len() == 1 {
-            addr = None;
-            account_id = None;
-        } else if chunks.len() == 2 {
-            if let Ok(mut x) = chunks[1].to_socket_addrs() {
-                addr = x.next();
-                account_id = None;
-            } else {
-                addr = None;
-                account_id = Some(chunks[1].parse().unwrap());
+        let id = match chunks.get(0) {
+            Some(c) => PeerId::new(c.parse().map_err(Self::Err::PeerId)?),
+            None => return Err(Self::Err::InvalidFormat(s.to_string())),
+        };
+        let mut i = 1;
+        let addr = match chunks.get(i).map(|s| s.to_socket_addrs()) {
+            Some(Ok(mut x)) => {
+                i += 1;
+                x.next()
             }
-        } else if chunks.len() == 3 {
-            if let Ok(mut x) = chunks[1].to_socket_addrs() {
-                addr = x.next();
-                account_id = Some(chunks[2].parse().unwrap());
-            } else {
-                return Err(Self::Err::InvalidFormat(s.to_string()));
+            _ => None,
+        };
+        let account_id = match chunks.get(i).map(|c| c.parse()) {
+            Some(Ok(it)) => {
+                i += 1;
+                Some(it)
             }
-        } else {
+            _ => None,
+        };
+        if i < chunks.len() {
             return Err(Self::Err::InvalidFormat(s.to_string()));
         }
-        Ok(PeerInfo {
-            id: PeerId::new(chunks[0].parse().map_err(Self::Err::PeerId)?),
-            addr,
-            account_id,
-        })
+        Ok(PeerInfo { id, addr, account_id })
     }
 }
 

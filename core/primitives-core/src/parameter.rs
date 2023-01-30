@@ -18,10 +18,8 @@ use crate::config::ActionCosts;
 #[strum(serialize_all = "snake_case")]
 pub enum Parameter {
     // Gas economics config
-    BurntGasRewardNumerator,
-    BurntGasRewardDenominator,
-    PessimisticGasPriceInflationNumerator,
-    PessimisticGasPriceInflationDenominator,
+    BurntGasReward,
+    PessimisticGasPriceInflation,
 
     // Account creation config
     MinAllowedTopLevelAccountLength,
@@ -36,51 +34,22 @@ pub enum Parameter {
     // send_sir / send_not_sir is burned when creating a receipt on the signer shard.
     // (SIR = signer is receiver, which guarantees the receipt is local.)
     // Execution is burned when applying receipt on receiver shard.
-    ActionReceiptCreationSendSir,
-    ActionReceiptCreationSendNotSir,
-    ActionReceiptCreationExecution,
-    DataReceiptCreationBaseSendSir,
-    DataReceiptCreationBaseSendNotSir,
-    DataReceiptCreationBaseExecution,
-    DataReceiptCreationPerByteSendSir,
-    DataReceiptCreationPerByteSendNotSir,
-    DataReceiptCreationPerByteExecution,
-    ActionCreateAccountSendSir,
-    ActionCreateAccountSendNotSir,
-    ActionCreateAccountExecution,
-    ActionDeleteAccountSendSir,
-    ActionDeleteAccountSendNotSir,
-    ActionDeleteAccountExecution,
-    ActionDeployContractSendSir,
-    ActionDeployContractSendNotSir,
-    ActionDeployContractExecution,
-    ActionDeployContractPerByteSendSir,
-    ActionDeployContractPerByteSendNotSir,
-    ActionDeployContractPerByteExecution,
-    ActionFunctionCallSendSir,
-    ActionFunctionCallSendNotSir,
-    ActionFunctionCallExecution,
-    ActionFunctionCallPerByteSendSir,
-    ActionFunctionCallPerByteSendNotSir,
-    ActionFunctionCallPerByteExecution,
-    ActionTransferSendSir,
-    ActionTransferSendNotSir,
-    ActionTransferExecution,
-    ActionStakeSendSir,
-    ActionStakeSendNotSir,
-    ActionStakeExecution,
-    ActionAddFullAccessKeySendSir,
-    ActionAddFullAccessKeySendNotSir,
-    ActionAddFullAccessKeyExecution,
-    ActionAddFunctionCallKeySendSir,
-    ActionAddFunctionCallKeySendNotSir,
-    ActionAddFunctionCallKeyExecution,
-    ActionAddFunctionCallKeyPerByteSendSir,
-    ActionAddFunctionCallKeyPerByteSendNotSir,
-    ActionAddFunctionCallKeyPerByteExecution,
-    ActionDeleteKeySendSir,
-    ActionDeleteKeySendNotSir,
-    ActionDeleteKeyExecution,
+    ActionReceiptCreation,
+    DataReceiptCreationBase,
+    DataReceiptCreationPerByte,
+    ActionCreateAccount,
+    ActionDeleteAccount,
+    ActionDeployContract,
+    ActionDeployContractPerByte,
+    ActionFunctionCall,
+    ActionFunctionCallPerByte,
+    ActionTransfer,
+    ActionStake,
+    ActionAddFullAccessKey,
+    ActionAddFunctionCallKey,
+    ActionAddFunctionCallKeyPerByte,
+    ActionDeleteKey,
+    ActionDelegate,
 
     // Smart contract dynamic gas costs
     WasmRegularOpCost,
@@ -207,6 +176,7 @@ pub enum FeeParameter {
     ActionAddFunctionCallKey,
     ActionAddFunctionCallKeyPerByte,
     ActionDeleteKey,
+    ActionDelegate,
 }
 
 impl Parameter {
@@ -252,6 +222,8 @@ impl From<ActionCosts> for FeeParameter {
         match other {
             ActionCosts::create_account => Self::ActionCreateAccount,
             ActionCosts::delete_account => Self::ActionDeleteAccount,
+            #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+            ActionCosts::delegate => Self::ActionDelegate,
             ActionCosts::deploy_contract_base => Self::ActionDeployContract,
             ActionCosts::deploy_contract_byte => Self::ActionDeployContractPerByte,
             ActionCosts::function_call_base => Self::ActionFunctionCall,

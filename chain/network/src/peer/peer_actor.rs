@@ -4,7 +4,7 @@ use crate::concurrency::demux;
 use crate::network_protocol::{
     Edge, EdgeState, Encoding, OwnedAccount, ParsePeerMessageError, PartialEdgeInfo,
     PeerChainInfoV2, PeerIdOrHash, PeerInfo, RawRoutedMessage, RoutedMessageBody, RoutedMessageV2,
-    RoutingTableUpdate, SyncAccountsData,
+    RoutingTableUpdate, StateResponseInfo, SyncAccountsData,
 };
 use crate::peer::stream;
 use crate::peer::tracker::Tracker;
@@ -40,9 +40,6 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tracing::Instrument as _;
 
-/// Maximum number of messages per minute from single peer.
-// TODO(#5453): current limit is way to high due to us sending lots of messages during sync.
-const MAX_PEER_MSG_PER_MIN: usize = usize::MAX;
 /// How often to request peers from active peers.
 const REQUEST_PEERS_INTERVAL: time::Duration = time::Duration::seconds(60);
 
@@ -56,7 +53,7 @@ const MAX_TRANSACTIONS_PER_BLOCK_MESSAGE: usize = 1000;
 /// Limit cache size of 1000 messages
 const ROUTED_MESSAGE_CACHE_SIZE: usize = 1000;
 /// Duplicated messages will be dropped if routed through the same peer multiple times.
-const DROP_DUPLICATED_MESSAGES_PERIOD: time::Duration = time::Duration::milliseconds(50);
+pub(crate) const DROP_DUPLICATED_MESSAGES_PERIOD: time::Duration = time::Duration::milliseconds(50);
 /// How often to send the latest block to peers.
 const SYNC_LATEST_BLOCK_INTERVAL: time::Duration = time::Duration::seconds(60);
 /// How often to perform a full sync of AccountsData with the peer.
@@ -261,7 +258,7 @@ impl PeerActor {
         };
         let my_node_info = PeerInfo {
             id: network_state.config.node_id(),
-            addr: network_state.config.node_addr.clone(),
+            addr: network_state.config.node_addr.as_ref().map(|a| **a),
             account_id: network_state.config.validator.as_ref().map(|v| v.account_id()),
         };
         // recv is the HandshakeSignal returned by this spawn_inner() call.
@@ -366,6 +363,13 @@ impl PeerActor {
             // peer message type for that and then we can enable this check again.
             //PeerMessage::Block(b) if self.tracker.lock().has_received(b.hash()) => return,
             PeerMessage::BlockRequest(h) => self.tracker.lock().push_request(*h),
+            PeerMessage::SyncAccountsData(d) => metrics::SYNC_ACCOUNTS_DATA
+                .with_label_values(&[
+                    "sent",
+                    metrics::bool_to_str(d.incremental),
+                    metrics::bool_to_str(d.requesting_full_sync),
+                ])
+                .inc(),
             _ => (),
         };
 
@@ -393,7 +397,7 @@ impl PeerActor {
             oldest_supported_version: PEER_MIN_ALLOWED_PROTOCOL_VERSION,
             sender_peer_id: self.network_state.config.node_id(),
             target_peer_id: spec.peer_id,
-            sender_listen_port: self.network_state.config.node_addr.map(|a| a.port()),
+            sender_listen_port: self.network_state.config.node_addr.as_ref().map(|a| a.port()),
             sender_chain_info: PeerChainInfoV2 {
                 genesis_id: self.network_state.genesis_id.clone(),
                 // TODO: remove `height` from PeerChainInfo
@@ -620,25 +624,6 @@ impl PeerActor {
                         .received_bytes_per_sec
                         .store(received.bytes_per_min / 60, Ordering::Relaxed);
                     conn.stats.sent_bytes_per_sec.store(sent.bytes_per_min / 60, Ordering::Relaxed);
-                    // Whether the peer is considered abusive due to sending too many messages.
-                    // I am allowing this for now because I assume `MAX_PEER_MSG_PER_MIN` will
-                    // some day be less than `u64::MAX`.
-                    let is_abusive = received.count_per_min > MAX_PEER_MSG_PER_MIN
-                        || sent.count_per_min > MAX_PEER_MSG_PER_MIN;
-                    if is_abusive {
-                        tracing::trace!(
-                        target: "network",
-                        peer_id = ?conn.peer_info.id,
-                        sent = sent.count_per_min,
-                        recv = received.count_per_min,
-                        "Banning peer for abuse");
-                        // TODO(MarX, #1586): Ban peer if we found them abusive. Fix issue with heavy
-                        //  network traffic that flags honest peers.
-                        // Send ban signal to peer instance. It should send ban signal back and stop the instance.
-                        // if let Some(connected_peer) = act.connected_peers.get(&peer_id1) {
-                        //     connected_peer.addr.do_send(PeerManagerRequest::BanPeer(ReasonForBan::Abusive));
-                        // }
-                    }
                 }
             })
         });
@@ -918,6 +903,10 @@ impl PeerActor {
                 network_state.client.state_response(info).await;
                 None
             }
+            RoutedMessageBody::StateResponse(info) => {
+                network_state.client.state_response(StateResponseInfo::V1(info)).await;
+                None
+            }
             RoutedMessageBody::BlockApproval(approval) => {
                 network_state.client.block_approval(approval, peer_id).await;
                 None
@@ -1156,6 +1145,13 @@ impl PeerActor {
                 }));
             }
             PeerMessage::SyncAccountsData(msg) => {
+                metrics::SYNC_ACCOUNTS_DATA
+                    .with_label_values(&[
+                        "received",
+                        metrics::bool_to_str(msg.incremental),
+                        metrics::bool_to_str(msg.requesting_full_sync),
+                    ])
+                    .inc();
                 let network_state = self.network_state.clone();
                 // In case a full sync is requested, immediately send what we got.
                 // It is a microoptimization: we do not send back the data we just received.
@@ -1181,8 +1177,11 @@ impl PeerActor {
                     return;
                 }
                 let network_state = self.network_state.clone();
+                let clock = self.clock.clone();
                 ctx.spawn(wrap_future(async move {
-                    if let Some(err) = network_state.add_accounts_data(msg.accounts_data).await {
+                    if let Some(err) =
+                        network_state.add_accounts_data(&clock, msg.accounts_data).await
+                    {
                         conn.stop(Some(match err {
                             accounts_data::Error::InvalidSignature => {
                                 ReasonForBan::InvalidSignature
@@ -1425,7 +1424,9 @@ impl actix::Handler<stream::Error> for PeerActor {
                 // Connection has been closed.
                 io::ErrorKind::UnexpectedEof
                 | io::ErrorKind::ConnectionReset
-                | io::ErrorKind::BrokenPipe => true,
+                | io::ErrorKind::BrokenPipe
+                // libc::ETIIMEDOUT = 110, translates to io::ErrorKind::TimedOut.
+                | io::ErrorKind::TimedOut => true,
                 // When stopping tokio runtime, an "IO driver has terminated" is sometimes
                 // returned.
                 io::ErrorKind::Other => true,

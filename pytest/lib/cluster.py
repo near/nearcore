@@ -717,11 +717,20 @@ def init_cluster(num_nodes, num_observers, num_shards, config,
     logger.info("Creating %s cluster configuration with %s nodes" %
                 ("LOCAL" if is_local else "REMOTE", num_nodes + num_observers))
 
+    binary_path = os.path.join(near_root, binary_name)
     process = subprocess.Popen([
-        os.path.join(near_root, binary_name), "localnet", "--v",
-        str(num_nodes), "--shards",
-        str(num_shards), "--n",
-        str(num_observers), "--prefix", "test"
+        binary_path,
+        "localnet",
+        "--validators",
+        str(num_nodes),
+        "--non-validators",
+        str(num_observers),
+        "--shards",
+        str(num_shards),
+        "--tracked-shards",
+        "none",
+        "--prefix",
+        "test",
     ],
                                stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE)
@@ -787,6 +796,18 @@ def apply_config_changes(node_dir, client_config_change):
         json.dump(config_json, fd, indent=2)
 
 
+def get_config_json(node_dir):
+    fname = os.path.join(node_dir, 'config.json')
+    with open(fname) as fd:
+        return json.load(fd)
+
+
+def set_config_json(node_dir, config_json):
+    fname = os.path.join(node_dir, 'config.json')
+    with open(fname, 'w') as fd:
+        json.dump(config_json, fd, indent=2)
+
+
 def start_cluster(num_nodes,
                   num_observers,
                   num_shards,
@@ -847,9 +868,17 @@ def start_cluster(num_nodes,
 
 
 ROOT_DIR = pathlib.Path(__file__).resolve().parents[2]
+
+
+def get_near_root():
+    cargo_target_dir = os.environ.get('CARGO_TARGET_DIR', 'target')
+    default_root = (ROOT_DIR / cargo_target_dir / 'debug').resolve()
+    return os.environ.get('NEAR_ROOT', str(default_root))
+
+
 DEFAULT_CONFIG = {
     'local': True,
-    'near_root': os.environ.get('NEAR_ROOT', str(ROOT_DIR / 'target/debug')),
+    'near_root': get_near_root(),
     'binary_name': 'neard',
     'release': False,
 }

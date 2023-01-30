@@ -5,7 +5,10 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use near_primitives::types::{AccountId, BlockHeightDelta, Gas, NumBlocks, NumSeats, ShardId};
+use crate::MutableConfigValue;
+use near_primitives::types::{
+    AccountId, BlockHeight, BlockHeightDelta, Gas, NumBlocks, NumSeats, ShardId,
+};
 use near_primitives::version::Version;
 
 pub const TEST_STATE_SYNC_TIMEOUT: u64 = 5;
@@ -70,7 +73,8 @@ impl GCConfig {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+/// ClientConfig where some fields can be updated at runtime.
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ClientConfig {
     /// Version of the binary.
     pub version: Version,
@@ -78,6 +82,8 @@ pub struct ClientConfig {
     pub chain_id: String,
     /// Listening rpc port for status.
     pub rpc_addr: Option<String>,
+    /// Graceful shutdown at expected block height.
+    pub expected_shutdown: MutableConfigValue<Option<BlockHeight>>,
     /// Duration to check for producing / skipping block.
     pub block_production_tracking_delay: Duration,
     /// Minimum duration before producing block.
@@ -142,6 +148,11 @@ pub struct ClientConfig {
     pub tracked_shards: Vec<ShardId>,
     /// Not clear old data, set `true` for archive nodes.
     pub archive: bool,
+    /// save_trie_changes should be set to true iff
+    /// - archive if false - non-archivale nodes need trie changes to perform garbage collection
+    /// - archive is true, cold_store is configured and migration to split_storage is finished - node
+    /// working in split storage mode needs trie changes in order to do garbage collection on hot.
+    pub save_trie_changes: bool,
     /// Number of threads for ViewClientActor pool.
     pub view_client_threads: usize,
     /// Run Epoch Sync on the start.
@@ -158,6 +169,8 @@ pub struct ClientConfig {
     pub enable_statistics_export: bool,
     /// Number of threads to execute background migration work in client.
     pub client_background_migration_threads: usize,
+    /// Duration to perform background flat storage creation step.
+    pub flat_storage_creation_period: Duration,
 }
 
 impl ClientConfig {
@@ -167,12 +180,20 @@ impl ClientConfig {
         max_block_prod_time: u64,
         num_block_producer_seats: NumSeats,
         archive: bool,
+        save_trie_changes: bool,
         epoch_sync_enabled: bool,
     ) -> Self {
-        ClientConfig {
+        assert!(
+            archive || save_trie_changes,
+            "Configuration with archive = false and save_trie_changes = false is not supported \
+            because non-archival nodes must save trie changes in order to do do garbage collection."
+        );
+
+        Self {
             version: Default::default(),
             chain_id: "unittest".to_string(),
             rpc_addr: Some("0.0.0.0:3030".to_string()),
+            expected_shutdown: MutableConfigValue::new(None, "expected_shutdown"),
             block_production_tracking_delay: Duration::from_millis(std::cmp::max(
                 10,
                 min_block_prod_time / 5,
@@ -210,6 +231,7 @@ impl ClientConfig {
             tracked_accounts: vec![],
             tracked_shards: vec![],
             archive,
+            save_trie_changes,
             log_summary_style: LogSummaryStyle::Colored,
             view_client_threads: 1,
             epoch_sync_enabled,
@@ -218,6 +240,7 @@ impl ClientConfig {
             max_gas_burnt_view: None,
             enable_statistics_export: true,
             client_background_migration_threads: 1,
+            flat_storage_creation_period: Duration::from_secs(1),
         }
     }
 }

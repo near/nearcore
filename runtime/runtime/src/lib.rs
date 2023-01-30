@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
 
-use near_primitives::sandbox::state_patch::SandboxStatePatch;
+use config::total_prepaid_send_fees;
 use tracing::debug;
 
 use near_chain_configs::Genesis;
@@ -11,11 +11,11 @@ pub use near_crypto;
 use near_crypto::PublicKey;
 pub use near_primitives;
 use near_primitives::contract::ContractCode;
-use near_primitives::profile::ProfileData;
+use near_primitives::profile::ProfileDataV3;
 pub use near_primitives::runtime::apply_state::ApplyState;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
-use near_primitives::runtime::get_insufficient_storage_stake;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
+use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::transaction::ExecutionMetadata;
 use near_primitives::version::{
     is_implicit_account_creation_enabled, ProtocolFeature, ProtocolVersion,
@@ -60,7 +60,7 @@ use crate::config::{
 };
 use crate::genesis::{GenesisStateApplier, StorageComputer};
 use crate::prefetch::TriePrefetcher;
-use crate::verifier::validate_receipt;
+use crate::verifier::{check_storage_stake, validate_receipt, StorageStakingError};
 pub use crate::verifier::{validate_transaction, verify_and_charge_transaction};
 
 mod actions;
@@ -134,7 +134,7 @@ pub struct ActionResult {
     pub logs: Vec<LogEntry>,
     pub new_receipts: Vec<Receipt>,
     pub validator_proposals: Vec<ValidatorStake>,
-    pub profile: ProfileData,
+    pub profile: ProfileDataV3,
 }
 
 impl ActionResult {
@@ -443,6 +443,17 @@ impl Runtime {
                     apply_state.current_protocol_version,
                 )?;
             }
+            #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+            Action::Delegate(signed_delegate_action) => {
+                apply_delegate_action(
+                    state_update,
+                    apply_state,
+                    action_receipt,
+                    account_id,
+                    signed_delegate_action,
+                    &mut result,
+                )?;
+            }
         };
         Ok(result)
     }
@@ -538,21 +549,33 @@ impl Runtime {
         // Going to check balance covers account's storage.
         if result.result.is_ok() {
             if let Some(ref mut account) = account {
-                if let Some(amount) = get_insufficient_storage_stake(account, &apply_state.config)
-                    .map_err(StorageError::StorageInconsistentState)?
-                {
-                    result.merge(ActionResult {
-                        result: Err(ActionError {
-                            index: None,
-                            kind: ActionErrorKind::LackBalanceForState {
-                                account_id: account_id.clone(),
-                                amount,
-                            },
-                        }),
-                        ..Default::default()
-                    })?;
-                } else {
-                    set_account(state_update, account_id.clone(), account);
+                match check_storage_stake(
+                    account_id,
+                    account,
+                    &apply_state.config,
+                    state_update,
+                    apply_state.current_protocol_version,
+                ) {
+                    Ok(()) => {
+                        set_account(state_update, account_id.clone(), account);
+                    }
+                    Err(StorageStakingError::LackBalanceForStorageStaking(amount)) => {
+                        result.merge(ActionResult {
+                            result: Err(ActionError {
+                                index: None,
+                                kind: ActionErrorKind::LackBalanceForState {
+                                    account_id: account_id.clone(),
+                                    amount,
+                                },
+                            }),
+                            ..Default::default()
+                        })?;
+                    }
+                    Err(StorageStakingError::StorageError(err)) => {
+                        return Err(RuntimeError::StorageError(
+                            StorageError::StorageInconsistentState(err),
+                        ))
+                    }
                 }
             }
         }
@@ -732,7 +755,7 @@ impl Runtime {
                 gas_burnt: result.gas_burnt,
                 tokens_burnt,
                 executor_id: account_id.clone(),
-                metadata: ExecutionMetadata::V2(result.profile),
+                metadata: ExecutionMetadata::V3(result.profile),
             },
         })
     }
@@ -747,7 +770,14 @@ impl Runtime {
         transaction_costs: &RuntimeFeesConfig,
     ) -> Result<Balance, RuntimeError> {
         let total_deposit = total_deposit(&action_receipt.actions)?;
-        let prepaid_gas = total_prepaid_gas(&action_receipt.actions)?;
+        let prepaid_gas = safe_add_gas(
+            total_prepaid_gas(&action_receipt.actions)?,
+            total_prepaid_send_fees(
+                transaction_costs,
+                &action_receipt.actions,
+                current_protocol_version,
+            )?,
+        )?;
         let prepaid_exec_gas = safe_add_gas(
             total_prepaid_exec_fees(
                 transaction_costs,
@@ -792,6 +822,7 @@ impl Runtime {
                 )?,
             )?;
         }
+
         if deposit_refund > 0 {
             result
                 .new_receipts
@@ -1169,7 +1200,8 @@ impl Runtime {
         let mut prefetcher = TriePrefetcher::new_if_enabled(trie.clone());
 
         if let Some(prefetcher) = &mut prefetcher {
-            let _queue_full = prefetcher.input_transactions(transactions);
+            // Prefetcher is allowed to fail
+            _ = prefetcher.prefetch_transactions_data(transactions);
         }
 
         let mut stats = ApplyStats::default();
@@ -1286,7 +1318,8 @@ impl Runtime {
         // We first process local receipts. They contain staking, local contract calls, etc.
         if let Some(prefetcher) = &mut prefetcher {
             prefetcher.clear();
-            let _queue_full = prefetcher.input_receipts(&local_receipts);
+            // Prefetcher is allowed to fail
+            _ = prefetcher.prefetch_receipts_data(&local_receipts);
         }
         for receipt in local_receipts.iter() {
             if total_gas_burnt < gas_limit {
@@ -1313,7 +1346,8 @@ impl Runtime {
 
             if let Some(prefetcher) = &mut prefetcher {
                 prefetcher.clear();
-                let _queue_full = prefetcher.input_receipts(std::slice::from_ref(&receipt));
+                // Prefetcher is allowed to fail
+                _ = prefetcher.prefetch_receipts_data(std::slice::from_ref(&receipt));
             }
 
             // Validating the delayed receipt. If it fails, it's likely the state is inconsistent.
@@ -1336,7 +1370,8 @@ impl Runtime {
         // And then we process the new incoming receipts. These are receipts from other shards.
         if let Some(prefetcher) = &mut prefetcher {
             prefetcher.clear();
-            let _queue_full = prefetcher.input_receipts(&incoming_receipts);
+            // Prefetcher is allowed to fail
+            _ = prefetcher.prefetch_receipts_data(&incoming_receipts);
         }
         for receipt in incoming_receipts.iter() {
             // Validating new incoming no matter whether we have available gas or not. We don't
@@ -2443,5 +2478,40 @@ mod tests {
             .get(&key)
             .expect("Compiled contract should be cached")
             .expect("Compilation result should be non-empty");
+    }
+}
+
+/// Interface provided for gas cost estimations.
+pub mod estimator {
+    use near_primitives::errors::RuntimeError;
+    use near_primitives::receipt::Receipt;
+    use near_primitives::runtime::apply_state::ApplyState;
+    use near_primitives::transaction::ExecutionOutcomeWithId;
+    use near_primitives::types::validator_stake::ValidatorStake;
+    use near_primitives::types::EpochInfoProvider;
+    use near_store::TrieUpdate;
+
+    use crate::ApplyStats;
+
+    use super::Runtime;
+
+    pub fn apply_action_receipt(
+        state_update: &mut TrieUpdate,
+        apply_state: &ApplyState,
+        receipt: &Receipt,
+        outgoing_receipts: &mut Vec<Receipt>,
+        validator_proposals: &mut Vec<ValidatorStake>,
+        stats: &mut ApplyStats,
+        epoch_info_provider: &dyn EpochInfoProvider,
+    ) -> Result<ExecutionOutcomeWithId, RuntimeError> {
+        Runtime {}.apply_action_receipt(
+            state_update,
+            apply_state,
+            receipt,
+            outgoing_receipts,
+            validator_proposals,
+            stats,
+            epoch_info_provider,
+        )
     }
 }
