@@ -61,7 +61,7 @@ where
 {
     match std::fs::read_to_string(path) {
         Ok(config_str) => {
-            // Strip the comments from the input (use `as_bytes()` to get a `Read`).
+            // Strip the comments from the input
             let stripped = StripComments::new(config_str.as_bytes());
 
             match serde_json::from_reader(stripped) {

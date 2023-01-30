@@ -1,8 +1,9 @@
 use std::fs::File;
 use std::io;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::Path;
 
+use json_comments::StripComments;
 use serde::{Deserialize, Serialize};
 
 use crate::{PublicKey, SecretKey};
@@ -40,7 +41,10 @@ impl KeyFile {
 
     pub fn from_file(path: &Path) -> io::Result<Self> {
         let content = std::fs::read_to_string(path)?;
-        Ok(serde_json::from_str(&content)?)
+        let mut content_without_comments = String::new();
+        StripComments::new(content.as_bytes()).read_to_string(&mut content_without_comments)?;
+
+        Ok(serde_json::from_str(&content_without_comments)?)
     }
 }
 

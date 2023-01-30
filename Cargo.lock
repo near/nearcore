@@ -3153,6 +3153,7 @@ dependencies = [
  "derive_more",
  "ed25519-dalek",
  "hex-literal",
+ "json_comments",
  "near-account-id",
  "near-stdx",
  "once_cell",

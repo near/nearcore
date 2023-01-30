@@ -272,7 +272,7 @@ impl GenesisConfig {
     pub fn from_file<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
         let file = File::open(path).with_context(|| "Could not open genesis config file.")?;
         let reader = BufReader::new(file);
-        // Strip the comments from the input (use `as_bytes()` to get a `Read`).
+        // Strip the comments from the input
         let stripped = StripComments::new(reader);
         let genesis_config: GenesisConfig = serde_json::from_reader(stripped)
             .with_context(|| "Failed to deserialize the genesis records.")?;

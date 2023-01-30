@@ -399,8 +399,7 @@ impl Config {
         let contents = std::fs::read_to_string(path)
             .with_context(|| format!("Failed to read config from {}", path.display()))?;
         let mut unrecognised_fields = Vec::new();
-        let mut contents_without_comments = String::new();
-        StripComments::new(contents.as_bytes()).read_to_string(&mut contents_without_comments).unwrap();
+        let contents_without_comments = strip_comments_from_str(&contents)?;
         let config: Config = serde_ignored::deserialize(
             &mut serde_json::Deserializer::from_str(&contents_without_comments),
             |field| {
@@ -1304,7 +1303,10 @@ impl NodeKeyFile {
         let mut file = File::open(path)?;
         let mut content = String::new();
         file.read_to_string(&mut content)?;
-        Ok(serde_json::from_str(&content)?)
+        
+        let content_without_comments = strip_comments_from_str(&content)?;
+
+        Ok(serde_json::from_str(&content_without_comments)?)
     }
 }
 
@@ -1322,6 +1324,12 @@ impl From<NodeKeyFile> for KeyFile {
             secret_key: this.secret_key,
         }
     }
+}
+
+fn strip_comments_from_str(input: &String) -> std::io::Result<String> {
+    let mut content_without_comments = String::new();
+    StripComments::new(input.as_bytes()).read_to_string(&mut content_without_comments)?;
+    Ok(content_without_comments)
 }
 
 pub fn load_config(
