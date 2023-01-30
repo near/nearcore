@@ -100,7 +100,11 @@ impl ActionEstimation {
             warmup: ctx.config.warmup_iters_per_block,
             metric: ctx.config.metric,
             subtract_base: true,
-            // by default, 1 Ggas ~ 1us is the smallest value we care about.
+            // By default, 1 Ggas ~ 1us is the smallest value we care about.
+            // This is a reasonable limit because even the cheapest action
+            // (transfer) is 115 us per component. Only for the per-byte costs
+            // we need a smaller limit, because these costs can go below 1 ns.
+            // They are changed on a case-by-case basis.
             min_gas: 1_000_000_000,
         }
     }
@@ -343,7 +347,10 @@ pub(crate) fn deploy_contract_byte_send_sir(ctx: &mut EstimatorContext) -> GasCo
     ActionEstimation::new_sir(ctx)
         .add_action(deploy_action(ActionSize::Max))
         .inner_iters(1) // circumvent TX size limit
-        .min_gas(1_000_000) // 1 ns accuracy for per-byte cost
+        // parameter today: 6_812_999
+        // typical estimation: < 100_000 (<100ps)
+        // setting limit to 0.1ns, we expect this to stay near 0
+        .min_gas(100_000)
         .verify_cost(&mut ctx.testbed())
         / ActionSize::Max.deploy_contract()
 }
@@ -352,7 +359,10 @@ pub(crate) fn deploy_contract_byte_send_not_sir(ctx: &mut EstimatorContext) -> G
     ActionEstimation::new(ctx)
         .add_action(deploy_action(ActionSize::Max))
         .inner_iters(1) // circumvent TX size limit
-        .min_gas(1_000_000) // 1 ns accuracy for per-byte cost
+        // parameter today: 6_812_999
+        // typical estimation: < 100_000 (<100ps)
+        // setting limit to 0.1ns, we expect this to stay near 0
+        .min_gas(100_000)
         .verify_cost(&mut ctx.testbed())
         / ActionSize::Max.deploy_contract()
 }
@@ -361,7 +371,10 @@ pub(crate) fn deploy_contract_byte_exec(ctx: &mut EstimatorContext) -> GasCost {
     ActionEstimation::new_sir(ctx)
         .add_action(deploy_action(ActionSize::Max))
         .inner_iters(1) // circumvent TX size limit
-        .min_gas(1_000_000) // 1 ns accuracy for per-byte cost
+        // parameter today: 64_572_944
+        // typical estimation: 8_000_000 (8ns)
+        // setting limit to 1ns because 1us would be too high
+        .min_gas(1_000_000)
         .apply_cost(&mut ctx.testbed())
         / ActionSize::Max.deploy_contract()
 }
@@ -387,7 +400,10 @@ pub(crate) fn function_call_base_exec(ctx: &mut EstimatorContext) -> GasCost {
 pub(crate) fn function_call_byte_send_sir(ctx: &mut EstimatorContext) -> GasCost {
     ActionEstimation::new_sir(ctx)
         .add_action(function_call_action(ActionSize::Max))
-        .min_gas(1_000_000) // 1 ns accuracy for per-byte cost
+        // parameter today: 2_235_934
+        // typical estimation: 1_000 - 2_000 (1-2ns)
+        // setting limit to 1ns because lower values are mostly noisy
+        .min_gas(1_000_000)
         .verify_cost(&mut ctx.testbed())
         / ActionSize::Max.function_call_payload()
 }
@@ -395,7 +411,10 @@ pub(crate) fn function_call_byte_send_sir(ctx: &mut EstimatorContext) -> GasCost
 pub(crate) fn function_call_byte_send_not_sir(ctx: &mut EstimatorContext) -> GasCost {
     ActionEstimation::new(ctx)
         .add_action(function_call_action(ActionSize::Max))
-        .min_gas(1_000_000) // 1 ns accuracy for per-byte cost
+        // parameter today: 2_235_934
+        // typical estimation: 1_000 - 2_000 (1-2ns)
+        // setting limit to 1ns because lower values are mostly noisy
+        .min_gas(1_000_000)
         .verify_cost(&mut ctx.testbed())
         / ActionSize::Max.function_call_payload()
 }
@@ -403,7 +422,10 @@ pub(crate) fn function_call_byte_send_not_sir(ctx: &mut EstimatorContext) -> Gas
 pub(crate) fn function_call_byte_exec(ctx: &mut EstimatorContext) -> GasCost {
     ActionEstimation::new_sir(ctx)
         .add_action(function_call_action(ActionSize::Max))
-        .min_gas(1_000_000) // 1 ns accuracy for per-byte cost
+        // parameter today: 2_235_934
+        // typical estimation: 2_000_000 (2ns)
+        // setting limit to 1ns because lower values are mostly noisy
+        .min_gas(1_000_000)
         .apply_cost(&mut ctx.testbed())
         / ActionSize::Max.function_call_payload()
 }
@@ -483,7 +505,10 @@ pub(crate) fn add_function_call_key_base_exec(ctx: &mut EstimatorContext) -> Gas
 pub(crate) fn add_function_call_key_byte_send_sir(ctx: &mut EstimatorContext) -> GasCost {
     ActionEstimation::new_sir(ctx)
         .add_action(add_fn_access_key_action(ActionSize::Max))
-        .min_gas(1_000_000) // 1 ns accuracy for per-byte cost
+        // parameter today: 1_925_331
+        // typical estimation: < 200_000 (<200ps)
+        // setting limit to 0.1ns, we expect this to stay near 0
+        .min_gas(100_000)
         .verify_cost(&mut ctx.testbed())
         / ActionSize::Max.key_methods_list()
 }
@@ -491,7 +516,10 @@ pub(crate) fn add_function_call_key_byte_send_sir(ctx: &mut EstimatorContext) ->
 pub(crate) fn add_function_call_key_byte_send_not_sir(ctx: &mut EstimatorContext) -> GasCost {
     ActionEstimation::new(ctx)
         .add_action(add_fn_access_key_action(ActionSize::Max))
-        .min_gas(1_000_000) // 1 ns accuracy for per-byte cost
+        // parameter today: 1_925_331
+        // typical estimation: < 200_000 (<200ps)
+        // setting limit to 0.1ns, we expect this to stay near 0
+        .min_gas(100_000)
         .verify_cost(&mut ctx.testbed())
         / ActionSize::Max.key_methods_list()
 }
@@ -500,7 +528,11 @@ pub(crate) fn add_function_call_key_byte_exec(ctx: &mut EstimatorContext) -> Gas
     ActionEstimation::new_sir(ctx)
         .add_action(add_fn_access_key_action(ActionSize::Max))
         .inner_iters(1) // adding the same key a second time would fail
-        .min_gas(1_000_000) // 1 ns accuracy for per-byte cost
+        // parameter today: 1_925_331
+        // typical estimation: 18_000_000 (18ns)
+        // (we know this is undercharged but it's not a concern as described in #6716)
+        // setting limit to 1ns to keep it lower than the parameter
+        .min_gas(1_000_000)
         .apply_cost(&mut ctx.testbed())
         / ActionSize::Max.key_methods_list()
 }
