@@ -665,7 +665,45 @@ impl NearConfig {
         }
         None
     }
+}
 
+/// Function to recursively override `main_json` with values from `changes_json`.
+/// Safe to fields that are not present in `main_json`.
+fn override_json(
+    main_json: &mut serde_json::Value,
+    changes_json: serde_json::Value,
+    ignored_fields: &mut Vec<String>,
+    cur_path: String,
+) -> anyhow::Result<()> {
+    match changes_json {
+        serde_json::Value::Object(map) => {
+            for (key, value) in map.into_iter() {
+                let next_path = cur_path.clone() + "." + &key;
+                if let Some(next_json) = main_json.get_mut(&key) {
+                    override_json(next_json, value, ignored_fields, next_path)?;
+                } else {
+                    warn!(target: "near", "Field {} is ignored during JSON override", next_path);
+                }
+            }
+        }
+        _ => {
+            *main_json = changes_json;
+        }
+    }
+
+    Ok(())
+}
+
+impl NearConfig {
+    /// Override fields that are set in NearConfig JSON from `path`.
+    /// All serde ignored fields CANNOT be overridden.
+    /// Does nothing if `path` doesn't exist.
+    /// Does override on the level of JSONs.
+    /// 1. Created JSON from self.
+    /// 2. Reads JSON from override `path`.
+    /// 3. Traverses both JSONs at the same time, replacing parts of self JSON with override values.
+    /// 4. Deserializes end result IN PLACE of self,
+    ///    which means that serde ignored fields remain the same and not changed to default values.
     pub fn override_from_file(mut self, path: &Path) -> anyhow::Result<Self> {
         if !path.exists() {
             return Ok(self);
@@ -673,19 +711,14 @@ impl NearConfig {
 
         let mut original_json = serde_json::to_value(&self)?;
 
-        let override_json = {
-            let override_string = fs::read_to_string(path)?;
-            serde_json::from_str(&override_string)
+        let changes_json = {
+            let changes_string = fs::read_to_string(path)?;
+            serde_json::from_str(&changes_string)
                 .with_context(|| format!("Failed to read override JSON from {}", path.display()))?
         };
 
         let mut ignored_field = vec![];
-        NearConfig::override_json(
-            &mut original_json,
-            override_json,
-            &mut ignored_field,
-            "".to_string(),
-        )?;
+        override_json(&mut original_json, changes_json, &mut ignored_field, "".to_string())?;
 
         let self_json_str = serde_json::to_string(&original_json)?;
         serde::de::Deserialize::deserialize_in_place(
@@ -697,31 +730,6 @@ impl NearConfig {
         })?;
 
         Ok(self)
-    }
-
-    pub fn override_json(
-        main_json: &mut serde_json::Value,
-        override_json: serde_json::Value,
-        ignored_fields: &mut Vec<String>,
-        cur_path: String,
-    ) -> anyhow::Result<()> {
-        match override_json {
-            serde_json::Value::Object(map) => {
-                for (key, value) in map.into_iter() {
-                    let next_path = cur_path.clone() + "." + &key;
-                    if let Some(next_json) = main_json.get_mut(&key) {
-                        NearConfig::override_json(next_json, value, ignored_fields, next_path)?;
-                    } else {
-                        warn!(target: "near", "Field {} is ignored during JSON override", next_path);
-                    }
-                }
-            }
-            _ => {
-                *main_json = override_json;
-            }
-        }
-
-        Ok(())
     }
 }
 
