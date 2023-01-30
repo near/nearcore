@@ -189,7 +189,7 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                 },
                 grow_mem_cost: params.get_number(Parameter::WasmGrowMemCost)?,
                 regular_op_cost: params.get_number(Parameter::WasmRegularOpCost)?,
-                limit_config: serde_yaml::from_value(params.yaml_map(Parameter::vm_limits(), ""))
+                limit_config: serde_yaml::from_value(params.yaml_map(Parameter::vm_limits()))
                     .map_err(InvalidConfigError::InvalidYaml)?,
             },
             account_creation_config: AccountCreationConfig {
@@ -234,26 +234,14 @@ impl ParameterTable {
         Ok(())
     }
 
-    fn yaml_map(
-        &self,
-        params: impl Iterator<Item = &'static Parameter>,
-        remove_prefix: &'static str,
-    ) -> serde_yaml::Value {
-        let mut yaml = serde_yaml::Mapping::new();
-        for param in params {
-            let mut key: &'static str = param.into();
-            key = key.strip_prefix(remove_prefix).unwrap_or(key);
-            if let Some(value) = self.get(*param) {
-                yaml.insert(
-                    key.into(),
-                    // All parameter values can be serialized as YAML, so we don't ever expect this
-                    // to fail.
-                    serde_yaml::to_value(value.clone())
-                        .expect("failed to convert parameter value to YAML"),
-                );
-            }
-        }
-        yaml.into()
+    fn yaml_map(&self, params: impl Iterator<Item = &'static Parameter>) -> serde_yaml::Value {
+        // All parameter values can be serialized as YAML, so we don't ever expect this to fail.
+        serde_yaml::to_value(
+            params
+                .filter_map(|param| Some((param.to_string(), self.get(*param)?)))
+                .collect::<BTreeMap<_, _>>(),
+        )
+        .expect("failed to convert parameter values to YAML")
     }
 
     fn get(&self, key: Parameter) -> Option<&ParameterValue> {
@@ -730,7 +718,6 @@ burnt_gas_reward: {
                 Parameter::BurntGasReward,
             ]
             .iter(),
-            "",
         );
         assert_eq!(
             yaml,

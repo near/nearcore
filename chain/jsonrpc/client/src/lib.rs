@@ -42,8 +42,7 @@ where
     P: Serialize,
     R: serde::de::DeserializeOwned + 'static,
 {
-    let request =
-        Message::request(method.to_string(), Some(serde_json::to_value(&params).unwrap()));
+    let request = Message::request(method.to_string(), serde_json::to_value(&params).unwrap());
     // TODO: simplify this.
     client
         .post(server_addr)
