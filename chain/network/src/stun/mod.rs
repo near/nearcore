@@ -1,16 +1,19 @@
-use std::sync::Arc;
 use crate::time;
-use stun::message::{Getter as _};
+use std::sync::Arc;
+use stun::message::Getter as _;
 
 #[cfg(test)]
 mod tests;
 
 pub type ServerAddr = String;
-pub type Error = stun::Error;
+pub(crate) type Error = stun::Error;
 
-const QUERY_TIMEOUT : time::Duration = time::Duration::seconds(5);
+const QUERY_TIMEOUT: time::Duration = time::Duration::seconds(5);
 
-pub async fn query(clock :&time::Clock, addr: ServerAddr) -> Result<std::net::IpAddr,Error> {
+pub(crate) async fn query(
+    clock: &time::Clock,
+    addr: &ServerAddr,
+) -> Result<std::net::IpAddr, Error> {
     let socket = tokio::net::UdpSocket::bind("[::]:0").await?;
     socket.connect(addr).await?;
     let mut client = stun::client::ClientBuilder::new().with_conn(Arc::new(socket)).build()?;
@@ -18,7 +21,7 @@ pub async fn query(clock :&time::Clock, addr: ServerAddr) -> Result<std::net::Ip
     msg.new_transaction_id()?;
     msg.set_type(stun::message::BINDING_REQUEST);
     msg.build(&[])?;
-    let (send,mut recv) = tokio::sync::mpsc::unbounded_channel();
+    let (send, mut recv) = tokio::sync::mpsc::unbounded_channel();
     client.send(&msg, Some(Arc::new(send))).await?;
     // Note that both clock.sleep() and recv.recv() are cancellable,
     // so it is safe to use them in tokio::select!.
