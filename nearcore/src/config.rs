@@ -672,15 +672,14 @@ impl NearConfig {
 fn override_json(
     main_json: &mut serde_json::Value,
     changes_json: serde_json::Value,
-    ignored_fields: &mut Vec<String>,
     cur_path: String,
-) -> anyhow::Result<()> {
+) {
     match changes_json {
         serde_json::Value::Object(map) => {
             for (key, value) in map.into_iter() {
                 let next_path = cur_path.clone() + "." + &key;
                 if let Some(next_json) = main_json.get_mut(&key) {
-                    override_json(next_json, value, ignored_fields, next_path)?;
+                    override_json(next_json, value, next_path);
                 } else {
                     warn!(target: "near", "Field {} is ignored during JSON override", next_path);
                 }
@@ -690,8 +689,6 @@ fn override_json(
             *main_json = changes_json;
         }
     }
-
-    Ok(())
 }
 
 impl NearConfig {
@@ -717,8 +714,7 @@ impl NearConfig {
                 .with_context(|| format!("Failed to read override JSON from {}", path.display()))?
         };
 
-        let mut ignored_field = vec![];
-        override_json(&mut original_json, changes_json, &mut ignored_field, "".to_string())?;
+        override_json(&mut original_json, changes_json, "".to_string());
 
         let self_json_str = serde_json::to_string(&original_json)?;
         serde::de::Deserialize::deserialize_in_place(
