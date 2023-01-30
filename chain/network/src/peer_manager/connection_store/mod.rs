@@ -7,8 +7,9 @@ use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-/// The maximum number of stored outbound connections.
-pub const OUTBOUND_CONNECTIONS_LIMIT: usize = 40;
+/// Size of the LRU cache of recent outbound connections.
+/// The longest-disconnected elements are evicted first.
+pub const OUTBOUND_CONNECTIONS_CACHE_SIZE: usize = 40;
 /// How long a connection should survive before being stored.
 pub(crate) const STORED_CONNECTIONS_MIN_DURATION: time::Duration = time::Duration::minutes(10);
 
@@ -78,7 +79,7 @@ impl Inner {
         updated_outbound.reverse();
 
         // Evict the longest-disconnected connections, if needed
-        updated_outbound.truncate(OUTBOUND_CONNECTIONS_LIMIT);
+        updated_outbound.truncate(OUTBOUND_CONNECTIONS_CACHE_SIZE);
 
         if let Err(err) = self.store.set_recent_outbound_connections(&updated_outbound) {
             tracing::error!(target: "network", ?err, "Failed to save recent outbound connections");
