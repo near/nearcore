@@ -697,10 +697,7 @@ impl NearConfig {
                     if let Some(next_json) = main_json.get_mut(&key) {
                         NearConfig::override_json(next_json, value, ignored_fields, next_path)?;
                     } else {
-                        println!("Field {} is ignored during JSON override", next_path);
-                        tracing::debug!(target: "near", "Field {} is ignored during JSON override", next_path);
                         warn!(target: "near", "Field {} is ignored during JSON override", next_path);
-                        info!(target: "near", "Field {} is ignored during JSON override", next_path);
                     }
                 }
             }
