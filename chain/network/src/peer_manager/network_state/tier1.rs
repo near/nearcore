@@ -99,10 +99,13 @@ impl super::NetworkState {
             None => return None,
         };
         let proxies = match &vc.proxies {
-            config::ValidatorProxies::Dynamic(_) => {
-                // TODO(gprusak): If Dynamic are specified,
-                // it means that this node is its own proxy.
-                // Resolve the public IP of this node using those STUN servers,
+            // If Dynamic are specified,
+            // it means that this node is its own proxy.
+            // Resolve the public IP of this node using those STUN servers
+            config::ValidatorProxies::Dynamic(stun_servers) => {
+                for _stun_addr in stun_servers {
+                   // TODO 
+                }
                 // then connect to yourself (to verify the public IP).
                 vec![]
             }
