@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 /// When initializing sub-objects (e.g. `ShardsManager`), please make sure to
 /// pass this wrapper instead of passing a value from a single moment in time.
 /// See `expected_shutdown` for an example how to use it.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct MutableConfigValue<T> {
     value: Arc<Mutex<T>>,
     // For metrics.

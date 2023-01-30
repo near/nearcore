@@ -1,10 +1,7 @@
 use serde::Serialize;
 use serde_json::Value;
 
-#[derive(Serialize, Debug)]
-pub struct RpcClientConfigRequest {}
-
-#[derive(Serialize, Debug)]
+#[derive(Serialize)]
 pub struct RpcClientConfigResponse {
     #[serde(flatten)]
     pub client_config: near_chain_configs::ClientConfig,
