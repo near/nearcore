@@ -109,36 +109,23 @@ pub(crate) enum ClosingReason {
 }
 
 impl ClosingReason {
-    fn allow_reconnect_outbound(&self) -> bool {
+    /// Used upon closing an outbound connection to decide whether to remove it from the ConnectionStore.
+    /// If the inbound side is the one closing the connection, it evaluates this function on the closing
+    /// reason and includes the result in the Disconnect message.
+    fn remove_from_recent_outbound_connections(&self) -> bool {
         match self {
-            ClosingReason::TooManyInbound => true, // outbound may be still be OK
-            ClosingReason::OutboundNotAllowed(_) => false, // outbound not allowed
-            ClosingReason::Ban(_) => false,        // banned
-            ClosingReason::HandshakeFailed => true, // handshake may simply time out
-            ClosingReason::RejectedByPeerManager(_) => false, // rejected by peer manager
-            ClosingReason::StreamError => true,    // connection issue
-            ClosingReason::DisallowedMessage => false, // misbehaving peer
-            ClosingReason::PeerManagerRequest => false, // closed intentionally
-            ClosingReason::DisconnectMessage => true, // graceful disconnect
-            ClosingReason::TooLargeClockSkew => false, // reconnect will fail for the same reason
-            ClosingReason::OwnedAccountMismatch => false, // misbehaving peer
-            ClosingReason::Unknown => true,        // only happens in tests
-        }
-    }
-    fn allow_reconnect_inbound(&self) -> bool {
-        match self {
-            ClosingReason::TooManyInbound => true, // may succeed later
-            ClosingReason::OutboundNotAllowed(_) => true, // inbound still OK
-            ClosingReason::Ban(_) => false,        // banned
-            ClosingReason::HandshakeFailed => true, // handshake may simply time out
-            ClosingReason::RejectedByPeerManager(_) => false, // rejected by peer manager
-            ClosingReason::StreamError => true,    // connection issue
-            ClosingReason::DisallowedMessage => false, // misbehaving peer
-            ClosingReason::PeerManagerRequest => false, // closed intentionally
-            ClosingReason::DisconnectMessage => true, // graceful disconnect
-            ClosingReason::TooLargeClockSkew => false, // reconnect will fail for the same reason
-            ClosingReason::OwnedAccountMismatch => false, // misbehaving peer
-            ClosingReason::Unknown => true,        // only happens in tests
+            ClosingReason::TooManyInbound => false, // outbound may be still be OK
+            ClosingReason::OutboundNotAllowed(_) => true, // outbound not allowed
+            ClosingReason::Ban(_) => true,          // banned
+            ClosingReason::HandshakeFailed => false, // handshake may simply time out
+            ClosingReason::RejectedByPeerManager(_) => true, // rejected by peer manager
+            ClosingReason::StreamError => false,    // connection issue
+            ClosingReason::DisallowedMessage => true, // misbehaving peer
+            ClosingReason::PeerManagerRequest => true, // closed intentionally
+            ClosingReason::DisconnectMessage => false, // graceful disconnect
+            ClosingReason::TooLargeClockSkew => true, // reconnect will fail for the same reason
+            ClosingReason::OwnedAccountMismatch => true, // misbehaving peer
+            ClosingReason::Unknown => false,        // only happens in tests
         }
     }
 }
@@ -1418,17 +1405,29 @@ impl actix::Actor for PeerActor {
             Some(reason) => {
                 tracing::info!(target: "network", "{:?}: Peer {} disconnected, reason: {reason}", self.my_node_info.id, self.peer_info);
 
-                if !reason.allow_reconnect_outbound() {
-                    if let Some(other_peer) = self.other_peer_id() {
-                        self.network_state
-                            .connection_store
-                            .remove_from_recent_outbound_connections(other_peer);
+                // If the closing reason suggests that the connection should not be re-established,
+                // remove it from the connection store on the outbound side.
+                match self.peer_type {
+                    PeerType::Outbound => {
+                        if reason.remove_from_recent_outbound_connections() {
+                            if let Some(other_peer) = self.other_peer_id() {
+                                self.network_state
+                                    .connection_store
+                                    .remove_from_recent_outbound_connections(other_peer);
+                            }
+                        }
+
+                        self.send_message_or_log(&PeerMessage::Disconnect(Disconnect {
+                            remove_from_recent_outbound_connections: false,
+                        }));
+                    }
+                    PeerType::Inbound => {
+                        self.send_message_or_log(&PeerMessage::Disconnect(Disconnect {
+                            remove_from_recent_outbound_connections: reason
+                                .remove_from_recent_outbound_connections(),
+                        }));
                     }
                 }
-
-                self.send_message_or_log(&PeerMessage::Disconnect(Disconnect {
-                    remove_from_recent_outbound_connections: !reason.allow_reconnect_inbound(),
-                }));
             }
         }
 
