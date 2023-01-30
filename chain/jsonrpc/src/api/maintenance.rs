@@ -6,11 +6,11 @@ use near_jsonrpc_primitives::types::maintenance::{
     RpcMaintenanceWindowsError, RpcMaintenanceWindowsRequest,
 };
 
-use super::{parse_params, RpcFrom, RpcRequest};
+use super::{Params, RpcFrom, RpcRequest};
 
 impl RpcRequest for RpcMaintenanceWindowsRequest {
     fn parse(value: Value) -> Result<Self, RpcParseError> {
-        parse_params::<Self>(value)
+        Params::parse(value)
     }
 }
 

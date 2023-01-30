@@ -5,11 +5,11 @@ use near_jsonrpc_primitives::{
 };
 use serde_json::Value;
 
-use super::{parse_params, RpcFrom, RpcRequest};
+use super::{Params, RpcFrom, RpcRequest};
 
 impl RpcRequest for RpcSplitStorageInfoRequest {
     fn parse(value: Value) -> Result<Self, RpcParseError> {
-        parse_params::<Self>(value)
+        Params::parse(value)
     }
 }
 
