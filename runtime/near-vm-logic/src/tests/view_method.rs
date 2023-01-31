@@ -16,7 +16,6 @@ fn test_prohibited_view_methods() {
     test_prohibited!(signer_account_id, 0);
     test_prohibited!(signer_account_pk, 0);
     test_prohibited!(predecessor_account_id, 0);
-    test_prohibited!(attached_deposit, 0);
     test_prohibited!(prepaid_gas);
     test_prohibited!(used_gas);
     test_prohibited!(promise_create, 0, 0, 0, 0, 0, 0, 0, 0);
