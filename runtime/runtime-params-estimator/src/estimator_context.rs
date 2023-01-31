@@ -72,7 +72,7 @@ impl<'c> EstimatorContext<'c> {
             store.clone(),
             trie_config,
             &shard_uids,
-            create_flat_state_factory(store.clone()),
+            Self::create_flat_state_factory(store.clone()),
         );
 
         Testbed {
@@ -134,44 +134,47 @@ impl<'c> EstimatorContext<'c> {
             migration_flags: MigrationFlags::default(),
         }
     }
-}
 
-fn create_flat_state_factory(store: Store) -> FlatStateFactory {
-    use near_store::flat_state::{store_helper, BlockInfo, FlatStorageState, ChainAccessForFlatStorage};
-    use near_primitives::types::{BlockHeight};
-    use near_primitives::hash::{CryptoHash};
-    use std::collections::HashSet;
+    #[cfg(feature = "protocol_feature_flat_state")]
+    fn create_flat_state_factory(store: Store) -> FlatStateFactory {
+        use near_primitives::hash::CryptoHash;
+        use near_primitives::types::BlockHeight;
+        use near_store::flat_state::{
+            store_helper, BlockInfo, ChainAccessForFlatStorage, FlatStorageState,
+        };
+        use std::collections::HashSet;
 
-    struct ChainAccess;
+        struct ChainAccess;
 
-    impl ChainAccessForFlatStorage for ChainAccess {
-        fn get_block_info(&self, block_hash: &CryptoHash) -> BlockInfo {
-            BlockInfo {
-                hash: block_hash.clone(),
-                prev_hash: Default::default(),
-                height: 0
+        impl ChainAccessForFlatStorage for ChainAccess {
+            fn get_block_info(&self, block_hash: &CryptoHash) -> BlockInfo {
+                BlockInfo { hash: block_hash.clone(), prev_hash: Default::default(), height: 0 }
+            }
+
+            fn get_block_hashes_at_height(
+                &self,
+                _block_height: BlockHeight,
+            ) -> HashSet<CryptoHash> {
+                unimplemented!()
             }
         }
 
-        fn get_block_hashes_at_height(&self, _block_height: BlockHeight) -> HashSet<CryptoHash> {
-            unimplemented!()
-        }
+        let shard_id = 0;
+        let block_height = 0;
+        let mut store_update = store.store_update();
+        store_helper::set_flat_head(&mut store_update, shard_id, &Default::default());
+        store_update.commit().expect("failed to set flat head");
+        let factory = FlatStateFactory::new(store.clone());
+        let flat_storage_state =
+            FlatStorageState::new(store.clone(), shard_id, block_height, &ChainAccess {});
+        factory.add_flat_storage_state_for_shard(shard_id, flat_storage_state);
+        factory
     }
 
-    let shard_id = 0;
-    let block_height = 0;
-    let mut store_update = store.store_update();
-    store_helper::set_flat_head(&mut store_update, shard_id, &Default::default());
-    store_update.commit().expect("failed to set flat head");
-    let factory = FlatStateFactory::new(store.clone());
-    let flat_storage_state = FlatStorageState::new(
-        store.clone(),
-        shard_id,
-        block_height,
-        &ChainAccess{}
-    );
-    factory.add_flat_storage_state_for_shard(shard_id, flat_storage_state);
-    factory
+    #[cfg(not(feature = "protocol_feature_flat_state"))]
+    fn create_flat_state_factory(store: Store) -> FlatStateFactory {
+        FlatStateFactory::new(store.clone())
+    }
 }
 
 /// A single isolated instance of runtime.
@@ -292,6 +295,7 @@ impl Testbed<'_> {
                 Default::default(),
             )
             .unwrap();
+
         let mut store_update = self.tries.store_update();
         self.root = self.tries.apply_all(
             &apply_result.trie_changes,
@@ -380,6 +384,10 @@ impl Testbed<'_> {
 
     /// Instantiate a new trie for the estimator.
     fn trie(&mut self) -> near_store::Trie {
-        self.tries.get_trie_with_block_hash_for_shard(ShardUId::single_shard(), self.root.clone(), &Default::default())
+        self.tries.get_trie_with_block_hash_for_shard(
+            ShardUId::single_shard(),
+            self.root.clone(),
+            &Default::default(),
+        )
     }
 }

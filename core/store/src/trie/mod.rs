@@ -966,8 +966,6 @@ impl Trie {
                 if let Some(flat_state) = &self.flat_state {
                     let flat_result = flat_state.get_ref(&key);
                     assert_eq!(result, flat_result);
-                } else {
-                    assert!(false, "no flat state");
                 }
             }
         }

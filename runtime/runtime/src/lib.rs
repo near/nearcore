@@ -1196,7 +1196,6 @@ impl Runtime {
         .entered();
 
         let trie = Rc::new(trie);
-        assert!(trie.flat_state.is_some());
         let mut state_update = TrieUpdate::new(trie.clone());
         let mut prefetcher = TriePrefetcher::new_if_enabled(trie.clone());
 
