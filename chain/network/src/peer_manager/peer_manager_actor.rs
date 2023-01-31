@@ -79,9 +79,10 @@ pub const MAX_TIER2_PEERS: usize = 128;
 /// Otherwise, we'd pick any peer that we've heard about.
 const PREFER_PREVIOUSLY_CONNECTED_PEER: f64 = 0.6;
 
-/// How often to update the recent outbound connections in storage.
-pub(crate) const UPDATE_RECENT_OUTBOUND_CONNECTIONS_INTERVAL: time::Duration =
-    time::Duration::minutes(1);
+/// How often to update the connections in storage.
+pub(crate) const UPDATE_CONNECTION_STORE_INTERVAL: time::Duration = time::Duration::minutes(1);
+/// How often to check the connection store for closed connections we'd like to re-establish.
+pub(crate) const POLL_CONNECTION_STORE_INTERVAL: time::Duration = time::Duration::minutes(1);
 
 /// Actor that manages peers connections.
 pub struct PeerManagerActor {
@@ -159,18 +160,24 @@ impl actix::Actor for PeerManagerActor {
             }
         }));
 
-        // Periodically update the connection store and spawn pending reconnect loops
+        // Periodically update the connection store.
+        let clock = self.clock.clone();
+        let state = self.state.clone();
+        ctx.spawn(wrap_future(async move {
+            let mut interval = time::Interval::new(clock.now(), UPDATE_CONNECTION_STORE_INTERVAL);
+            loop {
+                state.update_connection_store(&clock);
+                interval.tick(&clock).await;
+            }
+        }));
+
+        // Periodically poll the connection store for connections we'd like to re-establish.
         let clock = self.clock.clone();
         let state = self.state.clone();
         let addr = ctx.address();
         ctx.spawn(wrap_future(async move {
-            let mut interval =
-                time::Interval::new(clock.now(), UPDATE_RECENT_OUTBOUND_CONNECTIONS_INTERVAL);
+            let mut interval = time::Interval::new(clock.now(), POLL_CONNECTION_STORE_INTERVAL);
             loop {
-                // Update the connection store.
-                state.update_connection_store(&clock);
-
-                // Spawn pending reconnect loops.
                 let pending_reconnect = state.connection_store.poll_pending_reconnect();
                 for peer_info in pending_reconnect {
                     if let Err(err) =
@@ -179,7 +186,6 @@ impl actix::Actor for PeerManagerActor {
                         tracing::error!(target: "network", ?err, "Failed to spawn reconnect loop");
                     }
                 }
-
                 interval.tick(&clock).await;
             }
         }));

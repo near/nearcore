@@ -3,7 +3,7 @@ use crate::network_protocol::testonly as data;
 use crate::peer_manager::connection_store::STORED_CONNECTIONS_MIN_DURATION;
 use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::peer_manager::peer_manager_actor::{
-    RECONNECT_ATTEMPT_INTERVAL, UPDATE_RECENT_OUTBOUND_CONNECTIONS_INTERVAL,
+    POLL_CONNECTION_STORE_INTERVAL, RECONNECT_ATTEMPT_INTERVAL, UPDATE_CONNECTION_STORE_INTERVAL,
 };
 use crate::peer_manager::testonly::start as start_pm;
 use crate::peer_manager::testonly::ActorHandler;
@@ -57,11 +57,10 @@ async fn test_recent_outbound_connection() {
     tracing::info!(target:"test", "connect pm0 to pm1");
     pm0.connect_to(&pm1.peer_info(), tcp::Tier::T2).await;
     pm2.connect_to(&pm0.peer_info(), tcp::Tier::T2).await;
-
     clock.advance(STORED_CONNECTIONS_MIN_DURATION);
-    clock.advance(UPDATE_RECENT_OUTBOUND_CONNECTIONS_INTERVAL);
 
     tracing::info!(target:"test", "check that pm0 stores the outbound connection to pm1");
+    clock.advance(UPDATE_CONNECTION_STORE_INTERVAL);
     check_recent_outbound_connections(&pm0, vec![id1.clone()]).await;
 
     tracing::info!(target:"test", "check that pm1 does not store anything, as it has no outbound connections");
@@ -87,11 +86,10 @@ async fn test_storage_after_disconnect() {
 
     tracing::info!(target:"test", "connect pm0 to pm1");
     pm0.connect_to(&pm1.peer_info(), tcp::Tier::T2).await;
-
     clock.advance(STORED_CONNECTIONS_MIN_DURATION);
-    clock.advance(UPDATE_RECENT_OUTBOUND_CONNECTIONS_INTERVAL);
 
     tracing::info!(target:"test", "check that pm0 stores the outbound connection to pm1");
+    clock.advance(UPDATE_CONNECTION_STORE_INTERVAL);
     check_recent_outbound_connections(&pm0, vec![id1.clone()]).await;
 
     tracing::info!(target:"test", "have pm1 disconnect from pm0");
@@ -100,7 +98,7 @@ async fn test_storage_after_disconnect() {
     wait_for_connection_closed(&mut pm0_ev).await;
 
     tracing::info!(target:"test", "check that pm0 retains the stored outbound connection to pm1 after disconnect");
-    clock.advance(UPDATE_RECENT_OUTBOUND_CONNECTIONS_INTERVAL);
+    clock.advance(UPDATE_CONNECTION_STORE_INTERVAL);
     check_recent_outbound_connections(&pm0, vec![id1.clone()]).await;
 }
 
@@ -131,17 +129,17 @@ async fn test_outbound_connection_storage_order() {
     clock.advance(time::Duration::seconds(1));
     pm0.connect_to(&pm3.peer_info(), tcp::Tier::T2).await;
     pm0.wait_for_direct_connection(id3.clone()).await;
+    clock.advance(STORED_CONNECTIONS_MIN_DURATION);
 
     tracing::info!(target:"test", "check that the outbound connections are stored");
-    clock.advance(STORED_CONNECTIONS_MIN_DURATION);
-    clock.advance(UPDATE_RECENT_OUTBOUND_CONNECTIONS_INTERVAL);
+    clock.advance(UPDATE_CONNECTION_STORE_INTERVAL);
     check_recent_outbound_connections(&pm0, vec![id3.clone(), id2.clone(), id1.clone()]).await;
 
     tracing::info!(target:"test", "disconnect pm2 and check that it remains in storage but moves to the end of the order");
     let mut pm0_ev = pm0.events.from_now();
     pm2.disconnect(&id0).await;
     wait_for_connection_closed(&mut pm0_ev).await;
-    clock.advance(UPDATE_RECENT_OUTBOUND_CONNECTIONS_INTERVAL);
+    clock.advance(UPDATE_CONNECTION_STORE_INTERVAL);
     check_recent_outbound_connections(&pm0, vec![id3.clone(), id1.clone(), id2.clone()]).await;
 }
 
@@ -161,11 +159,10 @@ async fn test_reconnect_after_restart_outbound_side() {
 
     tracing::info!(target:"test", "connect pm0 to pm1");
     pm0.connect_to(&pm1.peer_info(), tcp::Tier::T2).await;
-
     clock.advance(STORED_CONNECTIONS_MIN_DURATION);
-    clock.advance(UPDATE_RECENT_OUTBOUND_CONNECTIONS_INTERVAL);
 
     tracing::info!(target:"test", "check that pm0 stores the outbound connection to pm1");
+    clock.advance(UPDATE_CONNECTION_STORE_INTERVAL);
     check_recent_outbound_connections(&pm0, vec![id1.clone()]).await;
 
     tracing::info!(target:"test", "drop pm0 and start it again with the same db, check that it reconnects");
@@ -191,11 +188,10 @@ async fn test_reconnect_after_restart_inbound_side() {
 
     tracing::info!(target:"test", "connect pm0 to pm1");
     pm0.connect_to(&pm1.peer_info(), tcp::Tier::T2).await;
-
     clock.advance(STORED_CONNECTIONS_MIN_DURATION);
-    clock.advance(UPDATE_RECENT_OUTBOUND_CONNECTIONS_INTERVAL);
 
     tracing::info!(target:"test", "check that pm0 stores the outbound connection to pm1");
+    clock.advance(UPDATE_CONNECTION_STORE_INTERVAL);
     check_recent_outbound_connections(&pm0, vec![id1.clone()]).await;
 
     tracing::info!(target:"test", "drop pm1");
@@ -205,8 +201,7 @@ async fn test_reconnect_after_restart_inbound_side() {
 
     tracing::info!(target:"test", "start pm1 again with the same config, check that pm0 reconnects");
     let _pm1 = start_pm(clock.clock(), TestDB::new(), pm1_cfg.clone(), chain.clone()).await;
-    clock.advance(UPDATE_RECENT_OUTBOUND_CONNECTIONS_INTERVAL);
-    clock.advance(RECONNECT_ATTEMPT_INTERVAL);
+    clock.advance(POLL_CONNECTION_STORE_INTERVAL + RECONNECT_ATTEMPT_INTERVAL);
     pm0.wait_for_direct_connection(id1.clone()).await;
 }
 
@@ -228,11 +223,10 @@ async fn test_reconnect_after_disconnect_inbound_side() {
 
     tracing::info!(target:"test", "connect pm0 to pm1");
     pm0.connect_to(&pm1.peer_info(), tcp::Tier::T2).await;
-
     clock.advance(STORED_CONNECTIONS_MIN_DURATION);
-    clock.advance(UPDATE_RECENT_OUTBOUND_CONNECTIONS_INTERVAL);
 
     tracing::info!(target:"test", "check that pm0 stores the outbound connection to pm1");
+    clock.advance(UPDATE_CONNECTION_STORE_INTERVAL);
     check_recent_outbound_connections(&pm0, vec![id1.clone()]).await;
 
     tracing::info!(target:"test", "have pm1 disconnect gracefully from pm0");
@@ -241,8 +235,7 @@ async fn test_reconnect_after_disconnect_inbound_side() {
     wait_for_connection_closed(&mut pm0_ev).await;
 
     tracing::info!(target:"test", "check that pm0 reconnects");
-    clock.advance(UPDATE_RECENT_OUTBOUND_CONNECTIONS_INTERVAL);
-    clock.advance(RECONNECT_ATTEMPT_INTERVAL);
+    clock.advance(POLL_CONNECTION_STORE_INTERVAL + RECONNECT_ATTEMPT_INTERVAL);
     pm0.wait_for_direct_connection(id1.clone()).await;
 }
 
@@ -278,11 +271,10 @@ async fn test_reconnect_after_restart_outbound_side_multi() {
     clock.advance(time::Duration::seconds(1));
     pm0.connect_to(&pm4.peer_info(), tcp::Tier::T2).await;
     pm0.wait_for_direct_connection(id4.clone()).await;
-
     clock.advance(STORED_CONNECTIONS_MIN_DURATION);
-    clock.advance(UPDATE_RECENT_OUTBOUND_CONNECTIONS_INTERVAL);
 
     tracing::info!(target:"test", "check that pm0 stores the outbound connections");
+    clock.advance(UPDATE_CONNECTION_STORE_INTERVAL);
     check_recent_outbound_connections(
         &pm0,
         vec![id4.clone(), id3.clone(), id2.clone(), id1.clone()],
