@@ -1,6 +1,7 @@
 # Gas Cost Parameters
 
 Gas in NEAR Protocol solves two problems.
+
 1. To avoid spam, validator nodes only perform work if a user's tokens are
    burned. Tokens are automatically converted to gas using the current gas
    price.
@@ -15,9 +16,9 @@ the transaction.
 
 What happens if nearcore executes a transaction too slowly? Chunk production for
 the shard gets delayed, which delays block production for the entire blockchain,
-reducing latency and throughput for everybody. If the chunk is really late, the
-block producer will decide to not include the chunk at all and inserts an empty
-chunk. The chunk may be included in the next block.
+increasing latency and reducing throughput for everybody. If the chunk is really
+late, the block producer will decide to not include the chunk at all and inserts
+an empty chunk. The chunk may be included in the next block.
 
 By now, you probably wonder how we can know the time it takes to execute a
 transaction, given that validators use hardware of their choice. Getting these
@@ -35,8 +36,8 @@ good places to dig deeper.
 ## Hardware and Timing Assumptions
 
 For timing to make sense at all, we must first define hardware constraints. The
-official hardware requirements for a validator is published on
-[near-nodes.io/validator/hardware](https://near-nodes.io/validator/hardware). It
+official hardware requirements for a validator are published on
+[near-nodes.io/validator/hardware](https://near-nodes.io/validator/hardware). They
 may change over time but the main principle is that a moderately configured,
 cloud-hosted virtual machine suffices.
 
@@ -47,7 +48,7 @@ For our gas computation, we assume the minimum required hardware. Then we define
 Obviously, this definition means that a validator running more powerful hardware
 will execute the transactions faster. That is perfectly okay, as far as the
 protocol is concerned we just need to make sure the chunk is available in time.
-If it is ready even faster, no problem.
+If it is ready in even less time, no problem.
 
 Less obviously, this means that even a minimally configured validator is often
 idle. Why is that? Well, the hardware must be prepared to execute chunks that
@@ -72,7 +73,7 @@ A transaction is essentially just a list of actions to be executed on the same
 account. For example it could be `CreateAccount` combined with
 `FunctionCall("hello_world")`.
 
-The [reference for available action](https://nomicon.io/RuntimeSpec/Actions)
+The [reference for available actions](https://nomicon.io/RuntimeSpec/Actions)
 shows the conclusive list of possible actions. The protocol defines fixed fees
 for each of them. More details on [actions fees](#action-costs) follow below.
 
@@ -112,13 +113,13 @@ This should be enough background to understand what the estimator does.
 
 The [runtime parameter estimator](./estimator.md) is a separate binary within
 the nearcore repository. It contains benchmarking-like code used to validate
-existing parameters values against the 1ms = 1 Tgas rule. When implementing new
+existing parameter values against the 1ms = 1 Tgas rule. When implementing new
 features, code should be added there to estimate the safe values of the new
 parameters. This section is for you if you are adding new features such as a new
 pre-compiled method or other host functions.
 
 Next up are more details on the specific costs that occur when executing NEAR
-transactions, which helps to understand existing parameters and how they are
+transactions, which help to understand existing parameters and how they are
 organized.
 
 ## Action Costs
@@ -158,8 +159,8 @@ send step and it is available in the execution step for free.
 
 If execution fails, the prepaid cost that has not been burned will be refunded.
 But this is not the reason why it must burn on the receiver shard instead of the
-sender shard. The reason is to properly compute the gas limits on the chunk that
-does the execution work.
+sender shard. The reason is that we want to properly compute the gas limits on
+the chunk that does the execution work.
 
 In conclusion, each action parameter is split into three costs, `send_sir`,
 `send_not_sir`, and `execution`. Local receipts charge the first and last
@@ -171,7 +172,6 @@ i.e. `send_sir` cost is the same as `send_not_sir`.
 
 The [Gas Profile](./gas_profile.md) section goes into more details on how gas
 costs of a transaction are tracked in nearcore.
-
 
 ## Dynamic Function Call Costs
 <a name="fn-call-costs"></a>
@@ -203,11 +203,11 @@ clearly define what its costs are and how they depend on the input.
 Not all runtime parameters are directly related to gas costs. Here is a brief
 overview.
 
-- **Gas economics config**: Defines the conversion rate when purchasing gas with
+- **Gas economics config:** Defines the conversion rate when purchasing gas with
   NEAR tokens and how gas rewards are split.
-- **Storage usage config**: Costs in tokens, not gas, for storing data on chain.
-- **Account creation config**: Rules for account creation.
-- **Smart contract limits**: Rules for WASM execution.
+- **Storage usage config:** Costs in tokens, not gas, for storing data on chain.
+- **Account creation config:** Rules for account creation.
+- **Smart contract limits:** Rules for WASM execution.
 
 None of the above define any gas costs directly. But there can be interplay
 between those parameters and gas costs. For example, the limits on smart

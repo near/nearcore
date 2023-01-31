@@ -435,6 +435,7 @@ impl<
 {
 }
 
+// TODO: rename to a more generic name.
 pub struct NetworkRecipient<T> {
     recipient: OnceCell<Arc<T>>,
 }

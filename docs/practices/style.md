@@ -27,20 +27,21 @@ imperfections.
 
 While the most important thing is to solve the problem at hand, we strive to
 implement the solution in idiomatic Rust, if possible. To learn what is
-considered idiomatic Rust, a good start are the Rust API guidelines (but keep in
-mind that `nearcore` is not a library with public API, not all advice applies
-literally):
-
-https://rust-lang.github.io/api-guidelines/about.html
+considered idiomatic Rust, a good start are the
+[Rust API guidelines](https://rust-lang.github.io/api-guidelines/about.html)
+(but keep in mind that `nearcore` is not a library with public API, not all
+advice applies literally).
 
 When in doubt, ask question in the [Rust
 🦀](https://near.zulipchat.com/#narrow/stream/300659-Rust-.F0.9F.A6.80) Zulip
 stream or during code review.
 
-**Rationale:** Consistency, as there's usually only one idiomatic solution
-amidst many non-idiomatic ones. Predictability, you can use the APIs without
-consulting documentation. Performance, ergonomics and correctness: language
-idioms usually reflect learned truths, which might not be immediately obvious.
+**Rationale:**
+- *Consistency*: there's usually only one idiomatic solution amidst many
+  non-idiomatic ones.
+- *Predictability*: you can use the APIs without consulting documentation.
+- *Performance, ergonomics and correctness*: language idioms usually reflect
+  learned truths, which might not be immediately obvious.
 
 ## Style
 
@@ -52,7 +53,6 @@ This section documents all micro-rules which are not otherwise enforced by
 When you have some concrete type, prefer `.as_str`, `.as_bytes`, `.as_path` over
 generic `.as_ref`. Only use `.as_ref` when the type in question is a generic
 `T: AsRef<U>`.
-
 
 ```rust
 // GOOD
@@ -70,11 +70,10 @@ fn log_validator(account_id: AccountId) {
 
 Note that `Option::as_ref`, `Result::as_ref` are great, do use them!
 
-**Rationale:** readability and churn-resistance. There might be more than one
+**Rationale:** Readability and churn-resistance. There might be more than one
 `AsRef<U>` implementation for a given type (with different `U`s). If a new
 implementation is added, some of the `.as_ref()` calls might break. See also
-https://github.com/rust-lang/rust/issues/62586.
-
+this [issue](https://github.com/rust-lang/rust/issues/62586).
 
 ### Avoid references to `Copy`-types
 
@@ -101,7 +100,7 @@ fn compute(map: HashMap<&'str, i32>) {
 fn process(value: i32) { ... }
 ```
 
-**Rationale:** if the value is used multiple times, dereferencing in the pattern
+**Rationale:** If the value is used multiple times, dereferencing in the pattern
 saves keystrokes. If the value is used exactly once, we just want to be
 consistent. Additional benefit of early deref is reduced scope of borrow.
 
@@ -112,7 +111,7 @@ references for performance reasons. As a rule of thumb, `T` is considered *big* 
 ### Prefer for loops over `for_each` and `try_for_each` methods
 
 Iterators offer `for_each` and `try_for_each` methods which allow executing
-a closure over all items of the iterator.  This is similar to using a for loop
+a closure over all items of the iterator. This is similar to using a for loop
 but comes with various complications and may lead to less readable code.  Prefer
 using a loop rather than those methods, for example:
 
@@ -137,20 +136,20 @@ result?.into_iter().try_for_each(
 
 **Rationale:** The `for_each` and `try_for_each` method don’t play nice with
 `break` and `continue` statements nor do they mesh well with async IO (since
-`.await` inside of the closure isn’t possible).  And while `try_for_each` allows
+`.await` inside of the closure isn’t possible). And while `try_for_each` allows
 for the use of question mark operator, one may end up having to uses it twice:
 once inside the closure and second time outside the call to `try_for_each`.
 Furthermore, usage of the functions often introduce some minor syntax noise.
 
-There are situations when those methods may lead to more readable code.  Common
-example are long call chains.  Even then such code may evolve with the closure
-growing and leading to less readable code.  If advantages of using the methods
+There are situations when those methods may lead to more readable code. Common
+example are long call chains. Even then such code may evolve with the closure
+growing and leading to less readable code. If advantages of using the methods
 aren’t clear cut, it’s usually better to err on side of more imperative style.
 
 Lastly, anecdotally the methods (e.g. when used with `chain` or `flat_map`) may
-lead to faster code.  This intuitively makes sense but it’s worth to keep in
+lead to faster code. This intuitively makes sense but it’s worth to keep in
 mind that compilers are pretty good at optimising and in practice may generate
-optimal code anyway.  Furthermore, optimising code for readability may be more
+optimal code anyway. Furthermore, optimising code for readability may be more
 important (especially outside of hot path) than small performance gains.
 
 ### Prefer `to_string` to `format!("{}")`
@@ -172,7 +171,7 @@ let msg = path.display() + ": failed to open";
 
 ### Import Granularity
 
-Group import by module, but not deeper:
+Group imports by module, but not deeper:
 
 ```rust
 // GOOD
@@ -225,7 +224,7 @@ use near_store::{DBCol::Peers, Store};
 use crate::types::KnownPeerState;
 ```
 
-**Rationale:** Consistency, ease of automatic enforcement. Today stable rustfmt
+**Rationale:** Consistency, ease of automatic enforcement. Today, stable rustfmt
 can't split imports into groups automatically, and doing that manually
 consistently is a chore.
 
@@ -308,9 +307,9 @@ project overall.
   use of iterators those cases aren’t that common anyway.
 * Follow standard [Rust naming patterns](https://rust-lang.github.io/api-guidelines/naming.html) such as:
   * Don’t use `get_` prefix for getter methods.  A getter method is one which
-    returns (reference to) a field of an object.
+    returns (a reference to) a field of an object.
   * Use `set_` prefix for setter methods.  An exception are builder objects
-    which may use different naming style.
+    which may use different a naming style.
   * Use `into_` prefix for methods which consume `self` and `to_` prefix for
     methods which don’t.
 * Use `get_block_header` rather than `get_header` for methods which return
@@ -347,9 +346,7 @@ Definitely don't use soft-wrapping. While markdown mostly ignores source level l
 ## [Tracing](https://tracing.rs)
 
 When emitting events and spans with `tracing` prefer adding variable data via
-[`tracing`'s field mechanism][fields].
-
-[fields]: https://docs.rs/tracing/latest/tracing/#recording-fields
+[`tracing`'s field mechanism](https://docs.rs/tracing/latest/tracing/#recording-fields).
 
 ```rust
 // GOOD
@@ -362,7 +359,7 @@ debug!(
     "block.previous_hash" = %block.header().prev_hash(),
     "block.height" = block.header().height(),
     %peer_id,
-    was_requested
+    was_requested,
     "Received block",
 );
 ```
@@ -387,9 +384,9 @@ debug!(
 Always specify the `target` explicitly. A good default value to use is the crate
 name, or the module path (e.g. `chain::client`) so that events and spans common
 to a topic can be grouped together. This grouping can later be used for
-customizing of which events to output.
+customizing which events to output.
 
-**Rationale:** This makes the events structured – one of the major value
+**Rationale:** This makes the events structured – one of the major value add
 propositions of the tracing ecosystem. Structured events allow for immediately
 actionable data without additional post-processing, especially when using some
 of the more advanced tracing subscribers. Of particular interest would be those
@@ -399,11 +396,11 @@ usually result in faster execution (when logs at the relevant level are enabled.
 
 ### Spans
 
-Use the [spans][spans] to introduce context and grouping to and between events
-instead of manually adding such information as part of the events themselves.
-Most of the subscribers ingesting spans also provide a built-in timing facility,
-so prefer using spans for measuring the amount of time a section of code needs
-to execute.
+Use the [spans](https://docs.rs/tracing/latest/tracing/#spans) to introduce
+context and grouping to and between events instead of manually adding such
+information as part of the events themselves. Most of the subscribers ingesting
+spans also provide a built-in timing facility, so prefer using spans for measuring
+the amount of time a section of code needs to execute.
 
 Give spans simple names that make them both easy to trace back to code, and to
 find a particular span in logs or other tools ingesting the span data. If a
@@ -422,8 +419,6 @@ fn compile_and_serialize_wasmer(code: &[u8]) -> Result<wasmer::Module> {
     // You can also `drop` it manually, to end the span early with `drop(_span)`.
 }
 ```
-
-[spans]: https://docs.rs/tracing/latest/tracing/#spans
 
 **Rationale:** Much as with events, this makes the information provided by spans
 structured and contextual. This information can then be output to tooling in an
@@ -448,8 +443,8 @@ metrics don't incur a significant runtime cost.
 
 ### Naming
 
-Prefix all `nearcore` metrics with `near_`.
-Follow [https://prometheus.io/docs/practices/naming/](Prometheus naming convention)
+Prefix all `nearcore` metrics with `near_`. Follow the
+[Prometheus naming convention](https://prometheus.io/docs/practices/naming/)
 for new metrics.
 
 **Rationale:** The `near_` prefix makes it trivial to separate metrics exported

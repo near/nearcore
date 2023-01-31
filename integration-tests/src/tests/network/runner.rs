@@ -1,8 +1,10 @@
 use actix::{Actor, Addr};
 use anyhow::{anyhow, bail, Context};
 use near_chain::test_utils::{KeyValueRuntime, ValidatorSchedule};
+use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis};
 use near_chain_configs::ClientConfig;
+use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::{start_client, start_view_client};
 use near_network::actix::ActixSystem;
 use near_network::blacklist;
@@ -21,6 +23,7 @@ use near_primitives::block::GenesisId;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{AccountId, ValidatorId};
+use near_primitives::validator_signer::ValidatorSigner;
 use near_telemetry::{TelemetryActor, TelemetryConfig};
 use std::collections::HashSet;
 use std::future::Future;
@@ -65,6 +68,7 @@ fn setup_network_node(
         hash: genesis_block.header().hash().clone(),
     };
     let network_adapter = Arc::new(NetworkRecipient::default());
+    let shards_manager_adapter = Arc::new(NetworkRecipient::default());
     let adv = near_client::adversarial::Controls::default();
     let client_actor = start_client(
         client_config.clone(),
@@ -72,7 +76,8 @@ fn setup_network_node(
         runtime.clone(),
         config.node_id(),
         network_adapter.clone(),
-        Some(signer),
+        shards_manager_adapter.clone(),
+        Some(signer.clone()),
         telemetry_actor,
         None,
         adv.clone(),
@@ -84,14 +89,24 @@ fn setup_network_node(
         chain_genesis.clone(),
         runtime.clone(),
         network_adapter.clone(),
-        client_config,
+        client_config.clone(),
         adv,
     );
+    let (shards_manager_actor, _) = start_shards_manager(
+        runtime.clone(),
+        network_adapter.clone(),
+        Arc::new(client_actor.clone()),
+        Some(signer.validator_id().clone()),
+        runtime.store().clone(),
+        client_config.chunk_request_retry_period,
+    );
+    shards_manager_adapter.set_recipient(shards_manager_actor);
     let peer_manager = PeerManagerActor::spawn(
         time::Clock::real(),
         db.clone(),
         config,
         Arc::new(near_client::adapter::Adapter::new(client_actor, view_client_actor)),
+        shards_manager_adapter,
         genesis_id,
     )
     .unwrap();
