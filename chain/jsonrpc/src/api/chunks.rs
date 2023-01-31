@@ -9,7 +9,7 @@ use near_primitives::types::{BlockId, ShardId};
 use super::{parse_params, RpcFrom, RpcRequest};
 
 impl RpcRequest for RpcChunkRequest {
-    fn parse(value: Option<Value>) -> Result<Self, RpcParseError> {
+    fn parse(value: Value) -> Result<Self, RpcParseError> {
         // Try to parse legacy positioned args and if it fails parse newer named args
         let chunk_reference = if let Ok((chunk_id,)) = parse_params::<(CryptoHash,)>(value.clone())
         {

@@ -9,13 +9,13 @@ use near_jsonrpc_primitives::types::changes::{
 use super::{parse_params, RpcFrom, RpcRequest};
 
 impl RpcRequest for RpcStateChangesInBlockRequest {
-    fn parse(value: Option<Value>) -> Result<Self, RpcParseError> {
+    fn parse(value: Value) -> Result<Self, RpcParseError> {
         parse_params::<Self>(value)
     }
 }
 
 impl RpcRequest for RpcStateChangesInBlockByTypeRequest {
-    fn parse(value: Option<Value>) -> Result<Self, RpcParseError> {
+    fn parse(value: Value) -> Result<Self, RpcParseError> {
         parse_params::<Self>(value)
     }
 }

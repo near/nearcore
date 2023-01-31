@@ -8,7 +8,7 @@ use serde_json::Value;
 use super::{parse_params, RpcFrom, RpcRequest};
 
 impl RpcRequest for RpcSplitStorageInfoRequest {
-    fn parse(value: Option<Value>) -> Result<Self, RpcParseError> {
+    fn parse(value: Value) -> Result<Self, RpcParseError> {
         parse_params::<Self>(value)
     }
 }
