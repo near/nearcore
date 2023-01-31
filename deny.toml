@@ -43,7 +43,7 @@ skip = [
 
     # wasmer and wasmtime
     { name = "target-lexicon", version = "=0.10.0" },
-    { name = "wasmparser", version = "=0.84.0" },
+    { name = "wasmparser", version = "=0.95.0" },
 
     # chain and param estimator
     { name = "num-rational", version = "=0.3.2" },

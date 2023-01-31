@@ -6510,25 +6510,25 @@ checksum = "d554b7f530dee5964d9a9468d95c1f8b8acae4f282807e7d27d4b03099a46744"
 
 [[package]]
 name = "wasm-encoder"
-version = "0.11.0"
+version = "0.22.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a35138d119147af92d7e44ae0f052f6496ee5f38e7c0cad3e0338befdb8f3753"
+checksum = "ef126be0e14bdf355ac1a8b41afc89195289e5c7179f80118e3abddb472f0810"
 dependencies = [
  "leb128",
 ]
 
 [[package]]
 name = "wasm-smith"
-version = "0.10.0"
+version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "50b4138c138f975e29dbd3ceea3a8d3ea2bb43f71abd4b236640d0cb14cb8ef7"
+checksum = "efa1d0e7cff965d746a1f559470bf4d9fbafd34fe11d4e34cfd0c382259bb986"
 dependencies = [
  "arbitrary",
  "flagset",
  "indexmap",
  "leb128",
  "wasm-encoder",
- "wasmparser 0.84.0",
+ "wasmparser 0.99.0",
 ]
 
 [[package]]
@@ -6713,15 +6713,6 @@ checksum = "52144d4c78e5cf8b055ceab8e5fa22814ce4315d6002ad32cfd914f37c12fd65"
 
 [[package]]
 name = "wasmparser"
-version = "0.84.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "77dc97c22bb5ce49a47b745bed8812d30206eff5ef3af31424f2c1820c0974b2"
-dependencies = [
- "indexmap",
-]
-
-[[package]]
-name = "wasmparser"
 version = "0.95.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f2ea896273ea99b15132414be1da01ab0d8836415083298ecaffbe308eaac87a"
@@ -6731,13 +6722,23 @@ dependencies = [
 ]
 
 [[package]]
-name = "wasmprinter"
-version = "0.2.34"
+name = "wasmparser"
+version = "0.99.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9b72b3c96567183a4eca151040b5f61735b2d53e7cadd4242dbb61cd9011d865"
+checksum = "9ef3b717afc67f848f412d4f02c127dd3e35a0eecd58c684580414df4fde01d3"
+dependencies = [
+ "indexmap",
+ "url",
+]
+
+[[package]]
+name = "wasmprinter"
+version = "0.2.49"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "27c13dff901f9354fa9a6a877152d9c5642513645985635c9b83bcca99e40ea1"
 dependencies = [
  "anyhow",
- "wasmparser 0.84.0",
+ "wasmparser 0.99.0",
 ]
 
 [[package]]
