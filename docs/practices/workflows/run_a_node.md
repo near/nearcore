@@ -34,7 +34,7 @@ Let's dissect the command:
 - `--` tells cargo to pass the rest of the arguments through to `neard`.
 - `--help` instructs `neard` to list available CLI arguments and subcommands.
 
-**Note**: Building `neard` might fail with an openssl or CC error. This means
+**Note:** Building `neard` might fail with an openssl or CC error. This means
 that you lack some non-rust dependencies we use (openssl and rocksdb mainly). We
 currently don't have docs on how to install those, but (basically) you want to
 `sudo apt install` (or whichever distro/package manager you use) missing bits.
@@ -424,7 +424,7 @@ To see the transaction in the transaction explorer, please open this url in your
 http://localhost:9001/transactions/BBPndo6gR4X8pzoDK7UQfoUXp5J8WDxkf8Sq75tK5FFT
 ```
 
-**Note**: You can export the variable `NEAR_ENV` in your shell if you are planning
+**Note:** You can export the variable `NEAR_ENV` in your shell if you are planning
 to do multiple commands to avoid repetition:
 
 ```console

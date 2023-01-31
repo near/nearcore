@@ -2,7 +2,7 @@
 
 Gas parameters are a subset of runtime parameters that are defined in
 [core/primitives/res/runtime_configs/parameters.yaml](https://github.com/near/nearcore/blob/d0dc37bf81f7e7bde9c560403b085fae04108659/core/primitives/res/runtime_configs/parameters.yaml).
-**IMPORTANT**: This is not the final list of parameters, it contains the base
+**IMPORTANT:** This is not the final list of parameters, it contains the base
 values which can be overwritten per protocol version. For example,
 [53.txt](https://github.com/near/nearcore/blob/d0dc37bf81f7e7bde9c560403b085fae04108659/core/primitives/res/runtime_configs/53.txt)
 changes several parameters starting from version 53. To see all parameter

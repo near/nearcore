@@ -49,7 +49,7 @@ are:
 [(Left, n0), (Right, n6)]
 
 # Verification
-assert_eq(root, hash(hash(n0, hash(v[1])), n6))
+assert_eq!(root, hash(hash(n0, hash(v[1])), n6))
 ```
 
 We use the technique above (called merkelization) in a couple of places in our
@@ -91,7 +91,7 @@ The field that we care about is called `outcome_root`. This value represents the
 root of the binary merkle tree, that is created based on all the receipts that
 were processed in this chunk.
 
-**Note**: You can notice that we also have a field here called
+**Note:** You can notice that we also have a field here called
 `encoded_merkle_root` - this is another case where we use merkelization in our
 chain - this field is a root of a tree that holds hashes of all the "partial
 chunks" into which we split the chunk to be distributed over the network.
@@ -130,7 +130,7 @@ proof: [
 And the values in there are exactly the siblings (plus info on which side of the
 tree the sibling is), on the path to the root.
 
-**Note**: proof section doesn’t contain the root itself and also doesn’t include
+**Note:** proof section doesn’t contain the root itself and also doesn’t include
 the hash of the receipt.
 
 

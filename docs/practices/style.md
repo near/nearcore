@@ -19,7 +19,7 @@ into this document.
 
 Use `rustfmt` for minor code formatting decisions. This rule is enforced by CI
 
-**Rationale**: `rustfmt` style is almost always good enough, even if not always
+**Rationale:** `rustfmt` style is almost always good enough, even if not always
 perfect. The amount of bikeshedding saved by `rustfmt` far outweighs any
 imperfections.
 
@@ -36,7 +36,7 @@ When in doubt, ask question in the [Rust
 🦀](https://near.zulipchat.com/#narrow/stream/300659-Rust-.F0.9F.A6.80) Zulip
 stream or during code review.
 
-**Rationale**:
+**Rationale:**
 - *Consistency*: there's usually only one idiomatic solution amidst many
   non-idiomatic ones.
 - *Predictability*: you can use the APIs without consulting documentation.
@@ -70,7 +70,7 @@ fn log_validator(account_id: AccountId) {
 
 Note that `Option::as_ref`, `Result::as_ref` are great, do use them!
 
-**Rationale**: Readability and churn-resistance. There might be more than one
+**Rationale:** Readability and churn-resistance. There might be more than one
 `AsRef<U>` implementation for a given type (with different `U`s). If a new
 implementation is added, some of the `.as_ref()` calls might break. See also
 this [issue](https://github.com/rust-lang/rust/issues/62586).
@@ -100,7 +100,7 @@ fn compute(map: HashMap<&'str, i32>) {
 fn process(value: i32) { ... }
 ```
 
-**Rationale**: If the value is used multiple times, dereferencing in the pattern
+**Rationale:** If the value is used multiple times, dereferencing in the pattern
 saves keystrokes. If the value is used exactly once, we just want to be
 consistent. Additional benefit of early deref is reduced scope of borrow.
 
@@ -134,7 +134,7 @@ result?.into_iter().try_for_each(
 )?;
 ```
 
-**Rationale**: The `for_each` and `try_for_each` method don’t play nice with
+**Rationale:** The `for_each` and `try_for_each` method don’t play nice with
 `break` and `continue` statements nor do they mesh well with async IO (since
 `.await` inside of the closure isn’t possible). And while `try_for_each` allows
 for the use of question mark operator, one may end up having to uses it twice:
@@ -167,7 +167,7 @@ lat hash = format!("{block_hash}");
 let msg = path.display() + ": failed to open";
 ```
 
-**Rationale**: `to_string` is shorter to type and also faster.
+**Rationale:** `to_string` is shorter to type and also faster.
 
 ### Import Granularity
 
@@ -194,7 +194,7 @@ This corresponds to `"rust-analyzer.assist.importGranularity": "module"` setting
 in rust-analyzer
 ([docs](https://rust-analyzer.github.io/manual.html#rust-analyzer.assist.importGranularity)).
 
-**Rationale**: Consistency, matches existing practice.
+**Rationale:** Consistency, matches existing practice.
 
 ### Import Blocks
 
@@ -224,7 +224,7 @@ use near_store::{DBCol::Peers, Store};
 use crate::types::KnownPeerState;
 ```
 
-**Rationale**: Consistency, ease of automatic enforcement. Today, stable rustfmt
+**Rationale:** Consistency, ease of automatic enforcement. Today, stable rustfmt
 can't split imports into groups automatically, and doing that manually
 consistently is a chore.
 
@@ -250,7 +250,7 @@ struct Banana;
 As an exception to this rule, it is okay to use either style when the derived trait already
 includes the name of the library (as would be the case for `borsh::BorshSerialize`.)
 
-**Rationale**: Specifying a full path to the externally provided derivations here makes it
+**Rationale:** Specifying a full path to the externally provided derivations here makes it
 straightforward to differentiate between the built-in derivations and those provided by the
 external crates. The surprise factor for derivations sharing a name with the standard
 library traits (`Display`) is reduced and it also acts as natural mechanism to tell apart names
@@ -320,7 +320,7 @@ project overall.
   (blocks, chunks, block headers etc.) by their height or other property which
   is not their hash.
 
-**Rationale**: Consistency.
+**Rationale:** Consistency.
 
 ## Documentation
 
@@ -386,7 +386,7 @@ name, or the module path (e.g. `chain::client`) so that events and spans common
 to a topic can be grouped together. This grouping can later be used for
 customizing which events to output.
 
-**Rationale**: This makes the events structured – one of the major value add
+**Rationale:** This makes the events structured – one of the major value add
 propositions of the tracing ecosystem. Structured events allow for immediately
 actionable data without additional post-processing, especially when using some
 of the more advanced tracing subscribers. Of particular interest would be those
@@ -420,7 +420,7 @@ fn compile_and_serialize_wasmer(code: &[u8]) -> Result<wasmer::Module> {
 }
 ```
 
-**Rationale**: Much as with events, this makes the information provided by spans
+**Rationale:** Much as with events, this makes the information provided by spans
 structured and contextual. This information can then be output to tooling in an
 industry standard format, and can be interpreted by an extensive ecosystem of
 `tracing` subscribers.
@@ -437,7 +437,7 @@ generally enabled, use it for arbitrary debug output.
 Consider adding metrics to new functionality. For example, how often each type
 of error was triggered, how often each message type was processed.
 
-**Rationale**: Metrics are cheap to increment, and they often provide a significant
+**Rationale:** Metrics are cheap to increment, and they often provide a significant
 insight into operation of the code, almost as much as logging. But unlike logging
 metrics don't incur a significant runtime cost.
 
@@ -447,7 +447,7 @@ Prefix all `nearcore` metrics with `near_`. Follow the
 [Prometheus naming convention](https://prometheus.io/docs/practices/naming/)
 for new metrics.
 
-**Rationale**: The `near_` prefix makes it trivial to separate metrics exported
+**Rationale:** The `near_` prefix makes it trivial to separate metrics exported
 by `nearcore` from other metrics, such as metrics about the state of the machine
 that runs `neard`.
 
@@ -462,6 +462,6 @@ to the label, such as the `itoa` crate.
 
 For hot code paths, re-use results of `with_label_values()` as much as possible.
 
-**Rationale**: We've encountered issues caused by the runtime costs of
+**Rationale:** We've encountered issues caused by the runtime costs of
 incrementing metrics before. Avoid runtime costs of incrementing metrics too
 often.

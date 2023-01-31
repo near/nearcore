@@ -203,11 +203,11 @@ clearly define what its costs are and how they depend on the input.
 Not all runtime parameters are directly related to gas costs. Here is a brief
 overview.
 
-- **Gas economics config**: Defines the conversion rate when purchasing gas with
+- **Gas economics config:** Defines the conversion rate when purchasing gas with
   NEAR tokens and how gas rewards are split.
-- **Storage usage config**: Costs in tokens, not gas, for storing data on chain.
-- **Account creation config**: Rules for account creation.
-- **Smart contract limits**: Rules for WASM execution.
+- **Storage usage config:** Costs in tokens, not gas, for storing data on chain.
+- **Account creation config:** Rules for account creation.
+- **Smart contract limits:** Rules for WASM execution.
 
 None of the above define any gas costs directly. But there can be interplay
 between those parameters and gas costs. For example, the limits on smart

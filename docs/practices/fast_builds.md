@@ -68,7 +68,7 @@ depending on which operating system you’re using, may require installing packa
 from a testing branch. For example, on Debian it requires installing
 `librocksdb-dev` from the `experimental` repository:
 
-**Note**: Based on which distro you are using this process will look different.
+**Note:** Based on which distro you are using this process will look different.
 Please refer to the documentation of the package manager you are using.
 
 ```bash

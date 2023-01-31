@@ -20,7 +20,7 @@
 
 In the NEAR Reference Client we largely split tests into three categories:
 
-1. **Relatively cheap sanity or fast fuzz tests**: It includes all the `#[test]`
+1. **Relatively cheap sanity or fast fuzz tests:** It includes all the `#[test]`
    Rust tests not decorated by features. Our repo is configured in such a way
    that all such tests are run on every PR and failing at least one of them is
    blocking the PR from being merged.
@@ -28,7 +28,7 @@ In the NEAR Reference Client we largely split tests into three categories:
 To run such tests locally run `cargo nextest run --all`.
 It requires nextest harness which can be installed by running `cargo install cargo-nextest` first.
 
-2. **Expensive tests**: This includes all the fuzzy tests that run many iterations,
+2. **Expensive tests:** This includes all the fuzzy tests that run many iterations,
    as well as tests that spin up multiple nodes and run them until they reach a
    certain condition. Such tests are decorated with
    `#[cfg(feature="expensive-tests")]`. It is not trivial to enable features
@@ -39,7 +39,7 @@ It requires nextest harness which can be installed by running `cargo install car
 `cargo nextest run --package near-client --test cross_shard_tx
 tests::test_cross_shard_tx --all-features`
 
-3. **Python tests**: We have an infrastructure to spin up nodes, both locally and
+3. **Python tests:** We have an infrastructure to spin up nodes, both locally and
    remotely, in python, and interact with them using RPC. The infrastructure and
    the tests are located in the `pytest` folder. The infrastructure is relatively
    straightforward, see for example `block_production.py`
