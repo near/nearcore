@@ -18,6 +18,10 @@ use near_primitives::transaction::Action;
 use near_primitives::types::{AccountId, Gas};
 use std::iter;
 
+const GAS_1_MICROSECOND: Gas = 1_000_000_000;
+const GAS_1_NANOSECOND: Gas = 1_000_000;
+const GAS_100_PICOSECONDS: Gas = 100_000;
+
 /// A builder object for constructing action cost estimations.
 ///
 /// This module uses `ActionEstimation` as a builder object to specify the
@@ -100,12 +104,11 @@ impl ActionEstimation {
             warmup: ctx.config.warmup_iters_per_block,
             metric: ctx.config.metric,
             subtract_base: true,
-            // By default, 1 Ggas ~ 1us is the smallest value we care about.
             // This is a reasonable limit because even the cheapest action
             // (transfer) is 115 us per component. Only for the per-byte costs
             // we need a smaller limit, because these costs can go below 1 ns.
             // They are changed on a case-by-case basis.
-            min_gas: 1_000_000_000,
+            min_gas: GAS_1_MICROSECOND,
         }
     }
 
@@ -127,8 +130,11 @@ impl ActionEstimation {
             warmup: ctx.config.warmup_iters_per_block,
             metric: ctx.config.metric,
             subtract_base: true,
-            // by default, 1 Ggas ~ 1us is the smallest value we care about.
-            min_gas: 1_000_000_000,
+            // This is a reasonable limit because even the cheapest action
+            // (transfer) is 115 us per component. Only for the per-byte costs
+            // we need a smaller limit, because these costs can go below 1 ns.
+            // They are changed on a case-by-case basis.
+            min_gas: GAS_1_MICROSECOND,
         }
     }
 
@@ -349,8 +355,8 @@ pub(crate) fn deploy_contract_byte_send_sir(ctx: &mut EstimatorContext) -> GasCo
         .inner_iters(1) // circumvent TX size limit
         // parameter today: 6_812_999
         // typical estimation: < 100_000 (<100ps)
-        // setting limit to 0.1ns, we expect this to stay near 0
-        .min_gas(100_000)
+        // we expect this to stay near 0
+        .min_gas(GAS_100_PICOSECONDS)
         .verify_cost(&mut ctx.testbed())
         / ActionSize::Max.deploy_contract()
 }
@@ -361,8 +367,8 @@ pub(crate) fn deploy_contract_byte_send_not_sir(ctx: &mut EstimatorContext) -> G
         .inner_iters(1) // circumvent TX size limit
         // parameter today: 6_812_999
         // typical estimation: < 100_000 (<100ps)
-        // setting limit to 0.1ns, we expect this to stay near 0
-        .min_gas(100_000)
+        // we expect this to stay near 0
+        .min_gas(GAS_100_PICOSECONDS)
         .verify_cost(&mut ctx.testbed())
         / ActionSize::Max.deploy_contract()
 }
@@ -374,7 +380,7 @@ pub(crate) fn deploy_contract_byte_exec(ctx: &mut EstimatorContext) -> GasCost {
         // parameter today: 64_572_944
         // typical estimation: 8_000_000 (8ns)
         // setting limit to 1ns because 1us would be too high
-        .min_gas(1_000_000)
+        .min_gas(GAS_1_NANOSECOND)
         .apply_cost(&mut ctx.testbed())
         / ActionSize::Max.deploy_contract()
 }
@@ -403,7 +409,7 @@ pub(crate) fn function_call_byte_send_sir(ctx: &mut EstimatorContext) -> GasCost
         // parameter today: 2_235_934
         // typical estimation: 1_000 - 2_000 (1-2ns)
         // setting limit to 1ns because lower values are mostly noisy
-        .min_gas(1_000_000)
+        .min_gas(GAS_1_NANOSECOND)
         .verify_cost(&mut ctx.testbed())
         / ActionSize::Max.function_call_payload()
 }
@@ -414,7 +420,7 @@ pub(crate) fn function_call_byte_send_not_sir(ctx: &mut EstimatorContext) -> Gas
         // parameter today: 2_235_934
         // typical estimation: 1_000 - 2_000 (1-2ns)
         // setting limit to 1ns because lower values are mostly noisy
-        .min_gas(1_000_000)
+        .min_gas(GAS_1_NANOSECOND)
         .verify_cost(&mut ctx.testbed())
         / ActionSize::Max.function_call_payload()
 }
@@ -425,7 +431,7 @@ pub(crate) fn function_call_byte_exec(ctx: &mut EstimatorContext) -> GasCost {
         // parameter today: 2_235_934
         // typical estimation: 2_000_000 (2ns)
         // setting limit to 1ns because lower values are mostly noisy
-        .min_gas(1_000_000)
+        .min_gas(GAS_1_NANOSECOND)
         .apply_cost(&mut ctx.testbed())
         / ActionSize::Max.function_call_payload()
 }
@@ -507,8 +513,8 @@ pub(crate) fn add_function_call_key_byte_send_sir(ctx: &mut EstimatorContext) ->
         .add_action(add_fn_access_key_action(ActionSize::Max))
         // parameter today: 1_925_331
         // typical estimation: < 200_000 (<200ps)
-        // setting limit to 0.1ns, we expect this to stay near 0
-        .min_gas(100_000)
+        // we expect this to stay near 0
+        .min_gas(GAS_100_PICOSECONDS)
         .verify_cost(&mut ctx.testbed())
         / ActionSize::Max.key_methods_list()
 }
@@ -518,8 +524,8 @@ pub(crate) fn add_function_call_key_byte_send_not_sir(ctx: &mut EstimatorContext
         .add_action(add_fn_access_key_action(ActionSize::Max))
         // parameter today: 1_925_331
         // typical estimation: < 200_000 (<200ps)
-        // setting limit to 0.1ns, we expect this to stay near 0
-        .min_gas(100_000)
+        // we expect this to stay near 0
+        .min_gas(GAS_100_PICOSECONDS)
         .verify_cost(&mut ctx.testbed())
         / ActionSize::Max.key_methods_list()
 }
@@ -532,7 +538,7 @@ pub(crate) fn add_function_call_key_byte_exec(ctx: &mut EstimatorContext) -> Gas
         // typical estimation: 18_000_000 (18ns)
         // (we know this is undercharged but it's not a concern as described in #6716)
         // setting limit to 1ns to keep it lower than the parameter
-        .min_gas(1_000_000)
+        .min_gas(GAS_1_NANOSECOND)
         .apply_cost(&mut ctx.testbed())
         / ActionSize::Max.key_methods_list()
 }
