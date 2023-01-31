@@ -332,16 +332,50 @@ mod imp {
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
-use crate::{metrics, CryptoHash, Store, StoreUpdate};
+use crate::{metrics, CryptoHash, DBCol, Store, StoreUpdate};
 pub use imp::{FlatState, FlatStateFactory};
 use near_primitives::state::ValueRef;
 use near_primitives::types::{BlockHeight, RawStateChangesWithTrieKey, ShardId};
 use std::collections::{HashMap, HashSet};
+use std::io::Read;
 
 #[derive(BorshSerialize, BorshDeserialize)]
 pub struct KeyForFlatStateDelta {
     pub shard_id: ShardId,
     pub block_hash: CryptoHash,
+}
+
+pub struct NewKeyForFlatStateDelta {
+    pub shard_id: ShardId,
+    pub block_hash: CryptoHash,
+    pub key: Vec<u8>,
+}
+
+impl NewKeyForFlatStateDelta {
+    fn db_prefix(shard_id: ShardId, block_hash: CryptoHash) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend(shard_id.to_be_bytes());
+        out.extend(block_hash.as_bytes());
+        out
+    }
+
+    fn encode(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend(self.shard_id.to_be_bytes());
+        out.extend(self.block_hash.as_bytes());
+        out.extend(self.key.as_bytes());
+        out
+    }
+
+    fn decode(mut bytes: &[u8]) -> Result<Self, std::io::Error> {
+        let shard_id = bytes.read_u64::<BigEndian>()?;
+        let mut arr = [0; 32];
+        bytes.read_exact(&mut arr)?;
+        let block_hash = CryptoHash(arr);
+        let mut key = Vec::new();
+        bytes.read_to_end(&mut key)?;
+        Ok(NewKeyForFlatStateDelta { shard_id, block_hash, key })
+    }
 }
 
 /// Delta of the state for some shard and block, stores mapping from keys to value refs or None, if key was removed in
@@ -420,8 +454,25 @@ impl FlatStateDelta {
 
     #[cfg(not(feature = "protocol_feature_flat_state"))]
     pub fn apply_to_flat_state(self, _store_update: &mut StoreUpdate) {}
+
+    pub fn save(
+        &self,
+        shard_id: ShardId,
+        block_hash: CryptoHash,
+        store_update: &mut StoreUpdate,
+    ) -> Result<(), FlatStorageError> {
+        for (key, value) in self.0.into_iter() {
+            let item_key = NewKeyForFlatStateDelta { shard_id, block_hash, key };
+            let bytes = item_key.encode();
+            store_update
+                .set_ser(DBCol::FlatStateDeltas, &bytes, &value)
+                .map_err(|_| FlatStorageError::StorageInternalError)?;
+        }
+        Ok(())
+    }
 }
 
+use byteorder::{BigEndian, ReadBytesExt};
 use near_o11y::metrics::IntGauge;
 use near_primitives::errors::StorageError;
 #[cfg(feature = "protocol_feature_flat_state")]
@@ -565,8 +616,9 @@ impl Into<i64> for &FlatStorageCreationStatus {
 pub mod store_helper {
     use crate::flat_state::{
         FetchingStateStatus, FlatStorageCreationStatus, FlatStorageError, KeyForFlatStateDelta,
+        NewKeyForFlatStateDelta,
     };
-    use crate::{FlatStateDelta, Store, StoreUpdate};
+    use crate::{DBCol, FlatStateDelta, Store, StoreUpdate};
     use borsh::BorshSerialize;
     use near_primitives::hash::CryptoHash;
     use near_primitives::state::ValueRef;
@@ -582,11 +634,17 @@ pub mod store_helper {
         shard_id: ShardId,
         block_hash: CryptoHash,
     ) -> Result<Option<Arc<FlatStateDelta>>, FlatStorageError> {
-        let key = KeyForFlatStateDelta { shard_id, block_hash };
-        Ok(store
-            .get_ser::<FlatStateDelta>(crate::DBCol::FlatStateDeltas, &key.try_to_vec().unwrap())
-            .map_err(|_| FlatStorageError::StorageInternalError)?
-            .map(|delta| Arc::new(delta)))
+        let key_prefix = NewKeyForFlatStateDelta::db_prefix(shard_id, block_hash);
+        let mut delta = Arc::new(FlatStateDelta::default());
+        for item in store.iter_prefix_ser(DBCol::FlatStateDeltas, &key_prefix) {
+            let (key, value) = item.map_err(|_| FlatStorageError::StorageInternalError)?;
+            delta.insert(key.to_vec(), value);
+        }
+        if delta.len() == 0 {
+            Ok(None)
+        } else {
+            Ok(Some(delta))
+        }
     }
 
     pub fn set_delta(
@@ -595,15 +653,19 @@ pub mod store_helper {
         block_hash: CryptoHash,
         delta: &FlatStateDelta,
     ) -> Result<(), FlatStorageError> {
-        let key = KeyForFlatStateDelta { shard_id, block_hash };
-        store_update
-            .set_ser(crate::DBCol::FlatStateDeltas, &key.try_to_vec().unwrap(), delta)
-            .map_err(|_| FlatStorageError::StorageInternalError)
+        // let key = KeyForFlatStateDelta { shard_id, block_hash };
+        // store_update
+        //     .set_ser(crate::DBCol::FlatStateDeltas, &key.try_to_vec().unwrap(), delta)
+        //     .map_err(|_| FlatStorageError::StorageInternalError)
+        delta.save(shard_id, block_hash, store_update)
     }
 
     pub fn remove_delta(store_update: &mut StoreUpdate, shard_id: ShardId, block_hash: CryptoHash) {
-        let key = KeyForFlatStateDelta { shard_id, block_hash };
-        store_update.delete(crate::DBCol::FlatStateDeltas, &key.try_to_vec().unwrap());
+        let key_prefix_from = NewKeyForFlatStateDelta::db_prefix(shard_id, block_hash);
+        // Append 255 because it exceeds all trie key prefixes
+        let mut key_prefix_to = key_prefix_from.clone();
+        key_prefix_to.push(255u8);
+        store_update.delete_range(crate::DBCol::FlatStateDeltas, &key_prefix_from, &key_prefix_to);
     }
 
     fn flat_head_key(shard_id: ShardId) -> Vec<u8> {
