@@ -43,7 +43,7 @@ See http://go/mainnet-genesis for more details.
 
 This means that each epoch lasts around 15 hours.
 
-**Important**: sometimes there might be ‘troubles’ on the network, that might result
+**Important:** sometimes there might be ‘troubles’ on the network, that might result
 in epoch lasting a little bit longer (if we cannot get enough signatures on the
 last blocks of the previous epoch).
 
@@ -52,7 +52,7 @@ You can read specific details on our
 
 ## How do we pick the next validators?
 
-**TL;DR**: in the last block of the epoch T, we look at the accounts that have
+**TL;DR:** in the last block of the epoch T, we look at the accounts that have
 highest stake and we pick them to become validators in **T+2**.
 
 We are deciding on validators for T+2 (and not T+1) as we want to make sure that
