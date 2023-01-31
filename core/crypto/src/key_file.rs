@@ -1,8 +1,8 @@
+use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io;
 use std::io::{Read, Write};
 use std::path::Path;
-use serde::{Deserialize, Serialize};
 
 use crate::{PublicKey, SecretKey};
 use near_account_id::AccountId;
@@ -38,11 +38,12 @@ impl KeyFile {
 
     pub fn from_file(path: &Path) -> io::Result<Self> {
         let mut file = File::open(path)?;
-        let mut content = String::new();
-        file.read_to_string(&mut content)?;
-        let content_without_comments: String = near_config_utils::strip_comments_from_str(&content)?;
+        let mut json_config_str = String::new();
+        file.read_to_string(&mut json_config_str)?;
+        let json_str_without_comments: String =
+            near_config_utils::strip_comments_from_json_str(&json_config_str)?;
 
-        Ok(serde_json::from_str(&content_without_comments)?)
+        Ok(serde_json::from_str(&json_str_without_comments)?)
     }
 }
 

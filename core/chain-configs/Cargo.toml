@@ -14,7 +14,6 @@ description = "This crate provides typed interfaces to the NEAR Genesis and Chai
 anyhow.workspace = true
 chrono.workspace = true
 derive_more.workspace = true
-json_comments.workspace = true
 num-rational.workspace = true
 once_cell.workspace = true
 serde.workspace = true

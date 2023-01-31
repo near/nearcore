@@ -20,7 +20,6 @@ futures.workspace = true
 hyper-tls.workspace = true
 hyper.workspace = true
 indicatif.workspace = true
-json_comments.workspace = true
 num-rational.workspace = true
 once_cell.workspace = true
 rand.workspace = true

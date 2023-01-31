@@ -59,20 +59,21 @@ where
     for<'a> T: Deserialize<'a>,
 {
     match std::fs::read_to_string(path) {
-        Ok(config_str) => {
-            match near_config_utils::strip_comments_from_str(&config_str) {
-                Ok(content_without_comments) => {
-                    match serde_json::from_str::<T>(&content_without_comments) {
-                        Ok(config) => {
-                            tracing::info!(target: "neard", config=?config, "Changing the config {path:?}.");
-                            return Ok(Some(config));
-                        },
-                        Err(err) => Err(UpdateableConfigLoaderError::Parse { file: path.to_path_buf(), err }),
+        Ok(config_str) => match near_config_utils::strip_comments_from_json_str(&config_str) {
+            Ok(config_str_without_comments) => {
+                match serde_json::from_str::<T>(&config_str_without_comments) {
+                    Ok(config) => {
+                        tracing::info!(target: "neard", config=?config, "Changing the config {path:?}.");
+                        return Ok(Some(config));
                     }
-                },
-                Err(err) => Err(UpdateableConfigLoaderError::OpenAndRead { file: path.to_path_buf(), err  }),
+                    Err(err) => {
+                        Err(UpdateableConfigLoaderError::Parse { file: path.to_path_buf(), err })
+                    }
+                }
             }
-            
+            Err(err) => {
+                Err(UpdateableConfigLoaderError::OpenAndRead { file: path.to_path_buf(), err })
+            }
         },
         Err(err) => match err.kind() {
             std::io::ErrorKind::NotFound => {

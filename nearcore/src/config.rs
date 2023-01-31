@@ -395,12 +395,12 @@ impl Default for Config {
 
 impl Config {
     pub fn from_file(path: &Path) -> anyhow::Result<Self> {
-        let contents = std::fs::read_to_string(path)
+        let json_str = std::fs::read_to_string(path)
             .with_context(|| format!("Failed to read config from {}", path.display()))?;
         let mut unrecognised_fields = Vec::new();
-        let contents_without_comments = near_config_utils::strip_comments_from_str(&contents)?;
+        let json_str_without_comments = near_config_utils::strip_comments_from_json_str(&json_str)?;
         let config: Config = serde_ignored::deserialize(
-            &mut serde_json::Deserializer::from_str(&contents_without_comments),
+            &mut serde_json::Deserializer::from_str(&json_str_without_comments),
             |field| {
                 let field = field.to_string();
                 // TODO(mina86): Remove this deprecation notice some time by the
@@ -1300,12 +1300,12 @@ struct NodeKeyFile {
 impl NodeKeyFile {
     fn from_file(path: &Path) -> std::io::Result<Self> {
         let mut file = File::open(path)?;
-        let mut content = String::new();
-        file.read_to_string(&mut content)?;
-        
-        let content_without_comments = near_config_utils::strip_comments_from_str(&content)?;
+        let mut json_str = String::new();
+        file.read_to_string(&mut json_str)?;
 
-        Ok(serde_json::from_str(&content_without_comments)?)
+        let json_str_without_comments = near_config_utils::strip_comments_from_json_str(&json_str)?;
+
+        Ok(serde_json::from_str(&json_str_without_comments)?)
     }
 }
 
