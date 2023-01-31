@@ -332,7 +332,7 @@ mod imp {
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
-use crate::{metrics, CryptoHash, DBCol, Store, StoreUpdate};
+use crate::{metrics, CryptoHash, Store, StoreUpdate};
 pub use imp::{FlatState, FlatStateFactory};
 use near_primitives::state::ValueRef;
 use near_primitives::types::{BlockHeight, RawStateChangesWithTrieKey, ShardId};
@@ -352,6 +352,7 @@ pub struct NewKeyForFlatStateDelta {
 }
 
 impl NewKeyForFlatStateDelta {
+    #[allow(unused)]
     fn db_prefix(shard_id: ShardId, block_hash: CryptoHash) -> Vec<u8> {
         let mut out = Vec::new();
         out.extend(shard_id.to_be_bytes());
@@ -359,6 +360,7 @@ impl NewKeyForFlatStateDelta {
         out
     }
 
+    #[allow(unused)]
     fn encode(&self) -> Vec<u8> {
         let mut out = Vec::new();
         out.extend(self.shard_id.to_be_bytes());
@@ -367,6 +369,7 @@ impl NewKeyForFlatStateDelta {
         out
     }
 
+    #[allow(unused)]
     fn decode(mut bytes: &[u8]) -> Result<Self, std::io::Error> {
         let shard_id = bytes.read_u64::<BigEndian>()?;
         let mut arr = [0; 32];
@@ -462,11 +465,11 @@ impl FlatStateDelta {
         block_hash: CryptoHash,
         store_update: &mut StoreUpdate,
     ) -> Result<(), FlatStorageError> {
-        for (key, value) in self.0.into_iter() {
-            let item_key = NewKeyForFlatStateDelta { shard_id, block_hash, key };
+        for (key, value) in self.0.iter() {
+            let item_key = NewKeyForFlatStateDelta { shard_id, block_hash, key: key.clone() };
             let bytes = item_key.encode();
             store_update
-                .set_ser(DBCol::FlatStateDeltas, &bytes, &value)
+                .set_ser(crate::DBCol::FlatStateDeltas, &bytes, value)
                 .map_err(|_| FlatStorageError::StorageInternalError)?;
         }
         Ok(())
@@ -645,7 +648,7 @@ pub mod store_helper {
         block_hash: CryptoHash,
     ) -> Result<Option<Arc<FlatStateDelta>>, FlatStorageError> {
         let key_prefix = NewKeyForFlatStateDelta::db_prefix(shard_id, block_hash);
-        let mut delta = Arc::new(FlatStateDelta::default());
+        let mut delta = FlatStateDelta::default();
         for item in store.iter_prefix_ser(DBCol::FlatStateDeltas, &key_prefix) {
             let (key, value) = item.map_err(|_| FlatStorageError::StorageInternalError)?;
             delta.insert(key.to_vec(), value);
@@ -653,7 +656,7 @@ pub mod store_helper {
         if delta.len() == 0 {
             Ok(None)
         } else {
-            Ok(Some(delta))
+            Ok(Some(Arc::new(delta)))
         }
     }
 
