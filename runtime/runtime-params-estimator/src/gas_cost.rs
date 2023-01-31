@@ -78,19 +78,17 @@ impl GasCost {
 
     /// Like [`std::cmp::Ord::min`] but operates on heterogenous types ([`GasCost`] + [`Gas`]).
     pub(crate) fn min_gas(mut self, gas: Gas) -> Self {
-        if self.to_gas() < gas {
-            let to_add = Ratio::from(gas - self.to_gas());
-            if let Some(qemu) = &mut self.qemu {
-                // QEMU gas is split across multiple components (instructions
-                // and IO). When rounding up to an amount of gas, the assumption
-                // is that the caller does not care about how the extra gas is
-                // distributed. So we add it to the instruction counter and
-                // don't touch the other values.
-                qemu.instructions += to_add / GAS_IN_INSTR;
-            } else {
-                // Time is a single component that we can just set directly.
-                self.time_ns = Some(Ratio::from(gas) / GAS_IN_NS);
-            }
+        let Some(to_add) = gas.checked_sub(self.to_gas()) else { return self; };
+        if let Some(qemu) = &mut self.qemu {
+            // QEMU gas is split across multiple components (instructions
+            // and IO). When rounding up to an amount of gas, the assumption
+            // is that the caller does not care about how the extra gas is
+            // distributed. So we add it to the instruction counter and
+            // don't touch the other values.
+            qemu.instructions += Ratio::from(to_add) / GAS_IN_INSTR;
+        } else {
+            // Time is a single component that we can just set directly.
+            self.time_ns = Some(Ratio::from(gas) / GAS_IN_NS);
         }
         self
     }
