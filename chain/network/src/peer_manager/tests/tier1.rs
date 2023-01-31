@@ -5,8 +5,8 @@ use crate::peer_manager;
 use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::peer_manager::testonly::start as start_pm;
 use crate::peer_manager::testonly::Event;
-use crate::tcp;
 use crate::stun;
+use crate::tcp;
 use crate::testonly::{make_rng, Rng};
 use crate::time;
 use near_o11y::testonly::init_test_logger;
@@ -389,7 +389,6 @@ async fn tier2_routing_using_accounts_data() {
     send_and_recv_tier1_message(rng, &clock.clock(), &pm0, &pm1, tcp::Tier::T2).await;
 }
 
-
 #[tokio::test]
 async fn stun_self_discovery() {
     init_test_logger();
@@ -403,17 +402,15 @@ async fn stun_self_discovery() {
     let stun_server2 = stun::testonly::Server::new().await;
     let mut cfg = chain.make_config(rng);
     let vc = cfg.validator.as_mut().unwrap();
-    vc.proxies = config::ValidatorProxies::Dynamic(vec![
-        stun_server1.addr(),
-        stun_server2.addr(),
-    ]);
+    vc.proxies = config::ValidatorProxies::Dynamic(vec![stun_server1.addr(), stun_server2.addr()]);
 
-    tracing::info!(target:"test", "spawn a node and advertixe AccountData.");
+    tracing::info!(target:"test", "spawn a node and advertize AccountData.");
     let pm = start_pm(clock.clock(), TestDB::new(), cfg, chain.clone()).await;
     let chain_info = peer_manager::testonly::make_chain_info(&chain, &[&pm.cfg]);
     pm.set_chain_info(chain_info).await;
-    let data: HashSet<_> = pm.tier1_advertise_proxies(&clock.clock()).await.into_iter().collect();
-    // TODO
+    let got = pm.tier1_advertise_proxies(&clock.clock()).await.unwrap();
+    let want = vec![PeerAddr { peer_id: pm.cfg.node_id(), addr: *pm.cfg.node_addr.unwrap() }];
+    assert_eq!(want, got.proxies);
 
     tracing::info!(target:"test", "close the stun servers");
     drop(pm);
