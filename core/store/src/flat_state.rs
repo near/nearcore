@@ -78,6 +78,7 @@ mod imp {
         /// Used to access flat state stored at the head of flat storage.
         /// It should store all trie keys and values/value refs for the state on top of
         /// flat_storage_state.head, except for delayed receipt keys.
+        #[allow(unused)]
         store: Store,
         /// Block hash on top of which `FlatState` will return `ValueRef`s.
         block_hash: CryptoHash,
@@ -901,23 +902,24 @@ impl FlatStorageState {
         })))
     }
 
-    /// Gets delta for the given block and shard id which `FlatStorageState`
-    /// corresponds to.
-    #[cfg(feature = "protocol_feature_flat_state")]
-    fn get_delta(&self, block_hash: &CryptoHash) -> Result<Arc<FlatStateDelta>, FlatStorageError> {
-        let guard = self.0.write().expect(POISONED_LOCK_ERR);
-        guard.get_delta(block_hash)
-    }
-
-    #[cfg(not(feature = "protocol_feature_flat_state"))]
-    #[allow(unused)]
-    fn get_delta(&self, _block_hash: &CryptoHash) -> Result<Arc<FlatStateDelta>, FlatStorageError> {
-        Err(FlatStorageError::StorageInternalError)
-    }
+    // /// Gets delta for the given block and shard id which `FlatStorageState`
+    // /// corresponds to.
+    // #[cfg(feature = "protocol_feature_flat_state")]
+    // fn get_delta(&self, block_hash: &CryptoHash) -> Result<Arc<FlatStateDelta>, FlatStorageError> {
+    //     let guard = self.0.write().expect(POISONED_LOCK_ERR);
+    //     guard.get_delta(block_hash)
+    // }
+    //
+    // #[cfg(not(feature = "protocol_feature_flat_state"))]
+    // #[allow(unused)]
+    // fn get_delta(&self, _block_hash: &CryptoHash) -> Result<Arc<FlatStateDelta>, FlatStorageError> {
+    //     Err(FlatStorageError::StorageInternalError)
+    // }
 
     /// Get sequence of blocks `target_block_hash` (inclusive) to flat head (exclusive)
     /// in backwards chain order. Returns an error if there is no path between them.
     #[cfg(feature = "protocol_feature_flat_state")]
+    #[cfg(test)]
     fn get_blocks_to_head(
         &self,
         target_block_hash: &CryptoHash,
@@ -941,7 +943,7 @@ impl FlatStorageState {
         block_hash: &CryptoHash,
         key: &[u8],
     ) -> Result<Option<ValueRef>, crate::StorageError> {
-        let mut guard = self.0.write().expect(POISONED_LOCK_ERR);
+        let guard = self.0.write().expect(POISONED_LOCK_ERR);
         let blocks_to_head = guard.get_blocks_to_head(block_hash).unwrap();
         for block_hash in blocks_to_head.iter() {
             // If we found a key in delta, we can return a value because it is the most recent key update.
@@ -964,7 +966,7 @@ impl FlatStorageState {
         _block_hash: &CryptoHash,
         _key: &[u8],
     ) -> Result<Option<ValueRef>, crate::StorageError> {
-        Err(FlatStorageError::StorageInternalError)
+        Err(StorageError::StorageInternalError)
     }
 
     /// Update the head of the flat storage, including updating the flat state in memory and on disk
