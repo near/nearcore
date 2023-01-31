@@ -944,7 +944,8 @@ impl FlatStorageState {
         key: &[u8],
     ) -> Result<Option<ValueRef>, crate::StorageError> {
         let guard = self.0.write().expect(POISONED_LOCK_ERR);
-        let blocks_to_head = guard.get_blocks_to_head(block_hash).unwrap();
+        let blocks_to_head =
+            guard.get_blocks_to_head(block_hash).map_err(|e| StorageError::from(e))?;
         for block_hash in blocks_to_head.iter() {
             // If we found a key in delta, we can return a value because it is the most recent key update.
             let delta = guard.get_delta(block_hash)?;
