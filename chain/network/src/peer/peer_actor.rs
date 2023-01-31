@@ -916,19 +916,23 @@ impl PeerActor {
                 None
             }
             RoutedMessageBody::PartialEncodedChunkRequest(request) => {
-                network_state.client.partial_encoded_chunk_request(request, msg_hash).await;
+                network_state
+                    .shards_manager_adapter
+                    .process_partial_encoded_chunk_request(request, msg_hash);
                 None
             }
             RoutedMessageBody::PartialEncodedChunkResponse(response) => {
-                network_state.client.partial_encoded_chunk_response(response, clock.now()).await;
+                network_state
+                    .shards_manager_adapter
+                    .process_partial_encoded_chunk_response(response, clock.now().into());
                 None
             }
             RoutedMessageBody::VersionedPartialEncodedChunk(chunk) => {
-                network_state.client.partial_encoded_chunk(chunk).await;
+                network_state.shards_manager_adapter.process_partial_encoded_chunk(chunk);
                 None
             }
             RoutedMessageBody::PartialEncodedChunkForward(msg) => {
-                network_state.client.partial_encoded_chunk_forward(msg).await;
+                network_state.shards_manager_adapter.process_partial_encoded_chunk_forward(msg);
                 None
             }
             RoutedMessageBody::ReceiptOutcomeRequest(_) => {

@@ -266,6 +266,9 @@ impl MockPeerManagerAdapter {
     pub fn pop_most_recent(&self) -> Option<PeerManagerMessageRequest> {
         self.requests.write().unwrap().pop_back()
     }
+    pub fn put_back_most_recent(&self, request: PeerManagerMessageRequest) {
+        self.requests.write().unwrap().push_back(request);
+    }
 }
 
 #[derive(Message, Clone, Debug)]
