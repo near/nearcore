@@ -14,6 +14,10 @@ ed25519 signatures efficiently.
   exposes debug info about the split storage.
   [#8432](https://github.com/near/nearcore/pull/8432)
 
+* `ClientConfig` can be updated while the node is running.
+  `dyn_config.json` is no longer needed as its contents were merged into `config.json`.
+  [#8240](https://github.com/near/nearcore/pull/8240)
+
 ## 1.31.0
 
 ### Non-protocol Changes

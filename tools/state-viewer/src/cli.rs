@@ -1,7 +1,7 @@
 use crate::commands::*;
-use crate::dump_state_parts::dump_state_parts;
 use crate::rocksdb_stats::get_rocksdb_stats;
-use crate::{dump_state_parts, epoch_info};
+use crate::state_parts::{apply_state_parts, dump_state_parts};
+use crate::{epoch_info, state_parts};
 use clap::{Args, Parser, Subcommand};
 use near_chain_configs::{GenesisChangeConfig, GenesisValidationMode};
 use near_primitives::account::id::AccountId;
@@ -28,6 +28,8 @@ pub enum StateViewerSubCommand {
     /// even if it's not included in any block on disk
     #[clap(alias = "apply_receipt")]
     ApplyReceipt(ApplyReceiptCmd),
+    /// Apply all or a single state part of a shard.
+    ApplyStateParts(ApplyStatePartsCmd),
     /// Apply a transaction if it occurs in some chunk we know about,
     /// even if it's not included in any block on disk
     #[clap(alias = "apply_tx")]
@@ -109,6 +111,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::ApplyChunk(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ApplyRange(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ApplyReceipt(cmd) => cmd.run(home_dir, near_config, store),
+            StateViewerSubCommand::ApplyStateParts(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ApplyTx(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::Chain(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::CheckBlock => check_block_chunk_existence(near_config, store),
@@ -207,6 +210,42 @@ impl ApplyReceiptCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
         let hash = CryptoHash::from_str(&self.hash).unwrap();
         apply_receipt(home_dir, near_config, store, hash).unwrap();
+    }
+}
+
+#[derive(Parser)]
+pub struct ApplyStatePartsCmd {
+    /// Selects an epoch. The dump will be of the state at the beginning of this epoch.
+    #[clap(subcommand)]
+    epoch_selection: state_parts::EpochSelection,
+    /// Shard id.
+    #[clap(long)]
+    shard_id: ShardId,
+    /// State part id. Leave empty to go through every part in the shard.
+    #[clap(long)]
+    part_id: Option<u64>,
+    /// Where to write the state parts to.
+    #[clap(long)]
+    root_dir: Option<PathBuf>,
+    /// Store state parts in an S3 bucket.
+    #[clap(long)]
+    s3_bucket: Option<String>,
+    /// Store state parts in an S3 bucket.
+    #[clap(long)]
+    s3_region: Option<String>,
+}
+
+impl ApplyStatePartsCmd {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+        apply_state_parts(
+            self.epoch_selection,
+            self.shard_id,
+            self.part_id,
+            home_dir,
+            near_config,
+            store,
+            state_parts::Location::new(self.root_dir, (self.s3_bucket, self.s3_region)),
+        );
     }
 }
 
@@ -361,7 +400,7 @@ impl DumpStateCmd {
 pub struct DumpStatePartsCmd {
     /// Selects an epoch. The dump will be of the state at the beginning of this epoch.
     #[clap(subcommand)]
-    epoch_selection: dump_state_parts::EpochSelection,
+    epoch_selection: state_parts::EpochSelection,
     /// Shard id.
     #[clap(long)]
     shard_id: ShardId,
@@ -370,8 +409,8 @@ pub struct DumpStatePartsCmd {
     part_id: Option<u64>,
     /// Where to write the state parts to.
     #[clap(long)]
-    output_dir: Option<PathBuf>,
-    /// S3 bucket to store state parts.
+    root_dir: Option<PathBuf>,
+    /// Store state parts in an S3 bucket.
     #[clap(long)]
     s3_bucket: Option<String>,
     /// S3 region to store state parts.
@@ -381,16 +420,6 @@ pub struct DumpStatePartsCmd {
 
 impl DumpStatePartsCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
-        assert_eq!(
-            self.s3_bucket.is_some(),
-            self.s3_region.is_some(),
-            "Need to provide either both or none of --s3-bucket and --s3-region"
-        );
-        let s3 = if let Some(s3_bucket) = self.s3_bucket {
-            Some((s3_bucket, self.s3_region.unwrap()))
-        } else {
-            None
-        };
         dump_state_parts(
             self.epoch_selection,
             self.shard_id,
@@ -398,8 +427,7 @@ impl DumpStatePartsCmd {
             home_dir,
             near_config,
             store,
-            self.output_dir,
-            s3,
+            state_parts::Location::new(self.root_dir, (self.s3_bucket, self.s3_region)),
         );
     }
 }
