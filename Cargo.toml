@@ -17,6 +17,7 @@ members = [
     "chain/pool",
     "chain/rosetta-rpc",
     "chain/telemetry",
+    "core/async",
     "core/account-id",
     "core/account-id/fuzz",
     "core/chain-configs",
@@ -104,7 +105,7 @@ crossbeam = "0.8"
 crossbeam-channel = "0.5"
 csv = "1.1.1"
 curve25519-dalek = "3"
-derive_more = "0.99.9"
+derive_more = { git = "https://github.com/JelteF/derive_more", rev = "ae8eeb90" }
 dirs = "4"
 easy-ext = "0.2"
 ed25519-dalek = "1"
