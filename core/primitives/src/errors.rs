@@ -202,6 +202,13 @@ pub enum ActionsValidationError {
     DelegateActionCantContainNestedOne,
     /// There should be the only one DelegateAction
     DelegateActionMustBeOnlyOne,
+    /// The transaction includes a feature that the current protocol version
+    /// does not support.
+    ///
+    /// Note: we stringify the protocol feature name instead of using
+    /// `ProtocolFeature` here because we don't want to leak the internals of
+    /// that type into observable borsh serialization.
+    UnsupportedProtocolFeature { protocol_feature: String },
 }
 
 /// Describes the error for validating a receipt.
@@ -325,7 +332,12 @@ impl Display for ActionsValidationError {
             ActionsValidationError::DelegateActionMustBeOnlyOne => write!(
                 f,
                 "The actions can contain the ony one DelegateAction"
-            )
+            ),
+            ActionsValidationError::UnsupportedProtocolFeature { protocol_feature } => write!(
+                    f,
+                    "Transaction requires protocol feature {} which is not supported by the current protocol version",
+                    protocol_feature
+            ),
         }
     }
 }

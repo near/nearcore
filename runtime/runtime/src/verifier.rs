@@ -164,8 +164,12 @@ pub fn validate_transaction(
         .into());
     }
 
-    validate_actions(&config.wasm_config.limit_config, &transaction.actions)
-        .map_err(InvalidTxError::ActionsValidation)?;
+    validate_actions(
+        &config.wasm_config.limit_config,
+        &transaction.actions,
+        current_protocol_version,
+    )
+    .map_err(InvalidTxError::ActionsValidation)?;
 
     let sender_is_receiver = &transaction.receiver_id == signer_id;
 
@@ -328,6 +332,7 @@ pub fn verify_and_charge_transaction(
 pub(crate) fn validate_receipt(
     limit_config: &VMLimitConfig,
     receipt: &Receipt,
+    current_protocol_version: ProtocolVersion,
 ) -> Result<(), ReceiptValidationError> {
     // We retain these checks here as to maintain backwards compatibility
     // with AccountId validation since we illegally parse an AccountId
@@ -343,7 +348,7 @@ pub(crate) fn validate_receipt(
 
     match &receipt.receipt {
         ReceiptEnum::Action(action_receipt) => {
-            validate_action_receipt(limit_config, action_receipt)
+            validate_action_receipt(limit_config, action_receipt, current_protocol_version)
         }
         ReceiptEnum::Data(data_receipt) => validate_data_receipt(limit_config, data_receipt),
     }
@@ -353,6 +358,7 @@ pub(crate) fn validate_receipt(
 fn validate_action_receipt(
     limit_config: &VMLimitConfig,
     receipt: &ActionReceipt,
+    current_protocol_version: ProtocolVersion,
 ) -> Result<(), ReceiptValidationError> {
     if receipt.input_data_ids.len() as u64 > limit_config.max_number_input_data_dependencies {
         return Err(ReceiptValidationError::NumberInputDataDependenciesExceeded {
@@ -360,7 +366,7 @@ fn validate_action_receipt(
             limit: limit_config.max_number_input_data_dependencies,
         });
     }
-    validate_actions(limit_config, &receipt.actions)
+    validate_actions(limit_config, &receipt.actions, current_protocol_version)
         .map_err(ReceiptValidationError::ActionsValidation)
 }
 
@@ -389,6 +395,7 @@ fn validate_data_receipt(
 pub(crate) fn validate_actions(
     limit_config: &VMLimitConfig,
     actions: &[Action],
+    current_protocol_version: ProtocolVersion,
 ) -> Result<(), ActionsValidationError> {
     if actions.len() as u64 > limit_config.max_actions_per_receipt {
         return Err(ActionsValidationError::TotalNumberOfActionsExceeded {
@@ -408,13 +415,22 @@ pub(crate) fn validate_actions(
         } else {
             #[cfg(feature = "protocol_feature_nep366_delegate_action")]
             if let Action::Delegate(_) = action {
+                if !checked_feature!(
+                    "protocol_feature_nep366_delegate_action",
+                    DelegateAction,
+                    current_protocol_version
+                ) {
+                    return Err(ActionsValidationError::UnsupportedProtocolFeature {
+                        protocol_feature: String::from("DelegateAction"),
+                    });
+                }
                 if found_delegate_action {
                     return Err(ActionsValidationError::DelegateActionMustBeOnlyOne);
                 }
                 found_delegate_action = true;
             }
         }
-        validate_action(limit_config, action)?;
+        validate_action(limit_config, action, current_protocol_version)?;
     }
 
     let total_prepaid_gas =
@@ -433,6 +449,8 @@ pub(crate) fn validate_actions(
 pub fn validate_action(
     limit_config: &VMLimitConfig,
     action: &Action,
+    #[cfg_attr(not(feature = "protocol_feature_nep366_delegate_action"), allow(unused))]
+    current_protocol_version: ProtocolVersion,
 ) -> Result<(), ActionsValidationError> {
     match action {
         Action::CreateAccount(_) => Ok(()),
@@ -444,7 +462,7 @@ pub fn validate_action(
         Action::DeleteKey(_) => Ok(()),
         Action::DeleteAccount(_) => Ok(()),
         #[cfg(feature = "protocol_feature_nep366_delegate_action")]
-        Action::Delegate(a) => validate_delegate_action(limit_config, a),
+        Action::Delegate(a) => validate_delegate_action(limit_config, a, current_protocol_version),
     }
 }
 
@@ -452,9 +470,10 @@ pub fn validate_action(
 fn validate_delegate_action(
     limit_config: &VMLimitConfig,
     signed_delegate_action: &SignedDelegateAction,
+    current_protocol_version: ProtocolVersion,
 ) -> Result<(), ActionsValidationError> {
     let actions = signed_delegate_action.delegate_action.get_actions();
-    validate_actions(limit_config, &actions)?;
+    validate_actions(limit_config, &actions, current_protocol_version)?;
     Ok(())
 }
 
