@@ -35,7 +35,6 @@ use near_primitives::{
     },
     version::ProtocolVersion,
 };
-use json_comments::StripComments;
 
 const MAX_GAS_PRICE: Balance = 10_000_000_000_000_000_000_000;
 
@@ -270,11 +269,11 @@ impl GenesisConfig {
     /// It panics if file cannot be open or read, or the contents cannot be parsed from JSON to the
     /// GenesisConfig structure.
     pub fn from_file<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
-        let file = File::open(path).with_context(|| "Could not open genesis config file.")?;
-        let reader = BufReader::new(file);
-        // Strip the comments from the input
-        let stripped = StripComments::new(reader);
-        let genesis_config: GenesisConfig = serde_json::from_reader(stripped)
+        let mut file = File::open(path).with_context(|| "Could not open genesis config file.")?;
+        let mut content = String::new();
+        file.read_to_string(&mut content)?;
+        let content_without_comments: String = near_config_utils::strip_comments_from_str(&content)?;
+        let genesis_config: GenesisConfig = serde_json::from_str(&content_without_comments)
             .with_context(|| "Failed to deserialize the genesis records.")?;
         Ok(genesis_config)
     }

@@ -2,12 +2,9 @@ use std::fs::File;
 use std::io;
 use std::io::{Read, Write};
 use std::path::Path;
-
-use json_comments::StripComments;
 use serde::{Deserialize, Serialize};
 
 use crate::{PublicKey, SecretKey};
-
 use near_account_id::AccountId;
 
 #[derive(Serialize, Deserialize)]
@@ -40,9 +37,10 @@ impl KeyFile {
     }
 
     pub fn from_file(path: &Path) -> io::Result<Self> {
-        let content = std::fs::read_to_string(path)?;
-        let mut content_without_comments = String::new();
-        StripComments::new(content.as_bytes()).read_to_string(&mut content_without_comments)?;
+        let mut file = File::open(path)?;
+        let mut content = String::new();
+        file.read_to_string(&mut content)?;
+        let content_without_comments: String = near_config_utils::strip_comments_from_str(&content)?;
 
         Ok(serde_json::from_str(&content_without_comments)?)
     }

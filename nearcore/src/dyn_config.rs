@@ -4,7 +4,6 @@ use near_dyn_configs::{UpdateableConfigLoaderError, UpdateableConfigs};
 use near_o11y::log_config::LogConfig;
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
-use json_comments::StripComments;
 
 const LOG_CONFIG_FILENAME: &str = "log_config.json";
 
@@ -61,17 +60,20 @@ where
 {
     match std::fs::read_to_string(path) {
         Ok(config_str) => {
-            // Strip the comments from the input
-            let stripped = StripComments::new(config_str.as_bytes());
-
-            match serde_json::from_reader(stripped) {
-                Ok(config) => {
-                    tracing::info!(target: "neard", config=?config, "Changing the config {path:?}.");
-                    return Ok(Some(config));
-                }
-                Err(err) => Err(UpdateableConfigLoaderError::Parse { file: path.to_path_buf(), err }),
+            match near_config_utils::strip_comments_from_str(&config_str) {
+                Ok(content_without_comments) => {
+                    match serde_json::from_str::<T>(&content_without_comments) {
+                        Ok(config) => {
+                            tracing::info!(target: "neard", config=?config, "Changing the config {path:?}.");
+                            return Ok(Some(config));
+                        },
+                        Err(err) => Err(UpdateableConfigLoaderError::Parse { file: path.to_path_buf(), err }),
+                    }
+                },
+                Err(err) => Err(UpdateableConfigLoaderError::OpenAndRead { file: path.to_path_buf(), err  }),
             }
-       },
+            
+        },
         Err(err) => match err.kind() {
             std::io::ErrorKind::NotFound => {
                 tracing::info!(target: "neard", ?err, "Reset the config {path:?} because the config file doesn't exist.");

@@ -3023,6 +3023,7 @@ dependencies = [
  "chrono",
  "derive_more",
  "json_comments",
+ "near-config-utils",
  "near-crypto",
  "near-o11y",
  "near-primitives",
@@ -3142,6 +3143,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-config-utils"
+version = "0.0.0"
+dependencies = [
+ "json_comments",
+]
+
+[[package]]
 name = "near-crypto"
 version = "0.0.0"
 dependencies = [
@@ -3153,8 +3161,8 @@ dependencies = [
  "derive_more",
  "ed25519-dalek",
  "hex-literal",
- "json_comments",
  "near-account-id",
+ "near-config-utils",
  "near-stdx",
  "once_cell",
  "primitive-types",
@@ -3848,6 +3856,7 @@ dependencies = [
  "near-chunks",
  "near-client",
  "near-client-primitives",
+ "near-config-utils",
  "near-crypto",
  "near-dyn-configs",
  "near-epoch-manager",
