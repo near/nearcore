@@ -51,6 +51,10 @@ pub fn update_cold_db<D: Database>(
 
     let mut store_with_cache = StoreWithCache { store: hot_store, cache: StoreCache::new() };
 
+    if store_with_cache.get(DBCol::BlockHeight, &height.to_le_bytes())?.is_none() {
+        return Ok(());
+    }
+
     let key_type_to_keys = get_keys_from_store(&mut store_with_cache, shard_layout, height)?;
     for col in DBCol::iter() {
         if col.is_cold() {
