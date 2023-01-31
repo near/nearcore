@@ -79,10 +79,8 @@ mod imp {
         /// It should store all trie keys and values/value refs for the state on top of
         /// flat_storage_state.head, except for delayed receipt keys.
         store: Store,
-        /// Blocks ordered from block for which this `FlatState` was created to the
-        /// flat state head, so they come in backwards chain order.
-        /// Used to find updates for state keys in flat storage deltas.
-        blocks_to_head: Vec<CryptoHash>,
+        /// Block hash on top of which `FlatState` will return `ValueRef`s.
+        block_hash: CryptoHash,
         /// In-memory cache for the key value pairs stored on disk.
         #[allow(unused)]
         cache: FlatStateCache,
@@ -104,9 +102,7 @@ mod imp {
             cache: FlatStateCache,
             flat_storage_state: FlatStorageState,
         ) -> Self {
-            // TODO (#7327): process error gracefully
-            let blocks_to_head = flat_storage_state.get_blocks_to_head(&block_hash).unwrap();
-            Self { store, blocks_to_head, cache, flat_storage_state }
+            Self { store, block_hash, cache, flat_storage_state }
         }
         /// Returns value reference using raw trie key, taken from the state
         /// corresponding to block hash for which `FlatState` was created.
@@ -116,18 +112,7 @@ mod imp {
         /// could charge users for the value length before loading the value.
         // TODO (#7327): consider inlining small values, so we could use only one db access.
         pub fn get_ref(&self, key: &[u8]) -> Result<Option<ValueRef>, crate::StorageError> {
-            for block_hash in self.blocks_to_head.iter() {
-                // If we found a key in delta, we can return a value because it is the most recent key update.
-                let delta = self.flat_storage_state.get_delta(block_hash)?;
-                match delta.get(key) {
-                    Some(value_ref) => {
-                        return Ok(value_ref);
-                    }
-                    None => {}
-                };
-            }
-
-            Ok(store_helper::get_ref(&self.store, key)?)
+            self.flat_storage_state.get_ref(&self.block_hash, key)
         }
     }
 
@@ -950,6 +935,26 @@ impl FlatStorageState {
         Err(FlatStorageError::StorageInternalError)
     }
 
+    pub fn get_ref(
+        &self,
+        block_hash: &CryptoHash,
+        key: &[u8],
+    ) -> Result<Option<ValueRef>, crate::StorageError> {
+        let mut guard = self.0.write().expect(POISONED_LOCK_ERR);
+        let blocks_to_head = guard.get_blocks_to_head(block_hash).unwrap();
+        for block_hash in blocks_to_head.iter() {
+            // If we found a key in delta, we can return a value because it is the most recent key update.
+            let delta = guard.get_delta(block_hash)?;
+            match delta.get(key) {
+                Some(value_ref) => {
+                    return Ok(value_ref);
+                }
+                None => {}
+            };
+        }
+
+        Ok(store_helper::get_ref(&self.store, key)?)
+    }
     /// Update the head of the flat storage, including updating the flat state in memory and on disk
     /// and updating the flat state to reflect the state at the new head. If updating to given head is not possible,
     /// returns an error.
