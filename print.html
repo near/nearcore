@@ -289,7 +289,7 @@ structures.</p>
 <p>This crate contains most of the chain logic (consensus, block processing, etc).
 <code>ChainUpdate::process_block</code> is where most of the block processing logic
 happens.</p>
-<p><strong>Architecture Invariant</strong>: interface between chain and runtime is defined by
+<p><strong>Architecture Invariant:</strong> interface between chain and runtime is defined by
 <code>RuntimeWithEpochManagerAdapter</code>. All invocations of runtime go through <code>RuntimeWithEpochManagerAdapter</code></p>
 <p><strong>State update</strong></p>
 <p>The blockchain state of a node can be changed in the following two ways:</p>
@@ -323,17 +323,17 @@ blockchain nodes.</p>
 <p>Two important structs here: <code>PeerManagerActor</code> and <code>Peer</code>. Peer manager
 orchestrates all the communications from network to other components and from
 other components to network. <code>Peer</code> is responsible for low-level network
-communications from and to a given peer. Peer manager runs in one thread while
-each <code>Peer</code> runs in its own thread.</p>
-<!--TODO: Maybe add more clarification about what Peer is? -->
-<p><strong>Architecture Invariant</strong>: Network communicates to <code>Client</code> through
+communications from and to a given peer (more details in
+<a href="architecture/./network.html#23-peeractor">this article</a>). Peer manager runs in one thread while each
+<code>Peer</code> runs in its own thread.</p>
+<p><strong>Architecture Invariant:</strong> Network communicates to <code>Client</code> through
 <code>NetworkClientMessages</code> and to <code>ViewClient</code> through <code>NetworkViewClientMessages</code>.
 Conversely, <code>Client</code> and <code>ViewClient</code> communicates to network through
 <code>NetworkRequests</code>.</p>
 <h3 id="chainepoch_manager"><a class="header" href="#chainepoch_manager"><code>chain/epoch_manager</code></a></h3>
 <p>This crate is responsible for determining validators and other epoch related
 information such as epoch id for each epoch.</p>
-<p><strong>Note</strong>: <code>EpochManager</code> is constructed in <code>NightshadeRuntime</code> rather than in
+<p><strong>Note:</strong> <code>EpochManager</code> is constructed in <code>NightshadeRuntime</code> rather than in
 <code>Chain</code>, partially because we had this idea of making epoch manager a smart
 contract.</p>
 <h3 id="chainjsonrpc"><a class="header" href="#chainjsonrpc"><code>chain/jsonrpc</code></a></h3>
@@ -349,7 +349,7 @@ the other hand, are sent to <code>ClientActor</code> for further processing.</p>
 function takes <code>ApplyState</code>, which contains necessary information passed from
 chain to runtime, a list of <code>SignedTransaction</code> and a list of <code>Receipt</code>, and
 returns a <code>ApplyResult</code>, which includes state changes, execution outcomes, etc.</p>
-<p><strong>Architecture Invariant</strong>: The state update is only finalized at the end of
+<p><strong>Architecture Invariant:</strong> The state update is only finalized at the end of
 <code>apply</code>. During all intermediate steps state changes can be reverted.</p>
 <h3 id="runtimenear-vm-logic"><a class="header" href="#runtimenear-vm-logic"><code>runtime/near-vm-logic</code></a></h3>
 <p><code>VMLogic</code> contains all the implementations of host functions and is the
@@ -430,7 +430,7 @@ the network and sends messages to peers based on different triggers. Neard is
 implemented using an <a href="https://en.wikipedia.org/wiki/Actor_model">actor
 framework</a> called
 <a href="https://docs.rs/actix">actix</a>.</p>
-<p><strong>Note</strong>: Using actix was decided in the early days of the implementation of
+<p><strong>Note:</strong> Using actix was decided in the early days of the implementation of
 nearcore and by no means represents our confidence in actix. On the contrary, we
 have noticed a number of issues with actix and are considering implementing an
 actor framework in house.</p>
@@ -575,7 +575,7 @@ runs again if head has changed (progress is made) or if a timeout (which is
 set to 2s) has happened.</p>
 </li>
 </ol>
-<p><strong>Note</strong>: when a block is received and its height is no more than 500 + the
+<p><strong>Note:</strong> when a block is received and its height is no more than 500 + the
 node’s current head height, then the node would request its previous block
 automatically. This is called orphan sync and helps to speed up the syncing
 process. If, on the other hand, the height is more than 500 + the node’s current
@@ -625,7 +625,7 @@ blocks etc).</p>
 <p><strong>Catchup</strong> - is used when you want (or have to) start caring about (a.k.a.
 tracking) additional shards in the future epochs. Currently it should be a no-op
 for 99% of nodes (see below).</p>
-<p><strong>Tracking shards</strong>: as you know our system has multiple shards (currently 4).
+<p><strong>Tracking shards:</strong> as you know our system has multiple shards (currently 4).
 Currently 99% of nodes are tracking all the shards: validators have to - as they
 have to validate the chunks from all the shards, and normal nodes mostly also
 track all the shards as this is default.</p>
@@ -698,7 +698,7 @@ of the chain.</p>
 <p>Before adding the block, we want to download the chunks for the shards that we
 are tracking - so in many cases, we’ll call <code>missing_chunks</code> functions that will
 try to go ahead and request those chunks.</p>
-<p><strong>Note</strong>: as an optimization, we’re also sometimes trying to fetch chunks for
+<p><strong>Note:</strong> as an optimization, we’re also sometimes trying to fetch chunks for
 the blocks that are in the orphan pool – but only if they are not more than 3
 (<code>NUM_ORPHAN_ANCESTORS_CHECK</code>) blocks away from our head.</p>
 <p>We also keep a separate job in client_actor that keeps retrying chunk fetching
@@ -893,13 +893,13 @@ happens at epoch boundaries.</p>
 <!-- TODO: Where is this supposed to point to? -->
 <p>See http://go/mainnet-genesis for more details.</p>
 <p>This means that each epoch lasts around 15 hours.</p>
-<p><strong>Important</strong>: sometimes there might be ‘troubles’ on the network, that might result
+<p><strong>Important:</strong> sometimes there might be ‘troubles’ on the network, that might result
 in epoch lasting a little bit longer (if we cannot get enough signatures on the
 last blocks of the previous epoch).</p>
 <p>You can read specific details on our
 <a href="https://nomicon.io/BlockchainLayer/EpochManager/Epoch">nomicon page</a>.</p>
 <h2 id="how-do-we-pick-the-next-validators"><a class="header" href="#how-do-we-pick-the-next-validators">How do we pick the next validators?</a></h2>
-<p><strong>TL;DR</strong>: in the last block of the epoch T, we look at the accounts that have
+<p><strong>TL;DR:</strong> in the last block of the epoch T, we look at the accounts that have
 highest stake and we pick them to become validators in <strong>T+2</strong>.</p>
 <p>We are deciding on validators for T+2 (and not T+1) as we want to make sure that
 validators have enough time to prepare for block production and validation (they
@@ -977,7 +977,7 @@ private key.</p>
 node in the system (they can choose between using ‘sync’ or ‘async’ options).</p>
 <p>From now on, they’ll also be able to query the status of the transaction - by
 using the hash of this object.</p>
-<p><strong>Fun fact</strong>: the <code>Transaction</code> object also contains some fields to prevent
+<p><strong>Fun fact:</strong> the <code>Transaction</code> object also contains some fields to prevent
 attacks: like <code>nonce</code> to prevent replay attack, and <code>block_hash</code> to limit the
 validity of the transaction (it must be added within
 <code>transaction_validity_period</code> (defined in genesis) blocks of <code>block_hash</code>).</p>
@@ -1044,7 +1044,7 @@ contract) - they are created by the block/chunk producers.</p>
 <p>Once a chunk producer is ready to produce a chunk, it will fetch the
 transactions from its mempool, check that they are valid, and if so, prepare to
 process them into receipts.</p>
-<p><strong>Note</strong>: There are additional restrictions (e.g. making sure that we take them in
+<p><strong>Note:</strong> There are additional restrictions (e.g. making sure that we take them in
 the right order, that we don’t take too many, etc.) - that you can see in
 nomicon’s <a href="https://nomicon.io/ChainSpec/Transactions">transaction page</a>.</p>
 <p>You can see this part in explorer:</p>
@@ -1053,11 +1053,11 @@ nomicon’s <a href="https://nomicon.io/ChainSpec/Transactions">transaction page
 <p>Once we have a receipt, we have to send it to the proper destination - by adding
 it to the <code>outgoing_receipt</code> list, which will be forwarded to the chunk
 producers from the next block.</p>
-<p><strong>Note</strong>: There is a special case here - if the sender of the receipt is the
+<p><strong>Note:</strong> There is a special case here - if the sender of the receipt is the
 same as the receiver, then the receipt will be added to the <code>local_receipts</code>
 queue and executed in the same block.</p>
 <h3 id="step-3-when-an-incoming-receipt-arrives"><a class="header" href="#step-3-when-an-incoming-receipt-arrives">Step 3: When an incoming receipt arrives</a></h3>
-<p>(<strong>Note</strong>: this happens in the ‘next’ block)</p>
+<p>(<strong>Note:</strong> this happens in the ‘next’ block)</p>
 <p>When a chunk producer receives an incoming receipt, it will try to execute its
 actions (creating accounts, executing function calls etc).</p>
 <p>Such actions might generate additional receipts (for example a contract might
@@ -1069,7 +1069,7 @@ the producer will put the remaining receipts onto the ‘delayed’ queue.</p>
 <p>When all the ‘dependant’ receipts are executed for a given transaction, we can
 consider the transaction to be successful.</p>
 <h3 id="advanced-but-reality-is-more-complex"><a class="header" href="#advanced-but-reality-is-more-complex">[Advanced] But reality is more complex</a></h3>
-<p><strong>Caution</strong>: In the section below, some things are simplified and do not match exactly 
+<p><strong>Caution:</strong> In the section below, some things are simplified and do not match exactly 
 how the current code works.</p>
 <p>Let’s quickly also check what’s inside a Chunk:</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -1230,7 +1230,7 @@ B, we'll see the transaction:</p>
     ),
 )
 </code></pre>
-<p><strong>Side note</strong>: When we're changing the transaction into a receipt, we also use
+<p><strong>Side note:</strong> When we're changing the transaction into a receipt, we also use
 this moment to deduct prepaid gas fees and transfered tokens from the 'signer'
 account. The details on how much gas is charged etc will be in a separate
 article.</p>
@@ -1305,7 +1305,7 @@ the shard where the <code>receiver</code> is (in our example <code>shard1</code>
     ),
 )
 </code></pre>
-<p><strong>Side comment</strong>: notice that the receipt itself no longer has a <code>signer</code> field, but
+<p><strong>Side comment:</strong> notice that the receipt itself no longer has a <code>signer</code> field, but
 a <code>predecessor_id</code> one.</p>
 <p>Such a receipt is sent to the destination shard (we'll explain this process in a
 separate article) where it can be executed.</p>
@@ -1384,7 +1384,7 @@ executed).</p>
 <p>Such gas refund receipts are a little bit special - as we'll set the
 <code>predecessor_id</code> to be <code>system</code> - but the receiver is what we expect (<code>shard0</code>
 account).</p>
-<p><strong>Note</strong>: <code>system</code> is a special account that doesn't really belong to any shard.
+<p><strong>Note:</strong> <code>system</code> is a special account that doesn't really belong to any shard.
 As you can see in this example, the receipt was created within shard 1.</p>
 <p>So putting it all together would look like this:</p>
 <p><img src="https://user-images.githubusercontent.com/91919554/200617392-00b9fa0c-2f15-40ad-9802-137ca9a5a15d.png" alt="image" /></p>
@@ -1762,7 +1762,7 @@ would be telling the truth. But what if that is not enough?</p>
 transactions yourself, and then you could be sure - but this can become a quite
 expensive endeavour - especially when many shards are involved.</p>
 <p>But there is actually a better solution - that doesn’t require you to trust the
-single (or many) RPC nodes, and to verify yourself that your transaction was
+single (or many) RPC nodes, and to verify, by yourself, that your transaction was
 actually executed.</p>
 <h2 id="lets-talk-about-proofs-merkelization"><a class="header" href="#lets-talk-about-proofs-merkelization">Let’s talk about proofs (merkelization):</a></h2>
 <p>Imagine you have 4 values that you’d like to store, in such a way, that you can
@@ -1773,9 +1773,9 @@ hash:</p>
 <ul>
 <li>leaves would hold the hashes that represent the hash of the respective value.</li>
 <li>internal nodes would hold the hash of “concatenation of hashes of their children”</li>
-<li>the top node would be called a a root node (in this image it is a node n7)</li>
+<li>the top node would be called a root node (in this image it is the node n7)</li>
 </ul>
-<p>With such setup, you can prove that a given value exists in this tree, by
+<p>With such a setup, you can prove that a given value exists in this tree, by
 providing a “path” from the corresponding leaf to the root, and including all
 the siblings.</p>
 <p>For example to prove that value v[1] exists, we have to provide all the nodes
@@ -1787,9 +1787,9 @@ are:</p>
 [(Left, n0), (Right, n6)]
 
 # Verification
-assert_eq(root, hash(hash(n0, hash(v[1])),n6)))
+assert_eq!(root, hash(hash(n0, hash(v[1])), n6))
 </code></pre>
-<p>We use the technique above (called merkelization) in couple places in our
+<p>We use the technique above (called merkelization) in a couple of places in our
 protocol, but for today’s article, I’d like to focus on receipts &amp; outcome
 roots.</p>
 <h2 id="merkelization-receipts-and-outcomes"><a class="header" href="#merkelization-receipts-and-outcomes">Merkelization, receipts and outcomes</a></h2>
@@ -1816,6 +1816,7 @@ themselves, so the first step is to find the correct chunk and fetch its
             validator_proposals: [],
         },
     ),
+}
 </code></pre>
 <p>The field that we care about is called <code>outcome_root</code>. This value represents the
 root of the binary merkle tree, that is created based on all the receipts that
@@ -1854,8 +1855,8 @@ something that RPC nodes do return in their responses.</p>
 tree the sibling is), on the path to the root.</p>
 <p><strong>Note:</strong> proof section doesn’t contain the root itself and also doesn’t include
 the hash of the receipt.</p>
-<h2 id="advanced-section-lets-look-at-the-concrete-example"><a class="header" href="#advanced-section-lets-look-at-the-concrete-example">[Advanced section]: Let’s look at the concrete example</a></h2>
-<p>Imagine that we have a following receipt:</p>
+<h2 id="advanced-section-lets-look-at-a-concrete-example"><a class="header" href="#advanced-section-lets-look-at-a-concrete-example">[Advanced section]: Let’s look at a concrete example</a></h2>
+<p>Imagine that we have the following receipt:</p>
 <pre><code>{
   block_hash: '7FtuLHR3VSNhVTDJ8HmrzTffFWoWPAxBusipYa2UfrND',
   id: '6bdKUtGbybhYEQ2hb2BFCTDMrtPBw8YDnFpANZHGt5im',
@@ -1890,7 +1891,7 @@ let’s find the next block hash, and the proper chunk.</p>
 <pre><code>417 7FtuLHR3VSNhVTDJ8HmrzTffFWoWPAxBusipYa2UfrND |      node0 | parent: 416 C9WnNCbNvkQvnS7jdpaSGrqGvgM7Wwk5nQvkNC9aZFBH | .... 0: E6pfD84bvHmEWgEAaA8USCn2X3XUJAbFfKLmYez8TgZ8 107 Tgas |1: Ch1zr9TECSjDVaCjupNogLcNfnt6fidtevvKGCx8c9aC 104 Tgas |2: 87CmpU6y7soLJGTVHNo4XDHyUdy5aj9Qqy4V7muF5LyF   0 Tgas |3: CtaPWEvtbV4pWem9Kr7Ex3gFMtPcKL4sxDdXD4Pc7wah   0 Tgas
 418 J9WQV9iRJHG1shNwGaZYLEGwCEdTtCEEDUTHjboTLLmf |      node0 | parent: 417 7FtuLHR3VSNhVTDJ8HmrzTffFWoWPAxBusipYa2UfrND | .... 0: 7APjALaoxc8ymqwHiozB5BS6mb3LjTgv4ofRkKx2hMZZ   0 Tgas |1: BoVf3mzDLLSvfvsZ2apPSAKjmqNEHz4MtPkmz9ajSUT6   0 Tgas |2: Auz4FzUCVgnM7RsQ2noXsHW8wuPPrFxZToyLaYq6froT   0 Tgas |3: 5ub8CZMQmzmZYQcJU76hDC3BsajJfryjyShxGF9rzpck   1 Tgas
 </code></pre>
-<p>I know that receipt should belong to Shard 3 (TODO: how? :) )  so let’s fetch
+<p>I know that the receipt should belong to Shard 3 <!-- TODO: how? :) --> so let’s fetch
 the chunk header:</p>
 <pre><code class="language-console">$ neard view-state chunks --chunk-hash 5ub8CZMQmzmZYQcJU76hDC3BsajJfryjyShxGF9rzpck
 </code></pre>
@@ -1917,21 +1918,22 @@ the chunk header:</p>
   hash: ChunkHash(
       `5ub8CZMQmzmZYQcJU76hDC3BsajJfryjyShxGF9rzpck`,
   ),
-},
+}
 </code></pre>
-<p>So the outcome_root is <code>2sZ81kLj2cw5UHTjdTeMxmaWn2zFeyr5pFunxn6aGTNB</code> - let’s
+<p>So the <code>outcome_root</code> is <code>2sZ81kLj2cw5UHTjdTeMxmaWn2zFeyr5pFunxn6aGTNB</code> - let’s
 verify it then.</p>
 <p>Our first step is to compute the hash of the receipt, which is equal to
 <code>hash([receipt_id, hash(borsh(receipt_payload)])</code></p>
-<pre><code># this is a borsh serialized ExecutionOutcome struct.
+<pre><code class="language-python"># this is a borsh serialized ExecutionOutcome struct.
 # computing this, we leave as an exercise for the reader :-)
 receipt_payload_hash = &quot;7PeGiDjssz65GMCS2tYPHUm6jYDeBCzpuPRZPmLNKSy7&quot;
 
-receipt_hash = base58.b58encode(hashlib.sha256(struct.pack(&quot;&lt;I&quot;, 2) + base58.b58decode(&quot;6bdKUtGbybhYEQ2hb2BFCTDMrtPBw8YDnFpANZHGt5im&quot;)  + base58.b58decode(receipt_payload_hash)).digest())
+receipt_hash = base58.b58encode(hashlib.sha256(struct.pack(&quot;&lt;I&quot;, 2) + base58.b58decode(&quot;6bdKUtGbybhYEQ2hb2BFCTDMrtPBw8YDnFpANZHGt5im&quot;) + base58.b58decode(receipt_payload_hash)).digest())
 </code></pre>
 <p>And then we can start reconstructing the tree:</p>
-<pre><code>def combine(a, b):
-   return hashlib.sha256(a+b).digest()
+<pre><code class="language-python">def combine(a, b):
+   return hashlib.sha256(a + b).digest()
+
 # one node example
 # combine(receipt_hash, &quot;BWwZ4wHuzaUxdDSrhAEPjFQtDgwzb8K4zoNzfX9A3SkK&quot;)
 # whole tree
@@ -2069,8 +2071,8 @@ write-buffering involved.</p>
 <p><img src="https://user-images.githubusercontent.com/6342444/215088748-028b754f-16be-4f56-9edd-6ce58ff1c9ef.svg" alt="Diagram with read and write request flow" /></p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="trie"><a class="header" href="#trie">Trie</a></h1>
 <p>We use Merkle-Patricia Trie to store blockchain state. Trie is persistent, which
-means that insertion of new node actually leads to creation of new path to this
-node, and thus root of Trie after insertion will also be presented by new
+means that insertion of new node actually leads to creation of a new path to this
+node, and thus root of Trie after insertion will also be represented by a new
 object.</p>
 <p>Here we describe its implementation details which are closely related to
 Runtime.</p>
@@ -2085,18 +2087,18 @@ communicates with database using <code>TrieStorage</code>. On the database level
 stored in key-value format in <code>DBCol::State</code> column. There are two kinds of
 records:</p>
 <ul>
-<li>trie nodes, for which key is constructed from shard id and
+<li>trie nodes, for the which key is constructed from shard id and
 <code>RawTrieNodeWithSize</code> hash, and value is a <code>RawTrieNodeWithSize</code> serialized by
-custom algorithm;</li>
-<li>values (encoded contract codes, postponed receipts, etc.), for which key is
-constructed from shard id and hash of value, which maps to the encoded value.</li>
+a custom algorithm;</li>
+<li>values (encoded contract codes, postponed receipts, etc.), for which the key is
+constructed from shard id and the hash of value, which maps to the encoded value.</li>
 </ul>
 <p>So, value can be obtained from <code>TrieKey</code> as follows:</p>
 <ul>
 <li>start from the hash of <code>RawTrieNodeWithSize</code> corresponding to the root;</li>
 <li>descend to the needed node using nibbles from <code>TrieKey</code>;</li>
 <li>extract underlying <code>RawTrieNode</code>;</li>
-<li>if it is a <code>Leaf</code> or <code>Branch</code>, it should contain hash of the value;</li>
+<li>if it is a <code>Leaf</code> or <code>Branch</code>, it should contain the hash of the value;</li>
 <li>get value from storage by its hash and shard id.</li>
 </ul>
 <p>Note that <code>Trie</code> is almost never called directly from <code>Runtime</code>, modifications
@@ -2113,22 +2115,22 @@ Update is prepared as follows:</p>
 </ul>
 <p>Note that <code>finalize</code>, <code>Trie::insert</code> and <code>Trie::update</code> do not update the
 database storage. These functions only modify trie nodes in memory. Instead,
-these functions prepares <code>TrieChanges</code> object, and <code>Trie</code> is actually updated
+these functions prepare the <code>TrieChanges</code> object, and <code>Trie</code> is actually updated
 when <code>ShardTries::apply_insertions</code> is called, which puts new values to
-<code>DBCol::State</code> part of key-value database.</p>
+<code>DBCol::State</code> part of the key-value database.</p>
 <h3 id="triestorage"><a class="header" href="#triestorage">TrieStorage</a></h3>
 <p>Stores all <code>Trie</code> nodes and allows to get serialized nodes by <code>TrieKey</code> hash
-using <code>retrieve_raw_bytes</code> method.</p>
+using the <code>retrieve_raw_bytes</code> method.</p>
 <p>There are three implementations of <code>TrieStorage</code>:</p>
 <ul>
-<li><code>TrieCachingStorage</code> - caches big values ever read by <code>retrieve_raw_bytes</code>.</li>
+<li><code>TrieCachingStorage</code> - caches all big values ever read by <code>retrieve_raw_bytes</code>.</li>
 <li><code>TrieRecordingStorage</code> - records all key-value pairs ever read by
 <code>retrieve_raw_bytes</code>. Used for obtaining state parts (and challenges in the
 future).</li>
 <li><code>TrieMemoryPartialStorage</code> - used for validating recorded partial storage.</li>
 </ul>
 <p>Note that these storages use database keys, which are retrieved using hashes of
-trie nodes using <code>get_key_from_shard_id_and_hash</code> method.</p>
+trie nodes using the <code>get_key_from_shard_id_and_hash</code> method.</p>
 <h3 id="shardtries"><a class="header" href="#shardtries">ShardTries</a></h3>
 <p>Contains stores and caches and allows to get <code>Trie</code> object for any shard.</p>
 <h2 id="primitives"><a class="header" href="#primitives">Primitives</a></h2>
@@ -2160,7 +2162,7 @@ inserted and deleted nodes.</li>
 </ul>
 <h3 id="trierefcountchange"><a class="header" href="#trierefcountchange">TrieRefcountChange</a></h3>
 <p>Because we remove unused nodes during garbage collection, we need to track
-reference count (<code>rc</code>) for each node. Another reason is that we can dedup
+the reference count (<code>rc</code>) for each node. Another reason is that we can dedup
 values. If the same contract is deployed 1000 times, we only store one contract
 binary in storage and track its count.</p>
 <p>This structure is used to update <code>rc</code> in the database:</p>
@@ -2172,7 +2174,7 @@ with shard id to get DB key,</li>
 </ul>
 <p>Note that for all reference-counted records, the actual value stored in DB is
 the concatenation of <code>trie_node_or_value</code> and <code>rc</code>. The reference count is
-updated using custom merge operation <code>merge_refcounted_records</code>.</p>
+updated using a custom merge operation <code>merge_refcounted_records</code>.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="on-disk-database-format"><a class="header" href="#on-disk-database-format">On-Disk Database Format</a></h1>
 <p>We store the database in RocksDB. This document is an attempt to give hints about how to navigate it.</p>
 <h2 id="rocksdb"><a class="header" href="#rocksdb">RocksDB</a></h2>
@@ -2260,16 +2262,16 @@ should call RuntimeAdapter.get_flat_storage_state_for_shard → FlatStorageState
 somewhat outdated, as we are in the process of refactoring the network protocol
 somewhat significantly.</p>
 <h1 id="1-overview"><a class="header" href="#1-overview">1. Overview</a></h1>
-<p>Near Protocol uses its own implementation of a custom peer-to-peer network Peers
-who join network are represented by nodes and connections between them by edges.</p>
-<p>The purpose of this document is to describe inner workings of <code>near-network</code>
-package; and to be used as reference by future engineers to understand network
+<p>Near Protocol uses its own implementation of a custom peer-to-peer network. Peers
+who join the network are represented by nodes and connections between them by edges.</p>
+<p>The purpose of this document is to describe the inner workings of the <code>near-network</code>
+package; and to be used as reference by future engineers to understand the network
 code without any prior knowledge.</p>
 <h1 id="2-code-structure"><a class="header" href="#2-code-structure">2. Code structure</a></h1>
-<p><code>near-network</code> runs on top of <code>actor</code> framework called <code>Actix</code>
-(https://actix.rs/docs/). Code structure is split between 4 actors
+<p><code>near-network</code> runs on top of the <code>actor</code> framework called 
+<a href="https://actix.rs/docs/"><code>Actix</code></a>. Code structure is split between 4 actors
 <code>PeerManagerActor</code>, <code>PeerActor</code>, <code>RoutingTableActor</code>, <code>EdgeValidatorActor</code></p>
-<h3 id="21-edgevalidatoractor-currently-called-edgeverifieractor-in-the-code-todo-rename"><a class="header" href="#21-edgevalidatoractor-currently-called-edgeverifieractor-in-the-code-todo-rename">2.1 <code>EdgeValidatorActor</code> (currently called <code>EdgeVerifierActor</code> in the code (TODO rename))</a></h3>
+<h3 id="21-edgevalidatoractor-currently-called-edgeverifieractor-in-the-code"><a class="header" href="#21-edgevalidatoractor-currently-called-edgeverifieractor-in-the-code">2.1 <code>EdgeValidatorActor</code> (currently called <code>EdgeVerifierActor</code> in the code<!-- TODO: rename -->)</a></h3>
 <p><code>EdgeValidatorActor</code> runs on separate thread. The purpose of this <code>actor</code> is to
 validate <code>edges</code>, where each <code>edge</code> represents a connection between two peers,
 and it's signed with a cryptographic signature of both parties. The process of
@@ -2277,24 +2279,24 @@ edge validation involves verifying cryptographic signatures, which can be quite
 expensive, and therefore was moved to another thread.</p>
 <p>Responsibilities:</p>
 <ul>
-<li>validating edges by checking whenever cryptographic signatures match.</li>
+<li>Validating edges by checking whenever cryptographic signatures match.</li>
 </ul>
 <h3 id="22-routingtableactor"><a class="header" href="#22-routingtableactor">2.2 <code>RoutingTableActor</code></a></h3>
-<p><code>RoutingTableActor</code> maintain view of the <code>P2P network</code> represented by set of
+<p><code>RoutingTableActor</code> maintains a view of the <code>P2P network</code> represented by a set of
 nodes and edges.</p>
 <p>In case a message needs to be sent between two nodes, that can be done directly
-through <code>Tcp</code> connection. Otherwise, <code>RoutingTableActor</code> is responsible for ping
+through a <code>TCP connection</code>. Otherwise, <code>RoutingTableActor</code> is responsible for pinging
 the best path between them.</p>
 <p>Responsibilities:</p>
 <ul>
-<li>keep set of all edges of <code>P2P network</code> called routing table</li>
-<li>connects to <code>EdgeValidatorActor</code>, and asks for edges to be validated, when
-needed</li>
-<li>has logic related to exchanging edges between peers</li>
+<li>Keep set of all edges of <code>P2P network</code> called routing table.</li>
+<li>Connects to <code>EdgeValidatorActor</code>, and asks for edges to be validated, when
+needed.</li>
+<li>Has logic related to exchanging edges between peers.</li>
 </ul>
 <h3 id="23-peeractor"><a class="header" href="#23-peeractor">2.3 <code>PeerActor</code></a></h3>
 <p>Whenever a new connection gets accepted, an instance of <code>PeerActor</code> gets
-created. Each <code>PeerActor</code> keeps a physical a <code>TCP connection</code> to exactly one
+created. Each <code>PeerActor</code> keeps a physical <code>TCP connection</code> to exactly one
 peer.</p>
 <p>Responsibilities:</p>
 <ul>
@@ -2305,57 +2307,58 @@ right place.</li>
 <li>Routing messages between <code>PeerManagerActor</code> and other peers.</li>
 </ul>
 <h3 id="24-peermanageractor"><a class="header" href="#24-peermanageractor">2.4 <code>PeerManagerActor</code></a></h3>
-<p><code>PeerManagerActor</code> is the main actor of <code>near-network</code> crate. It's acts as a
+<p><code>PeerManagerActor</code> is the main actor of <code>near-network</code> crate. It acts as a
 bridge connecting to the world outside, the other peers, and <code>ClientActor</code> and
 <code>ClientViewActor</code>, which handle processing any operations on the chain.
-<code>PeerManagerActor</code> maintains information about p2p network via (Routing Table
-Actor), and indirectly, through <code>PeerActor</code>, connections to all some nodes on
-the network. All messages going to other nodes, or coming from other nodes will
-be routed through this <code>Actor</code>. <code>PeerManagerActor</code> is responsible for accepting
-incoming connections from the outside world and creating <code>PeerActors</code> to manage
-them.</p>
+<code>PeerManagerActor</code> maintains information about p2p network via <code>RoutingTableActor</code>,
+and indirectly, through <code>PeerActor</code>, connections to all nodes on the network.
+All messages going to other nodes, or coming from other nodes will be routed
+through this <code>Actor</code>. <code>PeerManagerActor</code> is responsible for accepting incoming
+connections from the outside world and creating <code>PeerActors</code> to manage them.</p>
 <p>Responsibilities:</p>
 <ul>
-<li>Accepting new connections</li>
-<li>Maintaining list of <code>PeerActors</code>, creating, deleting them</li>
+<li>Accepting new connections.</li>
+<li>Maintaining the list of <code>PeerActors</code>, creating, deleting them.</li>
 <li>Routing information about new edges between <code>PeerActors</code> and
-<code>RoutingTableManager</code></li>
+<code>RoutingTableManager</code>.</li>
 <li>Routing messages between <code>ViewClient</code>, <code>ViewClientActor</code> and <code>PeerActors</code>, and
 consequently other peers.</li>
-<li>Maintains <code>RouteBack</code> structure, which has information on how to send replies to messages</li>
+<li>Maintains <code>RouteBack</code> structure, which has information on how to send replies to messages.</li>
 </ul>
 <h1 id="3-code-flow---initialization"><a class="header" href="#3-code-flow---initialization">3. Code flow - initialization</a></h1>
-<p><code>PeerManagerActor</code> actor gets started. <code>PeerManagerActor</code> open tcp server, which
-listens to incoming connection. It starts <code>RoutingTableActor</code>, which then starts
-<code>EdgeValidatorActor</code>. When connection incoming connection gets accepted, it
-starts a new <code>PeerActor</code> on its own thread.</p>
+<p>First, the <code>PeerManagerActor</code> actor gets started. <code>PeerManagerActor</code> opens the
+TCP server, which listens to incoming connections. It starts the
+<code>RoutingTableActor</code>, which then starts the <code>EdgeValidatorActor</code>. When
+a incoming connection gets accepted, it starts a new <code>PeerActor</code>
+on its own thread.</p>
 <h1 id="4-networkconfig"><a class="header" href="#4-networkconfig">4. NetworkConfig</a></h1>
-<p><code>near-network</code> reads configuration from <code>NetworkConfig</code>, which is a part <code>client config</code>.</p>
-<p>Here is a list of features read from config</p>
+<p><code>near-network</code> reads configuration from <code>NetworkConfig</code>, which is a part of <code>client config</code>.</p>
+<p>Here is a list of features read from config:</p>
 <ul>
-<li><code>boot_nodes</code> - list of nodes to connect to on start</li>
-<li><code>addr</code> - listening address</li>
+<li><code>boot_nodes</code> - list of nodes to connect to on start.</li>
+<li><code>addr</code> - listening address.</li>
 <li><code>max_num_peers</code> - by default we connect up to 40 peers, current implementation
-supports upto 128 nodes.</li>
+supports upto 128.</li>
 </ul>
 <h1 id="5-connecting-to-other-peers"><a class="header" href="#5-connecting-to-other-peers">5. Connecting to other peers.</a></h1>
-<p>Each peer maintains list of known peers. They are stored in the database. If
-database is empty, the list of peers, called boot nodes, will be read from
-<code>boot_nodes</code> option in config. Peer to connect to is chosen at random from list
-of known nodes by <code>PeerManagerActor::sample_random_peer</code> method.</p>
+<p>Each peer maintains a list of known peers. They are stored in the database. If
+the database is empty, the list of peers, called boot nodes, will be read from
+the <code>boot_nodes</code> option in the config. The peer to connect to is chosen at
+random from a list of known nodes by the <code>PeerManagerActor::sample_random_peer</code>
+method.</p>
 <h1 id="6-edges--network---in-code-representation"><a class="header" href="#6-edges--network---in-code-representation">6. Edges &amp; network - in code representation</a></h1>
-<p><code>P2P network</code> is represented by list of <code>peers</code>, where each <code>peer</code> is
-represented by structure <code>PeerId</code>, which is defined by <code>peer's</code> public key
-<code>PublicKey</code>. And a list of edges, where each edge is represented by the
+<p><code>P2P network</code> is represented by a list of <code>peers</code>, where each <code>peer</code> is
+represented by a structure <code>PeerId</code>, which is defined by the <code>peer</code>'s public key
+<code>PublicKey</code>, and a list of edges, where each edge is represented by the
 structure <code>Edge</code>.</p>
 <p>Both are defined below.</p>
 <h1 id="61-publickey"><a class="header" href="#61-publickey">6.1 PublicKey</a></h1>
 <p>We use two types of public keys:</p>
 <ul>
-<li>a 256 bit <code>ED25519</code> public key</li>
-<li>a 512 bit <code>Secp256K1</code> public key</li>
+<li>a 256 bit <code>ED25519</code> public key.</li>
+<li>a 512 bit <code>Secp256K1</code> public key.</li>
 </ul>
-<p>Public keys are defined in <code>PublicKey</code> enum, which consists of those two
+<p>Public keys are defined in the <code>PublicKey</code> enum, which consists of those two
 variants.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -2376,23 +2379,23 @@ struct.</p>
 <span class="boring">}
 </span></code></pre></pre>
 <h1 id="63-edge"><a class="header" href="#63-edge">6.3 Edge</a></h1>
-<p>Each <code>edge</code> is represented by <code>Edge</code> structure. It contains the following</p>
+<p>Each <code>edge</code> is represented by the <code>Edge</code> structure. It contains the following:</p>
 <ul>
 <li>pair of nodes represented by their public keys.</li>
-<li><code>nonce</code> - a unique number representing state of an edge. Starting with 1. Odd
-number represents an active edge. Even number represent an edge in which one
-of nodes, confirmed that the edge is removed.</li>
+<li><code>nonce</code> - a unique number representing the state of an edge. Starting with <code>1</code>.
+Odd numbers represent an active edge. Even numbers represent an edge in which
+one of the nodes, confirmed that the edge is removed.</li>
 <li>Signatures from both peers for active edges.</li>
-<li>Signature from one peers in case an edge got removed.</li>
+<li>Signature from one peer in case an edge got removed.</li>
 </ul>
 <h1 id="64-graph-representation"><a class="header" href="#64-graph-representation">6.4 Graph representation</a></h1>
-<p><code>RoutingTableActor</code> is responsible for storing and maintaining set of all edges.
-They are kept in <code>edge_info</code> data structure of type <code>HashSet&lt;Edge&gt;</code>.</p>
+<p><code>RoutingTableActor</code> is responsible for storing and maintaining the set of all edges.
+They are kept in the <code>edge_info</code> data structure of the type <code>HashSet&lt;Edge&gt;</code>.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>pub struct RoutingTableActor {
     /// Collection of edges representing P2P network.
-    /// It's indexed by `Edge::key()` key and can be search through by called `get()` function
+    /// It's indexed by `Edge::key()` key and can be search through by calling `get()` function
     /// with `(PeerId, PeerId)` as argument.
     pub edges_info: HashSet&lt;Edge&gt;,
     /// ...
@@ -2400,16 +2403,16 @@ They are kept in <code>edge_info</code> data structure of type <code>HashSet&lt;
 <span class="boring">}
 </span></code></pre></pre>
 <h1 id="7-code-flow---connecting-to-a-peer---handshake"><a class="header" href="#7-code-flow---connecting-to-a-peer---handshake">7. Code flow - connecting to a peer - handshake</a></h1>
-<p>When <code>PeerManagerActor</code> starts it starts to listen to a specific port.</p>
+<p>When <code>PeerManagerActor</code> starts, it starts to listen to a specific port.</p>
 <h2 id="71---step-1---monitor_peers_trigger-runs"><a class="header" href="#71---step-1---monitor_peers_trigger-runs">7.1 - Step 1 - <code>monitor_peers_trigger</code> runs</a></h2>
-<p><code>PeerManager</code> checks if we need to connect to another peer by running
+<p><code>PeerManager</code> checks if we need to connect to another peer by running the
 <code>PeerManager::is_outbound_bootstrap_needed</code> method. If <code>true</code> we will try to
-connect to new node. Let's call current node, node <code>A</code>.</p>
-<h2 id="72---step-2---choosing-node-to-connect-to"><a class="header" href="#72---step-2---choosing-node-to-connect-to">7.2 - Step 2 - choosing node to connect to</a></h2>
+connect to a new node. Let's call the current node, node <code>A</code>.</p>
+<h2 id="72---step-2---choosing-the-node-to-connect-to"><a class="header" href="#72---step-2---choosing-the-node-to-connect-to">7.2 - Step 2 - choosing the node to connect to</a></h2>
 <p>Method <code>PeerManager::sample_random_peer</code> will be called, and it returns node <code>B</code>
 that we will try to connect to.</p>
 <h2 id="73---step-3---outboundtcpconnect-message"><a class="header" href="#73---step-3---outboundtcpconnect-message">7.3 - Step 3 - <code>OutboundTcpConnect</code> message</a></h2>
-<p><code>PeerManagerActor</code> will send to itself a message <code>OutboundTcpConnect</code> in order
+<p><code>PeerManagerActor</code> will send itself a message <code>OutboundTcpConnect</code> in order
 to connect to node <code>B</code>.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -2420,15 +2423,15 @@ to connect to node <code>B</code>.</p>
 <span class="boring">}
 </span></code></pre></pre>
 <h2 id="74---step-4---outboundtcpconnect-message"><a class="header" href="#74---step-4---outboundtcpconnect-message">7.4 - Step 4 - <code>OutboundTcpConnect</code> message</a></h2>
-<p>On receiving the message <code>handle_msg_outbound_tcp_connect</code> method will be
-called, which calls <code>TcpStream::connect</code> to create new connection.</p>
+<p>On receiving the message the <code>handle_msg_outbound_tcp_connect</code> method will be
+called, which calls <code>TcpStream::connect</code> to create a new connection.</p>
 <h2 id="75---step-5---connection-gets-established"><a class="header" href="#75---step-5---connection-gets-established">7.5 - Step 5 - Connection gets established</a></h2>
-<p>Once connection with outgoing peer gets established. <code>try_connect_peer</code> method
-will be called. And then new <code>PeerActor</code> will be created and started. Once
-<code>PeerActor</code> starts it will send <code>Handshake</code> message to outgoing node <code>B</code> over
-tcp connection.</p>
-<p>This message contains <code>protocol_version</code>, node's <code>A</code> metadata, as well as all
-information necessary to create <code>Edge</code>.</p>
+<p>Once connection with the outgoing peer gets established. The <code>try_connect_peer</code>
+method will be called. And then a new <code>PeerActor</code> will be created and started. Once
+the <code>PeerActor</code> starts it will send a <code>Handshake</code> message to the outgoing node <code>B</code>
+over a tcp connection.</p>
+<p>This message contains <code>protocol_version</code>, node <code>A</code>'s metadata, as well as all
+information necessary to create an <code>Edge</code>.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>pub struct Handshake {
@@ -2450,18 +2453,18 @@ information necessary to create <code>Edge</code>.</p>
 <span class="boring">}
 </span></code></pre></pre>
 <h2 id="76---step-6---handshake-arrives-at-node-b"><a class="header" href="#76---step-6---handshake-arrives-at-node-b">7.6 - Step 6 - <code>Handshake</code> arrives at node <code>B</code></a></h2>
-<p>Node <code>B</code> receives <code>Handshake</code> message. Then it performs various validation
+<p>Node <code>B</code> receives a <code>Handshake</code> message. Then it performs various validation
 checks. That includes:</p>
 <ul>
 <li>Check signature of edge from the other peer.</li>
-<li>Whenever, <code>nonce</code> is the edge send matches.</li>
-<li>Check whenever the protocol is above the minimum
-<code>OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION</code></li>
-<li>Other node <code>view of chain</code> state</li>
+<li>Whenever <code>nonce</code> is the edge, send matches.</li>
+<li>Check whether the protocol is above the minimum
+<code>OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION</code>.</li>
+<li>Other node <code>view of chain</code> state.</li>
 </ul>
-<p>If everything is successful, <code>PeerActor</code> will send <code>RegisterPeer</code> message to
+<p>If everything is successful, <code>PeerActor</code> will send a <code>RegisterPeer</code> message to
 <code>PeerManagerActor</code>. This message contains everything needed to add <code>PeerActor</code>
-to list of active connections in <code>PeerManagerActor</code>.</p>
+to the list of active connections in <code>PeerManagerActor</code>.</p>
 <p>Otherwise, <code>PeerActor</code> will be stopped immediately or after some timeout.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -2482,12 +2485,12 @@ to list of active connections in <code>PeerManagerActor</code>.</p>
 <span class="boring">}
 </span></code></pre></pre>
 <h2 id="77---step-7---peermanageractor-receives-registerpeer-message---node-b"><a class="header" href="#77---step-7---peermanageractor-receives-registerpeer-message---node-b">7.7 - Step 7 - <code>PeerManagerActor</code> receives <code>RegisterPeer</code> message - node <code>B</code></a></h2>
-<p>In <code>handle_msg_consolidate</code> method <code>RegisterPeer</code> message will be validated. If
-successful <code>register_peer</code> method will be called, which adds <code>PeerActor</code> to list
-of connected peers.</p>
-<p>Each connected peer is represented in <code>PeerActorManager</code> in <code>ActivePeer</code> data
+<p>In the <code>handle_msg_consolidate</code> method, the <code>RegisterPeer</code> message will be validated.
+If successful, the <code>register_peer</code> method will be called, which adds the <code>PeerActor</code>
+to the list of connected peers.</p>
+<p>Each connected peer is represented in <code>PeerActorManager</code> in <code>ActivePeer</code> the data
 structure.</p>
-<p>TODO: Rename <code>ActivePeer</code> to <code>RegisterPeer</code>.</p>
+<!-- TODO: Rename `ActivePeer` to `RegisterPeer` -->
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>/// Contains information relevant to an active peer.
@@ -2510,10 +2513,10 @@ struct ActivePeer { // will be renamed to `ConnectedPeer` see #5428
 <span class="boring">}
 </span></code></pre></pre>
 <h2 id="78---step-8---exchange-routing-table-part-1---node-b"><a class="header" href="#78---step-8---exchange-routing-table-part-1---node-b">7.8 - Step 8 - Exchange routing table part 1 - node <code>B</code></a></h2>
-<p>At the end of <code>register_peer</code> method node <code>B</code> will performance
-<code>RoutingTableSync</code> sync. Sending list of known <code>edges</code> representing full graph,
-and list of known <code>AnnounceAccount</code>. Those will be covered later, in their
-dedicated sections see sections TODO1, TODO2.</p>
+<p>At the end of the <code>register_peer</code> method node <code>B</code> will perform a
+<code>RoutingTableSync</code> sync. Sending the list of known <code>edges</code> representing a
+full graph, and a list of known <code>AnnounceAccount</code>. Those will be
+covered later, in their dedicated sections see sections (to be added). <!-- TODO: TODO1, TODO2 --></p>
 <pre><code class="language-rust  ignore">message: PeerMessage::RoutingTableSync(SyncData::edge(new_edge)),
 </code></pre>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -2529,24 +2532,24 @@ pub struct RoutingTableSync { // also known as `SyncData` (#5489)
 <span class="boring">}
 </span></code></pre></pre>
 <h2 id="79---step-9----exchange-routing-table-part-2---node-a"><a class="header" href="#79---step-9----exchange-routing-table-part-2---node-a">7.9 - Step 9 -  Exchange routing table part 2 - node <code>A</code></a></h2>
-<p>Upon receiving <code>RoutingTableSync</code> message. Node <code>A</code> will reply with own
+<p>Upon receiving a <code>RoutingTableSync</code> message. Node <code>A</code> will reply with its own
 <code>RoutingTableSync</code> message.</p>
 <h2 id="710---step-10----exchange-routing-table-part-2---node-b"><a class="header" href="#710---step-10----exchange-routing-table-part-2---node-b">7.10 - Step 10 -  Exchange routing table part 2 - node <code>B</code></a></h2>
-<p>Node <code>B</code> will get the message from <code>A</code> and update it's routing table.</p>
+<p>Node <code>B</code> will get the message from <code>A</code> and update its routing table.</p>
 <h1 id="8-adding-new-edges-to-routing-tables"><a class="header" href="#8-adding-new-edges-to-routing-tables">8. Adding new edges to routing tables</a></h1>
 <p>This section covers the process of adding new edges, received from another
-nodes, to the routing table. It consists of several steps covered below.</p>
+node, to the routing table. It consists of several steps covered below.</p>
 <h2 id="81-step-1"><a class="header" href="#81-step-1">8.1 Step 1</a></h2>
 <p><code>PeerManagerActor</code> receives <code>RoutingTableSync</code> message containing list of new
 <code>edges</code> to add. <code>RoutingTableSync</code> contains list of edges of the P2P network.
 This message is then forwarded to <code>RoutingTableActor</code>.</p>
 <h2 id="82-step-2"><a class="header" href="#82-step-2">8.2 Step 2</a></h2>
 <p><code>PeerManagerActor</code> forwards those edges to <code>RoutingTableActor</code> inside of
-<code>ValidateEdgeList</code> struct.</p>
+the <code>ValidateEdgeList</code> struct.</p>
 <p><code>ValidateEdgeList</code> contains:</p>
 <ul>
-<li>list of edges to verify</li>
-<li>peer who send us the edges</li>
+<li>list of edges to verify.</li>
+<li>peer who sent us the edges.</li>
 </ul>
 <h2 id="83-step-3"><a class="header" href="#83-step-3">8.3 Step 3</a></h2>
 <p><code>RoutingTableActor</code> gets the <code>ValidateEdgeList</code> message. Filters out <code>edges</code>
@@ -2554,16 +2557,16 @@ that have already been verified, those that are already in
 <code>RoutingTableActor::edges_info</code>.</p>
 <p>Then, it updates <code>edge_verifier_requests_in_progress</code> to mark that edge
 verifications are in progress, and edges shouldn't be pruned from Routing Table
-(see section TODO).</p>
+(see section (to be added)<!-- TODO: add section link -->).</p>
 <p>Then, after removing already validated edges, the modified message is forwarded
 to <code>EdgeValidatorActor</code>.</p>
 <h2 id="84-step-4"><a class="header" href="#84-step-4">8.4 Step 4</a></h2>
-<p><code>EdgeValidatorActor</code> goes through list of all edges. It checks whether all edges
+<p><code>EdgeValidatorActor</code> goes through the list of all edges. It checks whether all edges
 are valid (their cryptographic signatures match, etc.).</p>
-<p>If any edge is not valid peer will be banned.</p>
+<p>If any edge is not valid, the peer will be banned.</p>
 <p>Edges that are validated are written to a concurrent queue
 <code>ValidateEdgeList::sender</code>. This queue is used to transfer edges from
-<code>EdgeValidatorActor</code>, back to <code>PeerManagerActor</code>.</p>
+<code>EdgeValidatorActor</code> back to <code>PeerManagerActor</code>.</p>
 <h2 id="85-step-5"><a class="header" href="#85-step-5">8.5 Step 5</a></h2>
 <p><code>broadcast_validated_edges_trigger</code> runs, and gets validated edges from
 <code>EdgeVerifierActor</code>.</p>
@@ -2572,15 +2575,15 @@ are valid (their cryptographic signatures match, etc.).</p>
 again to <code>RoutingTableActor</code> inside <code>AddVerifiedEdges</code>.</p>
 <h2 id="85-step-6"><a class="header" href="#85-step-6">8.5 Step 6</a></h2>
 <p>When <code>RoutingTableActor</code> receives <code>RoutingTableMessages::AddVerifiedEdges</code>, the
-method<code>add_verified_edges_to_routing_table</code> will be called. It will add edges to
+method <code>add_verified_edges_to_routing_table</code> will be called. It will add edges to
 <code>RoutingTableActor::edges_info</code> struct, and mark routing table, that it needs
-recalculation see <code>RoutingTableActor::needs_routing_table_recalculation</code>.</p>
+a recalculation (see <code>RoutingTableActor::needs_routing_table_recalculation</code>).</p>
 <h1 id="9-routing-table-computation"><a class="header" href="#9-routing-table-computation">9 Routing table computation</a></h1>
 <p>Routing table computation does a few things:</p>
 <ul>
 <li>For each peer <code>B</code>, calculates set of peers <code>|C_b|</code>, such that each peer is on
 the shortest path to <code>B</code>.</li>
-<li>Removing unreachable edges from memory and storing them to disk.</li>
+<li>Removes unreachable edges from memory and stores them to disk.</li>
 <li>The distance is calculated as the minimum number of nodes on the path from
 given node <code>A</code>, to each other node on the network. That is, <code>A</code> has a distance
 of <code>0</code> to itself. It's neighbors will have a distance of <code>1</code>. The neighbors of
@@ -2592,69 +2595,70 @@ theirs neighbors will have a distance of <code>2</code>, etc.</li>
 <p><code>RoutingTableMessages::RoutingTableUpdate</code> message is sent to
 <code>RoutingTableActor</code> to request routing table re-computation.</p>
 <h2 id="92-step-2"><a class="header" href="#92-step-2">9.2 Step 2</a></h2>
-<p><code>RoutingTableActor</code> receives the message, and then</p>
+<p><code>RoutingTableActor</code> receives the message, and then:</p>
 <ul>
 <li>calls <code>recalculate_routing_table</code> method, which computes
 <code>RoutingTableActor::peer_forwarding: HashMap&lt;PeerId, Vec&lt;PeerId&gt;&gt;</code>. For each
-<code>PeerId</code> on the network, gives list of connected peers, which are on the
-shortest path to the destination. It marks reachable peers in
+<code>PeerId</code> on the network, gives a list of connected peers, which are on the
+shortest path to the destination. It marks reachable peers in the
 <code>peer_last_time_reachable</code> struct.</li>
-<li>calls <code>prune_edges</code> which removes from memory all edges, that were not
-reachable for at least 1 hour, based on <code>peer_last_time_reachable</code> data
+<li>calls <code>prune_edges</code> which removes from memory all the edges that were not
+reachable for at least 1 hour, based on the <code>peer_last_time_reachable</code> data
 structure. Those edges are then stored to disk.</li>
 </ul>
 <h2 id="93-step-3"><a class="header" href="#93-step-3">9.3 Step 3</a></h2>
-<p><code>RoutingTableActor</code> sends <code>RoutingTableUpdateResponse</code> message back to
+<p><code>RoutingTableActor</code> sends a <code>RoutingTableUpdateResponse</code> message back to
 <code>PeerManagerActor</code>.</p>
-<p><code>PeerManagerActor</code> keep local copy of <code>edges_info</code>, called <code>local_edges_info</code>
+<p><code>PeerManagerActor</code> keeps a local copy of <code>edges_info</code>, called <code>local_edges_info</code>
 containing only edges adjacent to current node.</p>
 <ul>
-<li><code>RoutingTableUpdateResponse</code> contains list of local edges, which
+<li><code>RoutingTableUpdateResponse</code> contains a list of local edges, which
 <code>PeerManagerActor</code> should remove.</li>
-<li><code>peer_forwarding</code> which represent on how to route messages in the P2P network</li>
-<li><code>peers_to_ban</code> - list of peers to ban for sending us edges, which failed
+<li><code>peer_forwarding</code> which represents how to route messages in the P2P network</li>
+<li><code>peers_to_ban</code> represents a list of peers to ban for sending us edges, which failed
 validation in <code>EdgeVerifierActor</code>.</li>
 </ul>
 <h2 id="94-step-4"><a class="header" href="#94-step-4">9.4 Step 4</a></h2>
-<p><code>PeerManagerActor</code> received <code>RoutingTableUpdateResponse</code> and then:</p>
+<p><code>PeerManagerActor</code> receives <code>RoutingTableUpdateResponse</code> and then:</p>
 <ul>
-<li>updates local copy of<code>peer_forwarding</code>, used for routing messages.</li>
+<li>updates local copy of <code>peer_forwarding</code>, used for routing messages.</li>
 <li>removes <code>local_edges_to_remove</code> from <code>local_edges_info</code>.</li>
 <li>bans peers, who sent us invalid edges.</li>
 </ul>
 <h1 id="10-message-transportation-layers"><a class="header" href="#10-message-transportation-layers">10. Message transportation layers.</a></h1>
 <p>This section describes different protocols of sending messages currently used in
-<code>Near</code></p>
+<code>Near</code>.</p>
 <h2 id="101-messages-between-actors"><a class="header" href="#101-messages-between-actors">10.1 Messages between Actors.</a></h2>
-<p><code>Near</code> is build on <code>Actix</code>'s <code>actor</code> framework.
-(https://actix.rs/book/actix/sec-2-actor.html) Usually each actor runs on its
-own dedicated thread. Some, like <code>PeerActor</code> have one thread per each instance.
-Only messages implementing <code>actix::Message</code>, can be sent using between threads.
-Each actor has its own queue; Processing of messages happens asynchronously.</p>
+<p><code>Near</code> is build on <code>Actix</code>'s <code>actor</code>
+<a href="https://actix.rs/book/actix/sec-2-actor.html">framework</a>. Usually each actor
+runs on its own dedicated thread. Some, like <code>PeerActor</code> have one thread per
+each instance. Only messages implementing <code>actix::Message</code>, can be sent
+using between threads. Each actor has its own queue; Processing of messages
+happens asynchronously.</p>
 <p>We should not leak implementation details into the spec.</p>
 <p>Actix messages can be found by looking for <code>impl actix::Message</code>.</p>
 <h2 id="102-messages-sent-through-tcp"><a class="header" href="#102-messages-sent-through-tcp">10.2 Messages sent through TCP</a></h2>
 <p>Near is using <code>borsh</code> serialization to exchange messages between nodes (See
-https://borsh.io/). We should be careful when making changes to them. We have to
-maintain backward compatibility. Only messages implementing <code>BorshSerialize</code>,
-<code>BorshDeserialize</code> can be sent. We also use <code>borsh</code> for database storage.</p>
+<a href="https://borsh.io/">borsh.io</a>). We should be careful when making changes to
+them. We have to maintain backward compatibility. Only messages implementing
+<code>BorshSerialize</code>, <code>BorshDeserialize</code> can be sent. We also use <code>borsh</code> for
+database storage.</p>
 <h2 id="103-messages-sentreceived-through-chainjsonrpc"><a class="header" href="#103-messages-sentreceived-through-chainjsonrpc">10.3 Messages sent/received through <code>chain/jsonrpc</code></a></h2>
 <p>Near runs a <code>json REST server</code>. (See <code>actix_web::HttpServer</code>). All messages sent
 and received must implement <code>serde::Serialize</code> and <code>serde::Deserialize</code>.</p>
 <h1 id="11-code-flow---routing-a-message"><a class="header" href="#11-code-flow---routing-a-message">11. Code flow - routing a message</a></h1>
 <p>This is the example of the message that is being sent between nodes
-(<code>RawRoutedMessage</code>)
-(https://github.com/near/nearcore/blob/fa8749dc60fe0de8e94c3046571731c622326e9f/chain/network-primitives/src/types.rs#L362)</p>
-<p>Each of these methods have a <code>target</code> - that is either the account_id or peer_id
+<a href="https://github.com/near/nearcore/blob/fa8749dc60fe0de8e94c3046571731c622326e9f/chain/network-primitives/src/types.rs#L362"><code>RawRoutedMessage</code></a>.</p>
+<p>Each of these methods have a <code>target</code> - that is either the <code>account_id</code> or <code>peer_id</code>
 or hash (which seems to be used only for route back...). If target is the
 account - it will be converted using <code>routing_table.account_owner</code> to the peer.</p>
-<p>Upon receiving the message, the <code>PeerManagerActor</code> will sign it
-(https://github.com/near/nearcore/blob/master/chain/network/src/peer_manager.rs#L1285)
-And convert into RoutedMessage (which also have things like TTL etc.).</p>
+<p>Upon receiving the message, the <code>PeerManagerActor</code>
+<a href="https://github.com/near/nearcore/blob/master/chain/network/src/peer_manager.rs#L1285">will sign it</a>
+and convert into RoutedMessage (which also have things like TTL etc.).</p>
 <p>Then it will use the <code>routing_table</code>, to find the route to the target peer (add
 <code>route_back</code> if needed) and then send the message over the network as
 <code>PeerMessage::Routed</code>. Details about routing table computations are covered in
-section 8.</p>
+<a href="architecture/network.html#8-adding-new-edges-to-routing-tables">section 8</a>. </p>
 <p>When Peer receives this message (as <code>PeerMessage::Routed</code>), it will pass it to
 PeerManager (as <code>RoutedMessageFrom</code>), which would then check if the message is
 for the current <code>PeerActor</code>. (if yes, it would pass it for the client) and if
@@ -2664,28 +2668,28 @@ not - it would pass it along the network.</p>
 (<code>chain/client/src/client_actor.rs</code>)</p>
 <p><code>NetworkRequests</code> to <code>PeerManager</code> actor trigger the <code>RawRoutedMessage</code> for
 messages that are meant to be sent to another <code>peer</code>.</p>
-<p><code>lib.rs</code> (<code>ShardsManager</code>) has a <code>network_adapter</code> - coming from client’s
-network_adapter that comes from <code>ClientActor</code> that comes from start_client call
-that comes from <code>start_with_config</code> (that crates <code>PeerManagerActor</code> - that is
+<p><code>lib.rs</code> (<code>ShardsManager</code>) has a <code>network_adapter</code> - coming from the client’s
+<code>network_adapter</code> that comes from <code>ClientActor</code> that comes from the <code>start_client</code> call
+that comes from <code>start_with_config</code> (that creates <code>PeerManagerActor</code> - that is
 passed as target to <code>network_recipent</code>).</p>
 <h1 id="12-database"><a class="header" href="#12-database">12. Database</a></h1>
 <h3 id="121-storage-of-deleted-edges"><a class="header" href="#121-storage-of-deleted-edges">12.1 Storage of deleted edges</a></h3>
-<p>Everytime a group of peers becomes unreachable at the same time; We store edges
+<p>Every time a group of peers becomes unreachable at the same time; We store edges
 belonging to them in components. We remove all of those edges from memory, and
-save them to database, If any of them were to be reachable again, we would
+save them to the database. If any of them were to be reachable again, we would
 re-add them. This is useful in case there is a network split, to recover edges
 if needed.</p>
 <p>Each component is assigned a unique <code>nonce</code>, where first one is assigned nonce
-0. Each new component, a get assigned a consecutive integer.</p>
+0. Each new component gets assigned a consecutive integer.</p>
 <p>To store components, we have the following columns in the DB.</p>
 <ul>
 <li><code>DBCol::LastComponentNonce</code> Stores <code>component_nonce: u64</code>, which is the last
 used nonce.</li>
-<li><code>DBCol::ComponentEdges</code> Mapping from <code>component_nonce</code> to list of edges.</li>
-<li><code>DBCol::PeerComponent</code> Mapping from <code>peer_id</code> to last component <code>nonce</code> it belongs to.</li>
+<li><code>DBCol::ComponentEdges</code> Mapping from <code>component_nonce</code> to a list of edges.</li>
+<li><code>DBCol::PeerComponent</code> Mapping from <code>peer_id</code> to the last component <code>nonce</code> it belongs to.</li>
 </ul>
 <h3 id="122-storage-of-account_id-to-peer_id-mapping"><a class="header" href="#122-storage-of-account_id-to-peer_id-mapping">12.2 Storage of <code>account_id</code> to <code>peer_id</code> mapping</a></h3>
-<p><code>ColAccountAnouncements</code> -&gt; Stores a mapping from <code>account_id</code> to tuple
+<p><code>ColAccountAnouncements</code> -&gt; Stores a mapping from <code>account_id</code> to a tuple
 (<code>account_id</code>, <code>peer_id</code>, <code>epoch_id</code>, <code>signature</code>).</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="gas-cost-parameters"><a class="header" href="#gas-cost-parameters">Gas Cost Parameters</a></h1>
 <p>Gas in NEAR Protocol solves two problems.</p>
@@ -2703,9 +2707,9 @@ determines how much a user has to pay and how much time nearcore has to execute
 the transaction.</p>
 <p>What happens if nearcore executes a transaction too slowly? Chunk production for
 the shard gets delayed, which delays block production for the entire blockchain,
-reducing latency and throughput for everybody. If the chunk is really late, the
-block producer will decide to not include the chunk at all and inserts an empty
-chunk. The chunk may be included in the next block.</p>
+increasing latency and reducing throughput for everybody. If the chunk is really
+late, the block producer will decide to not include the chunk at all and inserts
+an empty chunk. The chunk may be included in the next block.</p>
 <p>By now, you probably wonder how we can know the time it takes to execute a
 transaction, given that validators use hardware of their choice. Getting these
 timings right is indeed a difficult problem. Or flipping the problem, assuming
@@ -2719,8 +2723,8 @@ and <a href="https://nomicon.io/RuntimeSpec/Fees/">the runtime fee specification
 good places to dig deeper.</p>
 <h2 id="hardware-and-timing-assumptions"><a class="header" href="#hardware-and-timing-assumptions">Hardware and Timing Assumptions</a></h2>
 <p>For timing to make sense at all, we must first define hardware constraints. The
-official hardware requirements for a validator is published on
-<a href="https://near-nodes.io/validator/hardware">near-nodes.io/validator/hardware</a>. It
+official hardware requirements for a validator are published on
+<a href="https://near-nodes.io/validator/hardware">near-nodes.io/validator/hardware</a>. They
 may change over time but the main principle is that a moderately configured,
 cloud-hosted virtual machine suffices.</p>
 <p>For our gas computation, we assume the minimum required hardware. Then we define
@@ -2729,7 +2733,7 @@ cloud-hosted virtual machine suffices.</p>
 <p>Obviously, this definition means that a validator running more powerful hardware
 will execute the transactions faster. That is perfectly okay, as far as the
 protocol is concerned we just need to make sure the chunk is available in time.
-If it is ready even faster, no problem.</p>
+If it is ready in even less time, no problem.</p>
 <p>Less obviously, this means that even a minimally configured validator is often
 idle. Why is that? Well, the hardware must be prepared to execute chunks that
 are always full. But that is rarely the case, as the gas price increases
@@ -2748,7 +2752,7 @@ faster than the gas rule states.</p>
 <p>A transaction is essentially just a list of actions to be executed on the same
 account. For example it could be <code>CreateAccount</code> combined with
 <code>FunctionCall(&quot;hello_world&quot;)</code>.</p>
-<p>The <a href="https://nomicon.io/RuntimeSpec/Actions">reference for available action</a>
+<p>The <a href="https://nomicon.io/RuntimeSpec/Actions">reference for available actions</a>
 shows the conclusive list of possible actions. The protocol defines fixed fees
 for each of them. More details on <a href="architecture/gas/index.html#action-costs">actions fees</a> follow below.</p>
 <p>Fixed fees are an important design decision. It means that a given action will
@@ -2781,12 +2785,12 @@ If you understand this, you know how to think about gas as a nearcore developer.
 This should be enough background to understand what the estimator does.</p>
 <p>The <a href="architecture/gas/./estimator.html">runtime parameter estimator</a> is a separate binary within
 the nearcore repository. It contains benchmarking-like code used to validate
-existing parameters values against the 1ms = 1 Tgas rule. When implementing new
+existing parameter values against the 1ms = 1 Tgas rule. When implementing new
 features, code should be added there to estimate the safe values of the new
 parameters. This section is for you if you are adding new features such as a new
 pre-compiled method or other host functions.</p>
 <p>Next up are more details on the specific costs that occur when executing NEAR
-transactions, which helps to understand existing parameters and how they are
+transactions, which help to understand existing parameters and how they are
 organized.</p>
 <h2 id="action-costs"><a class="header" href="#action-costs">Action Costs</a></h2>
 <p>Actions are executed in two steps. First, an action is verified and inserted to
@@ -2818,8 +2822,8 @@ sometimes also called prepaid gas, as this amount of gas is paid for during the
 send step and it is available in the execution step for free.</p>
 <p>If execution fails, the prepaid cost that has not been burned will be refunded.
 But this is not the reason why it must burn on the receiver shard instead of the
-sender shard. The reason is to properly compute the gas limits on the chunk that
-does the execution work.</p>
+sender shard. The reason is that we want to properly compute the gas limits on
+the chunk that does the execution work.</p>
 <p>In conclusion, each action parameter is split into three costs, <code>send_sir</code>,
 <code>send_not_sir</code>, and <code>execution</code>. Local receipts charge the first and last
 parameters, remote receipts charge the second and third. They should be
@@ -2852,11 +2856,11 @@ clearly define what its costs are and how they depend on the input.</p>
 <p>Not all runtime parameters are directly related to gas costs. Here is a brief
 overview.</p>
 <ul>
-<li><strong>Gas economics config</strong>: Defines the conversion rate when purchasing gas with
+<li><strong>Gas economics config:</strong> Defines the conversion rate when purchasing gas with
 NEAR tokens and how gas rewards are split.</li>
-<li><strong>Storage usage config</strong>: Costs in tokens, not gas, for storing data on chain.</li>
-<li><strong>Account creation config</strong>: Rules for account creation.</li>
-<li><strong>Smart contract limits</strong>: Rules for WASM execution.</li>
+<li><strong>Storage usage config:</strong> Costs in tokens, not gas, for storing data on chain.</li>
+<li><strong>Account creation config:</strong> Rules for account creation.</li>
+<li><strong>Smart contract limits:</strong> Rules for WASM execution.</li>
 </ul>
 <p>None of the above define any gas costs directly. But there can be interplay
 between those parameters and gas costs. For example, the limits on smart
@@ -2865,12 +2869,12 @@ hence it affects the deploy action costs.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="parameter-definitions"><a class="header" href="#parameter-definitions">Parameter Definitions</a></h1>
 <p>Gas parameters are a subset of runtime parameters that are defined in
 <a href="https://github.com/near/nearcore/blob/d0dc37bf81f7e7bde9c560403b085fae04108659/core/primitives/res/runtime_configs/parameters.yaml">core/primitives/res/runtime_configs/parameters.yaml</a>.
-IMPORTANT: This is not the final list of parameters, it contains the base values
-which can be overwritten per protocol version. For example,
+<strong>IMPORTANT:</strong> This is not the final list of parameters, it contains the base
+values which can be overwritten per protocol version. For example,
 <a href="https://github.com/near/nearcore/blob/d0dc37bf81f7e7bde9c560403b085fae04108659/core/primitives/res/runtime_configs/53.txt">53.txt</a>
-changes several parameters
-starting from version 53. To see all parameter values for a specific version at
-once, check out the list of JSON snapshots generated in this directory:
+changes several parameters starting from version 53. To see all parameter
+values for a specific version at once, check out the list of JSON
+snapshots generated in this directory:
 <a href="https://github.com/near/nearcore/blob/d0dc37bf81f7e7bde9c560403b085fae04108659/core/primitives/src/runtime/snapshots">core/primitives/src/runtime/snapshots</a>.</p>
 <h2 id="using-parameters-in-code"><a class="header" href="#using-parameters-in-code">Using Parameters in Code</a></h2>
 <p>As the introduction on this page already hints at it, parameter values are
@@ -2898,18 +2902,17 @@ We are here to help.</p>
 <ul>
 <li>A parameter must correspond to a clearly defined workload.</li>
 <li>When the workload is scalable by a factor <code>N</code> that depends on user input,
-likely it will require a base parameter and a second parameter that is
+it will likely require a base parameter and a second parameter that is
 multiplied by <code>N</code>. (Example: <code>N</code> = number of bytes when reading a value from
 storage.)</li>
 <li>Charge gas before executing the workload.</li>
-<li>Parameters should be independent from specific implementation choices in
+<li>Parameters should be independent of specific implementation choices in
 nearcore.</li>
 <li>Ideally, contract developers can easily understand what the cost is simply by
 reading the name in a gas profile.</li>
 </ul>
 <p>The section on <a href="architecture/gas/./gas_profile.html#charging-gas">Gas Profiles</a> explains how to
-charge gas, please also take that into considerations when defining a new
-parameter.</p>
+charge gas, please also consider that when defining a new parameter.</p>
 <h3 id="necessary-code-changes"><a class="header" href="#necessary-code-changes">Necessary Code Changes</a></h3>
 <p>Adding the parameter in code involves several steps.</p>
 <ol>
@@ -2925,14 +2928,14 @@ code. Depending on the type of parameter, you will need to update
 <code>core/primitives-core/src/profile.rs</code>. You need to add a variant to either
 <code>enum ActionCosts</code> or <code>enum ExtCost</code>. Please also update <code>fn index()</code> that
 maps each profile entry to a unique position in serialized gas profiles.</li>
-<li>The parameter should be available to use in the code section you need it. Now
-is a good time to ensure <code>cargo check</code> and <code>cargo test --no-run</code> pass. Most
-likely you have to update some testing code, such as
+<li>The parameter should be available to use in the code section you need it in.
+Now is a good time to ensure <code>cargo check</code> and <code>cargo test --no-run</code> pass.
+Most likely you have to update some testing code, such as
 <code>ExtCostsConfig::test()</code>.</li>
 <li>To merge your changes into nearcore, you will have to hide your parameter
 behind a feature flag. Add the feature to the <code>Cargo.toml</code> of each crate
-touched in step 3 and 4 and hide the code behind <code>#[cfg(feature = &quot;protocol_feature_MY_NEW_FEATURE&quot;)]</code>. Do not hide code in step 2 so that
-non-nightly builds can still read <code>parameters.yaml</code>. Also add your feature as
+touched in steps 3 and 4 and hide the code behind <code>#[cfg(feature = &quot;protocol_feature_MY_NEW_FEATURE&quot;)]</code>. Do not hide code in step 2 so that
+non-nightly builds can still read <code>parameters.yaml</code>. Also, add your feature as
 a dependency on <code>nightly</code> in <code>core/primitives/Cargo.toml</code> to make sure it
 gets included when compiling for nightly. After that, check <code>cargo check</code> and
 <code>cargo test --no-run</code> with and without <code>features=nightly</code>.</li>
@@ -2940,13 +2943,13 @@ gets included when compiling for nightly. After that, check <code>cargo check</c
 <h3 id="what-gas-value-should-the-parameter-have"><a class="header" href="#what-gas-value-should-the-parameter-have">What Gas Value Should the Parameter Have?</a></h3>
 <p>For a first draft, the exact gas value used in the parameter is not crucial.
 Make sure the right set of parameters exists and try to set a number that roughly
-makes sense. This should be enough to enable discussions on the NEP around
+makes sense. This should be enough to enable discussions on the NEP around the
 feasibility and usefulness of the proposed feature. If you are not sure, a good
 rule of thumb is 0.1 Tgas for each disk operation and at least 1 Tgas for each
 ms of CPU time. Then round it up generously.</p>
-<p>The value will have to be refined later. This is usually the last step, after
+<p>The value will have to be refined later. This is usually the last step after
 the implementation is complete and reviewed. Have a look at the section on
-<a href="architecture/gas/./estimator.html">estimating gas parameters</a> of the book.</p>
+<a href="architecture/gas/./estimator.html">estimating gas parameters</a> in the book.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="gas-profile"><a class="header" href="#gas-profile">Gas Profile</a></h1>
 <p>What if you want to understand the exact gas spending of a smart contract call?
 It would be very complicated to predict exactly how much gas executing a piece
@@ -3079,9 +3082,9 @@ debug tool and has no direct impact on the correct functioning of the protocol.<
 <h2 id="charging-gas"><a class="header" href="#charging-gas">Charging Gas</a></h2>
 <p>Generally speaking, gas is charged right before the computation that it pays for
 is executed. It has to be before to avoid cheap resource exhaustion attacks.
-Imagine the user has only 1 gas unit left but we start executing an expensive
-step, we would waste a significant duration of compute on all validators without
-anyone paying for it.</p>
+Imagine the user has only 1 gas unit left, but if we start executing an expensive
+step, we would waste a significant duration of computation on all validators
+without anyone paying for it.</p>
 <p>When charging gas for an action, the <code>ActionResult</code> can be updated directly. But
 when charging WASM costs, it would be too slow to do a context switch each time,
 Therefore, a fast gas counter exists that can be updated from within the VM.
@@ -3095,16 +3098,16 @@ with gas charging after merging https://github.com/near/nearcore/issues/8033
 -->
 <div style="break-before: page; page-break-before: always;"></div><h1 id="runtime-parameter-estimator"><a class="header" href="#runtime-parameter-estimator">Runtime Parameter Estimator</a></h1>
 <p>The runtime parameter estimator is a byzantine benchmarking suite. Byzantine
-benchmarking is not really commonly used term but I feel it describes it quite
+benchmarking is not a commonly used term but I feel it describes it quite
 well. It measures the performance assuming that up to a third of validators and
 all users collude to make the system as slow as possible.</p>
 <p>This benchmarking suite is used to check that the gas parameters defined in the
 protocol are correct. Correct in this context means, a chunk filled with 1 Pgas
-will take at most 1 second to be applied. Or more generally, per 1 Tgas of
-execution, we spend no more than 1ms wall-clock time. </p>
+(<strong>P</strong>eta gas) will take at most 1 second to be applied. Or more generally,
+per 1 Tgas of execution, we spend no more than 1ms wall-clock time. </p>
 <p>For now, nearcore timing is the only one that matters. Things will become more
 complicated once there are multiple client implementations. But knowing that
-nearcore can serve requests fast enough proofs that it is possible to be at
+nearcore can serve requests fast enough prooves that it is possible to be at
 least as fast. However, we should be careful to not couple costs too tightly
 with the specific implementation of nearcore to allow for innovation in new
 clients.</p>
@@ -3119,18 +3122,18 @@ workflows chapter.</p>
 contains the CLI arguments parsing code and logic to fill the test database.</p>
 <p>The interesting code lives in
 <a href="https://github.com/near/nearcore/blob/e40863c9ba61a0de140c869583b2113358605771/runtime/runtime-params-estimator/src/lib.rs">lib.rs</a>
-and its submodules. The comments on the top of that file provide a
+and its submodules. The comments at the top of that file provide a
 high-level overview of how estimations work. More details on specific
 estimations are available as comments on the enum variants of <code>Cost</code> in
 <a href="https://github.com/near/nearcore/blob/e40863c9ba61a0de140c869583b2113358605771/runtime/runtime-params-estimator/src/cost.rs#L9">costs.rs</a>.</p>
 <p>If you roughly understand the three files above, you already have a great
-overview around the estimator.
+overview of the estimator.
 <a href="https://github.com/near/nearcore/blob/e40863c9ba61a0de140c869583b2113358605771/runtime/runtime-params-estimator/src/estimator_context.rs">estimator_context.rs</a>
 is another central file. A full estimation run creates a single
-<code>EstimatorContext</code>. Each individual estimation will use it to spawn a new
-<code>Testbed</code> with a fresh database that contains the same data as setup in the
+<code>EstimatorContext</code>. Each estimation will use it to spawn a new <code>Testbed</code>
+with a fresh database that contains the same data as the setup in the
 estimator context.</p>
-<p>Most estimations fill blocks with transactions to be executed and hands them to
+<p>Most estimations fill blocks with transactions to be executed and hand them to
 <code>Testbed::measure_blocks</code>. To allow for easy repetitions, the block is usually
 filled by an instance of the
 <a href="https://github.com/near/nearcore/blob/e40863c9ba61a0de140c869583b2113358605771/runtime/runtime-params-estimator/src/transaction_builder.rs"><code>TransactionBuilder</code></a>,
@@ -3141,19 +3144,19 @@ parameters are estimated similarly.
 has a collection of helpful functions that let you write estimations very
 quickly.</p>
 <h2 id="estimation-metrics"><a class="header" href="#estimation-metrics">Estimation Metrics</a></h2>
-<p>Estimation code is generally not concerned with the metric used to estimate gas.
-We use <code>let clock = GasCost::measure();</code> and <code>clock.elapsed()</code> to measure the
-cost in whatever metric has been specified in the CLI argument <code>--metric</code>. But
-when you run estimations and especially when you want to interpret the results,
-you want to understand the metric used. Available metrics are <code>time</code> and
-<code>icount</code>.</p>
+<p>The estimation code is generally not concerned with the metric used to estimate
+gas. We use <code>let clock = GasCost::measure();</code> and <code>clock.elapsed()</code> to measure
+the cost in whatever metric has been specified in the CLI argument <code>--metric</code>.
+But when you run estimations and especially when you want to interpret the
+results, you want to understand the metric used. Available metrics are <code>time</code>
+and <code>icount</code>.</p>
 <p>Starting with <code>time</code>, this is a simple wall-clock time measurement. At the end
 of the day, this is what counts in a validator setup. But unfortunately, this
-metrics is very dependent on the specific hardware and what else is running on
+metric is very dependent on the specific hardware and what else is running on
 that hardware right now. Dynamic voltage and frequency scaling (DVFS) also plays
 a role here. To a certain degree, all these factors can be controlled. But it
 requires full control over a system (often not the case when running on
-cloud-hosted VMs) and manual labour to set it up.</p>
+cloud-hosted VMs) and manual labor to set it up.</p>
 <p>The other supported metric <code>icount</code> is much more stable. It uses
 <a href="https://www.qemu.org/">qemu</a> to emulate an x86 CPU. We then insert a custom
 <a href="https://qemu.readthedocs.io/en/latest/devel/tcg-plugins.html">TCG plugin</a>
@@ -3161,12 +3164,12 @@ cloud-hosted VMs) and manual labour to set it up.</p>
 that counts the number of executed x86 instructions. It also intercepts system
 calls and counts the number of bytes seen in <code>sys_read</code>, <code>sys_write</code> and their
 variations. This gives an approximation for IO bytes, as seen on the interface
-between operating system and nearcore. To convert to gas, we use  three
+between the operating system and nearcore. To convert to gas, we use three
 constants to multiply with instruction count, read bytes, and write bytes.</p>
 <p>We run qemu inside a Docker container, to make sure the qemu and qemu plugin
 versions match with system libraries. Make sure to add <code>--docker</code> when running
 with <code>--metric icount</code>.</p>
-<p>The great thing about <code>icount</code> is how you can run it on different machines and
+<p>The great thing about <code>icount</code> is that you can run it on different machines and
 it will always return the same result. It is not 100% deterministic but very
 close, so it can usually detect code changes that degrade performance in major
 ways.</p>
@@ -3184,14 +3187,13 @@ both measured using <code>icount</code>.</p>
 running a single command. After all, these parameters are part of the protocol
 specification. They cannot be changed easily. And setting them to a wrong value
 can cause severe system instability.</p>
-<p>Our current strategy is to run estimations
-with two different metrics and do so on standardized cloud hardware. The output
-is then sanity checked manually by several people. Based on that, the final gas
-parameter value is determined. Usually it will be the higher output of the two
-metrics rounded up.</p>
+<p>Our current strategy is to run estimations with two different metrics and do so
+on standardized cloud hardware. The output is then sanity checked manually by
+several people. Based on that, the final gas parameter value is determined.
+Usually, it will be the higher output of the two metrics rounded up.</p>
 <p>The PR <a href="https://github.com/near/nearcore/pull/8031">#8031</a> to set the ed25519
-verification gas parameters is a good example for how such an analysis and
-report could look.</p>
+verification gas parameters is a good example of how such an analysis and
+report could look like.</p>
 <p>More details on the process will be added to this document
 in due time.</p>
 <!-- TODO: how to add a new host function estimation -->
@@ -3203,7 +3205,7 @@ in due time.</p>
 at nearcore.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="rust-"><a class="header" href="#rust-">Rust 🦀</a></h1>
 <p>This short chapter collects various useful general resources about the Rust
-programming language. If you are already are familiar with Rust, skip this
+programming language. If you are already familiar with Rust, skip this
 chapter. Otherwise, this chapter is for you!</p>
 <h2 id="getting-help"><a class="header" href="#getting-help">Getting Help</a></h2>
 <p>Rust community actively encourages beginners to ask questions, take advantage of that!</p>
@@ -3224,22 +3226,22 @@ Nearcore Development&quot; is purely coincidental)</li>
 <ul>
 <li><a href="https://www.amazon.com/Programming-Rust-Fast-Systems-Development/dp/1491927283">Programming
 Rust</a>
-is an alternative book which moves a bit faster.</li>
+is an alternative book that moves a bit faster.</li>
 <li><a href="https://doc.rust-lang.org/rust-by-example/">Rust By Example</a> is a great
 resource for learning by doing.</li>
 </ul>
-<p>Rust has some great tooling, which also is documented:</p>
+<p>Rust has some great tooling, which is also documented:</p>
 <ul>
 <li><a href="https://doc.rust-lang.org/cargo/">Cargo</a>, the build system. Worth at least skimming through!</li>
 <li>For IDE support, see <a href="https://www.jetbrains.com/rust/">IntelliJ Rust</a> if you
 like JetBrains products or
 <a href="https://rust-analyzer.github.io/manual.html">rust-analyzer</a> if you use any
 other editor (fun fact: NEAR was one of the sponsors of rust-analyzer!).</li>
-<li><a href="https://rust-lang.github.io/rustup/">Rustup</a> manages versions of the Rust
+<li><a href="https://rust-lang.github.io/rustup/">Rustup</a> manages versions of Rust
 itself. It's unobtrusive, so feel free to skip this.</li>
 </ul>
 <h2 id="cheat-sheet"><a class="header" href="#cheat-sheet">Cheat Sheet</a></h2>
-<p>This is a thing in its own category, do check it out:</p>
+<p>This is a thing in its category, do check it out:</p>
 <p><a href="https://cheats.rs">https://cheats.rs</a></p>
 <h2 id="language-mastery"><a class="header" href="#language-mastery">Language Mastery</a></h2>
 <ul>
@@ -3264,7 +3266,7 @@ Here are some favorites:</p>
 <li><a href="https://smallcultfollowing.com/babysteps/blog/2016/10/02/observational-equivalence-and-unsafe-code/">https://smallcultfollowing.com/babysteps/blog/2016/10/02/observational-equivalence-and-unsafe-code/</a></li>
 <li><a href="https://matklad.github.io/2021/09/05/Rust100k.html">https://matklad.github.io/2021/09/05/Rust100k.html</a></li>
 </ul>
-<p>And on the easiest topic of error-handling specifically:</p>
+<p>And on the easiest topic of error handling specifically:</p>
 <ul>
 <li><a href="http://sled.rs/errors.html">http://sled.rs/errors.html</a></li>
 <li><a href="https://kazlauskas.me/entries/errors">https://kazlauskas.me/entries/errors</a></li>
@@ -3274,11 +3276,12 @@ Here are some favorites:</p>
 <p>Finally, as a dessert, the first rust slide deck:
 <a href="http://venge.net/graydon/talks/rust-2012.pdf">http://venge.net/graydon/talks/rust-2012.pdf</a>.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="workflows"><a class="header" href="#workflows">Workflows</a></h1>
-<p>This chapter documents various way you can run <code>neard</code> during development: running a local net, joining a test net, doing benchmarking and load testing. </p>
+<p>This chapter documents various ways you can run <code>neard</code> during development:
+running a local net, joining a test net, doing benchmarking and load testing. </p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="run-a-node"><a class="header" href="#run-a-node">Run a Node</a></h1>
-<p>This chapter focuses on the basics of running a node you've just build from
-source. It tries to explain how the thing works under the hood, and pays
-relatively little attention to various shortcuts we have.</p>
+<p>This chapter focuses on the basics of running a node you've just built from
+source. It tries to explain how the thing works under the hood and pays
+relatively little attention to the various shortcuts we have.</p>
 <h2 id="building-the-node"><a class="header" href="#building-the-node">Building the Node</a></h2>
 <p>Start with the following command:</p>
 <pre><code class="language-console">$ cargo run --profile quick-release -p neard -- --help
@@ -3288,37 +3291,40 @@ a while, take a look at <a href="practices/workflows/../fast_builds.html">Fast B
 speed it up.</p>
 <p>Let's dissect the command:</p>
 <ul>
-<li><code>cargo run</code> asks <code>Cargo</code>, the package manager/build tool to run our
+<li><code>cargo run</code> asks <code>Cargo</code>, the package manager/build tool, to run our
 application. If you don't have <code>cargo</code>, install it via <a href="https://rustup.rs">https://rustup.rs</a></li>
-<li><code>--profile quick-release</code> is our <a href="https://doc.rust-lang.org/cargo/reference/profiles.html#custom-profiles">custom profile</a> to build to build a somewhat
-optimized version of the code. Default debug profile is faster to compile, but
-produces a node which is too slow to participate in a real network. The
-<code>--release</code> profile produces a fully optimized node, but that's very slow to
-compile. So <code>--quick-release</code> is a sweat spot for us!</li>
-<li><code>-p neard</code> asks to build the <code>neard</code> package. We use a <a href="https://doc.rust-lang.org/book/ch14-03-cargo-workspaces.html">cargo workspace</a> to
-organize our code. The <code>neard</code> package in the top-level <code>/neard</code> directory is
-the final binary which ties everything together.</li>
-<li><code>--</code> tells cargo to pass the rest of the arguments thorough to <code>neard</code>.</li>
+<li><code>--profile quick-release</code> is our
+<a href="https://doc.rust-lang.org/cargo/reference/profiles.html#custom-profiles">custom profile</a>
+to build a somewhat optimized version of the code. The default debug
+profile is faster to compile, but produces a node that is too slow to
+participate in a real network. The <code>--release</code> profile produces a fully
+optimized node, but that's very slow to compile. So <code>--quick-release</code>
+is a sweet spot for us!</li>
+<li><code>-p neard</code> asks to build the <code>neard</code> package. We use
+<a href="https://doc.rust-lang.org/cargo/reference/workspaces.html">cargo workspaces</a>
+to organize our code. The <code>neard</code> package in the top-level <code>/neard</code> directory
+is the final binary that ties everything together.</li>
+<li><code>--</code> tells cargo to pass the rest of the arguments through to <code>neard</code>.</li>
 <li><code>--help</code> instructs <code>neard</code> to list available CLI arguments and subcommands.</li>
 </ul>
-<p><strong>Note:</strong> building <code>neard</code> might fail with an openssl or CC error. This means
+<p><strong>Note:</strong> Building <code>neard</code> might fail with an openssl or CC error. This means
 that you lack some non-rust dependencies we use (openssl and rocksdb mainly). We
-currently don't have docs on how to install those, but, basically, you want to
-<code>sudo apt install</code> missing bits.</p>
+currently don't have docs on how to install those, but (basically) you want to
+<code>sudo apt install</code> (or whichever distro/package manager you use) missing bits.</p>
 <h2 id="preparing-tiny-network"><a class="header" href="#preparing-tiny-network">Preparing Tiny Network</a></h2>
 <p>Typically, you want <code>neard</code> to connect to some network, like <code>mainnet</code> or
 <code>testnet</code>. We'll get there in time, but we'll start small. For the current
 chapter, we will run a network consisting of just a single node -- our own.</p>
-<p>The first step there is creating required configuration. Run the <code>init</code> command
-to create config files:</p>
+<p>The first step there is creating the required configuration. Run the <code>init</code>
+command to create config files:</p>
 <pre><code class="language-console">$ cargo run --profile quick-release -p neard -- init
 INFO neard: version=&quot;trunk&quot; build=&quot;1.1.0-3091-ga8964d200-modified&quot; latest_protocol=57
 INFO near: Using key ed25519:B41GMfqE2jWHVwrPLbD7YmjZxxeQE9WA9Ua2jffP5dVQ for test.near
 INFO near: Using key ed25519:34d4aFJEmc2A96UXMa9kQCF8g2EfzZG9gCkBAPcsVZaz for node
 INFO near: Generated node key, validator key, genesis file in ~/.near
 </code></pre>
-<p>As the log output says, we just generating <em>somethings</em> in <code>~/.near</code>. Let's take
-a look:</p>
+<p>As the log output says, we are just generating <em>some things</em> in <code>~/.near</code>.
+Let's take a look:</p>
 <pre><code class="language-console">$ ls ~/.near
 config.json
 genesis.json
@@ -3326,7 +3332,7 @@ node_key.json
 validator_key.json
 </code></pre>
 <p>The most interesting file here is perhaps <code>genesis.json</code> -- it specifies the
-initial state of our blockchain. There's a bunch of hugely important fields
+initial state of our blockchain. There are a bunch of hugely important fields
 there, which we'll ignore here. The part we'll look at is the <code>.records</code>, which
 contains the actual initial data:</p>
 <pre><code class="language-console">$ cat ~/.near/genesis.json | jq '.records'
@@ -3376,7 +3382,7 @@ contains the actual initial data:</p>
     }
   }
 </code></pre>
-<p>(I am using <a href="https://stedolan.github.io/jq/">jq</a> utility here)</p>
+<p>(I am using the <a href="https://stedolan.github.io/jq/">jq</a> utility here)</p>
 <p>We see that we have two accounts here, and we also see their public keys (but
 not the private ones).</p>
 <p>One of these accounts is a validator:</p>
@@ -3391,7 +3397,6 @@ not the private ones).</p>
 </code></pre>
 <p>Now, if we</p>
 <pre><code class="language-console">$ cat ~/.near/validator_key.json
-}
 </code></pre>
 <p>we'll see</p>
 <pre><code class="language-json">{
@@ -3403,28 +3408,28 @@ not the private ones).</p>
 <p>That is, we have a secret key for the sole validator in our network, how
 convenient.</p>
 <p>To recap, <code>neard init</code> without arguments creates a config for a new network
-which starts with a single validator, for which we have the keys.</p>
+that starts with a single validator, for which we have the keys.</p>
 <p>You might be wondering what <code>~/.near/node_key.json</code> is. That's not too
-important, but in our network there's no 1-1 correspondence between machines
+important, but, in our network, there's no 1-1 correspondence between machines
 participating in the peer-to-peer network and accounts on the blockchain. So the
-<code>node_key</code> specifies the keypair we'll use then signing network packets. These
+<code>node_key</code> specifies the keypair we'll use when signing network packets. These
 packets internally will contain messages signed with the validator's key, and
-these internal messages will drive the evolution of blockchain state.</p>
+these internal messages will drive the evolution of the blockchain state.</p>
 <p>Finally, <code>~/.near/config.json</code> contains various configs for the node itself.
-That is, configs which don't actually affect the rules guiding the evolution of
-the blockchain state, but rather things like timeous, database settings and
+These are configs that don't affect the rules guiding the evolution of the
+blockchain state, but rather things like timeouts, database settings and
 such.</p>
 <p>The only field we'll look at is <code>boot_nodes</code>:</p>
 <pre><code class="language-console">$ cat ~/.near/config.json | jq '.network.boot_nodes'
 &quot;&quot;
 </code></pre>
-<p>It's empty! The <code>boot_nodes</code> specifies IPs of the initial nodes our node will
-try to connect to on startup. As we are looking into running a single node
+<p>It's empty! The <code>boot_nodes</code> specify IPs of the initial nodes our node will
+try to connect to on startup. As we are looking into running a single-node
 network, we want to leave it empty. But, if you would like to connect to
 mainnet, you'd have to set this to some nodes from the mainnet you already know.
-You'd also have to ensure that you use the same genesis as the the mainnet
-though -- if the nodes tries to connect to a network with a different genesis,
-it is rejected.</p>
+You'd also have to ensure that you use the same genesis as the mainnet though
+-- if the node tries to connect to a network with a different genesis, it
+is rejected.</p>
 <h2 id="running-the-network"><a class="header" href="#running-the-network">Running the Network</a></h2>
 <p>Finally,</p>
 <pre><code class="language-console">$ cargo run --profile quick-release -p neard -- run
@@ -3440,10 +3445,10 @@ INFO near_chain::doomslug: ready to produce block @ 5, has enough approvals for 
 ...
 </code></pre>
 <p>🎉 it's alive!</p>
-<p>So, what's going one here?</p>
-<p>Our node is running a single node network. As the network only has a single
-validator, and the node has the keys for the validator, the node is able to
-produce blocks by itself. Note the increasing <code>@ 1</code>, <code>@ 2</code>, ... numbers. That
+<p>So, what's going on here?</p>
+<p>Our node is running a single-node network. As the network only has a single
+validator, and the node has the keys for the validator, the node can produce
+blocks by itself. Note the increasing <code>@ 1</code>, <code>@ 2</code>, ... numbers. That
 means that our network grows.</p>
 <p>Let's stop the node with <code>^C</code> and look around</p>
 <pre><code class="language-console">INFO near_chain::doomslug: ready to produce block @ 42, has enough approvals for 56.759µs, has enough chunks
@@ -3453,7 +3458,7 @@ INFO db: Waiting for remaining RocksDB instances to shut down num_instances=1
 INFO db: All RocksDB instances shut down
 $
 </code></pre>
-<p>The main change now is that we have <code>~/.near/data</code> directory which holds the
+<p>The main change now is that we have a <code>~/.near/data</code> directory which holds the
 state of the network in various rocksdb tables:</p>
 <pre><code class="language-console">$ ls ~/.near/data
  000004.log
@@ -3465,9 +3470,9 @@ state of the network in various rocksdb tables:</p>
  OPTIONS-000107
  OPTIONS-000109
 </code></pre>
-<p>It doesn't really matter what those are, &quot;rocksdb stuff&quot; is a fine level of
-understanding here. The important bit here is that the node remembers the state
-of the network, so, when we restart it, it continues from around the last block:</p>
+<p>It doesn't matter what those are, &quot;rocksdb stuff&quot; is a fine level of understanding
+here. The important bit here is that the node remembers the state of the network,
+so, when we restart it, it continues from around the last block:</p>
 <pre><code class="language-console">$ cargo run --profile quick-release -p neard -- run
 INFO neard: version=&quot;trunk&quot; build=&quot;1.1.0-3091-ga8964d200-modified&quot; latest_protocol=57
 INFO db: Created a new RocksDB instance. num_instances=1
@@ -3484,9 +3489,9 @@ INFO near_chain::doomslug: ready to produce block @ 44, has enough approvals for
 INFO near_chain::doomslug: ready to produce block @ 45, has enough approvals for 45.093µs, has enough chunks
 </code></pre>
 <h2 id="interacting-with-the-node"><a class="header" href="#interacting-with-the-node">Interacting With the Node</a></h2>
-<p>Ok, now our node is running, let's poke it! The node exposes JSON RPC interface
-which can be used to interact with the node itself (to, eg, do a health check)
-or with the blockchain (to query information about blockchain state, or to
+<p>Ok, now our node is running, let's poke it! The node exposes a JSON RPC interface
+which can be used to interact with the node itself (to, e.g., do a health check)
+or with the blockchain (to query information about the blockchain state or to
 submit a transaction).</p>
 <pre><code class="language-console">$ http get http://localhost:3030/status
 HTTP/1.1 200 OK
@@ -3534,7 +3539,7 @@ vary: Origin, Access-Control-Request-Method, Access-Control-Request-Headers
 </code></pre>
 <p>(I am using <a href="https://httpie.io/cli">HTTPie here</a>)</p>
 <p>Note how <code>&quot;latest_block_height&quot;: 952</code> corresponds to <code>@ 952</code> we see in the logs.</p>
-<p>Let's query blockchain state:</p>
+<p>Let's query the blockchain state:</p>
 <pre><code>$ http post http://localhost:3030/ method=query jsonrpc=2.0 id=1 \
      params:='{&quot;request_type&quot;: &quot;view_account&quot;, &quot;finality&quot;: &quot;final&quot;, &quot;account_id&quot;: &quot;test.near&quot;}'
 λ http post http://localhost:3030/ method=query jsonrpc=2.0 id=1 \
@@ -3562,13 +3567,13 @@ vary: Origin, Access-Control-Request-Method, Access-Control-Request-Headers
     }
 }
 </code></pre>
-<p>Note how we use a <code>post</code> HTTP method when we interact with blockchain RPC. The
-full set of RPC endpoints is documented at</p>
+<p>Note how we use an HTTP <code>post</code> method when we interact with the blockchain RPC.
+The full set of RPC endpoints is documented at</p>
 <p><a href="https://docs.near.org/api/rpc/introduction">https://docs.near.org/api/rpc/introduction</a></p>
 <h2 id="sending-transactions"><a class="header" href="#sending-transactions">Sending Transactions</a></h2>
 <p>Transactions are submitted via RPC as well. Submitting a transaction manually
-with <code>http</code> is going to be cumbersome though — transactions are are borsh
-encoded to bytes, then signed, then encoded in base64 for JSON.</p>
+with <code>http</code> is going to be cumbersome though — transactions are borsh encoded
+to bytes, then signed, then encoded in base64 for JSON.</p>
 <p>So we will use the official <a href="https://docs.near.org/tools/near-cli">NEAR CLI</a> utility.</p>
 <p>Install it via <code>npm</code>:</p>
 <pre><code class="language-console">$ npm install -g near-cli
@@ -3580,7 +3585,7 @@ Commands:
 ....
 </code></pre>
 <p>Note that, although you install <code>near-cli</code>, the name of the utility is <code>near</code>.</p>
-<p>As a first-step, let's redo the <code>view_account</code> call we did with raw <code>httpie</code>
+<p>As a first step, let's redo the <code>view_account</code> call we did with raw <code>httpie</code>
 with <code>near-cli</code>:</p>
 <pre><code class="language-console">$ NEAR_ENV=local near state test.near
 Loaded master account test.near key from ~/.near/validator_key.json with public key = ed25519:71QRP9qKcYRUYXTLNnrmRc1NZSdBaBo9nKZ88DK5USNf
@@ -3618,6 +3623,10 @@ Transaction Id BBPndo6gR4X8pzoDK7UQfoUXp5J8WDxkf8Sq75tK5FFT
 To see the transaction in the transaction explorer, please open this url in your browser
 http://localhost:9001/transactions/BBPndo6gR4X8pzoDK7UQfoUXp5J8WDxkf8Sq75tK5FFT
 </code></pre>
+<p><strong>Note:</strong> You can export the variable <code>NEAR_ENV</code> in your shell if you are planning
+to do multiple commands to avoid repetition:</p>
+<pre><code class="language-console">$ export NEAR_ENV=local
+</code></pre>
 <p>NEAR CLI printouts are not always the most useful or accurate, but this seems to
 work.</p>
 <p>Note that <code>near</code> automatically creates keypairs and stores them at
@@ -3626,7 +3635,7 @@ work.</p>
   alice.test.near.json
   bob.test.near.json
 </code></pre>
-<p>To verify this actually did work, and that <code>near-cli</code> didn't cheat us, let's
+<p>To verify that this did work, and that <code>near-cli</code> didn't cheat us, let's
 query the state of accounts manually:</p>
 <pre><code class="language-console">$ http post http://localhost:3030/ method=query jsonrpc=2.0 id=1 \
     params:='{&quot;request_type&quot;: &quot;view_account&quot;, &quot;finality&quot;: &quot;final&quot;, &quot;account_id&quot;: &quot;alice.test.near&quot;}' \
@@ -3639,27 +3648,27 @@ query the state of accounts manually:</p>
     | jq '.result.amount'
 &quot;110000000000000000000000000&quot;
 </code></pre>
-<p>Indeed, some amounts of tokes was transferred from <code>alice</code> to <code>bob</code>, and then
-some amount of tokes was deducted to account for transaction fees.</p>
+<p>Indeed, some amount of tokes was transferred from <code>alice</code> to <code>bob</code>, and then
+some amount of tokens was deducted to account for transaction fees.</p>
 <h2 id="recap"><a class="header" href="#recap">Recap</a></h2>
 <p>Great! So we've learned how to run our very own single-node NEAR network using a
-binary we've build from source. The steps are:</p>
+binary we've built from source. The steps are:</p>
 <ul>
 <li>Create configs with <code>cargo run --profile quick-release -p neard -- init</code></li>
 <li>Run the node with <code>cargo run --profile quick-release -p neard -- run</code></li>
-<li>Poke the node with <code>http</code> or</li>
+<li>Poke the node with <code>httpie</code> or</li>
 <li>Install <code>near-cli</code> via <code>npm install -g near-cli</code></li>
 <li>Submit transactions via <code>NEAR_ENV=local near create-account ...</code></li>
 </ul>
-<p>In the <a href="practices/workflows/./deploy_a_contract.html">next chapter</a> we'll learn how to deploy a simple
+<p>In the <a href="practices/workflows/./deploy_a_contract.html">next chapter</a>, we'll learn how to deploy a simple
 WASM contract.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="deploy-a-contract"><a class="header" href="#deploy-a-contract">Deploy a Contract</a></h1>
-<p>In this chapter, we'll learn how to build, deploy, and call a minimal
-smart-contract on our local node.</p>
+<p>In this chapter, we'll learn how to build, deploy, and call a minimal smart
+contract on our local node.</p>
 <h2 id="preparing-ground"><a class="header" href="#preparing-ground">Preparing Ground</a></h2>
-<p>Let's start with creating a fresh local network with an account we'll deploy a
-contract to. You might want to re-read <a href="practices/workflows/./run_a_node.html">how to run a node</a> to
-understand what's going one here:</p>
+<p>Let's start with creating a fresh local network with an account to which we'll
+deploy a contract. You might want to re-read <a href="practices/workflows/./run_a_node.html">how to run a node</a>
+to understand what's going one here:</p>
 <pre><code class="language-console">$ cargo run --profile quick-release -p neard -- init
 $ cargo run --profile quick-release -p neard -- run
 $ NEAR_ENV=local near create-account alice.test.near --masterAccount test.near
@@ -3681,26 +3690,26 @@ Account alice.test.near
 </code></pre>
 <h2 id="minimal-contract"><a class="header" href="#minimal-contract">Minimal Contract</a></h2>
 <p>NEAR contracts are <a href="https://webassembly.org">WebAssembly</a> blobs of bytes. To
-create a contract, contract developer typically uses an SDK for some high-level
-programming language, such as JavaScript, which takes care of producing the
-right <code>.wasm</code>.</p>
+create a contract, a contract developer typically uses an SDK for some
+high-level programming language, such as JavaScript, which takes care of
+producing the right <code>.wasm</code>.</p>
 <p>In this guide, we are interested in how things work under the hood, so we'll
 do everything manually, and implement a contract in Rust without any help from
 SDKs.</p>
 <p>As we are looking for something simple, let's create a contract with a single
-&quot;method&quot;, <code>hello</code>, which returns <code>&quot;hello world&quot;</code> string. To &quot;define a method&quot;, a
-wasm module should export a function. To &quot;return a value&quot;, the contract needs to
-interact with the environment to say &quot;hey, this is the value I am returning&quot;.
-Such &quot;interractions&quot; are carried through host-functions, which are quite a bit
-like syscalls in traditional operating system.</p>
-<p>The set of host functions which the contract can import is defined in
+&quot;method&quot;, <code>hello</code>, which returns a <code>&quot;hello world&quot;</code> string. To &quot;define a method&quot;,
+a wasm module should export a function. To &quot;return a value&quot;, the contract needs
+to interact with the environment to say &quot;hey, this is the value I am returning&quot;.
+Such &quot;interactions&quot; are carried through host functions, which are quite a bit
+like syscalls in traditional operating systems.</p>
+<p>The set of host functions that the contract can import is defined in
 <a href="https://github.com/near/nearcore/blob/aeccaaab334275f6d0a62deabd184675bc3c6a23/runtime/near-vm-runner/src/imports.rs#L71-L242"><code>imports.rs</code></a>.</p>
-<p>In this particular case, we need <code>value_return</code> function:</p>
+<p>In this particular case, we need the <code>value_return</code> function:</p>
 <pre><code>value_return&lt;[value_len: u64, value_ptr: u64] -&gt; []&gt;
 </code></pre>
-<p>That is, <code>value_return</code> function takes a pointer to slice of bytes, a length of
-the slice, and returns nothing. If the contract calls this function, the slice
-would be considered a result of the function.</p>
+<p>This means that the <code>value_return</code> function takes a pointer to a slice of bytes,
+the length of the slice, and returns nothing. If the contract calls this function,
+the slice would be considered a result of the function.</p>
 <p>To recap, we want to produce a <code>.wasm</code> file with roughly the following content:</p>
 <pre><code class="language-wasm">(module
   (import &quot;env&quot; &quot;value_return&quot; (func $value_return (param i64 i64)))
@@ -3708,7 +3717,7 @@ would be considered a result of the function.</p>
 </code></pre>
 <h2 id="cargo-boilerplate"><a class="header" href="#cargo-boilerplate">Cargo Boilerplate</a></h2>
 <p>Armed with this knowledge, we can write Rust code to produce the required WASM.
-Before we actually start doing that, some amount of setup code is required.</p>
+Before we start doing that, some amount of setup code is required.</p>
 <p>Let's start with creating a new crate:</p>
 <pre><code class="language-console">$ cargo new hello-near --lib
 </code></pre>
@@ -3724,10 +3733,11 @@ WebAssembly module.</p>
 crate-type = [&quot;cdylib&quot;]
 </code></pre>
 <p>Here, we ask Cargo to build a &quot;C dynamic library&quot;. When compiling for wasm,
-this'll give us a <code>.wasm</code> module. This is just confusing, sorry about that
-:(</p>
+that'll give us a <code>.wasm</code> module. This part is a bit confusing, sorry about
+that :(</p>
 <p>Next, as we are aiming for minimalism here, we need to disable optional bits
-of Rust runtime. Namely, we want to make our crate <code>no_std</code>, set <code>panic=abort</code>
+of the Rust runtime. Namely, we want to make our crate <code>no_std</code> (this means
+that we are not going to use the Rust standard library), set <code>panic=abort</code>
 as our panic strategy and define a panic handler to abort execution.</p>
 <pre><code class="language-toml"># hello-near/Cargo.toml
 
@@ -3763,7 +3773,7 @@ $ ls target/wasm32-unknown-unknown/release/hello_near.wasm
 .rwxr-xr-x 106 matklad 15 Nov 15:34 target/wasm32-unknown-unknown/release/hello_near.wasm
 </code></pre>
 <p>106 bytes is pretty small! Let's see what's inside. For that, we'll use
-<code>wasm-tools</code> suite of cli utilities.</p>
+the <code>wasm-tools</code> suite of CLI utilities.</p>
 <pre><code class="language-console">$ cargo install wasm-tools
 λ wasm-tools print target/wasm32-unknown-unknown/release/hello_near.wasm
 (module
@@ -3777,8 +3787,9 @@ $ ls target/wasm32-unknown-unknown/release/hello_near.wasm
 )
 </code></pre>
 <h2 id="rust-contract"><a class="header" href="#rust-contract">Rust Contract</a></h2>
-<p>Finally, let's implement an actual contract. We'll need <code>extern &quot;C&quot;</code> block to
-declare <code>value_return</code> import, and a <code>#[no_mangle] extern &quot;C&quot;</code> function to declare <code>hello</code> export:</p>
+<p>Finally, let's implement an actual contract. We'll need an <code>extern &quot;C&quot;</code> block to
+declare the <code>value_return</code> import, and a <code>#[no_mangle] extern &quot;C&quot;</code> function to
+declare the <code>hello</code> export:</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>// hello-near/src/lib.rs
@@ -3801,7 +3812,8 @@ fn panic_handler(_info: &amp;core::panic::PanicInfo) -&gt; ! {
 }
 <span class="boring">}
 </span></code></pre></pre>
-<p>Building and inspecting output shows that it's roughly what we want:</p>
+<p>After building the contract, the output wasm shows us that it's roughly what we
+want:</p>
 <pre><code class="language-console">$ cargo b -r --target wasm32-unknown-unknown
    Compiling hello-near v0.1.0 (/home/matklad/hello-near)
     Finished release [optimized] target(s) in 0.05s
@@ -3829,7 +3841,7 @@ $ wasm-tools print target/wasm32-unknown-unknown/release/hello_near.wasm
 )
 </code></pre>
 <h2 id="deploying-the-contract"><a class="header" href="#deploying-the-contract">Deploying the Contract</a></h2>
-<p>Now that we have WASM, let's deploy it!</p>
+<p>Now that we have the WASM, let's deploy it!</p>
 <pre><code class="language-console">$ NEAR_ENV=local near deploy alice.test.near \
     ./target/wasm32-unknown-unknown/release/hello_near.wasm
 Loaded master account test.near key from /home/matklad/.near/validator_key.json with public key = ed25519:ChLD1qYic3G9qKyzgFG3PifrJs49CDYeERGsG58yaSoL
@@ -3849,10 +3861,10 @@ To see the transaction in the transaction explorer, please open this url in your
 http://localhost:9001/transactions/9WMwmTf6pnFMtj1KBqjJtkKvdFXS4kt3DHnYRnbFpJ9e
 'hello world'
 </code></pre>
-<p>Note that we pass <code>alice.test.near</code> twice: first time to specify which contract
+<p>Note that we pass <code>alice.test.near</code> twice: the first time to specify which contract
 we are calling, the second time to determine who calls the contract. That is,
-the second account actually spends tokens. In the following example <code>bob</code> spends
-NEAR to call contact deployed to alice account:</p>
+the second account is the one that spends tokens. In the following example <code>bob</code>
+spends NEAR to call the contact deployed to the <code>alice</code> account:</p>
 <pre><code class="language-console">$ NEAR_ENV=local $near call alice.test.near hello --accountId bob.test.near
 Scheduling a call: alice.test.near.hello()
 Loaded master account test.near key from /home/matklad/.near/validator_key.json with public key = ed25519:ChLD1qYic3G9qKyzgFG3PifrJs49CDYeERGsG58yaSoL
@@ -3921,8 +3933,8 @@ Finished in 17.92s, output saved to:
     /host/nearcore/costs-2022-11-01T16:27:36Z-e40863c9b.txt
 </code></pre>
 <p>The difference between the metrics is discussed in the <a href="practices/workflows/../../architecture/gas/estimator.html#estimation-metrics">Estimation
-Metrics</a>.</p>
-<p>You should now be all setup for running estimations on your local machine. Also
+Metrics</a> chapter.</p>
+<p>You should now be all set up for running estimations on your local machine. Also,
 check <code>cargo run -p runtime-params-estimator --features required -- --help</code> for
 the list of available options.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="running-near-localnet-on-2-machines"><a class="header" href="#running-near-localnet-on-2-machines">Running near localnet on 2 machines</a></h1>
@@ -3990,17 +4002,21 @@ imperfections.</p>
 <h2 id="idiomatic-rust"><a class="header" href="#idiomatic-rust">Idiomatic Rust</a></h2>
 <p>While the most important thing is to solve the problem at hand, we strive to
 implement the solution in idiomatic Rust, if possible. To learn what is
-considered idiomatic Rust, a good start are the Rust API guidelines (but keep in
-mind that <code>nearcore</code> is not a library with public API, not all advice applies
-literally):</p>
-<p>https://rust-lang.github.io/api-guidelines/about.html</p>
+considered idiomatic Rust, a good start are the
+<a href="https://rust-lang.github.io/api-guidelines/about.html">Rust API guidelines</a>
+(but keep in mind that <code>nearcore</code> is not a library with public API, not all
+advice applies literally).</p>
 <p>When in doubt, ask question in the <a href="https://near.zulipchat.com/#narrow/stream/300659-Rust-.F0.9F.A6.80">Rust
 🦀</a> Zulip
 stream or during code review.</p>
-<p><strong>Rationale:</strong> Consistency, as there's usually only one idiomatic solution
-amidst many non-idiomatic ones. Predictability, you can use the APIs without
-consulting documentation. Performance, ergonomics and correctness: language
-idioms usually reflect learned truths, which might not be immediately obvious.</p>
+<p><strong>Rationale:</strong></p>
+<ul>
+<li><em>Consistency</em>: there's usually only one idiomatic solution amidst many
+non-idiomatic ones.</li>
+<li><em>Predictability</em>: you can use the APIs without consulting documentation.</li>
+<li><em>Performance, ergonomics and correctness</em>: language idioms usually reflect
+learned truths, which might not be immediately obvious.</li>
+</ul>
 <h2 id="style"><a class="header" href="#style">Style</a></h2>
 <p>This section documents all micro-rules which are not otherwise enforced by
 <code>rustfmt</code>.</p>
@@ -4024,10 +4040,10 @@ fn log_validator(account_id: AccountId) {
 <span class="boring">}
 </span></code></pre></pre>
 <p>Note that <code>Option::as_ref</code>, <code>Result::as_ref</code> are great, do use them!</p>
-<p><strong>Rationale:</strong> readability and churn-resistance. There might be more than one
+<p><strong>Rationale:</strong> Readability and churn-resistance. There might be more than one
 <code>AsRef&lt;U&gt;</code> implementation for a given type (with different <code>U</code>s). If a new
 implementation is added, some of the <code>.as_ref()</code> calls might break. See also
-https://github.com/rust-lang/rust/issues/62586.</p>
+this <a href="https://github.com/rust-lang/rust/issues/62586">issue</a>.</p>
 <h3 id="avoid-references-to-copy-types"><a class="header" href="#avoid-references-to-copy-types">Avoid references to <code>Copy</code>-types</a></h3>
 <p>Various generic APIs in Rust often return references to data (<code>&amp;T</code>). When <code>T</code> is
 a small <code>Copy</code> type like <code>i32</code>, you end up with <code>&amp;i32</code> while many API expect
@@ -4052,7 +4068,7 @@ fn compute(map: HashMap&lt;&amp;'str, i32&gt;) {
 fn process(value: i32) { ... }
 <span class="boring">}
 </span></code></pre></pre>
-<p><strong>Rationale:</strong> if the value is used multiple times, dereferencing in the pattern
+<p><strong>Rationale:</strong> If the value is used multiple times, dereferencing in the pattern
 saves keystrokes. If the value is used exactly once, we just want to be
 consistent. Additional benefit of early deref is reduced scope of borrow.</p>
 <p>Note that for some <em>big</em> <code>Copy</code> types, notably <code>CryptoHash</code>, we sometimes use
@@ -4060,7 +4076,7 @@ references for performance reasons. As a rule of thumb, <code>T</code> is consid
 <code>size_of::&lt;T&gt;() &gt; 2 * size_of::&lt;usize&gt;()</code>.</p>
 <h3 id="prefer-for-loops-over-for_each-and-try_for_each-methods"><a class="header" href="#prefer-for-loops-over-for_each-and-try_for_each-methods">Prefer for loops over <code>for_each</code> and <code>try_for_each</code> methods</a></h3>
 <p>Iterators offer <code>for_each</code> and <code>try_for_each</code> methods which allow executing
-a closure over all items of the iterator.  This is similar to using a for loop
+a closure over all items of the iterator. This is similar to using a for loop
 but comes with various complications and may lead to less readable code.  Prefer
 using a loop rather than those methods, for example:</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -4085,18 +4101,18 @@ result?.into_iter().try_for_each(
 </span></code></pre></pre>
 <p><strong>Rationale:</strong> The <code>for_each</code> and <code>try_for_each</code> method don’t play nice with
 <code>break</code> and <code>continue</code> statements nor do they mesh well with async IO (since
-<code>.await</code> inside of the closure isn’t possible).  And while <code>try_for_each</code> allows
+<code>.await</code> inside of the closure isn’t possible). And while <code>try_for_each</code> allows
 for the use of question mark operator, one may end up having to uses it twice:
 once inside the closure and second time outside the call to <code>try_for_each</code>.
 Furthermore, usage of the functions often introduce some minor syntax noise.</p>
-<p>There are situations when those methods may lead to more readable code.  Common
-example are long call chains.  Even then such code may evolve with the closure
-growing and leading to less readable code.  If advantages of using the methods
+<p>There are situations when those methods may lead to more readable code. Common
+example are long call chains. Even then such code may evolve with the closure
+growing and leading to less readable code. If advantages of using the methods
 aren’t clear cut, it’s usually better to err on side of more imperative style.</p>
 <p>Lastly, anecdotally the methods (e.g. when used with <code>chain</code> or <code>flat_map</code>) may
-lead to faster code.  This intuitively makes sense but it’s worth to keep in
+lead to faster code. This intuitively makes sense but it’s worth to keep in
 mind that compilers are pretty good at optimising and in practice may generate
-optimal code anyway.  Furthermore, optimising code for readability may be more
+optimal code anyway. Furthermore, optimising code for readability may be more
 important (especially outside of hot path) than small performance gains.</p>
 <h3 id="prefer-to_string-to-format"><a class="header" href="#prefer-to_string-to-format">Prefer <code>to_string</code> to <code>format!(&quot;{}&quot;)</code></a></h3>
 <p>Prefer calling <code>to_string</code> method on an object rather than passing it through
@@ -4114,7 +4130,7 @@ let msg = path.display() + &quot;: failed to open&quot;;
 </span></code></pre></pre>
 <p><strong>Rationale:</strong> <code>to_string</code> is shorter to type and also faster.</p>
 <h3 id="import-granularity"><a class="header" href="#import-granularity">Import Granularity</a></h3>
-<p>Group import by module, but not deeper:</p>
+<p>Group imports by module, but not deeper:</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>// GOOD
@@ -4164,7 +4180,7 @@ use near_store::{DBCol::Peers, Store};
 use crate::types::KnownPeerState;
 <span class="boring">}
 </span></code></pre></pre>
-<p><strong>Rationale:</strong> Consistency, ease of automatic enforcement. Today stable rustfmt
+<p><strong>Rationale:</strong> Consistency, ease of automatic enforcement. Today, stable rustfmt
 can't split imports into groups automatically, and doing that manually
 consistently is a chore.</p>
 <h3 id="derives"><a class="header" href="#derives">Derives</a></h3>
@@ -4236,9 +4252,9 @@ use of iterators those cases aren’t that common anyway.</li>
 <li>Follow standard <a href="https://rust-lang.github.io/api-guidelines/naming.html">Rust naming patterns</a> such as:
 <ul>
 <li>Don’t use <code>get_</code> prefix for getter methods.  A getter method is one which
-returns (reference to) a field of an object.</li>
+returns (a reference to) a field of an object.</li>
 <li>Use <code>set_</code> prefix for setter methods.  An exception are builder objects
-which may use different naming style.</li>
+which may use different a naming style.</li>
 <li>Use <code>into_</code> prefix for methods which consume <code>self</code> and <code>to_</code> prefix for
 methods which don’t.</li>
 </ul>
@@ -4284,7 +4300,7 @@ debug!(
     &quot;block.previous_hash&quot; = %block.header().prev_hash(),
     &quot;block.height&quot; = block.header().height(),
     %peer_id,
-    was_requested
+    was_requested,
     &quot;Received block&quot;,
 );
 <span class="boring">}
@@ -4309,8 +4325,8 @@ debug!(
 <p>Always specify the <code>target</code> explicitly. A good default value to use is the crate
 name, or the module path (e.g. <code>chain::client</code>) so that events and spans common
 to a topic can be grouped together. This grouping can later be used for
-customizing of which events to output.</p>
-<p><strong>Rationale:</strong> This makes the events structured – one of the major value
+customizing which events to output.</p>
+<p><strong>Rationale:</strong> This makes the events structured – one of the major value add
 propositions of the tracing ecosystem. Structured events allow for immediately
 actionable data without additional post-processing, especially when using some
 of the more advanced tracing subscribers. Of particular interest would be those
@@ -4318,11 +4334,11 @@ that output events as JSON, or those that publish data to distributed event
 collection systems such as opentelemetry. Maintaining this rule will also
 usually result in faster execution (when logs at the relevant level are enabled.)</p>
 <h3 id="spans"><a class="header" href="#spans">Spans</a></h3>
-<p>Use the <a href="https://docs.rs/tracing/latest/tracing/#spans">spans</a> to introduce context and grouping to and between events
-instead of manually adding such information as part of the events themselves.
-Most of the subscribers ingesting spans also provide a built-in timing facility,
-so prefer using spans for measuring the amount of time a section of code needs
-to execute.</p>
+<p>Use the <a href="https://docs.rs/tracing/latest/tracing/#spans">spans</a> to introduce
+context and grouping to and between events instead of manually adding such
+information as part of the events themselves. Most of the subscribers ingesting
+spans also provide a built-in timing facility, so prefer using spans for measuring
+the amount of time a section of code needs to execute.</p>
 <p>Give spans simple names that make them both easy to trace back to code, and to
 find a particular span in logs or other tools ingesting the span data. If a
 span begins at the top of a function, prefer giving it a name of that function,
@@ -4356,8 +4372,8 @@ of error was triggered, how often each message type was processed.</p>
 insight into operation of the code, almost as much as logging. But unlike logging
 metrics don't incur a significant runtime cost.</p>
 <h3 id="naming"><a class="header" href="#naming">Naming</a></h3>
-<p>Prefix all <code>nearcore</code> metrics with <code>near_</code>.
-Follow [https://prometheus.io/docs/practices/naming/](Prometheus naming convention)
+<p>Prefix all <code>nearcore</code> metrics with <code>near_</code>. Follow the
+<a href="https://prometheus.io/docs/practices/naming/">Prometheus naming convention</a>
 for new metrics.</p>
 <p><strong>Rationale:</strong> The <code>near_</code> prefix makes it trivial to separate metrics exported
 by <code>nearcore</code> from other metrics, such as metrics about the state of the machine
@@ -4376,26 +4392,29 @@ often.</p>
 <p>This chapter describes nearcore's approach to documentation. There are three
 primary types of documentation to keep in mind:</p>
 <ul>
-<li><a href="https://nomicon.io"><strong>The NEAR Protocol Specification</strong></a> (<a href="https://github.com/near/NEPs">source</a>) is the
-formal description of the NEAR protocol. The reference nearcore implementation
-and any other NEAR client implementations must follow this specification.</li>
-<li><a href="https://docs.near.org"><strong>User docs</strong></a> (<a href="https://github.com/near/docs">source</a>) explain what is NEAR and
-how to participate in the network. In particular, they contain information
-pertinent to the users of NEAR: validators and smart contract developers.</li>
-<li><a href="https://near.github.io/nearcore/"><strong>Documentation for nearcore developers</strong></a> (<a href="https://github.com/near/nearcore/tree/master/docs">source</a>) is the
-book you are reading right now! The target audience here are the contributors
+<li><a href="https://nomicon.io"><strong>The NEAR Protocol Specification</strong></a>
+(<a href="https://github.com/near/NEPs">source code</a>) is the formal description of
+the NEAR protocol. The reference nearcore implementation and any other NEAR
+client implementations must follow this specification.</li>
+<li><a href="https://docs.near.org"><strong>User docs</strong></a> (<a href="https://github.com/near/docs">source code</a>)
+explain what is NEAR and how to participate in the network. In particular,
+they contain information pertinent to the users of NEAR: validators and
+smart contract developers.</li>
+<li><a href="https://near.github.io/nearcore/"><strong>Documentation for nearcore developers</strong></a>
+(<a href="https://github.com/near/nearcore/tree/master/docs">source code</a>) is the
+book you are reading right now! The target audience here is the contributors
 to the main implementation of the NEAR protocol (nearcore).</li>
 </ul>
 <h2 id="overview-3"><a class="header" href="#overview-3">Overview</a></h2>
 <p>The bulk of the internal docs is within this book. If you want to write some
-kind of a document, add it here! The <a href="practices/../architecture/">architecture</a> and
+kind of document, add it here! The <a href="practices/../architecture/">architecture</a> and
 <a href="practices/../practices/">practices</a> chapters are intended for somewhat up-to-date
 normative documents. The <a href="practices/../misc/">misc</a> chapter holds everything else.</p>
 <p>This book is not intended for user-facing documentation, so don't worry about
 proper English, typos, or beautiful diagrams -- just write stuff! It can easily
-be improved over time with pull requests. For docs, we use a light-weight review
+be improved over time with pull requests. For docs, we use a lightweight review
 process and try to merge any improvement as quickly as possible. Rather than
-blocking a PR on some stylistic changes, just merge it and submit a follow up.</p>
+blocking a PR on some stylistic changes, just merge it and submit a follow-up.</p>
 <p>Note the &quot;edit&quot; button at the top-right corner -- super useful for fixing any
 typos you spot!</p>
 <p>In addition to the book, we also have some &quot;inline&quot; documentation in the code.
@@ -4406,18 +4425,18 @@ much as possible. If you spend some time refactoring or fixing a function,
 consider adding a doc comment (<code>///</code>) to it as a drive-by improvement.</p>
 <p>We currently don't render <code>rustdoc</code>, see <a href="https://github.com/near/nearcore/issues/7836">#7836</a>.</p>
 <h2 id="book-how-to"><a class="header" href="#book-how-to">Book How To</a></h2>
-<p>We use mdBook to render a bunch of markdown files as a static website with table
-of contents, search and themes. Full docs are <a href="https://rust-lang.github.io/mdBook/">here</a>, but the basics are
-very simple.</p>
+<p>We use mdBook to render a bunch of markdown files as a static website with a table
+of contents, search and themes. Full docs are <a href="https://rust-lang.github.io/mdBook/">here</a>,
+but the basics are very simple.</p>
 <p>To add a new page to the book:</p>
 <ol>
-<li>Add an <code>.md</code> file somewhere in the
+<li>Add a <code>.md</code> file somewhere in the
 <a href="https://github.com/near/nearcore/tree/master/docs"><code>./docs</code></a> folder.</li>
-<li>Add a link to this page to the
+<li>Add a link to that page to the
 <a href="https://github.com/near/nearcore/blob/master/docs/SUMMARY.md"><code>SUMMARY.md</code></a>.</li>
 <li>Submit a PR (again, we promise to merge it without much ceremony).</li>
 </ol>
-<p>The doc itself is vanilla markdown.</p>
+<p>The doc itself is in vanilla markdown.</p>
 <p>To render documentation locally:</p>
 <pre><code class="language-console"># Install mdBook
 $ cargo install mdbook
@@ -4428,8 +4447,10 @@ start a file watcher to rebuild the book every time the source files change.</p>
 <p>Note that GitHub's default rendering mostly works just as well, so you don't
 need to go out of your way to preview your changes when drafting a page or
 reviewing pull requests to this book.</p>
-<p>The book is deployed via the <a href="https://github.com/near/nearcore/blob/master/.github/workflows/book.yml">book GitHub Action workflow</a>. This workflow
-runs mdBook and then deploys the result to <a href="https://docs.github.com/en/pages/getting-started-with-github-pages/about-github-pages">GitHub Pages</a>.</p>
+<p>The book is deployed via the
+<a href="https://github.com/near/nearcore/blob/master/.github/workflows/book.yml">book GitHub Action workflow</a>.
+This workflow runs mdBook and then deploys the result to
+<a href="https://docs.github.com/en/pages/getting-started-with-github-pages/about-github-pages">GitHub Pages</a>.</p>
 <p>For internal docs, you often want to have pretty pictures. We don't currently
 have a recommended workflow, but here are some tips:</p>
 <ul>
@@ -4440,7 +4461,7 @@ Rather, upload images as comments to this super-secret issue
 the images as</p>
 <pre><code>![image](https://user-images.githubusercontent.com/1711539/195626792-7697129b-7f9c-4953-b939-0b9bcacaf72c.png)
 </code></pre>
-<p>Use single comment per page with multiple images.</p>
+<p>Use a single comment per page with multiple images.</p>
 </li>
 <li>
 <p>Google Docs is an OK way to create technical drawings, you can add a link to
@@ -4448,55 +4469,55 @@ the doc with source to that secret issue as well.</p>
 </li>
 <li>
 <p>There's some momentum around using mermaid.js for diagramming, and there's
-appropriate plugin for that: https://github.com/badboy/mdbook-mermaid.
+an appropriate <a href="https://github.com/badboy/mdbook-mermaid">plugin</a> for that.
 Consider if that's something you might want to use.</p>
 </li>
 </ul>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="tracking-issues"><a class="header" href="#tracking-issues">Tracking issues</a></h1>
-<p><code>nearcore</code> uses so called &quot;tracking issues&quot; to coordinate larger pieces of work
+<p><code>nearcore</code> uses so-called &quot;tracking issues&quot; to coordinate larger pieces of work
 (e.g. implementation of new NEPs).  Such issues are tagged with the
 <a href="https://github.com/near/nearcore/issues?q=is%3Aopen+is%3Aissue+label%3AC-tracking-issue"><code>C-tracking-issue</code>
 label</a>.</p>
 <p>The goal of tracking issues is to serve as a coordination point. They can help
-new contributors and other interested parties come up-to-speed with the current
-state of projects.  As such, they should link to things like design docs,
+new contributors and other interested parties come up to speed with the current
+state of projects. As such, they should link to things like design docs,
 todo-lists of sub-issues, existing implementation PRs, etc.</p>
 <p>One can further use tracking issues to:</p>
 <ul>
 <li>get a feeling for what's happening in <code>nearcore</code> by looking at the set of
 open tracking issues.</li>
 <li>find larger efforts to contribute to as tracking issues usually contain
-up-for-grabs todo lists.</li>
-<li>follow progress of a specific features by subscribing to the issue on Github.</li>
+up-for-grab to-do lists.</li>
+<li>follow the progress of specific features by subscribing to the issue on GitHub.</li>
 </ul>
 <p>If you are leading or participating in a larger effort, please create a tracking
 issue for your work.</p>
 <h2 id="guidelines"><a class="header" href="#guidelines">Guidelines</a></h2>
 <ul>
-<li>Tracking issues should be maintained in the <code>nearcore</code> repository.  If the
+<li>Tracking issues should be maintained in the <code>nearcore</code> repository. If the
 projects are security sensitive, then they should be maintained in the
 <code>nearcore-private</code> repository.</li>
-<li>The issues should be kept up-to-date.  At a minimum, all new context
+<li>The issues should be kept up-to-date. At a minimum, all new context
 should be added as comments, but preferably the original description should be
 edited to reflect the current status.</li>
 <li>The issues should contain links to all the relevant design documents
 which should also be kept up-to-date.</li>
 <li>The issues should link to any relevant NEP if applicable.</li>
-<li>The issues should contain a list of todo tasks which should be kept
-up-to-date as new work items are discovered and other items are done.  This
+<li>The issues should contain a list of to-do tasks that should be kept
+up-to-date as new work items are discovered and other items are done. This
 helps others gauge progress and helps lower the barrier of entry for others to
 participate.</li>
-<li>The issues should contain links to relevant Zulip discussions.  Prefer
-open forums like Zulip for discussions.  When necessary, closed forums like
+<li>The issues should contain links to relevant Zulip discussions. Prefer
+open forums like Zulip for discussions. When necessary, closed forums like
 video calls can also be used but care should be taken to document a summary of
 the discussions.</li>
-<li>For security sensitive discussions, use the appropriate private Zulip streams.</li>
+<li>For security-sensitive discussions, use the appropriate private Zulip streams.</li>
 </ul>
 <p><a href="https://github.com/near/nearcore/issues/7670">This issue</a> is a good example of
 how tracking issues should be maintained.</p>
 <h2 id="background"><a class="header" href="#background">Background</a></h2>
 <p>The idea of tracking issues is also used to track project work in the Rust
-language.  See <a href="https://internals.rust-lang.org/t/how-the-rust-issue-tracker-works/3951">this
+language. See <a href="https://internals.rust-lang.org/t/how-the-rust-issue-tracker-works/3951">this
 post</a>
 for a rough description and
 <a href="https://github.com/rust-lang/rust/issues/101840">these</a>
@@ -4504,23 +4525,23 @@ for a rough description and
 in Rust.</p>
 <div style="break-before: page; page-break-before: always;"></div><h2 id="security-vulnerabilities"><a class="header" href="#security-vulnerabilities">Security Vulnerabilities</a></h2>
 <blockquote style="background: rgba(255, 200, 0, 0.1); border: 5px solid rgba(255, 200, 0, 0.4);">
-<p>The intended audience of the information presented here are developers working
+<p>The intended audience of the information presented here is developers working
 on the implementation of NEAR.</p>
-<p>Are you a security researcher?  Please report security vulnerabilities to
+<p>Are you a security researcher? Please report security vulnerabilities to
 <a href="mailto:security@near.org">security@near.org</a>.</p>
 </blockquote>
 <p>As nearcore is open source, all of its issues and pull requests are also
-publicly tracked on github.  However, from time to time, if a security sensitive
-issue is discovered, those cannot be tracked publicly on github.  However, we
+publicly tracked on GitHub. However, from time to time, if a security-sensitive
+issue is discovered, it cannot be tracked publicly on GitHub. However, we
 should promote as similar a development process to work on such issues as
-possible.  To enable this, below is the high level process for working on
-security sensitive issues.</p>
+possible. To enable this, below is the high-level process for working on
+security-sensitive issues.</p>
 <ol>
 <li>
 <p>There is a <a href="https://github.com/near/nearcore-private">private fork of
-nearcore</a> on github.  Access to
+nearcore</a> on GitHub. Access to
 this repository is restricted to the set of people who are trusted to work on
-and have knowledge about security sensitive issues pertaining to nearcore.</p>
+and have knowledge about security-sensitive issues in nearcore.</p>
 <p>This repository can be manually synced with the public nearcore repository
 using the following commands:</p>
 <pre><code class="language-console">$ git remote add nearcore-public git@github.com:near/nearcore
@@ -4530,23 +4551,23 @@ $ git push nearcore-private nearcore-public/master:master
 </code></pre>
 </li>
 <li>
-<p>All security sensitive issues must be created on the private nearcore
-repository.  You must also assign one of the <code>[P-S0, P-S1]</code> labels to the
-issue to indicate the severity of the issue.  The two criteria to use to help
-you judge the severity are ease of carrying out the attack and the impact of
-the attack. An attack that is easy to do or can have a huge impact should
+<p>All security-sensitive issues must be created on the private nearcore
+repository. You must also assign one of the <code>[P-S0, P-S1]</code> labels to the
+issue to indicate the severity of the issue. The two criteria to use to help
+you judge the severity are the ease of carrying out the attack and the impact
+of the attack. An attack that is easy to do or can have a huge impact should
 have the <code>P-S0</code> label and <code>P-S1</code> otherwise.</p>
 </li>
 <li>
-<p>All security sensitive pull requests should also be created on the private
-nearcore repository.  Note that once a PR has been approved, it should not be
-merged into the private repository.  Instead it should be first merged into
+<p>All security-sensitive pull requests should also be created on the private
+nearcore repository. Note that once a PR has been approved, it should not be
+merged into the private repository. Instead, it should be first merged into
 the public repository and then the private fork should be updated using the
 steps above.</p>
 </li>
 <li>
 <p>Once work on a security issue is finished, it needs to be deployed to all the
-impacted networks.  Please contact the node team for help with this.</p>
+impacted networks. Please contact the node team for help with this.</p>
 </li>
 </ol>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="fast-builds"><a class="header" href="#fast-builds">Fast Builds</a></h1>
@@ -4560,12 +4581,12 @@ extremely common failure mode!</p>
 <p><a href="https://nnethercote.github.io/perf-book/compile-times.html">Rust Perf Book</a>
 contains a section on compilation times as well!</p>
 <h2 id="release-builds-and-link-time-optimization"><a class="header" href="#release-builds-and-link-time-optimization">Release Builds and Link Time Optimization</a></h2>
-<p>Obviously, <code>cargo build --release</code> is slower than <code>cargo build</code>. We enable full
-lto (link time optimization), so our <code>-r</code> builds are very slow, use a lot of
+<p><code>cargo build --release</code> is obviously slower than <code>cargo build</code>. We enable full
+lto (link-time optimization), so our <code>-r</code> builds are very slow, use a lot of
 RAM, and don't utilize the available parallelism fully.</p>
 <p>As debug builds are much too slow at runtime for many purposes, we have a custom
-profile <code>--profile quick-release</code> which is equivalent to <code>-r</code>, except that time
-consuming options such as LTO are disabled.</p>
+profile <code>--profile quick-release</code> which is equivalent to <code>-r</code>, except that the
+time-consuming options such as LTO are disabled.</p>
 <p>Use <code>--profile quick-release</code> when doing comparative benchmarking, or when
 connecting a locally built node to a network. Use <code>-r</code> if you want to get
 absolute performance numbers.</p>
@@ -4581,21 +4602,24 @@ comment</a>.</p>
 rustflags = [&quot;-C&quot;, &quot;link-arg=-fuse-ld=lld&quot;]
 </code></pre>
 <p>to <code>~/.cargo/config</code> is the most convenient approach.</p>
-<p>lld itself can be installed with <code>sudo apt install lld</code>.</p>
+<p><code>lld</code> itself can be installed with <code>sudo apt install lld</code> (or the equivalent in 
+the distro/package manager of your choice).</p>
 <h2 id="prebuilt-rocksdb"><a class="header" href="#prebuilt-rocksdb">Prebuilt RocksDB</a></h2>
 <p>By default, we compile RocksDB (a C++ project) from source during the neard
 build. By linking to a prebuilt copy of RocksDB this work can be avoided
 entirely. This is a huge win, especially if you clean the <code>./target</code> directory
 frequently.</p>
-<p>In order to use prebuilt RocksDB, set <code>ROCKSDB_LIB_DIR</code> environment variable to
+<p>To use a prebuilt RocksDB, set the <code>ROCKSDB_LIB_DIR</code> environment variable to
 a location containing <code>librocksdb.a</code>:</p>
 <pre><code class="language-console">$ export ROCKSDB_LIB_DIR=/usr/lib/x86_64-linux-gnu
 $ cargo build -p neard
 </code></pre>
 <p>Note, that the system must provide a recent version of the library which,
-depending on operating system you’re using, may require installing packages from
-a testing branch.  For example, on Debian it requires installing
-<code>librocksdb-dev</code> from <code>experimental</code> version:</p>
+depending on which operating system you’re using, may require installing packages
+from a testing branch. For example, on Debian it requires installing
+<code>librocksdb-dev</code> from the <code>experimental</code> repository:</p>
+<p><strong>Note:</strong> Based on which distro you are using this process will look different.
+Please refer to the documentation of the package manager you are using.</p>
 <pre><code class="language-bash">echo 'deb http://ftp.debian.org/debian experimental main contrib non-free' |
     sudo tee -a /etc/apt/sources.list
 sudo apt update
@@ -4607,7 +4631,7 @@ export ROCKSDB_LIB_DIR
 <h2 id="global-compilation-cache"><a class="header" href="#global-compilation-cache">Global Compilation Cache</a></h2>
 <p>By default, Rust compiles incrementally, with the incremental cache and
 intermediate outputs stored in the project-local <code>./target</code> directory.</p>
-<p><a href="https://github.com/mozilla/sccache"><code>sccache</code></a> utility can be used to share
+<p>The <a href="https://github.com/mozilla/sccache"><code>sccache</code></a> utility can be used to share
 these artifacts between machines or checkouts within the same machine. <code>sccache</code>
 works by intercepting calls to <code>rustc</code> and will fetch the cached outputs from
 the global cache whenever possible. This tool can be set up as such:</p>
@@ -4618,21 +4642,21 @@ $ cargo build -p neard
 </code></pre>
 <p>Refer to the <a href="https://github.com/mozilla/sccache">project’s README</a> for further
 configuration options.</p>
-<h2 id="ides-are-bad-for-environment"><a class="header" href="#ides-are-bad-for-environment">IDEs Are Bad For Environment</a></h2>
+<h2 id="ides-are-bad-for-environment-handling"><a class="header" href="#ides-are-bad-for-environment-handling">IDEs Are Bad For Environment Handling</a></h2>
 <p>Generally, the knobs in this section are controlled either via global
 configuration in <code>~/.cargo/config</code> or environment variables.</p>
 <p>Environment variables are notoriously easy to lose, especially if you are
-working both from a command line and graphical IDE. Double check that the
-environment within which builds are executed is identical in order to avoid
-nasty failure modes such as full cache invalidation when switching
-from the CLI to an IDE or vice-versa.</p>
+working both from a command line and a graphical IDE. Double-check that the
+environment within which builds are executed is identical to avoid nasty
+failure modes such as full cache invalidation when switching from the
+CLI to an IDE or vice-versa.</p>
 <p><a href="https://direnv.net"><code>direnv</code></a> sometimes can be used to conveniently manage
 project-specific environment variables.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="general-principles"><a class="header" href="#general-principles">General principles</a></h1>
 <ol>
 <li>Every PR needs to have test coverage in place. Sending the code change and
 deferring tests for a future change is not acceptable.</li>
-<li>Tests need to either be sufficiently simple to follow, or have good
+<li>Tests need to either be sufficiently simple to follow or have good
 documentation to explain why certain actions are made and conditions are
 expected.</li>
 <li>When implementing a PR, <strong>make sure to run the new tests with the change
@@ -4647,45 +4671,45 @@ however do not make the tests change-detectors of the concrete implementation.
 For example, do not do <code>assert!(result.is_err())</code>, expect the specific error instead.</li>
 </ol>
 <h1 id="tests-hierarchy"><a class="header" href="#tests-hierarchy">Tests hierarchy</a></h1>
-<p>In NEAR Reference Client we largely split tests into three categories:</p>
+<p>In the NEAR Reference Client we largely split tests into three categories:</p>
 <ol>
-<li>Relatively cheap sanity or fast fuzz tests. It includes all the <code>#[test]</code>
+<li><strong>Relatively cheap sanity or fast fuzz tests:</strong> It includes all the <code>#[test]</code>
 Rust tests not decorated by features. Our repo is configured in such a way
-that all such tests are ran on every PR, and failing at least one of them is
+that all such tests are run on every PR and failing at least one of them is
 blocking the PR from being merged.</li>
 </ol>
 <p>To run such tests locally run <code>cargo nextest run --all</code>.
 It requires nextest harness which can be installed by running <code>cargo install cargo-nextest</code> first.</p>
 <ol start="2">
-<li>Expensive tests. This includes all the fuzzy tests that run many iterations,
+<li><strong>Expensive tests:</strong> This includes all the fuzzy tests that run many iterations,
 as well as tests that spin up multiple nodes and run them until they reach a
 certain condition. Such tests are decorated with
 <code>#[cfg(feature=&quot;expensive-tests&quot;)]</code>. It is not trivial to enable features
-that are not declared in the top level crate, and thus the easiest way to run
+that are not declared in the top-level crate, and thus the easiest way to run
 such tests is to enable all the features by passing <code>--all-features</code> to
 <code>cargo nextest run</code>, e.g:</li>
 </ol>
 <p><code>cargo nextest run --package near-client --test cross_shard_tx tests::test_cross_shard_tx --all-features</code></p>
 <ol start="3">
-<li>Python tests. We have an infrastructure to spin up nodes, both locally and
+<li><strong>Python tests:</strong> We have an infrastructure to spin up nodes, both locally and
 remotely, in python, and interact with them using RPC. The infrastructure and
-the tests are located in <code>pytest</code> folder. The infrastructure is relatively
+the tests are located in the <code>pytest</code> folder. The infrastructure is relatively
 straightforward, see for example <code>block_production.py</code>
 <a href="https://github.com/nearprotocol/nearcore/blob/master/pytest/tests/sanity/block_production.py">here</a>.
 See the <code>Test infrastructure</code> section below for details.</li>
 </ol>
 <p>Expensive and python tests are not part of CI, and are run by a custom nightly
 runner. The results of the latest runs are available
-<a href="http://nightly.neartest.com/">here</a>. With today tests runs launch approximately
+<a href="http://nightly.neartest.com/">here</a>. Today, test runs launch approximately
 every 5-6 hours. For the latest results look at the <strong>second</strong> run, since the
 first one has some tests still scheduled to run.</p>
 <h1 id="test-infrastructure"><a class="header" href="#test-infrastructure">Test infrastructure</a></h1>
-<p>Different levels of the reference implementation have different infrastructure
+<p>Different levels of the reference implementation have different infrastructures
 available to test them.</p>
 <h2 id="client"><a class="header" href="#client">Client</a></h2>
-<p>Client is separated from the runtime via a <code>RuntimeWithEpochManagerAdapter</code> trait. In production
-it uses <code>NightshadeRuntime</code> that uses real runtime and epoch managers. To test
-client without instantiating runtime and epoch manager, we have a mock runtime
+<p>The Client is separated from the runtime via a <code>RuntimeWithEpochManagerAdapter</code> trait.
+In production, it uses <code>NightshadeRuntime</code> which uses real runtime and epoch managers.
+To test the client without instantiating runtime and epoch manager, we have a mock runtime
 <code>KeyValueRuntime</code>.</p>
 <p>Most of the tests in the client work by setting up either a single node (via
 <code>setup_mock()</code>) or multiple nodes (via <code>setup_mock_all_validators()</code>) and then
@@ -4697,9 +4721,9 @@ in
 <ol>
 <li>The callback (<code>Box::new(move |msg, _ctx, _| { ...</code>) is what is executed
 whenever the client sends a message. The return value of the callback is sent
-back to the client, which allows testing relatively complex scenarios. The
-tests generally expect a particular message to occur, in this case the tests
-expects two blocks to be produced. <code>System::current().stop();</code> is the way to
+back to the client, which allows for testing relatively complex scenarios. The
+tests generally expect a particular message to occur, in this case, the tests
+expect two blocks to be produced. <code>System::current().stop();</code> is the way to
 stop the test and mark it as passed.</li>
 <li><code>near_network::test_utils::wait_or_panic(5000);</code> is how the timeout for the
 test is set (in milliseconds).</li>
@@ -4711,20 +4735,20 @@ The <code>setup_mock_all_validators</code> function is the key piece of infrastr
 <h2 id="runtime"><a class="header" href="#runtime">Runtime</a></h2>
 <p>Tests for Runtime are listed in
 <a href="https://github.com/near/nearcore/blob/master/tests/test_cases_runtime.rs">tests/test_cases_runtime.rs</a>.</p>
-<p>To run a test, usually a mock <code>RuntimeNode</code> is created via
-<code>create_runtime_node()</code>. In its constructor the <code>Runtime</code> is created in the
+<p>To run a test, usually, a mock <code>RuntimeNode</code> is created via <code>create_runtime_node()</code>.
+In its constructor, the <code>Runtime</code> is created in the
 <code>get_runtime_and_trie_from_genesis</code> function.</p>
-<p>Inside a test an abstraction <code>User</code> is used for sending specific actions to the
+<p>Inside a test, an abstracted <code>User</code> is used for sending specific actions to the
 runtime client. The helper functions <code>function_call</code>, <code>deploy_contract</code>, etc.
 eventually lead to the <code>Runtime.apply</code> method call.</p>
 <p>For setting usernames during playing with transactions, use default names
 <code>alice_account</code>, <code>bob_account</code>, <code>eve_dot_alice_account</code>, etc.</p>
 <h2 id="network"><a class="header" href="#network">Network</a></h2>
-<p>TODO: explain the <code>runner</code> here</p>
-<h2 id="chain-epoch-manager-runtime-and-other-low-level-changes"><a class="header" href="#chain-epoch-manager-runtime-and-other-low-level-changes">Chain, Epoch Manager, Runtime and other low level changes</a></h2>
-<p>When building new features in the <code>chain</code>, <code>epoch_manager</code>, <code>network</code>, make sure
-to build new components sufficiently abstract so that they can be tested without
-relying on other components.</p>
+<!-- TODO: Explain the `runner` here -->
+<h2 id="chain-epoch-manager-runtime-and-other-low-level-changes"><a class="header" href="#chain-epoch-manager-runtime-and-other-low-level-changes">Chain, Epoch Manager, Runtime and other low-level changes</a></h2>
+<p>When building new features in the <code>chain</code>, <code>epoch_manager</code> and <code>network</code> crates,
+make sure to build new components sufficiently abstract so that they can be tested
+without relying on other components.</p>
 <p>For example, see tests for doomslug
 <a href="https://github.com/nearprotocol/nearcore/blob/master/chain/chain/tests/doomslug.rs">here</a>,
 for network cache
@@ -4732,19 +4756,22 @@ for network cache
 or for promises in runtime
 <a href="https://github.com/nearprotocol/nearcore/blob/master/runtime/near-vm-logic/tests/test_promises.rs">here</a>.</p>
 <h2 id="python-tests"><a class="header" href="#python-tests">Python tests</a></h2>
-<p>See <a href="https://github.com/nearprotocol/nearcore/wiki/Writing-integration-tests-for-nearcore">this
-page</a>
-for a detailed coverage of how to write a python test.</p>
+<p>See
+<a href="https://github.com/nearprotocol/nearcore/wiki/Writing-integration-tests-for-nearcore">this page</a>
+for detailed coverage of how to write a python test.</p>
 <p>We have a python library that allows one to create and run python tests.</p>
-<p>To run python tests, from the <code>nearcore</code> repo the first time do the following:</p>
-<pre><code>cd pytest
+<p>To run python tests, from the <code>nearcore</code> repo the first time, do the following:</p>
+<pre><code class="language-shell">cd pytest
 virtualenv . --python=python3
-pip install -r requirements.txt
 . .env/bin/activate
+pip install -r requirements.txt
 python tests/sanity/block_production.py
 </code></pre>
-<p>After the first time:</p>
-<pre><code>cd pytest
+<p>This will create a python virtual environment, activate the environment, install
+all the required packages specified in the <code>requirements.txt</code> file and run the
+<code>tests/sanity/block_production.py</code> file. After the first time, we only need to
+activate the environment and can then run the tests:</p>
+<pre><code class="language-shell">cd pytest
 . .env/bin/activate
 python tests/sanity/block_production.py
 </code></pre>
@@ -4753,12 +4780,12 @@ cluster with multiple nodes, and doing RPC calls.</p>
 <p>See <code>pytest/tests/sanity/deploy_call_smart_contract.py</code> to see how contracts can
 be deployed, or transactions called.</p>
 <p>See <code>pytest/tests/sanity/staking1.py</code> to see how staking transactions can be
-issued</p>
+issued.</p>
 <p>See <code>pytest/tests/sanity/state_sync.py</code> to see how to delay the launch of the
 whole cluster by using <code>init_cluster</code> instead of <code>start_cluster</code>, and then
 launching nodes manually.</p>
 <h3 id="enabling-adversarial-behavior"><a class="header" href="#enabling-adversarial-behavior">Enabling adversarial behavior</a></h3>
-<p>To allow testing adversarial behavior, or generally behaviors that a node should
+<p>To allow testing adversarial behavior, or generally, behaviors that a node should
 not normally exercise, we have certain features in the code decorated with
 <code>#[cfg(feature=&quot;adversarial&quot;)]</code>. The binary normally is compiled with the
 feature disabled, and when compiled with the feature enabled, it traces a
@@ -4768,21 +4795,21 @@ the feature enabled, and thus the python tests can make the binary perform
 actions that it normally would not perform.</p>
 <p>The actions can include lying about the known chain height, producing multiple
 blocks for the same height, or disabling doomslug.</p>
-<p>See all the tests under <code>pytest/tests/adversarial</code> for the examples.</p>
+<p>See all the tests under <code>pytest/tests/adversarial</code> for some examples.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="python-tests-1"><a class="header" href="#python-tests-1">Python Tests</a></h1>
 <p>To simplify writing integration tests for nearcore we have a python
 infrastructure that allows writing a large variety of tests that run small local
-clusters, remove clusters, or run against full scale live deployments.</p>
+clusters, remove clusters, or run against full-scale live deployments.</p>
 <p>Such tests are written in python and not in Rust (in which the nearcore itself,
-and most of the sanity and fuzz tests, are written) due to availability of
-libraries to easily connect to remove nodes, and orchestrate cloud instances.</p>
+and most of the sanity and fuzz tests, are written) due to the availability of
+libraries to easily connect to, remove nodes and orchestrate cloud instances.</p>
 <p>Nearcore itself has several features guarded by a
-<a href="https://doc.rust-lang.org/1.29.0/book/first-edition/conditional-compilation.html">feature-flag</a>
-that allow the python tests to invoke behaviors otherwise impossible to be
+<a href="https://doc.rust-lang.org/1.29.0/book/first-edition/conditional-compilation.html">feature flag</a>
+that allows the python tests to invoke behaviors otherwise impossible to be
 exercised by an honest actor.</p>
 <h1 id="basics-1"><a class="header" href="#basics-1">Basics</a></h1>
-<p>The infrastructure is located in <code>{nearcore}/pytest/lib</code> and the tests
-themselves in subdirs of <code>{nearcore}/pytest/tests</code>. To prepare local machine to
+<p>The infrastructure is located in <code>{nearcore}/pytest/lib</code> and the tests themselves
+are in subdirectories of <code>{nearcore}/pytest/tests</code>. To prepare the local machine to
 run the tests you'd need python3 (python 3.7), and have several dependencies
 installed, for which we recommend using virtualenv:</p>
 <pre><code>cd pytest
@@ -4796,48 +4823,48 @@ the virtualenv is configured:</p>
 . .env/bin/activate
 python tests/sanity/block_production.py
 </code></pre>
-<p>will run the most basic tests that spins up a small cluster locally and waits
+<p>This will run the most basic tests that spin up a small cluster locally and wait
 until it produces several blocks.</p>
 <h2 id="compiling-the-client-for-tests"><a class="header" href="#compiling-the-client-for-tests">Compiling the client for tests</a></h2>
 <p>The local tests by default expect the binary to be in the default location for a
 debug build (<code>{nearcore}/target/debug</code>). Some tests might also expect
-test-specific features guarded by a feature-flag to be available. To compile the
-binary with such features run</p>
+test-specific features guarded by a feature flag to be available. To compile the
+binary with such features run:</p>
 <pre><code>cargo build -p neard --features=adversarial
 </code></pre>
-<p>The feature is called <code>adversarial</code> to highlight that many functions it enables,
-outside of tests, would constitute a malicious behavior. The node compiled with
+<p>The feature is called <code>adversarial</code> to highlight that the many functions it enables,
+outside of tests, would constitute malicious behavior. The node compiled with
 such a flag will not start unless an environment variable <code>ADVERSARY_CONSENT=1</code>
-is set and prints a noticeable warning when starts, thus minimizing the chance
+is set and prints a noticeable warning when it starts, thus minimizing the chance
 that an honest participant accidentally launches a node compiled with such
 functionality.</p>
 <p>You can change the way the tests run (locally or using Google Cloud), and where
-the local tests look for binary by supplying a config file. For example, if you
+the local tests look for the binary by supplying a config file. For example, if you
 want to run tests against a release build, you can create a file with the
 following config:</p>
-<pre><code>{&quot;local&quot;: True, &quot;near_root&quot;: &quot;../target/release/&quot;}
+<pre><code class="language-json">{&quot;local&quot;: True, &quot;near_root&quot;: &quot;../target/release/&quot;}
 </code></pre>
-<p>and run the test with the following command line:</p>
-<pre><code>NEAR_PYTEST_CONFIG=&lt;path to config&gt; python tests/sanity/block_production.py
+<p>and run the test with the following command:</p>
+<pre><code class="language-shell">NEAR_PYTEST_CONFIG=&lt;path to config&gt; python tests/sanity/block_production.py
 </code></pre>
 <h1 id="writing-tests"><a class="header" href="#writing-tests">Writing tests</a></h1>
-<p>We differentiate between &quot;regular&quot; tests, or tests that spin up their own
-cluster, either local or on the cloud, and &quot;mocknet&quot; tests, or tests that run
-against an existing live deployment of NEAR.</p>
-<p>In both cases the test starts by importing the infrastructure and starting or
+<p>We differentiate between &quot;regular&quot; tests, or tests that spin up their cluster,
+either local or on the cloud, and &quot;mocknet&quot; tests, or tests that run against
+an existing live deployment of NEAR.</p>
+<p>In both cases, the test starts by importing the infrastructure and starting or
 connecting to a cluster</p>
 <h2 id="starting-a-cluster"><a class="header" href="#starting-a-cluster">Starting a cluster</a></h2>
 <p>In the simplest case a regular test starts by starting a cluster. The cluster
-will run locally by default, but can be spun up on the cloud by supplying
+will run locally by default but can be spun up on the cloud by supplying the
 corresponding config.</p>
-<pre><code>import sys
+<pre><code class="language-python">import sys
 sys.path.append('lib')
 from cluster import start_cluster
 
 nodes = start_cluster(4, 0, 4, None, [[&quot;epoch_length&quot;, 10], [&quot;block_producer_kickout_threshold&quot;, 80]], {})
 </code></pre>
 <p>In the example above the first three parameters are <code>num_validating_nodes</code>,
-<code>num_observers</code>, <code>num_shards</code>. The third parameter is a config, which generally
+<code>num_observers</code> and <code>num_shards</code>. The third parameter is a config, which generally
 should be <code>None</code>, in which case the config is picked up from the environment
 variable as shown above.</p>
 <p><code>start_cluster</code> will spin up <code>num_validating_nodes</code> nodes that are block
@@ -4846,19 +4873,19 @@ will configure the system to have <code>num_shards</code> shards. The fifth argu
 changes the genesis config. Each element is a list of some length <code>n</code> where the
 first <code>n-1</code> elements are a path in the genesis JSON file, and the last element
 is the value. You'd often want to significantly reduce the epoch length, so that
-your test triggers epoch switches, and reduce the kickout threshold, since with
+your test triggers epoch switches, and reduce the kick-out threshold since with
 shorter epochs it is easier for a block producer to get kicked out.</p>
 <p>The last parameter is a dictionary from the node ordinal to changes to their
 local config.</p>
 <p>Note that <code>start_cluster</code> spins up all the nodes right away. Some tests (e.g.
-tests that test syncing) might want to configure the nodes, but delay their
-start. In such a case you will initialize the cluster by calling to
-<code>init_cluster</code>, and will run the nodes manually, for example see
+tests that test syncing) might want to configure the nodes but delay their
+start. In such a case you will initialize the cluster by calling
+<code>init_cluster</code> and will run the nodes manually, for example, see
 <a href="https://github.com/nearprotocol/nearcore/blob/master/pytest/tests/sanity/state_sync.py"><code>state_sync.py</code></a></p>
 <h2 id="connecting-to-a-mocknet"><a class="header" href="#connecting-to-a-mocknet">Connecting to a mocknet</a></h2>
 <p>Nodes that run against a mocknet would connect to an existing cluster instead of
 running their own.</p>
-<pre><code>import sys
+<pre><code class="language-python">import sys
 sys.path.append('lib')
 from cluster import connect_to_mocknet
 
@@ -4866,7 +4893,7 @@ nodes, accounts = connect_to_mocknet(None)
 </code></pre>
 <p>The only parameter is a config, with <code>None</code> meaning to use the config from the
 environment variable. The config should have the following format:</p>
-<pre><code>{
+<pre><code class="language-json">{
     &quot;nodes&quot;: [
         {&quot;ip&quot;: &quot;(some_ip)&quot;, &quot;port&quot;: 3030},
         {&quot;ip&quot;: &quot;(some_ip)&quot;, &quot;port&quot;: 3030},
@@ -4890,7 +4917,7 @@ perspective of the tests the only requirement is that the graph of &quot;node A
 booted from node B&quot; is connected).</p>
 <p>The particular way to get the <code>boot_ip</code> and <code>boot_port</code> when launching <code>node1</code>
 with <code>node2</code> being its boot node is the following:</p>
-<pre><code>node1.start(node2.node_key.pk, node2.addr())
+<pre><code class="language-python">node1.start(node2.node_key.pk, node2.addr())
 </code></pre>
 <p><code>kill()</code> shuts down the node by sending it <code>SIGKILL</code></p>
 <p><code>reset_data()</code> cleans up the data dir, which could be handy between the calls to
@@ -4898,16 +4925,16 @@ with <code>node2</code> being its boot node is the following:</p>
 <p>Nodes on the mocknet do not expose <code>start</code>, <code>kill</code> and <code>reset_data</code>.</p>
 <h2 id="issuing-rpc-calls"><a class="header" href="#issuing-rpc-calls">Issuing RPC calls</a></h2>
 <p>Nodes in both regular and mocknet tests expose an interface to issue RPC calls.
-In the most generic case one can just issue raw JSON rpc call by calling
+In the most generic case, one can just issue raw JSON RPC calls by calling the
 <code>json_rpc</code> method:</p>
-<pre><code>validator_info = nodes[0].json_rpc('validators', [&lt;some block_hash&gt;])
+<pre><code class="language-python">validator_info = nodes[0].json_rpc('validators', [&lt;some block_hash&gt;])
 </code></pre>
-<p>For the most popular calls there are convenience functions:</p>
+<p>For the most popular calls, there are convenience functions:</p>
 <ul>
 <li><code>send_tx</code> sends a signed transaction asynchronously</li>
 <li><code>send_tx_and_waits</code> sends a signed transaction synchronously</li>
-<li><code>get_status</code> returns the current status (the output of the `/status/
-endpoint), which contains e.g. last block hash and height</li>
+<li><code>get_status</code> returns the current status (the output of the <code>/status/endpoint</code>),
+which contains e.g. last block hash and height</li>
 <li><code>get_tx</code> returns a transaction by the transaction hash and the recipient ID.</li>
 </ul>
 <p>See all the methods in <code>{nearcore}/pytest/lib/cluster.rs</code> after the definition
@@ -4918,7 +4945,7 @@ sends a tx and blocks the test execution until either the TX is finished, or the
 timeout is hit. An asynchronous way (<code>send_tx</code> + <code>get_tx</code>) sends a TX and then
 verifies its result later. Here's an end-to-end example of sending a
 transaction:</p>
-<pre><code># the tx needs to include one of the recent hashes
+<pre><code class="language-python"># the tx needs to include one of the recent hashes
 last_block_hash = nodes[0].get_status()['sync_info']['latest_block_hash']
 last_block_hash_decoded = base58.b58decode(last_block_hash.encode('utf8'))
 
@@ -4950,49 +4977,51 @@ if want_async:
 for an example of signing and submitting a transaction.</p>
 <h2 id="adversarial-behavior"><a class="header" href="#adversarial-behavior">Adversarial behavior</a></h2>
 <p>Some tests need certain nodes in the cluster to exercise behavior that is
-impossible to be invoked by a honest node. For such tests we provide
+impossible to be invoked by an honest node. For such tests, we provide
 functionality that is protected by an &quot;adversarial&quot; feature flag.</p>
-<p>It's an advanced feature, a more thorough documentation is a TODO. Most of the
+<p>It's an advanced feature, and more thorough documentation is a TODO. Most of the
 tests that depend on the feature flag enabled are under
 <code>{nearcore}/pytest/tests/adversarial</code>, refer to them for how such features can
 be used. Search for code in the <code>nearcore</code> codebase guarded by the &quot;adversarial&quot;
-feature flag for the example of how such features are added and exposed.</p>
+feature flag for an example of how such features are added and exposed.</p>
 <h2 id="interfering-with-the-network"><a class="header" href="#interfering-with-the-network">Interfering with the network</a></h2>
 <p>We have a library that allows running a proxy in front of each node that would
 intercept all the messages between nodes, deserialize them in python and run a
 handler on each one. The handler can then either let the message pass (<code>return True</code>), drop it (<code>return False</code>) or replace it (<code>return &lt;new message&gt;</code>).</p>
 <p>This technique can be used to both interfere with the network (by dropping or
 replacing messages), and to inspect messages that flow through the network
-without interfering with it. For the latter note that the handler for each node
+without interfering with them. For the latter, note that the handler for each node
 runs in a separate <code>Process</code>, and thus you need to use <code>multiprocessing</code>
 primitives if you want the handlers to exchange information with the main test
 process, or between each other.</p>
-<p>See the tests <code>tests/sanity/proxy_*.py</code> for examples.</p>
+<p>See the tests that match <code>tests/sanity/proxy_*.py</code> for examples.</p>
 <h1 id="contributing-tests"><a class="header" href="#contributing-tests">Contributing tests</a></h1>
 <p>We always welcome new tests, especially python tests that use the above
 infrastructure. We have a list of test requests
 <a href="https://github.com/nearprotocol/nearcore/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+test%22+">here</a>,
 but also welcome any other tests that test aspects of the network we haven't
-though about.</p>
-<div style="break-before: page; page-break-before: always;"></div><h1 id="cheat-sheet--overview-of-testing-utils"><a class="header" href="#cheat-sheet--overview-of-testing-utils">Cheat-sheet / overview of testing utils</a></h1>
-<p>This page covers the different testing utils / libraries that we have for easier unittesting in Rust.</p>
+thought about.</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="cheat-sheetoverview-of-testing-utils"><a class="header" href="#cheat-sheetoverview-of-testing-utils">Cheat sheet/overview of testing utils</a></h1>
+<p>This page covers the different testing utils/libraries that we have for easier
+unit testing in Rust.</p>
 <h2 id="basics-2"><a class="header" href="#basics-2">Basics</a></h2>
 <h3 id="cryptohash"><a class="header" href="#cryptohash">CryptoHash</a></h3>
-<p>To create a new cryptohash:</p>
+<p>To create a new crypto hash:</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>&quot;ADns6sqVyFLRZbSMCGdzUiUPaDDtjTmKCWzR8HxWsfDU&quot;.parse().unwrap()
+</span>&quot;ADns6sqVyFLRZbSMCGdzUiUPaDDtjTmKCWzR8HxWsfDU&quot;.parse().unwrap();
 <span class="boring">}
 </span></code></pre></pre>
 <h3 id="account"><a class="header" href="#account">Account</a></h3>
-<p>Also prefer doing parse + unwrap</p>
+<p>Also, prefer doing parse + unwrap:</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>let alice: AccountId = &quot;alice.near&quot;.parse().unwrap()
+</span>let alice: AccountId = &quot;alice.near&quot;.parse().unwrap();
 <span class="boring">}
 </span></code></pre></pre>
 <h3 id="signatures"><a class="header" href="#signatures">Signatures</a></h3>
-<p>In memory signer (generates the key based on seed). There is a slight preference to use the seed that is matching the account name.</p>
+<p>In memory signer (generates the key based on a seed). There is a slight preference
+to use the seed that is matching the account name.</p>
 <p>This will create a signer for account 'test' using 'test' as a seed.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -5007,7 +5036,7 @@ though about.</p>
 <span class="boring">}
 </span></code></pre></pre>
 <h2 id="store"><a class="header" href="#store">Store</a></h2>
-<p>Use the in memory test store in tests:</p>
+<p>Use the in-memory test store in tests:</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>let store = create_test_store();
@@ -5017,25 +5046,25 @@ though about.</p>
 <p>You can use the KeyValueRuntime (instead of the Nightshade one):</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>KeyValueRuntime::new(store, epoch_length)
+</span>KeyValueRuntime::new(store, epoch_length);
 <span class="boring">}
 </span></code></pre></pre>
 <h2 id="epochmanager"><a class="header" href="#epochmanager">EpochManager</a></h2>
 <p>Currently still embedded into Runtime - see above to use the KeyValueRuntime</p>
 <h2 id="chain"><a class="header" href="#chain">Chain</a></h2>
-<p>No fakes or mock.</p>
+<p>No fakes or mocks.</p>
 <h3 id="chain-genesis"><a class="header" href="#chain-genesis">Chain genesis</a></h3>
 <p>We have a test method:</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>ChainGenesis::test()
+</span>ChainGenesis::test();
 <span class="boring">}
 </span></code></pre></pre>
 <h2 id="client-1"><a class="header" href="#client-1">Client</a></h2>
-<p>TestEnv - for testing multiple clients (without network)</p>
+<p>TestEnv - for testing multiple clients (without network):</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>TestEnvBuilder::new(genesis).client(vec![&quot;aa&quot;]).validators(..).runtime_adapters(..).build()
+</span>TestEnvBuilder::new(genesis).client(vec![&quot;aa&quot;]).validators(..).runtime_adapters(..).build();
 <span class="boring">}
 </span></code></pre></pre>
 <h2 id="network-1"><a class="header" href="#network-1">Network</a></h2>
@@ -5053,26 +5082,26 @@ though about.</p>
 <span class="boring">}
 </span></code></pre></pre>
 <h3 id="events-handling"><a class="header" href="#events-handling">Events handling</a></h3>
-<p>To wait / handle a given event (as a lot of network code is running in async fashion):</p>
+<p>To wait/handle a given event (as a lot of network code is running in an async fashion):</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>pm.events.recv_util(|event| match event {...}).await
+</span>pm.events.recv_util(|event| match event {...}).await;
 <span class="boring">}
 </span></code></pre></pre>
 <h2 id="end-to-end"><a class="header" href="#end-to-end">End to End</a></h2>
 <h3 id="chain-runtime-signer"><a class="header" href="#chain-runtime-signer">chain, runtime, signer</a></h3>
-<p>in chain/chain/src/test_utils.rs:</p>
+<p>In chain/chain/src/test_utils.rs:</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>// Creates 1-validator (test):  chain, KVRuntime and a signer
-let (chain, runtime, signer) = setup() 
+let (chain, runtime, signer) = setup();
 <span class="boring">}
 </span></code></pre></pre>
 <h3 id="block-client-actor-view-client"><a class="header" href="#block-client-actor-view-client">block, client actor, view client</a></h3>
-<p>in chain/client/src/test_utils.rs</p>
+<p>In chain/client/src/test_utils.rs</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>let (block, client, view_client) = setup(MANY_FIELDS)
+</span>let (block, client, view_client) = setup(MANY_FIELDS);
 <span class="boring">}
 </span></code></pre></pre>
 <div style="break-before: page; page-break-before: always;"></div><h2 id="protocol-upgrade"><a class="header" href="#protocol-upgrade">Protocol Upgrade</a></h2>
@@ -5081,15 +5110,14 @@ the initial PR to the final release. It is important for everyone who
 contributes to the development of the protocol and its client(s) to understand
 this process.</p>
 <h3 id="background-1"><a class="header" href="#background-1">Background</a></h3>
-<p>At NEAR, we use protocol version to mean the version of the blockchain protocol
-and is separate from the version of some specific client (such as nearcore),
+<p>At NEAR, we use the term protocol version to mean the version of the blockchain
+protocol and is separate from the version of some specific client (such as nearcore),
 since the protocol version defines the protocol rather than some specific
 implementation of the protocol. More concretely, for each epoch, there is a
-corresponding protocol version that is agreed upon by validators through <a href="https://github.com/near/NEPs/blob/master/specs/ChainSpec/Upgradability.md">a
-voting
-mechanism</a>.
+corresponding protocol version that is agreed upon by validators through
+<a href="https://github.com/near/NEPs/blob/master/specs/ChainSpec/Upgradability.md">a voting mechanism</a>.
 Our upgrade scheme dictates that protocol version X is backward compatible with
-protocol version X-1, so that nodes in the network can seamlessly upgrade into
+protocol version X-1 so that nodes in the network can seamlessly upgrade to
 the new protocol. However, there is <strong>no guarantee</strong> that protocol version X is
 backward compatible with protocol version X-2.</p>
 <p>Despite the upgrade mechanism, rolling out a protocol change can be scary,
@@ -5097,7 +5125,7 @@ especially if the change is invasive. For those changes, we may want to have
 several months of testing before we are confident that the change itself works
 and that it doesn't break other parts of the system.</p>
 <h3 id="nightly-protocol-features"><a class="header" href="#nightly-protocol-features">Nightly Protocol features</a></h3>
-<p>To make protocol upgrades more robust, we introduce the concept of nightly
+<p>To make protocol upgrades more robust, we introduce the concept of a nightly
 protocol version together with the protocol feature flags to allow easy testing
 of the cutting-edge protocol changes without jeopardizing the stability of the
 codebase overall. In <code>Cargo.toml</code> file of the crates we have in nearcore, we
@@ -5112,7 +5140,7 @@ nightly = [
 nightly protocol whereas <code>nightly</code> is a collection of new protocol features
 which also implies <code>nightly_protocol</code>. For example, when we introduce EVM as a
 new protocol change, suppose the current protocol version is 40, then we would
-do the following change in Cargo.toml:</p>
+do the following change in <code>Cargo.toml</code>:</p>
 <pre><code class="language-toml">nightly_protocol = []
 nightly = [
     &quot;nightly_protocol&quot;,
@@ -5132,7 +5160,7 @@ pub const PROTOCOL_VERSION: u32 = 40;
 </span></code></pre></pre>
 <p>This way the stable versions remain unaffected after the change. Note that
 nightly protocol version intentionally starts at a much higher number to make
-the distinction between stable protocol and nightly protocol more clear.</p>
+the distinction between the stable protocol and nightly protocol clearer.</p>
 <p>To determine whether a protocol feature is enabled, we do the following:</p>
 <ul>
 <li>We maintain a <code>ProtocolFeature</code> enum where each variant corresponds to some
@@ -5158,7 +5186,7 @@ compile-time feature gating.</li>
 </ul>
 <h3 id="testing-1"><a class="header" href="#testing-1">Testing</a></h3>
 <p>Nightly protocol features allow us to enable the most bleeding-edge code in some
-testing environment. We can choose to enable all nightly protocol features by</p>
+testing environments. We can choose to enable all nightly protocol features by</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>cargo build -p neard --release --features nightly
@@ -5175,49 +5203,56 @@ on betanet, which is updated daily.</p>
 <h3 id="feature-stabilization"><a class="header" href="#feature-stabilization">Feature Stabilization</a></h3>
 <p>New protocol features are introduced first as nightly features and when the
 author of the feature thinks that the feature is ready to be stabilized, they
-should submit a pull request to stabilize the feature using <a href="practices/../.github/PULL_REQUEST_TEMPLATE/feature_stabilization.html">this
-template</a>. In this
-pull request, they should the feature gating, increase the <code>PROTOCOL_VERSION</code>
-constant (if it hasn't been increased since the last release), and change the
-<code>protocol_version</code> implementation to map the stabilized features to the new
-protocol version.</p>
-<p>A feature stabilization request must be approved by at least <strong>two</strong> <a href="https://github.com/orgs/near/teams/nearcore-codeowners">nearcore
-code owners</a> Unless it
-is a security related fix, a protocol feature cannot be included in any release
-until at least <strong>one</strong> week after its stabilization. This is to ensure that
-feature implementation and stabilization are not rushed.</p>
-<div style="break-before: page; page-break-before: always;"></div><p>This document describes the advanced network options that you can configure by modifying
-the &quot;network&quot; section of your &quot;config.json&quot; file.</p>
+should submit a pull request to stabilize the feature using
+<a href="practices/../../.github/PULL_REQUEST_TEMPLATE/feature_stabilization.html">this template</a>.
+In this pull request, they should do the feature gating, increase the
+<code>PROTOCOL_VERSION</code> constant (if it hasn't been increased since the last
+release), and change the <code>protocol_version</code> implementation to map the
+stabilized features to the new protocol version.</p>
+<p>A feature stabilization request must be approved by at least <strong>two</strong>
+<a href="https://github.com/orgs/near/teams/nearcore-codeowners">nearcore code owners</a>.
+Unless it is a security-related fix, a protocol feature cannot be included in
+any release until at least <strong>one</strong> week after its stabilization. This is to ensure
+that feature implementation and stabilization are not rushed.</p>
+<div style="break-before: page; page-break-before: always;"></div><p>This document describes the advanced network options that you can configure
+by modifying the &quot;network&quot; section of your &quot;config.json&quot; file.</p>
 <h3 id="tier1-network"><a class="header" href="#tier1-network">TIER1 network</a></h3>
-<p>Participants of the BFT consensus (block &amp; chunk producers) now can establish direct (aka TIER1) connections
-between each other, which will optimize the communication latency and minimize the number of dropped chunks. 
-If you are a validator, you can enable TIER1 connections by setting the following fields in the config:</p>
+<p>Participants of the BFT consensus (block &amp; chunk producers) now can establish
+direct (aka TIER1) connections between each other, which will optimize the
+communication latency and minimize the number of dropped chunks. If you are a
+validator, you can enable TIER1 connections by setting the following fields in the config:</p>
 <ul>
 <li><a href="https://github.com/near/nearcore/blob/d95a5f58d998c69cb8d4e965ad6b0a440cf3f233/chain/network/src/config_json.rs#L154">public_addrs</a>
 <ul>
-<li>this is a list of the public addresses (in the format <code>&quot;&lt;node public key&gt;@&lt;IP&gt;:&lt;port&gt;&quot;</code>) of trusted nodes,
-which are willing to route messages to your node</li>
-<li>this list will be broadcasted to the network, so that other validator nodes can connect to your node.</li>
-<li>if your node has a static public IP, set <code>public_addrs</code> to a list with a single entry with public key and address of your node, for example:
+<li>this is a list of the public addresses (in the format <code>&quot;&lt;node public key&gt;@&lt;IP&gt;:&lt;port&gt;&quot;</code>)
+of trusted nodes, which are willing to route messages to your node</li>
+<li>this list will be broadcasted to the network so that other validator nodes can connect
+to your node.</li>
+<li>if your node has a static public IP, set <code>public_addrs</code> to a list with a single entry
+with the public key and address of your node, for example:
 <code>&quot;public_addrs&quot;: [&quot;ed25519:86EtEy7epneKyrcJwSWP7zsisTkfDRH5CFVszt4qiQYw@31.192.22.209:24567&quot;]</code>.</li>
-<li>if your node doesn't have a public IP (for example, it is hidden behind a NAT), set <code>public_addrs</code> to
-a list (&lt;=10 entries) of proxy nodes that you trust (arbitrary nodes with static public IPs).</li>
+<li>if your node doesn't have a public IP (for example, it is hidden behind a NAT), set
+<code>public_addrs</code> to a list (&lt;=10 entries) of proxy nodes that you trust (arbitrary nodes
+with static public IPs).</li>
 <li>support for nodes with dynamic public IPs is not implemented yet.</li>
 </ul>
 </li>
 <li><a href="https://github.com/near/nearcore/blob/d95a5f58d998c69cb8d4e965ad6b0a440cf3f233/chain/network/src/config_json.rs#L213">experimental.tier1_enable_outbound</a>
 <ul>
-<li>makes your node actively try to establish outbound TIER1 connections (recommended) once it learns about
-public addresses of other validator nodes. If disabled, your node won't try to establish outbound TIER1 connections,
-but it still may accept incoming TIER1 connections from other nodes.</li>
+<li>makes your node actively try to establish outbound TIER1 connections (recommended)
+once it learns about the public addresses of other validator nodes. If disabled, your
+node won't try to establish outbound TIER1 connections, but it still may accept
+incoming TIER1 connections from other nodes.</li>
 <li>currently <code>false</code> by default, but will be changed to <code>true</code> by default in the future</li>
 </ul>
 </li>
 <li><a href="https://github.com/near/nearcore/blob/d95a5f58d998c69cb8d4e965ad6b0a440cf3f233/chain/network/src/config_json.rs#L209">experimental.tier1_enable_inbound</a>
 <ul>
 <li>makes your node accept inbound TIER1 connections from other validator nodes.</li>
-<li>disable both <code>tier1_enable_inbound</code> and <code>tier1_enable_outbound</code> if you want to opt out from the TIER1 communication entirely</li>
-<li>disable <code>tier1_enable_inbound</code> if you are not a validator AND you don't want your node to act as a proxy for validators.</li>
+<li>disable both <code>tier1_enable_inbound</code> and <code>tier1_enable_outbound</code> if you want to opt-out
+from the TIER1 communication entirely</li>
+<li>disable <code>tier1_enable_inbound</code> if you are not a validator AND you don't want your
+node to act as a proxy for validators.</li>
 <li><code>true</code> by default</li>
 </ul>
 </li>
@@ -5231,24 +5266,23 @@ all share a unified variable version in the <a href="misc/Cargo.toml">workspace 
 This keeps versions consistent across the workspace and informs their versions
 at the moment of publishing.</p>
 <p>We also have CI infrastructure set up to automate the publishing process to
-crates.io.  So, on every merge to master, if there's a version change, it is
+crates.io. So, on every merge to master, if there's a version change, it is
 automatically applied to all the crates in the workspace and it attempts to
-publish the new versions of all non-private crates.  All crates that should be
-exempt from this process should be marked <code>private</code>.  That is, they should have
+publish the new versions of all non-private crates. All crates that should be
+exempt from this process should be marked <code>private</code>. That is, they should have
 the <code>publish = false</code> specification in their package manifest.</p>
 <p>This process is managed by
-<a href="https://github.com/pksunkara/cargo-workspaces">cargo-workspaces</a>, with a <a href="https://github.com/pksunkara/cargo-workspaces/compare/master...miraclx:grouping-and-exclusion#files_bucket">bit
-of
-magic</a>
+<a href="https://github.com/pksunkara/cargo-workspaces">cargo-workspaces</a>, with a
+<a href="https://github.com/pksunkara/cargo-workspaces/compare/master...miraclx:grouping-and-exclusion#files_bucket">bit of magic</a>
 sprinkled on top.</p>
 <h2 id="issue-labels"><a class="header" href="#issue-labels">Issue Labels</a></h2>
 <p>Issue labels are of the following format <code>&lt;type&gt;-&lt;content&gt;</code> where <code>&lt;type&gt;</code> is a
 capital letter indicating the type of the label and <code>&lt;content&gt;</code> is a hyphened
-phrase indicating what is label is about.  For example, in the label <code>C-bug</code>,
-<code>C</code> means category and <code>bug</code> means that the label is about bugs.  Common types
-include <code>C</code>, which means category, <code>A</code>, which means area, <code>T</code>, which means team.</p>
+phrase indicating what this label is about. For example, in the label <code>C-bug</code>,
+<code>C</code> means category and <code>bug</code> means that the label is about bugs. Common types
+include <code>C</code>, which means category, <code>A</code>, which means area and <code>T</code>, which means team.</p>
 <p>An issue can have multiple labels including which area it touches, which team
-should be responsible for the issue, and so on.  Each issue should have at least
+should be responsible for the issue, and so on. Each issue should have at least
 one label attached to it after it is triaged and the label could be a general
 one, such as <code>C-enhancement</code> or <code>C-bug</code>.</p>
 

@@ -161,17 +161,21 @@ imperfections.</p>
 <h2 id="idiomatic-rust"><a class="header" href="#idiomatic-rust">Idiomatic Rust</a></h2>
 <p>While the most important thing is to solve the problem at hand, we strive to
 implement the solution in idiomatic Rust, if possible. To learn what is
-considered idiomatic Rust, a good start are the Rust API guidelines (but keep in
-mind that <code>nearcore</code> is not a library with public API, not all advice applies
-literally):</p>
-<p>https://rust-lang.github.io/api-guidelines/about.html</p>
+considered idiomatic Rust, a good start are the
+<a href="https://rust-lang.github.io/api-guidelines/about.html">Rust API guidelines</a>
+(but keep in mind that <code>nearcore</code> is not a library with public API, not all
+advice applies literally).</p>
 <p>When in doubt, ask question in the <a href="https://near.zulipchat.com/#narrow/stream/300659-Rust-.F0.9F.A6.80">Rust
 🦀</a> Zulip
 stream or during code review.</p>
-<p><strong>Rationale:</strong> Consistency, as there's usually only one idiomatic solution
-amidst many non-idiomatic ones. Predictability, you can use the APIs without
-consulting documentation. Performance, ergonomics and correctness: language
-idioms usually reflect learned truths, which might not be immediately obvious.</p>
+<p><strong>Rationale:</strong></p>
+<ul>
+<li><em>Consistency</em>: there's usually only one idiomatic solution amidst many
+non-idiomatic ones.</li>
+<li><em>Predictability</em>: you can use the APIs without consulting documentation.</li>
+<li><em>Performance, ergonomics and correctness</em>: language idioms usually reflect
+learned truths, which might not be immediately obvious.</li>
+</ul>
 <h2 id="style"><a class="header" href="#style">Style</a></h2>
 <p>This section documents all micro-rules which are not otherwise enforced by
 <code>rustfmt</code>.</p>
@@ -195,10 +199,10 @@ fn log_validator(account_id: AccountId) {
 <span class="boring">}
 </span></code></pre></pre>
 <p>Note that <code>Option::as_ref</code>, <code>Result::as_ref</code> are great, do use them!</p>
-<p><strong>Rationale:</strong> readability and churn-resistance. There might be more than one
+<p><strong>Rationale:</strong> Readability and churn-resistance. There might be more than one
 <code>AsRef&lt;U&gt;</code> implementation for a given type (with different <code>U</code>s). If a new
 implementation is added, some of the <code>.as_ref()</code> calls might break. See also
-https://github.com/rust-lang/rust/issues/62586.</p>
+this <a href="https://github.com/rust-lang/rust/issues/62586">issue</a>.</p>
 <h3 id="avoid-references-to-copy-types"><a class="header" href="#avoid-references-to-copy-types">Avoid references to <code>Copy</code>-types</a></h3>
 <p>Various generic APIs in Rust often return references to data (<code>&amp;T</code>). When <code>T</code> is
 a small <code>Copy</code> type like <code>i32</code>, you end up with <code>&amp;i32</code> while many API expect
@@ -223,7 +227,7 @@ fn compute(map: HashMap&lt;&amp;'str, i32&gt;) {
 fn process(value: i32) { ... }
 <span class="boring">}
 </span></code></pre></pre>
-<p><strong>Rationale:</strong> if the value is used multiple times, dereferencing in the pattern
+<p><strong>Rationale:</strong> If the value is used multiple times, dereferencing in the pattern
 saves keystrokes. If the value is used exactly once, we just want to be
 consistent. Additional benefit of early deref is reduced scope of borrow.</p>
 <p>Note that for some <em>big</em> <code>Copy</code> types, notably <code>CryptoHash</code>, we sometimes use
@@ -231,7 +235,7 @@ references for performance reasons. As a rule of thumb, <code>T</code> is consid
 <code>size_of::&lt;T&gt;() &gt; 2 * size_of::&lt;usize&gt;()</code>.</p>
 <h3 id="prefer-for-loops-over-for_each-and-try_for_each-methods"><a class="header" href="#prefer-for-loops-over-for_each-and-try_for_each-methods">Prefer for loops over <code>for_each</code> and <code>try_for_each</code> methods</a></h3>
 <p>Iterators offer <code>for_each</code> and <code>try_for_each</code> methods which allow executing
-a closure over all items of the iterator.  This is similar to using a for loop
+a closure over all items of the iterator. This is similar to using a for loop
 but comes with various complications and may lead to less readable code.  Prefer
 using a loop rather than those methods, for example:</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -256,18 +260,18 @@ result?.into_iter().try_for_each(
 </span></code></pre></pre>
 <p><strong>Rationale:</strong> The <code>for_each</code> and <code>try_for_each</code> method don’t play nice with
 <code>break</code> and <code>continue</code> statements nor do they mesh well with async IO (since
-<code>.await</code> inside of the closure isn’t possible).  And while <code>try_for_each</code> allows
+<code>.await</code> inside of the closure isn’t possible). And while <code>try_for_each</code> allows
 for the use of question mark operator, one may end up having to uses it twice:
 once inside the closure and second time outside the call to <code>try_for_each</code>.
 Furthermore, usage of the functions often introduce some minor syntax noise.</p>
-<p>There are situations when those methods may lead to more readable code.  Common
-example are long call chains.  Even then such code may evolve with the closure
-growing and leading to less readable code.  If advantages of using the methods
+<p>There are situations when those methods may lead to more readable code. Common
+example are long call chains. Even then such code may evolve with the closure
+growing and leading to less readable code. If advantages of using the methods
 aren’t clear cut, it’s usually better to err on side of more imperative style.</p>
 <p>Lastly, anecdotally the methods (e.g. when used with <code>chain</code> or <code>flat_map</code>) may
-lead to faster code.  This intuitively makes sense but it’s worth to keep in
+lead to faster code. This intuitively makes sense but it’s worth to keep in
 mind that compilers are pretty good at optimising and in practice may generate
-optimal code anyway.  Furthermore, optimising code for readability may be more
+optimal code anyway. Furthermore, optimising code for readability may be more
 important (especially outside of hot path) than small performance gains.</p>
 <h3 id="prefer-to_string-to-format"><a class="header" href="#prefer-to_string-to-format">Prefer <code>to_string</code> to <code>format!(&quot;{}&quot;)</code></a></h3>
 <p>Prefer calling <code>to_string</code> method on an object rather than passing it through
@@ -285,7 +289,7 @@ let msg = path.display() + &quot;: failed to open&quot;;
 </span></code></pre></pre>
 <p><strong>Rationale:</strong> <code>to_string</code> is shorter to type and also faster.</p>
 <h3 id="import-granularity"><a class="header" href="#import-granularity">Import Granularity</a></h3>
-<p>Group import by module, but not deeper:</p>
+<p>Group imports by module, but not deeper:</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>// GOOD
@@ -335,7 +339,7 @@ use near_store::{DBCol::Peers, Store};
 use crate::types::KnownPeerState;
 <span class="boring">}
 </span></code></pre></pre>
-<p><strong>Rationale:</strong> Consistency, ease of automatic enforcement. Today stable rustfmt
+<p><strong>Rationale:</strong> Consistency, ease of automatic enforcement. Today, stable rustfmt
 can't split imports into groups automatically, and doing that manually
 consistently is a chore.</p>
 <h3 id="derives"><a class="header" href="#derives">Derives</a></h3>
@@ -407,9 +411,9 @@ use of iterators those cases aren’t that common anyway.</li>
 <li>Follow standard <a href="https://rust-lang.github.io/api-guidelines/naming.html">Rust naming patterns</a> such as:
 <ul>
 <li>Don’t use <code>get_</code> prefix for getter methods.  A getter method is one which
-returns (reference to) a field of an object.</li>
+returns (a reference to) a field of an object.</li>
 <li>Use <code>set_</code> prefix for setter methods.  An exception are builder objects
-which may use different naming style.</li>
+which may use different a naming style.</li>
 <li>Use <code>into_</code> prefix for methods which consume <code>self</code> and <code>to_</code> prefix for
 methods which don’t.</li>
 </ul>
@@ -455,7 +459,7 @@ debug!(
     &quot;block.previous_hash&quot; = %block.header().prev_hash(),
     &quot;block.height&quot; = block.header().height(),
     %peer_id,
-    was_requested
+    was_requested,
     &quot;Received block&quot;,
 );
 <span class="boring">}
@@ -480,8 +484,8 @@ debug!(
 <p>Always specify the <code>target</code> explicitly. A good default value to use is the crate
 name, or the module path (e.g. <code>chain::client</code>) so that events and spans common
 to a topic can be grouped together. This grouping can later be used for
-customizing of which events to output.</p>
-<p><strong>Rationale:</strong> This makes the events structured – one of the major value
+customizing which events to output.</p>
+<p><strong>Rationale:</strong> This makes the events structured – one of the major value add
 propositions of the tracing ecosystem. Structured events allow for immediately
 actionable data without additional post-processing, especially when using some
 of the more advanced tracing subscribers. Of particular interest would be those
@@ -489,11 +493,11 @@ that output events as JSON, or those that publish data to distributed event
 collection systems such as opentelemetry. Maintaining this rule will also
 usually result in faster execution (when logs at the relevant level are enabled.)</p>
 <h3 id="spans"><a class="header" href="#spans">Spans</a></h3>
-<p>Use the <a href="https://docs.rs/tracing/latest/tracing/#spans">spans</a> to introduce context and grouping to and between events
-instead of manually adding such information as part of the events themselves.
-Most of the subscribers ingesting spans also provide a built-in timing facility,
-so prefer using spans for measuring the amount of time a section of code needs
-to execute.</p>
+<p>Use the <a href="https://docs.rs/tracing/latest/tracing/#spans">spans</a> to introduce
+context and grouping to and between events instead of manually adding such
+information as part of the events themselves. Most of the subscribers ingesting
+spans also provide a built-in timing facility, so prefer using spans for measuring
+the amount of time a section of code needs to execute.</p>
 <p>Give spans simple names that make them both easy to trace back to code, and to
 find a particular span in logs or other tools ingesting the span data. If a
 span begins at the top of a function, prefer giving it a name of that function,
@@ -527,8 +531,8 @@ of error was triggered, how often each message type was processed.</p>
 insight into operation of the code, almost as much as logging. But unlike logging
 metrics don't incur a significant runtime cost.</p>
 <h3 id="naming"><a class="header" href="#naming">Naming</a></h3>
-<p>Prefix all <code>nearcore</code> metrics with <code>near_</code>.
-Follow [https://prometheus.io/docs/practices/naming/](Prometheus naming convention)
+<p>Prefix all <code>nearcore</code> metrics with <code>near_</code>. Follow the
+<a href="https://prometheus.io/docs/practices/naming/">Prometheus naming convention</a>
 for new metrics.</p>
 <p><strong>Rationale:</strong> The <code>near_</code> prefix makes it trivial to separate metrics exported
 by <code>nearcore</code> from other metrics, such as metrics about the state of the machine

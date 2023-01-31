@@ -249,7 +249,7 @@ B, we'll see the transaction:</p>
     ),
 )
 </code></pre>
-<p><strong>Side note</strong>: When we're changing the transaction into a receipt, we also use
+<p><strong>Side note:</strong> When we're changing the transaction into a receipt, we also use
 this moment to deduct prepaid gas fees and transfered tokens from the 'signer'
 account. The details on how much gas is charged etc will be in a separate
 article.</p>
@@ -324,7 +324,7 @@ the shard where the <code>receiver</code> is (in our example <code>shard1</code>
     ),
 )
 </code></pre>
-<p><strong>Side comment</strong>: notice that the receipt itself no longer has a <code>signer</code> field, but
+<p><strong>Side comment:</strong> notice that the receipt itself no longer has a <code>signer</code> field, but
 a <code>predecessor_id</code> one.</p>
 <p>Such a receipt is sent to the destination shard (we'll explain this process in a
 separate article) where it can be executed.</p>
@@ -403,7 +403,7 @@ executed).</p>
 <p>Such gas refund receipts are a little bit special - as we'll set the
 <code>predecessor_id</code> to be <code>system</code> - but the receiver is what we expect (<code>shard0</code>
 account).</p>
-<p><strong>Note</strong>: <code>system</code> is a special account that doesn't really belong to any shard.
+<p><strong>Note:</strong> <code>system</code> is a special account that doesn't really belong to any shard.
 As you can see in this example, the receipt was created within shard 1.</p>
 <p>So putting it all together would look like this:</p>
 <p><img src="https://user-images.githubusercontent.com/91919554/200617392-00b9fa0c-2f15-40ad-9802-137ca9a5a15d.png" alt="image" /></p>

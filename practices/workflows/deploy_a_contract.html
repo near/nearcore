@@ -141,12 +141,12 @@
                 <div id="content" class="content">
                     <main>
                         <h1 id="deploy-a-contract"><a class="header" href="#deploy-a-contract">Deploy a Contract</a></h1>
-<p>In this chapter, we'll learn how to build, deploy, and call a minimal
-smart-contract on our local node.</p>
+<p>In this chapter, we'll learn how to build, deploy, and call a minimal smart
+contract on our local node.</p>
 <h2 id="preparing-ground"><a class="header" href="#preparing-ground">Preparing Ground</a></h2>
-<p>Let's start with creating a fresh local network with an account we'll deploy a
-contract to. You might want to re-read <a href="./run_a_node.html">how to run a node</a> to
-understand what's going one here:</p>
+<p>Let's start with creating a fresh local network with an account to which we'll
+deploy a contract. You might want to re-read <a href="./run_a_node.html">how to run a node</a>
+to understand what's going one here:</p>
 <pre><code class="language-console">$ cargo run --profile quick-release -p neard -- init
 $ cargo run --profile quick-release -p neard -- run
 $ NEAR_ENV=local near create-account alice.test.near --masterAccount test.near
@@ -168,26 +168,26 @@ Account alice.test.near
 </code></pre>
 <h2 id="minimal-contract"><a class="header" href="#minimal-contract">Minimal Contract</a></h2>
 <p>NEAR contracts are <a href="https://webassembly.org">WebAssembly</a> blobs of bytes. To
-create a contract, contract developer typically uses an SDK for some high-level
-programming language, such as JavaScript, which takes care of producing the
-right <code>.wasm</code>.</p>
+create a contract, a contract developer typically uses an SDK for some
+high-level programming language, such as JavaScript, which takes care of
+producing the right <code>.wasm</code>.</p>
 <p>In this guide, we are interested in how things work under the hood, so we'll
 do everything manually, and implement a contract in Rust without any help from
 SDKs.</p>
 <p>As we are looking for something simple, let's create a contract with a single
-&quot;method&quot;, <code>hello</code>, which returns <code>&quot;hello world&quot;</code> string. To &quot;define a method&quot;, a
-wasm module should export a function. To &quot;return a value&quot;, the contract needs to
-interact with the environment to say &quot;hey, this is the value I am returning&quot;.
-Such &quot;interractions&quot; are carried through host-functions, which are quite a bit
-like syscalls in traditional operating system.</p>
-<p>The set of host functions which the contract can import is defined in
+&quot;method&quot;, <code>hello</code>, which returns a <code>&quot;hello world&quot;</code> string. To &quot;define a method&quot;,
+a wasm module should export a function. To &quot;return a value&quot;, the contract needs
+to interact with the environment to say &quot;hey, this is the value I am returning&quot;.
+Such &quot;interactions&quot; are carried through host functions, which are quite a bit
+like syscalls in traditional operating systems.</p>
+<p>The set of host functions that the contract can import is defined in
 <a href="https://github.com/near/nearcore/blob/aeccaaab334275f6d0a62deabd184675bc3c6a23/runtime/near-vm-runner/src/imports.rs#L71-L242"><code>imports.rs</code></a>.</p>
-<p>In this particular case, we need <code>value_return</code> function:</p>
+<p>In this particular case, we need the <code>value_return</code> function:</p>
 <pre><code>value_return&lt;[value_len: u64, value_ptr: u64] -&gt; []&gt;
 </code></pre>
-<p>That is, <code>value_return</code> function takes a pointer to slice of bytes, a length of
-the slice, and returns nothing. If the contract calls this function, the slice
-would be considered a result of the function.</p>
+<p>This means that the <code>value_return</code> function takes a pointer to a slice of bytes,
+the length of the slice, and returns nothing. If the contract calls this function,
+the slice would be considered a result of the function.</p>
 <p>To recap, we want to produce a <code>.wasm</code> file with roughly the following content:</p>
 <pre><code class="language-wasm">(module
   (import &quot;env&quot; &quot;value_return&quot; (func $value_return (param i64 i64)))
@@ -195,7 +195,7 @@ would be considered a result of the function.</p>
 </code></pre>
 <h2 id="cargo-boilerplate"><a class="header" href="#cargo-boilerplate">Cargo Boilerplate</a></h2>
 <p>Armed with this knowledge, we can write Rust code to produce the required WASM.
-Before we actually start doing that, some amount of setup code is required.</p>
+Before we start doing that, some amount of setup code is required.</p>
 <p>Let's start with creating a new crate:</p>
 <pre><code class="language-console">$ cargo new hello-near --lib
 </code></pre>
@@ -211,10 +211,11 @@ WebAssembly module.</p>
 crate-type = [&quot;cdylib&quot;]
 </code></pre>
 <p>Here, we ask Cargo to build a &quot;C dynamic library&quot;. When compiling for wasm,
-this'll give us a <code>.wasm</code> module. This is just confusing, sorry about that
-:(</p>
+that'll give us a <code>.wasm</code> module. This part is a bit confusing, sorry about
+that :(</p>
 <p>Next, as we are aiming for minimalism here, we need to disable optional bits
-of Rust runtime. Namely, we want to make our crate <code>no_std</code>, set <code>panic=abort</code>
+of the Rust runtime. Namely, we want to make our crate <code>no_std</code> (this means
+that we are not going to use the Rust standard library), set <code>panic=abort</code>
 as our panic strategy and define a panic handler to abort execution.</p>
 <pre><code class="language-toml"># hello-near/Cargo.toml
 
@@ -250,7 +251,7 @@ $ ls target/wasm32-unknown-unknown/release/hello_near.wasm
 .rwxr-xr-x 106 matklad 15 Nov 15:34 target/wasm32-unknown-unknown/release/hello_near.wasm
 </code></pre>
 <p>106 bytes is pretty small! Let's see what's inside. For that, we'll use
-<code>wasm-tools</code> suite of cli utilities.</p>
+the <code>wasm-tools</code> suite of CLI utilities.</p>
 <pre><code class="language-console">$ cargo install wasm-tools
 λ wasm-tools print target/wasm32-unknown-unknown/release/hello_near.wasm
 (module
@@ -264,8 +265,9 @@ $ ls target/wasm32-unknown-unknown/release/hello_near.wasm
 )
 </code></pre>
 <h2 id="rust-contract"><a class="header" href="#rust-contract">Rust Contract</a></h2>
-<p>Finally, let's implement an actual contract. We'll need <code>extern &quot;C&quot;</code> block to
-declare <code>value_return</code> import, and a <code>#[no_mangle] extern &quot;C&quot;</code> function to declare <code>hello</code> export:</p>
+<p>Finally, let's implement an actual contract. We'll need an <code>extern &quot;C&quot;</code> block to
+declare the <code>value_return</code> import, and a <code>#[no_mangle] extern &quot;C&quot;</code> function to
+declare the <code>hello</code> export:</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>// hello-near/src/lib.rs
@@ -288,7 +290,8 @@ fn panic_handler(_info: &amp;core::panic::PanicInfo) -&gt; ! {
 }
 <span class="boring">}
 </span></code></pre></pre>
-<p>Building and inspecting output shows that it's roughly what we want:</p>
+<p>After building the contract, the output wasm shows us that it's roughly what we
+want:</p>
 <pre><code class="language-console">$ cargo b -r --target wasm32-unknown-unknown
    Compiling hello-near v0.1.0 (/home/matklad/hello-near)
     Finished release [optimized] target(s) in 0.05s
@@ -316,7 +319,7 @@ $ wasm-tools print target/wasm32-unknown-unknown/release/hello_near.wasm
 )
 </code></pre>
 <h2 id="deploying-the-contract"><a class="header" href="#deploying-the-contract">Deploying the Contract</a></h2>
-<p>Now that we have WASM, let's deploy it!</p>
+<p>Now that we have the WASM, let's deploy it!</p>
 <pre><code class="language-console">$ NEAR_ENV=local near deploy alice.test.near \
     ./target/wasm32-unknown-unknown/release/hello_near.wasm
 Loaded master account test.near key from /home/matklad/.near/validator_key.json with public key = ed25519:ChLD1qYic3G9qKyzgFG3PifrJs49CDYeERGsG58yaSoL
@@ -336,10 +339,10 @@ To see the transaction in the transaction explorer, please open this url in your
 http://localhost:9001/transactions/9WMwmTf6pnFMtj1KBqjJtkKvdFXS4kt3DHnYRnbFpJ9e
 'hello world'
 </code></pre>
-<p>Note that we pass <code>alice.test.near</code> twice: first time to specify which contract
+<p>Note that we pass <code>alice.test.near</code> twice: the first time to specify which contract
 we are calling, the second time to determine who calls the contract. That is,
-the second account actually spends tokens. In the following example <code>bob</code> spends
-NEAR to call contact deployed to alice account:</p>
+the second account is the one that spends tokens. In the following example <code>bob</code>
+spends NEAR to call the contact deployed to the <code>alice</code> account:</p>
 <pre><code class="language-console">$ NEAR_ENV=local $near call alice.test.near hello --accountId bob.test.near
 Scheduling a call: alice.test.near.hello()
 Loaded master account test.near key from /home/matklad/.near/validator_key.json with public key = ed25519:ChLD1qYic3G9qKyzgFG3PifrJs49CDYeERGsG58yaSoL

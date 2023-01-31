@@ -152,7 +152,7 @@ would be telling the truth. But what if that is not enough?</p>
 transactions yourself, and then you could be sure - but this can become a quite
 expensive endeavour - especially when many shards are involved.</p>
 <p>But there is actually a better solution - that doesn’t require you to trust the
-single (or many) RPC nodes, and to verify yourself that your transaction was
+single (or many) RPC nodes, and to verify, by yourself, that your transaction was
 actually executed.</p>
 <h2 id="lets-talk-about-proofs-merkelization"><a class="header" href="#lets-talk-about-proofs-merkelization">Let’s talk about proofs (merkelization):</a></h2>
 <p>Imagine you have 4 values that you’d like to store, in such a way, that you can
@@ -163,9 +163,9 @@ hash:</p>
 <ul>
 <li>leaves would hold the hashes that represent the hash of the respective value.</li>
 <li>internal nodes would hold the hash of “concatenation of hashes of their children”</li>
-<li>the top node would be called a a root node (in this image it is a node n7)</li>
+<li>the top node would be called a root node (in this image it is the node n7)</li>
 </ul>
-<p>With such setup, you can prove that a given value exists in this tree, by
+<p>With such a setup, you can prove that a given value exists in this tree, by
 providing a “path” from the corresponding leaf to the root, and including all
 the siblings.</p>
 <p>For example to prove that value v[1] exists, we have to provide all the nodes
@@ -177,9 +177,9 @@ are:</p>
 [(Left, n0), (Right, n6)]
 
 # Verification
-assert_eq(root, hash(hash(n0, hash(v[1])),n6)))
+assert_eq!(root, hash(hash(n0, hash(v[1])), n6))
 </code></pre>
-<p>We use the technique above (called merkelization) in couple places in our
+<p>We use the technique above (called merkelization) in a couple of places in our
 protocol, but for today’s article, I’d like to focus on receipts &amp; outcome
 roots.</p>
 <h2 id="merkelization-receipts-and-outcomes"><a class="header" href="#merkelization-receipts-and-outcomes">Merkelization, receipts and outcomes</a></h2>
@@ -206,6 +206,7 @@ themselves, so the first step is to find the correct chunk and fetch its
             validator_proposals: [],
         },
     ),
+}
 </code></pre>
 <p>The field that we care about is called <code>outcome_root</code>. This value represents the
 root of the binary merkle tree, that is created based on all the receipts that
@@ -244,8 +245,8 @@ something that RPC nodes do return in their responses.</p>
 tree the sibling is), on the path to the root.</p>
 <p><strong>Note:</strong> proof section doesn’t contain the root itself and also doesn’t include
 the hash of the receipt.</p>
-<h2 id="advanced-section-lets-look-at-the-concrete-example"><a class="header" href="#advanced-section-lets-look-at-the-concrete-example">[Advanced section]: Let’s look at the concrete example</a></h2>
-<p>Imagine that we have a following receipt:</p>
+<h2 id="advanced-section-lets-look-at-a-concrete-example"><a class="header" href="#advanced-section-lets-look-at-a-concrete-example">[Advanced section]: Let’s look at a concrete example</a></h2>
+<p>Imagine that we have the following receipt:</p>
 <pre><code>{
   block_hash: '7FtuLHR3VSNhVTDJ8HmrzTffFWoWPAxBusipYa2UfrND',
   id: '6bdKUtGbybhYEQ2hb2BFCTDMrtPBw8YDnFpANZHGt5im',
@@ -280,7 +281,7 @@ let’s find the next block hash, and the proper chunk.</p>
 <pre><code>417 7FtuLHR3VSNhVTDJ8HmrzTffFWoWPAxBusipYa2UfrND |      node0 | parent: 416 C9WnNCbNvkQvnS7jdpaSGrqGvgM7Wwk5nQvkNC9aZFBH | .... 0: E6pfD84bvHmEWgEAaA8USCn2X3XUJAbFfKLmYez8TgZ8 107 Tgas |1: Ch1zr9TECSjDVaCjupNogLcNfnt6fidtevvKGCx8c9aC 104 Tgas |2: 87CmpU6y7soLJGTVHNo4XDHyUdy5aj9Qqy4V7muF5LyF   0 Tgas |3: CtaPWEvtbV4pWem9Kr7Ex3gFMtPcKL4sxDdXD4Pc7wah   0 Tgas
 418 J9WQV9iRJHG1shNwGaZYLEGwCEdTtCEEDUTHjboTLLmf |      node0 | parent: 417 7FtuLHR3VSNhVTDJ8HmrzTffFWoWPAxBusipYa2UfrND | .... 0: 7APjALaoxc8ymqwHiozB5BS6mb3LjTgv4ofRkKx2hMZZ   0 Tgas |1: BoVf3mzDLLSvfvsZ2apPSAKjmqNEHz4MtPkmz9ajSUT6   0 Tgas |2: Auz4FzUCVgnM7RsQ2noXsHW8wuPPrFxZToyLaYq6froT   0 Tgas |3: 5ub8CZMQmzmZYQcJU76hDC3BsajJfryjyShxGF9rzpck   1 Tgas
 </code></pre>
-<p>I know that receipt should belong to Shard 3 (TODO: how? :) )  so let’s fetch
+<p>I know that the receipt should belong to Shard 3 <!-- TODO: how? :) --> so let’s fetch
 the chunk header:</p>
 <pre><code class="language-console">$ neard view-state chunks --chunk-hash 5ub8CZMQmzmZYQcJU76hDC3BsajJfryjyShxGF9rzpck
 </code></pre>
@@ -307,21 +308,22 @@ the chunk header:</p>
   hash: ChunkHash(
       `5ub8CZMQmzmZYQcJU76hDC3BsajJfryjyShxGF9rzpck`,
   ),
-},
+}
 </code></pre>
-<p>So the outcome_root is <code>2sZ81kLj2cw5UHTjdTeMxmaWn2zFeyr5pFunxn6aGTNB</code> - let’s
+<p>So the <code>outcome_root</code> is <code>2sZ81kLj2cw5UHTjdTeMxmaWn2zFeyr5pFunxn6aGTNB</code> - let’s
 verify it then.</p>
 <p>Our first step is to compute the hash of the receipt, which is equal to
 <code>hash([receipt_id, hash(borsh(receipt_payload)])</code></p>
-<pre><code># this is a borsh serialized ExecutionOutcome struct.
+<pre><code class="language-python"># this is a borsh serialized ExecutionOutcome struct.
 # computing this, we leave as an exercise for the reader :-)
 receipt_payload_hash = &quot;7PeGiDjssz65GMCS2tYPHUm6jYDeBCzpuPRZPmLNKSy7&quot;
 
-receipt_hash = base58.b58encode(hashlib.sha256(struct.pack(&quot;&lt;I&quot;, 2) + base58.b58decode(&quot;6bdKUtGbybhYEQ2hb2BFCTDMrtPBw8YDnFpANZHGt5im&quot;)  + base58.b58decode(receipt_payload_hash)).digest())
+receipt_hash = base58.b58encode(hashlib.sha256(struct.pack(&quot;&lt;I&quot;, 2) + base58.b58decode(&quot;6bdKUtGbybhYEQ2hb2BFCTDMrtPBw8YDnFpANZHGt5im&quot;) + base58.b58decode(receipt_payload_hash)).digest())
 </code></pre>
 <p>And then we can start reconstructing the tree:</p>
-<pre><code>def combine(a, b):
-   return hashlib.sha256(a+b).digest()
+<pre><code class="language-python">def combine(a, b):
+   return hashlib.sha256(a + b).digest()
+
 # one node example
 # combine(receipt_hash, &quot;BWwZ4wHuzaUxdDSrhAEPjFQtDgwzb8K4zoNzfX9A3SkK&quot;)
 # whole tree

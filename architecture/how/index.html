@@ -151,7 +151,7 @@ the network and sends messages to peers based on different triggers. Neard is
 implemented using an <a href="https://en.wikipedia.org/wiki/Actor_model">actor
 framework</a> called
 <a href="https://docs.rs/actix">actix</a>.</p>
-<p><strong>Note</strong>: Using actix was decided in the early days of the implementation of
+<p><strong>Note:</strong> Using actix was decided in the early days of the implementation of
 nearcore and by no means represents our confidence in actix. On the contrary, we
 have noticed a number of issues with actix and are considering implementing an
 actor framework in house.</p>
@@ -296,7 +296,7 @@ runs again if head has changed (progress is made) or if a timeout (which is
 set to 2s) has happened.</p>
 </li>
 </ol>
-<p><strong>Note</strong>: when a block is received and its height is no more than 500 + the
+<p><strong>Note:</strong> when a block is received and its height is no more than 500 + the
 node’s current head height, then the node would request its previous block
 automatically. This is called orphan sync and helps to speed up the syncing
 process. If, on the other hand, the height is more than 500 + the node’s current

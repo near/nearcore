@@ -162,7 +162,7 @@ contract) - they are created by the block/chunk producers.</p>
 <p>Once a chunk producer is ready to produce a chunk, it will fetch the
 transactions from its mempool, check that they are valid, and if so, prepare to
 process them into receipts.</p>
-<p><strong>Note</strong>: There are additional restrictions (e.g. making sure that we take them in
+<p><strong>Note:</strong> There are additional restrictions (e.g. making sure that we take them in
 the right order, that we don’t take too many, etc.) - that you can see in
 nomicon’s <a href="https://nomicon.io/ChainSpec/Transactions">transaction page</a>.</p>
 <p>You can see this part in explorer:</p>
@@ -171,11 +171,11 @@ nomicon’s <a href="https://nomicon.io/ChainSpec/Transactions">transaction page
 <p>Once we have a receipt, we have to send it to the proper destination - by adding
 it to the <code>outgoing_receipt</code> list, which will be forwarded to the chunk
 producers from the next block.</p>
-<p><strong>Note</strong>: There is a special case here - if the sender of the receipt is the
+<p><strong>Note:</strong> There is a special case here - if the sender of the receipt is the
 same as the receiver, then the receipt will be added to the <code>local_receipts</code>
 queue and executed in the same block.</p>
 <h3 id="step-3-when-an-incoming-receipt-arrives"><a class="header" href="#step-3-when-an-incoming-receipt-arrives">Step 3: When an incoming receipt arrives</a></h3>
-<p>(<strong>Note</strong>: this happens in the ‘next’ block)</p>
+<p>(<strong>Note:</strong> this happens in the ‘next’ block)</p>
 <p>When a chunk producer receives an incoming receipt, it will try to execute its
 actions (creating accounts, executing function calls etc).</p>
 <p>Such actions might generate additional receipts (for example a contract might
@@ -187,7 +187,7 @@ the producer will put the remaining receipts onto the ‘delayed’ queue.</p>
 <p>When all the ‘dependant’ receipts are executed for a given transaction, we can
 consider the transaction to be successful.</p>
 <h3 id="advanced-but-reality-is-more-complex"><a class="header" href="#advanced-but-reality-is-more-complex">[Advanced] But reality is more complex</a></h3>
-<p><strong>Caution</strong>: In the section below, some things are simplified and do not match exactly 
+<p><strong>Caution:</strong> In the section below, some things are simplified and do not match exactly 
 how the current code works.</p>
 <p>Let’s quickly also check what’s inside a Chunk:</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]

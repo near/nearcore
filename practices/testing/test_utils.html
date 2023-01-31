@@ -140,25 +140,27 @@
 
                 <div id="content" class="content">
                     <main>
-                        <h1 id="cheat-sheet--overview-of-testing-utils"><a class="header" href="#cheat-sheet--overview-of-testing-utils">Cheat-sheet / overview of testing utils</a></h1>
-<p>This page covers the different testing utils / libraries that we have for easier unittesting in Rust.</p>
+                        <h1 id="cheat-sheetoverview-of-testing-utils"><a class="header" href="#cheat-sheetoverview-of-testing-utils">Cheat sheet/overview of testing utils</a></h1>
+<p>This page covers the different testing utils/libraries that we have for easier
+unit testing in Rust.</p>
 <h2 id="basics"><a class="header" href="#basics">Basics</a></h2>
 <h3 id="cryptohash"><a class="header" href="#cryptohash">CryptoHash</a></h3>
-<p>To create a new cryptohash:</p>
+<p>To create a new crypto hash:</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>&quot;ADns6sqVyFLRZbSMCGdzUiUPaDDtjTmKCWzR8HxWsfDU&quot;.parse().unwrap()
+</span>&quot;ADns6sqVyFLRZbSMCGdzUiUPaDDtjTmKCWzR8HxWsfDU&quot;.parse().unwrap();
 <span class="boring">}
 </span></code></pre></pre>
 <h3 id="account"><a class="header" href="#account">Account</a></h3>
-<p>Also prefer doing parse + unwrap</p>
+<p>Also, prefer doing parse + unwrap:</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>let alice: AccountId = &quot;alice.near&quot;.parse().unwrap()
+</span>let alice: AccountId = &quot;alice.near&quot;.parse().unwrap();
 <span class="boring">}
 </span></code></pre></pre>
 <h3 id="signatures"><a class="header" href="#signatures">Signatures</a></h3>
-<p>In memory signer (generates the key based on seed). There is a slight preference to use the seed that is matching the account name.</p>
+<p>In memory signer (generates the key based on a seed). There is a slight preference
+to use the seed that is matching the account name.</p>
 <p>This will create a signer for account 'test' using 'test' as a seed.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -173,7 +175,7 @@
 <span class="boring">}
 </span></code></pre></pre>
 <h2 id="store"><a class="header" href="#store">Store</a></h2>
-<p>Use the in memory test store in tests:</p>
+<p>Use the in-memory test store in tests:</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>let store = create_test_store();
@@ -183,25 +185,25 @@
 <p>You can use the KeyValueRuntime (instead of the Nightshade one):</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>KeyValueRuntime::new(store, epoch_length)
+</span>KeyValueRuntime::new(store, epoch_length);
 <span class="boring">}
 </span></code></pre></pre>
 <h2 id="epochmanager"><a class="header" href="#epochmanager">EpochManager</a></h2>
 <p>Currently still embedded into Runtime - see above to use the KeyValueRuntime</p>
 <h2 id="chain"><a class="header" href="#chain">Chain</a></h2>
-<p>No fakes or mock.</p>
+<p>No fakes or mocks.</p>
 <h3 id="chain-genesis"><a class="header" href="#chain-genesis">Chain genesis</a></h3>
 <p>We have a test method:</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>ChainGenesis::test()
+</span>ChainGenesis::test();
 <span class="boring">}
 </span></code></pre></pre>
 <h2 id="client"><a class="header" href="#client">Client</a></h2>
-<p>TestEnv - for testing multiple clients (without network)</p>
+<p>TestEnv - for testing multiple clients (without network):</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>TestEnvBuilder::new(genesis).client(vec![&quot;aa&quot;]).validators(..).runtime_adapters(..).build()
+</span>TestEnvBuilder::new(genesis).client(vec![&quot;aa&quot;]).validators(..).runtime_adapters(..).build();
 <span class="boring">}
 </span></code></pre></pre>
 <h2 id="network"><a class="header" href="#network">Network</a></h2>
@@ -219,26 +221,26 @@
 <span class="boring">}
 </span></code></pre></pre>
 <h3 id="events-handling"><a class="header" href="#events-handling">Events handling</a></h3>
-<p>To wait / handle a given event (as a lot of network code is running in async fashion):</p>
+<p>To wait/handle a given event (as a lot of network code is running in an async fashion):</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>pm.events.recv_util(|event| match event {...}).await
+</span>pm.events.recv_util(|event| match event {...}).await;
 <span class="boring">}
 </span></code></pre></pre>
 <h2 id="end-to-end"><a class="header" href="#end-to-end">End to End</a></h2>
 <h3 id="chain-runtime-signer"><a class="header" href="#chain-runtime-signer">chain, runtime, signer</a></h3>
-<p>in chain/chain/src/test_utils.rs:</p>
+<p>In chain/chain/src/test_utils.rs:</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>// Creates 1-validator (test):  chain, KVRuntime and a signer
-let (chain, runtime, signer) = setup() 
+let (chain, runtime, signer) = setup();
 <span class="boring">}
 </span></code></pre></pre>
 <h3 id="block-client-actor-view-client"><a class="header" href="#block-client-actor-view-client">block, client actor, view client</a></h3>
-<p>in chain/client/src/test_utils.rs</p>
+<p>In chain/client/src/test_utils.rs</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>let (block, client, view_client) = setup(MANY_FIELDS)
+</span>let (block, client, view_client) = setup(MANY_FIELDS);
 <span class="boring">}
 </span></code></pre></pre>
 

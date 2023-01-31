@@ -141,9 +141,9 @@
                 <div id="content" class="content">
                     <main>
                         <h1 id="run-a-node"><a class="header" href="#run-a-node">Run a Node</a></h1>
-<p>This chapter focuses on the basics of running a node you've just build from
-source. It tries to explain how the thing works under the hood, and pays
-relatively little attention to various shortcuts we have.</p>
+<p>This chapter focuses on the basics of running a node you've just built from
+source. It tries to explain how the thing works under the hood and pays
+relatively little attention to the various shortcuts we have.</p>
 <h2 id="building-the-node"><a class="header" href="#building-the-node">Building the Node</a></h2>
 <p>Start with the following command:</p>
 <pre><code class="language-console">$ cargo run --profile quick-release -p neard -- --help
@@ -153,37 +153,40 @@ a while, take a look at <a href="../fast_builds.html">Fast Builds</a> chapter to
 speed it up.</p>
 <p>Let's dissect the command:</p>
 <ul>
-<li><code>cargo run</code> asks <code>Cargo</code>, the package manager/build tool to run our
+<li><code>cargo run</code> asks <code>Cargo</code>, the package manager/build tool, to run our
 application. If you don't have <code>cargo</code>, install it via <a href="https://rustup.rs">https://rustup.rs</a></li>
-<li><code>--profile quick-release</code> is our <a href="https://doc.rust-lang.org/cargo/reference/profiles.html#custom-profiles">custom profile</a> to build to build a somewhat
-optimized version of the code. Default debug profile is faster to compile, but
-produces a node which is too slow to participate in a real network. The
-<code>--release</code> profile produces a fully optimized node, but that's very slow to
-compile. So <code>--quick-release</code> is a sweat spot for us!</li>
-<li><code>-p neard</code> asks to build the <code>neard</code> package. We use a <a href="https://doc.rust-lang.org/book/ch14-03-cargo-workspaces.html">cargo workspace</a> to
-organize our code. The <code>neard</code> package in the top-level <code>/neard</code> directory is
-the final binary which ties everything together.</li>
-<li><code>--</code> tells cargo to pass the rest of the arguments thorough to <code>neard</code>.</li>
+<li><code>--profile quick-release</code> is our
+<a href="https://doc.rust-lang.org/cargo/reference/profiles.html#custom-profiles">custom profile</a>
+to build a somewhat optimized version of the code. The default debug
+profile is faster to compile, but produces a node that is too slow to
+participate in a real network. The <code>--release</code> profile produces a fully
+optimized node, but that's very slow to compile. So <code>--quick-release</code>
+is a sweet spot for us!</li>
+<li><code>-p neard</code> asks to build the <code>neard</code> package. We use
+<a href="https://doc.rust-lang.org/cargo/reference/workspaces.html">cargo workspaces</a>
+to organize our code. The <code>neard</code> package in the top-level <code>/neard</code> directory
+is the final binary that ties everything together.</li>
+<li><code>--</code> tells cargo to pass the rest of the arguments through to <code>neard</code>.</li>
 <li><code>--help</code> instructs <code>neard</code> to list available CLI arguments and subcommands.</li>
 </ul>
-<p><strong>Note:</strong> building <code>neard</code> might fail with an openssl or CC error. This means
+<p><strong>Note:</strong> Building <code>neard</code> might fail with an openssl or CC error. This means
 that you lack some non-rust dependencies we use (openssl and rocksdb mainly). We
-currently don't have docs on how to install those, but, basically, you want to
-<code>sudo apt install</code> missing bits.</p>
+currently don't have docs on how to install those, but (basically) you want to
+<code>sudo apt install</code> (or whichever distro/package manager you use) missing bits.</p>
 <h2 id="preparing-tiny-network"><a class="header" href="#preparing-tiny-network">Preparing Tiny Network</a></h2>
 <p>Typically, you want <code>neard</code> to connect to some network, like <code>mainnet</code> or
 <code>testnet</code>. We'll get there in time, but we'll start small. For the current
 chapter, we will run a network consisting of just a single node -- our own.</p>
-<p>The first step there is creating required configuration. Run the <code>init</code> command
-to create config files:</p>
+<p>The first step there is creating the required configuration. Run the <code>init</code>
+command to create config files:</p>
 <pre><code class="language-console">$ cargo run --profile quick-release -p neard -- init
 INFO neard: version=&quot;trunk&quot; build=&quot;1.1.0-3091-ga8964d200-modified&quot; latest_protocol=57
 INFO near: Using key ed25519:B41GMfqE2jWHVwrPLbD7YmjZxxeQE9WA9Ua2jffP5dVQ for test.near
 INFO near: Using key ed25519:34d4aFJEmc2A96UXMa9kQCF8g2EfzZG9gCkBAPcsVZaz for node
 INFO near: Generated node key, validator key, genesis file in ~/.near
 </code></pre>
-<p>As the log output says, we just generating <em>somethings</em> in <code>~/.near</code>. Let's take
-a look:</p>
+<p>As the log output says, we are just generating <em>some things</em> in <code>~/.near</code>.
+Let's take a look:</p>
 <pre><code class="language-console">$ ls ~/.near
 config.json
 genesis.json
@@ -191,7 +194,7 @@ node_key.json
 validator_key.json
 </code></pre>
 <p>The most interesting file here is perhaps <code>genesis.json</code> -- it specifies the
-initial state of our blockchain. There's a bunch of hugely important fields
+initial state of our blockchain. There are a bunch of hugely important fields
 there, which we'll ignore here. The part we'll look at is the <code>.records</code>, which
 contains the actual initial data:</p>
 <pre><code class="language-console">$ cat ~/.near/genesis.json | jq '.records'
@@ -241,7 +244,7 @@ contains the actual initial data:</p>
     }
   }
 </code></pre>
-<p>(I am using <a href="https://stedolan.github.io/jq/">jq</a> utility here)</p>
+<p>(I am using the <a href="https://stedolan.github.io/jq/">jq</a> utility here)</p>
 <p>We see that we have two accounts here, and we also see their public keys (but
 not the private ones).</p>
 <p>One of these accounts is a validator:</p>
@@ -256,7 +259,6 @@ not the private ones).</p>
 </code></pre>
 <p>Now, if we</p>
 <pre><code class="language-console">$ cat ~/.near/validator_key.json
-}
 </code></pre>
 <p>we'll see</p>
 <pre><code class="language-json">{
@@ -268,28 +270,28 @@ not the private ones).</p>
 <p>That is, we have a secret key for the sole validator in our network, how
 convenient.</p>
 <p>To recap, <code>neard init</code> without arguments creates a config for a new network
-which starts with a single validator, for which we have the keys.</p>
+that starts with a single validator, for which we have the keys.</p>
 <p>You might be wondering what <code>~/.near/node_key.json</code> is. That's not too
-important, but in our network there's no 1-1 correspondence between machines
+important, but, in our network, there's no 1-1 correspondence between machines
 participating in the peer-to-peer network and accounts on the blockchain. So the
-<code>node_key</code> specifies the keypair we'll use then signing network packets. These
+<code>node_key</code> specifies the keypair we'll use when signing network packets. These
 packets internally will contain messages signed with the validator's key, and
-these internal messages will drive the evolution of blockchain state.</p>
+these internal messages will drive the evolution of the blockchain state.</p>
 <p>Finally, <code>~/.near/config.json</code> contains various configs for the node itself.
-That is, configs which don't actually affect the rules guiding the evolution of
-the blockchain state, but rather things like timeous, database settings and
+These are configs that don't affect the rules guiding the evolution of the
+blockchain state, but rather things like timeouts, database settings and
 such.</p>
 <p>The only field we'll look at is <code>boot_nodes</code>:</p>
 <pre><code class="language-console">$ cat ~/.near/config.json | jq '.network.boot_nodes'
 &quot;&quot;
 </code></pre>
-<p>It's empty! The <code>boot_nodes</code> specifies IPs of the initial nodes our node will
-try to connect to on startup. As we are looking into running a single node
+<p>It's empty! The <code>boot_nodes</code> specify IPs of the initial nodes our node will
+try to connect to on startup. As we are looking into running a single-node
 network, we want to leave it empty. But, if you would like to connect to
 mainnet, you'd have to set this to some nodes from the mainnet you already know.
-You'd also have to ensure that you use the same genesis as the the mainnet
-though -- if the nodes tries to connect to a network with a different genesis,
-it is rejected.</p>
+You'd also have to ensure that you use the same genesis as the mainnet though
+-- if the node tries to connect to a network with a different genesis, it
+is rejected.</p>
 <h2 id="running-the-network"><a class="header" href="#running-the-network">Running the Network</a></h2>
 <p>Finally,</p>
 <pre><code class="language-console">$ cargo run --profile quick-release -p neard -- run
@@ -305,10 +307,10 @@ INFO near_chain::doomslug: ready to produce block @ 5, has enough approvals for 
 ...
 </code></pre>
 <p>🎉 it's alive!</p>
-<p>So, what's going one here?</p>
-<p>Our node is running a single node network. As the network only has a single
-validator, and the node has the keys for the validator, the node is able to
-produce blocks by itself. Note the increasing <code>@ 1</code>, <code>@ 2</code>, ... numbers. That
+<p>So, what's going on here?</p>
+<p>Our node is running a single-node network. As the network only has a single
+validator, and the node has the keys for the validator, the node can produce
+blocks by itself. Note the increasing <code>@ 1</code>, <code>@ 2</code>, ... numbers. That
 means that our network grows.</p>
 <p>Let's stop the node with <code>^C</code> and look around</p>
 <pre><code class="language-console">INFO near_chain::doomslug: ready to produce block @ 42, has enough approvals for 56.759µs, has enough chunks
@@ -318,7 +320,7 @@ INFO db: Waiting for remaining RocksDB instances to shut down num_instances=1
 INFO db: All RocksDB instances shut down
 $
 </code></pre>
-<p>The main change now is that we have <code>~/.near/data</code> directory which holds the
+<p>The main change now is that we have a <code>~/.near/data</code> directory which holds the
 state of the network in various rocksdb tables:</p>
 <pre><code class="language-console">$ ls ~/.near/data
  000004.log
@@ -330,9 +332,9 @@ state of the network in various rocksdb tables:</p>
  OPTIONS-000107
  OPTIONS-000109
 </code></pre>
-<p>It doesn't really matter what those are, &quot;rocksdb stuff&quot; is a fine level of
-understanding here. The important bit here is that the node remembers the state
-of the network, so, when we restart it, it continues from around the last block:</p>
+<p>It doesn't matter what those are, &quot;rocksdb stuff&quot; is a fine level of understanding
+here. The important bit here is that the node remembers the state of the network,
+so, when we restart it, it continues from around the last block:</p>
 <pre><code class="language-console">$ cargo run --profile quick-release -p neard -- run
 INFO neard: version=&quot;trunk&quot; build=&quot;1.1.0-3091-ga8964d200-modified&quot; latest_protocol=57
 INFO db: Created a new RocksDB instance. num_instances=1
@@ -349,9 +351,9 @@ INFO near_chain::doomslug: ready to produce block @ 44, has enough approvals for
 INFO near_chain::doomslug: ready to produce block @ 45, has enough approvals for 45.093µs, has enough chunks
 </code></pre>
 <h2 id="interacting-with-the-node"><a class="header" href="#interacting-with-the-node">Interacting With the Node</a></h2>
-<p>Ok, now our node is running, let's poke it! The node exposes JSON RPC interface
-which can be used to interact with the node itself (to, eg, do a health check)
-or with the blockchain (to query information about blockchain state, or to
+<p>Ok, now our node is running, let's poke it! The node exposes a JSON RPC interface
+which can be used to interact with the node itself (to, e.g., do a health check)
+or with the blockchain (to query information about the blockchain state or to
 submit a transaction).</p>
 <pre><code class="language-console">$ http get http://localhost:3030/status
 HTTP/1.1 200 OK
@@ -399,7 +401,7 @@ vary: Origin, Access-Control-Request-Method, Access-Control-Request-Headers
 </code></pre>
 <p>(I am using <a href="https://httpie.io/cli">HTTPie here</a>)</p>
 <p>Note how <code>&quot;latest_block_height&quot;: 952</code> corresponds to <code>@ 952</code> we see in the logs.</p>
-<p>Let's query blockchain state:</p>
+<p>Let's query the blockchain state:</p>
 <pre><code>$ http post http://localhost:3030/ method=query jsonrpc=2.0 id=1 \
      params:='{&quot;request_type&quot;: &quot;view_account&quot;, &quot;finality&quot;: &quot;final&quot;, &quot;account_id&quot;: &quot;test.near&quot;}'
 λ http post http://localhost:3030/ method=query jsonrpc=2.0 id=1 \
@@ -427,13 +429,13 @@ vary: Origin, Access-Control-Request-Method, Access-Control-Request-Headers
     }
 }
 </code></pre>
-<p>Note how we use a <code>post</code> HTTP method when we interact with blockchain RPC. The
-full set of RPC endpoints is documented at</p>
+<p>Note how we use an HTTP <code>post</code> method when we interact with the blockchain RPC.
+The full set of RPC endpoints is documented at</p>
 <p><a href="https://docs.near.org/api/rpc/introduction">https://docs.near.org/api/rpc/introduction</a></p>
 <h2 id="sending-transactions"><a class="header" href="#sending-transactions">Sending Transactions</a></h2>
 <p>Transactions are submitted via RPC as well. Submitting a transaction manually
-with <code>http</code> is going to be cumbersome though — transactions are are borsh
-encoded to bytes, then signed, then encoded in base64 for JSON.</p>
+with <code>http</code> is going to be cumbersome though — transactions are borsh encoded
+to bytes, then signed, then encoded in base64 for JSON.</p>
 <p>So we will use the official <a href="https://docs.near.org/tools/near-cli">NEAR CLI</a> utility.</p>
 <p>Install it via <code>npm</code>:</p>
 <pre><code class="language-console">$ npm install -g near-cli
@@ -445,7 +447,7 @@ Commands:
 ....
 </code></pre>
 <p>Note that, although you install <code>near-cli</code>, the name of the utility is <code>near</code>.</p>
-<p>As a first-step, let's redo the <code>view_account</code> call we did with raw <code>httpie</code>
+<p>As a first step, let's redo the <code>view_account</code> call we did with raw <code>httpie</code>
 with <code>near-cli</code>:</p>
 <pre><code class="language-console">$ NEAR_ENV=local near state test.near
 Loaded master account test.near key from ~/.near/validator_key.json with public key = ed25519:71QRP9qKcYRUYXTLNnrmRc1NZSdBaBo9nKZ88DK5USNf
@@ -483,6 +485,10 @@ Transaction Id BBPndo6gR4X8pzoDK7UQfoUXp5J8WDxkf8Sq75tK5FFT
 To see the transaction in the transaction explorer, please open this url in your browser
 http://localhost:9001/transactions/BBPndo6gR4X8pzoDK7UQfoUXp5J8WDxkf8Sq75tK5FFT
 </code></pre>
+<p><strong>Note:</strong> You can export the variable <code>NEAR_ENV</code> in your shell if you are planning
+to do multiple commands to avoid repetition:</p>
+<pre><code class="language-console">$ export NEAR_ENV=local
+</code></pre>
 <p>NEAR CLI printouts are not always the most useful or accurate, but this seems to
 work.</p>
 <p>Note that <code>near</code> automatically creates keypairs and stores them at
@@ -491,7 +497,7 @@ work.</p>
   alice.test.near.json
   bob.test.near.json
 </code></pre>
-<p>To verify this actually did work, and that <code>near-cli</code> didn't cheat us, let's
+<p>To verify that this did work, and that <code>near-cli</code> didn't cheat us, let's
 query the state of accounts manually:</p>
 <pre><code class="language-console">$ http post http://localhost:3030/ method=query jsonrpc=2.0 id=1 \
     params:='{&quot;request_type&quot;: &quot;view_account&quot;, &quot;finality&quot;: &quot;final&quot;, &quot;account_id&quot;: &quot;alice.test.near&quot;}' \
@@ -504,19 +510,19 @@ query the state of accounts manually:</p>
     | jq '.result.amount'
 &quot;110000000000000000000000000&quot;
 </code></pre>
-<p>Indeed, some amounts of tokes was transferred from <code>alice</code> to <code>bob</code>, and then
-some amount of tokes was deducted to account for transaction fees.</p>
+<p>Indeed, some amount of tokes was transferred from <code>alice</code> to <code>bob</code>, and then
+some amount of tokens was deducted to account for transaction fees.</p>
 <h2 id="recap"><a class="header" href="#recap">Recap</a></h2>
 <p>Great! So we've learned how to run our very own single-node NEAR network using a
-binary we've build from source. The steps are:</p>
+binary we've built from source. The steps are:</p>
 <ul>
 <li>Create configs with <code>cargo run --profile quick-release -p neard -- init</code></li>
 <li>Run the node with <code>cargo run --profile quick-release -p neard -- run</code></li>
-<li>Poke the node with <code>http</code> or</li>
+<li>Poke the node with <code>httpie</code> or</li>
 <li>Install <code>near-cli</code> via <code>npm install -g near-cli</code></li>
 <li>Submit transactions via <code>NEAR_ENV=local near create-account ...</code></li>
 </ul>
-<p>In the <a href="./deploy_a_contract.html">next chapter</a> we'll learn how to deploy a simple
+<p>In the <a href="./deploy_a_contract.html">next chapter</a>, we'll learn how to deploy a simple
 WASM contract.</p>
 
                     </main>

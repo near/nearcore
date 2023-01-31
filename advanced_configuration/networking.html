@@ -140,38 +140,45 @@
 
                 <div id="content" class="content">
                     <main>
-                        <p>This document describes the advanced network options that you can configure by modifying
-the &quot;network&quot; section of your &quot;config.json&quot; file.</p>
+                        <p>This document describes the advanced network options that you can configure
+by modifying the &quot;network&quot; section of your &quot;config.json&quot; file.</p>
 <h3 id="tier1-network"><a class="header" href="#tier1-network">TIER1 network</a></h3>
-<p>Participants of the BFT consensus (block &amp; chunk producers) now can establish direct (aka TIER1) connections
-between each other, which will optimize the communication latency and minimize the number of dropped chunks. 
-If you are a validator, you can enable TIER1 connections by setting the following fields in the config:</p>
+<p>Participants of the BFT consensus (block &amp; chunk producers) now can establish
+direct (aka TIER1) connections between each other, which will optimize the
+communication latency and minimize the number of dropped chunks. If you are a
+validator, you can enable TIER1 connections by setting the following fields in the config:</p>
 <ul>
 <li><a href="https://github.com/near/nearcore/blob/d95a5f58d998c69cb8d4e965ad6b0a440cf3f233/chain/network/src/config_json.rs#L154">public_addrs</a>
 <ul>
-<li>this is a list of the public addresses (in the format <code>&quot;&lt;node public key&gt;@&lt;IP&gt;:&lt;port&gt;&quot;</code>) of trusted nodes,
-which are willing to route messages to your node</li>
-<li>this list will be broadcasted to the network, so that other validator nodes can connect to your node.</li>
-<li>if your node has a static public IP, set <code>public_addrs</code> to a list with a single entry with public key and address of your node, for example:
+<li>this is a list of the public addresses (in the format <code>&quot;&lt;node public key&gt;@&lt;IP&gt;:&lt;port&gt;&quot;</code>)
+of trusted nodes, which are willing to route messages to your node</li>
+<li>this list will be broadcasted to the network so that other validator nodes can connect
+to your node.</li>
+<li>if your node has a static public IP, set <code>public_addrs</code> to a list with a single entry
+with the public key and address of your node, for example:
 <code>&quot;public_addrs&quot;: [&quot;ed25519:86EtEy7epneKyrcJwSWP7zsisTkfDRH5CFVszt4qiQYw@31.192.22.209:24567&quot;]</code>.</li>
-<li>if your node doesn't have a public IP (for example, it is hidden behind a NAT), set <code>public_addrs</code> to
-a list (&lt;=10 entries) of proxy nodes that you trust (arbitrary nodes with static public IPs).</li>
+<li>if your node doesn't have a public IP (for example, it is hidden behind a NAT), set
+<code>public_addrs</code> to a list (&lt;=10 entries) of proxy nodes that you trust (arbitrary nodes
+with static public IPs).</li>
 <li>support for nodes with dynamic public IPs is not implemented yet.</li>
 </ul>
 </li>
 <li><a href="https://github.com/near/nearcore/blob/d95a5f58d998c69cb8d4e965ad6b0a440cf3f233/chain/network/src/config_json.rs#L213">experimental.tier1_enable_outbound</a>
 <ul>
-<li>makes your node actively try to establish outbound TIER1 connections (recommended) once it learns about
-public addresses of other validator nodes. If disabled, your node won't try to establish outbound TIER1 connections,
-but it still may accept incoming TIER1 connections from other nodes.</li>
+<li>makes your node actively try to establish outbound TIER1 connections (recommended)
+once it learns about the public addresses of other validator nodes. If disabled, your
+node won't try to establish outbound TIER1 connections, but it still may accept
+incoming TIER1 connections from other nodes.</li>
 <li>currently <code>false</code> by default, but will be changed to <code>true</code> by default in the future</li>
 </ul>
 </li>
 <li><a href="https://github.com/near/nearcore/blob/d95a5f58d998c69cb8d4e965ad6b0a440cf3f233/chain/network/src/config_json.rs#L209">experimental.tier1_enable_inbound</a>
 <ul>
 <li>makes your node accept inbound TIER1 connections from other validator nodes.</li>
-<li>disable both <code>tier1_enable_inbound</code> and <code>tier1_enable_outbound</code> if you want to opt out from the TIER1 communication entirely</li>
-<li>disable <code>tier1_enable_inbound</code> if you are not a validator AND you don't want your node to act as a proxy for validators.</li>
+<li>disable both <code>tier1_enable_inbound</code> and <code>tier1_enable_outbound</code> if you want to opt-out
+from the TIER1 communication entirely</li>
+<li>disable <code>tier1_enable_inbound</code> if you are not a validator AND you don't want your
+node to act as a proxy for validators.</li>
 <li><code>true</code> by default</li>
 </ul>
 </li>

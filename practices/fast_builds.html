@@ -151,12 +151,12 @@ extremely common failure mode!</p>
 <p><a href="https://nnethercote.github.io/perf-book/compile-times.html">Rust Perf Book</a>
 contains a section on compilation times as well!</p>
 <h2 id="release-builds-and-link-time-optimization"><a class="header" href="#release-builds-and-link-time-optimization">Release Builds and Link Time Optimization</a></h2>
-<p>Obviously, <code>cargo build --release</code> is slower than <code>cargo build</code>. We enable full
-lto (link time optimization), so our <code>-r</code> builds are very slow, use a lot of
+<p><code>cargo build --release</code> is obviously slower than <code>cargo build</code>. We enable full
+lto (link-time optimization), so our <code>-r</code> builds are very slow, use a lot of
 RAM, and don't utilize the available parallelism fully.</p>
 <p>As debug builds are much too slow at runtime for many purposes, we have a custom
-profile <code>--profile quick-release</code> which is equivalent to <code>-r</code>, except that time
-consuming options such as LTO are disabled.</p>
+profile <code>--profile quick-release</code> which is equivalent to <code>-r</code>, except that the
+time-consuming options such as LTO are disabled.</p>
 <p>Use <code>--profile quick-release</code> when doing comparative benchmarking, or when
 connecting a locally built node to a network. Use <code>-r</code> if you want to get
 absolute performance numbers.</p>
@@ -172,21 +172,24 @@ comment</a>.</p>
 rustflags = [&quot;-C&quot;, &quot;link-arg=-fuse-ld=lld&quot;]
 </code></pre>
 <p>to <code>~/.cargo/config</code> is the most convenient approach.</p>
-<p>lld itself can be installed with <code>sudo apt install lld</code>.</p>
+<p><code>lld</code> itself can be installed with <code>sudo apt install lld</code> (or the equivalent in 
+the distro/package manager of your choice).</p>
 <h2 id="prebuilt-rocksdb"><a class="header" href="#prebuilt-rocksdb">Prebuilt RocksDB</a></h2>
 <p>By default, we compile RocksDB (a C++ project) from source during the neard
 build. By linking to a prebuilt copy of RocksDB this work can be avoided
 entirely. This is a huge win, especially if you clean the <code>./target</code> directory
 frequently.</p>
-<p>In order to use prebuilt RocksDB, set <code>ROCKSDB_LIB_DIR</code> environment variable to
+<p>To use a prebuilt RocksDB, set the <code>ROCKSDB_LIB_DIR</code> environment variable to
 a location containing <code>librocksdb.a</code>:</p>
 <pre><code class="language-console">$ export ROCKSDB_LIB_DIR=/usr/lib/x86_64-linux-gnu
 $ cargo build -p neard
 </code></pre>
 <p>Note, that the system must provide a recent version of the library which,
-depending on operating system you’re using, may require installing packages from
-a testing branch.  For example, on Debian it requires installing
-<code>librocksdb-dev</code> from <code>experimental</code> version:</p>
+depending on which operating system you’re using, may require installing packages
+from a testing branch. For example, on Debian it requires installing
+<code>librocksdb-dev</code> from the <code>experimental</code> repository:</p>
+<p><strong>Note:</strong> Based on which distro you are using this process will look different.
+Please refer to the documentation of the package manager you are using.</p>
 <pre><code class="language-bash">echo 'deb http://ftp.debian.org/debian experimental main contrib non-free' |
     sudo tee -a /etc/apt/sources.list
 sudo apt update
@@ -198,7 +201,7 @@ export ROCKSDB_LIB_DIR
 <h2 id="global-compilation-cache"><a class="header" href="#global-compilation-cache">Global Compilation Cache</a></h2>
 <p>By default, Rust compiles incrementally, with the incremental cache and
 intermediate outputs stored in the project-local <code>./target</code> directory.</p>
-<p><a href="https://github.com/mozilla/sccache"><code>sccache</code></a> utility can be used to share
+<p>The <a href="https://github.com/mozilla/sccache"><code>sccache</code></a> utility can be used to share
 these artifacts between machines or checkouts within the same machine. <code>sccache</code>
 works by intercepting calls to <code>rustc</code> and will fetch the cached outputs from
 the global cache whenever possible. This tool can be set up as such:</p>
@@ -209,14 +212,14 @@ $ cargo build -p neard
 </code></pre>
 <p>Refer to the <a href="https://github.com/mozilla/sccache">project’s README</a> for further
 configuration options.</p>
-<h2 id="ides-are-bad-for-environment"><a class="header" href="#ides-are-bad-for-environment">IDEs Are Bad For Environment</a></h2>
+<h2 id="ides-are-bad-for-environment-handling"><a class="header" href="#ides-are-bad-for-environment-handling">IDEs Are Bad For Environment Handling</a></h2>
 <p>Generally, the knobs in this section are controlled either via global
 configuration in <code>~/.cargo/config</code> or environment variables.</p>
 <p>Environment variables are notoriously easy to lose, especially if you are
-working both from a command line and graphical IDE. Double check that the
-environment within which builds are executed is identical in order to avoid
-nasty failure modes such as full cache invalidation when switching
-from the CLI to an IDE or vice-versa.</p>
+working both from a command line and a graphical IDE. Double-check that the
+environment within which builds are executed is identical to avoid nasty
+failure modes such as full cache invalidation when switching from the
+CLI to an IDE or vice-versa.</p>
 <p><a href="https://direnv.net"><code>direnv</code></a> sometimes can be used to conveniently manage
 project-specific environment variables.</p>
 

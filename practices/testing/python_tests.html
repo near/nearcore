@@ -143,17 +143,17 @@
                         <h1 id="python-tests"><a class="header" href="#python-tests">Python Tests</a></h1>
 <p>To simplify writing integration tests for nearcore we have a python
 infrastructure that allows writing a large variety of tests that run small local
-clusters, remove clusters, or run against full scale live deployments.</p>
+clusters, remove clusters, or run against full-scale live deployments.</p>
 <p>Such tests are written in python and not in Rust (in which the nearcore itself,
-and most of the sanity and fuzz tests, are written) due to availability of
-libraries to easily connect to remove nodes, and orchestrate cloud instances.</p>
+and most of the sanity and fuzz tests, are written) due to the availability of
+libraries to easily connect to, remove nodes and orchestrate cloud instances.</p>
 <p>Nearcore itself has several features guarded by a
-<a href="https://doc.rust-lang.org/1.29.0/book/first-edition/conditional-compilation.html">feature-flag</a>
-that allow the python tests to invoke behaviors otherwise impossible to be
+<a href="https://doc.rust-lang.org/1.29.0/book/first-edition/conditional-compilation.html">feature flag</a>
+that allows the python tests to invoke behaviors otherwise impossible to be
 exercised by an honest actor.</p>
 <h1 id="basics"><a class="header" href="#basics">Basics</a></h1>
-<p>The infrastructure is located in <code>{nearcore}/pytest/lib</code> and the tests
-themselves in subdirs of <code>{nearcore}/pytest/tests</code>. To prepare local machine to
+<p>The infrastructure is located in <code>{nearcore}/pytest/lib</code> and the tests themselves
+are in subdirectories of <code>{nearcore}/pytest/tests</code>. To prepare the local machine to
 run the tests you'd need python3 (python 3.7), and have several dependencies
 installed, for which we recommend using virtualenv:</p>
 <pre><code>cd pytest
@@ -167,48 +167,48 @@ the virtualenv is configured:</p>
 . .env/bin/activate
 python tests/sanity/block_production.py
 </code></pre>
-<p>will run the most basic tests that spins up a small cluster locally and waits
+<p>This will run the most basic tests that spin up a small cluster locally and wait
 until it produces several blocks.</p>
 <h2 id="compiling-the-client-for-tests"><a class="header" href="#compiling-the-client-for-tests">Compiling the client for tests</a></h2>
 <p>The local tests by default expect the binary to be in the default location for a
 debug build (<code>{nearcore}/target/debug</code>). Some tests might also expect
-test-specific features guarded by a feature-flag to be available. To compile the
-binary with such features run</p>
+test-specific features guarded by a feature flag to be available. To compile the
+binary with such features run:</p>
 <pre><code>cargo build -p neard --features=adversarial
 </code></pre>
-<p>The feature is called <code>adversarial</code> to highlight that many functions it enables,
-outside of tests, would constitute a malicious behavior. The node compiled with
+<p>The feature is called <code>adversarial</code> to highlight that the many functions it enables,
+outside of tests, would constitute malicious behavior. The node compiled with
 such a flag will not start unless an environment variable <code>ADVERSARY_CONSENT=1</code>
-is set and prints a noticeable warning when starts, thus minimizing the chance
+is set and prints a noticeable warning when it starts, thus minimizing the chance
 that an honest participant accidentally launches a node compiled with such
 functionality.</p>
 <p>You can change the way the tests run (locally or using Google Cloud), and where
-the local tests look for binary by supplying a config file. For example, if you
+the local tests look for the binary by supplying a config file. For example, if you
 want to run tests against a release build, you can create a file with the
 following config:</p>
-<pre><code>{&quot;local&quot;: True, &quot;near_root&quot;: &quot;../target/release/&quot;}
+<pre><code class="language-json">{&quot;local&quot;: True, &quot;near_root&quot;: &quot;../target/release/&quot;}
 </code></pre>
-<p>and run the test with the following command line:</p>
-<pre><code>NEAR_PYTEST_CONFIG=&lt;path to config&gt; python tests/sanity/block_production.py
+<p>and run the test with the following command:</p>
+<pre><code class="language-shell">NEAR_PYTEST_CONFIG=&lt;path to config&gt; python tests/sanity/block_production.py
 </code></pre>
 <h1 id="writing-tests"><a class="header" href="#writing-tests">Writing tests</a></h1>
-<p>We differentiate between &quot;regular&quot; tests, or tests that spin up their own
-cluster, either local or on the cloud, and &quot;mocknet&quot; tests, or tests that run
-against an existing live deployment of NEAR.</p>
-<p>In both cases the test starts by importing the infrastructure and starting or
+<p>We differentiate between &quot;regular&quot; tests, or tests that spin up their cluster,
+either local or on the cloud, and &quot;mocknet&quot; tests, or tests that run against
+an existing live deployment of NEAR.</p>
+<p>In both cases, the test starts by importing the infrastructure and starting or
 connecting to a cluster</p>
 <h2 id="starting-a-cluster"><a class="header" href="#starting-a-cluster">Starting a cluster</a></h2>
 <p>In the simplest case a regular test starts by starting a cluster. The cluster
-will run locally by default, but can be spun up on the cloud by supplying
+will run locally by default but can be spun up on the cloud by supplying the
 corresponding config.</p>
-<pre><code>import sys
+<pre><code class="language-python">import sys
 sys.path.append('lib')
 from cluster import start_cluster
 
 nodes = start_cluster(4, 0, 4, None, [[&quot;epoch_length&quot;, 10], [&quot;block_producer_kickout_threshold&quot;, 80]], {})
 </code></pre>
 <p>In the example above the first three parameters are <code>num_validating_nodes</code>,
-<code>num_observers</code>, <code>num_shards</code>. The third parameter is a config, which generally
+<code>num_observers</code> and <code>num_shards</code>. The third parameter is a config, which generally
 should be <code>None</code>, in which case the config is picked up from the environment
 variable as shown above.</p>
 <p><code>start_cluster</code> will spin up <code>num_validating_nodes</code> nodes that are block
@@ -217,19 +217,19 @@ will configure the system to have <code>num_shards</code> shards. The fifth argu
 changes the genesis config. Each element is a list of some length <code>n</code> where the
 first <code>n-1</code> elements are a path in the genesis JSON file, and the last element
 is the value. You'd often want to significantly reduce the epoch length, so that
-your test triggers epoch switches, and reduce the kickout threshold, since with
+your test triggers epoch switches, and reduce the kick-out threshold since with
 shorter epochs it is easier for a block producer to get kicked out.</p>
 <p>The last parameter is a dictionary from the node ordinal to changes to their
 local config.</p>
 <p>Note that <code>start_cluster</code> spins up all the nodes right away. Some tests (e.g.
-tests that test syncing) might want to configure the nodes, but delay their
-start. In such a case you will initialize the cluster by calling to
-<code>init_cluster</code>, and will run the nodes manually, for example see
+tests that test syncing) might want to configure the nodes but delay their
+start. In such a case you will initialize the cluster by calling
+<code>init_cluster</code> and will run the nodes manually, for example, see
 <a href="https://github.com/nearprotocol/nearcore/blob/master/pytest/tests/sanity/state_sync.py"><code>state_sync.py</code></a></p>
 <h2 id="connecting-to-a-mocknet"><a class="header" href="#connecting-to-a-mocknet">Connecting to a mocknet</a></h2>
 <p>Nodes that run against a mocknet would connect to an existing cluster instead of
 running their own.</p>
-<pre><code>import sys
+<pre><code class="language-python">import sys
 sys.path.append('lib')
 from cluster import connect_to_mocknet
 
@@ -237,7 +237,7 @@ nodes, accounts = connect_to_mocknet(None)
 </code></pre>
 <p>The only parameter is a config, with <code>None</code> meaning to use the config from the
 environment variable. The config should have the following format:</p>
-<pre><code>{
+<pre><code class="language-json">{
     &quot;nodes&quot;: [
         {&quot;ip&quot;: &quot;(some_ip)&quot;, &quot;port&quot;: 3030},
         {&quot;ip&quot;: &quot;(some_ip)&quot;, &quot;port&quot;: 3030},
@@ -261,7 +261,7 @@ perspective of the tests the only requirement is that the graph of &quot;node A
 booted from node B&quot; is connected).</p>
 <p>The particular way to get the <code>boot_ip</code> and <code>boot_port</code> when launching <code>node1</code>
 with <code>node2</code> being its boot node is the following:</p>
-<pre><code>node1.start(node2.node_key.pk, node2.addr())
+<pre><code class="language-python">node1.start(node2.node_key.pk, node2.addr())
 </code></pre>
 <p><code>kill()</code> shuts down the node by sending it <code>SIGKILL</code></p>
 <p><code>reset_data()</code> cleans up the data dir, which could be handy between the calls to
@@ -269,16 +269,16 @@ with <code>node2</code> being its boot node is the following:</p>
 <p>Nodes on the mocknet do not expose <code>start</code>, <code>kill</code> and <code>reset_data</code>.</p>
 <h2 id="issuing-rpc-calls"><a class="header" href="#issuing-rpc-calls">Issuing RPC calls</a></h2>
 <p>Nodes in both regular and mocknet tests expose an interface to issue RPC calls.
-In the most generic case one can just issue raw JSON rpc call by calling
+In the most generic case, one can just issue raw JSON RPC calls by calling the
 <code>json_rpc</code> method:</p>
-<pre><code>validator_info = nodes[0].json_rpc('validators', [&lt;some block_hash&gt;])
+<pre><code class="language-python">validator_info = nodes[0].json_rpc('validators', [&lt;some block_hash&gt;])
 </code></pre>
-<p>For the most popular calls there are convenience functions:</p>
+<p>For the most popular calls, there are convenience functions:</p>
 <ul>
 <li><code>send_tx</code> sends a signed transaction asynchronously</li>
 <li><code>send_tx_and_waits</code> sends a signed transaction synchronously</li>
-<li><code>get_status</code> returns the current status (the output of the `/status/
-endpoint), which contains e.g. last block hash and height</li>
+<li><code>get_status</code> returns the current status (the output of the <code>/status/endpoint</code>),
+which contains e.g. last block hash and height</li>
 <li><code>get_tx</code> returns a transaction by the transaction hash and the recipient ID.</li>
 </ul>
 <p>See all the methods in <code>{nearcore}/pytest/lib/cluster.rs</code> after the definition
@@ -289,7 +289,7 @@ sends a tx and blocks the test execution until either the TX is finished, or the
 timeout is hit. An asynchronous way (<code>send_tx</code> + <code>get_tx</code>) sends a TX and then
 verifies its result later. Here's an end-to-end example of sending a
 transaction:</p>
-<pre><code># the tx needs to include one of the recent hashes
+<pre><code class="language-python"># the tx needs to include one of the recent hashes
 last_block_hash = nodes[0].get_status()['sync_info']['latest_block_hash']
 last_block_hash_decoded = base58.b58decode(last_block_hash.encode('utf8'))
 
@@ -321,30 +321,30 @@ if want_async:
 for an example of signing and submitting a transaction.</p>
 <h2 id="adversarial-behavior"><a class="header" href="#adversarial-behavior">Adversarial behavior</a></h2>
 <p>Some tests need certain nodes in the cluster to exercise behavior that is
-impossible to be invoked by a honest node. For such tests we provide
+impossible to be invoked by an honest node. For such tests, we provide
 functionality that is protected by an &quot;adversarial&quot; feature flag.</p>
-<p>It's an advanced feature, a more thorough documentation is a TODO. Most of the
+<p>It's an advanced feature, and more thorough documentation is a TODO. Most of the
 tests that depend on the feature flag enabled are under
 <code>{nearcore}/pytest/tests/adversarial</code>, refer to them for how such features can
 be used. Search for code in the <code>nearcore</code> codebase guarded by the &quot;adversarial&quot;
-feature flag for the example of how such features are added and exposed.</p>
+feature flag for an example of how such features are added and exposed.</p>
 <h2 id="interfering-with-the-network"><a class="header" href="#interfering-with-the-network">Interfering with the network</a></h2>
 <p>We have a library that allows running a proxy in front of each node that would
 intercept all the messages between nodes, deserialize them in python and run a
 handler on each one. The handler can then either let the message pass (<code>return True</code>), drop it (<code>return False</code>) or replace it (<code>return &lt;new message&gt;</code>).</p>
 <p>This technique can be used to both interfere with the network (by dropping or
 replacing messages), and to inspect messages that flow through the network
-without interfering with it. For the latter note that the handler for each node
+without interfering with them. For the latter, note that the handler for each node
 runs in a separate <code>Process</code>, and thus you need to use <code>multiprocessing</code>
 primitives if you want the handlers to exchange information with the main test
 process, or between each other.</p>
-<p>See the tests <code>tests/sanity/proxy_*.py</code> for examples.</p>
+<p>See the tests that match <code>tests/sanity/proxy_*.py</code> for examples.</p>
 <h1 id="contributing-tests"><a class="header" href="#contributing-tests">Contributing tests</a></h1>
 <p>We always welcome new tests, especially python tests that use the above
 infrastructure. We have a list of test requests
 <a href="https://github.com/nearprotocol/nearcore/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+test%22+">here</a>,
 but also welcome any other tests that test aspects of the network we haven't
-though about.</p>
+thought about.</p>
 
                     </main>
 

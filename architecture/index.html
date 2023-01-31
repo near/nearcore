@@ -265,7 +265,7 @@ structures.</p>
 <p>This crate contains most of the chain logic (consensus, block processing, etc).
 <code>ChainUpdate::process_block</code> is where most of the block processing logic
 happens.</p>
-<p><strong>Architecture Invariant</strong>: interface between chain and runtime is defined by
+<p><strong>Architecture Invariant:</strong> interface between chain and runtime is defined by
 <code>RuntimeWithEpochManagerAdapter</code>. All invocations of runtime go through <code>RuntimeWithEpochManagerAdapter</code></p>
 <p><strong>State update</strong></p>
 <p>The blockchain state of a node can be changed in the following two ways:</p>
@@ -299,17 +299,17 @@ blockchain nodes.</p>
 <p>Two important structs here: <code>PeerManagerActor</code> and <code>Peer</code>. Peer manager
 orchestrates all the communications from network to other components and from
 other components to network. <code>Peer</code> is responsible for low-level network
-communications from and to a given peer. Peer manager runs in one thread while
-each <code>Peer</code> runs in its own thread.</p>
-<!--TODO: Maybe add more clarification about what Peer is? -->
-<p><strong>Architecture Invariant</strong>: Network communicates to <code>Client</code> through
+communications from and to a given peer (more details in
+<a href="./network.html#23-peeractor">this article</a>). Peer manager runs in one thread while each
+<code>Peer</code> runs in its own thread.</p>
+<p><strong>Architecture Invariant:</strong> Network communicates to <code>Client</code> through
 <code>NetworkClientMessages</code> and to <code>ViewClient</code> through <code>NetworkViewClientMessages</code>.
 Conversely, <code>Client</code> and <code>ViewClient</code> communicates to network through
 <code>NetworkRequests</code>.</p>
 <h3 id="chainepoch_manager"><a class="header" href="#chainepoch_manager"><code>chain/epoch_manager</code></a></h3>
 <p>This crate is responsible for determining validators and other epoch related
 information such as epoch id for each epoch.</p>
-<p><strong>Note</strong>: <code>EpochManager</code> is constructed in <code>NightshadeRuntime</code> rather than in
+<p><strong>Note:</strong> <code>EpochManager</code> is constructed in <code>NightshadeRuntime</code> rather than in
 <code>Chain</code>, partially because we had this idea of making epoch manager a smart
 contract.</p>
 <h3 id="chainjsonrpc"><a class="header" href="#chainjsonrpc"><code>chain/jsonrpc</code></a></h3>
@@ -325,7 +325,7 @@ the other hand, are sent to <code>ClientActor</code> for further processing.</p>
 function takes <code>ApplyState</code>, which contains necessary information passed from
 chain to runtime, a list of <code>SignedTransaction</code> and a list of <code>Receipt</code>, and
 returns a <code>ApplyResult</code>, which includes state changes, execution outcomes, etc.</p>
-<p><strong>Architecture Invariant</strong>: The state update is only finalized at the end of
+<p><strong>Architecture Invariant:</strong> The state update is only finalized at the end of
 <code>apply</code>. During all intermediate steps state changes can be reverted.</p>
 <h3 id="runtimenear-vm-logic"><a class="header" href="#runtimenear-vm-logic"><code>runtime/near-vm-logic</code></a></h3>
 <p><code>VMLogic</code> contains all the implementations of host functions and is the

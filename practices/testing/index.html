@@ -144,7 +144,7 @@
 <ol>
 <li>Every PR needs to have test coverage in place. Sending the code change and
 deferring tests for a future change is not acceptable.</li>
-<li>Tests need to either be sufficiently simple to follow, or have good
+<li>Tests need to either be sufficiently simple to follow or have good
 documentation to explain why certain actions are made and conditions are
 expected.</li>
 <li>When implementing a PR, <strong>make sure to run the new tests with the change
@@ -159,45 +159,45 @@ however do not make the tests change-detectors of the concrete implementation.
 For example, do not do <code>assert!(result.is_err())</code>, expect the specific error instead.</li>
 </ol>
 <h1 id="tests-hierarchy"><a class="header" href="#tests-hierarchy">Tests hierarchy</a></h1>
-<p>In NEAR Reference Client we largely split tests into three categories:</p>
+<p>In the NEAR Reference Client we largely split tests into three categories:</p>
 <ol>
-<li>Relatively cheap sanity or fast fuzz tests. It includes all the <code>#[test]</code>
+<li><strong>Relatively cheap sanity or fast fuzz tests:</strong> It includes all the <code>#[test]</code>
 Rust tests not decorated by features. Our repo is configured in such a way
-that all such tests are ran on every PR, and failing at least one of them is
+that all such tests are run on every PR and failing at least one of them is
 blocking the PR from being merged.</li>
 </ol>
 <p>To run such tests locally run <code>cargo nextest run --all</code>.
 It requires nextest harness which can be installed by running <code>cargo install cargo-nextest</code> first.</p>
 <ol start="2">
-<li>Expensive tests. This includes all the fuzzy tests that run many iterations,
+<li><strong>Expensive tests:</strong> This includes all the fuzzy tests that run many iterations,
 as well as tests that spin up multiple nodes and run them until they reach a
 certain condition. Such tests are decorated with
 <code>#[cfg(feature=&quot;expensive-tests&quot;)]</code>. It is not trivial to enable features
-that are not declared in the top level crate, and thus the easiest way to run
+that are not declared in the top-level crate, and thus the easiest way to run
 such tests is to enable all the features by passing <code>--all-features</code> to
 <code>cargo nextest run</code>, e.g:</li>
 </ol>
 <p><code>cargo nextest run --package near-client --test cross_shard_tx tests::test_cross_shard_tx --all-features</code></p>
 <ol start="3">
-<li>Python tests. We have an infrastructure to spin up nodes, both locally and
+<li><strong>Python tests:</strong> We have an infrastructure to spin up nodes, both locally and
 remotely, in python, and interact with them using RPC. The infrastructure and
-the tests are located in <code>pytest</code> folder. The infrastructure is relatively
+the tests are located in the <code>pytest</code> folder. The infrastructure is relatively
 straightforward, see for example <code>block_production.py</code>
 <a href="https://github.com/nearprotocol/nearcore/blob/master/pytest/tests/sanity/block_production.py">here</a>.
 See the <code>Test infrastructure</code> section below for details.</li>
 </ol>
 <p>Expensive and python tests are not part of CI, and are run by a custom nightly
 runner. The results of the latest runs are available
-<a href="http://nightly.neartest.com/">here</a>. With today tests runs launch approximately
+<a href="http://nightly.neartest.com/">here</a>. Today, test runs launch approximately
 every 5-6 hours. For the latest results look at the <strong>second</strong> run, since the
 first one has some tests still scheduled to run.</p>
 <h1 id="test-infrastructure"><a class="header" href="#test-infrastructure">Test infrastructure</a></h1>
-<p>Different levels of the reference implementation have different infrastructure
+<p>Different levels of the reference implementation have different infrastructures
 available to test them.</p>
 <h2 id="client"><a class="header" href="#client">Client</a></h2>
-<p>Client is separated from the runtime via a <code>RuntimeWithEpochManagerAdapter</code> trait. In production
-it uses <code>NightshadeRuntime</code> that uses real runtime and epoch managers. To test
-client without instantiating runtime and epoch manager, we have a mock runtime
+<p>The Client is separated from the runtime via a <code>RuntimeWithEpochManagerAdapter</code> trait.
+In production, it uses <code>NightshadeRuntime</code> which uses real runtime and epoch managers.
+To test the client without instantiating runtime and epoch manager, we have a mock runtime
 <code>KeyValueRuntime</code>.</p>
 <p>Most of the tests in the client work by setting up either a single node (via
 <code>setup_mock()</code>) or multiple nodes (via <code>setup_mock_all_validators()</code>) and then
@@ -209,9 +209,9 @@ in
 <ol>
 <li>The callback (<code>Box::new(move |msg, _ctx, _| { ...</code>) is what is executed
 whenever the client sends a message. The return value of the callback is sent
-back to the client, which allows testing relatively complex scenarios. The
-tests generally expect a particular message to occur, in this case the tests
-expects two blocks to be produced. <code>System::current().stop();</code> is the way to
+back to the client, which allows for testing relatively complex scenarios. The
+tests generally expect a particular message to occur, in this case, the tests
+expect two blocks to be produced. <code>System::current().stop();</code> is the way to
 stop the test and mark it as passed.</li>
 <li><code>near_network::test_utils::wait_or_panic(5000);</code> is how the timeout for the
 test is set (in milliseconds).</li>
@@ -223,20 +223,20 @@ The <code>setup_mock_all_validators</code> function is the key piece of infrastr
 <h2 id="runtime"><a class="header" href="#runtime">Runtime</a></h2>
 <p>Tests for Runtime are listed in
 <a href="https://github.com/near/nearcore/blob/master/tests/test_cases_runtime.rs">tests/test_cases_runtime.rs</a>.</p>
-<p>To run a test, usually a mock <code>RuntimeNode</code> is created via
-<code>create_runtime_node()</code>. In its constructor the <code>Runtime</code> is created in the
+<p>To run a test, usually, a mock <code>RuntimeNode</code> is created via <code>create_runtime_node()</code>.
+In its constructor, the <code>Runtime</code> is created in the
 <code>get_runtime_and_trie_from_genesis</code> function.</p>
-<p>Inside a test an abstraction <code>User</code> is used for sending specific actions to the
+<p>Inside a test, an abstracted <code>User</code> is used for sending specific actions to the
 runtime client. The helper functions <code>function_call</code>, <code>deploy_contract</code>, etc.
 eventually lead to the <code>Runtime.apply</code> method call.</p>
 <p>For setting usernames during playing with transactions, use default names
 <code>alice_account</code>, <code>bob_account</code>, <code>eve_dot_alice_account</code>, etc.</p>
 <h2 id="network"><a class="header" href="#network">Network</a></h2>
-<p>TODO: explain the <code>runner</code> here</p>
-<h2 id="chain-epoch-manager-runtime-and-other-low-level-changes"><a class="header" href="#chain-epoch-manager-runtime-and-other-low-level-changes">Chain, Epoch Manager, Runtime and other low level changes</a></h2>
-<p>When building new features in the <code>chain</code>, <code>epoch_manager</code>, <code>network</code>, make sure
-to build new components sufficiently abstract so that they can be tested without
-relying on other components.</p>
+<!-- TODO: Explain the `runner` here -->
+<h2 id="chain-epoch-manager-runtime-and-other-low-level-changes"><a class="header" href="#chain-epoch-manager-runtime-and-other-low-level-changes">Chain, Epoch Manager, Runtime and other low-level changes</a></h2>
+<p>When building new features in the <code>chain</code>, <code>epoch_manager</code> and <code>network</code> crates,
+make sure to build new components sufficiently abstract so that they can be tested
+without relying on other components.</p>
 <p>For example, see tests for doomslug
 <a href="https://github.com/nearprotocol/nearcore/blob/master/chain/chain/tests/doomslug.rs">here</a>,
 for network cache
@@ -244,19 +244,22 @@ for network cache
 or for promises in runtime
 <a href="https://github.com/nearprotocol/nearcore/blob/master/runtime/near-vm-logic/tests/test_promises.rs">here</a>.</p>
 <h2 id="python-tests"><a class="header" href="#python-tests">Python tests</a></h2>
-<p>See <a href="https://github.com/nearprotocol/nearcore/wiki/Writing-integration-tests-for-nearcore">this
-page</a>
-for a detailed coverage of how to write a python test.</p>
+<p>See
+<a href="https://github.com/nearprotocol/nearcore/wiki/Writing-integration-tests-for-nearcore">this page</a>
+for detailed coverage of how to write a python test.</p>
 <p>We have a python library that allows one to create and run python tests.</p>
-<p>To run python tests, from the <code>nearcore</code> repo the first time do the following:</p>
-<pre><code>cd pytest
+<p>To run python tests, from the <code>nearcore</code> repo the first time, do the following:</p>
+<pre><code class="language-shell">cd pytest
 virtualenv . --python=python3
-pip install -r requirements.txt
 . .env/bin/activate
+pip install -r requirements.txt
 python tests/sanity/block_production.py
 </code></pre>
-<p>After the first time:</p>
-<pre><code>cd pytest
+<p>This will create a python virtual environment, activate the environment, install
+all the required packages specified in the <code>requirements.txt</code> file and run the
+<code>tests/sanity/block_production.py</code> file. After the first time, we only need to
+activate the environment and can then run the tests:</p>
+<pre><code class="language-shell">cd pytest
 . .env/bin/activate
 python tests/sanity/block_production.py
 </code></pre>
@@ -265,12 +268,12 @@ cluster with multiple nodes, and doing RPC calls.</p>
 <p>See <code>pytest/tests/sanity/deploy_call_smart_contract.py</code> to see how contracts can
 be deployed, or transactions called.</p>
 <p>See <code>pytest/tests/sanity/staking1.py</code> to see how staking transactions can be
-issued</p>
+issued.</p>
 <p>See <code>pytest/tests/sanity/state_sync.py</code> to see how to delay the launch of the
 whole cluster by using <code>init_cluster</code> instead of <code>start_cluster</code>, and then
 launching nodes manually.</p>
 <h3 id="enabling-adversarial-behavior"><a class="header" href="#enabling-adversarial-behavior">Enabling adversarial behavior</a></h3>
-<p>To allow testing adversarial behavior, or generally behaviors that a node should
+<p>To allow testing adversarial behavior, or generally, behaviors that a node should
 not normally exercise, we have certain features in the code decorated with
 <code>#[cfg(feature=&quot;adversarial&quot;)]</code>. The binary normally is compiled with the
 feature disabled, and when compiled with the feature enabled, it traces a
@@ -280,7 +283,7 @@ the feature enabled, and thus the python tests can make the binary perform
 actions that it normally would not perform.</p>
 <p>The actions can include lying about the known chain height, producing multiple
 blocks for the same height, or disabling doomslug.</p>
-<p>See all the tests under <code>pytest/tests/adversarial</code> for the examples.</p>
+<p>See all the tests under <code>pytest/tests/adversarial</code> for some examples.</p>
 
                     </main>
 

@@ -143,12 +143,12 @@
                         <h1 id="parameter-definitions"><a class="header" href="#parameter-definitions">Parameter Definitions</a></h1>
 <p>Gas parameters are a subset of runtime parameters that are defined in
 <a href="https://github.com/near/nearcore/blob/d0dc37bf81f7e7bde9c560403b085fae04108659/core/primitives/res/runtime_configs/parameters.yaml">core/primitives/res/runtime_configs/parameters.yaml</a>.
-IMPORTANT: This is not the final list of parameters, it contains the base values
-which can be overwritten per protocol version. For example,
+<strong>IMPORTANT:</strong> This is not the final list of parameters, it contains the base
+values which can be overwritten per protocol version. For example,
 <a href="https://github.com/near/nearcore/blob/d0dc37bf81f7e7bde9c560403b085fae04108659/core/primitives/res/runtime_configs/53.txt">53.txt</a>
-changes several parameters
-starting from version 53. To see all parameter values for a specific version at
-once, check out the list of JSON snapshots generated in this directory:
+changes several parameters starting from version 53. To see all parameter
+values for a specific version at once, check out the list of JSON
+snapshots generated in this directory:
 <a href="https://github.com/near/nearcore/blob/d0dc37bf81f7e7bde9c560403b085fae04108659/core/primitives/src/runtime/snapshots">core/primitives/src/runtime/snapshots</a>.</p>
 <h2 id="using-parameters-in-code"><a class="header" href="#using-parameters-in-code">Using Parameters in Code</a></h2>
 <p>As the introduction on this page already hints at it, parameter values are
@@ -176,18 +176,17 @@ We are here to help.</p>
 <ul>
 <li>A parameter must correspond to a clearly defined workload.</li>
 <li>When the workload is scalable by a factor <code>N</code> that depends on user input,
-likely it will require a base parameter and a second parameter that is
+it will likely require a base parameter and a second parameter that is
 multiplied by <code>N</code>. (Example: <code>N</code> = number of bytes when reading a value from
 storage.)</li>
 <li>Charge gas before executing the workload.</li>
-<li>Parameters should be independent from specific implementation choices in
+<li>Parameters should be independent of specific implementation choices in
 nearcore.</li>
 <li>Ideally, contract developers can easily understand what the cost is simply by
 reading the name in a gas profile.</li>
 </ul>
 <p>The section on <a href="./gas_profile.html#charging-gas">Gas Profiles</a> explains how to
-charge gas, please also take that into considerations when defining a new
-parameter.</p>
+charge gas, please also consider that when defining a new parameter.</p>
 <h3 id="necessary-code-changes"><a class="header" href="#necessary-code-changes">Necessary Code Changes</a></h3>
 <p>Adding the parameter in code involves several steps.</p>
 <ol>
@@ -203,14 +202,14 @@ code. Depending on the type of parameter, you will need to update
 <code>core/primitives-core/src/profile.rs</code>. You need to add a variant to either
 <code>enum ActionCosts</code> or <code>enum ExtCost</code>. Please also update <code>fn index()</code> that
 maps each profile entry to a unique position in serialized gas profiles.</li>
-<li>The parameter should be available to use in the code section you need it. Now
-is a good time to ensure <code>cargo check</code> and <code>cargo test --no-run</code> pass. Most
-likely you have to update some testing code, such as
+<li>The parameter should be available to use in the code section you need it in.
+Now is a good time to ensure <code>cargo check</code> and <code>cargo test --no-run</code> pass.
+Most likely you have to update some testing code, such as
 <code>ExtCostsConfig::test()</code>.</li>
 <li>To merge your changes into nearcore, you will have to hide your parameter
 behind a feature flag. Add the feature to the <code>Cargo.toml</code> of each crate
-touched in step 3 and 4 and hide the code behind <code>#[cfg(feature = &quot;protocol_feature_MY_NEW_FEATURE&quot;)]</code>. Do not hide code in step 2 so that
-non-nightly builds can still read <code>parameters.yaml</code>. Also add your feature as
+touched in steps 3 and 4 and hide the code behind <code>#[cfg(feature = &quot;protocol_feature_MY_NEW_FEATURE&quot;)]</code>. Do not hide code in step 2 so that
+non-nightly builds can still read <code>parameters.yaml</code>. Also, add your feature as
 a dependency on <code>nightly</code> in <code>core/primitives/Cargo.toml</code> to make sure it
 gets included when compiling for nightly. After that, check <code>cargo check</code> and
 <code>cargo test --no-run</code> with and without <code>features=nightly</code>.</li>
@@ -218,13 +217,13 @@ gets included when compiling for nightly. After that, check <code>cargo check</c
 <h3 id="what-gas-value-should-the-parameter-have"><a class="header" href="#what-gas-value-should-the-parameter-have">What Gas Value Should the Parameter Have?</a></h3>
 <p>For a first draft, the exact gas value used in the parameter is not crucial.
 Make sure the right set of parameters exists and try to set a number that roughly
-makes sense. This should be enough to enable discussions on the NEP around
+makes sense. This should be enough to enable discussions on the NEP around the
 feasibility and usefulness of the proposed feature. If you are not sure, a good
 rule of thumb is 0.1 Tgas for each disk operation and at least 1 Tgas for each
 ms of CPU time. Then round it up generously.</p>
-<p>The value will have to be refined later. This is usually the last step, after
+<p>The value will have to be refined later. This is usually the last step after
 the implementation is complete and reviewed. Have a look at the section on
-<a href="./estimator.html">estimating gas parameters</a> of the book.</p>
+<a href="./estimator.html">estimating gas parameters</a> in the book.</p>
 
                     </main>
 

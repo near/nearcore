@@ -150,7 +150,7 @@ blocks etc).</p>
 <p><strong>Catchup</strong> - is used when you want (or have to) start caring about (a.k.a.
 tracking) additional shards in the future epochs. Currently it should be a no-op
 for 99% of nodes (see below).</p>
-<p><strong>Tracking shards</strong>: as you know our system has multiple shards (currently 4).
+<p><strong>Tracking shards:</strong> as you know our system has multiple shards (currently 4).
 Currently 99% of nodes are tracking all the shards: validators have to - as they
 have to validate the chunks from all the shards, and normal nodes mostly also
 track all the shards as this is default.</p>
@@ -223,7 +223,7 @@ of the chain.</p>
 <p>Before adding the block, we want to download the chunks for the shards that we
 are tracking - so in many cases, we’ll call <code>missing_chunks</code> functions that will
 try to go ahead and request those chunks.</p>
-<p><strong>Note</strong>: as an optimization, we’re also sometimes trying to fetch chunks for
+<p><strong>Note:</strong> as an optimization, we’re also sometimes trying to fetch chunks for
 the blocks that are in the orphan pool – but only if they are not more than 3
 (<code>NUM_ORPHAN_ANCESTORS_CHECK</code>) blocks away from our head.</p>
 <p>We also keep a separate job in client_actor that keeps retrying chunk fetching
