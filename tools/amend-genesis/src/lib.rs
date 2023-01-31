@@ -1011,7 +1011,7 @@ mod test {
                     account_id: "foo0",
                     amount: 99_000_000,
                     locked: 1_000_000,
-                    storage_usage: 183, // TODO
+                    storage_usage: 183,
                 },
                 TestStateRecord::AccessKey {
                     account_id: "foo0",
