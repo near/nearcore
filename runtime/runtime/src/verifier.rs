@@ -1547,8 +1547,12 @@ mod tests {
     #[test]
     fn test_validate_receipt_valid() {
         let limit_config = VMLimitConfig::test();
-        validate_receipt(&limit_config, &Receipt::new_balance_refund(&alice_account(), 10))
-            .expect("valid receipt");
+        validate_receipt(
+            &limit_config,
+            &Receipt::new_balance_refund(&alice_account(), 10),
+            PROTOCOL_VERSION,
+        )
+        .expect("valid receipt");
     }
 
     #[test]
@@ -1565,7 +1569,8 @@ mod tests {
                     output_data_receivers: vec![],
                     input_data_ids: vec![CryptoHash::default(), CryptoHash::default()],
                     actions: vec![]
-                }
+                },
+                PROTOCOL_VERSION
             )
             .expect_err("expected an error"),
             ReceiptValidationError::NumberInputDataDependenciesExceeded {
@@ -1616,7 +1621,7 @@ mod tests {
     #[test]
     fn test_validate_actions_empty() {
         let limit_config = VMLimitConfig::test();
-        validate_actions(&limit_config, &[]).expect("empty actions");
+        validate_actions(&limit_config, &[], PROTOCOL_VERSION).expect("empty actions");
     }
 
     #[test]
@@ -1630,6 +1635,7 @@ mod tests {
                 gas: 100,
                 deposit: 0,
             })],
+            PROTOCOL_VERSION,
         )
         .expect("valid function call action");
     }
@@ -1654,7 +1660,8 @@ mod tests {
                         gas: 150,
                         deposit: 0,
                     })
-                ]
+                ],
+                PROTOCOL_VERSION,
             )
             .expect_err("expected an error"),
             ActionsValidationError::TotalPrepaidGasExceeded { total_prepaid_gas: 250, limit: 220 }
@@ -1681,7 +1688,8 @@ mod tests {
                         gas: u64::max_value() / 2 + 1,
                         deposit: 0,
                     })
-                ]
+                ],
+                PROTOCOL_VERSION,
             )
             .expect_err("Expected an error"),
             ActionsValidationError::IntegerOverflow,
@@ -1698,7 +1706,8 @@ mod tests {
                 &[
                     Action::CreateAccount(CreateAccountAction {}),
                     Action::CreateAccount(CreateAccountAction {}),
-                ]
+                ],
+                PROTOCOL_VERSION,
             )
             .expect_err("Expected an error"),
             ActionsValidationError::TotalNumberOfActionsExceeded {
@@ -1720,7 +1729,8 @@ mod tests {
                         beneficiary_id: "bob".parse().unwrap()
                     }),
                     Action::CreateAccount(CreateAccountAction {}),
-                ]
+                ],
+                PROTOCOL_VERSION,
             )
             .expect_err("Expected an error"),
             ActionsValidationError::DeleteActionMustBeFinal,
@@ -1739,7 +1749,8 @@ mod tests {
                     Action::DeleteAccount(DeleteAccountAction {
                         beneficiary_id: "bob".parse().unwrap()
                     }),
-                ]
+                ],
+                PROTOCOL_VERSION,
             ),
             Ok(()),
         );
@@ -1749,8 +1760,12 @@ mod tests {
 
     #[test]
     fn test_validate_action_valid_create_account() {
-        validate_action(&VMLimitConfig::test(), &Action::CreateAccount(CreateAccountAction {}))
-            .expect("valid action");
+        validate_action(
+            &VMLimitConfig::test(),
+            &Action::CreateAccount(CreateAccountAction {}),
+            PROTOCOL_VERSION,
+        )
+        .expect("valid action");
     }
 
     #[test]
@@ -1763,6 +1778,7 @@ mod tests {
                 gas: 100,
                 deposit: 0,
             }),
+            PROTOCOL_VERSION,
         )
         .expect("valid action");
     }
@@ -1778,6 +1794,7 @@ mod tests {
                     gas: 0,
                     deposit: 0,
                 }),
+                PROTOCOL_VERSION,
             )
             .expect_err("expected an error"),
             ActionsValidationError::FunctionCallZeroAttachedGas,
@@ -1786,8 +1803,12 @@ mod tests {
 
     #[test]
     fn test_validate_action_valid_transfer() {
-        validate_action(&VMLimitConfig::test(), &Action::Transfer(TransferAction { deposit: 10 }))
-            .expect("valid action");
+        validate_action(
+            &VMLimitConfig::test(),
+            &Action::Transfer(TransferAction { deposit: 10 }),
+            PROTOCOL_VERSION,
+        )
+        .expect("valid action");
     }
 
     #[test]
@@ -1798,6 +1819,7 @@ mod tests {
                 stake: 100,
                 public_key: "ed25519:KuTCtARNzxZQ3YvXDeLjx83FDqxv2SdQTSbiq876zR7".parse().unwrap(),
             }),
+            PROTOCOL_VERSION,
         )
         .expect("valid action");
     }
@@ -1811,6 +1833,7 @@ mod tests {
                     stake: 100,
                     public_key: PublicKey::empty(KeyType::ED25519),
                 }),
+                PROTOCOL_VERSION,
             )
             .expect_err("Expected an error"),
             ActionsValidationError::UnsuitableStakingKey {
@@ -1827,6 +1850,7 @@ mod tests {
                 public_key: PublicKey::empty(KeyType::ED25519),
                 access_key: AccessKey::full_access(),
             }),
+            PROTOCOL_VERSION,
         )
         .expect("valid action");
     }
@@ -1846,6 +1870,7 @@ mod tests {
                     }),
                 },
             }),
+            PROTOCOL_VERSION,
         )
         .expect("valid action");
     }
@@ -1855,6 +1880,7 @@ mod tests {
         validate_action(
             &VMLimitConfig::test(),
             &Action::DeleteKey(DeleteKeyAction { public_key: PublicKey::empty(KeyType::ED25519) }),
+            PROTOCOL_VERSION,
         )
         .expect("valid action");
     }
@@ -1864,6 +1890,7 @@ mod tests {
         validate_action(
             &VMLimitConfig::test(),
             &Action::DeleteAccount(DeleteAccountAction { beneficiary_id: alice_account() }),
+            PROTOCOL_VERSION,
         )
         .expect("valid action");
     }
@@ -1888,14 +1915,16 @@ mod tests {
                 &[
                     Action::Delegate(signed_delegate_action.clone()),
                     Action::Delegate(signed_delegate_action.clone()),
-                ]
+                ],
+                PROTOCOL_VERSION,
             ),
             Err(ActionsValidationError::DelegateActionMustBeOnlyOne),
         );
         assert_eq!(
             validate_actions(
                 &&VMLimitConfig::test(),
-                &[Action::Delegate(signed_delegate_action.clone()),]
+                &[Action::Delegate(signed_delegate_action.clone()),],
+                PROTOCOL_VERSION,
             ),
             Ok(()),
         );
@@ -1905,7 +1934,8 @@ mod tests {
                 &[
                     Action::CreateAccount(CreateAccountAction {}),
                     Action::Delegate(signed_delegate_action.clone()),
-                ]
+                ],
+                PROTOCOL_VERSION,
             ),
             Ok(()),
         );
