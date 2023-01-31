@@ -43,32 +43,28 @@ impl Inner {
         let mut updated_outbound: HashMap<PeerId, ConnectionInfo> =
             self.outbound.iter().map(|c| (c.peer_info.id.clone(), c.clone())).collect();
 
-        // Add information about live outbound connections
+        // Add information about live outbound connections which have lasted long enough
         for c in state.tier2.load().ready.values() {
             if c.peer_type != PeerType::Outbound {
                 continue;
             }
 
-            // If this connection is already in storage, update its last_connected time
-            if let Some(stored) = updated_outbound.get_mut(&c.peer_info.id) {
-                stored.last_connected = now_utc;
+            let connected_duration: time::Duration = now - c.established_time;
+            if connected_duration < STORED_CONNECTIONS_MIN_DURATION {
                 continue;
             }
 
-            // If this connection is not in storage and has lasted long enough, add it as a new entry
-            let connected_duration: time::Duration = now - c.established_time;
-            if connected_duration > STORED_CONNECTIONS_MIN_DURATION {
-                let first_connected: time::Utc = now_utc - connected_duration;
-
-                updated_outbound.insert(
-                    c.peer_info.id.clone(),
-                    ConnectionInfo {
-                        peer_info: c.peer_info.clone(),
-                        first_connected: first_connected,
-                        last_connected: now_utc,
-                    },
-                );
-            }
+            // If there was already an entry for this peer (from storage) we'll overwite it,
+            // always keeping the most recent long-enough outbound connection.
+            let first_connected: time::Utc = now_utc - connected_duration;
+            updated_outbound.insert(
+                c.peer_info.id.clone(),
+                ConnectionInfo {
+                    peer_info: c.peer_info.clone(),
+                    first_connected: first_connected,
+                    last_connected: now_utc,
+                },
+            );
         }
 
         // Order by last_connected, with longer-disconnected nodes appearing later
