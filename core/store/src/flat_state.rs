@@ -935,6 +935,7 @@ impl FlatStorageState {
         Err(FlatStorageError::StorageInternalError)
     }
 
+    #[cfg(feature = "protocol_feature_flat_state")]
     pub fn get_ref(
         &self,
         block_hash: &CryptoHash,
@@ -953,8 +954,19 @@ impl FlatStorageState {
             };
         }
 
-        Ok(store_helper::get_ref(&self.store, key)?)
+        Ok(store_helper::get_ref(&guard.store, key)?)
     }
+
+    #[cfg(not(feature = "protocol_feature_flat_state"))]
+    #[allow(unused)]
+    fn get_ref(
+        &self,
+        _block_hash: &CryptoHash,
+        _key: &[u8],
+    ) -> Result<Option<ValueRef>, crate::StorageError> {
+        Err(FlatStorageError::StorageInternalError)
+    }
+
     /// Update the head of the flat storage, including updating the flat state in memory and on disk
     /// and updating the flat state to reflect the state at the new head. If updating to given head is not possible,
     /// returns an error.
