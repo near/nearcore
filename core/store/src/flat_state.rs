@@ -363,7 +363,7 @@ impl NewKeyForFlatStateDelta {
         let mut out = Vec::new();
         out.extend(self.shard_id.to_be_bytes());
         out.extend(self.block_hash.as_bytes());
-        out.extend(self.key.as_bytes());
+        out.extend(&self.key);
         out
     }
 
@@ -455,6 +455,7 @@ impl FlatStateDelta {
     #[cfg(not(feature = "protocol_feature_flat_state"))]
     pub fn apply_to_flat_state(self, _store_update: &mut StoreUpdate) {}
 
+    #[cfg(feature = "protocol_feature_flat_state")]
     pub fn save(
         &self,
         shard_id: ShardId,
@@ -469,6 +470,16 @@ impl FlatStateDelta {
                 .map_err(|_| FlatStorageError::StorageInternalError)?;
         }
         Ok(())
+    }
+
+    #[cfg(not(feature = "protocol_feature_flat_state"))]
+    pub fn save(
+        &self,
+        _shard_id: ShardId,
+        _block_hash: CryptoHash,
+        _store_update: &mut StoreUpdate,
+    ) -> Result<(), FlatStorageError> {
+        Err(FlatStorageError::StorageInternalError)
     }
 }
 
@@ -615,8 +626,7 @@ impl Into<i64> for &FlatStorageCreationStatus {
 #[cfg(feature = "protocol_feature_flat_state")]
 pub mod store_helper {
     use crate::flat_state::{
-        FetchingStateStatus, FlatStorageCreationStatus, FlatStorageError, KeyForFlatStateDelta,
-        NewKeyForFlatStateDelta,
+        FetchingStateStatus, FlatStorageCreationStatus, FlatStorageError, NewKeyForFlatStateDelta,
     };
     use crate::{DBCol, FlatStateDelta, Store, StoreUpdate};
     use borsh::BorshSerialize;
