@@ -102,7 +102,9 @@ impl super::NetworkState {
             (_, config::ValidatorProxies::Static(peer_addrs)) => peer_addrs.clone(),
             // If Dynamic are specified,
             // it means that this node is its own proxy.
-            // Resolve the public IP of this node using those STUN servers
+            // Discover the public IP of this node using those STUN servers.
+            // We do not require all stun servers to be available, but
+            // we require the received responses to be consistent.
             (Some(node_addr), config::ValidatorProxies::Dynamic(stun_servers)) => {
                 // Query all the STUN servers in parallel.
                 let queries = stun_servers.iter().map(|addr| {

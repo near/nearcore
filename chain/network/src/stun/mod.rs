@@ -5,6 +5,9 @@ use stun::message::Getter as _;
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+pub(crate) mod testonly;
+
 pub type ServerAddr = String;
 pub(crate) type Error = stun::Error;
 
