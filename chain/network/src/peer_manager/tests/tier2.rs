@@ -205,6 +205,7 @@ async fn test_reconnect_after_restart_inbound_side() {
 
     tracing::info!(target:"test", "start pm1 again with the same config, check that pm0 reconnects");
     let _pm1 = start_pm(clock.clock(), TestDB::new(), pm1_cfg.clone(), chain.clone()).await;
+    clock.advance(UPDATE_RECENT_OUTBOUND_CONNECTIONS_INTERVAL);
     clock.advance(RECONNECT_ATTEMPT_INTERVAL);
     pm0.wait_for_direct_connection(id1.clone()).await;
 }
@@ -240,6 +241,7 @@ async fn test_reconnect_after_disconnect_inbound_side() {
     wait_for_connection_closed(&mut pm0_ev).await;
 
     tracing::info!(target:"test", "check that pm0 reconnects");
+    clock.advance(UPDATE_RECENT_OUTBOUND_CONNECTIONS_INTERVAL);
     clock.advance(RECONNECT_ATTEMPT_INTERVAL);
     pm0.wait_for_direct_connection(id1.clone()).await;
 }

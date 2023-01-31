@@ -18,11 +18,8 @@ use crate::stats::metrics;
 use crate::store;
 use crate::tcp;
 use crate::time;
-use crate::types::{ChainInfo, PeerType, ReasonForBan, SpawnReconnectLoop};
-use crate::PeerManagerActor;
-use actix::Addr;
+use crate::types::{ChainInfo, PeerType, ReasonForBan};
 use arc_swap::ArcSwap;
-use near_o11y::WithSpanContextExt;
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
@@ -85,9 +82,6 @@ pub(crate) struct NetworkState {
     /// WARNING: actix actors can be spawned only when actix::System::current() is set.
     /// DO NOT spawn actors from a task on this runtime.
     runtime: Runtime,
-    /// Address for the peer_manager_actor, used to spawn reconnect attempts.
-    /// Can be None in tests.
-    pub peer_manager_actor: Option<Addr<PeerManagerActor>>,
     /// PeerManager config.
     pub config: config::VerifiedConfig,
     /// When network state has been constructed.
@@ -152,7 +146,6 @@ pub(crate) struct NetworkState {
 impl NetworkState {
     pub fn new(
         clock: &time::Clock,
-        peer_manager_actor: Option<Addr<PeerManagerActor>>,
         store: store::Store,
         peer_store: peer_store::PeerStore,
         config: config::VerifiedConfig,
@@ -162,7 +155,6 @@ impl NetworkState {
     ) -> Self {
         Self {
             runtime: Runtime::new(),
-            peer_manager_actor,
             graph: Arc::new(crate::routing::Graph::new(
                 crate::routing::GraphConfig {
                     node_id: config.node_id(),
@@ -379,24 +371,13 @@ impl NetworkState {
             if let Err(err) = res {
                 tracing::error!(target: "network", ?err, "Failed to save peer data");
             }
+
+            // Save the fact that we are disconnecting to the ConnectionStore.
+            this.connection_store.connection_closed(&conn.peer_info, &conn.peer_type, &reason);
+
             this.config
                 .event_sink
                 .push(Event::ConnectionClosed(ConnectionClosedEvent { stream_id, reason }));
-
-            if this.should_reestablish_connection(&conn.peer_info) {
-                if let Err(err) = this
-                    .peer_manager_actor
-                    .as_ref()
-                    .unwrap()
-                    .send(
-                        SpawnReconnectLoop { peer_info: conn.peer_info.clone() }
-                            .with_span_context(),
-                    )
-                    .await
-                {
-                    tracing::error!(target: "network", ?err, "Failed to spawn reconnect loop");
-                }
-            }
         });
     }
 
@@ -675,11 +656,7 @@ impl NetworkState {
         .unwrap()
     }
 
-    fn should_reestablish_connection(&self, peer_info: &PeerInfo) -> bool {
-        return self.connection_store.has_recent_outbound_connection(&peer_info.id);
-    }
-
-    pub fn update_recent_outbound_connections(self: &Arc<Self>, clock: &time::Clock) {
+    pub fn update_connection_store(self: &Arc<Self>, clock: &time::Clock) {
         self.connection_store.update(clock, self.clone());
     }
 

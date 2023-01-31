@@ -112,7 +112,7 @@ impl ClosingReason {
     /// Used upon closing an outbound connection to decide whether to remove it from the ConnectionStore.
     /// If the inbound side is the one closing the connection, it evaluates this function on the closing
     /// reason and includes the result in the Disconnect message.
-    fn remove_from_recent_outbound_connections(&self) -> bool {
+    pub(crate) fn remove_from_recent_outbound_connections(&self) -> bool {
         match self {
             ClosingReason::TooManyInbound => false, // outbound may be still be OK
             ClosingReason::OutboundNotAllowed(_) => true, // outbound not allowed
@@ -1396,6 +1396,7 @@ impl actix::Actor for PeerActor {
         // closing_reason may be None in case the whole actix system is stopped.
         // It happens a lot in tests.
         metrics::PEER_CONNECTIONS_TOTAL.dec();
+
         match &self.closing_reason {
             None => {
                 // Due to Actix semantics, sometimes closing reason may be not set.
@@ -1405,29 +1406,14 @@ impl actix::Actor for PeerActor {
             Some(reason) => {
                 tracing::info!(target: "network", "{:?}: Peer {} disconnected, reason: {reason}", self.my_node_info.id, self.peer_info);
 
-                // If the closing reason suggests that the connection should not be re-established,
-                // remove it from the connection store on the outbound side.
-                match self.peer_type {
-                    PeerType::Outbound => {
-                        if reason.remove_from_recent_outbound_connections() {
-                            if let Some(other_peer) = self.other_peer_id() {
-                                self.network_state
-                                    .connection_store
-                                    .remove_from_recent_outbound_connections(other_peer);
-                            }
-                        }
+                // If we are on the inbound side of the connection, set a flag in the disconnect
+                // message advising the outbound side whether to attempt to re-establish the connection.
+                let remove_from_recent_outbound_connections = self.peer_type == PeerType::Inbound
+                    && reason.remove_from_recent_outbound_connections();
 
-                        self.send_message_or_log(&PeerMessage::Disconnect(Disconnect {
-                            remove_from_recent_outbound_connections: false,
-                        }));
-                    }
-                    PeerType::Inbound => {
-                        self.send_message_or_log(&PeerMessage::Disconnect(Disconnect {
-                            remove_from_recent_outbound_connections: reason
-                                .remove_from_recent_outbound_connections(),
-                        }));
-                    }
-                }
+                self.send_message_or_log(&PeerMessage::Disconnect(Disconnect {
+                    remove_from_recent_outbound_connections,
+                }));
             }
         }
 

@@ -1,7 +1,8 @@
+use crate::peer::peer_actor::ClosingReason;
 use crate::peer_manager::network_state::NetworkState;
 use crate::store;
 use crate::time;
-use crate::types::{ConnectionInfo, PeerType};
+use crate::types::{ConnectionInfo, PeerInfo, PeerType};
 use near_primitives::network::PeerId;
 use parking_lot::Mutex;
 use std::collections::HashMap;
@@ -16,16 +17,11 @@ pub(crate) const STORED_CONNECTIONS_MIN_DURATION: time::Duration = time::Duratio
 struct Inner {
     store: store::Store,
     outbound: Vec<ConnectionInfo>,
+    /// List of peers to which we should re-establish a connection (not persisted to storage)
+    pending_reconnect: Vec<PeerInfo>,
 }
 
 impl Inner {
-    fn remove_outbound_connection(&mut self, peer_id: &PeerId) {
-        self.outbound.retain(|c| c.peer_info.id != *peer_id);
-        if let Err(err) = self.store.set_recent_outbound_connections(&self.outbound) {
-            tracing::error!(target: "network", ?err, "Failed to save recent outbound connections");
-        }
-    }
-
     fn contains_outbound(&self, peer_id: &PeerId) -> bool {
         for stored_info in &self.outbound {
             if stored_info.peer_info.id == *peer_id {
@@ -33,6 +29,13 @@ impl Inner {
             }
         }
         return false;
+    }
+
+    fn remove_outbound(&mut self, peer_id: &PeerId) {
+        self.outbound.retain(|c| c.peer_info.id != *peer_id);
+        if let Err(err) = self.store.set_recent_outbound_connections(&self.outbound) {
+            tracing::error!(target: "network", ?err, "Failed to save recent outbound connections");
+        }
     }
 
     fn update(&mut self, clock: &time::Clock, state: Arc<NetworkState>) {
@@ -82,6 +85,35 @@ impl Inner {
         }
         self.outbound = updated_outbound;
     }
+
+    pub fn connection_closed(
+        &mut self,
+        peer_info: &PeerInfo,
+        peer_type: &PeerType,
+        reason: &ClosingReason,
+    ) {
+        if *peer_type == PeerType::Outbound {
+            // If the connection is not in the store, do nothing.
+            if !self.contains_outbound(&peer_info.id) {
+                return;
+            }
+
+            if reason.remove_from_recent_outbound_connections() {
+                // If the outbound connection closed for a reason which indicates we should not
+                // re-establish the connection, remove it from the connection store.
+                self.remove_outbound(&peer_info.id);
+            } else {
+                // Otherwise, attempt to re-establish the connection.
+                self.pending_reconnect.push(peer_info.clone());
+            }
+        }
+    }
+
+    fn poll_pending_reconnect(&mut self) -> Vec<PeerInfo> {
+        let result = self.pending_reconnect.clone();
+        self.pending_reconnect.clear();
+        return result;
+    }
 }
 
 pub(crate) struct ConnectionStore(Mutex<Inner>);
@@ -89,7 +121,7 @@ pub(crate) struct ConnectionStore(Mutex<Inner>);
 impl ConnectionStore {
     pub fn new(store: store::Store) -> anyhow::Result<Self> {
         let outbound = store.get_recent_outbound_connections();
-        let inner = Inner { store, outbound };
+        let inner = Inner { store, outbound, pending_reconnect: vec![] };
         Ok(ConnectionStore(Mutex::new(inner)))
     }
 
@@ -97,12 +129,21 @@ impl ConnectionStore {
         return self.0.lock().outbound.clone();
     }
 
-    pub fn has_recent_outbound_connection(&self, peer_id: &PeerId) -> bool {
-        return self.0.lock().contains_outbound(peer_id);
+    pub fn remove_from_recent_outbound_connections(&self, peer_id: &PeerId) {
+        self.0.lock().remove_outbound(peer_id);
     }
 
-    pub fn remove_from_recent_outbound_connections(&self, peer_id: &PeerId) {
-        self.0.lock().remove_outbound_connection(peer_id);
+    pub fn connection_closed(
+        &self,
+        peer_info: &PeerInfo,
+        peer_type: &PeerType,
+        reason: &ClosingReason,
+    ) {
+        self.0.lock().connection_closed(peer_info, peer_type, reason);
+    }
+
+    pub fn poll_pending_reconnect(&self) -> Vec<PeerInfo> {
+        return self.0.lock().poll_pending_reconnect();
     }
 
     pub fn update(&self, clock: &time::Clock, state: Arc<NetworkState>) {
