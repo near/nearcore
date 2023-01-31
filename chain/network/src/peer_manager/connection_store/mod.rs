@@ -89,8 +89,8 @@ pub(crate) struct ConnectionStore(Mutex<Inner>);
 impl ConnectionStore {
     pub fn new(store: store::Store) -> anyhow::Result<Self> {
         let outbound = store.get_recent_outbound_connections();
-        let connection_store = Inner { store, outbound };
-        Ok(ConnectionStore(Mutex::new(connection_store)))
+        let inner = Inner { store, outbound };
+        Ok(ConnectionStore(Mutex::new(inner)))
     }
 
     pub fn get_recent_outbound_connections(&self) -> Vec<ConnectionInfo> {

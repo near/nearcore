@@ -392,15 +392,15 @@ impl PeerStore {
             }
         }
 
-        let mut peer_store = Inner {
+        let mut inner = Inner {
             config,
             store,
             boot_nodes,
             peer_states: peerid_2_state,
             addr_peers: addr_2_peer,
         };
-        peer_store.delete_peers(&peers_to_delete)?;
-        Ok(PeerStore(Mutex::new(peer_store)))
+        inner.delete_peers(&peers_to_delete)?;
+        Ok(PeerStore(Mutex::new(inner)))
     }
 
     pub fn is_blacklisted(&self, addr: &SocketAddr) -> bool {
