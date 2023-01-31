@@ -4078,8 +4078,8 @@ dependencies = [
  "arbitrary",
  "once_cell",
  "rand 0.8.5",
- "wasm-encoder 0.11.0",
- "wasm-smith 0.10.0",
+ "wasm-encoder 0.22.1",
+ "wasm-smith 0.12.5",
  "wat",
 ]
 
@@ -4147,7 +4147,7 @@ dependencies = [
  "rand 0.8.5",
  "serde",
  "tracing",
- "wasm-smith 0.10.0",
+ "wasm-smith 0.12.5",
  "wasmer-compiler-near 2.4.0",
  "wasmer-compiler-near 2.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "wasmer-compiler-singlepass-near 2.4.0",
@@ -4179,7 +4179,7 @@ dependencies = [
  "near-vm-errors",
  "near-vm-logic",
  "near-vm-runner",
- "wasm-smith 0.10.0",
+ "wasm-smith 0.12.5",
  "wasmprinter",
 ]
 
@@ -7098,9 +7098,18 @@ dependencies = [
 
 [[package]]
 name = "wasm-encoder"
-version = "0.11.0"
+version = "0.22.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a35138d119147af92d7e44ae0f052f6496ee5f38e7c0cad3e0338befdb8f3753"
+checksum = "9a584273ccc2d9311f1dd19dc3fb26054661fa3e373d53ede5d1144ba07a9acd"
+dependencies = [
+ "leb128",
+]
+
+[[package]]
+name = "wasm-encoder"
+version = "0.25.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4eff853c4f09eec94d76af527eddad4e9de13b11d6286a1ef7134bc30135a2b7"
 dependencies = [
  "leb128",
 ]
@@ -7119,16 +7128,16 @@ dependencies = [
 
 [[package]]
 name = "wasm-smith"
-version = "0.10.0"
+version = "0.12.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "50b4138c138f975e29dbd3ceea3a8d3ea2bb43f71abd4b236640d0cb14cb8ef7"
+checksum = "549cb78be46f43ad6746402871336cb6a989127fb847e93eb6ba0817647485a6"
 dependencies = [
  "arbitrary",
  "flagset",
  "indexmap",
  "leb128",
- "wasm-encoder 0.11.0",
- "wasmparser 0.84.0",
+ "wasm-encoder 0.25.0",
+ "wasmparser 0.102.0",
 ]
 
 [[package]]
@@ -7469,15 +7478,6 @@ name = "wasmparser"
 version = "0.78.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "52144d4c78e5cf8b055ceab8e5fa22814ce4315d6002ad32cfd914f37c12fd65"
-
-[[package]]
-name = "wasmparser"
-version = "0.84.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "77dc97c22bb5ce49a47b745bed8812d30206eff5ef3af31424f2c1820c0974b2"
-dependencies = [
- "indexmap",
-]
 
 [[package]]
 name = "wasmparser"
