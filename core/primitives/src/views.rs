@@ -268,8 +268,8 @@ pub struct KnownPeerStateView {
 pub struct ConnectionInfoView {
     pub peer_id: PeerId,
     pub addr: String,
-    pub first_connected: i64,
-    pub last_connected: i64,
+    pub time_established: i64,
+    pub time_connected_until: i64,
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]

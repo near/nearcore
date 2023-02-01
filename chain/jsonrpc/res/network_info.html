@@ -204,8 +204,8 @@
                         let row = $("<tr>");
                         row.append($("<td>").append(element['peer_id']));
                         row.append($("<td>").append(element['addr']));
-                        row.append($("<td>").append(to_human_time(Math.floor(Date.now() / 1000) - element['first_connected'])));
-                        row.append($("<td>").append(to_human_time(Math.floor(Date.now() / 1000) - element['last_connected'])));
+                        row.append($("<td>").append(to_human_time(Math.floor(Date.now() / 1000) - element['time_established'])));
+                        row.append($("<td>").append(to_human_time(Math.floor(Date.now() / 1000) - element['time_connected_until'])));
 
                         $(".tbody-recent-outbound-connections").append(row);
                     });

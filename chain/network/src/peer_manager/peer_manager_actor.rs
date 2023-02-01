@@ -1157,8 +1157,8 @@ impl actix::Handler<GetDebugStatus> for PeerManagerActor {
                         .map(|c| ConnectionInfoView {
                             peer_id: c.peer_info.id.clone(),
                             addr: format!("{:?}", c.peer_info.addr),
-                            first_connected: c.first_connected.unix_timestamp(),
-                            last_connected: c.last_connected.unix_timestamp(),
+                            time_established: c.time_established.unix_timestamp(),
+                            time_connected_until: c.time_connected_until.unix_timestamp(),
                         })
                         .collect::<Vec<_>>(),
                 })

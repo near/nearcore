@@ -106,8 +106,8 @@ impl BorshRepr for KnownPeerStateRepr {
 pub(super) struct ConnectionInfoRepr {
     peer_info: primitives::PeerInfo,
     /// UNIX timestamps in nanos.
-    first_connected: u64,
-    last_connected: u64,
+    time_established: u64,
+    time_connected_until: u64,
 }
 
 impl BorshRepr for ConnectionInfoRepr {
@@ -115,18 +115,20 @@ impl BorshRepr for ConnectionInfoRepr {
     fn to_repr(s: &primitives::ConnectionInfo) -> Self {
         Self {
             peer_info: s.peer_info.clone(),
-            first_connected: s.first_connected.unix_timestamp_nanos() as u64,
-            last_connected: s.last_connected.unix_timestamp_nanos() as u64,
+            time_established: s.time_established.unix_timestamp_nanos() as u64,
+            time_connected_until: s.time_connected_until.unix_timestamp_nanos() as u64,
         }
     }
 
     fn from_repr(s: Self) -> Result<primitives::ConnectionInfo, Error> {
         Ok(primitives::ConnectionInfo {
             peer_info: s.peer_info,
-            first_connected: time::Utc::from_unix_timestamp_nanos(s.first_connected as i128)
+            time_established: time::Utc::from_unix_timestamp_nanos(s.time_established as i128)
                 .map_err(invalid_data)?,
-            last_connected: time::Utc::from_unix_timestamp_nanos(s.last_connected as i128)
-                .map_err(invalid_data)?,
+            time_connected_until: time::Utc::from_unix_timestamp_nanos(
+                s.time_connected_until as i128,
+            )
+            .map_err(invalid_data)?,
         })
     }
 }

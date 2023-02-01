@@ -120,8 +120,8 @@ impl KnownPeerState {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ConnectionInfo {
     pub peer_info: PeerInfo,
-    pub first_connected: time::Utc,
-    pub last_connected: time::Utc,
+    pub time_established: time::Utc,
+    pub time_connected_until: time::Utc,
 }
 
 impl KnownPeerStatus {

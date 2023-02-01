@@ -46,11 +46,11 @@ impl Inner {
             updated_outbound.insert(conn_info.peer_info.id.clone(), conn_info);
         }
 
-        // Order by last_connected, with longer-disconnected nodes appearing later
-        // Break ties by first_connected for convenience when testing
+        // Order by time_connected_until and reverse so that more recent connections appear
+        // earlier. Break ties by time_established for determinism when testing.
         let mut updated_outbound: Vec<ConnectionInfo> =
             updated_outbound.values().cloned().collect();
-        updated_outbound.sort_by_key(|c| (c.last_connected, c.first_connected));
+        updated_outbound.sort_by_key(|c| (c.time_connected_until, c.time_established));
         updated_outbound.reverse();
 
         // Evict the longest-disconnected connections, if needed
@@ -107,6 +107,13 @@ impl ConnectionStore {
         return self.0.load().contains_outbound(&peer_info.id);
     }
 
+    fn insert_outbound_connections(&self, outbound: Vec<ConnectionInfo>) {
+        self.0.update(|mut inner| {
+            inner.insert_outbound(outbound);
+            ((), inner)
+        });
+    }
+
     /// Inserts information about live connections to the connection store.
     pub fn update(&self, clock: &time::Clock, tier2: connection::Pool) {
         let now = clock.now();
@@ -126,14 +133,11 @@ impl ConnectionStore {
 
             outbound.push(ConnectionInfo {
                 peer_info: c.peer_info.clone(),
-                first_connected: now_utc - connected_duration,
-                last_connected: now_utc,
+                time_established: now_utc - connected_duration,
+                time_connected_until: now_utc,
             });
         }
 
-        self.0.update(|mut inner| {
-            inner.insert_outbound(outbound);
-            ((), inner)
-        });
+        self.insert_outbound_connections(outbound);
     }
 }
