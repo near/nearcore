@@ -169,7 +169,7 @@ fn copy_next_block(store: &NodeStorage, config: &NearConfig, hot_runtime: &Arc<N
 
 fn copy_all_blocks(store: &NodeStorage, max_batch_size: usize) {
     copy_all_data_to_cold(
-        &*store.cold_db().unwrap(),
+        (*store.cold_db().unwrap()).clone(),
         &store.get_store(Temperature::Hot),
         max_batch_size,
     )
