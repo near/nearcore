@@ -1209,7 +1209,7 @@ impl<'a> VMLogic<'a> {
     /// Verify aggregate BLS12-381 signature for given message and
     /// public keys list (or one aggregate public key)
     ///
-    /// The length of each public key(include aggregate one) should be 48 bytes and
+    /// The length of each public key (including the aggregated one) should be 48 bytes and
     /// the length of the signature is 96 bytes.
     ///
     /// In case of providing the list of public keys, all public keys should be written
