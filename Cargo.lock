@@ -2501,6 +2501,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "json_comments"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "41ee439ee368ba4a77ac70d04f14015415af8600d6c894dc1f11bd79758c57d5"
+
+[[package]]
 name = "keccak"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2856,6 +2862,7 @@ dependencies = [
  "near-actix-test-utils",
  "near-chain",
  "near-chain-configs",
+ "near-chunks",
  "near-client",
  "near-crypto",
  "near-epoch-manager",
@@ -3015,6 +3022,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "derive_more",
+ "near-config-utils",
  "near-crypto",
  "near-o11y",
  "near-primitives",
@@ -3053,6 +3061,7 @@ dependencies = [
  "near-crypto",
  "near-network",
  "near-o11y",
+ "near-performance-metrics",
  "near-pool",
  "near-primitives",
  "near-store",
@@ -3133,6 +3142,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-config-utils"
+version = "0.0.0"
+dependencies = [
+ "json_comments",
+]
+
+[[package]]
 name = "near-crypto"
 version = "0.0.0"
 dependencies = [
@@ -3145,6 +3161,7 @@ dependencies = [
  "ed25519-dalek",
  "hex-literal",
  "near-account-id",
+ "near-config-utils",
  "near-stdx",
  "once_cell",
  "primitive-types",
@@ -3837,6 +3854,7 @@ dependencies = [
  "near-chunks",
  "near-client",
  "near-client-primitives",
+ "near-config-utils",
  "near-crypto",
  "near-dyn-configs",
  "near-epoch-manager",
@@ -4881,9 +4899,9 @@ dependencies = [
 
 [[package]]
 name = "regex"
-version = "1.5.5"
+version = "1.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1a11647b6b25ff05a515cb92c365cec08801e83423a235b51e231e1808747286"
+checksum = "48aaa5748ba571fb95cd2c85c09f629215d3a6ece942baa100950af03a34f733"
 dependencies = [
  "aho-corasick",
  "memchr",
@@ -4901,9 +4919,9 @@ dependencies = [
 
 [[package]]
 name = "regex-syntax"
-version = "0.6.25"
+version = "0.6.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f497285884f3fcff424ffc933e56d7cbca511def0c9831a7f9b5f6153e3cc89b"
+checksum = "456c603be3e8d448b072f410900c09faf164fbce2d480456f50eea6e25f9c848"
 
 [[package]]
 name = "region"
@@ -5689,6 +5707,7 @@ dependencies = [
  "rand 0.8.5",
  "rayon",
  "redis",
+ "regex",
  "rust-s3",
  "serde",
  "serde_json",
