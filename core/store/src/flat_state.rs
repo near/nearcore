@@ -80,7 +80,8 @@ mod imp {
         /// flat_storage_state.head, except for delayed receipt keys.
         #[allow(unused)]
         store: Store,
-        /// Block hash on top of which `FlatState` will return `ValueRef`s.
+        /// The block for which key-value pairs of its state will be retrieved. The flat state
+        /// will reflect the state AFTER the block is applied.
         block_hash: CryptoHash,
         /// In-memory cache for the key value pairs stored on disk.
         #[allow(unused)]
@@ -106,7 +107,7 @@ mod imp {
             Self { store, block_hash, cache, flat_storage_state }
         }
         /// Returns value reference using raw trie key, taken from the state
-        /// corresponding to block hash for which `FlatState` was created.
+        /// corresponding to `FlatState::block_hash`.
         ///
         /// To avoid duplication, we don't store values themselves in flat state,
         /// they are stored in `DBCol::State`. Also the separation is done so we
@@ -798,14 +799,16 @@ impl FlatStorageStateInner {
         &self,
         target_block_hash: &CryptoHash,
     ) -> Result<Vec<CryptoHash>, FlatStorageError> {
+        let shard_id = &self.shard_id;
+        let flat_head = &self.flat_head;
         let flat_head_info = self
             .blocks
-            .get(&self.flat_head)
-            .ok_or(self.create_block_not_supported_error(&self.flat_head))?;
+            .get(flat_head)
+            .expect(&format!("Inconsistent flat storage state for shard {shard_id}: head {flat_head} not found in cached blocks"));
 
         let mut block_hash = target_block_hash.clone();
         let mut blocks = vec![];
-        while block_hash != self.flat_head {
+        while block_hash != *flat_head {
             let block_info = self
                 .blocks
                 .get(&block_hash)
@@ -901,20 +904,6 @@ impl FlatStorageState {
             metrics,
         })))
     }
-
-    // /// Gets delta for the given block and shard id which `FlatStorageState`
-    // /// corresponds to.
-    // #[cfg(feature = "protocol_feature_flat_state")]
-    // fn get_delta(&self, block_hash: &CryptoHash) -> Result<Arc<FlatStateDelta>, FlatStorageError> {
-    //     let guard = self.0.write().expect(POISONED_LOCK_ERR);
-    //     guard.get_delta(block_hash)
-    // }
-    //
-    // #[cfg(not(feature = "protocol_feature_flat_state"))]
-    // #[allow(unused)]
-    // fn get_delta(&self, _block_hash: &CryptoHash) -> Result<Arc<FlatStateDelta>, FlatStorageError> {
-    //     Err(FlatStorageError::StorageInternalError)
-    // }
 
     /// Get sequence of blocks `target_block_hash` (inclusive) to flat head (exclusive)
     /// in backwards chain order. Returns an error if there is no path between them.
