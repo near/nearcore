@@ -179,7 +179,7 @@ impl actix::Actor for PeerManagerActor {
         ctx.spawn(wrap_future(async move {
             let mut interval = time::Interval::new(clock.now(), POLL_CONNECTION_STORE_INTERVAL);
             loop {
-                let pending_reconnect = state.connection_store.poll_pending_reconnect();
+                let pending_reconnect = state.poll_pending_reconnect();
                 for peer_info in pending_reconnect {
                     if let Err(err) =
                         addr.send(SpawnReconnectLoop { peer_info }.with_span_context()).await

@@ -105,6 +105,8 @@ pub(crate) struct NetworkState {
     pub peer_store: peer_store::PeerStore,
     /// Connection store that provides read/write access to stored connections.
     pub connection_store: connection_store::ConnectionStore,
+    /// List of peers to which we should re-establish a connection
+    pub pending_reconnect: Mutex<Vec<PeerInfo>>,
     /// A graph of the whole NEAR network.
     pub graph: Arc<crate::routing::Graph>,
 
@@ -175,6 +177,7 @@ impl NetworkState {
             inbound_handshake_permits: Arc::new(tokio::sync::Semaphore::new(LIMIT_PENDING_PEERS)),
             peer_store,
             connection_store: connection_store::ConnectionStore::new(store.clone()).unwrap(),
+            pending_reconnect: Mutex::new(Vec::<PeerInfo>::new()),
             accounts_data: Arc::new(accounts_data::Cache::new()),
             tier1_route_back: Mutex::new(RouteBackCache::default()),
             recent_routed_messages: Mutex::new(lru::LruCache::new(
@@ -376,8 +379,11 @@ impl NetworkState {
                 tracing::error!(target: "network", ?err, "Failed to save peer data");
             }
 
-            // Save the fact that we are disconnecting to the ConnectionStore.
-            this.connection_store.connection_closed(&conn.peer_info, &conn.peer_type, &reason);
+            // Save the fact that we are disconnecting to the ConnectionStore,
+            // and push a reconnect attempt, if applicable
+            if this.connection_store.connection_closed(&conn.peer_info, &conn.peer_type, &reason) {
+                this.pending_reconnect.lock().push(conn.peer_info.clone());
+            }
 
             this.config
                 .event_sink
@@ -662,6 +668,14 @@ impl NetworkState {
 
     pub fn update_connection_store(self: &Arc<Self>, clock: &time::Clock) {
         self.connection_store.update(clock, self.tier2.clone());
+    }
+
+    /// Clears pending_reconnect and returns the cleared values
+    pub fn poll_pending_reconnect(&self) -> Vec<PeerInfo> {
+        let mut pending_reconnect = self.pending_reconnect.lock();
+        let polled = pending_reconnect.clone();
+        pending_reconnect.clear();
+        return polled;
     }
 
     /// Sets the chain info, and updates the set of TIER1 keys.

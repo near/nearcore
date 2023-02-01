@@ -8,7 +8,6 @@ use parking_lot::Mutex;
 use std::collections::HashMap;
 
 /// Size of the LRU cache of recent outbound connections.
-/// The longest-disconnected elements are evicted first.
 pub const OUTBOUND_CONNECTIONS_CACHE_SIZE: usize = 40;
 /// How long a connection should survive before being stored.
 pub(crate) const STORED_CONNECTIONS_MIN_DURATION: time::Duration = time::Duration::minutes(10);
@@ -16,8 +15,6 @@ pub(crate) const STORED_CONNECTIONS_MIN_DURATION: time::Duration = time::Duratio
 struct Inner {
     store: store::Store,
     outbound: Vec<ConnectionInfo>,
-    /// List of peers to which we should re-establish a connection (not persisted to storage)
-    pending_reconnect: Vec<PeerInfo>,
 }
 
 impl Inner {
@@ -63,12 +60,6 @@ impl Inner {
         }
         self.outbound = updated_outbound;
     }
-
-    fn poll_pending_reconnect(&mut self) -> Vec<PeerInfo> {
-        let result = self.pending_reconnect.clone();
-        self.pending_reconnect.clear();
-        return result;
-    }
 }
 
 pub(crate) struct ConnectionStore(Mutex<Inner>);
@@ -76,7 +67,7 @@ pub(crate) struct ConnectionStore(Mutex<Inner>);
 impl ConnectionStore {
     pub fn new(store: store::Store) -> anyhow::Result<Self> {
         let outbound = store.get_recent_outbound_connections();
-        let inner = Inner { store, outbound, pending_reconnect: vec![] };
+        let inner = Inner { store, outbound };
         Ok(ConnectionStore(Mutex::new(inner)))
     }
 
@@ -84,37 +75,29 @@ impl ConnectionStore {
         return self.0.lock().outbound.clone();
     }
 
-    pub fn poll_pending_reconnect(&self) -> Vec<PeerInfo> {
-        return self.0.lock().poll_pending_reconnect();
-    }
-
     pub fn remove_from_recent_outbound_connections(&self, peer_id: &PeerId) {
         self.0.lock().remove_outbound(peer_id);
     }
 
-    /// Called when closing a connection
-    /// Updates the store and enqueues reconnect attempts
+    /// Called upon closing a connection. Updates the connection store and returns a boolean
+    /// indicating whether the connection should be re-established.
     pub fn connection_closed(
         &self,
         peer_info: &PeerInfo,
         peer_type: &PeerType,
         reason: &ClosingReason,
-    ) {
-        if *peer_type == PeerType::Outbound {
-            // If the connection is not in the store, do nothing.
-            if !self.0.lock().contains_outbound(&peer_info.id) {
-                return;
-            }
-
-            if reason.remove_from_recent_outbound_connections() {
-                // If the outbound connection closed for a reason which indicates we should not
-                // re-establish the connection, remove it from the connection store.
-                self.0.lock().remove_outbound(&peer_info.id);
-            } else {
-                // Otherwise, attempt to re-establish the connection.
-                self.0.lock().pending_reconnect.push(peer_info.clone());
-            }
+    ) -> bool {
+        if *peer_type != PeerType::Outbound {
+            return false;
         }
+
+        if reason.remove_from_recent_outbound_connections() {
+            // If the outbound connection closed for a reason which indicates we should not
+            // re-establish the connection, remove it from the connection store.
+            self.0.lock().remove_outbound(&peer_info.id);
+        }
+
+        return self.0.lock().contains_outbound(&peer_info.id);
     }
 
     /// Inserts information about live connections to the connection store.
