@@ -106,6 +106,7 @@ impl PeerHandle {
                 .unwrap(),
             network_cfg.verify().unwrap(),
             cfg.chain.genesis_id.clone(),
+            fc.clone(),
             fc,
             vec![],
         ));
