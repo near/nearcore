@@ -503,18 +503,26 @@ impl BatchTransaction {
 
             self.size = 0;
         }
+        if self.handles.len() > 10000 {
+            self.join_writes();
+        }
         Ok(())
     }
-}
 
-impl Drop for BatchTransaction {
-    fn drop(&mut self) {
+    pub fn join_writes(&mut self) {
         for handle in self.handles.drain(..) {
             handle
                 .join()
                 .expect("Error joining handle for BatchTransaction write")
                 .expect("Error writing BatchTransaction");
         }
+        self.handles.clear();
+    }
+}
+
+impl Drop for BatchTransaction {
+    fn drop(&mut self) {
+        self.join_writes();
     }
 }
 
