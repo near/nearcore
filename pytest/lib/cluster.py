@@ -796,6 +796,18 @@ def apply_config_changes(node_dir, client_config_change):
         json.dump(config_json, fd, indent=2)
 
 
+def get_config_json(node_dir):
+    fname = os.path.join(node_dir, 'config.json')
+    with open(fname) as fd:
+        return json.load(fd)
+
+
+def set_config_json(node_dir, config_json):
+    fname = os.path.join(node_dir, 'config.json')
+    with open(fname, 'w') as fd:
+        json.dump(config_json, fd, indent=2)
+
+
 def start_cluster(num_nodes,
                   num_observers,
                   num_shards,
@@ -856,9 +868,17 @@ def start_cluster(num_nodes,
 
 
 ROOT_DIR = pathlib.Path(__file__).resolve().parents[2]
+
+
+def get_near_root():
+    cargo_target_dir = os.environ.get('CARGO_TARGET_DIR', 'target')
+    default_root = (ROOT_DIR / cargo_target_dir / 'debug').resolve()
+    return os.environ.get('NEAR_ROOT', str(default_root))
+
+
 DEFAULT_CONFIG = {
     'local': True,
-    'near_root': os.environ.get('NEAR_ROOT', str(ROOT_DIR / 'target/debug')),
+    'near_root': get_near_root(),
     'binary_name': 'neard',
     'release': False,
 }

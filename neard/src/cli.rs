@@ -8,6 +8,7 @@ use near_cold_store_tool::ColdStoreCommand;
 use near_dyn_configs::{UpdateableConfigLoader, UpdateableConfigLoaderError, UpdateableConfigs};
 use near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofResponse;
 use near_mirror::MirrorCommand;
+use near_network::tcp;
 use near_o11y::tracing_subscriber::EnvFilter;
 use near_o11y::{
     default_subscriber, default_subscriber_with_opentelemetry, BuildEnvFilterError,
@@ -414,14 +415,16 @@ impl RunCmd {
             near_config.client_config.min_num_peers = min_peers;
         }
         if let Some(network_addr) = self.network_addr {
-            near_config.network_config.node_addr = Some(network_addr);
+            near_config.network_config.node_addr =
+                Some(near_network::tcp::ListenerAddr::new(network_addr));
         }
         #[cfg(feature = "json_rpc")]
         if self.disable_rpc {
             near_config.rpc_config = None;
         } else {
             if let Some(rpc_addr) = self.rpc_addr {
-                near_config.rpc_config.get_or_insert(Default::default()).addr = rpc_addr;
+                near_config.rpc_config.get_or_insert(Default::default()).addr =
+                    tcp::ListenerAddr::new(rpc_addr.parse().unwrap());
             }
             if let Some(rpc_prometheus_addr) = self.rpc_prometheus_addr {
                 near_config.rpc_config.get_or_insert(Default::default()).prometheus_addr =
@@ -480,7 +483,7 @@ impl RunCmd {
                 UpdateableConfigLoader::new(updateable_configs.clone(), tx_config_update);
             let config_updater = ConfigUpdater::new(rx_config_update);
 
-            let nearcore::NearNode { rpc_servers, .. } =
+            let nearcore::NearNode { rpc_servers, cold_store_loop_handle, .. } =
                 nearcore::start_with_config_and_synchronization(
                     home_dir,
                     near_config,
@@ -500,6 +503,7 @@ impl RunCmd {
                 }
             };
             warn!(target: "neard", "{}, stopping... this may take a few minutes.", sig);
+            cold_store_loop_handle.map(|handle| handle.stop());
             futures::future::join_all(rpc_servers.iter().map(|(name, server)| async move {
                 server.stop(true).await;
                 debug!(target: "neard", "{} server stopped", name);
@@ -533,9 +537,7 @@ async fn wait_for_interrupt_signal(_home_dir: &Path, rx_crash: &mut Receiver<()>
     tokio::select! {
          _ = sigint.recv()  => "SIGINT",
          _ = sigterm.recv() => "SIGTERM",
-         _ = sighup.recv() => {
-            "SIGHUP"
-         },
+         _ = sighup.recv() => "SIGHUP",
          _ = rx_crash.recv() => "ClientActor died",
     }
 }

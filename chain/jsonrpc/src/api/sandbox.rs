@@ -9,13 +9,13 @@ use near_jsonrpc_primitives::types::sandbox::{
 use super::{parse_params, RpcFrom, RpcRequest};
 
 impl RpcRequest for RpcSandboxPatchStateRequest {
-    fn parse(value: Option<Value>) -> Result<Self, RpcParseError> {
+    fn parse(value: Value) -> Result<Self, RpcParseError> {
         parse_params::<Self>(value)
     }
 }
 
 impl RpcRequest for RpcSandboxFastForwardRequest {
-    fn parse(value: Option<Value>) -> Result<Self, RpcParseError> {
+    fn parse(value: Value) -> Result<Self, RpcParseError> {
         parse_params::<Self>(value)
     }
 }

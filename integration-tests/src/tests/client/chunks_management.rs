@@ -1,5 +1,5 @@
 use crate::test_helpers::heavy_test;
-use actix::{Addr, System};
+use actix::System;
 use futures::{future, FutureExt};
 use near_actix_test_utils::run_actix;
 use near_chain::test_utils::ValidatorSchedule;
@@ -7,8 +7,8 @@ use near_chunks::{
     CHUNK_REQUEST_RETRY_MS, CHUNK_REQUEST_SWITCH_TO_FULL_FETCH_MS,
     CHUNK_REQUEST_SWITCH_TO_OTHERS_MS,
 };
-use near_client::test_utils::setup_mock_all_validators;
-use near_client::{ClientActor, GetBlock, ProcessTxRequest, ViewClientActor};
+use near_client::test_utils::{setup_mock_all_validators, ActorHandlesForTesting};
+use near_client::{GetBlock, ProcessTxRequest};
 use near_network::types::PeerManagerMessageRequest;
 use near_network::types::{AccountIdOrPeerTrackingShard, PeerInfo};
 use near_network::types::{NetworkRequests, NetworkResponses};
@@ -41,8 +41,7 @@ impl Test {
     fn run_impl(self) {
         init_test_logger();
 
-        let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
-            Arc::new(RwLock::new(vec![]));
+        let connectors: Arc<RwLock<Vec<ActorHandlesForTesting>>> = Arc::new(RwLock::new(vec![]));
         let heights = Arc::new(RwLock::new(HashMap::new()));
         let heights1 = heights;
 
@@ -246,12 +245,12 @@ impl Test {
         );
         *connectors.write().unwrap() = conn;
 
-        let view_client = connectors.write().unwrap()[0].1.clone();
+        let view_client = connectors.write().unwrap()[0].view_client_actor.clone();
         let actor = view_client.send(GetBlock::latest().with_span_context());
         let actor = actor.then(move |res| {
             let block_hash = res.unwrap().unwrap().header.hash;
             let connectors_ = connectors.write().unwrap();
-            connectors_[0].0.do_send(
+            connectors_[0].client_actor.do_send(
                 ProcessTxRequest {
                     transaction: SignedTransaction::empty(block_hash),
                     is_forwarded: false,
@@ -259,7 +258,7 @@ impl Test {
                 }
                 .with_span_context(),
             );
-            connectors_[1].0.do_send(
+            connectors_[1].client_actor.do_send(
                 ProcessTxRequest {
                     transaction: SignedTransaction::empty(block_hash),
                     is_forwarded: false,
@@ -267,7 +266,7 @@ impl Test {
                 }
                 .with_span_context(),
             );
-            connectors_[2].0.do_send(
+            connectors_[2].client_actor.do_send(
                 ProcessTxRequest {
                     transaction: SignedTransaction::empty(block_hash),
                     is_forwarded: false,
@@ -364,18 +363,18 @@ fn chunks_produced_and_distributed_one_val_per_shard_should_succeed_even_without
 /// requesting behavior.
 /// TODO: this test is broken due to (#8395) - with fix in #8211
 
-//#[test]
-//#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-//fn chunks_recovered_from_others() {
-//    Test {
-//        validator_groups: 2,
-//        chunk_only_producers: false,
-//        drop_to_4_from: &["test1"],
-//        drop_all_chunk_forward_msgs: true,
-//        block_timeout: 4 * CHUNK_REQUEST_SWITCH_TO_OTHERS_MS,
-//    }
-//    .run()
-//}
+#[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
+fn chunks_recovered_from_others() {
+    //    Test {
+    //        validator_groups: 2,
+    //        chunk_only_producers: false,
+    //        drop_to_4_from: &["test1"],
+    //        drop_all_chunk_forward_msgs: true,
+    //        block_timeout: 4 * CHUNK_REQUEST_SWITCH_TO_OTHERS_MS,
+    //    }
+    //    .run()
+}
 
 /// Same test as above, but the number of validator groups is four, therefore test2 doesn't have the
 /// part test4 needs. The only way test4 can recover the part is by reconstructing the whole chunk,

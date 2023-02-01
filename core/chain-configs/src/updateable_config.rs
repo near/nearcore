@@ -2,7 +2,7 @@ use crate::metrics;
 use chrono::{DateTime, Utc};
 use near_primitives::time::Clock;
 use near_primitives::types::BlockHeight;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, Serializer};
 use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
 
@@ -10,8 +10,7 @@ use std::sync::{Arc, Mutex};
 /// When initializing sub-objects (e.g. `ShardsManager`), please make sure to
 /// pass this wrapper instead of passing a value from a single moment in time.
 /// See `expected_shutdown` for an example how to use it.
-/// TODO: custom implementation for Serialize and Deserialize s.t. only value is necessary(JIRA:ND-283)
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone)]
 pub struct MutableConfigValue<T> {
     value: Arc<Mutex<T>>,
     // For metrics.
@@ -20,6 +19,19 @@ pub struct MutableConfigValue<T> {
     // For metrics.
     // Mutable config values are exported to prometheus with labels [field_name][last_update][value].
     last_update: DateTime<Utc>,
+}
+
+impl<T: Serialize> Serialize for MutableConfigValue<T> {
+    /// Only include the value field of MutableConfigValue in serialized result
+    /// since field_name and last_update are only relevant for internal monitoring
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let to_string_result = serde_json::to_string(&self.value);
+        let value_str = to_string_result.unwrap_or("unable to serialize the value".to_string());
+        serializer.serialize_str(&value_str)
+    }
 }
 
 impl<T: Copy + PartialEq + Debug> MutableConfigValue<T> {
