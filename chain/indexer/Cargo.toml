@@ -27,3 +27,6 @@ near-o11y = { path = "../../core/o11y" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
 node-runtime = { path = "../../runtime/runtime" }
+
+[features]
+calimero_zero_storage = ["near-primitives/calimero_zero_storage"]

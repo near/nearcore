@@ -1,8 +1,8 @@
 # Trie
 
 We use Merkle-Patricia Trie to store blockchain state. Trie is persistent, which
-means that insertion of new node actually leads to creation of new path to this
-node, and thus root of Trie after insertion will also be presented by new
+means that insertion of new node actually leads to creation of a new path to this
+node, and thus root of Trie after insertion will also be represented by a new
 object.
 
 Here we describe its implementation details which are closely related to
@@ -22,18 +22,18 @@ communicates with database using `TrieStorage`. On the database level, data is
 stored in key-value format in `DBCol::State` column. There are two kinds of
 records:
 
-* trie nodes, for which key is constructed from shard id and
+* trie nodes, for the which key is constructed from shard id and
   `RawTrieNodeWithSize` hash, and value is a `RawTrieNodeWithSize` serialized by
-  custom algorithm;
-* values (encoded contract codes, postponed receipts, etc.), for which key is
-  constructed from shard id and hash of value, which maps to the encoded value.
+  a custom algorithm;
+* values (encoded contract codes, postponed receipts, etc.), for which the key is
+  constructed from shard id and the hash of value, which maps to the encoded value.
 
 So, value can be obtained from `TrieKey` as follows:
 
 * start from the hash of `RawTrieNodeWithSize` corresponding to the root;
 * descend to the needed node using nibbles from `TrieKey`;
 * extract underlying `RawTrieNode`;
-* if it is a `Leaf` or `Branch`, it should contain hash of the value;
+* if it is a `Leaf` or `Branch`, it should contain the hash of the value;
 * get value from storage by its hash and shard id.
 
 Note that `Trie` is almost never called directly from `Runtime`, modifications
@@ -52,25 +52,25 @@ Update is prepared as follows:
 
 Note that `finalize`, `Trie::insert` and `Trie::update` do not update the
 database storage. These functions only modify trie nodes in memory. Instead,
-these functions prepares `TrieChanges` object, and `Trie` is actually updated
+these functions prepare the `TrieChanges` object, and `Trie` is actually updated
 when `ShardTries::apply_insertions` is called, which puts new values to
-`DBCol::State` part of key-value database.
+`DBCol::State` part of the key-value database.
 
 ### TrieStorage
 
 Stores all `Trie` nodes and allows to get serialized nodes by `TrieKey` hash
-using `retrieve_raw_bytes` method.
+using the `retrieve_raw_bytes` method.
 
 There are three implementations of `TrieStorage`:
 
-* `TrieCachingStorage` - caches big values ever read by `retrieve_raw_bytes`.
+* `TrieCachingStorage` - caches all big values ever read by `retrieve_raw_bytes`.
 * `TrieRecordingStorage` - records all key-value pairs ever read by
   `retrieve_raw_bytes`. Used for obtaining state parts (and challenges in the
   future).
 * `TrieMemoryPartialStorage` - used for validating recorded partial storage.
 
 Note that these storages use database keys, which are retrieved using hashes of
-trie nodes using `get_key_from_shard_id_and_hash` method.
+trie nodes using the `get_key_from_shard_id_and_hash` method.
 
 ### ShardTries
 
@@ -110,7 +110,7 @@ Stores result of updating `Trie`.
 ### TrieRefcountChange
 
 Because we remove unused nodes during garbage collection, we need to track
-reference count (`rc`) for each node. Another reason is that we can dedup
+the reference count (`rc`) for each node. Another reason is that we can dedup
 values. If the same contract is deployed 1000 times, we only store one contract
 binary in storage and track its count.
 
@@ -123,4 +123,4 @@ This structure is used to update `rc` in the database:
 
 Note that for all reference-counted records, the actual value stored in DB is
 the concatenation of `trie_node_or_value` and `rc`. The reference count is
-updated using custom merge operation `merge_refcounted_records`.
+updated using a custom merge operation `merge_refcounted_records`.

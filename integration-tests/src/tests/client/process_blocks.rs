@@ -8,7 +8,9 @@ use actix::System;
 use assert_matches::assert_matches;
 use futures::{future, FutureExt};
 use near_chain::test_utils::ValidatorSchedule;
-use near_chunks::test_utils::MockClientAdapterForShardsManager;
+use near_chunks::test_utils::{
+    MockClientAdapterForShardsManager, NoopShardsManagerAdapterForClient,
+};
 use near_primitives::config::{ActionCosts, ExtCosts};
 use near_primitives::num_rational::{Ratio, Rational32};
 
@@ -23,7 +25,8 @@ use near_chain::{
 use near_chain_configs::{ClientConfig, Genesis, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
 use near_chunks::{ChunkStatus, ShardsManager};
 use near_client::test_utils::{
-    create_chunk_on_height, setup_client, setup_mock, setup_mock_all_validators, TestEnv,
+    create_chunk_on_height, setup_client_with_synchronous_shards_manager, setup_mock,
+    setup_mock_all_validators, TestEnv,
 };
 use near_client::{
     BlockApproval, BlockResponse, Client, GetBlock, GetBlockWithMerkleTree, ProcessTxRequest,
@@ -286,7 +289,7 @@ fn produce_blocks_with_tx() {
     let mut encoded_chunks: Vec<EncodedShardChunk> = vec![];
     init_test_logger();
     run_actix(async {
-        let (client, view_client) = setup_mock(
+        let actor_handles = setup_mock(
             vec!["test".parse().unwrap()],
             "test".parse().unwrap(),
             true,
@@ -333,10 +336,10 @@ fn produce_blocks_with_tx() {
             }),
         );
         near_network::test_utils::wait_or_panic(5000);
-        let actor = view_client.send(GetBlock::latest().with_span_context());
+        let actor = actor_handles.view_client_actor.send(GetBlock::latest().with_span_context());
         let actor = actor.then(move |res| {
             let block_hash = res.unwrap().unwrap().header.hash;
-            client.do_send(
+            actor_handles.client_actor.do_send(
                 ProcessTxRequest {
                     transaction: SignedTransaction::empty(block_hash),
                     is_forwarded: false,
@@ -359,7 +362,7 @@ fn receive_network_block() {
         // The first header announce will be when the block is received. We don't immediately endorse
         // it. The second header announce will happen with the endorsement a little later.
         let first_header_announce = Arc::new(RwLock::new(true));
-        let (client, view_client) = setup_mock(
+        let actor_handles = setup_mock(
             vec!["test2".parse().unwrap(), "test1".parse().unwrap(), "test3".parse().unwrap()],
             "test2".parse().unwrap(),
             true,
@@ -376,7 +379,9 @@ fn receive_network_block() {
                 PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
             }),
         );
-        let actor = view_client.send(GetBlockWithMerkleTree::latest().with_span_context());
+        let actor = actor_handles
+            .view_client_actor
+            .send(GetBlockWithMerkleTree::latest().with_span_context());
         let actor = actor.then(move |res| {
             let (last_block, block_merkle_tree) = res.unwrap().unwrap();
             let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
@@ -409,7 +414,7 @@ fn receive_network_block() {
                 block_merkle_tree.root(),
                 None,
             );
-            client.do_send(
+            actor_handles.client_actor.do_send(
                 BlockResponse { block, peer_id: PeerInfo::random().id, was_requested: false }
                     .with_span_context(),
             );
@@ -427,7 +432,7 @@ fn produce_block_with_approvals() {
     let validators: Vec<_> =
         (1..=10).map(|i| AccountId::try_from(format!("test{}", i)).unwrap()).collect();
     run_actix(async {
-        let (client, view_client) = setup_mock(
+        let actor_handles = setup_mock(
             validators.clone(),
             "test1".parse().unwrap(),
             true,
@@ -455,7 +460,9 @@ fn produce_block_with_approvals() {
                 PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
             }),
         );
-        let actor = view_client.send(GetBlockWithMerkleTree::latest().with_span_context());
+        let actor = actor_handles
+            .view_client_actor
+            .send(GetBlockWithMerkleTree::latest().with_span_context());
         let actor = actor.then(move |res| {
             let (last_block, block_merkle_tree) = res.unwrap().unwrap();
             let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
@@ -488,7 +495,7 @@ fn produce_block_with_approvals() {
                 block_merkle_tree.root(),
                 None,
             );
-            client.do_send(
+            actor_handles.client_actor.do_send(
                 BlockResponse {
                     block: block.clone(),
                     peer_id: PeerInfo::random().id,
@@ -511,7 +518,9 @@ fn produce_block_with_approvals() {
                     10, // the height at which "test1" is producing
                     &signer,
                 );
-                client.do_send(BlockApproval(approval, PeerInfo::random().id).with_span_context());
+                actor_handles
+                    .client_actor
+                    .do_send(BlockApproval(approval, PeerInfo::random().id).with_span_context());
             }
 
             future::ready(())
@@ -559,9 +568,9 @@ fn produce_block_with_approvals_arrived_early() {
                     match msg {
                         NetworkRequests::Block { block } => {
                             if block.header().height() == 3 {
-                                for (i, (client, _)) in conns.iter().enumerate() {
+                                for (i, actor_handles) in conns.iter().enumerate() {
                                     if i > 0 {
-                                        client.do_send(
+                                        actor_handles.client_actor.do_send(
                                             BlockResponse {
                                                 block: block.clone(),
                                                 peer_id: PeerInfo::random().id,
@@ -586,7 +595,7 @@ fn produce_block_with_approvals_arrived_early() {
                             }
                             if approval_counter == 3 {
                                 let block = block_holder.read().unwrap().clone().unwrap();
-                                conns[0].0.do_send(
+                                conns[0].client_actor.do_send(
                                     BlockResponse {
                                         block: block,
                                         peer_id: PeerInfo::random().id,
@@ -613,7 +622,7 @@ fn invalid_blocks_common(is_requested: bool) {
     init_test_logger();
     run_actix(async move {
         let mut ban_counter = 0;
-        let (client, view_client) = setup_mock(
+        let actor_handles = setup_mock(
             vec!["test".parse().unwrap()],
             "other".parse().unwrap(),
             true,
@@ -663,7 +672,9 @@ fn invalid_blocks_common(is_requested: bool) {
                 PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
             }),
         );
-        let actor = view_client.send(GetBlockWithMerkleTree::latest().with_span_context());
+        let actor = actor_handles
+            .view_client_actor
+            .send(GetBlockWithMerkleTree::latest().with_span_context());
         let actor = actor.then(move |res| {
             let (last_block, block_merkle_tree) = res.unwrap().unwrap();
             let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
@@ -700,7 +711,7 @@ fn invalid_blocks_common(is_requested: bool) {
             let mut block = valid_block.clone();
             block.mut_header().get_mut().inner_rest.chunk_mask = vec![];
             block.mut_header().get_mut().init();
-            client.do_send(
+            actor_handles.client_actor.do_send(
                 BlockResponse {
                     block: block.clone(),
                     peer_id: PeerInfo::random().id,
@@ -716,7 +727,7 @@ fn invalid_blocks_common(is_requested: bool) {
                 block.mut_header().get_mut().inner_rest.latest_protocol_version =
                     PROTOCOL_VERSION - 1;
                 block.mut_header().get_mut().init();
-                client.do_send(
+                actor_handles.client_actor.do_send(
                     BlockResponse {
                         block: block.clone(),
                         peer_id: PeerInfo::random().id,
@@ -742,7 +753,7 @@ fn invalid_blocks_common(is_requested: bool) {
                 }
             };
             block.set_chunks(chunks);
-            client.do_send(
+            actor_handles.client_actor.do_send(
                 BlockResponse {
                     block: block.clone(),
                     peer_id: PeerInfo::random().id,
@@ -753,7 +764,7 @@ fn invalid_blocks_common(is_requested: bool) {
 
             // Send proper block.
             let block2 = valid_block;
-            client.do_send(
+            actor_handles.client_actor.do_send(
                 BlockResponse {
                     block: block2.clone(),
                     peer_id: PeerInfo::random().id,
@@ -765,7 +776,7 @@ fn invalid_blocks_common(is_requested: bool) {
                 let mut block3 = block2;
                 block3.mut_header().get_mut().inner_rest.chunk_headers_root = hash(&[1]);
                 block3.mut_header().get_mut().init();
-                client.do_send(
+                actor_handles.client_actor.do_send(
                     BlockResponse {
                         block: block3.clone(),
                         peer_id: PeerInfo::random().id,
@@ -876,9 +887,9 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
                                     }
                                 }
 
-                                for (i, (client, _)) in conns.clone().into_iter().enumerate() {
+                                for (i, actor_handles) in conns.clone().into_iter().enumerate() {
                                     if i != block_producer_idx {
-                                        client.do_send(
+                                        actor_handles.client_actor.do_send(
                                             BlockResponse {
                                                 block: block_mut.clone(),
                                                 peer_id: PeerInfo::random().id,
@@ -1000,7 +1011,7 @@ fn client_sync_headers() {
     run_actix(async {
         let peer_info1 = PeerInfo::random();
         let peer_info2 = peer_info1.clone();
-        let (client, _) = setup_mock(
+        let actor_handles = setup_mock(
             vec!["test".parse().unwrap()],
             "other".parse().unwrap(),
             false,
@@ -1017,7 +1028,7 @@ fn client_sync_headers() {
                 _ => PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse),
             }),
         );
-        client.do_send(
+        actor_handles.client_actor.do_send(
             SetNetworkInfo(NetworkInfo {
                 connected_peers: vec![ConnectedPeerInfo {
                     full_peer_info: FullPeerInfo {
@@ -1115,7 +1126,7 @@ fn test_time_attack() {
     let chain_genesis = ChainGenesis::test();
     let vs =
         ValidatorSchedule::new().block_producers_per_epoch(vec![vec!["test1".parse().unwrap()]]);
-    let mut client = setup_client(
+    let mut client = setup_client_with_synchronous_shards_manager(
         store,
         vs,
         Some("test1".parse().unwrap()),
@@ -1151,7 +1162,7 @@ fn test_invalid_approvals() {
     let chain_genesis = ChainGenesis::test();
     let vs =
         ValidatorSchedule::new().block_producers_per_epoch(vec![vec!["test1".parse().unwrap()]]);
-    let mut client = setup_client(
+    let mut client = setup_client_with_synchronous_shards_manager(
         store,
         vs,
         Some("test1".parse().unwrap()),
@@ -1199,7 +1210,7 @@ fn test_invalid_gas_price() {
     chain_genesis.min_gas_price = 100;
     let vs =
         ValidatorSchedule::new().block_producers_per_epoch(vec![vec!["test1".parse().unwrap()]]);
-    let mut client = setup_client(
+    let mut client = setup_client_with_synchronous_shards_manager(
         store,
         vs,
         Some("test1".parse().unwrap()),
@@ -1360,7 +1371,7 @@ fn test_bad_chunk_mask() {
             let vs = ValidatorSchedule::new()
                 .num_shards(2)
                 .block_producers_per_epoch(vec![validators.clone()]);
-            setup_client(
+            setup_client_with_synchronous_shards_manager(
                 create_test_store(),
                 vs,
                 Some(account_id.clone()),
@@ -2147,7 +2158,7 @@ fn test_incorrect_validator_key_produce_block() {
         chain_genesis,
         runtime_adapter,
         Arc::new(MockPeerManagerAdapter::default()),
-        Arc::new(MockClientAdapterForShardsManager::default()),
+        Arc::new(NoopShardsManagerAdapterForClient {}),
         Some(signer),
         false,
         TEST_SEED,
