@@ -25,7 +25,7 @@ use pretty_assertions::assert_eq;
 use rand::seq::IteratorRandom;
 use rand::Rng as _;
 use std::collections::HashSet;
-use std::net::Ipv4Addr;
+use std::net::Ipv6Addr;
 use std::sync::Arc;
 
 /// Initializes the test logger and then, iff the current process is executed under
@@ -670,7 +670,11 @@ fn make_configs(
     let mut cfgs: Vec<_> = (0..num_nodes).map(|_i| chain.make_config(rng)).collect();
     let boot_nodes: Vec<_> = cfgs[0..num_boot_nodes]
         .iter()
-        .map(|c| PeerInfo { id: c.node_id(), addr: c.node_addr, account_id: None })
+        .map(|c| PeerInfo {
+            id: c.node_id(),
+            addr: c.node_addr.as_ref().map(|a| **a),
+            account_id: None,
+        })
         .collect();
     for config in cfgs.iter_mut() {
         config.outbound_disabled = !enable_outbound;
@@ -714,7 +718,7 @@ async fn blacklist_01() {
     tracing::info!(target:"test", "start two nodes with 0 blacklisting 1");
     let mut cfgs = make_configs(&chain, rng, 2, 2, true);
     cfgs[0].peer_store.blacklist =
-        [blacklist::Entry::from_addr(cfgs[1].node_addr.unwrap())].into_iter().collect();
+        [blacklist::Entry::from_addr(**cfgs[1].node_addr.as_ref().unwrap())].into_iter().collect();
 
     let pm0 = start_pm(clock.clock(), TestDB::new(), cfgs[0].clone(), chain.clone()).await;
     let pm1 = start_pm(clock.clock(), TestDB::new(), cfgs[1].clone(), chain.clone()).await;
@@ -747,7 +751,7 @@ async fn blacklist_10() {
     tracing::info!(target:"test", "start two nodes with 1 blacklisting 0");
     let mut cfgs = make_configs(&chain, rng, 2, 2, true);
     cfgs[1].peer_store.blacklist =
-        [blacklist::Entry::from_addr(cfgs[0].node_addr.unwrap())].into_iter().collect();
+        [blacklist::Entry::from_addr(**cfgs[0].node_addr.as_ref().unwrap())].into_iter().collect();
 
     let pm0 = start_pm(clock.clock(), TestDB::new(), cfgs[0].clone(), chain.clone()).await;
     let pm1 = start_pm(clock.clock(), TestDB::new(), cfgs[1].clone(), chain.clone()).await;
@@ -780,7 +784,7 @@ async fn blacklist_all() {
     tracing::info!(target:"test", "start two nodes with 0 blacklisting everything");
     let mut cfgs = make_configs(&chain, rng, 2, 2, true);
     cfgs[0].peer_store.blacklist =
-        [blacklist::Entry::from_ip(Ipv4Addr::LOCALHOST.into())].into_iter().collect();
+        [blacklist::Entry::from_ip(Ipv6Addr::LOCALHOST.into())].into_iter().collect();
 
     let pm0 = start_pm(clock.clock(), TestDB::new(), cfgs[0].clone(), chain.clone()).await;
     let pm1 = start_pm(clock.clock(), TestDB::new(), cfgs[1].clone(), chain.clone()).await;
@@ -898,7 +902,7 @@ async fn max_num_peers_limit() {
     drop(pm3);
 }
 
-// test that TTL is handled property.
+/// Test that TTL is handled properly.
 #[tokio::test]
 async fn ttl() {
     abort_on_panic();
@@ -952,8 +956,8 @@ async fn ttl() {
     }
 }
 
-// After the initial exchange, all subsequent SyncRoutingTable messages are
-// expected to contain only the diff of the known data.
+/// After the initial exchange, all subsequent SyncRoutingTable messages are
+/// expected to contain only the diff of the known data.
 #[tokio::test]
 async fn repeated_data_in_sync_routing_table() {
     abort_on_panic();

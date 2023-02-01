@@ -196,6 +196,7 @@ impl IncomingRequests {
 pub struct MockPeerManagerActor {
     /// Client address for the node that we are testing
     client: Arc<dyn near_network::client::Client>,
+    shards_manager_adapter: Arc<dyn near_network::shards_manager::ShardsManagerAdapterForNetwork>,
     /// Access a pre-generated chain history from storage
     chain_history_access: ChainHistoryAccess,
     /// Current network state for the simulated network
@@ -212,6 +213,9 @@ pub struct MockPeerManagerActor {
 impl MockPeerManagerActor {
     fn new(
         client: Arc<dyn near_network::client::Client>,
+        shards_manager_adapter: Arc<
+            dyn near_network::shards_manager::ShardsManagerAdapterForNetwork,
+        >,
         genesis_config: &GenesisConfig,
         mut chain: Chain,
         client_start_height: BlockHeight,
@@ -267,6 +271,7 @@ impl MockPeerManagerActor {
         );
         Self {
             client,
+            shards_manager_adapter,
             chain_history_access: ChainHistoryAccess { chain, target_height },
             network_info,
             block_production_delay,
@@ -343,21 +348,13 @@ impl MockPeerManagerActor {
 
     fn send_chunk_request(&mut self, ctx: &mut Context<MockPeerManagerActor>) {
         if let Some((interval, request)) = &self.incoming_requests.chunk_request {
-            actix::spawn({
-                let client = self.client.clone();
-                let request = request.clone();
-                async move {
-                    client
-                        .partial_encoded_chunk_request(
-                            request.clone(),
-                            // this can just be nonsense since the PeerManager is mocked out anyway. If/when we update the mock node
-                            // to exercise the PeerManager code as well, then this won't matter anyway since the mock code won't be
-                            // responsible for it.
-                            CryptoHash::default(),
-                        )
-                        .await
-                }
-            });
+            self.shards_manager_adapter.process_partial_encoded_chunk_request(
+                request.clone(),
+                // this can just be nonsense since the PeerManager is mocked out anyway. If/when we update the mock node
+                // to exercise the PeerManager code as well, then this won't matter anyway since the mock code won't be
+                // responsible for it.
+                CryptoHash::default(),
+            );
 
             run_later(ctx, *interval, move |act, ctx| {
                 act.send_chunk_request(ctx);
@@ -425,17 +422,10 @@ impl Handler<WithSpanContext<PeerManagerMessageRequest>> for MockPeerManagerActo
                             .chain_history_access
                             .retrieve_partial_encoded_chunk(&request)
                             .unwrap();
-                        actix::spawn({
-                            let client = act.client.clone();
-                            async move {
-                                client
-                                    .partial_encoded_chunk_response(
-                                        response,
-                                        Clock::instant().into(),
-                                    )
-                                    .await
-                            }
-                        });
+                        act.shards_manager_adapter.process_partial_encoded_chunk_response(
+                            response,
+                            Clock::instant().into(),
+                        );
                     });
                 }
                 NetworkRequests::PartialEncodedChunkResponse { .. } => {}

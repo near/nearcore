@@ -701,12 +701,6 @@ impl<'a> VMLogic<'a> {
     pub fn attached_deposit(&mut self, balance_ptr: u64) -> Result<()> {
         self.gas_counter.pay_base(base)?;
 
-        if self.context.is_view() {
-            return Err(HostError::ProhibitedInView {
-                method_name: "attached_deposit".to_string(),
-            }
-            .into());
-        }
         self.memory.set_u128(&mut self.gas_counter, balance_ptr, self.context.attached_deposit)
     }
 
@@ -2364,7 +2358,11 @@ impl<'a> VMLogic<'a> {
         let evicted_ptr = self.ext.storage_get(&key, StorageGetMode::Trie)?;
         let evicted =
             Self::deref_value(&mut self.gas_counter, storage_write_evicted_byte, evicted_ptr)?;
-        let nodes_delta = self.ext.get_trie_nodes_count() - nodes_before;
+        let nodes_delta = self
+            .ext
+            .get_trie_nodes_count()
+            .checked_sub(&nodes_before)
+            .ok_or(InconsistentStateError::IntegerOverflow)?;
 
         near_o11y::io_trace!(
             storage_op = "write",
@@ -2461,7 +2459,11 @@ impl<'a> VMLogic<'a> {
         let read = self.ext.storage_get(&key, StorageGetMode::FlatStorage);
         #[cfg(not(feature = "protocol_feature_flat_state"))]
         let read = self.ext.storage_get(&key, StorageGetMode::Trie);
-        let nodes_delta = self.ext.get_trie_nodes_count() - nodes_before;
+        let nodes_delta = self
+            .ext
+            .get_trie_nodes_count()
+            .checked_sub(&nodes_before)
+            .ok_or(InconsistentStateError::IntegerOverflow)?;
         self.gas_counter.add_trie_fees(&nodes_delta)?;
         let read = Self::deref_value(&mut self.gas_counter, storage_read_value_byte, read?)?;
 
@@ -2530,7 +2532,11 @@ impl<'a> VMLogic<'a> {
             Self::deref_value(&mut self.gas_counter, storage_remove_ret_value_byte, removed_ptr)?;
 
         self.ext.storage_remove(&key)?;
-        let nodes_delta = self.ext.get_trie_nodes_count() - nodes_before;
+        let nodes_delta = self
+            .ext
+            .get_trie_nodes_count()
+            .checked_sub(&nodes_before)
+            .ok_or(InconsistentStateError::IntegerOverflow)?;
 
         near_o11y::io_trace!(
             storage_op = "remove",
@@ -2591,7 +2597,11 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_per(storage_has_key_byte, key.len() as u64)?;
         let nodes_before = self.ext.get_trie_nodes_count();
         let res = self.ext.storage_has_key(&key);
-        let nodes_delta = self.ext.get_trie_nodes_count() - nodes_before;
+        let nodes_delta = self
+            .ext
+            .get_trie_nodes_count()
+            .checked_sub(&nodes_before)
+            .ok_or(InconsistentStateError::IntegerOverflow)?;
 
         near_o11y::io_trace!(
             storage_op = "exists",

@@ -10,6 +10,7 @@ pub mod network_info;
 pub mod query;
 pub mod receipts;
 pub mod sandbox;
+pub mod split_storage;
 pub mod status;
 pub mod transactions;
 pub mod validator;
