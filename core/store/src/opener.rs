@@ -438,6 +438,14 @@ impl<'a> StoreOpener<'a> {
 
         Ok((NodeStorage::from_rocksdb(hot, cold), hot_meta, cold_meta))
     }
+
+    pub fn open_hot_rocksdb(
+        &self,
+        mode: Mode,
+        want_version: DbVersion,
+    ) -> std::io::Result<RocksDB> {
+        self.hot.open(mode, want_version).map(|x| x.0)
+    }
 }
 
 impl<'a> DBOpener<'a> {

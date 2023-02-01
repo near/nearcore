@@ -1,7 +1,8 @@
 use crate::columns::DBKeyType;
 use crate::db::{ColdDB, COLD_HEAD_KEY, HEAD_KEY};
+use crate::metadata::DB_VERSION;
 use crate::trie::TrieRefcountChange;
-use crate::{DBCol, DBTransaction, Database, Store, TrieChanges};
+use crate::{DBCol, DBTransaction, Database, Mode, Store, StoreConfig, TrieChanges};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::block::{Block, BlockHeader, Tip};
@@ -142,6 +143,25 @@ pub fn update_cold_head<D: Database>(
     }
 
     return Ok(());
+}
+
+/// Creates checkpoint of hot database.
+/// Returns modified config, that only differs in store path, that now points to checkpoint.
+pub fn create_checkpoint_for_cold_copy(
+    config: &StoreConfig,
+    home_dir: &std::path::Path,
+    checkpoint_dir: &str,
+) -> io::Result<StoreConfig> {
+    let opener = crate::NodeStorage::opener(home_dir, &config, None);
+    let hot_rocksdb = opener.open_hot_rocksdb(Mode::ReadWrite, DB_VERSION)?;
+
+    let new_path = home_dir.join(checkpoint_dir);
+    hot_rocksdb.create_checkpoint(&std::path::Path::new(&new_path))?;
+
+    let mut new_config = config.clone();
+    new_config.path = Some(std::path::Path::new(&new_path).to_path_buf());
+    
+    Ok(new_config)
 }
 
 /// Copies all contents of all cold columns from `hot_store` to `cold_db`.

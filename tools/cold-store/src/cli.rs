@@ -1,7 +1,9 @@
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
-use near_store::cold_storage::{copy_all_data_to_cold, update_cold_db, update_cold_head};
+use near_store::cold_storage::{
+    copy_all_data_to_cold, create_checkpoint_for_cold_copy, update_cold_db, update_cold_head,
+};
 use near_store::{DBCol, NodeStorage, Temperature, COLD_HEAD_KEY, FINAL_HEAD_KEY, HEAD_KEY};
 use nearcore::{NearConfig, NightshadeRuntime};
 
@@ -32,11 +34,24 @@ enum SubCommand {
 
 impl ColdStoreCommand {
     pub fn run(self, home_dir: &Path) {
-        let near_config = nearcore::config::load_config(
-            &home_dir,
-            near_chain_configs::GenesisValidationMode::Full,
-        )
-        .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
+        let near_config = {
+            let mut near_config = nearcore::config::load_config(
+                &home_dir,
+                near_chain_configs::GenesisValidationMode::Full,
+            )
+            .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
+
+            /// Before copying all blocks create a checkpoint and open it as hot db.
+            if let SubCommand::CopyAllBlocks(_) = self.subcmd {
+                near_config.config.store = create_checkpoint_for_cold_copy(
+                    &near_config.config.store,
+                    home_dir,
+                    &"data-checkpoint",
+                )
+                .unwrap();
+            }
+            near_config
+        };
         let opener = NodeStorage::opener(
             home_dir,
             &near_config.config.store,
