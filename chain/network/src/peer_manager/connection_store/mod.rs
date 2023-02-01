@@ -1,12 +1,11 @@
 use crate::peer::peer_actor::ClosingReason;
-use crate::peer_manager::network_state::NetworkState;
+use crate::peer_manager::connection;
 use crate::store;
 use crate::time;
 use crate::types::{ConnectionInfo, PeerInfo, PeerType};
 use near_primitives::network::PeerId;
 use parking_lot::Mutex;
 use std::collections::HashMap;
-use std::sync::Arc;
 
 /// Size of the LRU cache of recent outbound connections.
 /// The longest-disconnected elements are evicted first.
@@ -38,36 +37,15 @@ impl Inner {
         }
     }
 
-    fn update(&mut self, clock: &time::Clock, state: Arc<NetworkState>) {
-        let now = clock.now();
-        let now_utc = clock.now_utc();
-
+    /// Takes a list of ConnectionInfos and inserts them to the outbound store
+    fn insert_outbound(&mut self, conns: Vec<ConnectionInfo>) {
         // Start with the connections already in storage
         let mut updated_outbound: HashMap<PeerId, ConnectionInfo> =
             self.outbound.iter().map(|c| (c.peer_info.id.clone(), c.clone())).collect();
 
-        // Add information about live outbound connections which have lasted long enough
-        for c in state.tier2.load().ready.values() {
-            if c.peer_type != PeerType::Outbound {
-                continue;
-            }
-
-            let connected_duration: time::Duration = now - c.established_time;
-            if connected_duration < STORED_CONNECTIONS_MIN_DURATION {
-                continue;
-            }
-
-            // If there was already an entry for this peer (from storage) we'll overwite it,
-            // always keeping the most recent long-enough outbound connection.
-            let first_connected: time::Utc = now_utc - connected_duration;
-            updated_outbound.insert(
-                c.peer_info.id.clone(),
-                ConnectionInfo {
-                    peer_info: c.peer_info.clone(),
-                    first_connected: first_connected,
-                    last_connected: now_utc,
-                },
-            );
+        // Insert the new connections
+        for conn_info in conns {
+            updated_outbound.insert(conn_info.peer_info.id.clone(), conn_info);
         }
 
         // Order by last_connected, with longer-disconnected nodes appearing later
@@ -129,6 +107,10 @@ impl ConnectionStore {
         return self.0.lock().outbound.clone();
     }
 
+    pub fn poll_pending_reconnect(&self) -> Vec<PeerInfo> {
+        return self.0.lock().poll_pending_reconnect();
+    }
+
     pub fn remove_from_recent_outbound_connections(&self, peer_id: &PeerId) {
         self.0.lock().remove_outbound(peer_id);
     }
@@ -142,11 +124,30 @@ impl ConnectionStore {
         self.0.lock().connection_closed(peer_info, peer_type, reason);
     }
 
-    pub fn poll_pending_reconnect(&self) -> Vec<PeerInfo> {
-        return self.0.lock().poll_pending_reconnect();
-    }
+    /// Inserts information about live connections to the connection store.
+    pub fn update(&self, clock: &time::Clock, tier2: connection::Pool) {
+        let now = clock.now();
+        let now_utc = clock.now_utc();
 
-    pub fn update(&self, clock: &time::Clock, state: Arc<NetworkState>) {
-        self.0.lock().update(clock, state);
+        // Gather information about outbound connections which have lasted long enough
+        let mut outbound = vec![];
+        for c in tier2.load().ready.values() {
+            if c.peer_type != PeerType::Outbound {
+                continue;
+            }
+
+            let connected_duration: time::Duration = now - c.established_time;
+            if connected_duration < STORED_CONNECTIONS_MIN_DURATION {
+                continue;
+            }
+
+            outbound.push(ConnectionInfo {
+                peer_info: c.peer_info.clone(),
+                first_connected: now_utc - connected_duration,
+                last_connected: now_utc,
+            });
+        }
+
+        self.0.lock().insert_outbound(outbound);
     }
 }

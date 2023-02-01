@@ -534,7 +534,6 @@ impl PeerManagerActor {
     ///  - bootstrap outbound connections from known peers,
     ///  - unban peers that have been banned for awhile,
     ///  - remove expired peers,
-    ///  - update the recent connections set,
     ///
     /// # Arguments:
     /// - `interval` - Time between consequent runs.
@@ -1133,7 +1132,6 @@ impl actix::Handler<GetDebugStatus> for PeerManagerActor {
                         -a.last_seen,
                     )
                 });
-
                 DebugStatus::PeerStore(PeerStoreView { peer_states: peer_states_view })
             }
             GetDebugStatus::Graph => DebugStatus::Graph(NetworkGraphView {

@@ -661,7 +661,7 @@ impl NetworkState {
     }
 
     pub fn update_connection_store(self: &Arc<Self>, clock: &time::Clock) {
-        self.connection_store.update(clock, self.clone());
+        self.connection_store.update(clock, self.tier2.clone());
     }
 
     /// Sets the chain info, and updates the set of TIER1 keys.
