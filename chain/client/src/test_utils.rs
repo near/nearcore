@@ -13,6 +13,7 @@ use near_chunks::ShardsManager;
 use near_network::shards_manager::{
     ShardsManagerAdapterForNetwork, ShardsManagerRequestFromNetwork,
 };
+use near_primitives::errors::InvalidTxError;
 use near_primitives::test_utils::create_test_signer;
 use num_rational::Ratio;
 use once_cell::sync::OnceCell;
@@ -35,6 +36,8 @@ use near_chunks::adapter::{ShardsManagerAdapterForClient, ShardsManagerRequestFr
 use near_chunks::client::{ClientAdapterForShardsManager, ShardsManagerResponse};
 use near_chunks::test_utils::{MockClientAdapterForShardsManager, SynchronousShardsManagerAdapter};
 use near_client_primitives::types::Error;
+#[cfg(feature = "protocol_feature_nep366_delegate_action")]
+use near_crypto::Signer;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_network::types::{
@@ -63,6 +66,9 @@ use near_primitives::sharding::{EncodedShardChunk, PartialEncodedChunk, ReedSolo
 use near_primitives::time::Utc;
 use near_primitives::time::{Clock, Instant};
 use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
+#[cfg(feature = "protocol_feature_nep366_delegate_action")]
+use near_primitives::transaction::{DelegateAction, NonDelegateAction, SignedDelegateAction};
+
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, EpochId, NumBlocks, NumSeats, ShardId,
 };
@@ -1832,17 +1838,62 @@ impl TestEnv {
         )
     }
 
+    /// Wrap actions in a delegate action, put it in a transaction, sign.
+    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+    pub fn meta_tx_from_actions(
+        &mut self,
+        actions: Vec<Action>,
+        sender: AccountId,
+        relayer: AccountId,
+        receiver_id: AccountId,
+    ) -> SignedTransaction {
+        let inner_signer = InMemorySigner::from_seed(sender.clone(), KeyType::ED25519, &sender);
+        let relayer_signer = InMemorySigner::from_seed(relayer.clone(), KeyType::ED25519, &relayer);
+        let tip = self.clients[0].chain.head().unwrap();
+        let user_nonce = tip.height + 1;
+        let relayer_nonce = tip.height + 1;
+        let delegate_action = DelegateAction {
+            sender_id: inner_signer.account_id.clone(),
+            receiver_id,
+            actions: actions.into_iter().map(NonDelegateAction).collect(),
+            nonce: user_nonce,
+            max_block_height: tip.height + 100,
+            public_key: inner_signer.public_key(),
+        };
+        let signature = inner_signer.sign(delegate_action.get_hash().as_bytes());
+        let signed_delegate_action = SignedDelegateAction { delegate_action, signature };
+        SignedTransaction::from_actions(
+            relayer_nonce,
+            relayer,
+            sender,
+            &relayer_signer,
+            vec![Action::Delegate(signed_delegate_action)],
+            tip.last_block_hash,
+        )
+    }
+
     /// Process a tx and its receipts, then return the execution outcome.
-    pub fn execute_tx(&mut self, tx: SignedTransaction) -> FinalExecutionOutcomeView {
+    pub fn execute_tx(
+        &mut self,
+        tx: SignedTransaction,
+    ) -> Result<FinalExecutionOutcomeView, InvalidTxError> {
         let tx_hash = tx.get_hash().clone();
-        self.clients[0].process_tx(tx, false, false);
+        let response = self.clients[0].process_tx(tx, false, false);
+        // Check if the transaction got rejected
+        match response {
+            ProcessTxResponse::NoResponse
+            | ProcessTxResponse::RequestRouted
+            | ProcessTxResponse::ValidTx => (),
+            ProcessTxResponse::InvalidTx(e) => return Err(e),
+            ProcessTxResponse::DoesNotTrackShard => panic!("test setup is buggy"),
+        }
         let max_iters = 100;
         let tip = self.clients[0].chain.head().unwrap();
         for i in 0..max_iters {
             let block = self.clients[0].produce_block(tip.height + i + 1).unwrap().unwrap();
             self.process_block(0, block.clone(), Provenance::PRODUCED);
             if let Ok(outcome) = self.clients[0].chain.get_final_transaction_result(&tx_hash) {
-                return outcome;
+                return Ok(outcome);
             }
         }
         panic!("No transaction outcome found after {max_iters} blocks.")
@@ -1862,7 +1913,7 @@ impl TestEnv {
             deposit: 0,
         })];
         let tx = self.tx_from_actions(actions, &signer, signer.account_id.clone());
-        self.execute_tx(tx)
+        self.execute_tx(tx).unwrap()
     }
 }
 
