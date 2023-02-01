@@ -258,7 +258,7 @@ impl PeerActor {
         };
         let my_node_info = PeerInfo {
             id: network_state.config.node_id(),
-            addr: network_state.config.node_addr.clone(),
+            addr: network_state.config.node_addr.as_ref().map(|a| **a),
             account_id: network_state.config.validator.as_ref().map(|v| v.account_id()),
         };
         // recv is the HandshakeSignal returned by this spawn_inner() call.
@@ -397,7 +397,7 @@ impl PeerActor {
             oldest_supported_version: PEER_MIN_ALLOWED_PROTOCOL_VERSION,
             sender_peer_id: self.network_state.config.node_id(),
             target_peer_id: spec.peer_id,
-            sender_listen_port: self.network_state.config.node_addr.map(|a| a.port()),
+            sender_listen_port: self.network_state.config.node_addr.as_ref().map(|a| a.port()),
             sender_chain_info: PeerChainInfoV2 {
                 genesis_id: self.network_state.genesis_id.clone(),
                 // TODO: remove `height` from PeerChainInfo
@@ -916,19 +916,23 @@ impl PeerActor {
                 None
             }
             RoutedMessageBody::PartialEncodedChunkRequest(request) => {
-                network_state.client.partial_encoded_chunk_request(request, msg_hash).await;
+                network_state
+                    .shards_manager_adapter
+                    .process_partial_encoded_chunk_request(request, msg_hash);
                 None
             }
             RoutedMessageBody::PartialEncodedChunkResponse(response) => {
-                network_state.client.partial_encoded_chunk_response(response, clock.now()).await;
+                network_state
+                    .shards_manager_adapter
+                    .process_partial_encoded_chunk_response(response, clock.now().into());
                 None
             }
             RoutedMessageBody::VersionedPartialEncodedChunk(chunk) => {
-                network_state.client.partial_encoded_chunk(chunk).await;
+                network_state.shards_manager_adapter.process_partial_encoded_chunk(chunk);
                 None
             }
             RoutedMessageBody::PartialEncodedChunkForward(msg) => {
-                network_state.client.partial_encoded_chunk_forward(msg).await;
+                network_state.shards_manager_adapter.process_partial_encoded_chunk_forward(msg);
                 None
             }
             RoutedMessageBody::ReceiptOutcomeRequest(_) => {

@@ -5,6 +5,7 @@ use crate::network_protocol::PeerInfo;
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::peer_store;
 use crate::sink::Sink;
+use crate::tcp;
 use crate::time;
 use crate::types::ROUTED_MESSAGE_TTL;
 use anyhow::Context;
@@ -14,7 +15,6 @@ use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::AccountId;
 use near_primitives::validator_signer::ValidatorSigner;
 use std::collections::HashSet;
-use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
 
 /// How much height horizon to give to consider peer up to date.
@@ -91,7 +91,7 @@ pub struct Tier1 {
 /// Validated configuration for the peer-to-peer manager.
 #[derive(Clone)]
 pub struct NetworkConfig {
-    pub node_addr: Option<SocketAddr>,
+    pub node_addr: Option<tcp::ListenerAddr>,
     pub node_key: SecretKey,
     pub validator: Option<ValidatorConfig>,
 
@@ -217,7 +217,9 @@ impl NetworkConfig {
             }),
             node_addr: match cfg.addr.as_str() {
                 "" => None,
-                addr => Some(addr.parse().context("Failed to parse SocketAddr")?),
+                addr => Some(tcp::ListenerAddr::new(
+                    addr.parse().context("Failed to parse SocketAddr")?,
+                )),
             },
             peer_store: peer_store::Config {
                 boot_nodes: if cfg.boot_nodes.is_empty() {
@@ -297,13 +299,12 @@ impl NetworkConfig {
     }
 
     /// TEST-ONLY: Returns network config with given seed used for peer id.
-    pub fn from_seed(seed: &str, port: u16) -> Self {
+    pub fn from_seed(seed: &str, node_addr: tcp::ListenerAddr) -> Self {
         let node_key = SecretKey::from_seed(KeyType::ED25519, seed);
-        let node_addr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port));
         let validator = ValidatorConfig {
             signer: Arc::new(create_test_signer(seed)),
             proxies: ValidatorProxies::Static(vec![PeerAddr {
-                addr: node_addr,
+                addr: *node_addr,
                 peer_id: PeerId::new(node_key.public_key()),
             }]),
         };
@@ -427,27 +428,28 @@ mod test {
     use crate::network_protocol;
     use crate::network_protocol::testonly as data;
     use crate::network_protocol::{AccountData, VersionedAccountData};
+    use crate::tcp;
     use crate::testonly::make_rng;
     use crate::time;
 
     #[test]
     fn test_network_config() {
-        let nc = config::NetworkConfig::from_seed("123", 213);
+        let nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::reserve_for_test());
         assert!(nc.verify().is_ok());
 
-        let mut nc = config::NetworkConfig::from_seed("123", 213);
+        let mut nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::reserve_for_test());
         nc.ideal_connections_lo = nc.ideal_connections_hi + 1;
         assert!(nc.verify().is_err());
 
-        let mut nc = config::NetworkConfig::from_seed("123", 213);
+        let mut nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::reserve_for_test());
         nc.ideal_connections_hi = nc.max_num_peers + 1;
         assert!(nc.verify().is_err());
 
-        let mut nc = config::NetworkConfig::from_seed("123", 213);
+        let mut nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::reserve_for_test());
         nc.safe_set_size = nc.minimum_outbound_peers;
         assert!(nc.verify().is_err());
 
-        let mut nc = config::NetworkConfig::from_seed("123", 213);
+        let mut nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::reserve_for_test());
         nc.peer_recent_time_window = UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE;
         assert!(nc.verify().is_err());
     }

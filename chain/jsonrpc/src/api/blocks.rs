@@ -8,7 +8,7 @@ use near_primitives::types::{BlockId, BlockReference};
 use super::{parse_params, RpcFrom, RpcRequest};
 
 impl RpcRequest for RpcBlockRequest {
-    fn parse(value: Option<Value>) -> Result<Self, RpcParseError> {
+    fn parse(value: Value) -> Result<Self, RpcParseError> {
         let block_reference = if let Ok((block_id,)) = parse_params::<(BlockId,)>(value.clone()) {
             BlockReference::BlockId(block_id)
         } else {
