@@ -20,7 +20,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
 
-static FLAT_STATE_HEAD: CryptoHash = CryptoHash::default();
+const FLAT_STATE_HEAD: CryptoHash = CryptoHash::new();
 
 /// Global context shared by all cost calculating functions.
 pub(crate) struct EstimatorContext<'c> {
