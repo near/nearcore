@@ -57,6 +57,7 @@ members = [
     "tools/state-viewer",
     "tools/storage-usage-delta-calculator",
     "tools/themis",
+    "utils/config",
     "utils/mainnet-res",
     "utils/near-cache",
     "utils/stdx",
@@ -124,6 +125,7 @@ indicatif = { version = "0.15.0", features = ["with_rayon"] }
 insta = { version = "1.26.0", features = ["json", "yaml"] }
 itertools = "0.10.0"
 itoa = "1.0"
+json_comments = "0.2.1"
 libc = "0.2.81"
 libfuzzer-sys = { version = "0.4", features = ["arbitrary-derive"] }
 log = "0.4"

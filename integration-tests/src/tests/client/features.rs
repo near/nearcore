@@ -5,6 +5,8 @@ mod account_id_in_function_call_permission;
 mod adversarial_behaviors;
 mod cap_max_gas_price;
 mod chunk_nodes_cache;
+#[cfg(feature = "protocol_feature_nep366_delegate_action")]
+mod delegate_action;
 #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
 mod fix_contract_loading_cost;
 mod fix_storage_usage;

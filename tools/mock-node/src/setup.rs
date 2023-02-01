@@ -7,6 +7,7 @@ use near_chain::types::RuntimeAdapter;
 use near_chain::ChainStoreUpdate;
 use near_chain::{Chain, ChainGenesis, ChainStore, ChainStoreAccess, DoomslugThresholdMode};
 use near_chain_configs::GenesisConfig;
+use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_network::types::NetworkRecipient;
@@ -43,6 +44,7 @@ fn setup_runtime(
 fn setup_mock_peer_manager_actor(
     chain: Chain,
     client: Arc<dyn near_network::client::Client>,
+    shards_manager_adapter: Arc<dyn near_network::shards_manager::ShardsManagerAdapterForNetwork>,
     genesis_config: &GenesisConfig,
     block_production_delay: Duration,
     client_start_height: BlockHeight,
@@ -57,6 +59,7 @@ fn setup_mock_peer_manager_actor(
     };
     MockPeerManagerActor::new(
         client,
+        shards_manager_adapter,
         genesis_config,
         chain,
         client_start_height,
@@ -111,6 +114,7 @@ pub fn setup_mock_node(
 
     let node_id = config.network_config.node_id();
     let network_adapter = Arc::new(NetworkRecipient::default());
+    let shards_manager_adapter = Arc::new(NetworkRecipient::default());
     let adv = near_client::adversarial::Controls::default();
 
     // set up client dir to be ready to process blocks from client_start_height
@@ -241,6 +245,7 @@ pub fn setup_mock_node(
         client_runtime.clone(),
         node_id,
         network_adapter.clone(),
+        shards_manager_adapter.clone(),
         config.validator_signer.clone(),
         telemetry,
         None,
@@ -251,11 +256,21 @@ pub fn setup_mock_node(
     let view_client = start_view_client(
         None,
         chain_genesis.clone(),
-        client_runtime,
+        client_runtime.clone(),
         network_adapter.clone(),
         config.client_config.clone(),
         adv,
     );
+
+    let (shards_manager_actor, _) = start_shards_manager(
+        client_runtime.clone(),
+        network_adapter.clone(),
+        Arc::new(client.clone()),
+        config.validator_signer.map(|signer| signer.validator_id().clone()),
+        client_runtime.store().clone(),
+        config.client_config.chunk_request_retry_period,
+    );
+    shards_manager_adapter.set_recipient(shards_manager_actor);
 
     let arbiter = Arbiter::new();
     let client1 = client.clone();
@@ -278,6 +293,7 @@ pub fn setup_mock_node(
             setup_mock_peer_manager_actor(
                 chain,
                 Arc::new(near_client::adapter::Adapter::new(client1, view_client1)),
+                shards_manager_adapter,
                 &genesis_config,
                 block_production_delay,
                 client_start_height,

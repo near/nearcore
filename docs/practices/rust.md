@@ -1,7 +1,7 @@
 # Rust 🦀
 
 This short chapter collects various useful general resources about the Rust
-programming language. If you are already are familiar with Rust, skip this
+programming language. If you are already familiar with Rust, skip this
 chapter. Otherwise, this chapter is for you!
 
 ## Getting Help
@@ -29,23 +29,23 @@ Alternatives are:
 
 * [Programming
   Rust](https://www.amazon.com/Programming-Rust-Fast-Systems-Development/dp/1491927283)
-  is an alternative book which moves a bit faster.
+  is an alternative book that moves a bit faster.
 * [Rust By Example](https://doc.rust-lang.org/rust-by-example/) is a great
   resource for learning by doing.
 
-Rust has some great tooling, which also is documented:
+Rust has some great tooling, which is also documented:
 
 * [Cargo](https://doc.rust-lang.org/cargo/), the build system. Worth at least skimming through!
 * For IDE support, see [IntelliJ Rust](https://www.jetbrains.com/rust/) if you
   like JetBrains products or
   [rust-analyzer](https://rust-analyzer.github.io/manual.html) if you use any
   other editor (fun fact: NEAR was one of the sponsors of rust-analyzer!).
-* [Rustup](https://rust-lang.github.io/rustup/) manages versions of the Rust
+* [Rustup](https://rust-lang.github.io/rustup/) manages versions of Rust
   itself. It's unobtrusive, so feel free to skip this.
 
 ## Cheat Sheet
 
-This is a thing in its own category, do check it out:
+This is a thing in its category, do check it out:
 
 <https://cheats.rs>
 
@@ -73,7 +73,7 @@ Here are some favorites:
 * <https://smallcultfollowing.com/babysteps/blog/2016/10/02/observational-equivalence-and-unsafe-code/>
 * <https://matklad.github.io/2021/09/05/Rust100k.html>
 
-And on the easiest topic of error-handling specifically:
+And on the easiest topic of error handling specifically:
 
 * <http://sled.rs/errors.html>
 * <https://kazlauskas.me/entries/errors>
