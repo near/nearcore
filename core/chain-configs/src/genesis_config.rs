@@ -258,7 +258,7 @@ pub struct Genesis {
 
 impl GenesisConfig {
     /// Parses GenesisConfig from a JSON string.
-    ///
+    /// The string can be a JSON with comments.
     /// It panics if the contents cannot be parsed from JSON to the GenesisConfig structure.
     pub fn from_json(value: &str) -> Self {
         let json_str_without_comments: String =
@@ -269,7 +269,7 @@ impl GenesisConfig {
     }
 
     /// Reads GenesisConfig from a JSON file.
-    ///
+    /// The file can be a JSON with comments.
     /// It panics if file cannot be open or read, or the contents cannot be parsed from JSON to the
     /// GenesisConfig structure.
     pub fn from_file<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
@@ -316,7 +316,7 @@ impl GenesisRecords {
     }
 
     /// Reads GenesisRecords from a JSON file.
-    ///
+    /// The file can be a JSON with comments.
     /// It panics if file cannot be open or read, or the contents cannot be parsed from JSON to the
     /// GenesisConfig structure.
     pub fn from_file<P: AsRef<Path>>(path: P) -> Self {
@@ -408,6 +408,7 @@ impl<'de, F: FnMut(StateRecord)> DeserializeSeed<'de> for RecordsProcessor<&'_ m
     }
 }
 
+/// The file can be a JSON with comments
 pub fn stream_records_from_file(
     reader: impl Read,
     mut callback: impl FnMut(StateRecord),
