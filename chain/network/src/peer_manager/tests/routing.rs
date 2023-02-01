@@ -28,11 +28,26 @@ use std::collections::HashSet;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
 
+/// Initializes the test logger and then, iff the current process is executed under
+/// nextest in process-per-test mode, changes the behavior of the process to [panic=abort].
+/// In particular it doesn't enable [panic=abort] when run via "cargo test".
+/// Note that (unfortunately) some tests may expect a panic, so we cannot apply blindly
+/// [panic=abort] in compilation time to all tests.
+// TODO: investigate whether "-Zpanic-abort-tests" could replace this function once the flag
+// becomes stable: https://github.com/rust-lang/rust/issues/67650, so we don't use it.
 fn abort_on_panic() {
+    init_test_logger();
+    // I don't know a way to set panic=abort for nextest builds in compilation time, so we set it
+    // in runtime. https://nexte.st/book/env-vars.html#environment-variables-nextest-sets
+    let Ok(nextest) = std::env::var("NEXTEST") else { return };
+    let Ok(nextest_execution_mode) = std::env::var("NEXTEST_EXECUTION_MODE") else { return };
+    if nextest != "1" || nextest_execution_mode != "process-per-test" {
+        return;
+    }
+    tracing::info!(target:"test", "[panic=abort] enabled");
     let orig_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |panic_info| {
         orig_hook(panic_info);
-        // TODO(gprusak): print stacktrace?
         std::process::abort();
     }));
 }
@@ -41,7 +56,6 @@ fn abort_on_panic() {
 #[tokio::test]
 async fn simple() {
     abort_on_panic();
-    init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
@@ -72,7 +86,6 @@ async fn simple() {
 #[tokio::test]
 async fn three_nodes_path() {
     abort_on_panic();
-    init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
@@ -114,7 +127,6 @@ async fn three_nodes_path() {
 #[tokio::test]
 async fn three_nodes_star() {
     abort_on_panic();
-    init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
@@ -179,7 +191,6 @@ async fn three_nodes_star() {
 #[tokio::test]
 async fn join_components() {
     abort_on_panic();
-    init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
@@ -251,7 +262,6 @@ async fn join_components() {
 #[tokio::test]
 async fn simple_remove() {
     abort_on_panic();
-    init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
@@ -343,7 +353,6 @@ pub async fn wait_for_message_dropped(events: &mut broadcast::Receiver<Event>) {
 #[tokio::test]
 async fn ping_simple() {
     abort_on_panic();
-    init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
@@ -382,7 +391,6 @@ async fn ping_simple() {
 #[tokio::test]
 async fn ping_jump() {
     abort_on_panic();
-    init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
@@ -438,7 +446,6 @@ async fn ping_jump() {
 #[tokio::test]
 async fn test_dont_drop_after_ttl() {
     abort_on_panic();
-    init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
@@ -496,7 +503,6 @@ async fn test_dont_drop_after_ttl() {
 #[tokio::test]
 async fn test_drop_after_ttl() {
     abort_on_panic();
-    init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
@@ -550,7 +556,6 @@ async fn test_drop_after_ttl() {
 #[tokio::test]
 async fn test_dropping_duplicate_messages() {
     abort_on_panic();
-    init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
@@ -678,7 +683,6 @@ fn make_configs(
 #[tokio::test]
 async fn from_boot_nodes() {
     abort_on_panic();
-    init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
@@ -702,7 +706,6 @@ async fn from_boot_nodes() {
 #[tokio::test]
 async fn blacklist_01() {
     abort_on_panic();
-    init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
@@ -736,7 +739,6 @@ async fn blacklist_01() {
 #[tokio::test]
 async fn blacklist_10() {
     abort_on_panic();
-    init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
@@ -770,7 +772,6 @@ async fn blacklist_10() {
 #[tokio::test]
 async fn blacklist_all() {
     abort_on_panic();
-    init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
@@ -805,7 +806,6 @@ async fn blacklist_all() {
 #[tokio::test]
 async fn max_num_peers_limit() {
     abort_on_panic();
-    init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
@@ -902,7 +902,6 @@ async fn max_num_peers_limit() {
 #[tokio::test]
 async fn ttl() {
     abort_on_panic();
-    init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
@@ -958,7 +957,6 @@ async fn ttl() {
 #[tokio::test]
 async fn repeated_data_in_sync_routing_table() {
     abort_on_panic();
-    init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
@@ -1063,7 +1061,6 @@ async fn wait_for_edges(
 #[tokio::test]
 async fn no_edge_broadcast_after_restart() {
     abort_on_panic();
-    init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
@@ -1127,7 +1124,6 @@ async fn no_edge_broadcast_after_restart() {
 #[tokio::test]
 async fn square() {
     abort_on_panic();
-    init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
@@ -1181,7 +1177,6 @@ async fn square() {
 #[tokio::test]
 async fn fix_local_edges() {
     abort_on_panic();
-    init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
@@ -1236,7 +1231,6 @@ async fn fix_local_edges() {
 #[tokio::test]
 async fn do_not_block_announce_account_broadcast() {
     abort_on_panic();
-    init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
@@ -1275,7 +1269,6 @@ async fn do_not_block_announce_account_broadcast() {
 #[tokio::test]
 async fn archival_node() {
     abort_on_panic();
-    init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
@@ -1369,7 +1362,6 @@ async fn wait_for_stream_closed(
 #[tokio::test]
 async fn connect_to_unbanned_peer() {
     abort_on_panic();
-    init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
