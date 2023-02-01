@@ -2868,14 +2868,17 @@ contracts changes the assumptions for how slow a contract compilation could be,
 hence it affects the deploy action costs.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="parameter-definitions"><a class="header" href="#parameter-definitions">Parameter Definitions</a></h1>
 <p>Gas parameters are a subset of runtime parameters that are defined in
-<a href="https://github.com/near/nearcore/blob/d0dc37bf81f7e7bde9c560403b085fae04108659/core/primitives/res/runtime_configs/parameters.yaml">core/primitives/res/runtime_configs/parameters.yaml</a>.
+<a href="https://github.com/near/nearcore/blob/master/core/primitives/res/runtime_configs/parameters.yaml">core/primitives/res/runtime_configs/parameters.yaml</a>.
 <strong>IMPORTANT:</strong> This is not the final list of parameters, it contains the base
 values which can be overwritten per protocol version. For example,
-<a href="https://github.com/near/nearcore/blob/d0dc37bf81f7e7bde9c560403b085fae04108659/core/primitives/res/runtime_configs/53.txt">53.txt</a>
-changes several parameters starting from version 53. To see all parameter
-values for a specific version at once, check out the list of JSON
+<a href="https://github.com/near/nearcore/blob/master/core/primitives/res/runtime_configs/53.yaml">53.yaml</a>
+changes several parameters starting from version 53. You can see the final list
+of parameters in
+<a href="https://github.com/near/nearcore/blob/master/core/primitives/res/runtime_configs/parameters.snap">core/primitives/res/runtime_configs/parameters.snap</a>.
+This file is automatically updated whenever any of the parameters changes. To
+see all parameter values for a specific version, check out the list of JSON
 snapshots generated in this directory:
-<a href="https://github.com/near/nearcore/blob/d0dc37bf81f7e7bde9c560403b085fae04108659/core/primitives/src/runtime/snapshots">core/primitives/src/runtime/snapshots</a>.</p>
+<a href="https://github.com/near/nearcore/blob/master/core/primitives/src/runtime/snapshots">core/primitives/src/runtime/snapshots</a>.</p>
 <h2 id="using-parameters-in-code"><a class="header" href="#using-parameters-in-code">Using Parameters in Code</a></h2>
 <p>As the introduction on this page already hints at it, parameter values are
 versioned. In other words, they can change if the protocol version changes. A
