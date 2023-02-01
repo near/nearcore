@@ -1,15 +1,19 @@
 use near_chain::{ChainStore, ChainStoreAccess, RuntimeWithEpochManagerAdapter};
 use near_primitives::{
     account::Account,
-    hash::CryptoHash,
+    borsh::{BorshDeserialize, BorshSerialize},
+    challenge::PartialState,
+    hash::{self, CryptoHash},
+    receipt::DelayedReceiptIndices,
     state::ValueRef,
     state_part::PartId,
     syncing::get_num_state_parts,
-    trie_key::trie_key_parsers::parse_account_id_from_raw_key,
+    trie_key::{trie_key_parsers::parse_account_id_from_raw_key, TrieKey},
     types::{AccountId, StateRoot},
 };
 use near_store::{
     flat_state::store_helper::{self, get_flat_head},
+    trie::{insert_delete::NodesStorage, StorageHandle},
     DBCol, NibbleSlice, NodeStorage, RawTrieNode, RawTrieNodeWithSize, StorageError, Store, Trie,
     TrieStorage,
 };
@@ -18,6 +22,84 @@ use std::{collections::HashMap, fs::File, str};
 use std::{collections::HashSet, fmt::Write};
 use std::{path::Path, str::FromStr, sync::Arc};
 
+pub struct PartOfTrie {
+    memory: NodesStorage,
+    trie: Trie,
+    root_node: StorageHandle,
+}
+
+impl PartOfTrie {
+    pub fn new() -> Self {
+        let mock_storage = MockTrieStorage { entries: HashMap::new() };
+        let root_node_hash = StateRoot::new();
+        let in_memory_trie = Trie::new(Box::new(mock_storage), root_node_hash, None);
+        let mut memory = NodesStorage::new();
+
+        let root_node = in_memory_trie.move_node_to_mutable(&mut memory, &root_node_hash).unwrap();
+        PartOfTrie { memory, trie: in_memory_trie, root_node }
+    }
+    pub fn insert(&mut self, key: &[u8], value: Vec<u8>) {
+        let key = NibbleSlice::new(key);
+        self.root_node = self.trie.insert(&mut self.memory, self.root_node, key, value).unwrap();
+    }
+
+    // This should also verify...
+    pub fn add_boundaries() {}
+
+    pub fn serialize_to_part() {}
+
+    pub fn parse_from_part(contents: Vec<u8>) -> Result<Self, std::io::Error> {
+        let partial_state = PartialState::try_from_slice(&contents)?;
+        println!("Parts: {:?} ", partial_state.0.len());
+        let mut parsed = 0;
+        let mut failed = 0;
+
+        let mut content_map = HashMap::new();
+
+        for part in partial_state.0.iter() {
+            if RawTrieNodeWithSize::decode(part).is_ok() {
+                parsed += 1;
+            } else {
+                failed += 1;
+            }
+            println!("Hash: {:?}", near_primitives::hash::hash(part));
+            content_map.insert(near_primitives::hash::hash(part), part.to_vec());
+        }
+        println!("Parsed: {:?} failed: {:?}", parsed, failed);
+
+        let mock_storage = MockTrieStorage { entries: content_map };
+        let root_node_hash =
+            CryptoHash::from_str("4n75a4ZdvE2L4dw99nWdSaAgCianzer4TJuVzEXYiePy").unwrap();
+        let in_memory_trie = Trie::new(Box::new(mock_storage), root_node_hash, None);
+
+        // Try finding left & right boundaries in here.
+        todo!()
+    }
+
+    pub fn validate() {}
+}
+
+mod test {
+    use std::{fs::File, io::Read};
+
+    use crate::PartOfTrie;
+
+    #[test]
+    fn basic_test() {
+        let mut part = PartOfTrie::new();
+        part.insert("hello".as_bytes(), "How are you".into());
+    }
+
+    #[test]
+    fn parse_test() {
+        let mut file =
+            File::open("~/tmp/0126_state_with_flat/node0/state_parts/state_part_000004").unwrap();
+        let mut contents = Vec::new();
+        file.read_to_end(&mut contents).unwrap();
+
+        let part = PartOfTrie::parse_from_part(contents).unwrap();
+    }
+}
 /// Calculates delta between actual storage usage and one saved in state
 /// output.json should contain dump of current state,
 /// run 'neard --home ~/.near/mainnet/ view_state dump_state'
@@ -70,7 +152,48 @@ impl TrieStorage for MockTrieStorage {
 }
 
 fn main() {
-    let home_dir = "~/tmp/0126_state_with_flat/node0";
+    // Experiment with the delayed receipt.
+
+    {
+        let payload = DelayedReceiptIndices { first_index: 42, next_available_index: 42 };
+
+        let serialized_payload = payload.try_to_vec().unwrap();
+
+        println!("Hash of the delayed is {:?}", near_primitives::hash::hash(&serialized_payload));
+
+        let leaf_node = RawTrieNode::Leaf(
+            vec![32],
+            serialized_payload.len().try_into().unwrap(),
+            near_primitives::hash::hash(&serialized_payload),
+        );
+
+        let mut ooo = Vec::new();
+        leaf_node.encode_into(&mut ooo);
+
+        let key_cost = 1 * 2;
+        let memory_usage_cost = 8;
+
+        let memory_usage = serialized_payload.len() + 50 + ooo.len() + key_cost + memory_usage_cost;
+        println!("Memory usage {:?}", memory_usage);
+        /*TRIE_COSTS.node_cost
+        + (key.len() as u64) * TRIE_COSTS.byte_of_key
+        + Self::memory_usage_value(value, memory)*/
+        let leaf_node_with_size =
+            RawTrieNodeWithSize { node: leaf_node, memory_usage: memory_usage as u64 };
+
+        let encoded_leaf_with_size = leaf_node_with_size.encode();
+
+        println!("Memory usage of the final leaf: {:?}", encoded_leaf_with_size.len());
+
+        println!("Hash of leaf: {:?}", near_primitives::hash::hash(&encoded_leaf_with_size));
+
+        /*let delayed_receipt_index = TrieKey::DelayedReceiptIndices;
+
+        let index: u64 = 0;
+        index.to_le_bytes()*/
+    }
+
+    let home_dir = "/home/cyfra/tmp/0126_state_with_flat/node0";
     let home_dir = Path::new(home_dir);
     let config = Default::default();
     let near_config =
@@ -113,6 +236,13 @@ fn main() {
     println!("Parts: {:?} State root node: {:?}", num_parts, state_root_node);
 
     let trie = runtime_adapter.get_view_trie_for_shard(0, &sync_prev_hash, state_root).unwrap();
+
+    let existing_delayed_receipt =
+        trie.get(&TrieKey::DelayedReceiptIndices.to_vec()).unwrap().unwrap();
+
+    let mut tmp1 = &existing_delayed_receipt[..];
+
+    println!("!! Existing: {:?} ", DelayedReceiptIndices::deserialize(&mut tmp1));
 
     let mut previous_key = Vec::new();
 
