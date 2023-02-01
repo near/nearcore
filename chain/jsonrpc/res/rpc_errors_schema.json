@@ -488,7 +488,8 @@
         "UnsuitableStakingKey",
         "FunctionCallZeroAttachedGas",
         "DelegateActionCantContainNestedOne",
-        "DelegateActionMustBeOnlyOne"
+        "DelegateActionMustBeOnlyOne",
+        "UnsupportedProtocolFeature"
       ],
       "props": {}
     },
@@ -889,6 +890,14 @@
       "subtypes": [],
       "props": {
         "public_key": ""
+      }
+    },
+    "UnsupportedProtocolFeature": {
+      "name": "UnsupportedProtocolFeature",
+      "subtypes": [],
+      "props": {
+        "protocol_feature": "",
+        "version": ""
       }
     },
     "Closed": {

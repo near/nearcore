@@ -103,7 +103,7 @@ fuzz_target!(|requests: Vec<JsonRpcRequest>| {
             System::new().block_on(async {
                 let (_view_client_addr, addr) =
                     test_utils::start_all(test_utils::NodeType::NonValidator);
-                unsafe { NODE_ADDR = Some(addr) }
+                unsafe { NODE_ADDR = Some(addr.to_string()) }
             });
         });
     });

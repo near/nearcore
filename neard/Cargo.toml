@@ -71,6 +71,10 @@ nightly = [
 ]
 nightly_protocol = ["nearcore/nightly_protocol"]
 
+calimero_zero_storage = [
+  "near-primitives/calimero_zero_storage",
+]
+
 # Compile with option to emit a detailed trace of IO operations and their
 # results that can be replayed on the estimator. To produce the output, compile
 # with this flag and then enable it at runtime with `--record-io-trace=path` option.

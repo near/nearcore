@@ -37,9 +37,9 @@ use num_rational::Ratio;
 fn query_client() {
     init_test_logger();
     run_actix(async {
-        let (_, view_client) =
+        let actor_handles =
             setup_no_network(vec!["test".parse().unwrap()], "other".parse().unwrap(), true, true);
-        let actor = view_client.send(
+        let actor = actor_handles.view_client_actor.send(
             Query::new(
                 BlockReference::latest(),
                 QueryRequest::ViewAccount { account_id: "test".parse().unwrap() },
@@ -64,10 +64,12 @@ fn query_client() {
 fn query_status_not_crash() {
     init_test_logger();
     run_actix(async {
-        let (client, view_client) =
+        let actor_handles =
             setup_no_network(vec!["test".parse().unwrap()], "other".parse().unwrap(), true, false);
         let signer = create_test_signer("test");
-        let actor = view_client.send(GetBlockWithMerkleTree::latest().with_span_context());
+        let actor = actor_handles
+            .view_client_actor
+            .send(GetBlockWithMerkleTree::latest().with_span_context());
         let actor = actor.then(move |res| {
             let (block, block_merkle_tree) = res.unwrap().unwrap();
             let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
@@ -100,7 +102,8 @@ fn query_status_not_crash() {
             next_block.mut_header().resign(&signer);
 
             actix::spawn(
-                client
+                actor_handles
+                    .client_actor
                     .send(
                         BlockResponse {
                             block: next_block,
@@ -111,7 +114,8 @@ fn query_status_not_crash() {
                     )
                     .then(move |_| {
                         actix::spawn(
-                            client
+                            actor_handles
+                                .client_actor
                                 .send(
                                     Status { is_health_check: true, detailed: false }
                                         .with_span_context(),
@@ -135,12 +139,13 @@ fn query_status_not_crash() {
 fn test_execution_outcome_for_chunk() {
     init_test_logger();
     run_actix(async {
-        let (client, view_client) =
+        let actor_handles =
             setup_no_network(vec!["test".parse().unwrap()], "test".parse().unwrap(), true, false);
         let signer = InMemorySigner::from_seed("test".parse().unwrap(), KeyType::ED25519, "test");
 
         actix::spawn(async move {
-            let block_hash = view_client
+            let block_hash = actor_handles
+                .view_client_actor
                 .send(GetBlock::latest().with_span_context())
                 .await
                 .unwrap()
@@ -157,7 +162,8 @@ fn test_execution_outcome_for_chunk() {
                 block_hash,
             );
             let tx_hash = transaction.get_hash();
-            let res = client
+            let res = actor_handles
+                .client_actor
                 .send(
                     ProcessTxRequest { transaction, is_forwarded: false, check_only: false }
                         .with_span_context(),
@@ -167,7 +173,8 @@ fn test_execution_outcome_for_chunk() {
             assert!(matches!(res, ProcessTxResponse::ValidTx));
 
             actix::clock::sleep(Duration::from_millis(500)).await;
-            let block_hash = view_client
+            let block_hash = actor_handles
+                .view_client_actor
                 .send(
                     TxStatus {
                         tx_hash,
@@ -184,7 +191,8 @@ fn test_execution_outcome_for_chunk() {
                 .transaction_outcome
                 .block_hash;
 
-            let mut execution_outcomes_in_block = view_client
+            let mut execution_outcomes_in_block = actor_handles
+                .view_client_actor
                 .send(GetExecutionOutcomesForBlock { block_hash }.with_span_context())
                 .await
                 .unwrap()
@@ -288,15 +296,16 @@ fn test_garbage_collection() {
                       -> (PeerManagerMessageResponse, bool) {
                     if let NetworkRequests::Block { block } = msg.as_network_requests_ref() {
                         if block.header().height() > target_height {
-                            let view_client_non_archival = &conns[0].1;
-                            let view_client_archival = &conns[1].1;
+                            let view_client_non_archival = &conns[0].view_client_actor;
+                            let view_client_archival = &conns[1].view_client_actor;
                             let mut tests = vec![];
 
                             // Recent data is present on all nodes (archival or not).
                             let prev_height = block.header().prev_height().unwrap();
-                            for (_, view_client) in conns.iter() {
+                            for actor_handles in conns.iter() {
                                 tests.push(actix::spawn(
-                                    view_client
+                                    actor_handles
+                                        .view_client_actor
                                         .send(
                                             Query::new(
                                                 BlockReference::BlockId(BlockId::Height(

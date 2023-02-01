@@ -9,6 +9,7 @@ use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
 use crate::peer_manager::network_state::{NetworkState, WhitelistNode};
 use crate::peer_manager::peer_store;
+use crate::shards_manager::ShardsManagerAdapterForNetwork;
 use crate::stats::metrics;
 use crate::store;
 use crate::tcp;
@@ -163,6 +164,7 @@ impl PeerManagerActor {
         store: Arc<dyn near_store::db::Database>,
         config: config::NetworkConfig,
         client: Arc<dyn client::Client>,
+        shards_manager_adapter: Arc<dyn ShardsManagerAdapterForNetwork>,
         genesis_id: GenesisId,
     ) -> anyhow::Result<actix::Addr<Self>> {
         let config = config.verify().context("config")?;
@@ -193,6 +195,7 @@ impl PeerManagerActor {
             config.clone(),
             genesis_id,
             client,
+            shards_manager_adapter,
             whitelist_nodes,
         ));
         arbiter.spawn({
@@ -201,9 +204,9 @@ impl PeerManagerActor {
             let clock = clock.clone();
             async move {
                 // Start server if address provided.
-                if let Some(server_addr) = state.config.node_addr {
+                if let Some(server_addr) = &state.config.node_addr {
                     tracing::debug!(target: "network", at = ?server_addr, "starting public server");
-                    let mut listener = match tcp::Listener::bind(server_addr).await {
+                    let mut listener = match server_addr.listener() {
                         Ok(it) => it,
                         Err(e) => {
                             panic!("failed to start listening on server_addr={server_addr:?} e={e:?}")
@@ -508,7 +511,7 @@ impl PeerManagerActor {
                 |peer_state| {
                     // Ignore connecting to ourself
                     self.my_peer_id == peer_state.peer_info.id
-                    || self.state.config.node_addr == peer_state.peer_info.addr
+                    || self.state.config.node_addr.as_ref().map(|a|**a) == peer_state.peer_info.addr
                     // Or to peers we are currently trying to connect to
                     || tier2.outbound_handshakes.contains(&peer_state.peer_info.id)
                 },

@@ -64,6 +64,8 @@ nightly = [
 nightly_protocol = []
 
 
+calimero_zero_storage = []
+
 [dev-dependencies]
 assert_matches.workspace = true
 bencher.workspace = true
