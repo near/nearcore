@@ -52,6 +52,7 @@ fn read_log_config(home_dir: &Path) -> Result<Option<LogConfig>, UpdateableConfi
     read_json_config::<LogConfig>(&home_dir.join(LOG_CONFIG_FILENAME))
 }
 
+// the file can be JSON with comments
 fn read_json_config<T: std::fmt::Debug>(
     path: &Path,
 ) -> Result<Option<T>, UpdateableConfigLoaderError>

@@ -57,6 +57,7 @@ members = [
     "tools/state-viewer",
     "tools/storage-usage-delta-calculator",
     "tools/themis",
+    "utils/config",
     "utils/mainnet-res",
     "utils/near-cache",
     "utils/stdx",

@@ -464,6 +464,7 @@ impl Genesis {
     }
 
     /// Reads Genesis from a single file.
+    /// the file can be JSON with comments
     pub fn from_file<P: AsRef<Path>>(path: P, genesis_validation: GenesisValidationMode) -> Self {
         let mut file = File::open(path).expect("Could not open genesis config file.");
         let mut json_str = String::new();

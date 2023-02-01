@@ -1298,6 +1298,7 @@ struct NodeKeyFile {
 }
 
 impl NodeKeyFile {
+    // the file can be JSON with comments
     fn from_file(path: &Path) -> std::io::Result<Self> {
         let mut file = File::open(path)?;
         let mut json_str = String::new();
