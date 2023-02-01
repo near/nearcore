@@ -224,6 +224,7 @@ pub enum Bls12381Error {
     VerifyFail,
     PkIsInfinity,
     BadScalar,
+    IncorrectPubKeysLen
 }
 
 impl From<BLST_ERROR> for Bls12381Error {
