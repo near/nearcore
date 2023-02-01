@@ -64,29 +64,6 @@ impl Inner {
         self.outbound = updated_outbound;
     }
 
-    pub fn connection_closed(
-        &mut self,
-        peer_info: &PeerInfo,
-        peer_type: &PeerType,
-        reason: &ClosingReason,
-    ) {
-        if *peer_type == PeerType::Outbound {
-            // If the connection is not in the store, do nothing.
-            if !self.contains_outbound(&peer_info.id) {
-                return;
-            }
-
-            if reason.remove_from_recent_outbound_connections() {
-                // If the outbound connection closed for a reason which indicates we should not
-                // re-establish the connection, remove it from the connection store.
-                self.remove_outbound(&peer_info.id);
-            } else {
-                // Otherwise, attempt to re-establish the connection.
-                self.pending_reconnect.push(peer_info.clone());
-            }
-        }
-    }
-
     fn poll_pending_reconnect(&mut self) -> Vec<PeerInfo> {
         let result = self.pending_reconnect.clone();
         self.pending_reconnect.clear();
@@ -115,13 +92,29 @@ impl ConnectionStore {
         self.0.lock().remove_outbound(peer_id);
     }
 
+    /// Called when closing a connection
+    /// Updates the store and enqueues reconnect attempts
     pub fn connection_closed(
         &self,
         peer_info: &PeerInfo,
         peer_type: &PeerType,
         reason: &ClosingReason,
     ) {
-        self.0.lock().connection_closed(peer_info, peer_type, reason);
+        if *peer_type == PeerType::Outbound {
+            // If the connection is not in the store, do nothing.
+            if !self.0.lock().contains_outbound(&peer_info.id) {
+                return;
+            }
+
+            if reason.remove_from_recent_outbound_connections() {
+                // If the outbound connection closed for a reason which indicates we should not
+                // re-establish the connection, remove it from the connection store.
+                self.0.lock().remove_outbound(&peer_info.id);
+            } else {
+                // Otherwise, attempt to re-establish the connection.
+                self.0.lock().pending_reconnect.push(peer_info.clone());
+            }
+        }
     }
 
     /// Inserts information about live connections to the connection store.
