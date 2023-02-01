@@ -75,8 +75,8 @@ use crate::messaging;
 ///  - `Data` should be a struct with a derive_more::AsMut and derive_more::AsRef
 ///    (so that `Data` implements AsMut<Field> and AsRef<Field> for each of its
 ///    fields.)
-///  - `Event` should be an enum with a derive_more::TryInto, so that it implements
-///    TryInto<Variant> for each of its variants.
+///  - `Event` should be an enum with a derive(EnumTryInto, EnumFrom), so that it
+///    implements TryInto<Variant> and From<Variant> for each of its variants.
 /// and that for multi-instance tests, `Data` is `Vec<SingleData>` and `Event` is
 /// `(usize, SingleEvent)`.
 pub struct TestLoop<Data, Event: Debug + Send + 'static> {
@@ -293,9 +293,9 @@ pub trait TryIntoOrSelf<R>: Sized {
     fn try_into_or_self(self) -> Result<R, Self>;
 }
 
-impl<R, T: TryInto<R, Error = derive_more::TryIntoError<T>>> TryIntoOrSelf<R> for T {
+impl<R, T: TryInto<R, Error = T>> TryIntoOrSelf<R> for T {
     fn try_into_or_self(self) -> Result<R, Self> {
-        self.try_into().map_err(|err| err.input)
+        self.try_into()
     }
 }
 
@@ -305,7 +305,11 @@ impl<R, T: TryInto<R, Error = derive_more::TryIntoError<T>>> TryIntoOrSelf<R> fo
 /// This is used on output events so that after the test loop finishes running
 /// we can assert on those events.
 pub struct CaptureEvents<CapturedEvent> {
-    _marker: std::marker::PhantomData<CapturedEvent>, // just for the compiler
+    // This is just to suppress a compiler error that CapturedEvent is not used
+    // in the struct's fields - and is what the compiler suggests to do. The
+    // type parameter is only used as an inference hint for which impl of
+    // LoopEventHandler we will convert to.
+    _marker: std::marker::PhantomData<CapturedEvent>,
 }
 
 impl<CapturedEvent> CaptureEvents<CapturedEvent> {

@@ -1,5 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
+use derive_enum_from_into::{EnumFrom, EnumTryInto};
+
 use crate::{
     messaging::Sender,
     test_loop::{CaptureEvents, LoopEventHandler, TestLoopBuilder, TryIntoOrSelf},
@@ -13,7 +15,7 @@ struct TestData {
     sums: Vec<ReportSumMsg>,
 }
 
-#[derive(Debug, derive_more::TryInto, derive_more::From)]
+#[derive(Debug, EnumTryInto, EnumFrom)]
 enum TestEvent {
     Request(SumRequest),
     Sum(ReportSumMsg),
