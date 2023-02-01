@@ -41,7 +41,7 @@ impl ColdStoreCommand {
             )
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
 
-            /// Before copying all blocks create a checkpoint and open it as hot db.
+            // Before copying all blocks create a checkpoint and open it as hot db.
             if let SubCommand::CopyAllBlocks(_) = self.subcmd {
                 near_config.config.store = create_checkpoint_for_cold_copy(
                     &near_config.config.store,

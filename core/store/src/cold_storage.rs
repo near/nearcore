@@ -160,7 +160,7 @@ pub fn create_checkpoint_for_cold_copy(
 
     let mut new_config = config.clone();
     new_config.path = Some(std::path::Path::new(&new_path).to_path_buf());
-    
+
     Ok(new_config)
 }
 
