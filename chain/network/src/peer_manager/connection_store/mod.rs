@@ -7,6 +7,11 @@ use crate::types::{ConnectionInfo, PeerInfo, PeerType};
 use near_primitives::network::PeerId;
 use std::collections::HashMap;
 
+#[cfg(test)]
+mod testonly;
+#[cfg(test)]
+mod tests;
+
 /// Size of the LRU cache of recent outbound connections.
 pub const OUTBOUND_CONNECTIONS_CACHE_SIZE: usize = 40;
 /// How long a connection should survive before being stored.
@@ -66,17 +71,17 @@ impl Inner {
 pub(crate) struct ConnectionStore(ArcMutex<Inner>);
 
 impl ConnectionStore {
-    pub fn new(store: store::Store) -> anyhow::Result<Self> {
+    pub(crate) fn new(store: store::Store) -> anyhow::Result<Self> {
         let outbound = store.get_recent_outbound_connections();
         let inner = Inner { store, outbound };
         Ok(ConnectionStore(ArcMutex::new(inner)))
     }
 
-    pub fn get_recent_outbound_connections(&self) -> Vec<ConnectionInfo> {
+    pub(crate) fn get_recent_outbound_connections(&self) -> Vec<ConnectionInfo> {
         return self.0.load().outbound.clone();
     }
 
-    pub fn remove_from_recent_outbound_connections(&self, peer_id: &PeerId) {
+    pub(crate) fn remove_from_recent_outbound_connections(&self, peer_id: &PeerId) {
         self.0.update(|mut inner| {
             inner.remove_outbound(peer_id);
             ((), inner)
@@ -85,7 +90,7 @@ impl ConnectionStore {
 
     /// Called upon closing a connection. Updates the connection store and returns a boolean
     /// indicating whether the connection should be re-established.
-    pub fn connection_closed(
+    pub(crate) fn connection_closed(
         &self,
         peer_info: &PeerInfo,
         peer_type: &PeerType,
@@ -107,15 +112,8 @@ impl ConnectionStore {
         return self.0.load().contains_outbound(&peer_info.id);
     }
 
-    fn insert_outbound_connections(&self, outbound: Vec<ConnectionInfo>) {
-        self.0.update(|mut inner| {
-            inner.insert_outbound(outbound);
-            ((), inner)
-        });
-    }
-
     /// Inserts information about live connections to the connection store.
-    pub fn update(&self, clock: &time::Clock, tier2: connection::Pool) {
+    pub(crate) fn update(&self, clock: &time::Clock, tier2: connection::Pool) {
         let now = clock.now();
         let now_utc = clock.now_utc();
 
@@ -138,6 +136,9 @@ impl ConnectionStore {
             });
         }
 
-        self.insert_outbound_connections(outbound);
+        self.0.update(|mut inner| {
+            inner.insert_outbound(outbound);
+            ((), inner)
+        });
     }
 }
