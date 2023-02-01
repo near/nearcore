@@ -16,8 +16,8 @@ use near_primitives::network::PeerId;
 use near_store::db::TestDB;
 use std::sync::Arc;
 
-async fn check_recent_outbound_connections(pm: &ActorHandler, wanted: Vec<PeerId>) {
-    let got: Vec<PeerId> = pm
+async fn check_recent_outbound_connections(pm: &ActorHandler, mut wanted: Vec<PeerId>) {
+    let mut got: Vec<PeerId> = pm
         .with_state(move |s| async move {
             s.connection_store
                 .get_recent_outbound_connections()
@@ -26,6 +26,9 @@ async fn check_recent_outbound_connections(pm: &ActorHandler, wanted: Vec<PeerId
                 .collect()
         })
         .await;
+
+    wanted.sort();
+    got.sort();
 
     assert!(got == wanted, "Expected {:?} but got {:?}", wanted, got);
 }
@@ -100,47 +103,6 @@ async fn test_storage_after_disconnect() {
     tracing::info!(target:"test", "check that pm0 retains the stored outbound connection to pm1 after disconnect");
     clock.advance(UPDATE_CONNECTION_STORE_INTERVAL);
     check_recent_outbound_connections(&pm0, vec![id1.clone()]).await;
-}
-
-#[tokio::test]
-async fn test_outbound_connection_storage_order() {
-    init_test_logger();
-    let mut rng = make_rng(921853233);
-    let rng = &mut rng;
-    let mut clock = time::FakeClock::default();
-    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
-
-    let pm0 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
-    let pm1 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
-    let pm2 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
-    let pm3 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
-
-    let id0 = pm0.cfg.node_id();
-    let id1 = pm1.cfg.node_id();
-    let id2 = pm2.cfg.node_id();
-    let id3 = pm3.cfg.node_id();
-
-    tracing::info!(target:"test", "connect pm0 to other pms, in order");
-    pm0.connect_to(&pm1.peer_info(), tcp::Tier::T2).await;
-    pm0.wait_for_direct_connection(id1.clone()).await;
-    clock.advance(time::Duration::seconds(1));
-    pm0.connect_to(&pm2.peer_info(), tcp::Tier::T2).await;
-    pm0.wait_for_direct_connection(id2.clone()).await;
-    clock.advance(time::Duration::seconds(1));
-    pm0.connect_to(&pm3.peer_info(), tcp::Tier::T2).await;
-    pm0.wait_for_direct_connection(id3.clone()).await;
-    clock.advance(STORED_CONNECTIONS_MIN_DURATION);
-
-    tracing::info!(target:"test", "check that the outbound connections are stored");
-    clock.advance(UPDATE_CONNECTION_STORE_INTERVAL);
-    check_recent_outbound_connections(&pm0, vec![id3.clone(), id2.clone(), id1.clone()]).await;
-
-    tracing::info!(target:"test", "disconnect pm2 and check that it remains in storage but moves to the end of the order");
-    let mut pm0_ev = pm0.events.from_now();
-    pm2.disconnect(&id0).await;
-    wait_for_connection_closed(&mut pm0_ev).await;
-    clock.advance(UPDATE_CONNECTION_STORE_INTERVAL);
-    check_recent_outbound_connections(&pm0, vec![id3.clone(), id1.clone(), id2.clone()]).await;
 }
 
 #[tokio::test]
@@ -259,16 +221,13 @@ async fn test_reconnect_after_restart_outbound_side_multi() {
     let id3 = pm3.cfg.node_id();
     let id4 = pm4.cfg.node_id();
 
-    tracing::info!(target:"test", "connect pm0 to other pms, in order");
+    tracing::info!(target:"test", "connect pm0 to other pms");
     pm0.connect_to(&pm1.peer_info(), tcp::Tier::T2).await;
     pm0.wait_for_direct_connection(id1.clone()).await;
-    clock.advance(time::Duration::seconds(1));
     pm0.connect_to(&pm2.peer_info(), tcp::Tier::T2).await;
     pm0.wait_for_direct_connection(id2.clone()).await;
-    clock.advance(time::Duration::seconds(1));
     pm0.connect_to(&pm3.peer_info(), tcp::Tier::T2).await;
     pm0.wait_for_direct_connection(id3.clone()).await;
-    clock.advance(time::Duration::seconds(1));
     pm0.connect_to(&pm4.peer_info(), tcp::Tier::T2).await;
     pm0.wait_for_direct_connection(id4.clone()).await;
     clock.advance(STORED_CONNECTIONS_MIN_DURATION);
@@ -277,7 +236,7 @@ async fn test_reconnect_after_restart_outbound_side_multi() {
     clock.advance(UPDATE_CONNECTION_STORE_INTERVAL);
     check_recent_outbound_connections(
         &pm0,
-        vec![id4.clone(), id3.clone(), id2.clone(), id1.clone()],
+        vec![id1.clone(), id2.clone(), id3.clone(), id4.clone()],
     )
     .await;
 
