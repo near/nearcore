@@ -2,6 +2,8 @@ use near_crypto::key_conversion::is_valid_staking_key;
 use near_primitives::checked_feature;
 use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::types::BlockHeight;
+#[cfg(feature = "protocol_feature_nep366_delegate_action")]
+use near_primitives::version::ProtocolFeature;
 use near_primitives::{
     account::AccessKeyPermission,
     config::VMLimitConfig,
@@ -422,6 +424,7 @@ pub(crate) fn validate_actions(
                 ) {
                     return Err(ActionsValidationError::UnsupportedProtocolFeature {
                         protocol_feature: String::from("DelegateAction"),
+                        version: ProtocolFeature::DelegateAction.protocol_version(),
                     });
                 }
                 if found_delegate_action {

@@ -896,7 +896,8 @@
       "name": "UnsupportedProtocolFeature",
       "subtypes": [],
       "props": {
-        "protocol_feature": ""
+        "protocol_feature": "",
+        "version": ""
       }
     },
     "Closed": {

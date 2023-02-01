@@ -68,11 +68,11 @@ fn reject_valid_meta_tx_in_older_versions() {
                 FinalExecutionStatus::Failure(
                     TxExecutionError::InvalidTxError(
                         InvalidTxError::ActionsValidation(
-                            ActionsValidationError::UnsupportedProtocolFeature{ protocol_feature }
+                            ActionsValidationError::UnsupportedProtocolFeature{ protocol_feature, version }
                         )
                     )
                 )
-                if protocol_feature == "DelegateAction"
+                if protocol_feature == "DelegateAction" && *version == ProtocolFeature::DelegateAction.protocol_version()
         ),
         "{status:?}",
     );

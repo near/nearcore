@@ -2,6 +2,7 @@ use crate::serialize::dec_format;
 use crate::types::{AccountId, Balance, EpochId, Gas, Nonce};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
+use near_primitives_core::types::ProtocolVersion;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Display};
 
@@ -208,7 +209,7 @@ pub enum ActionsValidationError {
     /// Note: we stringify the protocol feature name instead of using
     /// `ProtocolFeature` here because we don't want to leak the internals of
     /// that type into observable borsh serialization.
-    UnsupportedProtocolFeature { protocol_feature: String },
+    UnsupportedProtocolFeature { protocol_feature: String, version: ProtocolVersion },
 }
 
 /// Describes the error for validating a receipt.
@@ -333,10 +334,11 @@ impl Display for ActionsValidationError {
                 f,
                 "The actions can contain the ony one DelegateAction"
             ),
-            ActionsValidationError::UnsupportedProtocolFeature { protocol_feature } => write!(
+            ActionsValidationError::UnsupportedProtocolFeature { protocol_feature, version } => write!(
                     f,
-                    "Transaction requires protocol feature {} which is not supported by the current protocol version",
-                    protocol_feature
+                    "Transaction requires protocol feature {} / version {} which is not supported by the current protocol version",
+                    protocol_feature,
+                    version,
             ),
         }
     }
