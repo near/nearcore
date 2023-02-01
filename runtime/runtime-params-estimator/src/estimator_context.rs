@@ -19,6 +19,8 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
 
+const FLAT_STATE_HEAD: CryptoHash = CryptoHash::default();
+
 /// Global context shared by all cost calculating functions.
 pub(crate) struct EstimatorContext<'c> {
     pub(crate) config: &'c Config,
@@ -137,6 +139,8 @@ impl<'c> EstimatorContext<'c> {
 
     #[cfg(feature = "protocol_feature_flat_state")]
     fn create_flat_state_factory(store: Store) -> FlatStateFactory {
+        // function-level `use` statements here to avoid `unused import` warning
+        // when flat state feature is disabled
         use near_primitives::hash::CryptoHash;
         use near_primitives::types::BlockHeight;
         use near_store::flat_state::{
@@ -162,7 +166,7 @@ impl<'c> EstimatorContext<'c> {
         let shard_id = 0;
         let block_height = 0;
         let mut store_update = store.store_update();
-        store_helper::set_flat_head(&mut store_update, shard_id, &Default::default());
+        store_helper::set_flat_head(&mut store_update, shard_id, &FLAT_STATE_HEAD);
         store_update.commit().expect("failed to set flat head");
         let factory = FlatStateFactory::new(store.clone());
         let flat_storage_state =
@@ -387,7 +391,7 @@ impl Testbed<'_> {
         self.tries.get_trie_with_block_hash_for_shard(
             ShardUId::single_shard(),
             self.root.clone(),
-            &Default::default(),
+            &FLAT_STATE_HEAD,
         )
     }
 }
