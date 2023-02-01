@@ -77,16 +77,16 @@ fn test_bls12_381_verify_valid() {
     let hex_convert_error_msg = "Error during converting hex string to bytes";
 
     // Data from `fast_aggregate_verify/fast_aggregate_verify_valid_652ce62f09290811.yaml`
-    let signature: Vec<u8> = <Vec<u8>>::from_hex("912c3615f69575407db9392eb21fee18fff797eeb2fbe1816366ca2a08ae574d8824dbfafb4c9eaa1cf61b63c6f9b69911f269b664c42947dd1b53ef1081926c1e82bb2a465f927124b08391a5249036146d6f3f1e17ff5f162f779746d830d1").expect(hex_convert_error_msg);
-    let message: Vec<u8> =
+    let signature = <Vec<u8>>::from_hex("912c3615f69575407db9392eb21fee18fff797eeb2fbe1816366ca2a08ae574d8824dbfafb4c9eaa1cf61b63c6f9b69911f269b664c42947dd1b53ef1081926c1e82bb2a465f927124b08391a5249036146d6f3f1e17ff5f162f779746d830d1").expect(hex_convert_error_msg);
+    let message =
         <Vec<u8>>::from_hex("5656565656565656565656565656565656565656565656565656565656565656")
             .expect(hex_convert_error_msg);
-    let pubkeys: Vec<Vec<u8>> = vec![
+    let pubkeys = vec![
         <Vec<u8>>::from_hex("a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a").expect(hex_convert_error_msg),
         <Vec<u8>>::from_hex("b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81").expect(hex_convert_error_msg)
     ];
 
-    let pubkeys_raw: Vec<u8> = pubkeys.concat();
+    let pubkeys_raw = pubkeys.concat();
 
     check_bls12_381_verify(
         signature.len() as u64,
@@ -106,15 +106,15 @@ fn test_bls12_381_verify_valid() {
     );
 
     // Data from `fast_aggregate_verify/fast_aggregate_verify_valid_5e745ad0c6199a6c.yaml`
-    let signature: Vec<u8> = <Vec<u8>>::from_hex("b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55").expect(hex_convert_error_msg);
-    let message: Vec<u8> =
+    let signature = <Vec<u8>>::from_hex("b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55").expect(hex_convert_error_msg);
+    let message =
         <Vec<u8>>::from_hex("0000000000000000000000000000000000000000000000000000000000000000")
             .expect(hex_convert_error_msg);
-    let pubkeys: Vec<Vec<u8>> = vec![
+    let pubkeys = vec![
         <Vec<u8>>::from_hex("a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a").expect(hex_convert_error_msg),
     ];
 
-    let pubkeys_raw: Vec<u8> = pubkeys.concat();
+    let pubkeys_raw = pubkeys.concat();
 
     check_bls12_381_verify(
         signature.len() as u64,
@@ -134,17 +134,17 @@ fn test_bls12_381_verify_valid() {
     );
 
     // Data from `fast_aggregate_verify/fast_aggregate_verify_valid_3d7576f3c0e3570a.yaml`
-    let signature: Vec<u8> = <Vec<u8>>::from_hex("9712c3edd73a209c742b8250759db12549b3eaf43b5ca61376d9f30e2747dbcf842d8b2ac0901d2a093713e20284a7670fcf6954e9ab93de991bb9b313e664785a075fc285806fa5224c82bde146561b446ccfc706a64b8579513cfc4ff1d930").expect(hex_convert_error_msg);
-    let message: Vec<u8> =
+    let signature = <Vec<u8>>::from_hex("9712c3edd73a209c742b8250759db12549b3eaf43b5ca61376d9f30e2747dbcf842d8b2ac0901d2a093713e20284a7670fcf6954e9ab93de991bb9b313e664785a075fc285806fa5224c82bde146561b446ccfc706a64b8579513cfc4ff1d930").expect(hex_convert_error_msg);
+    let message =
         <Vec<u8>>::from_hex("abababababababababababababababababababababababababababababababab")
             .expect(hex_convert_error_msg);
-    let pubkeys: Vec<Vec<u8>> = vec![
+    let pubkeys = vec![
         <Vec<u8>>::from_hex("a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a").expect(hex_convert_error_msg),
         <Vec<u8>>::from_hex("b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81").expect(hex_convert_error_msg),
         <Vec<u8>>::from_hex("b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f").expect(hex_convert_error_msg),
     ];
 
-    let pubkeys_raw: Vec<u8> = pubkeys.concat();
+    let pubkeys_raw = pubkeys.concat();
 
     check_bls12_381_verify(
         signature.len() as u64,
@@ -171,11 +171,11 @@ fn test_bls12_381_verify_valid() {
 fn test_bls12_381_verify_aggregate_valid() {
     let hex_convert_error_msg = "Error during converting hex string to bytes";
 
-    let signature: Vec<u8> = <Vec<u8>>::from_hex("9712c3edd73a209c742b8250759db12549b3eaf43b5ca61376d9f30e2747dbcf842d8b2ac0901d2a093713e20284a7670fcf6954e9ab93de991bb9b313e664785a075fc285806fa5224c82bde146561b446ccfc706a64b8579513cfc4ff1d930").expect(hex_convert_error_msg);
-    let message: Vec<u8> =
+    let signature = <Vec<u8>>::from_hex("9712c3edd73a209c742b8250759db12549b3eaf43b5ca61376d9f30e2747dbcf842d8b2ac0901d2a093713e20284a7670fcf6954e9ab93de991bb9b313e664785a075fc285806fa5224c82bde146561b446ccfc706a64b8579513cfc4ff1d930").expect(hex_convert_error_msg);
+    let message =
         <Vec<u8>>::from_hex("abababababababababababababababababababababababababababababababab")
             .expect(hex_convert_error_msg);
-    let pubkeys_raw: Vec<Vec<u8>> = vec![
+    let pubkeys_raw= vec![
         <Vec<u8>>::from_hex("a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a").expect(hex_convert_error_msg),
         <Vec<u8>>::from_hex("b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81").expect(hex_convert_error_msg),
         <Vec<u8>>::from_hex("b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f").expect(hex_convert_error_msg),
@@ -229,16 +229,16 @@ fn test_bls12_381_verify_tampered_signature() {
     let hex_convert_error_msg = "Error during converting hex string to bytes";
 
     // Data from `fast_aggregate_verify/fast_aggregate_verify_tampered_signature_652ce62f09290811.yaml`
-    let signature: Vec<u8> = <Vec<u8>>::from_hex("912c3615f69575407db9392eb21fee18fff797eeb2fbe1816366ca2a08ae574d8824dbfafb4c9eaa1cf61b63c6f9b69911f269b664c42947dd1b53ef1081926c1e82bb2a465f927124b08391a5249036146d6f3f1e17ff5f162f7797ffffffff").expect(hex_convert_error_msg);
-    let message: Vec<u8> =
+    let signature = <Vec<u8>>::from_hex("912c3615f69575407db9392eb21fee18fff797eeb2fbe1816366ca2a08ae574d8824dbfafb4c9eaa1cf61b63c6f9b69911f269b664c42947dd1b53ef1081926c1e82bb2a465f927124b08391a5249036146d6f3f1e17ff5f162f7797ffffffff").expect(hex_convert_error_msg);
+    let message =
         <Vec<u8>>::from_hex("5656565656565656565656565656565656565656565656565656565656565656")
             .expect(hex_convert_error_msg);
-    let pubkeys: Vec<Vec<u8>> = vec![
+    let pubkeys = vec![
         <Vec<u8>>::from_hex("a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a").expect(hex_convert_error_msg),
         <Vec<u8>>::from_hex("b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81").expect(hex_convert_error_msg),
     ];
 
-    let pubkeys_raw: Vec<u8> = pubkeys.concat();
+    let pubkeys_raw = pubkeys.concat();
 
     check_bls12_381_verify(
         signature.len() as u64,
@@ -258,15 +258,15 @@ fn test_bls12_381_verify_tampered_signature() {
     );
 
     // Data from `fast_aggregate_verify/fast_aggregate_verify_tampered_signature_5e745ad0c6199a6c.yaml`
-    let signature: Vec<u8> = <Vec<u8>>::from_hex("b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380bffffffff").expect(hex_convert_error_msg);
-    let message: Vec<u8> =
+    let signature = <Vec<u8>>::from_hex("b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380bffffffff").expect(hex_convert_error_msg);
+    let message =
         <Vec<u8>>::from_hex("0000000000000000000000000000000000000000000000000000000000000000")
             .expect(hex_convert_error_msg);
-    let pubkeys: Vec<Vec<u8>> = vec![
+    let pubkeys = vec![
         <Vec<u8>>::from_hex("a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a").expect(hex_convert_error_msg),
     ];
 
-    let pubkeys_raw: Vec<u8> = pubkeys.concat();
+    let pubkeys_raw = pubkeys.concat();
 
     check_bls12_381_verify(
         signature.len() as u64,
@@ -286,18 +286,17 @@ fn test_bls12_381_verify_tampered_signature() {
     );
 
     // Data from `fast_aggregate_verify/fast_aggregate_verify_tampered_signature_3d7576f3c0e3570a.yaml`
-    let signature: Vec<u8> = <Vec<u8>>::from_hex("9712c3edd73a209c742b8250759db12549b3eaf43b5ca61376d9f30e2747dbcf842d8b2ac0901d2a093713e20284a7670fcf6954e9ab93de991bb9b313e664785a075fc285806fa5224c82bde146561b446ccfc706a64b8579513cfcffffffff").expect(hex_convert_error_msg);
-    let message: Vec<u8> =
+    let signature = <Vec<u8>>::from_hex("9712c3edd73a209c742b8250759db12549b3eaf43b5ca61376d9f30e2747dbcf842d8b2ac0901d2a093713e20284a7670fcf6954e9ab93de991bb9b313e664785a075fc285806fa5224c82bde146561b446ccfc706a64b8579513cfcffffffff").expect(hex_convert_error_msg);
+    let message =
         <Vec<u8>>::from_hex("abababababababababababababababababababababababababababababababab")
             .expect(hex_convert_error_msg);
-    let pubkeys: Vec<Vec<u8>> = vec![
+    let pubkeys = vec![
         <Vec<u8>>::from_hex("a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a").expect(hex_convert_error_msg),
         <Vec<u8>>::from_hex("b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81").expect(hex_convert_error_msg),
         <Vec<u8>>::from_hex("b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f").expect(hex_convert_error_msg),
-
     ];
 
-    let pubkeys_raw: Vec<u8> = pubkeys.concat();
+    let pubkeys_raw = pubkeys.concat();
 
     check_bls12_381_verify(
         signature.len() as u64,
@@ -324,13 +323,13 @@ fn test_bls12_381_verify_tampered_signature() {
 fn test_bls12_381_verify_na_pubkeys_and_na_signature() {
     let hex_convert_error_msg = "Error during converting hex string to bytes";
 
-    let signature: Vec<u8> = <Vec<u8>>::from_hex("000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000").expect(hex_convert_error_msg);
-    let message: Vec<u8> =
+    let signature = <Vec<u8>>::from_hex("000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000").expect(hex_convert_error_msg);
+    let message =
         <Vec<u8>>::from_hex("abababababababababababababababababababababababababababababababab")
             .expect(hex_convert_error_msg);
     let pubkeys: Vec<Vec<u8>> = vec![];
 
-    let pubkeys_raw: Vec<u8> = pubkeys.concat();
+    let pubkeys_raw = pubkeys.concat();
 
     check_bls12_381_verify(
         signature.len() as u64,
@@ -357,13 +356,13 @@ fn test_bls12_381_verify_na_pubkeys_and_na_signature() {
 fn test_bls12_381_verify_na_pubkeys_and_infinity_signature() {
     let hex_convert_error_msg = "Error during converting hex string to bytes";
 
-    let signature: Vec<u8> = <Vec<u8>>::from_hex("c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000").expect(hex_convert_error_msg);
-    let message: Vec<u8> =
+    let signature = <Vec<u8>>::from_hex("c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000").expect(hex_convert_error_msg);
+    let message =
         <Vec<u8>>::from_hex("abababababababababababababababababababababababababababababababab")
             .expect(hex_convert_error_msg);
     let pubkeys: Vec<Vec<u8>> = vec![];
 
-    let pubkeys_raw: Vec<u8> = pubkeys.concat();
+    let pubkeys_raw = pubkeys.concat();
 
     check_bls12_381_verify(
         signature.len() as u64,
@@ -390,18 +389,18 @@ fn test_bls12_381_verify_na_pubkeys_and_infinity_signature() {
 fn test_bls12_381_verify_infinity_pubkey() {
     let hex_convert_error_msg = "Error during converting hex string to bytes";
 
-    let signature: Vec<u8> = <Vec<u8>>::from_hex("afcb4d980f079265caa61aee3e26bf48bebc5dc3e7f2d7346834d76cbc812f636c937b6b44a9323d8bc4b1cdf71d6811035ddc2634017faab2845308f568f2b9a0356140727356eae9eded8b87fd8cb8024b440c57aee06076128bb32921f584").expect(hex_convert_error_msg);
-    let message: Vec<u8> =
+    let signature = <Vec<u8>>::from_hex("afcb4d980f079265caa61aee3e26bf48bebc5dc3e7f2d7346834d76cbc812f636c937b6b44a9323d8bc4b1cdf71d6811035ddc2634017faab2845308f568f2b9a0356140727356eae9eded8b87fd8cb8024b440c57aee06076128bb32921f584").expect(hex_convert_error_msg);
+    let message =
         <Vec<u8>>::from_hex("1212121212121212121212121212121212121212121212121212121212121212")
             .expect(hex_convert_error_msg);
-    let pubkeys: Vec<Vec<u8>> = vec![
+    let pubkeys = vec![
         <Vec<u8>>::from_hex("a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a").expect(hex_convert_error_msg),
         <Vec<u8>>::from_hex("b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81").expect(hex_convert_error_msg),
         <Vec<u8>>::from_hex("b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f").expect(hex_convert_error_msg),
         <Vec<u8>>::from_hex("c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000").expect(hex_convert_error_msg),
     ];
 
-    let pubkeys_raw: Vec<u8> = pubkeys.concat();
+    let pubkeys_raw = pubkeys.concat();
 
     check_bls12_381_verify(
         signature.len() as u64,
@@ -431,16 +430,16 @@ fn test_bls12_381_verify_extra_pubkey() {
     let hex_convert_error_msg = "Error during converting hex string to bytes";
 
     // Data from `fast_aggregate_verify/fast_aggregate_verify_extra_pubkey_a698ea45b109f303.yaml`
-    let signature: Vec<u8> = <Vec<u8>>::from_hex("b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55").expect(hex_convert_error_msg);
-    let message: Vec<u8> =
+    let signature = <Vec<u8>>::from_hex("b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55").expect(hex_convert_error_msg);
+    let message =
         <Vec<u8>>::from_hex("0000000000000000000000000000000000000000000000000000000000000000")
             .expect(hex_convert_error_msg);
-    let pubkeys: Vec<Vec<u8>> = vec![
+    let pubkeys = vec![
         <Vec<u8>>::from_hex("a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a").expect(hex_convert_error_msg),
         <Vec<u8>>::from_hex("b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f").expect(hex_convert_error_msg),
     ];
 
-    let pubkeys_raw: Vec<u8> = pubkeys.concat();
+    let pubkeys_raw = pubkeys.concat();
 
     check_bls12_381_verify(
         signature.len() as u64,
@@ -460,18 +459,18 @@ fn test_bls12_381_verify_extra_pubkey() {
     );
 
     // Data from `fast_aggregate_verify/fast_aggregate_verify_extra_pubkey_5a38e6b4017fe4dd.yaml`
-    let signature: Vec<u8> = <Vec<u8>>::from_hex("9712c3edd73a209c742b8250759db12549b3eaf43b5ca61376d9f30e2747dbcf842d8b2ac0901d2a093713e20284a7670fcf6954e9ab93de991bb9b313e664785a075fc285806fa5224c82bde146561b446ccfc706a64b8579513cfc4ff1d930").expect(hex_convert_error_msg);
-    let message: Vec<u8> =
+    let signature = <Vec<u8>>::from_hex("9712c3edd73a209c742b8250759db12549b3eaf43b5ca61376d9f30e2747dbcf842d8b2ac0901d2a093713e20284a7670fcf6954e9ab93de991bb9b313e664785a075fc285806fa5224c82bde146561b446ccfc706a64b8579513cfc4ff1d930").expect(hex_convert_error_msg);
+    let message =
         <Vec<u8>>::from_hex("abababababababababababababababababababababababababababababababab")
             .expect(hex_convert_error_msg);
-    let pubkeys: Vec<Vec<u8>> = vec![
+    let pubkeys = vec![
         <Vec<u8>>::from_hex("a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a").expect(hex_convert_error_msg),
         <Vec<u8>>::from_hex("b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81").expect(hex_convert_error_msg),
         <Vec<u8>>::from_hex("b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f").expect(hex_convert_error_msg),
         <Vec<u8>>::from_hex("b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f").expect(hex_convert_error_msg),
     ];
 
-    let pubkeys_raw: Vec<u8> = pubkeys.concat();
+    let pubkeys_raw = pubkeys.concat();
 
     check_bls12_381_verify(
         signature.len() as u64,
@@ -491,17 +490,17 @@ fn test_bls12_381_verify_extra_pubkey() {
     );
 
     // Data from `fast_aggregate_verify/fast_aggregate_verify_extra_pubkey_4f079f946446fabf.yaml`
-    let signature: Vec<u8> = <Vec<u8>>::from_hex("912c3615f69575407db9392eb21fee18fff797eeb2fbe1816366ca2a08ae574d8824dbfafb4c9eaa1cf61b63c6f9b69911f269b664c42947dd1b53ef1081926c1e82bb2a465f927124b08391a5249036146d6f3f1e17ff5f162f779746d830d1").expect(hex_convert_error_msg);
-    let message: Vec<u8> =
+    let signature = <Vec<u8>>::from_hex("912c3615f69575407db9392eb21fee18fff797eeb2fbe1816366ca2a08ae574d8824dbfafb4c9eaa1cf61b63c6f9b69911f269b664c42947dd1b53ef1081926c1e82bb2a465f927124b08391a5249036146d6f3f1e17ff5f162f779746d830d1").expect(hex_convert_error_msg);
+    let message =
         <Vec<u8>>::from_hex("5656565656565656565656565656565656565656565656565656565656565656")
             .expect(hex_convert_error_msg);
-    let pubkeys: Vec<Vec<u8>> = vec![
+    let pubkeys = vec![
         <Vec<u8>>::from_hex("a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a").expect(hex_convert_error_msg),
         <Vec<u8>>::from_hex("b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81").expect(hex_convert_error_msg),
         <Vec<u8>>::from_hex("b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f").expect(hex_convert_error_msg),
     ];
 
-    let pubkeys_raw: Vec<u8> = pubkeys.concat();
+    let pubkeys_raw = pubkeys.concat();
 
     check_bls12_381_verify(
         signature.len() as u64,
