@@ -3,6 +3,7 @@ use crate::config::{Config, GasMetric};
 use crate::gas_cost::GasCost;
 use genesis_populate::get_account_id;
 use genesis_populate::state_dump::StateDump;
+use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
@@ -141,7 +142,6 @@ impl<'c> EstimatorContext<'c> {
     fn create_flat_state_factory(store: Store) -> FlatStateFactory {
         // function-level `use` statements here to avoid `unused import` warning
         // when flat state feature is disabled
-        use near_primitives::hash::CryptoHash;
         use near_primitives::types::BlockHeight;
         use near_store::flat_state::{
             store_helper, BlockInfo, ChainAccessForFlatStorage, FlatStorageState,
