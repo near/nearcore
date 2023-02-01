@@ -503,7 +503,7 @@ impl BatchTransaction {
 
             self.size = 0;
         }
-        if self.handles.len() > 10000 {
+        if self.handles.len() > 10 {
             self.join_writes();
         }
         Ok(())
