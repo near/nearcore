@@ -65,7 +65,7 @@ fn test_multiple_connections_to_same_peer() {
 
     let now_utc = clock.now_utc();
 
-    // create and store a connection
+    tracing::debug!(target:"test", "create and store a connection");
     let conn_info_a = ConnectionInfo {
         peer_info: gen_peer_info(0),
         time_established: now_utc - time::Duration::hours(1),
@@ -73,7 +73,7 @@ fn test_multiple_connections_to_same_peer() {
     };
     connection_store.insert_outbound_connections(vec![conn_info_a.clone()]);
 
-    // push a second connection with the same peer but different data
+    tracing::debug!(target:"test", "push a second connection with the same peer but different data");
     let conn_info_b = ConnectionInfo {
         peer_info: conn_info_a.peer_info,
         time_established: now_utc - time::Duration::hours(2),
@@ -81,7 +81,7 @@ fn test_multiple_connections_to_same_peer() {
     };
     connection_store.insert_outbound_connections(vec![conn_info_b.clone()]);
 
-    // check that precisely the second connection is present (and not the first)
+    tracing::debug!(target:"test", "check that precisely the second connection is present (and not the first)");
     assert!(connection_store.get_recent_outbound_connections() == vec![conn_info_b.clone()]);
 }
 
@@ -94,7 +94,7 @@ fn test_evict_longest_disconnected() {
 
     let now_utc = clock.now_utc();
 
-    // create and store live connections up to the ConnectionStore limit
+    tracing::debug!(target:"test", "create and store live connections up to the ConnectionStore limit");
     let mut conn_infos = vec![];
     for i in 0..OUTBOUND_CONNECTIONS_CACHE_SIZE {
         conn_infos.push(ConnectionInfo {
@@ -105,7 +105,7 @@ fn test_evict_longest_disconnected() {
     }
     connection_store.insert_outbound_connections(conn_infos.clone());
 
-    // remove one of the connections, advance the clock and update the connection_store
+    tracing::debug!(target:"test", "remove one of the connections, advance the clock and update the connection_store");
     conn_infos.remove(rand::thread_rng().gen_range(0..OUTBOUND_CONNECTIONS_CACHE_SIZE));
     clock.advance(time::Duration::hours(1));
     let now_utc = clock.now_utc();
@@ -114,7 +114,7 @@ fn test_evict_longest_disconnected() {
     }
     connection_store.insert_outbound_connections(conn_infos.clone());
 
-    // insert a new connection
+    tracing::debug!(target:"test", "insert a new connection");
     let conn = ConnectionInfo {
         peer_info: gen_peer_info(OUTBOUND_CONNECTIONS_CACHE_SIZE.try_into().unwrap()),
         time_established: now_utc - time::Duration::hours(1),
@@ -123,6 +123,6 @@ fn test_evict_longest_disconnected() {
     connection_store.insert_outbound_connections(vec![conn.clone()]);
     conn_infos.push(conn);
 
-    // check that the store contains exactly the expected connections
+    tracing::debug!(target:"test", "check that the store contains exactly the expected connections");
     check_outbound_connections(&connection_store, &conn_infos);
 }
