@@ -1,10 +1,10 @@
+use crate::concurrency::arc_mutex::ArcMutex;
 use crate::peer::peer_actor::ClosingReason;
 use crate::peer_manager::connection;
 use crate::store;
 use crate::time;
 use crate::types::{ConnectionInfo, PeerInfo, PeerType};
 use near_primitives::network::PeerId;
-use parking_lot::Mutex;
 use std::collections::HashMap;
 
 /// Size of the LRU cache of recent outbound connections.
@@ -12,6 +12,7 @@ pub const OUTBOUND_CONNECTIONS_CACHE_SIZE: usize = 40;
 /// How long a connection should survive before being stored.
 pub(crate) const STORED_CONNECTIONS_MIN_DURATION: time::Duration = time::Duration::minutes(10);
 
+#[derive(Clone)]
 struct Inner {
     store: store::Store,
     outbound: Vec<ConnectionInfo>,
@@ -62,21 +63,24 @@ impl Inner {
     }
 }
 
-pub(crate) struct ConnectionStore(Mutex<Inner>);
+pub(crate) struct ConnectionStore(ArcMutex<Inner>);
 
 impl ConnectionStore {
     pub fn new(store: store::Store) -> anyhow::Result<Self> {
         let outbound = store.get_recent_outbound_connections();
         let inner = Inner { store, outbound };
-        Ok(ConnectionStore(Mutex::new(inner)))
+        Ok(ConnectionStore(ArcMutex::new(inner)))
     }
 
     pub fn get_recent_outbound_connections(&self) -> Vec<ConnectionInfo> {
-        return self.0.lock().outbound.clone();
+        return self.0.load().outbound.clone();
     }
 
     pub fn remove_from_recent_outbound_connections(&self, peer_id: &PeerId) {
-        self.0.lock().remove_outbound(peer_id);
+        self.0.update(|mut inner| {
+            inner.remove_outbound(peer_id);
+            ((), inner)
+        });
     }
 
     /// Called upon closing a connection. Updates the connection store and returns a boolean
@@ -94,10 +98,13 @@ impl ConnectionStore {
         if reason.remove_from_recent_outbound_connections() {
             // If the outbound connection closed for a reason which indicates we should not
             // re-establish the connection, remove it from the connection store.
-            self.0.lock().remove_outbound(&peer_info.id);
+            self.0.update(|mut inner| {
+                inner.remove_outbound(&peer_info.id);
+                ((), inner)
+            });
         }
 
-        return self.0.lock().contains_outbound(&peer_info.id);
+        return self.0.load().contains_outbound(&peer_info.id);
     }
 
     /// Inserts information about live connections to the connection store.
@@ -124,6 +131,9 @@ impl ConnectionStore {
             });
         }
 
-        self.0.lock().insert_outbound(outbound);
+        self.0.update(|mut inner| {
+            inner.insert_outbound(outbound);
+            ((), inner)
+        });
     }
 }
