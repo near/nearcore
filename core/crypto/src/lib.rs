@@ -1,3 +1,5 @@
+#![deny(clippy::integer_arithmetic)]
+
 pub use errors::{ParseKeyError, ParseKeyTypeError, ParseSignatureError};
 pub use key_file::KeyFile;
 pub use signature::{

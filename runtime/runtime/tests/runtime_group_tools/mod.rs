@@ -148,7 +148,7 @@ pub struct RuntimeMailbox {
 }
 
 impl RuntimeMailbox {
-    pub fn is_emtpy(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.incoming_receipts.is_empty() && self.incoming_transactions.is_empty()
     }
 }
@@ -273,10 +273,10 @@ impl RuntimeGroup {
 
                 let mut mailboxes = group.mailboxes.0.lock().unwrap();
                 loop {
-                    if !mailboxes.get(&account_id).unwrap().is_emtpy() {
+                    if !mailboxes.get(&account_id).unwrap().is_empty() {
                         break;
                     }
-                    if mailboxes.values().all(|m| m.is_emtpy()) {
+                    if mailboxes.values().all(|m| m.is_empty()) {
                         return;
                     }
                     mailboxes = group.mailboxes.1.wait(mailboxes).unwrap();

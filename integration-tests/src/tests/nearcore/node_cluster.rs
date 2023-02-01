@@ -5,7 +5,8 @@ use futures::future;
 use near_actix_test_utils::{run_actix, spawn_interruptible};
 use near_chain_configs::Genesis;
 use near_client::{ClientActor, ViewClientActor};
-use near_network::test_utils::{convert_boot_nodes, open_port};
+use near_network::tcp;
+use near_network::test_utils::convert_boot_nodes;
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::types::{BlockHeight, BlockHeightDelta, NumSeats, NumShards};
 use nearcore::{config::GenesisExt, load_test_config, start_with_config};
@@ -33,19 +34,19 @@ fn start_nodes(
 
     let validators = (0..num_validator_seats).map(|i| format!("near.{}", i)).collect::<Vec<_>>();
     let mut near_configs = vec![];
-    let first_node = open_port();
+    let first_node = tcp::ListenerAddr::reserve_for_test();
     let mut rpc_addrs = vec![];
     for i in 0..num_nodes {
         let mut near_config = load_test_config(
             validators.get(i as usize).map(String::as_str).unwrap_or(""),
-            if i == 0 { first_node } else { open_port() },
+            if i == 0 { first_node } else { tcp::ListenerAddr::reserve_for_test() },
             genesis.clone(),
         );
         rpc_addrs.push(near_config.rpc_addr().unwrap().to_owned());
         near_config.client_config.min_num_peers = (num_nodes as usize) - 1;
         if i > 0 {
             near_config.network_config.peer_store.boot_nodes =
-                convert_boot_nodes(vec![("near.0", first_node)]);
+                convert_boot_nodes(vec![("near.0", *first_node)]);
         }
         // if non validator, track all shards
         if i >= num_validator_seats && i < num_tracking_nodes {

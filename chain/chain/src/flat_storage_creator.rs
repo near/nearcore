@@ -9,7 +9,7 @@
 //! `CatchingUp`: moves flat storage head forward, so it may reach chain final head.
 //! `Ready`: flat storage is created and it is up-to-date.
 
-use crate::{ChainStore, ChainStoreAccess, RuntimeAdapter};
+use crate::{ChainStore, ChainStoreAccess, RuntimeWithEpochManagerAdapter};
 #[cfg(feature = "protocol_feature_flat_state")]
 use assert_matches::assert_matches;
 use crossbeam_channel::{unbounded, Receiver, Sender};
@@ -64,7 +64,7 @@ pub struct FlatStorageShardCreator {
     #[allow(unused)]
     start_height: BlockHeight,
     #[allow(unused)]
-    runtime_adapter: Arc<dyn RuntimeAdapter>,
+    runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
     /// Tracks number of state parts which are not fetched yet during a single step.
     /// Stores Some(parts) if threads for fetching state were spawned and None otherwise.
     #[allow(unused)]
@@ -87,7 +87,7 @@ impl FlatStorageShardCreator {
     pub fn new(
         shard_id: ShardId,
         start_height: BlockHeight,
-        runtime_adapter: Arc<dyn RuntimeAdapter>,
+        runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
     ) -> Self {
         let (fetched_parts_sender, fetched_parts_receiver) = unbounded();
         // `itoa` is much faster for printing shard_id to a string than trivial alternatives.
@@ -411,7 +411,7 @@ impl FlatStorageCreator {
     /// or starts migration to flat storage which updates DB in background and creates flat storage afterwards.
     pub fn new(
         me: Option<&AccountId>,
-        runtime_adapter: Arc<dyn RuntimeAdapter>,
+        runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
         chain_store: &ChainStore,
         num_threads: usize,
     ) -> Result<Option<Self>, Error> {

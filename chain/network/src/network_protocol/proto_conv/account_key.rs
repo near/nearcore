@@ -5,6 +5,7 @@ use crate::network_protocol::proto;
 use crate::network_protocol::proto::account_key_payload::Payload_type as ProtoPT;
 use crate::network_protocol::{
     AccountData, AccountKeySignedPayload, OwnedAccount, SignedAccountData, SignedOwnedAccount,
+    VersionedAccountData,
 };
 use protobuf::{Message as _, MessageField as MF};
 
@@ -23,8 +24,8 @@ pub enum ParseAccountDataError {
 }
 
 // TODO: consider whether to introduce an intermediate AccountKeyPayload enum.
-impl From<&AccountData> for proto::AccountKeyPayload {
-    fn from(x: &AccountData) -> Self {
+impl From<&VersionedAccountData> for proto::AccountKeyPayload {
+    fn from(x: &VersionedAccountData) -> Self {
         Self {
             payload_type: Some(ProtoPT::AccountData(proto::AccountData {
                 peer_id: MF::some((&x.peer_id).into()),
@@ -39,7 +40,7 @@ impl From<&AccountData> for proto::AccountKeyPayload {
     }
 }
 
-impl TryFrom<&proto::AccountKeyPayload> for AccountData {
+impl TryFrom<&proto::AccountKeyPayload> for VersionedAccountData {
     type Error = ParseAccountDataError;
     fn try_from(x: &proto::AccountKeyPayload) -> Result<Self, Self::Error> {
         let x = match x.payload_type.as_ref().ok_or(Self::Error::BadPayloadType)? {
@@ -47,9 +48,11 @@ impl TryFrom<&proto::AccountKeyPayload> for AccountData {
             _ => return Err(Self::Error::BadPayloadType),
         };
         Ok(Self {
-            peer_id: try_from_required(&x.peer_id).map_err(Self::Error::PeerId)?,
+            data: AccountData {
+                peer_id: try_from_required(&x.peer_id).map_err(Self::Error::PeerId)?,
+                proxies: try_from_slice(&x.proxies).map_err(Self::Error::Peers)?,
+            },
             account_key: try_from_required(&x.account_key).map_err(Self::Error::AccountKey)?,
-            proxies: try_from_slice(&x.proxies).map_err(Self::Error::Peers)?,
             version: x.version,
             timestamp: map_from_required(&x.timestamp, utc_from_proto)
                 .map_err(Self::Error::Timestamp)?,
