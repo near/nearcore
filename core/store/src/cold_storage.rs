@@ -492,7 +492,6 @@ impl BatchTransaction {
 
             self.handles.push(
                 std::thread::Builder::new()
-                    .name("cold_store_loop".to_string())
                     .spawn(move || -> io::Result<()> { cold_db.write(transaction) })
                     .map_err(|_| {
                         io::Error::new(
