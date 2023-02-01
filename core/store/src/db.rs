@@ -138,6 +138,13 @@ pub trait Database: Sync + Send {
     /// Atomically apply all operations in given batch at once.
     fn write(&self, batch: DBTransaction) -> io::Result<()>;
 
+    /// Atomically writes raw Sets for pairs of keys and values to column.
+    fn write_raw_to_column(
+        &self,
+        batch: Vec<(Box<[u8]>, Box<[u8]>)>,
+        column: DBCol,
+    ) -> io::Result<()>;
+
     /// Flush all in-memory data to disk.
     ///
     /// This is a no-op for in-memory databases.

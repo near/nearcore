@@ -323,6 +323,19 @@ impl Database for RocksDB {
         self.db.write(batch).map_err(into_other)
     }
 
+    fn write_raw_to_column(
+        &self,
+        batch: Vec<(Box<[u8]>, Box<[u8]>)>,
+        column: DBCol,
+    ) -> io::Result<()> {
+        let mut rocksdb_batch = WriteBatch::default();
+        let cf_handle = self.cf_handle(column)?;
+        for (key, value) in batch.into_iter() {
+            rocksdb_batch.put_cf(cf_handle, key, value);
+        }
+        self.db.write(rocksdb_batch).map_err(into_other)
+    }
+
     fn compact(&self) -> io::Result<()> {
         let none = Option::<&[u8]>::None;
         for col in DBCol::iter() {

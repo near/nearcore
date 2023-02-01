@@ -88,6 +88,18 @@ impl Database for TestDB {
         Ok(())
     }
 
+    fn write_raw_to_column(
+        &self,
+        batch: Vec<(Box<[u8]>, Box<[u8]>)>,
+        column: DBCol,
+    ) -> io::Result<()> {
+        let mut db = self.db.write().unwrap();
+        for (key, value) in batch.into_iter() {
+            db[column].insert(key.to_vec(), value.to_vec());
+        }
+        Ok(())
+    }
+
     fn flush(&self) -> io::Result<()> {
         Ok(())
     }
