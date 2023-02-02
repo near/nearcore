@@ -478,12 +478,7 @@ impl<D: Database + 'static> BatchTransaction<D> {
 
     /// Adds a set DBOp to `self.transaction`. Updates `self.transaction_size`.
     /// If `self.transaction_size` becomes too big, calls for write.
-    pub fn set(
-        &mut self,
-        col: DBCol,
-        key: Vec<u8>,
-        value: Vec<u8>,
-    ) -> io::Result<()> {
+    pub fn set(&mut self, col: DBCol, key: Vec<u8>, value: Vec<u8>) -> io::Result<()> {
         let size = key.len() + value.len();
 
         self.transaction.set(col, key, value);
@@ -499,9 +494,7 @@ impl<D: Database + 'static> BatchTransaction<D> {
     /// Sets `self.transaction_size` to 0.
     /// Updates `self.handles_size`.
     /// Calls for [`self.handles_resize`].
-    fn write(
-        &mut self,
-    ) -> io::Result<()> {
+    fn write(&mut self) -> io::Result<()> {
         if !self.transaction.ops.is_empty() {
             crate::metrics::COLD_MIGRATION_INITIAL_WRITES
                 .with_label_values(&[<&str>::from(self.transaction.ops[0].col())])
