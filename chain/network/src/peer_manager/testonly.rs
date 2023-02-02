@@ -490,6 +490,15 @@ impl ActorHandler {
         })
         .await;
     }
+
+    /// Executes `NetworkState::update_connection_store` method.
+    pub async fn update_connection_store(&self, clock: &time::Clock) {
+        let clock = clock.clone();
+        self.with_state(move |s| async move {
+            s.update_connection_store(&clock);
+        })
+        .await;
+    }
 }
 
 pub(crate) async fn start(
