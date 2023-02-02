@@ -27,6 +27,7 @@ near-chain = { path = "../../chain/chain" }
 near-chain-configs = { path = "../../core/chain-configs" }
 near-client = { path = "../../chain/client" }
 near-crypto = { path = "../../core/crypto" }
+near-chunks = { path = "../../chain/chunks" }
 near-epoch-manager = { path = "../../chain/epoch-manager"}
 near-jsonrpc = { path = "../../chain/jsonrpc" }
 near-network = { path = "../../chain/network" }

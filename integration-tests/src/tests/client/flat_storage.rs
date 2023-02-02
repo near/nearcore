@@ -57,11 +57,12 @@ fn wait_for_flat_storage_creation(env: &mut TestEnv, start_height: BlockHeight) 
             ),
             FlatStorageCreationStatus::FetchingState(_) => assert_matches!(
                 status,
-                FlatStorageCreationStatus::FetchingState(_) | FlatStorageCreationStatus::CatchingUp
+                FlatStorageCreationStatus::FetchingState(_)
+                    | FlatStorageCreationStatus::CatchingUp(_)
             ),
-            FlatStorageCreationStatus::CatchingUp => assert_matches!(
+            FlatStorageCreationStatus::CatchingUp(_) => assert_matches!(
                 status,
-                FlatStorageCreationStatus::CatchingUp | FlatStorageCreationStatus::Ready
+                FlatStorageCreationStatus::CatchingUp(_) | FlatStorageCreationStatus::Ready
             ),
             _ => {
                 panic!("Invalid status {prev_status:?} observed during flat storage creation for height {next_height}");
@@ -175,10 +176,11 @@ fn test_flat_storage_creation() {
     env.produce_block(0, START_HEIGHT + 2);
     assert!(!env.clients[0].run_flat_storage_creation_step().unwrap());
     let final_block_hash = env.clients[0].chain.get_block_hash_by_height(START_HEIGHT).unwrap();
-    assert_eq!(store_helper::get_flat_head(&store, 0), Some(final_block_hash));
+    assert_eq!(store_helper::get_flat_head(&store, 0), None);
     assert_eq!(
         store_helper::get_flat_storage_creation_status(&store, 0),
         FlatStorageCreationStatus::FetchingState(FetchingStateStatus {
+            block_hash: final_block_hash,
             part_id: 0,
             num_parts_in_step: NUM_PARTS_IN_ONE_STEP,
             num_parts: 1,
@@ -317,14 +319,21 @@ fn test_flat_storage_creation_start_from_state_part() {
     {
         // Remove keys of part 1 from the flat state.
         // Manually set flat storage creation status to the step when it should start from fetching part 1.
+        let flat_head = store_helper::get_flat_head(&store, 0).unwrap();
         let mut store_update = store.store_update();
         for key in trie_keys[1].iter() {
             store_update.delete(DBCol::FlatState, key);
         }
-        store_helper::set_fetching_state_status(
+        store_helper::remove_flat_head(&mut store_update, 0);
+        store_helper::set_flat_storage_creation_status(
             &mut store_update,
             0,
-            FetchingStateStatus { part_id: 1, num_parts_in_step: 1, num_parts: NUM_PARTS },
+            FlatStorageCreationStatus::FetchingState(FetchingStateStatus {
+                block_hash: flat_head,
+                part_id: 1,
+                num_parts_in_step: 1,
+                num_parts: NUM_PARTS,
+            }),
         );
         store_update.commit().unwrap();
 

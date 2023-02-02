@@ -868,9 +868,17 @@ def start_cluster(num_nodes,
 
 
 ROOT_DIR = pathlib.Path(__file__).resolve().parents[2]
+
+
+def get_near_root():
+    cargo_target_dir = os.environ.get('CARGO_TARGET_DIR', 'target')
+    default_root = (ROOT_DIR / cargo_target_dir / 'debug').resolve()
+    return os.environ.get('NEAR_ROOT', str(default_root))
+
+
 DEFAULT_CONFIG = {
     'local': True,
-    'near_root': os.environ.get('NEAR_ROOT', str(ROOT_DIR / 'target/debug')),
+    'near_root': get_near_root(),
     'binary_name': 'neard',
     'release': False,
 }
