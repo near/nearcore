@@ -168,10 +168,10 @@ fn test_limit_contract_functions_number() {
     ])
     .expects(&[
         expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13094397551 used gas 13094397551
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13094397615 used gas 13094397615
         "#]],
         expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13051323221 used gas 13051323221
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13051323253 used gas 13051323253
         "#]],
         #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
         expect![[r#"
@@ -193,7 +193,7 @@ fn test_limit_contract_functions_number() {
     ])
     .expects(&[
         expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13095698051 used gas 13095698051
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13095698115 used gas 13095698115
         "#]],
         expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
@@ -315,7 +315,7 @@ fn test_limit_locals_global() {
     ])
     .expects(&[
         expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 8358752859 used gas 8358752859
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 8358832131 used gas 8358832131
         "#]],
         expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
@@ -338,7 +338,7 @@ fn test_limit_locals_global() {
             .make(),
         )
         .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 12998060221 used gas 12998060221
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 12998185253 used gas 12998185253
         "#]]);
 }
 
@@ -361,7 +361,7 @@ pub fn test_stablized_host_function() {
                 Err: ...
             "#]],
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 7146301631 used gas 7146301631
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 7146301663 used gas 7146301663
             "#]],
         ]);
 }

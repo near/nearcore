@@ -119,12 +119,12 @@ fn test_wasmer2_artifact_output_stability() {
     let mut got_prepared_hashes = Vec::with_capacity(seeds.len());
     let compiled_hashes = [
         12551131314811786323,
-        13480675178163266880,
+        9250503313022209780,
         2580973929183801763,
         13145300348935033331,
         8634071806725552420,
         701772735860447193,
-        18349364542936248604,
+        8400828837036618513,
     ];
     let mut got_compiled_hashes = Vec::with_capacity(seeds.len());
     for seed in seeds {

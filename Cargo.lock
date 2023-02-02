@@ -1789,14 +1789,16 @@ dependencies = [
 
 [[package]]
 name = "finite-wasm"
-version = "0.1.0"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c6b821e04f9b8562f75e2c3a1806d629084a78e7f154aadac9e8230ab9efd1d7"
 dependencies = [
  "bitvec",
  "dissimilar",
  "num-traits",
  "prefix-sum-vec",
  "thiserror",
- "wasmparser 0.95.0",
+ "wasmparser 0.99.0",
  "wasmprinter",
 ]
 
@@ -3763,6 +3765,7 @@ dependencies = [
  "bolero",
  "borsh",
  "expect-test",
+ "finite-wasm",
  "hex",
  "loupe",
  "memoffset 0.6.5",
@@ -3775,6 +3778,7 @@ dependencies = [
  "once_cell",
  "parity-wasm 0.41.0",
  "parity-wasm 0.42.2",
+ "prefix-sum-vec",
  "pwasm-utils",
  "rand 0.8.5",
  "serde",
@@ -3788,7 +3792,7 @@ dependencies = [
  "wasmer-runtime-near",
  "wasmer-types-near",
  "wasmer-vm-near",
- "wasmparser 0.96.0",
+ "wasmparser 0.99.0",
  "wasmprinter",
  "wasmtime",
  "wat",
@@ -4453,9 +4457,9 @@ checksum = "5b40af805b3121feab8a3c29f04d8ad262fa8e0561883e7653e024ae4479e6de"
 
 [[package]]
 name = "prefix-sum-vec"
-version = "0.1.1"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "743f7c34da26a48b4e11ccddf6a7d8993a4a7f1292ac45e54eda1f94d3a639e0"
+checksum = "aa06bd51638b6e76ac9ba9b6afb4164fa647bd2916d722f2623fbb6d1ed8bdba"
 
 [[package]]
 name = "pretty-hex"
@@ -6534,7 +6538,7 @@ dependencies = [
  "tracing",
  "wasmer-types-near",
  "wasmer-vm-near",
- "wasmparser 0.96.0",
+ "wasmparser 0.99.0",
 ]
 
 [[package]]
@@ -6592,7 +6596,7 @@ dependencies = [
  "wasmer-engine-near",
  "wasmer-types-near",
  "wasmer-vm-near",
- "wasmparser 0.96.0",
+ "wasmparser 0.99.0",
  "winapi",
 ]
 
@@ -6677,6 +6681,7 @@ dependencies = [
  "backtrace",
  "cc",
  "cfg-if 1.0.0",
+ "finite-wasm",
  "indexmap",
  "libc",
  "memoffset 0.6.5",
@@ -6686,6 +6691,7 @@ dependencies = [
  "thiserror",
  "tracing",
  "wasmer-types-near",
+ "wasmparser 0.99.0",
  "winapi",
 ]
 
@@ -6715,19 +6721,9 @@ dependencies = [
 
 [[package]]
 name = "wasmparser"
-version = "0.95.0"
+version = "0.99.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f2ea896273ea99b15132414be1da01ab0d8836415083298ecaffbe308eaac87a"
-dependencies = [
- "indexmap",
- "url",
-]
-
-[[package]]
-name = "wasmparser"
-version = "0.96.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "adde01ade41ab9a5d10ec8ed0bb954238cf8625b5cd5a13093d6de2ad9c2be1a"
+checksum = "9ef3b717afc67f848f412d4f02c127dd3e35a0eecd58c684580414df4fde01d3"
 dependencies = [
  "indexmap",
  "url",
@@ -6735,12 +6731,12 @@ dependencies = [
 
 [[package]]
 name = "wasmprinter"
-version = "0.2.45"
+version = "0.2.49"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3045e1aa2cac847f4f94a1e25db9f084a947aeff47d9099fb9c5ccd16d335040"
+checksum = "27c13dff901f9354fa9a6a877152d9c5642513645985635c9b83bcca99e40ea1"
 dependencies = [
  "anyhow",
- "wasmparser 0.96.0",
+ "wasmparser 0.99.0",
 ]
 
 [[package]]

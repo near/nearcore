@@ -27,7 +27,7 @@ pub(crate) fn test_builder() -> TestBuilder {
         view_config: None,
         output_data_receivers: vec![],
     };
-    let mut res = TestBuilder {
+    let res = TestBuilder {
         code: ContractCode::new(Vec::new(), None),
         context,
         method: "main".to_string(),

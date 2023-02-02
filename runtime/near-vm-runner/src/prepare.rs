@@ -24,6 +24,7 @@ pub(crate) const WASM_FEATURES: wasmparser::WasmFeatures = wasmparser::WasmFeatu
     saturating_float_to_int: true,
     sign_extension: true,
     floats: true,
+    memory_control: false,
 };
 
 /// Decode and validate the provided WebAssembly code with the `wasmparser` crate.
