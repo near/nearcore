@@ -24,6 +24,7 @@ struct Inner {
 }
 
 impl Inner {
+    /// Returns whether the store contains an outbound connection to the given peer
     fn contains_outbound(&self, peer_id: &PeerId) -> bool {
         for stored_info in &self.outbound {
             if stored_info.peer_info.id == *peer_id {
@@ -33,6 +34,7 @@ impl Inner {
         return false;
     }
 
+    /// If there is an outbound connection to the given peer in storage, removes it
     fn remove_outbound(&mut self, peer_id: &PeerId) {
         self.outbound.retain(|c| c.peer_info.id != *peer_id);
         if let Err(err) = self.store.set_recent_outbound_connections(&self.outbound) {
@@ -68,29 +70,33 @@ impl Inner {
     }
 }
 
+/// ConnectionStore is cheap to clone, so we can use ArcMutex and avoid blocking on read
 pub(crate) struct ConnectionStore(ArcMutex<Inner>);
 
 impl ConnectionStore {
-    pub(crate) fn new(store: store::Store) -> anyhow::Result<Self> {
+    pub fn new(store: store::Store) -> anyhow::Result<Self> {
         let outbound = store.get_recent_outbound_connections();
         let inner = Inner { store, outbound };
         Ok(ConnectionStore(ArcMutex::new(inner)))
     }
 
-    pub(crate) fn get_recent_outbound_connections(&self) -> Vec<ConnectionInfo> {
+    /// Returns all stored outbound connections
+    pub fn get_recent_outbound_connections(&self) -> Vec<ConnectionInfo> {
         return self.0.load().outbound.clone();
     }
 
-    pub(crate) fn remove_from_recent_outbound_connections(&self, peer_id: &PeerId) {
+    /// If there is an outbound connection to the given peer in storage, removes it
+    pub fn remove_from_recent_outbound_connections(&self, peer_id: &PeerId) {
         self.0.update(|mut inner| {
             inner.remove_outbound(peer_id);
             ((), inner)
         });
     }
 
-    /// Called upon closing a connection. Updates the connection store and returns a boolean
-    /// indicating whether the connection should be re-established.
-    pub(crate) fn connection_closed(
+    /// Called upon closing a connection. If closed for a reason indicating we should
+    /// not reconnect (for example, a ban), removes the connection from storage.
+    /// Returns a boolean indicating whether the connection should be re-established.
+    pub fn connection_closed(
         &self,
         peer_info: &PeerInfo,
         peer_type: &PeerType,
@@ -112,14 +118,14 @@ impl ConnectionStore {
         return self.0.load().contains_outbound(&peer_info.id);
     }
 
-    /// Inserts information about live connections to the connection store.
-    pub(crate) fn update(&self, clock: &time::Clock, tier2: connection::Pool) {
+    /// Given a snapshot of the TIER2 connection pool, updates the connections in storage.
+    pub fn update(&self, clock: &time::Clock, tier2: &connection::PoolSnapshot) {
         let now = clock.now();
         let now_utc = clock.now_utc();
 
         // Gather information about outbound connections which have lasted long enough
         let mut outbound = vec![];
-        for c in tier2.load().ready.values() {
+        for c in tier2.ready.values() {
             if c.peer_type != PeerType::Outbound {
                 continue;
             }

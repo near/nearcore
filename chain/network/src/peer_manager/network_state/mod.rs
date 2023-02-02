@@ -667,7 +667,7 @@ impl NetworkState {
     }
 
     pub fn update_connection_store(self: &Arc<Self>, clock: &time::Clock) {
-        self.connection_store.update(clock, self.tier2.clone());
+        self.connection_store.update(clock, &self.tier2.load());
     }
 
     /// Clears pending_reconnect and returns the cleared values
