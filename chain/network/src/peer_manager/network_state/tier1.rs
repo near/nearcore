@@ -110,14 +110,19 @@ impl super::NetworkState {
                 let queries = stun_servers.iter().map(|addr| {
                     let clock = clock.clone();
                     let addr = addr.clone();
-                    self.spawn(async move { stun::query(&clock, &addr).await })
+                    self.spawn(async move {
+                        match stun::query(&clock, &addr).await {
+                            Ok(ip) => Some(ip),
+                            Err(err) => {
+                                tracing::warn!(target:"network", "STUN lookup failed for {addr}: {err}");
+                                None
+                            }
+                        }
+                    })
                 });
                 let mut node_ips = vec![];
                 for q in queries {
-                    match q.await.unwrap() {
-                        Err(err) => tracing::warn!(target:"network", "STUN lookup failed: {err}"),
-                        Ok(ip) => node_ips.push(ip),
-                    }
+                    node_ips.extend(q.await.unwrap());
                 }
                 // Check that we have received non-zero responses and that they are consistent.
                 if node_ips.len() == 0 {

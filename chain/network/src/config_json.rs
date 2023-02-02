@@ -174,9 +174,13 @@ pub struct Config {
     pub allow_private_ip_in_public_addrs: bool,
     /// List of endpoints of trusted [STUN servers](https://datatracker.ietf.org/doc/html/rfc8489).
     ///
-    /// Used only if this node is a validator and public_ips is empty (see
-    /// description of public_ips field).  Format `<domain/ip>:<port>`, for
-    /// example `stun.l.google.com:19302`.
+    /// Used only if this node is a validator and public_addrs is empty (see
+    /// description of public_addrs field).  Format `<domain/ip>:<port>`, for
+    /// example `stun.l.google.com:19302`. The STUN servers are queried periodically in parallel.
+    /// We do not expect all the servers listed to be up all the time, but all the
+    /// responses are expected to be consistent - if different servers return differn IPs, then
+    /// the response set would be considered ambiguous and the node won't advertise any proxy in
+    /// such a case.
     #[serde(default = "default_trusted_stun_servers")]
     pub trusted_stun_servers: Vec<stun::ServerAddr>,
     // Experimental part of the JSON config. Regular users/validators should not have to set any values there.
