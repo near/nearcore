@@ -11,7 +11,8 @@ pub enum SumRequest {
 
 // Mimics a typical backing component of some actor in nearcore. Handles request
 // messages, and sends some other messages to another actor. The other actor is
-// abstracted with an ArcSender here.
+// abstracted with an ArcSender here. We'll show how to test this in
+// sum_numbers_test.rs.
 pub struct SumNumbersComponent {
     result_sender: ArcSender<ReportSumMsg>,
     numbers: Vec<i64>,
