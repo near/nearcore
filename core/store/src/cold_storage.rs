@@ -185,11 +185,13 @@ pub fn create_checkpoint_for_cold_copy(
 pub fn copy_all_data_to_cold<D: Database + 'static>(
     cold_db: std::sync::Arc<ColdDB<D>>,
     hot_store: &Store,
-    max_batch_size: usize,
+    max_mem_size: usize,
+    min_batch_size: usize,
 ) -> io::Result<()> {
     for col in DBCol::iter() {
         if col.is_cold() {
-            let mut transaction = BatchTransaction::new(cold_db.clone(), max_batch_size);
+            let mut transaction =
+                BatchTransaction::new(cold_db.clone(), max_mem_size, min_batch_size);
             for result in hot_store.iter(col) {
                 let (key, value) = result?;
                 transaction.set(col, key.to_vec(), value.to_vec())?;
@@ -464,14 +466,18 @@ impl StoreWithCache<'_> {
 }
 
 impl<D: Database + 'static> BatchTransaction<D> {
-    pub fn new(cold_db: std::sync::Arc<ColdDB<D>>, batch_size: usize) -> Self {
+    pub fn new(
+        cold_db: std::sync::Arc<ColdDB<D>>,
+        max_mem_size: usize,
+        min_batch_size: usize,
+    ) -> Self {
         Self {
             cold_db,
             transaction: DBTransaction::new(),
             transaction_size: 0,
             handles_size: 0,
-            max_handles_size: batch_size,
-            min_transaction_size: batch_size / 10,
+            max_handles_size: max_mem_size,
+            min_transaction_size: min_batch_size,
             handles: VecDeque::new(),
         }
     }

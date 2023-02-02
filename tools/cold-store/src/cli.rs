@@ -71,7 +71,7 @@ impl ColdStoreCommand {
                 }
             }
             SubCommand::CopyAllBlocks(cmd) => {
-                copy_all_blocks(&store, cmd.max_batch_size, cmd.check_after)
+                copy_all_blocks(&store, cmd.max_mem_size, cmd.min_batch_size, cmd.check_after)
             }
         }
     }
@@ -85,8 +85,10 @@ struct CopyNextBlocksCmd {
 
 #[derive(Parser)]
 struct CopyAllBlocksCmd {
-    #[clap(short, long, default_value_t = 0)]
-    max_batch_size: usize,
+    #[clap(short = 'M', long, default_value_t = 0)]
+    max_mem_size: usize,
+    #[clap(short = 'm', long, default_value_t = 0)]
+    min_batch_size: usize,
     #[clap(short, long)]
     check_after: bool,
 }
@@ -172,11 +174,12 @@ fn copy_next_block(store: &NodeStorage, config: &NearConfig, hot_runtime: &Arc<N
         .expect(&std::format!("Failed to update cold HEAD to {}", next_height));
 }
 
-fn copy_all_blocks(store: &NodeStorage, max_batch_size: usize, check: bool) {
+fn copy_all_blocks(store: &NodeStorage, max_mem_size: usize, min_batch_size: usize, check: bool) {
     copy_all_data_to_cold(
         (*store.cold_db().unwrap()).clone(),
         &store.get_store(Temperature::Hot),
-        max_batch_size,
+        max_mem_size,
+        min_batch_size,
     )
     .expect("Failed to do migration to cold db");
 
