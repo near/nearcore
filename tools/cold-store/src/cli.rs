@@ -47,7 +47,7 @@ impl ColdStoreCommand {
                 near_config.config.store = create_checkpoint_for_cold_copy(
                     &near_config.config.store,
                     home_dir,
-                    &"data-checkpoint",
+                    &"data/data-checkpoint",
                 )
                 .unwrap();
             }

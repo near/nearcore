@@ -10,7 +10,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::types::BlockHeight;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::io;
 use std::thread::JoinHandle;
 use strum::IntoEnumIterator;
@@ -24,14 +24,26 @@ struct StoreWithCache<'a> {
     cache: StoreCache,
 }
 
-struct BatchTransaction {
+/// Asynchronously writes set operations to `cold_db` in batches.
+/// Collects operation in batch, until its size is bigger than `min_transaction_size`.
+/// Then creates a thread to write that information to `cold_db`.
+/// Then joins some old thread,
+/// until size of transactions in `handles` is smaller than `max_handles_size`.
+/// Takes care of writing information to `cold_db`,
+/// [`write`] and [`join`] for all handles will be called on destruction.
+struct BatchTransaction<D: Database + 'static> {
+    cold_db: std::sync::Arc<ColdDB<D>>,
     transaction: DBTransaction,
     /// Size of all values keys and values in `transaction` in bytes.
-    size: usize,
-    /// Threshold size, after which write is triggered.
-    max_size: usize,
-    /// Write threads
-    handles: Vec<JoinHandle<io::Result<()>>>,
+    transaction_size: usize,
+    /// Size of all values keys and values in `handles` in bytes.
+    handles_size: usize,
+    /// Maximum size, that we keep by joining front elements of handles.
+    max_handles_size: usize,
+    /// Minimum size, after which we write transaction
+    min_transaction_size: usize,
+    /// Currently not joined write threads.
+    handles: VecDeque<(JoinHandle<io::Result<()>>, usize)>,
 }
 
 /// Updates provided cold database from provided hot store with information about block at `height`.
@@ -177,12 +189,11 @@ pub fn copy_all_data_to_cold<D: Database + 'static>(
 ) -> io::Result<()> {
     for col in DBCol::iter() {
         if col.is_cold() {
-            let mut transaction = BatchTransaction::new(max_batch_size);
+            let mut transaction = BatchTransaction::new(cold_db.clone(), max_batch_size);
             for result in hot_store.iter(col) {
                 let (key, value) = result?;
-                transaction.set(cold_db.clone(), col, key.to_vec(), value.to_vec())?;
+                transaction.set(col, key.to_vec(), value.to_vec())?;
             }
-            transaction.write(cold_db.clone())?;
         }
     }
     Ok(())
@@ -452,45 +463,54 @@ impl StoreWithCache<'_> {
     }
 }
 
-impl BatchTransaction {
-    pub fn new(batch_size: usize) -> Self {
-        Self { transaction: DBTransaction::new(), size: 0, max_size: batch_size, handles: vec![] }
+impl<D: Database + 'static> BatchTransaction<D> {
+    pub fn new(cold_db: std::sync::Arc<ColdDB<D>>, batch_size: usize) -> Self {
+        Self {
+            cold_db,
+            transaction: DBTransaction::new(),
+            transaction_size: 0,
+            handles_size: 0,
+            max_handles_size: batch_size,
+            min_transaction_size: batch_size / 10,
+            handles: VecDeque::new(),
+        }
     }
 
-    /// Adds a set DBOp to `self.transaction`. Updates `self.size`.
-    /// If `self.size` becomes too big, calls for write.
-    pub fn set<D: Database + 'static>(
+    /// Adds a set DBOp to `self.transaction`. Updates `self.transaction_size`.
+    /// If `self.transaction_size` becomes too big, calls for write.
+    pub fn set(
         &mut self,
-        cold_db: std::sync::Arc<ColdDB<D>>,
         col: DBCol,
         key: Vec<u8>,
         value: Vec<u8>,
     ) -> io::Result<()> {
-        self.size += key.len() + value.len();
-        self.transaction.set(col, key, value);
+        let size = key.len() + value.len();
 
-        if self.size > self.max_size {
-            self.write(cold_db)?;
+        self.transaction.set(col, key, value);
+        self.transaction_size += size;
+
+        if self.transaction_size > self.min_transaction_size {
+            self.write()?;
         }
         Ok(())
     }
 
     /// Writes `self.transaction` and replaces it with new empty DBTransaction.
-    /// Sets `self.size` to 0.
-    pub fn write<D: Database + 'static>(
+    /// Sets `self.transaction_size` to 0.
+    /// Updates `self.handles_size`.
+    /// Calls for [`self.handles_resize`].
+    fn write(
         &mut self,
-        cold_db: std::sync::Arc<ColdDB<D>>,
     ) -> io::Result<()> {
         if !self.transaction.ops.is_empty() {
-            let _span = tracing::debug_span!(target: "store", "write of initial cold db transaction", size=self.size, batch_size=self.max_size);
-
             crate::metrics::COLD_MIGRATION_INITIAL_WRITES
                 .with_label_values(&[<&str>::from(self.transaction.ops[0].col())])
                 .inc();
 
             let transaction = std::mem::replace(&mut self.transaction, DBTransaction::new());
+            let cold_db = self.cold_db.clone();
 
-            self.handles.push(
+            self.handles.push_back((
                 std::thread::Builder::new()
                     .spawn(move || -> io::Result<()> { cold_db.write(transaction) })
                     .map_err(|_| {
@@ -499,30 +519,32 @@ impl BatchTransaction {
                             "Error building thread for BatchTransaction write.",
                         )
                     })?,
-            );
+                self.transaction_size,
+            ));
 
-            self.size = 0;
-        }
-        if self.handles.len() > 10 {
-            self.join_writes();
+            self.handles_size += self.transaction_size;
+            self.transaction_size = 0;
+
+            self.handles_resize(self.max_handles_size)?;
         }
         Ok(())
     }
 
-    pub fn join_writes(&mut self) {
-        for handle in self.handles.drain(..) {
-            handle
-                .join()
-                .expect("Error joining handle for BatchTransaction write")
-                .expect("Error writing BatchTransaction");
+    fn handles_resize(&mut self, desired_size: usize) -> io::Result<()> {
+        while self.handles_size > desired_size {
+            if let Some((handle, size)) = self.handles.pop_front() {
+                handle.join().expect("Error joining handle for BatchTransaction write")?;
+                self.handles_size -= size;
+            }
         }
-        self.handles.clear();
+        Ok(())
     }
 }
 
-impl Drop for BatchTransaction {
+impl<D: Database + 'static> Drop for BatchTransaction<D> {
     fn drop(&mut self) {
-        self.join_writes();
+        self.write().expect("Error while writing BatchTransaction");
+        self.handles_resize(0).expect("Error writing BatchTransaction");
     }
 }
 
