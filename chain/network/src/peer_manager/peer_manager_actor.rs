@@ -18,12 +18,11 @@ use crate::types::PeerInfo;
 use crate::types::{
     ConnectedPeerInfo, GetNetworkInfo, HighestHeightPeerInfo, KnownProducer, NetworkInfo,
     NetworkRequests, NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
-    PeerType, SetChainInfo, SpawnReconnectLoop,
+    PeerType, SetChainInfo,
 };
 use actix::fut::future::wrap_future;
 use actix::{Actor as _, AsyncContext as _};
 use anyhow::Context as _;
-use near_o11y::WithSpanContextExt;
 use near_o11y::{handler_debug_span, handler_trace_span, OpenTelemetrySpanExt, WithSpanContext};
 use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
@@ -172,25 +171,6 @@ impl actix::Actor for PeerManagerActor {
             }
         }));
 
-        // Periodically poll the connection store for connections we'd like to re-establish.
-        let clock = self.clock.clone();
-        let state = self.state.clone();
-        let addr = ctx.address();
-        ctx.spawn(wrap_future(async move {
-            let mut interval = time::Interval::new(clock.now(), POLL_CONNECTION_STORE_INTERVAL);
-            loop {
-                let pending_reconnect = state.poll_pending_reconnect();
-                for peer_info in pending_reconnect {
-                    if let Err(err) =
-                        addr.send(SpawnReconnectLoop { peer_info }.with_span_context()).await
-                    {
-                        tracing::error!(target: "network", ?err, "Failed to spawn reconnect loop");
-                    }
-                }
-                interval.tick(&clock).await;
-            }
-        }));
-
         // Periodically prints bandwidth stats for each peer.
         self.report_bandwidth_stats_trigger(ctx, REPORT_BANDWIDTH_STATS_TRIGGER_INTERVAL);
     }
@@ -314,6 +294,29 @@ impl PeerManagerActor {
                         }
                     });
                 }
+                // Periodically poll the connection store for connections we'd like to re-establish
+                arbiter.spawn({
+                    let clock = clock.clone();
+                    let state = state.clone();
+                    let arbiter = arbiter.clone();
+                    let mut interval = time::Interval::new(clock.now(), POLL_CONNECTION_STORE_INTERVAL);
+                    async move {
+                        loop {
+                            interval.tick(&clock).await;
+                            let pending_reconnect = state.poll_pending_reconnect();
+                            // Spawn a separate reconnect loop for each pending reconnect attempt
+                            for peer_info in pending_reconnect {
+                                arbiter.spawn({
+                                    let state = state.clone();
+                                    let clock = clock.clone();
+                                    async move {
+                                        Self::reconnect(state, clock, peer_info, MAX_RECONNECT_ATTEMPTS).await;
+                                    }
+                                });
+                            }
+                        }
+                    }
+                });
             }
         });
         Ok(Self::start_in_arbiter(&arbiter, move |_ctx| Self {
@@ -587,7 +590,7 @@ impl PeerManagerActor {
                             tracing::info!(target:"network", ?result, "failed to connect to {peer_info}");
                         }
                         if state.peer_store.peer_connection_attempt(&clock, &peer_info.id, result).is_err() {
-                            tracing::error!(target: "network", ?peer_info, "Failed to mark peer as failed.");
+                            tracing::error!(target: "network", ?peer_info, "Failed to store connection attempt.");
                         }
                     }.instrument(tracing::trace_span!(target: "network", "monitor_peers_trigger_connect"))
                 }));
@@ -613,42 +616,54 @@ impl PeerManagerActor {
         );
     }
 
-    fn spawn_reconnect_loop(
-        &self,
-        ctx: &mut actix::Context<Self>,
+    /// Attempt to connect to the given peer until successful, up to max_attempts times
+    async fn reconnect(
+        state: Arc<NetworkState>,
+        clock: time::Clock,
         peer_info: PeerInfo,
         max_attempts: usize,
     ) {
-        let state = self.state.clone();
-        let clock = self.clock.clone();
-        ctx.spawn(wrap_future(async move {
-            let mut interval = time::Interval::new(clock.now(), RECONNECT_ATTEMPT_INTERVAL);
-            for _attempt in 0..max_attempts {
-                let result = async {
-                    let stream = tcp::Stream::connect(&peer_info, tcp::Tier::T2).await.context("tcp::Stream::connect()")?;
-                    PeerActor::spawn_and_handshake(clock.clone(),stream,None,state.clone()).await.context("PeerActor::spawn()")?;
-                    anyhow::Ok(())
-                }.await;
+        let mut interval = time::Interval::new(clock.now(), RECONNECT_ATTEMPT_INTERVAL);
+        for _attempt in 0..max_attempts {
+            interval.tick(&clock).await;
 
-                if result.is_err() {
-                    tracing::info!(target:"network", ?result, "Failed to connect to {peer_info}");
-                } else {
-                    break;
-                }
-
-                if state.peer_store.peer_connection_attempt(&clock, &peer_info.id, result).is_err() {
-                    tracing::error!(target: "network", ?peer_info, "Failed to store connection attempt.");
-                }
-
-                interval.tick(&clock).await;
+            let result = async {
+                let stream = tcp::Stream::connect(&peer_info, tcp::Tier::T2)
+                    .await
+                    .context("tcp::Stream::connect()")?;
+                PeerActor::spawn_and_handshake(clock.clone(), stream, None, state.clone())
+                    .await
+                    .context("PeerActor::spawn()")?;
+                anyhow::Ok(())
             }
-        }));
+            .await;
+
+            let succeeded = !result.is_err();
+
+            if result.is_err() {
+                tracing::info!(target:"network", ?result, "Failed to connect to {peer_info}");
+            }
+
+            if state.peer_store.peer_connection_attempt(&clock, &peer_info.id, result).is_err() {
+                tracing::error!(target: "network", ?peer_info, "Failed to store connection attempt.");
+            }
+
+            if succeeded {
+                return;
+            }
+        }
     }
 
     /// Re-establish each outbound connection in the connection store (single attempt)
     fn bootstrap_outbound_from_recent_connections(&self, ctx: &mut actix::Context<Self>) {
         for conn_info in self.state.connection_store.get_recent_outbound_connections() {
-            self.spawn_reconnect_loop(ctx, conn_info.peer_info.clone(), 1);
+            ctx.spawn(wrap_future({
+                let state = self.state.clone();
+                let clock = self.clock.clone();
+                async move {
+                    Self::reconnect(state, clock, conn_info.peer_info, 1).await;
+                }
+            }));
         }
     }
 
@@ -1015,18 +1030,6 @@ impl PeerManagerActor {
                 PeerManagerMessageResponse::PingTo
             }
         }
-    }
-}
-
-impl actix::Handler<WithSpanContext<SpawnReconnectLoop>> for PeerManagerActor {
-    type Result = ();
-    fn handle(&mut self, msg: WithSpanContext<SpawnReconnectLoop>, ctx: &mut Self::Context) {
-        let (_span, SpawnReconnectLoop { peer_info }) = handler_trace_span!(target: "network", msg);
-        let _timer = metrics::PEER_MANAGER_MESSAGES_TIME
-            .with_label_values(&["SpawnReconnectLoop"])
-            .start_timer();
-
-        self.spawn_reconnect_loop(ctx, peer_info, MAX_RECONNECT_ATTEMPTS);
     }
 }
 
