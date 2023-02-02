@@ -1,6 +1,7 @@
 use crate::peer_manager::connection_store::ConnectionStore;
 use crate::peer_manager::connection_store::OUTBOUND_CONNECTIONS_CACHE_SIZE;
 use crate::store;
+use crate::testonly::AsSet;
 use crate::time;
 use crate::types::{ConnectionInfo, PeerInfo};
 use near_crypto::{KeyType, SecretKey};
@@ -18,16 +19,6 @@ fn gen_peer_info(port: u16) -> PeerInfo {
         id: PeerId::new(SecretKey::from_random(KeyType::ED25519).public_key()),
         addr: Some(get_addr(port)),
         account_id: None,
-    }
-}
-
-fn check_outbound_connections(store: &ConnectionStore, wanted: &Vec<ConnectionInfo>) {
-    let got = store.get_recent_outbound_connections();
-    for c in &got {
-        assert!(wanted.contains(c));
-    }
-    for c in wanted {
-        assert!(got.contains(&*c));
     }
 }
 
@@ -124,5 +115,5 @@ fn test_evict_longest_disconnected() {
     conn_infos.push(conn);
 
     tracing::debug!(target:"test", "check that the store contains exactly the expected connections");
-    check_outbound_connections(&connection_store, &conn_infos);
+    assert_eq!(connection_store.get_recent_outbound_connections().as_set(), conn_infos.as_set());
 }

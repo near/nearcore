@@ -10,14 +10,15 @@ use crate::peer_manager::testonly::ActorHandler;
 use crate::peer_manager::testonly::Event;
 use crate::tcp;
 use crate::testonly::make_rng;
+use crate::testonly::AsSet;
 use crate::time;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::network::PeerId;
 use near_store::db::TestDB;
 use std::sync::Arc;
 
-async fn check_recent_outbound_connections(pm: &ActorHandler, mut wanted: Vec<PeerId>) {
-    let mut got: Vec<PeerId> = pm
+async fn check_recent_outbound_connections(pm: &ActorHandler, want: Vec<PeerId>) {
+    let got: Vec<PeerId> = pm
         .with_state(move |s| async move {
             s.connection_store
                 .get_recent_outbound_connections()
@@ -27,10 +28,7 @@ async fn check_recent_outbound_connections(pm: &ActorHandler, mut wanted: Vec<Pe
         })
         .await;
 
-    wanted.sort();
-    got.sort();
-
-    assert!(got == wanted, "Expected {:?} but got {:?}", wanted, got);
+    assert_eq!(got.as_set(), want.as_set());
 }
 
 async fn wait_for_connection_closed(events: &mut broadcast::Receiver<Event>) {

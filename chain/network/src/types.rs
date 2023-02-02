@@ -117,7 +117,7 @@ impl KnownPeerState {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct ConnectionInfo {
     pub peer_info: PeerInfo,
     pub time_established: time::Utc,
