@@ -1,12 +1,17 @@
-use std::collections::HashMap;
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
 
 use near_primitives::challenge::{PartialState, StateItem};
+use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_part::PartId;
+use near_primitives::trie_key::TrieKey;
 use near_primitives::types::StateRoot;
 use tracing::error;
 
 use crate::trie::iterator::TrieTraversalItem;
 use crate::trie::nibble_slice::NibbleSlice;
+use crate::trie::trie_storage::HashmapStorage;
 use crate::trie::{
     ApplyStatePartResult, NodeHandle, RawTrieNodeWithSize, TrieNode, TrieNodeWithSize,
 };
@@ -35,6 +40,79 @@ impl Trie {
         Ok(trie_nodes)
     }
 
+    pub fn temp_foobar(&self, part_id: PartId) -> Result<PartialState, StorageError> {
+        self.visit_nodes_for_state_part(part_id).expect("Failed to visit nodes for part");
+        let hashmap_storage = self.storage.as_foobar().unwrap();
+        Ok(hashmap_storage.partial_state())
+    }
+
+    pub fn get_trie_nodes_for_part_with_flat_storage(
+        &self,
+        shard_layout: &ShardLayout,
+        part_id: PartId,
+    ) -> Result<PartialState, StorageError> {
+        assert!(self.storage.as_caching_storage().is_some());
+
+        let with_recording = self.recording_reads();
+
+        let path_begin = with_recording.find_path_for_part_boundary(part_id.idx, part_id.total)?;
+        let path_end =
+            with_recording.find_path_for_part_boundary(part_id.idx + 1, part_id.total)?;
+        // Make sure to touch the boundary node.
+        with_recording.special_visit(part_id)?;
+
+        let delayed_index = TrieKey::DelayedReceiptIndices;
+        with_recording.get(delayed_index.to_vec().as_slice())?;
+        // TODO: we should also go through all the receipts if the queue is not empty.
+
+        let recorded = with_recording.recorded_storage().unwrap();
+        let trie_nodes = recorded.nodes;
+
+        let key_begin = self.path_to_key(&path_begin).unwrap();
+        let key_end = self.path_to_key(&path_end);
+
+        if let Some(flat_state) = &self.flat_state {
+            let flat_entries =
+                flat_state.iter_flat_state_entries(shard_layout, &key_begin, &key_end);
+
+            let with_values = flat_entries.iter().map(|(k, v)| {
+                let value_ref = ValueRef::decode((**v).try_into().unwrap());
+                let raw_bytes = self.get_raw_bytes(&value_ref).unwrap().unwrap();
+                (k.to_vec(), Some(raw_bytes))
+            });
+
+            // Now let's create a new trie with all these values included.
+            let in_memory_trie =
+                Trie::new(Box::new(HashmapStorage::default()), StateRoot::new(), None);
+            // This will generate all the intermediate nodes.
+            let trie_updates = in_memory_trie.update(with_values).unwrap();
+
+            // Now let's create another storage with everything included.
+            let mut all_nodes: HashMap<CryptoHash, Vec<u8>> = HashMap::new();
+            // Adding nodes from the 'boundary'
+            all_nodes.extend(trie_nodes.0.iter().map(|entry| (hash(entry), entry.to_vec())));
+            all_nodes.extend(
+                trie_updates
+                    .insertions
+                    .iter()
+                    .map(|entry| (entry.hash().clone(), entry.payload().to_vec())),
+            );
+
+            let final_trie = Trie::new(
+                Box::new(HashmapStorage { entries: all_nodes, touched_nodes: RefCell::default() }),
+                self.root,
+                None,
+            );
+
+            final_trie.temp_foobar(part_id)
+        } else {
+            println!("!!!! FLAT STATE MISSING");
+            Err(StorageError::StorageInternalError)
+        }
+
+        //Ok(trie_nodes)
+    }
+
     /// Assume we lay out all trie nodes in dfs order visiting children after the parent.
     /// We take all node sizes (memory_usage_direct()) and take all nodes intersecting with
     /// [size_start, size_end) interval, also all nodes necessary to prove it and some
@@ -42,7 +120,7 @@ impl Trie {
     ///
     /// Creating a StatePart takes all these nodes, validating a StatePart checks that it has the
     /// right set of nodes.
-    fn visit_nodes_for_state_part(&self, part_id: PartId) -> Result<(), StorageError> {
+    pub fn visit_nodes_for_state_part(&self, part_id: PartId) -> Result<(), StorageError> {
         let path_begin = self.find_path_for_part_boundary(part_id.idx, part_id.total)?;
         let path_end = self.find_path_for_part_boundary(part_id.idx + 1, part_id.total)?;
 
@@ -51,6 +129,11 @@ impl Trie {
         tracing::debug!(
             target: "state_parts",
             num_nodes = nodes_list.len());
+        self.special_visit(part_id)
+    }
+
+    pub fn special_visit(&self, part_id: PartId) -> Result<(), StorageError> {
+        let path_end = self.find_path_for_part_boundary(part_id.idx + 1, part_id.total)?;
 
         // Extra nodes for compatibility with the previous version of computing state parts
         if part_id.idx + 1 != part_id.total {
@@ -62,7 +145,6 @@ impl Trie {
                 item?;
             }
         }
-
         Ok(())
     }
 

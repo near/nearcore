@@ -7,6 +7,7 @@ use lru::LruCache;
 use near_o11y::log_assert;
 use near_o11y::metrics::prometheus;
 use near_o11y::metrics::prometheus::core::{GenericCounter, GenericGauge};
+use near_primitives::challenge::PartialState;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::{ShardId, TrieCacheMode, TrieNodesCount};
@@ -305,7 +306,59 @@ pub trait TrieStorage {
         None
     }
 
+    fn as_foobar(&self) -> Option<&HashmapStorage> {
+        None
+    }
+
     fn get_trie_nodes_count(&self) -> TrieNodesCount;
+}
+
+#[derive(Default)]
+pub struct HashmapStorage {
+    pub entries: HashMap<CryptoHash, Vec<u8>>,
+    pub touched_nodes: RefCell<HashSet<CryptoHash>>,
+}
+
+impl TrieStorage for HashmapStorage {
+    fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
+        //self.touched_nodes.insert(hash.clone());
+
+        self.touched_nodes.borrow_mut().insert(hash.clone());
+        self.entries
+            .get(hash)
+            .and_then(|a| Some(a.as_slice().into()))
+            .ok_or(StorageError::StorageInternalError)
+    }
+
+    fn get_trie_nodes_count(&self) -> near_primitives::types::TrieNodesCount {
+        todo!()
+    }
+    fn as_foobar(&self) -> Option<&HashmapStorage> {
+        Some(self)
+    }
+}
+
+impl HashmapStorage {
+    pub fn partial_state(&self) -> PartialState {
+        let touched_nodes = self.touched_nodes.borrow();
+        let mut nodes: Vec<_> = self
+            .entries
+            .iter()
+            .filter_map(|(node_hash, value)| {
+                //let tmp = value.into_boxed_slice();
+                //let tmp2: Arc<[u8]> = Arc::from(tmp);
+
+                if touched_nodes.contains(node_hash) {
+                    Some(Arc::from(value.clone().into_boxed_slice()))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        nodes.sort();
+        PartialState(nodes)
+    }
 }
 
 /// Records every value read by retrieve_raw_bytes.
@@ -313,6 +366,7 @@ pub trait TrieStorage {
 /// TODO (#6316): implement proper nodes counting logic as in TrieCachingStorage
 pub struct TrieRecordingStorage {
     pub(crate) store: Store,
+    //pub(crate) storage: Box<dyn TrieStorage>,
     pub(crate) shard_uid: ShardUId,
     pub(crate) recorded: RefCell<HashMap<CryptoHash, Arc<[u8]>>>,
 }
@@ -322,6 +376,10 @@ impl TrieStorage for TrieRecordingStorage {
         if let Some(val) = self.recorded.borrow().get(hash).cloned() {
             return Ok(val);
         }
+        /*let val = self.storage.retrieve_raw_bytes(hash)?;
+        self.recorded.borrow_mut().insert(*hash, Arc::clone(&val));
+        Ok(val)*/
+
         let key = TrieCachingStorage::get_key_from_shard_uid_and_hash(self.shard_uid, hash);
         let val = self
             .store

@@ -32,7 +32,7 @@ use crate::{FlatStateDelta, StorageError};
 pub use near_primitives::types::TrieNodesCount;
 
 mod config;
-mod insert_delete;
+pub mod insert_delete;
 pub mod iterator;
 mod nibble_slice;
 mod prefetching_trie_storage;
@@ -53,10 +53,10 @@ pub struct PartialStorage {
 }
 
 #[derive(Clone, Hash, Debug, Copy)]
-pub(crate) struct StorageHandle(usize);
+pub struct StorageHandle(usize);
 
 #[derive(Clone, Hash, Debug, Copy)]
-pub(crate) struct StorageValueHandle(usize);
+pub struct StorageValueHandle(usize);
 
 pub struct TrieCosts {
     pub byte_of_key: u64,
@@ -335,7 +335,7 @@ pub enum RawTrieNode {
 #[derive(Debug, Eq, PartialEq)]
 pub struct RawTrieNodeWithSize {
     pub node: RawTrieNode,
-    memory_usage: u64,
+    pub memory_usage: u64,
 }
 
 const LEAF_NODE: u8 = 0;
@@ -359,7 +359,7 @@ fn decode_children(bytes: &mut &[u8]) -> Result<[Option<CryptoHash>; 16], std::i
 }
 
 impl RawTrieNode {
-    fn encode_into(&self, out: &mut Vec<u8>) {
+    pub fn encode_into(&self, out: &mut Vec<u8>) {
         // size in state_parts = size + 8 for RawTrieNodeWithSize + 8 for borsh vector length
         match &self {
             // size <= 1 + 4 + 4 + 32 + key_length + value_length
@@ -404,7 +404,7 @@ impl RawTrieNode {
         }
     }
 
-    fn decode(mut bytes: &[u8]) -> Result<Self, std::io::Error> {
+    pub fn decode(mut bytes: &[u8]) -> Result<Self, std::io::Error> {
         let node = match bytes.read_u8()? {
             LEAF_NODE => {
                 let key_length = bytes.read_u32::<LittleEndian>()?;
@@ -452,7 +452,7 @@ impl RawTrieNodeWithSize {
         out.extend(self.memory_usage.to_le_bytes());
     }
 
-    fn encode(&self) -> Vec<u8> {
+    pub fn encode(&self) -> Vec<u8> {
         let mut out = Vec::new();
         self.encode_into(&mut out);
         out
@@ -494,7 +494,7 @@ pub struct TrieRefcountChange {
     trie_node_or_value_hash: CryptoHash,
     /// DB value. Can be either serialized RawTrieNodeWithSize or value corresponding to
     /// some TrieKey.
-    trie_node_or_value: Vec<u8>,
+    pub trie_node_or_value: Vec<u8>,
     /// Reference count difference which will be added to the total refcount if it corresponds to
     /// insertion and subtracted from it in the case of deletion.
     rc: std::num::NonZeroU32,
@@ -538,7 +538,7 @@ pub struct TrieChanges {
     pub old_root: StateRoot,
     pub new_root: StateRoot,
     insertions: Vec<TrieRefcountChange>,
-    deletions: Vec<TrieRefcountChange>,
+    pub deletions: Vec<TrieRefcountChange>,
 }
 
 impl TrieChanges {
@@ -580,8 +580,10 @@ impl Trie {
     pub fn recording_reads(&self) -> Self {
         let storage =
             self.storage.as_caching_storage().expect("Storage should be TrieCachingStorage");
+
         let storage = TrieRecordingStorage {
             store: storage.store.clone(),
+            //storage: self.storage,
             shard_uid: storage.shard_uid,
             recorded: RefCell::new(Default::default()),
         };
@@ -760,23 +762,30 @@ impl Trie {
                         prefix.extend(slice.iter());
                         writeln!(
                             f,
-                            "{}Leaf {:?} size:{} child_hash:{} child_prefix:{}",
+                            "{}Leaf {:?} |{:?}| size:{} child_hash:{} child_prefix:{} self_hash: {} self size: {}",
                             spaces,
                             slice,
+                            key,
                             value_length,
                             value_hash,
-                            self.nibbles_to_string(prefix)
+                            self.nibbles_to_string(prefix),
+                            hash,
+                            raw_node.memory_usage
                         )?;
                         prefix.truncate(prefix.len() - slice.len());
                     }
                     RawTrieNode::Branch(children, optional_value) => {
+                        //if optional_value.is_some() {
                         writeln!(
                             f,
-                            "{}Branch Value:{:?} prefix:{}",
+                            "{}Branch Value:{:?} prefix:{} self hash: {}, self_size: {}",
                             spaces,
                             optional_value,
-                            self.nibbles_to_string(prefix)
+                            self.nibbles_to_string(prefix),
+                            hash,
+                            raw_node.memory_usage
                         )?;
+                        //}
                         for (idx, child) in children.iter().enumerate() {
                             if let Some(child) = child {
                                 writeln!(f, "{} {:01x}->", spaces, idx)?;
@@ -798,11 +807,13 @@ impl Trie {
                         let (slice, _) = NibbleSlice::from_encoded(key.as_slice());
                         writeln!(
                             f,
-                            "{}Extension {:?} child_hash:{} prefix:{}",
+                            "{}Extension {:?} child_hash:{} prefix:{} self_hash: {} self size: {}",
                             spaces,
                             slice,
                             child,
-                            self.nibbles_to_string(prefix)
+                            self.nibbles_to_string(prefix),
+                            hash,
+                            raw_node.memory_usage
                         )?;
                         spaces.push_str("  ");
                         prefix.extend(slice.iter());
@@ -823,7 +834,7 @@ impl Trie {
         Ok(())
     }
 
-    fn retrieve_raw_node(
+    pub fn retrieve_raw_node(
         &self,
         hash: &CryptoHash,
     ) -> Result<Option<(std::sync::Arc<[u8]>, RawTrieNodeWithSize)>, StorageError> {
@@ -848,7 +859,7 @@ impl Trie {
         }
     }
 
-    fn move_node_to_mutable(
+    pub fn move_node_to_mutable(
         &self,
         memory: &mut NodesStorage,
         hash: &CryptoHash,
@@ -885,6 +896,78 @@ impl Trie {
             Some((bytes, node)) => {
                 Ok(StateRootNode { data: bytes, memory_usage: node.memory_usage })
             }
+        }
+    }
+
+    pub fn path_to_key(&self, path: &[u8]) -> Option<Vec<u8>> {
+        if (path.len() == 1 && path[0] == 16) {
+            return None;
+        }
+        let mut key = Vec::new();
+        for i in 0..path.len() {
+            if i % 2 == 0 {
+                key.push(path[i] * 16 + path[i + 1]);
+            }
+        }
+        Some(key)
+    }
+
+    pub fn lookup_trie_node_by_path(&self, path: &[u8]) -> Result<RawTrieNode, StorageError> {
+        let key = self.path_to_key(path).unwrap();
+
+        let key_nibbles = NibbleSlice::new(&key);
+        let result = self.lookup_trie_node_by_nibble(key_nibbles);
+        result
+    }
+
+    fn lookup_trie_node_by_nibble(
+        &self,
+        mut key: NibbleSlice<'_>,
+    ) -> Result<RawTrieNode, StorageError> {
+        let mut hash = self.root.clone();
+        loop {
+            let node = match self.retrieve_raw_node(&hash)? {
+                None => {
+                    return Err(StorageError::StorageInconsistentState(format!(
+                        "error fetching {}",
+                        hash
+                    )))
+                }
+                Some((_bytes, node)) => node.node,
+            };
+            if key.is_empty() {
+                return Ok(node);
+            }
+
+            match node {
+                RawTrieNode::Leaf(existing_key, value_length, value_hash) => {
+                    return Err(StorageError::StorageInconsistentState("Hit a leaf".to_string()));
+                }
+                RawTrieNode::Extension(existing_key, child) => {
+                    let existing_key = NibbleSlice::from_encoded(&existing_key).0;
+                    if key.starts_with(&existing_key) {
+                        hash = child;
+                        key = key.mid(existing_key.len());
+                    } else {
+                        return Err(StorageError::StorageInconsistentState(
+                            "Hit a mismatch extension".to_string(),
+                        ));
+                    }
+                }
+                RawTrieNode::Branch(mut children, value) => {
+                    match children[key.at(0) as usize].take() {
+                        Some(x) => {
+                            hash = x;
+                            key = key.mid(1);
+                        }
+                        None => {
+                            return Err(StorageError::StorageInconsistentState(
+                                "Hit a missing branch".to_string(),
+                            ))
+                        }
+                    }
+                }
+            };
         }
     }
 
@@ -979,6 +1062,11 @@ impl Trie {
             }
             None => Ok(None),
         }
+    }
+
+    pub fn get_raw_bytes(&self, value_ref: &ValueRef) -> Result<Option<Vec<u8>>, StorageError> {
+        let hash = value_ref.hash;
+        self.storage.retrieve_raw_bytes(&hash).map(|bytes| Some(bytes.to_vec()))
     }
 
     pub(crate) fn convert_to_insertions_and_deletions(

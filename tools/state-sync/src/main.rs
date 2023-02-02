@@ -18,7 +18,7 @@ use near_store::{
     TrieStorage,
 };
 use nearcore::{load_config, NearConfig, NightshadeRuntime};
-use std::{collections::HashMap, fs::File, str};
+use std::{collections::HashMap, fs::File, path::PathBuf, str};
 use std::{collections::HashSet, fmt::Write};
 use std::{path::Path, str::FromStr, sync::Arc};
 
@@ -48,7 +48,7 @@ impl PartOfTrie {
 
     pub fn serialize_to_part() {}
 
-    pub fn parse_from_part(contents: Vec<u8>) -> Result<Self, std::io::Error> {
+    pub fn parse_from_part(contents: Vec<u8>, part_num: u64) -> Result<Self, std::io::Error> {
         let partial_state = PartialState::try_from_slice(&contents)?;
         println!("Parts: {:?} ", partial_state.0.len());
         let mut parsed = 0;
@@ -70,10 +70,67 @@ impl PartOfTrie {
         let mock_storage = MockTrieStorage { entries: content_map };
         let root_node_hash =
             CryptoHash::from_str("4n75a4ZdvE2L4dw99nWdSaAgCianzer4TJuVzEXYiePy").unwrap();
-        let in_memory_trie = Trie::new(Box::new(mock_storage), root_node_hash, None);
+        let trie = Trie::new(Box::new(mock_storage), root_node_hash, None);
+
+        let root1 = trie.retrieve_root_node().unwrap();
+        let num_parts = get_num_state_parts(root1.memory_usage);
+        println!("Got memory: {:?} parts: {:?}", root1.memory_usage, num_parts);
+
+        let left_part = trie.find_path_for_part_boundary(part_num, num_parts).unwrap();
+        println!("Got left part:  {:?}", left_part);
+        let right_part = trie.find_path_for_part_boundary(part_num + 1, num_parts).unwrap();
+        println!("Got right part:  {:?}", right_part);
+
+        trie.visit_nodes_for_state_part(PartId { idx: part_num, total: num_parts }).unwrap();
+
+        /// Look for 'left' node:
+        let mut node_hash = root_node_hash;
+        let mut left_path_nibbles: Vec<u8> = Vec::new();
+
+        loop {
+            let (_, node) = trie.retrieve_raw_node(&node_hash).unwrap().unwrap();
+            match &node.node {
+                RawTrieNode::Leaf(key, _, _) => {
+                    let (slice, _) = NibbleSlice::from_encoded(key);
+                    left_path_nibbles.extend(slice.iter());
+                    println!("Leaf: {:?} {:?}", node_hash, left_path_nibbles);
+                    // If we're in the leaf - we're done, we reached the left-most part.
+                    break;
+                }
+                RawTrieNode::Branch(children, _) => {
+                    let mut selected = false;
+                    for child_index in 0..children.len() {
+                        // If child is present in the current trie - take it.
+                        if let Some(child) = children[child_index] {
+                            if trie.retrieve_raw_node(&child).is_ok() {
+                                left_path_nibbles.push(child_index as u8);
+                                node_hash = child;
+                                selected = true;
+                                break;
+                            }
+                        }
+                    }
+                    if selected == false {
+                        // we're at the end, this is the node. (in theory - maybe it should be going down??)
+                        println!("Branch fail : {:?}", left_path_nibbles);
+                        break;
+                    } else {
+                        println!("Branch ok {:?}: {:?}", node_hash, left_path_nibbles);
+                    }
+                }
+                RawTrieNode::Extension(key, child) => {
+                    let (slice, _) = NibbleSlice::from_encoded(key);
+                    left_path_nibbles.extend(slice.iter());
+                    node_hash = *child;
+                    println!("Extension : {:?} {:?}", node_hash, left_path_nibbles);
+                }
+            }
+        }
+        println!("We found left path: {:?}", left_path_nibbles);
+
+        Ok(PartOfTrie::new())
 
         // Try finding left & right boundaries in here.
-        todo!()
     }
 
     pub fn validate() {}
@@ -93,11 +150,12 @@ mod test {
     #[test]
     fn parse_test() {
         let mut file =
-            File::open("~/tmp/0126_state_with_flat/node0/state_parts/state_part_000004").unwrap();
+            File::open("/home/cyfra/tmp/0126_state_with_flat/node0/state_parts/state_part_000003")
+                .unwrap();
         let mut contents = Vec::new();
         file.read_to_end(&mut contents).unwrap();
 
-        let part = PartOfTrie::parse_from_part(contents).unwrap();
+        let part = PartOfTrie::parse_from_part(contents, 3).unwrap();
     }
 }
 /// Calculates delta between actual storage usage and one saved in state
@@ -154,7 +212,7 @@ impl TrieStorage for MockTrieStorage {
 fn main() {
     // Experiment with the delayed receipt.
 
-    {
+    /*{
         let payload = DelayedReceiptIndices { first_index: 42, next_available_index: 42 };
 
         let serialized_payload = payload.try_to_vec().unwrap();
@@ -191,9 +249,9 @@ fn main() {
 
         let index: u64 = 0;
         index.to_le_bytes()*/
-    }
+    }*/
 
-    let home_dir = "/home/cyfra/tmp/0126_state_with_flat/node0";
+    let home_dir = "/home/mm-near/tmp/0126_state_with_flat/node0";
     let home_dir = Path::new(home_dir);
     let config = Default::default();
     let near_config =
@@ -235,163 +293,192 @@ fn main() {
 
     println!("Parts: {:?} State root node: {:?}", num_parts, state_root_node);
 
-    let trie = runtime_adapter.get_view_trie_for_shard(0, &sync_prev_hash, state_root).unwrap();
-
-    let existing_delayed_receipt =
-        trie.get(&TrieKey::DelayedReceiptIndices.to_vec()).unwrap().unwrap();
-
-    let mut tmp1 = &existing_delayed_receipt[..];
-
-    println!("!! Existing: {:?} ", DelayedReceiptIndices::deserialize(&mut tmp1));
-
-    let mut previous_key = Vec::new();
-
-    let mut all_nodes = Vec::new();
-
-    for part_id in 0..num_parts + 1 {
-        let path = trie.find_path_for_part_boundary(part_id, num_parts).unwrap();
-        let path_as_str = str::from_utf8(&path);
-        let other_convert = nibbles_to_string(&path);
-        println!("******* Path for {}: {:?}, {:?}", part_id, path, other_convert);
-
-        if part_id == 0 {
-            continue;
-        }
-
-        let key = if part_id == num_parts {
-            None
-        } else {
-            let mut key = trie.path_to_key(&path);
-            let node = trie.lookup_trie_node_by_path(&path).unwrap();
-            println!("Node is {:?}", node);
-
-            match node {
-                near_store::RawTrieNode::Leaf(existing_key, _, _) => {
-                    let nibbles = NibbleSlice::from_encoded(&existing_key).0;
-                    assert_eq!(nibbles.len() % 2, 0);
-
-                    let mut tmp = existing_key.clone();
-                    key.append(&mut tmp.split_off(1));
-                }
-                near_store::RawTrieNode::Branch(_, _) => {
-                    // We're on a branch with a value - nothing to do.
-                }
-                near_store::RawTrieNode::Extension(_, _) => {
-                    //panic!("We should not end up on extension");
-                }
-            }
-            println!(
-                "And our key to fetch from flat storage is: {:?} {:?}",
-                key,
-                str::from_utf8(&key)
-            );
-
-            let trie_result = trie.get_ref(&key, near_store::KeyLookupMode::Trie).unwrap();
-            println!("Trie: {:?}", trie_result);
-            let flat_result = trie.get_ref(&key, near_store::KeyLookupMode::FlatStorage).unwrap();
-
-            println!("Comparison {:?} {:?}", trie_result, flat_result);
-            Some(key)
-        };
-
-        //println!("Reading data between {:?} and {:?}", previous_key, key);
-
-        let flat_items = iter_flat_state_keys(&store, &previous_key, &key);
-
-        println!("Got {} flat_items", flat_items.len());
-
-        let mut mm = HashSet::new();
-        let mut flat_based_nodes = Vec::new();
-
-        let mut flat_values = 0;
-
-        for entry in flat_items.iter() {
-            let account = parse_account_id_from_raw_key(&entry.0.clone()).unwrap();
-            mm.insert(account.clone());
-
-            if let Some(account) = account {
-                if account == AccountId::from_str("shard0").unwrap() {
-                    //flat_values.push(entry.1);
-                    //if let Ok(trie_node) = RawTrieNode::decode(&entry.1) {
-                    //    flat_based_nodes.push(trie_node);
-                    //} else {
-                    //    flat_values += 1;
-                    // }
-
-                    let value_ref = ValueRef::decode(((*(entry.1)).try_into()).unwrap());
-
-                    flat_based_nodes.push((entry.0.clone(), value_ref.clone()));
-
-                    let raw_bytes = trie.get_raw_bytes(&value_ref).unwrap().unwrap();
-
-                    // TODO: This is wrong - we should read from the valueref pointer instead...
-                    all_nodes.push((entry.0.clone(), raw_bytes));
-                }
-            }
-        }
-        println!("Set: {:?} flat based value refs in shard0: {},", mm, flat_based_nodes.len(),);
-
-        previous_key = key.clone().unwrap_or(vec![]).clone();
-    }
-
-    let mock_storage = MockTrieStorage { entries: HashMap::new() };
-    let in_memory_trie = Trie::new(Box::new(mock_storage), StateRoot::new(), None);
-
-    let trie_updates = in_memory_trie
-        .update(all_nodes.iter().map(|(a, b)| (a.to_vec(), Some(b.clone()))))
-        .unwrap();
-
-    println!(
-        "!!! Trie updates: old root: {:?}  new root: {:?} added nodes: {:?} removed nodes: {:?}",
-        trie_updates.old_root,
-        trie_updates.new_root,
-        trie_updates.insertions().len(),
-        trie_updates.deletions.len(),
+    runtime_adapter.create_flat_storage_state_for_shard(
+        0,
+        sync_prev_block.header().height(),
+        &chain_store,
     );
+    let trie = runtime_adapter.get_trie_for_shard(0, &sync_prev_hash, state_root, true).unwrap();
 
-    for node in trie_updates.insertions() {
-        let decoded_node = RawTrieNodeWithSize::decode(node.payload());
+    //let trie = runtime_adapter.get_view_trie_for_shard(0, &sync_prev_hash, state_root).unwrap();
 
-        println!("Node: {:?} is node: {:?}", node.hash(), decoded_node.is_ok());
-        if let Ok(decoded_node) = decoded_node {
-            println!("Memory: {}", decoded_node.memory_usage);
-        }
-    }
+    let shard_layout =
+        runtime_adapter.get_shard_layout(sync_prev_block.header().epoch_id()).unwrap();
 
     for part_id in 0..num_parts {
-        let part_id_s = PartId::new(part_id, num_parts);
-        let original_state_part =
-            runtime_adapter.obtain_state_part(0, &sync_prev_hash, &state_root, part_id_s).unwrap();
-        let original_partial_state = trie.get_trie_nodes_for_part(part_id_s).unwrap();
+        println!("Preparing {:?}", part_id);
+        let payload = trie
+            .get_trie_nodes_for_part_with_flat_storage(
+                &shard_layout,
+                PartId { idx: part_id, total: num_parts },
+            )
+            .unwrap()
+            .try_to_vec()
+            .unwrap();
 
-        println!(
-            "Part {:?} - original size: {} nodes: {}",
-            part_id_s,
-            original_state_part.len(),
-            original_partial_state.0.len()
-        );
+        let filename =
+            PathBuf::from_str("/tmp/").unwrap().join(format!("state_part_{:06}", part_id));
+        std::fs::write(&filename, payload).unwrap();
     }
 
-    let mut old_trie = File::create("/tmp/old_trie").unwrap();
+    /*
+        let existing_delayed_receipt =
+            trie.get(&TrieKey::DelayedReceiptIndices.to_vec()).unwrap().unwrap();
 
-    trie.print_recursive(&mut old_trie, &state_root, 20);
+        let mut tmp1 = &existing_delayed_receipt[..];
 
-    println!("***************************************************************************");
+        println!("!! Existing: {:?} ", DelayedReceiptIndices::deserialize(&mut tmp1));
 
-    let other_mock_storage = MockTrieStorage {
-        entries: trie_updates
-            .insertions()
-            .iter()
-            .map(|inser| (inser.hash().clone(), inser.clone().trie_node_or_value))
-            .collect(),
-    };
+        let mut previous_key = Vec::new();
 
-    let other_memory_trie = Trie::new(Box::new(other_mock_storage), trie_updates.new_root, None);
+        let mut all_nodes = Vec::new();
 
-    let mut new_trie = File::create("/tmp/new_trie").unwrap();
-    other_memory_trie.print_recursive(&mut new_trie, &trie_updates.new_root, 20);
+        for part_id in 0..num_parts + 1 {
+            let path = trie.find_path_for_part_boundary(part_id, num_parts).unwrap();
+            let path_as_str = str::from_utf8(&path);
+            let other_convert = nibbles_to_string(&path);
+            println!("******* Path for {}: {:?}, {:?}", part_id, path, other_convert);
 
-    //store.get_ser(DB, key)
+            if part_id == 0 {
+                continue;
+            }
+
+            let key = if part_id == num_parts {
+                None
+            } else {
+                let mut key = trie.path_to_key(&path).unwrap();
+                let node = trie.lookup_trie_node_by_path(&path).unwrap();
+                println!("Node is {:?}", node);
+
+                match node {
+                    near_store::RawTrieNode::Leaf(existing_key, _, _) => {
+                        let nibbles = NibbleSlice::from_encoded(&existing_key).0;
+                        assert_eq!(nibbles.len() % 2, 0);
+
+                        let mut tmp = existing_key.clone();
+                        key.append(&mut tmp.split_off(1));
+                    }
+                    near_store::RawTrieNode::Branch(_, _) => {
+                        // We're on a branch with a value - nothing to do.
+                    }
+                    near_store::RawTrieNode::Extension(_, _) => {
+                        //panic!("We should not end up on extension");
+                    }
+                }
+                println!(
+                    "And our key to fetch from flat storage is: {:?} {:?}",
+                    key,
+                    str::from_utf8(&key)
+                );
+
+                let trie_result = trie.get_ref(&key, near_store::KeyLookupMode::Trie).unwrap();
+                println!("Trie: {:?}", trie_result);
+                let flat_result = trie.get_ref(&key, near_store::KeyLookupMode::FlatStorage).unwrap();
+
+                println!("Comparison {:?} {:?}", trie_result, flat_result);
+                Some(key)
+            };
+
+            //println!("Reading data between {:?} and {:?}", previous_key, key);
+
+            let flat_items = iter_flat_state_keys(&store, &previous_key, &key);
+
+            println!("Got {} flat_items", flat_items.len());
+
+            let mut mm = HashSet::new();
+            let mut flat_based_nodes = Vec::new();
+
+            let mut flat_values = 0;
+
+            for entry in flat_items.iter() {
+                let account = parse_account_id_from_raw_key(&entry.0.clone()).unwrap();
+                mm.insert(account.clone());
+
+                if let Some(account) = account {
+                    if account == AccountId::from_str("shard0").unwrap() {
+                        //flat_values.push(entry.1);
+                        //if let Ok(trie_node) = RawTrieNode::decode(&entry.1) {
+                        //    flat_based_nodes.push(trie_node);
+                        //} else {
+                        //    flat_values += 1;
+                        // }
+
+                        let value_ref = ValueRef::decode(((*(entry.1)).try_into()).unwrap());
+
+                        flat_based_nodes.push((entry.0.clone(), value_ref.clone()));
+
+                        let raw_bytes = trie.get_raw_bytes(&value_ref).unwrap().unwrap();
+
+                        // TODO: This is wrong - we should read from the valueref pointer instead...
+                        all_nodes.push((entry.0.clone(), raw_bytes));
+                    }
+                }
+            }
+            println!("Set: {:?} flat based value refs in shard0: {},", mm, flat_based_nodes.len(),);
+
+            previous_key = key.clone().unwrap_or(vec![]).clone();
+        }
+
+        let mock_storage = MockTrieStorage { entries: HashMap::new() };
+        let in_memory_trie = Trie::new(Box::new(mock_storage), StateRoot::new(), None);
+
+        let trie_updates = in_memory_trie
+            .update(all_nodes.iter().map(|(a, b)| (a.to_vec(), Some(b.clone()))))
+            .unwrap();
+
+        println!(
+            "!!! Trie updates: old root: {:?}  new root: {:?} added nodes: {:?} removed nodes: {:?}",
+            trie_updates.old_root,
+            trie_updates.new_root,
+            trie_updates.insertions().len(),
+            trie_updates.deletions.len(),
+        );
+
+        for node in trie_updates.insertions() {
+            let decoded_node = RawTrieNodeWithSize::decode(node.payload());
+
+            println!("Node: {:?} is node: {:?}", node.hash(), decoded_node.is_ok());
+            if let Ok(decoded_node) = decoded_node {
+                println!("Memory: {}", decoded_node.memory_usage);
+            }
+        }
+
+        for part_id in 0..num_parts {
+            let part_id_s = PartId::new(part_id, num_parts);
+            let original_state_part =
+                runtime_adapter.obtain_state_part(0, &sync_prev_hash, &state_root, part_id_s).unwrap();
+            let original_partial_state = trie.get_trie_nodes_for_part(part_id_s).unwrap();
+
+            println!(
+                "Part {:?} - original size: {} nodes: {}",
+                part_id_s,
+                original_state_part.len(),
+                original_partial_state.0.len()
+            );
+        }
+
+        let mut old_trie = File::create("/tmp/old_trie").unwrap();
+
+        trie.print_recursive(&mut old_trie, &state_root, 20);
+
+        println!("***************************************************************************");
+
+        let other_mock_storage = MockTrieStorage {
+            entries: trie_updates
+                .insertions()
+                .iter()
+                .map(|inser| (inser.hash().clone(), inser.clone().trie_node_or_value))
+                .collect(),
+        };
+
+        let other_memory_trie = Trie::new(Box::new(other_mock_storage), trie_updates.new_root, None);
+
+        let mut new_trie = File::create("/tmp/new_trie").unwrap();
+        other_memory_trie.print_recursive(&mut new_trie, &trie_updates.new_root, 20);
+
+        //store.get_ser(DB, key)
+
+    */
 
     /*
     let env_filter = near_o11y::EnvFilterBuilder::from_env().verbose(Some("")).finish().unwrap();

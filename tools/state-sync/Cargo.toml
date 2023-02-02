@@ -25,6 +25,8 @@ near-stdx = { path = "../../utils/stdx"}
 [features]
 nightly = [
   "nightly_protocol",
-  "nearcore/nightly"
+  "nearcore/nightly",
+  "near-store/nightly",
+  "near-chain/nightly",
 ]
 nightly_protocol = ["nearcore/nightly_protocol"]

@@ -56,14 +56,15 @@ mod imp {
     use crate::flat_state::{store_helper, FlatStorageState, POISONED_LOCK_ERR};
     use near_primitives::errors::StorageError;
     use near_primitives::hash::CryptoHash;
-    use near_primitives::shard_layout::ShardLayout;
+    use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout};
     use near_primitives::state::ValueRef;
+    use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_raw_key;
     use near_primitives::types::ShardId;
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
     use tracing::debug;
 
-    use crate::{Store, StoreUpdate};
+    use crate::{DBCol, Store, StoreUpdate};
 
     /// Struct for getting value references from the flat storage.
     ///
@@ -120,6 +121,27 @@ mod imp {
             }
 
             Ok(store_helper::get_ref(&self.store, key)?)
+        }
+
+        pub fn iter_flat_state_entries(
+            &self,
+            shard_layout: &ShardLayout,
+            from: &[u8],
+            to: &Option<Vec<u8>>,
+        ) -> Vec<(Box<[u8]>, Box<[u8]>)> {
+            let shard_id = self.flat_storage_state.get_shard_id();
+
+            let mut result = Vec::new();
+            for item in self.store.iter(DBCol::FlatState) {
+                let (key, value) = item.unwrap();
+                let account = parse_account_id_from_raw_key(&key).unwrap().unwrap();
+                if account_id_to_shard_id(&account, shard_layout) == shard_id {
+                    if key >= from.into() && to.as_ref().map_or(true, |x| *(*x) >= *key) {
+                        result.push((key, value));
+                    }
+                }
+            }
+            result
         }
     }
 
@@ -208,35 +230,33 @@ mod imp {
                 }
             };
 
-            if is_view {
+            println!("XXX Getting flat storage for trie..");
+
+            /*if is_view {
                 // TODO (#7327): Technically, like TrieCache, we should have a separate set of caches for Client and
                 // ViewClient. Right now, we can get by by not enabling flat state for view trie
                 None
-            } else {
-                let cache = {
-                    let mut caches = self.0.caches.lock().expect(POISONED_LOCK_ERR);
-                    caches.entry(shard_id).or_insert_with(|| FlatStateCache {}).clone()
-                };
-                let flat_storage_state = {
-                    let flat_storage_states =
-                        self.0.flat_storage_states.lock().expect(POISONED_LOCK_ERR);
-                    // It is possible that flat storage state does not exist yet because it is being created in
-                    // background.
-                    match flat_storage_states.get(&shard_id) {
-                        Some(flat_storage_state) => flat_storage_state.clone(),
-                        None => {
-                            debug!(target: "chain", "FlatStorageState is not ready");
-                            return None;
-                        }
+            } else {*/
+            let cache = {
+                let mut caches = self.0.caches.lock().expect(POISONED_LOCK_ERR);
+                caches.entry(shard_id).or_insert_with(|| FlatStateCache {}).clone()
+            };
+            let flat_storage_state = {
+                let flat_storage_states =
+                    self.0.flat_storage_states.lock().expect(POISONED_LOCK_ERR);
+                // It is possible that flat storage state does not exist yet because it is being created in
+                // background.
+                match flat_storage_states.get(&shard_id) {
+                    Some(flat_storage_state) => flat_storage_state.clone(),
+                    None => {
+                        println!("FAiled - not ready");
+                        debug!(target: "chain", "FlatStorageState is not ready");
+                        return None;
                     }
-                };
-                Some(FlatState {
-                    store: self.0.store.clone(),
-                    block_hash,
-                    cache,
-                    flat_storage_state,
-                })
-            }
+                }
+            };
+            Some(FlatState { store: self.0.store.clone(), block_hash, cache, flat_storage_state })
+            //}
         }
 
         // TODO (#7327): change the function signature to Result<FlatStorageState, Error> when
@@ -306,6 +326,8 @@ mod imp {
             _block_hash: Option<CryptoHash>,
             _is_view: bool,
         ) -> Option<FlatState> {
+            is_view = 14;
+            println!("****************** FEATURE DISABLED *****************");
             None
         }
 
@@ -924,6 +946,11 @@ impl FlatStorageState {
         _target_block_hash: &CryptoHash,
     ) -> Result<Vec<FlatStateDelta>, crate::StorageError> {
         Ok(vec![])
+    }
+
+    pub fn get_shard_id(&self) -> u64 {
+        let guard = self.0.read().expect(POISONED_LOCK_ERR);
+        guard.shard_id
     }
 
     /// Update the head of the flat storage, including updating the flat state in memory and on disk

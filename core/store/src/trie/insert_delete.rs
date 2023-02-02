@@ -9,7 +9,7 @@ use crate::trie::{
 };
 use crate::{StorageError, Trie, TrieChanges};
 
-pub(crate) struct NodesStorage {
+pub struct NodesStorage {
     nodes: Vec<Option<TrieNodeWithSize>>,
     values: Vec<Option<Vec<u8>>>,
     pub(crate) refcount_changes: HashMap<CryptoHash, (Vec<u8>, i32)>,
@@ -80,7 +80,7 @@ enum FlattenNodesCrumb {
 impl Trie {
     /// Allowed to mutate nodes in NodesStorage.
     /// Insert while holding StorageHandles to NodesStorage is unsafe
-    pub(crate) fn insert(
+    pub fn insert(
         &self,
         memory: &mut NodesStorage,
         node: StorageHandle,
