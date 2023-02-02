@@ -239,4 +239,46 @@ impl ClientConfig {
             flat_storage_creation_period: Duration::from_secs(1),
         }
     }
+
+    /// Does semantic ClientConfig validation.
+    /// This is the place to check that all ClientConfig field values make sense and fit well together.
+    /// panics if the ClientConfig values are not valid
+    pub fn validate(&self) {
+        assert!(
+            !(self.archive == false && self.save_trie_changes == false), 
+            "Configuration with archive = false and save_trie_changes = false is not supported because non-archival nodes must save trie changes in order to do do garbage collection."
+        );
+        assert!(
+            self.min_block_production_delay < self.max_block_production_delay, 
+            "min_block_production_delay must be smaller than max_block_production_delay."
+        );
+        assert!(
+            self.max_block_wait_delay > self.min_block_production_delay,
+            "max_block_wait_delay must be bigger than min_block_production_delay."
+        );
+        assert!(
+            self.sync_height_threshold > 0,
+            "sync_height_threshold should be greater than 0."
+        );
+        assert!(
+            self.header_sync_expected_height_per_second > 0,
+            "header_sync_expected_height_per_second should be greater than 0."
+        );
+        assert!(
+            self.min_num_peers > 0,
+            "min_num_peers should be greater than 0."
+        );
+        assert!(
+            self.epoch_length > 0,
+            "epoch_length should be greater than 0."
+        );
+        assert!(
+            self.tracked_shards.len() > 0,
+            "tracked_shards should not be empty."
+        );
+        assert!(
+            self.gc.gc_blocks_limit > 0 && self.gc.gc_fork_clean_step > 0 && self.gc.gc_num_epochs_to_keep > 0,
+            "gc config values should all be greater than 0."
+        )
+    }
 }

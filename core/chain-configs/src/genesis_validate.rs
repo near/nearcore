@@ -129,6 +129,10 @@ impl<'a> GenesisValidator<'a> {
             self.genesis_config.gas_price_adjustment_rate < Rational32::from_integer(1),
             "Gas price adjustment rate must be less than 1"
         );
+        assert!(
+            self.genesis_config.epoch_length > 0,
+            "Epoch Length must be greater than 0"
+        );
     }
 }
 

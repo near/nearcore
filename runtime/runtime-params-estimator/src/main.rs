@@ -2,7 +2,7 @@
 
 use anyhow::Context;
 use genesis_populate::GenesisBuilder;
-use near_chain_configs::GenesisValidationMode;
+use nearcore::config::ConfigValidationMode;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::RuntimeConfigView;
 use near_vm_runner::internal::VMKind;
@@ -175,7 +175,7 @@ fn run_estimation(cli_args: CliArgs) -> anyhow::Result<Option<CostTable>> {
         )
         .expect("failed to init config");
 
-        let near_config = nearcore::load_config(&state_dump_path, GenesisValidationMode::Full)
+        let near_config = nearcore::load_config(&state_dump_path, ConfigValidationMode::Full)
             .context("Error loading config")?;
         let store = near_store::NodeStorage::opener(
             &state_dump_path,

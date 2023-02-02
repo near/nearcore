@@ -1,7 +1,7 @@
 #[cfg(unix)]
 use anyhow::Context;
 use near_amend_genesis::AmendGenesisCommand;
-use near_chain_configs::GenesisValidationMode;
+use nearcore::config::ConfigValidationMode;
 use near_client::ConfigUpdater;
 use near_cold_store_tool::ColdStoreCommand;
 use near_dyn_configs::{UpdateableConfigLoader, UpdateableConfigLoaderError, UpdateableConfigs};
@@ -74,10 +74,10 @@ impl NeardCmd {
         }
 
         let home_dir = neard_cmd.opts.home.clone();
-        let genesis_validation = if neard_cmd.opts.unsafe_fast_startup {
-            GenesisValidationMode::UnsafeFast
+        let config_validation = if neard_cmd.opts.unsafe_fast_startup {
+            ConfigValidationMode::UnsafeFast
         } else {
-            GenesisValidationMode::Full
+            ConfigValidationMode::Full
         };
 
         match neard_cmd.subcmd {
@@ -85,14 +85,14 @@ impl NeardCmd {
             NeardSubCommand::Localnet(cmd) => cmd.run(&home_dir),
             NeardSubCommand::Run(cmd) => cmd.run(
                 &home_dir,
-                genesis_validation,
+                config_validation,
                 neard_cmd.opts.verbose_target(),
                 &neard_cmd.opts.o11y,
             ),
 
             NeardSubCommand::StateViewer(cmd) => {
                 let mode = if cmd.readwrite { Mode::ReadWrite } else { Mode::ReadOnly };
-                cmd.subcmd.run(&home_dir, genesis_validation, mode, cmd.store_temperature);
+                cmd.subcmd.run(&home_dir, config_validation, mode, cmd.store_temperature);
             }
 
             NeardSubCommand::RecompressStorage(cmd) => {
@@ -115,6 +115,9 @@ impl NeardCmd {
             }
             NeardSubCommand::StateParts(cmd) => {
                 cmd.run()?;
+            }
+            NeardSubCommand::ValidateConfig(cmd) => {
+                cmd.run(&home_dir);
             }
         };
         Ok(())
@@ -145,7 +148,8 @@ struct NeardOpts {
     /// Directory for config and data.
     #[clap(long, parse(from_os_str), default_value_os = crate::DEFAULT_HOME.as_os_str())]
     home: PathBuf,
-    /// Skips consistency checks of the 'genesis.json' file upon startup.
+    /// Skips consistency checks of the config files including 
+    /// genesis.json, config.json, node_key.json and validator_key.json upon startup.
     /// Let's you start `neard` slightly faster.
     #[clap(long)]
     unsafe_fast_startup: bool,
@@ -225,6 +229,9 @@ pub(super) enum NeardSubCommand {
 
     /// Connects to a NEAR node and sends state parts requests after the handshake is completed.
     StateParts(StatePartsCommand),
+
+    /// validate config files including genesis.json and config.json
+    ValidateConfig(ValidateConfigCommand),
 }
 
 #[derive(clap::Parser)]
@@ -389,12 +396,12 @@ impl RunCmd {
     pub(super) fn run(
         self,
         home_dir: &Path,
-        genesis_validation: GenesisValidationMode,
+        config_validation: ConfigValidationMode,
         verbose_target: Option<&str>,
         o11y_opts: &near_o11y::Options,
     ) {
         // Load configs from home.
-        let mut near_config = nearcore::config::load_config(&home_dir, genesis_validation)
+        let mut near_config = nearcore::config::load_config(&home_dir, config_validation)
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
 
         check_release_build(&near_config.client_config.chain_id);
@@ -763,6 +770,19 @@ fn make_env_filter(verbose: Option<&str>) -> Result<EnvFilter, BuildEnvFilterErr
         env_filter
     };
     Ok(env_filter)
+}
+
+#[derive(Parser)]
+pub(super) struct ValidateConfigCommand {
+}
+
+impl ValidateConfigCommand {
+    pub(super) fn run(
+        &self,
+        home_dir: &Path,
+    ) {
+        nearcore::config::validate_configs(&home_dir)
+    }
 }
 
 #[cfg(test)]

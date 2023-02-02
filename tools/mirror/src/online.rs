@@ -2,7 +2,7 @@ use crate::{ChainError, SourceBlock, SourceChunk};
 use actix::Addr;
 use anyhow::Context;
 use async_trait::async_trait;
-use near_chain_configs::GenesisValidationMode;
+use nearcore::config::ConfigValidationMode;
 use near_client::ViewClientActor;
 use near_client_primitives::types::{
     GetBlock, GetBlockError, GetChunk, GetChunkError, GetExecutionOutcome, GetReceipt, Query,
@@ -29,7 +29,7 @@ pub(crate) struct ChainAccess {
 impl ChainAccess {
     pub(crate) fn new<P: AsRef<Path>>(home: P) -> anyhow::Result<Self> {
         let config =
-            nearcore::config::load_config(home.as_ref(), GenesisValidationMode::UnsafeFast)
+            nearcore::config::load_config(home.as_ref(), ConfigValidationMode::UnsafeFast)
                 .with_context(|| format!("Error loading config from {:?}", home.as_ref()))?;
 
         let node = nearcore::start_with_config(home.as_ref(), config)

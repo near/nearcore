@@ -424,21 +424,45 @@ impl Config {
             );
         }
 
-        config.validate()?;
+        // panics if the Config is invalid
+        config.validate_with_panic();
         Ok(config)
     }
 
-    /// Does semantic config validation.
-    /// This is the place to check that all config values make sense and fit well together.
-    /// `validate()` is called every time `config.json` is read.
-    fn validate(&self) -> Result<(), ConfigValidationError> {
-        if self.archive == false && self.save_trie_changes == Some(false) {
-            Err(ConfigValidationError::TrieChanges)
-        } else {
-            Ok(())
-        }
-        // TODO: Add more config validation.
-        // TODO: Validate `ClientConfig` instead.
+    fn validate_with_panic(&self) {
+        println!("Validating Config, extracted from config.json...");
+        assert!(
+            !(self.archive == false && self.save_trie_changes == Some(false)), 
+            "Configuration with archive = false and save_trie_changes = false is not supported because non-archival nodes must save trie changes in order to do do garbage collection."
+        );
+        assert!(
+            self.consensus.min_block_production_delay < self.consensus.max_block_production_delay, 
+            "consensus.min_block_production_delay must be smaller than consensus.max_block_production_delay."
+        );
+        assert!(
+            self.consensus.max_block_wait_delay > self.consensus.min_block_production_delay,
+            "consensus.max_block_wait_delay must be bigger than consensus.min_block_production_delay."
+        );
+        assert!(
+            self.consensus.sync_height_threshold > 0,
+            "consensus.sync_height_threshold should be greater than 0."
+        );
+        assert!(
+            self.consensus.header_sync_expected_height_per_second > 0,
+            "consensus.header_sync_expected_height_per_second should be greater than 0."
+        );
+        assert!(
+            self.consensus.min_num_peers > 0,
+            "consensus.min_num_peers should be greater than 0."
+        );
+        assert!(
+            !self.tracked_shards.is_empty(),
+            "tracked_shards should be non-empty."
+        );
+        assert!(
+            self.gc.gc_blocks_limit > 0 && self.gc.gc_fork_clean_step > 0 && self.gc.gc_num_epochs_to_keep > 0,
+            "gc config values should all be greater than 0."
+        )
     }
 
     pub fn write_to_file(&self, path: &Path) -> std::io::Result<()> {
@@ -1323,9 +1347,14 @@ impl From<NodeKeyFile> for KeyFile {
     }
 }
 
+pub enum ConfigValidationMode {
+    Full,
+    UnsafeFast
+}
+
 pub fn load_config(
     dir: &Path,
-    genesis_validation: GenesisValidationMode,
+    config_validation: ConfigValidationMode,
 ) -> anyhow::Result<NearConfig> {
     let config = Config::from_file(&dir.join(CONFIG_FILENAME))?;
     let genesis_file = dir.join(&config.genesis_file);
@@ -1343,6 +1372,11 @@ pub fn load_config(
         format!("Failed reading node key file from {}", node_key_path.display())
     })?;
 
+    let genesis_validation = match config_validation {
+        ConfigValidationMode::Full => GenesisValidationMode::Full,
+        ConfigValidationMode::UnsafeFast => GenesisValidationMode::UnsafeFast
+    };
+
     let genesis = match &config.genesis_records_file {
         Some(records_file) => {
             Genesis::from_files(&genesis_file, &dir.join(records_file), genesis_validation)
@@ -1359,7 +1393,42 @@ pub fn load_config(
                         "Validator must track all shards. Please change `tracked_shards` field in config.json to be any non-empty vector");
     }
 
-    NearConfig::new(config, genesis, network_signer.into(), validator_signer)
+    let near_config = NearConfig::new(config, genesis, network_signer.into(), validator_signer)?;
+    
+    if let ConfigValidationMode::Full = config_validation {
+        // panics if client_config is invalid
+        near_config.client_config.validate();
+    }
+    
+    Ok(near_config)
+}
+
+pub fn validate_configs(
+    dir: &Path,
+) {
+    let config_json_path = dir.join(CONFIG_FILENAME);
+    let config = Config::from_file(&config_json_path)
+        .expect(&format!("Failed initializing Config from {}", config_json_path.display()));
+    
+    let validator_file = dir.join(&config.validator_key_file);
+    if validator_file.exists() {
+        _ = InMemoryValidatorSigner::from_file(&validator_file)
+            .expect(&format!("Failed initializing validator signer from {}", validator_file.display()));
+    } else {
+        panic!("Validator key file does not exist at path {}", validator_file.display());
+    };
+    
+    let node_key_path = dir.join(&config.node_key_file);
+    let _network_signer = NodeKeyFile::from_file(&node_key_path)
+        .expect(&format!("Failed initializing node key file from {}", node_key_path.display()));
+
+    let genesis_file = dir.join(&config.genesis_file);
+    match &config.genesis_records_file {
+        Some(records_file) => {
+            Genesis::from_files(&genesis_file, &dir.join(records_file), GenesisValidationMode::Full)
+        }
+        None => Genesis::from_file(&genesis_file, GenesisValidationMode::Full),
+    };
 }
 
 pub fn load_test_config(seed: &str, addr: tcp::ListenerAddr, genesis: Genesis) -> NearConfig {

@@ -45,7 +45,7 @@ impl ColdStoreCommand {
     pub fn run(self, home_dir: &Path) -> anyhow::Result<()> {
         let near_config = nearcore::config::load_config(
             &home_dir,
-            near_chain_configs::GenesisValidationMode::Full,
+            ConfigValidationMode::Full,
         )
         .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
 

@@ -2,7 +2,7 @@ use actix::Addr;
 use anyhow::Context;
 use async_trait::async_trait;
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_chain_configs::GenesisValidationMode;
+use nearcore::config::ConfigValidationMode;
 use near_chain_primitives::error::QueryError as RuntimeQueryError;
 use near_client::{ClientActor, ViewClientActor};
 use near_client::{ProcessTxRequest, ProcessTxResponse};
@@ -852,7 +852,7 @@ impl<T: ChainAccess> TxMirror<T> {
         secret: Option<[u8; crate::secret::SECRET_LEN]>,
     ) -> anyhow::Result<Self> {
         let target_config =
-            nearcore::config::load_config(target_home.as_ref(), GenesisValidationMode::UnsafeFast)
+            nearcore::config::load_config(target_home.as_ref(), ConfigValidationMode::UnsafeFast)
                 .with_context(|| {
                     format!("Error loading target config from {:?}", target_home.as_ref())
                 })?;

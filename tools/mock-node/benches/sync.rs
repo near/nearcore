@@ -8,7 +8,7 @@ use flate2::read::GzDecoder;
 use mock_node::setup::{setup_mock_node, MockNode};
 use mock_node::MockNetworkConfig;
 use near_actix_test_utils::{block_on_interruptible, setup_actix};
-use near_chain_configs::GenesisValidationMode;
+use nearcore::config::ConfigValidationMode;
 use near_client::GetBlock;
 use near_crypto::{InMemorySigner, KeyType};
 use near_o11y::WithSpanContextExt;
@@ -89,7 +89,7 @@ fn do_bench(c: &mut Criterion, home_archive: &str, target_height: Option<BlockHe
     group.bench_function(name, |bench| {
         bench.iter_with_setup(|| {
             let home = extract_home(home_archive).unwrap();
-            let mut near_config = nearcore::config::load_config(home.as_path(), GenesisValidationMode::Full)
+            let mut near_config = nearcore::config::load_config(home.as_path(), ConfigValidationMode::Full)
                 .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
             near_config.validator_signer = None;
             near_config.client_config.min_num_peers = 1;

@@ -1,9 +1,9 @@
 use crate::{ChainError, SourceBlock, SourceChunk};
 use anyhow::Context;
 use async_trait::async_trait;
+use nearcore::config::ConfigValidationMode;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{ChainStore, ChainStoreAccess};
-use near_chain_configs::GenesisValidationMode;
 use near_crypto::PublicKey;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::BlockHeader;
@@ -34,7 +34,7 @@ pub(crate) struct ChainAccess {
 impl ChainAccess {
     pub(crate) fn new<P: AsRef<Path>>(home: P) -> anyhow::Result<Self> {
         let config =
-            nearcore::config::load_config(home.as_ref(), GenesisValidationMode::UnsafeFast)
+            nearcore::config::load_config(home.as_ref(), ConfigValidationMode::UnsafeFast)
                 .with_context(|| format!("Error loading config from {:?}", home.as_ref()))?;
         // leave it ReadWrite since otherwise there are problems with the compiled contract cache
         let store_opener = near_store::NodeStorage::opener(

@@ -8,7 +8,7 @@ use anyhow::Context;
 use mock_node::setup::{setup_mock_node, MockNode};
 use mock_node::MockNetworkConfig;
 use near_actix_test_utils::run_actix;
-use near_chain_configs::GenesisValidationMode;
+use nearcore::config::ConfigValidationMode;
 use near_client::{GetBlock, Status};
 use near_crypto::{InMemorySigner, KeyType};
 use near_network::test_utils::wait_or_timeout;
@@ -87,7 +87,7 @@ fn main() -> anyhow::Result<()> {
     init_integration_logger();
     let args: Cli = clap::Parser::parse();
     let home_dir = Path::new(&args.chain_history_home_dir);
-    let mut near_config = nearcore::config::load_config(home_dir, GenesisValidationMode::Full)
+    let mut near_config = nearcore::config::load_config(home_dir, ConfigValidationMode::Full)
         .context("Error loading config")?;
     near_config.validator_signer = None;
     near_config.client_config.min_num_peers = 1;

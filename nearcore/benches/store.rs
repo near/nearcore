@@ -2,8 +2,8 @@
 extern crate bencher;
 
 use bencher::Bencher;
+use nearcore::config::ConfigValidationMode;
 use near_chain::{types::RuntimeAdapter, ChainStore, ChainStoreAccess};
-use near_chain_configs::GenesisValidationMode;
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::types::StateRoot;
 use near_store::{Mode, Temperature};
@@ -22,7 +22,7 @@ use std::time::{Duration, Instant};
 fn read_trie_items(bench: &mut Bencher, shard_id: usize, mode: Mode) {
     init_integration_logger();
     let home_dir = get_default_home();
-    let near_config = load_config(&home_dir, GenesisValidationMode::UnsafeFast)
+    let near_config = load_config(&home_dir, ConfigValidationMode::UnsafeFast)
         .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
     let num_trie_items = 10_000;
 

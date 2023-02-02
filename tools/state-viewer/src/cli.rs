@@ -3,7 +3,9 @@ use crate::contract_accounts::ContractAccountFilter;
 use crate::rocksdb_stats::get_rocksdb_stats;
 use crate::state_parts::{apply_state_parts, dump_state_parts};
 use crate::{epoch_info, state_parts};
-use near_chain_configs::{GenesisChangeConfig, GenesisValidationMode};
+use clap::{Args, Parser, Subcommand};
+use nearcore::config::ConfigValidationMode;
+use near_chain_configs::GenesisChangeConfig;
 use near_primitives::account::id::AccountId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
@@ -90,11 +92,11 @@ impl StateViewerSubCommand {
     pub fn run(
         self,
         home_dir: &Path,
-        genesis_validation: GenesisValidationMode,
+        config_validation: ConfigValidationMode,
         mode: Mode,
         temperature: Temperature,
     ) {
-        let near_config = load_config(home_dir, genesis_validation)
+        let near_config = load_config(home_dir, config_validation)
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
 
         let cold_config: Option<&near_store::StoreConfig> = near_config.config.cold_store.as_ref();

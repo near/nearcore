@@ -275,7 +275,7 @@ fn main() -> Result<()> {
                 home_dir,
                 sync_mode: near_indexer::SyncModeEnum::FromInterruption,
                 await_for_node_synced: near_indexer::AwaitForNodeSyncedEnum::WaitForFullSync,
-                validate_genesis: true,
+                validate_config: true,
             };
             let system = actix::System::new();
             system.block_on(async move {
