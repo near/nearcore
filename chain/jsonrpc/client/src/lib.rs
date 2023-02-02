@@ -29,14 +29,15 @@ pub enum ChunkId {
 /// Timeout for establishing connection.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Max size of the payload JsonRpcClient can receive. Be careful adjusting this value since
-/// smaller values can raise overflow messages.
+/// Max size of the payload JsonRpcClient can receive. Be careful adjusting this
+/// value since smaller values can raise overflow messages.
 const PAYLOAD_LIMIT: usize = 100 * 1024 * 1024;
 
 type HttpRequest<T> = LocalBoxFuture<'static, Result<T, String>>;
 type RpcRequest<T> = LocalBoxFuture<'static, Result<T, RpcError>>;
 
-/// Prepare a `RPCRequest` with a given client, server address, method and parameters.
+/// Prepare a `RPCRequest` with a given client, server address, method and
+/// parameters.
 fn call_method<P, R>(client: &Client, server_addr: &str, method: &str, params: P) -> RpcRequest<R>
 where
     P: Serialize,
@@ -98,17 +99,17 @@ where
         .boxed_local()
 }
 
-/// Expands a variable list of parameters into its serializable form. Is needed to make the params
-/// of a nullary method equal to `[]` instead of `()` and thus make sure it serializes to `[]`
-/// instead of `null`.
+/// Expands a variable list of parameters into its serializable form. Is needed
+/// to make the params of a nullary method equal to `[]` instead of `()` and
+/// thus make sure it serializes to `[]` instead of `null`.
 #[doc(hidden)]
 macro_rules! expand_params {
     () => ([] as [(); 0]);
     ($($arg_name:ident,)+) => (($($arg_name,)+))
 }
 
-/// Generates a simple HTTP client with automatic serialization and deserialization.
-/// Method calls get correct types automatically.
+/// Generates a simple HTTP client with automatic serialization and
+/// deserialization. Method calls get correct types automatically.
 macro_rules! http_client {
     (
         $(#[$struct_attr:meta])*
@@ -201,8 +202,8 @@ jsonrpc_client!(pub struct JsonRpcClient {
 });
 
 impl JsonRpcClient {
-    /// This is a soft-deprecated method to do query RPC request with a path and data positional
-    /// parameters.
+    /// This is a soft-deprecated method to do query RPC request with a path and
+    /// data positional parameters.
     pub fn query_by_path(
         &self,
         path: String,

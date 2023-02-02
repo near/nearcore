@@ -6,7 +6,8 @@ use near_primitives::test_utils::TestBlockBuilder;
 use near_primitives::time::Clock;
 use near_primitives::utils::MaybeValidated;
 
-/// Ignore the test because challenges are not enabled yet and the test not compatible with flat storage implementation.
+/// Ignore the test because challenges are not enabled yet and the test not
+/// compatible with flat storage implementation.
 #[test]
 #[ignore]
 fn challenges_new_head_prev() {
@@ -38,8 +39,8 @@ fn challenges_new_head_prev() {
     // At this point the challenger block is not on canonical chain
     assert_eq!(chain.head_header().unwrap().height(), 5);
 
-    // Challenge fourth block. The third block and the challenger block have the same height, the
-    //   current logic will choose the third block.
+    // Challenge fourth block. The third block and the challenger block have the
+    // same height, the   current logic will choose the third block.
     chain.mark_block_as_challenged(&hashes[3], &challenger_hash).unwrap();
 
     assert_eq!(chain.head_header().unwrap().hash(), &hashes[2]);

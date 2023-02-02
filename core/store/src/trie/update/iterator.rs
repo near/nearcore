@@ -87,7 +87,8 @@ impl<'a> Iterator for TrieUpdateIterator<'a> {
             Overlay,
             Both,
         }
-        // Usually one iteration, unless need to skip None values in prospective / committed.
+        // Usually one iteration, unless need to skip None values in prospective /
+        // committed.
         let iterators = self.0.as_mut()?;
         loop {
             let res = match (iterators.0.peek(), iterators.1.peek()) {

@@ -24,13 +24,14 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     (50, include_config!("50.yaml")),
     // max_gas_burnt increased to 300 TGas
     (52, include_config!("52.yaml")),
-    // Increased deployment costs, increased wasmer2 stack_limit, added limiting of contract locals,
-    // set read_cached_trie_node cost, decrease storage key limit
+    // Increased deployment costs, increased wasmer2 stack_limit, added limiting of contract
+    // locals, set read_cached_trie_node cost, decrease storage key limit
     (53, include_config!("53.yaml")),
     (57, include_config!("57.yaml")),
 ];
 
-/// Testnet parameters for versions <= 29, which (incorrectly) differed from mainnet parameters
+/// Testnet parameters for versions <= 29, which (incorrectly) differed from
+/// mainnet parameters
 pub static INITIAL_TESTNET_CONFIG: &str = include_config!("parameters_testnet.yaml");
 
 /// Stores runtime config for each protocol version where it was updated.
@@ -43,14 +44,16 @@ pub struct RuntimeConfigStore {
 impl RuntimeConfigStore {
     /// Constructs a new store.
     ///
-    /// If genesis_runtime_config is Some, configs for protocol versions 0 and 42 are overridden by
-    /// this config and config with lowered storage cost, respectively.
-    /// This is done to preserve compatibility with previous implementation, where we updated
-    /// runtime config by sequential modifications to the genesis runtime config.
+    /// If genesis_runtime_config is Some, configs for protocol versions 0 and
+    /// 42 are overridden by this config and config with lowered storage
+    /// cost, respectively. This is done to preserve compatibility with
+    /// previous implementation, where we updated runtime config by
+    /// sequential modifications to the genesis runtime config.
     /// calimero_zero_storage flag sets all storages fees to zero by setting
-    /// storage_amount_per_byte to zero, to keep calimero private shards compatible with future
-    /// protocol upgrades this is done for all protocol versions
-    /// TODO #4775: introduce new protocol version to have the same runtime config for all chains
+    /// storage_amount_per_byte to zero, to keep calimero private shards
+    /// compatible with future protocol upgrades this is done for all
+    /// protocol versions TODO #4775: introduce new protocol version to have
+    /// the same runtime config for all chains
     pub fn new(genesis_runtime_config: Option<&RuntimeConfig>) -> Self {
         let mut params: ParameterTable =
             BASE_CONFIG.parse().expect("Failed parsing base parameter file.");
@@ -188,8 +191,8 @@ mod tests {
         );
     }
 
-    // Check that for protocol version with lowered data receipt cost, runtime config passed to
-    // config store is overridden.
+    // Check that for protocol version with lowered data receipt cost, runtime
+    // config passed to config store is overridden.
     #[test]
     #[cfg(not(feature = "calimero_zero_storage"))]
     fn test_override_runtime_config() {
@@ -283,7 +286,8 @@ mod tests {
             });
         }
 
-        // Testnet initial config for old version was different, thus needs separate testing
+        // Testnet initial config for old version was different, thus needs separate
+        // testing
         let params = INITIAL_TESTNET_CONFIG.parse().unwrap();
         let new_genesis_runtime_config = RuntimeConfig::new(&params).unwrap();
         let testnet_store = RuntimeConfigStore::new(Some(&new_genesis_runtime_config));

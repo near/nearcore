@@ -21,7 +21,7 @@ impl Debug for MigrationData {
 pub struct MigrationFlags {
     // True iff the current block is the first one in the chain with current protocol version
     pub is_first_block_of_version: bool,
-    // True iff, among all blocks containing chunk for some specific shard, the current block is the
-    // first one in the first epoch with the current protocol version
+    // True iff, among all blocks containing chunk for some specific shard, the current block is
+    // the first one in the first epoch with the current protocol version
     pub is_first_block_with_chunk_of_version: bool,
 }

@@ -6,12 +6,13 @@ use near_primitives::block::{Approval, ApprovalType};
 use near_primitives::hash::CryptoHash;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 
-/// This file contains tests that test the interaction of client and doomslug, including how client handles approvals, etc.
-/// It does not include the unit tests for the Doomslug class. That is located in chain/chain/src/doomslug.rs
+/// This file contains tests that test the interaction of client and doomslug,
+/// including how client handles approvals, etc. It does not include the unit
+/// tests for the Doomslug class. That is located in chain/chain/src/doomslug.rs
 
 // This tests the scenario that if the chain switch back and forth in between two forks, client code
-// can process the skip messages correctly and send it to doomslug. Specifically, it tests the following
-// case:
+// can process the skip messages correctly and send it to doomslug. Specifically, it tests the
+// following case:
 // existing chain looks like 0 - 1
 //                             \ 2
 // test that if the node receives Skip(2, 4), it can process it successfully.

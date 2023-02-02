@@ -36,7 +36,8 @@ impl ChainAccess {
         let config =
             nearcore::config::load_config(home.as_ref(), GenesisValidationMode::UnsafeFast)
                 .with_context(|| format!("Error loading config from {:?}", home.as_ref()))?;
-        // leave it ReadWrite since otherwise there are problems with the compiled contract cache
+        // leave it ReadWrite since otherwise there are problems with the compiled
+        // contract cache
         let store_opener =
             near_store::NodeStorage::opener(home.as_ref(), &config.config.store, None);
         let store = store_opener
@@ -117,7 +118,8 @@ impl crate::ChainAccess for ChainAccess {
             .get_block(&block_hash)
             .with_context(|| format!("Can't get block {} at height {}", &block_hash, height))?;
 
-        // of course simpler/faster to just have an array of bools but this is a one liner and who cares :)
+        // of course simpler/faster to just have an array of bools but this is a one
+        // liner and who cares :)
         let shards = shards.iter().collect::<std::collections::HashSet<_>>();
 
         let mut chunks = Vec::new();
@@ -159,9 +161,10 @@ impl crate::ChainAccess for ChainAccess {
             TransactionOrReceiptId::Transaction { transaction_hash, .. } => transaction_hash,
         };
         let outcomes = self.chain.get_outcomes_by_id(&id)?;
-        // this implements the same logic as in Chain::get_execution_outcome(). We will rewrite
-        // that here because it makes more sense for us to have just the ChainStore and not the Chain,
-        // since we're just reading data, not doing any protocol related stuff
+        // this implements the same logic as in Chain::get_execution_outcome(). We will
+        // rewrite that here because it makes more sense for us to have just the
+        // ChainStore and not the Chain, since we're just reading data, not
+        // doing any protocol related stuff
         outcomes
             .into_iter()
             .find(|outcome| match self.chain.get_block_header(&outcome.block_hash) {

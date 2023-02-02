@@ -37,12 +37,13 @@ pub fn configure_chain_spec() -> Genesis {
 pub enum NodeConfig {
     /// A node with only runtime and state that is used to run runtime tests.
     Runtime { account_id: AccountId },
-    /// A complete node with network, RPC, client, consensus and all tasks running in a thead.
-    /// Should be the default choice for the tests, since it provides the most control through the
-    /// internal access.
+    /// A complete node with network, RPC, client, consensus and all tasks
+    /// running in a thead. Should be the default choice for the tests,
+    /// since it provides the most control through the internal access.
     Thread(NearConfig),
-    /// A complete noe running in a subprocess. Can be started and stopped, but besides that all
-    /// interactions are limited to what is exposed through RPC.
+    /// A complete noe running in a subprocess. Can be started and stopped, but
+    /// besides that all interactions are limited to what is exposed through
+    /// RPC.
     Process(NearConfig),
 }
 

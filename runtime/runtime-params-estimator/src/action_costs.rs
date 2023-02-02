@@ -162,7 +162,8 @@ impl ActionEstimation {
         self
     }
 
-    /// Set how many times thes actions are duplicated per receipt or transaction.
+    /// Set how many times thes actions are duplicated per receipt or
+    /// transaction.
     fn inner_iters(mut self, inner_iters: usize) -> Self {
         self.inner_iters = inner_iters;
         self
@@ -182,15 +183,15 @@ impl ActionEstimation {
         self
     }
 
-    /// Estimate the gas cost for converting an action in a transaction to one in an
-    /// action receipt, without network costs.
+    /// Estimate the gas cost for converting an action in a transaction to one
+    /// in an action receipt, without network costs.
     ///
     /// To convert a transaction into a receipt, each action has to be verified.
     /// This happens on a different shard than the action execution and should
     /// therefore be estimated and charged separately.
     ///
-    /// Network costs should also be taken into account here but we don't do that,
-    /// yet.
+    /// Network costs should also be taken into account here but we don't do
+    /// that, yet.
     #[track_caller]
     fn verify_cost(&self, testbed: &mut Testbed) -> GasCost {
         self.estimate_average_cost(testbed, Self::verify_actions_cost)

@@ -86,15 +86,18 @@ pub struct GenesisConfig {
     #[default(Utc::now())]
     pub genesis_time: DateTime<Utc>,
     /// ID of the blockchain. This must be unique for every blockchain.
-    /// If your testnet blockchains do not have unique chain IDs, you will have a bad time.
+    /// If your testnet blockchains do not have unique chain IDs, you will have
+    /// a bad time.
     pub chain_id: String,
     /// Height of genesis block.
     pub genesis_height: BlockHeight,
     /// Number of block producer seats at genesis.
     pub num_block_producer_seats: NumSeats,
-    /// Defines number of shards and number of block producer seats per each shard at genesis.
-    /// Note: not used with protocol_feature_chunk_only_producers -- replaced by minimum_validators_per_shard
-    /// Note: not used before as all block producers produce chunks for all shards
+    /// Defines number of shards and number of block producer seats per each
+    /// shard at genesis. Note: not used with
+    /// protocol_feature_chunk_only_producers -- replaced by
+    /// minimum_validators_per_shard Note: not used before as all block
+    /// producers produce chunks for all shards
     pub num_block_producer_seats_per_shard: Vec<NumSeats>,
     /// Expected number of hidden validators per shard.
     pub avg_hidden_validator_seats_per_shard: Vec<NumSeats>,
@@ -104,7 +107,8 @@ pub struct GenesisConfig {
     #[serde(default = "default_protocol_upgrade_stake_threshold")]
     #[default(Rational32::new(8, 10))]
     pub protocol_upgrade_stake_threshold: Rational32,
-    /// Number of epochs after stake threshold was achieved to start next prtocol version.
+    /// Number of epochs after stake threshold was achieved to start next
+    /// prtocol version.
     pub protocol_upgrade_num_epochs: EpochHeight,
     /// Epoch length counted in block heights.
     pub epoch_length: BlockHeightDelta,
@@ -116,9 +120,11 @@ pub struct GenesisConfig {
     #[serde(with = "dec_format")]
     #[default(MAX_GAS_PRICE)]
     pub max_gas_price: Balance,
-    /// Criterion for kicking out block producers (this is a number between 0 and 100)
+    /// Criterion for kicking out block producers (this is a number between 0
+    /// and 100)
     pub block_producer_kickout_threshold: u8,
-    /// Criterion for kicking out chunk producers (this is a number between 0 and 100)
+    /// Criterion for kicking out chunk producers (this is a number between 0
+    /// and 100)
     pub chunk_producer_kickout_threshold: u8,
     /// Online minimum threshold below which validator doesn't receive reward.
     #[serde(default = "default_online_min_threshold")]
@@ -152,7 +158,8 @@ pub struct GenesisConfig {
     /// Fishermen stake threshold.
     #[serde(with = "dec_format")]
     pub fishermen_threshold: Balance,
-    /// The minimum stake required for staking is last seat price divided by this number.
+    /// The minimum stake required for staking is last seat price divided by
+    /// this number.
     #[serde(default = "default_minimum_stake_divisor")]
     #[default(10)]
     pub minimum_stake_divisor: u64,
@@ -178,9 +185,10 @@ pub struct GenesisConfig {
     pub minimum_stake_ratio: Rational32,
     #[serde(default = "default_use_production_config")]
     #[default(false)]
-    /// This is only for test purposes. We hard code some configs for mainnet and testnet
-    /// in AllEpochConfig, and we want to have a way to test that code path. This flag is for that.
-    /// If set to true, the node will use the same config override path as mainnet and testnet.
+    /// This is only for test purposes. We hard code some configs for mainnet
+    /// and testnet in AllEpochConfig, and we want to have a way to test
+    /// that code path. This flag is for that. If set to true, the node will
+    /// use the same config override path as mainnet and testnet.
     pub use_production_config: bool,
 }
 
@@ -240,9 +248,10 @@ impl From<&GenesisConfig> for AllEpochConfig {
 )]
 pub struct GenesisRecords(pub Vec<StateRecord>);
 
-/// `Genesis` has an invariant that `total_supply` is equal to the supply seen in the records.
-/// However, we can't enfore that invariant. All fields are public, but the clients are expected to
-/// use the provided methods for instantiation, serialization and deserialization.
+/// `Genesis` has an invariant that `total_supply` is equal to the supply seen
+/// in the records. However, we can't enfore that invariant. All fields are
+/// public, but the clients are expected to use the provided methods for
+/// instantiation, serialization and deserialization.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Genesis {
     #[serde(flatten)]
@@ -259,7 +268,8 @@ pub struct Genesis {
 impl GenesisConfig {
     /// Parses GenesisConfig from a JSON string.
     /// The string can be a JSON with comments.
-    /// It panics if the contents cannot be parsed from JSON to the GenesisConfig structure.
+    /// It panics if the contents cannot be parsed from JSON to the
+    /// GenesisConfig structure.
     pub fn from_json(value: &str) -> Self {
         let json_str_without_comments: String =
             near_config_utils::strip_comments_from_json_str(&value.to_string())
@@ -270,8 +280,8 @@ impl GenesisConfig {
 
     /// Reads GenesisConfig from a JSON file.
     /// The file can be a JSON with comments.
-    /// It panics if file cannot be open or read, or the contents cannot be parsed from JSON to the
-    /// GenesisConfig structure.
+    /// It panics if file cannot be open or read, or the contents cannot be
+    /// parsed from JSON to the GenesisConfig structure.
     pub fn from_file<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
         let mut file = File::open(path).with_context(|| "Could not open genesis config file.")?;
         let mut json_str = String::new();
@@ -310,15 +320,16 @@ impl GenesisConfig {
 impl GenesisRecords {
     /// Parses GenesisRecords from a JSON string.
     ///
-    /// It panics if the contents cannot be parsed from JSON to the GenesisConfig structure.
+    /// It panics if the contents cannot be parsed from JSON to the
+    /// GenesisConfig structure.
     pub fn from_json(value: &str) -> Self {
         serde_json::from_str(value).expect("Failed to deserialize the genesis records.")
     }
 
     /// Reads GenesisRecords from a JSON file.
     /// The file can be a JSON with comments.
-    /// It panics if file cannot be open or read, or the contents cannot be parsed from JSON to the
-    /// GenesisConfig structure.
+    /// It panics if file cannot be open or read, or the contents cannot be
+    /// parsed from JSON to the GenesisConfig structure.
     pub fn from_file<P: AsRef<Path>>(path: P) -> Self {
         let mut file = File::open(path).expect("Failed to open genesis config file.");
         let mut json_str = String::new();
@@ -475,8 +486,8 @@ impl Genesis {
                 .expect("Failed to strip comments from Genesis config file.");
         let genesis: Genesis = serde_json::from_str(&json_str_without_comments)
             .expect("Failed to deserialize the genesis records.");
-        // As serde skips the `records_file` field, we can assume that `Genesis` has `records` and
-        // doesn't have `records_file`.
+        // As serde skips the `records_file` field, we can assume that `Genesis` has
+        // `records` and doesn't have `records_file`.
         Self::new_validated(genesis.config, genesis.records, genesis_validation)
     }
 
@@ -614,10 +625,12 @@ impl GenesisChangeConfig {
     }
 }
 
-// Note: this type cannot be placed in primitives/src/view.rs because of `RuntimeConfig` dependency issues.
-// Ideally we should create `RuntimeConfigView`, but given the deeply nested nature and the number of fields inside
-// `RuntimeConfig`, it should be its own endeavor.
-// TODO: This has changed, there is now `RuntimeConfigView`. Reconsider if moving this is possible now.
+// Note: this type cannot be placed in primitives/src/view.rs because of
+// `RuntimeConfig` dependency issues. Ideally we should create
+// `RuntimeConfigView`, but given the deeply nested nature and the number of
+// fields inside `RuntimeConfig`, it should be its own endeavor.
+// TODO: This has changed, there is now `RuntimeConfigView`. Reconsider if
+// moving this is possible now.
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ProtocolConfigView {
     /// Current Protocol Version
@@ -625,13 +638,15 @@ pub struct ProtocolConfigView {
     /// Official time of blockchain start.
     pub genesis_time: DateTime<Utc>,
     /// ID of the blockchain. This must be unique for every blockchain.
-    /// If your testnet blockchains do not have unique chain IDs, you will have a bad time.
+    /// If your testnet blockchains do not have unique chain IDs, you will have
+    /// a bad time.
     pub chain_id: String,
     /// Height of genesis block.
     pub genesis_height: BlockHeight,
     /// Number of block producer seats at genesis.
     pub num_block_producer_seats: NumSeats,
-    /// Defines number of shards and number of block producer seats per each shard at genesis.
+    /// Defines number of shards and number of block producer seats per each
+    /// shard at genesis.
     pub num_block_producer_seats_per_shard: Vec<NumSeats>,
     /// Expected number of hidden validators per shard.
     pub avg_hidden_validator_seats_per_shard: Vec<NumSeats>,
@@ -649,9 +664,11 @@ pub struct ProtocolConfigView {
     /// Maximum gas price.
     #[serde(with = "dec_format")]
     pub max_gas_price: Balance,
-    /// Criterion for kicking out block producers (this is a number between 0 and 100)
+    /// Criterion for kicking out block producers (this is a number between 0
+    /// and 100)
     pub block_producer_kickout_threshold: u8,
-    /// Criterion for kicking out chunk producers (this is a number between 0 and 100)
+    /// Criterion for kicking out chunk producers (this is a number between 0
+    /// and 100)
     pub chunk_producer_kickout_threshold: u8,
     /// Online minimum threshold below which validator doesn't receive reward.
     pub online_min_threshold: Rational32,
@@ -674,7 +691,8 @@ pub struct ProtocolConfigView {
     /// Fishermen stake threshold.
     #[serde(with = "dec_format")]
     pub fishermen_threshold: Balance,
-    /// The minimum stake required for staking is last seat price divided by this number.
+    /// The minimum stake required for staking is last seat price divided by
+    /// this number.
     pub minimum_stake_divisor: u64,
 }
 

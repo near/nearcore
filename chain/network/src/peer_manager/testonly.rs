@@ -375,8 +375,9 @@ impl ActorHandler {
             if pred(got) {
                 break;
             }
-            // It is important that we wait for the next PeerMessage::SyncAccountsData to get
-            // PROCESSED, not just RECEIVED. Otherwise we would get a race condition.
+            // It is important that we wait for the next PeerMessage::SyncAccountsData to
+            // get PROCESSED, not just RECEIVED. Otherwise we would get a race
+            // condition.
             events.recv_until(unwrap_sync_accounts_data_processed).await;
         }
     }

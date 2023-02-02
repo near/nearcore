@@ -119,8 +119,8 @@ pub fn gen_receipts(rng: &mut impl Rng, max_size: usize) -> Vec<Receipt> {
         .collect()
 }
 
-/// Generates up to max_size random sequence of changes: both insertion and deletions.
-/// Deletions are represented as (key, None).
+/// Generates up to max_size random sequence of changes: both insertion and
+/// deletions. Deletions are represented as (key, None).
 /// Keys are randomly constructed from alphabet, and they have max_length size.
 fn gen_changes_helper(
     rng: &mut impl Rng,

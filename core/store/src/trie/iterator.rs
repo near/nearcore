@@ -4,7 +4,8 @@ use crate::trie::nibble_slice::NibbleSlice;
 use crate::trie::{TrieNode, TrieNodeWithSize, ValueHandle};
 use crate::{StorageError, Trie};
 
-/// Crumb is a piece of trie iteration state. It describes a node on the trail and processing status of that node.
+/// Crumb is a piece of trie iteration state. It describes a node on the trail
+/// and processing status of that node.
 #[derive(Debug)]
 struct Crumb {
     node: TrieNodeWithSize,
@@ -42,13 +43,14 @@ impl Crumb {
 }
 
 /// Trie iteration is done using a stack based approach.
-/// There are two stacks that we track while iterating: the trail and the key_nibbles.
-/// The trail is a vector of trie nodes on the path from root node to the node that is
-/// currently being processed together with processing status - the Crumb.
-/// The key_nibbles is a vector of nibbles from the state root not to the node that is
-/// currently being processed.
-/// The trail and the key_nibbles may have different lengths e.g. an extension trie node
-/// will add only a single item to the trail but may add multiple nibbles to the key_nibbles.
+/// There are two stacks that we track while iterating: the trail and the
+/// key_nibbles. The trail is a vector of trie nodes on the path from root node
+/// to the node that is currently being processed together with processing
+/// status - the Crumb. The key_nibbles is a vector of nibbles from the state
+/// root not to the node that is currently being processed.
+/// The trail and the key_nibbles may have different lengths e.g. an extension
+/// trie node will add only a single item to the trail but may add multiple
+/// nibbles to the key_nibbles.
 pub struct TrieIterator<'a> {
     trie: &'a Trie,
     trail: Vec<Crumb>,
@@ -64,7 +66,8 @@ pub struct TrieIterator<'a> {
 /// The TrieTiem is a tuple of (key, value) of the node.
 pub type TrieItem = (Vec<u8>, Vec<u8>);
 
-/// Item extracted from Trie during depth first traversal, corresponding to some Trie node.
+/// Item extracted from Trie during depth first traversal, corresponding to some
+/// Trie node.
 pub struct TrieTraversalItem {
     /// Hash of the node.
     pub hash: CryptoHash,
@@ -287,9 +290,9 @@ impl<'a> TrieIterator<'a> {
     }
 
     /// Note that path_begin and path_end are not bytes, they are nibbles
-    /// Visits all nodes belonging to the interval [path_begin, path_end) in depth-first search
-    /// order and return key-value pairs for each visited node with value stored
-    /// Used to generate split states for re-sharding
+    /// Visits all nodes belonging to the interval [path_begin, path_end) in
+    /// depth-first search order and return key-value pairs for each visited
+    /// node with value stored Used to generate split states for re-sharding
     pub(crate) fn get_trie_items(
         &mut self,
         path_begin: &[u8],
@@ -310,9 +313,9 @@ impl<'a> TrieIterator<'a> {
         Ok(trie_items)
     }
 
-    /// Visits all nodes belonging to the interval [path_begin, path_end) in depth-first search
-    /// order and return TrieTraversalItem for each visited node.
-    /// Used to generate and apply state parts for state sync.
+    /// Visits all nodes belonging to the interval [path_begin, path_end) in
+    /// depth-first search order and return TrieTraversalItem for each
+    /// visited node. Used to generate and apply state parts for state sync.
     pub fn visit_nodes_interval(
         &mut self,
         path_begin: &[u8],
@@ -331,7 +334,8 @@ impl<'a> TrieIterator<'a> {
         }
         let mut nodes_list = Vec::new();
 
-        // Actually (self.key_nibbles[..] == path_begin) always because path_begin always ends in a node
+        // Actually (self.key_nibbles[..] == path_begin) always because path_begin
+        // always ends in a node
         if &self.key_nibbles[..] >= path_begin {
             nodes_list.push(TrieTraversalItem {
                 hash: last_hash,

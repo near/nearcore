@@ -30,7 +30,8 @@ pub struct Config {
     pub vm_kind: VMKind,
     /// When non-none, only the specified costs will be measured.
     pub costs_to_measure: Option<Vec<Cost>>,
-    /// Configuration specific to raw RocksDB tests. Does NOT affect normal tests that use RocksDB through the nearcore interface.
+    /// Configuration specific to raw RocksDB tests. Does NOT affect normal
+    /// tests that use RocksDB through the nearcore interface.
     pub rocksdb_test_config: RocksDBTestConfig,
     /// Print extra details on estimations.
     pub debug: bool,

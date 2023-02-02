@@ -1,8 +1,8 @@
 //! This module is used to instrument a Wasm module with gas metering code.
 //!
-//! The primary public interface is the `inject_gas_counter` function which transforms a given
-//! module into one that charges gas for code to be executed. See function documentation for usage
-//! and details.
+//! The primary public interface is the `inject_gas_counter` function which
+//! transforms a given module into one that charges gas for code to be executed.
+//! See function documentation for usage and details.
 
 #[cfg(test)]
 mod validation;
@@ -23,9 +23,9 @@ pub fn update_call_index(instructions: &mut elements::Instructions, inserted_ind
     }
 }
 
-/// A control flow block is opened with the `block`, `loop`, and `if` instructions and is closed
-/// with `end`. Each block implicitly defines a new label. The control blocks form a stack during
-/// program execution.
+/// A control flow block is opened with the `block`, `loop`, and `if`
+/// instructions and is closed with `end`. Each block implicitly defines a new
+/// label. The control blocks form a stack during program execution.
 ///
 /// An example of block:
 ///
@@ -40,30 +40,34 @@ pub fn update_call_index(instructions: &mut elements::Instructions, inserted_ind
 /// ```
 ///
 /// The start of the block is `i32.const 1`.
-///
 #[derive(Debug)]
 struct ControlBlock {
-    /// The lowest control stack index corresponding to a forward jump targeted by a br, br_if, or
-    /// br_table instruction within this control block. The index must refer to a control block
-    /// that is not a loop, meaning it is a forward jump. Given the way Wasm control flow is
-    /// structured, the lowest index on the stack represents the furthest forward branch target.
+    /// The lowest control stack index corresponding to a forward jump targeted
+    /// by a br, br_if, or br_table instruction within this control block.
+    /// The index must refer to a control block that is not a loop, meaning
+    /// it is a forward jump. Given the way Wasm control flow is structured,
+    /// the lowest index on the stack represents the furthest forward branch
+    /// target.
     ///
-    /// This value will always be at most the index of the block itself, even if there is no
-    /// explicit br instruction targeting this control block. This does not affect how the value is
-    /// used in the metering algorithm.
+    /// This value will always be at most the index of the block itself, even if
+    /// there is no explicit br instruction targeting this control block.
+    /// This does not affect how the value is used in the metering
+    /// algorithm.
     lowest_forward_br_target: usize,
 
-    /// The active metering block that new instructions contribute a gas cost towards.
+    /// The active metering block that new instructions contribute a gas cost
+    /// towards.
     active_metered_block: MeteredBlock,
 
-    /// Whether the control block is a loop. Loops have the distinguishing feature that branches to
-    /// them jump to the beginning of the block, not the end as with the other control blocks.
+    /// Whether the control block is a loop. Loops have the distinguishing
+    /// feature that branches to them jump to the beginning of the block,
+    /// not the end as with the other control blocks.
     is_loop: bool,
 }
 
-/// A block of code that metering instructions will be inserted at the beginning of. Metered blocks
-/// are constructed with the property that, in the absence of any traps, either all instructions in
-/// the block are executed or none are.
+/// A block of code that metering instructions will be inserted at the beginning
+/// of. Metered blocks are constructed with the property that, in the absence of
+/// any traps, either all instructions in the block are executed or none are.
 #[derive(Debug)]
 pub(crate) struct MeteredBlock {
     /// Index of the first instruction (aka `Opcode`) in the block.
@@ -72,17 +76,19 @@ pub(crate) struct MeteredBlock {
     cost: u32,
 }
 
-/// Counter is used to manage state during the gas metering algorithm implemented by
-/// `inject_counter`.
+/// Counter is used to manage state during the gas metering algorithm
+/// implemented by `inject_counter`.
 struct Counter {
-    /// A stack of control blocks. This stack grows when new control blocks are opened with
-    /// `block`, `loop`, and `if` and shrinks when control blocks are closed with `end`. The first
-    /// block on the stack corresponds to the function body, not to any labelled block. Therefore
-    /// the actual Wasm label index associated with each control block is 1 less than its position
-    /// in this stack.
+    /// A stack of control blocks. This stack grows when new control blocks are
+    /// opened with `block`, `loop`, and `if` and shrinks when control
+    /// blocks are closed with `end`. The first block on the stack
+    /// corresponds to the function body, not to any labelled block. Therefore
+    /// the actual Wasm label index associated with each control block is 1 less
+    /// than its position in this stack.
     stack: Vec<ControlBlock>,
 
-    /// A list of metered blocks that have been finalized, meaning they will no longer change.
+    /// A list of metered blocks that have been finalized, meaning they will no
+    /// longer change.
     finalized_blocks: Vec<MeteredBlock>,
 }
 
@@ -91,7 +97,8 @@ impl Counter {
         Counter { stack: Vec::new(), finalized_blocks: Vec::new() }
     }
 
-    /// Open a new control block. The cursor is the position of the first instruction in the block.
+    /// Open a new control block. The cursor is the position of the first
+    /// instruction in the block.
     fn begin_control_block(&mut self, cursor: usize, is_loop: bool) {
         let index = self.stack.len();
         self.stack.push(ControlBlock {
@@ -101,11 +108,11 @@ impl Counter {
         })
     }
 
-    /// Close the last control block. The cursor is the position of the final (pseudo-)instruction
-    /// in the block.
+    /// Close the last control block. The cursor is the position of the final
+    /// (pseudo-)instruction in the block.
     fn finalize_control_block(&mut self, cursor: usize) -> Result<(), ()> {
-        // This either finalizes the active metered block or merges its cost into the active
-        // metered block in the previous control block on the stack.
+        // This either finalizes the active metered block or merges its cost into the
+        // active metered block in the previous control block on the stack.
         self.finalize_metered_block(cursor)?;
 
         // Pop the control block stack.
@@ -116,7 +123,8 @@ impl Counter {
             return Ok(());
         }
 
-        // Update the lowest_forward_br_target for the control block now on top of the stack.
+        // Update the lowest_forward_br_target for the control block now on top of the
+        // stack.
         {
             let control_block = self.stack.last_mut().ok_or(())?;
             control_block.lowest_forward_br_target = min(
@@ -125,8 +133,9 @@ impl Counter {
             );
         }
 
-        // If there may have been a branch to a lower index, then also finalize the active metered
-        // block for the previous control block. Otherwise, finalize it and begin a new one.
+        // If there may have been a branch to a lower index, then also finalize the
+        // active metered block for the previous control block. Otherwise,
+        // finalize it and begin a new one.
         let may_br_out = closing_control_block.lowest_forward_br_target < closing_control_index;
         if may_br_out {
             self.finalize_metered_block(cursor)?;
@@ -147,11 +156,13 @@ impl Counter {
             )
         };
 
-        // If the block was opened with a `block`, then its start position will be set to that of
-        // the active metered block in the control block one higher on the stack. This is because
-        // any instructions between a `block` and the first branch are part of the same basic block
-        // as the preceding instruction. In this case, instead of finalizing the block, merge its
-        // cost into the other active metered block to avoid injecting unnecessary instructions.
+        // If the block was opened with a `block`, then its start position will be set
+        // to that of the active metered block in the control block one higher
+        // on the stack. This is because any instructions between a `block` and
+        // the first branch are part of the same basic block as the preceding
+        // instruction. In this case, instead of finalizing the block, merge its
+        // cost into the other active metered block to avoid injecting unnecessary
+        // instructions.
         let last_index = self.stack.len() - 1;
         if last_index > 0 {
             let prev_control_block = self
@@ -171,10 +182,11 @@ impl Counter {
         Ok(())
     }
 
-    /// Handle a branch instruction in the program. The cursor is the index of the branch
-    /// instruction in the program. The indices are the stack positions of the target control
-    /// blocks. Recall that the index is 0 for a `return` and relatively indexed from the top of
-    /// the stack by the label of `br`, `br_if`, and `br_table` instructions.
+    /// Handle a branch instruction in the program. The cursor is the index of
+    /// the branch instruction in the program. The indices are the stack
+    /// positions of the target control blocks. Recall that the index is 0
+    /// for a `return` and relatively indexed from the top of the stack by
+    /// the label of `br`, `br_if`, and `br_table` instructions.
     fn branch(&mut self, cursor: usize, indices: &[usize]) -> Result<(), ()> {
         self.finalize_metered_block(cursor)?;
 
@@ -196,7 +208,8 @@ impl Counter {
         Ok(())
     }
 
-    /// Returns the stack index of the active control block. Returns None if stack is empty.
+    /// Returns the stack index of the active control block. Returns None if
+    /// stack is empty.
     fn active_control_block_index(&self) -> Option<usize> {
         self.stack.len().checked_sub(1)
     }
@@ -253,7 +266,8 @@ fn add_grow_counter<R: Rules>(
                 GetLocal(0),
                 I32Const(cost as i32),
                 I32Mul,
-                // todo: there should be strong guarantee that it does not return anything on stack?
+                // todo: there should be strong guarantee that it does not return anything on
+                // stack?
                 Call(gas_func),
                 GrowMemory(0),
                 End,
@@ -284,9 +298,9 @@ pub(crate) fn determine_metered_blocks<R: Rules>(
                 counter.increment(instruction_cost)?;
 
                 // Begin new block. The cost of the following opcodes until `end` or `else` will
-                // be included into this block. The start position is set to that of the previous
-                // active metered block to signal that they should be merged in order to reduce
-                // unnecessary metering instructions.
+                // be included into this block. The start position is set to that of the
+                // previous active metered block to signal that they should be
+                // merged in order to reduce unnecessary metering instructions.
                 let top_block_start_pos = counter.active_metered_block()?.start_pos;
                 counter.begin_control_block(top_block_start_pos, false);
             }
@@ -329,7 +343,8 @@ pub(crate) fn determine_metered_blocks<R: Rules>(
                 counter.branch(cursor, &[0])?;
             }
             _ => {
-                // An ordinal non control flow instruction increments the cost of the current block.
+                // An ordinal non control flow instruction increments the cost of the current
+                // block.
                 counter.increment(instruction_cost)?;
             }
         }
@@ -348,7 +363,8 @@ pub fn inject_counter<R: Rules>(
     insert_metering_calls(instructions, blocks, gas_func)
 }
 
-// Then insert metering calls into a sequence of instructions given the block locations and costs.
+// Then insert metering calls into a sequence of instructions given the block
+// locations and costs.
 fn insert_metering_calls(
     instructions: &mut elements::Instructions,
     blocks: Vec<MeteredBlock>,
@@ -356,8 +372,8 @@ fn insert_metering_calls(
 ) -> Result<(), ()> {
     use parity_wasm::elements::Instruction::*;
 
-    // To do this in linear time, construct a new vector of instructions, copying over old
-    // instructions one by one and injecting new ones as required.
+    // To do this in linear time, construct a new vector of instructions, copying
+    // over old instructions one by one and injecting new ones as required.
     let new_instrs_len = instructions.elements().len() + 2 * blocks.len();
     let original_instrs =
         mem::replace(instructions.elements_mut(), Vec::with_capacity(new_instrs_len));
@@ -365,7 +381,8 @@ fn insert_metering_calls(
 
     let mut block_iter = blocks.into_iter().peekable();
     for (original_pos, instr) in original_instrs.into_iter().enumerate() {
-        // If there the next block starts at this position, inject metering instructions.
+        // If there the next block starts at this position, inject metering
+        // instructions.
         let used_block = if let Some(block) = block_iter.peek() {
             if block.start_pos == original_pos {
                 new_instrs.push(I32Const(block.cost as i32));
@@ -393,40 +410,44 @@ fn insert_metering_calls(
     Ok(())
 }
 
-/// Transforms a given module into one that charges gas for code to be executed by proxy of an
-/// imported gas metering function.
+/// Transforms a given module into one that charges gas for code to be executed
+/// by proxy of an imported gas metering function.
 ///
-/// The output module imports a function "gas" from the specified module with type signature
-/// [i32] -> []. The argument is the amount of gas required to continue execution. The external
-/// function is meant to keep track of the total amount of gas used and trap or otherwise halt
-/// execution of the runtime if the gas usage exceeds some allowed limit.
+/// The output module imports a function "gas" from the specified module with
+/// type signature [i32] -> []. The argument is the amount of gas required to
+/// continue execution. The external function is meant to keep track of the
+/// total amount of gas used and trap or otherwise halt execution of the runtime
+/// if the gas usage exceeds some allowed limit.
 ///
-/// The body of each function is divided into metered blocks, and the calls to charge gas are
-/// inserted at the beginning of every such block of code. A metered block is defined so that,
-/// unless there is a trap, either all of the instructions are executed or none are. These are
-/// similar to basic blocks in a control flow graph, except that in some cases multiple basic
-/// blocks can be merged into a single metered block. This is the case if any path through the
+/// The body of each function is divided into metered blocks, and the calls to
+/// charge gas are inserted at the beginning of every such block of code. A
+/// metered block is defined so that, unless there is a trap, either all of the
+/// instructions are executed or none are. These are similar to basic blocks in
+/// a control flow graph, except that in some cases multiple basic blocks can be
+/// merged into a single metered block. This is the case if any path through the
 /// control flow graph containing one basic block also contains another.
 ///
-/// Charging gas is at the beginning of each metered block ensures that 1) all instructions
-/// executed are already paid for, 2) instructions that will not be executed are not charged for
-/// unless execution traps, and 3) the number of calls to "gas" is minimized. The corollary is that
-/// modules instrumented with this metering code may charge gas for instructions not executed in
-/// the event of a trap.
+/// Charging gas is at the beginning of each metered block ensures that 1) all
+/// instructions executed are already paid for, 2) instructions that will not be
+/// executed are not charged for unless execution traps, and 3) the number of
+/// calls to "gas" is minimized. The corollary is that modules instrumented with
+/// this metering code may charge gas for instructions not executed in the event
+/// of a trap.
 ///
-/// Additionally, each `memory.grow` instruction found in the module is instrumented to first make
-/// a call to charge gas for the additional pages requested. This cannot be done as part of the
-/// block level gas charges as the gas cost is not static and depends on the stack argument to
-/// `memory.grow`.
+/// Additionally, each `memory.grow` instruction found in the module is
+/// instrumented to first make a call to charge gas for the additional pages
+/// requested. This cannot be done as part of the block level gas charges as the
+/// gas cost is not static and depends on the stack argument to `memory.grow`.
 ///
-/// The above transformations are performed for every function body defined in the module. This
-/// function also rewrites all function indices references by code, table elements, etc., since
-/// the addition of an imported functions changes the indices of module-defined functions.
+/// The above transformations are performed for every function body defined in
+/// the module. This function also rewrites all function indices references by
+/// code, table elements, etc., since the addition of an imported functions
+/// changes the indices of module-defined functions.
 ///
 /// This routine runs in time linear in the size of the input module.
 ///
-/// The function fails if the module contains any operation forbidden by gas rule set, returning
-/// the original module as an Err.
+/// The function fails if the module contains any operation forbidden by gas
+/// rule set, returning the original module as an Err.
 pub fn inject_gas_counter<R: Rules>(
     module: elements::Module,
     rules: &R,
@@ -452,7 +473,8 @@ pub fn inject_gas_counter<R: Rules>(
     let mut need_grow_counter = false;
     let mut error = false;
 
-    // Updating calling addresses (all calls to function index >= `gas_func` should be incremented)
+    // Updating calling addresses (all calls to function index >= `gas_func` should
+    // be incremented)
     for section in module.sections_mut() {
         match section {
             elements::Section::Code(code_section) => {

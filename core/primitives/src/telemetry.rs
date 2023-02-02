@@ -1,5 +1,5 @@
-//! Types for telemetry reporting. Can be received by any telemetry dashboard to display
-//! node count and their status across the network.
+//! Types for telemetry reporting. Can be received by any telemetry dashboard to
+//! display node count and their status across the network.
 use near_primitives_core::hash::CryptoHash;
 use serde::Serialize;
 

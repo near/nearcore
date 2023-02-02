@@ -28,7 +28,8 @@ impl ValidatorSchedule {
     }
     /// Specifies, for each epoch, the set of block produces for this epoch.
     ///
-    /// Conceptually, this "loops around" when `epoch_id >= block_producers.len()`
+    /// Conceptually, this "loops around" when `epoch_id >=
+    /// block_producers.len()`
     pub fn block_producers_per_epoch(mut self, block_producers: Vec<Vec<AccountId>>) -> Self {
         self.block_producers = block_producers;
         self.sanity_check();

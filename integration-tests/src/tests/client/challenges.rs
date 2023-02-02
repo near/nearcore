@@ -64,7 +64,8 @@ fn test_block_with_challenges() {
     assert_matches!(result.unwrap_err(), Error::InvalidChallengeRoot);
 }
 
-/// Check that attempt to process block on top of incorrect state root leads to InvalidChunkState error.
+/// Check that attempt to process block on top of incorrect state root leads to
+/// InvalidChunkState error.
 #[test]
 fn test_invalid_chunk_state() {
     let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
@@ -437,15 +438,18 @@ fn test_verify_chunk_invalid_state_challenge() {
         //     challenge_body.partial_state.0,
         //     vec![
         //         vec![
-        //             1, 5, 0, 10, 178, 228, 151, 124, 13, 70, 6, 146, 31, 193, 111, 108, 60, 102,
-        //             227, 106, 220, 133, 45, 144, 104, 255, 30, 155, 129, 215, 15, 43, 202, 26, 122,
-        //             171, 30, 7, 228, 175, 99, 17, 113, 5, 94, 136, 200, 39, 136, 37, 110, 166, 241,
-        //             148, 128, 55, 131, 173, 97, 98, 201, 68, 82, 244, 223, 70, 86, 161, 5, 0, 0, 0,
+        //             1, 5, 0, 10, 178, 228, 151, 124, 13, 70, 6, 146, 31, 193,
+        // 111, 108, 60, 102,             227, 106, 220, 133, 45, 144,
+        // 104, 255, 30, 155, 129, 215, 15, 43, 202, 26, 122,
+        //             171, 30, 7, 228, 175, 99, 17, 113, 5, 94, 136, 200, 39,
+        // 136, 37, 110, 166, 241,             148, 128, 55, 131, 173,
+        // 97, 98, 201, 68, 82, 244, 223, 70, 86, 161, 5, 0, 0, 0,
         //             0, 0, 0
         //         ],
         //         vec![
-        //             3, 1, 0, 0, 0, 16, 49, 233, 115, 11, 86, 10, 193, 50, 45, 253, 137, 126, 230,
-        //             236, 254, 86, 230, 148, 94, 141, 44, 46, 130, 154, 189, 73, 179, 223, 178, 17,
+        //             3, 1, 0, 0, 0, 16, 49, 233, 115, 11, 86, 10, 193, 50, 45,
+        // 253, 137, 126, 230,             236, 254, 86, 230, 148, 94,
+        // 141, 44, 46, 130, 154, 189, 73, 179, 223, 178, 17,
         //             133, 232, 213, 5, 0, 0, 0, 0, 0, 0
         //         ]
         //     ],
@@ -477,8 +481,8 @@ fn test_verify_chunk_invalid_state_challenge() {
     //     (*block.hash(), vec!["test0".parse().unwrap()])
     // );
 
-    // Process the block with invalid chunk and make sure it's marked as invalid at the end.
-    // And the same challenge created and sent out.
+    // Process the block with invalid chunk and make sure it's marked as invalid at
+    // the end. And the same challenge created and sent out.
     let result = client.process_block_test(block.into(), Provenance::NONE);
     assert!(result.is_err());
 
@@ -584,8 +588,8 @@ fn test_block_challenge() {
     assert!(env.clients[0].chain.mut_store().is_block_challenged(block.hash()).unwrap());
 }
 
-/// Make sure that fisherman can initiate challenges while an account that is neither a fisherman nor
-/// a validator cannot.
+/// Make sure that fisherman can initiate challenges while an account that is
+/// neither a fisherman nor a validator cannot.
 // TODO(2445): Enable challenges when they are working correctly.
 #[test]
 #[ignore]
@@ -649,8 +653,8 @@ fn test_fishermen_challenge() {
     assert!(env.clients[0].chain.mut_store().is_block_challenged(block.hash()).unwrap());
 }
 
-/// If there are two blocks produced at the same height but by different block producers, no
-/// challenge should be generated
+/// If there are two blocks produced at the same height but by different block
+/// producers, no challenge should be generated
 #[test]
 // Something weird happens here. For len_in_blocks = 13 this test passes for versions up to 49,
 // but fails for version 50 (because of chunk validator sampling changes). But if we set it to 20,

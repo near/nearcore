@@ -4,20 +4,22 @@ extern crate syn;
 use proc_macro::TokenStream;
 use quote::quote;
 
-/// Wrap the method call with near_performance_metrics::stats::measure_performance function.
+/// Wrap the method call with
+/// near_performance_metrics::stats::measure_performance function.
 ///
-/// This derive can be used to provide performance metrics to method calls with Actors. Currently
-/// we print performance stats per thread every minute, and we print a warning whenever a function
-/// call exceeds took more than given time limit. It should have no performance impact unless
-/// `performance_stats` feature is enabled.
+/// This derive can be used to provide performance metrics to method calls with
+/// Actors. Currently we print performance stats per thread every minute, and we
+/// print a warning whenever a function call exceeds took more than given time
+/// limit. It should have no performance impact unless `performance_stats`
+/// feature is enabled.
 ///
-/// This function assumes it wraps around a method with `&mut self, msg: NetworkClientMessages,
-/// ctx: &mut Self::Context<Self>` as arguments. There is currently a requirement that the second
-/// argument is called msg.
+/// This function assumes it wraps around a method with `&mut self, msg:
+/// NetworkClientMessages, ctx: &mut Self::Context<Self>` as arguments. There is
+/// currently a requirement that the second argument is called msg.
 ///
 /// # Examples
 /// ```ignore
-///
+/// 
 /// pub enum MyMessage {
 ///      ExampleMessage()
 /// }
@@ -38,17 +40,20 @@ pub fn perf(_attr: TokenStream, item: TokenStream) -> TokenStream {
     perf_internal(_attr, item, false)
 }
 
-/// Wrap the method call with near_performance_metrics::stats::measure_performance_with_debug function.
+/// Wrap the method call with
+/// near_performance_metrics::stats::measure_performance_with_debug function.
 ///
-/// This derive can be used to provide performance metrics to method calls with Actors. Currently
-/// we print performance stats per thread every minute, and we print a warning whenever a function
-/// call exceeds took more than given time limit. It should have no performance impact unless
-/// `performance_stats` feature is enabled. In addition to prints provided by `perf`,
+/// This derive can be used to provide performance metrics to method calls with
+/// Actors. Currently we print performance stats per thread every minute, and we
+/// print a warning whenever a function call exceeds took more than given time
+/// limit. It should have no performance impact unless `performance_stats`
+/// feature is enabled. In addition to prints provided by `perf`,
 /// `perf_with_debug` prints enum variant type of the message.
 ///
-/// This function assumes it wraps around a method with `&mut self, msg: NetworkClientMessages,
-/// ctx: &mut Self::Context<Self>` as arguments. There is currently a requirement that the second
-/// argument is called msg. There is an assumption that the argument called `msg` is an enum, which
+/// This function assumes it wraps around a method with `&mut self, msg:
+/// NetworkClientMessages, ctx: &mut Self::Context<Self>` as arguments. There is
+/// currently a requirement that the second argument is called msg. There is an
+/// assumption that the argument called `msg` is an enum, which
 /// has `#[derive(AsRefStr)]`.
 ///
 /// # Examples

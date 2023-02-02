@@ -1,8 +1,9 @@
 //! Describes the various costs incurred by creating receipts.
 //! We use the following abbreviation for readability:
-//! * sir -- sender is receiver. Receipts that are directed by an account to itself are guaranteed
-//!   to not be cross-shard which is cheaper than cross-shard. Conversely, when sender is not a
-//!   receiver it might or might not be a cross-shard communication.
+//! * sir -- sender is receiver. Receipts that are directed by an account to
+//!   itself are guaranteed to not be cross-shard which is cheaper than
+//!   cross-shard. Conversely, when sender is not a receiver it might or might
+//!   not be a cross-shard communication.
 use enum_map::EnumMap;
 use serde::{Deserialize, Serialize};
 
@@ -10,14 +11,15 @@ use crate::config::ActionCosts;
 use crate::num_rational::Rational32;
 use crate::types::{Balance, Gas};
 
-/// Costs associated with an object that can only be sent over the network (and executed
-/// by the receiver).
-/// NOTE: `send_sir` or `send_not_sir` fees are usually burned when the item is being created.
-/// And `execution` fee is burned when the item is being executed.
+/// Costs associated with an object that can only be sent over the network (and
+/// executed by the receiver).
+/// NOTE: `send_sir` or `send_not_sir` fees are usually burned when the item is
+/// being created. And `execution` fee is burned when the item is being
+/// executed.
 #[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
 pub struct Fee {
-    /// Fee for sending an object from the sender to itself, guaranteeing that it does not leave
-    /// the shard.
+    /// Fee for sending an object from the sender to itself, guaranteeing that
+    /// it does not leave the shard.
     pub send_sir: Gas,
     /// Fee for sending an object potentially across the shards.
     pub send_not_sir: Gas,
@@ -53,7 +55,8 @@ pub struct RuntimeFeesConfig {
     /// Describes fees for storage.
     pub storage_usage_config: StorageUsageConfig,
 
-    /// Fraction of the burnt gas to reward to the contract account for execution.
+    /// Fraction of the burnt gas to reward to the contract account for
+    /// execution.
     pub burnt_gas_reward: Rational32,
 
     /// Pessimistic gas price inflation ratio.
@@ -66,7 +69,8 @@ pub struct StorageUsageConfig {
     /// Amount of yN per byte required to have on the account. See
     /// <https://nomicon.io/Economics/README.html#state-stake> for details.
     pub storage_amount_per_byte: Balance,
-    /// Number of bytes for an account record, including rounding up for account id.
+    /// Number of bytes for an account record, including rounding up for account
+    /// id.
     pub num_bytes_account: u64,
     /// Additional number of bytes for a k/v record
     pub num_extra_bytes_record: u64,
@@ -180,10 +184,10 @@ impl RuntimeFeesConfig {
         }
     }
 
-    /// The minimum amount of gas required to create and execute a new receipt with a function call
-    /// action.
-    /// This amount is used to determine how many receipts can be created, send and executed for
-    /// some amount of prepaid gas using function calls.
+    /// The minimum amount of gas required to create and execute a new receipt
+    /// with a function call action.
+    /// This amount is used to determine how many receipts can be created, send
+    /// and executed for some amount of prepaid gas using function calls.
     pub fn min_receipt_with_function_call_gas(&self) -> Gas {
         self.fee(ActionCosts::new_action_receipt).min_send_and_exec_fee()
             + self.fee(ActionCosts::function_call_base).min_send_and_exec_fee()
@@ -205,8 +209,8 @@ impl StorageUsageConfig {
 }
 
 /// Helper functions for computing Transfer fees.
-/// In case of implicit account creation they always include extra fees for the CreateAccount and
-/// AddFullAccessKey actions that are implicit.
+/// In case of implicit account creation they always include extra fees for the
+/// CreateAccount and AddFullAccessKey actions that are implicit.
 /// We can assume that no overflow will happen here.
 pub fn transfer_exec_fee(cfg: &RuntimeFeesConfig, is_receiver_implicit: bool) -> Gas {
     if is_receiver_implicit {

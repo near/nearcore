@@ -196,7 +196,8 @@ impl Trie {
                         partial = partial.mid(common_prefix);
                         continue;
                     } else {
-                        // Partially shared prefix: convert to leaf and call recursively to add a branch.
+                        // Partially shared prefix: convert to leaf and call recursively to add a
+                        // branch.
                         let leaf_node = TrieNode::Leaf(
                             existing_key.mid(common_prefix).encoded(true).into_vec(),
                             existing_value,
@@ -255,7 +256,8 @@ impl Trie {
                         partial = partial.mid(common_prefix);
                         continue;
                     } else {
-                        // Partially shared prefix: covert to shorter extension and recursively add a branch.
+                        // Partially shared prefix: covert to shorter extension and recursively add
+                        // a branch.
                         let child_node = TrieNode::Extension(
                             existing_key.mid(common_prefix).encoded(false).into_vec(),
                             child,
@@ -286,13 +288,15 @@ impl Trie {
         Ok(root_handle)
     }
 
-    /// On insert/delete, we want to recompute subtree sizes without touching nodes that aren't on
-    /// the path of the key inserted/deleted. This is relevant because reducing storage reads
-    /// saves time and makes fraud proofs smaller.
+    /// On insert/delete, we want to recompute subtree sizes without touching
+    /// nodes that aren't on the path of the key inserted/deleted. This is
+    /// relevant because reducing storage reads saves time and makes fraud
+    /// proofs smaller.
     ///
     /// Memory usage is recalculated in two steps:
-    /// 1. go down the trie, modify the node and subtract the next child on the path from memory usage
-    /// 2. go up the path and add new child's memory usage
+    /// 1. go down the trie, modify the node and subtract the next child on the
+    /// path from memory usage 2. go up the path and add new child's memory
+    /// usage
     fn calc_memory_usage_and_store(
         memory: &mut NodesStorage,
         handle: StorageHandle,
@@ -306,8 +310,9 @@ impl Trie {
     }
 
     /// Deletes a node from the trie which has key = `partial` given root node.
-    /// Returns (new root node or `None` if this was the node to delete, was it updated).
-    /// While deleting keeps track of all the removed / updated nodes in `death_row`.
+    /// Returns (new root node or `None` if this was the node to delete, was it
+    /// updated). While deleting keeps track of all the removed / updated
+    /// nodes in `death_row`.
     pub(crate) fn delete(
         &self,
         memory: &mut NodesStorage,

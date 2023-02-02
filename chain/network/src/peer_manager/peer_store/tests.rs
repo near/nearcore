@@ -124,7 +124,8 @@ fn test_unknown_vs_not_connected() {
 
         // Check the status of the in-memory store.
         // Boot node should be marked as not-connected, as we've verified it.
-        // TODO(mm-near) - the boot node should have been added as 'NotConnected' and not Unknown.
+        // TODO(mm-near) - the boot node should have been added as 'NotConnected' and
+        // not Unknown.
         assert_eq!(get_in_memory_status(&peer_store), [None, None, Some(Unknown)]);
 
         // Add the remaining peers.
@@ -206,7 +207,8 @@ fn test_unknown_vs_not_connected() {
             [Some(NotConnected), Some(Unknown), Some(Unknown)]
         );
         assert_eq!(get_database_status(), [Some(Connected), Some(Unknown), None]);
-        // After restart - we should try to connect to 'a' (if we prefer previously connected nodes).
+        // After restart - we should try to connect to 'a' (if we prefer previously
+        // connected nodes).
         assert_eq!(
             (0..10)
                 .map(|_| peer_store.unconnected_peer(|_| false, true).unwrap().id)
@@ -241,7 +243,8 @@ fn test_unconnected_peer_only_boot_nodes() {
 
     // 1 boot node (peer_info_a) that we're already connected to.
     // 1 non-boot (peer_in_store) node peer that is in the store.
-    // connect to only boot nodes is enabled - we should not find any peer to connect to.
+    // connect to only boot nodes is enabled - we should not find any peer to
+    // connect to.
     {
         let store = store::Store::from(near_store::db::TestDB::new());
         let peer_store = PeerStore::new(
@@ -334,8 +337,8 @@ fn handle_peer_id_change() {
 }
 
 /// If we know there is a peer_id A at address #A, and then we learn about
-/// the same peer_id A at address #B, if that connection wasn't signed it is not updated,
-/// to avoid malicious actor making us forget about known peers.
+/// the same peer_id A at address #B, if that connection wasn't signed it is not
+/// updated, to avoid malicious actor making us forget about known peers.
 #[test]
 fn dont_handle_address_change() {
     let clock = time::FakeClock::default();
@@ -430,7 +433,8 @@ fn check_add_peers_overriding() {
     assert!(check_exist(&peer_store, &peers_id[3], None));
     assert!(check_integrity(&peer_store));
 
-    // Try to create indirect connection A - #T but fails since A - #A (signed) exists
+    // Try to create indirect connection A - #T but fails since A - #A (signed)
+    // exists
     let peer_05 = get_peer_info(peers_id[0].clone(), Some(addrs[5]));
     peer_store.add_direct_peer(&clock.clock(), peer_05).unwrap();
     assert!(check_exist(&peer_store, &peers_id[0], Some((addrs[0], TrustLevel::Signed))));

@@ -35,9 +35,10 @@ impl Test {
         heavy_test(move || run_actix(async move { self.run_impl() }))
     }
 
-    /// Runs block producing client and stops after network mock received seven blocks
-    /// Confirms that the blocks form a chain (which implies the chunks are distributed).
-    /// Confirms that the number of messages transmitting the chunks matches the expected number.
+    /// Runs block producing client and stops after network mock received seven
+    /// blocks Confirms that the blocks form a chain (which implies the
+    /// chunks are distributed). Confirms that the number of messages
+    /// transmitting the chunks matches the expected number.
     fn run_impl(self) {
         init_test_logger();
 
@@ -143,8 +144,9 @@ impl Test {
                                 height_to_hash.get(&(h - 1)).unwrap()
                             );
 
-                            // Make sure epoch length actually corresponds to the desired epoch length
-                            // The switches are expected at 0->1, 5->6 and 10->11
+                            // Make sure epoch length actually corresponds to the desired epoch
+                            // length The switches are expected at 0->1,
+                            // 5->6 and 10->11
                             let prev_epoch_id = height_to_epoch.get(&(h - 1)).unwrap().clone();
                             assert_eq!(block.header().epoch_id() == &prev_epoch_id, h % 5 != 1);
 
@@ -352,15 +354,16 @@ fn chunks_produced_and_distributed_one_val_per_shard_should_succeed_even_without
     .run()
 }
 
-/// The timeout for requesting chunk from others is 1s. 3000 block timeout means that a participant
-/// that is otherwise ready to produce a block will wait for 3000/2 milliseconds for all the chunks.
-/// We block all the communication from test1 to test4, and expect that in 1.5 seconds test4 will
-/// give up on getting the part from test1 and will get it from test2 (who will have it because
+/// The timeout for requesting chunk from others is 1s. 3000 block timeout means
+/// that a participant that is otherwise ready to produce a block will wait for
+/// 3000/2 milliseconds for all the chunks. We block all the communication from
+/// test1 to test4, and expect that in 1.5 seconds test4 will give up on getting
+/// the part from test1 and will get it from test2 (who will have it because
 /// `validator_groups=2`)
 ///
-/// Note that due to #7385 (which sends chunk forwarding messages irrespective of shard assignment),
-/// we disable chunk forwarding messages for the following tests, so we can focus on chunk
-/// requesting behavior.
+/// Note that due to #7385 (which sends chunk forwarding messages irrespective
+/// of shard assignment), we disable chunk forwarding messages for the following
+/// tests, so we can focus on chunk requesting behavior.
 /// TODO: this test is broken due to (#8395) - with fix in #8211
 
 #[test]
@@ -376,10 +379,12 @@ fn chunks_recovered_from_others() {
     //    .run()
 }
 
-/// Same test as above, but the number of validator groups is four, therefore test2 doesn't have the
-/// part test4 needs. The only way test4 can recover the part is by reconstructing the whole chunk,
-/// but they won't do it for the first 3 seconds, and 3s block_timeout means that the block producers
-/// only wait for 3000/2 milliseconds until they produce a block with some chunks missing
+/// Same test as above, but the number of validator groups is four, therefore
+/// test2 doesn't have the part test4 needs. The only way test4 can recover the
+/// part is by reconstructing the whole chunk, but they won't do it for the
+/// first 3 seconds, and 3s block_timeout means that the block producers
+/// only wait for 3000/2 milliseconds until they produce a block with some
+/// chunks missing
 #[test]
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
 #[should_panic]
@@ -394,8 +399,8 @@ fn chunks_recovered_from_full_timeout_too_short() {
     .run()
 }
 
-/// Same test as above, but the timeout is sufficiently large for test4 now to reconstruct the full
-/// chunk
+/// Same test as above, but the timeout is sufficiently large for test4 now to
+/// reconstruct the full chunk
 #[test]
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn chunks_recovered_from_full() {
@@ -424,7 +429,8 @@ fn chunks_produced_and_distributed_one_val_shard_cop() {
     .run()
 }
 
-/// `test4` can't talk to `test1`, so it'll fetch the chunk for first shard from `cop1`.
+/// `test4` can't talk to `test1`, so it'll fetch the chunk for first shard from
+/// `cop1`.
 #[test]
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn chunks_recovered_from_others_cop() {
@@ -454,7 +460,8 @@ fn chunks_recovered_from_full_timeout_too_short_cop() {
     .run()
 }
 
-/// Same as above, but with longer block production timeout which should allow for full reconstruction.
+/// Same as above, but with longer block production timeout which should allow
+/// for full reconstruction.
 #[test]
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn chunks_recovered_from_full_cop() {

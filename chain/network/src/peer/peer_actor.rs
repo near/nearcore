@@ -46,13 +46,15 @@ const REQUEST_PEERS_INTERVAL: time::Duration = time::Duration::seconds(60);
 /// Maximal allowed UTC clock skew between this node and the peer.
 const MAX_CLOCK_SKEW: time::Duration = time::Duration::minutes(30);
 
-/// Maximum number of transaction messages we will accept between block messages.
-/// The purpose of this constant is to ensure we do not spend too much time deserializing and
-/// dispatching transactions when we should be focusing on consensus-related messages.
+/// Maximum number of transaction messages we will accept between block
+/// messages. The purpose of this constant is to ensure we do not spend too much
+/// time deserializing and dispatching transactions when we should be focusing
+/// on consensus-related messages.
 const MAX_TRANSACTIONS_PER_BLOCK_MESSAGE: usize = 1000;
 /// Limit cache size of 1000 messages
 const ROUTED_MESSAGE_CACHE_SIZE: usize = 1000;
-/// Duplicated messages will be dropped if routed through the same peer multiple times.
+/// Duplicated messages will be dropped if routed through the same peer multiple
+/// times.
 pub(crate) const DROP_DUPLICATED_MESSAGES_PERIOD: time::Duration = time::Duration::milliseconds(50);
 /// How often to send the latest block to peers.
 const SYNC_LATEST_BLOCK_INTERVAL: time::Duration = time::Duration::seconds(60);
@@ -177,16 +179,17 @@ impl PeerActor {
         network_state: Arc<NetworkState>,
     ) -> anyhow::Result<actix::Addr<Self>> {
         let (addr, handshake_signal) = Self::spawn(clock, stream, force_encoding, network_state)?;
-        // Await for the handshake to complete, by awaiting the handshake_signal channel.
-        // This is a receiver of Infallible, so it only completes when the channel is closed.
+        // Await for the handshake to complete, by awaiting the handshake_signal
+        // channel. This is a receiver of Infallible, so it only completes when
+        // the channel is closed.
         handshake_signal.await.err().unwrap();
         Ok(addr)
     }
 
     /// Spawns a PeerActor on a separate actix arbiter.
     /// Returns the actor address and a HandshakeSignal: an asynchronous channel
-    /// which will be closed as soon as the handshake is finished (successfully or not).
-    /// You can asynchronously await the returned HandshakeSignal.
+    /// which will be closed as soon as the handshake is finished (successfully
+    /// or not). You can asynchronously await the returned HandshakeSignal.
     pub(crate) fn spawn(
         clock: time::Clock,
         stream: tcp::Stream,
@@ -307,8 +310,8 @@ impl PeerActor {
 
     // Determines the encoding to use for communication with the peer.
     // It can be None while Handshake with the peer has not been finished yet.
-    // In case it is None, both encodings are attempted for parsing, and each message
-    // is sent twice.
+    // In case it is None, both encodings are attempted for parsing, and each
+    // message is sent twice.
     fn encoding(&self) -> Option<Encoding> {
         if self.force_encoding.is_some() {
             return self.force_encoding;
@@ -469,8 +472,9 @@ impl PeerActor {
                     return;
                 }
                 // This can happen only in case of a malicious node.
-                // Outbound peer requests a connection of a given TIER, the inbound peer can just
-                // confirm the TIER or drop connection. TIER is not negotiable during handshake.
+                // Outbound peer requests a connection of a given TIER, the inbound peer can
+                // just confirm the TIER or drop connection. TIER is not
+                // negotiable during handshake.
                 if tier != spec.tier {
                     tracing::warn!(target: "network", "Connection TIER mismatch. Disconnecting peer {}", handshake.sender_peer_id);
                     self.stop(ctx, ClosingReason::HandshakeFailed);
@@ -523,8 +527,9 @@ impl PeerActor {
                     self.stop(ctx, ClosingReason::HandshakeFailed);
                     return;
                 }
-                // Check that the received nonce is greater than the current nonce of this connection.
-                // If not (and this is an inbound connection) propose a new nonce.
+                // Check that the received nonce is greater than the current nonce of this
+                // connection. If not (and this is an inbound connection)
+                // propose a new nonce.
                 if let Some(last_edge) =
                     self.network_state.graph.load().local_edges.get(&handshake.sender_peer_id)
                 {
@@ -629,7 +634,8 @@ impl PeerActor {
         });
 
         // This time is used to figure out when the first run of the callbacks it run.
-        // It is important that it is set here (rather than calling clock.now() within the future) - as it makes testing a lot easier (and more deterministic).
+        // It is important that it is set here (rather than calling clock.now() within
+        // the future) - as it makes testing a lot easier (and more deterministic).
 
         let start_time = self.clock.now();
 
@@ -912,7 +918,7 @@ impl PeerActor {
                 None
             }
             RoutedMessageBody::ForwardTx(transaction) => {
-                network_state.client.transaction(transaction, /*is_forwarded=*/ true).await;
+                network_state.client.transaction(transaction, /* is_forwarded= */ true).await;
                 None
             }
             RoutedMessageBody::PartialEncodedChunkRequest(request) => {
@@ -1308,9 +1314,10 @@ impl PeerActor {
         if let Err(ban_reason) = network_state.add_edges(&clock, rtu.edges).await {
             conn.stop(Some(ban_reason));
         }
-        // For every announce we received, we fetch the last announce with the same account_id
-        // that we already broadcasted. Client actor will both verify signatures of the received announces
-        // as well as filter out those which are older than the fetched ones (to avoid overriding
+        // For every announce we received, we fetch the last announce with the same
+        // account_id that we already broadcasted. Client actor will both verify
+        // signatures of the received announces as well as filter out those
+        // which are older than the fetched ones (to avoid overriding
         // a newer announce with an older one).
         let old = network_state
             .graph
@@ -1337,7 +1344,8 @@ impl actix::Actor for PeerActor {
     fn started(&mut self, ctx: &mut Self::Context) {
         metrics::PEER_CONNECTIONS_TOTAL.inc();
         tracing::debug!(target: "network", "{:?}: Peer {:?} {:?} started", self.my_node_info.id, self.peer_addr, self.peer_type);
-        // Set Handshake timeout for stopping actor if peer is not ready after given period of time.
+        // Set Handshake timeout for stopping actor if peer is not ready after given
+        // period of time.
 
         near_performance_metrics::actix::run_later(
             ctx,
@@ -1386,9 +1394,10 @@ impl actix::Actor for PeerActor {
             // it was not registered in the NewtorkState,
             // so there is nothing to be done.
             PeerStatus::Connecting(..) => {
-                // TODO(gprusak): reporting ConnectionClosed event is quite scattered right now and
-                // it is very ugly: it may happen here, in spawn_inner, or in NetworkState::unregister().
-                // Centralize it, once we get rid of actix.
+                // TODO(gprusak): reporting ConnectionClosed event is quite scattered right now
+                // and it is very ugly: it may happen here, in spawn_inner, or
+                // in NetworkState::unregister(). Centralize it, once we get rid
+                // of actix.
                 self.network_state.config.event_sink.push(Event::ConnectionClosed(
                     ConnectionClosedEvent {
                         stream_id: self.stream_id,

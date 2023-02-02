@@ -8,22 +8,24 @@ use std::sync::Mutex;
 
 const LISTENER_BACKLOG: u32 = 128;
 
-/// TEST-ONLY: guards ensuring that OS considers the given TCP listener port to be in use until
-/// this OS process is terminated.
+/// TEST-ONLY: guards ensuring that OS considers the given TCP listener port to
+/// be in use until this OS process is terminated.
 static RESERVED_LISTENER_ADDRS: Lazy<Mutex<HashMap<std::net::SocketAddr, tokio::net::TcpSocket>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
-/// TCP connections established by a node belong to different logical networks (aka tiers),
-/// which serve different purpose.
+/// TCP connections established by a node belong to different logical networks
+/// (aka tiers), which serve different purpose.
 // TODO(gprusak): add a link to the design on github docs (but first write those docs).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, strum::AsRefStr)]
 pub enum Tier {
-    /// Tier1 connections are established between the BFT consensus participants (or their proxies)
-    /// and are reserved exclusively for exchanging BFT consensus messages.
+    /// Tier1 connections are established between the BFT consensus participants
+    /// (or their proxies) and are reserved exclusively for exchanging BFT
+    /// consensus messages.
     T1,
-    /// Tier2 connections form a P2P gossip network, which is used for everything, except the BFT
-    /// consensus messages. Also, Tier1 peer discovery actually happens on Tier2 network, i.e.
-    /// Tier2 network is necessary to bootstrap Tier1 connections.
+    /// Tier2 connections form a P2P gossip network, which is used for
+    /// everything, except the BFT consensus messages. Also, Tier1 peer
+    /// discovery actually happens on Tier2 network, i.e. Tier2 network is
+    /// necessary to bootstrap Tier1 connections.
     T2,
 }
 
@@ -43,13 +45,14 @@ pub struct Stream {
     pub(crate) peer_addr: std::net::SocketAddr,
 }
 
-/// TEST-ONLY. Used to identify events relevant to a specific TCP connection in unit tests.
-/// Every outbound TCP connection has a unique TCP port (while inbound TCP connections
-/// have the same port as the TCP listen socket).
-/// We are assuming here that the unit test is executed on a single machine on the loopback
-/// network interface, so that both inbound and outbound IP is always 127.0.0.1.
-/// To create a reliable StreamId for a distributed, we would have to transmit it over the connection itself,
-/// which is doable, but not yet needed in our testing framework.
+/// TEST-ONLY. Used to identify events relevant to a specific TCP connection in
+/// unit tests. Every outbound TCP connection has a unique TCP port (while
+/// inbound TCP connections have the same port as the TCP listen socket).
+/// We are assuming here that the unit test is executed on a single machine on
+/// the loopback network interface, so that both inbound and outbound IP is
+/// always 127.0.0.1. To create a reliable StreamId for a distributed, we would
+/// have to transmit it over the connection itself, which is doable, but not yet
+/// needed in our testing framework.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct StreamId {
     inbound: std::net::SocketAddr,
@@ -129,23 +132,25 @@ impl Stream {
 /// solely for opening a TCP listener socket on it.
 ///
 /// In tests it additionally allows to "reserve" a random unused TCP port:
-/// * it allows to avoid race conditions in tests which require a dedicated TCP port to spawn a
-///   node on (and potentially restart it every now and then).
-/// * it is implemented by usign SO_REUSEPORT socket option (do not confuse with SO_REUSEADDR),
-///   which allows multiple sockets to share a port. reserve_for_test() creates a socket and binds
-///   it to a random unused local port (without starting a TCP listener).
-///   This socket won't be used for anything but telling the OS that the given TCP port is in use.
-///   However thanks to SO_REUSEPORT we can create another socket bind it to the same port
-///   and make it a listener.
-/// * The reserved port stays reserved until the process terminates - hence during a process
-///   lifetime reserve_for_test() should be called a small amount of times (~1000 should be fine,
-///   there are only 2^16 ports on a network interface). TODO(gprusak): we may want to track the
-///   lifecycle of ListenerAddr (for example via reference counter), so that we can reuse the port
-///   after all the references are dropped.
-/// * The drawback of this solution that it is hard to detect a situation in which multiple
-///   listener sockets in test are bound to the same port. TODO(gprusak): we can prevent creating
-///   multiple listeners for a single port within the same process by adding a mutex to the port
-///   guard.
+/// * it allows to avoid race conditions in tests which require a dedicated TCP
+///   port to spawn a node on (and potentially restart it every now and then).
+/// * it is implemented by usign SO_REUSEPORT socket option (do not confuse with
+///   SO_REUSEADDR), which allows multiple sockets to share a port.
+///   reserve_for_test() creates a socket and binds it to a random unused local
+///   port (without starting a TCP listener). This socket won't be used for
+///   anything but telling the OS that the given TCP port is in use. However
+///   thanks to SO_REUSEPORT we can create another socket bind it to the same
+///   port and make it a listener.
+/// * The reserved port stays reserved until the process terminates - hence
+///   during a process lifetime reserve_for_test() should be called a small
+///   amount of times (~1000 should be fine, there are only 2^16 ports on a
+///   network interface). TODO(gprusak): we may want to track the lifecycle of
+///   ListenerAddr (for example via reference counter), so that we can reuse the
+///   port after all the references are dropped.
+/// * The drawback of this solution that it is hard to detect a situation in
+///   which multiple listener sockets in test are bound to the same port.
+///   TODO(gprusak): we can prevent creating multiple listeners for a single
+///   port within the same process by adding a mutex to the port guard.
 #[derive(serde::Serialize, serde::Deserialize, Clone, Copy, PartialEq, Eq)]
 pub struct ListenerAddr(std::net::SocketAddr);
 

@@ -460,7 +460,8 @@ fn test_validators_ordered() {
 }
 
 /// Retrieve genesis config via JSON RPC.
-/// WARNING: Be mindful about changing genesis structure as it is part of the public protocol!
+/// WARNING: Be mindful about changing genesis structure as it is part of the
+/// public protocol!
 #[test]
 fn test_genesis_config() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {

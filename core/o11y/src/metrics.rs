@@ -1,20 +1,21 @@
 //! A fork of the lighthouse_metrics crate used to implement prometheus
 //!
-//! A wrapper around the `prometheus` crate that provides a global, `lazy_static` metrics registry
-//! and functions to add and use the following components (more info at
-//! [Prometheus docs](https://prometheus.io/docs/concepts/metric_types/)):
+//! A wrapper around the `prometheus` crate that provides a global,
+//! `lazy_static` metrics registry and functions to add and use the following
+//! components (more info at [Prometheus docs](https://prometheus.io/docs/concepts/metric_types/)):
 //!
 //! - `Histogram`: used with `start_timer()` and `observe_duration()` or
-//!     `observe()` method to record durations (e.g., block processing time).
+//!   `observe()` method to record durations (e.g., block processing time).
 //! - `IncCounter`: used to represent an ideally ever-growing, never-shrinking
-//!     integer (e.g., number of block processing requests).
+//!   integer (e.g., number of block processing requests).
 //! - `IntGauge`: used to represent an varying integer (e.g., number of
-//!     attestations per block).
+//!   attestations per block).
 //!
 //! ## Important
 //!
-//! Metrics will fail if two items have the same `name`. All metrics must have a unique `name`.
-//! Because we use a global registry there is no namespace per crate, it's one big global space.
+//! Metrics will fail if two items have the same `name`. All metrics must have a
+//! unique `name`. Because we use a global registry there is no namespace per
+//! crate, it's one big global space.
 //!
 //! See the [Prometheus naming best practices](https://prometheus.io/docs/practices/naming/) when
 //! choosing metric names.
@@ -78,8 +79,8 @@ pub fn gather() -> Vec<prometheus::proto::MetricFamily> {
     prometheus::gather()
 }
 
-/// Attempts to crate an `IntCounter`, returning `Err` if the registry does not accept the counter
-/// (potentially due to naming conflict).
+/// Attempts to crate an `IntCounter`, returning `Err` if the registry does not
+/// accept the counter (potentially due to naming conflict).
 pub fn try_create_int_counter(name: &str, help: &str) -> Result<IntCounter> {
     let opts = Opts::new(name, help);
     let counter = IntCounter::with_opts(opts)?;
@@ -87,8 +88,8 @@ pub fn try_create_int_counter(name: &str, help: &str) -> Result<IntCounter> {
     Ok(counter)
 }
 
-/// Attempts to crate an `IntCounterVec`, returning `Err` if the registry does not accept the counter
-/// (potentially due to naming conflict).
+/// Attempts to crate an `IntCounterVec`, returning `Err` if the registry does
+/// not accept the counter (potentially due to naming conflict).
 pub fn try_create_int_counter_vec(
     name: &str,
     help: &str,
@@ -100,8 +101,8 @@ pub fn try_create_int_counter_vec(
     Ok(counter)
 }
 
-/// Attempts to crate an `Counter`, returning `Err` if the registry does not accept the counter
-/// (potentially due to naming conflict).
+/// Attempts to crate an `Counter`, returning `Err` if the registry does not
+/// accept the counter (potentially due to naming conflict).
 pub fn try_create_counter(name: &str, help: &str) -> Result<Counter> {
     let opts = Opts::new(name, help);
     let counter = Counter::with_opts(opts)?;
@@ -109,8 +110,8 @@ pub fn try_create_counter(name: &str, help: &str) -> Result<Counter> {
     Ok(counter)
 }
 
-/// Attempts to crate an `IntGauge`, returning `Err` if the registry does not accept the gauge
-/// (potentially due to naming conflict).
+/// Attempts to crate an `IntGauge`, returning `Err` if the registry does not
+/// accept the gauge (potentially due to naming conflict).
 pub fn try_create_int_gauge(name: &str, help: &str) -> Result<IntGauge> {
     let opts = Opts::new(name, help);
     let gauge = IntGauge::with_opts(opts)?;
@@ -118,8 +119,8 @@ pub fn try_create_int_gauge(name: &str, help: &str) -> Result<IntGauge> {
     Ok(gauge)
 }
 
-/// Attempts to crate an `IntGaugeVec`, returning `Err` if the registry does not accept the gauge
-/// (potentially due to naming conflict).
+/// Attempts to crate an `IntGaugeVec`, returning `Err` if the registry does not
+/// accept the gauge (potentially due to naming conflict).
 pub fn try_create_int_gauge_vec(name: &str, help: &str, labels: &[&str]) -> Result<IntGaugeVec> {
     let opts = Opts::new(name, help);
     let gauge = IntGaugeVec::new(opts, labels)?;
@@ -127,8 +128,8 @@ pub fn try_create_int_gauge_vec(name: &str, help: &str, labels: &[&str]) -> Resu
     Ok(gauge)
 }
 
-/// Attempts to crate an `Gauge`, returning `Err` if the registry does not accept the gauge
-/// (potentially due to naming conflict).
+/// Attempts to crate an `Gauge`, returning `Err` if the registry does not
+/// accept the gauge (potentially due to naming conflict).
 pub fn try_create_gauge(name: &str, help: &str) -> Result<Gauge> {
     let opts = Opts::new(name, help);
     let gauge = Gauge::with_opts(opts)?;
@@ -136,8 +137,8 @@ pub fn try_create_gauge(name: &str, help: &str) -> Result<Gauge> {
     Ok(gauge)
 }
 
-/// Attempts to crate an `GaugeVec`, returning `Err` if the registry does not accept the gauge
-/// (potentially due to naming conflict).
+/// Attempts to crate an `GaugeVec`, returning `Err` if the registry does not
+/// accept the gauge (potentially due to naming conflict).
 pub fn try_create_gauge_vec(name: &str, help: &str, labels: &[&str]) -> Result<GaugeVec> {
     let opts = Opts::new(name, help);
     let gauge = GaugeVec::new(opts, labels)?;
@@ -145,8 +146,8 @@ pub fn try_create_gauge_vec(name: &str, help: &str, labels: &[&str]) -> Result<G
     Ok(gauge)
 }
 
-/// Attempts to crate a `Histogram`, returning `Err` if the registry does not accept the counter
-/// (potentially due to naming conflict).
+/// Attempts to crate a `Histogram`, returning `Err` if the registry does not
+/// accept the counter (potentially due to naming conflict).
 pub fn try_create_histogram(name: &str, help: &str) -> Result<Histogram> {
     let opts = HistogramOpts::new(name, help);
     let histogram = Histogram::with_opts(opts)?;
@@ -154,8 +155,8 @@ pub fn try_create_histogram(name: &str, help: &str) -> Result<Histogram> {
     Ok(histogram)
 }
 
-/// Attempts to crate a `Histogram`, returning `Err` if the registry does not accept the counter
-/// (potentially due to naming conflict).
+/// Attempts to crate a `Histogram`, returning `Err` if the registry does not
+/// accept the counter (potentially due to naming conflict).
 pub fn try_create_histogram_with_buckets(
     name: &str,
     help: &str,
@@ -167,8 +168,8 @@ pub fn try_create_histogram_with_buckets(
     Ok(histogram)
 }
 
-/// Attempts to create a `HistogramVector`, returning `Err` if the registry does not accept the counter
-/// (potentially due to naming conflict).
+/// Attempts to create a `HistogramVector`, returning `Err` if the registry does
+/// not accept the counter (potentially due to naming conflict).
 pub fn try_create_histogram_vec(
     name: &str,
     help: &str,

@@ -19,19 +19,22 @@ pub fn get_epoch_block_producers_view(
         .collect::<Vec<_>>())
 }
 
-/// Creates the `LightClientBlock` from the information in the chain store for a given block.
+/// Creates the `LightClientBlock` from the information in the chain store for a
+/// given block.
 ///
 /// # Arguments
-///  * `block_header` - block header of the block for which the `LightClientBlock` is computed
+///  * `block_header` - block header of the block for which the
+///    `LightClientBlock` is computed
 ///  * `chain_store`
-///  * `block_producers` - the ordered list of block producers in the epoch of the block that
-///                   corresponds to `block_header`
-///  * `next_block_producers` - the ordered list of block producers in the next epoch, if the light
-///                   client should contain them (otherwise `None`)
+///  * `block_producers` - the ordered list of block producers in the epoch of
+///    the block that corresponds to `block_header`
+///  * `next_block_producers` - the ordered list of block producers in the next
+///    epoch, if the light client should contain them (otherwise `None`)
 ///
 /// # Requirements:
-///    `get_next_final_block_hash` in the chain is set for the block that `block_header` corresponds
-///                   to and for the next block, and the three blocks must have sequential heights.
+///    `get_next_final_block_hash` in the chain is set for the block that
+/// `block_header` corresponds                   to and for the next block, and
+/// the three blocks must have sequential heights.
 pub fn create_light_client_block_view(
     block_header: &BlockHeader,
     chain_store: &dyn ChainStoreAccess,

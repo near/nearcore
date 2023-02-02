@@ -36,9 +36,9 @@ impl RewardCalculator {
             num_seconds_per_year: NUM_SECONDS_IN_A_YEAR,
         }
     }
-    /// Calculate validator reward for an epoch based on their block and chunk production stats.
-    /// Returns map of validators with their rewards and amount of newly minted tokens including to protocol's treasury.
-    /// See spec <https://nomicon.io/Economics/README.html#rewards-calculation>.
+    /// Calculate validator reward for an epoch based on their block and chunk
+    /// production stats. Returns map of validators with their rewards and
+    /// amount of newly minted tokens including to protocol's treasury. See spec <https://nomicon.io/Economics/README.html#rewards-calculation>.
     pub fn calculate_reward(
         &self,
         validator_block_chunk_stats: HashMap<AccountId, BlockChunkValidatorStats>,
@@ -88,7 +88,8 @@ impl RewardCalculator {
         let mut epoch_actual_reward = epoch_protocol_treasury;
         let total_stake: Balance = validator_stake.values().sum();
         for (account_id, stats) in validator_block_chunk_stats {
-            // Uptime is an average of block produced / expected and chunk produced / expected.
+            // Uptime is an average of block produced / expected and chunk produced /
+            // expected.
             let (average_produced_numer, average_produced_denom) =
                 if stats.block_stats.expected == 0 && stats.chunk_stats.expected == 0 {
                     (U256::from(0), U256::from(1))
@@ -107,7 +108,8 @@ impl RewardCalculator {
                 };
             let online_min_numer = U256::from(*self.online_min_threshold.numer() as u64);
             let online_min_denom = U256::from(*self.online_min_threshold.denom() as u64);
-            // If average of produced blocks below online min threshold, validator gets 0 reward.
+            // If average of produced blocks below online min threshold, validator gets 0
+            // reward.
             let chunk_only_producers_enabled =
                 checked_feature!("stable", ChunkOnlyProducers, protocol_version);
             let reward = if average_produced_numer * online_min_denom
@@ -126,7 +128,8 @@ impl RewardCalculator {
                 let stake = *validator_stake
                     .get(&account_id)
                     .unwrap_or_else(|| panic!("{} is not a validator", account_id));
-                // Online reward multiplier is min(1., (uptime - online_threshold_min) / (online_threshold_max - online_threshold_min).
+                // Online reward multiplier is min(1., (uptime - online_threshold_min) /
+                // (online_threshold_max - online_threshold_min).
                 let online_max_numer = U256::from(*self.online_max_threshold.numer() as u64);
                 let online_max_denom = U256::from(*self.online_max_threshold.denom() as u64);
                 let online_numer =
@@ -259,8 +262,9 @@ mod tests {
             PROTOCOL_VERSION,
             epoch_length * NUM_NS_IN_SECOND,
         );
-        // Total reward is 10_000_000. Divided by 3 equal stake validators - each gets 3_333_333.
-        // test1 with 94.5% online gets 50% because of linear between (0.99-0.9) online.
+        // Total reward is 10_000_000. Divided by 3 equal stake validators - each gets
+        // 3_333_333. test1 with 94.5% online gets 50% because of linear between
+        // (0.99-0.9) online.
         assert_eq!(
             result.0,
             HashMap::from([
@@ -336,8 +340,9 @@ mod tests {
             PROTOCOL_VERSION,
             epoch_length * NUM_NS_IN_SECOND,
         );
-        // Total reward is 10_000_000. Divided by 4 equal stake validators - each gets 2_500_000.
-        // test1 with 94.5% online gets 50% because of linear between (0.99-0.9) online.
+        // Total reward is 10_000_000. Divided by 4 equal stake validators - each gets
+        // 2_500_000. test1 with 94.5% online gets 50% because of linear between
+        // (0.99-0.9) online.
         {
             assert_eq!(
                 result.0,
@@ -353,8 +358,8 @@ mod tests {
         }
     }
 
-    /// Test that under an extreme setting (total supply 100b, epoch length half a day),
-    /// reward calculation will not overflow.
+    /// Test that under an extreme setting (total supply 100b, epoch length half
+    /// a day), reward calculation will not overflow.
     #[test]
     fn test_reward_no_overflow() {
         let epoch_length = 60 * 60 * 12;

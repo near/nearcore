@@ -18,7 +18,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 impl super::NetworkState {
-    // Returns ValidatorConfig of this node iff it belongs to TIER1 according to `accounts_data`.
+    // Returns ValidatorConfig of this node iff it belongs to TIER1 according to
+    // `accounts_data`.
     pub fn tier1_validator_config(
         &self,
         accounts_data: &accounts_data::CacheSnapshot,
@@ -77,9 +78,9 @@ impl super::NetworkState {
         })));
     }
 
-    /// Tries to connect to ALL trusted proxies from the config, then broadcasts AccountData with
-    /// the set of proxies it managed to connect to. This way other TIER1 nodes can just connect
-    /// to ANY proxy of this node.
+    /// Tries to connect to ALL trusted proxies from the config, then broadcasts
+    /// AccountData with the set of proxies it managed to connect to. This
+    /// way other TIER1 nodes can just connect to ANY proxy of this node.
     pub async fn tier1_advertise_proxies(
         self: &Arc<Self>,
         clock: &time::Clock,
@@ -157,7 +158,8 @@ impl super::NetworkState {
                 }
                 None => vec![],
             },
-            // In case of static configuration, we look for connections to proxies matching the config.
+            // In case of static configuration, we look for connections to proxies matching the
+            // config.
             config::ValidatorProxies::Static(proxies) => {
                 let mut connected_proxies = vec![];
                 for proxy in proxies {
@@ -210,7 +212,8 @@ impl super::NetworkState {
     }
 
     /// Closes TIER1 connections from nodes which are not TIER1 any more.
-    /// If this node is TIER1, it additionally connects to proxies of other TIER1 nodes.
+    /// If this node is TIER1, it additionally connects to proxies of other
+    /// TIER1 nodes.
     pub async fn tier1_connect(self: &Arc<Self>, clock: &time::Clock) {
         let tier1_cfg = match &self.config.tier1 {
             Some(it) => it,
@@ -242,8 +245,9 @@ impl super::NetworkState {
         let mut safe = HashMap::<&PublicKey, &PeerId>::new();
 
         match validator_cfg {
-            // TIER1 nodes can establish outbound connections to other TIER1 nodes and TIER1 proxies.
-            // TIER1 nodes can also accept inbound connections from TIER1 nodes.
+            // TIER1 nodes can establish outbound connections to other TIER1 nodes and TIER1
+            // proxies. TIER1 nodes can also accept inbound connections from TIER1
+            // nodes.
             Some(_) => {
                 for conn in &ready {
                     if conn.peer_type != PeerType::Outbound {
@@ -353,15 +357,17 @@ impl super::NetworkState {
     /// Finds a TIER1 connection for the given SignedAccountData.
     /// It is expected to perform <10 lookups total on average,
     /// so the call latency should be negligible wrt sending a TCP packet.
-    // TODO(gprusak): If not, consider precomputing the AccountKey -> Connection mapping.
+    // TODO(gprusak): If not, consider precomputing the AccountKey -> Connection
+    // mapping.
     pub fn get_tier1_proxy(&self, data: &SignedAccountData) -> Option<Arc<connection::Connection>> {
         let tier1 = self.tier1.load();
         // Prefer direct connections.
         if let Some(conn) = tier1.ready_by_account_key.get(&data.account_key) {
             return Some(conn.clone());
         }
-        // In case there is no direct connection and our node is a TIER1 validator, use a proxy.
-        // TODO(gprusak): add a check that our node is actually a TIER1 validator.
+        // In case there is no direct connection and our node is a TIER1 validator, use
+        // a proxy. TODO(gprusak): add a check that our node is actually a TIER1
+        // validator.
         for proxy in &data.proxies {
             if let Some(conn) = tier1.ready.get(&proxy.peer_id) {
                 return Some(conn.clone());

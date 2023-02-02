@@ -58,16 +58,18 @@ pub enum FunctionCallError {
     HostError(HostError),
 }
 
-/// Serializable version of `FunctionCallError`. Must never reorder/remove elements, can only
-/// add new variants at the end (but do that very carefully).
-/// It describes stable serialization format, and only used by serialization logic.
+/// Serializable version of `FunctionCallError`. Must never reorder/remove
+/// elements, can only add new variants at the end (but do that very carefully).
+/// It describes stable serialization format, and only used by serialization
+/// logic.
 #[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Serialize, Deserialize)]
 pub enum FunctionCallErrorSer {
     /// Wasm compilation error
     CompilationError(CompilationError),
     /// Wasm binary env link error
     ///
-    /// Note: this is only to deserialize old data, use execution error for new data
+    /// Note: this is only to deserialize old data, use execution error for new
+    /// data
     LinkError {
         msg: String,
     },
@@ -75,13 +77,15 @@ pub enum FunctionCallErrorSer {
     MethodResolveError(MethodResolveError),
     /// A trap happened during execution of a binary
     ///
-    /// Note: this is only to deserialize old data, use execution error for new data
+    /// Note: this is only to deserialize old data, use execution error for new
+    /// data
     WasmTrap(WasmTrap),
     WasmUnknownError,
-    /// Note: this is only to deserialize old data, use execution error for new data
+    /// Note: this is only to deserialize old data, use execution error for new
+    /// data
     HostError(HostError),
-    // Unused, can be reused by a future error but must be exactly one error to keep ExecutionError
-    // error borsh serialized at correct index
+    // Unused, can be reused by a future error but must be exactly one error to keep
+    // ExecutionError error borsh serialized at correct index
     _EVMError,
     ExecutionError(String),
 }
@@ -167,8 +171,9 @@ pub enum CompilationError {
     },
     PrepareError(PrepareError),
     /// This is for defense in depth.
-    /// We expect our runtime-independent preparation code to fully catch all invalid wasms,
-    /// but, if it ever misses something we’ll emit this error
+    /// We expect our runtime-independent preparation code to fully catch all
+    /// invalid wasms, but, if it ever misses something we’ll emit this
+    /// error
     WasmerCompileError {
         msg: String,
     },
@@ -245,7 +250,8 @@ pub enum HostError {
     InvalidPromiseResultIndex { result_idx: u64 },
     /// Accessed invalid register id
     InvalidRegisterId { register_id: u64 },
-    /// Iterator `iterator_index` was invalidated after its creation by performing a mutable operation on trie
+    /// Iterator `iterator_index` was invalidated after its creation by
+    /// performing a mutable operation on trie
     IteratorWasInvalidated { iterator_index: u64 },
     /// Accessed memory outside the bounds
     MemoryAccessViolation,
@@ -284,8 +290,8 @@ pub enum HostError {
     /// Invalid input to alt_bn128 familiy of functions (e.g., point which isn't
     /// on the curve).
     AltBn128InvalidInput { msg: String },
-    /// Invalid input to ed25519 signature verification function (e.g. signature cannot be
-    /// derived from bytes).
+    /// Invalid input to ed25519 signature verification function (e.g. signature
+    /// cannot be derived from bytes).
     Ed25519VerifyInvalidInput { msg: String },
 }
 
@@ -305,7 +311,8 @@ impl std::error::Error for VMLogicError {}
 /// integer overflow.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InconsistentStateError {
-    /// Math operation with a value from the state resulted in a integer overflow.
+    /// Math operation with a value from the state resulted in a integer
+    /// overflow.
     IntegerOverflow,
 }
 

@@ -29,9 +29,9 @@ impl<T: Clone> ArcMutex<T> {
         res
     }
 
-    /// Atomic update of the value. Value is not modified if an error is returned. Blocking.
-    /// Note that `T -> Result<(R,T),E>` is a state monad transformer applied to the exception
-    /// monad.
+    /// Atomic update of the value. Value is not modified if an error is
+    /// returned. Blocking. Note that `T -> Result<(R,T),E>` is a state
+    /// monad transformer applied to the exception monad.
     pub fn try_update<R, E>(&self, f: impl FnOnce(T) -> Result<(R, T), E>) -> Result<R, E> {
         let _guard = self.mutex.lock().unwrap();
         match f(self.value.load().as_ref().clone()) {

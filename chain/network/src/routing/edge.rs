@@ -3,7 +3,8 @@ use crate::stats::metrics;
 use crate::time;
 
 // Don't accept nonces (edges) that are more than this delta from current time.
-// This value should be smaller than PRUNE_EDGES_AFTER (otherwise, the might accept the edge and garbage collect it seconds later).
+// This value should be smaller than PRUNE_EDGES_AFTER (otherwise, the might
+// accept the edge and garbage collect it seconds later).
 pub(crate) const EDGE_NONCE_MAX_TIME_DELTA: time::Duration = time::Duration::minutes(20);
 
 #[derive(thiserror::Error, Debug)]

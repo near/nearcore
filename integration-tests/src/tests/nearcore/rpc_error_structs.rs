@@ -344,8 +344,9 @@ fn test_receipt_id_unknown_receipt_error() {
 }
 
 /// Starts 2 validators and 2 light clients (not tracking anything).
-/// Sends tx to first light client through `broadcast_tx_commit` and checks that the transaction has failed.
-/// Checks if the struct is expected and contains the proper data
+/// Sends tx to first light client through `broadcast_tx_commit` and checks that
+/// the transaction has failed. Checks if the struct is expected and contains
+/// the proper data
 #[test]
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_tx_invalid_tx_error() {

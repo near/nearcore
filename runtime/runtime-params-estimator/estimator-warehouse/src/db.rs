@@ -200,7 +200,8 @@ mod tests {
     use rusqlite::{functions::FunctionFlags, Connection};
 
     impl Db {
-        /// Create a new in-memory test database with a mocked `datetime()` function.
+        /// Create a new in-memory test database with a mocked `datetime()`
+        /// function.
         pub(crate) fn test() -> Self {
             let conn = Connection::open_in_memory().unwrap();
             let init_sql = include_str!("init.sql");
@@ -212,8 +213,9 @@ mod tests {
 
         /// Create a new in-memory test database with data defined by the input.
         ///
-        /// The test data is expected to come in blocks of JSON lines with a commit header.
-        /// WAIT statements can be used as barriers to make sure DB timestamps differ.
+        /// The test data is expected to come in blocks of JSON lines with a
+        /// commit header. WAIT statements can be used as barriers to
+        /// make sure DB timestamps differ.
         pub(crate) fn test_with_data(input: &str) -> Self {
             let db = Self::test();
             for block in input.split("\n\n") {

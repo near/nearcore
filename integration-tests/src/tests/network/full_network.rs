@@ -6,8 +6,9 @@ use std::cmp::min;
 /// of active peers of every node is high.
 ///
 /// Spawn a network with `num_node` nodes and with top connections allowed
-/// for every peer `max_num_peers`. Wait until every peer has `expected_connections`
-/// active peers and start new node. Wait until new node is connected.
+/// for every peer `max_num_peers`. Wait until every peer has
+/// `expected_connections` active peers and start new node. Wait until new node
+/// is connected.
 pub fn connect_at_max_capacity(
     num_node: usize,
     ideal_lo: u32,
@@ -54,7 +55,8 @@ pub fn connect_at_max_capacity(
     start_test(runner)
 }
 
-/// Check that two nodes are able to connect if they only know themselves from boot list.
+/// Check that two nodes are able to connect if they only know themselves from
+/// boot list.
 #[test]
 fn simple_network() -> anyhow::Result<()> {
     connect_at_max_capacity(2, 1, 1, 1, 1, 0)
@@ -68,7 +70,8 @@ fn connect_on_almost_full_network() -> anyhow::Result<()> {
 }
 
 /// Start 4 nodes and connect them all with each other.
-/// Create new node, it should be able to connect even if max allowed peers is 3.
+/// Create new node, it should be able to connect even if max allowed peers is
+/// 3.
 #[test]
 fn connect_on_full_network() -> anyhow::Result<()> {
     connect_at_max_capacity(5, 2, 3, 4, 2, 1)
@@ -97,9 +100,8 @@ fn connect_whitelisted() -> anyhow::Result<()> {
     runner.push(Action::AddEdge { from: 3, to: 0, force: true });
     // Wait for the topology to stabilize.
     // - 3 shouldn't be able to establish a connection to 1,2
-    // - 1 shouldn't drop connections to 0,2,3, even though the
-    //   connection limit is 2, since 0<->3 connection doesn't
-    //   count towards this limit.
+    // - 1 shouldn't drop connections to 0,2,3, even though the connection limit is
+    //   2, since 0<->3 connection doesn't count towards this limit.
     runner.push(Action::Wait(time::Duration::milliseconds(200)));
     runner.push_action(assert_expected_peers(0, vec![1, 2, 3]));
     runner.push_action(assert_expected_peers(1, vec![0, 2]));

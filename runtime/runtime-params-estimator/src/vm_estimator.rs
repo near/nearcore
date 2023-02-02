@@ -97,7 +97,8 @@ fn precompilation_cost(
         ys.push(measure_contract(vm_kind, gas_metric, &contract, cache));
     }
 
-    // Motivation behind these values is the same as in `fn action_deploy_contract_per_byte`.
+    // Motivation behind these values is the same as in `fn
+    // action_deploy_contract_per_byte`.
     let negative_base_tolerance = 369_531_500_000u64;
     let rel_factor_tolerance = 0.001;
     let (a, b) = GasCost::least_squares_method_gas_cost(
@@ -109,17 +110,18 @@ fn precompilation_cost(
         verbose,
     );
 
-    // We multiply `b` by 5/4 to accommodate for the fact that test contracts are typically 80% code,
-    // so in the worst case it could grow to 100% and our costs still give better upper estimation.
-    // Safety muliplication with 5/4.
+    // We multiply `b` by 5/4 to accommodate for the fact that test contracts are
+    // typically 80% code, so in the worst case it could grow to 100% and our
+    // costs still give better upper estimation. Safety muliplication with 5/4.
     let safety_numer = 5u64;
     let safety_denom = 4u64;
     let (corrected_a, corrected_b) =
         (a * safety_numer / safety_denom, b * safety_numer / safety_denom);
 
-    // Now validate that estimations obtained earlier provides correct upper estimation
-    // for several other contracts.
-    // Contracts binaries are taken from near-sdk-rs examples, ae20fc458858144e4a35faf58be778d13c2b0511.
+    // Now validate that estimations obtained earlier provides correct upper
+    // estimation for several other contracts.
+    // Contracts binaries are taken from near-sdk-rs examples,
+    // ae20fc458858144e4a35faf58be778d13c2b0511.
     let validate_contracts = vec![
         // File 139637.
         read_resource("res/status_message.wasm"),

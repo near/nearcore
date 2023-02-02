@@ -39,8 +39,9 @@ fn build_chain() {
     // ‘nightly’ feature enabled:
     //
     //     cargo install cargo-insta
-    //     cargo insta test --accept -p near-chain                    -- tests::simple_chain::build_chain
-    //     cargo insta test --accept -p near-chain --features nightly -- tests::simple_chain::build_chain
+    //     cargo insta test --accept -p near-chain                    --
+    // tests::simple_chain::build_chain     cargo insta test --accept -p
+    // near-chain --features nightly -- tests::simple_chain::build_chain
     let hash = chain.head().unwrap().last_block_hash;
     if cfg!(feature = "nightly") {
         insta::assert_display_snapshot!(hash, @"7f7HTgxYS9NbF61kqqQSD4ivtPj7hCReXqyMMqiUfMZq");
@@ -135,8 +136,8 @@ fn build_chain_with_orphans() {
     );
 }
 
-/// Checks that chain successfully processes blocks with skipped blocks and forks, but doesn't process block behind
-/// final head.
+/// Checks that chain successfully processes blocks with skipped blocks and
+/// forks, but doesn't process block behind final head.
 #[test]
 fn build_chain_with_skips_and_forks() {
     init_test_logger();
@@ -163,9 +164,9 @@ fn build_chain_with_skips_and_forks() {
     assert_matches!(chain.process_block_test(&None, c4), Err(Error::CannotBeFinalized));
 }
 
-/// Verifies that getting block by its height are updated correctly when blocks from different forks are
-/// processed, especially when certain heights are skipped.
-/// Chain looks as follows (variable name + height):
+/// Verifies that getting block by its height are updated correctly when blocks
+/// from different forks are processed, especially when certain heights are
+/// skipped. Chain looks as follows (variable name + height):
 ///
 /// 0 -> b1 (c1) -> b2
 ///        |  \      \
@@ -175,8 +176,9 @@ fn build_chain_with_skips_and_forks() {
 ///        |
 ///        ------------------------------------> e7
 ///
-/// Note that only block b1 is finalized, so all blocks here can be processed. But getting block by height should
-/// return only blocks from the canonical chain.
+/// Note that only block b1 is finalized, so all blocks here can be processed.
+/// But getting block by height should return only blocks from the canonical
+/// chain.
 #[test]
 fn blocks_at_height() {
     init_test_logger();

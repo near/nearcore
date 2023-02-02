@@ -21,11 +21,12 @@ pub(crate) const WASM_FEATURES: wasmparser::WasmFeatures = wasmparser::WasmFeatu
     memory64: false,
 };
 
-/// Decode and validate the provided WebAssembly code with the `wasmparser` crate.
+/// Decode and validate the provided WebAssembly code with the `wasmparser`
+/// crate.
 ///
-/// This function will return the number of functions defined globally in the provided WebAssembly
-/// module as well as the number of locals declared by all functions. If either counter overflows,
-/// `None` is returned in its place.
+/// This function will return the number of functions defined globally in the
+/// provided WebAssembly module as well as the number of locals declared by all
+/// functions. If either counter overflows, `None` is returned in its place.
 fn wasmparser_decode(
     code: &[u8],
 ) -> Result<(Option<u64>, Option<u64>), wasmparser::BinaryReaderError> {
@@ -78,11 +79,12 @@ fn validate_contract(code: &[u8], config: &VMConfig) -> Result<(), PrepareError>
         tracing::debug!(err=?e, "wasmparser failed decoding a contract");
         PrepareError::Deserialization
     })?;
-    // Verify the number of functions does not exceed the limit we imposed. Note that the ordering
-    // of this check is important. In the past we first validated the entire module and only then
-    // verified that the limit is not exceeded. While it would be more efficient to check for this
-    // before validating the function bodies, it would change the results for malformed WebAssembly
-    // modules.
+    // Verify the number of functions does not exceed the limit we imposed. Note
+    // that the ordering of this check is important. In the past we first
+    // validated the entire module and only then verified that the limit is not
+    // exceeded. While it would be more efficient to check for this
+    // before validating the function bodies, it would change the results for
+    // malformed WebAssembly modules.
     if let Some(max_functions) = config.limit_config.max_functions_number_per_contract {
         if function_count.ok_or(PrepareError::TooManyFunctions)? > max_functions {
             return Err(PrepareError::TooManyFunctions);
@@ -97,17 +99,20 @@ fn validate_contract(code: &[u8], config: &VMConfig) -> Result<(), PrepareError>
     Ok(())
 }
 
-/// Loads the given module given in `original_code`, performs some checks on it and
-/// does some preprocessing.
+/// Loads the given module given in `original_code`, performs some checks on it
+/// and does some preprocessing.
 ///
 /// The checks are:
 ///
 /// - module doesn't define an internal memory instance,
-/// - imported memory (if any) doesn't reserve more memory than permitted by the `config`,
-/// - all imported functions from the external environment matches defined by `env` module,
+/// - imported memory (if any) doesn't reserve more memory than permitted by the
+///   `config`,
+/// - all imported functions from the external environment matches defined by
+///   `env` module,
 /// - functions number does not exceed limit specified in VMConfig,
 ///
-/// The preprocessing includes injecting code for gas metering and metering the height of stack.
+/// The preprocessing includes injecting code for gas metering and metering the
+/// height of stack.
 pub fn prepare_contract(original_code: &[u8], config: &VMConfig) -> Result<Vec<u8>, PrepareError> {
     validate_contract(original_code, config)?;
     match config.limit_config.stack_limiter_version {
@@ -164,9 +169,9 @@ impl<'a> ContractModule<'a> {
 
     /// Ensures that module doesn't declare internal memories.
     ///
-    /// In this runtime we only allow wasm module to import memory from the environment.
-    /// Memory section contains declarations of internal linear memories, so if we find one
-    /// we reject such a module.
+    /// In this runtime we only allow wasm module to import memory from the
+    /// environment. Memory section contains declarations of internal linear
+    /// memories, so if we find one we reject such a module.
     fn ensure_no_internal_memory(self) -> Result<Self, PrepareError> {
         if self.module.memory_section().map_or(false, |ms| !ms.entries().is_empty()) {
             Err(PrepareError::InternalMemoryDeclared)
@@ -307,9 +312,10 @@ mod pwasm_12 {
 
         /// Ensures that module doesn't declare internal memories.
         ///
-        /// In this runtime we only allow wasm module to import memory from the environment.
-        /// Memory section contains declarations of internal linear memories, so if we find one
-        /// we reject such a module.
+        /// In this runtime we only allow wasm module to import memory from the
+        /// environment. Memory section contains declarations of
+        /// internal linear memories, so if we find one we reject such a
+        /// module.
         fn ensure_no_internal_memory(self) -> Result<Self, PrepareError> {
             if self.module.memory_section().map_or(false, |ms| !ms.entries().is_empty()) {
                 Err(PrepareError::InternalMemoryDeclared)
@@ -345,8 +351,8 @@ mod pwasm_12 {
         ///
         /// This accomplishes two tasks:
         ///
-        /// - checks any imported function against defined host functions set, incl.
-        ///   their signatures.
+        /// - checks any imported function against defined host functions set,
+        ///   incl. their signatures.
         /// - if there is a memory import, returns it's descriptor
         fn scan_imports(self) -> Result<Self, PrepareError> {
             let Self { module, config } = self;
@@ -453,8 +459,8 @@ mod tests {
 
     #[test]
     fn multiple_valid_memory_are_disabled() {
-        // Our preparation and sanitization pass assumes a single memory, so we should fail when
-        // there are multiple specified.
+        // Our preparation and sanitization pass assumes a single memory, so we should
+        // fail when there are multiple specified.
         let r = parse_and_prepare_wat(
             r#"(module
           (import "env" "memory" (memory 1 2048))
@@ -496,11 +502,13 @@ mod tests {
     #[test]
     fn preparation_generates_valid_contract() {
         bolero::check!().for_each(|input: &[u8]| {
-            // DO NOT use ArbitraryModule. We do want modules that may be invalid here, if they pass our validation step!
+            // DO NOT use ArbitraryModule. We do want modules that may be invalid here, if
+            // they pass our validation step!
             let config = VMConfig::test();
             if let Ok(_) = validate_contract(input, &config) {
                 match prepare_contract(input, &config) {
-                    Err(_e) => (), // TODO: this should be a panic, but for now it’d actually trigger
+                    Err(_e) => (), /* TODO: this should be a panic, but for now it’d actually
+                                     * trigger */
                     Ok(code) => {
                         let mut validator = wasmparser::Validator::new();
                         validator.wasm_features(WASM_FEATURES);

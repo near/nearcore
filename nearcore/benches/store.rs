@@ -10,11 +10,11 @@ use near_store::{Mode, Temperature};
 use nearcore::{get_default_home, load_config, NightshadeRuntime};
 use std::time::{Duration, Instant};
 
-/// Read `TrieItem`s - nodes containing values - using Trie iterator, stop when 10k items were read.
-/// Note that the first run populates OS caches, so all next runs will be faster. You may want to run
-/// `sudo sh -c "/usr/bin/echo 1 > /proc/sys/vm/drop_caches"` before running the benchmark.
-/// As of 25/03/2022, it shows the following results for both read-only and read-write modes:
-/// ```
+/// Read `TrieItem`s - nodes containing values - using Trie iterator, stop when
+/// 10k items were read. Note that the first run populates OS caches, so all
+/// next runs will be faster. You may want to run `sudo sh -c "/usr/bin/echo 1 >
+/// /proc/sys/vm/drop_caches"` before running the benchmark. As of 25/03/2022,
+/// it shows the following results for both read-only and read-write modes: ```
 /// took on avg 6.169248ms op per sec 162 items read 10000
 /// took on avg 1.424615ms op per sec 701 items read 10000
 /// took on avg 1.416562ms op per sec 705 items read 10000

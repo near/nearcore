@@ -7,7 +7,8 @@ use crate::{db::Db, import::ImportConfig};
 /// Additional information required for estimation.
 #[derive(Debug, Parser)]
 pub(crate) struct EstimateConfig {
-    /// Specify the directory of a different repository, if not estimating the current one.
+    /// Specify the directory of a different repository, if not estimating the
+    /// current one.
     #[clap(long)]
     pub external_repo: Option<String>,
     /// Specify the directory for near state used by the estimator. Will use
@@ -43,7 +44,8 @@ pub(crate) fn run_estimation(db: &Db, config: &EstimateConfig) -> anyhow::Result
 
     // Build estimator
     cmd!(sh, "cargo build --release -p runtime-params-estimator --features runtime-params-estimator/required").run()?;
-    // Find binary, some users have CARGO_TARGET_DIR pointing to a custom target directory
+    // Find binary, some users have CARGO_TARGET_DIR pointing to a custom target
+    // directory
     let estimator_binary = if let Ok(target_dir) = sh.var("CARGO_TARGET_DIR") {
         format!("{target_dir}/release/runtime-params-estimator")
     } else {

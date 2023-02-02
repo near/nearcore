@@ -6,9 +6,10 @@ use near_primitives::errors::StorageError;
 use near_store::{DBCol, NodeStorage, Store, Temperature};
 use std::time::{Duration, Instant};
 
-/// Run a benchmark to generate `num_keys` keys, each of size `key_size`, then write then
-/// in random order to column `col` in store, and then read keys back from `col` in random order.
-/// Works only for column configured without reference counting, that is `.is_rc() == false`.
+/// Run a benchmark to generate `num_keys` keys, each of size `key_size`, then
+/// write then in random order to column `col` in store, and then read keys back
+/// from `col` in random order. Works only for column configured without
+/// reference counting, that is `.is_rc() == false`.
 fn benchmark_write_then_read_successful(
     bench: &mut Bencher,
     num_keys: usize,
@@ -17,8 +18,8 @@ fn benchmark_write_then_read_successful(
     col: DBCol,
 ) {
     let tmp_dir = tempfile::tempdir().unwrap();
-    // Use default StoreConfig rather than NodeStorage::test_opener so we’re using the
-    // same configuration as in production.
+    // Use default StoreConfig rather than NodeStorage::test_opener so we’re using
+    // the same configuration as in production.
     let store = NodeStorage::opener(tmp_dir.path(), &Default::default(), None)
         .open()
         .unwrap()
@@ -53,7 +54,8 @@ fn generate_keys(count: usize, key_size: usize) -> Vec<Vec<u8>> {
 }
 
 /// Read from DB value for given `kyes` in random order for `col`.
-/// Works only for column configured without reference counting, that is `.is_rc() == false`.
+/// Works only for column configured without reference counting, that is
+/// `.is_rc() == false`.
 fn read_from_db(store: &Store, keys: &[Vec<u8>], col: DBCol) -> usize {
     let mut read = 0;
     for _k in 0..keys.len() {
@@ -70,9 +72,10 @@ fn read_from_db(store: &Store, keys: &[Vec<u8>], col: DBCol) -> usize {
     read
 }
 
-/// Write random value of size between `0` and `max_value_size` to given `keys` at specific column
-/// `col.`
-/// Works only for column configured without reference counting, that is `.is_rc() == false`.
+/// Write random value of size between `0` and `max_value_size` to given `keys`
+/// at specific column `col.`
+/// Works only for column configured without reference counting, that is
+/// `.is_rc() == false`.
 fn write_to_db(store: &Store, keys: &[Vec<u8>], max_value_size: usize, col: DBCol) {
     let mut store_update = store.store_update();
     for key in keys.iter() {
@@ -85,9 +88,10 @@ fn write_to_db(store: &Store, keys: &[Vec<u8>], max_value_size: usize, col: DBCo
 }
 
 fn benchmark_write_then_read_successful_10m(bench: &mut Bencher) {
-    // By adding logs, I've seen a lot of write to keys with size 40, an values with sizes
-    // between 10 .. 333.
-    // NOTE: DBCol::BlockMerkleTree was chosen to be a column, where `.is_rc() == false`.
+    // By adding logs, I've seen a lot of write to keys with size 40, an values with
+    // sizes between 10 .. 333.
+    // NOTE: DBCol::BlockMerkleTree was chosen to be a column, where `.is_rc() ==
+    // false`.
     benchmark_write_then_read_successful(bench, 10_000_000, 40, 333, DBCol::BlockMerkleTree);
 }
 

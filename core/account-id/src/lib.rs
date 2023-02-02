@@ -4,20 +4,23 @@
 //!
 //! - Minimum length is `2`
 //! - Maximum length is `64`
-//! - An **Account ID** consists of **Account ID parts** separated by `.`, example:
+//! - An **Account ID** consists of **Account ID parts** separated by `.`,
+//!   example:
 //!   - `root` ✔
 //!   - `alice.near` ✔
 //!   - `app.stage.testnet` ✔
 //! - Must not start or end with separators (`_`, `-` or `.`):
 //!   - `_alice.` ✗
 //!   - `.bob.near-` ✗
-//! - Each part of the **Account ID** consists of lowercase alphanumeric symbols separated either by `_` or `-`, example:
+//! - Each part of the **Account ID** consists of lowercase alphanumeric symbols
+//!   separated either by `_` or `-`, example:
 //!   - `ƒelicia.near` ✗ (`ƒ` is not `f`)
 //!   - `1_4m_n0t-al1c3.near` ✔
 //! - Separators are not permitted to immediately follow each other, example:
 //!   - `alice..near` ✗
 //!   - `not-_alice.near` ✗
-//! - An **Account ID** that is 64 characters long and consists of lowercase hex characters is a specific **implicit account ID**
+//! - An **Account ID** that is 64 characters long and consists of lowercase hex
+//!   characters is a specific **implicit account ID**
 //!
 //! Learn more here: <https://docs.near.org/docs/concepts/account#account-id-rules>
 //!
@@ -46,9 +49,11 @@ pub use errors::{ParseAccountError, ParseErrorKind};
 
 /// NEAR Account Identifier.
 ///
-/// This is a unique, syntactically valid, human-readable account identifier on the NEAR network.
+/// This is a unique, syntactically valid, human-readable account identifier on
+/// the NEAR network.
 ///
-/// [See the crate-level docs for information about validation.](index.html#account-id-rules)
+/// [See the crate-level docs for information about
+/// validation.](index.html#account-id-rules)
 ///
 /// Also see [Error kind precedence](AccountId#error-kind-precedence).
 ///
@@ -105,7 +110,8 @@ impl AccountId {
         !self.is_system() && !self.contains('.')
     }
 
-    /// Returns `true` if the `AccountId` is a direct sub-account of the provided parent account.
+    /// Returns `true` if the `AccountId` is a direct sub-account of the
+    /// provided parent account.
     ///
     /// See [Subaccounts](https://docs.near.org/docs/concepts/account#subaccounts).
     ///
@@ -194,7 +200,8 @@ impl AccountId {
     ///
     /// ## Error kind precedence
     ///
-    /// If an Account ID has multiple format violations, the first one would be reported.
+    /// If an Account ID has multiple format violations, the first one would be
+    /// reported.
     ///
     /// ### Examples
     ///
@@ -237,8 +244,9 @@ impl AccountId {
         } else {
             // Adapted from https://github.com/near/near-sdk-rs/blob/fd7d4f82d0dfd15f824a1cf110e552e940ea9073/near-sdk/src/environment/env.rs#L819
 
-            // NOTE: We don't want to use Regex here, because it requires extra time to compile it.
-            // The valid account ID regex is /^(([a-z\d]+[-_])*[a-z\d]+\.)*([a-z\d]+[-_])*[a-z\d]+$/
+            // NOTE: We don't want to use Regex here, because it requires extra time to
+            // compile it. The valid account ID regex is
+            // /^(([a-z\d]+[-_])*[a-z\d]+\.)*([a-z\d]+[-_])*[a-z\d]+$/
             // Instead the implementation is based on the previous character checks.
 
             // We can safely assume that last char was a separator.
@@ -278,14 +286,16 @@ impl AccountId {
 
     /// Creates an `AccountId` without any validation checks.
     ///
-    /// Please note that this is restrictively for internal use only. Plus, being behind a feature flag,
-    /// this could be removed later in the future.
+    /// Please note that this is restrictively for internal use only. Plus,
+    /// being behind a feature flag, this could be removed later in the
+    /// future.
     ///
     /// ## Safety
     ///
     /// Since this skips validation and constructs an `AccountId` regardless,
-    /// the caller bears the responsibility of ensuring that the Account ID is valid.
-    /// You can use the [`AccountId::validate`] function sometime after its creation but before it's use.
+    /// the caller bears the responsibility of ensuring that the Account ID is
+    /// valid. You can use the [`AccountId::validate`] function sometime
+    /// after its creation but before it's use.
     ///
     /// ## Examples
     ///

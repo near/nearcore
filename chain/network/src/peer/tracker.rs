@@ -5,7 +5,8 @@ use near_primitives::hash::CryptoHash;
 /// Maximum number of requests and responses to track.
 const MAX_TRACK_SIZE: usize = 30;
 
-/// Internal structure to keep a circular queue within a tracker with unique hashes.
+/// Internal structure to keep a circular queue within a tracker with unique
+/// hashes.
 struct CircularUniqueQueue {
     v: Vec<CryptoHash>,
     index: usize,
@@ -22,7 +23,8 @@ impl CircularUniqueQueue {
         self.v.contains(hash)
     }
 
-    /// Pushes an element if it's not in the queue already. The queue will pop the oldest element.
+    /// Pushes an element if it's not in the queue already. The queue will pop
+    /// the oldest element.
     fn push(&mut self, hash: CryptoHash) {
         if !self.contains(&hash) {
             if self.v.len() < self.limit {
@@ -39,7 +41,8 @@ impl CircularUniqueQueue {
 }
 
 /// Keeps track of requests and received hashes of transactions and blocks.
-/// Also keeps track of number of bytes sent and received from this peer to prevent abuse.
+/// Also keeps track of number of bytes sent and received from this peer to
+/// prevent abuse.
 pub(crate) struct Tracker {
     /// Bytes we've sent.
     pub(crate) sent_bytes: TransferStats,

@@ -16,10 +16,10 @@
 //!    expected to approximate the (global) UTC time.
 //!    There is NO guarantee that the subsequent reads will be monotonic,
 //!    as CLOCK_REALTIME it configurable in the OS settings, or can be updated
-//!    during NTP sync. Should be used whenever you need to communicate a timestamp
-//!    over the network, or store it for later use. Remember that clocks
-//!    of different machines are not perfectly synchronized, and in extreme
-//!    cases can be totally skewed.
+//!    during NTP sync. Should be used whenever you need to communicate a
+//! timestamp    over the network, or store it for later use. Remember that
+//! clocks    of different machines are not perfectly synchronized, and in
+//! extreme    cases can be totally skewed.
 use once_cell::sync::Lazy;
 use std::sync::{Arc, Mutex};
 pub use time::error;
@@ -217,9 +217,9 @@ impl Interval {
         let now = clock.now();
         // Implementation of `tokio::time::MissedTickBehavior::Skip`.
         // Please refer to https://docs.rs/tokio/latest/tokio/time/enum.MissedTickBehavior.html#
-        // for details. In essence, if more than `period` of time passes between consecutive
-        // calls to tick, then the second tick completes immediately and the next one will be
-        // aligned to the original schedule.
+        // for details. In essence, if more than `period` of time passes between
+        // consecutive calls to tick, then the second tick completes immediately
+        // and the next one will be aligned to the original schedule.
         self.next = now + self.period
             - Duration::nanoseconds(
                 ((now - self.next).whole_nanoseconds() % self.period.whole_nanoseconds())

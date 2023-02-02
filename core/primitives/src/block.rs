@@ -189,7 +189,8 @@ impl Block {
         )
     }
 
-    /// Produces new block from header of previous block, current state root and set of transactions.
+    /// Produces new block from header of previous block, current state root and
+    /// set of transactions.
     pub fn produce(
         this_epoch_protocol_version: ProtocolVersion,
         next_epoch_protocol_version: ProtocolVersion,
@@ -215,7 +216,8 @@ impl Block {
         // Collect aggregate of validators and gas usage/limits from chunks.
         let mut validator_proposals = vec![];
         let mut gas_used = 0;
-        // This computation of chunk_mask relies on the fact that chunks are ordered by shard_id.
+        // This computation of chunk_mask relies on the fact that chunks are ordered by
+        // shard_id.
         let mut chunk_mask = vec![];
         let mut balance_burnt = 0;
         let mut gas_limit = 0;
@@ -483,33 +485,39 @@ impl Block {
         self.header().hash()
     }
 
-    /// Checks that block content matches block hash, with the possible exception of chunk signatures
+    /// Checks that block content matches block hash, with the possible
+    /// exception of chunk signatures
     pub fn check_validity(&self) -> Result<(), BlockValidityError> {
-        // Check that state root stored in the header matches the state root of the chunks
+        // Check that state root stored in the header matches the state root of the
+        // chunks
         let state_root = Block::compute_state_root(self.chunks().iter());
         if self.header().prev_state_root() != &state_root {
             return Err(InvalidStateRoot);
         }
 
-        // Check that chunk receipts root stored in the header matches the state root of the chunks
+        // Check that chunk receipts root stored in the header matches the state root of
+        // the chunks
         let chunk_receipts_root = Block::compute_chunk_receipts_root(self.chunks().iter());
         if self.header().chunk_receipts_root() != &chunk_receipts_root {
             return Err(InvalidReceiptRoot);
         }
 
-        // Check that chunk headers root stored in the header matches the chunk headers root of the chunks
+        // Check that chunk headers root stored in the header matches the chunk headers
+        // root of the chunks
         let chunk_headers_root = Block::compute_chunk_headers_root(self.chunks().iter()).0;
         if self.header().chunk_headers_root() != &chunk_headers_root {
             return Err(InvalidChunkHeaderRoot);
         }
 
-        // Check that chunk tx root stored in the header matches the tx root of the chunks
+        // Check that chunk tx root stored in the header matches the tx root of the
+        // chunks
         let chunk_tx_root = Block::compute_chunk_tx_root(self.chunks().iter());
         if self.header().chunk_tx_root() != &chunk_tx_root {
             return Err(InvalidTransactionRoot);
         }
 
-        // Check that chunk included root stored in the header matches the chunk included root of the chunks
+        // Check that chunk included root stored in the header matches the chunk
+        // included root of the chunks
         let chunk_mask: Vec<bool> = self
             .chunks()
             .iter()
@@ -519,7 +527,8 @@ impl Block {
             return Err(InvalidChunkMask);
         }
 
-        // Check that challenges root stored in the header matches the challenges root of the challenges
+        // Check that challenges root stored in the header matches the challenges root
+        // of the challenges
         let challenges_root = Block::compute_challenges_root(self.challenges());
         if self.header().challenges_root() != &challenges_root {
             return Err(InvalidChallengeRoot);

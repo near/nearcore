@@ -24,10 +24,10 @@ use std::sync::{Arc, RwLockReadGuard, RwLockWriteGuard};
 /// A trait that abstracts the interface of the EpochManager.
 ///
 /// It is intended to be an intermediate state in a refactor: we want to remove
-/// epoch manager stuff from RuntimeWithEpochManagerAdapter's interface, and, as a first step,
-/// we move it to a new trait. The end goal is for the code to use the concrete
-/// epoch manager type directly. Though, we might want to still keep this trait
-/// in, to allow for easy overriding of epoch manager in tests.
+/// epoch manager stuff from RuntimeWithEpochManagerAdapter's interface, and, as
+/// a first step, we move it to a new trait. The end goal is for the code to use
+/// the concrete epoch manager type directly. Though, we might want to still
+/// keep this trait in, to allow for easy overriding of epoch manager in tests.
 pub trait EpochManagerAdapter: Send + Sync {
     /// Check if epoch exists.
     fn epoch_exists(&self, epoch_id: &EpochId) -> bool;
@@ -151,14 +151,16 @@ pub trait EpochManagerAdapter: Send + Sync {
     /// Returns all the chunk producers for a given epoch.
     fn get_epoch_chunk_producers(&self, epoch_id: &EpochId) -> Result<Vec<ValidatorStake>, Error>;
 
-    /// Block producers for given height for the main block. Return error if outside of known boundaries.
+    /// Block producers for given height for the main block. Return error if
+    /// outside of known boundaries.
     fn get_block_producer(
         &self,
         epoch_id: &EpochId,
         height: BlockHeight,
     ) -> Result<AccountId, Error>;
 
-    /// Chunk producer for given height for given shard. Return error if outside of known boundaries.
+    /// Chunk producer for given height for given shard. Return error if outside
+    /// of known boundaries.
     fn get_chunk_producer(
         &self,
         epoch_id: &EpochId,
@@ -264,7 +266,8 @@ pub trait EpochManagerAdapter: Send + Sync {
     ) -> Result<(), Error>;
 
     /// Verify validator signature for the given epoch.
-    /// Note: doesnt't account for slashed accounts within given epoch. USE WITH CAUTION.
+    /// Note: doesnt't account for slashed accounts within given epoch. USE WITH
+    /// CAUTION.
     fn verify_validator_signature(
         &self,
         epoch_id: &EpochId,
@@ -274,7 +277,8 @@ pub trait EpochManagerAdapter: Send + Sync {
         signature: &Signature,
     ) -> Result<bool, Error>;
 
-    /// Verify signature for validator or fisherman. Used for validating challenges.
+    /// Verify signature for validator or fisherman. Used for validating
+    /// challenges.
     fn verify_validator_or_fisherman_signature(
         &self,
         epoch_id: &EpochId,
@@ -288,12 +292,13 @@ pub trait EpochManagerAdapter: Send + Sync {
     fn verify_header_signature(&self, header: &BlockHeader) -> Result<bool, Error>;
 
     /// Verify chunk header signature.
-    /// return false if the header signature does not match the key for the assigned chunk producer
-    /// for this chunk, or if the chunk producer has been slashed
-    /// return `Error::NotAValidator` if cannot find chunk producer info for this chunk
-    /// `header`: chunk header
+    /// return false if the header signature does not match the key for the
+    /// assigned chunk producer for this chunk, or if the chunk producer has
+    /// been slashed return `Error::NotAValidator` if cannot find chunk
+    /// producer info for this chunk `header`: chunk header
     /// `epoch_id`: epoch_id that the chunk header belongs to
-    /// `last_known_hash`: used to determine the list of chunk producers that are slashed
+    /// `last_known_hash`: used to determine the list of chunk producers that
+    /// are slashed
     fn verify_chunk_header_signature(
         &self,
         header: &ShardChunkHeader,
@@ -329,7 +334,8 @@ pub trait EpochManagerAdapter: Send + Sync {
         approvals: &[Option<Signature>],
     ) -> Result<bool, Error>;
 
-    /// Verify approvals and check threshold, but ignore next epoch approvals and slashing
+    /// Verify approvals and check threshold, but ignore next epoch approvals
+    /// and slashing
     fn verify_approvals_and_threshold_orphan(
         &self,
         epoch_id: &EpochId,
@@ -348,8 +354,8 @@ pub trait EpochManagerAdapter: Send + Sync {
 /// A technical plumbing trait to conveniently implement [`EpochManagerAdapter`]
 /// for `NightshadeRuntime` without too much copy-paste.
 ///
-/// Once we remove `RuntimeWithEpochManagerAdapter: EpochManagerAdapter` bound, we could get rid
-/// of this trait and instead add inherent methods directly to
+/// Once we remove `RuntimeWithEpochManagerAdapter: EpochManagerAdapter` bound,
+/// we could get rid of this trait and instead add inherent methods directly to
 /// `EpochManagerHandle`.
 pub trait HasEpochMangerHandle {
     fn write(&self) -> RwLockWriteGuard<EpochManager>;
@@ -610,8 +616,9 @@ impl<T: HasEpochMangerHandle + Send + Sync> EpochManagerAdapter for T {
         Ok((fisherman, block_info.slashed().contains_key(account_id)))
     }
 
-    /// WARNING: this function calls EpochManager::get_epoch_info_aggregator_upto_last
-    /// underneath which can be very expensive.
+    /// WARNING: this function calls
+    /// EpochManager::get_epoch_info_aggregator_upto_last underneath which
+    /// can be very expensive.
     fn get_validator_info(
         &self,
         epoch_id: ValidatorInfoIdentifier,

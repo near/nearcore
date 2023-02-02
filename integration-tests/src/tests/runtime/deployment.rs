@@ -9,7 +9,8 @@ use nearcore::config::GenesisExt;
 
 const ONE_NEAR: u128 = 10u128.pow(24);
 
-/// Tests if the maximum allowed contract can be deployed with current gas limits
+/// Tests if the maximum allowed contract can be deployed with current gas
+/// limits
 #[test]
 fn test_deploy_max_size_contract() {
     let account_id: AccountId = "alice.near".parse().unwrap();
@@ -22,7 +23,8 @@ fn test_deploy_max_size_contract() {
         RuntimeNode::new_from_genesis_and_config(&account_id, genesis, config.as_ref().clone());
     let node_user = node.user();
 
-    // Compute size of a deployment transaction with an almost empty contract payload
+    // Compute size of a deployment transaction with an almost empty contract
+    // payload
     let block_hash = node_user.get_best_block_hash().unwrap_or_default();
     let signed_transaction = SignedTransaction::from_actions(
         node_user.get_access_key_nonce_for_signer(&account_id).unwrap_or_default() + 1,
@@ -34,7 +36,8 @@ fn test_deploy_max_size_contract() {
     );
     let tx_overhead = signed_transaction.get_size();
 
-    // Testable max contract size is limited by both `max_contract_size` and by `max_transaction_size`
+    // Testable max contract size is limited by both `max_contract_size` and by
+    // `max_transaction_size`
     let max_contract_size = config.wasm_config.limit_config.max_contract_size;
     let max_transaction_size = config.wasm_config.limit_config.max_transaction_size;
     let contract_size = max_contract_size.min(max_transaction_size - tx_overhead);
@@ -55,7 +58,8 @@ fn test_deploy_max_size_contract() {
 
     // Deploy contract
     let wasm_binary = near_test_contracts::sized_contract(contract_size as usize);
-    // Rune code through preparation for validation. (Deploying will succeed either way).
+    // Rune code through preparation for validation. (Deploying will succeed either
+    // way).
     near_vm_runner::prepare::prepare_contract(&wasm_binary, &config.wasm_config).unwrap();
     let transaction_result =
         node_user.deploy_contract(test_contract_id, wasm_binary.to_vec()).unwrap();

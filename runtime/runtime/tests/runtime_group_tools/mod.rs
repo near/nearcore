@@ -160,9 +160,11 @@ pub struct RuntimeGroup {
     pub signers: Vec<InMemorySigner>,
     pub validators: Vec<AccountInfo>,
 
-    /// Account id of the runtime on which the transaction was executed mapped to the transactions.
+    /// Account id of the runtime on which the transaction was executed mapped
+    /// to the transactions.
     pub executed_transactions: Mutex<HashMap<AccountId, Vec<SignedTransaction>>>,
-    /// Account id of the runtime on which the receipt was executed mapped to the list of the receipts.
+    /// Account id of the runtime on which the receipt was executed mapped to
+    /// the list of the receipts.
     pub executed_receipts: Mutex<HashMap<AccountId, Vec<Receipt>>>,
     /// List of the transaction logs.
     pub transaction_logs: Mutex<Vec<ExecutionOutcomeWithId>>,
@@ -324,8 +326,8 @@ impl RuntimeGroup {
             .expect("Runtime does not contain the receipt with the given hash.")
     }
 
-    /// Get transaction log produced by the execution of given transaction/receipt
-    /// identified by `producer_hash`.
+    /// Get transaction log produced by the execution of given
+    /// transaction/receipt identified by `producer_hash`.
     pub fn get_transaction_log(&self, producer_hash: &CryptoHash) -> ExecutionOutcomeWithId {
         self.transaction_logs
             .lock()

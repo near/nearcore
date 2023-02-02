@@ -21,7 +21,8 @@ pub struct ApplyState {
     pub epoch_height: EpochHeight,
     /// Price for the gas.
     pub gas_price: Balance,
-    /// The current block timestamp (number of non-leap-nanoseconds since January 1, 1970 0:00:00 UTC).
+    /// The current block timestamp (number of non-leap-nanoseconds since
+    /// January 1, 1970 0:00:00 UTC).
     pub block_timestamp: u64,
     /// Gas limit for a given chunk.
     /// If None is given, assumes there is no gas limit.
@@ -36,9 +37,10 @@ pub struct ApplyState {
     pub cache: Option<Box<dyn CompiledContractCache>>,
     /// Whether the chunk being applied is new.
     pub is_new_chunk: bool,
-    /// Data for migrations that may need to be applied at the start of an epoch when protocol
-    /// version changes
+    /// Data for migrations that may need to be applied at the start of an epoch
+    /// when protocol version changes
     pub migration_data: Arc<MigrationData>,
-    /// Flags for migrations indicating whether they can be applied at this block
+    /// Flags for migrations indicating whether they can be applied at this
+    /// block
     pub migration_flags: MigrationFlags,
 }

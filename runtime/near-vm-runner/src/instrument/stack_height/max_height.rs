@@ -236,13 +236,15 @@ pub(crate) fn compute(func_idx: u32, module_ctx: &ModuleCtx<'_>) -> Result<u32, 
                 // the default branch.
                 stack.pop_values(arity_of_default)?;
 
-                // This instruction doesn't let control flow to go further, since the control flow
-                // should take either one of branches depending on the value or the default branch.
+                // This instruction doesn't let control flow to go further, since the control
+                // flow should take either one of branches depending on the
+                // value or the default branch.
                 stack.mark_unreachable()?;
             }
             Return => {
-                // Pop return values of the function. Mark successive instructions as unreachable
-                // since this instruction doesn't let control flow to go further.
+                // Pop return values of the function. Mark successive instructions as
+                // unreachable since this instruction doesn't let control flow
+                // to go further.
                 stack.pop_values(func_arity)?;
                 stack.mark_unreachable()?;
             }

@@ -28,7 +28,8 @@ pub const MAX_BLOCK_HEADER_HASHES: usize = 20;
 pub const NS_PER_SECOND: u128 = 1_000_000_000;
 
 /// Helper to keep track of sync headers.
-/// Handles major re-orgs by finding closest header that matches and re-downloading headers from that point.
+/// Handles major re-orgs by finding closest header that matches and
+/// re-downloading headers from that point.
 pub struct HeaderSync {
     network_adapter: Arc<dyn PeerManagerAdapter>,
     prev_header_sync: (DateTime<Utc>, BlockHeight, BlockHeight, BlockHeight),
@@ -133,10 +134,12 @@ impl HeaderSync {
         let all_headers_received =
             header_head.height >= min(prev_height + MAX_BLOCK_HEADERS - 4, prev_highest_height);
 
-        // Did we receive as many headers as we expected from the peer? Request more or ban peer.
+        // Did we receive as many headers as we expected from the peer? Request more or
+        // ban peer.
         let stalling = header_head.height <= old_expected_height && now > timeout;
 
-        // Always enable header sync on initial state transition from NoSync / NoSyncFewBlocksBehind / AwaitingPeers.
+        // Always enable header sync on initial state transition from NoSync /
+        // NoSyncFewBlocksBehind / AwaitingPeers.
         let force_sync = match sync_status {
             SyncStatus::NoSync | SyncStatus::AwaitingPeers => true,
             _ => false,
@@ -234,16 +237,19 @@ impl HeaderSync {
         None
     }
 
-    // The remote side will return MAX_BLOCK_HEADERS headers, starting from the first hash in
-    // the returned "locator" list that is on their canonical chain.
+    // The remote side will return MAX_BLOCK_HEADERS headers, starting from the
+    // first hash in the returned "locator" list that is on their canonical
+    // chain.
     //
-    // The locator allows us to start syncing from a reasonably recent common ancestor. Since
-    // we don't know which fork the remote side is on, we include a few hashes. The first one
-    // we include is the tip of our chain, and the next one is 2 blocks back (on the same chain,
-    // by number of blocks (or in other words, by ordinals), not by height), then 4 blocks
-    // back, then 8 blocks back, etc, until we reach the most recent final block. The reason
-    // why we stop at the final block is because the consensus guarantees us that the final
-    // blocks observed by all nodes are on the same fork.
+    // The locator allows us to start syncing from a reasonably recent common
+    // ancestor. Since we don't know which fork the remote side is on, we
+    // include a few hashes. The first one we include is the tip of our chain,
+    // and the next one is 2 blocks back (on the same chain, by number of blocks
+    // (or in other words, by ordinals), not by height), then 4 blocks
+    // back, then 8 blocks back, etc, until we reach the most recent final block.
+    // The reason why we stop at the final block is because the consensus
+    // guarantees us that the final blocks observed by all nodes are on the same
+    // fork.
     fn get_locator(&mut self, chain: &Chain) -> Result<Vec<CryptoHash>, near_chain::Error> {
         let store = chain.store();
         let tip = store.header_head()?;
@@ -262,8 +268,9 @@ impl HeaderSync {
     }
 }
 
-/// Step back from highest to lowest ordinal, in powers of 2 steps, limited by MAX_BLOCK_HEADERS
-/// heights per step, and limited by MAX_BLOCK_HEADER_HASHES steps in total.
+/// Step back from highest to lowest ordinal, in powers of 2 steps, limited by
+/// MAX_BLOCK_HEADERS heights per step, and limited by MAX_BLOCK_HEADER_HASHES
+/// steps in total.
 fn get_locator_ordinals(lowest_ordinal: u64, highest_ordinal: u64) -> Vec<u64> {
     let mut current = highest_ordinal;
     let mut ordinals = vec![];
@@ -343,7 +350,8 @@ mod test {
         );
     }
 
-    /// Starts two chains that fork of genesis and checks that they can sync headers to the longest.
+    /// Starts two chains that fork of genesis and checks that they can sync
+    /// headers to the longest.
     #[test]
     fn test_sync_headers_fork() {
         let mock_adapter = Arc::new(MockPeerManagerAdapter::default());
@@ -357,8 +365,8 @@ mod test {
         let (mut chain, _, signer) = setup();
         for _ in 0..3 {
             let prev = chain.get_block(&chain.head().unwrap().last_block_hash).unwrap();
-            // Have gaps in the chain, so we don't have final blocks (i.e. last final block is
-            // genesis). Otherwise we violate consensus invariants.
+            // Have gaps in the chain, so we don't have final blocks (i.e. last final block
+            // is genesis). Otherwise we violate consensus invariants.
             let block = TestBlockBuilder::new(&prev, signer.clone())
                 .height(prev.header().height() + 2)
                 .build();
@@ -374,8 +382,8 @@ mod test {
         let (mut chain2, _, signer2) = setup();
         for _ in 0..5 {
             let prev = chain2.get_block(&chain2.head().unwrap().last_block_hash).unwrap();
-            // Have gaps in the chain, so we don't have final blocks (i.e. last final block is
-            // genesis). Otherwise we violate consensus invariants.
+            // Have gaps in the chain, so we don't have final blocks (i.e. last final block
+            // is genesis). Otherwise we violate consensus invariants.
             let block = TestBlockBuilder::new(&prev, signer2.clone())
                 .height(prev.header().height() + 2)
                 .build();
@@ -414,7 +422,8 @@ mod test {
             )
             .is_ok());
         assert!(sync_status.is_syncing());
-        // Check that it queried last block, and then stepped down to genesis block to find common block with the peer.
+        // Check that it queried last block, and then stepped down to genesis block to
+        // find common block with the peer.
 
         let item = mock_adapter.pop().unwrap().as_network_requests();
         assert_eq!(
@@ -474,8 +483,8 @@ mod test {
         }
         for _ in 0..3 {
             let prev = chain2.get_block(&chain2.head().unwrap().last_block_hash).unwrap();
-            // Test with huge gaps, but 3 blocks here produce a higher height than the 7 blocks
-            // above.
+            // Test with huge gaps, but 3 blocks here produce a higher height than the 7
+            // blocks above.
             let block = TestBlockBuilder::new(&prev, signer2.clone())
                 .height(prev.header().height() + 3100)
                 .build();
@@ -514,14 +523,15 @@ mod test {
             )
             .is_ok());
         assert!(sync_status.is_syncing());
-        // Check that it queried last block, and then stepped down to genesis block to find common block with the peer.
+        // Check that it queried last block, and then stepped down to genesis block to
+        // find common block with the peer.
 
         let item = mock_adapter.pop().unwrap().as_network_requests();
         assert_eq!(
             item,
             NetworkRequests::BlockHeadersRequest {
-                // chain is 7005 -> 6005 -> 5005 -> 4005 -> 3005 -> 2005 -> 1005 -> 5 -> 4 -> 3 -> 2 -> 1 -> 0
-                // where 3 is final.
+                // chain is 7005 -> 6005 -> 5005 -> 4005 -> 3005 -> 2005 -> 1005 -> 5 -> 4 -> 3 -> 2
+                // -> 1 -> 0 where 3 is final.
                 hashes: [7005, 5005, 1005, 3]
                     .iter()
                     .map(|i| *chain.get_block_by_height(*i).unwrap().hash())
@@ -531,11 +541,12 @@ mod test {
         );
     }
 
-    /// Sets up `HeaderSync` with particular tolerance for slowness, and makes sure that a peer that
-    /// sends headers below the threshold gets banned, and the peer that sends them faster doesn't get
-    /// banned.
-    /// Also makes sure that if `header_sync_due` is checked more frequently than the `progress_timeout`
-    /// the peer doesn't get banned. (specifically, that the expected height downloaded gets properly
+    /// Sets up `HeaderSync` with particular tolerance for slowness, and makes
+    /// sure that a peer that sends headers below the threshold gets banned,
+    /// and the peer that sends them faster doesn't get banned.
+    /// Also makes sure that if `header_sync_due` is checked more frequently
+    /// than the `progress_timeout` the peer doesn't get banned.
+    /// (specifically, that the expected height downloaded gets properly
     /// adjusted for time passed)
     #[test]
     fn test_slow_header_sync() {
@@ -730,8 +741,9 @@ mod test {
                 }),
             },
         };
-        // It should be done in 5 iterations, but give it 10 iterations just in case it would
-        // get into an infinite loop because of some bug and cause the test to hang.
+        // It should be done in 5 iterations, but give it 10 iterations just in case it
+        // would get into an infinite loop because of some bug and cause the
+        // test to hang.
         for _ in 0..10 {
             let header_head = chain.header_head().unwrap();
             if header_head.last_block_hash == chain2.header_head().unwrap().last_block_hash {

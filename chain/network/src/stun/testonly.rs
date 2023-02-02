@@ -54,7 +54,8 @@ impl Server {
         self.addr.to_string()
     }
 
-    /// Closes the STUN server. close() is async so it cannot be implemented as Drop.
+    /// Closes the STUN server. close() is async so it cannot be implemented as
+    /// Drop.
     pub async fn close(self) {
         self.inner.close().await.unwrap();
     }

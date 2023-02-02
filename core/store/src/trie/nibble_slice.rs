@@ -73,7 +73,8 @@ impl<'a> NibbleSlice<'a> {
         NibbleSlice::new_offset(data, 0)
     }
 
-    /// Create a new nibble slice with the given byte-slice with a nibble offset.
+    /// Create a new nibble slice with the given byte-slice with a nibble
+    /// offset.
     pub fn new_offset(data: &'a [u8], offset: usize) -> Self {
         NibbleSlice { data, offset }
     }
@@ -83,7 +84,8 @@ impl<'a> NibbleSlice<'a> {
         NibbleSliceIterator { p: self, i: 0 }
     }
 
-    /// Create a new nibble slice from the given HPE encoded data (e.g. output of `encoded()`).
+    /// Create a new nibble slice from the given HPE encoded data (e.g. output
+    /// of `encoded()`).
     pub fn from_encoded(data: &'a [u8]) -> (Self, bool) {
         (Self::new_offset(data, if data[0] & 16 == 16 { 1 } else { 2 }), data[0] & 32 == 32)
     }
@@ -109,7 +111,8 @@ impl<'a> NibbleSlice<'a> {
         }
     }
 
-    /// Return object which represents a view on to this slice (further) offset by `i` nibbles.
+    /// Return object which represents a view on to this slice (further) offset
+    /// by `i` nibbles.
     pub fn mid(&self, i: usize) -> Self {
         NibbleSlice { data: self.data, offset: self.offset + i }
     }
@@ -130,7 +133,8 @@ impl<'a> NibbleSlice<'a> {
         s
     }
 
-    /// Encode while nibble slice in prefixed hex notation, noting whether it `is_leaf`.
+    /// Encode while nibble slice in prefixed hex notation, noting whether it
+    /// `is_leaf`.
     #[inline]
     pub fn encode_nibbles(nibbles: &[u8], is_leaf: bool) -> ElasticArray36<u8> {
         let l = nibbles.len();
@@ -144,7 +148,8 @@ impl<'a> NibbleSlice<'a> {
         r
     }
 
-    /// Encode while nibble slice in prefixed hex notation, noting whether it `is_leaf`.
+    /// Encode while nibble slice in prefixed hex notation, noting whether it
+    /// `is_leaf`.
     #[inline]
     pub fn encoded(&self, is_leaf: bool) -> ElasticArray36<u8> {
         let l = self.len();
@@ -181,8 +186,8 @@ impl<'a> NibbleSlice<'a> {
         r
     }
 
-    /// Encode only the leftmost `n` bytes of the nibble slice in prefixed hex notation,
-    /// noting whether it `is_leaf`.
+    /// Encode only the leftmost `n` bytes of the nibble slice in prefixed hex
+    /// notation, noting whether it `is_leaf`.
     pub fn encoded_leftmost(&self, n: usize, is_leaf: bool) -> ElasticArray36<u8> {
         let l = min(self.len(), n);
         let mut r = ElasticArray36::new();

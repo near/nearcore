@@ -91,8 +91,8 @@ fn init_test_staking(
         .collect()
 }
 
-/// Runs one validator network, sends staking transaction for the second node and
-/// waits until it becomes a validator.
+/// Runs one validator network, sends staking transaction for the second node
+/// and waits until it becomes a validator.
 #[test]
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_stake_nodes() {
@@ -535,7 +535,8 @@ fn test_inflation() {
                             if block.header.height > epoch_length
                                 && block.header.height < epoch_length * 2
                             {
-                                // It's expected that validator will miss first chunk, hence will only be 95% online, getting 5/9 of their reward.
+                                // It's expected that validator will miss first chunk, hence will
+                                // only be 95% online, getting 5/9 of their reward.
                                 // +10% of protocol reward = 60% of max inflation are allocated.
                                 let base_reward = {
                                     let genesis_block_view = view_client
@@ -566,7 +567,8 @@ fn test_inflation() {
                                             * U256::from(*max_inflation_rate.denom() as u64)))
                                     .as_u128()
                                 };
-                                // To match rounding, split into protocol reward and validator reward.
+                                // To match rounding, split into protocol reward and validator
+                                // reward.
                                 let protocol_reward = base_reward * 1 / 10;
                                 let inflation =
                                     base_reward * 1 / 10 + (base_reward - protocol_reward) * 5 / 9;

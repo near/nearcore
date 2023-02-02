@@ -81,7 +81,8 @@ fn arc_mutex_update() {
         m.update(|x| {
             // Initial content of x should be the same as before update.
             assert_eq!(v, x);
-            // Concurrent load() should be possible and should return the value from before the update.
+            // Concurrent load() should be possible and should return the value from before
+            // the update.
             assert_eq!(v, *m.load());
             (19, v2)
         })

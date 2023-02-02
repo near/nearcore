@@ -55,7 +55,8 @@ impl ShardTries {
 
     /// Create `ShardTries` with a fixed number of shards with shard version 0.
     ///
-    /// If your test cares about the shard version, use `test_shard_version` instead.
+    /// If your test cares about the shard version, use `test_shard_version`
+    /// instead.
     pub fn test(store: Store, num_shards: NumShards) -> Self {
         let shard_version = 0;
         Self::test_shard_version(store, shard_version, num_shards)
@@ -116,9 +117,10 @@ impl ShardTries {
         };
         // Do not enable prefetching on view caches.
         // 1) Performance of view calls is not crucial.
-        // 2) A lot of the prefetcher code assumes there is only one "main-thread" per shard active.
-        //    If you want to enable it for view calls, at least make sure they don't share
-        //    the `PrefetchApi` instances with the normal calls.
+        // 2) A lot of the prefetcher code assumes there is only one "main-thread" per
+        // shard active.    If you want to enable it for view calls, at least
+        // make sure they don't share    the `PrefetchApi` instances with the
+        // normal calls.
         let prefetch_enabled = !is_view
             && (self.0.trie_config.enable_receipt_prefetching
                 || (!self.0.trie_config.sweat_prefetch_receivers.is_empty()
@@ -281,7 +283,8 @@ impl ShardTries {
         shard_uid: ShardUId,
         store_update: &mut StoreUpdate,
     ) {
-        // `itoa` is much faster for printing shard_id to a string than trivial alternatives.
+        // `itoa` is much faster for printing shard_id to a string than trivial
+        // alternatives.
         let mut buffer = itoa::Buffer::new();
         let shard_id = buffer.format(shard_uid.shard_id);
 
@@ -297,7 +300,8 @@ impl ShardTries {
         shard_uid: ShardUId,
         store_update: &mut StoreUpdate,
     ) {
-        // `itoa` is much faster for printing shard_id to a string than trivial alternatives.
+        // `itoa` is much faster for printing shard_id to a string than trivial
+        // alternatives.
         let mut buffer = itoa::Buffer::new();
         let shard_id = buffer.format(shard_uid.shard_id);
 
@@ -313,7 +317,8 @@ impl ShardTries {
         shard_uid: ShardUId,
         store_update: &mut StoreUpdate,
     ) {
-        // `itoa` is much faster for printing shard_id to a string than trivial alternatives.
+        // `itoa` is much faster for printing shard_id to a string than trivial
+        // alternatives.
         let mut buffer = itoa::Buffer::new();
         let shard_id = buffer.format(shard_uid.shard_id);
 
@@ -388,8 +393,8 @@ impl WrappedTrieChanges {
             );
 
             // Filtering trie keys for user facing RPC reporting.
-            // NOTE: If the trie key is not one of the account specific, it may cause key conflict
-            // when the node tracks multiple shards. See #2563.
+            // NOTE: If the trie key is not one of the account specific, it may cause key
+            // conflict when the node tracks multiple shards. See #2563.
             match &change_with_trie_key.trie_key {
                 TrieKey::Account { .. }
                 | TrieKey::ContractCode { .. }
@@ -455,7 +460,8 @@ impl KeyForStateChanges {
         debug_assert!(self.0.len() >= prefix_len);
         store.iter_prefix_ser::<RawStateChangesWithTrieKey>(DBCol::StateChanges, &self.0).map(
             move |change| {
-                // Split off the irrelevant part of the key, so only the original trie_key is left.
+                // Split off the irrelevant part of the key, so only the original trie_key is
+                // left.
                 let (key, state_changes) = change?;
                 debug_assert!(key.starts_with(&self.0));
                 Ok(state_changes)

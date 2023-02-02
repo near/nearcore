@@ -5,13 +5,15 @@ use std::io::Write;
 
 const EMPTY_STATE_ERR: &str = "states must never be empty";
 
-/// A visitor that keeps track of DB operations and aggregates it by specific labels.
+/// A visitor that keeps track of DB operations and aggregates it by specific
+/// labels.
 pub(super) struct FoldDbOps {
     /// Labels at which to break aggregation, and the fields to print on each.
     ///
     /// If field is not available, it will be silently ignored.
     fold_anchors: HashMap<String, Vec<String>>,
-    /// Print the DB operations that are at indentation 0, not associated with a span.
+    /// Print the DB operations that are at indentation 0, not associated with a
+    /// span.
     ///
     /// This is a summary of the total. Instead it shows what operations have
     /// not been covered by already reported output. To get a summary of the
@@ -32,7 +34,8 @@ pub(super) struct FoldDbOps {
     /// be evaluated until the `account_filter` is triggered again and sets it
     /// to a smaller value again.
     filter_reset_indent: Option<usize>,
-    /// Optionally collect and print detailed statistics for cache hits and misses.
+    /// Optionally collect and print detailed statistics for cache hits and
+    /// misses.
     track_caches: bool,
     /// Keeps track of current block.
     block_hash: Option<String>,
@@ -49,7 +52,8 @@ struct State {
     indent: usize,
     /// Keeps track of operations per DB column.
     ops_cols: BTreeMap<String, BTreeMap<String, usize>>,
-    /// Optionally collect and print detailed statistics for cache hits and misses.
+    /// Optionally collect and print detailed statistics for cache hits and
+    /// misses.
     cache_stats: Option<CacheStats>,
 }
 
@@ -98,7 +102,8 @@ impl FoldDbOps {
 
     pub(super) fn account_filter(mut self, account: Option<String>) -> Self {
         if account.is_some() {
-            // evaluate nothing if there is a filter, until the filter matches the first time
+            // evaluate nothing if there is a filter, until the filter matches the first
+            // time
             self.min_indent = usize::MAX;
         }
         self.account_filter = account;
@@ -127,7 +132,8 @@ impl FoldDbOps {
         trace_indent < self.min_indent
     }
 
-    /// Check if indentation has gone back enough to pop current state or reset filter.
+    /// Check if indentation has gone back enough to pop current state or reset
+    /// filter.
     ///
     /// Call this before `skip()` to ensure it uses the correct `min_indent`.
     fn update_state(&mut self, out: &mut dyn Write, indent: usize) -> anyhow::Result<()> {

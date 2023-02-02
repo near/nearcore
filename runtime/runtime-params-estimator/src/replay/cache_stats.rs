@@ -119,11 +119,12 @@ impl CacheStats {
         Ok(())
     }
 
-    /// Digest cache statistics not part of storage operations but some other label.
+    /// Digest cache statistics not part of storage operations but some other
+    /// label.
     ///
-    /// Labels to look out for here are `process_receipt`, `process_transaction`, or
-    /// even just `apply`. They all access the trie also outside of guest-spawned
-    /// storage operations.
+    /// Labels to look out for here are `process_receipt`,
+    /// `process_transaction`, or even just `apply`. They all access the
+    /// trie also outside of guest-spawned storage operations.
     pub(super) fn eval_generic_label(&mut self, dict: &BTreeMap<&str, &str>) {
         let tn_shard_cache_hits =
             dict.get("shard_cache_hit").map(|s| s.parse().unwrap()).unwrap_or(0);
@@ -132,7 +133,8 @@ impl CacheStats {
         let tn_shard_cache_too_large =
             dict.get("shard_cache_too_large").map(|s| s.parse().unwrap()).unwrap_or(0);
 
-        // there is no chunk cache update here, as we are not in a smart contract execution
+        // there is no chunk cache update here, as we are not in a smart contract
+        // execution
         self.num_tn_shard_cache_hit_host += tn_shard_cache_hits;
         self.num_tn_shard_cache_too_large += tn_shard_cache_too_large;
         self.num_tn_shard_cache_miss_host += tn_shard_cache_misses;

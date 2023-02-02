@@ -107,7 +107,8 @@ impl EpochInfoProvider for EpochManagerHandle {
 }
 
 /// Tracks epoch information across different forks, such as validators.
-/// Note: that even after garbage collection, the data about genesis epoch should be in the store.
+/// Note: that even after garbage collection, the data about genesis epoch
+/// should be in the store.
 pub struct EpochManager {
     store: Store,
     /// Current epoch config.
@@ -233,11 +234,11 @@ impl EpochManager {
     }
 
     /// Only used in mock node
-    /// Copy the necessary epoch info related to `block_hash` from `source_epoch_manager` to
-    /// the current epoch manager.
-    /// Note that this function doesn't copy info stored in EpochInfoAggregator, so `block_hash` must be
-    /// the last block in an epoch in order for the epoch manager to work properly after this function
-    /// is called
+    /// Copy the necessary epoch info related to `block_hash` from
+    /// `source_epoch_manager` to the current epoch manager.
+    /// Note that this function doesn't copy info stored in EpochInfoAggregator,
+    /// so `block_hash` must be the last block in an epoch in order for the
+    /// epoch manager to work properly after this function is called
     pub fn copy_epoch_info_as_of_block(
         &mut self,
         block_hash: &CryptoHash,
@@ -314,10 +315,11 @@ impl EpochManager {
         // Ok(store_update)
     }
 
-    /// When computing validators to kickout, we exempt some validators first so that
-    /// the total stake of exempted validators exceed a threshold. This is to make sure
-    /// we don't kick out too many validators in case of network instability.
-    /// We also make sure that these exempted validators were not kicked out in the last epoch,
+    /// When computing validators to kickout, we exempt some validators first so
+    /// that the total stake of exempted validators exceed a threshold. This
+    /// is to make sure we don't kick out too many validators in case of
+    /// network instability. We also make sure that these exempted
+    /// validators were not kicked out in the last epoch,
     /// so it is guaranteed that they will stay as validators after this epoch.
     #[allow(unused_variables)]
     fn compute_exempted_kickout(
@@ -327,13 +329,14 @@ impl EpochManager {
         exempt_perc: u8,
         prev_validator_kickout: &HashMap<AccountId, ValidatorKickoutReason>,
     ) -> HashSet<AccountId> {
-        // We want to make sure the total stake of validators that will be kicked out in this epoch doesn't exceed
-        // config.validator_max_kickout_stake_ratio of total stake.
-        // To achieve that, we sort all validators by their average uptime (average of block and chunk
-        // uptime) and add validators to `exempted_validators` one by one, from high uptime to low uptime,
-        // until the total excepted stake exceeds the ratio of total stake that we need to keep.
-        // Later when we perform the check to kick out validators, we don't kick out validators in
-        // exempted_validators.
+        // We want to make sure the total stake of validators that will be kicked out in
+        // this epoch doesn't exceed config.validator_max_kickout_stake_ratio of
+        // total stake. To achieve that, we sort all validators by their average
+        // uptime (average of block and chunk uptime) and add validators to
+        // `exempted_validators` one by one, from high uptime to low uptime,
+        // until the total excepted stake exceeds the ratio of total stake that we need
+        // to keep. Later when we perform the check to kick out validators, we
+        // don't kick out validators in exempted_validators.
         #[allow(unused_mut)]
         let mut exempted_validators = HashSet::new();
         if checked_feature!("stable", MaxKickoutStake, epoch_info.protocol_version()) {
@@ -397,10 +400,12 @@ impl EpochManager {
     ///
     /// - Slashed validators are ignored (they are handled separately)
     /// - The total stake of validators that will be kicked out will not exceed
-    ///   config.validator_max_kickout_stake_perc of total stake of all validators. This is
-    ///   to ensure we don't kick out too many validators in case of network instability.
+    ///   config.validator_max_kickout_stake_perc of total stake of all
+    ///   validators. This is to ensure we don't kick out too many validators in
+    ///   case of network instability.
     /// - A validator is kicked out if he produced too few blocks or chunks
-    /// - If all validators are either previously kicked out or to be kicked out, we choose one not to
+    /// - If all validators are either previously kicked out or to be kicked
+    ///   out, we choose one not to
     /// kick out
     fn compute_kickout_info(
         config: &EpochConfig,
@@ -612,7 +617,8 @@ impl EpochManager {
         })
     }
 
-    /// Finalizes epoch (T), where given last block hash is given, and returns next next epoch id (T + 2).
+    /// Finalizes epoch (T), where given last block hash is given, and returns
+    /// next next epoch id (T + 2).
     fn finalize_epoch(
         &mut self,
         store_update: &mut StoreUpdate,
@@ -735,9 +741,10 @@ impl EpochManager {
                 }
                 let epoch_info = self.get_epoch_info(block_info.epoch_id())?;
 
-                // Keep `slashed` from previous block if they are still in the epoch info stake change
-                // (e.g. we need to keep track that they are still slashed, because when we compute
-                // returned stake we are skipping account ids that are slashed in `stake_change`).
+                // Keep `slashed` from previous block if they are still in the epoch info stake
+                // change (e.g. we need to keep track that they are still
+                // slashed, because when we compute returned stake we are
+                // skipping account ids that are slashed in `stake_change`).
                 for (account_id, slash_state) in prev_block_info.slashed() {
                     if is_epoch_start {
                         if slash_state == &SlashState::DoubleSign
@@ -799,8 +806,9 @@ impl EpochManager {
         Ok(store_update)
     }
 
-    /// Given epoch id and height, returns validator information that suppose to produce
-    /// the block at that height. We don't require caller to know about EpochIds.
+    /// Given epoch id and height, returns validator information that suppose to
+    /// produce the block at that height. We don't require caller to know
+    /// about EpochIds.
     pub fn get_block_producer_info(
         &self,
         epoch_id: &EpochId,
@@ -811,7 +819,8 @@ impl EpochManager {
         Ok(epoch_info.get_validator(validator_id))
     }
 
-    /// Returns settlement of all block producers in current epoch, with indicator on whether they are slashed or not.
+    /// Returns settlement of all block producers in current epoch, with
+    /// indicator on whether they are slashed or not.
     pub fn get_all_block_producers_settlement(
         &self,
         epoch_id: &EpochId,
@@ -835,7 +844,8 @@ impl EpochManager {
         })
     }
 
-    /// Returns all unique block producers in current epoch sorted by account_id, with indicator on whether they are slashed or not.
+    /// Returns all unique block producers in current epoch sorted by
+    /// account_id, with indicator on whether they are slashed or not.
     pub fn get_all_block_producers_ordered(
         &self,
         epoch_id: &EpochId,
@@ -876,8 +886,9 @@ impl EpochManager {
     }
 
     /// get_heuristic_block_approvers_ordered: block producers for epoch
-    /// get_all_block_producers_ordered: block producers for epoch, slashing info
-    /// get_all_block_approvers_ordered: block producers for epoch, slashing info, sometimes block producers for next epoch
+    /// get_all_block_producers_ordered: block producers for epoch, slashing
+    /// info get_all_block_approvers_ordered: block producers for epoch,
+    /// slashing info, sometimes block producers for next epoch
     pub fn get_heuristic_block_approvers_ordered(
         &self,
         epoch_id: &EpochId,
@@ -939,7 +950,8 @@ impl EpochManager {
         Ok(result)
     }
 
-    /// For given epoch_id, height and shard_id returns validator that is chunk producer.
+    /// For given epoch_id, height and shard_id returns validator that is chunk
+    /// producer.
     pub fn get_chunk_producer_info(
         &self,
         epoch_id: &EpochId,
@@ -952,7 +964,8 @@ impl EpochManager {
     }
 
     /// Returns validator for given account id for given epoch.
-    /// We don't require caller to know about EpochIds. Doesn't account for slashing.
+    /// We don't require caller to know about EpochIds. Doesn't account for
+    /// slashing.
     pub fn get_validator_by_account_id(
         &self,
         epoch_id: &EpochId,
@@ -1009,9 +1022,9 @@ impl EpochManager {
         self.cares_about_shard_in_epoch(epoch_id, account_id, shard_id)
     }
 
-    // `shard_id` always refers to a shard in the current epoch that the next block from `parent_hash` belongs
-    // If shard layout will change next epoch, returns true if it cares about any shard
-    // that `shard_id` will split to
+    // `shard_id` always refers to a shard in the current epoch that the next block
+    // from `parent_hash` belongs If shard layout will change next epoch,
+    // returns true if it cares about any shard that `shard_id` will split to
     pub fn cares_about_shard_next_epoch_from_prev_block(
         &self,
         parent_hash: &CryptoHash,
@@ -1061,7 +1074,8 @@ impl EpochManager {
         parent_hash: &CryptoHash,
     ) -> Result<EpochId, EpochError> {
         if self.is_next_block_epoch_start(parent_hash)? {
-            // Because we ID epochs based on the last block of T - 2, this is ID for next next epoch.
+            // Because we ID epochs based on the last block of T - 2, this is ID for next
+            // next epoch.
             Ok(EpochId(*parent_hash))
         } else {
             self.get_next_epoch_id(parent_hash)
@@ -1076,13 +1090,14 @@ impl EpochManager {
         Ok(self.get_block_info(&epoch_first_block)?.height())
     }
 
-    /// Compute stake return info based on the last block hash of the epoch that is just finalized
-    /// return the hashmap of account id to max_of_stakes, which is used in the calculation of account
-    /// updates.
+    /// Compute stake return info based on the last block hash of the epoch that
+    /// is just finalized return the hashmap of account id to max_of_stakes,
+    /// which is used in the calculation of account updates.
     ///
     /// # Returns
-    /// If successful, a triple of (hashmap of account id to max of stakes in the past three epochs,
-    /// validator rewards in the last epoch, double sign slashing for the past epoch).
+    /// If successful, a triple of (hashmap of account id to max of stakes in
+    /// the past three epochs, validator rewards in the last epoch, double
+    /// sign slashing for the past epoch).
     pub fn compute_stake_return_info(
         &self,
         last_block_hash: &CryptoHash,
@@ -1101,8 +1116,8 @@ impl EpochManager {
         );
         // Fetch last block info to get the slashed accounts.
         let last_block_info = self.get_block_info(last_block_hash)?;
-        // Since stake changes for epoch T are stored in epoch info for T+2, the one stored by epoch_id
-        // is the prev_prev_stake_change.
+        // Since stake changes for epoch T are stored in epoch info for T+2, the one
+        // stored by epoch_id is the prev_prev_stake_change.
         let prev_prev_stake_change = self.get_epoch_info(&epoch_id)?.stake_change().clone();
         let prev_stake_change = self.get_epoch_info(&next_epoch_id)?.stake_change().clone();
         let stake_change = self.get_epoch_info(&next_next_epoch_id)?.stake_change().clone();
@@ -1121,7 +1136,8 @@ impl EpochManager {
                     && !prev_stake_change.contains_key(account_id)
                     && !stake_change.contains_key(account_id)
                 {
-                    // slashed in prev_prev epoch so it is safe to return the remaining stake in case of
+                    // slashed in prev_prev epoch so it is safe to return the
+                    // remaining stake in case of
                     // a double sign without violating the staking invariant.
                 } else {
                     continue;
@@ -1139,8 +1155,8 @@ impl EpochManager {
         Ok((stake_info, validator_reward, slashing_info))
     }
 
-    /// Compute slashing information. Returns a hashmap of account id to slashed amount for double sign
-    /// slashing.
+    /// Compute slashing information. Returns a hashmap of account id to slashed
+    /// amount for double sign slashing.
     fn compute_double_sign_slashing_info(
         &self,
         last_block_hash: &CryptoHash,
@@ -1184,8 +1200,9 @@ impl EpochManager {
     }
 
     /// Get validators for current epoch and next epoch.
-    /// WARNING: this function calls EpochManager::get_epoch_info_aggregator_upto_last
-    /// underneath which can be very expensive.
+    /// WARNING: this function calls
+    /// EpochManager::get_epoch_info_aggregator_upto_last underneath which
+    /// can be very expensive.
     pub fn get_validator_info(
         &self,
         epoch_identifier: ValidatorInfoIdentifier,
@@ -1208,9 +1225,10 @@ impl EpochManager {
             }
         }
 
-        // This ugly code arises because of the incompatible types between `block_tracker` in `EpochInfoAggregator`
-        // and `validator_block_chunk_stats` in `EpochSummary`. Rust currently has no support for Either type
-        // in std.
+        // This ugly code arises because of the incompatible types between
+        // `block_tracker` in `EpochInfoAggregator`
+        // and `validator_block_chunk_stats` in `EpochSummary`. Rust currently has no
+        // support for Either type in std.
         let (current_validators, next_epoch_id, all_proposals) = match &epoch_identifier {
             ValidatorInfoIdentifier::EpochId(id) => {
                 let epoch_summary = self.get_epoch_validator_info(id)?;
@@ -1342,8 +1360,9 @@ impl EpochManager {
         })
     }
 
-    /// Compare two epoch ids based on their start height. This works because finality gadget
-    /// guarantees that we cannot have two different epochs on two forks
+    /// Compare two epoch ids based on their start height. This works because
+    /// finality gadget guarantees that we cannot have two different epochs
+    /// on two forks
     pub fn compare_epoch_id(
         &self,
         epoch_id: &EpochId,
@@ -1359,12 +1378,12 @@ impl EpochManager {
             (Ok(index1), Ok(index2)) => Ok(index1.cmp(&index2)),
             (Ok(_), Err(_)) => self.get_epoch_info(other_epoch_id).map(|_| Ordering::Less),
             (Err(_), Ok(_)) => self.get_epoch_info(epoch_id).map(|_| Ordering::Greater),
-            (Err(_), Err(_)) => Err(EpochError::EpochOutOfBounds(epoch_id.clone())), // other_epoch_id may be out of bounds as well
+            (Err(_), Err(_)) => Err(EpochError::EpochOutOfBounds(epoch_id.clone())), /* other_epoch_id may be out of bounds as well */
         }
     }
 
-    /// Get minimum stake allowed at current block. Attempts to stake with a lower stake will be
-    /// rejected.
+    /// Get minimum stake allowed at current block. Attempts to stake with a
+    /// lower stake will be rejected.
     pub fn minimum_stake(&self, prev_block_hash: &CryptoHash) -> Result<Balance, EpochError> {
         let next_epoch_id = self.get_next_epoch_id_from_prev_block(prev_block_hash)?;
         let (protocol_version, seat_price) = {
@@ -1412,7 +1431,8 @@ impl EpochManager {
         epoch_info.sample_chunk_producer(height, shard_id)
     }
 
-    /// Returns true, if given current block info, next block supposed to be in the next epoch.
+    /// Returns true, if given current block info, next block supposed to be in
+    /// the next epoch.
     fn is_next_block_in_next_epoch(&self, block_info: &BlockInfo) -> Result<bool, EpochError> {
         if block_info.prev_hash() == &CryptoHash::default() {
             return Ok(true);
@@ -1423,16 +1443,17 @@ impl EpochManager {
             self.get_block_info(block_info.epoch_first_block())?.height() + epoch_length;
 
         if epoch_length <= 3 {
-            // This is here to make epoch_manager tests pass. Needs to be removed, tracked in
-            // https://github.com/nearprotocol/nearcore/issues/2522
+            // This is here to make epoch_manager tests pass. Needs to be removed, tracked
+            // in https://github.com/nearprotocol/nearcore/issues/2522
             return Ok(block_info.height() + 1 >= estimated_next_epoch_start);
         }
 
         Ok(block_info.last_finalized_height() + 3 >= estimated_next_epoch_start)
     }
 
-    /// Returns true, if given current block info, next block must include the approvals from the next
-    /// epoch (in addition to the approvals from the current epoch)
+    /// Returns true, if given current block info, next block must include the
+    /// approvals from the next epoch (in addition to the approvals from the
+    /// current epoch)
     fn next_block_need_approvals_from_next_epoch(
         &self,
         block_info: &BlockInfo,
@@ -1452,7 +1473,8 @@ impl EpochManager {
             && block_info.height() + 3 >= estimated_next_epoch_start)
     }
 
-    /// Returns epoch id for the next epoch (T+1), given an block info in current epoch (T).
+    /// Returns epoch id for the next epoch (T+1), given an block info in
+    /// current epoch (T).
     fn get_next_epoch_id_from_info(&self, block_info: &BlockInfo) -> Result<EpochId, EpochError> {
         let first_block_info = self.get_block_info(block_info.epoch_first_block())?;
         Ok(EpochId(*first_block_info.prev_hash()))

@@ -105,8 +105,9 @@ fn display_block_and_chunk_producers(
     }
 }
 
-// Iterate over each epoch starting from the head. Find the requested epoch and its previous epoch
-// and use that to determine the block range corresponding to the epoch.
+// Iterate over each epoch starting from the head. Find the requested epoch and
+// its previous epoch and use that to determine the block range corresponding to
+// the epoch.
 fn get_block_height_range(
     epoch_info: &EpochInfo,
     chain_store: &ChainStore,
@@ -159,8 +160,8 @@ fn get_epoch_ids(
         }
         EpochSelection::EpochHeight { epoch_height } => {
             // Fetch epochs at the given height.
-            // There should only be one epoch at a given height. But this is a debug tool, let's check
-            // if there are multiple epochs at a given height.
+            // There should only be one epoch at a given height. But this is a debug tool,
+            // let's check if there are multiple epochs at a given height.
             iterate_and_filter(store, |epoch_info| epoch_info.epoch_height() == epoch_height)
         }
         EpochSelection::BlockHash { block_hash } => {
@@ -181,8 +182,8 @@ fn get_epoch_ids(
     }
 }
 
-// Iterates over the DBCol::EpochInfo column, ignores AGGREGATOR_KEY and returns deserialized EpochId
-// for EpochInfos that satisfy the given predicate.
+// Iterates over the DBCol::EpochInfo column, ignores AGGREGATOR_KEY and returns
+// deserialized EpochId for EpochInfos that satisfy the given predicate.
 pub(crate) fn iterate_and_filter(
     store: Store,
     predicate: impl Fn(EpochInfo) -> bool,

@@ -256,8 +256,8 @@ fn assert_view_state(
 
 #[test]
 fn test_view_state() {
-    // in order to ensure determinism under all conditions (compiler, build output, etc)
-    // avoid deploying a test contract. See issue #7238
+    // in order to ensure determinism under all conditions (compiler, build output,
+    // etc) avoid deploying a test contract. See issue #7238
     let (_, tries, root) = get_runtime_and_trie();
     let shard_uid = TEST_SHARD_UID;
     let mut state_update = tries.new_trie_update(shard_uid, root);

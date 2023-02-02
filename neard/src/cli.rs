@@ -124,13 +124,15 @@ impl NeardCmd {
 
 #[derive(Parser)]
 pub(super) struct StateViewerCommand {
-    /// By default state viewer opens rocks DB in the read only mode, which allows it to run
-    /// multiple instances in parallel and be sure that no unintended changes get written to the DB.
-    /// In case an operation needs to write to caches, a read-write mode may be needed.
+    /// By default state viewer opens rocks DB in the read only mode, which
+    /// allows it to run multiple instances in parallel and be sure that no
+    /// unintended changes get written to the DB. In case an operation needs
+    /// to write to caches, a read-write mode may be needed.
     #[clap(long, short = 'w')]
     readwrite: bool,
-    /// What store temperature should the state viewer open. Allowed values are hot and cold but
-    /// cold is only available when cold_store feature is enabled.
+    /// What store temperature should the state viewer open. Allowed values are
+    /// hot and cold but cold is only available when cold_store feature is
+    /// enabled.
     #[clap(long, short = 't', default_value = "hot")]
     store_temperature: near_store::Temperature,
     #[clap(subcommand)]
@@ -171,8 +173,8 @@ pub(super) enum NeardSubCommand {
     Init(InitCmd),
     /// Runs NEAR node
     Run(RunCmd),
-    /// Sets up local configuration with all necessary files (validator key, node key, genesis and
-    /// config)
+    /// Sets up local configuration with all necessary files (validator key,
+    /// node key, genesis and config)
     Localnet(LocalnetCmd),
     /// View DB state.
     #[clap(name = "view-state", alias = "view_state")]
@@ -214,8 +216,9 @@ pub(super) enum NeardSubCommand {
     /// us after the handshake is completed, printing stats to stdout.
     Ping(PingCommand),
 
-    /// Mirror transactions from a source chain to a test chain with state forked
-    /// from it, reproducing traffic and state as closely as possible.
+    /// Mirror transactions from a source chain to a test chain with state
+    /// forked from it, reproducing traffic and state as closely as
+    /// possible.
     Mirror(MirrorCommand),
 
     /// Amend a genesis/records file created by `dump-state`.
@@ -224,7 +227,8 @@ pub(super) enum NeardSubCommand {
     /// Testing tool for cold storage
     ColdStore(ColdStoreCommand),
 
-    /// Connects to a NEAR node and sends state parts requests after the handshake is completed.
+    /// Connects to a NEAR node and sends state parts requests after the
+    /// handshake is completed.
     StateParts(StatePartsCommand),
 }
 
@@ -257,8 +261,8 @@ pub(super) struct InitCmd {
     /// Genesis file to use when initializing testnet (including downloading).
     #[clap(long)]
     genesis: Option<String>,
-    /// Initialize boots nodes in <node_key>@<ip_addr> format seperated by commas
-    /// to bootstrap the network and store them in config.json
+    /// Initialize boots nodes in <node_key>@<ip_addr> format seperated by
+    /// commas to bootstrap the network and store them in config.json
     #[clap(long)]
     boot_nodes: Option<String>,
     /// Number of shards to initialize the chain with.
@@ -310,7 +314,8 @@ fn check_release_build(chain: &str) {
 
 impl InitCmd {
     pub(super) fn run(self, home_dir: &Path) -> anyhow::Result<()> {
-        // TODO: Check if `home` exists. If exists check what networks we already have there.
+        // TODO: Check if `home` exists. If exists check what networks we already have
+        // there.
         if (self.download_genesis || self.download_genesis_url.is_some()) && self.genesis.is_some()
         {
             anyhow::bail!("Please give either --genesis or --download-genesis, not both.");
@@ -351,10 +356,12 @@ pub(super) struct RunCmd {
     /// Minimum number of peers to start syncing/producing blocks
     #[clap(long)]
     min_peers: Option<usize>,
-    /// Customize network listening address (useful for running multiple nodes on the same machine).
+    /// Customize network listening address (useful for running multiple nodes
+    /// on the same machine).
     #[clap(long)]
     network_addr: Option<SocketAddr>,
-    /// Set this to false to only produce blocks when there are txs or receipts (default true).
+    /// Set this to false to only produce blocks when there are txs or receipts
+    /// (default true).
     #[clap(long)]
     produce_empty_blocks: Option<bool>,
     /// Customize RPC listening address (useful for running multiple nodes on
@@ -362,9 +369,10 @@ pub(super) struct RunCmd {
     #[cfg(feature = "json_rpc")]
     #[clap(long)]
     rpc_addr: Option<String>,
-    /// Export prometheus metrics on an additional listening address, which is useful
-    /// for having separate access restrictions for the RPC and prometheus endpoints.
-    /// Ignored if RPC http server is disabled, see 'rpc_addr'.
+    /// Export prometheus metrics on an additional listening address, which is
+    /// useful for having separate access restrictions for the RPC and
+    /// prometheus endpoints. Ignored if RPC http server is disabled, see
+    /// 'rpc_addr'.
     #[cfg(feature = "json_rpc")]
     #[clap(long)]
     rpc_prometheus_addr: Option<String>,
@@ -564,7 +572,8 @@ pub(super) struct LocalnetCmd {
     /// Whether to configure nodes as archival.
     #[clap(long)]
     archival_nodes: bool,
-    /// Comma separated list of shards to track, the word 'all' to track all shards or the word 'none' to track no shards.
+    /// Comma separated list of shards to track, the word 'all' to track all
+    /// shards or the word 'none' to track no shards.
     #[clap(long, default_value = "all")]
     tracked_shards: String,
 }
@@ -608,19 +617,20 @@ pub(super) struct RecompressStorageSubCommand {
     output_dir: PathBuf,
 
     /// Keep data in DBCol::PartialChunks column.  Data in that column can be
-    /// reconstructed from DBCol::Chunks is not needed by archival nodes.  This is
-    /// always true if node is not an archival node.
+    /// reconstructed from DBCol::Chunks is not needed by archival nodes.  This
+    /// is always true if node is not an archival node.
     #[clap(long)]
     keep_partial_chunks: bool,
 
-    /// Keep data in DBCol::InvalidChunks column.  Data in that column is only used
-    /// when receiving chunks and is not needed to serve archival requests.
-    /// This is always true if node is not an archival node.
+    /// Keep data in DBCol::InvalidChunks column.  Data in that column is only
+    /// used when receiving chunks and is not needed to serve archival
+    /// requests. This is always true if node is not an archival node.
     #[clap(long)]
     keep_invalid_chunks: bool,
 
-    /// Keep data in DBCol::TrieChanges column.  Data in that column is never used
-    /// by archival nodes.  This is always true if node is not an archival node.
+    /// Keep data in DBCol::TrieChanges column.  Data in that column is never
+    /// used by archival nodes.  This is always true if node is not an
+    /// archival node.
     #[clap(long)]
     keep_trie_changes: bool,
 }
@@ -656,8 +666,10 @@ pub struct VerifyProofSubCommand {
 }
 
 impl VerifyProofSubCommand {
-    /// Verifies light client transaction proof (result of the EXPERIMENTAL_light_client_proof RPC call).
-    /// Returns the Hash and height of the block that transaction belongs to, and root of the light block merkle tree.
+    /// Verifies light client transaction proof (result of the
+    /// EXPERIMENTAL_light_client_proof RPC call). Returns the Hash and
+    /// height of the block that transaction belongs to, and root of the light
+    /// block merkle tree.
     pub fn run(self) -> ((CryptoHash, u64), CryptoHash) {
         let file = File::open(Path::new(self.json_file_path.as_str()))
             .with_context(|| "Could not open proof file.")
@@ -747,8 +759,8 @@ impl VerifyProofSubCommand {
 
 fn make_env_filter(verbose: Option<&str>) -> Result<EnvFilter, BuildEnvFilterError> {
     let env_filter = EnvFilterBuilder::from_env().verbose(verbose).finish()?;
-    // Sandbox node can log to sandbox logging target via sandbox_debug_log host function.
-    // This is hidden by default so we enable it for sandbox node.
+    // Sandbox node can log to sandbox logging target via sandbox_debug_log host
+    // function. This is hidden by default so we enable it for sandbox node.
     let env_filter = if cfg!(feature = "sandbox") {
         env_filter.add_directive("sandbox=debug".parse().unwrap())
     } else {

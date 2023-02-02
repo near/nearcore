@@ -176,8 +176,8 @@ fn function_call_weight_check(function_calls: &[(Gas, u64, Gas)]) {
 
 #[test]
 fn function_call_weight_basic_cases_test() {
-    // Following tests input are in the format (static gas, gas weight, expected gas)
-    // and the gas limit is `10_000_000_000`
+    // Following tests input are in the format (static gas, gas weight, expected
+    // gas) and the gas limit is `10_000_000_000`
 
     // Single function call
     function_call_weight_check(&[(0, 1, 10_000_000_000)]);
@@ -316,7 +316,8 @@ fn test_overflowing_burn_gas_with_promises_gas_2() {
     assert_eq!(logic.gas_counter().used_gas(), minimum_prepay);
 }
 
-/// Check consistent result when exceeding gas limit on a specific action gas parameter.
+/// Check consistent result when exceeding gas limit on a specific action gas
+/// parameter.
 ///
 /// Increases an action cost to a high value and then watch an execution run out
 /// of gas. Then make sure the exact result is still the same. This prevents
@@ -338,7 +339,8 @@ fn check_action_gas_exceeds_limit(
     num_action_paid: u64,
     exercise_action: impl FnOnce(&mut TestVMLogic) -> Result<(), VMLogicError>,
 ) {
-    // Create a logic parametrized such that it will fail with out-of-gas when specified action is deducted.
+    // Create a logic parametrized such that it will fail with out-of-gas when
+    // specified action is deducted.
     let gas_limit = 10u64.pow(13);
     let gas_attached = gas_limit;
     let fee = Fee {
@@ -357,7 +359,8 @@ fn check_action_gas_exceeds_limit(
     assert!(result.is_err(), "expected out-of-gas error for {cost:?} but was ok");
     assert_eq!(result.unwrap_err(), VMLogicError::HostError(HostError::GasLimitExceeded));
 
-    // When gas limit is exceeded, we always set burnt_gas := prepaid and then promise_gas := 0.
+    // When gas limit is exceeded, we always set burnt_gas := prepaid and then
+    // promise_gas := 0.
     assert_eq!(
         gas_attached,
         logic.gas_counter().burnt_gas(),
@@ -390,7 +393,8 @@ fn check_action_gas_exceeds_attached(
     expected: expect_test::Expect,
     exercise_action: impl FnOnce(&mut TestVMLogic) -> Result<(), VMLogicError>,
 ) {
-    // Create a logic parametrized such that it will fail with out-of-gas when specified action is deducted.
+    // Create a logic parametrized such that it will fail with out-of-gas when
+    // specified action is deducted.
     let gas_limit = 10u64.pow(14);
     let gas_attached = 10u64.pow(13);
     let fee = Fee {
@@ -443,7 +447,8 @@ fn check_action_gas_exceeds_attached(
 /// see longer comment above for how this test works
 #[test]
 fn out_of_gas_new_action_receipt() {
-    // two different ways to create an action receipts, first check exceeding the burnt limit
+    // two different ways to create an action receipts, first check exceeding the
+    // burnt limit
     check_action_gas_exceeds_limit(ActionCosts::new_action_receipt, 1, create_action_receipt);
     check_action_gas_exceeds_limit(ActionCosts::new_action_receipt, 2, create_promise_dependency);
 
@@ -499,7 +504,8 @@ fn out_of_gas_new_data_receipt_byte() {
         value_return,
     );
 
-    // value return will pay for the cost of returned data dependency bytes, if there are any.
+    // value return will pay for the cost of returned data dependency bytes, if
+    // there are any.
     fn value_return(logic: &mut TestVMLogic) -> Result<(), VMLogicError> {
         // 11 characters long string
         let value = logic.internal_mem_write(b"lorem ipsum");

@@ -55,13 +55,13 @@
 //! here in the top-level module. Calls to code in submodules should have a
 //! descriptive function names so that it is obvious what it does without
 //! digging deeper.
-//!
 
 mod action_costs;
 mod cost;
 mod cost_table;
 mod costs_to_runtime_config;
-// Encapsulates the runtime so that it can be run separately from the rest of the node.
+// Encapsulates the runtime so that it can be run separately from the rest of
+// the node.
 mod estimator_context;
 mod gas_cost;
 mod qemu;
@@ -74,10 +74,11 @@ pub(crate) mod least_squares;
 // Helper functions shared between modules
 pub mod utils;
 
-// Runs a VM (Default: Wasmer) on the given contract and measures the time it takes to do a single operation.
+// Runs a VM (Default: Wasmer) on the given contract and measures the time it
+// takes to do a single operation.
 pub mod vm_estimator;
-// Prepares transactions and feeds them to the testbed in batches. Performs the warm up, takes care
-// of nonces.
+// Prepares transactions and feeds them to the testbed in batches. Performs the
+// warm up, takes care of nonces.
 pub mod config;
 mod function_call;
 mod gas_metering;
@@ -360,7 +361,8 @@ fn action_transfer(ctx: &mut EstimatorContext) -> GasCost {
             tb.transaction_from_actions(sender, receiver, actions)
         };
         let block_size = 100;
-        // Transferring from one account to another may touch two shards, thus executes over two blocks.
+        // Transferring from one account to another may touch two shards, thus executes
+        // over two blocks.
         let block_latency = 1;
         transaction_cost_ext(ctx, block_size, &mut make_transaction, block_latency).0
     };
@@ -384,7 +386,8 @@ fn action_create_account(ctx: &mut EstimatorContext) -> GasCost {
             tb.transaction_from_actions(sender, new_account, actions)
         };
         let block_size = 100;
-        // Creating a new account is initiated by an account that potentially is on a different shard. Thus, it executes over two blocks.
+        // Creating a new account is initiated by an account that potentially is on a
+        // different shard. Thus, it executes over two blocks.
         let block_latency = 1;
         transaction_cost_ext(ctx, block_size, &mut make_transaction, block_latency).0
     };
@@ -405,7 +408,8 @@ fn action_delete_account(ctx: &mut EstimatorContext) -> GasCost {
             tb.transaction_from_actions(sender, receiver, actions)
         };
         let block_size = 100;
-        // Deleting an account is initiated by an account that potentially is on a different shard. Thus, it executes over two blocks.
+        // Deleting an account is initiated by an account that potentially is on a
+        // different shard. Thus, it executes over two blocks.
         let block_latency = 1;
         transaction_cost_ext(ctx, block_size, &mut make_transaction, block_latency).0
     };
@@ -462,7 +466,8 @@ fn action_add_function_access_key_per_byte(ctx: &mut EstimatorContext) -> GasCos
 
     // Set up estimation with varying method length and total bytes.
     let mut estimate = |method_len: usize, total_len: usize| {
-        // Nothing prevents a key to list the same method many times. Performance should not be affected.
+        // Nothing prevents a key to list the same method many times. Performance should
+        // not be affected.
         let method_name = "x".repeat(method_len);
         let num_methods = total_len / (method_len + 1);
         let method_names = vec![method_name; num_methods];
@@ -494,7 +499,8 @@ fn action_add_function_access_key_per_byte(ctx: &mut EstimatorContext) -> GasCos
     // A single action can have up to 2kB bytes of comma-separated method names.
     // As defined by the parameter `max_number_bytes_method_names`.
     let max_bytes = 2_000;
-    // Methods name lengths are limited by the runtime parameter `max_length_method_name`.
+    // Methods name lengths are limited by the runtime parameter
+    // `max_length_method_name`.
     let max_method_len = 256;
 
     // Try a couple of combinations that could potentially be the worst-case.
@@ -719,13 +725,15 @@ fn pure_deploy_bytes(ctx: &mut EstimatorContext) -> GasCost {
     (cost_4mb - cost_empty) / (large_code_len - small_code_len) as u64
 }
 
-/// Base cost for a fn call action, without receipt creation or contract loading.
+/// Base cost for a fn call action, without receipt creation or contract
+/// loading.
 fn action_function_call_base(ctx: &mut EstimatorContext) -> GasCost {
     let n_actions = 100;
     let code = generate_data_only_contract(0, &VMConfig::test());
     // This returns a cost without block/transaction/receipt overhead.
     let base_cost = fn_cost_in_contract(ctx, "main", &code, n_actions);
-    // Executable loading is a separately charged step, so it must be subtracted on the action cost.
+    // Executable loading is a separately charged step, so it must be subtracted on
+    // the action cost.
     let executable_loading_cost = contract_loading_base(ctx);
     base_cost.saturating_sub(&executable_loading_cost, &NonNegativeTolerance::PER_MILLE)
 }
@@ -791,8 +799,8 @@ fn function_call_per_storage_byte(ctx: &mut EstimatorContext) -> GasCost {
 }
 
 fn data_receipt_creation_base(ctx: &mut EstimatorContext) -> GasCost {
-    // NB: there isn't `ExtCosts` for data receipt creation, so we ignore (`_`) the counts.
-    // The function returns a chain of two promises.
+    // NB: there isn't `ExtCosts` for data receipt creation, so we ignore (`_`) the
+    // counts. The function returns a chain of two promises.
     let block_latency = 2;
     let (total_cost, _) =
         fn_cost_count(ctx, "data_receipt_10b_1000", ExtCosts::base, block_latency);
@@ -805,8 +813,8 @@ fn data_receipt_creation_base(ctx: &mut EstimatorContext) -> GasCost {
 }
 
 fn data_receipt_creation_per_byte(ctx: &mut EstimatorContext) -> GasCost {
-    // NB: there isn't `ExtCosts` for data receipt creation, so we ignore (`_`) the counts.
-    // The function returns a chain of two promises.
+    // NB: there isn't `ExtCosts` for data receipt creation, so we ignore (`_`) the
+    // counts. The function returns a chain of two promises.
     let block_latency = 2;
     let (total_cost, _) =
         fn_cost_count(ctx, "data_receipt_100kib_1000", ExtCosts::base, block_latency);
@@ -995,7 +1003,8 @@ fn ed25519_verify_byte(ctx: &mut EstimatorContext) -> GasCost {
     let iteration_bytes = 16384;
     let total_bytes = base_call_num * iteration_bytes;
     let byte = fn_cost(ctx, "ed25519_verify_16kib_64", ExtCosts::ed25519_verify_byte, total_bytes);
-    // need to subtract the base cost, which has already been divided by the number of bytes per iteration
+    // need to subtract the base cost, which has already been divided by the number
+    // of bytes per iteration
     byte - base / iteration_bytes
 }
 
@@ -1254,16 +1263,19 @@ fn cpu_benchmark_sha256(ctx: &mut EstimatorContext) -> GasCost {
     sha256_cost(ctx.config.metric, REPEATS)
 }
 
-/// Estimate how much gas is charged for 1 CPU instruction. (Using given runtime parameters, on the specific system this is being run on.)
+/// Estimate how much gas is charged for 1 CPU instruction. (Using given runtime
+/// parameters, on the specific system this is being run on.)
 fn one_cpu_instruction(ctx: &mut EstimatorContext) -> GasCost {
     eprintln!("Cannot estimate ONE_CPU_INSTRUCTION like any other cost. The result will only show the constant value currently used in the estimator.");
     GasCost::from_gas(estimator_params::GAS_IN_INSTR, ctx.config.metric)
 }
 
-/// Estimate how much gas is charged for 1 nanosecond of computation. (Using given runtime parameters, on the specific system this is being run on.)
+/// Estimate how much gas is charged for 1 nanosecond of computation. (Using
+/// given runtime parameters, on the specific system this is being run on.)
 fn one_nanosecond(ctx: &mut EstimatorContext) -> GasCost {
     // Currently we don't have a test for this, yet. 1 gas has just always been 1ns.
-    // But it would be useful to go backwards and see how expensive computation time is on specific hardware.
+    // But it would be useful to go backwards and see how expensive computation time
+    // is on specific hardware.
     eprintln!("Cannot estimate ONE_NANOSECOND like any other cost. The result will only show the constant value currently used in the estimator.");
     GasCost::from_gas(estimator_params::GAS_IN_NS, ctx.config.metric)
 }

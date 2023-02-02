@@ -7,7 +7,8 @@ use std::str::FromStr;
 
 #[derive(Parser)]
 pub struct StatePartsCommand {
-    /// The hash of the first block of an epoch of which we are requesting state.
+    /// The hash of the first block of an epoch of which we are requesting
+    /// state.
     #[clap(long)]
     block_hash: CryptoHash,
 
@@ -20,21 +21,22 @@ pub struct StatePartsCommand {
     chain_id: String,
 
     #[clap(long)]
-    /// genesis hash to use in the Handshake we send. This must be provided if --chain-id
-    /// is not "mainnet" or "testnet"
+    /// genesis hash to use in the Handshake we send. This must be provided if
+    /// --chain-id is not "mainnet" or "testnet"
     genesis_hash: Option<String>,
 
     #[clap(long)]
-    /// head height to use in the Handshake we send. This must be provided if --chain-id
-    /// is not "mainnet" or "testnet"
+    /// head height to use in the Handshake we send. This must be provided if
+    /// --chain-id is not "mainnet" or "testnet"
     head_height: Option<u64>,
 
     /// Protocol version to advertise in our handshake
     #[clap(long)]
     protocol_version: Option<u32>,
 
-    /// node public key and socket address in the format {pub key}@{socket addr}. e.g.:
-    /// ed25519:7PGseFbWxvYVgZ89K1uTJKYoKetWs7BJtbyXDzfbAcqX@127.0.0.1:24567
+    /// node public key and socket address in the format {pub key}@{socket
+    /// addr}. e.g.: ed25519:7PGseFbWxvYVgZ89K1uTJKYoKetWs7BJtbyXDzfbAcqX@
+    /// 127.0.0.1:24567
     #[clap(long)]
     peer: String,
 
@@ -55,7 +57,8 @@ pub struct StatePartsCommand {
     start_part_id: u64,
 
     /// Number of parts in the state of the shard.
-    /// Assuming the tool doesn't have a valid DB and can't determine the number automatically.
+    /// Assuming the tool doesn't have a valid DB and can't determine the number
+    /// automatically.
     #[clap(long)]
     num_parts: u64,
 }

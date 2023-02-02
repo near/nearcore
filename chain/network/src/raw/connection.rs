@@ -20,8 +20,8 @@ use tokio::net::TcpStream;
 /// Represents a connection to a peer, and provides only minimal functionality.
 /// Almost none of the usual NEAR network logic is implemented, and the caller
 /// will receive messages via the recv() function. Currently the only message
-/// you can send is a Ping message, but in the future we can add more stuff there
-/// (e.g. sending blocks/chunk parts/etc)
+/// you can send is a Ping message, but in the future we can add more stuff
+/// there (e.g. sending blocks/chunk parts/etc)
 pub struct Connection {
     my_peer_id: PeerId,
     peer_id: PeerId,
@@ -31,8 +31,9 @@ pub struct Connection {
     recv_timeout: Duration,
 }
 
-/// The types of messages it's possible to receive from a `Peer`. Any PeerMessage
-/// we receive that doesn't fit one of these will just be logged and dropped.
+/// The types of messages it's possible to receive from a `Peer`. Any
+/// PeerMessage we receive that doesn't fit one of these will just be logged and
+/// dropped.
 #[derive(Debug)]
 pub enum ReceivedMessage {
     AnnounceAccounts(Vec<(AccountId, PeerId, EpochId)>),
@@ -84,8 +85,9 @@ pub enum ConnectError {
 }
 
 impl Connection {
-    /// Connect to the NEAR node at `peer_id`@`addr`. The inputs are used to build out handshake,
-    /// and this function will return a `Peer` when a handshake has been received successfully.
+    /// Connect to the NEAR node at `peer_id`@`addr`. The inputs are used to
+    /// build out handshake, and this function will return a `Peer` when a
+    /// handshake has been received successfully.
     pub async fn connect(
         addr: SocketAddr,
         peer_id: PeerId,
@@ -213,8 +215,8 @@ impl Connection {
         let len = u32::from_le_bytes(self.buf[..4].try_into().unwrap());
         // If first_byte_time is None, there were already 4 bytes from last time,
         // and they must have come before a partial frame.
-        // So the Instant::now() is not quite correct, since the time was really in the past,
-        // but this is prob not so important
+        // So the Instant::now() is not quite correct, since the time was really in the
+        // past, but this is prob not so important
         Ok((len as usize, first_byte_time.unwrap_or(Instant::now())))
     }
 
@@ -247,8 +249,8 @@ impl Connection {
         })
     }
 
-    /// Reads from the socket until we receive some message that we care to pass to the caller
-    /// (that is, represented in `ReceivedMessage`).
+    /// Reads from the socket until we receive some message that we care to pass
+    /// to the caller (that is, represented in `ReceivedMessage`).
     pub async fn recv(&mut self) -> io::Result<(ReceivedMessage, Instant)> {
         loop {
             let (msg, timestamp) = self.recv_message().await?;
@@ -258,7 +260,8 @@ impl Connection {
         }
     }
 
-    /// Try to send a Ping message to the given target, with the given nonce and ttl
+    /// Try to send a Ping message to the given target, with the given nonce and
+    /// ttl
     pub async fn send_ping(&mut self, target: &PeerId, nonce: u64, ttl: u8) -> anyhow::Result<()> {
         let body = RoutedMessageBody::Ping(Ping { nonce, source: self.my_peer_id.clone() });
         let msg = RawRoutedMessage { target: PeerIdOrHash::PeerId(target.clone()), body }.sign(
@@ -272,7 +275,8 @@ impl Connection {
         Ok(())
     }
 
-    /// Try to send a StateRequestPart message to the given target, with the given nonce and ttl
+    /// Try to send a StateRequestPart message to the given target, with the
+    /// given nonce and ttl
     pub async fn send_state_part_request(
         &mut self,
         target: &PeerId,

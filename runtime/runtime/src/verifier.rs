@@ -29,20 +29,24 @@ use crate::near_primitives::trie_key::trie_key_parsers;
 use crate::VerificationResult;
 use near_primitives::hash::CryptoHash;
 
-/// Possible errors when checking whether an account has enough tokens for storage staking
-/// Read details of state staking
+/// Possible errors when checking whether an account has enough tokens for
+/// storage staking Read details of state staking
 /// <https://nomicon.io/Economics/README.html#state-stake>.
 pub enum StorageStakingError {
-    /// An account does not have enough and the additional amount needed for storage staking
+    /// An account does not have enough and the additional amount needed for
+    /// storage staking
     LackBalanceForStorageStaking(Balance),
-    /// Storage consistency error: an account has invalid storage usage or amount or locked amount
+    /// Storage consistency error: an account has invalid storage usage or
+    /// amount or locked amount
     StorageError(String),
 }
 
 /// Checks if given account has enough balance for storage stake, and returns:
 ///  - Ok(()) if account has enough balance or is a zero-balance account
-///  - Err(StorageStakingError::LackBalanceForStorageStaking(amount)) if account doesn't have enough and how much need to be added,
-///  - Err(StorageStakingError::StorageError(err)) if account has invalid storage usage or amount/locked.
+///  - Err(StorageStakingError::LackBalanceForStorageStaking(amount)) if account
+///    doesn't have enough and how much need to be added,
+///  - Err(StorageStakingError::StorageError(err)) if account has invalid
+///    storage usage or amount/locked.
 pub fn check_storage_stake(
     account_id: &AccountId,
     account: &Account,
@@ -70,8 +74,8 @@ pub fn check_storage_stake(
     if available_amount >= required_amount {
         Ok(())
     } else {
-        // Check if the account is a zero balance account. The check is delayed until here because
-        // it requires storage reads
+        // Check if the account is a zero balance account. The check is delayed until
+        // here because it requires storage reads
         if checked_feature!(
             "protocol_feature_zero_balance_account",
             ZeroBalanceAccount,
@@ -105,8 +109,9 @@ fn is_zero_balance_account(
     {
         return Ok(false);
     }
-    // Check access keys. There can be at most 2 full access keys and at most 2 function call access keys.
-    // Function call access keys must not specify method names.
+    // Check access keys. There can be at most 2 full access keys and at most 2
+    // function call access keys. Function call access keys must not specify
+    // method names.
     let mut full_access_key_count = 0;
     let mut function_call_access_key_count = 0;
     let raw_prefix = &trie_key_parsers::get_raw_prefix_for_access_keys(account_id);
@@ -136,8 +141,9 @@ fn is_zero_balance_account(
 #[cfg(feature = "protocol_feature_nep366_delegate_action")]
 use near_primitives::transaction::SignedDelegateAction;
 
-/// Validates the transaction without using the state. It allows any node to validate a
-/// transaction before forwarding it to the node that tracks the `signer_id` account.
+/// Validates the transaction without using the state. It allows any node to
+/// validate a transaction before forwarding it to the node that tracks the
+/// `signer_id` account.
 pub fn validate_transaction(
     config: &RuntimeConfig,
     gas_price: Balance,
@@ -179,8 +185,9 @@ pub fn validate_transaction(
         .map_err(|_| InvalidTxError::CostOverflow.into())
 }
 
-/// Verifies the signed transaction on top of given state, charges transaction fees
-/// and balances, and updates the state for the used account and access keys.
+/// Verifies the signed transaction on top of given state, charges transaction
+/// fees and balances, and updates the state for the used account and access
+/// keys.
 pub fn verify_and_charge_transaction(
     config: &RuntimeConfig,
     state_update: &mut TrieUpdate,
@@ -356,7 +363,8 @@ pub(crate) fn validate_receipt(
     }
 }
 
-/// Validates given ActionReceipt. Checks validity of the number of input data dependencies and all actions.
+/// Validates given ActionReceipt. Checks validity of the number of input data
+/// dependencies and all actions.
 fn validate_action_receipt(
     limit_config: &VMLimitConfig,
     receipt: &ActionReceipt,
@@ -372,7 +380,8 @@ fn validate_action_receipt(
         .map_err(ReceiptValidationError::ActionsValidation)
 }
 
-/// Validates given data receipt. Checks validity of the length of the returned data.
+/// Validates given data receipt. Checks validity of the length of the returned
+/// data.
 fn validate_data_receipt(
     limit_config: &VMLimitConfig,
     receipt: &DataReceipt,
@@ -480,7 +489,8 @@ fn validate_delegate_action(
     Ok(())
 }
 
-/// Validates `DeployContractAction`. Checks that the given contract size doesn't exceed the limit.
+/// Validates `DeployContractAction`. Checks that the given contract size
+/// doesn't exceed the limit.
 fn validate_deploy_contract_action(
     limit_config: &VMLimitConfig,
     action: &DeployContractAction,
@@ -495,8 +505,8 @@ fn validate_deploy_contract_action(
     Ok(())
 }
 
-/// Validates `FunctionCallAction`. Checks that the method name length doesn't exceed the limit and
-/// the length of the arguments doesn't exceed the limit.
+/// Validates `FunctionCallAction`. Checks that the method name length doesn't
+/// exceed the limit and the length of the arguments doesn't exceed the limit.
 fn validate_function_call_action(
     limit_config: &VMLimitConfig,
     action: &FunctionCallAction,
@@ -522,7 +532,8 @@ fn validate_function_call_action(
     Ok(())
 }
 
-/// Validates `StakeAction`. Checks that the `public_key` is a valid staking key.
+/// Validates `StakeAction`. Checks that the `public_key` is a valid staking
+/// key.
 fn validate_stake_action(action: &StakeAction) -> Result<(), ActionsValidationError> {
     if !is_valid_staking_key(&action.public_key) {
         return Err(ActionsValidationError::UnsuitableStakingKey {
@@ -533,9 +544,9 @@ fn validate_stake_action(action: &StakeAction) -> Result<(), ActionsValidationEr
     Ok(())
 }
 
-/// Validates `AddKeyAction`. If the access key permission is `FunctionCall`, checks that the
-/// total number of bytes of the method names doesn't exceed the limit and
-/// every method name length doesn't exceed the limit.
+/// Validates `AddKeyAction`. If the access key permission is `FunctionCall`,
+/// checks that the total number of bytes of the method names doesn't exceed the
+/// limit and every method name length doesn't exceed the limit.
 fn validate_add_key_action(
     limit_config: &VMLimitConfig,
     action: &AddKeyAction,
@@ -785,9 +796,10 @@ mod tests {
             (account, state_update)
         }
 
-        /// Testing all combination of access keys and contract code/data deployed in this test
-        /// to make sure that an account is zero balance only if it has <=2 full access keys and
-        /// <= function call access keys and doesn't have contract code or contract data
+        /// Testing all combination of access keys and contract code/data
+        /// deployed in this test to make sure that an account is zero
+        /// balance only if it has <=2 full access keys and <= function
+        /// call access keys and doesn't have contract code or contract data
         #[test]
         fn test_zero_balance_account_with_keys_and_contract() {
             for num_full_access_key in 0..10 {
@@ -1170,9 +1182,10 @@ mod tests {
         }
     }
 
-    /// Setup: account has 1B yoctoN and is 180 bytes. Storage requirement is 1M per byte.
-    /// Test that such account can not send 950M yoctoN out as that will leave it under storage requirements.
-    /// If zero balance account is enabled, however, the transaction should succeed
+    /// Setup: account has 1B yoctoN and is 180 bytes. Storage requirement is 1M
+    /// per byte. Test that such account can not send 950M yoctoN out as
+    /// that will leave it under storage requirements. If zero balance
+    /// account is enabled, however, the transaction should succeed
     #[test]
     fn test_validate_transaction_invalid_low_balance() {
         let mut config = RuntimeConfig::free();

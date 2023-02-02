@@ -24,7 +24,8 @@ pub enum DBCol {
     /// - *Content type*: The version of the database (u32), serialized as JSON.
     DbVersion,
     /// Column that store Misc cells.
-    /// - *Rows*: multiple, for example `"GENESIS_JSON_HASH"`, `"HEAD_KEY"`, `"LATEST_KNOWN_KEY"` etc.
+    /// - *Rows*: multiple, for example `"GENESIS_JSON_HASH"`, `"HEAD_KEY"`,
+    ///   `"LATEST_KNOWN_KEY"` etc.
     /// - *Content type*: cell specific.
     BlockMisc,
     /// Column that stores Block content.
@@ -35,8 +36,9 @@ pub enum DBCol {
     /// - *Rows*: block hash (CryptoHash)
     /// - *Content type*: [near_primitives::block_header::BlockHeader]
     BlockHeader,
-    /// Column that stores mapping from block height to block hash on the current canonical chain.
-    /// (if you want to see all the blocks that we got for a given height, for example due to double signing etc,
+    /// Column that stores mapping from block height to block hash on the
+    /// current canonical chain. (if you want to see all the blocks that we
+    /// got for a given height, for example due to double signing etc,
     /// look at BlockPerHeight column).
     /// - *Rows*: height (u64)
     /// - *Content type*: block hash (CryptoHash)
@@ -61,17 +63,20 @@ pub enum DBCol {
     /// - *Rows*: (block, shard)
     /// - *Content type*: Vec of [near_primitives::sharding::ReceiptProof]
     IncomingReceipts,
-    /// Info about the peers that we are connected to. Mapping from peer_id to KnownPeerState.
+    /// Info about the peers that we are connected to. Mapping from peer_id to
+    /// KnownPeerState.
     /// - *Rows*: peer_id (PublicKey)
     /// - *Content type*: [network_primitives::types::KnownPeerState]
     Peers,
     /// Mapping from EpochId to EpochInfo
     /// - *Rows*: EpochId (CryptoHash)
-    /// - *Content type*: [near_primitives::epoch_manager::epoch_info::EpochInfo]
+    /// - *Content type*:
+    ///   [near_primitives::epoch_manager::epoch_info::EpochInfo]
     EpochInfo,
     /// Mapping from BlockHash to BlockInfo
     /// - *Rows*: BlockHash (CryptoHash)
-    /// - *Content type*: [near_primitives::epoch_manager::block_info::BlockInfo]
+    /// - *Content type*:
+    ///   [near_primitives::epoch_manager::block_info::BlockInfo]
     BlockInfo,
     /// Mapping from ChunkHash to ShardChunk.
     /// - *Rows*: ChunkHash (CryptoHash)
@@ -81,7 +86,8 @@ pub enum DBCol {
     /// - *Rows*: ChunkHash (CryptoHash)
     /// - *Content type*: [near_primitives::sharding::PartialEncodedChunk]
     PartialChunks,
-    /// Blocks for which chunks need to be applied after the state is downloaded for a particular epoch
+    /// Blocks for which chunks need to be applied after the state is downloaded
+    /// for a particular epoch
     /// - *Rows*: BlockHash (CryptoHash)
     /// - *Content type*: Vec of BlockHash (CryptoHash)
     BlocksToCatchup,
@@ -97,18 +103,19 @@ pub enum DBCol {
     /// - *Rows*: StateHeaderKey (ShardId || BlockHash)
     /// - *Content type*: ShardStateSyncResponseHeader
     StateHeaders,
-    /// Contains all the invalid chunks (that we had trouble decoding or verifying).
+    /// Contains all the invalid chunks (that we had trouble decoding or
+    /// verifying).
     /// - *Rows*: ShardChunkHeader object
     /// - *Content type*: EncodedShardChunk
     InvalidChunks,
-    /// Contains 'BlockExtra' information that is computed after block was processed.
-    /// Currently it stores only challenges results.
+    /// Contains 'BlockExtra' information that is computed after block was
+    /// processed. Currently it stores only challenges results.
     /// - *Rows*: BlockHash (CryptoHash)
     /// - *Content type*: BlockExtra
     BlockExtra,
     /// Store hash of all block per each height, to detect double signs.
-    /// In most cases, it is better to get the value from BlockHeight column instead (which
-    /// keeps the hash of the block from canonical chain)
+    /// In most cases, it is better to get the value from BlockHeight column
+    /// instead (which keeps the hash of the block from canonical chain)
     /// - *Rows*: int (height of the block)
     /// - *Content type*: Map: EpochId -> Set of BlockHash(CryptoHash)
     BlockPerHeight,
@@ -116,11 +123,14 @@ pub enum DBCol {
     /// - *Rows*: StatePartKey (BlockHash || ShardId || PartId (u64))
     /// - *Content type*: state part (bytes)
     StateParts,
-    /// Contains mapping from epoch_id to epoch start (first block height of the epoch)
-    /// - *Rows*: EpochId (CryptoHash)  -- TODO: where does the epoch_id come from? it looks like blockHash..
+    /// Contains mapping from epoch_id to epoch start (first block height of the
+    /// epoch)
+    /// - *Rows*: EpochId (CryptoHash)  -- TODO: where does the epoch_id come
+    ///   from? it looks like blockHash..
     /// - *Content type*: BlockHeight (int)
     EpochStart,
-    /// Map account_id to announce_account (which peer has announced which account in the current epoch). // TODO: explain account annoucement
+    /// Map account_id to announce_account (which peer has announced which
+    /// account in the current epoch). // TODO: explain account annoucement
     /// - *Rows*: AccountId (str)
     /// - *Content type*: AnnounceAccount
     AccountAnnouncements,
@@ -128,11 +138,13 @@ pub enum DBCol {
     /// - *Rows*: BlockHash (CryptoHash)
     /// - *Content type*: next block: BlockHash (CryptoHash)
     NextBlockHashes,
-    /// `LightClientBlock`s corresponding to the last final block of each completed epoch.
+    /// `LightClientBlock`s corresponding to the last final block of each
+    /// completed epoch.
     /// - *Rows*: EpochId (CryptoHash)
     /// - *Content type*: LightClientBlockView
     EpochLightClientBlocks,
-    /// Mapping from Receipt id to destination Shard Id, i.e, the shard that this receipt is sent to.
+    /// Mapping from Receipt id to destination Shard Id, i.e, the shard that
+    /// this receipt is sent to.
     /// - *Rows*: ReceiptId (CryptoHash)
     /// - *Content type*: Shard Id || ref_count (u64 || u64)
     ReceiptIdToShardId,
@@ -143,29 +155,37 @@ pub enum DBCol {
     #[strum(serialize = "LastBlockWithNewChunk")]
     _LastBlockWithNewChunk,
     /// Network storage:
-    ///   When given edge is removed (or we didn't get any ping from it for a while), we remove it from our 'in memory'
-    ///   view and persist into storage.
+    ///   When given edge is removed (or we didn't get any ping from it for a
+    /// while), we remove it from our 'in memory'   view and persist into
+    /// storage.
     ///
-    ///   This is done, so that we prevent the attack, when someone tries to introduce the edge/peer again into the network,
-    ///   but with the 'old' nonce.
+    ///   This is done, so that we prevent the attack, when someone tries to
+    /// introduce the edge/peer again into the network,   but with the 'old'
+    /// nonce.
     ///
-    ///   When we write things to storage, we do it in groups (here they are called 'components') - this naming is a little bit
-    ///   unfortunate, as the peers/edges that we persist don't need to be connected or form any other 'component' (in a graph theory sense).
+    ///   When we write things to storage, we do it in groups (here they are
+    /// called 'components') - this naming is a little bit   unfortunate, as
+    /// the peers/edges that we persist don't need to be connected or form any
+    /// other 'component' (in a graph theory sense).
     ///
     ///   Each such component gets a new identifier (here called 'nonce').
     ///
     ///   We store this info in the three columns below:
-    ///     - LastComponentNonce: keeps info on what is the next identifier (nonce) that can be used.
-    ///     - PeerComponent: keep information on mapping from the peer to the last component that it belonged to (so that if a new peer shows
-    ///         up we know which 'component' to load)
-    ///     - ComponentEdges: keep the info about the edges that were connecting these peers that were removed.
+    ///     - LastComponentNonce: keeps info on what is the next identifier
+    ///       (nonce) that can be used.
+    ///     - PeerComponent: keep information on mapping from the peer to the
+    ///       last component that it belonged to (so that if a new peer shows up
+    ///       we know which 'component' to load)
+    ///     - ComponentEdges: keep the info about the edges that were connecting
+    ///       these peers that were removed.
 
     /// Map each saved peer on disk with its component id (a.k.a. nonce).
     /// - *Rows*: peer_id
     /// - *Column type*:  (nonce) u64
     PeerComponent,
     /// Map component id  (a.k.a. nonce) with all edges in this component.
-    /// These are all the edges that were purged and persisted to disk at the same time.
+    /// These are all the edges that were purged and persisted to disk at the
+    /// same time.
     /// - *Rows*: nonce
     /// - *Column type*: `Vec<near_network::routing::Edge>`
     ComponentEdges,
@@ -182,9 +202,11 @@ pub enum DBCol {
     _ChunkPerHeightShard,
     /// Changes to state (Trie) that we have recorded.
     /// - *Rows*: BlockHash || TrieKey (TrieKey is written via custom to_vec)
-    /// - *Column type*: TrieKey, new value and reason for change (RawStateChangesWithTrieKey)
+    /// - *Column type*: TrieKey, new value and reason for change
+    ///   (RawStateChangesWithTrieKey)
     StateChanges,
-    /// Mapping from Block to its refcount (number of blocks that use this block as a parent). (Refcounts are used in handling chain forks).
+    /// Mapping from Block to its refcount (number of blocks that use this block
+    /// as a parent). (Refcounts are used in handling chain forks).
     /// In following example:
     ///     1 -> 2 -> 3 -> 5
     ///           \ --> 4
@@ -195,27 +217,34 @@ pub enum DBCol {
     BlockRefCount,
     /// Changes to Trie that we recorded during given block/shard processing.
     /// - *Rows*: BlockHash || ShardId
-    /// - *Column type*: old root, new root, list of insertions, list of deletions (TrieChanges)
+    /// - *Column type*: old root, new root, list of insertions, list of
+    ///   deletions (TrieChanges)
     TrieChanges,
-    /// Mapping from a block hash to a merkle tree of block hashes that are in the chain before it.
+    /// Mapping from a block hash to a merkle tree of block hashes that are in
+    /// the chain before it.
     /// - *Rows*: BlockHash
-    /// - *Column type*: PartialMerkleTree - MerklePath to the leaf + number of leaves in the whole tree.
+    /// - *Column type*: PartialMerkleTree - MerklePath to the leaf + number of
+    ///   leaves in the whole tree.
     BlockMerkleTree,
-    /// Mapping from height to the set of Chunk Hashes that were included in the block at that height.
+    /// Mapping from height to the set of Chunk Hashes that were included in the
+    /// block at that height.
     /// - *Rows*: height (u64)
     /// - *Column type*: Vec<ChunkHash (CryptoHash)>
     ChunkHashesByHeight,
-    /// Mapping from block ordinal number (number of the block in the chain) to the BlockHash.
-    /// Note: that it can be different than BlockHeight - if we have skipped some heights when creating the blocks.
-    ///       for example in chain 1->3, the second block has height 3, but ordinal 2.
+    /// Mapping from block ordinal number (number of the block in the chain) to
+    /// the BlockHash. Note: that it can be different than BlockHeight - if
+    /// we have skipped some heights when creating the blocks.
+    ///       for example in chain 1->3, the second block has height 3, but
+    /// ordinal 2.
     /// - *Rows*: ordinal (u64)
     /// - *Column type*: BlockHash (CryptoHash)
     BlockOrdinal,
     /// Deprecated.
     #[strum(serialize = "GCCount")]
     _GCCount,
-    /// All Outcome ids by block hash and shard id. For each shard it is ordered by execution order.
-    /// TODO: seems that it has only 'transaction ids' there (not sure if intentional)
+    /// All Outcome ids by block hash and shard id. For each shard it is ordered
+    /// by execution order. TODO: seems that it has only 'transaction ids'
+    /// there (not sure if intentional)
     /// - *Rows*: BlockShardId (BlockHash || ShardId) - 40 bytes
     /// - *Column type*: Vec <OutcomeId (CryptoHash)>
     OutcomeIds,
@@ -232,7 +261,8 @@ pub enum DBCol {
     /// - *Rows*: receipt (CryptoHash)
     /// - *Column type*: Receipt
     Receipts,
-    /// Precompiled machine code of the contract, used by StoreCompiledContractCache.
+    /// Precompiled machine code of the contract, used by
+    /// StoreCompiledContractCache.
     /// - *Rows*: ContractCacheKey or code hash (not sure)
     /// - *Column type*: near-vm-runner CacheRecord
     CachedContractCode,
@@ -248,25 +278,29 @@ pub enum DBCol {
     /// - *Rows*: BlockShardId (BlockHash || ShardId) - 40 bytes
     /// - *Column type*: StateChangesForSplitStates
     StateChangesForSplitStates,
-    /// Transaction or receipt outcome, by outcome ID (transaction or receipt hash) and block
-    /// hash. Multiple outcomes may be stored for the same outcome ID in case of forks.
-    /// *Rows*: OutcomeId (CryptoHash) || BlockHash (CryptoHash)
-    /// *Column type*: ExecutionOutcomeWithProof
+    /// Transaction or receipt outcome, by outcome ID (transaction or receipt
+    /// hash) and block hash. Multiple outcomes may be stored for the same
+    /// outcome ID in case of forks. *Rows*: OutcomeId (CryptoHash) ||
+    /// BlockHash (CryptoHash) *Column type*: ExecutionOutcomeWithProof
     TransactionResultForBlock,
-    /// Flat state contents. Used to get `ValueRef` by trie key faster than doing a trie lookup.
+    /// Flat state contents. Used to get `ValueRef` by trie key faster than
+    /// doing a trie lookup.
     /// - *Rows*: trie key (Vec<u8>)
     /// - *Column type*: ValueRef
     #[cfg(feature = "protocol_feature_flat_state")]
     FlatState,
-    /// Deltas for flat state. Stores how flat state should be updated for the given shard and block.
+    /// Deltas for flat state. Stores how flat state should be updated for the
+    /// given shard and block.
     /// - *Rows*: `KeyForFlatStateDelta { shard_id, block_hash }`
     /// - *Column type*: `FlatStateDelta`
     #[cfg(feature = "protocol_feature_flat_state")]
     FlatStateDeltas,
-    /// Miscellaneous data for flat state. Stores intermediate flat storage creation statuses and flat
-    /// state heads for each shard.
-    /// - *Rows*: Unique key prefix (e.g. `FLAT_STATE_HEAD_KEY_PREFIX`) + ShardId
-    /// - *Column type*: FetchingStateStatus || flat storage catchup status (bool) || flat storage head (CryptoHash)
+    /// Miscellaneous data for flat state. Stores intermediate flat storage
+    /// creation statuses and flat state heads for each shard.
+    /// - *Rows*: Unique key prefix (e.g. `FLAT_STATE_HEAD_KEY_PREFIX`) +
+    ///   ShardId
+    /// - *Column type*: FetchingStateStatus || flat storage catchup status
+    ///   (bool) || flat storage head (CryptoHash)
     // TODO (#7327): use only during testing, come up with proper format.
     #[cfg(feature = "protocol_feature_flat_state")]
     FlatStateMisc,
@@ -284,7 +318,8 @@ pub enum DBKeyType {
     /// Set of predetermined strings. Used, for example, in DBCol::BlockMisc
     StringLiteral,
     BlockHash,
-    /// Hash of the previous block. Logically different from BlockHash. Used fro DBCol::NextBlockHashes.
+    /// Hash of the previous block. Logically different from BlockHash. Used fro
+    /// DBCol::NextBlockHashes.
     PreviousBlockHash,
     BlockHeight,
     BlockOrdinal,
@@ -412,7 +447,8 @@ impl DBCol {
         matches!(*self, DBCol::DbVersion | DBCol::BlockMisc) || self.is_cold()
     }
 
-    /// Vector of DBKeyType s concatenation of which results in key for the column.
+    /// Vector of DBKeyType s concatenation of which results in key for the
+    /// column.
     pub fn key_type(&self) -> &'static [DBKeyType] {
         match self {
             DBCol::DbVersion => &[DBKeyType::StringLiteral],

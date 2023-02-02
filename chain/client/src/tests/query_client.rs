@@ -58,8 +58,8 @@ fn query_client() {
     });
 }
 
-/// When we receive health check and the latest block's timestamp is in the future, the client
-/// should not crash.
+/// When we receive health check and the latest block's timestamp is in the
+/// future, the client should not crash.
 #[test]
 fn query_status_not_crash() {
     init_test_logger();

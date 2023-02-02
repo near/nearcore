@@ -86,9 +86,10 @@ pub struct ApplySplitStateResult {
 
 // This struct captures two cases
 // when apply transactions, split states may or may not be ready
-// if it's ready, apply transactions also apply updates to split states and this enum will be
-//    ApplySplitStateResults
-// otherwise, it simply returns the state changes needed to be applied to split states
+// if it's ready, apply transactions also apply updates to split states and this
+// enum will be    ApplySplitStateResults
+// otherwise, it simply returns the state changes needed to be applied to split
+// states
 pub enum ApplySplitStateResultOrStateChanges {
     ApplySplitStateResults(Vec<ApplySplitStateResult>),
     StateChangesForSplitStates(StateChangesForSplitStates),
@@ -167,7 +168,8 @@ pub struct BlockEconomicsConfig {
 impl BlockEconomicsConfig {
     /// Set max gas price to be this multiplier * min_gas_price
     const MAX_GAS_MULTIPLIER: u128 = 20;
-    /// Compute min gas price according to protocol version and genesis protocol version.
+    /// Compute min gas price according to protocol version and genesis protocol
+    /// version.
     ///
     /// This returns the effective minimum gas price for a block with the given
     /// protocol version. The base value is defined in genesis.config but has
@@ -279,9 +281,10 @@ pub trait RuntimeAdapter: Send + Sync {
 
     fn store(&self) -> &Store;
 
-    /// Returns trie with non-view cache for given `state_root`. `prev_hash` is used to access flat storage and to
-    /// identify the epoch the given `shard_id` is at.
-    /// Note that `prev_hash` and `state_root` must correspond to the same block.
+    /// Returns trie with non-view cache for given `state_root`. `prev_hash` is
+    /// used to access flat storage and to identify the epoch the given
+    /// `shard_id` is at. Note that `prev_hash` and `state_root` must
+    /// correspond to the same block.
     fn get_trie_for_shard(
         &self,
         shard_id: ShardId,
@@ -303,8 +306,8 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Gets status of flat storage state background creation.
     fn get_flat_storage_creation_status(&self, shard_id: ShardId) -> FlatStorageCreationStatus;
 
-    /// Creates flat storage state for given shard, assuming that all flat storage data
-    /// is already stored in DB.
+    /// Creates flat storage state for given shard, assuming that all flat
+    /// storage data is already stored in DB.
     /// TODO (#7327): consider returning flat storage creation errors here
     fn create_flat_storage_state_for_shard(
         &self,
@@ -314,7 +317,8 @@ pub trait RuntimeAdapter: Send + Sync {
     );
 
     /// Removes flat storage state for shard, if it exists.
-    /// Used to clear old flat storage data from disk and memory before syncing to newer state.
+    /// Used to clear old flat storage data from disk and memory before syncing
+    /// to newer state.
     fn remove_flat_storage_state_for_shard(
         &self,
         shard_id: ShardId,
@@ -328,11 +332,12 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> Result<StoreUpdate, Error>;
 
     /// Validates a given signed transaction.
-    /// If the state root is given, then the verification will use the account. Otherwise it will
-    /// only validate the transaction math, limits and signatures.
-    /// Returns an option of `InvalidTxError`, it contains `Some(InvalidTxError)` if there is
-    /// a validation error, or `None` in case the transaction succeeded.
-    /// Throws an `Error` with `ErrorKind::StorageError` in case the runtime throws
+    /// If the state root is given, then the verification will use the account.
+    /// Otherwise it will only validate the transaction math, limits and
+    /// signatures. Returns an option of `InvalidTxError`, it contains
+    /// `Some(InvalidTxError)` if there is a validation error, or `None` in
+    /// case the transaction succeeded. Throws an `Error` with
+    /// `ErrorKind::StorageError` in case the runtime throws
     /// `RuntimeError::StorageError`.
     fn validate_tx(
         &self,
@@ -344,13 +349,14 @@ pub trait RuntimeAdapter: Send + Sync {
         current_protocol_version: ProtocolVersion,
     ) -> Result<Option<InvalidTxError>, Error>;
 
-    /// Returns an ordered list of valid transactions from the pool up the given limits.
-    /// Pulls transactions from the given pool iterators one by one. Validates each transaction
-    /// against the given `chain_validate` closure and runtime's transaction verifier.
-    /// If the transaction is valid for both, it's added to the result and the temporary state
+    /// Returns an ordered list of valid transactions from the pool up the given
+    /// limits. Pulls transactions from the given pool iterators one by one.
+    /// Validates each transaction against the given `chain_validate`
+    /// closure and runtime's transaction verifier. If the transaction is
+    /// valid for both, it's added to the result and the temporary state
     /// update is preserved for validation of next transactions.
-    /// Throws an `Error` with `ErrorKind::StorageError` in case the runtime throws
-    /// `RuntimeError::StorageError`.
+    /// Throws an `Error` with `ErrorKind::StorageError` in case the runtime
+    /// throws `RuntimeError::StorageError`.
     fn prepare_transactions(
         &self,
         gas_price: Balance,
@@ -408,8 +414,9 @@ pub trait RuntimeAdapter: Send + Sync {
         block_header_info: BlockHeaderInfo,
     ) -> Result<StoreUpdate, Error>;
 
-    /// Apply transactions to given state root and return store update and new state root.
-    /// Also returns transaction result for each transaction and new receipts.
+    /// Apply transactions to given state root and return store update and new
+    /// state root. Also returns transaction result for each transaction and
+    /// new receipts.
     fn apply_transactions(
         &self,
         shard_id: ShardId,
@@ -524,8 +531,9 @@ pub trait RuntimeAdapter: Send + Sync {
         part_id: PartId,
     ) -> Result<Vec<u8>, Error>;
 
-    /// Validate state part that expected to be given state root with provided data.
-    /// Returns false if the resulting part doesn't match the expected one.
+    /// Validate state part that expected to be given state root with provided
+    /// data. Returns false if the resulting part doesn't match the expected
+    /// one.
     fn validate_state_part(&self, state_root: &StateRoot, part_id: PartId, data: &[u8]) -> bool;
 
     fn apply_update_to_split_states(
@@ -584,7 +592,8 @@ pub trait RuntimeAdapter: Send + Sync {
 pub trait RuntimeWithEpochManagerAdapter: RuntimeAdapter + EpochManagerAdapter {}
 
 /// The last known / checked height and time when we have processed it.
-/// Required to keep track of skipped blocks and not fallback to produce blocks at lower height.
+/// Required to keep track of skipped blocks and not fallback to produce blocks
+/// at lower height.
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Default)]
 pub struct LatestKnown {
     pub height: BlockHeight,

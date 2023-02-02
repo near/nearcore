@@ -79,7 +79,8 @@ fn protocol_upgrade() {
         block_hash: CryptoHash::default(),
     };
 
-    // Run transaction writing storage key exceeding the limit. Check that execution succeeds.
+    // Run transaction writing storage key exceeding the limit. Check that execution
+    // succeeds.
     {
         let tip = env.clients[0].chain.head().unwrap();
         let signed_tx =
@@ -118,7 +119,8 @@ fn protocol_upgrade() {
         );
     }
 
-    // Run transaction where storage key exactly fits the new limit, check that execution succeeds.
+    // Run transaction where storage key exactly fits the new limit, check that
+    // execution succeeds.
     {
         let args: Vec<u8> = vec![1u8; new_storage_key_limit]
             .into_iter()

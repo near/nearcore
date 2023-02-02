@@ -58,7 +58,8 @@ impl From<CryptoHash> for ChunkHash {
 #[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize)]
 pub struct ShardInfo(pub ShardId, pub ChunkHash);
 
-/// Contains the information that is used to sync state for shards as epochs switch
+/// Contains the information that is used to sync state for shards as epochs
+/// switch
 #[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize)]
 pub struct StateSyncInfo {
     /// The first block of the epoch for which syncing is happening
@@ -1134,8 +1135,8 @@ impl EncodedShardChunk {
     }
 }
 
-/// The ttl for a reed solomon instance to control memory usage. This number below corresponds to
-/// roughly 60MB of memory usage.
+/// The ttl for a reed solomon instance to control memory usage. This number
+/// below corresponds to roughly 60MB of memory usage.
 const RS_TTL: u64 = 2 * 1024;
 
 /// Wrapper around reed solomon which occasionally resets the underlying

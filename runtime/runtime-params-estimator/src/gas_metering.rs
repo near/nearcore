@@ -117,9 +117,9 @@ fn make_simple_loop_contact(depth: i32) -> ContractCode {
 }
 
 /**
- * We compute the cost of gas metering operations in forward and backward branching contracts by
- * running contracts with and without gas metering and comparing the difference induced by gas
- * metering.
+ * We compute the cost of gas metering operations in forward and backward
+ * branching contracts by running contracts with and without gas metering
+ * and comparing the difference induced by gas metering.
  */
 pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode) -> GasCost {
     let gas_metric = config.metric;

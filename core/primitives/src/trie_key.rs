@@ -6,34 +6,41 @@ use std::mem::size_of;
 
 pub(crate) const ACCOUNT_DATA_SEPARATOR: u8 = b',';
 
-/// Type identifiers used for DB key generation to store values in the key-value storage.
+/// Type identifiers used for DB key generation to store values in the key-value
+/// storage.
 pub(crate) mod col {
-    /// This column id is used when storing `primitives::account::Account` type about a given
-    /// `account_id`.
+    /// This column id is used when storing `primitives::account::Account` type
+    /// about a given `account_id`.
     pub const ACCOUNT: u8 = 0;
-    /// This column id is used when storing contract blob for a given `account_id`.
-    pub const CONTRACT_CODE: u8 = 1;
-    /// This column id is used when storing `primitives::account::AccessKey` type for a given
+    /// This column id is used when storing contract blob for a given
     /// `account_id`.
+    pub const CONTRACT_CODE: u8 = 1;
+    /// This column id is used when storing `primitives::account::AccessKey`
+    /// type for a given `account_id`.
     pub const ACCESS_KEY: u8 = 2;
-    /// This column id is used when storing `primitives::receipt::ReceivedData` type (data received
-    /// for a key `data_id`). The required postponed receipt might be still not received or requires
-    /// more pending input data.
+    /// This column id is used when storing `primitives::receipt::ReceivedData`
+    /// type (data received for a key `data_id`). The required postponed
+    /// receipt might be still not received or requires more pending input
+    /// data.
     pub const RECEIVED_DATA: u8 = 3;
-    /// This column id is used when storing `primitives::hash::CryptoHash` (ReceiptId) type. The
-    /// ReceivedData is not available and is needed for the postponed receipt to execute.
+    /// This column id is used when storing `primitives::hash::CryptoHash`
+    /// (ReceiptId) type. The ReceivedData is not available and is needed
+    /// for the postponed receipt to execute.
     pub const POSTPONED_RECEIPT_ID: u8 = 4;
-    /// This column id is used when storing the number of missing data inputs that are still not
-    /// available for a key `receipt_id`.
+    /// This column id is used when storing the number of missing data inputs
+    /// that are still not available for a key `receipt_id`.
     pub const PENDING_DATA_COUNT: u8 = 5;
-    /// This column id is used when storing the postponed receipts (`primitives::receipt::Receipt`).
+    /// This column id is used when storing the postponed receipts
+    /// (`primitives::receipt::Receipt`).
     pub const POSTPONED_RECEIPT: u8 = 6;
-    /// This column id is used when storing the indices of the delayed receipts queue.
-    /// NOTE: It is a singleton per shard.
+    /// This column id is used when storing the indices of the delayed receipts
+    /// queue. NOTE: It is a singleton per shard.
     pub const DELAYED_RECEIPT_INDICES: u8 = 7;
-    /// This column id is used when storing delayed receipts, because the shard is overwhelmed.
+    /// This column id is used when storing delayed receipts, because the shard
+    /// is overwhelmed.
     pub const DELAYED_RECEIPT: u8 = 8;
-    /// This column id is used when storing Key-Value data from a contract on an `account_id`.
+    /// This column id is used when storing Key-Value data from a contract on an
+    /// `account_id`.
     pub const CONTRACT_DATA: u8 = 9;
     /// All columns
     pub const NON_DELAYED_RECEIPT_COLUMNS: [(u8, &str); 8] = [
@@ -51,37 +58,43 @@ pub(crate) mod col {
 /// Describes the key of a specific key-value record in a state trie.
 #[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
 pub enum TrieKey {
-    /// Used to store `primitives::account::Account` struct for a given `AccountId`.
+    /// Used to store `primitives::account::Account` struct for a given
+    /// `AccountId`.
     Account { account_id: AccountId },
     /// Used to store `Vec<u8>` contract code for a given `AccountId`.
     ContractCode { account_id: AccountId },
-    /// Used to store `primitives::account::AccessKey` struct for a given `AccountId` and
-    /// a given `public_key` of the `AccessKey`.
+    /// Used to store `primitives::account::AccessKey` struct for a given
+    /// `AccountId` and a given `public_key` of the `AccessKey`.
     AccessKey { account_id: AccountId, public_key: PublicKey },
-    /// Used to store `primitives::receipt::ReceivedData` struct for a given receiver's `AccountId`
-    /// of `DataReceipt` and a given `data_id` (the unique identifier for the data).
-    /// NOTE: This is one of the input data for some action receipt.
-    /// The action receipt might be still not be received or requires more pending input data.
+    /// Used to store `primitives::receipt::ReceivedData` struct for a given
+    /// receiver's `AccountId` of `DataReceipt` and a given `data_id` (the
+    /// unique identifier for the data). NOTE: This is one of the input data
+    /// for some action receipt. The action receipt might be still not be
+    /// received or requires more pending input data.
     ReceivedData { receiver_id: AccountId, data_id: CryptoHash },
-    /// Used to store receipt ID `primitives::hash::CryptoHash` for a given receiver's `AccountId`
-    /// of the receipt and a given `data_id` (the unique identifier for the required input data).
-    /// NOTE: This receipt ID indicates the postponed receipt. We store `receipt_id` for performance
-    /// purposes to avoid deserializing the entire receipt.
+    /// Used to store receipt ID `primitives::hash::CryptoHash` for a given
+    /// receiver's `AccountId` of the receipt and a given `data_id` (the
+    /// unique identifier for the required input data). NOTE: This receipt
+    /// ID indicates the postponed receipt. We store `receipt_id` for
+    /// performance purposes to avoid deserializing the entire receipt.
     PostponedReceiptId { receiver_id: AccountId, data_id: CryptoHash },
-    /// Used to store the number of still missing input data `u32` for a given receiver's
-    /// `AccountId` and a given `receipt_id` of the receipt.
+    /// Used to store the number of still missing input data `u32` for a given
+    /// receiver's `AccountId` and a given `receipt_id` of the receipt.
     PendingDataCount { receiver_id: AccountId, receipt_id: CryptoHash },
-    /// Used to store the postponed receipt `primitives::receipt::Receipt` for a given receiver's
-    /// `AccountId` and a given `receipt_id` of the receipt.
+    /// Used to store the postponed receipt `primitives::receipt::Receipt` for a
+    /// given receiver's `AccountId` and a given `receipt_id` of the
+    /// receipt.
     PostponedReceipt { receiver_id: AccountId, receipt_id: CryptoHash },
-    /// Used to store indices of the delayed receipts queue (`node-runtime::DelayedReceiptIndices`).
-    /// NOTE: It is a singleton per shard.
+    /// Used to store indices of the delayed receipts queue
+    /// (`node-runtime::DelayedReceiptIndices`). NOTE: It is a singleton per
+    /// shard.
     DelayedReceiptIndices,
-    /// Used to store a delayed receipt `primitives::receipt::Receipt` for a given index `u64`
-    /// in a delayed receipt queue. The queue is unique per shard.
+    /// Used to store a delayed receipt `primitives::receipt::Receipt` for a
+    /// given index `u64` in a delayed receipt queue. The queue is unique
+    /// per shard.
     DelayedReceipt { index: u64 },
-    /// Used to store a key-value record `Vec<u8>` within a contract deployed on a given `AccountId`
-    /// and a given key.
+    /// Used to store a key-value record `Vec<u8>` within a contract deployed on
+    /// a given `AccountId` and a given key.
     ContractData { account_id: AccountId, key: Vec<u8> },
 }
 

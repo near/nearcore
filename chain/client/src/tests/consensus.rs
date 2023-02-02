@@ -16,11 +16,12 @@ use near_o11y::WithSpanContextExt;
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::types::{AccountId, BlockHeight};
 
-/// Rotates three independent sets of block producers producing blocks with a very short epoch length.
-/// Occasionally when an endorsement comes, make all the endorsers send a skip message far-ish into
-/// the future, and delay the distribution of the block produced this way.
-/// Periodically verify finality is not violated.
-/// This test is designed to reproduce finality bugs on the epoch boundaries.
+/// Rotates three independent sets of block producers producing blocks with a
+/// very short epoch length. Occasionally when an endorsement comes, make all
+/// the endorsers send a skip message far-ish into the future, and delay the
+/// distribution of the block produced this way. Periodically verify finality is
+/// not violated. This test is designed to reproduce finality bugs on the epoch
+/// boundaries.
 #[test]
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_consensus_with_epoch_switches() {
@@ -211,16 +212,18 @@ fn test_consensus_with_epoch_switches() {
                         assert_ne!(epoch_id, 100);
                         assert_ne!(my_ord, 100);
 
-                        // For each height we define `skips_per_height`, and each block producer sends
-                        // skips that far into the future from that source height.
+                        // For each height we define `skips_per_height`, and each block producer
+                        // sends skips that far into the future from that
+                        // source height.
                         let source_height = match approval_message.approval.inner {
                             ApprovalInner::Endorsement(_) => {
                                 if largest_target_height[my_ord]
                                     >= approval_message.approval.target_height
                                     && my_ord % 8 >= 2
                                 {
-                                    // We already manually sent a skip conflicting with this endorsement
-                                    // my_ord % 8 < 2 are two malicious actors in every epoch and they
+                                    // We already manually sent a skip conflicting with this
+                                    // endorsement my_ord % 8 <
+                                    // 2 are two malicious actors in every epoch and they
                                     // continue sending endorsements
                                     return (NetworkResponses::NoResponse.into(), false);
                                 }
@@ -260,12 +263,14 @@ fn test_consensus_with_epoch_switches() {
                                 );
                             // Do not send the endorsement for couple block producers in each epoch
                             // This is needed because otherwise the block with enough endorsements
-                            // sometimes comes faster than the sufficient number of skips is created,
-                            // (because the block producer themselves doesn't send the endorsement
+                            // sometimes comes faster than the sufficient number of skips is
+                            // created, (because the block producer
+                            // themselves doesn't send the endorsement
                             // over the network, they have one more approval ready to produce their
                             // block than the block producer that will be at the later height). If
-                            // such a block is indeed produced faster than all the skips are created,
-                            // the paritcipants who haven't sent their endorsements to be converted
+                            // such a block is indeed produced faster than all the skips are
+                            // created, the paritcipants who haven't
+                            // sent their endorsements to be converted
                             // to skips change their head.
                             if my_ord % 8 < 2 {
                                 return (NetworkResponses::NoResponse.into(), false);
@@ -279,8 +284,8 @@ fn test_consensus_with_epoch_switches() {
         );
         *connectors.write().unwrap() = conn;
 
-        // We only check the terminating condition once every 20 heights, thus extra 80 to
-        // account for possibly going beyond the HEIGHT_GOAL.
+        // We only check the terminating condition once every 20 heights, thus extra 80
+        // to account for possibly going beyond the HEIGHT_GOAL.
         near_network::test_utils::wait_or_panic(3000 * (80 + HEIGHT_GOAL));
     });
 }

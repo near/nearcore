@@ -95,7 +95,8 @@ pub trait MemoryLike {
     fn write_memory(&mut self, offset: u64, buffer: &[u8]) -> Result<(), ()>;
 }
 
-/// This enum represents if a storage_get call will be performed through flat storage or trie
+/// This enum represents if a storage_get call will be performed through flat
+/// storage or trie
 pub enum StorageGetMode {
     FlatStorage,
     Trie,
@@ -104,8 +105,8 @@ pub enum StorageGetMode {
 pub type Result<T, E = VMLogicError> = ::std::result::Result<T, E>;
 
 /// Logical pointer to a value in storage.
-/// Allows getting value length before getting the value itself. This is needed so that runtime
-/// can charge gas before accessing a potentially large value.
+/// Allows getting value length before getting the value itself. This is needed
+/// so that runtime can charge gas before accessing a potentially large value.
 pub trait ValuePtr {
     /// Returns the length of the value
     fn len(&self) -> u32;
@@ -119,7 +120,8 @@ pub trait ValuePtr {
 
 /// An external blockchain interface for the Runtime logic
 pub trait External {
-    /// Write `value` to the `key` of the storage trie associated with the current account.
+    /// Write `value` to the `key` of the storage trie associated with the
+    /// current account.
     ///
     /// # Example
     ///
@@ -140,10 +142,12 @@ pub trait External {
     ///
     /// * `key` - the key to read
     ///
-    /// * `mode`- whether the lookup will be performed through flat storage or trie
+    /// * `mode`- whether the lookup will be performed through flat storage or
+    ///   trie
     /// # Errors
     ///
-    /// This function could return [`near_vm_errors::VMRunnerError::ExternalError`].
+    /// This function could return
+    /// [`near_vm_errors::VMRunnerError::ExternalError`].
     ///
     /// # Example
     /// ```
@@ -162,7 +166,8 @@ pub trait External {
         mode: StorageGetMode,
     ) -> Result<Option<Box<dyn ValuePtr + 'a>>>;
 
-    /// Removes the `key` from the storage trie associated with the current account.
+    /// Removes the `key` from the storage trie associated with the current
+    /// account.
     ///
     /// The operation will succeed even if the `key` does not exist.
     ///
@@ -186,8 +191,8 @@ pub trait External {
 
     /// Note: The method is currently unused and untested.
     ///
-    /// Removes all keys with a given `prefix` from the storage trie associated with current
-    /// account.
+    /// Removes all keys with a given `prefix` from the storage trie associated
+    /// with current account.
     ///
     /// # Arguments
     ///
@@ -211,9 +216,11 @@ pub trait External {
     /// ```
     fn storage_remove_subtree(&mut self, prefix: &[u8]) -> Result<()>;
 
-    /// Check whether the `key` is present in the storage trie associated with the current account.
+    /// Check whether the `key` is present in the storage trie associated with
+    /// the current account.
     ///
-    /// Returns `Ok(true)` if key is present, `Ok(false)` if the key is not present.
+    /// Returns `Ok(true)` if key is present, `Ok(false)` if the key is not
+    /// present.
     ///
     /// # Arguments
     ///

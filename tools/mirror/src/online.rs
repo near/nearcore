@@ -69,9 +69,9 @@ impl crate::ChainAccess for ChainAccess {
         let mut height = last_height;
 
         loop {
-            // note that here we are using the fact that get_next_block_height() for this struct
-            // allows passing a height that doesn't exist in the chain. This is not true for the offline
-            // version
+            // note that here we are using the fact that get_next_block_height() for this
+            // struct allows passing a height that doesn't exist in the chain.
+            // This is not true for the offline version
             match self.get_next_block_height(height).await {
                 Ok(h) => {
                     block_heights.push(h);

@@ -32,7 +32,8 @@ pub fn do_migrate_30_to_31(
     let head = chain_store.head()?;
     let mut store_update = BatchedStoreUpdate::new(&store, 10_000_000);
     let mut count = 0;
-    // we manually checked mainnet archival data and the first block where the discrepancy happened is `47443088`.
+    // we manually checked mainnet archival data and the first block where the
+    // discrepancy happened is `47443088`.
     for height in 47443088..=head.height {
         if let Ok(block_hash) = chain_store.get_block_hash_by_height(height) {
             let block_ordinal = chain_store.get_block_merkle_tree(&block_hash)?.size();
@@ -55,8 +56,9 @@ pub fn do_migrate_30_to_31(
     Ok(())
 }
 
-/// In test runs reads and writes here used 442 TGas, but in test on live net migration take
-/// between 4 and 4.5s. We do not want to process any receipts in this block
+/// In test runs reads and writes here used 442 TGas, but in test on live net
+/// migration take between 4 and 4.5s. We do not want to process any receipts in
+/// this block
 const GAS_USED_FOR_STORAGE_USAGE_DELTA_MIGRATION: Gas = 1_000_000_000_000_000;
 
 pub fn load_migration_data(chain_id: &str) -> MigrationData {

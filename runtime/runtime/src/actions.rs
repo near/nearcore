@@ -74,7 +74,8 @@ pub(crate) fn execute_function_call(
             return Err(RuntimeError::StorageError(e));
         }
     };
-    // Output data receipts are ignored if the function call is not the last action in the batch.
+    // Output data receipts are ignored if the function call is not the last action
+    // in the batch.
     let output_data_receivers: Vec<_> = if is_last_action {
         action_receipt.output_data_receivers.iter().map(|r| r.receiver_id.clone()).collect()
     } else {
@@ -107,8 +108,9 @@ pub(crate) fn execute_function_call(
         output_data_receivers,
     };
 
-    // Enable caching chunk mode for the function call. This allows to charge for nodes touched in a chunk only once for
-    // the first access time. Although nodes are accessed for other actions as well, we do it only here because we
+    // Enable caching chunk mode for the function call. This allows to charge for
+    // nodes touched in a chunk only once for the first access time. Although
+    // nodes are accessed for other actions as well, we do it only here because we
     // charge only for trie nodes touched during function calls.
     // TODO (#5920): Consider using RAII for switching the state back
     let protocol_version = runtime_ext.protocol_version();
@@ -131,9 +133,9 @@ pub(crate) fn execute_function_call(
     }
 
     // There are many specific errors that the runtime can encounter.
-    // Some can be translated to the more general `RuntimeError`, which allows to pass
-    // the error up to the caller. For all other cases, panicking here is better
-    // than leaking the exact details further up.
+    // Some can be translated to the more general `RuntimeError`, which allows to
+    // pass the error up to the caller. For all other cases, panicking here is
+    // better than leaking the exact details further up.
     // Note that this does not include errors caused by user code / input, those are
     // stored in outcome.aborted.
     result.map_err(|e| match e {
@@ -256,10 +258,10 @@ pub(crate) fn action_function_call(
     result.gas_burnt = safe_add_gas(result.gas_burnt, outcome.burnt_gas)?;
     result.gas_burnt_for_function_call =
         safe_add_gas(result.gas_burnt_for_function_call, outcome.burnt_gas)?;
-    // Runtime in `generate_refund_receipts` takes care of using proper value for refunds.
-    // It uses `gas_used` for success and `gas_burnt` for failures. So it's not an issue to
-    // return a real `gas_used` instead of the `gas_burnt` into `ActionResult` even for
-    // `FunctionCall`s error.
+    // Runtime in `generate_refund_receipts` takes care of using proper value for
+    // refunds. It uses `gas_used` for success and `gas_burnt` for failures. So
+    // it's not an issue to return a real `gas_used` instead of the `gas_burnt`
+    // into `ActionResult` even for `FunctionCall`s error.
     result.gas_used = safe_add_gas(result.gas_used, outcome.used_gas)?;
     result.logs.extend(outcome.logs);
     result.profile.merge(&outcome.profile);
@@ -408,7 +410,8 @@ pub(crate) fn action_create_account(
             // OK: Valid top-level Account ID
         }
     } else if !account_id.is_sub_account_of(predecessor_id) {
-        // The sub-account can only be created by its root account. E.g. `alice.near` only by `near`
+        // The sub-account can only be created by its root account. E.g. `alice.near`
+        // only by `near`
         result.result = Err(ActionErrorKind::CreateAccountNotAllowed {
             account_id: account_id.clone(),
             predecessor_id: predecessor_id.clone(),
@@ -438,14 +441,15 @@ pub(crate) fn action_implicit_account_creation_transfer(
     block_height: BlockHeight,
     current_protocol_version: ProtocolVersion,
 ) {
-    // NOTE: The account_id is hex like, because we've checked the permissions before.
+    // NOTE: The account_id is hex like, because we've checked the permissions
+    // before.
     debug_assert!(account_id.is_implicit());
 
     *actor_id = account_id.clone();
 
     let mut access_key = AccessKey::full_access();
-    // Set default nonce for newly created access key to avoid transaction hash collision.
-    // See <https://github.com/near/nearcore/issues/3779>.
+    // Set default nonce for newly created access key to avoid transaction hash
+    // collision. See <https://github.com/near/nearcore/issues/3779>.
     if checked_feature!("stable", AccessKeyNonceForImplicitAccounts, current_protocol_version) {
         access_key.nonce = (block_height - 1)
             * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
@@ -498,9 +502,10 @@ pub(crate) fn action_deploy_contract(
     );
     account.set_code_hash(*code.hash());
     set_code(state_update, account_id.clone(), &code);
-    // Precompile the contract and store result (compiled code or error) in the database.
-    // Note, that contract compilation costs are already accounted in deploy cost using
-    // special logic in estimator (see get_runtime_config() function).
+    // Precompile the contract and store result (compiled code or error) in the
+    // database. Note, that contract compilation costs are already accounted in
+    // deploy cost using special logic in estimator (see get_runtime_config()
+    // function).
     precompile_contract(
         &code,
         &apply_state.config.wasm_config,
@@ -686,11 +691,14 @@ pub(crate) fn apply_delegate_action(
         }),
     };
 
-    // Note, Relayer prepaid all fees and all things required by actions: attached deposits and attached gas.
-    // If something goes wrong, deposit is refunded to the predecessor, this is sender_id/Sender in DelegateAction.
+    // Note, Relayer prepaid all fees and all things required by actions: attached
+    // deposits and attached gas. If something goes wrong, deposit is refunded
+    // to the predecessor, this is sender_id/Sender in DelegateAction.
     // Gas is refunded to the signer, this is Relayer.
-    // Some contracts refund the deposit. Usually they refund the deposit to the predecessor and this is sender_id/Sender from DelegateAction.
-    // Therefore Relayer should verify DelegateAction before submitting it because it spends the attached deposit.
+    // Some contracts refund the deposit. Usually they refund the deposit to the
+    // predecessor and this is sender_id/Sender from DelegateAction.
+    // Therefore Relayer should verify DelegateAction before submitting it because
+    // it spends the attached deposit.
 
     let prepaid_send_fees = total_prepaid_send_fees(
         &apply_state.config.fees,
@@ -700,8 +708,9 @@ pub(crate) fn apply_delegate_action(
     let required_gas = receipt_required_gas(apply_state, &new_receipt)?;
     // This gas will be burnt by the receiver of the created receipt,
     result.gas_used = safe_add_gas(result.gas_used, required_gas)?;
-    // This gas was prepaid on Relayer shard. Need to burn it because the receipt is going to be sent.
-    // gas_used is incremented because otherwise the gas will be refunded. Refund function checks only gas_used.
+    // This gas was prepaid on Relayer shard. Need to burn it because the receipt is
+    // going to be sent. gas_used is incremented because otherwise the gas will
+    // be refunded. Refund function checks only gas_used.
     result.gas_used = safe_add_gas(result.gas_used, prepaid_send_fees)?;
     result.gas_burnt = safe_add_gas(result.gas_burnt, prepaid_send_fees)?;
     result.new_receipts.push(new_receipt);
@@ -709,7 +718,8 @@ pub(crate) fn apply_delegate_action(
     Ok(())
 }
 
-/// Returns Gas amount is required to execute Receipt and all actions it contains
+/// Returns Gas amount is required to execute Receipt and all actions it
+/// contains
 #[cfg(feature = "protocol_feature_nep366_delegate_action")]
 fn receipt_required_gas(apply_state: &ApplyState, receipt: &Receipt) -> Result<Gas, RuntimeError> {
     Ok(match &receipt.receipt {
@@ -736,7 +746,8 @@ fn receipt_required_gas(apply_state: &ApplyState, receipt: &Receipt) -> Result<G
 
 /// Validate access key which was used for signing DelegateAction:
 ///
-/// - Checks whether the access key is present fo given public_key and sender_id.
+/// - Checks whether the access key is present fo given public_key and
+///   sender_id.
 /// - Validates nonce and updates it if it's ok.
 /// - Validates access key permissions.
 #[cfg(feature = "protocol_feature_nep366_delegate_action")]
@@ -790,7 +801,8 @@ fn validate_delegate_action_key(
     let actions = delegate_action.get_actions();
 
     // The restriction of "function call" access keys:
-    // the transaction must contain the only `FunctionCall` if "function call" access key is used
+    // the transaction must contain the only `FunctionCall` if "function call"
+    // access key is used
     if let AccessKeyPermission::FunctionCall(ref function_call_permission) = access_key.permission {
         if actions.len() != 1 {
             result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(

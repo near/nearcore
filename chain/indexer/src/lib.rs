@@ -61,7 +61,8 @@ pub enum SyncModeEnum {
     BlockHeight(u64),
 }
 
-/// Enum to define whether await for node to be fully synced or stream while syncing (useful for indexing from genesis)
+/// Enum to define whether await for node to be fully synced or stream while
+/// syncing (useful for indexing from genesis)
 #[derive(Debug, Clone)]
 pub enum AwaitForNodeSyncedEnum {
     /// Don't stream until the node is fully synced
@@ -83,7 +84,8 @@ pub struct IndexerConfig {
     pub validate_genesis: bool,
 }
 
-/// This is the core component, which handles `nearcore` and internal `streamer`.
+/// This is the core component, which handles `nearcore` and internal
+/// `streamer`.
 pub struct Indexer {
     indexer_config: IndexerConfig,
     near_config: nearcore::NearConfig,
@@ -122,7 +124,9 @@ impl Indexer {
         Ok(Self { view_client, client, near_config, indexer_config })
     }
 
-    /// Boots up `near_indexer::streamer`, so it monitors the new blocks with chunks, transactions, receipts, and execution outcomes inside. The returned stream handler should be drained and handled on the user side.
+    /// Boots up `near_indexer::streamer`, so it monitors the new blocks with
+    /// chunks, transactions, receipts, and execution outcomes inside. The
+    /// returned stream handler should be drained and handled on the user side.
     pub fn streamer(&self) -> mpsc::Receiver<StreamerMessage> {
         let (sender, receiver) = mpsc::channel(100);
         actix::spawn(streamer::start(
@@ -140,7 +144,8 @@ impl Indexer {
         &self.near_config
     }
 
-    /// Internal client actors just in case. Use on your own risk, backward compatibility is not guaranteed
+    /// Internal client actors just in case. Use on your own risk, backward
+    /// compatibility is not guaranteed
     pub fn client_actors(
         &self,
     ) -> (actix::Addr<near_client::ViewClientActor>, actix::Addr<near_client::ClientActor>) {

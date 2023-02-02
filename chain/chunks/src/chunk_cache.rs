@@ -8,30 +8,36 @@ use near_primitives::types::{BlockHeight, BlockHeightDelta, ShardId};
 use std::collections::hash_map::Entry::Occupied;
 use tracing::warn;
 
-// This file implements EncodedChunksCache, which provides three main functionalities:
-// 1) It stores a map from a chunk hash to all the parts and receipts received so far for the chunk.
-//    This map is used to aggregate chunk parts and receipts before the full chunk can be reconstructed
-//    or the necessary parts and receipts are received.
-//    When a PartialEncodedChunk is received, the parts and receipts it contains are merged to the
+// This file implements EncodedChunksCache, which provides three main
+// functionalities: 1) It stores a map from a chunk hash to all the parts and
+// receipts received so far for the chunk.    This map is used to aggregate
+// chunk parts and receipts before the full chunk can be reconstructed    or the
+// necessary parts and receipts are received.    When a PartialEncodedChunk is
+// received, the parts and receipts it contains are merged to the
 //    corresponding chunk entry in the map.
-//    Entries in the map are removed if the chunk is found to be invalid or the chunk goes out of
-//    horizon [chain_head_height - HEIGHT_HORIZON, chain_head_height + MAX_HEIGHTS_AHEAD]
-// 2) It stores the set of incomplete chunks, indexed by the block hash of the previous block.
-//    A chunk always starts incomplete. It can be marked as complete through
-//    `mark_entry_complete`. A complete entry means the chunk has all parts and receipts needed.
-// 3) It stores a map from block hash to chunk headers that are ready to be included in a block.
-//    This functionality is meant for block producers. When producing a block, the block producer
-//    will only include chunks in the block for which it has received the part it owns.
-//    Users of the data structure are responsible for adding chunk to this map at the right time.
+//    Entries in the map are removed if the chunk is found to be invalid or the
+// chunk goes out of    horizon [chain_head_height - HEIGHT_HORIZON,
+// chain_head_height + MAX_HEIGHTS_AHEAD] 2) It stores the set of incomplete
+// chunks, indexed by the block hash of the previous block.    A chunk always
+// starts incomplete. It can be marked as complete through
+//    `mark_entry_complete`. A complete entry means the chunk has all parts and
+// receipts needed. 3) It stores a map from block hash to chunk headers that are
+// ready to be included in a block.    This functionality is meant for block
+// producers. When producing a block, the block producer    will only include
+// chunks in the block for which it has received the part it owns.    Users of
+// the data structure are responsible for adding chunk to this map at the right
+// time.
 
-/// A chunk is out of horizon if its height + HEIGHT_HORIZON < largest_seen_height
+/// A chunk is out of horizon if its height + HEIGHT_HORIZON <
+/// largest_seen_height
 const HEIGHT_HORIZON: BlockHeightDelta = 1024;
-/// A chunk is out of horizon if its height > HEIGHT_HORIZON + largest_seen_height
+/// A chunk is out of horizon if its height > HEIGHT_HORIZON +
+/// largest_seen_height
 const MAX_HEIGHTS_AHEAD: BlockHeightDelta = 5;
 
-/// EncodedChunksCacheEntry stores the consolidated parts and receipts received for a chunk
-/// When a PartialEncodedChunk is received, it can be merged to the existing EncodedChunksCacheEntry
-/// for the chunk
+/// EncodedChunksCacheEntry stores the consolidated parts and receipts received
+/// for a chunk When a PartialEncodedChunk is received, it can be merged to the
+/// existing EncodedChunksCacheEntry for the chunk
 pub struct EncodedChunksCacheEntry {
     pub header: ShardChunkHeader,
     pub parts: HashMap<u64, PartialEncodedChunkPart>,
@@ -41,10 +47,11 @@ pub struct EncodedChunksCacheEntry {
     /// whether this chunk is ready for inclusion for producing a block
     pub ready_for_inclusion: bool,
     /// Whether the header has been **fully** validated.
-    /// Every entry added to the cache already has their header "partially" validated
-    /// by validate_chunk_header. When the previous block is accepted, they must be
-    /// validated again to make sure they are fully validated.
-    /// See comments in `validate_chunk_header` for more context on partial vs full validation
+    /// Every entry added to the cache already has their header "partially"
+    /// validated by validate_chunk_header. When the previous block is
+    /// accepted, they must be validated again to make sure they are fully
+    /// validated. See comments in `validate_chunk_header` for more context
+    /// on partial vs full validation
     pub header_fully_validated: bool,
 }
 
@@ -52,18 +59,20 @@ pub struct EncodedChunksCache {
     /// Largest seen height from the head of the chain
     largest_seen_height: BlockHeight,
 
-    /// A map from a chunk hash to the corresponding EncodedChunksCacheEntry of the chunk
-    /// Entries in this map have height in
-    /// [chain_head_height - HEIGHT_HORIZON, chain_head_height + MAX_HEIGHTS_AHEAD]
+    /// A map from a chunk hash to the corresponding EncodedChunksCacheEntry of
+    /// the chunk Entries in this map have height in
+    /// [chain_head_height - HEIGHT_HORIZON, chain_head_height +
+    /// MAX_HEIGHTS_AHEAD]
     encoded_chunks: HashMap<ChunkHash, EncodedChunksCacheEntry>,
-    /// A map from a block height to chunk hashes at this height for all chunk stored in the cache
-    /// This is used to gc chunks that are out of horizon
+    /// A map from a block height to chunk hashes at this height for all chunk
+    /// stored in the cache This is used to gc chunks that are out of
+    /// horizon
     height_map: HashMap<BlockHeight, HashSet<ChunkHash>>,
-    /// A map from block height to shard ID to the chunk hash we've received, so we only process
-    /// one chunk per shard per height.
+    /// A map from block height to shard ID to the chunk hash we've received, so
+    /// we only process one chunk per shard per height.
     height_to_shard_to_chunk: HashMap<BlockHeight, HashMap<ShardId, ChunkHash>>,
-    /// A map from a block hash to a set of incomplete chunks (does not have all parts and receipts yet)
-    /// whose previous block is the block hash.
+    /// A map from a block hash to a set of incomplete chunks (does not have all
+    /// parts and receipts yet) whose previous block is the block hash.
     incomplete_chunks: HashMap<CryptoHash, HashSet<ChunkHash>>,
 }
 
@@ -79,8 +88,8 @@ impl EncodedChunksCacheEntry {
         }
     }
 
-    /// Inserts previously unknown chunks and receipts, returning the part ords that were
-    /// previously unknown.
+    /// Inserts previously unknown chunks and receipts, returning the part ords
+    /// that were previously unknown.
     pub fn merge_in_partial_encoded_chunk(
         &mut self,
         partial_encoded_chunk: &PartialEncodedChunkV2,
@@ -117,7 +126,8 @@ impl EncodedChunksCache {
         self.encoded_chunks.get(chunk_hash)
     }
 
-    /// Mark an entry as complete, which means it has all parts and receipts needed
+    /// Mark an entry as complete, which means it has all parts and receipts
+    /// needed
     pub fn mark_entry_complete(&mut self, chunk_hash: &ChunkHash) {
         if let Some(entry) = self.encoded_chunks.get_mut(chunk_hash) {
             entry.complete = true;
@@ -136,7 +146,8 @@ impl EncodedChunksCache {
         }
     }
 
-    /// Get a list of incomplete chunks whose previous block hash is `prev_block_hash`
+    /// Get a list of incomplete chunks whose previous block hash is
+    /// `prev_block_hash`
     pub fn get_incomplete_chunks(
         &self,
         prev_block_hash: &CryptoHash,
@@ -153,8 +164,8 @@ impl EncodedChunksCache {
         }
     }
 
-    // Remove the chunk from the `incomplete_chunks` map. This is an internal function.
-    // Use `mark_entry_complete` instead for outside calls
+    // Remove the chunk from the `incomplete_chunks` map. This is an internal
+    // function. Use `mark_entry_complete` instead for outside calls
     fn remove_chunk_from_incomplete_chunks(
         &mut self,
         prev_block_hash: &CryptoHash,
@@ -168,8 +179,8 @@ impl EncodedChunksCache {
         }
     }
 
-    // Create an empty entry from the header and insert it if there is no entry for the chunk already
-    // Return a mutable reference to the entry
+    // Create an empty entry from the header and insert it if there is no entry for
+    // the chunk already Return a mutable reference to the entry
     pub fn get_or_insert_from_header(
         &mut self,
         chunk_header: &ShardChunkHeader,
@@ -212,8 +223,9 @@ impl EncodedChunksCache {
         self.height_to_shard_to_chunk.get(&height)?.get(&shard_id)
     }
 
-    /// Add parts and receipts stored in a partial encoded chunk to the corresponding chunk entry,
-    /// returning the set of part ords that were previously unknown.
+    /// Add parts and receipts stored in a partial encoded chunk to the
+    /// corresponding chunk entry, returning the set of part ords that were
+    /// previously unknown.
     pub fn merge_in_partial_encoded_chunk(
         &mut self,
         partial_encoded_chunk: &PartialEncodedChunkV2,
@@ -232,7 +244,8 @@ impl EncodedChunksCache {
         }
     }
 
-    /// Update largest seen height and removes chunks from the cache that are outside of horizon
+    /// Update largest seen height and removes chunks from the cache that are
+    /// outside of horizon
     pub fn update_largest_seen_height<T>(
         &mut self,
         new_height: BlockHeight,
@@ -254,8 +267,9 @@ impl EncodedChunksCache {
         }
     }
 
-    /// Marks the chunk for inclusion in a block; returns true if we haven't already
-    /// called for this chunk. Requires that the chunk is already in the cache.
+    /// Marks the chunk for inclusion in a block; returns true if we haven't
+    /// already called for this chunk. Requires that the chunk is already in
+    /// the cache.
     pub fn mark_chunk_for_inclusion(&mut self, chunk_hash: &ChunkHash) -> bool {
         let entry = self.encoded_chunks.get_mut(chunk_hash).unwrap();
         if entry.ready_for_inclusion {

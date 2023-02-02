@@ -76,7 +76,8 @@ fn verify_contract_limits_upgrade(
     }
 }
 
-// Check that we can't call a contract exceeding functions number limit after upgrade.
+// Check that we can't call a contract exceeding functions number limit after
+// upgrade.
 #[test]
 fn test_function_limit_change() {
     verify_contract_limits_upgrade(
@@ -87,7 +88,8 @@ fn test_function_limit_change() {
     );
 }
 
-// Check that we can't call a contract exceeding functions number limit after upgrade.
+// Check that we can't call a contract exceeding functions number limit after
+// upgrade.
 #[test]
 fn test_local_limit_change() {
     verify_contract_limits_upgrade(

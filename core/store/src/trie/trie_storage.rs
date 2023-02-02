@@ -50,18 +50,21 @@ impl<T> BoundedQueue<T> {
     }
 }
 
-/// In-memory cache for trie items - nodes and values. All nodes are stored in the LRU cache with three modifications.
-/// 1) Size of each value must not exceed `TRIE_LIMIT_CACHED_VALUE_SIZE`.
-/// Needed to avoid caching large values like contract codes.
-/// 2) If we put new value to LRU cache and total size of existing values exceeds `total_sizes_capacity`, we evict
-/// values from it until that is no longer the case. So the actual total size should never exceed
-/// `total_size_limit` + `TRIE_LIMIT_CACHED_VALUE_SIZE`.
-/// Needed because value sizes generally vary from 1 B to 500 B and we want to count cache size precisely.
-/// 3) If value is popped, it is put to the `deletions` queue with `deletions_queue_capacity` first. If popped value
-/// doesn't fit in the queue, the last value is removed from the queue and LRU cache, and newly popped value is inserted
-/// to the queue.
-/// Needed to delay deletions when we have forks. In such case, many blocks can share same parent, and we want to keep
-/// old nodes in cache for a while to process all new roots. For example, it helps to read old state root.
+/// In-memory cache for trie items - nodes and values. All nodes are stored in
+/// the LRU cache with three modifications. 1) Size of each value must not
+/// exceed `TRIE_LIMIT_CACHED_VALUE_SIZE`. Needed to avoid caching large values
+/// like contract codes. 2) If we put new value to LRU cache and total size of
+/// existing values exceeds `total_sizes_capacity`, we evict values from it
+/// until that is no longer the case. So the actual total size should never
+/// exceed `total_size_limit` + `TRIE_LIMIT_CACHED_VALUE_SIZE`.
+/// Needed because value sizes generally vary from 1 B to 500 B and we want to
+/// count cache size precisely. 3) If value is popped, it is put to the
+/// `deletions` queue with `deletions_queue_capacity` first. If popped value
+/// doesn't fit in the queue, the last value is removed from the queue and LRU
+/// cache, and newly popped value is inserted to the queue.
+/// Needed to delay deletions when we have forks. In such case, many blocks can
+/// share same parent, and we want to keep old nodes in cache for a while to
+/// process all new roots. For example, it helps to read old state root.
 pub struct TrieCacheInner {
     /// LRU cache keeping mapping from keys to values.
     cache: LruCache<CryptoHash, Arc<[u8]>>,
@@ -102,7 +105,8 @@ impl TrieCacheInner {
         is_view: bool,
     ) -> Self {
         assert!(total_size_limit > 0);
-        // `itoa` is much faster for printing shard_id to a string than trivial alternatives.
+        // `itoa` is much faster for printing shard_id to a string than trivial
+        // alternatives.
         let mut buffer = itoa::Buffer::new();
         let shard_id_str = buffer.format(shard_id);
 
@@ -181,7 +185,8 @@ impl TrieCacheInner {
         self.metrics.shard_cache_deletions_size.set(self.deletions.len() as i64);
         // Do nothing if key was removed before.
         if self.cache.contains(key) {
-            // Put key to the queue of deletions and possibly remove another key we have to delete.
+            // Put key to the queue of deletions and possibly remove another key we have to
+            // delete.
             match self.deletions.put(key.clone()) {
                 Some(key_to_delete) => match self.cache.pop(&key_to_delete) {
                     Some(evicted_value) => {
@@ -346,7 +351,8 @@ impl TrieStorage for TrieRecordingStorage {
 }
 
 /// Storage for validating recorded partial storage.
-/// visited_nodes are to validate that partial storage doesn't contain unnecessary nodes.
+/// visited_nodes are to validate that partial storage doesn't contain
+/// unnecessary nodes.
 pub struct TrieMemoryPartialStorage {
     pub(crate) recorded_storage: HashMap<CryptoHash, Arc<[u8]>>,
     pub(crate) visited_nodes: RefCell<HashSet<CryptoHash>>,
@@ -375,23 +381,27 @@ pub struct TrieCachingStorage {
     pub(crate) store: Store,
     pub(crate) shard_uid: ShardUId,
 
-    /// Caches ever requested items for the shard `shard_uid`. Used to speed up DB operations, presence of any item is
-    /// not guaranteed.
+    /// Caches ever requested items for the shard `shard_uid`. Used to speed up
+    /// DB operations, presence of any item is not guaranteed.
     pub(crate) shard_cache: TrieCache,
-    /// Caches all items requested in the mode `TrieCacheMode::CachingChunk`. It is created in
-    /// `apply_transactions_with_optional_storage_proof` by calling `get_trie_for_shard`. Before we start to apply
-    /// txs and receipts in the chunk, it must be empty, and all items placed here must remain until applying
-    /// txs/receipts ends. Then cache is removed automatically in `apply_transactions_with_optional_storage_proof` when
+    /// Caches all items requested in the mode `TrieCacheMode::CachingChunk`. It
+    /// is created in `apply_transactions_with_optional_storage_proof` by
+    /// calling `get_trie_for_shard`. Before we start to apply
+    /// txs and receipts in the chunk, it must be empty, and all items placed
+    /// here must remain until applying txs/receipts ends. Then cache is
+    /// removed automatically in
+    /// `apply_transactions_with_optional_storage_proof` when
     /// `TrieCachingStorage` is removed.
-    /// Note that for both caches key is the hash of value, so for the fixed key the value is unique.
+    /// Note that for both caches key is the hash of value, so for the fixed key
+    /// the value is unique.
     pub(crate) chunk_cache: RefCell<HashMap<CryptoHash, Arc<[u8]>>>,
     pub(crate) cache_mode: Cell<TrieCacheMode>,
 
     /// The entry point for the runtime to submit prefetch requests.
     pub(crate) prefetch_api: Option<PrefetchApi>,
 
-    /// Counts potentially expensive trie node reads which are served from disk in the worst case. Here we count reads
-    /// from DB or shard cache.
+    /// Counts potentially expensive trie node reads which are served from disk
+    /// in the worst case. Here we count reads from DB or shard cache.
     pub(crate) db_read_nodes: Cell<u64>,
     /// Counts trie nodes retrieved from the chunk cache.
     pub(crate) mem_read_nodes: Cell<u64>,
@@ -425,7 +435,8 @@ impl TrieCachingStorage {
         is_view: bool,
         prefetch_api: Option<PrefetchApi>,
     ) -> TrieCachingStorage {
-        // `itoa` is much faster for printing shard_id to a string than trivial alternatives.
+        // `itoa` is much faster for printing shard_id to a string than trivial
+        // alternatives.
         let mut buffer = itoa::Buffer::new();
         let shard_id = buffer.format(shard_uid.shard_id);
 
@@ -501,8 +512,9 @@ impl TrieCachingStorage {
 impl TrieStorage for TrieCachingStorage {
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
         self.metrics.chunk_cache_size.set(self.chunk_cache.borrow().len() as i64);
-        // Try to get value from chunk cache containing nodes with cheaper access. We can do it for any `TrieCacheMode`,
-        // because we charge for reading nodes only when `CachingChunk` mode is enabled anyway.
+        // Try to get value from chunk cache containing nodes with cheaper access. We
+        // can do it for any `TrieCacheMode`, because we charge for reading
+        // nodes only when `CachingChunk` mode is enabled anyway.
         if let Some(val) = self.chunk_cache.borrow_mut().get(hash) {
             self.metrics.chunk_cache_hits.inc();
             self.inc_mem_read_nodes();
@@ -526,13 +538,15 @@ impl TrieStorage for TrieCachingStorage {
                 let val;
                 if let Some(prefetcher) = &self.prefetch_api {
                     let prefetch_state = prefetcher.prefetching.get_or_set_fetching(hash.clone());
-                    // Keep lock until here to avoid race condition between shard cache lookup and reserving prefetch slot.
+                    // Keep lock until here to avoid race condition between shard cache lookup and
+                    // reserving prefetch slot.
                     std::mem::drop(guard);
 
                     val = match prefetch_state {
                         // Slot reserved for us, the main thread.
-                        // `SlotReserved` for the main thread means, either we have not submitted a prefetch request for
-                        // this value, or maybe it is just still queued up. Either way, prefetching is not going to help
+                        // `SlotReserved` for the main thread means, either we have not submitted a
+                        // prefetch request for this value, or maybe it is
+                        // just still queued up. Either way, prefetching is not going to help
                         // so the main thread should fetch data from DB on its own.
                         PrefetcherResult::SlotReserved => {
                             self.metrics.prefetch_not_requested.inc();
@@ -540,8 +554,9 @@ impl TrieStorage for TrieCachingStorage {
                         }
                         // `MemoryLimitReached` is not really relevant for the main thread,
                         // we always have to go to DB even if we could not stage a new prefetch.
-                        // It only means we were not able to mark it as already being fetched, which in turn could lead to
-                        // a prefetcher trying to fetch the same value before we can put it in the shard cache.
+                        // It only means we were not able to mark it as already being fetched, which
+                        // in turn could lead to a prefetcher trying to
+                        // fetch the same value before we can put it in the shard cache.
                         PrefetcherResult::MemoryLimitReached => {
                             self.metrics.prefetch_memory_limit_reached.inc();
                             self.read_from_db(hash)?
@@ -555,14 +570,17 @@ impl TrieStorage for TrieCachingStorage {
                             near_o11y::io_trace!(count: "prefetch_pending");
                             self.metrics.prefetch_pending.inc();
                             std::thread::yield_now();
-                            // If data is already being prefetched, wait for that instead of sending a new request.
+                            // If data is already being prefetched, wait for that instead of sending
+                            // a new request.
                             match prefetcher.prefetching.blocking_get(hash.clone()) {
                                 Some(value) => value,
                                 // Only main thread (this one) removes values from staging area,
-                                // therefore blocking read will usually not return empty unless there
-                                // was a storage error. Or in the case of forks and parallel chunk
-                                // processing where one chunk cleans up prefetched data from the other.
-                                // So first we need to check if the data was inserted to shard_cache
+                                // therefore blocking read will usually not return empty unless
+                                // there was a storage error. Or in
+                                // the case of forks and parallel chunk
+                                // processing where one chunk cleans up prefetched data from the
+                                // other. So first we need to check
+                                // if the data was inserted to shard_cache
                                 // by the main thread from another fork and only if that fails then
                                 // fetch the data from the DB.
                                 None => {
@@ -583,8 +601,9 @@ impl TrieStorage for TrieCachingStorage {
                 }
 
                 // Insert value to shard cache, if its size is small enough.
-                // It is fine to have a size limit for shard cache and **not** have a limit for chunk cache, because key
-                // is always a value hash, so for each key there could be only one value, and it is impossible to have
+                // It is fine to have a size limit for shard cache and **not** have a limit for
+                // chunk cache, because key is always a value hash, so for each
+                // key there could be only one value, and it is impossible to have
                 // **different** values for the given key in shard and chunk caches.
                 if val.len() < TrieConfig::max_cached_value_size() {
                     let mut guard = self.shard_cache.lock();
@@ -603,16 +622,22 @@ impl TrieStorage for TrieCachingStorage {
             }
         };
 
-        // Because node is not present in chunk cache, increment the nodes counter and optionally insert it into the
-        // chunk cache.
-        // Note that we don't have a size limit for values in the chunk cache. There are two reasons:
-        // - for nodes, value size is an implementation detail. If we change internal representation of a node (e.g.
-        // change `memory_usage` field from `RawTrieNodeWithSize`), this would have to be a protocol upgrade.
+        // Because node is not present in chunk cache, increment the nodes counter and
+        // optionally insert it into the chunk cache.
+        // Note that we don't have a size limit for values in the chunk cache. There are
+        // two reasons:
+        // - for nodes, value size is an implementation detail. If we change internal
+        //   representation of a node (e.g.
+        // change `memory_usage` field from `RawTrieNodeWithSize`), this would have to
+        // be a protocol upgrade.
         // - total size of all values is limited by the runtime fees. More thoroughly:
-        // - - number of nodes is limited by receipt gas limit / touching trie node fee ~= 500 Tgas / 16 Ggas = 31_250;
-        // - - size of trie keys and values is limited by receipt gas limit / lowest per byte fee
+        // - - number of nodes is limited by receipt gas limit / touching trie node fee
+        //   ~= 500 Tgas / 16 Ggas = 31_250;
+        // - - size of trie keys and values is limited by receipt gas limit / lowest per
+        //   byte fee
         // (`storage_read_value_byte`) ~= (500 * 10**12 / 5611005) / 2**20 ~= 85 MB.
-        // All values are given as of 16/03/2022. We may consider more precise limit for the chunk cache as well.
+        // All values are given as of 16/03/2022. We may consider more precise limit for
+        // the chunk cache as well.
         self.inc_db_read_nodes();
         if let TrieCacheMode::CachingChunk = self.cache_mode.borrow().get() {
             self.chunk_cache.borrow_mut().insert(*hash, val.clone());
@@ -656,7 +681,8 @@ impl TrieCachingStorage {
 /// Storage for reading State nodes and values directly from DB.
 ///
 /// This `TrieStorage` implementation has no caches, it just goes to DB.
-/// It is useful for background tasks that should not affect chunk processing and block each other.
+/// It is useful for background tasks that should not affect chunk processing
+/// and block each other.
 pub struct TrieDBStorage {
     pub(crate) store: Store,
     pub(crate) shard_uid: ShardUId,
@@ -729,7 +755,8 @@ mod trie_cache_tests {
         let value_size_sum = 5;
         let memory_overhead = 2 * TrieCacheInner::PER_ENTRY_OVERHEAD;
         let mut cache = TrieCacheInner::new(100, value_size_sum + memory_overhead, 0, false);
-        // Add three values. Before each put, condition on total size should not be triggered.
+        // Add three values. Before each put, condition on total size should not be
+        // triggered.
         put_value(&mut cache, &[1, 1]);
         assert_eq!(cache.current_total_size(), 2 + TrieCacheInner::PER_ENTRY_OVERHEAD);
         put_value(&mut cache, &[1, 1, 1]);
@@ -751,11 +778,13 @@ mod trie_cache_tests {
         put_value(&mut cache, &[1]);
         put_value(&mut cache, &[1, 1]);
 
-        // Call pop for inserted values. Because deletions queue is not full, no elements should be deleted.
+        // Call pop for inserted values. Because deletions queue is not full, no
+        // elements should be deleted.
         assert_eq!(cache.pop(&hash(&[1, 1])), None);
         assert_eq!(cache.pop(&hash(&[1])), None);
 
-        // Call pop two times for a value existing in cache. Because queue is full, both elements should be deleted.
+        // Call pop two times for a value existing in cache. Because queue is full, both
+        // elements should be deleted.
         assert_eq!(cache.pop(&hash(&[1])), Some((hash(&[1, 1]), vec![1, 1].into())));
         assert_eq!(cache.pop(&hash(&[1])), Some((hash(&[1]), vec![1].into())));
     }

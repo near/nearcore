@@ -226,7 +226,8 @@ impl Handler<WithSpanContext<StopSignal>> for PeerManagerActor {
     }
 }
 
-// Mocked `PeerManager` adapter, has a queue of `PeerManagerMessageRequest` messages.
+// Mocked `PeerManager` adapter, has a queue of `PeerManagerMessageRequest`
+// messages.
 #[derive(Default)]
 pub struct MockPeerManagerAdapter {
     pub requests: Arc<RwLock<VecDeque<PeerManagerMessageRequest>>>,

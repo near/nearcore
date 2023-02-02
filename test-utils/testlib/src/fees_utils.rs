@@ -1,5 +1,5 @@
-//! Helper functions to compute the costs of certain actions assuming they succeed and the only
-//! actions in the transaction batch.
+//! Helper functions to compute the costs of certain actions assuming they
+//! succeed and the only actions in the transaction batch.
 use near_primitives::config::ActionCosts;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::types::{Balance, Gas};

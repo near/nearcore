@@ -32,9 +32,10 @@ fn run_multiple_nodes(num_nodes: usize, num_trials: usize, test_prefix: &str) {
         std::thread::sleep(Duration::from_millis(100));
     }
 
-    // Execute N trials. In each trial we submit a transaction to a random node i, that sends
-    // 1 token to a random node j. We send transaction to node Then we wait for the balance change to propagate by checking
-    // the balance of j on node k.
+    // Execute N trials. In each trial we submit a transaction to a random node i,
+    // that sends 1 token to a random node j. We send transaction to node Then
+    // we wait for the balance change to propagate by checking the balance of j
+    // on node k.
     let trial_duration = 60_000;
     let amount_to_send = 100 * 10u128.pow(24);
     for trial in 0..num_trials {

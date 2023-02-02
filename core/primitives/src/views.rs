@@ -1,8 +1,10 @@
-//! This module defines "stable" internal API to view internal data using view_client.
+//! This module defines "stable" internal API to view internal data using
+//! view_client.
 //!
-//! These types should only change when we cannot avoid this. Thus, when the counterpart internal
-//! type gets changed, the view should preserve the old shape and only re-map the necessary bits
-//! from the source structure in the relevant `From<SourceStruct>` impl.
+//! These types should only change when we cannot avoid this. Thus, when the
+//! counterpart internal type gets changed, the view should preserve the old
+//! shape and only re-map the necessary bits from the source structure in the
+//! relevant `From<SourceStruct>` impl.
 use std::collections::HashMap;
 use std::fmt;
 use std::ops::Range;
@@ -91,7 +93,8 @@ pub struct ViewApplyState {
     pub epoch_id: EpochId,
     /// Current epoch height
     pub epoch_height: EpochHeight,
-    /// The current block timestamp (number of non-leap-nanoseconds since January 1, 1970 0:00:00 UTC).
+    /// The current block timestamp (number of non-leap-nanoseconds since
+    /// January 1, 1970 0:00:00 UTC).
     pub block_timestamp: u64,
     /// Current Protocol version when we apply the state transition
     pub current_protocol_version: ProtocolVersion,
@@ -200,7 +203,8 @@ impl From<AccessKeyView> for AccessKey {
     }
 }
 
-/// Item of the state, key and value are serialized in base64 and proof for inclusion of given state item.
+/// Item of the state, key and value are serialized in base64 and proof for
+/// inclusion of given state item.
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct StateItem {
     #[serde(with = "base64_format")]
@@ -357,8 +361,8 @@ pub struct PeerInfoView {
     pub nonce: u64,
 }
 
-/// Information about a Producer: its account name, peer_id and a list of connected peers that
-/// the node can use to send message for this producer.
+/// Information about a Producer: its account name, peer_id and a list of
+/// connected peers that the node can use to send message for this producer.
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct KnownProducerView {
     pub account_id: AccountId,
@@ -508,7 +512,8 @@ pub struct ChainProcessingInfo {
     pub num_blocks_missing_chunks: usize,
     /// contains processing info of recent blocks, ordered by height high to low
     pub blocks_info: Vec<BlockProcessingInfo>,
-    /// contains processing info of chunks that we don't know which block it belongs to yet
+    /// contains processing info of chunks that we don't know which block it
+    /// belongs to yet
     pub floating_chunks_info: Vec<ChunkProcessingInfo>,
 }
 
@@ -519,19 +524,23 @@ pub struct BlockProcessingInfo {
     pub received_timestamp: DateTime<chrono::Utc>,
     /// Timestamp when block was received.
     //pub received_timestamp: DateTime<chrono::Utc>,
-    /// Time (in ms) between when the block was first received and when it was processed
+    /// Time (in ms) between when the block was first received and when it was
+    /// processed
     pub in_progress_ms: u128,
-    /// Time (in ms) that the block spent in the orphan pool. If the block was never put in the
-    /// orphan pool, it is None. If the block is still in the orphan pool, it is since the time
-    /// it was put into the pool until the current time.
+    /// Time (in ms) that the block spent in the orphan pool. If the block was
+    /// never put in the orphan pool, it is None. If the block is still in
+    /// the orphan pool, it is since the time it was put into the pool until
+    /// the current time.
     pub orphaned_ms: Option<u128>,
-    /// Time (in ms) that the block spent in the missing chunks pool. If the block was never put in the
-    /// missing chunks pool, it is None. If the block is still in the missing chunks pool, it is
-    /// since the time it was put into the pool until the current time.
+    /// Time (in ms) that the block spent in the missing chunks pool. If the
+    /// block was never put in the missing chunks pool, it is None. If the
+    /// block is still in the missing chunks pool, it is since the time it
+    /// was put into the pool until the current time.
     pub missing_chunks_ms: Option<u128>,
     pub block_status: BlockProcessingStatus,
-    /// Only contains new chunks that belong to this block, if the block doesn't produce a new chunk
-    /// for a shard, the corresponding item will be None.
+    /// Only contains new chunks that belong to this block, if the block doesn't
+    /// produce a new chunk for a shard, the corresponding item will be
+    /// None.
     pub chunks_info: Vec<Option<ChunkProcessingInfo>>,
 }
 
@@ -561,14 +570,16 @@ pub struct ChunkProcessingInfo {
     pub chunk_hash: ChunkHash,
     pub prev_block_hash: CryptoHash,
     /// Account id of the validator who created this chunk
-    /// Theoretically this field should never be None unless there is some database corruption.
+    /// Theoretically this field should never be None unless there is some
+    /// database corruption.
     pub created_by: Option<AccountId>,
     pub status: ChunkProcessingStatus,
     /// Timestamp of first time when we request for this chunk.
     pub requested_timestamp: Option<DateTime<chrono::Utc>>,
     /// Timestamp of when the chunk is complete
     pub completed_timestamp: Option<DateTime<chrono::Utc>>,
-    /// Time (in millis) that it takes between when the chunk is requested and when it is completed.
+    /// Time (in millis) that it takes between when the chunk is requested and
+    /// when it is completed.
     pub request_duration: Option<u64>,
     pub chunk_parts_collection: Vec<PartCollectionInfo>,
 }
@@ -1191,7 +1202,8 @@ pub enum FinalExecutionStatus {
     Started,
     /// The execution has failed with the given error.
     Failure(TxExecutionError),
-    /// The execution has succeeded and returned some value or an empty vec encoded in base64.
+    /// The execution has succeeded and returned some value or an empty vec
+    /// encoded in base64.
     SuccessValue(#[serde(with = "base64_format")] Vec<u8>),
 }
 
@@ -1227,10 +1239,12 @@ pub enum ExecutionStatusView {
     Unknown,
     /// The execution has failed.
     Failure(TxExecutionError),
-    /// The final action succeeded and returned some value or an empty vec encoded in base64.
+    /// The final action succeeded and returned some value or an empty vec
+    /// encoded in base64.
     SuccessValue(#[serde(with = "base64_format")] Vec<u8>),
-    /// The final action of the receipt returned a promise or the signed transaction was converted
-    /// to a receipt. Contains the receipt_id of the generated receipt.
+    /// The final action of the receipt returned a promise or the signed
+    /// transaction was converted to a receipt. Contains the receipt_id of
+    /// the generated receipt.
     SuccessReceiptId(CryptoHash),
 }
 
@@ -1304,7 +1318,8 @@ impl From<ExecutionMetadata> for ExecutionMetadataView {
                     .map(|(name, gas)| CostGasUsed::action(name.to_string(), gas))
                     .collect();
 
-                // wasm op is a single cost, for historical reasons it is inaccurately displayed as "wasm host"
+                // wasm op is a single cost, for historical reasons it is inaccurately displayed
+                // as "wasm host"
                 costs.push(CostGasUsed::wasm_host(
                     "WASM_INSTRUCTION".to_string(),
                     profile_data.get_wasm_cost(),
@@ -1335,7 +1350,8 @@ impl From<ExecutionMetadata> for ExecutionMetadataView {
                     })
                     .collect();
 
-                // wasm op is a single cost, for historical reasons it is inaccurately displayed as "wasm host"
+                // wasm op is a single cost, for historical reasons it is inaccurately displayed
+                // as "wasm host"
                 let wasm_gas_used = profile.get_wasm_cost();
                 if wasm_gas_used > 0 {
                     costs.push(CostGasUsed::wasm_host(
@@ -1392,12 +1408,13 @@ pub struct ExecutionOutcomeView {
     /// The amount of the gas burnt by the given transaction or receipt.
     pub gas_burnt: Gas,
     /// The amount of tokens burnt corresponding to the burnt gas amount.
-    /// This value doesn't always equal to the `gas_burnt` multiplied by the gas price, because
-    /// the prepaid gas price might be lower than the actual gas price and it creates a deficit.
+    /// This value doesn't always equal to the `gas_burnt` multiplied by the gas
+    /// price, because the prepaid gas price might be lower than the actual
+    /// gas price and it creates a deficit.
     #[serde(with = "dec_format")]
     pub tokens_burnt: Balance,
-    /// The id of the account on which the execution happens. For transaction this is signer_id,
-    /// for receipt this is receiver_id.
+    /// The id of the account on which the execution happens. For transaction
+    /// this is signer_id, for receipt this is receiver_id.
     pub executor_id: AccountId,
     /// Execution status. Contains the result in case of successful execution.
     pub status: ExecutionStatusView,
@@ -1497,7 +1514,8 @@ impl FinalExecutionOutcomeViewEnum {
     }
 }
 
-/// Final execution outcome of the transaction and all of subsequent the receipts.
+/// Final execution outcome of the transaction and all of subsequent the
+/// receipts.
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct FinalExecutionOutcomeView {
     /// Execution status. Contains the result in case of successful execution.
@@ -1521,8 +1539,8 @@ impl fmt::Debug for FinalExecutionOutcomeView {
     }
 }
 
-/// Final execution outcome of the transaction and all of subsequent the receipts. Also includes
-/// the generated receipt.
+/// Final execution outcome of the transaction and all of subsequent the
+/// receipts. Also includes the generated receipt.
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
 pub struct FinalExecutionOutcomeWithReceiptView {
     /// Final outcome view without receipts
@@ -2050,20 +2068,22 @@ pub struct RuntimeConfigView {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct RuntimeFeesConfigView {
-    /// Describes the cost of creating an action receipt, `ActionReceipt`, excluding the actual cost
-    /// of actions.
-    /// - `send` cost is burned when a receipt is created using `promise_create` or
-    ///     `promise_batch_create`
+    /// Describes the cost of creating an action receipt, `ActionReceipt`,
+    /// excluding the actual cost of actions.
+    /// - `send` cost is burned when a receipt is created using `promise_create`
+    ///   or `promise_batch_create`
     /// - `exec` cost is burned when the receipt is being executed.
     pub action_receipt_creation_config: Fee,
     /// Describes the cost of creating a data receipt, `DataReceipt`.
     pub data_receipt_creation_config: DataReceiptCreationConfigView,
-    /// Describes the cost of creating a certain action, `Action`. Includes all variants.
+    /// Describes the cost of creating a certain action, `Action`. Includes all
+    /// variants.
     pub action_creation_config: ActionCreationConfigView,
     /// Describes fees for storage.
     pub storage_usage_config: StorageUsageConfigView,
 
-    /// Fraction of the burnt gas to reward to the contract account for execution.
+    /// Fraction of the burnt gas to reward to the contract account for
+    /// execution.
     pub burnt_gas_reward: Rational32,
 
     /// Pessimistic gas price inflation ratio.
@@ -2073,31 +2093,34 @@ pub struct RuntimeFeesConfigView {
 /// The structure describes configuration for creation of new accounts.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AccountCreationConfigView {
-    /// The minimum length of the top-level account ID that is allowed to be created by any account.
+    /// The minimum length of the top-level account ID that is allowed to be
+    /// created by any account.
     pub min_allowed_top_level_account_length: u8,
-    /// The account ID of the account registrar. This account ID allowed to create top-level
-    /// accounts of any valid length.
+    /// The account ID of the account registrar. This account ID allowed to
+    /// create top-level accounts of any valid length.
     pub registrar_account_id: AccountId,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
 pub struct DataReceiptCreationConfigView {
     /// Base cost of creating a data receipt.
-    /// Both `send` and `exec` costs are burned when a new receipt has input dependencies. The gas
-    /// is charged for each input dependency. The dependencies are specified when a receipt is
-    /// created using `promise_then` and `promise_batch_then`.
-    /// NOTE: Any receipt with output dependencies will produce data receipts. Even if it fails.
-    /// Even if the last action is not a function call (in case of success it will return empty
-    /// value).
+    /// Both `send` and `exec` costs are burned when a new receipt has input
+    /// dependencies. The gas is charged for each input dependency. The
+    /// dependencies are specified when a receipt is created using
+    /// `promise_then` and `promise_batch_then`. NOTE: Any receipt with
+    /// output dependencies will produce data receipts. Even if it fails.
+    /// Even if the last action is not a function call (in case of success it
+    /// will return empty value).
     pub base_cost: Fee,
     /// Additional cost per byte sent.
-    /// Both `send` and `exec` costs are burned when a function call finishes execution and returns
-    /// `N` bytes of data to every output dependency. For each output dependency the cost is
-    /// `(send(sir) + exec()) * N`.
+    /// Both `send` and `exec` costs are burned when a function call finishes
+    /// execution and returns `N` bytes of data to every output dependency.
+    /// For each output dependency the cost is `(send(sir) + exec()) * N`.
     pub cost_per_byte: Fee,
 }
 
-/// Describes the cost of creating a specific action, `Action`. Includes all variants.
+/// Describes the cost of creating a specific action, `Action`. Includes all
+/// variants.
 #[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
 pub struct ActionCreationConfigView {
     /// Base cost of creating an account.
@@ -2149,7 +2172,8 @@ pub struct AccessKeyCreationConfigView {
 /// Describes cost of storage per block
 #[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
 pub struct StorageUsageConfigView {
-    /// Number of bytes for an account record, including rounding up for account id.
+    /// Number of bytes for an account record, including rounding up for account
+    /// id.
     pub num_bytes_account: u64,
     /// Additional number of bytes for a k/v record
     pub num_extra_bytes_record: u64,
@@ -2221,7 +2245,8 @@ impl From<RuntimeConfig> for RuntimeConfigView {
     }
 }
 
-// reverse direction: rosetta adapter uses this, also we use to test that all fields are present in view
+// reverse direction: rosetta adapter uses this, also we use to test that all
+// fields are present in view
 impl From<RuntimeConfigView> for RuntimeConfig {
     fn from(config: RuntimeConfigView) -> Self {
         Self {
@@ -2346,7 +2371,8 @@ pub struct ExtCostsConfigView {
 
     /// Base cost of decoding utf8. It's used for `log_utf8` and `panic_utf8`.
     pub utf8_decoding_base: Gas,
-    /// Cost per byte of decoding utf8. It's used for `log_utf8` and `panic_utf8`.
+    /// Cost per byte of decoding utf8. It's used for `log_utf8` and
+    /// `panic_utf8`.
     pub utf8_decoding_byte: Gas,
 
     /// Base cost of decoding utf16. It's used for `log_utf16`.
@@ -2642,7 +2668,8 @@ mod tests {
         insta::assert_json_snapshot!(&view);
     }
 
-    /// A `RuntimeConfigView` must contain all info to reconstruct a `RuntimeConfig`.
+    /// A `RuntimeConfigView` must contain all info to reconstruct a
+    /// `RuntimeConfig`.
     #[test]
     fn test_runtime_config_view_is_complete() {
         let config = RuntimeConfig::test();
@@ -2652,7 +2679,8 @@ mod tests {
         assert_eq!(config, reconstructed_config);
     }
 
-    /// `ExecutionMetadataView` with profile V1 displayed on the RPC should not change.
+    /// `ExecutionMetadataView` with profile V1 displayed on the RPC should not
+    /// change.
     #[test]
     #[cfg(not(feature = "nightly"))]
     fn test_exec_metadata_v1_view() {
@@ -2661,7 +2689,8 @@ mod tests {
         insta::assert_json_snapshot!(view);
     }
 
-    /// `ExecutionMetadataView` with profile V2 displayed on the RPC should not change.
+    /// `ExecutionMetadataView` with profile V2 displayed on the RPC should not
+    /// change.
     #[test]
     #[cfg(not(feature = "nightly"))]
     fn test_exec_metadata_v2_view() {
@@ -2670,7 +2699,8 @@ mod tests {
         insta::assert_json_snapshot!(view);
     }
 
-    /// `ExecutionMetadataView` with profile V3 displayed on the RPC should not change.
+    /// `ExecutionMetadataView` with profile V3 displayed on the RPC should not
+    /// change.
     #[test]
     #[cfg(not(feature = "nightly"))]
     fn test_exec_metadata_v3_view() {

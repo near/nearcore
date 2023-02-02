@@ -25,15 +25,16 @@ pub fn with_ext_cost_counter(f: impl FnOnce(&mut HashMap<ExtCosts, u64>)) {
 
 type Result<T> = ::std::result::Result<T, VMLogicError>;
 
-/// Fast gas counter with very simple structure, could be exposed to compiled code in the VM.
+/// Fast gas counter with very simple structure, could be exposed to compiled
+/// code in the VM.
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FastGasCounter {
     /// The following three fields must be put next to another to make sure
     /// generated gas counting code can use and adjust them.
     /// We will share counter to ensure we never miss synchronization.
-    /// This could change and in such a case synchronization required between compiled WASM code
-    /// and the host code.
+    /// This could change and in such a case synchronization required between
+    /// compiled WASM code and the host code.
 
     /// The amount of gas that was irreversibly used for contract execution.
     pub burnt_gas: u64,
@@ -128,11 +129,11 @@ impl GasCounter {
             self.fast_counter.burnt_gas = new_burnt_gas;
             Ok(())
         } else {
-            // In the past `new_used_gas` would be computed using an implicit wrapping addition,
-            // which would then give an opportunity for the `assert` (now `debug_assert`) in the
-            // callee to fail, leading to a DoS of a node. A wrapping_add in this instance is
-            // actually fine, even if it gives the attacker full control of the value passed in
-            // here…
+            // In the past `new_used_gas` would be computed using an implicit wrapping
+            // addition, which would then give an opportunity for the `assert`
+            // (now `debug_assert`) in the callee to fail, leading to a DoS of a
+            // node. A wrapping_add in this instance is actually fine, even if
+            // it gives the attacker full control of the value passed in here…
             //
             // [CONTINUATION IN THE NEXT COMMENT]
             let new_used_gas = new_burnt_gas.wrapping_add(self.promises_gas);
@@ -147,24 +148,26 @@ impl GasCounter {
         self.fast_counter.burnt_gas = min(new_burnt_gas, hard_burnt_limit);
         debug_assert!(hard_burnt_limit >= self.fast_counter.burnt_gas);
 
-        // Technically we shall do `self.promises_gas = 0;` or error paths, as in this case
-        // no promises will be kept, but that would mean protocol change.
+        // Technically we shall do `self.promises_gas = 0;` or error paths, as in this
+        // case no promises will be kept, but that would mean protocol change.
         // See https://github.com/near/nearcore/issues/5148.
         // TODO: consider making this change!
         let used_gas_limit = min(self.prepaid_gas, new_used_gas);
         // [CONTINUATION OF THE PREVIOUS COMMENT]
         //
-        // Now, there are two distinct ways an attacker can attempt to exploit this code given
-        // their full control of the `new_used_gas` value.
+        // Now, there are two distinct ways an attacker can attempt to exploit this code
+        // given their full control of the `new_used_gas` value.
         //
-        // 1. `self.prepaid_gas < new_used_gas` This is perfectly fine and would be the happy path,
-        //    were the computations performed with arbitrary precision integers all the time.
-        // 2. `new_used_gas < new_burnt_gas` means that the `new_used_gas` computation wrapped
-        //    and `used_gas_limit` is now set to a lower value than it otherwise should be. In the
-        //    past this would have triggered an unconditional assert leading to nodes crashing and
-        //    network getting stuck/going down. We don’t actually need to assert, though. By
-        //    replacing the wrapping subtraction with a saturating one we make sure that the
-        //    resulting value of `self.promises_gas` is well behaved (becomes 0.) All a potential
+        // 1. `self.prepaid_gas < new_used_gas` This is perfectly fine and would be the
+        // happy path,    were the computations performed with arbitrary
+        // precision integers all the time. 2. `new_used_gas < new_burnt_gas`
+        // means that the `new_used_gas` computation wrapped
+        //    and `used_gas_limit` is now set to a lower value than it otherwise should
+        // be. In the    past this would have triggered an unconditional assert
+        // leading to nodes crashing and    network getting stuck/going down. We
+        // don’t actually need to assert, though. By    replacing the wrapping
+        // subtraction with a saturating one we make sure that the    resulting
+        // value of `self.promises_gas` is well behaved (becomes 0.) All a potential
         //    attacker has achieved in this case is throwing some of their gas away.
         self.promises_gas = used_gas_limit.saturating_sub(self.fast_counter.burnt_gas);
 
@@ -184,10 +187,10 @@ impl GasCounter {
         self.burn_gas(value)
     }
 
-    /// Very special function to get the gas counter pointer for generated machine code.
-    /// Please do not use, unless fully understand Rust aliasing and other consequences.
-    /// Can be used to emit inlined code like `pay_wasm_gas()`, i.e.
-    ///    mov base, gas_counter_raw_ptr
+    /// Very special function to get the gas counter pointer for generated
+    /// machine code. Please do not use, unless fully understand Rust
+    /// aliasing and other consequences. Can be used to emit inlined code
+    /// like `pay_wasm_gas()`, i.e.    mov base, gas_counter_raw_ptr
     ///    mov rax, [base + 0] ; current burnt gas
     ///    mov rcx, [base + 16] ; opcode cost
     ///    imul rcx, block_ops_count ; block cost

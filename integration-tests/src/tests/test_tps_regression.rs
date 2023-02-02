@@ -1,7 +1,8 @@
-//! Measures the input and the output transactions-per-seconds, compares it with the expected tps,
-//! and verifies that the output tps is not much different from the input tps (makes sure there is
-//! no choking on transactions). The input tps -- is how fast the nodes can be accepting
-//! transactions. The output tps -- is how fast the nodes propagate transactions into the blocks.
+//! Measures the input and the output transactions-per-seconds, compares it with
+//! the expected tps, and verifies that the output tps is not much different
+//! from the input tps (makes sure there is no choking on transactions). The
+//! input tps -- is how fast the nodes can be accepting transactions. The output
+//! tps -- is how fast the nodes propagate transactions into the blocks.
 use crate::node::{create_nodes, sample_queryable_node, sample_two_nodes, Node};
 use crate::test_helpers::heavy_test;
 use near_primitives::transaction::SignedTransaction;
@@ -15,7 +16,8 @@ use std::time::{Duration, Instant};
 /// Args:
 /// `nodes`: node to submit to;
 /// `nonces`: tracker of the nonces for the corresponding accounts.
-/// `submitted_transactions`: (number of transactions, when these transactions were submitted).
+/// `submitted_transactions`: (number of transactions, when these transactions
+/// were submitted).
 fn send_transaction(
     nodes: Vec<Arc<RwLock<dyn Node>>>,
     nonces: Arc<RwLock<Vec<u64>>>,
@@ -44,10 +46,11 @@ fn send_transaction(
     }
 }
 
-/// Creates a network of nodes and submits a large number of transactions to them.
-/// Args:
+/// Creates a network of nodes and submits a large number of transactions to
+/// them. Args:
 /// * `num_nodes`: number of nodes to create;
-/// * `tps`: transactions-per-second rate with which we submit transactions at even intervals;
+/// * `tps`: transactions-per-second rate with which we submit transactions at
+///   even intervals;
 /// * `target_tps`: the target output transactions-per-seconds of the network;
 /// * `timeout`: how long this test should run.
 fn run_multiple_nodes(
@@ -65,7 +68,8 @@ fn run_multiple_nodes(
         nodes[i].write().unwrap().start();
     }
 
-    // Collection that stores #num of transactions -> when these transaction were submitted.
+    // Collection that stores #num of transactions -> when these transaction were
+    // submitted.
     let submitted_transactions = Arc::new(RwLock::new(vec![]));
 
     // Create thread that submits transactions with high tps.
@@ -94,7 +98,8 @@ fn run_multiple_nodes(
 
     // Delay between checking the nodes.
     let check_delay = Duration::from_millis(100);
-    // Collection that stores #num of transactions in a block -> when this block was observed.
+    // Collection that stores #num of transactions in a block -> when this block was
+    // observed.
     let observed_transactions = Arc::new(RwLock::new(vec![]));
 
     // Create thread that observes new blocks and counts new transactions in them.
@@ -145,8 +150,9 @@ fn run_multiple_nodes(
     let _ = stdout().write(format!("Observed transactions: {:?}", observed_xacts_num).as_bytes());
     let _ = stdout().flush();
 
-    // Test that the network does not choke. The choke can be observed when the number of submitted
-    // transactions is not approx. the same the number of observed.
+    // Test that the network does not choke. The choke can be observed when the
+    // number of submitted transactions is not approx. the same the number of
+    // observed.
 
     // The difference is within 20%.
     assert!(

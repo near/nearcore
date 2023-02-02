@@ -18,7 +18,8 @@ macro_rules! handler_span {
 
 /// A macro that lets attach `handle()` functions to the tracing context that
 /// generated the actix message being processed.
-/// Creates a DEBUG-level span with the handler type name and the message type name as attributes.
+/// Creates a DEBUG-level span with the handler type name and the message type
+/// name as attributes.
 #[macro_export]
 macro_rules! handler_debug_span {
     (target: $target:expr, $msg:expr) => {
@@ -31,7 +32,8 @@ macro_rules! handler_debug_span {
 
 /// A macro that lets attach `handle()` functions to the tracing context that
 /// generated the actix message being processed.
-/// Creates a TRACE-level span with the handler type name and the message type name as attributes.
+/// Creates a TRACE-level span with the handler type name and the message type
+/// name as attributes.
 #[macro_export]
 macro_rules! handler_trace_span {
     (target: $target:expr, $msg:expr) => {

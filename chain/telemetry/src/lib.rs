@@ -84,7 +84,8 @@ impl Handler<WithSpanContext<TelemetryEvent>> for TelemetryActor {
 
     #[perf]
     fn handle(&mut self, msg: WithSpanContext<TelemetryEvent>, _ctx: &mut Context<Self>) {
-        // let (_span, msg) = handler_span!(target: "telemetry", tracing::Level::DEBUG, msg, );
+        // let (_span, msg) = handler_span!(target: "telemetry", tracing::Level::DEBUG,
+        // msg, );
         let (_span, msg) = handler_debug_span!(target: "telemetry", msg);
         let now = Clock::instant();
         if now.duration_since(self.last_telemetry_update) < self.config.reporting_interval {

@@ -161,8 +161,9 @@ fn test_non_adversarial_case() {
             );
             let mut accepted_blocks =
                 test.env.clients[i].finish_block_in_processing(block.header().hash());
-            // Process any chunk part requests that this client sent. Note that this would also
-            // process other network messages (such as production of the next chunk) which is OK.
+            // Process any chunk part requests that this client sent. Note that this would
+            // also process other network messages (such as production of the
+            // next chunk) which is OK.
             test.process_all_actor_messages();
             accepted_blocks.extend(test.env.clients[i].finish_blocks_in_processing());
 
@@ -192,8 +193,9 @@ fn test_non_adversarial_case() {
     assert_eq!(final_chunk_producers.len(), 8);
 }
 
-// Not marking this with test_features, because it's good to ensure this compiles, and also
-// if we mark this with features we'd also have to mark a bunch of imports as features.
+// Not marking this with test_features, because it's good to ensure this
+// compiles, and also if we mark this with features we'd also have to mark a
+// bunch of imports as features.
 #[allow(dead_code)]
 fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
     mut test: AdversarialBehaviorTestData,
@@ -276,8 +278,9 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
             );
             let mut accepted_blocks =
                 test.env.clients[i].finish_block_in_processing(block.header().hash());
-            // Process any chunk part requests that this client sent. Note that this would also
-            // process other network messages (such as production of the next chunk) which is OK.
+            // Process any chunk part requests that this client sent. Note that this would
+            // also process other network messages (such as production of the
+            // next chunk) which is OK.
             test.process_all_actor_messages();
             accepted_blocks.extend(test.env.clients[i].finish_blocks_in_processing());
 
@@ -305,8 +308,9 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
 
     // Sanity check that the final chain head is what we expect
     assert_eq!(test.env.clients[0].chain.head().unwrap().height, EPOCH_LENGTH * 4 + 5);
-    // Bad validator should've been kicked out in the third epoch, so it only had two chances
-    // to produce bad chunks. Other validators should not be kicked out.
+    // Bad validator should've been kicked out in the third epoch, so it only had
+    // two chances to produce bad chunks. Other validators should not be kicked
+    // out.
     assert_eq!(epochs_seen_invalid_chunk.len(), 2);
     let final_prev_block_hash = test.env.clients[0].chain.head().unwrap().prev_block_hash;
     let final_epoch_id =

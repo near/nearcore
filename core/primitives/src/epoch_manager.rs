@@ -21,7 +21,8 @@ pub type RngSeed = [u8; 32];
 pub const AGGREGATOR_KEY: &[u8] = b"AGGREGATOR";
 
 /// Epoch config, determines validator assignment for given epoch.
-/// Can change from epoch to epoch depending on the sharding and other parameters, etc.
+/// Can change from epoch to epoch depending on the sharding and other
+/// parameters, etc.
 #[derive(Clone, Eq, Debug, PartialEq)]
 pub struct EpochConfig {
     /// Epoch length in block heights.
@@ -44,11 +45,13 @@ pub struct EpochConfig {
     pub online_max_threshold: Rational32,
     /// Stake threshold for becoming a fisherman.
     pub fishermen_threshold: Balance,
-    /// The minimum stake required for staking is last seat price divided by this number.
+    /// The minimum stake required for staking is last seat price divided by
+    /// this number.
     pub minimum_stake_divisor: u64,
     /// Threshold of stake that needs to indicate that they ready for upgrade.
     pub protocol_upgrade_stake_threshold: Rational32,
-    /// Number of epochs after stake threshold was achieved to start next prtocol version.
+    /// Number of epochs after stake threshold was achieved to start next
+    /// prtocol version.
     pub protocol_upgrade_num_epochs: EpochHeight,
     /// Shard layout of this epoch, may change from epoch to epoch
     pub shard_layout: ShardLayout,
@@ -77,13 +80,15 @@ impl ShardConfig {
     }
 }
 
-/// AllEpochConfig manages protocol configs that might be changing throughout epochs (hence EpochConfig).
-/// The main function in AllEpochConfig is ::for_protocol_version which takes a protocol version
-/// and returns the EpochConfig that should be used for this protocol version.
+/// AllEpochConfig manages protocol configs that might be changing throughout
+/// epochs (hence EpochConfig). The main function in AllEpochConfig is
+/// ::for_protocol_version which takes a protocol version and returns the
+/// EpochConfig that should be used for this protocol version.
 #[derive(Clone)]
 pub struct AllEpochConfig {
-    /// Whether this is for production (i.e., mainnet or testnet). This is a temporary implementation
-    /// to allow us to change protocol config for mainnet and testnet without changing the genesis config
+    /// Whether this is for production (i.e., mainnet or testnet). This is a
+    /// temporary implementation to allow us to change protocol config for
+    /// mainnet and testnet without changing the genesis config
     use_production_config: bool,
     /// EpochConfig from genesis
     genesis_epoch_config: EpochConfig,
@@ -113,8 +118,8 @@ impl AllEpochConfig {
                 // On testnet, genesis config set num_block_producer_seats to 200
                 // This is to bring it back to 100 to be the same as on mainnet
                 config.num_block_producer_seats = 100;
-                // Technically, after ChunkOnlyProducers is enabled, this field is no longer used
-                // We still set it here just in case
+                // Technically, after ChunkOnlyProducers is enabled, this field is no longer
+                // used We still set it here just in case
                 config.num_block_producer_seats_per_shard =
                     vec![100; config.shard_layout.num_shards() as usize];
                 config.block_producer_kickout_threshold = 80;
@@ -466,7 +471,8 @@ pub mod epoch_info {
     )]
     pub struct EpochInfoV2 {
         /// Ordinal of given epoch from genesis.
-        /// There can be multiple epochs with the same ordinal in case of long forks.
+        /// There can be multiple epochs with the same ordinal in case of long
+        /// forks.
         pub epoch_height: EpochHeight,
         /// List of current validators.
         pub validators: Vec<ValidatorStake>,
@@ -476,7 +482,8 @@ pub mod epoch_info {
         pub block_producers_settlement: Vec<ValidatorId>,
         /// Per each shard, settlement validators that are responsible.
         pub chunk_producers_settlement: Vec<Vec<ValidatorId>>,
-        /// Settlement of hidden validators with weights used to determine how many shards they will validate.
+        /// Settlement of hidden validators with weights used to determine how
+        /// many shards they will validate.
         pub hidden_validators_settlement: Vec<ValidatorWeight>,
         /// List of current fishermen.
         pub fishermen: Vec<ValidatorStake>,
@@ -497,8 +504,8 @@ pub mod epoch_info {
         pub protocol_version: ProtocolVersion,
     }
 
-    // V2 -> V3: Structures for randomly selecting validators at each height based on new
-    // block producer and chunk producer selection algorithm.
+    // V2 -> V3: Structures for randomly selecting validators at each height based
+    // on new block producer and chunk producer selection algorithm.
     #[derive(
         SmartDefault, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, Serialize,
     )]
@@ -922,7 +929,8 @@ pub mod epoch_info {
 )]
 pub struct EpochInfoV1 {
     /// Ordinal of given epoch from genesis.
-    /// There can be multiple epochs with the same ordinal in case of long forks.
+    /// There can be multiple epochs with the same ordinal in case of long
+    /// forks.
     pub epoch_height: EpochHeight,
     /// List of current validators.
     pub validators: Vec<ValidatorStakeV1>,
@@ -932,7 +940,8 @@ pub struct EpochInfoV1 {
     pub block_producers_settlement: Vec<ValidatorId>,
     /// Per each shard, settlement validators that are responsible.
     pub chunk_producers_settlement: Vec<Vec<ValidatorId>>,
-    /// Settlement of hidden validators with weights used to determine how many shards they will validate.
+    /// Settlement of hidden validators with weights used to determine how many
+    /// shards they will validate.
     pub hidden_validators_settlement: Vec<ValidatorWeight>,
     /// List of current fishermen.
     pub fishermen: Vec<ValidatorStakeV1>,
@@ -958,7 +967,8 @@ pub struct EpochInfoV1 {
 pub enum SlashState {
     /// Double Sign, will be partially slashed.
     DoubleSign,
-    /// Malicious behavior but is already slashed (tokens taken away from account).
+    /// Malicious behavior but is already slashed (tokens taken away from
+    /// account).
     AlreadySlashed,
     /// All other cases (tokens should be entirely slashed),
     Other,

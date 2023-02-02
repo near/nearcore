@@ -43,7 +43,8 @@ pub(crate) enum DBOp {
     Delete { col: DBCol, key: Vec<u8> },
     /// Deletes all data from a column.
     DeleteAll { col: DBCol },
-    /// Deletes [`from`, `to`) key range, i.e. including `from` and excluding `to`
+    /// Deletes [`from`, `to`) key range, i.e. including `from` and excluding
+    /// `to`
     DeleteRange { col: DBCol, from: Vec<u8>, to: Vec<u8> },
 }
 

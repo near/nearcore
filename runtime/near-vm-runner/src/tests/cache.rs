@@ -1,4 +1,5 @@
-//! Tests that `CompiledContractCache` is working correctly. Currently testing only wasmer code, so disabled outside of x86_64
+//! Tests that `CompiledContractCache` is working correctly. Currently testing
+//! only wasmer code, so disabled outside of x86_64
 #![cfg(target_arch = "x86_64")]
 
 use super::{create_context, with_vm_variants, LATEST_PROTOCOL_VERSION};
@@ -101,11 +102,12 @@ fn make_cached_contract_call_vm(
 
 #[test]
 fn test_wasmer2_artifact_output_stability() {
-    // If this test has failed, you want to adjust the necessary constants so that `cache::vm_hash`
-    // changes (and only then the hashes here).
+    // If this test has failed, you want to adjust the necessary constants so that
+    // `cache::vm_hash` changes (and only then the hashes here).
     //
-    // Note that this test is a best-effort fish net. Some changes that should modify the hash will
-    // fall through the cracks here, but hopefully it should catch most of the fish just fine.
+    // Note that this test is a best-effort fish net. Some changes that should
+    // modify the hash will fall through the cracks here, but hopefully it
+    // should catch most of the fish just fine.
     let seeds = [2, 3, 5, 7, 11, 13, 17];
     let prepared_hashes = [
         12248437801724644735,
@@ -149,25 +151,25 @@ fn test_wasmer2_artifact_output_stability() {
 
         std::fs::write(format!("/tmp/artifact{}", got_compiled_hashes[0]), serialized).unwrap();
     }
-    // These asserts have failed as a result of some change and the following text describes what
-    // the implications of the change.
+    // These asserts have failed as a result of some change and the following text
+    // describes what the implications of the change.
     //
-    // May need a protocol version change, and definitely wants a `WASMER2_CONFIG version update
-    // too, as below. Maybe something else too.
+    // May need a protocol version change, and definitely wants a `WASMER2_CONFIG
+    // version update too, as below. Maybe something else too.
     assert!(
         got_prepared_hashes == prepared_hashes,
         "contract preparation hashes have changed to {:#?}",
         got_prepared_hashes
     );
-    // In this case you will need to adjust the WASMER2_CONFIG version so that the cached contracts
-    // are evicted from the contract cache.
+    // In this case you will need to adjust the WASMER2_CONFIG version so that the
+    // cached contracts are evicted from the contract cache.
     assert!(
         got_compiled_hashes == compiled_hashes,
         "VM output hashes have changed to {:#?}",
         got_compiled_hashes
     );
-    // Once it has been confirmed that these steps have been done, the expected hashes in this test
-    // can be adjusted.
+    // Once it has been confirmed that these steps have been done, the expected
+    // hashes in this test can be adjusted.
 }
 
 /// [`CompiledContractCache`] which simulates failures in the underlying

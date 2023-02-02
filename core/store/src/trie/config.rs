@@ -12,12 +12,14 @@ pub(crate) const DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT: u64 =
     if cfg!(feature = "no_cache") { 1 } else { 50_000_000 };
 
 /// Capacity for the deletions queue.
-/// It is chosen to fit all hashes of deleted nodes for 3 completely full blocks.
+/// It is chosen to fit all hashes of deleted nodes for 3 completely full
+/// blocks.
 const DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY: usize =
     if cfg!(feature = "no_cache") { 1 } else { 100_000 };
 
 /// Values above this size (in bytes) are never cached.
-/// Note that most of Trie inner nodes are smaller than this - e.g. branches use around 32 * 16 = 512 bytes.
+/// Note that most of Trie inner nodes are smaller than this - e.g. branches use
+/// around 32 * 16 = 512 bytes.
 const TRIE_LIMIT_CACHED_VALUE_SIZE: usize = 1000;
 
 /// Stores necessary configuration for the creation of tries.
@@ -27,14 +29,16 @@ pub struct TrieConfig {
     pub view_shard_cache_config: TrieCacheConfig,
     pub enable_receipt_prefetching: bool,
 
-    /// Configured accounts will be prefetched as SWEAT token account, if predecessor is listed as sender.
+    /// Configured accounts will be prefetched as SWEAT token account, if
+    /// predecessor is listed as sender.
     pub sweat_prefetch_receivers: Vec<AccountId>,
     /// List of allowed predecessor accounts for SWEAT prefetching.
     pub sweat_prefetch_senders: Vec<AccountId>,
 }
 
 impl TrieConfig {
-    /// Create a new `TrieConfig` with default values or the values specified in `StoreConfig`.
+    /// Create a new `TrieConfig` with default values or the values specified in
+    /// `StoreConfig`.
     pub fn from_store_config(config: &StoreConfig) -> Self {
         let mut this = TrieConfig::default();
 
@@ -73,11 +77,11 @@ impl TrieConfig {
 
     /// Capacity for deletion queue in which nodes are after unforced eviction.
     ///
-    /// The shard cache uses LRU eviction policy for forced evictions. But when a
-    /// trie value is overwritten or deleted, the associated nodes are no longer
-    /// useful, with the exception of forks.
-    /// Thus, deleted and overwritten values are evicted to the deletion queue which
-    /// delays the actual eviction.
+    /// The shard cache uses LRU eviction policy for forced evictions. But when
+    /// a trie value is overwritten or deleted, the associated nodes are no
+    /// longer useful, with the exception of forks.
+    /// Thus, deleted and overwritten values are evicted to the deletion queue
+    /// which delays the actual eviction.
     pub fn deletions_queue_capacity(&self) -> usize {
         DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY
     }
@@ -86,16 +90,17 @@ impl TrieConfig {
     /// many bytes the limit should be set to such that AT LEAST THE SAME NUMBER
     /// can fit.
     ///
-    /// TODO(#7894): Remove this when `trie_cache_capacities` is removed from config.
+    /// TODO(#7894): Remove this when `trie_cache_capacities` is removed from
+    /// config.
     ///
-    /// As long as `trie_cache_capacities` is a config option, it should be respected.
-    /// We no longer commit to a hard limit on this. But we make sure that the old
-    /// worst-case assumption of how much memory would be consumed still works.
-    /// Specifically, the old calculation ignored `PER_ENTRY_OVERHEAD` and used
-    /// `max_cached_value_size()` only to figure out a good value for how many
-    /// nodes we want in the cache at most.
-    /// This implicit limit should result in the same min number of nodes and
-    /// same max memory consumption as the old config.
+    /// As long as `trie_cache_capacities` is a config option, it should be
+    /// respected. We no longer commit to a hard limit on this. But we make
+    /// sure that the old worst-case assumption of how much memory would be
+    /// consumed still works. Specifically, the old calculation ignored
+    /// `PER_ENTRY_OVERHEAD` and used `max_cached_value_size()` only to
+    /// figure out a good value for how many nodes we want in the cache at
+    /// most. This implicit limit should result in the same min number of
+    /// nodes and same max memory consumption as the old config.
     pub(crate) fn deprecated_num_entry_to_memory_limit(max_num_entries: u64) -> u64 {
         max_num_entries
             * (TrieCacheInner::PER_ENTRY_OVERHEAD + TrieConfig::max_cached_value_size() as u64)

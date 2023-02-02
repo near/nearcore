@@ -184,7 +184,8 @@ impl GenesisBuilder {
         #[cfg(feature = "protocol_feature_flat_state")]
         near_store::FlatStateDelta::from_state_changes(&state_changes)
             .apply_to_flat_state(&mut store_update);
-        // silence unused variable warning when protocol_feature_flat_state feature is disabled
+        // silence unused variable warning when protocol_feature_flat_state feature is
+        // disabled
         drop(state_changes);
         store_update.commit()?;
 

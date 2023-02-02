@@ -137,13 +137,14 @@ pub const MAX_BLOCK_PROD_TIME: Duration = Duration::from_millis(200);
 const TEST_SEED: RngSeed = [3; 32];
 
 impl Client {
-    /// Unlike Client::start_process_block, which returns before the block finishes processing
-    /// This function waits until the block is processed.
-    /// `should_produce_chunk`: Normally, if a block is accepted, client will try to produce
-    ///                         chunks for the next block if it is the chunk producer.
-    ///                         If `should_produce_chunk` is set to false, client will skip the
-    ///                         chunk production. This is useful in tests that need to tweak
-    ///                         the produced chunk content.
+    /// Unlike Client::start_process_block, which returns before the block
+    /// finishes processing This function waits until the block is
+    /// processed. `should_produce_chunk`: Normally, if a block is accepted,
+    /// client will try to produce                         chunks for the
+    /// next block if it is the chunk producer.                         If
+    /// `should_produce_chunk` is set to false, client will skip the
+    ///                         chunk production. This is useful in tests that
+    /// need to tweak                         the produced chunk content.
     fn process_block_sync_with_produce_chunk_options(
         &mut self,
         block: MaybeValidated<Block>,
@@ -174,7 +175,8 @@ impl Client {
         self.process_block_sync_with_produce_chunk_options(block, provenance, false)
     }
 
-    /// This function finishes processing all blocks that started being processed.
+    /// This function finishes processing all blocks that started being
+    /// processed.
     pub fn finish_blocks_in_processing(&mut self) -> Vec<CryptoHash> {
         let mut accepted_blocks = vec![];
         while wait_for_all_blocks_in_processing(&mut self.chain) {
@@ -183,8 +185,8 @@ impl Client {
         accepted_blocks
     }
 
-    /// This function finishes processing block with hash `hash`, if the procesing of that block
-    /// has started.
+    /// This function finishes processing block with hash `hash`, if the
+    /// procesing of that block has started.
     pub fn finish_block_in_processing(&mut self, hash: &CryptoHash) -> Vec<CryptoHash> {
         if let Ok(()) = wait_for_block_in_processing(&mut self.chain, hash) {
             let (accepted_blocks, _) = self.postprocess_ready_blocks(Arc::new(|_| {}), true);
@@ -580,42 +582,51 @@ fn send_chunks<T, I, F>(
 ///
 /// # Arguments
 ///
-/// `vs` - the set of validators and how they are assigned to shards in different epochs.
+/// `vs` - the set of validators and how they are assigned to shards in
+/// different epochs.
 ///
 /// `key_pairs` - keys for `validators`
 ///
 /// `skip_sync_wait`
 ///
-/// `block_prod_time` - Minimum block production time, assuming there is enough approvals. The
-///                 maximum block production time depends on the value of `tamper_with_fg`, and is
-///                 equal to `block_prod_time` if `tamper_with_fg` is `true`, otherwise it is
-///                 `block_prod_time * 2`
+/// `block_prod_time` - Minimum block production time, assuming there is enough
+/// approvals. The                 maximum block production time depends on the
+/// value of `tamper_with_fg`, and is                 equal to `block_prod_time`
+/// if `tamper_with_fg` is `true`, otherwise it is                 
+/// `block_prod_time * 2`
 ///
-/// `drop_chunks` - if set to true, 10% of all the chunk messages / requests will be dropped
+/// `drop_chunks` - if set to true, 10% of all the chunk messages / requests
+/// will be dropped
 ///
-/// `tamper_with_fg` - if set to true, will split the heights into groups of 100. For some groups
-///                 all the approvals will be dropped (thus completely disabling the finality gadget
-///                 and introducing severe forkfulness if `block_prod_time` is sufficiently small),
-///                 for some groups will keep all the approvals (and test the fg invariants), and
-///                 for some will drop 50% of the approvals.
+/// `tamper_with_fg` - if set to true, will split the heights into groups of
+/// 100. For some groups                 all the approvals will be dropped (thus
+/// completely disabling the finality gadget                 and introducing
+/// severe forkfulness if `block_prod_time` is sufficiently small),             
+/// for some groups will keep all the approvals (and test the fg invariants),
+/// and                 for some will drop 50% of the approvals.
 ///                 This was designed to tamper with the finality gadget when we
-///                 had it, unclear if has much effect today. Must be disabled if doomslug is
-///                 enabled (see below), because doomslug will stall if approvals are not delivered.
+///                 had it, unclear if has much effect today. Must be disabled
+/// if doomslug is                 enabled (see below), because doomslug will
+/// stall if approvals are not delivered.
 ///
 /// `epoch_length` - approximate length of the epoch as measured
-///                 by the block heights difference of it's last and first block.
+///                 by the block heights difference of it's last and first
+/// block.
 ///
-/// `enable_doomslug` - If false, blocks will be created when at least one approval is present, without
-///                   waiting for 2/3. This allows for more forkfulness. `cross_shard_tx` has modes
-///                   both with enabled doomslug (to test "production" setting) and with disabled
+/// `enable_doomslug` - If false, blocks will be created when at least one
+/// approval is present, without                   waiting for 2/3. This allows
+/// for more forkfulness. `cross_shard_tx` has modes                   both with
+/// enabled doomslug (to test "production" setting) and with disabled
 ///                   doomslug (to test higher forkfullness)
 ///
-/// `network_mock` - the callback that is called for each message sent. The `mock` is called before
-///                 the default processing. `mock` returns `(response, perform_default)`. If
-///                 `perform_default` is false, then the message is not processed or broadcasted
-///                 further and `response` is returned to the requester immediately. Otherwise
-///                 the default action is performed, that might (and likely will) overwrite the
-///                 `response` before it is sent back to the requester.
+/// `network_mock` - the callback that is called for each message sent. The
+/// `mock` is called before                 the default processing. `mock`
+/// returns `(response, perform_default)`. If                 `perform_default`
+/// is false, then the message is not processed or broadcasted                 
+/// further and `response` is returned to the requester immediately. Otherwise
+///                 the default action is performed, that might (and likely
+/// will) overwrite the                 `response` before it is sent back to the
+/// requester.
 pub fn setup_mock_all_validators(
     vs: ValidatorSchedule,
     key_pairs: Vec<PeerInfo>,
@@ -1040,8 +1051,9 @@ pub fn setup_mock_all_validators(
                                     largest_skipped_height1.write().unwrap()[my_ord] =
                                         approval.target_height;
                                     let e = largest_endorsed_height1.read().unwrap()[my_ord];
-                                    // `e` is the *target* height of the last endorsement. `prev_height`
-                                    // is allowed to be anything >= to the source height, which is e-1.
+                                    // `e` is the *target* height of the last endorsement.
+                                    // `prev_height` is allowed
+                                    // to be anything >= to the source height, which is e-1.
                                     assert!(
                                         prev_height + 1 >= e,
                                         "New: {}->{}, Old: {}->{}",
@@ -1203,11 +1215,11 @@ pub fn setup_synchronous_shards_manager(
     runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
     chain_genesis: &ChainGenesis,
 ) -> Arc<dyn ShardsManagerAdapterForTest> {
-    // Initialize the chain, to make sure that if the store is empty, we write the genesis
-    // into the store, and as a short cut to get the parameters needed to instantiate
-    // ShardsManager. This way we don't have to wait to construct the Client first.
-    // TODO(#8324): This should just be refactored so that we can construct Chain first
-    // before anything else.
+    // Initialize the chain, to make sure that if the store is empty, we write the
+    // genesis into the store, and as a short cut to get the parameters needed
+    // to instantiate ShardsManager. This way we don't have to wait to construct
+    // the Client first. TODO(#8324): This should just be refactored so that we
+    // can construct Chain first before anything else.
     let chain = Chain::new(
         runtime_adapter.clone(),
         chain_genesis,
@@ -1265,7 +1277,8 @@ pub fn setup_client_with_synchronous_shards_manager(
     )
 }
 
-/// A combined trait bound for both the client side and network side of the ShardsManager API.
+/// A combined trait bound for both the client side and network side of the
+/// ShardsManager API.
 pub trait ShardsManagerAdapterForTest:
     ShardsManagerAdapterForClient + ShardsManagerAdapterForNetwork
 {
@@ -1288,7 +1301,8 @@ impl<
 }
 
 /// An environment for writing integration tests with multiple clients.
-/// This environment can simulate near nodes without network and it can be configured to use different runtimes.
+/// This environment can simulate near nodes without network and it can be
+/// configured to use different runtimes.
 pub struct TestEnv {
     pub chain_genesis: ChainGenesis,
     pub validators: Vec<AccountId>,
@@ -1523,13 +1537,15 @@ impl TestEnv {
     }
 
     /// Process a given block in the client with index `id`.
-    /// Simulate the block processing logic in `Client`, i.e, it would run catchup and then process accepted blocks and possibly produce chunks.
+    /// Simulate the block processing logic in `Client`, i.e, it would run
+    /// catchup and then process accepted blocks and possibly produce chunks.
     pub fn process_block(&mut self, id: usize, block: Block, provenance: Provenance) {
         self.clients[id].process_block_test(MaybeValidated::from(block), provenance).unwrap();
     }
 
     /// Produces block by given client, which may kick off chunk production.
-    /// This means that transactions added before this call will be included in the next block produced by this validator.
+    /// This means that transactions added before this call will be included in
+    /// the next block produced by this validator.
     pub fn produce_block(&mut self, id: usize, height: BlockHeight) {
         let block = self.clients[id].produce_block(height).unwrap();
         self.process_block(id, block.unwrap(), Provenance::PRODUCED);
@@ -1599,15 +1615,16 @@ impl TestEnv {
         }
     }
 
-    /// Process all PartialEncodedChunkRequests in the network queue for a client
-    /// `id`: id for the client
+    /// Process all PartialEncodedChunkRequests in the network queue for a
+    /// client `id`: id for the client
     pub fn process_partial_encoded_chunks_requests(&mut self, id: usize) {
         while let Some(request) = self.network_adapters[id].pop() {
             self.process_partial_encoded_chunk_request(id, request);
         }
     }
 
-    /// Send the PartialEncodedChunkRequest to the target client, get response and process the response
+    /// Send the PartialEncodedChunkRequest to the target client, get response
+    /// and process the response
     pub fn process_partial_encoded_chunk_request(
         &mut self,
         id: usize,
@@ -1989,7 +2006,8 @@ pub fn create_chunk(
     };
     // reconstruct the chunk with changes (if any)
     if should_replace {
-        // The best way it to decode chunk, replace transactions and then recreate encoded chunk.
+        // The best way it to decode chunk, replace transactions and then recreate
+        // encoded chunk.
         let total_parts = client.chain.runtime_adapter.num_total_parts();
         let data_parts = client.chain.runtime_adapter.num_data_parts();
         let decoded_chunk = chunk.decode_chunk(data_parts).unwrap();
@@ -2057,9 +2075,9 @@ pub fn create_chunk(
 }
 
 /// Keep running catchup until there is no more catchup work that can be done
-/// Note that this function does not necessarily mean that all blocks are caught up.
-/// It's possible that some blocks that need to be caught up are still being processed
-/// and the catchup process can't catch up on these blocks yet.
+/// Note that this function does not necessarily mean that all blocks are caught
+/// up. It's possible that some blocks that need to be caught up are still being
+/// processed and the catchup process can't catch up on these blocks yet.
 pub fn run_catchup(
     client: &mut Client,
     highest_height_peers: &[HighestHeightPeerInfo],

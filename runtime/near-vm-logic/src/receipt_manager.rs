@@ -22,9 +22,10 @@ pub struct ReceiptMetadata {
     pub output_data_receivers: Vec<DataReceiver>,
     /// A list of the input data dependencies for this Receipt to process.
     /// If all `input_data_ids` for this receipt are delivered to the account
-    /// that means we have all the `ReceivedData` input which will be than converted to a
-    /// `PromiseResult::Successful(value)` or `PromiseResult::Failed`
-    /// depending on `ReceivedData` is `Some(_)` or `None`
+    /// that means we have all the `ReceivedData` input which will be than
+    /// converted to a `PromiseResult::Successful(value)` or
+    /// `PromiseResult::Failed` depending on `ReceivedData` is `Some(_)` or
+    /// `None`
     pub input_data_ids: Vec<CryptoHash>,
     /// A list of actions to process when all input_data_ids are filled
     pub actions: Vec<Action>,
@@ -39,7 +40,8 @@ pub(crate) struct ReceiptManager {
 /// Indexes the [`ReceiptManager`]'s action receipts and actions.
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct FunctionCallActionIndex {
-    /// Index of [`ReceiptMetadata`] in the action receipts of [`ReceiptManager`].
+    /// Index of [`ReceiptMetadata`] in the action receipts of
+    /// [`ReceiptManager`].
     receipt_index: usize,
     /// Index of the [`Action`] within the [`ReceiptMetadata`].
     action_index: usize,
@@ -71,7 +73,8 @@ impl ReceiptManager {
             .expect("receipt index should be valid for getting receiver")
     }
 
-    /// Appends an action and returns the index the action was inserted in the receipt
+    /// Appends an action and returns the index the action was inserted in the
+    /// receipt
     fn append_action(&mut self, receipt_index: ReceiptIndex, action: Action) -> usize {
         let actions = &mut self
             .action_receipts
@@ -86,16 +89,18 @@ impl ReceiptManager {
         actions.len() - 1
     }
 
-    /// Create a receipt which will be executed after all the receipts identified by
-    /// `receipt_indices` are complete.
+    /// Create a receipt which will be executed after all the receipts
+    /// identified by `receipt_indices` are complete.
     ///
-    /// If any of the [`ReceiptIndex`]es do not refer to a known receipt, this function will fail
-    /// with an error.
+    /// If any of the [`ReceiptIndex`]es do not refer to a known receipt, this
+    /// function will fail with an error.
     ///
     /// # Arguments
     ///
-    /// * `generate_data_id` - function to generate a data id to connect receipt output to
-    /// * `receipt_indices` - a list of receipt indices the new receipt is depend on
+    /// * `generate_data_id` - function to generate a data id to connect receipt
+    ///   output to
+    /// * `receipt_indices` - a list of receipt indices the new receipt is
+    ///   depend on
     /// * `receiver_id` - account id of the receiver of the receipt created
     pub(crate) fn create_receipt(
         &mut self,
@@ -160,11 +165,12 @@ impl ReceiptManager {
 
     /// Attach the [`FunctionCallAction`] action to an existing receipt.
     ///
-    /// `prepaid_gas` and `gas_weight` can either be specified or both. If a `gas_weight` is
-    /// specified, the action should be allocated gas in
+    /// `prepaid_gas` and `gas_weight` can either be specified or both. If a
+    /// `gas_weight` is specified, the action should be allocated gas in
     /// [`distribute_unused_gas`](Self::distribute_unused_gas).
     ///
-    /// For more information, see [crate::VMLogic::promise_batch_action_function_call_weight].
+    /// For more information, see
+    /// [crate::VMLogic::promise_batch_action_function_call_weight].
     ///
     /// # Arguments
     ///
@@ -173,7 +179,8 @@ impl ReceiptManager {
     /// * `arguments` - a Wasm code to attach
     /// * `attached_deposit` - amount of tokens to transfer with the call
     /// * `prepaid_gas` - amount of prepaid gas to attach to the call
-    /// * `gas_weight` - relative weight of unused gas to distribute to the function call action
+    /// * `gas_weight` - relative weight of unused gas to distribute to the
+    ///   function call action
     ///
     /// # Panics
     ///
@@ -284,8 +291,10 @@ impl ReceiptManager {
     /// * `public_key` - a public key for an access key
     /// * `nonce` - a nonce
     /// * `allowance` - amount of tokens allowed to spend by this access key
-    /// * `receiver_id` - a contract witch will be allowed to call with this access key
-    /// * `method_names` - a list of method names is allowed to call with this access key (empty = any method)
+    /// * `receiver_id` - a contract witch will be allowed to call with this
+    ///   access key
+    /// * `method_names` - a list of method names is allowed to call with this
+    ///   access key (empty = any method)
     ///
     /// # Panics
     ///
@@ -345,7 +354,8 @@ impl ReceiptManager {
     /// # Arguments
     ///
     /// * `receipt_index` - an index of Receipt to append an action
-    /// * `beneficiary_id` - an account id to which the rest of the funds of the removed account will be transferred
+    /// * `beneficiary_id` - an account id to which the rest of the funds of the
+    ///   removed account will be transferred
     ///
     /// # Panics
     ///
@@ -362,12 +372,15 @@ impl ReceiptManager {
         Ok(())
     }
 
-    /// Distribute the gas among the scheduled function calls that specify a gas weight.
+    /// Distribute the gas among the scheduled function calls that specify a gas
+    /// weight.
     ///
-    /// Distributes the gas passed in by splitting it among weights defined in `gas_weights`.
-    /// This will sum all weights, retrieve the gas per weight, then update each function
-    /// to add the respective amount of gas. Once all gas is distributed, the remainder of
-    /// the gas not assigned due to precision loss is added to the last function with a weight.
+    /// Distributes the gas passed in by splitting it among weights defined in
+    /// `gas_weights`. This will sum all weights, retrieve the gas per
+    /// weight, then update each function to add the respective amount of
+    /// gas. Once all gas is distributed, the remainder of the gas not
+    /// assigned due to precision loss is added to the last function with a
+    /// weight.
     ///
     /// # Arguments
     ///
@@ -375,7 +388,8 @@ impl ReceiptManager {
     ///
     /// # Returns
     ///
-    /// Function returns a [GasDistribution] that indicates how the gas was distributed.
+    /// Function returns a [GasDistribution] that indicates how the gas was
+    /// distributed.
     pub(crate) fn distribute_unused_gas(&mut self, unused_gas: Gas) -> GasDistribution {
         let gas_weight_sum: u128 =
             self.gas_weights.iter().map(|(_, GasWeight(weight))| *weight as u128).sum();
@@ -395,8 +409,9 @@ impl ReceiptManager {
 
         let mut distributed = 0;
         for (action_index, GasWeight(weight)) in &self.gas_weights {
-            // Multiplication is done in u128 with max values of u64::MAX so this cannot overflow.
-            // Division result can be truncated to 64 bits because gas_weight_sum >= weight.
+            // Multiplication is done in u128 with max values of u64::MAX so this cannot
+            // overflow. Division result can be truncated to 64 bits because
+            // gas_weight_sum >= weight.
             let assigned_gas = (unused_gas as u128 * *weight as u128 / gas_weight_sum) as u64;
 
             distribute_gas(action_index, assigned_gas as u64);

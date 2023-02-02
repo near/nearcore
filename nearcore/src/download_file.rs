@@ -340,9 +340,9 @@ mod tests {
     }
 
     /// Tests writing plain text of varying lengths through [`AutoXzDecoder`].
-    /// Includes test cases where prefix of a XZ header is present at the beginning
-    /// of the stream being written.  That tests the object not being fooled by
-    /// partial prefix.
+    /// Includes test cases where prefix of a XZ header is present at the
+    /// beginning of the stream being written.  That tests the object not
+    /// being fooled by partial prefix.
     #[test]
     fn test_auto_xz_decode_plain() {
         let mut data: [u8; 39] = *b"A quick brown fox jumps over a lazy dog";
@@ -378,9 +378,10 @@ mod tests {
         }
     }
 
-    /// Tests [`AutoXzDecoder`]’s handling of corrupt XZ streams.  The data being
-    /// processed starts with a proper XZ header but what follows is an invalid XZ
-    /// data.  This should result in [`FileDownloadError::XzDecodeError`].
+    /// Tests [`AutoXzDecoder`]’s handling of corrupt XZ streams.  The data
+    /// being processed starts with a proper XZ header but what follows is
+    /// an invalid XZ data.  This should result in
+    /// [`FileDownloadError::XzDecodeError`].
     #[test]
     fn test_auto_xz_decode_corrupted() {
         let buffer = b"\xfd\x37\x7a\x58\x5a\x00A quick brown fox";

@@ -42,9 +42,11 @@ impl ProfileDataV2 {
         ExtCosts::iter().map(|a| self.get_ext_cost(a)).fold(0, u64::saturating_add)
     }
 
-    /// List action cost in the old way, which conflated several action parameters into one.
+    /// List action cost in the old way, which conflated several action
+    /// parameters into one.
     ///
-    /// This is used to display old gas profiles on the RPC API and in debug output.
+    /// This is used to display old gas profiles on the RPC API and in debug
+    /// output.
     pub fn legacy_action_costs(&self) -> Vec<(&'static str, Gas)> {
         vec![
             ("CREATE_ACCOUNT", self.data[0]),
@@ -53,10 +55,13 @@ impl ProfileDataV2 {
             ("FUNCTION_CALL", self.data[3]),   // contains per byte and base cost
             ("TRANSFER", self.data[4]),
             ("STAKE", self.data[5]),
-            ("ADD_KEY", self.data[6]), // contains base + per byte cost for function call keys and full access keys
+            ("ADD_KEY", self.data[6]), /* contains base + per byte cost for function call keys
+                                        * and full access keys */
             ("DELETE_KEY", self.data[7]),
-            ("NEW_DATA_RECEIPT_BYTE", self.data[8]), // contains the per-byte cost for sending back a data dependency
-            ("NEW_RECEIPT", self.data[9]), // contains base cost for data receipts and action receipts
+            ("NEW_DATA_RECEIPT_BYTE", self.data[8]), /* contains the per-byte cost for sending
+                                                      * back a data dependency */
+            ("NEW_RECEIPT", self.data[9]), /* contains base cost for data receipts and action
+                                            * receipts */
         ]
     }
 
@@ -251,7 +256,8 @@ mod test {
     #[cfg(not(feature = "nightly"))]
     fn test_profile_data_debug() {
         let profile_data = ProfileDataV2::test();
-        // we don't care about exact formatting, but the numbers should not change unexpectedly
+        // we don't care about exact formatting, but the numbers should not change
+        // unexpectedly
         let pretty_debug_str = format!("{profile_data:#?}");
         insta::assert_snapshot!(pretty_debug_str);
     }

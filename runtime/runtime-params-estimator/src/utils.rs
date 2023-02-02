@@ -416,9 +416,11 @@ pub(crate) fn generate_fn_name(index: usize, len: usize) -> Vec<u8> {
     name
 }
 
-/// Create a WASM module that is empty except for a main method and a single data entry with n characters
+/// Create a WASM module that is empty except for a main method and a single
+/// data entry with n characters
 pub(crate) fn generate_data_only_contract(data_size: usize, config: &VMConfig) -> Vec<u8> {
-    // Using pseudo-random stream with fixed seed to create deterministic, incompressable payload.
+    // Using pseudo-random stream with fixed seed to create deterministic,
+    // incompressable payload.
     let prng: XorShiftRng = rand::SeedableRng::seed_from_u64(0xdeadbeef);
     let payload = prng.sample_iter(&Alphanumeric).take(data_size).collect();
     let payload = String::from_utf8(payload).unwrap();

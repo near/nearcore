@@ -120,7 +120,8 @@ pub const TRANSACTION_VALIDITY_PERIOD: NumBlocks = 100;
 /// Number of seats for block producers
 pub const NUM_BLOCK_PRODUCER_SEATS: NumSeats = 50;
 
-/// The minimum stake required for staking is last seat price divided by this number.
+/// The minimum stake required for staking is last seat price divided by this
+/// number.
 pub const MINIMUM_STAKE_DIVISOR: u64 = 10;
 
 /// Number of epochs before protocol upgrade.
@@ -240,7 +241,8 @@ pub struct Consensus {
     /// How much time to wait after some progress is made in header sync
     #[serde(default = "default_header_sync_progress_timeout")]
     pub header_sync_progress_timeout: Duration,
-    /// How much time to wait before banning a peer in header sync if sync is too slow
+    /// How much time to wait before banning a peer in header sync if sync is
+    /// too slow
     #[serde(default = "default_header_sync_stall_ban_timeout")]
     pub header_sync_stall_ban_timeout: Duration,
     /// How much to wait for a state sync response before re-requesting
@@ -311,12 +313,15 @@ pub struct Config {
     pub tracked_shards: Vec<ShardId>,
     #[serde(skip_serializing_if = "is_false")]
     pub archive: bool,
-    /// If save_trie_changes is not set it will get inferred from the `archive` field as follows:
-    /// save_trie_changes = !archive
+    /// If save_trie_changes is not set it will get inferred from the `archive`
+    /// field as follows: save_trie_changes = !archive
     /// save_trie_changes should be set to true iff
-    /// - archive if false - non-archival nodes need trie changes to perform garbage collection
-    /// - archive is true, cold_store is configured and migration to split_storage is finished - node
-    /// working in split storage mode needs trie changes in order to do garbage collection on hot.
+    /// - archive if false - non-archival nodes need trie changes to perform
+    ///   garbage collection
+    /// - archive is true, cold_store is configured and migration to
+    ///   split_storage is finished - node
+    /// working in split storage mode needs trie changes in order to do garbage
+    /// collection on hot.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub save_trie_changes: Option<bool>,
     pub log_summary_style: LogSummaryStyle,
@@ -432,8 +437,9 @@ impl Config {
     }
 
     /// Does semantic config validation.
-    /// This is the place to check that all config values make sense and fit well together.
-    /// `validate()` is called every time `config.json` is read.
+    /// This is the place to check that all config values make sense and fit
+    /// well together. `validate()` is called every time `config.json` is
+    /// read.
     fn validate(&self) -> Result<(), ConfigValidationError> {
         if self.archive == false && self.save_trie_changes == Some(false) {
             Err(ConfigValidationError::TrieChanges)
@@ -671,7 +677,8 @@ impl NearConfig {
 
 impl NearConfig {
     /// Test tool to save configs back to the folder.
-    /// Useful for dynamic creating testnet configs and then saving them in different folders.
+    /// Useful for dynamic creating testnet configs and then saving them in
+    /// different folders.
     pub fn save_to_dir(&self, dir: &Path) {
         fs::create_dir_all(dir).expect("Failed to create directory");
 
@@ -1102,7 +1109,8 @@ pub fn create_testnet_configs_from_seeds(
         .collect::<Vec<_>>();
 
     let shard_layout = if let Some(ref fixed_shards) = fixed_shards {
-        // If fixed shards are set, we expect that they take over all the shards (except for one that would host all the other accounts).
+        // If fixed shards are set, we expect that they take over all the shards (except
+        // for one that would host all the other accounts).
         assert!(fixed_shards.len() == num_shards as usize - 1);
         ShardLayout::v1(
             fixed_shards.iter().map(|it| it.parse().unwrap()).collect(),
@@ -1159,7 +1167,8 @@ pub fn create_testnet_configs_from_seeds(
 }
 
 /// Create testnet configuration. If `local_ports` is true,
-/// sets up new ports for all nodes except the first one and sets boot node to it.
+/// sets up new ports for all nodes except the first one and sets boot node to
+/// it.
 pub fn create_testnet_configs(
     num_shards: NumShards,
     num_validator_seats: NumSeats,

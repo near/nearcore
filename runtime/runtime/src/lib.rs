@@ -76,7 +76,8 @@ mod verifier;
 
 const EXPECT_ACCOUNT_EXISTS: &str = "account exists, checked above";
 
-/// Contains information to update validators accounts at the first block of a new epoch.
+/// Contains information to update validators accounts at the first block of a
+/// new epoch.
 #[derive(Debug)]
 pub struct ValidatorAccountsUpdate {
     /// Maximum stake across last 3 epochs.
@@ -85,7 +86,8 @@ pub struct ValidatorAccountsUpdate {
     pub validator_rewards: HashMap<AccountId, Balance>,
     /// Stake proposals from the last chunk.
     pub last_proposals: HashMap<AccountId, Balance>,
-    /// The ID of the protocol treasury account if it belongs to the current shard.
+    /// The ID of the protocol treasury account if it belongs to the current
+    /// shard.
     pub protocol_treasury_account_id: Option<AccountId>,
     /// Accounts to slash and the slashed amount (None means everything)
     pub slashing_info: HashMap<AccountId, Option<Balance>>,
@@ -93,13 +95,15 @@ pub struct ValidatorAccountsUpdate {
 
 #[derive(Debug)]
 pub struct VerificationResult {
-    /// The amount gas that was burnt to convert the transaction into a receipt and send it.
+    /// The amount gas that was burnt to convert the transaction into a receipt
+    /// and send it.
     pub gas_burnt: Gas,
     /// The remaining amount of gas in the receipt.
     pub gas_remaining: Gas,
     /// The gas price at which the gas was purchased in the receipt.
     pub receipt_gas_price: Balance,
-    /// The balance that was burnt to convert the transaction into a receipt and send it.
+    /// The balance that was burnt to convert the transaction into a receipt and
+    /// send it.
     pub burnt_amount: Balance,
 }
 
@@ -108,8 +112,9 @@ pub struct ApplyStats {
     pub tx_burnt_amount: Balance,
     pub slashed_burnt_amount: Balance,
     pub other_burnt_amount: Balance,
-    /// This is a negative amount. This amount was not charged from the account that issued
-    /// the transaction. It's likely due to the delayed queue of the receipts.
+    /// This is a negative amount. This amount was not charged from the account
+    /// that issued the transaction. It's likely due to the delayed queue of
+    /// the receipts.
     pub gas_deficit_amount: Balance,
 }
 
@@ -206,15 +211,15 @@ impl Runtime {
         debug!(target: "runtime", "{}", log_str);
     }
 
-    /// Takes one signed transaction, verifies it and converts it to a receipt. Add this receipt
-    /// either to the new local receipts if the signer is the same as receiver or to the new
-    /// outgoing receipts.
-    /// When transaction is converted to a receipt, the account is charged for the full value of
-    /// the generated receipt.
-    /// In case of successful verification (expected for valid chunks), returns the receipt and
-    /// `ExecutionOutcomeWithId` for the transaction.
-    /// In case of an error, returns either `InvalidTxError` if the transaction verification failed
-    /// or a `StorageError` wrapped into `RuntimeError`.
+    /// Takes one signed transaction, verifies it and converts it to a receipt.
+    /// Add this receipt either to the new local receipts if the signer is
+    /// the same as receiver or to the new outgoing receipts.
+    /// When transaction is converted to a receipt, the account is charged for
+    /// the full value of the generated receipt.
+    /// In case of successful verification (expected for valid chunks), returns
+    /// the receipt and `ExecutionOutcomeWithId` for the transaction.
+    /// In case of an error, returns either `InvalidTxError` if the transaction
+    /// verification failed or a `StorageError` wrapped into `RuntimeError`.
     fn process_transaction(
         &self,
         state_update: &mut TrieUpdate,
@@ -270,8 +275,9 @@ impl Runtime {
                         gas_burnt: verification_result.gas_burnt,
                         tokens_burnt: verification_result.burnt_amount,
                         executor_id: transaction.signer_id.clone(),
-                        // TODO: profile data is only counted in apply_action, which only happened at process_receipt
-                        // VerificationResult needs updates to incorporate profile data to support profile data of txns
+                        // TODO: profile data is only counted in apply_action, which only happened
+                        // at process_receipt VerificationResult needs
+                        // updates to incorporate profile data to support profile data of txns
                         metadata: ExecutionMetadata::V1,
                     },
                 };
@@ -496,8 +502,8 @@ impl Runtime {
             })
             .collect::<Result<Vec<PromiseResult>, RuntimeError>>()?;
 
-        // state_update might already have some updates so we need to make sure we commit it before
-        // executing the actual receipt
+        // state_update might already have some updates so we need to make sure we
+        // commit it before executing the actual receipt
         state_update.commit(StateChangeCause::ActionReceiptProcessingStarted {
             receipt_hash: receipt.get_hash(),
         });
@@ -585,9 +591,10 @@ impl Runtime {
         }
 
         let gas_deficit_amount = if AccountId::is_system(&receipt.predecessor_id) {
-            // We will set gas_burnt for refund receipts to be 0 when we calculate tx_burnt_amount
-            // Here we don't set result.gas_burnt to be zero if CountRefundReceiptsInGasLimit is
-            // enabled because we want it to be counted in gas limit calculation later
+            // We will set gas_burnt for refund receipts to be 0 when we calculate
+            // tx_burnt_amount Here we don't set result.gas_burnt to be zero if
+            // CountRefundReceiptsInGasLimit is enabled because we want it to be
+            // counted in gas limit calculation later
             if !checked_feature!(
                 "stable",
                 CountRefundReceiptsInGasLimit,
@@ -639,16 +646,16 @@ impl Runtime {
         // `gas_deficit_amount` is strictly less than `gas_price * gas_burnt`.
         let mut tx_burnt_amount =
             safe_gas_to_balance(apply_state.gas_price, gas_burnt)? - gas_deficit_amount;
-        // The amount of tokens burnt for the execution of this receipt. It's used in the execution
-        // outcome.
+        // The amount of tokens burnt for the execution of this receipt. It's used in
+        // the execution outcome.
         let tokens_burnt = tx_burnt_amount;
 
         // Adding burnt gas reward for function calls if the account exists.
         let receiver_gas_reward = result.gas_burnt_for_function_call
             * *apply_state.config.fees.burnt_gas_reward.numer() as u64
             / *apply_state.config.fees.burnt_gas_reward.denom() as u64;
-        // The balance that the current account should receive as a reward for function call
-        // execution.
+        // The balance that the current account should receive as a reward for function
+        // call execution.
         let receiver_reward = safe_gas_to_balance(apply_state.gas_price, receiver_gas_reward)?
             .saturating_sub(gas_deficit_amount);
         if receiver_reward > 0 {
@@ -797,14 +804,16 @@ impl Runtime {
         } else {
             safe_add_gas(prepaid_gas, prepaid_exec_gas)? - result.gas_used
         };
-        // Refund for the unused portion of the gas at the price at which this gas was purchased.
+        // Refund for the unused portion of the gas at the price at which this gas was
+        // purchased.
         let mut gas_balance_refund = safe_gas_to_balance(action_receipt.gas_price, gas_refund)?;
         let mut gas_deficit_amount = 0;
         if current_gas_price > action_receipt.gas_price {
-            // In a rare scenario, when the current gas price is higher than the purchased gas
-            // price, the difference is subtracted from the refund. If the refund doesn't have
-            // enough balance to cover the difference, then the remaining balance is considered
-            // the deficit and it's reported in the stats for the balance checker.
+            // In a rare scenario, when the current gas price is higher than the purchased
+            // gas price, the difference is subtracted from the refund. If the
+            // refund doesn't have enough balance to cover the difference, then
+            // the remaining balance is considered the deficit and it's reported
+            // in the stats for the balance checker.
             gas_deficit_amount = safe_gas_to_balance(
                 current_gas_price - action_receipt.gas_price,
                 result.gas_burnt,
@@ -817,7 +826,8 @@ impl Runtime {
                 gas_balance_refund = 0;
             }
         } else {
-            // Refund for the difference of the purchased gas price and the the current gas price.
+            // Refund for the difference of the purchased gas price and the the current gas
+            // price.
             gas_balance_refund = safe_add_balance(
                 gas_balance_refund,
                 safe_gas_to_balance(
@@ -833,8 +843,8 @@ impl Runtime {
                 .push(Receipt::new_balance_refund(&receipt.predecessor_id, deposit_refund));
         }
         if gas_balance_refund > 0 {
-            // Gas refunds refund the allowance of the access key, so if the key exists on the
-            // account it will increase the allowance by the refund amount.
+            // Gas refunds refund the allowance of the access key, so if the key exists on
+            // the account it will increase the allowance by the refund amount.
             result.new_receipts.push(Receipt::new_gas_refund(
                 &action_receipt.signer_id,
                 gas_balance_refund,
@@ -865,9 +875,10 @@ impl Runtime {
                     data_receipt.data_id,
                     &ReceivedData { data: data_receipt.data.clone() },
                 );
-                // Check if there is already a receipt that was postponed and was awaiting for the
-                // given data_id.
-                // If we don't have a postponed receipt yet, we don't need to do anything for now.
+                // Check if there is already a receipt that was postponed and was awaiting for
+                // the given data_id.
+                // If we don't have a postponed receipt yet, we don't need to do anything for
+                // now.
                 if let Some(receipt_id) = get(
                     state_update,
                     &TrieKey::PostponedReceiptId {
@@ -999,9 +1010,9 @@ impl Runtime {
         Ok(None)
     }
 
-    /// Iterates over the validators in the current shard and updates their accounts to return stake
-    /// and allocate rewards. Also updates protocol treasury account if it belongs to the current
-    /// shard.
+    /// Iterates over the validators in the current shard and updates their
+    /// accounts to return stake and allocate rewards. Also updates protocol
+    /// treasury account if it belongs to the current shard.
     fn update_validator_accounts(
         &self,
         state_update: &mut TrieUpdate,
@@ -1136,7 +1147,8 @@ impl Runtime {
             && migration_flags.is_first_block_of_version
         {
             for (account_id, delta) in &migration_data.storage_usage_delta {
-                // Account could have been deleted in the meantime, so we check if it is still Some
+                // Account could have been deleted in the meantime, so we check if it is still
+                // Some
                 if let Some(mut account) = get_account(state_update, account_id)? {
                     // Storage usage is saved in state, hence it is nowhere close to max value
                     // of u64, and maximal delta is 4196, se we can add here without checking
@@ -1150,16 +1162,16 @@ impl Runtime {
         }
 
         // Re-introduce receipts lost because of a bug in apply_chunks.
-        // We take the first block with existing chunk in the first epoch in which protocol feature
-        // RestoreReceiptsAfterFixApplyChunks was enabled, and put the restored receipts there.
-        // See https://github.com/near/nearcore/pull/4248/ for more details.
+        // We take the first block with existing chunk in the first epoch in which
+        // protocol feature RestoreReceiptsAfterFixApplyChunks was enabled, and
+        // put the restored receipts there. See https://github.com/near/nearcore/pull/4248/ for more details.
         let receipts_to_restore = if ProtocolFeature::RestoreReceiptsAfterFixApplyChunks
             .protocol_version()
             == protocol_version
             && migration_flags.is_first_block_with_chunk_of_version
         {
-            // Note that receipts are restored only on mainnet so restored_receipts will be empty on
-            // other chains.
+            // Note that receipts are restored only on mainnet so restored_receipts will be
+            // empty on other chains.
             migration_data.restored_receipts.get(&0u64).cloned().unwrap_or_default()
         } else {
             vec![]
@@ -1168,15 +1180,16 @@ impl Runtime {
         Ok((gas_used, receipts_to_restore))
     }
 
-    /// Applies new signed transactions and incoming receipts for some chunk/shard on top of
-    /// given trie and the given state root.
-    /// If the validator accounts update is provided, updates validators accounts.
-    /// All new signed transactions should be valid and already verified by the chunk producer.
-    /// If any transaction is invalid, it would return an `InvalidTxError`.
-    /// Returns an `ApplyResult` that contains the new state root, trie changes,
-    /// new outgoing receipts, execution outcomes for
-    /// all transactions, local action receipts (generated from transactions with signer ==
-    /// receivers) and incoming action receipts.
+    /// Applies new signed transactions and incoming receipts for some
+    /// chunk/shard on top of given trie and the given state root.
+    /// If the validator accounts update is provided, updates validators
+    /// accounts. All new signed transactions should be valid and already
+    /// verified by the chunk producer. If any transaction is invalid, it
+    /// would return an `InvalidTxError`. Returns an `ApplyResult` that
+    /// contains the new state root, trie changes, new outgoing receipts,
+    /// execution outcomes for all transactions, local action receipts
+    /// (generated from transactions with signer == receivers) and incoming
+    /// action receipts.
     pub fn apply(
         &self,
         trie: Trie,
@@ -1226,7 +1239,8 @@ impl Runtime {
                 apply_state.current_protocol_version,
             )
             .map_err(RuntimeError::StorageError)?;
-        // If we have receipts that need to be restored, prepend them to the list of incoming receipts
+        // If we have receipts that need to be restored, prepend them to the list of
+        // incoming receipts
         let incoming_receipts = if receipts_to_restore.is_empty() {
             incoming_receipts
         } else {
@@ -1258,9 +1272,9 @@ impl Runtime {
         let mut local_receipts = vec![];
         let mut outcomes = vec![];
         let mut processed_delayed_receipts = vec![];
-        // This contains the gas "burnt" for refund receipts. Even though we don't actually
-        // charge any gas for refund receipts, we still count the gas use towards the block gas
-        // limit
+        // This contains the gas "burnt" for refund receipts. Even though we don't
+        // actually charge any gas for refund receipts, we still count the gas
+        // use towards the block gas limit
         let mut total_gas_burnt = gas_used_for_migrations;
 
         for signed_transaction in transactions {
@@ -1319,7 +1333,8 @@ impl Runtime {
 
         let gas_limit = apply_state.gas_limit.unwrap_or(Gas::max_value());
 
-        // We first process local receipts. They contain staking, local contract calls, etc.
+        // We first process local receipts. They contain staking, local contract calls,
+        // etc.
         if let Some(prefetcher) = &mut prefetcher {
             prefetcher.clear();
             // Prefetcher is allowed to fail
@@ -1327,15 +1342,16 @@ impl Runtime {
         }
         for receipt in local_receipts.iter() {
             if total_gas_burnt < gas_limit {
-                // NOTE: We don't need to validate the local receipt, because it's just validated in
-                // the `verify_and_charge_transaction`.
+                // NOTE: We don't need to validate the local receipt, because it's just
+                // validated in the `verify_and_charge_transaction`.
                 process_receipt(receipt, &mut state_update, &mut total_gas_burnt)?;
             } else {
                 Self::delay_receipt(&mut state_update, &mut delayed_receipts_indices, receipt)?;
             }
         }
 
-        // Then we process the delayed receipts. It's a backlog of receipts from the past blocks.
+        // Then we process the delayed receipts. It's a backlog of receipts from the
+        // past blocks.
         while delayed_receipts_indices.first_index < delayed_receipts_indices.next_available_index {
             if total_gas_burnt >= gas_limit {
                 break;
@@ -1354,7 +1370,8 @@ impl Runtime {
                 _ = prefetcher.prefetch_receipts_data(std::slice::from_ref(&receipt));
             }
 
-            // Validating the delayed receipt. If it fails, it's likely the state is inconsistent.
+            // Validating the delayed receipt. If it fails, it's likely the state is
+            // inconsistent.
             validate_receipt(
                 &apply_state.config.wasm_config.limit_config,
                 &receipt,
@@ -1374,15 +1391,16 @@ impl Runtime {
             processed_delayed_receipts.push(receipt);
         }
 
-        // And then we process the new incoming receipts. These are receipts from other shards.
+        // And then we process the new incoming receipts. These are receipts from other
+        // shards.
         if let Some(prefetcher) = &mut prefetcher {
             prefetcher.clear();
             // Prefetcher is allowed to fail
             _ = prefetcher.prefetch_receipts_data(&incoming_receipts);
         }
         for receipt in incoming_receipts.iter() {
-            // Validating new incoming no matter whether we have available gas or not. We don't
-            // want to store invalid receipts in state as delayed.
+            // Validating new incoming no matter whether we have available gas or not. We
+            // don't want to store invalid receipts in state as delayed.
             validate_receipt(
                 &apply_state.config.wasm_config.limit_config,
                 receipt,
@@ -1396,7 +1414,8 @@ impl Runtime {
             }
         }
 
-        // No more receipts are executed on this trie, stop any pending prefetches on it.
+        // No more receipts are executed on this trie, stop any pending prefetches on
+        // it.
         if let Some(prefetcher) = &prefetcher {
             prefetcher.clear();
         }
@@ -1447,7 +1466,8 @@ impl Runtime {
         })
     }
 
-    // Adds the given receipt into the end of the delayed receipt queue in the state.
+    // Adds the given receipt into the end of the delayed receipt queue in the
+    // state.
     pub fn delay_receipt(
         state_update: &mut TrieUpdate,
         delayed_receipts_indices: &mut DelayedReceiptIndices,
@@ -1496,7 +1516,8 @@ impl Runtime {
         state_update.commit(StateChangeCause::Migration);
     }
 
-    /// Computes the expected storage per account for a given set of StateRecord(s).
+    /// Computes the expected storage per account for a given set of
+    /// StateRecord(s).
     pub fn compute_storage_usage(
         &self,
         records: &[StateRecord],
@@ -1613,9 +1634,9 @@ mod tests {
         assert_eq!(test_account, get_res);
     }
 
-    /***************/
+    /************** */
     /* Apply tests */
-    /***************/
+    /************** */
 
     fn setup_runtime(
         initial_balance: Balance,
@@ -1825,7 +1846,8 @@ mod tests {
         let receipts = generate_receipts(small_transfer, n);
         let mut receipt_chunks = receipts.chunks_exact(4);
 
-        // Every time we'll process 3 receipts, so we need n / 3 rounded up. Then we do 3 extra.
+        // Every time we'll process 3 receipts, so we need n / 3 rounded up. Then we do
+        // 3 extra.
         for i in 1..=n / 3 + 3 {
             let prev_receipts: &[Receipt] = receipt_chunks.next().unwrap_or_default();
             let apply_result = runtime
@@ -1878,7 +1900,8 @@ mod tests {
         let mut num_receipts_given = 0;
         let mut num_receipts_processed = 0;
         let mut num_receipts_per_block = 1;
-        // Test adjusts gas limit based on the number of receipt given and number of receipts processed.
+        // Test adjusts gas limit based on the number of receipt given and number of
+        // receipts processed.
         while num_receipts_processed < n {
             if num_receipts_given > num_receipts_processed {
                 num_receipts_per_block += 1;
@@ -2018,7 +2041,8 @@ mod tests {
                 local_transactions[0].get_hash(), // tx 0
                 local_transactions[1].get_hash(), // tx 1
                 local_transactions[2].get_hash(), // tx 2
-                local_transactions[3].get_hash(), // tx 3 - the TX is processed, but the receipt is delayed
+                local_transactions[3].get_hash(), /* tx 3 - the TX is processed, but the receipt
+                                                   * is delayed */
                 create_receipt_id_from_transaction(
                     PROTOCOL_VERSION,
                     &local_transactions[0],
@@ -2042,8 +2066,8 @@ mod tests {
         );
 
         // STEP #2. Pass 1 new local transaction (TX#4) + 1 receipts R#2.
-        // We process 1 local receipts for TX#4, then delayed TX#3 receipt and then receipt R#0.
-        // R#2 is added to delayed queue.
+        // We process 1 local receipts for TX#4, then delayed TX#3 receipt and then
+        // receipt R#0. R#2 is added to delayed queue.
         // The new delayed queue is R#1, R#2
         let apply_result = runtime
             .apply(
@@ -2085,8 +2109,8 @@ mod tests {
             "STEP #2 failed",
         );
 
-        // STEP #3. Pass 4 new local transaction (TX#5, TX#6, TX#7, TX#8) and 1 new receipt R#3.
-        // We process 3 local receipts for TX#5, TX#6, TX#7.
+        // STEP #3. Pass 4 new local transaction (TX#5, TX#6, TX#7, TX#8) and 1 new
+        // receipt R#3. We process 3 local receipts for TX#5, TX#6, TX#7.
         // TX#8 and R#3 are added to delayed queue.
         // The new delayed queue is R#1, R#2, TX#8, R#3
         let apply_result = runtime

@@ -49,8 +49,8 @@ struct TestShardUpgradeEnv {
     num_clients: usize,
 }
 
-/// Test shard layout upgrade. This function runs `env` to produce and process blocks
-/// from 1 to 3 * epoch_length + 1, ie, to the beginning of epoch 3.
+/// Test shard layout upgrade. This function runs `env` to produce and process
+/// blocks from 1 to 3 * epoch_length + 1, ie, to the beginning of epoch 3.
 /// Epoch 0: 1 shard
 /// Epoch 1: 1 shard, state split happens
 /// Epoch 2: shard layout upgrades to simple_night_shade_shard,
@@ -91,8 +91,8 @@ impl TestShardUpgradeEnv {
         self.init_txs = init_txs;
     }
 
-    /// `txs_by_height` is a hashmap from block height to transactions to be included at block at
-    /// that height
+    /// `txs_by_height` is a hashmap from block height to transactions to be
+    /// included at block at that height
     fn set_tx_at_height(&mut self, height: u64, txs: Vec<SignedTransaction>) {
         debug!(target:"test", "adding txs at height {} txs: {:?}", height, txs.iter().map(|x|x.get_hash()).collect::<Vec<_>>());
         self.txs_by_height.insert(height, txs);
@@ -115,10 +115,11 @@ impl TestShardUpgradeEnv {
             }
         }
 
-        // At every step, chunks for the next block are produced after the current block is processed
-        // (inside env.process_block)
-        // Therefore, if we want a transaction to be included at the block at `height+1`, we must add
-        // it when we are producing the block at `height`
+        // At every step, chunks for the next block are produced after the current block
+        // is processed (inside env.process_block)
+        // Therefore, if we want a transaction to be included at the block at
+        // `height+1`, we must add it when we are producing the block at
+        // `height`
         if let Some(txs) = self.txs_by_height.get(&(height + 1)) {
             for tx in txs {
                 for j in 0..self.num_validators {
@@ -142,15 +143,18 @@ impl TestShardUpgradeEnv {
             block_producer.clone(),
             SIMPLE_NIGHTSHADE_PROTOCOL_VERSION,
         );
-        // make sure that catchup is done before the end of each epoch, but when it is done is
-        // by chance. This simulates when catchup takes a long time to be done
+        // make sure that catchup is done before the end of each epoch, but when it is
+        // done is by chance. This simulates when catchup takes a long time to
+        // be done
         let should_catchup = rng.gen_bool(P_CATCHUP) || height % self.epoch_length == 0;
-        // process block, this also triggers chunk producers for the next block to produce chunks
+        // process block, this also triggers chunk producers for the next block to
+        // produce chunks
         for j in 0..self.num_clients {
             let produce_chunks = !rng.gen_bool(p_drop_chunk);
-            // Here we don't just call self.clients[i].process_block_sync_with_produce_chunk_options
-            // because we want to call run_catchup before finish processing this block. This simulates
-            // that catchup and block processing run in parallel.
+            // Here we don't just call
+            // self.clients[i].process_block_sync_with_produce_chunk_options
+            // because we want to call run_catchup before finish processing this block. This
+            // simulates that catchup and block processing run in parallel.
             env.clients[j]
                 .start_process_block(
                     MaybeValidated::from(block.clone()),
@@ -201,26 +205,29 @@ impl TestShardUpgradeEnv {
         }
     }
 
-    /// Check that chain.get_next_block_hash_with_new_chunk function returns the expected
-    /// result with sharding upgrade
-    /// Specifically, the function calls `get_next_block_with_new_chunk` for the block at height
-    /// `height` for all shards in this block, and verifies that the returned result
-    /// 1) If it is not empty (`new_block_hash`, `target_shard_id`),
+    /// Check that chain.get_next_block_hash_with_new_chunk function returns the
+    /// expected result with sharding upgrade
+    /// Specifically, the function calls `get_next_block_with_new_chunk` for the
+    /// block at height `height` for all shards in this block, and verifies
+    /// that the returned result 1) If it is not empty (`new_block_hash`,
+    /// `target_shard_id`),
     ///    - the chunk at `target_shard_id` is a new chunk
-    ///    - `target_shard_id` is either the original shard or a split shard of the original shard
-    ///    - all blocks before the returned `new_block_hash` do not have new chunk for the corresponding
-    ///      shards
+    ///    - `target_shard_id` is either the original shard or a split shard of
+    ///      the original shard
+    ///    - all blocks before the returned `new_block_hash` do not have new
+    ///      chunk for the corresponding shards
     /// 2) If it is empty
-    ///    - all blocks after the block at `height` in the current canonical chain do not have
-    ///      new chunks for the corresponding shards
+    ///    - all blocks after the block at `height` in the current canonical
+    ///      chain do not have new chunks for the corresponding shards
     fn check_next_block_with_new_chunk(&mut self, height: BlockHeight) {
         let block = self.env.clients[0].chain.get_block_by_height(height).unwrap();
         let block_hash = block.hash();
         let num_shards = block.chunks().len();
         for shard_id in 0..num_shards {
-            // get hash of the last block that we need to check that it has empty chunks for the shard
-            // if `get_next_block_hash_with_new_chunk` returns None, that would be the lastest block
-            // on chain, otherwise, that would be the block before the `block_hash` that the function
+            // get hash of the last block that we need to check that it has empty chunks for
+            // the shard if `get_next_block_hash_with_new_chunk` returns None,
+            // that would be the lastest block on chain, otherwise, that would
+            // be the block before the `block_hash` that the function
             // call returns
             let mut last_block_hash_with_empty_chunk = match self.env.clients[0]
                 .chain
@@ -266,10 +273,10 @@ impl TestShardUpgradeEnv {
         }
     }
 
-    /// This functions checks that the outcomes of all transactions and associated receipts
-    /// have successful status
-    /// If `allow_not_started` is true, allow transactions status to be NotStarted
-    /// Skips checking transactions added at `skip_heights`
+    /// This functions checks that the outcomes of all transactions and
+    /// associated receipts have successful status
+    /// If `allow_not_started` is true, allow transactions status to be
+    /// NotStarted Skips checking transactions added at `skip_heights`
     /// Return successful transaction hashes
     fn check_tx_outcomes(
         &mut self,
@@ -332,8 +339,8 @@ impl TestShardUpgradeEnv {
         successful_txs
     }
 
-    // Check the receipt_id_to_shard_id mappings are correct for all outgoing receipts in the
-    // latest block
+    // Check the receipt_id_to_shard_id mappings are correct for all outgoing
+    // receipts in the latest block
     fn check_receipt_id_to_shard_id(&mut self) {
         let env = &mut self.env;
         let head = env.clients[0].chain.head().unwrap();
@@ -364,7 +371,8 @@ impl TestShardUpgradeEnv {
         }
     }
 
-    /// Check that after split state is finished, the artifacts stored in storage is removed
+    /// Check that after split state is finished, the artifacts stored in
+    /// storage is removed
     fn check_split_states_artifacts(&mut self) {
         let env = &mut self.env;
         let head = env.clients[0].chain.head().unwrap();
@@ -387,8 +395,8 @@ impl TestShardUpgradeEnv {
 }
 
 /// Checks that account exists in the state after `block` is processed
-/// This function checks both state_root from chunk extra and state root from chunk header, if
-/// the corresponding chunk is included in the block
+/// This function checks both state_root from chunk extra and state root from
+/// chunk header, if the corresponding chunk is included in the block
 fn check_account(env: &mut TestEnv, account_id: &AccountId, block: &Block) {
     let prev_hash = block.header().prev_hash();
     let shard_layout =
@@ -456,7 +464,8 @@ fn setup_genesis(
     genesis
 }
 
-// test some shard layout upgrade with some simple transactions to create accounts
+// test some shard layout upgrade with some simple transactions to create
+// accounts
 #[test]
 fn test_shard_layout_upgrade_simple() {
     init_test_logger();
@@ -522,9 +531,10 @@ fn test_shard_layout_upgrade_simple() {
         test_env.step(0.);
     }
 
-    // transactions added for height = 2 * epoch_length + 1 will not be processed, that's a known
-    // issue for the shard upgrade implementation. It is because transaction pools are stored by
-    // shard id and we do not migrate transactions that are still in the pool at the end of the
+    // transactions added for height = 2 * epoch_length + 1 will not be processed,
+    // that's a known issue for the shard upgrade implementation. It is because
+    // transaction pools are stored by shard id and we do not migrate
+    // transactions that are still in the pool at the end of the
     // sharding upgrade
     test_env.check_tx_outcomes(false, vec![2 * epoch_length + 1]);
     test_env.check_accounts(accounts_to_check.iter().collect());
@@ -536,8 +546,9 @@ const GAS_1: u64 = 300_000_000_000_000;
 const GAS_2: u64 = GAS_1 / 3;
 
 // create a transaction signed by `account0` and calls a contract on `account1`
-// the contract creates a promise that executes a cross contract call on "account2"
-// then executes another contract call on "account3" that creates a new account
+// the contract creates a promise that executes a cross contract call on
+// "account2" then executes another contract call on "account3" that creates a
+// new account
 fn gen_cross_contract_transaction(
     account0: &AccountId,
     account1: &AccountId,
@@ -598,7 +609,8 @@ fn gen_cross_contract_transaction(
     )
 }
 
-/// Return test_env and a map from tx hash to the new account that will be added by this transaction
+/// Return test_env and a map from tx hash to the new account that will be added
+/// by this transaction
 fn setup_test_env_with_cross_contract_txs(
     epoch_length: u64,
 ) -> (TestShardUpgradeEnv, HashMap<CryptoHash, AccountId>) {
@@ -606,7 +618,8 @@ fn setup_test_env_with_cross_contract_txs(
     let mut rng = thread_rng();
 
     let genesis_hash = *test_env.env.clients[0].chain.genesis_block().hash();
-    // use test0, test1 and two random accounts to deploy contracts because we want accounts on different shards
+    // use test0, test1 and two random accounts to deploy contracts because we want
+    // accounts on different shards
     let contract_accounts = vec![
         test_env.initial_accounts[0].clone(),
         test_env.initial_accounts[1].clone(),
@@ -718,7 +731,8 @@ fn test_shard_layout_upgrade_cross_contract_calls() {
 
 // Test cross contract calls
 // This test case tests when there are missing chunks in the produced blocks
-// This is to test that all the chunk management logic in sharding split is correct
+// This is to test that all the chunk management logic in sharding split is
+// correct
 fn test_shard_layout_upgrade_missing_chunks(p_missing: f64) {
     init_test_logger();
 

@@ -1,5 +1,5 @@
-//! Structs in this module are used for debug purposes, and might change at any time
-//! without backwards compatibility of JSON encoding.
+//! Structs in this module are used for debug purposes, and might change at any
+//! time without backwards compatibility of JSON encoding.
 
 use std::collections::HashMap;
 
@@ -123,8 +123,9 @@ pub struct BlockProduction {
 pub struct ChunkCollection {
     // Chunk producer of the chunk
     pub chunk_producer: AccountId,
-    // Time when the chunk was received. Note that this field can be filled even if the block doesn't
-    // include a chunk for the shard, if a chunk at this height was received after the block was produced.
+    // Time when the chunk was received. Note that this field can be filled even if the block
+    // doesn't include a chunk for the shard, if a chunk at this height was received after the
+    // block was produced.
     pub received_time: Option<DateTime<chrono::Utc>>,
     // Whether the block included a chunk for this shard
     pub chunk_included: bool,

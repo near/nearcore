@@ -272,7 +272,8 @@ fn test_two_promises_no_callbacks() {
     assert_refund!(group, ref2 @ "near_0");
 }
 
-// two promises, with two callbacks (A->B->C=>D=>E) where call to E is initialized by completion of D.
+// two promises, with two callbacks (A->B->C=>D=>E) where call to E is
+// initialized by completion of D.
 #[test]
 fn test_two_promises_with_two_callbacks() {
     let group = RuntimeGroup::new(6, 6, near_test_contracts::rs_contract());

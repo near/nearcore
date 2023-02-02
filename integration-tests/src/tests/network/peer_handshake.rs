@@ -194,14 +194,14 @@ fn peer_recover() {
 
 /// Create two nodes A and B and connect them.
 /// Stop node B, change its identity (PeerId) and spawn it again.
-/// B knows nothing about A (since store is wiped) and A knows old information from B.
-/// A should learn new information from B and connect with it.
+/// B knows nothing about A (since store is wiped) and A knows old information
+/// from B. A should learn new information from B and connect with it.
 #[test]
 fn check_connection_with_new_identity() -> anyhow::Result<()> {
     let mut runner = Runner::new(2, 2).enable_outbound();
 
-    // This is needed, because even if outbound is enabled, there is no booting nodes,
-    // so A and B doesn't know each other yet.
+    // This is needed, because even if outbound is enabled, there is no booting
+    // nodes, so A and B doesn't know each other yet.
     runner.push(Action::AddEdge { from: 0, to: 1, force: true });
 
     runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1])]));

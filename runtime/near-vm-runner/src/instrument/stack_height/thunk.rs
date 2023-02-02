@@ -18,7 +18,8 @@ pub(crate) fn generate_thunks(
 ) -> Result<elements::Module, Error> {
     let module_ctx = ModuleCtx::new(&module);
 
-    // First, we need to collect all function indices that should be replaced by thunks
+    // First, we need to collect all function indices that should be replaced by
+    // thunks
 
     let mut replacement_map: BTreeMap<u32, Thunk> = {
         let exports = module.export_section().map(|es| es.entries()).unwrap_or(&[]);

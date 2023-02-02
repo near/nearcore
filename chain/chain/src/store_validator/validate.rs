@@ -314,10 +314,11 @@ pub(crate) fn header_hash_indexed_by_height(
         Err(e) => err!("Storage error, {:?}", e),
     };
     // TODO #3488: enable
-    // This check is disabled because currently we can accept Headers that below chunk_tail.
-    // It creates a mess which records for DBCol::HeaderHashesByHeight exist.
-    // It will be resolved after #3488 is introduced by migration
-    // that is removing Block Headers forcibly from the DB.
+    // This check is disabled because currently we can accept Headers that below
+    // chunk_tail. It creates a mess which records for
+    // DBCol::HeaderHashesByHeight exist. It will be resolved after #3488 is
+    // introduced by migration that is removing Block Headers forcibly from the
+    // DB.
 
     /*if height < sv.inner.chunk_tail {
         // The data must be GCed
@@ -539,7 +540,8 @@ pub(crate) fn trie_changes_chunk_extra_exists(
         sv.store.get_ser::<Block>(DBCol::Block, block_hash.as_ref()),
         "Can't get Block from DB"
     );
-    // 2) Chunk Extra with `block_hash` and `shard_uid` should be available and match with the new root
+    // 2) Chunk Extra with `block_hash` and `shard_uid` should be available and
+    // match with the new root
     let chunk_extra = unwrap_or_err_db!(
         sv.store
             .get_ser::<ChunkExtra>(DBCol::ChunkExtra, &get_block_shard_uid(block_hash, shard_uid)),
@@ -548,7 +550,8 @@ pub(crate) fn trie_changes_chunk_extra_exists(
         shard_uid
     );
     check_discrepancy!(chunk_extra.state_root(), &new_root, "State Root discrepancy");
-    // 3) Chunk Extra with `prev_block_hash` and `shard_uid` should match with the old root if available
+    // 3) Chunk Extra with `prev_block_hash` and `shard_uid` should match with the
+    // old root if available
     if let Ok(Some(prev_chunk_extra)) = sv.store.get_ser::<ChunkExtra>(
         DBCol::ChunkExtra,
         &get_block_shard_uid(block.header().prev_hash(), shard_uid),
@@ -572,8 +575,9 @@ pub(crate) fn trie_changes_chunk_extra_exists(
         unwrap_or_err!(item, "Error iterating Trie {:?} {:?}", shard_uid, new_root);
     }
 
-    // If the trie_changes we are checking are for the next epoch during sharding upgrade,
-    // skip the checks about ShardChunk because there is no corresponding chunk for this shard_uid
+    // If the trie_changes we are checking are for the next epoch during sharding
+    // upgrade, skip the checks about ShardChunk because there is no
+    // corresponding chunk for this shard_uid
     let shard_layout = unwrap_or_err!(
         sv.runtime_adapter.get_shard_layout(block.header().epoch_id()),
         "Error getting shard layout"

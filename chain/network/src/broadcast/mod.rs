@@ -78,9 +78,10 @@ impl<T: Clone + Send> Receiver<T> {
         v
     }
 
-    /// Calls recv() in a loop until the returned value satisfies the predicate `pred`
-    /// (predicate is satisfied iff it returns `Some(u)`). Returns `u`.
-    /// All the values popped from the channel in the process are dropped silently.
+    /// Calls recv() in a loop until the returned value satisfies the predicate
+    /// `pred` (predicate is satisfied iff it returns `Some(u)`). Returns
+    /// `u`. All the values popped from the channel in the process are
+    /// dropped silently.
     pub async fn recv_until<U>(&mut self, mut pred: impl FnMut(T) -> Option<U>) -> U {
         loop {
             if let Some(u) = pred(self.recv().await) {

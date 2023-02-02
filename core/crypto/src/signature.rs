@@ -114,7 +114,8 @@ impl std::fmt::Debug for ED25519PublicKey {
 pub enum PublicKey {
     /// 256 bit elliptic curve based public-key.
     ED25519(ED25519PublicKey),
-    /// 512 bit elliptic curve based public-key used in Bitcoin's public-key cryptography.
+    /// 512 bit elliptic curve based public-key used in Bitcoin's public-key
+    /// cryptography.
     SECP256K1(Secp256K1PublicKey),
 }
 
@@ -275,7 +276,8 @@ impl From<Secp256K1PublicKey> for PublicKey {
 #[derive(Clone, Eq)]
 // This is actually a keypair, because ed25519_dalek api only has keypair.sign
 // From ed25519_dalek doc: The first SECRET_KEY_LENGTH of bytes is the SecretKey
-// The last PUBLIC_KEY_LENGTH of bytes is the public key, in total it's KEYPAIR_LENGTH
+// The last PUBLIC_KEY_LENGTH of bytes is the public key, in total it's
+// KEYPAIR_LENGTH
 pub struct ED25519SecretKey(pub [u8; ed25519_dalek::KEYPAIR_LENGTH]);
 
 impl PartialEq for ED25519SecretKey {
@@ -529,8 +531,8 @@ impl Signature {
         }
     }
 
-    /// Verifies that this signature is indeed signs the data with given public key.
-    /// Also if public key doesn't match on the curve returns `false`.
+    /// Verifies that this signature is indeed signs the data with given public
+    /// key. Also if public key doesn't match on the curve returns `false`.
     pub fn verify(&self, data: &[u8], public_key: &PublicKey) -> bool {
         match (&self, public_key) {
             (Signature::ED25519(signature), PublicKey::ED25519(public_key)) => {

@@ -10,7 +10,8 @@ pub type ValidatorId = u64;
 pub type ValidatorMask = Vec<bool>;
 /// StorageUsage is used to count the amount of storage used by a contract.
 pub type StorageUsage = u64;
-/// StorageUsageChange is used to count the storage usage within a single contract call.
+/// StorageUsageChange is used to count the storage usage within a single
+/// contract call.
 pub type StorageUsageChange = i64;
 /// Nonce for transactions.
 pub type Nonce = u64;
@@ -45,7 +46,8 @@ pub enum GasDistribution {
 pub type NumBlocks = u64;
 /// Number of shards in current group.
 pub type NumShards = u64;
-/// Number of seats of validators (block producer or hidden ones) in current group (settlement).
+/// Number of seats of validators (block producer or hidden ones) in current
+/// group (settlement).
 pub type NumSeats = u64;
 /// Block height delta that measures the difference between `BlockHeight`s.
 pub type BlockHeightDelta = u64;

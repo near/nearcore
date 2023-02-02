@@ -16,7 +16,6 @@ pub enum Cost {
     // `sender == receiver`).
     // On top of that, each type of action has its own costs defined, which is
     // added for each action included in the receipt.
-    //
     /// Estimates `ActionCosts::new_receipt`, which is the base cost for
     /// creating a new action receipt, excluding actual action costs.
     ///
@@ -242,11 +241,9 @@ pub enum Cost {
     //  - On log or abort/panic: Reading string data from memory.
     //
     // Write
-    //  - Reading from a register: The data from the register is copied into
-    //    WASM memory.
-    //  - Host function calls such as `account_balance()` and
-    //    `validator_stake()` that return a value by writing it to a pointer.
-    //
+    //  - Reading from a register: The data from the register is copied into WASM memory.
+    //  - Host function calls such as `account_balance()` and `validator_stake()` that return a
+    //    value by writing it to a pointer.
     /// Estimates `ext_costs.read_memory_base` which is charged once every time
     /// data is copied from WASM memory to the hosting runtime as a result of
     /// executing a contract.
@@ -286,27 +283,31 @@ pub enum Cost {
     // registers. These registers are allocated outside the WASM memory but need
     // to be copied in and out of WASM memory if a contract want to access them.
     // This copying is done through `read_register` and `write_register`.
-    /// Estimates `read_register_base` which is charged once for every reading access to a register.
+    /// Estimates `read_register_base` which is charged once for every reading
+    /// access to a register.
     ///
     /// Estimation: Execute a transaction with a single function call that
     /// writes 10 bytes to a register once and then calls `value_return` with
     /// that register 10'000 times. Subtract the cost of an empty function call
     /// and divide the rest by 10'000.
     ReadRegisterBase,
-    /// Estimates `read_register_byte` which is charged per byte for every reading access to a register.
+    /// Estimates `read_register_byte` which is charged per byte for every
+    /// reading access to a register.
     ///
     /// Estimation: Execute a transaction with a single function call that
     /// writes 1 MiB to a register once and then calls `value_return` with
     /// that register 10'000 times. Subtract the cost of an empty function call
     /// and divide the rest by 10'000 * 1Mi.
     ReadRegisterByte,
-    /// Estimates `write_register_base` which is charged once for every writing access to a register.
+    /// Estimates `write_register_base` which is charged once for every writing
+    /// access to a register.
     ///
     /// Estimation: Execute a transaction with a single function call that
     /// writes 10B to a register 10'000 times. Subtract the cost of an empty
     /// function call and divide the rest by 10'000.
     WriteRegisterBase,
-    /// Estimates `write_register_byte` which is charged per byte for every writing access to a register.
+    /// Estimates `write_register_byte` which is charged per byte for every
+    /// writing access to a register.
     ///
     /// Estimation: Execute a transaction with a single function call that
     /// writes 1 MiB to a register 10'000 times. Subtract the cost of an empty
@@ -380,14 +381,14 @@ pub enum Cost {
     /// Estimates `keccak256_base`, the cost charged once per call to the
     /// keccak256-hash host function.
     Keccak256Base,
-    /// Estimates `keccak256_byte`, the cost charged per input byte in calls to the
-    /// keccak256-hash host function.
+    /// Estimates `keccak256_byte`, the cost charged per input byte in calls to
+    /// the keccak256-hash host function.
     Keccak256Byte,
     /// Estimates `keccak512_base`, the cost charged once per call to the
     /// keccak512-hash host function.
     Keccak512Base,
-    /// Estimates `keccak512_byte`, the cost charged per input byte in calls to the
-    /// keccak512-hash host function.
+    /// Estimates `keccak512_byte`, the cost charged per input byte in calls to
+    /// the keccak512-hash host function.
     Keccak512Byte,
     /// Estimates `ripemd160_base`, the cost charged once per call to the
     /// ripemd160-hash host function.
@@ -418,8 +419,8 @@ pub enum Cost {
     /// In conclusion, testing on a single input is okay, if we account for the
     /// 10-20% variation.
     Ed25519VerifyBase,
-    /// Estimates `ed25519_verify_byte`, the cost charged per input byte in calls to the
-    /// ed25519_verify host function.
+    /// Estimates `ed25519_verify_byte`, the cost charged per input byte in
+    /// calls to the ed25519_verify host function.
     ///
     /// Estimation: Verify a signature for a large message many times, subtract
     /// the cost estimated for the base and divide the remainder by the total
@@ -579,9 +580,9 @@ pub enum Cost {
     ///
     /// Estimation: Currently not estimated
     PromiseAndBase,
-    /// Estimates `promise_and_per_promise` which is charged for every promise in
-    /// calls to `promise_and`. This should cover the additional cost for each
-    /// extra receipt in the dependency.
+    /// Estimates `promise_and_per_promise` which is charged for every promise
+    /// in calls to `promise_and`. This should cover the additional cost for
+    /// each extra receipt in the dependency.
     ///
     /// Estimation: Currently not estimated
     PromiseAndPerPromise,
@@ -615,7 +616,6 @@ pub enum Cost {
     AltBn128G1SumElement,
 
     // Costs used only in estimator
-    //
     /// Costs associated with applying an empty block. This overhead is not
     /// charged to any specific account and thus does not directly affect gas
     /// fees. However, for estimation this is a crucial value to know. Many
@@ -627,7 +627,6 @@ pub enum Cost {
     // cost we charge in isolation. But how expensive compilation is, is an
     // important value to track nevertheless.
     // We have two alternatives to estimate compilation cost.
-    //
     /// `ContractCompileBase` and `ContractCompileBytes` are estimated together,
     /// by compiling several core contracts and computing least-squares on the
     /// code sizes and execution times.
@@ -651,8 +650,8 @@ pub enum Cost {
     /// around bytes that are not code. Divide this cost by the difference of
     /// bytes.
     DeployBytes,
-    /// Estimates `wasm_contract_loading_base` which is charged once per contract
-    /// that is loaded from the database to execute a method on it.
+    /// Estimates `wasm_contract_loading_base` which is charged once per
+    /// contract that is loaded from the database to execute a method on it.
     ///
     /// Estimation: Measure the cost to execute an empty contract method
     /// directly on a runtime instance, using different sizes of contracts.

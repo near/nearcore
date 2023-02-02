@@ -48,7 +48,8 @@ async fn establish_connections(clock: &time::Clock, pms: &[&peer_manager::teston
 }
 
 // Sends a routed TIER1 message from `from` to `to`.
-// Returns the message body that was sent, or None if the routing information was missing.
+// Returns the message body that was sent, or None if the routing information
+// was missing.
 async fn send_tier1_message(
     rng: &mut Rng,
     clock: &time::Clock,
@@ -70,8 +71,9 @@ async fn send_tier1_message(
     .await
 }
 
-// Sends a routed TIER1 message from `from` to `to`, then waits until `to` receives it.
-// `recv_tier` specifies over which network the message is expected to be actually delivered.
+// Sends a routed TIER1 message from `from` to `to`, then waits until `to`
+// receives it. `recv_tier` specifies over which network the message is expected
+// to be actually delivered.
 async fn send_and_recv_tier1_message(
     rng: &mut Rng,
     clock: &time::Clock,
@@ -130,8 +132,9 @@ async fn first_proxy_advertisement() {
     let chain_info = peer_manager::testonly::make_chain_info(&chain, &[&pm.cfg]);
     tracing::info!(target:"test", "set_chain_info()");
     // TODO(gprusak): The default config constructed via chain.make_config(),
-    // currently returns a validator config with its own server addr in the list of TIER1 proxies.
-    // You might want to set it explicitly within this test to not rely on defaults.
+    // currently returns a validator config with its own server addr in the list of
+    // TIER1 proxies. You might want to set it explicitly within this test to
+    // not rely on defaults.
     pm.set_chain_info(chain_info).await;
     let got = pm.tier1_advertise_proxies(&clock.clock()).await;
     assert_eq!(
@@ -221,7 +224,8 @@ async fn proxy_connections() {
     }
     let validators: Vec<_> = validators.iter().collect();
 
-    // Connect validators and proxies in a star topology. Any connected graph would do.
+    // Connect validators and proxies in a star topology. Any connected graph would
+    // do.
     let hub = start_pm(
         clock.clock(),
         near_store::db::TestDB::new(),
@@ -290,9 +294,10 @@ async fn account_keys_change() {
     drop(hub);
 }
 
-// Let's say that a validator has 2 proxies configured. At first proxy0 is available and proxy1 is not,
-// then proxy1 is available and proxy0 is not. In both situations validator should be reachable,
-// as long as it manages to advertise the currently available proxy and the TIER1 nodes connect to
+// Let's say that a validator has 2 proxies configured. At first proxy0 is
+// available and proxy1 is not, then proxy1 is available and proxy0 is not. In
+// both situations validator should be reachable, as long as it manages to
+// advertise the currently available proxy and the TIER1 nodes connect to
 // that proxy.
 #[tokio::test]
 async fn proxy_change() {
@@ -371,10 +376,11 @@ async fn tier2_routing_using_accounts_data() {
     pm0.connect_to(&pm1.peer_info(), tcp::Tier::T2).await;
 
     tracing::info!(target:"test", "Try to send a routed message pm0 -> pm1 over TIER2");
-    // It should fail due to missing routing information: neither AccountData or AnnounceAccount is
-    // broadcasted by default in tests.
-    // TODO(gprusak): send_tier1_message sends an Approval message, which is not a valid message to
-    // be sent from a non-TIER1 node. Make it more realistic by sending a Transaction message.
+    // It should fail due to missing routing information: neither AccountData or
+    // AnnounceAccount is broadcasted by default in tests.
+    // TODO(gprusak): send_tier1_message sends an Approval message, which is not a
+    // valid message to be sent from a non-TIER1 node. Make it more realistic by
+    // sending a Transaction message.
     assert!(send_tier1_message(rng, &clock.clock(), &pm0, &pm1).await.is_none());
 
     tracing::info!(target:"test", "propagate AccountsData");

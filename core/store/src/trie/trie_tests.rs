@@ -148,7 +148,8 @@ mod nodes_counter_tests {
         Rc::new(trie)
     }
 
-    // Get values corresponding to keys one by one, returning vector of numbers of touched nodes for each `get`.
+    // Get values corresponding to keys one by one, returning vector of numbers of
+    // touched nodes for each `get`.
     fn get_touched_nodes_numbers(trie: Rc<Trie>, items: &[(Vec<u8>, Option<Vec<u8>>)]) -> Vec<u64> {
         items
             .iter()
@@ -164,9 +165,10 @@ mod nodes_counter_tests {
     // Test nodes counter and trie cache size on the sample of trie items.
     #[test]
     fn test_count() {
-        // For keys with nibbles [000, 011, 100], we expect 6 touched nodes to get value for the first key 000:
-        // Extension -> Branch -> Branch -> Leaf plus retrieving the value by its hash. In total
-        // there will be 9 distinct nodes, because 011 and 100 both add one Leaf and value.
+        // For keys with nibbles [000, 011, 100], we expect 6 touched nodes to get value
+        // for the first key 000: Extension -> Branch -> Branch -> Leaf plus
+        // retrieving the value by its hash. In total there will be 9 distinct
+        // nodes, because 011 and 100 both add one Leaf and value.
         let trie_items = vec![
             (create_trie_key(&[0, 0, 0]), Some(vec![0])),
             (create_trie_key(&[0, 1, 1]), Some(vec![1])),
@@ -182,8 +184,8 @@ mod nodes_counter_tests {
     // Check that same values are stored in the same trie node.
     #[test]
     fn test_repeated_values_count() {
-        // For these keys there will be 5 nodes with distinct hashes, because each path looks like
-        // Extension([0, 0]) -> Branch -> Leaf([48/49]) -> value.
+        // For these keys there will be 5 nodes with distinct hashes, because each path
+        // looks like Extension([0, 0]) -> Branch -> Leaf([48/49]) -> value.
         // TODO: explain the exact values in path items here
         let trie_items = vec![
             (create_trie_key(&[0, 0]), Some(vec![1])),
@@ -239,7 +241,8 @@ mod trie_storage_tests {
         assert_matches!(trie_db_storage.retrieve_raw_bytes(&wrong_key), Err(_));
     }
 
-    /// Put item into storage. Check that getting it from cache returns the correct value.
+    /// Put item into storage. Check that getting it from cache returns the
+    /// correct value.
     #[test]
     fn test_retrieve_caching() {
         let value = vec![1u8];
@@ -264,7 +267,8 @@ mod trie_storage_tests {
         }
     }
 
-    /// Check that if item is not present in a store, retrieval returns an error.
+    /// Check that if item is not present in a store, retrieval returns an
+    /// error.
     #[test]
     fn test_retrieve_error() {
         let shard_uid = ShardUId::single_shard();
@@ -283,7 +287,8 @@ mod trie_storage_tests {
         assert_matches!(result, Err(StorageError::StorageInconsistentState(_)));
     }
 
-    /// Check that large values does not fall into shard cache, but fall into chunk cache.
+    /// Check that large values does not fall into shard cache, but fall into
+    /// chunk cache.
     #[test]
     fn test_large_value() {
         let value = vec![1u8].repeat(TrieConfig::max_cached_value_size() + 1);
@@ -308,7 +313,8 @@ mod trie_storage_tests {
         assert_eq!(count_delta.mem_reads, 1);
     }
 
-    /// Check that positions of item and costs of its retrieval are returned correctly.
+    /// Check that positions of item and costs of its retrieval are returned
+    /// correctly.
     #[test]
     fn test_counter_with_caching() {
         let values = vec![vec![1u8]];
@@ -320,15 +326,17 @@ mod trie_storage_tests {
         let value = &values[0];
         let key = hash(&value);
 
-        // In the beginning, we are in the CachingShard mode and item is not present in cache.
+        // In the beginning, we are in the CachingShard mode and item is not present in
+        // cache.
         assert_eq!(trie_cache.get(&key), None);
 
-        // Because we are in the CachingShard mode, item should be placed into shard cache.
+        // Because we are in the CachingShard mode, item should be placed into shard
+        // cache.
         let result = trie_caching_storage.retrieve_raw_bytes(&key);
         assert_eq!(result.unwrap().as_ref(), value);
 
-        // Move to CachingChunk mode. Retrieval should increment the counter, because it is the first time we accessed
-        // item while caching chunk.
+        // Move to CachingChunk mode. Retrieval should increment the counter, because it
+        // is the first time we accessed item while caching chunk.
         trie_caching_storage.set_mode(TrieCacheMode::CachingChunk);
         let count_before = trie_caching_storage.get_trie_nodes_count();
         let result = trie_caching_storage.retrieve_raw_bytes(&key);
@@ -338,7 +346,8 @@ mod trie_storage_tests {
         assert_eq!(count_delta.db_reads, 1);
         assert_eq!(count_delta.mem_reads, 0);
 
-        // After previous retrieval, item must be copied to chunk cache. Retrieval shouldn't increment the counter.
+        // After previous retrieval, item must be copied to chunk cache. Retrieval
+        // shouldn't increment the counter.
         let count_before = trie_caching_storage.get_trie_nodes_count();
         let result = trie_caching_storage.retrieve_raw_bytes(&key);
         let count_delta =
@@ -347,8 +356,9 @@ mod trie_storage_tests {
         assert_eq!(count_delta.db_reads, 0);
         assert_eq!(count_delta.mem_reads, 1);
 
-        // Even if we switch to caching shard, retrieval shouldn't increment the counter. Chunk cache only grows and is
-        // dropped only when trie caching storage is dropped.
+        // Even if we switch to caching shard, retrieval shouldn't increment the
+        // counter. Chunk cache only grows and is dropped only when trie caching
+        // storage is dropped.
         trie_caching_storage.set_mode(TrieCacheMode::CachingShard);
         let count_before = trie_caching_storage.get_trie_nodes_count();
         let result = trie_caching_storage.retrieve_raw_bytes(&key);
@@ -359,7 +369,8 @@ mod trie_storage_tests {
         assert_eq!(count_delta.mem_reads, 1);
     }
 
-    /// Check that if an item present in chunk cache gets evicted from the shard cache, it stays in the chunk cache.
+    /// Check that if an item present in chunk cache gets evicted from the shard
+    /// cache, it stays in the chunk cache.
     #[test]
     fn test_chunk_cache_presence() {
         let shard_cache_size = 5;
@@ -385,7 +396,8 @@ mod trie_storage_tests {
             assert_eq!(result.unwrap().as_ref(), value);
         }
 
-        // Check that the first element gets evicted, but the counter is not incremented.
+        // Check that the first element gets evicted, but the counter is not
+        // incremented.
         assert_eq!(trie_cache.get(&key), None);
         let count_before = trie_caching_storage.get_trie_nodes_count();
         let result = trie_caching_storage.retrieve_raw_bytes(&key);

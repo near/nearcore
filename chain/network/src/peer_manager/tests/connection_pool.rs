@@ -75,7 +75,8 @@ async fn loop_connection() {
     let mut cfg = chain.make_config(rng);
     cfg.node_key = pm.cfg.node_key.clone();
 
-    // Starting an outbound loop connection on TIER2 should be stopped without sending the handshake.
+    // Starting an outbound loop connection on TIER2 should be stopped without
+    // sending the handshake.
     let conn = pm.start_outbound(chain.clone(), cfg, tcp::Tier::T2).await;
     assert_eq!(
         ClosingReason::OutboundNotAllowed(connection::PoolError::UnexpectedLoopConnection),

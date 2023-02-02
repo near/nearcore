@@ -20,7 +20,8 @@ pub use near_primitives_core::types::ProtocolVersion;
 pub const MIN_GAS_PRICE_NEP_92: Balance = 1_000_000_000;
 pub const MIN_PROTOCOL_VERSION_NEP_92: ProtocolVersion = 31;
 
-/// Minimum gas price proposed in NEP 92 (fixed) and the associated protocol version
+/// Minimum gas price proposed in NEP 92 (fixed) and the associated protocol
+/// version
 pub const MIN_GAS_PRICE_NEP_92_FIX: Balance = 100_000_000;
 pub const MIN_PROTOCOL_VERSION_NEP_92_FIX: ProtocolVersion = 32;
 
@@ -32,8 +33,8 @@ pub const IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION: ProtocolVersion = 35;
 /// The protocol version that enables reward on mainnet.
 pub const ENABLE_INFLATION_PROTOCOL_VERSION: ProtocolVersion = 36;
 
-/// Fix upgrade to use the latest voted protocol version instead of the current epoch protocol
-/// version when there is no new change in protocol version.
+/// Fix upgrade to use the latest voted protocol version instead of the current
+/// epoch protocol version when there is no new change in protocol version.
 pub const UPGRADABILITY_FIX_PROTOCOL_VERSION: ProtocolVersion = 37;
 
 /// Updates the way receipt ID, data ID and random seeds are constructed.
@@ -44,26 +45,26 @@ pub const DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION: ProtocolVersion = 40;
 
 pub const SHARD_CHUNK_HEADER_UPGRADE_VERSION: ProtocolVersion = 41;
 
-/// Updates the way receipt ID is constructed to use current block hash instead of last block hash
+/// Updates the way receipt ID is constructed to use current block hash instead
+/// of last block hash
 pub const CREATE_RECEIPT_ID_SWITCH_TO_CURRENT_BLOCK_VERSION: ProtocolVersion = 42;
 
 pub fn is_implicit_account_creation_enabled(protocol_version: ProtocolVersion) -> bool {
     protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
 }
 
-/// New Protocol features should go here. Features are guarded by their corresponding feature flag.
-/// For example, if we have `ProtocolFeature::EVM` and a corresponding feature flag `evm`, it will look
-/// like
+/// New Protocol features should go here. Features are guarded by their
+/// corresponding feature flag. For example, if we have `ProtocolFeature::EVM`
+/// and a corresponding feature flag `evm`, it will look like
 ///
 /// #[cfg(feature = "protocol_feature_evm")]
 /// EVM code
-///
 #[derive(Hash, PartialEq, Eq, Clone, Copy, Debug)]
 pub enum ProtocolFeature {
     // stable features
     RectifyInflation,
-    /// Add `AccessKey` nonce range by setting nonce to `(block_height - 1) * 1e6`, see
-    /// <https://github.com/near/nearcore/issues/3779>.
+    /// Add `AccessKey` nonce range by setting nonce to `(block_height - 1) *
+    /// 1e6`, see <https://github.com/near/nearcore/issues/3779>.
     AccessKeyNonceRange,
     FixApplyChunks,
     LowerStorageCost,
@@ -107,37 +108,42 @@ pub enum ProtocolFeature {
     /// description, note that we would not introduce chunk-only validators with
     /// this feature
     AliasValidatorSelectionAlgorithm,
-    /// Make block producers produce chunks for the same block they would later produce to avoid
-    /// network delays
+    /// Make block producers produce chunks for the same block they would later
+    /// produce to avoid network delays
     SynchronizeBlockChunkProduction,
     /// Change the algorithm to count WASM stack usage to avoid undercounting in
     /// some cases.
     CorrectStackLimit,
-    /// Add `AccessKey` nonce range for implicit accounts, as in `AccessKeyNonceRange` feature.
+    /// Add `AccessKey` nonce range for implicit accounts, as in
+    /// `AccessKeyNonceRange` feature.
     AccessKeyNonceForImplicitAccounts,
     /// Increase cost per deployed code byte to cover for the compilation steps
     /// that a deployment triggers. Only affects the action execution cost.
     IncreaseDeploymentCost,
     FunctionCallWeight,
-    /// This feature enforces a global limit on the function local declarations in a WebAssembly
-    /// contract. See <...> for more information.
+    /// This feature enforces a global limit on the function local declarations
+    /// in a WebAssembly contract. See <...> for more information.
     LimitContractLocals,
-    /// Ensure caching all nodes in the chunk for which touching trie node cost was charged. Charge for each such node
-    /// only once per chunk at the first access time.
+    /// Ensure caching all nodes in the chunk for which touching trie node cost
+    /// was charged. Charge for each such node only once per chunk at the
+    /// first access time.
     ChunkNodesCache,
-    /// Lower `max_length_storage_key` limit, which itself limits trie node sizes.
+    /// Lower `max_length_storage_key` limit, which itself limits trie node
+    /// sizes.
     LowerStorageKeyLimit,
     // alt_bn128_g1_multiexp, alt_bn128_g1_sum, alt_bn128_pairing_check host functions
     AltBn128,
     ChunkOnlyProducers,
-    /// Ensure the total stake of validators that are kicked out does not exceed a percentage of total stakes
+    /// Ensure the total stake of validators that are kicked out does not exceed
+    /// a percentage of total stakes
     MaxKickoutStake,
     /// Validate account id for function call access keys.
     AccountIdInFunctionCallPermission,
 
-    /// In case not all validator seats are occupied our algorithm provide incorrect minimal seat
-    /// price - it reports as alpha * sum_stake instead of alpha * sum_stake / (1 - alpha), where
-    /// alpha is min stake ratio
+    /// In case not all validator seats are occupied our algorithm provide
+    /// incorrect minimal seat price - it reports as alpha * sum_stake
+    /// instead of alpha * sum_stake / (1 - alpha), where alpha is min stake
+    /// ratio
     #[cfg(feature = "protocol_feature_fix_staking_threshold")]
     FixStakingThreshold,
     /// Charge for contract loading before it happens.
@@ -153,13 +159,13 @@ pub enum ProtocolFeature {
     ZeroBalanceAccount,
 }
 
-/// Both, outgoing and incoming tcp connections to peers, will be rejected if `peer's`
-/// protocol version is lower than this.
+/// Both, outgoing and incoming tcp connections to peers, will be rejected if
+/// `peer's` protocol version is lower than this.
 pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_VERSION - 2;
 
 /// Current protocol version used on the mainnet.
-/// Some features (e. g. FixStorageUsage) require that there is at least one epoch with exactly
-/// the corresponding version
+/// Some features (e. g. FixStorageUsage) require that there is at least one
+/// epoch with exactly the corresponding version
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 58;
 
 /// Largest protocol version supported by the current binary.

@@ -19,9 +19,10 @@ use near_primitives::types::EpochId;
 #[allow(dead_code)]
 pub struct EpochSync {
     network_adapter: Arc<dyn PeerManagerAdapter>,
-    /// Datastructure to keep track of when the last request to each peer was made.
-    /// Peers do not respond to Epoch Sync requests more frequently than once per a certain time
-    /// interval, thus there's no point in requesting more frequently.
+    /// Datastructure to keep track of when the last request to each peer was
+    /// made. Peers do not respond to Epoch Sync requests more frequently
+    /// than once per a certain time interval, thus there's no point in
+    /// requesting more frequently.
     peer_to_last_request_time: HashMap<PeerId, DateTime<Utc>>,
     /// Tracks all the peers who have reported that we are already up to date
     peers_reporting_up_to_date: HashSet<PeerId>,
@@ -29,7 +30,8 @@ pub struct EpochSync {
     current_epoch_id: EpochId,
     /// The next epoch id we need to sync
     next_epoch_id: EpochId,
-    /// The block producers set to validate the light client block view for the next epoch
+    /// The block producers set to validate the light client block view for the
+    /// next epoch
     next_block_producers: Vec<ValidatorStake>,
     /// The last epoch id that we have requested
     requested_epoch_id: EpochId,
@@ -37,7 +39,8 @@ pub struct EpochSync {
     last_request_time: DateTime<Utc>,
     last_request_peer_id: Option<PeerId>,
 
-    /// How long to wait for a response before re-requesting the same light client block view
+    /// How long to wait for a response before re-requesting the same light
+    /// client block view
     request_timeout: Duration,
     /// How frequently to send request to the same peer
     peer_timeout: Duration,

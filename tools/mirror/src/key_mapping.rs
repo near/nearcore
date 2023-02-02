@@ -41,8 +41,9 @@ fn secp256k1_from_slice(buf: &mut [u8], public: &Secp256K1PublicKey) -> secp256k
         Ok(s) => s,
         Err(_) => {
             tracing::warn!(target: "mirror", "Something super unlikely occurred! SECP256K1 key mapped from {:?} is too large. Flipping most significant bit.", public);
-            // If we got an error, it means that either `buf` is all zeros, or that when interpreted as a 256-bit
-            // int, it is larger than the order of the secp256k1 curve. Since the order of the curve starts with 0xFF,
+            // If we got an error, it means that either `buf` is all zeros, or that when
+            // interpreted as a 256-bit int, it is larger than the order of the
+            // secp256k1 curve. Since the order of the curve starts with 0xFF,
             // in either case flipping the first bit should work, and we can unwrap() below.
             buf[0] ^= 0x80;
             secp256k1::SecretKey::from_slice(buf).unwrap()
@@ -94,9 +95,10 @@ pub(crate) fn implicit_account_key(account_id: &AccountId) -> PublicKey {
     PublicKey::try_from_slice(&public_key_data).unwrap()
 }
 
-// If it's an implicit account, interprets it as an ed25519 public key, maps that and then returns
-// the resulting implicit account. Otherwise does nothing. We do this so that transactions creating
-// an implicit account by sending money will generate an account that we can control
+// If it's an implicit account, interprets it as an ed25519 public key, maps
+// that and then returns the resulting implicit account. Otherwise does nothing.
+// We do this so that transactions creating an implicit account by sending money
+// will generate an account that we can control
 pub(crate) fn map_account(
     account_id: &AccountId,
     secret: Option<&[u8; crate::secret::SECRET_LEN]>,

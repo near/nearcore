@@ -336,7 +336,8 @@ impl StoreValidator {
             }
         }
         if let Some(timeout) = self.timeout {
-            // We didn't complete all Column checks and cannot do final checks, returning here
+            // We didn't complete all Column checks and cannot do final checks, returning
+            // here
             if self.start_time.elapsed() > Duration::from_millis(timeout) {
                 warn!(target: "adversary", "Store validator hit timeout before final checks");
                 return;
@@ -344,7 +345,8 @@ impl StoreValidator {
         }
 
         // Final checks
-        // There is no more than one Block which Height is lower than Tail and not equal to Genesis
+        // There is no more than one Block which Height is lower than Tail and not equal
+        // to Genesis
         if let Err(e) = validate::block_height_cmp_tail_final(self) {
             self.process_error(e, "TAIL", DBCol::BlockMisc)
         }

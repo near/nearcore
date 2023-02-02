@@ -52,12 +52,13 @@ fn check_iter(
     num_checks
 }
 
-/// Deploying test contract and calling write_random_value 5 times every block for 4 epochs.
-/// Also doing 5 send transactions every block.
+/// Deploying test contract and calling write_random_value 5 times every block
+/// for 4 epochs. Also doing 5 send transactions every block.
 /// 4 epochs, because this test does not cover gc behaviour.
-/// After every block updating a separate database with data from client's storage.
-/// After 4 epochs we check that everything, that exists in cold columns
-/// of the storage of the client also exists in the database to which we were writing.
+/// After every block updating a separate database with data from client's
+/// storage. After 4 epochs we check that everything, that exists in cold
+/// columns of the storage of the client also exists in the database to which we
+/// were writing.
 #[test]
 fn test_storage_after_commit_of_cold_update() {
     init_test_logger();
@@ -99,9 +100,10 @@ fn test_storage_after_commit_of_cold_update() {
             );
             env.clients[0].process_tx(tx, false, false);
         }
-        // Don't send transactions in last two blocks. Because on last block production a chunk from
-        // the next block will be produced and information about these transactions will be written
-        // into db. And it is a PAIN to filter it out, especially for Receipts.
+        // Don't send transactions in last two blocks. Because on last block production
+        // a chunk from the next block will be produced and information about
+        // these transactions will be written into db. And it is a PAIN to
+        // filter it out, especially for Receipts.
         if h + 2 < max_height {
             for i in 0..5 {
                 let tx = SignedTransaction::from_actions(
@@ -190,7 +192,8 @@ fn test_storage_after_commit_of_cold_update() {
 }
 
 /// Producing 10 * 5 blocks and updating HEAD of cold storage after each one.
-/// After every update checking that HEAD in cold db, COLD_HEAD in hot db and HEAD in hot store are equal.
+/// After every update checking that HEAD in cold db, COLD_HEAD in hot db and
+/// HEAD in hot store are equal.
 #[test]
 fn test_cold_db_head_update() {
     init_test_logger();

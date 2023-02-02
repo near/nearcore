@@ -30,8 +30,8 @@ pub fn map_records<P: AsRef<Path>>(
                     public_key: replacement.public_key(),
                     access_key: access_key.clone(),
                 };
-                // TODO: would be nice for stream_records_from_file() to let you return early on error so
-                // we dont have to unwrap here
+                // TODO: would be nice for stream_records_from_file() to let you return early on
+                // error so we dont have to unwrap here
                 records_seq.serialize_element(&new_record).unwrap();
             }
             StateRecord::Account { account_id, .. } => {

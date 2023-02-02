@@ -71,8 +71,8 @@ impl External for MockedExternal {
     }
 
     fn generate_data_id(&mut self) -> CryptoHash {
-        // Generates some hash for the data ID to receive data. This hash should not be functionally
-        // used in any mocked contexts.
+        // Generates some hash for the data ID to receive data. This hash should not be
+        // functionally used in any mocked contexts.
         let data_id = hash(&self.data_count.to_le_bytes());
         self.data_count += 1;
         data_id

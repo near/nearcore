@@ -18,13 +18,14 @@ use crate::{metrics, Chain, ChainStoreAccess, RuntimeWithEpochManagerAdapter};
 
 const BLOCK_DELAY_TRACKING_COUNT: u64 = 50;
 
-/// A centralized place that records monitoring information about the important timestamps throughout
-/// the lifetime of blocks and chunks. It keeps information of recent blocks and chunks
-/// (blocks with height > head height - BLOCK_DELAY_TRACKING_HORIZON).
-/// A block is added the first time when chain tries to process the block. Note that this means
-/// the block already passes a few checks in ClientActor and in Client before it enters the chain
-/// code. For example, client actor checks that the block must be within head_height + BLOCK_HORIZON (500),
-/// that's why we know tracker at most tracks 550 blocks.
+/// A centralized place that records monitoring information about the important
+/// timestamps throughout the lifetime of blocks and chunks. It keeps
+/// information of recent blocks and chunks (blocks with height > head height -
+/// BLOCK_DELAY_TRACKING_HORIZON). A block is added the first time when chain
+/// tries to process the block. Note that this means the block already passes a
+/// few checks in ClientActor and in Client before it enters the chain code. For
+/// example, client actor checks that the block must be within head_height +
+/// BLOCK_HORIZON (500), that's why we know tracker at most tracks 550 blocks.
 #[derive(Debug, Default)]
 pub struct BlocksDelayTracker {
     // A block is added at the first time it was received, and
@@ -60,13 +61,14 @@ pub struct BlockTrackingStats {
     pub dropped: Option<DroppedReason>,
     /// Stores the error message encountered during the processing of this block
     pub error: Option<String>,
-    /// Only contains new chunks that belong to this block, if the block doesn't produce a new chunk
-    /// for a shard, the corresponding item will be None.
+    /// Only contains new chunks that belong to this block, if the block doesn't
+    /// produce a new chunk for a shard, the corresponding item will be
+    /// None.
     pub chunks: Vec<Option<ChunkHash>>,
 }
 
-/// Records timestamps of requesting and receiving a chunk. Assumes that each chunk is requested
-/// before it is received.
+/// Records timestamps of requesting and receiving a chunk. Assumes that each
+/// chunk is requested before it is received.
 #[derive(Debug, Clone)]
 pub struct ChunkTrackingStats {
     pub height_created: BlockHeight,
@@ -74,7 +76,8 @@ pub struct ChunkTrackingStats {
     pub prev_block_hash: CryptoHash,
     /// Timestamp of first time when we request for this chunk.
     pub requested_timestamp: Option<DateTime<chrono::Utc>>,
-    /// Timestamp of when the node receives all information it needs for this chunk
+    /// Timestamp of when the node receives all information it needs for this
+    /// chunk
     pub completed_timestamp: Option<DateTime<chrono::Utc>>,
 }
 
@@ -338,8 +341,8 @@ impl BlocksDelayTracker {
 
     fn update_chunk_metrics(&self, chunk: &ChunkTrackingStats, shard_id: ShardId) {
         if let Some(chunk_requested) = chunk.requested_timestamp {
-            // Theoretically chunk_received should have been set here because a block being processed
-            // requires all chunks to be received
+            // Theoretically chunk_received should have been set here because a block being
+            // processed requires all chunks to be received
             if let Some(chunk_received) = chunk.completed_timestamp {
                 metrics::CHUNK_RECEIVED_DELAY
                     .with_label_values(&[&shard_id.to_string()])

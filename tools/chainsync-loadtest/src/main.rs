@@ -100,18 +100,18 @@ impl Cmd {
 
         info!("#boot nodes = {}", near_config.network_config.peer_store.boot_nodes.len());
         // Dropping Runtime is blocking, while futures should never be blocking.
-        // Tokio has a runtime check which panics if you drop tokio Runtime from a future executed
-        // on another Tokio runtime.
-        // To avoid that, we create a runtime within the synchronous code and pass just an Arc
-        // inside of it.
+        // Tokio has a runtime check which panics if you drop tokio Runtime from a
+        // future executed on another Tokio runtime.
+        // To avoid that, we create a runtime within the synchronous code and pass just
+        // an Arc inside of it.
         let rt_ = Arc::new(tokio::runtime::Runtime::new()?);
         let rt = rt_;
         return actix::System::new().block_on(async move {
             let network =
                 start_with_config(near_config, cmd.qps_limit).context("start_with_config")?;
 
-            // We execute the chain_sync on a totally separate set of system threads to minimize
-            // the interaction with actix.
+            // We execute the chain_sync on a totally separate set of system threads to
+            // minimize the interaction with actix.
             rt.spawn(async move {
                 Scope::run(&Ctx::background(), move |ctx, s| async move {
                     s.spawn_weak(|ctx| async move {

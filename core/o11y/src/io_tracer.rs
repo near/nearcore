@@ -312,7 +312,8 @@ impl tracing::field::Visit for SpanInfo {
 
     fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
         let name = field.name();
-        // Some fields are too verbose for the trace, ignore them on a case-by-case basis.
+        // Some fields are too verbose for the trace, ignore them on a case-by-case
+        // basis.
         let ignore = ["message", "node_counter"];
         if !ignore.contains(&name) {
             self.key_values.push(format!("{name}={value:?}"));

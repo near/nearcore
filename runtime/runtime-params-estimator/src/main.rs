@@ -38,7 +38,8 @@ struct CliArgs {
     /// Number of active accounts in the state (accounts used for estimation).
     #[clap(long, default_value = "20000")]
     accounts_num: usize,
-    /// Number of additional accounts to add to the state, among which active accounts are selected.
+    /// Number of additional accounts to add to the state, among which active
+    /// accounts are selected.
     #[clap(long, default_value = "200000")]
     additional_accounts_num: u64,
     /// Skip building test contract which is used in metrics computation.
@@ -49,8 +50,9 @@ struct CliArgs {
     /// `time` measures wall-clock time elapsed.
     /// `icount` counts the CPU instructions and syscall-level IO bytes executed
     ///  using qemu instrumentation.
-    /// Note that `icount` measurements are not accurate when translating to gas. The main purpose of it is to
-    /// have a stable output that can be used to detect performance regressions.
+    /// Note that `icount` measurements are not accurate when translating to
+    /// gas. The main purpose of it is to have a stable output that can be
+    /// used to detect performance regressions.
     #[clap(long, default_value = "time", possible_values = &["icount", "time"])]
     metric: String,
     /// Which VM to test.
@@ -71,9 +73,11 @@ struct CliArgs {
     /// Spawn a bash shell inside a docker container for debugging purposes.
     #[clap(long)]
     docker_shell: bool,
-    /// If docker is also set, run estimator in the fully production setting to get usable cost
-    /// table. See runtime-params-estimator/emu-cost/README.md for more details.
-    /// Works only with enabled docker, because precise computations without it doesn't make sense.
+    /// If docker is also set, run estimator in the fully production setting to
+    /// get usable cost table. See
+    /// runtime-params-estimator/emu-cost/README.md for more details.
+    /// Works only with enabled docker, because precise computations without it
+    /// doesn't make sense.
     #[clap(long)]
     full: bool,
     /// Drop OS cache before measurements for better IO accuracy. Requires sudo.
@@ -86,7 +90,8 @@ struct CliArgs {
     /// object per estimation.
     #[clap(long)]
     json_output: bool,
-    /// Prints hierarchical execution-timing information using the tracing-span-tree crate.
+    /// Prints hierarchical execution-timing information using the
+    /// tracing-span-tree crate.
     #[clap(long)]
     tracing_span_tree: bool,
     /// Records IO events in JSON format and stores it in a given file.
@@ -428,7 +433,8 @@ fn main_docker(
     Ok(())
 }
 
-/// Creates a docker image tag that is unique for each rust version to force re-build when it changes.
+/// Creates a docker image tag that is unique for each rust version to force
+/// re-build when it changes.
 fn docker_image() -> Result<String, anyhow::Error> {
     let image = "rust-emu";
     let dockerfile =

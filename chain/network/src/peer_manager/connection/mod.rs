@@ -28,10 +28,11 @@ use std::sync::{Arc, Weak};
 mod tests;
 
 impl tcp::Tier {
-    /// Checks if the given message type is allowed on a connection of the given Tier.
-    /// TIER1 is reserved exclusively for BFT consensus messages.
-    /// Each validator establishes a lot of TIER1 connections, so bandwidth shouldn't be
-    /// wasted on broadcasting or periodic state syncs on TIER1 connections.
+    /// Checks if the given message type is allowed on a connection of the given
+    /// Tier. TIER1 is reserved exclusively for BFT consensus messages.
+    /// Each validator establishes a lot of TIER1 connections, so bandwidth
+    /// shouldn't be wasted on broadcasting or periodic state syncs on TIER1
+    /// connections.
     pub(crate) fn is_allowed(self, msg: &PeerMessage) -> bool {
         match msg {
             PeerMessage::Tier1Handshake(_) => self == tcp::Tier::T1,
@@ -200,32 +201,35 @@ pub(crate) struct PoolSnapshot {
     ///
     /// The procedure of establishing a connections should look as follows:
     /// 1. Peer A decides to connect to peer B.
-    /// 2. Peer A gets an OutboundHandshakePermit by calling pool.start_outbound(B).
-    /// 3. Peer A connects to peer B.
-    /// 4. Peer B accepts the connection by calling pool.insert_ready(<connection to A>).
-    /// 5. Peer B notifies A that it has accepted the connection.
-    /// 6. Peer A accepts the connection by calling pool.insert_ready(<connection to B>).
-    /// 7. Peer A drops the OutboundHandshakePermit.
+    /// 2. Peer A gets an OutboundHandshakePermit by calling
+    /// pool.start_outbound(B). 3. Peer A connects to peer B.
+    /// 4. Peer B accepts the connection by calling
+    /// pool.insert_ready(<connection to A>). 5. Peer B notifies A that it
+    /// has accepted the connection. 6. Peer A accepts the connection by
+    /// calling pool.insert_ready(<connection to B>). 7. Peer A drops the
+    /// OutboundHandshakePermit.
     ///
-    /// In case any of these steps fails the connection and the OutboundHandshakePermit
-    /// should be dropped.
+    /// In case any of these steps fails the connection and the
+    /// OutboundHandshakePermit should be dropped.
     ///
     /// Now imagine that A and B try to connect to each other at the same time:
     /// a. Peer A executes 1,2,3.
     /// b. Peer B executes 1,2,3.
-    /// c. Both A and B try to execute 4 and exactly one of these calls will succeed: the tie
-    ///    is broken by comparing PeerIds: connection from smaller to bigger takes priority.
-    ///    WLOG let us assume that A < B.
-    /// d. Peer A rejects connection from B, peer B accepts connection from A and notifies A.
-    /// e. A continues with 6,7, B just drops the connection and the permit.
+    /// c. Both A and B try to execute 4 and exactly one of these calls will
+    /// succeed: the tie    is broken by comparing PeerIds: connection from
+    /// smaller to bigger takes priority.    WLOG let us assume that A < B.
+    /// d. Peer A rejects connection from B, peer B accepts connection from A
+    /// and notifies A. e. A continues with 6,7, B just drops the connection
+    /// and the permit.
     ///
     /// Now imagine a different interleaving:
     /// a. Peer B executes 1,2,3 and A accepts the connection (i.e. 4)
     /// b. Peer A executes 1 and then attempts 2.
-    /// In this scenario A will fail to obtain a permit, because it has already accepted a
-    /// connection from B.
+    /// In this scenario A will fail to obtain a permit, because it has already
+    /// accepted a connection from B.
     pub outbound_handshakes: im::HashSet<PeerId>,
-    /// Inbound end of the loop connection. The outbound end is added to the `ready` set.
+    /// Inbound end of the loop connection. The outbound end is added to the
+    /// `ready` set.
     pub loop_inbound: Option<Arc<Connection>>,
 }
 
@@ -373,11 +377,12 @@ impl Pool {
     /// The returned permit shouldn't be dropped until insert_ready for this
     /// outbound connection is called.
     ///
-    /// This is required to resolve race conditions in case 2 nodes try to connect
-    /// to each other at the same time.
+    /// This is required to resolve race conditions in case 2 nodes try to
+    /// connect to each other at the same time.
     ///
-    /// NOTE: Pool supports loop connections (i.e. connections in which both ends are the same
-    /// node) for the purpose of verifying one's own public IP.
+    /// NOTE: Pool supports loop connections (i.e. connections in which both
+    /// ends are the same node) for the purpose of verifying one's own
+    /// public IP.
     // TODO(gprusak): simplify this flow.
     pub fn start_outbound(&self, peer_id: PeerId) -> Result<OutboundHandshakePermit, PoolError> {
         self.0.try_update(move |mut pool| {

@@ -13,24 +13,28 @@
 //! the limit (specified by the `rules`) then execution traps.
 //! Otherwise, the call is executed.
 //!
-//! The postamble is inserted after the call. The purpose of the postamble is to decrease
-//! the stack height by the "stack cost" of the callee function.
+//! The postamble is inserted after the call. The purpose of the postamble is to
+//! decrease the stack height by the "stack cost" of the callee function.
 //!
-//! Note, that we can't instrument all possible ways to return from the function. The simplest
-//! example would be a trap issued by the host function.
-//! That means stack height global won't be equal to zero upon the next execution after such trap.
+//! Note, that we can't instrument all possible ways to return from the
+//! function. The simplest example would be a trap issued by the host function.
+//! That means stack height global won't be equal to zero upon the next
+//! execution after such trap.
 //!
 //! # Thunks
 //!
 //! Because stack height is increased prior the call few problems arises:
 //!
-//! - Stack height isn't increased upon an entry to the first function, i.e. exported function.
+//! - Stack height isn't increased upon an entry to the first function, i.e.
+//!   exported function.
 //! - Start function is executed externally (similar to exported functions).
-//! - It is statically unknown what function will be invoked in an indirect call.
+//! - It is statically unknown what function will be invoked in an indirect
+//!   call.
 //!
-//! The solution for this problems is to generate a intermediate functions, called 'thunks', which
-//! will increase before and decrease the stack height after the call to original function, and
-//! then make exported function and table entries, start section to point to a corresponding thunks.
+//! The solution for this problems is to generate a intermediate functions,
+//! called 'thunks', which will increase before and decrease the stack height
+//! after the call to original function, and then make exported function and
+//! table entries, start section to point to a corresponding thunks.
 //!
 //! # Stack cost
 //!
@@ -39,14 +43,16 @@
 //!
 //! All values are treated equally, as they have the same size.
 //!
-//! The rationale is that this makes it possible to use the following very naive wasm executor:
+//! The rationale is that this makes it possible to use the following very naive
+//! wasm executor:
 //!
-//! - values are implemented by a union, so each value takes a size equal to
-//!   the size of the largest possible value type this union can hold. (In MVP it is 8 bytes)
+//! - values are implemented by a union, so each value takes a size equal to the
+//!   size of the largest possible value type this union can hold. (In MVP it is
+//!   8 bytes)
 //! - each value from the value stack is placed on the native stack.
 //! - each local variable and function argument is placed on the native stack.
-//! - arguments pushed by the caller are copied into callee stack rather than shared
-//!   between the frames.
+//! - arguments pushed by the caller are copied into callee stack rather than
+//!   shared between the frames.
 //! - upon entry into the function entire stack frame is allocated.
 
 use parity_wasm::{
@@ -219,9 +225,9 @@ fn compute_stack_costs(module: &elements::Module) -> Result<Vec<u32>, Error> {
         .collect()
 }
 
-/// Stack cost of the given *defined* function is the sum of it's locals count (that is,
-/// number of arguments plus number of local variables) and the maximal stack
-/// height.
+/// Stack cost of the given *defined* function is the sum of it's locals count
+/// (that is, number of arguments plus number of local variables) and the
+/// maximal stack height.
 fn compute_stack_cost(func_idx: u32, module_ctx: &ModuleCtx<'_>) -> Result<u32, Error> {
     // To calculate the cost of a function we need to convert index from
     // function index space to defined function spaces.
@@ -318,14 +324,16 @@ fn instrument_function(ctx: &mut Context, func: &mut Instructions) -> Result<(),
         })
         .collect();
 
-    // The `instrumented_call!` contains the call itself. This is why we need to subtract one.
+    // The `instrumented_call!` contains the call itself. This is why we need to
+    // subtract one.
     let len = func.elements().len() + calls.len() * (instrument_call!(0, 0, 0, 0).len() - 1);
     let original_instrs = mem::replace(func.elements_mut(), Vec::with_capacity(len));
     let new_instrs = func.elements_mut();
 
     let mut calls = calls.into_iter().peekable();
     for (original_pos, instr) in original_instrs.into_iter().enumerate() {
-        // whether there is some call instruction at this position that needs to be instrumented
+        // whether there is some call instruction at this position that needs to be
+        // instrumented
         let did_instrument = if let Some(call) = calls.peek() {
             if call.offset == original_pos {
                 let new_seq = instrument_call!(

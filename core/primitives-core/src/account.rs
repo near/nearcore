@@ -31,7 +31,8 @@ pub struct Account {
     locked: Balance,
     /// Hash of the code stored in the storage for this account.
     code_hash: CryptoHash,
-    /// Storage used by the given account, includes account id, this struct, access keys and other data.
+    /// Storage used by the given account, includes account id, this struct,
+    /// access keys and other data.
     storage_usage: StorageUsage,
     /// Version of Account in re migrations and similar
     #[serde(default)]
@@ -39,8 +40,8 @@ pub struct Account {
 }
 
 impl Account {
-    /// Max number of bytes an account can have in its state (excluding contract code)
-    /// before it is infeasible to delete.
+    /// Max number of bytes an account can have in its state (excluding contract
+    /// code) before it is infeasible to delete.
     pub const MAX_ACCOUNT_DELETION_STORAGE_USAGE: u64 = 10_000;
 
     pub fn new(
@@ -112,8 +113,8 @@ struct LegacyAccount {
 
 impl BorshDeserialize for Account {
     fn deserialize(buf: &mut &[u8]) -> Result<Self, io::Error> {
-        // This should only ever happen if we have pre-transition account serialized in state
-        // See test_account_size
+        // This should only ever happen if we have pre-transition account serialized in
+        // state See test_account_size
         let deserialized_account = LegacyAccount::deserialize(buf)?;
         Ok(Account {
             amount: deserialized_account.amount,
@@ -139,18 +140,18 @@ impl BorshSerialize for Account {
     }
 }
 
-/// Access key provides limited access to an account. Each access key belongs to some account and
-/// is identified by a unique (within the account) public key. One account may have large number of
-/// access keys. Access keys allow to act on behalf of the account by restricting transactions
-/// that can be issued.
+/// Access key provides limited access to an account. Each access key belongs to
+/// some account and is identified by a unique (within the account) public key.
+/// One account may have large number of access keys. Access keys allow to act
+/// on behalf of the account by restricting transactions that can be issued.
 /// `account_id,public_key` is a key in the state
 #[derive(
     BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Debug,
 )]
 pub struct AccessKey {
-    /// Nonce for this access key, used for tx nonce generation. When access key is created, nonce
-    /// is set to `(block_height - 1) * 1e6` to avoid tx hash collision on access key re-creation.
-    /// See <https://github.com/near/nearcore/issues/3779> for more details.
+    /// Nonce for this access key, used for tx nonce generation. When access key
+    /// is created, nonce is set to `(block_height - 1) * 1e6` to avoid tx
+    /// hash collision on access key re-creation. See <https://github.com/near/nearcore/issues/3779> for more details.
     pub nonce: Nonce,
 
     /// Defines permissions for this access key.
@@ -185,24 +186,25 @@ pub enum AccessKeyPermission {
     BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Debug,
 )]
 pub struct FunctionCallPermission {
-    /// Allowance is a balance limit to use by this access key to pay for function call gas and
-    /// transaction fees. When this access key is used, both account balance and the allowance is
-    /// decreased by the same value.
-    /// `None` means unlimited allowance.
-    /// NOTE: To change or increase the allowance, the old access key needs to be deleted and a new
-    /// access key should be created.
+    /// Allowance is a balance limit to use by this access key to pay for
+    /// function call gas and transaction fees. When this access key is
+    /// used, both account balance and the allowance is decreased by the
+    /// same value. `None` means unlimited allowance.
+    /// NOTE: To change or increase the allowance, the old access key needs to
+    /// be deleted and a new access key should be created.
     #[serde(with = "dec_format")]
     pub allowance: Option<Balance>,
 
     // This isn't an AccountId because already existing records in testnet genesis have invalid
     // values for this field (see: https://github.com/near/nearcore/pull/4621#issuecomment-892099860)
     // we accomodate those by using a string, allowing us to read and parse genesis.
-    /// The access key only allows transactions with the given receiver's account id.
+    /// The access key only allows transactions with the given receiver's
+    /// account id.
     pub receiver_id: String,
 
-    /// A list of method names that can be used. The access key only allows transactions with the
-    /// function call of one of the given method names.
-    /// Empty list means any method name can be used.
+    /// A list of method names that can be used. The access key only allows
+    /// transactions with the function call of one of the given method
+    /// names. Empty list means any method name can be used.
     pub method_names: Vec<String>,
 }
 

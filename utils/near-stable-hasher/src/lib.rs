@@ -1,7 +1,8 @@
 #[allow(deprecated)]
 use std::hash::{Hasher, SipHasher};
 
-/// We not use stable hasher as it could change with Rust releases, so rely on stable SIP hash.
+/// We not use stable hasher as it could change with Rust releases, so rely on
+/// stable SIP hash.
 #[allow(deprecated)]
 #[derive(Default, Clone)]
 pub struct StableHasher(pub SipHasher);

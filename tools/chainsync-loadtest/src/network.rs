@@ -110,8 +110,8 @@ impl Network {
     // a NetworkRequest produced by <new_req> in an infinite loop.
     // The requests are distributed uniformly among all the available peers.
     // - keep_sending() completes as soon as ctx expires.
-    // - keep_sending() respects the global rate limits, so the actual frequency
-    //   of the sends may be lower than expected.
+    // - keep_sending() respects the global rate limits, so the actual frequency of
+    //   the sends may be lower than expected.
     // - keep_sending() may pause if the number of connected peers is too small.
     fn keep_sending(
         self: &Arc<Self>,
@@ -222,7 +222,8 @@ impl Network {
             let ch = ch.clone();
             move |ctx, s| async move {
                 let recv = self_.chunks.get_or_insert(&ch.chunk_hash(), || Once::new());
-                // TODO: consider converting wrapping these atomic counters into sth like a Span.
+                // TODO: consider converting wrapping these atomic counters into sth like a
+                // Span.
                 self_.stats.chunk_start.fetch_add(1, Ordering::Relaxed);
                 s.spawn_weak(|ctx| {
                     self_.keep_sending(&ctx, {

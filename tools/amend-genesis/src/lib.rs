@@ -21,8 +21,9 @@ mod cli;
 
 pub use cli::AmendGenesisCommand;
 
-// while parsing the --extra-records file we will keep track of the records we see for each
-// account here, and then at the end figure out what to put in the storage_usage field
+// while parsing the --extra-records file we will keep track of the records we
+// see for each account here, and then at the end figure out what to put in the
+// storage_usage field
 #[derive(Debug, Default)]
 struct AccountRecords {
     account: Option<Account>,
@@ -33,8 +34,8 @@ struct AccountRecords {
     amount_needed: bool,
     keys: HashMap<PublicKey, AccessKey>,
     // code state records must appear after the account state record. So for accounts we're
-    // modifying/adding keys for, we will remember any code records (there really should only be one),
-    // and add them to the output only after we write the account record
+    // modifying/adding keys for, we will remember any code records (there really should only be
+    // one), and add them to the output only after we write the account record
     extra_records: Vec<StateRecord>,
 }
 
@@ -69,9 +70,10 @@ impl AccountRecords {
     fn update_from_existing(&mut self, existing: &Account) {
         match &mut self.account {
             Some(account) => {
-                // an account added in extra_records (or one of the validators) also exists in the original
-                // records. Set the storage usage to reflect whatever's in the original records, and at the
-                // end we will add to the storage usage with any extra keys added for this account
+                // an account added in extra_records (or one of the validators) also exists in
+                // the original records. Set the storage usage to reflect
+                // whatever's in the original records, and at the end we will
+                // add to the storage usage with any extra keys added for this account
                 account.set_storage_usage(existing.storage_usage());
                 account.set_code_hash(existing.code_hash());
                 if self.amount_needed {
@@ -342,7 +344,8 @@ pub fn amend_genesis(
     genesis.config.total_supply = total_supply;
     // TODO: give an option to set this
     genesis.config.num_block_producer_seats = validators.len() as NumSeats;
-    // here we have already checked that there are no duplicate validators in wanted_records()
+    // here we have already checked that there are no duplicate validators in
+    // wanted_records()
     genesis.config.validators = validators;
     if let Some(chain_id) = &genesis_changes.chain_id {
         genesis.config.chain_id = chain_id.clone();
@@ -398,8 +401,8 @@ mod test {
     use std::str::FromStr;
     use tempfile::NamedTempFile;
 
-    // these (TestAccountInfo, TestStateRecord, and ParsedTestCase) are here so we can
-    // have all static data in the testcases below
+    // these (TestAccountInfo, TestStateRecord, and ParsedTestCase) are here so we
+    // can have all static data in the testcases below
     struct TestAccountInfo {
         account_id: &'static str,
         public_key: &'static str,
@@ -421,7 +424,8 @@ mod test {
             account_id: &'static str,
             amount: Balance,
             locked: Balance,
-            /// Storage used by the given account, includes account id, this struct, access keys and other data.
+            /// Storage used by the given account, includes account id, this
+            /// struct, access keys and other data.
             storage_usage: StorageUsage,
         },
         AccessKey {
@@ -625,9 +629,10 @@ mod test {
             })
         }
 
-        // take the records in the test case and write them to temp files, and then call amend_genesis() and
-        // check that the resulting genesis and records files match what's in self.want_records
-        // right now we aren't testing that other kinds of records appearing in the input records file
+        // take the records in the test case and write them to temp files, and then call
+        // amend_genesis() and check that the resulting genesis and records
+        // files match what's in self.want_records right now we aren't testing
+        // that other kinds of records appearing in the input records file
         // will make it into the output, but that part is pretty simple
         fn run(&self) -> anyhow::Result<()> {
             let ParsedTestCase {
@@ -680,7 +685,8 @@ mod test {
     }
 
     static TEST_CASES: &[TestCase] = &[
-        // first one adds one validator (foo2), bumps up another's balance (foo0), and adds an extra account (extra-account.near)
+        // first one adds one validator (foo2), bumps up another's balance (foo0), and adds an
+        // extra account (extra-account.near)
         TestCase {
             initial_validators: &[
                 TestAccountInfo {

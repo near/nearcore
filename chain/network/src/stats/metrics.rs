@@ -373,9 +373,10 @@ pub(crate) static ACCOUNT_TO_PEER_LOOKUPS: Lazy<IntCounterVec> = Lazy::new(|| {
 
 /// Updated the prometheus metrics about the received routed message `msg`.
 /// `tier` indicates the network over which the message was transmitted.
-/// `fastest` indicates whether this message is the first copy of `msg` received -
-/// important messages are sent multiple times over different routing paths
-/// simultaneously to improve the chance that the message will be delivered on time.
+/// `fastest` indicates whether this message is the first copy of `msg` received
+/// - important messages are sent multiple times over different routing paths
+/// simultaneously to improve the chance that the message will be delivered on
+/// time.
 pub(crate) fn record_routed_msg_metrics(
     clock: &time::Clock,
     msg: &RoutedMessageV2,
@@ -393,8 +394,9 @@ pub(crate) fn bool_to_str(b: bool) -> &'static str {
     }
 }
 
-// The routed message reached its destination. If the timestamp of creation of this message is
-// known, then update the corresponding latency metric histogram.
+// The routed message reached its destination. If the timestamp of creation of
+// this message is known, then update the corresponding latency metric
+// histogram.
 fn record_routed_msg_latency(
     clock: &time::Clock,
     msg: &RoutedMessageV2,
@@ -410,12 +412,13 @@ fn record_routed_msg_latency(
     }
 }
 
-// The routed message reached its destination. If the number of hops is known, then update the
-// corresponding metric.
+// The routed message reached its destination. If the number of hops is known,
+// then update the corresponding metric.
 fn record_routed_msg_hops(msg: &RoutedMessageV2) {
     const MAX_NUM_HOPS: i32 = 20;
     // We assume that the number of hops is small.
-    // As long as the number of hops is below 10, this metric will not consume too much memory.
+    // As long as the number of hops is below 10, this metric will not consume too
+    // much memory.
     if let Some(num_hops) = msg.num_hops {
         if num_hops >= 0 {
             let num_hops = if num_hops > MAX_NUM_HOPS { MAX_NUM_HOPS } else { num_hops };

@@ -35,14 +35,16 @@ pub struct Transaction {
     pub nonce: Nonce,
     /// Receiver account for this transaction
     pub receiver_id: AccountId,
-    /// The hash of the block in the blockchain on top of which the given transaction is valid
+    /// The hash of the block in the blockchain on top of which the given
+    /// transaction is valid
     pub block_hash: CryptoHash,
     /// A list of actions to be applied
     pub actions: Vec<Action>,
 }
 
 impl Transaction {
-    /// Computes a hash of the transaction for signing and size of serialized transaction
+    /// Computes a hash of the transaction for signing and size of serialized
+    /// transaction
     pub fn get_hash_and_size(&self) -> (CryptoHash, u64) {
         let bytes = self.try_to_vec().expect("Failed to deserialize");
         (hash(&bytes), bytes.len() as u64)
@@ -170,7 +172,8 @@ pub struct StakeAction {
     /// Amount of tokens to stake.
     #[serde(with = "dec_format")]
     pub stake: Balance,
-    /// Validator key which will be used to sign transactions on behalf of signer_id
+    /// Validator key which will be used to sign transactions on behalf of
+    /// signer_id
     pub public_key: PublicKey,
 }
 
@@ -246,7 +249,8 @@ impl borsh::de::BorshDeserialize for NonDelegateAction {
     }
 }
 
-/// This action allows to execute the inner actions behalf of the defined sender.
+/// This action allows to execute the inner actions behalf of the defined
+/// sender.
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
 pub struct DelegateAction {
     /// Signer of the delegated actions
@@ -255,10 +259,12 @@ pub struct DelegateAction {
     pub receiver_id: AccountId,
     /// List of actions to be executed.
     pub actions: Vec<NonDelegateAction>,
-    /// Nonce to ensure that the same delegate action is not sent twice by a relayer and should match for given account's `public_key`.
+    /// Nonce to ensure that the same delegate action is not sent twice by a
+    /// relayer and should match for given account's `public_key`.
     /// After this action is processed it will increment.
     pub nonce: Nonce,
-    /// The maximal height of the block in the blockchain below which the given DelegateAction is valid.
+    /// The maximal height of the block in the blockchain below which the given
+    /// DelegateAction is valid.
     pub max_block_height: BlockHeight,
     /// Public key that is used to sign this delegated action.
     pub public_key: PublicKey,
@@ -367,8 +373,9 @@ pub enum ExecutionStatus {
     Failure(TxExecutionError),
     /// The final action succeeded and returned some value or an empty vec.
     SuccessValue(Vec<u8>),
-    /// The final action of the receipt returned a promise or the signed transaction was converted
-    /// to a receipt. Contains the receipt_id of the generated receipt.
+    /// The final action of the receipt returned a promise or the signed
+    /// transaction was converted to a receipt. Contains the receipt_id of
+    /// the generated receipt.
     SuccessReceiptId(CryptoHash),
 }
 
@@ -445,16 +452,17 @@ pub struct ExecutionOutcome {
     /// The amount of the gas burnt by the given transaction or receipt.
     pub gas_burnt: Gas,
     /// The amount of tokens burnt corresponding to the burnt gas amount.
-    /// This value doesn't always equal to the `gas_burnt` multiplied by the gas price, because
-    /// the prepaid gas price might be lower than the actual gas price and it creates a deficit.
+    /// This value doesn't always equal to the `gas_burnt` multiplied by the gas
+    /// price, because the prepaid gas price might be lower than the actual
+    /// gas price and it creates a deficit.
     pub tokens_burnt: Balance,
-    /// The id of the account on which the execution happens. For transaction this is signer_id,
-    /// for receipt this is receiver_id.
+    /// The id of the account on which the execution happens. For transaction
+    /// this is signer_id, for receipt this is receiver_id.
     #[default("test".parse().unwrap())]
     pub executor_id: AccountId,
     /// Execution status. Contains the result in case of successful execution.
-    /// NOTE: Should be the latest field since it contains unparsable by light client
-    /// ExecutionStatus::Failure
+    /// NOTE: Should be the latest field since it contains unparsable by light
+    /// client ExecutionStatus::Failure
     pub status: ExecutionStatus,
     /// Execution metadata, versioned
     pub metadata: ExecutionMetadata,
@@ -496,7 +504,8 @@ impl fmt::Debug for ExecutionOutcome {
 pub struct ExecutionOutcomeWithId {
     /// The transaction hash or the receipt ID.
     pub id: CryptoHash,
-    /// Should be the latest field since contains unparsable by light client ExecutionStatus::Failure
+    /// Should be the latest field since contains unparsable by light client
+    /// ExecutionStatus::Failure
     pub outcome: ExecutionOutcome,
 }
 
@@ -515,7 +524,8 @@ impl ExecutionOutcomeWithId {
 pub struct ExecutionOutcomeWithIdAndProof {
     pub proof: MerklePath,
     pub block_hash: CryptoHash,
-    /// Should be the latest field since contains unparsable by light client ExecutionStatus::Failure
+    /// Should be the latest field since contains unparsable by light client
+    /// ExecutionStatus::Failure
     pub outcome_with_id: ExecutionOutcomeWithId,
 }
 
@@ -584,8 +594,9 @@ mod tests {
         assert!(verify_transaction_signature(&decoded_tx, &valid_keys));
     }
 
-    /// This test is change checker for a reason - we don't expect transaction format to change.
-    /// If it does - you MUST update all of the dependencies: like nearlib and other clients.
+    /// This test is change checker for a reason - we don't expect transaction
+    /// format to change. If it does - you MUST update all of the
+    /// dependencies: like nearlib and other clients.
     #[test]
     fn test_serialize_transaction() {
         let public_key: PublicKey = "22skMptHjFWNyuEWY22ftn2AbLPSYpmYwGJRGwpNHbTV".parse().unwrap();

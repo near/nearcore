@@ -25,26 +25,28 @@ use std::mem::size_of;
 pub type Result<T, E = VMLogicError> = ::std::result::Result<T, E>;
 
 pub struct VMLogic<'a> {
-    /// Provides access to the components outside the Wasm runtime for operations on the trie and
-    /// receipts creation.
+    /// Provides access to the components outside the Wasm runtime for
+    /// operations on the trie and receipts creation.
     ext: &'a mut dyn External,
-    /// Part of Context API and Economics API that was extracted from the receipt.
+    /// Part of Context API and Economics API that was extracted from the
+    /// receipt.
     context: VMContext,
     /// All gas and economic parameters required during contract execution.
     config: &'a VMConfig,
     /// Fees for creating (async) actions on runtime.
     fees_config: &'a RuntimeFeesConfig,
-    /// If this method execution is invoked directly as a callback by one or more contract calls the
-    /// results of the methods that made the callback are stored in this collection.
+    /// If this method execution is invoked directly as a callback by one or
+    /// more contract calls the results of the methods that made the
+    /// callback are stored in this collection.
     promise_results: &'a [PromiseResult],
     /// Pointer to the guest memory.
     memory: crate::vmstate::Memory<'a>,
 
-    /// Keeping track of the current account balance, which can decrease when we create promises
-    /// and attach balance to them.
+    /// Keeping track of the current account balance, which can decrease when we
+    /// create promises and attach balance to them.
     current_account_balance: Balance,
-    /// Current amount of locked tokens, does not automatically change when staking transaction is
-    /// issued.
+    /// Current amount of locked tokens, does not automatically change when
+    /// staking transaction is issued.
     current_account_locked_balance: Balance,
     /// Storage usage of the current account at the moment
     current_storage_usage: StorageUsage,
@@ -53,8 +55,8 @@ pub struct VMLogic<'a> {
     return_data: ReturnData,
     /// Logs written by the runtime.
     logs: Vec<String>,
-    /// Registers can be used by the guest to store blobs of data without moving them across
-    /// host-guest boundary.
+    /// Registers can be used by the guest to store blobs of data without moving
+    /// them across host-guest boundary.
     registers: crate::vmstate::Registers,
 
     /// The DAG of promises, indexed by promise id.
@@ -69,12 +71,13 @@ pub struct VMLogic<'a> {
     receipt_manager: ReceiptManager,
 }
 
-/// Promises API allows to create a DAG-structure that defines dependencies between smart contract
-/// calls. A single promise can be created with zero or several dependencies on other promises.
-/// * If a promise was created from a receipt (using `promise_create` or `promise_then`) it's a
-///   `Receipt`;
-/// * If a promise was created by merging several promises (using `promise_and`) then
-///   it's a `NotReceipt`, but has receipts of all promises it depends on.
+/// Promises API allows to create a DAG-structure that defines dependencies
+/// between smart contract calls. A single promise can be created with zero or
+/// several dependencies on other promises.
+/// * If a promise was created from a receipt (using `promise_create` or
+///   `promise_then`) it's a `Receipt`;
+/// * If a promise was created by merging several promises (using `promise_and`)
+///   then it's a `NotReceipt`, but has receipts of all promises it depends on.
 #[derive(Debug)]
 enum Promise {
     Receipt(ReceiptIndex),
@@ -216,7 +219,8 @@ impl<'a> VMLogic<'a> {
         self.registers.set(&mut self.gas_counter, &self.config.limit_config, register_id, data)
     }
 
-    /// Writes the entire content from the register `register_id` into the memory of the guest starting with `ptr`.
+    /// Writes the entire content from the register `register_id` into the
+    /// memory of the guest starting with `ptr`.
     ///
     /// # Arguments
     ///
@@ -225,17 +229,22 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Errors
     ///
-    /// * If the content extends outside the memory allocated to the guest. In Wasmer, it returns `MemoryAccessViolation` error message;
-    /// * If `register_id` is pointing to unused register returns `InvalidRegisterId` error message.
+    /// * If the content extends outside the memory allocated to the guest. In
+    ///   Wasmer, it returns `MemoryAccessViolation` error message;
+    /// * If `register_id` is pointing to unused register returns
+    ///   `InvalidRegisterId` error message.
     ///
     /// # Undefined Behavior
     ///
-    /// If the content of register extends outside the preallocated memory on the host side, or the pointer points to a
-    /// wrong location this function will overwrite memory that it is not supposed to overwrite causing an undefined behavior.
+    /// If the content of register extends outside the preallocated memory on
+    /// the host side, or the pointer points to a wrong location this
+    /// function will overwrite memory that it is not supposed to overwrite
+    /// causing an undefined behavior.
     ///
     /// # Cost
     ///
-    /// `base + read_register_base + read_register_byte * num_bytes + write_memory_base + write_memory_byte * num_bytes`
+    /// `base + read_register_base + read_register_byte * num_bytes +
+    /// write_memory_base + write_memory_byte * num_bytes`
     pub fn read_register(&mut self, register_id: u64, ptr: u64) -> Result<()> {
         self.gas_counter.pay_base(base)?;
         let data = self.registers.get(&mut self.gas_counter, register_id)?;
@@ -243,7 +252,8 @@ impl<'a> VMLogic<'a> {
     }
 
     /// Returns the size of the blob stored in the given register.
-    /// * If register is used, then returns the size, which can potentially be zero;
+    /// * If register is used, then returns the size, which can potentially be
+    ///   zero;
     /// * If register is not used, returns `u64::MAX`
     ///
     /// # Arguments
@@ -258,9 +268,10 @@ impl<'a> VMLogic<'a> {
         Ok(self.registers.get_len(register_id).unwrap_or(u64::MAX))
     }
 
-    /// Copies `data` from the guest memory into the register. If register is unused will initialize
-    /// it. If register has larger capacity than needed for `data` will not re-allocate it. The
-    /// register will lose the pre-existing data if any.
+    /// Copies `data` from the guest memory into the register. If register is
+    /// unused will initialize it. If register has larger capacity than
+    /// needed for `data` will not re-allocate it. The register will lose
+    /// the pre-existing data if any.
     ///
     /// # Arguments
     ///
@@ -270,7 +281,8 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Cost
     ///
-    /// `base + read_memory_base + read_memory_bytes * num_bytes + write_register_base + write_register_bytes * num_bytes`
+    /// `base + read_memory_base + read_memory_bytes * num_bytes +
+    /// write_register_base + write_register_bytes * num_bytes`
     pub fn write_register(&mut self, register_id: u64, data_len: u64, data_ptr: u64) -> Result<()> {
         self.gas_counter.pay_base(base)?;
         let data =
@@ -283,22 +295,26 @@ impl<'a> VMLogic<'a> {
     // ###################################
 
     /// Helper function to read and return utf8-encoding string.
-    /// If `len == u64::MAX` then treats the string as null-terminated with character `'\0'`.
+    /// If `len == u64::MAX` then treats the string as null-terminated with
+    /// character `'\0'`.
     ///
     /// # Errors
     ///
-    /// * If string extends outside the memory of the guest with `MemoryAccessViolation`;
+    /// * If string extends outside the memory of the guest with
+    ///   `MemoryAccessViolation`;
     /// * If string is not UTF-8 returns `BadUtf8`.
-    /// * If number of bytes read + `total_log_length` exceeds the `max_total_log_length` returns
-    ///   `TotalLogLengthExceeded`.
+    /// * If number of bytes read + `total_log_length` exceeds the
+    ///   `max_total_log_length` returns `TotalLogLengthExceeded`.
     ///
     /// # Cost
     ///
     /// For not nul-terminated string:
-    /// `read_memory_base + read_memory_byte * num_bytes + utf8_decoding_base + utf8_decoding_byte * num_bytes`
+    /// `read_memory_base + read_memory_byte * num_bytes + utf8_decoding_base +
+    /// utf8_decoding_byte * num_bytes`
     ///
     /// For nul-terminated string:
-    /// `(read_memory_base + read_memory_byte) * num_bytes + utf8_decoding_base + utf8_decoding_byte * num_bytes`
+    /// `(read_memory_base + read_memory_byte) * num_bytes + utf8_decoding_base
+    /// + utf8_decoding_byte * num_bytes`
     fn get_utf8_string(&mut self, len: u64, ptr: u64) -> Result<String> {
         self.gas_counter.pay_base(utf8_decoding_base)?;
         let mut buf;
@@ -312,7 +328,8 @@ impl<'a> VMLogic<'a> {
         } else {
             buf = vec![];
             for i in 0..=max_len {
-                // self.memory_get_u8 will check for u64 overflow on the first iteration (i == 0)
+                // self.memory_get_u8 will check for u64 overflow on the first iteration (i ==
+                // 0)
                 let el = self.memory.get_u8(&mut self.gas_counter, ptr + i)?;
                 if el == 0 {
                     break;
@@ -327,7 +344,8 @@ impl<'a> VMLogic<'a> {
         String::from_utf8(buf).map_err(|_| HostError::BadUTF8.into())
     }
 
-    /// Helper function to get utf8 string, for sandbox debug log. The difference with `get_utf8_string`:
+    /// Helper function to get utf8 string, for sandbox debug log. The
+    /// difference with `get_utf8_string`:
     /// * It's only available on sandbox node
     /// * The cost is 0
     /// * It's up to the caller to set correct len
@@ -340,18 +358,21 @@ impl<'a> VMLogic<'a> {
     /// Helper function to read UTF-16 formatted string from guest memory.
     /// # Errors
     ///
-    /// * If string extends outside the memory of the guest with `MemoryAccessViolation`;
+    /// * If string extends outside the memory of the guest with
+    ///   `MemoryAccessViolation`;
     /// * If string is not UTF-16 returns `BadUtf16`.
-    /// * If number of bytes read + `total_log_length` exceeds the `max_total_log_length` returns
-    ///   `TotalLogLengthExceeded`.
+    /// * If number of bytes read + `total_log_length` exceeds the
+    ///   `max_total_log_length` returns `TotalLogLengthExceeded`.
     ///
     /// # Cost
     ///
     /// For not nul-terminated string:
-    /// `read_memory_base + read_memory_byte * num_bytes + utf16_decoding_base + utf16_decoding_byte * num_bytes`
+    /// `read_memory_base + read_memory_byte * num_bytes + utf16_decoding_base +
+    /// utf16_decoding_byte * num_bytes`
     ///
     /// For nul-terminated string:
-    /// `read_memory_base * num_bytes / 2 + read_memory_byte * num_bytes + utf16_decoding_base + utf16_decoding_byte * num_bytes`
+    /// `read_memory_base * num_bytes / 2 + read_memory_byte * num_bytes +
+    /// utf16_decoding_base + utf16_decoding_byte * num_bytes`
     fn get_utf16_string(&mut self, mut len: u64, ptr: u64) -> Result<String> {
         self.gas_counter.pay_base(utf16_decoding_base)?;
         let max_len =
@@ -398,7 +419,8 @@ impl<'a> VMLogic<'a> {
     // # Helper functions to prevent code duplication API #
     // ####################################################
 
-    /// Checks that the current log number didn't reach the limit yet, so we can add a new message.
+    /// Checks that the current log number didn't reach the limit yet, so we can
+    /// add a new message.
     fn check_can_add_a_log_message(&self) -> Result<()> {
         if self.logs.len() as u64 >= self.config.limit_config.max_number_logs {
             Err(HostError::NumberOfLogsExceeded { limit: self.config.limit_config.max_number_logs }
@@ -408,8 +430,9 @@ impl<'a> VMLogic<'a> {
         }
     }
 
-    /// Adds a given promise to the vector of promises and returns a new promise index.
-    /// Throws `NumberPromisesExceeded` if the total number of promises exceeded the limit.
+    /// Adds a given promise to the vector of promises and returns a new promise
+    /// index. Throws `NumberPromisesExceeded` if the total number of
+    /// promises exceeded the limit.
     fn checked_push_promise(&mut self, promise: Promise) -> Result<PromiseIndex> {
         let new_promise_idx = self.promises.len() as PromiseIndex;
         self.promises.push(promise);
@@ -452,11 +475,13 @@ impl<'a> VMLogic<'a> {
     // # Context API #
     // ###############
 
-    /// Saves the account id of the current contract that we execute into the register.
+    /// Saves the account id of the current contract that we execute into the
+    /// register.
     ///
     /// # Errors
     ///
-    /// If the registers exceed the memory limit returns `MemoryAccessViolation`.
+    /// If the registers exceed the memory limit returns
+    /// `MemoryAccessViolation`.
     ///
     /// # Cost
     ///
@@ -472,14 +497,16 @@ impl<'a> VMLogic<'a> {
         )
     }
 
-    /// All contract calls are a result of some transaction that was signed by some account using
-    /// some access key and submitted into a memory pool (either through the wallet using RPC or by
-    /// a node itself). This function returns the id of that account. Saves the bytes of the signer
+    /// All contract calls are a result of some transaction that was signed by
+    /// some account using some access key and submitted into a memory pool
+    /// (either through the wallet using RPC or by a node itself). This
+    /// function returns the id of that account. Saves the bytes of the signer
     /// account id into the register.
     ///
     /// # Errors
     ///
-    /// * If the registers exceed the memory limit returns `MemoryAccessViolation`.
+    /// * If the registers exceed the memory limit returns
+    ///   `MemoryAccessViolation`.
     /// * If called as view function returns `ProhibitedInView`.
     ///
     /// # Cost
@@ -502,13 +529,15 @@ impl<'a> VMLogic<'a> {
         )
     }
 
-    /// Saves the public key fo the access key that was used by the signer into the register. In
-    /// rare situations smart contract might want to know the exact access key that was used to send
-    /// the original transaction, e.g. to increase the allowance or manipulate with the public key.
+    /// Saves the public key fo the access key that was used by the signer into
+    /// the register. In rare situations smart contract might want to know
+    /// the exact access key that was used to send the original transaction,
+    /// e.g. to increase the allowance or manipulate with the public key.
     ///
     /// # Errors
     ///
-    /// * If the registers exceed the memory limit returns `MemoryAccessViolation`.
+    /// * If the registers exceed the memory limit returns
+    ///   `MemoryAccessViolation`.
     /// * If called as view function returns `ProhibitedInView`.
     ///
     /// # Cost
@@ -531,13 +560,15 @@ impl<'a> VMLogic<'a> {
         )
     }
 
-    /// All contract calls are a result of a receipt, this receipt might be created by a transaction
-    /// that does function invocation on the contract or another contract as a result of
-    /// cross-contract call. Saves the bytes of the predecessor account id into the register.
+    /// All contract calls are a result of a receipt, this receipt might be
+    /// created by a transaction that does function invocation on the
+    /// contract or another contract as a result of cross-contract call.
+    /// Saves the bytes of the predecessor account id into the register.
     ///
     /// # Errors
     ///
-    /// * If the registers exceed the memory limit returns `MemoryAccessViolation`.
+    /// * If the registers exceed the memory limit returns
+    ///   `MemoryAccessViolation`.
     /// * If called as view function returns `ProhibitedInView`.
     ///
     /// # Cost
@@ -560,9 +591,10 @@ impl<'a> VMLogic<'a> {
         )
     }
 
-    /// Reads input to the contract call into the register. Input is expected to be in JSON-format.
-    /// If input is provided saves the bytes (potentially zero) of input into register. If input is
-    /// not provided writes 0 bytes into the register.
+    /// Reads input to the contract call into the register. Input is expected to
+    /// be in JSON-format. If input is provided saves the bytes (potentially
+    /// zero) of input into register. If input is not provided writes 0
+    /// bytes into the register.
     ///
     /// # Cost
     ///
@@ -591,7 +623,8 @@ impl<'a> VMLogic<'a> {
         Ok(self.context.block_height)
     }
 
-    /// Returns the current block timestamp (number of non-leap-nanoseconds since January 1, 1970 0:00:00 UTC).
+    /// Returns the current block timestamp (number of non-leap-nanoseconds
+    /// since January 1, 1970 0:00:00 UTC).
     ///
     /// # Cost
     ///
@@ -611,12 +644,14 @@ impl<'a> VMLogic<'a> {
         Ok(self.context.epoch_height)
     }
 
-    /// Get the stake of an account, if the account is currently a validator. Otherwise returns 0.
-    /// writes the value into the` u128` variable pointed by `stake_ptr`.
+    /// Get the stake of an account, if the account is currently a validator.
+    /// Otherwise returns 0. writes the value into the` u128` variable
+    /// pointed by `stake_ptr`.
     ///
     /// # Cost
     ///
-    /// `base + memory_write_base + memory_write_size * 16 + utf8_decoding_base + utf8_decoding_byte * account_id_len + validator_stake_base`.
+    /// `base + memory_write_base + memory_write_size * 16 + utf8_decoding_base
+    /// + utf8_decoding_byte * account_id_len + validator_stake_base`.
     pub fn validator_stake(
         &mut self,
         account_id_len: u64,
@@ -636,7 +671,8 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Cost
     ///
-    /// `base + memory_write_base + memory_write_size * 16 + validator_total_stake_base`
+    /// `base + memory_write_base + memory_write_size * 16 +
+    /// validator_total_stake_base`
     pub fn validator_total_stake(&mut self, stake_ptr: u64) -> Result<()> {
         self.gas_counter.pay_base(base)?;
         self.gas_counter.pay_base(validator_total_stake_base)?;
@@ -644,9 +680,10 @@ impl<'a> VMLogic<'a> {
         self.memory.set_u128(&mut self.gas_counter, stake_ptr, total_stake)
     }
 
-    /// Returns the number of bytes used by the contract if it was saved to the trie as of the
-    /// invocation. This includes:
-    /// * The data written with storage_* functions during current and previous execution;
+    /// Returns the number of bytes used by the contract if it was saved to the
+    /// trie as of the invocation. This includes:
+    /// * The data written with storage_* functions during current and previous
+    ///   execution;
     /// * The bytes needed to store the access keys of the given account.
     /// * The contract code size
     /// * A small fixed overhead for account metadata.
@@ -663,8 +700,8 @@ impl<'a> VMLogic<'a> {
     // # Economics API #
     // #################
 
-    /// The current balance of the given account. This includes the attached_deposit that was
-    /// attached to the transaction.
+    /// The current balance of the given account. This includes the
+    /// attached_deposit that was attached to the transaction.
     ///
     /// # Cost
     ///
@@ -688,8 +725,8 @@ impl<'a> VMLogic<'a> {
         )
     }
 
-    /// The balance that was attached to the call that will be immediately deposited before the
-    /// contract execution starts.
+    /// The balance that was attached to the call that will be immediately
+    /// deposited before the contract execution starts.
     ///
     /// # Errors
     ///
@@ -704,7 +741,8 @@ impl<'a> VMLogic<'a> {
         self.memory.set_u128(&mut self.gas_counter, balance_ptr, self.context.attached_deposit)
     }
 
-    /// The amount of gas attached to the call that can be used to pay for the gas fees.
+    /// The amount of gas attached to the call that can be used to pay for the
+    /// gas fees.
     ///
     /// # Errors
     ///
@@ -723,7 +761,8 @@ impl<'a> VMLogic<'a> {
         Ok(self.context.prepaid_gas)
     }
 
-    /// The gas that was already burnt during the contract execution (cannot exceed `prepaid_gas`)
+    /// The gas that was already burnt during the contract execution (cannot
+    /// exceed `prepaid_gas`)
     ///
     /// # Errors
     ///
@@ -749,9 +788,8 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Arguments
     ///
-    /// * `value` - sequence of (g1:G1, fr:Fr), where
-    ///    G1 is point (x:Fq, y:Fq) on alt_bn128,
-    ///   alt_bn128 is Y^2 = X^3 + 3 curve over Fq.
+    /// * `value` - sequence of (g1:G1, fr:Fr), where G1 is point (x:Fq, y:Fq)
+    ///   on alt_bn128, alt_bn128 is Y^2 = X^3 + 3 curve over Fq.
     ///
     ///   `value` is encoded as packed, little-endian
     ///   `[((u256, u256), u256)]` slice.
@@ -793,9 +831,8 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Arguments
     ///
-    /// * `value` - sequence of (sign:bool, g1:G1), where
-    ///    G1 is point (x:Fq, y:Fq) on alt_bn128,
-    ///    alt_bn128 is Y^2 = X^3 + 3 curve over Fq.
+    /// * `value` - sequence of (sign:bool, g1:G1), where G1 is point (x:Fq,
+    ///   y:Fq) on alt_bn128, alt_bn128 is Y^2 = X^3 + 3 curve over Fq.
     ///
     ///   `value` is encoded as packed, little-endian
     ///   `[(u8, (u256, u256))]` slice. `0u8` is postive sign,
@@ -804,7 +841,8 @@ impl<'a> VMLogic<'a> {
     /// # Errors
     ///
     /// If `value_len + value_ptr` points outside the memory or the registers
-    /// use more memory than the limit, the function returns `MemoryAccessViolation`.
+    /// use more memory than the limit, the function returns
+    /// `MemoryAccessViolation`.
     ///
     /// If point coordinates are not on curve, point is not in the subgroup,
     /// scalar is not in the field, sign is not 0 or 1, or `value.len()%65!=0`,
@@ -832,32 +870,34 @@ impl<'a> VMLogic<'a> {
     }
 
     /// Computes pairing check on alt_bn128 curve.
-    /// \sum_i e(g_{1 i}, g_{2 i}) should be equal one (in additive notation), e(g1, g2) is Ate pairing
+    /// \sum_i e(g_{1 i}, g_{2 i}) should be equal one (in additive notation),
+    /// e(g1, g2) is Ate pairing
     ///
     /// # Arguments
     ///
-    /// * `value` - sequence of (g1:G1, g2:G2), where
-    ///   G2 is Fr-ordered subgroup point (x:Fq2, y:Fq2) on alt_bn128 twist,
-    ///   alt_bn128 twist is Y^2 = X^3 + 3/(i+9) curve over Fq2
-    ///   Fq2 is complex field element (re: Fq, im: Fq)
-    ///   G1 is point (x:Fq, y:Fq) on alt_bn128,
-    ///   alt_bn128 is Y^2 = X^3 + 3 curve over Fq
+    /// * `value` - sequence of (g1:G1, g2:G2), where G2 is Fr-ordered subgroup
+    ///   point (x:Fq2, y:Fq2) on alt_bn128 twist, alt_bn128 twist is Y^2 = X^3
+    ///   + 3/(i+9) curve over Fq2 Fq2 is complex field element (re: Fq, im: Fq)
+    ///   G1 is point (x:Fq, y:Fq) on alt_bn128, alt_bn128 is Y^2 = X^3 + 3
+    ///   curve over Fq
     ///
     ///   `value` is encoded a as packed, little-endian
     ///   `[((u256, u256), ((u256, u256), (u256, u256)))]` slice.
     ///
     /// # Errors
     ///
-    /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
-    /// the function returns `MemoryAccessViolation`.
+    /// If `value_len + value_ptr` points outside the memory or the registers
+    /// use more memory than the function returns `MemoryAccessViolation`.
     ///
-    /// If point coordinates are not on curve, point is not in the subgroup, scalar
-    /// is not in the field or data are wrong serialized, for example,
-    /// `value.len()%192!=0`, the function returns `AltBn128InvalidInput`.
+    /// If point coordinates are not on curve, point is not in the subgroup,
+    /// scalar is not in the field or data are wrong serialized, for
+    /// example, `value.len()%192!=0`, the function returns
+    /// `AltBn128InvalidInput`.
     ///
     /// # Cost
     ///
-    /// `base + write_register_base + write_register_byte * num_bytes + alt_bn128_pairing_base + alt_bn128_pairing_element * num_elements`
+    /// `base + write_register_base + write_register_byte * num_bytes +
+    /// alt_bn128_pairing_base + alt_bn128_pairing_element * num_elements`
     pub fn alt_bn128_pairing_check(&mut self, value_len: u64, value_ptr: u64) -> Result<u64> {
         self.gas_counter.pay_base(alt_bn128_pairing_check_base)?;
         let data = get_memory_or_register!(self, value_ptr, value_len)?;
@@ -874,7 +914,8 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Errors
     ///
-    /// If the size of the registers exceed the set limit `MemoryAccessViolation`.
+    /// If the size of the registers exceed the set limit
+    /// `MemoryAccessViolation`.
     ///
     /// # Cost
     ///
@@ -893,12 +934,13 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Errors
     ///
-    /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
-    /// the limit with `MemoryAccessViolation`.
+    /// If `value_len + value_ptr` points outside the memory or the registers
+    /// use more memory than the limit with `MemoryAccessViolation`.
     ///
     /// # Cost
     ///
-    /// `base + write_register_base + write_register_byte * num_bytes + sha256_base + sha256_byte * num_bytes`
+    /// `base + write_register_base + write_register_byte * num_bytes +
+    /// sha256_base + sha256_byte * num_bytes`
     pub fn sha256(&mut self, value_len: u64, value_ptr: u64, register_id: u64) -> Result<()> {
         self.gas_counter.pay_base(sha256_base)?;
         let value = get_memory_or_register!(self, value_ptr, value_len)?;
@@ -915,16 +957,18 @@ impl<'a> VMLogic<'a> {
         )
     }
 
-    /// Hashes the given value using keccak256 and returns it into `register_id`.
+    /// Hashes the given value using keccak256 and returns it into
+    /// `register_id`.
     ///
     /// # Errors
     ///
-    /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
-    /// the limit with `MemoryAccessViolation`.
+    /// If `value_len + value_ptr` points outside the memory or the registers
+    /// use more memory than the limit with `MemoryAccessViolation`.
     ///
     /// # Cost
     ///
-    /// `base + write_register_base + write_register_byte * num_bytes + keccak256_base + keccak256_byte * num_bytes`
+    /// `base + write_register_base + write_register_byte * num_bytes +
+    /// keccak256_base + keccak256_byte * num_bytes`
     pub fn keccak256(&mut self, value_len: u64, value_ptr: u64, register_id: u64) -> Result<()> {
         self.gas_counter.pay_base(keccak256_base)?;
         let value = get_memory_or_register!(self, value_ptr, value_len)?;
@@ -941,16 +985,18 @@ impl<'a> VMLogic<'a> {
         )
     }
 
-    /// Hashes the given value using keccak512 and returns it into `register_id`.
+    /// Hashes the given value using keccak512 and returns it into
+    /// `register_id`.
     ///
     /// # Errors
     ///
-    /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
-    /// the limit with `MemoryAccessViolation`.
+    /// If `value_len + value_ptr` points outside the memory or the registers
+    /// use more memory than the limit with `MemoryAccessViolation`.
     ///
     /// # Cost
     ///
-    /// `base + write_register_base + write_register_byte * num_bytes + keccak512_base + keccak512_byte * num_bytes`
+    /// `base + write_register_base + write_register_byte * num_bytes +
+    /// keccak512_base + keccak512_byte * num_bytes`
     pub fn keccak512(&mut self, value_len: u64, value_ptr: u64, register_id: u64) -> Result<()> {
         self.gas_counter.pay_base(keccak512_base)?;
         let value = get_memory_or_register!(self, value_ptr, value_len)?;
@@ -967,18 +1013,20 @@ impl<'a> VMLogic<'a> {
         )
     }
 
-    /// Hashes the given value using RIPEMD-160 and returns it into `register_id`.
+    /// Hashes the given value using RIPEMD-160 and returns it into
+    /// `register_id`.
     ///
     /// # Errors
     ///
-    /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
-    /// the limit with `MemoryAccessViolation`.
+    /// If `value_len + value_ptr` points outside the memory or the registers
+    /// use more memory than the limit with `MemoryAccessViolation`.
     ///
     /// # Cost
     ///
     ///  Where `message_blocks` is `(value_len + 9).div_ceil(64)`.
     ///
-    /// `base + write_register_base + write_register_byte * num_bytes + ripemd160_base + ripemd160_block * message_blocks`
+    /// `base + write_register_base + write_register_byte * num_bytes +
+    /// ripemd160_base + ripemd160_block * message_blocks`
     pub fn ripemd160(&mut self, value_len: u64, value_ptr: u64, register_id: u64) -> Result<()> {
         self.gas_counter.pay_base(ripemd160_base)?;
         let value = get_memory_or_register!(self, value_ptr, value_len)?;
@@ -1017,8 +1065,9 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Errors
     ///
-    /// * If `hash_ptr`, `r_ptr`, or `s_ptr` point outside the memory or the registers use more
-    ///   memory than the limit, then returns `MemoryAccessViolation`.
+    /// * If `hash_ptr`, `r_ptr`, or `s_ptr` point outside the memory or the
+    ///   registers use more memory than the limit, then returns
+    ///   `MemoryAccessViolation`.
     ///
     /// # Cost
     ///
@@ -1173,12 +1222,15 @@ impl<'a> VMLogic<'a> {
         }
     }
 
-    /// Called by gas metering injected into Wasm. Counts both towards `burnt_gas` and `used_gas`.
+    /// Called by gas metering injected into Wasm. Counts both towards
+    /// `burnt_gas` and `used_gas`.
     ///
     /// # Errors
     ///
-    /// * If passed gas amount somehow overflows internal gas counters returns `IntegerOverflow`;
-    /// * If we exceed usage limit imposed on burnt gas returns `GasLimitExceeded`;
+    /// * If passed gas amount somehow overflows internal gas counters returns
+    ///   `IntegerOverflow`;
+    /// * If we exceed usage limit imposed on burnt gas returns
+    ///   `GasLimitExceeded`;
     /// * If we exceed the `prepaid_gas` then returns `GasExceeded`.
     pub fn gas(&mut self, opcodes: u32) -> Result<()> {
         self.gas_counter.pay_wasm_gas(opcodes)
@@ -1188,20 +1240,22 @@ impl<'a> VMLogic<'a> {
     // # Promises API #
     // ################
 
-    /// A helper function to pay gas fee for creating a new receipt without actions.
-    /// # Args:
+    /// A helper function to pay gas fee for creating a new receipt without
+    /// actions. # Args:
     /// * `sir`: whether contract call is addressed to itself;
-    /// * `data_dependencies`: other contracts that this execution will be waiting on (or rather
-    ///   their data receipts), where bool indicates whether this is sender=receiver communication.
+    /// * `data_dependencies`: other contracts that this execution will be
+    ///   waiting on (or rather their data receipts), where bool indicates
+    ///   whether this is sender=receiver communication.
     ///
     /// # Cost
     ///
     /// This is a convenience function that encapsulates several costs:
-    /// `burnt_gas := dispatch cost of the receipt + base dispatch cost  cost of the data receipt`
-    /// `used_gas := burnt_gas + exec cost of the receipt + base exec cost  cost of the data receipt`
-    /// Notice that we prepay all base cost upon the creation of the data dependency, we are going to
-    /// pay for the content transmitted through the dependency upon the actual creation of the
-    /// DataReceipt.
+    /// `burnt_gas := dispatch cost of the receipt + base dispatch cost  cost of
+    /// the data receipt` `used_gas := burnt_gas + exec cost of the receipt
+    /// + base exec cost  cost of the data receipt` Notice that we prepay
+    /// all base cost upon the creation of the data dependency, we are going to
+    /// pay for the content transmitted through the dependency upon the actual
+    /// creation of the DataReceipt.
     fn pay_gas_for_new_receipt(&mut self, sir: bool, data_dependencies: &[bool]) -> Result<()> {
         let fees_config_cfg = &self.fees_config;
         let mut burn_gas = fees_config_cfg.fee(ActionCosts::new_action_receipt).send_fee(sir);
@@ -1216,12 +1270,13 @@ impl<'a> VMLogic<'a> {
         }
         use_gas = use_gas.checked_add(burn_gas).ok_or(HostError::IntegerOverflow)?;
         // This should go to `new_data_receipt_base` and `new_action_receipt` in parts.
-        // But we have to keep charing these two together unless we make a protocol change.
+        // But we have to keep charing these two together unless we make a protocol
+        // change.
         self.gas_counter.pay_action_accumulated(burn_gas, use_gas, ActionCosts::new_action_receipt)
     }
 
-    /// A helper function to subtract balance on transfer or attached deposit for promises.
-    /// # Args:
+    /// A helper function to subtract balance on transfer or attached deposit
+    /// for promises. # Args:
     /// * `amount`: the amount to deduct from the current account balance.
     fn deduct_balance(&mut self, amount: Balance) -> Result<()> {
         self.current_account_balance =
@@ -1229,25 +1284,28 @@ impl<'a> VMLogic<'a> {
         Ok(())
     }
 
-    /// Creates a promise that will execute a method on account with given arguments and attaches
-    /// the given amount and gas. `amount_ptr` point to slices of bytes representing `u128`.
+    /// Creates a promise that will execute a method on account with given
+    /// arguments and attaches the given amount and gas. `amount_ptr` point
+    /// to slices of bytes representing `u128`.
     ///
     /// # Errors
     ///
-    /// * If `account_id_len + account_id_ptr` or `method_name_len + method_name_ptr` or
-    /// `arguments_len + arguments_ptr` or `amount_ptr + 16` points outside the memory of the guest
-    /// or host returns `MemoryAccessViolation`.
+    /// * If `account_id_len + account_id_ptr` or `method_name_len +
+    ///   method_name_ptr` or
+    /// `arguments_len + arguments_ptr` or `amount_ptr + 16` points outside the
+    /// memory of the guest or host returns `MemoryAccessViolation`.
     /// * If called as view function returns `ProhibitedInView`.
     ///
     /// # Returns
     ///
-    /// Index of the new promise that uniquely identifies it within the current execution of the
-    /// method.
+    /// Index of the new promise that uniquely identifies it within the current
+    /// execution of the method.
     ///
     /// # Cost
     ///
-    /// Since `promise_create` is a convenience wrapper around `promise_batch_create` and
-    /// `promise_batch_action_function_call`. This also means it charges `base` cost twice.
+    /// Since `promise_create` is a convenience wrapper around
+    /// `promise_batch_create` and `promise_batch_action_function_call`.
+    /// This also means it charges `base` cost twice.
     pub fn promise_create(
         &mut self,
         account_id_len: u64,
@@ -1272,25 +1330,29 @@ impl<'a> VMLogic<'a> {
         Ok(new_promise_idx)
     }
 
-    /// Attaches the callback that is executed after promise pointed by `promise_idx` is complete.
+    /// Attaches the callback that is executed after promise pointed by
+    /// `promise_idx` is complete.
     ///
     /// # Errors
     ///
-    /// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`;
-    /// * If `account_id_len + account_id_ptr` or `method_name_len + method_name_ptr` or
-    ///   `arguments_len + arguments_ptr` or `amount_ptr + 16` points outside the memory of the
-    ///   guest or host returns `MemoryAccessViolation`.
+    /// * If `promise_idx` does not correspond to an existing promise returns
+    ///   `InvalidPromiseIndex`;
+    /// * If `account_id_len + account_id_ptr` or `method_name_len +
+    ///   method_name_ptr` or `arguments_len + arguments_ptr` or `amount_ptr +
+    ///   16` points outside the memory of the guest or host returns
+    ///   `MemoryAccessViolation`.
     /// * If called as view function returns `ProhibitedInView`.
     ///
     /// # Returns
     ///
-    /// Index of the new promise that uniquely identifies it within the current execution of the
-    /// method.
+    /// Index of the new promise that uniquely identifies it within the current
+    /// execution of the method.
     ///
     /// # Cost
     ///
-    /// Since `promise_create` is a convenience wrapper around `promise_batch_then` and
-    /// `promise_batch_action_function_call`. This also means it charges `base` cost twice.
+    /// Since `promise_create` is a convenience wrapper around
+    /// `promise_batch_then` and `promise_batch_action_function_call`. This
+    /// also means it charges `base` cost twice.
     pub fn promise_then(
         &mut self,
         promise_idx: u64,
@@ -1317,31 +1379,35 @@ impl<'a> VMLogic<'a> {
         Ok(new_promise_idx)
     }
 
-    /// Creates a new promise which completes when time all promises passed as arguments complete.
-    /// Cannot be used with registers. `promise_idx_ptr` points to an array of `u64` elements, with
-    /// `promise_idx_count` denoting the number of elements. The array contains indices of promises
+    /// Creates a new promise which completes when time all promises passed as
+    /// arguments complete. Cannot be used with registers. `promise_idx_ptr`
+    /// points to an array of `u64` elements, with `promise_idx_count`
+    /// denoting the number of elements. The array contains indices of promises
     /// that need to be waited on jointly.
     ///
     /// # Errors
     ///
-    /// * If `promise_ids_ptr + 8 * promise_idx_count` extend outside the guest memory returns
-    ///   `MemoryAccessViolation`;
-    /// * If any of the promises in the array do not correspond to existing promises returns
-    ///   `InvalidPromiseIndex`.
+    /// * If `promise_ids_ptr + 8 * promise_idx_count` extend outside the guest
+    ///   memory returns `MemoryAccessViolation`;
+    /// * If any of the promises in the array do not correspond to existing
+    ///   promises returns `InvalidPromiseIndex`.
     /// * If called as view function returns `ProhibitedInView`.
-    /// * If the total number of receipt dependencies exceeds `max_number_input_data_dependencies`
-    ///   limit returns `NumInputDataDependenciesExceeded`.
-    /// * If the total number of promises exceeds `max_promises_per_function_call_action` limit
-    ///   returns `NumPromisesExceeded`.
+    /// * If the total number of receipt dependencies exceeds
+    ///   `max_number_input_data_dependencies` limit returns
+    ///   `NumInputDataDependenciesExceeded`.
+    /// * If the total number of promises exceeds
+    ///   `max_promises_per_function_call_action` limit returns
+    ///   `NumPromisesExceeded`.
     ///
     /// # Returns
     ///
-    /// Index of the new promise that uniquely identifies it within the current execution of the
-    /// method.
+    /// Index of the new promise that uniquely identifies it within the current
+    /// execution of the method.
     ///
     /// # Cost
     ///
-    /// `base + promise_and_base + promise_and_per_promise * num_promises + cost of reading promise ids from memory`.
+    /// `base + promise_and_base + promise_and_per_promise * num_promises + cost
+    /// of reading promise ids from memory`.
     pub fn promise_and(
         &mut self,
         promise_idx_ptr: u64,
@@ -1396,25 +1462,29 @@ impl<'a> VMLogic<'a> {
         self.checked_push_promise(Promise::NotReceipt(receipt_dependencies))
     }
 
-    /// Creates a new promise towards given `account_id` without any actions attached to it.
+    /// Creates a new promise towards given `account_id` without any actions
+    /// attached to it.
     ///
     /// # Errors
     ///
-    /// * If `account_id_len + account_id_ptr` points outside the memory of the guest or host
+    /// * If `account_id_len + account_id_ptr` points outside the memory of the
+    ///   guest or host
     /// returns `MemoryAccessViolation`.
     /// * If called as view function returns `ProhibitedInView`.
-    /// * If the total number of promises exceeds `max_promises_per_function_call_action` limit
-    ///   returns `NumPromisesExceeded`.
+    /// * If the total number of promises exceeds
+    ///   `max_promises_per_function_call_action` limit returns
+    ///   `NumPromisesExceeded`.
     ///
     /// # Returns
     ///
-    /// Index of the new promise that uniquely identifies it within the current execution of the
-    /// method.
+    /// Index of the new promise that uniquely identifies it within the current
+    /// execution of the method.
     ///
     /// # Cost
     ///
-    /// `burnt_gas := base + cost of reading and decoding the account id + dispatch cost of the receipt`.
-    /// `used_gas := burnt_gas + exec cost of the receipt`.
+    /// `burnt_gas := base + cost of reading and decoding the account id +
+    /// dispatch cost of the receipt`. `used_gas := burnt_gas + exec cost of
+    /// the receipt`.
     pub fn promise_batch_create(
         &mut self,
         account_id_len: u64,
@@ -1435,27 +1505,32 @@ impl<'a> VMLogic<'a> {
         self.checked_push_promise(Promise::Receipt(new_receipt_idx))
     }
 
-    /// Creates a new promise towards given `account_id` without any actions attached, that is
-    /// executed after promise pointed by `promise_idx` is complete.
+    /// Creates a new promise towards given `account_id` without any actions
+    /// attached, that is executed after promise pointed by `promise_idx` is
+    /// complete.
     ///
     /// # Errors
     ///
-    /// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`;
-    /// * If `account_id_len + account_id_ptr` points outside the memory of the guest or host
+    /// * If `promise_idx` does not correspond to an existing promise returns
+    ///   `InvalidPromiseIndex`;
+    /// * If `account_id_len + account_id_ptr` points outside the memory of the
+    ///   guest or host
     /// returns `MemoryAccessViolation`.
     /// * If called as view function returns `ProhibitedInView`.
-    /// * If the total number of promises exceeds `max_promises_per_function_call_action` limit
-    ///   returns `NumPromisesExceeded`.
+    /// * If the total number of promises exceeds
+    ///   `max_promises_per_function_call_action` limit returns
+    ///   `NumPromisesExceeded`.
     ///
     /// # Returns
     ///
-    /// Index of the new promise that uniquely identifies it within the current execution of the
-    /// method.
+    /// Index of the new promise that uniquely identifies it within the current
+    /// execution of the method.
     ///
     /// # Cost
     ///
-    /// `base + cost of reading and decoding the account id + dispatch&execution cost of the receipt
-    ///  + dispatch&execution base cost for each data dependency`
+    /// `base + cost of reading and decoding the account id + dispatch&execution
+    /// cost of the receipt  + dispatch&execution base cost for each data
+    /// dependency`
     pub fn promise_batch_then(
         &mut self,
         promise_idx: u64,
@@ -1493,14 +1568,16 @@ impl<'a> VMLogic<'a> {
         self.checked_push_promise(Promise::Receipt(new_receipt_idx))
     }
 
-    /// Helper function to return the account id towards which the receipt is directed.
+    /// Helper function to return the account id towards which the receipt is
+    /// directed.
     fn get_account_by_receipt(&self, receipt_idx: ReceiptIndex) -> &AccountId {
         self.receipt_manager.get_receipt_receiver(receipt_idx)
     }
 
-    /// Helper function to return the receipt index corresponding to the given promise index.
-    /// It also pulls account ID for the given receipt and compares it with the current account ID
-    /// to return whether the receipt's account ID is the same.
+    /// Helper function to return the receipt index corresponding to the given
+    /// promise index. It also pulls account ID for the given receipt and
+    /// compares it with the current account ID to return whether the
+    /// receipt's account ID is the same.
     fn promise_idx_to_receipt_idx_with_sir(
         &self,
         promise_idx: u64,
@@ -1519,13 +1596,15 @@ impl<'a> VMLogic<'a> {
         Ok((receipt_idx, sir))
     }
 
-    /// Appends `CreateAccount` action to the batch of actions for the given promise pointed by
-    /// `promise_idx`.
+    /// Appends `CreateAccount` action to the batch of actions for the given
+    /// promise pointed by `promise_idx`.
     ///
     /// # Errors
     ///
-    /// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`.
-    /// * If the promise pointed by the `promise_idx` is an ephemeral promise created by
+    /// * If `promise_idx` does not correspond to an existing promise returns
+    ///   `InvalidPromiseIndex`.
+    /// * If the promise pointed by the `promise_idx` is an ephemeral promise
+    ///   created by
     /// `promise_and` returns `CannotAppendActionToJointPromise`.
     /// * If called as view function returns `ProhibitedInView`.
     ///
@@ -1549,23 +1628,28 @@ impl<'a> VMLogic<'a> {
         Ok(())
     }
 
-    /// Appends `DeployContract` action to the batch of actions for the given promise pointed by
-    /// `promise_idx`.
+    /// Appends `DeployContract` action to the batch of actions for the given
+    /// promise pointed by `promise_idx`.
     ///
     /// # Errors
     ///
-    /// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`.
-    /// * If the promise pointed by the `promise_idx` is an ephemeral promise created by
+    /// * If `promise_idx` does not correspond to an existing promise returns
+    ///   `InvalidPromiseIndex`.
+    /// * If the promise pointed by the `promise_idx` is an ephemeral promise
+    ///   created by
     /// `promise_and` returns `CannotAppendActionToJointPromise`.
-    /// * If `code_len + code_ptr` points outside the memory of the guest or host returns
+    /// * If `code_len + code_ptr` points outside the memory of the guest or
+    ///   host returns
     /// `MemoryAccessViolation`.
     /// * If called as view function returns `ProhibitedInView`.
-    /// * If the contract code length exceeds `max_contract_size` returns `ContractSizeExceeded`.
+    /// * If the contract code length exceeds `max_contract_size` returns
+    ///   `ContractSizeExceeded`.
     ///
     /// # Cost
     ///
-    /// `burnt_gas := base + dispatch action base fee + dispatch action per byte fee * num bytes + cost of reading vector from memory `
-    /// `used_gas := burnt_gas + exec action base fee + exec action per byte fee * num bytes`
+    /// `burnt_gas := base + dispatch action base fee + dispatch action per byte
+    /// fee * num bytes + cost of reading vector from memory ` `used_gas :=
+    /// burnt_gas + exec action base fee + exec action per byte fee * num bytes`
     pub fn promise_batch_action_deploy_contract(
         &mut self,
         promise_idx: u64,
@@ -1596,24 +1680,29 @@ impl<'a> VMLogic<'a> {
         Ok(())
     }
 
-    /// Appends `FunctionCall` action to the batch of actions for the given promise pointed by
-    /// `promise_idx`.
+    /// Appends `FunctionCall` action to the batch of actions for the given
+    /// promise pointed by `promise_idx`.
     ///
     /// # Errors
     ///
-    /// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`.
-    /// * If the promise pointed by the `promise_idx` is an ephemeral promise created by
+    /// * If `promise_idx` does not correspond to an existing promise returns
+    ///   `InvalidPromiseIndex`.
+    /// * If the promise pointed by the `promise_idx` is an ephemeral promise
+    ///   created by
     /// `promise_and` returns `CannotAppendActionToJointPromise`.
-    /// * If `method_name_len + method_name_ptr` or `arguments_len + arguments_ptr` or
+    /// * If `method_name_len + method_name_ptr` or `arguments_len +
+    ///   arguments_ptr` or
     /// `amount_ptr + 16` points outside the memory of the guest or host returns
     /// `MemoryAccessViolation`.
     /// * If called as view function returns `ProhibitedInView`.
     ///
     /// # Cost
     ///
-    /// `burnt_gas := base + dispatch action base fee + dispatch action per byte fee * num bytes + cost of reading vector from memory
-    ///  + cost of reading u128, method_name and arguments from the memory`
-    /// `used_gas := burnt_gas + exec action base fee + exec action per byte fee * num bytes`
+    /// `burnt_gas := base + dispatch action base fee + dispatch action per byte
+    /// fee * num bytes + cost of reading vector from memory  + cost of
+    /// reading u128, method_name and arguments from the memory` `used_gas :
+    /// = burnt_gas + exec action base fee + exec action per byte fee * num
+    /// bytes`
     pub fn promise_batch_action_function_call(
         &mut self,
         promise_idx: u64,
@@ -1636,39 +1725,46 @@ impl<'a> VMLogic<'a> {
         )
     }
 
-    /// Appends `FunctionCall` action to the batch of actions for the given promise pointed by
-    /// `promise_idx`. This function allows not specifying a specific gas value and allowing the
-    /// runtime to assign remaining gas based on a weight.
+    /// Appends `FunctionCall` action to the batch of actions for the given
+    /// promise pointed by `promise_idx`. This function allows not
+    /// specifying a specific gas value and allowing the runtime to assign
+    /// remaining gas based on a weight.
     ///
     /// # Gas
     ///
-    /// Gas can be specified using a static amount, a weight of remaining prepaid gas, or a mixture
-    /// of both. To omit a static gas amount, `0` can be passed for the `gas` parameter.
-    /// To omit assigning remaining gas, `0` can be passed as the `gas_weight` parameter.
+    /// Gas can be specified using a static amount, a weight of remaining
+    /// prepaid gas, or a mixture of both. To omit a static gas amount, `0`
+    /// can be passed for the `gas` parameter. To omit assigning remaining
+    /// gas, `0` can be passed as the `gas_weight` parameter.
     ///
     /// The gas weight parameter works as the following:
     ///
-    /// All unused prepaid gas from the current function call is split among all function calls
-    /// which supply this gas weight. The amount attached to each respective call depends on the
-    /// value of the weight.
+    /// All unused prepaid gas from the current function call is split among all
+    /// function calls which supply this gas weight. The amount attached to
+    /// each respective call depends on the value of the weight.
     ///
-    /// For example, if 40 gas is leftover from the current method call and three functions specify
-    /// the weights 1, 5, 2 then 5, 25, 10 gas will be added to each function call respectively,
-    /// using up all remaining available gas.
+    /// For example, if 40 gas is leftover from the current method call and
+    /// three functions specify the weights 1, 5, 2 then 5, 25, 10 gas will
+    /// be added to each function call respectively, using up all remaining
+    /// available gas.
     ///
-    /// If the `gas_weight` parameter is set as a large value, the amount of distributed gas
-    /// to each action can be 0 or a very low value because the amount of gas per weight is
-    /// based on the floor division of the amount of gas by the sum of weights.
+    /// If the `gas_weight` parameter is set as a large value, the amount of
+    /// distributed gas to each action can be 0 or a very low value because
+    /// the amount of gas per weight is based on the floor division of the
+    /// amount of gas by the sum of weights.
     ///
-    /// Any remaining gas will be distributed to the last scheduled function call with a weight
-    /// specified.
+    /// Any remaining gas will be distributed to the last scheduled function
+    /// call with a weight specified.
     ///
     /// # Errors
     ///
-    /// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`.
-    /// * If the promise pointed by the `promise_idx` is an ephemeral promise created by
+    /// * If `promise_idx` does not correspond to an existing promise returns
+    ///   `InvalidPromiseIndex`.
+    /// * If the promise pointed by the `promise_idx` is an ephemeral promise
+    ///   created by
     /// `promise_and` returns `CannotAppendActionToJointPromise`.
-    /// * If `method_name_len + method_name_ptr` or `arguments_len + arguments_ptr` or
+    /// * If `method_name_len + method_name_ptr` or `arguments_len +
+    ///   arguments_ptr` or
     /// `amount_ptr + 16` points outside the memory of the guest or host returns
     /// `MemoryAccessViolation`.
     /// * If called as view function returns `ProhibitedInView`.
@@ -1720,22 +1816,26 @@ impl<'a> VMLogic<'a> {
         )
     }
 
-    /// Appends `Transfer` action to the batch of actions for the given promise pointed by
-    /// `promise_idx`.
+    /// Appends `Transfer` action to the batch of actions for the given promise
+    /// pointed by `promise_idx`.
     ///
     /// # Errors
     ///
-    /// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`.
-    /// * If the promise pointed by the `promise_idx` is an ephemeral promise created by
+    /// * If `promise_idx` does not correspond to an existing promise returns
+    ///   `InvalidPromiseIndex`.
+    /// * If the promise pointed by the `promise_idx` is an ephemeral promise
+    ///   created by
     /// `promise_and` returns `CannotAppendActionToJointPromise`.
-    /// * If `amount_ptr + 16` points outside the memory of the guest or host returns
+    /// * If `amount_ptr + 16` points outside the memory of the guest or host
+    ///   returns
     /// `MemoryAccessViolation`.
     /// * If called as view function returns `ProhibitedInView`.
     ///
     /// # Cost
     ///
-    /// `burnt_gas := base + dispatch action base fee + dispatch action per byte fee * num bytes + cost of reading u128 from memory `
-    /// `used_gas := burnt_gas + exec action base fee + exec action per byte fee * num bytes`
+    /// `burnt_gas := base + dispatch action base fee + dispatch action per byte
+    /// fee * num bytes + cost of reading u128 from memory ` `used_gas :=
+    /// burnt_gas + exec action base fee + exec action per byte fee * num bytes`
     pub fn promise_batch_action_transfer(
         &mut self,
         promise_idx: u64,
@@ -1768,23 +1868,29 @@ impl<'a> VMLogic<'a> {
         Ok(())
     }
 
-    /// Appends `Stake` action to the batch of actions for the given promise pointed by
-    /// `promise_idx`.
+    /// Appends `Stake` action to the batch of actions for the given promise
+    /// pointed by `promise_idx`.
     ///
     /// # Errors
     ///
-    /// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`.
-    /// * If the promise pointed by the `promise_idx` is an ephemeral promise created by
+    /// * If `promise_idx` does not correspond to an existing promise returns
+    ///   `InvalidPromiseIndex`.
+    /// * If the promise pointed by the `promise_idx` is an ephemeral promise
+    ///   created by
     /// `promise_and` returns `CannotAppendActionToJointPromise`.
-    /// * If the given public key is not a valid (e.g. wrong length) returns `InvalidPublicKey`.
-    /// * If `amount_ptr + 16` or `public_key_len + public_key_ptr` points outside the memory of the
+    /// * If the given public key is not a valid (e.g. wrong length) returns
+    ///   `InvalidPublicKey`.
+    /// * If `amount_ptr + 16` or `public_key_len + public_key_ptr` points
+    ///   outside the memory of the
     /// guest or host returns `MemoryAccessViolation`.
     /// * If called as view function returns `ProhibitedInView`.
     ///
     /// # Cost
     ///
-    /// `burnt_gas := base + dispatch action base fee + dispatch action per byte fee * num bytes + cost of reading public key from memory `
-    /// `used_gas := burnt_gas + exec action base fee + exec action per byte fee * num bytes`
+    /// `burnt_gas := base + dispatch action base fee + dispatch action per byte
+    /// fee * num bytes + cost of reading public key from memory ` `used_gas
+    /// := burnt_gas + exec action base fee + exec action per byte fee * num
+    /// bytes`
     pub fn promise_batch_action_stake(
         &mut self,
         promise_idx: u64,
@@ -1807,23 +1913,30 @@ impl<'a> VMLogic<'a> {
         Ok(())
     }
 
-    /// Appends `AddKey` action to the batch of actions for the given promise pointed by
-    /// `promise_idx`. The access key will have `FullAccess` permission.
+    /// Appends `AddKey` action to the batch of actions for the given promise
+    /// pointed by `promise_idx`. The access key will have `FullAccess`
+    /// permission.
     ///
     /// # Errors
     ///
-    /// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`.
-    /// * If the promise pointed by the `promise_idx` is an ephemeral promise created by
+    /// * If `promise_idx` does not correspond to an existing promise returns
+    ///   `InvalidPromiseIndex`.
+    /// * If the promise pointed by the `promise_idx` is an ephemeral promise
+    ///   created by
     /// `promise_and` returns `CannotAppendActionToJointPromise`.
-    /// * If the given public key is not a valid (e.g. wrong length) returns `InvalidPublicKey`.
-    /// * If `public_key_len + public_key_ptr` points outside the memory of the guest or host
+    /// * If the given public key is not a valid (e.g. wrong length) returns
+    ///   `InvalidPublicKey`.
+    /// * If `public_key_len + public_key_ptr` points outside the memory of the
+    ///   guest or host
     /// returns `MemoryAccessViolation`.
     /// * If called as view function returns `ProhibitedInView`.
     ///
     /// # Cost
     ///
-    /// `burnt_gas := base + dispatch action base fee + dispatch action per byte fee * num bytes + cost of reading public key from memory `
-    /// `used_gas := burnt_gas + exec action base fee + exec action per byte fee * num bytes`
+    /// `burnt_gas := base + dispatch action base fee + dispatch action per byte
+    /// fee * num bytes + cost of reading public key from memory ` `used_gas
+    /// := burnt_gas + exec action base fee + exec action per byte fee * num
+    /// bytes`
     pub fn promise_batch_action_add_key_with_full_access(
         &mut self,
         promise_idx: u64,
@@ -1849,25 +1962,32 @@ impl<'a> VMLogic<'a> {
         Ok(())
     }
 
-    /// Appends `AddKey` action to the batch of actions for the given promise pointed by
-    /// `promise_idx`. The access key will have `FunctionCall` permission.
+    /// Appends `AddKey` action to the batch of actions for the given promise
+    /// pointed by `promise_idx`. The access key will have `FunctionCall`
+    /// permission.
     ///
     /// # Errors
     ///
-    /// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`.
-    /// * If the promise pointed by the `promise_idx` is an ephemeral promise created by
+    /// * If `promise_idx` does not correspond to an existing promise returns
+    ///   `InvalidPromiseIndex`.
+    /// * If the promise pointed by the `promise_idx` is an ephemeral promise
+    ///   created by
     /// `promise_and` returns `CannotAppendActionToJointPromise`.
-    /// * If the given public key is not a valid (e.g. wrong length) returns `InvalidPublicKey`.
+    /// * If the given public key is not a valid (e.g. wrong length) returns
+    ///   `InvalidPublicKey`.
     /// * If `public_key_len + public_key_ptr`, `allowance_ptr + 16`,
-    /// `receiver_id_len + receiver_id_ptr` or `method_names_len + method_names_ptr` points outside
-    /// the memory of the guest or host returns `MemoryAccessViolation`.
+    /// `receiver_id_len + receiver_id_ptr` or `method_names_len +
+    /// method_names_ptr` points outside the memory of the guest or host
+    /// returns `MemoryAccessViolation`.
     /// * If called as view function returns `ProhibitedInView`.
     ///
     /// # Cost
     ///
-    /// `burnt_gas := base + dispatch action base fee + dispatch action per byte fee * num bytes + cost of reading vector from memory
-    ///  + cost of reading u128, method_names and public key from the memory + cost of reading and parsing account name`
-    /// `used_gas := burnt_gas + exec action base fee + exec action per byte fee * num bytes`
+    /// `burnt_gas := base + dispatch action base fee + dispatch action per byte
+    /// fee * num bytes + cost of reading vector from memory  + cost of
+    /// reading u128, method_names and public key from the memory + cost of
+    /// reading and parsing account name` `used_gas := burnt_gas + exec
+    /// action base fee + exec action per byte fee * num bytes`
     pub fn promise_batch_action_add_key_with_function_call(
         &mut self,
         promise_idx: u64,
@@ -1912,23 +2032,29 @@ impl<'a> VMLogic<'a> {
         Ok(())
     }
 
-    /// Appends `DeleteKey` action to the batch of actions for the given promise pointed by
-    /// `promise_idx`.
+    /// Appends `DeleteKey` action to the batch of actions for the given promise
+    /// pointed by `promise_idx`.
     ///
     /// # Errors
     ///
-    /// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`.
-    /// * If the promise pointed by the `promise_idx` is an ephemeral promise created by
+    /// * If `promise_idx` does not correspond to an existing promise returns
+    ///   `InvalidPromiseIndex`.
+    /// * If the promise pointed by the `promise_idx` is an ephemeral promise
+    ///   created by
     /// `promise_and` returns `CannotAppendActionToJointPromise`.
-    /// * If the given public key is not a valid (e.g. wrong length) returns `InvalidPublicKey`.
-    /// * If `public_key_len + public_key_ptr` points outside the memory of the guest or host
+    /// * If the given public key is not a valid (e.g. wrong length) returns
+    ///   `InvalidPublicKey`.
+    /// * If `public_key_len + public_key_ptr` points outside the memory of the
+    ///   guest or host
     /// returns `MemoryAccessViolation`.
     /// * If called as view function returns `ProhibitedInView`.
     ///
     /// # Cost
     ///
-    /// `burnt_gas := base + dispatch action base fee + dispatch action per byte fee * num bytes + cost of reading public key from memory `
-    /// `used_gas := burnt_gas + exec action base fee + exec action per byte fee * num bytes`
+    /// `burnt_gas := base + dispatch action base fee + dispatch action per byte
+    /// fee * num bytes + cost of reading public key from memory ` `used_gas
+    /// := burnt_gas + exec action base fee + exec action per byte fee * num
+    /// bytes`
     pub fn promise_batch_action_delete_key(
         &mut self,
         promise_idx: u64,
@@ -1949,22 +2075,27 @@ impl<'a> VMLogic<'a> {
         Ok(())
     }
 
-    /// Appends `DeleteAccount` action to the batch of actions for the given promise pointed by
-    /// `promise_idx`.
+    /// Appends `DeleteAccount` action to the batch of actions for the given
+    /// promise pointed by `promise_idx`.
     ///
     /// # Errors
     ///
-    /// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`.
-    /// * If the promise pointed by the `promise_idx` is an ephemeral promise created by
+    /// * If `promise_idx` does not correspond to an existing promise returns
+    ///   `InvalidPromiseIndex`.
+    /// * If the promise pointed by the `promise_idx` is an ephemeral promise
+    ///   created by
     /// `promise_and` returns `CannotAppendActionToJointPromise`.
-    /// * If `beneficiary_id_len + beneficiary_id_ptr` points outside the memory of the guest or
+    /// * If `beneficiary_id_len + beneficiary_id_ptr` points outside the memory
+    ///   of the guest or
     /// host returns `MemoryAccessViolation`.
     /// * If called as view function returns `ProhibitedInView`.
     ///
     /// # Cost
     ///
-    /// `burnt_gas := base + dispatch action base fee + dispatch action per byte fee * num bytes + cost of reading and parsing account id from memory `
-    /// `used_gas := burnt_gas + exec action base fee + exec action per byte fee * num bytes + fees for transferring funds to the beneficiary`
+    /// `burnt_gas := base + dispatch action base fee + dispatch action per byte
+    /// fee * num bytes + cost of reading and parsing account id from memory `
+    /// `used_gas := burnt_gas + exec action base fee + exec action per byte fee
+    /// * num bytes + fees for transferring funds to the beneficiary`
     pub fn promise_batch_action_delete_account(
         &mut self,
         promise_idx: u64,
@@ -1988,15 +2119,17 @@ impl<'a> VMLogic<'a> {
         Ok(())
     }
 
-    /// If the current function is invoked by a callback we can access the execution results of the
-    /// promises that caused the callback. This function returns the number of complete and
-    /// incomplete callbacks.
+    /// If the current function is invoked by a callback we can access the
+    /// execution results of the promises that caused the callback. This
+    /// function returns the number of complete and incomplete callbacks.
     ///
-    /// Note, we are only going to have incomplete callbacks once we have promise_or combinator.
+    /// Note, we are only going to have incomplete callbacks once we have
+    /// promise_or combinator.
     ///
     ///
     /// * If there is only one callback returns `1`;
-    /// * If there are multiple callbacks (e.g. created through `promise_and`) returns their number;
+    /// * If there are multiple callbacks (e.g. created through `promise_and`)
+    ///   returns their number;
     /// * If the function was called not through the callback returns `0`.
     ///
     /// # Cost
@@ -2013,12 +2146,15 @@ impl<'a> VMLogic<'a> {
         Ok(self.promise_results.len() as _)
     }
 
-    /// If the current function is invoked by a callback we can access the execution results of the
-    /// promises that caused the callback. This function returns the result in blob format and
-    /// places it into the register.
+    /// If the current function is invoked by a callback we can access the
+    /// execution results of the promises that caused the callback. This
+    /// function returns the result in blob format and places it into the
+    /// register.
     ///
-    /// * If promise result is complete and successful copies its blob into the register;
-    /// * If promise result is complete and failed or incomplete keeps register unused;
+    /// * If promise result is complete and successful copies its blob into the
+    ///   register;
+    /// * If promise result is complete and failed or incomplete keeps register
+    ///   unused;
     ///
     /// # Returns
     ///
@@ -2028,8 +2164,10 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Errors
     ///
-    /// * If `result_id` does not correspond to an existing result returns `InvalidPromiseResultIndex`;
-    /// * If copying the blob exhausts the memory limit it returns `MemoryAccessViolation`.
+    /// * If `result_id` does not correspond to an existing result returns
+    ///   `InvalidPromiseResultIndex`;
+    /// * If copying the blob exhausts the memory limit it returns
+    ///   `MemoryAccessViolation`.
     /// * If called as view function returns `ProhibitedInView`.
     ///
     /// # Cost
@@ -2061,12 +2199,13 @@ impl<'a> VMLogic<'a> {
         }
     }
 
-    /// When promise `promise_idx` finishes executing its result is considered to be the result of
-    /// the current function.
+    /// When promise `promise_idx` finishes executing its result is considered
+    /// to be the result of the current function.
     ///
     /// # Errors
     ///
-    /// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`.
+    /// * If `promise_idx` does not correspond to an existing promise returns
+    ///   `InvalidPromiseIndex`.
     /// * If called as view function returns `ProhibitedInView`.
     ///
     /// # Cost
@@ -2101,13 +2240,14 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Errors
     ///
-    /// * If `value_len + value_ptr` exceeds the memory container or points to an unused register it
-    ///   returns `MemoryAccessViolation`.
-    /// * if the length of the returned data exceeds `max_length_returned_data` returns
-    ///   `ReturnedValueLengthExceeded`.
+    /// * If `value_len + value_ptr` exceeds the memory container or points to
+    ///   an unused register it returns `MemoryAccessViolation`.
+    /// * if the length of the returned data exceeds `max_length_returned_data`
+    ///   returns `ReturnedValueLengthExceeded`.
     ///
     /// # Cost
-    /// `base + cost of reading return value from memory or register + dispatch&exec cost per byte of the data sent * num data receivers`
+    /// `base + cost of reading return value from memory or register +
+    /// dispatch&exec cost per byte of the data sent * num data receivers`
     pub fn value_return(&mut self, value_len: u64, value_ptr: u64) -> Result<()> {
         self.gas_counter.pay_base(base)?;
         let return_val = get_memory_or_register!(self, value_ptr, value_len)?;
@@ -2163,13 +2303,16 @@ impl<'a> VMLogic<'a> {
     }
 
     /// Guest panics with the UTF-8 encoded string.
-    /// If `len == u64::MAX` then treats the string as null-terminated with character `'\0'`.
+    /// If `len == u64::MAX` then treats the string as null-terminated with
+    /// character `'\0'`.
     ///
     /// # Errors
     ///
-    /// * If string extends outside the memory of the guest with `MemoryAccessViolation`;
+    /// * If string extends outside the memory of the guest with
+    ///   `MemoryAccessViolation`;
     /// * If string is not UTF-8 returns `BadUtf8`.
-    /// * If string is longer than `max_log_len` returns `TotalLogLengthExceeded`.
+    /// * If string is longer than `max_log_len` returns
+    ///   `TotalLogLengthExceeded`.
     ///
     /// # Cost
     /// `base + cost of reading and decoding a utf8 string`
@@ -2179,14 +2322,16 @@ impl<'a> VMLogic<'a> {
     }
 
     /// Logs the UTF-8 encoded string.
-    /// If `len == u64::MAX` then treats the string as null-terminated with character `'\0'`.
+    /// If `len == u64::MAX` then treats the string as null-terminated with
+    /// character `'\0'`.
     ///
     /// # Errors
     ///
-    /// * If string extends outside the memory of the guest with `MemoryAccessViolation`;
+    /// * If string extends outside the memory of the guest with
+    ///   `MemoryAccessViolation`;
     /// * If string is not UTF-8 returns `BadUtf8`.
-    /// * If number of bytes read + `total_log_length` exceeds the `max_total_log_length` returns
-    ///   `TotalLogLengthExceeded`.
+    /// * If number of bytes read + `total_log_length` exceeds the
+    ///   `max_total_log_length` returns `TotalLogLengthExceeded`.
     /// * If the total number of logs will exceed the `max_number_logs` returns
     ///   `NumberOfLogsExceeded`.
     ///
@@ -2202,15 +2347,16 @@ impl<'a> VMLogic<'a> {
         self.checked_push_log(message)
     }
 
-    /// Logs the UTF-16 encoded string. If `len == u64::MAX` then treats the string as
-    /// null-terminated with two-byte sequence of `0x00 0x00`.
+    /// Logs the UTF-16 encoded string. If `len == u64::MAX` then treats the
+    /// string as null-terminated with two-byte sequence of `0x00 0x00`.
     ///
     /// # Errors
     ///
-    /// * If string extends outside the memory of the guest with `MemoryAccessViolation`;
+    /// * If string extends outside the memory of the guest with
+    ///   `MemoryAccessViolation`;
     /// * If string is not UTF-16 returns `BadUtf16`.
-    /// * If number of bytes read + `total_log_length` exceeds the `max_total_log_length` returns
-    ///   `TotalLogLengthExceeded`.
+    /// * If number of bytes read + `total_log_length` exceeds the
+    ///   `max_total_log_length` returns `TotalLogLengthExceeded`.
     /// * If the total number of logs will exceed the `max_number_logs` returns
     ///   `NumberOfLogsExceeded`.
     ///
@@ -2222,20 +2368,23 @@ impl<'a> VMLogic<'a> {
         self.check_can_add_a_log_message()?;
         let message = self.get_utf16_string(len, ptr)?;
         self.gas_counter.pay_base(log_base)?;
-        // Let's not use `encode_utf16` for gas per byte here, since it's a lot of compute.
+        // Let's not use `encode_utf16` for gas per byte here, since it's a lot of
+        // compute.
         self.gas_counter.pay_per(log_byte, message.len() as u64)?;
         self.checked_push_log(message)
     }
 
-    /// Special import kept for compatibility with AssemblyScript contracts. Not called by smart
-    /// contracts directly, but instead called by the code generated by AssemblyScript.
+    /// Special import kept for compatibility with AssemblyScript contracts. Not
+    /// called by smart contracts directly, but instead called by the code
+    /// generated by AssemblyScript.
     ///
     /// # Errors
     ///
-    /// * If string extends outside the memory of the guest with `MemoryAccessViolation`;
+    /// * If string extends outside the memory of the guest with
+    ///   `MemoryAccessViolation`;
     /// * If string is not UTF-8 returns `BadUtf8`.
-    /// * If number of bytes read + `total_log_length` exceeds the `max_total_log_length` returns
-    ///   `TotalLogLengthExceeded`.
+    /// * If number of bytes read + `total_log_length` exceeds the
+    ///   `max_total_log_length` returns `TotalLogLengthExceeded`.
     /// * If the total number of logs will exceed the `max_number_logs` returns
     ///   `NumberOfLogsExceeded`.
     ///
@@ -2286,9 +2435,10 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_per(utf8_decoding_byte, buf.len() as u64)?;
 
         // We return an illegally constructed AccountId here for the sake of ensuring
-        // backwards compatibility. For paths previously involving validation, like receipts
-        // we retain validation further down the line in node-runtime/verifier.rs#fn(validate_receipt)
-        // mimicing previous behaviour.
+        // backwards compatibility. For paths previously involving validation, like
+        // receipts we retain validation further down the line in
+        // node-runtime/verifier.rs#fn(validate_receipt) mimicing previous
+        // behaviour.
         let account_id = String::from_utf8(buf.into_owned())
             .map(
                 #[allow(deprecated)]
@@ -2299,26 +2449,33 @@ impl<'a> VMLogic<'a> {
     }
 
     /// Writes key-value into storage.
-    /// * If key is not in use it inserts the key-value pair and does not modify the register. Returns `0`;
-    /// * If key is in use it inserts the key-value and copies the old value into the `register_id`. Returns `1`.
+    /// * If key is not in use it inserts the key-value pair and does not modify
+    ///   the register. Returns `0`;
+    /// * If key is in use it inserts the key-value and copies the old value
+    ///   into the `register_id`. Returns `1`.
     ///
     /// # Errors
     ///
-    /// * If `key_len + key_ptr` or `value_len + value_ptr` exceeds the memory container or points
-    ///   to an unused register it returns `MemoryAccessViolation`;
-    /// * If returning the preempted value into the registers exceed the memory container it returns
-    ///   `MemoryAccessViolation`.
-    /// * If the length of the key exceeds `max_length_storage_key` returns `KeyLengthExceeded`.
+    /// * If `key_len + key_ptr` or `value_len + value_ptr` exceeds the memory
+    ///   container or points to an unused register it returns
+    ///   `MemoryAccessViolation`;
+    /// * If returning the preempted value into the registers exceed the memory
+    ///   container it returns `MemoryAccessViolation`.
+    /// * If the length of the key exceeds `max_length_storage_key` returns
+    ///   `KeyLengthExceeded`.
     /// * If the length of the value exceeds `max_length_storage_value` returns
     ///   `ValueLengthExceeded`.
     /// * If called as view function returns `ProhibitedInView``.
     ///
     /// # Cost
     ///
-    /// `base + storage_write_base + storage_write_key_byte * num_key_bytes + storage_write_value_byte * num_value_bytes
+    /// `base + storage_write_base + storage_write_key_byte * num_key_bytes +
+    /// storage_write_value_byte * num_value_bytes
     /// + get_vec_from_memory_or_register_cost x 2`.
     ///
-    /// If a value was evicted it costs additional `storage_write_value_evicted_byte * num_evicted_bytes + internal_write_register_cost`.
+    /// If a value was evicted it costs additional
+    /// `storage_write_value_evicted_byte * num_evicted_bytes +
+    /// internal_write_register_cost`.
     pub fn storage_write(
         &mut self,
         key_len: u64,
@@ -2353,8 +2510,9 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_per(storage_write_key_byte, key.len() as u64)?;
         self.gas_counter.pay_per(storage_write_value_byte, value.len() as u64)?;
         let nodes_before = self.ext.get_trie_nodes_count();
-        // For storage write, we need to first perform a read on the key to calculate the TTN cost.
-        // This storage_get must be performed through trie instead of through FlatStorage
+        // For storage write, we need to first perform a read on the key to calculate
+        // the TTN cost. This storage_get must be performed through trie instead
+        // of through FlatStorage
         let evicted_ptr = self.ext.storage_get(&key, StorageGetMode::Trie)?;
         let evicted =
             Self::deref_value(&mut self.gas_counter, storage_write_evicted_byte, evicted_ptr)?;
@@ -2426,22 +2584,24 @@ impl<'a> VMLogic<'a> {
     }
 
     /// Reads the value stored under the given key.
-    /// * If key is used copies the content of the value into the `register_id`, even if the content
-    ///   is zero bytes. Returns `1`;
+    /// * If key is used copies the content of the value into the `register_id`,
+    ///   even if the content is zero bytes. Returns `1`;
     /// * If key is not present then does not modify the register. Returns `0`;
     ///
     /// # Errors
     ///
-    /// * If `key_len + key_ptr` exceeds the memory container or points to an unused register it
-    ///   returns `MemoryAccessViolation`;
-    /// * If returning the preempted value into the registers exceed the memory container it returns
-    ///   `MemoryAccessViolation`.
-    /// * If the length of the key exceeds `max_length_storage_key` returns `KeyLengthExceeded`.
+    /// * If `key_len + key_ptr` exceeds the memory container or points to an
+    ///   unused register it returns `MemoryAccessViolation`;
+    /// * If returning the preempted value into the registers exceed the memory
+    ///   container it returns `MemoryAccessViolation`.
+    /// * If the length of the key exceeds `max_length_storage_key` returns
+    ///   `KeyLengthExceeded`.
     ///
     /// # Cost
     ///
-    /// `base + storage_read_base + storage_read_key_byte * num_key_bytes + storage_read_value_byte + num_value_bytes
-    ///  cost to read key from register + cost to write value into register`.
+    /// `base + storage_read_base + storage_read_key_byte * num_key_bytes +
+    /// storage_read_value_byte + num_value_bytes  cost to read key from
+    /// register + cost to write value into register`.
     pub fn storage_read(&mut self, key_len: u64, key_ptr: u64, register_id: u64) -> Result<u64> {
         self.gas_counter.pay_base(base)?;
         self.gas_counter.pay_base(storage_read_base)?;
@@ -2489,24 +2649,28 @@ impl<'a> VMLogic<'a> {
     }
 
     /// Removes the value stored under the given key.
-    /// * If key is used, removes the key-value from the trie and copies the content of the value
-    ///   into the `register_id`, even if the content is zero bytes. Returns `1`;
+    /// * If key is used, removes the key-value from the trie and copies the
+    ///   content of the value into the `register_id`, even if the content is
+    ///   zero bytes. Returns `1`;
     /// * If key is not present then does not modify the register. Returns `0`.
     ///
     /// # Errors
     ///
-    /// * If `key_len + key_ptr` exceeds the memory container or points to an unused register it
-    ///   returns `MemoryAccessViolation`;
-    /// * If the registers exceed the memory limit returns `MemoryAccessViolation`;
-    /// * If returning the preempted value into the registers exceed the memory container it returns
-    ///   `MemoryAccessViolation`.
-    /// * If the length of the key exceeds `max_length_storage_key` returns `KeyLengthExceeded`.
+    /// * If `key_len + key_ptr` exceeds the memory container or points to an
+    ///   unused register it returns `MemoryAccessViolation`;
+    /// * If the registers exceed the memory limit returns
+    ///   `MemoryAccessViolation`;
+    /// * If returning the preempted value into the registers exceed the memory
+    ///   container it returns `MemoryAccessViolation`.
+    /// * If the length of the key exceeds `max_length_storage_key` returns
+    ///   `KeyLengthExceeded`.
     /// * If called as view function returns `ProhibitedInView``.
     ///
     /// # Cost
     ///
-    /// `base + storage_remove_base + storage_remove_key_byte * num_key_bytes + storage_remove_ret_value_byte * num_value_bytes
-    /// + cost to read the key + cost to write the value`.
+    /// `base + storage_remove_base + storage_remove_key_byte * num_key_bytes +
+    /// storage_remove_ret_value_byte * num_value_bytes + cost to read the
+    /// key + cost to write the value`.
     pub fn storage_remove(&mut self, key_len: u64, key_ptr: u64, register_id: u64) -> Result<u64> {
         self.gas_counter.pay_base(base)?;
         if self.context.is_view() {
@@ -2525,8 +2689,9 @@ impl<'a> VMLogic<'a> {
         }
         self.gas_counter.pay_per(storage_remove_key_byte, key.len() as u64)?;
         let nodes_before = self.ext.get_trie_nodes_count();
-        // To delete a key, we need to first perform a read on the key to calculate the TTN cost.
-        // This storage_get must be performed through trie instead of through FlatStorage
+        // To delete a key, we need to first perform a read on the key to calculate the
+        // TTN cost. This storage_get must be performed through trie instead of
+        // through FlatStorage
         let removed_ptr = self.ext.storage_get(&key, StorageGetMode::Trie)?;
         let removed =
             Self::deref_value(&mut self.gas_counter, storage_remove_ret_value_byte, removed_ptr)?;
@@ -2577,12 +2742,15 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Errors
     ///
-    /// * If `key_len + key_ptr` exceeds the memory container it returns `MemoryAccessViolation`.
-    /// * If the length of the key exceeds `max_length_storage_key` returns `KeyLengthExceeded`.
+    /// * If `key_len + key_ptr` exceeds the memory container it returns
+    ///   `MemoryAccessViolation`.
+    /// * If the length of the key exceeds `max_length_storage_key` returns
+    ///   `KeyLengthExceeded`.
     ///
     /// # Cost
     ///
-    /// `base + storage_has_key_base + storage_has_key_byte * num_bytes + cost of reading key`
+    /// `base + storage_has_key_base + storage_has_key_byte * num_bytes + cost
+    /// of reading key`
     pub fn storage_has_key(&mut self, key_len: u64, key_ptr: u64) -> Result<u64> {
         self.gas_counter.pay_base(base)?;
         self.gas_counter.pay_base(storage_has_key_base)?;
@@ -2614,12 +2782,14 @@ impl<'a> VMLogic<'a> {
         Ok(res? as u64)
     }
 
-    /// Debug print given utf-8 string to node log. It's only available in Sandbox node
+    /// Debug print given utf-8 string to node log. It's only available in
+    /// Sandbox node
     ///
     /// # Errors
     ///
     /// * If string is not UTF-8 returns `BadUtf8`
-    /// * If the log is over available memory in wasm runner, returns `MemoryAccessViolation`
+    /// * If the log is over available memory in wasm runner, returns
+    ///   `MemoryAccessViolation`
     ///
     /// # Cost
     ///
@@ -2632,22 +2802,26 @@ impl<'a> VMLogic<'a> {
     }
 
     /// DEPRECATED
-    /// Creates an iterator object inside the host. Returns the identifier that uniquely
-    /// differentiates the given iterator from other iterators that can be simultaneously created.
-    /// * It iterates over the keys that have the provided prefix. The order of iteration is defined
-    ///   by the lexicographic order of the bytes in the keys;
-    /// * If there are no keys, it creates an empty iterator, see below on empty iterators.
+    /// Creates an iterator object inside the host. Returns the identifier that
+    /// uniquely differentiates the given iterator from other iterators that
+    /// can be simultaneously created.
+    /// * It iterates over the keys that have the provided prefix. The order of
+    ///   iteration is defined by the lexicographic order of the bytes in the
+    ///   keys;
+    /// * If there are no keys, it creates an empty iterator, see below on empty
+    ///   iterators.
     ///
     /// # Errors
     ///
     /// * If `prefix_len + prefix_ptr` exceeds the memory container it returns
     ///   `MemoryAccessViolation`.
-    /// * If the length of the prefix exceeds `max_length_storage_key` returns `KeyLengthExceeded`.
+    /// * If the length of the prefix exceeds `max_length_storage_key` returns
+    ///   `KeyLengthExceeded`.
     ///
     /// # Cost
     ///
-    /// `base + storage_iter_create_prefix_base + storage_iter_create_key_byte * num_prefix_bytes
-    ///  cost of reading the prefix`.
+    /// `base + storage_iter_create_prefix_base + storage_iter_create_key_byte *
+    /// num_prefix_bytes  cost of reading the prefix`.
     pub fn storage_iter_prefix(&mut self, _prefix_len: u64, _prefix_ptr: u64) -> Result<u64> {
         Err(VMLogicError::HostError(HostError::Deprecated {
             method_name: "storage_iter_prefix".to_string(),
@@ -2655,22 +2829,27 @@ impl<'a> VMLogic<'a> {
     }
 
     /// DEPRECATED
-    /// Iterates over all key-values such that keys are between `start` and `end`, where `start` is
-    /// inclusive and `end` is exclusive. Unless lexicographically `start < end`, it creates an
-    /// empty iterator. Note, this definition allows for `start` or `end` keys to not actually exist
+    /// Iterates over all key-values such that keys are between `start` and
+    /// `end`, where `start` is inclusive and `end` is exclusive. Unless
+    /// lexicographically `start < end`, it creates an empty iterator. Note,
+    /// this definition allows for `start` or `end` keys to not actually exist
     /// on the given trie.
     ///
     /// # Errors
     ///
-    /// * If `start_len + start_ptr` or `end_len + end_ptr` exceeds the memory container or points to
-    ///   an unused register it returns `MemoryAccessViolation`.
-    /// * If the length of the `start` exceeds `max_length_storage_key` returns `KeyLengthExceeded`.
-    /// * If the length of the `end` exceeds `max_length_storage_key` returns `KeyLengthExceeded`.
+    /// * If `start_len + start_ptr` or `end_len + end_ptr` exceeds the memory
+    ///   container or points to an unused register it returns
+    ///   `MemoryAccessViolation`.
+    /// * If the length of the `start` exceeds `max_length_storage_key` returns
+    ///   `KeyLengthExceeded`.
+    /// * If the length of the `end` exceeds `max_length_storage_key` returns
+    ///   `KeyLengthExceeded`.
     ///
     /// # Cost
     ///
-    /// `base + storage_iter_create_range_base + storage_iter_create_from_byte * num_from_bytes
-    ///  + storage_iter_create_to_byte * num_to_bytes + reading from prefix + reading to prefix`.
+    /// `base + storage_iter_create_range_base + storage_iter_create_from_byte *
+    /// num_from_bytes  + storage_iter_create_to_byte * num_to_bytes +
+    /// reading from prefix + reading to prefix`.
     pub fn storage_iter_range(
         &mut self,
         _start_len: u64,
@@ -2685,31 +2864,38 @@ impl<'a> VMLogic<'a> {
 
     /// DEPRECATED
     /// Advances iterator and saves the next key and value in the register.
-    /// * If iterator is not empty (after calling next it points to a key-value), copies the key
-    ///   into `key_register_id` and value into `value_register_id` and returns `1`;
+    /// * If iterator is not empty (after calling next it points to a
+    ///   key-value), copies the key into `key_register_id` and value into
+    ///   `value_register_id` and returns `1`;
     /// * If iterator is empty returns `0`;
-    /// This allows us to iterate over the keys that have zero bytes stored in values.
+    /// This allows us to iterate over the keys that have zero bytes stored in
+    /// values.
     ///
     /// # Errors
     ///
-    /// * If `key_register_id == value_register_id` returns `MemoryAccessViolation`;
-    /// * If the registers exceed the memory limit returns `MemoryAccessViolation`;
-    /// * If `iterator_id` does not correspond to an existing iterator returns `InvalidIteratorId`;
-    /// * If between the creation of the iterator and calling `storage_iter_next` the range over
-    ///   which it iterates was modified returns `IteratorWasInvalidated`. Specifically, if
-    ///   `storage_write` or `storage_remove` was invoked on the key key such that:
+    /// * If `key_register_id == value_register_id` returns
+    ///   `MemoryAccessViolation`;
+    /// * If the registers exceed the memory limit returns
+    ///   `MemoryAccessViolation`;
+    /// * If `iterator_id` does not correspond to an existing iterator returns
+    ///   `InvalidIteratorId`;
+    /// * If between the creation of the iterator and calling
+    ///   `storage_iter_next` the range over which it iterates was modified
+    ///   returns `IteratorWasInvalidated`. Specifically, if `storage_write` or
+    ///   `storage_remove` was invoked on the key key such that:
     ///   * in case of `storage_iter_prefix`. `key` has the given prefix and:
     ///     * Iterator was not called next yet.
-    ///     * `next` was already called on the iterator and it is currently pointing at the `key`
-    ///       `curr` such that `curr <= key`.
+    ///     * `next` was already called on the iterator and it is currently
+    ///       pointing at the `key` `curr` such that `curr <= key`.
     ///   * in case of `storage_iter_range`. `start<=key<end` and:
     ///     * Iterator was not called `next` yet.
-    ///     * `next` was already called on the iterator and it is currently pointing at the key
-    ///       `curr` such that `curr<=key<end`.
+    ///     * `next` was already called on the iterator and it is currently
+    ///       pointing at the key `curr` such that `curr<=key<end`.
     ///
     /// # Cost
     ///
-    /// `base + storage_iter_next_base + storage_iter_next_key_byte * num_key_bytes + storage_iter_next_value_byte * num_value_bytes
+    /// `base + storage_iter_next_base + storage_iter_next_key_byte *
+    /// num_key_bytes + storage_iter_next_value_byte * num_value_bytes
     ///  + writing key to register + writing value to register`.
     pub fn storage_iter_next(
         &mut self,
@@ -2724,9 +2910,10 @@ impl<'a> VMLogic<'a> {
 
     /// Computes the outcome of the execution.
     ///
-    /// If `FunctionCallWeight` protocol feature (127) is enabled, unused gas will be
-    /// distributed to functions that specify a gas weight. If there are no functions with
-    /// a gas weight, the outcome will contain unused gas as usual.
+    /// If `FunctionCallWeight` protocol feature (127) is enabled, unused gas
+    /// will be distributed to functions that specify a gas weight. If there
+    /// are no functions with a gas weight, the outcome will contain unused
+    /// gas as usual.
     pub fn compute_outcome_and_distribute_gas(mut self) -> VMOutcome {
         if !self.context.is_view() {
             // Distribute unused gas to scheduled function calls
@@ -2812,8 +2999,9 @@ impl<'a> VMLogic<'a> {
     /// VM independent setup before loading the executable.
     ///
     /// Does VM independent checks that happen after the instantiation of
-    /// VMLogic but before loading the executable. This includes pre-charging gas
-    /// costs for loading the executable, which depends on the size of the WASM code.
+    /// VMLogic but before loading the executable. This includes pre-charging
+    /// gas costs for loading the executable, which depends on the size of
+    /// the WASM code.
     pub fn before_loading_executable(
         &mut self,
         method_name: &str,
@@ -2841,7 +3029,8 @@ impl<'a> VMLogic<'a> {
         Ok(())
     }
 
-    /// Legacy code to preserve old gas charging behaviour in old protocol versions.
+    /// Legacy code to preserve old gas charging behaviour in old protocol
+    /// versions.
     pub fn after_loading_executable(
         &mut self,
         current_protocol_version: u32,
@@ -2910,7 +3099,8 @@ impl VMOutcome {
     }
 
     /// Like `Self::abort()` but without feature `FixContractLoadingCost` it
-    /// will return a NOP outcome. This is used for backwards-compatibility only.
+    /// will return a NOP outcome. This is used for backwards-compatibility
+    /// only.
     pub fn abort_but_nop_outcome_in_old_protocol(
         logic: VMLogic,
         error: FunctionCallError,

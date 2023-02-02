@@ -134,7 +134,8 @@ impl User for RpcUser {
     ) -> Result<FinalExecutionOutcomeView, ServerError> {
         let bytes = transaction.try_to_vec().unwrap();
         let result = self.actix(move |client| client.broadcast_tx_commit(to_base64(&bytes)));
-        // Wait for one more block, to make sure all nodes actually apply the state transition.
+        // Wait for one more block, to make sure all nodes actually apply the state
+        // transition.
         let height = self.get_best_height().unwrap();
         while height == self.get_best_height().unwrap() {
             thread::sleep(Duration::from_millis(50));

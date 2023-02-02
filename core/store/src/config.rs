@@ -21,24 +21,24 @@ pub struct StoreConfig {
 
     /// Maximum number of store files being opened simultaneously.
     /// Default value: 512.
-    /// The underlying storage can require simultaneously opening a large number of files.
-    /// Increasing this value helps to prevent the storage constantly closing/opening files it
-    /// needs.
-    /// Increasing this value up to a value higher than 1024 also requires setting `ulimit -n` in
-    /// Linux.
+    /// The underlying storage can require simultaneously opening a large number
+    /// of files. Increasing this value helps to prevent the storage
+    /// constantly closing/opening files it needs.
+    /// Increasing this value up to a value higher than 1024 also requires
+    /// setting `ulimit -n` in Linux.
     pub max_open_files: u32,
 
     /// Cache size for DBCol::State column.
     /// Default value: 512MiB.
-    /// Increasing DBCol::State cache size helps making storage more efficient. On the other hand we
-    /// don't want to increase hugely requirements for running a node so currently we use a small
-    /// default value for it.
+    /// Increasing DBCol::State cache size helps making storage more efficient.
+    /// On the other hand we don't want to increase hugely requirements for
+    /// running a node so currently we use a small default value for it.
     pub col_state_cache_size: bytesize::ByteSize,
 
     /// Block size used internally in RocksDB.
     /// Default value: 16KiB.
-    /// We're still experimenting with this parameter and it seems decreasing its value can improve
-    /// the performance of the storage
+    /// We're still experimenting with this parameter and it seems decreasing
+    /// its value can improve the performance of the storage
     pub block_size: bytesize::ByteSize,
 
     /// DEPRECATED: use `trie_cache` instead.
@@ -50,14 +50,17 @@ pub struct StoreConfig {
     /// Trie cache configuration per shard for view caches.
     pub view_trie_cache: TrieCacheConfig,
 
-    /// Enable fetching account and access key data ahead of time to avoid IO latency.
+    /// Enable fetching account and access key data ahead of time to avoid IO
+    /// latency.
     pub enable_receipt_prefetching: bool,
 
-    /// Configured accounts will be prefetched as SWEAT token account, if predecessor is listed as receiver.
-    /// This config option is temporary and will be removed once flat storage is implemented.
+    /// Configured accounts will be prefetched as SWEAT token account, if
+    /// predecessor is listed as receiver. This config option is temporary
+    /// and will be removed once flat storage is implemented.
     pub sweat_prefetch_receivers: Vec<String>,
     /// List of allowed predecessor accounts for SWEAT prefetching.
-    /// This config option is temporary and will be removed once flat storage is implemented.
+    /// This config option is temporary and will be removed once flat storage is
+    /// implemented.
     pub sweat_prefetch_senders: Vec<String>,
 
     /// Path where to create RocksDB checkpoints during database migrations or
@@ -91,7 +94,8 @@ pub struct StoreConfig {
 
     /// Duration to perform background flat storage creation step. Defines how
     /// frequently we check creation status and execute work related to it in
-    /// main thread (scheduling and collecting state parts, catching up blocks, etc.).
+    /// main thread (scheduling and collecting state parts, catching up blocks,
+    /// etc.).
     pub flat_storage_creation_period: Duration,
 }
 

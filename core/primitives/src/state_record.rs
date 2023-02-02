@@ -40,7 +40,8 @@ pub enum StateRecord {
     AccessKey { account_id: AccountId, public_key: PublicKey, access_key: AccessKey },
     /// Postponed Action Receipt.
     PostponedReceipt(Box<Receipt>),
-    /// Received data from DataReceipt encoded in base64 for the given account_id and data_id.
+    /// Received data from DataReceipt encoded in base64 for the given
+    /// account_id and data_id.
     ReceivedData {
         account_id: AccountId,
         data_id: CryptoHash,
@@ -53,10 +54,11 @@ pub enum StateRecord {
 }
 
 impl StateRecord {
-    /// NOTE: This function is not safe to be running during block production. It contains a lot
-    /// of `unwrap` and should only be used during `state_dump`.
-    /// Most `unwrap()` here are because the implementation of columns and data are internal and
-    /// can't be influenced by external calls.
+    /// NOTE: This function is not safe to be running during block production.
+    /// It contains a lot of `unwrap` and should only be used during
+    /// `state_dump`. Most `unwrap()` here are because the implementation of
+    /// columns and data are internal and can't be influenced by external
+    /// calls.
     pub fn from_raw_key_value(key: Vec<u8>, value: Vec<u8>) -> Option<StateRecord> {
         match key[0] {
             col::ACCOUNT => Some(StateRecord::Account {

@@ -7,7 +7,8 @@ use std::path::{Path, PathBuf};
 
 const LOG_CONFIG_FILENAME: &str = "log_config.json";
 
-/// This function gets called at the startup and each time a config needs to be reloaded.
+/// This function gets called at the startup and each time a config needs to be
+/// reloaded.
 pub fn read_updateable_configs(
     home_dir: &Path,
 ) -> Result<UpdateableConfigs, UpdateableConfigLoaderError> {
@@ -43,8 +44,8 @@ pub fn read_updateable_configs(
 }
 
 pub fn get_updateable_client_config(config: Config) -> UpdateableClientConfig {
-    // All fields that can be updated while the node is running should be explicitly set here.
-    // Keep this list in-sync with `core/dyn-configs/README.md`.
+    // All fields that can be updated while the node is running should be explicitly
+    // set here. Keep this list in-sync with `core/dyn-configs/README.md`.
     UpdateableClientConfig { expected_shutdown: config.expected_shutdown }
 }
 

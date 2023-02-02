@@ -12,7 +12,8 @@ use tokio::io::AsyncReadExt as _;
 use tokio::io::AsyncWriteExt as _;
 
 /// Maximum size of network message in encoded format.
-/// We encode length as `u32`, and therefore maximum size can't be larger than `u32::MAX`.
+/// We encode length as `u32`, and therefore maximum size can't be larger than
+/// `u32::MAX`.
 const NETWORK_MESSAGE_MAX_SIZE_BYTES: usize = 512 * MIB as usize;
 /// Maximum capacity of write buffer in bytes.
 const MAX_WRITE_BUFFER_CAPACITY_BYTES: usize = GIB as usize;
@@ -42,9 +43,10 @@ pub(crate) struct Frame(pub Vec<u8>);
 
 /// Stream critical error.
 /// Actor is responsible for calling ctx.stop() after receiving stream::Error.
-/// Actor might receive more than 1 stream::Error, but should call ctx.stop() just after the
-/// first one.
-/// WARNING: send/recv loops might not get closed if Actor won't call ctx.stop()!.
+/// Actor might receive more than 1 stream::Error, but should call ctx.stop()
+/// just after the first one.
+/// WARNING: send/recv loops might not get closed if Actor won't call
+/// ctx.stop()!.
 // TODO(gprusak): once we implement cancellation support for structured concurrency,
 // send/recv loops should be cancelled and return before the error is reported to Actor.
 #[derive(thiserror::Error, Debug, actix::Message)]
@@ -106,8 +108,9 @@ where
 
     /// Pushes `msg` to the send queue.
     /// Silently drops message if the connection has been closed.
-    /// If the message is too large, it will be silently dropped inside run_send_loop.
-    /// Emits a critical error to Actor if send queue is full.
+    /// If the message is too large, it will be silently dropped inside
+    /// run_send_loop. Emits a critical error to Actor if send queue is
+    /// full.
     pub fn send(&self, frame: Frame) {
         let msg = &frame.0;
         let mut buf_size =
@@ -115,9 +118,10 @@ where
         buf_size += msg.len();
         self.stats.messages_to_send.fetch_add(1, Ordering::Acquire);
         self.send_buf_size_metric.add(msg.len() as i64);
-        // Exceeding buffer capacity is a critical error and Actor should call ctx.stop()
-        // when receiving one. It is not like we do any extra allocations, so we can affort
-        // pushing the message to the queue anyway.
+        // Exceeding buffer capacity is a critical error and Actor should call
+        // ctx.stop() when receiving one. It is not like we do any extra
+        // allocations, so we can affort pushing the message to the queue
+        // anyway.
         if buf_size > MAX_WRITE_BUFFER_CAPACITY_BYTES {
             metrics::MessageDropped::MaxCapacityExceeded.inc_unknown_msg();
             self.addr.do_send(Error::Send(SendError::QueueOverflow {
@@ -129,11 +133,12 @@ where
     }
 
     /// Event loop receiving and processing messages.
-    /// Loop waits for the message to be processed before reading the next message.
-    /// Note that if the message handler spawns an asynchronous subhandler and returns,
-    /// then the loop will start reading the next message before the subhandler returns.
-    /// Loop uses a fixed small buffer allocated by BufReader.
-    /// For each message it allocates a Vec with exact size of the message.
+    /// Loop waits for the message to be processed before reading the next
+    /// message. Note that if the message handler spawns an asynchronous
+    /// subhandler and returns, then the loop will start reading the next
+    /// message before the subhandler returns. Loop uses a fixed small
+    /// buffer allocated by BufReader. For each message it allocates a Vec
+    /// with exact size of the message.
     // TODO(gprusak): once borsh support is dropped, we can parse a proto
     // directly from the stream.
     async fn run_recv_loop(
@@ -186,8 +191,9 @@ where
         while let Some(Frame(mut msg)) = queue_recv.recv().await {
             // Try writing a batch of messages and flush once at the end.
             loop {
-                // TODO(gprusak): sending a too large message should probably be treated as a bug,
-                // since dropping messages may lead to hard-to-debug high-level issues.
+                // TODO(gprusak): sending a too large message should probably be treated as a
+                // bug, since dropping messages may lead to hard-to-debug
+                // high-level issues.
                 if msg.len() > NETWORK_MESSAGE_MAX_SIZE_BYTES {
                     metrics::MessageDropped::InputTooLong.inc_unknown_msg();
                 } else {
@@ -204,10 +210,11 @@ where
             }
             // This is an unconditional flush, which means that even if new messages
             // will be added to the queue in the meantime, we will wait for the buffer
-            // to be flushed before sending them. This is suboptimal in case messages are small
-            // and added to the queue at a rate similar to flush latency. To fix that
-            // we would need to put writer.flush() and queue_recv.recv() into a tokio::select
-            // and make sure that both are cancellation-safe.
+            // to be flushed before sending them. This is suboptimal in case messages are
+            // small and added to the queue at a rate similar to flush latency.
+            // To fix that we would need to put writer.flush() and
+            // queue_recv.recv() into a tokio::select and make sure that both
+            // are cancellation-safe.
             writer.flush().await?;
         }
         Ok(())

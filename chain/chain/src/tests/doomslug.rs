@@ -20,16 +20,16 @@ fn get_msg_delivery_time(now: Instant, gst: Instant, delta: Duration) -> Instant
         + Duration::from_millis(thread_rng().gen_range(0..delta.as_millis()) as u64)
 }
 
-/// Runs a single iteration of a fuzz test given specific time until global stabilization and
-/// the max delay on messages.
-/// Returns amount of time it took to produce a doomslug final block at height 50, as well as the
-/// largest height encountered
+/// Runs a single iteration of a fuzz test given specific time until global
+/// stabilization and the max delay on messages.
+/// Returns amount of time it took to produce a doomslug final block at height
+/// 50, as well as the largest height encountered
 ///
 /// # Arguments
 /// * `time_to_gst` - number of milliseconds before global stabilization time
 /// * `delta`       - max message delay
-/// * `height_goal` - the appearance of a block at this (or higher) height with finality
-///                   will end the test
+/// * `height_goal` - the appearance of a block at this (or higher) height with
+///   finality will end the test
 fn one_iter(
     time_to_gst: Duration,
     delta: Duration,
@@ -235,8 +235,9 @@ fn one_iter(
                             is_done = true;
                         }
 
-                        // Accept our own block (only accept the last if are maliciously producing multiple,
-                        // so that `ds.get_tip(...)` doesn't return the new block on the next iteration)
+                        // Accept our own block (only accept the last if are maliciously producing
+                        // multiple, so that `ds.get_tip(...)` doesn't
+                        // return the new block on the next iteration)
                         if block_ord + 1 == num_blocks_to_produce {
                             ds.set_tip(
                                 now,
@@ -250,15 +251,16 @@ fn one_iter(
             }
         }
 
-        // 5. In the liveness proof we rely on timers always being within delta from each other
-        //    Validate that assumption
+        // 5. In the liveness proof we rely on timers always being within delta from
+        // each other    Validate that assumption
         for i in 0..8 {
             for j in (i + 1)..8 {
                 let ith_timer_start = doomslugs[i].get_timer_start();
                 let jth_timer_start = doomslugs[j].get_timer_start();
 
-                // Only makes sense for timers that are more than delta in the past, since for more
-                // recent timers the other participant's start time might be in the future
+                // Only makes sense for timers that are more than delta in the past, since for
+                // more recent timers the other participant's start time might
+                // be in the future
                 if now - ith_timer_start >= delta && now - jth_timer_start >= delta {
                     if ith_timer_start > jth_timer_start {
                         assert!(ith_timer_start - jth_timer_start <= delta);
@@ -270,8 +272,8 @@ fn one_iter(
         }
     }
 
-    // We successfully got to the `height_goal`. Check that all the blocks are building only on
-    // doomslug final blocks
+    // We successfully got to the `height_goal`. Check that all the blocks are
+    // building only on doomslug final blocks
     for (block_hash, (block_height, _, _)) in hash_to_block_info.iter() {
         let mut seen_hashes = HashSet::new();
         let mut block_hash = block_hash.clone();

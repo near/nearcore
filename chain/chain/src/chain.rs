@@ -118,21 +118,24 @@ const ACCEPTABLE_TIME_DIFFERENCE: i64 = 60 * 60 * 24 * 365 * 10000;
 // Number of parent blocks traversed to check if the block can be finalized.
 const NUM_PARENTS_TO_CHECK_FINALITY: usize = 20;
 
-/// Refuse blocks more than this many block intervals in the future (as in bitcoin).
+/// Refuse blocks more than this many block intervals in the future (as in
+/// bitcoin).
 #[cfg(not(feature = "sandbox"))]
 const ACCEPTABLE_TIME_DIFFERENCE: i64 = 12 * 10;
 
-/// Over this block height delta in advance if we are not chunk producer - route tx to upcoming validators.
+/// Over this block height delta in advance if we are not chunk producer - route
+/// tx to upcoming validators.
 pub const TX_ROUTING_HEIGHT_HORIZON: BlockHeightDelta = 4;
 
 /// Private constant for 1 NEAR (copy from near/config.rs) used for reporting.
 const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
 
-/// apply_chunks may be called in two code paths, through process_block or through catchup_blocks
-/// When it is called through process_block, it is possible that the shard state for the next epoch
-/// has not been caught up yet, thus the two modes IsCaughtUp and NotCaughtUp.
-/// CatchingUp is for when apply_chunks is called through catchup_blocks, this is to catch up the
-/// shard states for the next epoch
+/// apply_chunks may be called in two code paths, through process_block or
+/// through catchup_blocks When it is called through process_block, it is
+/// possible that the shard state for the next epoch has not been caught up yet,
+/// thus the two modes IsCaughtUp and NotCaughtUp. CatchingUp is for when
+/// apply_chunks is called through catchup_blocks, this is to catch up the shard
+/// states for the next epoch
 #[derive(Eq, PartialEq, Copy, Clone, Debug)]
 enum ApplyChunksMode {
     IsCaughtUp,
@@ -166,26 +169,28 @@ impl Orphan {
     }
 }
 
-/// OrphanBlockPool stores information of all orphans that are waiting to be processed
-/// A block is added to the orphan pool when process_block failed because the block is an orphan
-/// A block is removed from the pool if
+/// OrphanBlockPool stores information of all orphans that are waiting to be
+/// processed A block is added to the orphan pool when process_block failed
+/// because the block is an orphan A block is removed from the pool if
 /// 1) it is ready to be processed
 /// or
-/// 2) size of the pool exceeds MAX_ORPHAN_SIZE and the orphan was added a long time ago
-///    or the height is high
+/// 2) size of the pool exceeds MAX_ORPHAN_SIZE and the orphan was added a long
+/// time ago    or the height is high
 pub struct OrphanBlockPool {
     /// A map from block hash to a orphan block
     orphans: HashMap<CryptoHash, Orphan>,
-    /// A set that contains all orphans for which we have requested missing chunks for them
-    /// An orphan can be added to this set when it was first added to the pool, or later
-    /// when certain requirements are satisfied (see check_orphans)
-    /// It can only be removed from this set when the orphan is removed from the pool
+    /// A set that contains all orphans for which we have requested missing
+    /// chunks for them An orphan can be added to this set when it was first
+    /// added to the pool, or later when certain requirements are satisfied
+    /// (see check_orphans) It can only be removed from this set when the
+    /// orphan is removed from the pool
     orphans_requested_missing_chunks: HashSet<CryptoHash>,
     /// A map from block heights to orphan blocks at the height
     /// It's used to evict orphans when the pool is saturated
     height_idx: HashMap<BlockHeight, Vec<CryptoHash>>,
     /// A map from block hashes to orphan blocks whose prev block is the block
-    /// It's used to check which orphan blocks are ready to be processed when a block is accepted
+    /// It's used to check which orphan blocks are ready to be processed when a
+    /// block is accepted
     prev_hash_idx: HashMap<CryptoHash, Vec<CryptoHash>>,
     /// number of orphans that were evicted
     evicted: usize,
@@ -211,7 +216,8 @@ impl OrphanBlockPool {
     }
 
     /// Add a block to the orphan pool
-    /// `requested_missing_chunks`: whether missing chunks has been requested for the orphan
+    /// `requested_missing_chunks`: whether missing chunks has been requested
+    /// for the orphan
     fn add(&mut self, orphan: Orphan, requested_missing_chunks: bool) {
         let block_hash = *orphan.block.hash();
         let height_hashes = self.height_idx.entry(orphan.block.header().height()).or_default();
@@ -274,10 +280,10 @@ impl OrphanBlockPool {
             .collect_vec();
     }
 
-    /// Remove all orphans in the pool that can be "adopted" by block `prev_hash`, i.e., children
-    /// of `prev_hash` and return the list.
-    /// This function is called when `prev_hash` is accepted, thus its children can be removed
-    /// from the orphan pool and be processed.
+    /// Remove all orphans in the pool that can be "adopted" by block
+    /// `prev_hash`, i.e., children of `prev_hash` and return the list.
+    /// This function is called when `prev_hash` is accepted, thus its children
+    /// can be removed from the orphan pool and be processed.
     pub fn remove_by_prev_hash(&mut self, prev_hash: CryptoHash) -> Option<Vec<Orphan>> {
         let mut removed_hashes: HashSet<CryptoHash> = HashSet::default();
         let ret = self.prev_hash_idx.remove(&prev_hash).map(|hs| {
@@ -296,8 +302,8 @@ impl OrphanBlockPool {
         ret
     }
 
-    /// Return a list of orphans that are among the `target_depth` immediate descendants of
-    /// the block `parent_hash`
+    /// Return a list of orphans that are among the `target_depth` immediate
+    /// descendants of the block `parent_hash`
     pub fn get_orphans_within_depth(
         &self,
         parent_hash: CryptoHash,
@@ -320,7 +326,8 @@ impl OrphanBlockPool {
                 }
             }
 
-            // probably something serious went wrong here because there shouldn't be so many forks
+            // probably something serious went wrong here because there shouldn't be so many
+            // forks
             assert!(
                 res.len() <= 100 * target_depth as usize,
                 "found too many orphans {:?}, probably something is wrong with the chain",
@@ -330,8 +337,9 @@ impl OrphanBlockPool {
         res
     }
 
-    /// Returns true if the block has not been requested yet and the number of orphans
-    /// for which we have requested missing chunks have not exceeded MAX_ORPHAN_MISSING_CHUNKS
+    /// Returns true if the block has not been requested yet and the number of
+    /// orphans for which we have requested missing chunks have not exceeded
+    /// MAX_ORPHAN_MISSING_CHUNKS
     fn can_request_missing_chunks_for_orphan(&self, block_hash: &CryptoHash) -> bool {
         self.orphans_requested_missing_chunks.len() < MAX_ORPHAN_MISSING_CHUNKS
             && !self.orphans_requested_missing_chunks.contains(block_hash)
@@ -357,7 +365,8 @@ pub struct OrphanMissingChunks {
     pub epoch_id: EpochId,
     /// hash of an ancestor block of the block that has missing chunks
     /// this is used as an argument for `request_chunks_for_orphan`
-    /// see comments in `request_chunks_for_orphan` for what `ancestor_hash` is used for
+    /// see comments in `request_chunks_for_orphan` for what `ancestor_hash` is
+    /// used for
     pub ancestor_hash: CryptoHash,
 }
 
@@ -439,10 +448,11 @@ pub struct Chain {
     pub block_economics_config: BlockEconomicsConfig,
     pub doomslug_threshold_mode: DoomslugThresholdMode,
     pub blocks_delay_tracker: BlocksDelayTracker,
-    /// Processing a block is done in three stages: preprocess_block, async_apply_chunks and
-    /// postprocess_block. The async_apply_chunks is done asynchronously from the ClientActor thread.
-    /// `blocks_in_processing` keeps track of all the blocks that have been preprocessed but are
-    /// waiting for chunks being applied.
+    /// Processing a block is done in three stages: preprocess_block,
+    /// async_apply_chunks and postprocess_block. The async_apply_chunks is
+    /// done asynchronously from the ClientActor thread.
+    /// `blocks_in_processing` keeps track of all the blocks that have been
+    /// preprocessed but are waiting for chunks being applied.
     pub(crate) blocks_in_processing: BlocksInProcessing,
     /// Used by async_apply_chunks to send apply chunks results back to chain
     apply_chunks_sender: Sender<BlockApplyChunksResult>,
@@ -591,7 +601,8 @@ impl Chain {
                     header_head = block_head.clone();
                 }
 
-                // TODO: perform validation that latest state in runtime matches the stored chain.
+                // TODO: perform validation that latest state in runtime matches the stored
+                // chain.
 
                 (block_head, header_head)
             }
@@ -662,8 +673,8 @@ impl Chain {
         metrics::CHUNK_TAIL_HEIGHT.set(store.chunk_tail()? as i64);
         metrics::FORK_TAIL_HEIGHT.set(store.fork_tail()? as i64);
 
-        // Even though the channel is unbounded, the channel size is practically bounded by the size
-        // of blocks_in_processing, which is set to 5 now.
+        // Even though the channel is unbounded, the channel size is practically bounded
+        // by the size of blocks_in_processing, which is set to 5 now.
         let (sc, rc) = unbounded();
         Ok(Chain {
             store,
@@ -712,11 +723,12 @@ impl Chain {
         self.last_time_head_updated
     }
 
-    /// Creates a light client block for the last final block from perspective of some other block
+    /// Creates a light client block for the last final block from perspective
+    /// of some other block
     ///
     /// # Arguments
-    ///  * `header` - the last finalized block seen from `header` (not pushed back) will be used to
-    ///               compute the light client block
+    ///  * `header` - the last finalized block seen from `header` (not pushed
+    ///    back) will be used to compute the light client block
     pub fn create_light_client_block(
         header: &BlockHeader,
         runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
@@ -800,26 +812,27 @@ impl Chain {
     //
     // Prerequisites, guaranteed by the System:
     // 1. Genesis block is available and should not be removed by GC.
-    // 2. No block in storage except Genesis has height lower or equal to `genesis_height`.
-    // 3. There is known lowest block height (Tail) came from Genesis or State Sync.
-    //    a. Tail is always on the Canonical Chain.
+    // 2. No block in storage except Genesis has height lower or equal to
+    // `genesis_height`. 3. There is known lowest block height (Tail) came from
+    // Genesis or State Sync.    a. Tail is always on the Canonical Chain.
     //    b. Only one Tail exists.
     //    c. Tail's height is higher than or equal to `genesis_height`,
     // 4. There is a known highest block height (Head).
     //    a. Head is always on the Canonical Chain.
     // 5. All blocks in the storage have heights in range [Tail; Head].
     //    a. All forks end up on height of Head or lower.
-    // 6. If block A is ancestor of block B, height of A is strictly less then height of B.
-    // 7. (Property 1). A block with the lowest height among all the blocks at which the fork has started,
-    //    i.e. all the blocks with the outgoing degree 2 or more,
-    //    has the least height among all blocks on the fork.
-    // 8. (Property 2). The oldest block where the fork happened is never affected
-    //    by Canonical Chain Switching and always stays on Canonical Chain.
+    // 6. If block A is ancestor of block B, height of A is strictly less then
+    // height of B. 7. (Property 1). A block with the lowest height among all
+    // the blocks at which the fork has started,    i.e. all the blocks with the
+    // outgoing degree 2 or more,    has the least height among all blocks on
+    // the fork. 8. (Property 2). The oldest block where the fork happened is
+    // never affected    by Canonical Chain Switching and always stays on
+    // Canonical Chain.
     //
     // Overall:
     // 1. GC procedure is handled by `clear_data()` function.
-    // 2. `clear_data()` runs GC process for all blocks from the Tail to GC Stop Height provided by Epoch Manager.
-    // 3. `clear_data()` executes separately:
+    // 2. `clear_data()` runs GC process for all blocks from the Tail to GC Stop
+    // Height provided by Epoch Manager. 3. `clear_data()` executes separately:
     //    a. Forks Clearing runs for each height from Tail up to GC Stop Height.
     //    b. Canonical Chain Clearing from (Tail + 1) up to GC Stop Height.
     // 4. Before actual clearing is started, Block Reference Map should be built.
@@ -827,24 +840,26 @@ impl Chain {
     // 6. In case of State Sync, State Sync Clearing happens.
     //
     // Forks Clearing:
-    // 1. Any fork which ends up on height `height` INCLUSIVELY and earlier will be completely deleted
-    //    from the Store with all its ancestors up to the ancestor block where fork is happened
-    //    EXCLUDING the ancestor block where fork is happened.
-    // 2. The oldest ancestor block always remains on the Canonical Chain by property 2.
-    // 3. All forks which end up on height `height + 1` and further are protected from deletion and
-    //    no their ancestor will be deleted (even with lowest heights).
+    // 1. Any fork which ends up on height `height` INCLUSIVELY and earlier will be
+    // completely deleted    from the Store with all its ancestors up to the
+    // ancestor block where fork is happened    EXCLUDING the ancestor block
+    // where fork is happened. 2. The oldest ancestor block always remains on
+    // the Canonical Chain by property 2. 3. All forks which end up on height
+    // `height + 1` and further are protected from deletion and    no their
+    // ancestor will be deleted (even with lowest heights).
     // 4. `clear_forks_data()` handles forks clearing for fixed height `height`.
     //
     // Canonical Chain Clearing:
-    // 1. Blocks on the Canonical Chain with the only descendant (if no forks started from them)
-    //    are unlocked for Canonical Chain Clearing.
-    // 2. If Forks Clearing ended up on the Canonical Chain, the block may be unlocked
-    //    for the Canonical Chain Clearing. There is no other reason to unlock the block exists.
-    // 3. All the unlocked blocks will be completely deleted
-    //    from the Tail up to GC Stop Height EXCLUSIVELY.
-    // 4. (Property 3, GC invariant). Tail can be shifted safely to the height of the
-    //    earliest existing block. There is always only one Tail (based on property 1)
-    //    and it's always on the Canonical Chain (based on property 2).
+    // 1. Blocks on the Canonical Chain with the only descendant (if no forks
+    // started from them)    are unlocked for Canonical Chain Clearing.
+    // 2. If Forks Clearing ended up on the Canonical Chain, the block may be
+    // unlocked    for the Canonical Chain Clearing. There is no other reason to
+    // unlock the block exists. 3. All the unlocked blocks will be completely
+    // deleted    from the Tail up to GC Stop Height EXCLUSIVELY.
+    // 4. (Property 3, GC invariant). Tail can be shifted safely to the height of
+    // the    earliest existing block. There is always only one Tail (based on
+    // property 1)    and it's always on the Canonical Chain (based on property
+    // 2).
     //
     // Example:
     //
@@ -855,16 +870,17 @@ impl Chain {
     //            \
     //             \-[F]---[G]
     //
-    // 1. Let's define clearing height = 102. It this case fork A-F-G is protected from deletion
-    //    because of G which is on height 103. Nothing will be deleted.
-    // 2. Let's define clearing height = 103. It this case Fork Clearing will be executed for A
-    //    to delete blocks G and F, then Fork Clearing will be executed for B to delete block E.
-    //    Then Canonical Chain Clearing will delete blocks A and B as unlocked.
-    //    Block C is the only block of height 103 remains on the Canonical Chain (invariant).
+    // 1. Let's define clearing height = 102. It this case fork A-F-G is protected
+    // from deletion    because of G which is on height 103. Nothing will be
+    // deleted. 2. Let's define clearing height = 103. It this case Fork
+    // Clearing will be executed for A    to delete blocks G and F, then Fork
+    // Clearing will be executed for B to delete block E.    Then Canonical
+    // Chain Clearing will delete blocks A and B as unlocked.    Block C is the
+    // only block of height 103 remains on the Canonical Chain (invariant).
     //
     // State Sync Clearing:
-    // 1. Executing State Sync means that no data in the storage is useful for block processing
-    //    and should be removed completely.
+    // 1. Executing State Sync means that no data in the storage is useful for block
+    // processing    and should be removed completely.
     // 2. The Tail should be set to the block preceding Sync Block.
     // 3. All the data preceding new Tail is deleted in State Sync Clearing
     //    and the Trie is updated with having only Genesis data.
@@ -891,9 +907,10 @@ impl Chain {
         metrics::CHUNK_TAIL_HEIGHT.set(self.store.chunk_tail()? as i64);
         metrics::GC_STOP_HEIGHT.set(gc_stop_height as i64);
         if epoch_change && fork_tail < gc_stop_height {
-            // if head doesn't change on the epoch boundary, we may update fork tail several times
-            // but that is fine since it doesn't affect correctness and also we limit the number of
-            // heights that fork cleaning goes through so it doesn't slow down client either.
+            // if head doesn't change on the epoch boundary, we may update fork tail several
+            // times but that is fine since it doesn't affect correctness and
+            // also we limit the number of heights that fork cleaning goes
+            // through so it doesn't slow down client either.
             let mut chain_store_update = self.store.store_update();
             chain_store_update.update_fork_tail(gc_stop_height);
             chain_store_update.commit()?;
@@ -1000,7 +1017,8 @@ impl Chain {
                         let prev_hash =
                             *chain_store_update.get_block_header(&current_hash)?.prev_hash();
 
-                        // It's safe to call `clear_block_data` for prev data because it clears fork only here
+                        // It's safe to call `clear_block_data` for prev data because it clears fork
+                        // only here
                         chain_store_update.clear_block_data(
                             &*self.runtime_adapter,
                             current_hash,
@@ -1021,8 +1039,8 @@ impl Chain {
         Ok(())
     }
 
-    /// Return a StateSyncInfo that includes the information needed for syncing state for shards needed
-    /// in the next epoch.
+    /// Return a StateSyncInfo that includes the information needed for syncing
+    /// state for shards needed in the next epoch.
     fn get_state_dl_info(
         &self,
         me: &Option<AccountId>,
@@ -1034,15 +1052,16 @@ impl Chain {
         let prev_block = self.get_block(&prev_hash)?;
 
         if prev_block.chunks().len() != block.chunks().len() && !shards_to_dl.is_empty() {
-            // Currently, the state sync algorithm assumes that the number of chunks do not change
-            // between the epoch being synced to and the last epoch.
+            // Currently, the state sync algorithm assumes that the number of chunks do not
+            // change between the epoch being synced to and the last epoch.
             // For example, if shard layout changes at the beginning of epoch T, validators
             // will not be able to sync states at epoch T for epoch T+1
-            // Fortunately, since all validators track all shards for now, this error will not be
-            // triggered in live yet
-            // Instead of propagating the error, we simply log the error here because the error
-            // do not affect processing blocks for this epoch. However, when the next epoch comes,
-            // the validator will not have the states ready so it will halt.
+            // Fortunately, since all validators track all shards for now, this error will
+            // not be triggered in live yet
+            // Instead of propagating the error, we simply log the error here because the
+            // error do not affect processing blocks for this epoch. However,
+            // when the next epoch comes, the validator will not have the states
+            // ready so it will halt.
             error!(
                 "Cannot download states for epoch {:?} because sharding just changed. I'm {:?}",
                 block.header().epoch_id(),
@@ -1092,10 +1111,10 @@ impl Chain {
     ) -> Result<(), Error> {
         for (shard_id, chunk_header) in block.chunks().iter().enumerate() {
             if chunk_header.height_created() == genesis_block.header().height() {
-                // Special case: genesis chunks can be in non-genesis blocks and don't have a signature
-                // We must verify that content matches and signature is empty.
-                // TODO: this code will not work when genesis block has different number of chunks as the current block
-                // https://github.com/near/nearcore/issues/4908
+                // Special case: genesis chunks can be in non-genesis blocks and don't have a
+                // signature We must verify that content matches and signature
+                // is empty. TODO: this code will not work when genesis block
+                // has different number of chunks as the current block https://github.com/near/nearcore/issues/4908
                 let genesis_chunk = &genesis_block.chunks()[shard_id];
                 if genesis_chunk.chunk_hash() != chunk_header.chunk_hash()
                     || genesis_chunk.signature() != chunk_header.signature()
@@ -1116,13 +1135,14 @@ impl Chain {
         block.check_validity().map_err(|e| e.into())
     }
 
-    /// Verify header signature when the epoch is known, but not the whole chain.
-    /// Same as verify_header_signature except it does not verify that block producer hasn't been slashed
+    /// Verify header signature when the epoch is known, but not the whole
+    /// chain. Same as verify_header_signature except it does not verify
+    /// that block producer hasn't been slashed
     fn partial_verify_orphan_header_signature(&self, header: &BlockHeader) -> Result<bool, Error> {
         let block_producer =
             self.runtime_adapter.get_block_producer(header.epoch_id(), header.height())?;
-        // DEVNOTE: we pass head which is not necessarily on block's chain, but it's only used for
-        // slashing info which we will ignore
+        // DEVNOTE: we pass head which is not necessarily on block's chain, but it's
+        // only used for slashing info which we will ignore
         let head = self.head()?;
         let (block_producer, _slashed) = self.runtime_adapter.get_validator_by_account_id(
             header.epoch_id(),
@@ -1132,11 +1152,12 @@ impl Chain {
         Ok(header.signature().verify(header.hash().as_ref(), block_producer.public_key()))
     }
 
-    /// Optimization which checks if block with the given header can be reached from final head, and thus can be
-    /// finalized by this node.
+    /// Optimization which checks if block with the given header can be reached
+    /// from final head, and thus can be finalized by this node.
     /// If this is the case, returns Ok.
-    /// If we discovered that it is not the case, returns `Error::CannotBeFinalized`.
-    /// If too many parents were checked, returns Ok to avoid long delays.
+    /// If we discovered that it is not the case, returns
+    /// `Error::CannotBeFinalized`. If too many parents were checked,
+    /// returns Ok to avoid long delays.
     fn check_if_finalizable(&self, header: &BlockHeader) -> Result<(), Error> {
         let mut header = header.clone();
         let final_head = self.final_head()?;
@@ -1145,7 +1166,8 @@ impl Chain {
             if header.hash() == &final_head.last_block_hash {
                 return Ok(());
             }
-            // If we went behind final head, then block cannot be finalized on top of final head.
+            // If we went behind final head, then block cannot be finalized on top of final
+            // head.
             if header.height() < final_head.height {
                 return Err(Error::CannotBeFinalized);
             }
@@ -1153,8 +1175,8 @@ impl Chain {
             header = match self.get_previous_header(&header) {
                 Ok(header) => header,
                 Err(_) => {
-                    // We couldn't find previous header. Return Ok because it can be an orphaned block which can be
-                    // connected to canonical chain later.
+                    // We couldn't find previous header. Return Ok because it can be an orphaned
+                    // block which can be connected to canonical chain later.
                     return Ok(());
                 }
             }
@@ -1165,9 +1187,10 @@ impl Chain {
     }
 
     /// Validate header. Returns error if the header is invalid.
-    /// `challenges`: the function will add new challenges generated from validating this header
-    ///               to the vector. You can pass an empty vector here, or a vector with existing
-    ///               challenges already.
+    /// `challenges`: the function will add new challenges generated from
+    /// validating this header               to the vector. You can pass an
+    /// empty vector here, or a vector with existing               
+    /// challenges already.
     fn validate_header(
         &self,
         header: &BlockHeader,
@@ -1185,9 +1208,11 @@ impl Chain {
         }
 
         // Check we don't know a block with given height already.
-        // If we do - send out double sign challenge and keep going as double signed blocks are valid blocks.
+        // If we do - send out double sign challenge and keep going as double signed
+        // blocks are valid blocks.
         if let Ok(epoch_id_to_blocks) = self.store.get_all_block_hashes_by_height(header.height()) {
-            // Check if there is already known block of the same height that has the same epoch id
+            // Check if there is already known block of the same height that has the same
+            // epoch id
             if let Some(block_hashes) = epoch_id_to_blocks.get(header.epoch_id()) {
                 // This should be guaranteed but it doesn't hurt to check again
                 if !block_hashes.contains(header.hash()) {
@@ -1224,7 +1249,8 @@ impl Chain {
 
         let prev_header = self.get_previous_header(header)?;
 
-        // Check that epoch_id in the header does match epoch given previous header (only if previous header is present).
+        // Check that epoch_id in the header does match epoch given previous header
+        // (only if previous header is present).
         let epoch_id_from_prev_block =
             &self.runtime_adapter.get_epoch_id_from_prev_block(header.prev_hash())?;
         let epoch_id_from_header = header.epoch_id();
@@ -1232,7 +1258,8 @@ impl Chain {
             return Err(Error::InvalidEpochHash);
         }
 
-        // Check that epoch_id in the header does match epoch given previous header (only if previous header is present).
+        // Check that epoch_id in the header does match epoch given previous header
+        // (only if previous header is present).
         if &self.runtime_adapter.get_next_epoch_id_from_prev_block(header.prev_hash())?
             != header.next_epoch_id()
         {
@@ -1329,8 +1356,9 @@ impl Chain {
                 return Err(Error::InvalidBlockMerkleRoot);
             }
 
-            // Check that challenges root is empty to ensure later that block doesn't contain challenges.
-            // TODO (#2445): Enable challenges when they are working correctly.
+            // Check that challenges root is empty to ensure later that block doesn't
+            // contain challenges. TODO (#2445): Enable challenges when they are
+            // working correctly.
             if header.challenges_root() != &MerkleHash::default() {
                 return Err(Error::InvalidChallengeRoot);
             }
@@ -1356,12 +1384,13 @@ impl Chain {
     }
 
     /// Verify that `challenges` are valid
-    /// If all challenges are valid, returns ChallengesResult, which comprises of the list of
-    /// validators that need to be slashed and the list of blocks that are challenged.
-    /// Returns Error if any challenge is invalid.
-    /// Note: you might be wondering why the list of challenged blocks is not part of ChallengesResult.
-    /// That's because ChallengesResult is part of BlockHeader, to modify that struct requires protocol
-    /// upgrade.
+    /// If all challenges are valid, returns ChallengesResult, which comprises
+    /// of the list of validators that need to be slashed and the list of
+    /// blocks that are challenged. Returns Error if any challenge is
+    /// invalid. Note: you might be wondering why the list of challenged
+    /// blocks is not part of ChallengesResult. That's because
+    /// ChallengesResult is part of BlockHeader, to modify that struct requires
+    /// protocol upgrade.
     pub fn verify_challenges(
         &self,
         challenges: &[Challenge],
@@ -1401,7 +1430,8 @@ impl Chain {
         Ok((result, challenged_blocks))
     }
 
-    /// Do basic validation of the information that we can get from the chunk headers in `block`
+    /// Do basic validation of the information that we can get from the chunk
+    /// headers in `block`
     fn validate_chunk_headers(&self, block: &Block, prev_block: &Block) -> Result<(), Error> {
         let prev_chunk_headers = Chain::get_prev_chunk_headers(&*self.runtime_adapter, prev_block)?;
         for (chunk_header, prev_chunk_header) in
@@ -1445,8 +1475,9 @@ impl Chain {
         Ok(())
     }
 
-    /// Check if the chain leading to the given block has challenged blocks on it. Returns Ok if the chain
-    /// does not have challenged blocks, otherwise error ChallengedBlockOnChain.
+    /// Check if the chain leading to the given block has challenged blocks on
+    /// it. Returns Ok if the chain does not have challenged blocks,
+    /// otherwise error ChallengedBlockOnChain.
     fn check_if_challenged_block_on_chain(&self, block_header: &BlockHeader) -> Result<(), Error> {
         let mut hash = *block_header.hash();
         let mut height = block_header.height();
@@ -1549,13 +1580,14 @@ impl Chain {
         Ok(false)
     }
 
-    /// Collect all incoming receipts generated in `block`, return a map from target shard id to the
-    /// list of receipts that the target shard receives.
-    /// The receipts are sorted by the order that they will be processed.
-    /// Note that the receipts returned in this function do not equal all receipts that will be
-    /// processed as incoming receipts in this block, because that may include incoming receipts
-    /// generated in previous blocks too, if some shards in the previous blocks did not produce
-    /// new chunks.
+    /// Collect all incoming receipts generated in `block`, return a map from
+    /// target shard id to the list of receipts that the target shard
+    /// receives. The receipts are sorted by the order that they will be
+    /// processed. Note that the receipts returned in this function do not
+    /// equal all receipts that will be processed as incoming receipts in
+    /// this block, because that may include incoming receipts generated in
+    /// previous blocks too, if some shards in the previous blocks did not
+    /// produce new chunks.
     pub fn collect_incoming_receipts_from_block(
         &self,
         me: &Option<AccountId>,
@@ -1581,7 +1613,8 @@ impl Chain {
                 }
             }
         }
-        // sort the receipts deterministically so the order that they will be processed is deterministic
+        // sort the receipts deterministically so the order that they will be processed
+        // is deterministic
         for (_, receipt_proofs) in receipt_proofs_by_shard_id.iter_mut() {
             Self::shuffle_receipt_proofs(receipt_proofs, block.hash());
         }
@@ -1611,19 +1644,23 @@ impl Chain {
         Ok(())
     }
 
-    /// Start processing a received or produced block. This function will process block asynchronously.
-    /// It preprocesses the block by verifying that the block is valid and ready to process, then
-    /// schedules the work of applying chunks in rayon thread pool. The function will return before
-    /// the block processing is finished.
-    /// This function is used in conjunction with the function postprocess_ready_blocks, which checks
-    /// if any of the blocks in processing has finished applying chunks to finish postprocessing
+    /// Start processing a received or produced block. This function will
+    /// process block asynchronously. It preprocesses the block by verifying
+    /// that the block is valid and ready to process, then schedules the
+    /// work of applying chunks in rayon thread pool. The function will return
+    /// before the block processing is finished.
+    /// This function is used in conjunction with the function
+    /// postprocess_ready_blocks, which checks if any of the blocks in
+    /// processing has finished applying chunks to finish postprocessing
     /// these blocks that are ready.
-    /// `block_processing_artifacts`: Callers can pass an empty object or an existing BlockProcessingArtifact.
-    ///              This function will add the effect from processing this block to there.
-    /// `apply_chunks_done_callback`: This callback will be called after apply_chunks are finished
-    ///              (so it also happens asynchronously in the rayon thread pool). Callers can
-    ///              use this callback as a way to receive notifications when apply chunks are done
-    ///              so it can call postprocess_ready_blocks.
+    /// `block_processing_artifacts`: Callers can pass an empty object or an
+    /// existing BlockProcessingArtifact.              This function will
+    /// add the effect from processing this block to there.
+    /// `apply_chunks_done_callback`: This callback will be called after
+    /// apply_chunks are finished              (so it also happens
+    /// asynchronously in the rayon thread pool). Callers can              
+    /// use this callback as a way to receive notifications when apply chunks
+    /// are done              so it can call postprocess_ready_blocks.
     pub fn start_process_block_async(
         &mut self,
         me: &Option<AccountId>,
@@ -1652,8 +1689,9 @@ impl Chain {
         }
         // Save the block as processed even if it failed. This is used to filter out the
         // incoming blocks that are not requested on heights which we already processed.
-        // If there is a new incoming block that we didn't request and we already have height
-        // processed 'marked as true' - then we'll not even attempt to process it
+        // If there is a new incoming block that we didn't request and we already have
+        // height processed 'marked as true' - then we'll not even attempt to
+        // process it
         if let Err(e) = self.save_block_height_processed(block_height) {
             warn!(target: "chain", "Failed to save processed height {}: {}", block_height, e);
         }
@@ -1661,11 +1699,12 @@ impl Chain {
         res
     }
 
-    /// Checks if any block has finished applying chunks and postprocesses these blocks to complete
-    /// their processing. Return a list of blocks that have finished processing.
-    /// If there are no blocks that are ready to be postprocessed, it returns immediately
-    /// with an empty list. Even if there are blocks being processed, it does not wait
-    /// for these blocks to be ready.
+    /// Checks if any block has finished applying chunks and postprocesses these
+    /// blocks to complete their processing. Return a list of blocks that
+    /// have finished processing. If there are no blocks that are ready to
+    /// be postprocessed, it returns immediately with an empty list. Even if
+    /// there are blocks being processed, it does not wait for these blocks
+    /// to be ready.
     pub fn postprocess_ready_blocks(
         &mut self,
         me: &Option<AccountId>,
@@ -1693,8 +1732,9 @@ impl Chain {
         (accepted_blocks, errors)
     }
 
-    /// Process challenge to invalidate chain. This is done between blocks to unroll the chain as
-    /// soon as possible and allow next block producer to skip invalid blocks.
+    /// Process challenge to invalidate chain. This is done between blocks to
+    /// unroll the chain as soon as possible and allow next block producer
+    /// to skip invalid blocks.
     pub fn process_challenge(&mut self, challenge: &Challenge) {
         let head = unwrap_or_return!(self.head());
         match self.verify_challenges(&[challenge.clone()], &head.epoch_id, &head.last_block_hash) {
@@ -1824,8 +1864,9 @@ impl Chain {
         let sync_height = header.height();
         let gc_height = std::cmp::min(head.height + 1, sync_height);
 
-        // GC all the data from current tail up to `gc_height`. In case tail points to a height where
-        // there is no block, we need to make sure that the last block before tail is cleaned.
+        // GC all the data from current tail up to `gc_height`. In case tail points to a
+        // height where there is no block, we need to make sure that the last
+        // block before tail is cleaned.
         let tail = self.store.tail()?;
         let mut tail_prev_block_cleaned = false;
         for height in tail..gc_height {
@@ -1899,17 +1940,19 @@ impl Chain {
         // Update related heads now.
         let mut chain_store_update = self.mut_store().store_update();
         chain_store_update.save_body_head(&tip)?;
-        // Reset final head to genesis since at this point we don't have the last final block.
+        // Reset final head to genesis since at this point we don't have the last final
+        // block.
         chain_store_update.save_final_head(&final_head)?;
         // New Tail can not be earlier than `prev_block.header.inner_lite.height`
         chain_store_update.update_tail(new_tail)?;
-        // New Chunk Tail can not be earlier than minimum of height_created in Block `prev_block`
+        // New Chunk Tail can not be earlier than minimum of height_created in Block
+        // `prev_block`
         chain_store_update.update_chunk_tail(new_chunk_tail);
         chain_store_update.commit()?;
 
         // Check if there are any orphans unlocked by this state sync.
-        // We can't fail beyond this point because the caller will not process accepted blocks
-        //    and the blocks with missing chunks if this method fails
+        // We can't fail beyond this point because the caller will not process accepted
+        // blocks    and the blocks with missing chunks if this method fails
         self.check_orphans(me, hash, block_processing_artifacts, apply_chunks_done_callback);
         Ok(())
     }
@@ -1932,8 +1975,8 @@ impl Chain {
             height = block_height)
         .entered();
 
-        // 1) preprocess the block where we verify that the block is valid and ready to be processed
-        //    No chain updates are applied at this step.
+        // 1) preprocess the block where we verify that the block is valid and ready to
+        // be processed    No chain updates are applied at this step.
         let state_patch = self.pending_state_patch.take();
         let preprocess_timer = metrics::BLOCK_PREPROCESSING_TIME.start_timer();
         let preprocess_res = self.preprocess_block(
@@ -2011,8 +2054,9 @@ impl Chain {
                         );
                     }
                     Error::EpochOutOfBounds(epoch_id) => {
-                        // Possibly block arrived before we finished processing all of the blocks for epoch before last.
-                        // Or someone is attacking with invalid chain.
+                        // Possibly block arrived before we finished processing all of the blocks
+                        // for epoch before last. Or someone is attacking
+                        // with invalid chain.
                         debug!(target: "chain", "Received block {}/{} ignored, as epoch {:?} is unknown", block_height, block.hash(), epoch_id);
                     }
                     Error::BlockKnown(block_known_error) => {
@@ -2048,8 +2092,9 @@ impl Chain {
     }
 
     /// Applying chunks async by starting the work at the rayon thread pool
-    /// `apply_chunks_done_marker`: a marker that will be set to true once applying chunks is finished
-    /// `apply_chunks_done_callback`: a callback that will be called once applying chunks is finished
+    /// `apply_chunks_done_marker`: a marker that will be set to true once
+    /// applying chunks is finished `apply_chunks_done_callback`: a callback
+    /// that will be called once applying chunks is finished
     fn schedule_apply_chunks(
         &self,
         block_hash: CryptoHash,
@@ -2060,10 +2105,12 @@ impl Chain {
     ) {
         let sc = self.apply_chunks_sender.clone();
         spawn(move || {
-            // do_apply_chunks runs `work` parallelly, but still waits for all of them to finish
+            // do_apply_chunks runs `work` parallelly, but still waits for all of them to
+            // finish
             let res = do_apply_chunks(block_hash, block_height, work);
-            // If we encounter error here, that means the receiver is deallocated and the client
-            // thread is already shut down. The node is already crashed, so we can unwrap here
+            // If we encounter error here, that means the receiver is deallocated and the
+            // client thread is already shut down. The node is already crashed,
+            // so we can unwrap here
             sc.send((block_hash.clone(), res)).unwrap();
             if let Err(_) = apply_chunks_done_marker.set(()) {
                 // This should never happen, if it does, it means there is a bug in our code.
@@ -2094,9 +2141,11 @@ impl Chain {
         Ok(new_head)
     }
 
-    /// Update flat storage for given processed or caught up block, which includes:
+    /// Update flat storage for given processed or caught up block, which
+    /// includes:
     /// - merge deltas from current flat storage head to new one;
-    /// - update flat storage head to the hash of final block visible from given one;
+    /// - update flat storage head to the hash of final block visible from given
+    ///   one;
     /// - remove info about unreachable blocks from memory.
     fn update_flat_storage_for_block(
         &mut self,
@@ -2133,18 +2182,20 @@ impl Chain {
                 }
             });
         } else {
-            // TODO (#8250): come up with correct assertion. Currently it doesn't work because runtime may be
-            // implemented by KeyValueRuntime which doesn't support flat storage, and flat storage background
-            // creation may happen.
+            // TODO (#8250): come up with correct assertion. Currently it
+            // doesn't work because runtime may be implemented by
+            // KeyValueRuntime which doesn't support flat storage, and flat
+            // storage background creation may happen.
             // #[cfg(feature = "protocol_feature_flat_state")]
-            // debug_assert!(false, "Flat storage state for shard {shard_id} does not exist and its creation was not initiated");
+            // debug_assert!(false, "Flat storage state for shard {shard_id}
+            // does not exist and its creation was not initiated");
         }
         Ok(())
     }
 
     /// Run postprocessing on this block, which stores the block on chain.
-    /// Check that if accepting the block unlocks any orphans in the orphan pool and start
-    /// the processing of those blocks.
+    /// Check that if accepting the block unlocks any orphans in the orphan pool
+    /// and start the processing of those blocks.
     fn postprocess_block(
         &mut self,
         me: &Option<AccountId>,
@@ -2159,8 +2210,8 @@ impl Chain {
                 "block {:?} finished applying chunks but not in blocks_in_processing pool",
                 block_hash
             ));
-        // We want to include block height here, so we didn't put this line at the beginning of the
-        // function.
+        // We want to include block height here, so we didn't put this line at the
+        // beginning of the function.
         let _span = tracing::debug_span!(
             target: "chain",
             "postprocess_block",
@@ -2192,17 +2243,19 @@ impl Chain {
                 Ok(new_head) => new_head,
             };
 
-        // Update flat storage head to be the last final block. Note that this update happens
-        // in a separate db transaction from the update from block processing. This is intentional
-        // because flat_storage_state need to be locked during the update of flat head, otherwise
-        // flat_storage_state is in an inconsistent state that could be accessed by the other
-        // apply chunks processes. This means, the flat head is not always the same as
-        // the last final block on chain, which is OK, because in the flat storage implementation
-        // we don't assume that.
+        // Update flat storage head to be the last final block. Note that this update
+        // happens in a separate db transaction from the update from block
+        // processing. This is intentional because flat_storage_state need to be
+        // locked during the update of flat head, otherwise flat_storage_state
+        // is in an inconsistent state that could be accessed by the other apply
+        // chunks processes. This means, the flat head is not always the same as
+        // the last final block on chain, which is OK, because in the flat storage
+        // implementation we don't assume that.
         for shard_id in 0..self.runtime_adapter.num_shards(block.header().epoch_id())? {
             let need_flat_storage_update = if is_caught_up {
-                // If we already caught up this epoch, then flat storage exists for both shards which we already track
-                // and shards which will be tracked in next epoch, so we can update them.
+                // If we already caught up this epoch, then flat storage exists for both shards
+                // which we already track and shards which will be tracked in
+                // next epoch, so we can update them.
                 self.runtime_adapter.cares_about_shard(
                     me.as_ref(),
                     block.header().prev_hash(),
@@ -2215,8 +2268,8 @@ impl Chain {
                     true,
                 )
             } else {
-                // If we didn't catch up, we can update only shards tracked right now. Remaining shards will be updated
-                // during catchup of this block.
+                // If we didn't catch up, we can update only shards tracked right now. Remaining
+                // shards will be updated during catchup of this block.
                 self.runtime_adapter.cares_about_shard(
                     me.as_ref(),
                     block.header().prev_hash(),
@@ -2272,15 +2325,16 @@ impl Chain {
             apply_chunks_done_callback,
         );
 
-        // Determine the block status of this block (whether it is a side fork and updates the chain head)
-        // Block status is needed in Client::on_block_accepted_with_optional_chunk_produce to
+        // Determine the block status of this block (whether it is a side fork and
+        // updates the chain head) Block status is needed in
+        // Client::on_block_accepted_with_optional_chunk_produce to
         // decide to how to update the tx pool.
         let block_status = self.determine_status(new_head, prev_head);
         Ok(AcceptedBlock { hash: *block.hash(), status: block_status, provenance })
     }
 
-    /// Preprocess a block before applying chunks, verify that we have the necessary information
-    /// to process the block an the block is valid.
+    /// Preprocess a block before applying chunks, verify that we have the
+    /// necessary information to process the block an the block is valid.
     //  Note that this function does NOT introduce any changes to chain state.
     pub(crate) fn preprocess_block(
         &self,
@@ -2298,7 +2352,8 @@ impl Chain {
         ),
         Error,
     > {
-        // see if the block is already in processing or if there are too many blocks being processed
+        // see if the block is already in processing or if there are too many blocks
+        // being processed
         self.blocks_in_processing.add_dry_run(block.hash())?;
 
         debug!(target: "chain", num_approvals = block.header().num_approvals(), "Preprocess block");
@@ -2318,14 +2373,15 @@ impl Chain {
         // Check if we have already processed this block previously.
         check_known(self, block.header().hash())?.map_err(|e| Error::BlockKnown(e))?;
 
-        // Delay hitting the db for current chain head until we know this block is not already known.
+        // Delay hitting the db for current chain head until we know this block is not
+        // already known.
         let head = self.head()?;
         let is_next = block.header().prev_hash() == &head.last_block_hash;
 
         // Sandbox allows fast-forwarding, so only enable when not within sandbox
         if !cfg!(feature = "sandbox") {
-            // A heuristic to prevent block height to jump too fast towards BlockHeight::max and cause
-            // overflow-related problems
+            // A heuristic to prevent block height to jump too fast towards BlockHeight::max
+            // and cause overflow-related problems
             let block_height = block.header().height();
             if block_height > head.height + self.epoch_length * 20 {
                 return Err(Error::InvalidBlockHeight(block_height));
@@ -2372,15 +2428,17 @@ impl Chain {
         let (is_caught_up, state_dl_info) =
             if self.runtime_adapter.is_next_block_epoch_start(&prev_hash)? {
                 if !self.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)? {
-                    // The previous block is not caught up for the next epoch relative to the previous
-                    // block, which is the current epoch for this block, so this block cannot be applied
-                    // at all yet, needs to be orphaned
+                    // The previous block is not caught up for the next epoch relative to the
+                    // previous block, which is the current epoch for this
+                    // block, so this block cannot be applied at all yet, needs
+                    // to be orphaned
                     return Err(Error::Orphan);
                 }
 
-                // For the first block of the epoch we check if we need to start download states for
-                // shards that we will care about in the next epoch. If there is no state to be downloaded,
-                // we consider that we are caught up, otherwise not
+                // For the first block of the epoch we check if we need to start download states
+                // for shards that we will care about in the next epoch. If
+                // there is no state to be downloaded, we consider that we are
+                // caught up, otherwise not
                 let state_dl_info = self.get_state_dl_info(me, block)?;
                 (state_dl_info.is_none(), state_dl_info)
             } else {
@@ -2448,8 +2506,8 @@ impl Chain {
             block,
             &prev_block,
             &incoming_receipts,
-            // If we have the state for shards in the next epoch already downloaded, apply the state transition
-            // for these states as well
+            // If we have the state for shards in the next epoch already downloaded, apply the
+            // state transition for these states as well
             // otherwise put the block into the permanent storage, waiting for be caught up
             if is_caught_up { ApplyChunksMode::IsCaughtUp } else { ApplyChunksMode::NotCaughtUp },
             state_patch,
@@ -2472,30 +2530,32 @@ impl Chain {
     }
 
     /// Check if we can request chunks for this orphan. Conditions are
-    /// 1) Orphans that with outstanding missing chunks request has not exceed `MAX_ORPHAN_MISSING_CHUNKS`
-    /// 2) we haven't already requested missing chunks for the orphan
-    /// 3) All the `NUM_ORPHAN_ANCESTORS_CHECK` immediate parents of the block are either accepted,
-    ///    or orphans or in `blocks_with_missing_chunks`
-    /// 4) Among the `NUM_ORPHAN_ANCESTORS_CHECK` immediate parents of the block at least one is
-    ///    accepted(is in store), call it `ancestor`
-    /// 5) The next block of `ancestor` has the same epoch_id as the orphan block
-    ///    (This is because when requesting chunks, we will use `ancestor` hash instead of the
-    ///     previous block hash of the orphan to decide epoch id)
-    /// 6) The orphan has missing chunks
+    /// 1) Orphans that with outstanding missing chunks request has not exceed
+    /// `MAX_ORPHAN_MISSING_CHUNKS` 2) we haven't already requested missing
+    /// chunks for the orphan 3) All the `NUM_ORPHAN_ANCESTORS_CHECK`
+    /// immediate parents of the block are either accepted,    or orphans or
+    /// in `blocks_with_missing_chunks` 4) Among the
+    /// `NUM_ORPHAN_ANCESTORS_CHECK` immediate parents of the block at least one
+    /// is    accepted(is in store), call it `ancestor`
+    /// 5) The next block of `ancestor` has the same epoch_id as the orphan
+    /// block    (This is because when requesting chunks, we will use
+    /// `ancestor` hash instead of the     previous block hash of the orphan
+    /// to decide epoch id) 6) The orphan has missing chunks
     pub fn should_request_chunks_for_orphan(
         &mut self,
         me: &Option<AccountId>,
         orphan: &Block,
     ) -> Option<OrphanMissingChunks> {
-        // 1) Orphans that with outstanding missing chunks request has not exceed `MAX_ORPHAN_MISSING_CHUNKS`
-        // 2) we haven't already requested missing chunks for the orphan
+        // 1) Orphans that with outstanding missing chunks request has not exceed
+        // `MAX_ORPHAN_MISSING_CHUNKS` 2) we haven't already requested missing
+        // chunks for the orphan
         if !self.orphans.can_request_missing_chunks_for_orphan(orphan.hash()) {
             return None;
         }
         let mut block_hash = *orphan.header().prev_hash();
         for _ in 0..NUM_ORPHAN_ANCESTORS_CHECK {
-            // 3) All the `NUM_ORPHAN_ANCESTORS_CHECK` immediate parents of the block are either accepted,
-            //    or orphans or in `blocks_with_missing_chunks`
+            // 3) All the `NUM_ORPHAN_ANCESTORS_CHECK` immediate parents of the block are
+            // either accepted,    or orphans or in `blocks_with_missing_chunks`
             if let Some(block) = self.blocks_with_missing_chunks.get(&block_hash) {
                 block_hash = *block.prev_hash();
                 continue;
@@ -2504,8 +2564,8 @@ impl Chain {
                 block_hash = *orphan.prev_hash();
                 continue;
             }
-            // 4) Among the `NUM_ORPHAN_ANCESTORS_CHECK` immediate parents of the block at least one is
-            //    accepted(is in store), call it `ancestor`
+            // 4) Among the `NUM_ORPHAN_ANCESTORS_CHECK` immediate parents of the block at
+            // least one is    accepted(is in store), call it `ancestor`
             if self.get_block(&block_hash).is_ok() {
                 if let Ok(epoch_id) = self.runtime_adapter.get_epoch_id_from_prev_block(&block_hash)
                 {
@@ -2544,20 +2604,22 @@ impl Chain {
         prev_prev_hash: &CryptoHash,
         prev_hash: &CryptoHash,
     ) -> Result<bool, Error> {
-        // Needs to be used with care: for the first block of each epoch the semantic is slightly
-        // different, since the prev_block is in a different epoch. So for all the blocks but the
-        // first one in each epoch this method returns true if the block is ready to have state
-        // applied for the next epoch, while for the first block in a particular epoch this method
-        // returns true if the block is ready to have state applied for the current epoch (and
-        // otherwise should be orphaned)
+        // Needs to be used with care: for the first block of each epoch the semantic is
+        // slightly different, since the prev_block is in a different epoch. So
+        // for all the blocks but the first one in each epoch this method
+        // returns true if the block is ready to have state applied for the next
+        // epoch, while for the first block in a particular epoch this method
+        // returns true if the block is ready to have state applied for the current
+        // epoch (and otherwise should be orphaned)
         Ok(!self.store.get_blocks_to_catchup(prev_prev_hash)?.contains(prev_hash))
     }
 
     /// Return all shards that whose states need to be caught up
     /// That has two cases:
-    /// 1) Shard layout will change in the next epoch. In this case, the method returns all shards
-    ///    in the current epoch that will be split into a future shard that `me` will track.
-    /// 2) Shard layout will be the same. In this case, the method returns all shards that `me` will
+    /// 1) Shard layout will change in the next epoch. In this case, the method
+    /// returns all shards    in the current epoch that will be split into a
+    /// future shard that `me` will track. 2) Shard layout will be the same.
+    /// In this case, the method returns all shards that `me` will
     ///    track in the next epoch but not this epoch
     fn get_shards_to_dl_state(
         runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
@@ -2580,15 +2642,17 @@ impl Chain {
     ) -> bool {
         let will_shard_layout_change =
             runtime_adapter.will_shard_layout_change_next_epoch(parent_hash).unwrap_or(false);
-        // if shard layout will change the next epoch, we should catch up the shard regardless
-        // whether we already have the shard's state this epoch, because we need to generate
-        // new states for shards split from the current shard for the next epoch
+        // if shard layout will change the next epoch, we should catch up the shard
+        // regardless whether we already have the shard's state this epoch,
+        // because we need to generate new states for shards split from the
+        // current shard for the next epoch
         runtime_adapter.will_care_about_shard(me.as_ref(), parent_hash, shard_id, true)
             && (will_shard_layout_change
                 || !runtime_adapter.cares_about_shard(me.as_ref(), parent_hash, shard_id, true))
     }
 
-    /// Check if any block with missing chunk is ready to be processed and start processing these blocks
+    /// Check if any block with missing chunk is ready to be processed and start
+    /// processing these blocks
     pub fn check_blocks_with_missing_chunks(
         &mut self,
         me: &Option<AccountId>,
@@ -2621,14 +2685,15 @@ impl Chain {
         }
     }
 
-    /// Check for orphans that are ready to be processed or request missing chunks, process these blocks.
-    /// `prev_hash`: hash of the block that is just accepted
-    /// `block_accepted`: callback to be called when an orphan is accepted
-    /// `block_misses_chunks`: callback to be called when an orphan is added to the pool of blocks
-    ///                        that have missing chunks
-    /// `orphan_misses_chunks`: callback to be called when it is ready to request missing chunks for
-    ///                         an orphan
-    /// `on_challenge`: callback to be called when an orphan should be challenged
+    /// Check for orphans that are ready to be processed or request missing
+    /// chunks, process these blocks. `prev_hash`: hash of the block that is
+    /// just accepted `block_accepted`: callback to be called when an orphan
+    /// is accepted `block_misses_chunks`: callback to be called when an
+    /// orphan is added to the pool of blocks                        that
+    /// have missing chunks `orphan_misses_chunks`: callback to be called
+    /// when it is ready to request missing chunks for                      
+    /// an orphan `on_challenge`: callback to be called when an orphan
+    /// should be challenged
     pub fn check_orphans(
         &mut self,
         me: &Option<AccountId>,
@@ -2638,8 +2703,8 @@ impl Chain {
     ) {
         // Check if there are orphans we can process.
         debug!(target: "chain", "Check orphans: from {}, # total orphans {}", prev_hash, self.orphans.len());
-        // check within the descendents of `prev_hash` to see if there are orphans there that
-        // are ready to request missing chunks for
+        // check within the descendents of `prev_hash` to see if there are orphans there
+        // that are ready to request missing chunks for
         let orphans_to_check =
             self.orphans.get_orphans_within_depth(prev_hash, NUM_ORPHAN_ANCESTORS_CHECK);
         for orphan_hash in orphans_to_check {
@@ -2700,12 +2765,13 @@ impl Chain {
         }
 
         // Consistency rules:
-        // 1. Everything prefixed with `sync_` indicates new epoch, for which we are syncing.
-        // 1a. `sync_prev` means the last of the prev epoch.
-        // 2. Empty prefix means the height where chunk was applied last time in the prev epoch.
-        //    Let's call it `current`.
+        // 1. Everything prefixed with `sync_` indicates new epoch, for which we are
+        // syncing. 1a. `sync_prev` means the last of the prev epoch.
+        // 2. Empty prefix means the height where chunk was applied last time in the
+        // prev epoch.    Let's call it `current`.
         // 2a. `prev_` means we're working with height before current.
-        // 3. In inner loops we use all prefixes with no relation to the context described above.
+        // 3. In inner loops we use all prefixes with no relation to the context
+        // described above.
         let sync_block = self
             .get_block(&sync_hash)
             .log_storage_error("block has already been checked for existence")?;
@@ -2782,7 +2848,8 @@ impl Chain {
             },
         };
 
-        // Getting all existing incoming_receipts from prev_chunk height to the new epoch.
+        // Getting all existing incoming_receipts from prev_chunk height to the new
+        // epoch.
         let incoming_receipts_proofs = self.store.get_incoming_receipts_for_shard(
             shard_id,
             sync_hash,
@@ -2935,7 +3002,8 @@ impl Chain {
         self.requested_state_parts
             .save_state_part_elapsed(&sync_hash, &shard_id, &part_id, elapsed_ms);
 
-        // Before saving State Part data, we need to make sure we can calculate and save State Header
+        // Before saving State Part data, we need to make sure we can calculate and save
+        // State Header
         self.get_state_response_header(shard_id, sync_hash)?;
 
         // Saving the part data
@@ -2967,9 +3035,9 @@ impl Chain {
 
         // Consider chunk itself is valid.
 
-        // 3. Checking that chunks `chunk` and `prev_chunk` are included in appropriate blocks
-        // 3a. Checking that chunk `chunk` is included into block at last height before sync_hash
-        // 3aa. Also checking chunk.height_included
+        // 3. Checking that chunks `chunk` and `prev_chunk` are included in appropriate
+        // blocks 3a. Checking that chunk `chunk` is included into block at last
+        // height before sync_hash 3aa. Also checking chunk.height_included
         let sync_prev_block_header = self.get_block_header(sync_block_header.prev_hash())?;
         if !verify_path(
             *sync_prev_block_header.chunk_headers_root(),
@@ -2984,8 +3052,9 @@ impl Chain {
 
         let block_header =
             self.get_block_header_on_chain_by_height(&sync_hash, chunk.height_included())?;
-        // 3b. Checking that chunk `prev_chunk` is included into block at height before chunk.height_included
-        // 3ba. Also checking prev_chunk.height_included - it's important for getting correct incoming receipts
+        // 3b. Checking that chunk `prev_chunk` is included into block at height before
+        // chunk.height_included 3ba. Also checking prev_chunk.height_included -
+        // it's important for getting correct incoming receipts
         match (&prev_chunk_header, shard_state_header.prev_chunk_proof()) {
             (Some(prev_chunk_header), Some(prev_chunk_proof)) => {
                 let prev_block_header =
@@ -3047,8 +3116,9 @@ impl Chain {
             // We know there were exactly `block_header.chunks_included` chunks included
             // on the height of block `block_hash`.
             // There were no other proofs except for included chunks.
-            // According to Pigeonhole principle, it's enough to ensure all receipt_proofs are distinct
-            // to prove that all receipts were received and no receipts were hidden.
+            // According to Pigeonhole principle, it's enough to ensure all receipt_proofs
+            // are distinct to prove that all receipts were received and no
+            // receipts were hidden.
             let mut visited_shard_ids = HashSet::<ShardId>::new();
             for (j, receipt_proof) in receipt_proofs.iter().enumerate() {
                 let ReceiptProof(receipts, shard_proof) = receipt_proof;
@@ -3063,7 +3133,8 @@ impl Chain {
                 };
                 let RootProof(root, block_proof) = &shard_state_header.root_proofs()[i][j];
                 let receipts_hash = CryptoHash::hash_borsh(ReceiptList(shard_id, receipts));
-                // 4e. Proving the set of receipts is the subset of outgoing_receipts of shard `shard_id`
+                // 4e. Proving the set of receipts is the subset of outgoing_receipts of shard
+                // `shard_id`
                 if !verify_path(*root, proof, &receipts_hash) {
                     byzantine_assert!(false);
                     return Err(Error::Other("set_shard_state failed: invalid proofs".into()));
@@ -3173,12 +3244,14 @@ impl Chain {
 
         let block_hash = chunk.prev_block();
 
-        // Flat storage must not exist at this point because leftover keys corrupt its state.
+        // Flat storage must not exist at this point because leftover keys corrupt its
+        // state.
         assert!(self.runtime_adapter.get_flat_storage_state_for_shard(shard_id).is_none());
 
-        // We synced shard state on top of _previous_ block for chunk in shard state header and applied state parts to
-        // flat storage. Now we can set flat head to hash of this block and create flat storage.
-        // TODO (#7327): ensure that no flat storage work is done for `KeyValueRuntime`.
+        // We synced shard state on top of _previous_ block for chunk in shard state
+        // header and applied state parts to flat storage. Now we can set flat
+        // head to hash of this block and create flat storage. TODO (#7327):
+        // ensure that no flat storage work is done for `KeyValueRuntime`.
         #[cfg(feature = "protocol_feature_flat_state")]
         {
             let mut store_update = self.runtime_adapter.store().store_update();
@@ -3189,9 +3262,10 @@ impl Chain {
         if self.runtime_adapter.get_flat_storage_creation_status(shard_id)
             == FlatStorageCreationStatus::Ready
         {
-            // If block_hash is equal to default - this means that we're all the way back at genesis.
-            // So we don't have to add the storage state for shard in such case.
-            // TODO(8438) - add additional test scenarios for this case.
+            // If block_hash is equal to default - this means that we're all the way back at
+            // genesis. So we don't have to add the storage state for shard in
+            // such case. TODO(8438) - add additional test scenarios for this
+            // case.
             if *block_hash != CryptoHash::default() {
                 let block_height = self.get_block_header(block_hash)?.height();
 
@@ -3208,8 +3282,9 @@ impl Chain {
         chain_update.set_state_finalize(shard_id, sync_hash, shard_state_header)?;
         chain_update.commit()?;
 
-        // We restored the state on height `shard_state_header.chunk.header.height_included`.
-        // Now we should build a chain up to height of `sync_hash` block.
+        // We restored the state on height
+        // `shard_state_header.chunk.header.height_included`. Now we should
+        // build a chain up to height of `sync_hash` block.
         loop {
             height += 1;
             let mut chain_update = self.chain_update();
@@ -3295,10 +3370,11 @@ impl Chain {
                blocks_catch_up_state.scheduled_blocks, blocks_catch_up_state.done_blocks.len());
         let mut processed_blocks = HashMap::new();
         for (queued_block, results) in blocks_catch_up_state.processed_blocks.drain() {
-            // If this block is parent of some blocks in processing that need to be caught up,
-            // we can't mark this block as done yet because these blocks haven't been added to
-            // the store as blocks to be caught up yet. If we mark this block as done right now,
-            // these blocks will never get caught up. So we add these blocks back to the processed_blocks
+            // If this block is parent of some blocks in processing that need to be caught
+            // up, we can't mark this block as done yet because these blocks
+            // haven't been added to the store as blocks to be caught up yet. If
+            // we mark this block as done right now, these blocks will never get
+            // caught up. So we add these blocks back to the processed_blocks
             // queue.
             if self.blocks_in_processing.has_blocks_to_catch_up(&queued_block) {
                 processed_blocks.insert(queued_block, results);
@@ -3372,8 +3448,9 @@ impl Chain {
         chain_update.commit()?;
 
         for shard_id in 0..self.runtime_adapter.num_shards(block.header().epoch_id())? {
-            // Update flat storage for each shard being caught up. We catch up a shard if it is tracked in the next
-            // epoch. If it is tracked in this epoch as well, it was updated during regular block processing.
+            // Update flat storage for each shard being caught up. We catch up a shard if it
+            // is tracked in the next epoch. If it is tracked in this epoch as
+            // well, it was updated during regular block processing.
             if !self.runtime_adapter.cares_about_shard(
                 me.as_ref(),
                 block.header().prev_hash(),
@@ -3392,7 +3469,8 @@ impl Chain {
         Ok(())
     }
 
-    /// Apply transactions in chunks for the next epoch in blocks that were blocked on the state sync
+    /// Apply transactions in chunks for the next epoch in blocks that were
+    /// blocked on the state sync
     pub fn finish_catchup_blocks(
         &mut self,
         me: &Option<AccountId>,
@@ -3410,9 +3488,10 @@ impl Chain {
 
         let mut chain_store_update = ChainStoreUpdate::new(&mut self.store);
 
-        // `blocks_to_catchup` consists of pairs (`prev_hash`, `hash`). For the block that precedes
-        // `epoch_first_block` we should only remove the pair with hash = epoch_first_block, while
-        // for all the blocks in the queue we can remove all the pairs that have them as `prev_hash`
+        // `blocks_to_catchup` consists of pairs (`prev_hash`, `hash`). For the block
+        // that precedes `epoch_first_block` we should only remove the pair with
+        // hash = epoch_first_block, while for all the blocks in the queue we
+        // can remove all the pairs that have them as `prev_hash`
         // since we processed all the blocks built on top of them above during the BFS
         chain_store_update
             .remove_block_to_catchup(*first_block.header().prev_hash(), *epoch_first_block);
@@ -3538,7 +3617,8 @@ impl Chain {
         self.runtime_adapter.get_chunk_producer(epoch_id, target_height, shard_id)
     }
 
-    /// Find a validator that is responsible for a given shard to forward requests to
+    /// Find a validator that is responsible for a given shard to forward
+    /// requests to
     pub fn find_validator_for_forwarding(&self, shard_id: ShardId) -> Result<AccountId, Error> {
         let head = self.head()?;
         let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(&head.last_block_hash)?;
@@ -3622,9 +3702,9 @@ impl Chain {
         //     Some(block.hash()),
         // )?;
         // let prev_chunk_inner = prev_chunk.cloned_header().take_inner();
-        // let is_first_block_with_chunk_of_version = check_if_block_is_first_with_chunk_of_version(
-        //     &mut self.chain_store_update,
-        //     self.runtime_adapter.as_ref(),
+        // let is_first_block_with_chunk_of_version =
+        // check_if_block_is_first_with_chunk_of_version(     &mut self.
+        // chain_store_update,     self.runtime_adapter.as_ref(),
         //     prev_block.hash(),
         //     chunk_shard_id,
         // )?;
@@ -3720,11 +3800,12 @@ impl Chain {
                 self.runtime_adapter.cares_about_shard(me.as_ref(), prev_hash, shard_id, true);
             let cares_about_shard_next_epoch =
                 self.runtime_adapter.will_care_about_shard(me.as_ref(), prev_hash, shard_id, true);
-            // We want to guarantee that transactions are only applied once for each shard, even
-            // though apply_chunks may be called twice, once with ApplyChunksMode::NotCaughtUp
+            // We want to guarantee that transactions are only applied once for each shard,
+            // even though apply_chunks may be called twice, once with
+            // ApplyChunksMode::NotCaughtUp
             // once with ApplyChunksMode::CatchingUp
-            // Note that this variable does not guard whether we split states or not, see the comments
-            // before `need_to_split_state`
+            // Note that this variable does not guard whether we split states or not, see
+            // the comments before `need_to_split_state`
             let should_apply_transactions = match mode {
                 // next epoch's shard states are not ready, only update this epoch's shards
                 ApplyChunksMode::NotCaughtUp => cares_about_shard_this_epoch,
@@ -3739,20 +3820,22 @@ impl Chain {
                 }
             };
             let need_to_split_states = will_shard_layout_change && cares_about_shard_next_epoch;
-            // We can only split states when states are ready, i.e., mode != ApplyChunksMode::NotCaughtUp
-            // 1) if should_apply_transactions == true && split_state_roots.is_some(),
-            //     that means split states are ready.
-            //    `apply_split_state_changes` will apply updates to split_states
-            // 2) if should_apply_transactions == true && split_state_roots.is_none(),
-            //     that means split states are not ready yet.
-            //    `apply_split_state_changes` will return `state_changes_for_split_states`,
-            //     which will be stored to the database in `process_apply_chunks`
+            // We can only split states when states are ready, i.e., mode !=
+            // ApplyChunksMode::NotCaughtUp 1) if should_apply_transactions ==
+            // true && split_state_roots.is_some(),     that means split states
+            // are ready.    `apply_split_state_changes` will apply updates to
+            // split_states 2) if should_apply_transactions == true &&
+            // split_state_roots.is_none(),     that means split states are not
+            // ready yet.    `apply_split_state_changes` will return
+            // `state_changes_for_split_states`,     which will be stored to the
+            // database in `process_apply_chunks`
             // 3) if should_apply_transactions == false && split_state_roots.is_some()
             //    This implies mode == CatchingUp and cares_about_shard_this_epoch == true,
             //    otherwise should_apply_transactions will be true
-            //    That means transactions have already been applied last time when apply_chunks are
-            //    called with mode NotCaughtUp, therefore `state_changes_for_split_states` have been
-            //    stored in the database. Then we can safely read that and apply that to the split
+            //    That means transactions have already been applied last time when
+            // apply_chunks are    called with mode NotCaughtUp, therefore
+            // `state_changes_for_split_states` have been    stored in the
+            // database. Then we can safely read that and apply that to the split
             //    states
             let split_state_roots = if need_to_split_states {
                 match mode {
@@ -3800,8 +3883,8 @@ impl Chain {
                             Err(err) => err,
                         }
                     })?;
-                    // we can't use hash from the current block here yet because the incoming receipts
-                    // for this block is not stored yet
+                    // we can't use hash from the current block here yet because the incoming
+                    // receipts for this block is not stored yet
                     let mut receipts = collect_receipts(incoming_receipts.get(&shard_id).unwrap());
                     receipts.extend(collect_receipts_from_response(
                         &self.store().get_incoming_receipts_for_shard(
@@ -3847,10 +3930,11 @@ impl Chain {
                     let chunk_inner = chunk.cloned_header().take_inner();
                     let gas_limit = chunk_inner.gas_limit();
 
-                    // This variable is responsible for checking to which block we can apply receipts previously lost in apply_chunks
-                    // (see https://github.com/near/nearcore/pull/4248/)
-                    // We take the first block with existing chunk in the first epoch in which protocol feature
-                    // RestoreReceiptsAfterFixApplyChunks was enabled, and put the restored receipts there.
+                    // This variable is responsible for checking to which block we can apply
+                    // receipts previously lost in apply_chunks (see https://github.com/near/nearcore/pull/4248/)
+                    // We take the first block with existing chunk in the first epoch in which
+                    // protocol feature RestoreReceiptsAfterFixApplyChunks was
+                    // enabled, and put the restored receipts there.
                     let is_first_block_with_chunk_of_version =
                         check_if_block_is_first_with_chunk_of_version(
                             self.store(),
@@ -3982,8 +4066,8 @@ impl Chain {
             } else if let Some(split_state_roots) = split_state_roots {
                 // case 3)
                 assert!(mode == ApplyChunksMode::CatchingUp && cares_about_shard_this_epoch);
-                // Split state are ready. Read the state changes from the database and apply them
-                // to the split states.
+                // Split state are ready. Read the state changes from the database and apply
+                // them to the split states.
                 let next_epoch_shard_layout =
                     self.runtime_adapter.get_shard_layout(block.header().next_epoch_id())?;
                 let state_changes =
@@ -4059,7 +4143,8 @@ impl Chain {
         )
     }
 
-    /// Get node at given position (index, level). If the node does not exist, return `None`.
+    /// Get node at given position (index, level). If the node does not exist,
+    /// return `None`.
     fn get_merkle_tree_node(
         &self,
         index: u64,
@@ -4117,7 +4202,8 @@ impl Chain {
         }
     }
 
-    /// Reconstruct node at given position (index, level). If the node does not exist, return `None`.
+    /// Reconstruct node at given position (index, level). If the node does not
+    /// exist, return `None`.
     fn reconstruct_merkle_tree_node(
         &self,
         index: u64,
@@ -4160,7 +4246,8 @@ impl Chain {
         }
     }
 
-    /// Get merkle proof for block with hash `block_hash` in the merkle tree of `head_block_hash`.
+    /// Get merkle proof for block with hash `block_hash` in the merkle tree of
+    /// `head_block_hash`.
     pub fn get_block_proof(
         &self,
         block_hash: &CryptoHash,
@@ -4235,7 +4322,8 @@ impl Chain {
         self.store.header_head()
     }
 
-    /// Header of the block at the head of the block chain (not the same thing as header_head).
+    /// Header of the block at the head of the block chain (not the same thing
+    /// as header_head).
     #[inline]
     pub fn head_header(&self) -> Result<BlockHeader, Error> {
         self.store.head_header()
@@ -4293,13 +4381,15 @@ impl Chain {
         self.store.get_block_header(hash)
     }
 
-    /// Returns block header from the canonical chain for given height if present.
+    /// Returns block header from the canonical chain for given height if
+    /// present.
     #[inline]
     pub fn get_block_header_by_height(&self, height: BlockHeight) -> Result<BlockHeader, Error> {
         self.store.get_block_header_by_height(height)
     }
 
-    /// Returns block header from the current chain defined by `sync_hash` for given height if present.
+    /// Returns block header from the current chain defined by `sync_hash` for
+    /// given height if present.
     #[inline]
     pub fn get_block_header_on_chain_by_height(
         &self,
@@ -4352,9 +4442,9 @@ impl Chain {
     }
 
     /// Get next block hash for which there is a new chunk for the shard.
-    /// If sharding changes before we can find a block with a new chunk for the shard,
-    /// find the first block that contains a new chunk for any of the shards that split from the
-    /// original shard
+    /// If sharding changes before we can find a block with a new chunk for the
+    /// shard, find the first block that contains a new chunk for any of the
+    /// shards that split from the original shard
     pub fn get_next_block_hash_with_new_chunk(
         &self,
         block_hash: &CryptoHash,
@@ -4363,7 +4453,8 @@ impl Chain {
         let mut block_hash = *block_hash;
         let mut epoch_id = self.get_block_header(&block_hash)?.epoch_id().clone();
         let mut shard_layout = self.runtime_adapter.get_shard_layout(&epoch_id)?;
-        // this corrects all the shard where the original shard will split to if sharding changes
+        // this corrects all the shard where the original shard will split to if
+        // sharding changes
         let mut shard_ids = vec![shard_id];
 
         while let Ok(next_block_hash) = self.store.get_next_block_hash(&block_hash) {
@@ -4497,7 +4588,8 @@ impl Chain {
         }
     }
 
-    /// Get transaction result for given hash of transaction or receipt id on the canonical chain
+    /// Get transaction result for given hash of transaction or receipt id on
+    /// the canonical chain
     pub fn get_execution_outcome(
         &self,
         id: &CryptoHash,
@@ -4513,10 +4605,12 @@ impl Chain {
     }
 
     /// Retrieve the up to `max_headers_returned` headers on the main chain
-    /// `hashes`: a list of block "locators". `hashes` should be ordered from older blocks to
-    ///           more recent blocks. This function will find the first block in `hashes`
-    ///           that is on the main chain and returns the blocks after this block. If none of the
-    ///           blocks in `hashes` are on the main chain, the function returns an empty vector.
+    /// `hashes`: a list of block "locators". `hashes` should be ordered from
+    /// older blocks to           more recent blocks. This function will
+    /// find the first block in `hashes`           that is on the main chain
+    /// and returns the blocks after this block. If none of the
+    ///           blocks in `hashes` are on the main chain, the function returns
+    /// an empty vector.
     pub fn retrieve_headers(
         &self,
         hashes: Vec<CryptoHash>,
@@ -4543,17 +4637,18 @@ impl Chain {
         Ok(headers)
     }
 
-    /// Returns a vector of chunk headers, each of which corresponds to the previous chunk of
-    /// a chunk in the block after `prev_block`
-    /// This function is important when the block after `prev_block` has different number of chunks
-    /// from `prev_block`.
-    /// In block production and processing, often we need to get the previous chunks of chunks
-    /// in the current block, this function provides a way to do so while handling sharding changes
-    /// correctly.
-    /// For example, if `prev_block` has two shards 0, 1 and the block after `prev_block` will have
-    /// 4 shards 0, 1, 2, 3, 0 and 1 split from shard 0 and 2 and 3 split from shard 1.
-    /// `get_prev_chunks(runtime_adapter, prev_block)` will return
-    /// `[prev_block.chunks()[0], prev_block.chunks()[0], prev_block.chunks()[1], prev_block.chunks()[1]]`
+    /// Returns a vector of chunk headers, each of which corresponds to the
+    /// previous chunk of a chunk in the block after `prev_block`
+    /// This function is important when the block after `prev_block` has
+    /// different number of chunks from `prev_block`.
+    /// In block production and processing, often we need to get the previous
+    /// chunks of chunks in the current block, this function provides a way
+    /// to do so while handling sharding changes correctly.
+    /// For example, if `prev_block` has two shards 0, 1 and the block after
+    /// `prev_block` will have 4 shards 0, 1, 2, 3, 0 and 1 split from shard
+    /// 0 and 2 and 3 split from shard 1. `get_prev_chunks(runtime_adapter,
+    /// prev_block)` will return `[prev_block.chunks()[0],
+    /// prev_block.chunks()[0], prev_block.chunks()[1], prev_block.chunks()[1]]`
     pub fn get_prev_chunk_headers(
         runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
         prev_block: &Block,
@@ -4708,13 +4803,13 @@ impl<'a> ChainUpdate<'a> {
         self.chain_store_update.commit()
     }
 
-    /// For all the outgoing receipts generated in block `hash` at the shards we are tracking
-    /// in this epoch,
-    /// save a mapping from receipt ids to the destination shard ids that the receipt will be sent
-    /// to in the next block.
-    /// Note that this function should be called after `save_block` is called on this block because
-    /// it requires that the block info is available in EpochManager, otherwise it will return an
-    /// error.
+    /// For all the outgoing receipts generated in block `hash` at the shards we
+    /// are tracking in this epoch,
+    /// save a mapping from receipt ids to the destination shard ids that the
+    /// receipt will be sent to in the next block.
+    /// Note that this function should be called after `save_block` is called on
+    /// this block because it requires that the block info is available in
+    /// EpochManager, otherwise it will return an error.
     pub fn save_receipt_id_to_shard_id_for_block(
         &mut self,
         me: &Option<AccountId>,
@@ -4778,10 +4873,11 @@ impl<'a> ChainUpdate<'a> {
 
     /// Process ApplyTransactionResult to apply changes to split states
     /// When shards will change next epoch,
-    ///    if `split_state_roots` is not None, that means states for the split shards are ready
-    ///    this function updates these states and return apply results for these states
-    ///    otherwise, this function returns state changes needed to be applied to split
-    ///    states. These state changes will be stored in the database by `process_split_state`
+    ///    if `split_state_roots` is not None, that means states for the split
+    /// shards are ready    this function updates these states and return
+    /// apply results for these states    otherwise, this function returns
+    /// state changes needed to be applied to split    states. These state
+    /// changes will be stored in the database by `process_split_state`
     fn apply_split_state_changes(
         runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
         block_hash: &CryptoHash,
@@ -4808,14 +4904,16 @@ impl<'a> ChainUpdate<'a> {
             )?;
             Ok(ApplySplitStateResultOrStateChanges::ApplySplitStateResults(split_state_results))
         } else {
-            // split states are not ready yet, store state changes in consolidated_state_changes
+            // split states are not ready yet, store state changes in
+            // consolidated_state_changes
             Ok(ApplySplitStateResultOrStateChanges::StateChangesForSplitStates(state_changes))
         }
     }
 
-    /// Postprocess split state results or state changes, do the necessary update on chain
-    /// for split state results: store the chunk extras and trie changes for the split states
-    /// for state changes, store the state changes for splitting states
+    /// Postprocess split state results or state changes, do the necessary
+    /// update on chain for split state results: store the chunk extras and
+    /// trie changes for the split states for state changes, store the state
+    /// changes for splitting states
     fn process_split_state(
         &mut self,
         block_hash: &CryptoHash,
@@ -4827,11 +4925,12 @@ impl<'a> ChainUpdate<'a> {
             ApplySplitStateResultOrStateChanges::ApplySplitStateResults(results) => {
                 // Split validator_proposals, gas_burnt, balance_burnt to each split shard
                 // and store the chunk extra for split shards
-                // Note that here we do not split outcomes by the new shard layout, we simply store
-                // the outcome_root from the parent shard. This is because outcome proofs are
-                // generated per shard using the old shard layout and stored in the database.
-                // For these proofs to work, we must store the outcome root per shard
-                // using the old shard layout instead of the new shard layout
+                // Note that here we do not split outcomes by the new shard layout, we simply
+                // store the outcome_root from the parent shard. This is because
+                // outcome proofs are generated per shard using the old shard
+                // layout and stored in the database. For these proofs to work,
+                // we must store the outcome root per shard using the old shard
+                // layout instead of the new shard layout
                 let chunk_extra = self.chain_store_update.get_chunk_extra(block_hash, shard_uid)?;
                 let next_epoch_shard_layout = {
                     let epoch_id =
@@ -4925,7 +5024,8 @@ impl<'a> ChainUpdate<'a> {
                     .map_err(|e| StorageError::from(e))?;
                 self.chain_store_update.merge(store_update);
             } else {
-                // Otherwise, save delta to disk so it will be used for flat storage creation later.
+                // Otherwise, save delta to disk so it will be used for flat storage creation
+                // later.
                 info!(target: "chain", %shard_id, "Add delta for flat storage creation");
                 let mut store_update = self.chain_store_update.store().store_update();
                 store_helper::set_delta(&mut store_update, shard_id, block_hash.clone(), &delta)
@@ -5043,8 +5143,9 @@ impl<'a> ChainUpdate<'a> {
         Ok(())
     }
 
-    /// This is the last step of process_block_single, where we take the preprocess block info
-    /// apply chunk results and store the results on chain.
+    /// This is the last step of process_block_single, where we take the
+    /// preprocess block info apply chunk results and store the results on
+    /// chain.
     fn postprocess_block(
         &mut self,
         me: &Option<AccountId>,
@@ -5125,14 +5226,16 @@ impl<'a> ChainUpdate<'a> {
 
         if res.is_some() {
             // On the epoch switch record the epoch light client block
-            // Note that we only do it if `res.is_some()`, i.e. if the current block is the head.
-            // This is necessary because the computation of the light client block relies on
-            // `ColNextBlockHash`-es populated, and they are only populated for the canonical
-            // chain. We need to be careful to avoid a situation when the first block of the epoch
+            // Note that we only do it if `res.is_some()`, i.e. if the current block is the
+            // head. This is necessary because the computation of the light
+            // client block relies on `ColNextBlockHash`-es populated, and they
+            // are only populated for the canonical chain. We need to be careful
+            // to avoid a situation when the first block of the epoch
             // never becomes a tip of the canonical chain.
-            // Presently the epoch boundary is defined by the height, and the fork choice rule
-            // is also just height, so the very first block to cross the epoch end is guaranteed
-            // to be the head of the chain, and result in the light client block produced.
+            // Presently the epoch boundary is defined by the height, and the fork choice
+            // rule is also just height, so the very first block to cross the
+            // epoch end is guaranteed to be the head of the chain, and result
+            // in the light client block produced.
             let prev = self.chain_store_update.get_previous_header(block.header())?;
             let prev_epoch_id = prev.epoch_id().clone();
             if block.header().epoch_id() != &prev_epoch_id {
@@ -5227,8 +5330,9 @@ impl<'a> ChainUpdate<'a> {
         }
     }
 
-    /// Directly updates the head if we've just appended a new block to it or handle
-    /// the situation where the block has higher height to have a fork
+    /// Directly updates the head if we've just appended a new block to it or
+    /// handle the situation where the block has higher height to have a
+    /// fork
     fn update_head(&mut self, header: &BlockHeader) -> Result<Option<Tip>, Error> {
         // if we made a fork with higher height than the head (which should also be true
         // when extending the head), update it
@@ -5279,11 +5383,12 @@ impl<'a> ChainUpdate<'a> {
 
         // If the block being invalidated is on the canonical chain, update head
         if cur_block_at_same_height == Some(*block_hash) {
-            // We only consider two candidates for the new head: the challenger and the block
-            //   immediately preceding the block being challenged
-            // It could be that there is a better chain known. However, it is extremely unlikely,
-            //   and even if there's such chain available, the very next block built on it will
-            //   bring this node's head to that chain.
+            // We only consider two candidates for the new head: the challenger and the
+            // block   immediately preceding the block being challenged
+            // It could be that there is a better chain known. However, it is extremely
+            // unlikely,   and even if there's such chain available, the very
+            // next block built on it will   bring this node's head to that
+            // chain.
             let prev_header = self.chain_store_update.get_block_header(block_header.prev_hash())?;
             let prev_height = prev_header.height();
             let new_head_header = if let Some(hash) = challenger_hash {
@@ -5339,7 +5444,8 @@ impl<'a> ChainUpdate<'a> {
             }
         }
         let receipts = collect_receipts_from_response(&receipt_proof_response);
-        // Prev block header should be present during state sync, since headers have been synced at this point.
+        // Prev block header should be present during state sync, since headers have
+        // been synced at this point.
         let gas_price = if block_header.height() == self.chain_store_update.get_genesis_height() {
             block_header.gas_price()
         } else {
@@ -5493,8 +5599,8 @@ pub fn do_apply_chunks(
             .entered();
     work.into_par_iter()
         .map(|task| {
-            // As chunks can be processed in parallel, make sure they are all tracked as children of
-            // a single span.
+            // As chunks can be processed in parallel, make sure they are all tracked as
+            // children of a single span.
             task(&parent_span)
         })
         .collect::<Vec<_>>()
@@ -5573,15 +5679,16 @@ pub struct StateSplitResponse {
 
 /// Helper to track blocks catch up
 /// Lifetime of a block_hash is as follows:
-/// 1. It is added to pending blocks, either as first block of an epoch or because we (post)
-///     processed previous block
-/// 2. Block is preprocessed and scheduled for processing in sync jobs actor. Block hash
-///     and state changes from preprocessing goes to scheduled blocks
-/// 3. We've got response from sync jobs actor that block was processed. Block hash, state
-///     changes from preprocessing and result of processing block are moved to processed blocks
-/// 4. Results are postprocessed. If there is any error block goes back to pending to try again.
-///     Otherwise results are commited, block is moved to done blocks and any blocks that
-///     have this block as previous are added to pending
+/// 1. It is added to pending blocks, either as first block of an epoch or
+/// because we (post)     processed previous block
+/// 2. Block is preprocessed and scheduled for processing in sync jobs actor.
+/// Block hash     and state changes from preprocessing goes to scheduled blocks
+/// 3. We've got response from sync jobs actor that block was processed. Block
+/// hash, state     changes from preprocessing and result of processing block
+/// are moved to processed blocks 4. Results are postprocessed. If there is any
+/// error block goes back to pending to try again.     Otherwise results are
+/// commited, block is moved to done blocks and any blocks that     have this
+/// block as previous are added to pending
 pub struct BlocksCatchUpState {
     /// Hash of first block of an epoch
     pub first_block_hash: CryptoHash,
@@ -5589,10 +5696,11 @@ pub struct BlocksCatchUpState {
     pub epoch_id: EpochId,
     /// Collection of block hashes that are yet to be sent for processed
     pub pending_blocks: Vec<CryptoHash>,
-    /// Map from block hashes that are scheduled for processing to saved store updates from their
-    /// preprocessing
+    /// Map from block hashes that are scheduled for processing to saved store
+    /// updates from their preprocessing
     pub scheduled_blocks: HashSet<CryptoHash>,
-    /// Map from block hashes that were processed to (saved store update, process results)
+    /// Map from block hashes that were processed to (saved store update,
+    /// process results)
     pub processed_blocks: HashMap<CryptoHash, Vec<Result<ApplyChunkResult, Error>>>,
     /// Collection of block hashes that are fully processed
     pub done_blocks: Vec<CryptoHash>,

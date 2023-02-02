@@ -358,7 +358,8 @@ impl Runner {
         self
     }
 
-    /// Allow message to connect among themselves without triggering new connections.
+    /// Allow message to connect among themselves without triggering new
+    /// connections.
     pub fn enable_outbound(mut self) -> Self {
         self.apply_all(|test_config| {
             test_config.outbound_disabled = false;
@@ -366,14 +367,16 @@ impl Runner {
         self
     }
 
-    /// Add an action to be executed by the Runner. Actions are executed sequentially.
-    /// Each action is executed after the previous action succeed.
+    /// Add an action to be executed by the Runner. Actions are executed
+    /// sequentially. Each action is executed after the previous action
+    /// succeed.
     pub fn push(&mut self, action: Action) {
         self.state_machine.push(action);
     }
 
-    /// Add an action to be executed by the Runner. Actions are executed sequentially.
-    /// Each action is executed after the previous action succeed.
+    /// Add an action to be executed by the Runner. Actions are executed
+    /// sequentially. Each action is executed after the previous action
+    /// succeed.
     pub fn push_action(&mut self, action: ActionFn) {
         self.state_machine.push_action(action);
     }
@@ -559,8 +562,8 @@ pub(crate) fn restart(node_id: usize) -> ActionFn {
     })
 }
 
-/// Change account id from a stopped peer. Notice this will also change its peer id, since
-/// peer_id is derived from account id with NetworkConfig::from_seed
+/// Change account id from a stopped peer. Notice this will also change its peer
+/// id, since peer_id is derived from account id with NetworkConfig::from_seed
 pub(crate) fn change_account_id(node_id: usize, account_id: AccountId) -> ActionFn {
     Box::new(move |info: &mut RunningInfo| {
         let account_id = account_id.clone();

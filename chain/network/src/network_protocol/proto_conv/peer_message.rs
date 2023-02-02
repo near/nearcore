@@ -1,4 +1,5 @@
-/// Conversion functions for PeerMessage - the top-level message for the NEAR P2P protocol format.
+/// Conversion functions for PeerMessage - the top-level message for the NEAR
+/// P2P protocol format.
 use super::*;
 
 use crate::network_protocol::proto;

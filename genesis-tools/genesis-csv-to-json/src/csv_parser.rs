@@ -124,7 +124,7 @@ struct Row {
 /// * `AccountInfo`s that represent validators;
 /// * `PeerInfo`s that represent boot nodes;
 /// * `AccountId` of the treasury.
-/// *  Genesis time
+/// * Genesis time
 pub fn keys_to_state_records<R>(
     reader: R,
     gas_price: Balance,

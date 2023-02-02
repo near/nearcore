@@ -15,11 +15,12 @@ mod disabled {
     }
 }
 
-/// Object that can be used to measure elapsed time between its creation and destruction.
+/// Object that can be used to measure elapsed time between its creation and
+/// destruction.
 ///
 /// It will print into the log, the amount of elapsed time.
-/// Moreover if you use the 'snapshot' calls to mark important pieces of the computation,
-/// you'll get a nice summary of where the time was spent.
+/// Moreover if you use the 'snapshot' calls to mark important pieces of the
+/// computation, you'll get a nice summary of where the time was spent.
 
 #[cfg(feature = "delay_detector")]
 mod enabled {
@@ -63,8 +64,9 @@ mod enabled {
             self
         }
 
-        /// Marks that the part of the computation was finished. This allows DelayDetector
-        /// to measure (and then display) more detailed time breakdown.
+        /// Marks that the part of the computation was finished. This allows
+        /// DelayDetector to measure (and then display) more detailed
+        /// time breakdown.
         pub fn snapshot(&mut self, msg: &str) {
             let now = Instant::now();
             let cpu_time = ProcessTime::now();

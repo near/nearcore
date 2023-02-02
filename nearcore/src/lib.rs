@@ -151,8 +151,9 @@ pub struct NearNode {
     pub view_client: Addr<ViewClientActor>,
     pub arbiters: Vec<ArbiterHandle>,
     pub rpc_servers: Vec<(&'static str, actix_web::dev::ServerHandle)>,
-    /// The cold_store_loop_handle will only be set if the cold store is configured.
-    /// It's a handle to a background thread that copies data from the hot store to the cold store.
+    /// The cold_store_loop_handle will only be set if the cold store is
+    /// configured. It's a handle to a background thread that copies data
+    /// from the hot store to the cold store.
     pub cold_store_loop_handle: Option<ColdStoreLoopHandle>,
 }
 

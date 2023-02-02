@@ -143,7 +143,8 @@ pub enum Error {
     /// Invalid epoch hash
     #[error("Invalid Epoch Hash")]
     InvalidEpochHash,
-    /// `next_bps_hash` doens't correspond to the actual next block producers set
+    /// `next_bps_hash` doens't correspond to the actual next block producers
+    /// set
     #[error("Invalid Next BP Hash")]
     InvalidNextBPHash,
     /// The block has a protocol version that's outdated
@@ -194,7 +195,8 @@ pub enum Error {
     /// Validator error.
     #[error("Validator Error: {0}")]
     ValidatorError(String),
-    /// Epoch out of bounds. Usually if received block is too far in the future or alternative fork.
+    /// Epoch out of bounds. Usually if received block is too far in the future
+    /// or alternative fork.
     #[error("Epoch Out Of Bounds: {:?}", _0)]
     EpochOutOfBounds(EpochId),
     /// A challenged block is on the chain that was attempted to become the head

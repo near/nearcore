@@ -223,7 +223,8 @@ impl Testbed<'_> {
         self.tries.get_store().flush().unwrap();
 
         // OS caches:
-        // - only required in time based measurements, since ICount looks at syscalls directly.
+        // - only required in time based measurements, since ICount looks at syscalls
+        //   directly.
         // - requires sudo, therefore this is executed optionally
         if self.config.metric == GasMetric::Time && self.config.drop_os_cache {
             #[cfg(target_os = "linux")]
@@ -287,7 +288,8 @@ impl Testbed<'_> {
         n
     }
 
-    /// Process just the verification of a transaction, without action execution.
+    /// Process just the verification of a transaction, without action
+    /// execution.
     ///
     /// Use this method for measuring the SEND cost of actions. This is the
     /// workload done on the sender's shard before an action receipt is created.

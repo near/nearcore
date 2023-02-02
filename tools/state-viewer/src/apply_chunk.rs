@@ -22,8 +22,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tracing::warn;
 
-// like ChainStoreUpdate::get_incoming_receipts_for_shard(), but for the case when we don't
-// know of a block containing the target chunk
+// like ChainStoreUpdate::get_incoming_receipts_for_shard(), but for the case
+// when we don't know of a block containing the target chunk
 fn get_incoming_receipts(
     chain_store: &mut ChainStore,
     chunk_hash: &ChunkHash,
@@ -58,7 +58,8 @@ fn get_incoming_receipts(
     }
 
     if let Some(mut rng) = rng {
-        // for testing purposes, shuffle the receipts the same way it's done normally so we can compare the state roots
+        // for testing purposes, shuffle the receipts the same way it's done normally so
+        // we can compare the state roots
         receipt_proofs.shuffle(&mut rng);
     }
     let mut responses = vec![ReceiptProofResponse(CryptoHash::default(), Arc::new(receipt_proofs))];
@@ -497,7 +498,8 @@ mod test {
 
             if height >= 2 {
                 for shard in 0..4 {
-                    // we will shuffle receipts the same as in production, otherwise the state roots don't match
+                    // we will shuffle receipts the same as in production, otherwise the state roots
+                    // don't match
                     let mut slice = [0u8; 32];
                     slice.copy_from_slice(hash.as_ref());
                     let rng: StdRng = SeedableRng::from_seed(slice);

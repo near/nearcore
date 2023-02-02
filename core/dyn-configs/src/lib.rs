@@ -15,7 +15,8 @@ mod metrics;
 pub struct UpdateableConfigs {
     /// Contents of the file LOG_CONFIG_FILENAME.
     pub log_config: Option<LogConfig>,
-    /// Contents of the `config.json` corresponding to the mutable fields of `ClientConfig`.
+    /// Contents of the `config.json` corresponding to the mutable fields of
+    /// `ClientConfig`.
     pub client_config: Option<UpdateableClientConfig>,
 }
 

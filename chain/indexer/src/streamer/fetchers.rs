@@ -23,8 +23,8 @@ pub(crate) async fn fetch_status(
         .map_err(|err| FailedToFetchData::String(err.to_string()))
 }
 
-/// Fetches the status to retrieve `latest_block_height` to determine if we need to fetch
-/// entire block or we already fetched this block.
+/// Fetches the status to retrieve `latest_block_height` to determine if we need
+/// to fetch entire block or we already fetched this block.
 pub(crate) async fn fetch_latest_block(
     client: &Addr<near_client::ViewClientActor>,
 ) -> Result<views::BlockView, FailedToFetchData> {
@@ -82,7 +82,8 @@ pub(crate) async fn fetch_state_changes(
 }
 
 /// Fetch all ExecutionOutcomeWithId for current block
-/// Returns a HashMap where the key is shard id IndexerExecutionOutcomeWithOptionalReceipt
+/// Returns a HashMap where the key is shard id
+/// IndexerExecutionOutcomeWithOptionalReceipt
 pub(crate) async fn fetch_outcomes(
     client: &Addr<near_client::ViewClientActor>,
     block_hash: CryptoHash,

@@ -20,7 +20,8 @@ pub trait Signer: Sync + Send {
 
     fn compute_vrf_with_proof(&self, _data: &[u8]) -> (crate::vrf::Value, crate::vrf::Proof);
 
-    /// Used by test infrastructure, only implement if make sense for testing otherwise raise `unimplemented`.
+    /// Used by test infrastructure, only implement if make sense for testing
+    /// otherwise raise `unimplemented`.
     fn write_to_file(&self, _path: &Path) -> io::Result<()> {
         unimplemented!();
     }

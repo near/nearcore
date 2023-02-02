@@ -163,8 +163,8 @@ pub(crate) struct ParameterTable {
     parameters: BTreeMap<Parameter, ParameterValue>,
 }
 
-/// Formats `ParameterTable` in human-readable format which is a subject to change and is not
-/// intended to be parsed back.
+/// Formats `ParameterTable` in human-readable format which is a subject to
+/// change and is not intended to be parsed back.
 impl core::fmt::Display for ParameterTable {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         for (key, value) in &self.parameters {
@@ -179,7 +179,8 @@ pub(crate) struct ParameterTableDiff {
     parameters: BTreeMap<Parameter, (Option<ParameterValue>, Option<ParameterValue>)>,
 }
 
-/// Error returned by ParameterTable::from_str() that parses a runtime configuration YAML file.
+/// Error returned by ParameterTable::from_str() that parses a runtime
+/// configuration YAML file.
 #[derive(thiserror::Error, Debug)]
 pub(crate) enum InvalidConfigError {
     #[error("could not parse `{1}` as a parameter")]
@@ -294,7 +295,8 @@ impl ParameterTable {
     }
 
     fn yaml_map(&self, params: impl Iterator<Item = &'static Parameter>) -> serde_yaml::Value {
-        // All parameter values can be serialized as YAML, so we don't ever expect this to fail.
+        // All parameter values can be serialized as YAML, so we don't ever expect this
+        // to fail.
         serde_yaml::to_value(
             params
                 .filter_map(|param| Some((param.to_string(), self.parameters.get(param)?)))
@@ -384,8 +386,9 @@ fn canonicalize_yaml_value(
 /// A value can be a positive integer or a string, with or without quotes.
 /// Integers can use underlines as separators (for readability).
 ///
-/// The main purpose of this function is to add support for integers with underscore digit
-/// separators which we use in the config but are not supported in YAML.
+/// The main purpose of this function is to add support for integers with
+/// underscore digit separators which we use in the config but are not supported
+/// in YAML.
 fn canonicalize_yaml_string(value: &str) -> Result<serde_yaml::Value, InvalidConfigError> {
     if value.is_empty() {
         return Ok(serde_yaml::Value::Null);
@@ -537,7 +540,8 @@ burnt_gas_reward: {
         );
     }
 
-    /// Reading reading a slightly funky formatted base parameter file with no diffs
+    /// Reading reading a slightly funky formatted base parameter file with no
+    /// diffs
     #[test]
     fn test_basic_parameter_table_weird_syntax() {
         check_parameter_table(

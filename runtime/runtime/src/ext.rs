@@ -26,10 +26,11 @@ pub struct RuntimeExt<'a> {
 /// Error used by `RuntimeExt`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ExternalError {
-    /// Unexpected error which is typically related to the node storage corruption.
-    /// It's possible the input state is invalid or malicious.
+    /// Unexpected error which is typically related to the node storage
+    /// corruption. It's possible the input state is invalid or malicious.
     StorageError(StorageError),
-    /// Error when accessing validator information. Happens inside epoch manager.
+    /// Error when accessing validator information. Happens inside epoch
+    /// manager.
     ValidatorError(EpochError),
 }
 

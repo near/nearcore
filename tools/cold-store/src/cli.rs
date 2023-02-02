@@ -116,7 +116,8 @@ fn copy_next_block(store: &NodeStorage, config: &NearConfig, hot_runtime: &Arc<N
     assert!(next_height <= hot_final_head, "Should not copy non final blocks");
 
     // Here it should be sufficient to just read from hot storage.
-    // Because BlockHeight is never garbage collectable and is not even copied to cold.
+    // Because BlockHeight is never garbage collectable and is not even copied to
+    // cold.
     let cold_head_hash = get_ser_from_store::<CryptoHash>(
         store,
         Temperature::Hot,
@@ -127,8 +128,8 @@ fn copy_next_block(store: &NodeStorage, config: &NearConfig, hot_runtime: &Arc<N
 
     // For copying block we need to have shard_layout.
     // For that we need epoch_id.
-    // For that we might use prev_block_hash, and because next_hight = cold_head_height + 1,
-    // we use cold_head_hash.
+    // For that we might use prev_block_hash, and because next_hight =
+    // cold_head_height + 1, we use cold_head_hash.
     update_cold_db(
         &*store.cold_db().unwrap(),
         &store.get_store(Temperature::Hot),
@@ -169,7 +170,8 @@ fn get_ser_from_store<T: near_primitives::borsh::BorshDeserialize>(
 /// This function is currently unused, but will be important in the future,
 /// when we start garbage collecting data from hot.
 /// For some columns you can understand the temperature by key.
-/// For others, though, read with fallback is the only working solution right now.
+/// For others, though, read with fallback is the only working solution right
+/// now.
 fn _get_with_fallback<T: near_primitives::borsh::BorshDeserialize>(
     store: &NodeStorage,
     col: DBCol,

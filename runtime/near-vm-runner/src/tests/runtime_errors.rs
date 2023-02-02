@@ -764,8 +764,8 @@ mod fix_contract_loading_cost_protocol_upgrade {
             ]);
     }
 
-    /// Failure during preparation must remain free of gas charges for old versions
-    /// but new versions must charge the loading gas.
+    /// Failure during preparation must remain free of gas charges for old
+    /// versions but new versions must charge the loading gas.
     #[test]
     fn test_fn_loading_gas_protocol_upgrade_fail_preparing() {
         // This list covers all control flows that are expected to change

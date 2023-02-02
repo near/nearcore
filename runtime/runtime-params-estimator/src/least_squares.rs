@@ -103,8 +103,9 @@ pub(crate) fn qemu_measurement_least_squares(
     ((pos_base, pos_factor), (neg_base, neg_factor))
 }
 
-/// Transforms input C into two components, where A,B are non-negative and where A-B ~= input.
-/// This method intentionally rounds fractions to whole integers, rounding towards zero.
+/// Transforms input C into two components, where A,B are non-negative and where
+/// A-B ~= input. This method intentionally rounds fractions to whole integers,
+/// rounding towards zero.
 fn split_pos_neg(num: Ratio<i128>) -> (Ratio<u64>, Ratio<u64>) {
     let pos = num.to_integer().to_u64().unwrap_or_default().into();
     let neg = (-num).to_integer().to_u64().unwrap_or_default().into();

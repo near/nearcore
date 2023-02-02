@@ -125,9 +125,10 @@ pub struct VersionedAccountData {
     /// * version is a manually incremented version counter. In case a validator
     ///   (after a restart/crash/state loss) learns from the network that it has
     ///   already published AccountData with some version, it can immediately
-    ///   override it by signing and broadcasting AccountData with a higher version.
-    /// * timestamp is a version tie breaker, introduced only to minimize
-    ///   the risk of version collision (see accounts_data/mod.rs).
+    ///   override it by signing and broadcasting AccountData with a higher
+    ///   version.
+    /// * timestamp is a version tie breaker, introduced only to minimize the
+    ///   risk of version collision (see accounts_data/mod.rs).
     pub version: u64,
     /// UTC timestamp of when the AccountData has been signed.
     pub timestamp: time::Utc,
@@ -135,7 +136,8 @@ pub struct VersionedAccountData {
 
 /// Limit on the size of the serialized AccountData message.
 /// It is important to have such a constraint on the serialized proto,
-/// because it may contain many unknown fields (which are dropped during parsing).
+/// because it may contain many unknown fields (which are dropped during
+/// parsing).
 pub const MAX_ACCOUNT_DATA_SIZE_BYTES: usize = 10000; // 10kB
 
 impl VersionedAccountData {
@@ -143,11 +145,12 @@ impl VersionedAccountData {
     /// Panics if AccountData.account_id doesn't match signer.validator_id(),
     /// as this would likely be a bug.
     /// Returns an error if the serialized data is too large to be broadcasted.
-    /// TODO(gprusak): consider separating serialization from signing (so introducing an
-    /// intermediate SerializedAccountData type) so that sign() then could fail only
-    /// due to account_id mismatch. Then instead of panicking we could return an error
-    /// and the caller (who constructs the arguments) would do an unwrap(). This would
-    /// consistute a cleaner never-panicking interface.
+    /// TODO(gprusak): consider separating serialization from signing (so
+    /// introducing an intermediate SerializedAccountData type) so that
+    /// sign() then could fail only due to account_id mismatch. Then instead
+    /// of panicking we could return an error and the caller (who constructs
+    /// the arguments) would do an unwrap(). This would consistute a cleaner
+    /// never-panicking interface.
     pub fn sign(self, signer: &dyn ValidatorSigner) -> anyhow::Result<SignedAccountData> {
         assert_eq!(
             self.account_key,
@@ -303,7 +306,8 @@ pub struct Handshake {
     pub(crate) sender_listen_port: Option<u16>,
     /// Peer's chain information.
     pub(crate) sender_chain_info: PeerChainInfoV2,
-    /// Represents new `edge`. Contains only `none` and `Signature` from the sender.
+    /// Represents new `edge`. Contains only `none` and `Signature` from the
+    /// sender.
     pub(crate) partial_edge_info: PartialEdgeInfo,
     /// Account owned by the sender.
     pub(crate) owned_account: Option<SignedOwnedAccount>,
@@ -330,7 +334,8 @@ pub enum PeerMessage {
     Tier1Handshake(Handshake),
     Tier2Handshake(Handshake),
     HandshakeFailure(PeerInfo, HandshakeFailureReason),
-    /// When a failed nonce is used by some peer, this message is sent back as evidence.
+    /// When a failed nonce is used by some peer, this message is sent back as
+    /// evidence.
     LastEdge(Edge),
     /// Contains accounts and edge information.
     SyncRoutingTable(RoutingTableUpdate),
@@ -381,7 +386,8 @@ pub enum ParsePeerMessageError {
 
 impl PeerMessage {
     /// Serializes a message in the given encoding.
-    /// If the encoding is `Proto`, then also attaches current Span's context to the message.
+    /// If the encoding is `Proto`, then also attaches current Span's context to
+    /// the message.
     pub(crate) fn serialize(&self, enc: Encoding) -> Vec<u8> {
         match enc {
             Encoding::Borsh => borsh_::PeerMessage::from(self).try_to_vec().unwrap(),
@@ -470,13 +476,13 @@ pub enum RoutedMessageBody {
 
 impl RoutedMessageBody {
     // Return whether this message is important.
-    // In routing logics, we send important messages multiple times to minimize the risk that they are
-    // lost
+    // In routing logics, we send important messages multiple times to minimize the
+    // risk that they are lost
     pub fn is_important(&self) -> bool {
         match self {
-            // Both BlockApproval and VersionedPartialEncodedChunk is essential for block production and
-            // are only sent by the original node and if they are lost, the receiver node doesn't
-            // know to request them.
+            // Both BlockApproval and VersionedPartialEncodedChunk is essential for block production
+            // and are only sent by the original node and if they are lost, the receiver
+            // node doesn't know to request them.
             RoutedMessageBody::BlockApproval(_)
             | RoutedMessageBody::VersionedPartialEncodedChunk(_) => true,
             _ => false,
@@ -543,13 +549,15 @@ impl fmt::Debug for RoutedMessageBody {
     }
 }
 
-/// RoutedMessage represent a package that will travel the network towards a specific peer id.
-/// It contains the peer_id and signature from the original sender. Every intermediate peer in the
-/// route must verify that this signature is valid otherwise previous sender of this package should
-/// be banned. If the final receiver of this package finds that the body is invalid the original
+/// RoutedMessage represent a package that will travel the network towards a
+/// specific peer id. It contains the peer_id and signature from the original
+/// sender. Every intermediate peer in the route must verify that this signature
+/// is valid otherwise previous sender of this package should be banned. If the
+/// final receiver of this package finds that the body is invalid the original
 /// sender of the package should be banned instead.
-/// If target is hash, it is a message that should be routed back using the same path used to route
-/// the request in first place. It is the hash of the request message.
+/// If target is hash, it is a message that should be routed back using the same
+/// path used to route the request in first place. It is the hash of the request
+/// message.
 #[derive(borsh::BorshSerialize, borsh::BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct RoutedMessage {
     /// Peer id which is directed this message.
@@ -557,11 +565,13 @@ pub struct RoutedMessage {
     pub target: PeerIdOrHash,
     /// Original sender of this message
     pub author: PeerId,
-    /// Signature from the author of the message. If this signature is invalid we should ban
-    /// last sender of this message. If the message is invalid we should ben author of the message.
+    /// Signature from the author of the message. If this signature is invalid
+    /// we should ban last sender of this message. If the message is invalid
+    /// we should ben author of the message.
     pub signature: Signature,
-    /// Time to live for this message. After passing through some hop this number should be
-    /// decreased by 1. If this number is 0, drop this message.
+    /// Time to live for this message. After passing through some hop this
+    /// number should be decreased by 1. If this number is 0, drop this
+    /// message.
     pub ttl: u8,
     /// Message
     pub body: RoutedMessageBody,
@@ -574,7 +584,8 @@ pub struct RoutedMessageV2 {
     /// The time the Routed message was created by `author`.
     pub created_at: Option<time::Utc>,
     /// Number of peers this routed message travelled through.
-    /// Doesn't include the peers that are the source and the destination of the message.
+    /// Doesn't include the peers that are the source and the destination of the
+    /// message.
     pub num_hops: Option<i32>,
 }
 
@@ -628,7 +639,8 @@ impl RoutedMessage {
         )
     }
 
-    /// Return true if ttl is positive after decreasing ttl by one, false otherwise.
+    /// Return true if ttl is positive after decreasing ttl by one, false
+    /// otherwise.
     pub fn decrease_ttl(&mut self) -> bool {
         self.ttl = self.ttl.saturating_sub(1);
         self.ttl > 0
@@ -645,9 +657,10 @@ pub enum PeerIdOrHash {
     Hash(CryptoHash),
 }
 
-/// Message for chunk part owners to forward their parts to validators tracking that shard.
-/// This reduces the number of requests a node tracking a shard needs to send to obtain enough
-/// parts to reconstruct the message (in the best case no such requests are needed).
+/// Message for chunk part owners to forward their parts to validators tracking
+/// that shard. This reduces the number of requests a node tracking a shard
+/// needs to send to obtain enough parts to reconstruct the message (in the best
+/// case no such requests are needed).
 #[derive(Clone, Debug, Eq, PartialEq, borsh::BorshSerialize, borsh::BorshDeserialize)]
 pub struct PartialEncodedChunkForwardMsg {
     pub chunk_hash: ChunkHash,

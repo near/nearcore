@@ -37,15 +37,17 @@ mod tier1;
 pub(crate) const LIMIT_PENDING_PEERS: usize = 60;
 
 /// Send important messages three times.
-/// We send these messages multiple times to reduce the chance that they are lost
+/// We send these messages multiple times to reduce the chance that they are
+/// lost
 const IMPORTANT_MESSAGE_RESENT_COUNT: usize = 3;
 
 /// Size of LRU cache size of recent routed messages.
-/// It should be large enough to detect duplicates (i.e. all messages received during
-/// production of 1 block should fit).
+/// It should be large enough to detect duplicates (i.e. all messages received
+/// during production of 1 block should fit).
 const RECENT_ROUTED_MESSAGES_CACHE_SIZE: usize = 10000;
 
-/// How long a peer has to be unreachable, until we prune it from the in-memory graph.
+/// How long a peer has to be unreachable, until we prune it from the in-memory
+/// graph.
 const PRUNE_UNREACHABLE_PEERS_AFTER: time::Duration = time::Duration::hours(1);
 
 /// Remove the edges that were created more that this duration ago.
@@ -78,9 +80,10 @@ pub(crate) struct NetworkState {
     /// so calling them from, for example, PeerActor is dangerous because
     /// PeerActor can be stopped at any moment.
     /// WARNING: DO NOT spawn infinite futures/background loops on this arbiter,
-    /// as it will be automatically closed only when the NetworkState is dropped.
-    /// WARNING: actix actors can be spawned only when actix::System::current() is set.
-    /// DO NOT spawn actors from a task on this runtime.
+    /// as it will be automatically closed only when the NetworkState is
+    /// dropped. WARNING: actix actors can be spawned only when
+    /// actix::System::current() is set. DO NOT spawn actors from a task on
+    /// this runtime.
     runtime: Runtime,
     /// PeerManager config.
     pub config: config::VerifiedConfig,
@@ -106,7 +109,8 @@ pub(crate) struct NetworkState {
     pub graph: Arc<crate::routing::Graph>,
 
     /// Hashes of the body of recently received routed messages.
-    /// It allows us to determine whether messages arrived faster over TIER1 or TIER2 network.
+    /// It allows us to determine whether messages arrived faster over TIER1 or
+    /// TIER2 network.
     pub recent_routed_messages: Mutex<lru::LruCache<CryptoHash, ()>>,
 
     /// Hash of messages that requires routing back to respective previous hop.
@@ -115,15 +119,16 @@ pub(crate) struct NetworkState {
     /// so routing shouldn't really be needed.
     /// TODO(gprusak): consider removing it altogether.
     ///
-    /// Note that the route_back table for TIER2 is stored in graph.routing_table_view.
+    /// Note that the route_back table for TIER2 is stored in
+    /// graph.routing_table_view.
     pub tier1_route_back: Mutex<RouteBackCache>,
 
-    /// Shared counter across all PeerActors, which counts number of `RoutedMessageBody::ForwardTx`
-    /// messages sincce last block.
+    /// Shared counter across all PeerActors, which counts number of
+    /// `RoutedMessageBody::ForwardTx` messages sincce last block.
     pub txns_since_last_block: AtomicUsize,
 
-    /// Whitelisted nodes, which are allowed to connect even if the connection limit has been
-    /// reached.
+    /// Whitelisted nodes, which are allowed to connect even if the connection
+    /// limit has been reached.
     whitelist_nodes: Vec<WhitelistNode>,
     /// Maximal allowed number of peer connections.
     /// It is initialized with config.max_num_peers and is mutable
@@ -137,8 +142,9 @@ pub(crate) struct NetworkState {
     /// Demultiplexer aggregating calls to add_edges().
     add_edges_demux: demux::Demux<Vec<Edge>, ()>,
 
-    /// Mutex serializing calls to set_chain_info(), which mutates a bunch of stuff non-atomically.
-    /// TODO(gprusak): make it use synchronization primitives in some more canonical way.
+    /// Mutex serializing calls to set_chain_info(), which mutates a bunch of
+    /// stuff non-atomically. TODO(gprusak): make it use synchronization
+    /// primitives in some more canonical way.
     set_chain_info_mutex: Mutex<()>,
 }
 
@@ -187,14 +193,16 @@ impl NetworkState {
         }
     }
 
-    /// Spawn a future on the runtime which has the same lifetime as the NetworkState instance.
-    /// In particular if the future contains the NetworkState handler, it will be run until
-    /// completion. It is safe to self.spawn(...).await.unwrap(), since runtime will be kept alive
+    /// Spawn a future on the runtime which has the same lifetime as the
+    /// NetworkState instance. In particular if the future contains the
+    /// NetworkState handler, it will be run until completion. It is safe to
+    /// self.spawn(...).await.unwrap(), since runtime will be kept alive
     /// by the reference to self.
     ///
     /// It should be used to make the public methods cancellable: you spawn the
-    /// noncancellable logic on self.runtime and just await it: in case the call is cancelled,
-    /// the noncancellable logic will be run in the background anyway.
+    /// noncancellable logic on self.runtime and just await it: in case the call
+    /// is cancelled, the noncancellable logic will be run in the background
+    /// anyway.
     fn spawn<R: 'static + Send>(
         &self,
         fut: impl std::future::Future<Output = R> + 'static + Send,
@@ -221,8 +229,9 @@ impl NetworkState {
     }
 
     /// is_peer_whitelisted checks whether a peer is a whitelisted node.
-    /// whitelisted nodes are allowed to connect, even if the inbound connections limit has
-    /// been reached. This predicate should be evaluated AFTER the Handshake.
+    /// whitelisted nodes are allowed to connect, even if the inbound
+    /// connections limit has been reached. This predicate should be
+    /// evaluated AFTER the Handshake.
     pub fn is_peer_whitelisted(&self, peer_info: &PeerInfo) -> bool {
         self.whitelist_nodes
             .iter()
@@ -231,7 +240,8 @@ impl NetworkState {
             .any(|wn| wn.account_id.is_none() || wn.account_id == peer_info.account_id)
     }
 
-    /// predicate checking whether we should allow an inbound connection from peer_info.
+    /// predicate checking whether we should allow an inbound connection from
+    /// peer_info.
     fn is_inbound_allowed(&self, peer_info: &PeerInfo) -> bool {
         // Check if we have spare inbound connections capacity.
         let tier2 = self.tier2.load();
@@ -241,19 +251,20 @@ impl NetworkState {
         {
             return true;
         }
-        // Whitelisted nodes are allowed to connect, even if the inbound connections limit has
-        // been reached.
+        // Whitelisted nodes are allowed to connect, even if the inbound connections
+        // limit has been reached.
         if self.is_peer_whitelisted(peer_info) {
             return true;
         }
         false
     }
 
-    /// Register a direct connection to a new peer. This will be called after successfully
-    /// establishing a connection with another peer. It becomes part of the connected peers.
+    /// Register a direct connection to a new peer. This will be called after
+    /// successfully establishing a connection with another peer. It becomes
+    /// part of the connected peers.
     ///
-    /// To build new edge between this pair of nodes both signatures are required.
-    /// Signature from this node is passed in `edge_info`
+    /// To build new edge between this pair of nodes both signatures are
+    /// required. Signature from this node is passed in `edge_info`
     /// Signature from the other node is passed in `full_peer_info.edge_info`.
     pub async fn register(
         self: &Arc<Self>,
@@ -328,9 +339,9 @@ impl NetworkState {
     }
 
     /// Removes the connection from the state.
-    /// It is intentionally synchronous and expected to be called from PeerActor.stopping.
-    /// If it was async, there would be a risk that the unregister will be cancelled before
-    /// even starting.
+    /// It is intentionally synchronous and expected to be called from
+    /// PeerActor.stopping. If it was async, there would be a risk that the
+    /// unregister will be cancelled before even starting.
     pub fn unregister(
         self: &Arc<Self>,
         clock: &time::Clock,
@@ -351,8 +362,8 @@ impl NetworkState {
             }
             this.tier2.remove(&conn);
 
-            // If the last edge we have with this peer represent a connection addition, create the edge
-            // update that represents the connection removal.
+            // If the last edge we have with this peer represent a connection addition,
+            // create the edge update that represents the connection removal.
             if let Some(edge) = this.graph.load().local_edges.get(&peer_id) {
                 if edge.edge_type() == EdgeState::Active {
                     let edge_update =
@@ -470,7 +481,8 @@ impl NetworkState {
 
     /// Send message to specific account.
     /// Return whether the message is sent or not.
-    /// The message might be sent over TIER1 and/or TIER2 connection depending on the message type.
+    /// The message might be sent over TIER1 and/or TIER2 connection depending
+    /// on the message type.
     pub fn send_message_to_account(
         &self,
         clock: &time::Clock,
@@ -479,9 +491,10 @@ impl NetworkState {
     ) -> bool {
         let mut success = false;
         let accounts_data = self.accounts_data.load();
-        // All TIER1 messages are being sent over both TIER1 and TIER2 connections for now,
-        // so that we can actually observe the latency/reliability improvements in practice:
-        // for each message we track over which network tier it arrived faster?
+        // All TIER1 messages are being sent over both TIER1 and TIER2 connections for
+        // now, so that we can actually observe the latency/reliability
+        // improvements in practice: for each message we track over which
+        // network tier it arrived faster?
         if tcp::Tier::T1.is_allowed_routed(&msg) {
             for key in accounts_data.keys_by_id.get(account_id).iter().flat_map(|keys| keys.iter())
             {
@@ -518,7 +531,8 @@ impl NetworkState {
         // Find the target peer_id:
         // - first look it up in self.accounts_data
         // - if missing, fall back to lookup in self.graph.routing_table
-        // We want to deprecate self.graph.routing_table.account_owner in the next release.
+        // We want to deprecate self.graph.routing_table.account_owner in the next
+        // release.
         let target = if let Some(peer_id) = peer_id_from_account_data {
             metrics::ACCOUNT_TO_PEER_LOOKUPS.with_label_values(&["AccountData"]).inc();
             peer_id
@@ -580,9 +594,10 @@ impl NetworkState {
     }
 
     /// a) there is a peer we should be connected to, but we aren't
-    /// b) there is an edge indicating that we should be disconnected from a peer, but we are connected.
-    /// Try to resolve the inconsistency.
-    /// We call this function every FIX_LOCAL_EDGES_INTERVAL from peer_manager_actor.rs.
+    /// b) there is an edge indicating that we should be disconnected from a
+    /// peer, but we are connected. Try to resolve the inconsistency.
+    /// We call this function every FIX_LOCAL_EDGES_INTERVAL from
+    /// peer_manager_actor.rs.
     pub async fn fix_local_edges(self: &Arc<Self>, clock: &time::Clock, timeout: time::Duration) {
         let this = self.clone();
         let clock = clock.clone();
@@ -609,8 +624,9 @@ impl NetworkState {
                                     &this.config.node_key,
                                 ),
                             )));
-                            // TODO(gprusak): here we should synchronically wait for the RequestUpdateNonce
-                            // response (with timeout). Until network round trips are implemented, we just
+                            // TODO(gprusak): here we should synchronically wait for the
+                            // RequestUpdateNonce response (with
+                            // timeout). Until network round trips are implemented, we just
                             // blindly wait for a while, then check again.
                             clock.sleep(timeout).await;
                             match this.graph.load().local_edges.get(&conn.peer_info.id) {
@@ -627,8 +643,9 @@ impl NetworkState {
                         let clock = clock.clone();
                         let other_peer = other_peer.clone();
                         async move {
-                            // This edge says this is an connected peer, which is currently not in the set of connected peers.
-                            // Wait for some time to let the connection begin or broadcast edge removal instead.
+                            // This edge says this is an connected peer, which is currently not in
+                            // the set of connected peers. Wait for some
+                            // time to let the connection begin or broadcast edge removal instead.
                             clock.sleep(timeout).await;
                             if this.tier2.load().ready.contains_key(&other_peer) {
                                 return;
@@ -670,8 +687,8 @@ impl NetworkState {
             return false;
         }
         let has_changed = self.accounts_data.set_keys(info.tier1_accounts.clone());
-        // The set of TIER1 accounts has changed, so we might be missing some accounts_data
-        // that our peers know about.
+        // The set of TIER1 accounts has changed, so we might be missing some
+        // accounts_data that our peers know about.
         if has_changed {
             self.tier1_request_full_sync();
         }

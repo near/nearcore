@@ -11,7 +11,8 @@ pub struct ConfigUpdater {
     /// Receives config updates while the node is running.
     rx_config_update: Receiver<Result<UpdateableConfigs, Arc<UpdateableConfigLoaderError>>>,
 
-    /// Represents the latest Error of reading the dynamically reloadable configs.
+    /// Represents the latest Error of reading the dynamically reloadable
+    /// configs.
     updateable_configs_error: Option<Arc<UpdateableConfigLoaderError>>,
 }
 
@@ -23,7 +24,8 @@ impl ConfigUpdater {
     }
 
     /// Check if any of the configs were updated.
-    /// If they did, the receiver (rx_config_update) will contain a clone of the new configs.
+    /// If they did, the receiver (rx_config_update) will contain a clone of the
+    /// new configs.
     pub fn try_update(&mut self, update_client_config_fn: &dyn Fn(UpdateableClientConfig)) {
         while let Ok(maybe_updateable_configs) = self.rx_config_update.try_recv() {
             match maybe_updateable_configs {

@@ -8,9 +8,9 @@ use std::sync::{Arc, RwLock};
 #[test]
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_catchup() {
-    /// Creates a network of `num_nodes` nodes, but starts only `num_nodes - 1`. After
-    /// `num_blocks_to_wait` starts the last node and verifies that it can start validating within
-    /// `catchup_timeout`.
+    /// Creates a network of `num_nodes` nodes, but starts only `num_nodes - 1`.
+    /// After `num_blocks_to_wait` starts the last node and verifies that it
+    /// can start validating within `catchup_timeout`.
     fn run_multiple_nodes(
         num_nodes: usize,
         num_blocks_to_wait: usize,
@@ -60,7 +60,9 @@ fn test_catchup() {
     }
 
     heavy_test(|| {
-        // `num_min_peers` defaults to 3, and since the last node is not initially up and running, we need 5 peers total (4 to have 3 peers each launching initially + 1 launching later)
+        // `num_min_peers` defaults to 3, and since the last node is not initially up
+        // and running, we need 5 peers total (4 to have 3 peers each launching
+        // initially + 1 launching later)
         run_multiple_nodes(5, 20, Duration::from_secs(120), Duration::from_secs(60), "4_20")
     });
 }

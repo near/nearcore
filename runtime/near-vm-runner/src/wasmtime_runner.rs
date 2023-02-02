@@ -131,7 +131,8 @@ pub fn get_engine(config: &mut wasmtime::Config) -> Engine {
 
 pub(super) fn default_config() -> wasmtime::Config {
     let mut config = wasmtime::Config::default();
-    config.max_wasm_stack(1024 * 1024 * 1024); // wasm stack metering is implemented by instrumentation, we don't want wasmtime to trap before that
+    config.max_wasm_stack(1024 * 1024 * 1024); // wasm stack metering is implemented by instrumentation, we don't want wasmtime
+                                               // to trap before that
     config.wasm_threads(WASM_FEATURES.threads);
     config.wasm_reference_types(WASM_FEATURES.reference_types);
     config.wasm_simd(WASM_FEATURES.simd);
@@ -216,8 +217,8 @@ impl crate::runner::VM for WasmtimeVM {
             return Ok(VMOutcome::abort(logic, e));
         }
 
-        // Unfortunately, due to the Wasmtime implementation we have to do tricks with the
-        // lifetimes of the logic instance and pass raw pointers here.
+        // Unfortunately, due to the Wasmtime implementation we have to do tricks with
+        // the lifetimes of the logic instance and pass raw pointers here.
         let raw_logic = &mut logic as *mut _ as *mut c_void;
         imports::wasmtime::link(&mut linker, memory_copy, raw_logic, current_protocol_version);
         match module.get_export(method_name) {

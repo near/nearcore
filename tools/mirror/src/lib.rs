@@ -87,9 +87,9 @@ enum ChainObjectId {
     Receipt(ReceiptInfo),
 }
 
-// we want a reference to transactions in .queued_blocks that need to have nonces
-// set later. To avoid having the struct be self referential we keep this struct
-// with enough info to look it up later.
+// we want a reference to transactions in .queued_blocks that need to have
+// nonces set later. To avoid having the struct be self referential we keep this
+// struct with enough info to look it up later.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct TxRef {
     source_height: BlockHeight,
@@ -124,7 +124,8 @@ enum NonceUpdater {
     ChainObjectId(ChainObjectId),
 }
 
-// returns bytes that serve as the key corresponding to this pair in the Nonces column
+// returns bytes that serve as the key corresponding to this pair in the Nonces
+// column
 fn nonce_col_key(account_id: &AccountId, public_key: &PublicKey) -> Vec<u8> {
     (account_id.clone(), public_key.clone()).try_to_vec().unwrap()
 }
@@ -132,11 +133,11 @@ fn nonce_col_key(account_id: &AccountId, public_key: &PublicKey) -> Vec<u8> {
 // this serves a similar purpose to `LatestTargetNonce`. The difference is
 // that this one keeps track of what's in memory. So for example if the last
 // height we sent transactions for was 10, and we have a set of transactions
-// queued up for height 12, one of which is an AddKey for ('foo.near', 'ed25519:...'),
-// then we'lll want to remember that for txs of height > 12 that use that
-// signer id and public key, but we don't want to store that on disk. The `LatestTargetNonce`
-// on disk will only record the transactions/receipts updating the nonce that we actually sent
-// or saw on chain
+// queued up for height 12, one of which is an AddKey for ('foo.near',
+// 'ed25519:...'), then we'lll want to remember that for txs of height > 12 that
+// use that signer id and public key, but we don't want to store that on disk.
+// The `LatestTargetNonce` on disk will only record the transactions/receipts
+// updating the nonce that we actually sent or saw on chain
 
 #[derive(Clone, Debug)]
 struct TargetNonce {
@@ -328,9 +329,10 @@ impl From<RuntimeQueryError> for ChainError {
 #[async_trait(?Send)]
 trait ChainAccess {
     // this should return the first `num_initial_blocks` valid block heights in the
-    // chain after last_height. It should only return fewer than that if there are no
-    // more, which only happens if we're not starting a source node (--online-source is
-    // not given), and the last height we sent txs for is close to the HEAD of the chain
+    // chain after last_height. It should only return fewer than that if there are
+    // no more, which only happens if we're not starting a source node
+    // (--online-source is not given), and the last height we sent txs for is
+    // close to the HEAD of the chain
     async fn init(
         &self,
         last_height: BlockHeight,
@@ -607,8 +609,8 @@ impl TargetChainTx {
         };
     }
 
-    // For an AwaitingNonce(_), set the nonce and sign the transaction, changing self into Ready(_).
-    // must not be called if self is Ready(_)
+    // For an AwaitingNonce(_), set the nonce and sign the transaction, changing
+    // self into Ready(_). must not be called if self is Ready(_)
     fn try_set_nonce(&mut self, nonce: Option<Nonce>) {
         let nonce = match self {
             Self::AwaitingNonce(t) => match std::cmp::max(t.target_nonce.nonce, nonce) {
@@ -904,9 +906,12 @@ impl<T: ChainAccess> TxMirror<T> {
                                 tx.sent_successfully = true;
                             }
                             ProcessTxResponse::InvalidTx(e) => {
-                                // TODO: here if we're getting an error because the tx was already included, it is possible
-                                // that some other instance of this code ran and made progress already. For now we can assume
-                                // only once instance of this code will run, but this is the place to detect if that's not the case.
+                                // TODO: here if we're getting an error because the tx was already
+                                // included, it is possible
+                                // that some other instance of this code ran and made progress
+                                // already. For now we can assume
+                                // only once instance of this code will run, but this is the place
+                                // to detect if that's not the case.
                                 tracing::error!(
                                     target: "mirror", "Tried to send an invalid tx for ({}, {:?}) from {}: {:?}",
                                     &tx.target_tx.transaction.signer_id, &tx.target_tx.transaction.public_key, &tx.provenance, e
@@ -927,7 +932,8 @@ impl<T: ChainAccess> TxMirror<T> {
                         }
                     }
                     TargetChainTx::AwaitingNonce(tx) => {
-                        // TODO: here we should just save this transaction for later and send it when it's known
+                        // TODO: here we should just save this transaction for later and send it
+                        // when it's known
                         tracing::warn!(
                             target: "mirror", "skipped sending transaction for ({}, {:?}) because valid target chain nonce not known",
                             &tx.target_tx.signer_id, &tx.target_tx.public_key
@@ -947,7 +953,8 @@ impl<T: ChainAccess> TxMirror<T> {
         let mut nonce_updates = HashSet::new();
 
         for a in tx.actions.iter() {
-            // this try_from() won't fail since the ActionView was constructed from the Action
+            // this try_from() won't fail since the ActionView was constructed from the
+            // Action
             let action = Action::try_from(a.clone()).unwrap();
 
             match &action {
@@ -1051,8 +1058,9 @@ impl<T: ChainAccess> TxMirror<T> {
         }
     }
 
-    // add extra AddKey transactions that come from function call. If we don't do this,
-    // then the only keys we will have mapped are the ones added by regular AddKey transactions.
+    // add extra AddKey transactions that come from function call. If we don't do
+    // this, then the only keys we will have mapped are the ones added by
+    // regular AddKey transactions.
     async fn push_extra_tx(
         &self,
         tracker: &mut crate::chain_tracker::TxTracker,
@@ -1093,8 +1101,9 @@ impl<T: ChainAccess> TxMirror<T> {
                         first_key = Some(target_secret_key);
                     }
                 }
-                // here none of them have equivalents in the target chain. Just use the first one and hope that
-                // it will become available. shouldn't happen much in practice
+                // here none of them have equivalents in the target chain. Just use the first
+                // one and hope that it will become available. shouldn't happen
+                // much in practice
                 if key.is_none() {
                     if let Some(k) = first_key {
                         tracing::warn!(
@@ -1223,8 +1232,8 @@ impl<T: ChainAccess> TxMirror<T> {
                 {
                     continue;
                 }
-                // TODO: should also take care of delete key actions, and deploy contract actions to
-                // implicit accounts, etc...
+                // TODO: should also take care of delete key actions, and deploy contract
+                // actions to implicit accounts, etc...
                 let mut key_added = false;
                 let mut account_created = false;
                 for a in actions.iter() {
@@ -1366,7 +1375,8 @@ impl<T: ChainAccess> TxMirror<T> {
             let txs = match chunks.iter_mut().find(|c| c.shard_id == ch.shard_id) {
                 Some(c) => &mut c.txs,
                 None => {
-                    // It doesnt really matter which one we put it in, since we're just going to send them all anyway
+                    // It doesnt really matter which one we put it in, since we're just going to
+                    // send them all anyway
                     tracing::warn!(
                         "got unexpected source chunk shard id {} for #{}",
                         ch.shard_id,
@@ -1387,8 +1397,9 @@ impl<T: ChainAccess> TxMirror<T> {
                 .await?;
             }
             for (idx, r) in ch.receipts.iter().enumerate() {
-                // TODO: we're scanning the list of receipts for each block twice. Once here and then again
-                // when we queue that height's txs. Prob not a big deal but could fix that.
+                // TODO: we're scanning the list of receipts for each block twice. Once here and
+                // then again when we queue that height's txs. Prob not a big
+                // deal but could fix that.
                 self.add_receipt_function_call_keys(
                     r,
                     MappedTxProvenance::ReceiptCreateAccount(
@@ -1515,8 +1526,9 @@ impl<T: ChainAccess> TxMirror<T> {
                 Some(h) => h,
                 None => return Ok(()),
             };
-            // if we have a stop height, just send the last few blocks without worrying about
-            // extra create account txs, otherwise wait until we get more blocks
+            // if we have a stop height, just send the last few blocks without worrying
+            // about extra create account txs, otherwise wait until we get more
+            // blocks
             if !tracker.has_stop_height() && create_account_height.is_none() {
                 return Ok(());
             }
@@ -1609,7 +1621,8 @@ impl<T: ChainAccess> TxMirror<T> {
             stop_height,
         );
         if last_stored_height.is_none() {
-            // send any extra function call-initiated create accounts for the first few blocks right now
+            // send any extra function call-initiated create accounts for the first few
+            // blocks right now
             let chunks = self
                 .tracked_shards
                 .iter()

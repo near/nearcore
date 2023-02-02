@@ -188,9 +188,9 @@ pub fn migrate_29_to_30(storage: &crate::NodeStorage) -> anyhow::Result<()> {
         next_version: info.next_version,
     })?;
 
-    // DBCol::EpochInfo has a special key which contains a different type than all other
-    // values (EpochInfoAggregator), so we cannot use `map_col` on it. We need to handle
-    // the AGGREGATOR_KEY differently from all others.
+    // DBCol::EpochInfo has a special key which contains a different type than all
+    // other values (EpochInfoAggregator), so we cannot use `map_col` on it. We
+    // need to handle the AGGREGATOR_KEY differently from all others.
     let col = DBCol::EpochInfo;
     let keys = store
         .iter(col)
@@ -237,9 +237,9 @@ pub fn migrate_31_to_32(storage: &crate::NodeStorage) -> anyhow::Result<()> {
 
 /// Migrates the database from version 32 to 33.
 ///
-/// This removes the TransactionResult column and moves it to TransactionResultForBlock.
-/// The new column removes the need for high-latency read-modify-write operations when committing
-/// new blocks.
+/// This removes the TransactionResult column and moves it to
+/// TransactionResultForBlock. The new column removes the need for high-latency
+/// read-modify-write operations when committing new blocks.
 pub fn migrate_32_to_33(storage: &crate::NodeStorage) -> anyhow::Result<()> {
     let store = storage.get_store(crate::Temperature::Hot);
     let mut update = BatchedStoreUpdate::new(&store, 10_000_000);
@@ -247,9 +247,9 @@ pub fn migrate_32_to_33(storage: &crate::NodeStorage) -> anyhow::Result<()> {
         store.iter_prefix_ser::<Vec<ExecutionOutcomeWithIdAndProof>>(DBCol::_TransactionResult, &[])
     {
         let (_, mut outcomes) = row?;
-        // It appears that it was possible that the same entry in the original column contained
-        // duplicate outcomes. We remove them here to avoid panicing due to issuing a
-        // self-overwriting transaction.
+        // It appears that it was possible that the same entry in the original column
+        // contained duplicate outcomes. We remove them here to avoid panicing
+        // due to issuing a self-overwriting transaction.
         outcomes.sort_by_key(|outcome| (outcome.id().clone(), outcome.block_hash.clone()));
         outcomes.dedup_by_key(|outcome| (outcome.id().clone(), outcome.block_hash.clone()));
         for outcome in outcomes {

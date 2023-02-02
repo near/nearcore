@@ -7,7 +7,8 @@ use nearcore::get_default_home;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
-// TODO(1905): Move out RPC interface for transacting into separate production crate.
+// TODO(1905): Move out RPC interface for transacting into separate production
+// crate.
 use integration_tests::user::{rpc_user::RpcUser, User};
 
 const DEFAULT_WAIT_PERIOD_SEC: &str = "60";

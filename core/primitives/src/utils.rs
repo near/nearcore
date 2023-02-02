@@ -218,7 +218,8 @@ pub fn get_outcome_id_block_hash_rev(key: &[u8]) -> std::io::Result<(CryptoHash,
 }
 
 /// Creates a new Receipt ID from a given signed transaction and a block hash.
-/// This method is backward compatible, so it takes the current protocol version.
+/// This method is backward compatible, so it takes the current protocol
+/// version.
 pub fn create_receipt_id_from_transaction(
     protocol_version: ProtocolVersion,
     signed_transaction: &SignedTransaction,
@@ -234,8 +235,9 @@ pub fn create_receipt_id_from_transaction(
     )
 }
 
-/// Creates a new Receipt ID from a given receipt, a block hash and a new receipt index.
-/// This method is backward compatible, so it takes the current protocol version.
+/// Creates a new Receipt ID from a given receipt, a block hash and a new
+/// receipt index. This method is backward compatible, so it takes the current
+/// protocol version.
 pub fn create_receipt_id_from_receipt(
     protocol_version: ProtocolVersion,
     receipt: &Receipt,
@@ -252,8 +254,9 @@ pub fn create_receipt_id_from_receipt(
     )
 }
 
-/// Creates a new action_hash from a given receipt, a block hash and an action index.
-/// This method is backward compatible, so it takes the current protocol version.
+/// Creates a new action_hash from a given receipt, a block hash and an action
+/// index. This method is backward compatible, so it takes the current protocol
+/// version.
 pub fn create_action_hash(
     protocol_version: ProtocolVersion,
     receipt: &Receipt,
@@ -261,14 +264,15 @@ pub fn create_action_hash(
     block_hash: &CryptoHash,
     action_index: usize,
 ) -> CryptoHash {
-    // Action hash uses the same input as a new receipt ID, so to avoid hash conflicts we use the
-    // salt starting from the `u64` going backward.
+    // Action hash uses the same input as a new receipt ID, so to avoid hash
+    // conflicts we use the salt starting from the `u64` going backward.
     let salt = u64::MAX.wrapping_sub(action_index as u64);
     create_hash_upgradable(protocol_version, &receipt.receipt_id, prev_block_hash, block_hash, salt)
 }
 
-/// Creates a new `data_id` from a given action hash, a block hash and a data index.
-/// This method is backward compatible, so it takes the current protocol version.
+/// Creates a new `data_id` from a given action hash, a block hash and a data
+/// index. This method is backward compatible, so it takes the current protocol
+/// version.
 pub fn create_data_id(
     protocol_version: ProtocolVersion,
     action_hash: &CryptoHash,
@@ -285,9 +289,10 @@ pub fn create_data_id(
     )
 }
 
-/// Creates a unique random seed to be provided to `VMContext` from a give `action_hash` and
-/// a given `random_seed`.
-/// This method is backward compatible, so it takes the current protocol version.
+/// Creates a unique random seed to be provided to `VMContext` from a give
+/// `action_hash` and a given `random_seed`.
+/// This method is backward compatible, so it takes the current protocol
+/// version.
 pub fn create_random_seed(
     protocol_version: ProtocolVersion,
     action_hash: CryptoHash,
@@ -299,8 +304,8 @@ pub fn create_random_seed(
         random_seed
     } else {
         // Generates random seed from random_seed and action_hash.
-        // Since every action hash is unique, the seed will be unique per receipt and even
-        // per action within a receipt.
+        // Since every action hash is unique, the seed will be unique per receipt and
+        // even per action within a receipt.
         const BYTES_LEN: usize = size_of::<CryptoHash>() + size_of::<CryptoHash>();
         let mut bytes: Vec<u8> = Vec::with_capacity(BYTES_LEN);
         bytes.extend_from_slice(action_hash.as_ref());
@@ -314,7 +319,8 @@ pub fn create_random_seed(
 /// Before `CREATE_HASH_PROTOCOL_VERSION` it uses `create_nonce_with_nonce` with
 /// just `base` and `salt`. But after `CREATE_HASH_PROTOCOL_VERSION` it uses
 /// `extra_hash` in addition to the `base` and `salt`.
-/// E.g. this `extra_hash` can be a block hash to distinguish receipts between forks.
+/// E.g. this `extra_hash` can be a block hash to distinguish receipts between
+/// forks.
 fn create_hash_upgradable(
     protocol_version: ProtocolVersion,
     base: &CryptoHash,
@@ -383,7 +389,8 @@ impl<T: fmt::Display> From<Option<T>> for DisplayOption<T> {
     }
 }
 
-/// Macro to either return value if the result is Ok, or exit function logging error.
+/// Macro to either return value if the result is Ok, or exit function logging
+/// error.
 #[macro_export]
 macro_rules! unwrap_or_return {
     ($obj: expr, $ret: expr) => {
@@ -419,7 +426,8 @@ pub fn to_timestamp(time: DateTime<chrono::Utc>) -> u64 {
     time.timestamp_nanos() as u64
 }
 
-/// Compute number of seats per shard for given total number of seats and number of shards.
+/// Compute number of seats per shard for given total number of seats and number
+/// of shards.
 pub fn get_num_seats_per_shard(num_shards: NumShards, num_seats: NumSeats) -> Vec<NumSeats> {
     (0..num_shards)
         .map(|shard_id| {

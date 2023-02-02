@@ -10,15 +10,17 @@ impl Drop for MustCompleteGuard {
     }
 }
 
-/// must_complete wraps a future, so that it logs an error if it is dropped before completion.
-/// Possibility of future abort at every await makes the control flow unnecessarily complicated.
-/// In fact, only few basic futures (like io primitives) actually need to be abortable, so
-/// that they can be put together into a tokio::select block. All the higher level logic
-/// would greatly benefit (in terms of readability and bug-resistance) from being non-abortable.
-/// Rust doesn't support linear types as of now, so best we can do is a runtime check.
-/// TODO(gprusak): we would like to make the futures non-abortable, however with the current
-/// semantics of actix, which drops all the futures when stopped this is not feasible.
-/// Reconsider how to introduce must_complete to our codebase.
+/// must_complete wraps a future, so that it logs an error if it is dropped
+/// before completion. Possibility of future abort at every await makes the
+/// control flow unnecessarily complicated. In fact, only few basic futures
+/// (like io primitives) actually need to be abortable, so that they can be put
+/// together into a tokio::select block. All the higher level logic
+/// would greatly benefit (in terms of readability and bug-resistance) from
+/// being non-abortable. Rust doesn't support linear types as of now, so best we
+/// can do is a runtime check. TODO(gprusak): we would like to make the futures
+/// non-abortable, however with the current semantics of actix, which drops all
+/// the futures when stopped this is not feasible. Reconsider how to introduce
+/// must_complete to our codebase.
 #[allow(dead_code)]
 pub fn must_complete<Fut: Future>(fut: Fut) -> impl Future<Output = Fut::Output> {
     let guard = MustCompleteGuard;
@@ -43,8 +45,9 @@ pub async fn run<T: 'static + Send>(f: impl 'static + Send + FnOnce() -> T) -> T
     recv.await.unwrap()
 }
 
-/// Applies f to the iterated elements and collects the results, until the first None is returned.
-/// Returns the results collected so far and a bool (false iff any None was returned).
+/// Applies f to the iterated elements and collects the results, until the first
+/// None is returned. Returns the results collected so far and a bool (false iff
+/// any None was returned).
 pub fn try_map<I: ParallelIterator, T: Send>(
     iter: I,
     f: impl Sync + Send + Fn(I::Item) -> Option<T>,

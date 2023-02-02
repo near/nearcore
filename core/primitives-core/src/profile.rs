@@ -217,7 +217,8 @@ mod test {
     #[cfg(not(feature = "nightly"))]
     fn test_profile_data_debug() {
         let profile_data = ProfileDataV3::test();
-        // we don't care about exact formatting, but the numbers should not change unexpectedly
+        // we don't care about exact formatting, but the numbers should not change
+        // unexpectedly
         let pretty_debug_str = format!("{profile_data:#?}");
         insta::assert_snapshot!(pretty_debug_str);
     }

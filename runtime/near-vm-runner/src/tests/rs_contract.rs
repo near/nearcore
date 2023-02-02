@@ -146,8 +146,8 @@ def_test_ext!(ext_prepaid_gas, "ext_prepaid_gas", &(10_u64.pow(14)).to_le_bytes(
 def_test_ext!(ext_block_index, "ext_block_index", &10u64.to_le_bytes());
 def_test_ext!(ext_block_timestamp, "ext_block_timestamp", &42u64.to_le_bytes());
 def_test_ext!(ext_storage_usage, "ext_storage_usage", &12u64.to_le_bytes());
-// Note, the used_gas is not a global used_gas at the beginning of method, but instead a diff
-// in used_gas for computing fib(30) in a loop
+// Note, the used_gas is not a global used_gas at the beginning of method, but
+// instead a diff in used_gas for computing fib(30) in a loop
 def_test_ext!(ext_used_gas, "ext_used_gas", &[111, 10, 200, 15, 0, 0, 0, 0]);
 def_test_ext!(
     ext_sha256,

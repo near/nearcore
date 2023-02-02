@@ -1,12 +1,14 @@
-//! This module is used to validate the correctness of the gas metering algorithm.
+//! This module is used to validate the correctness of the gas metering
+//! algorithm.
 //!
-//! Since the gas metering algorithm is complex, this checks correctness by fuzzing. The testing
-//! strategy is to generate random, valid Wasm modules using Binaryen's translate-to-fuzz
-//! functionality, then ensure for all functions defined, in all execution paths though the
-//! function body that do not trap that the amount of gas charged by the proposed metering
-//! instructions is correct. This is done by constructing a control flow graph and exhaustively
-//! searching through all paths, which may take exponential time in the size of the function body in
-//! the worst case.
+//! Since the gas metering algorithm is complex, this checks correctness by
+//! fuzzing. The testing strategy is to generate random, valid Wasm modules
+//! using Binaryen's translate-to-fuzz functionality, then ensure for all
+//! functions defined, in all execution paths though the function body that do
+//! not trap that the amount of gas charged by the proposed metering
+//! instructions is correct. This is done by constructing a control flow graph
+//! and exhaustively searching through all paths, which may take exponential
+//! time in the size of the function body in the worst case.
 
 use super::rules::Rules;
 use super::rules::Set as RuleSet;
@@ -17,28 +19,32 @@ use std::collections::HashMap as Map;
 /// An ID for a node in a ControlFlowGraph.
 type NodeId = usize;
 
-/// A node in a control flow graph is commonly known as a basic block. This is a sequence of
-/// operations that are always executed sequentially.
+/// A node in a control flow graph is commonly known as a basic block. This is a
+/// sequence of operations that are always executed sequentially.
 #[derive(Debug)]
 struct ControlFlowNode {
-    /// The index of the first instruction in the basic block. This is only used for debugging.
+    /// The index of the first instruction in the basic block. This is only used
+    /// for debugging.
     first_instr_pos: Option<usize>,
 
     /// The actual gas cost of executing all instructions in the basic block.
     actual_cost: u32,
 
-    /// The amount of gas charged by the injected metering instructions within this basic block.
+    /// The amount of gas charged by the injected metering instructions within
+    /// this basic block.
     charged_cost: u32,
 
-    /// Whether there are any other nodes in the graph that loop back to this one. Every cycle in
-    /// the control flow graph contains at least one node with this flag set.
+    /// Whether there are any other nodes in the graph that loop back to this
+    /// one. Every cycle in the control flow graph contains at least one
+    /// node with this flag set.
     is_loop_target: bool,
 
-    /// Edges in the "forward" direction of the graph. The graph of nodes and their forward edges
-    /// forms a directed acyclic graph (DAG).
+    /// Edges in the "forward" direction of the graph. The graph of nodes and
+    /// their forward edges forms a directed acyclic graph (DAG).
     forward_edges: Vec<NodeId>,
 
-    /// Edges in the "backwards" direction. These edges form cycles in the graph.
+    /// Edges in the "backwards" direction. These edges form cycles in the
+    /// graph.
     loopback_edges: Vec<NodeId>,
 }
 
@@ -55,10 +61,11 @@ impl Default for ControlFlowNode {
     }
 }
 
-/// A control flow graph where nodes are basic blocks and edges represent possible transitions
-/// between them in execution flow. The graph has two types of edges, forward and loop-back edges.
-/// The subgraph with only the forward edges forms a directed acyclic graph (DAG); including the
-/// loop-back edges introduces cycles.
+/// A control flow graph where nodes are basic blocks and edges represent
+/// possible transitions between them in execution flow. The graph has two types
+/// of edges, forward and loop-back edges. The subgraph with only the forward
+/// edges forms a directed acyclic graph (DAG); including the loop-back edges
+/// introduces cycles.
 #[derive(Debug)]
 pub struct ControlFlowGraph {
     nodes: Vec<ControlFlowNode>,
@@ -112,8 +119,8 @@ impl ControlFlowGraph {
     }
 }
 
-/// A control frame is opened upon entry into a function and by the `block`, `if`, and `loop`
-/// instructions and is closed by `end` instructions.
+/// A control frame is opened upon entry into a function and by the `block`,
+/// `if`, and `loop` instructions and is closed by `end` instructions.
 struct ControlFrame {
     is_loop: bool,
     entry_node: NodeId,
@@ -132,9 +139,11 @@ impl ControlFrame {
     }
 }
 
-/// Construct a control flow graph from a function body and the metered blocks computed for it.
+/// Construct a control flow graph from a function body and the metered blocks
+/// computed for it.
 ///
-/// This assumes that the function body has been validated already, otherwise this may panic.
+/// This assumes that the function body has been validated already, otherwise
+/// this may panic.
 fn build_control_flow_graph(
     body: &FuncBody,
     rules: &RuleSet,
@@ -155,7 +164,8 @@ fn build_control_flow_graph(
             .expect("module is valid by pre-condition; control stack must not be empty; qed")
             .active_node;
 
-        // Increment the charged cost if there are metering instructions to be inserted here.
+        // Increment the charged cost if there are metering instructions to be inserted
+        // here.
         let apply_block =
             metered_blocks_iter.peek().map_or(false, |block| block.start_pos == cursor);
         if apply_block {
@@ -270,12 +280,14 @@ fn build_control_flow_graph(
     Ok(graph)
 }
 
-/// Exhaustively search through all paths in the control flow graph, starting from the first node
-/// and ensure that 1) all paths with only forward edges ending with the terminal node have an
-/// equal total actual gas cost and total charged gas cost, and 2) all cycles beginning with a loop
-/// entry point and ending with a node with a loop-back edge to the entry point have equal actual
-/// and charged gas costs. If this returns true, then the metered blocks used to construct the
-/// control flow graph are correct with respect to the function body.
+/// Exhaustively search through all paths in the control flow graph, starting
+/// from the first node and ensure that 1) all paths with only forward edges
+/// ending with the terminal node have an equal total actual gas cost and total
+/// charged gas cost, and 2) all cycles beginning with a loop entry point and
+/// ending with a node with a loop-back edge to the entry point have equal
+/// actual and charged gas costs. If this returns true, then the metered blocks
+/// used to construct the control flow graph are correct with respect to the
+/// function body.
 ///
 /// In the worst case, this runs in time exponential in the size of the graph.
 fn validate_graph_gas_costs(graph: &ControlFlowGraph) -> bool {
@@ -321,14 +333,16 @@ fn validate_graph_gas_costs(graph: &ControlFlowGraph) -> bool {
         true
     }
 
-    // Recursively explore all paths through the execution graph starting from the entry node.
+    // Recursively explore all paths through the execution graph starting from the
+    // entry node.
     visit(graph, 0, 0, 0, &mut Map::new())
 }
 
-/// Validate that the metered blocks are correct with respect to the function body by exhaustively
-/// searching all paths through the control flow graph.
+/// Validate that the metered blocks are correct with respect to the function
+/// body by exhaustively searching all paths through the control flow graph.
 ///
-/// This assumes that the function body has been validated already, otherwise this may panic.
+/// This assumes that the function body has been validated already, otherwise
+/// this may panic.
 fn validate_metering_injections(
     body: &FuncBody,
     rules: &RuleSet,

@@ -418,9 +418,9 @@ pub fn apply_chain_range(
 }
 
 /**
- * With the database migration we can get into the situation where there are different
- * ChunkExtra versions in database and produced by `neard` playback. Consider them equal as
- * long as the content is equal.
+ * With the database migration we can get into the situation where there are
+ * different ChunkExtra versions in database and produced by `neard`
+ * playback. Consider them equal as long as the content is equal.
  */
 fn smart_equals(extra1: &ChunkExtra, extra2: &ChunkExtra) -> bool {
     if (extra1.outcome_root() != extra2.outcome_root())
@@ -485,9 +485,10 @@ mod test {
         (store, genesis, env)
     }
 
-    /// Produces blocks, avoiding the potential failure where the client is not the
-    /// block producer for each subsequent height (this can happen when a new validator
-    /// is staked since they will also have heights where they should produce the block instead).
+    /// Produces blocks, avoiding the potential failure where the client is not
+    /// the block producer for each subsequent height (this can happen when
+    /// a new validator is staked since they will also have heights where
+    /// they should produce the block instead).
     fn safe_produce_blocks(
         env: &mut TestEnv,
         initial_height: BlockHeight,

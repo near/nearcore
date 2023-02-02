@@ -19,7 +19,8 @@ where
         Self { inner: RefCell::new(LruCache::<K, V>::new(cap)) }
     }
 
-    /// Returns the number of key-value pairs that are currently in the the cache.
+    /// Returns the number of key-value pairs that are currently in the the
+    /// cache.
     pub fn len(&self) -> usize {
         self.inner.borrow().len()
     }
@@ -29,9 +30,9 @@ where
         self.inner.borrow().is_empty()
     }
 
-    /// Return the value of they key in the cache otherwise computes the value and inserts it into
-    /// the cache. If the key is already in the cache, they gets gets moved to the head of
-    /// the LRU list.
+    /// Return the value of they key in the cache otherwise computes the value
+    /// and inserts it into the cache. If the key is already in the cache,
+    /// they gets gets moved to the head of the LRU list.
     pub fn get_or_put<F>(&self, key: K, f: F) -> V
     where
         V: Clone,
@@ -62,8 +63,8 @@ where
         Ok(val)
     }
 
-    /// Puts a key-value pair into cache. If the key already exists in the cache,
-    /// then it updates the key's value.
+    /// Puts a key-value pair into cache. If the key already exists in the
+    /// cache, then it updates the key's value.
     pub fn put(&self, key: K, value: V) {
         self.inner.borrow_mut().put(key, value);
     }
@@ -76,8 +77,9 @@ where
         self.inner.borrow_mut().pop(key)
     }
 
-    /// Returns the value of the key in the cache or None if it is not present in the cache.
-    /// Moves the key to the head of the LRU list if it exists.
+    /// Returns the value of the key in the cache or None if it is not present
+    /// in the cache. Moves the key to the head of the LRU list if it
+    /// exists.
     pub fn get<Q>(&self, key: &Q) -> Option<V>
     where
         lru::KeyRef<K>: Borrow<Q>,

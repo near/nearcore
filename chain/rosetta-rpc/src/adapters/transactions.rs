@@ -8,11 +8,12 @@ use std::collections::HashMap;
 use std::string::ToString;
 
 pub(crate) struct ExecutionToReceipts {
-    /// A mapping from NEAR transaction or receipt hash to list of receipts hashes
+    /// A mapping from NEAR transaction or receipt hash to list of receipts
+    /// hashes
     map: HashMap<CryptoHash, Vec<CryptoHash>>,
     /// A mapping from transaction hashes to transactions
-    /// transactions map is needed to determine the amount of deposit in a single transaction when
-    /// converting blocks to Rosetta transactions.
+    /// transactions map is needed to determine the amount of deposit in a
+    /// single transaction when converting blocks to Rosetta transactions.
     transactions: HashMap<CryptoHash, SignedTransactionView>,
     /// A mapping of receipts to predecessor_ids
     /// receipts map is needed to determine the initing account of the receipt
@@ -331,8 +332,8 @@ fn convert_account_update_to_operations(
         crate::utils::RosettaAccountBalances::from_account(account, runtime_config);
     if previous_account_balances.liquid != new_account_balances.liquid {
         // Transfers would only lead to change in liquid balance, so it is sufficient to
-        // have the check here only. If deposit is not `None` then we separate it into its own
-        // operation to make Rosetta cli check happy.
+        // have the check here only. If deposit is not `None` then we separate it into
+        // its own operation to make Rosetta cli check happy.
         if let Some(deposit) = deposit {
             operations.push(crate::models::Operation {
                 operation_identifier: crate::models::OperationIdentifier::new(operations),
@@ -359,7 +360,8 @@ fn convert_account_update_to_operations(
                 },
                 amount: Some(crate::models::Amount::from_yoctonear_diff(
                     crate::utils::SignedDiff::cmp(
-                        // this operation is guaranteed to not underflow. Otherwise the transaction is invalid
+                        // this operation is guaranteed to not underflow. Otherwise the transaction
+                        // is invalid
                         previous_account_balances.liquid - deposit,
                         new_account_balances.liquid,
                     ),

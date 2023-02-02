@@ -1,12 +1,13 @@
 use std::collections::HashSet;
 use std::net;
 
-/// Only IPv6 addresses are stored.  IPv4 addresses are mapped to IPv6 before being added.
+/// Only IPv6 addresses are stored.  IPv4 addresses are mapped to IPv6 before
+/// being added.
 ///
-/// Without the mapping, we could blacklist an IPv4 and still interact with that address if
-/// it is presented as IPv6.
-/// TODO: alternatively we could use IpAddr::to_canonical(), but then the variants of
-/// the Entry enum would have to be private.
+/// Without the mapping, we could blacklist an IPv4 and still interact with that
+/// address if it is presented as IPv6.
+/// TODO: alternatively we could use IpAddr::to_canonical(), but then the
+/// variants of the Entry enum would have to be private.
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum Entry {
     Ip(net::Ipv6Addr),
@@ -48,8 +49,8 @@ impl std::str::FromStr for Entry {
 #[derive(Debug, Default, Clone)]
 pub struct Blacklist(HashSet<Entry>);
 
-// TODO(CP-34): merge Blacklist with whitelist functionality and replace them with sth
-// like AuthorizationConfig.
+// TODO(CP-34): merge Blacklist with whitelist functionality and replace them
+// with sth like AuthorizationConfig.
 impl FromIterator<Entry> for Blacklist {
     fn from_iter<I: IntoIterator<Item = Entry>>(i: I) -> Self {
         Self(i.into_iter().collect())

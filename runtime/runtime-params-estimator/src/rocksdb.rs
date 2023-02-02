@@ -58,12 +58,15 @@ pub struct RocksDBTestConfig {
 // These tests make use of reproducible pseud-randomness.
 // Two different strategies are used for keys and data values.
 //
-// > Keys: XorShiftRng with an initial seed value to produce a series of pseudo-random keys
-// > Values: A buffer of random bytes is loaded into memory.
-//           The values are slices from this buffer at different offsets.
-//           The initial buffer can be dynamically generated from thread_rng or loaded from a dump from previous runs.
+// > Keys: XorShiftRng with an initial seed value to produce a series of
+// > pseudo-random keys
+// > Values: A buffer of random bytes is loaded into memory. The values are
+// > slices from this buffer at different offsets. The initial buffer can be
+// > dynamically generated from thread_rng or loaded from a dump from previous
+// > runs.
 //
-// The rational behind this setup is to have random keys/values readily available during benchmarks without consuming much memory or CPU time.
+// The rational behind this setup is to have random keys/values readily
+// available during benchmarks without consuming much memory or CPU time.
 
 const SETUP_PRANDOM_SEED: u64 = 0x1d9f5711fc8b0117;
 const ANOTHER_PRANDOM_SEED: u64 = 0x0465b6733af62af0;

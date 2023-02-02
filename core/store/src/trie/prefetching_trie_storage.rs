@@ -59,7 +59,8 @@ struct TriePrefetchingStorage {
 ///
 /// The former puts requests in, the latter serves requests.
 /// With this API, the store does not know about receipts etc, and the runtime
-/// does not know about the trie structure. The only thing they share is this object.
+/// does not know about the trie structure. The only thing they share is this
+/// object.
 #[derive(Clone)]
 pub struct PrefetchApi {
     /// Bounded, shared queue for all IO threads to take work from.
@@ -77,7 +78,8 @@ pub struct PrefetchApi {
     pub(crate) prefetching: PrefetchStagingArea,
 
     pub enable_receipt_prefetching: bool,
-    /// Configured accounts will be prefetched as SWEAT token account, if predecessor is listed as receiver.
+    /// Configured accounts will be prefetched as SWEAT token account, if
+    /// predecessor is listed as receiver.
     pub sweat_prefetch_receivers: Vec<AccountId>,
     /// List of allowed predecessor accounts for SWEAT prefetching.
     pub sweat_prefetch_senders: Vec<AccountId>,
@@ -93,7 +95,8 @@ pub enum PrefetchError {
     QueueDisconnected,
 }
 
-/// Staging area for in-flight prefetch requests and a buffer for prefetched data.
+/// Staging area for in-flight prefetch requests and a buffer for prefetched
+/// data.
 ///
 /// Before starting a pre-fetch, a slot is reserved for it. Once the data is
 /// here, it will be put in that slot. The parent `TrieCachingStorage` needs
@@ -228,10 +231,12 @@ impl TrieStorage for TriePrefetchingStorage {
             return Ok(val);
         }
 
-        // If data is already being prefetched, wait for that instead of sending a new request.
+        // If data is already being prefetched, wait for that instead of sending a new
+        // request.
         let prefetch_state =
             self.prefetching.get_and_set_if_empty(hash.clone(), PrefetchSlot::PendingPrefetch);
-        // Keep lock until here to avoid race condition between shard cache insertion and reserving prefetch slot.
+        // Keep lock until here to avoid race condition between shard cache insertion
+        // and reserving prefetch slot.
         std::mem::drop(shard_cache_guard);
 
         match prefetch_state {
@@ -262,7 +267,8 @@ impl TrieStorage for TriePrefetchingStorage {
             }
             PrefetcherResult::Prefetched(value) => Ok(value),
             PrefetcherResult::Pending => {
-                // yield once before calling `block_get` that will check for data to be present again.
+                // yield once before calling `block_get` that will check for data to be present
+                // again.
                 thread::yield_now();
                 self.prefetching
                     .blocking_get(hash.clone())
@@ -318,8 +324,8 @@ impl PrefetchStagingArea {
     /// This must only be called after inserting the value to the shard cache.
     /// Otherwise, the following scenario becomes possible:
     /// 1: Main thread removes a value from the prefetch staging area.
-    /// 2: IO thread misses in the shard cache on the same key and starts fetching it again.
-    /// 3: Main thread value is inserted in shard cache.
+    /// 2: IO thread misses in the shard cache on the same key and starts
+    /// fetching it again. 3: Main thread value is inserted in shard cache.
     pub(crate) fn release(&self, key: &CryptoHash) {
         let mut guard = self.0.lock_mut();
         let dropped = guard.slots.remove(key);
@@ -342,7 +348,8 @@ impl PrefetchStagingArea {
     /// DB requests are all blocking, unfortunately, so the benefit seems small.
     /// The main benefit would be if many IO threads end up prefetching the
     /// same data and thus are waiting on each other rather than the DB.
-    /// Of course, that would require prefetching to be moved into an async environment,
+    /// Of course, that would require prefetching to be moved into an async
+    /// environment,
     pub(crate) fn blocking_get(&self, key: CryptoHash) -> Option<Arc<[u8]>> {
         let mut guard = self.0.lock();
         loop {
@@ -492,7 +499,8 @@ impl PrefetchApi {
         })
     }
 
-    /// Remove queued up requests so IO threads will be paused after they finish their current task.
+    /// Remove queued up requests so IO threads will be paused after they finish
+    /// their current task.
     ///
     /// Queued up work will not be finished. But trie keys that are already
     /// being fetched will finish.
@@ -500,7 +508,8 @@ impl PrefetchApi {
         while let Ok(_dropped) = self.work_queue_rx.try_recv() {}
     }
 
-    /// Clear prefetched staging area from data that has not been picked up by the main thread.
+    /// Clear prefetched staging area from data that has not been picked up by
+    /// the main thread.
     pub fn clear_data(&self) {
         self.prefetching.clear();
     }

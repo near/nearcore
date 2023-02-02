@@ -14,16 +14,19 @@ use std::sync::{Arc, Mutex};
 pub struct MutableConfigValue<T> {
     value: Arc<Mutex<T>>,
     // For metrics.
-    // Mutable config values are exported to prometheus with labels [field_name][last_update][value].
+    // Mutable config values are exported to prometheus with labels
+    // [field_name][last_update][value].
     field_name: String,
     // For metrics.
-    // Mutable config values are exported to prometheus with labels [field_name][last_update][value].
+    // Mutable config values are exported to prometheus with labels
+    // [field_name][last_update][value].
     last_update: DateTime<Utc>,
 }
 
 impl<T: Serialize> Serialize for MutableConfigValue<T> {
     /// Only include the value field of MutableConfigValue in serialized result
-    /// since field_name and last_update are only relevant for internal monitoring
+    /// since field_name and last_update are only relevant for internal
+    /// monitoring
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -36,7 +39,8 @@ impl<T: Serialize> Serialize for MutableConfigValue<T> {
 
 impl<T: Copy + PartialEq + Debug> MutableConfigValue<T> {
     /// Initializes a value.
-    /// `field_name` is needed to export the config value as a prometheus metric.
+    /// `field_name` is needed to export the config value as a prometheus
+    /// metric.
     pub fn new(val: T, field_name: &str) -> Self {
         let res = Self {
             value: Arc::new(Mutex::new(val)),

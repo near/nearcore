@@ -31,8 +31,8 @@ pub use crate::network_protocol::{
 };
 
 /// Number of hops a message is allowed to travel before being dropped.
-/// This is used to avoid infinite loop because of inconsistent view of the network
-/// by different nodes.
+/// This is used to avoid infinite loop because of inconsistent view of the
+/// network by different nodes.
 pub const ROUTED_MESSAGE_TTL: u8 = 100;
 
 /// Peer type.
@@ -83,13 +83,16 @@ pub struct Ban {
 pub enum KnownPeerStatus {
     /// We got information about this peer from someone, but we didn't
     /// verify them yet. This peer might not exist, invalid IP etc.
-    /// Also the peers that we failed to connect to, will be marked as 'Unknown'.
+    /// Also the peers that we failed to connect to, will be marked as
+    /// 'Unknown'.
     Unknown,
-    /// We know that this peer exists - we were connected to it, or it was provided as boot node.
+    /// We know that this peer exists - we were connected to it, or it was
+    /// provided as boot node.
     NotConnected,
     /// We're currently connected to this peer.
     Connected,
-    /// We banned this peer for some reason. Once the ban time is over, it will move to 'NotConnected' state.
+    /// We banned this peer for some reason. Once the ban time is over, it will
+    /// move to 'NotConnected' state.
     Banned(ReasonForBan, time::Utc),
 }
 
@@ -164,8 +167,8 @@ pub enum PeerManagerMessageRequest {
     OutboundTcpConnect(crate::tcp::Stream),
     /// TEST-ONLY
     SetAdvOptions(crate::test_utils::SetAdvOptions),
-    /// The following types of requests are used to trigger actions in the Peer Manager for testing.
-    /// TEST-ONLY: Fetch current routing table.
+    /// The following types of requests are used to trigger actions in the Peer
+    /// Manager for testing. TEST-ONLY: Fetch current routing table.
     FetchRoutingTable,
     /// TEST-ONLY Start ping to `PeerId` with `nonce`.
     PingTo {
@@ -192,7 +195,8 @@ impl PeerManagerMessageRequest {
     }
 }
 
-/// List of all replies to messages to `PeerManager`. See `PeerManagerMessageRequest` for more details.
+/// List of all replies to messages to `PeerManager`. See
+/// `PeerManagerMessageRequest` for more details.
 #[derive(actix::MessageResponse, Debug)]
 pub enum PeerManagerMessageResponse {
     NetworkResponses(NetworkResponses),
@@ -253,9 +257,11 @@ pub enum NetworkRequests {
         request: PartialEncodedChunkRequestMsg,
         create_time: time::Instant,
     },
-    /// Information about chunk such as its header, some subset of parts and/or incoming receipts
+    /// Information about chunk such as its header, some subset of parts and/or
+    /// incoming receipts
     PartialEncodedChunkResponse { route_back: CryptoHash, response: PartialEncodedChunkResponseMsg },
-    /// Information about chunk such as its header, some subset of parts and/or incoming receipts
+    /// Information about chunk such as its header, some subset of parts and/or
+    /// incoming receipts
     PartialEncodedChunkMessage {
         account_id: AccountId,
         partial_encoded_chunk: PartialEncodedChunkWithArcReceipts,
@@ -263,7 +269,8 @@ pub enum NetworkRequests {
     /// Forwarding a chunk part to a validator tracking the shard
     PartialEncodedChunkForward { account_id: AccountId, forward: PartialEncodedChunkForwardMsg },
 
-    /// Valid transaction but since we are not validators we send this transaction to current validators.
+    /// Valid transaction but since we are not validators we send this
+    /// transaction to current validators.
     ForwardTx(AccountId, SignedTransaction),
     /// Query transaction status
     TxStatus(AccountId, AccountId, CryptoHash),
@@ -278,8 +285,8 @@ pub struct FullPeerInfo {
     pub chain_info: PeerChainInfo,
 }
 
-/// These are the information needed for highest height peers. For these peers, we guarantee that
-/// the height and hash of the latest block are set.
+/// These are the information needed for highest height peers. For these peers,
+/// we guarantee that the height and hash of the latest block are set.
 #[derive(Debug, Clone)]
 pub struct HighestHeightPeerInfo {
     pub peer_info: PeerInfo,
@@ -319,8 +326,8 @@ pub struct BlockInfo {
 }
 
 /// This is the internal representation of PeerChainInfoV2.
-/// We separate these two structs because PeerChainInfoV2 is part of network protocol, and can't be
-/// modified easily.
+/// We separate these two structs because PeerChainInfoV2 is part of network
+/// protocol, and can't be modified easily.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct PeerChainInfo {
     /// Chain Id and hash of genesis block.
@@ -333,7 +340,8 @@ pub struct PeerChainInfo {
     pub archival: bool,
 }
 
-// Information about the connected peer that is shared with the rest of the system.
+// Information about the connected peer that is shared with the rest of the
+// system.
 #[derive(Debug, Clone)]
 pub struct ConnectedPeerInfo {
     pub full_peer_info: FullPeerInfo,
@@ -546,11 +554,12 @@ mod tests {
 // Don't need Borsh ?
 #[derive(Debug, Clone, PartialEq, Eq, borsh::BorshSerialize, borsh::BorshDeserialize, Hash)]
 /// Defines the destination for a network request.
-/// The request should be sent either to the `account_id` as a routed message, or directly to
-/// any peer that tracks the shard.
-/// If `prefer_peer` is `true`, should be sent to the peer, unless no peer tracks the shard, in which
-/// case fall back to sending to the account.
-/// Otherwise, send to the account, unless we do not know the route, in which case send to the peer.
+/// The request should be sent either to the `account_id` as a routed message,
+/// or directly to any peer that tracks the shard.
+/// If `prefer_peer` is `true`, should be sent to the peer, unless no peer
+/// tracks the shard, in which case fall back to sending to the account.
+/// Otherwise, send to the account, unless we do not know the route, in which
+/// case send to the peer.
 pub struct AccountIdOrPeerTrackingShard {
     /// Target account to send the the request to
     pub account_id: Option<AccountId>,
@@ -560,6 +569,7 @@ pub struct AccountIdOrPeerTrackingShard {
     pub shard_id: ShardId,
     /// Select peers that are archival nodes if it is true
     pub only_archival: bool,
-    /// Only send messages to peers whose latest chain height is no less `min_height`
+    /// Only send messages to peers whose latest chain height is no less
+    /// `min_height`
     pub min_height: BlockHeight,
 }

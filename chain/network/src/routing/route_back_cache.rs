@@ -44,24 +44,25 @@ const DEFAULT_REMOVE_BATCH_SIZE: usize = 100;
 /// - Old entries in the cache will be eventually removed (no memory leak).
 /// - If the cache is not at full capacity, all new records will be stored.
 /// - If a peer try to abuse the system, it will be able to allocate at most
-///     `capacity / number_of_active_connections` entries.
+///   `capacity / number_of_active_connections` entries.
 pub struct RouteBackCache {
     /// Maximum number of records allowed in the cache.
     capacity: usize,
     /// Maximum time allowed before removing a record from the cache.
     evict_timeout: time::Duration,
-    /// Minimum number of records to delete from offending peer when the cache is full.
+    /// Minimum number of records to delete from offending peer when the cache
+    /// is full.
     remove_frequent_min_size: usize,
     /// Main map from message hash to time where it was created + target peer
     /// Size: O(capacity)
     main: HashMap<CryptoHash, (time::Instant, PeerId)>,
     /// Number of records allocated by each PeerId.
-    /// The size is stored with negative sign, to order in PeerId in decreasing order.
-    /// To avoid handling with negative number all sizes are added by capacity.
-    /// Size: O(number of active connections)
+    /// The size is stored with negative sign, to order in PeerId in decreasing
+    /// order. To avoid handling with negative number all sizes are added by
+    /// capacity. Size: O(number of active connections)
     size_per_target: BTreeSet<(usize, PeerId)>,
-    /// List of all hashes associated with each PeerId. Hashes within each PeerId
-    /// are sorted by the time they arrived from older to newer.
+    /// List of all hashes associated with each PeerId. Hashes within each
+    /// PeerId are sorted by the time they arrived from older to newer.
     /// Size: O(capacity)
     record_per_target: BTreeMap<PeerId, BTreeSet<(time::Instant, CryptoHash)>>,
 }
@@ -129,7 +130,8 @@ impl RouteBackCache {
         }
 
         self.size_per_target.remove(&(size, target.clone()));
-        // Since self.size is equal to capacity - real_size, adding 1, is equivalent to subtracting 1 from the real size.
+        // Since self.size is equal to capacity - real_size, adding 1, is equivalent to
+        // subtracting 1 from the real size.
         size += removed;
 
         if self.capacity - size != 0 {
@@ -303,7 +305,8 @@ mod test {
         assert_eq!(cache.get(&hash0), None);
     }
 
-    /// Check element is removed after timeout triggered by insert at max capacity.
+    /// Check element is removed after timeout triggered by insert at max
+    /// capacity.
     #[test]
     fn insert_evicted() {
         let clock = time::FakeClock::default();
@@ -339,8 +342,9 @@ mod test {
         assert_eq!(cache.get(&hash0), None);
     }
 
-    /// Insert three elements. One old element from peer0 and two recent elements from peer1.
-    /// Check that old element from peer0 is removed, even while peer1 has more elements.
+    /// Insert three elements. One old element from peer0 and two recent
+    /// elements from peer1. Check that old element from peer0 is removed,
+    /// even while peer1 has more elements.
     #[test]
     fn prefer_evict() {
         let clock = time::FakeClock::default();
@@ -363,8 +367,9 @@ mod test {
         assert!(cache.get(&hash3).is_some());
     }
 
-    /// Insert three elements. One old element from peer0 and two recent elements from peer1.
-    /// Check that older element from peer1 is removed, since evict timeout haven't passed yet.
+    /// Insert three elements. One old element from peer0 and two recent
+    /// elements from peer1. Check that older element from peer1 is removed,
+    /// since evict timeout haven't passed yet.
     #[test]
     fn prefer_full() {
         let clock = time::FakeClock::default();
@@ -387,8 +392,9 @@ mod test {
         assert!(cache.get(&hash3).is_some());
     }
 
-    /// Insert three elements. One old element from peer0 and two recent elements from peer1.
-    /// Check that older element from peer1 is removed, since evict timeout haven't passed yet.
+    /// Insert three elements. One old element from peer0 and two recent
+    /// elements from peer1. Check that older element from peer1 is removed,
+    /// since evict timeout haven't passed yet.
     #[test]
     fn remove_all_frequent() {
         let clock = time::FakeClock::default();
@@ -411,11 +417,12 @@ mod test {
         assert!(cache.get(&hash3).is_some());
     }
 
-    /// Simulate an attack from a malicious actor which sends several routing back message
-    /// to overtake the cache. Create 4 legitimate hashes from 3 peers. Then insert
-    /// 50 hashes from attacker. Since the cache size is 17, first 5 message from attacker will
-    /// be stored, and it will become the peer with more entries (5 > 4). All 12 legitimate
-    /// initial hashes should be present in the cache after the attack.
+    /// Simulate an attack from a malicious actor which sends several routing
+    /// back message to overtake the cache. Create 4 legitimate hashes from
+    /// 3 peers. Then insert 50 hashes from attacker. Since the cache size
+    /// is 17, first 5 message from attacker will be stored, and it will
+    /// become the peer with more entries (5 > 4). All 12 legitimate initial
+    /// hashes should be present in the cache after the attack.
     #[test]
     fn poison_attack() {
         let clock = time::FakeClock::default();

@@ -45,8 +45,8 @@ fn main() -> anyhow::Result<()> {
         .build_global()
         .context("failed to create the threadpool")?;
 
-    // We use it to automatically search the for root certificates to perform HTTPS calls
-    // (sending telemetry and downloading genesis)
+    // We use it to automatically search the for root certificates to perform HTTPS
+    // calls (sending telemetry and downloading genesis)
     openssl_probe::init_ssl_cert_env_vars();
     near_performance_metrics::process::schedule_printing_performance_stats(Duration::from_secs(60));
 

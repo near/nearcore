@@ -36,33 +36,41 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tracing::Instrument as _;
 
-/// Ratio between consecutive attempts to establish connection with another peer.
-/// In the kth step node should wait `10 * EXPONENTIAL_BACKOFF_RATIO**k` milliseconds
+/// Ratio between consecutive attempts to establish connection with another
+/// peer. In the kth step node should wait `10 * EXPONENTIAL_BACKOFF_RATIO**k`
+/// milliseconds
 const EXPONENTIAL_BACKOFF_RATIO: f64 = 1.1;
-/// The initial waiting time between consecutive attempts to establish connection
+/// The initial waiting time between consecutive attempts to establish
+/// connection
 const MONITOR_PEERS_INITIAL_DURATION: time::Duration = time::Duration::milliseconds(10);
 /// How often should we check wheter local edges match the connection pool.
 const FIX_LOCAL_EDGES_INTERVAL: time::Duration = time::Duration::seconds(60);
-/// How much time we give fix_local_edges() to resolve the discrepancies, before forcing disconnect.
+/// How much time we give fix_local_edges() to resolve the discrepancies, before
+/// forcing disconnect.
 const FIX_LOCAL_EDGES_TIMEOUT: time::Duration = time::Duration::seconds(6);
 
 /// How often to report bandwidth stats.
 const REPORT_BANDWIDTH_STATS_TRIGGER_INTERVAL: time::Duration =
     time::Duration::milliseconds(60_000);
 
-/// If we received more than `REPORT_BANDWIDTH_THRESHOLD_BYTES` of data from given peer it's bandwidth stats will be reported.
+/// If we received more than `REPORT_BANDWIDTH_THRESHOLD_BYTES` of data from
+/// given peer it's bandwidth stats will be reported.
 const REPORT_BANDWIDTH_THRESHOLD_BYTES: usize = 10_000_000;
-/// If we received more than REPORT_BANDWIDTH_THRESHOLD_COUNT` of messages from given peer it's bandwidth stats will be reported.
+/// If we received more than REPORT_BANDWIDTH_THRESHOLD_COUNT` of messages from
+/// given peer it's bandwidth stats will be reported.
 const REPORT_BANDWIDTH_THRESHOLD_COUNT: usize = 10_000;
 
-/// If a peer is more than these blocks behind (comparing to our current head) - don't route any messages through it.
-/// We are updating the list of unreliable peers every MONITOR_PEER_MAX_DURATION (60 seconds) - so the current
-/// horizon value is roughly matching this threshold (if the node is 60 blocks behind, it will take it a while to recover).
-/// If we set this horizon too low (for example 2 blocks) - we're risking excluding a lot of peers in case of a short
-/// network issue.
+/// If a peer is more than these blocks behind (comparing to our current head) -
+/// don't route any messages through it. We are updating the list of unreliable
+/// peers every MONITOR_PEER_MAX_DURATION (60 seconds) - so the current
+/// horizon value is roughly matching this threshold (if the node is 60 blocks
+/// behind, it will take it a while to recover). If we set this horizon too low
+/// (for example 2 blocks) - we're risking excluding a lot of peers in case of a
+/// short network issue.
 const UNRELIABLE_PEER_HORIZON: u64 = 60;
 
-/// Due to implementation limits of `Graph` in `near-network`, we support up to 128 client.
+/// Due to implementation limits of `Graph` in `near-network`, we support up to
+/// 128 client.
 pub const MAX_TIER2_PEERS: usize = 128;
 
 /// When picking a peer to connect to, we'll pick from the 'safer peers'
@@ -75,7 +83,8 @@ pub struct PeerManagerActor {
     pub(crate) clock: time::Clock,
     /// Peer information for this node.
     my_peer_id: PeerId,
-    /// Flag that track whether we started attempts to establish outbound connections.
+    /// Flag that track whether we started attempts to establish outbound
+    /// connections.
     started_connect_attempts: bool,
 
     /// State that is shared between multiple threads (including PeerActors).
@@ -317,9 +326,10 @@ impl PeerManagerActor {
     }
 
     /// Check if it is needed to create a new outbound connection.
-    /// If the number of active connections is less than `ideal_connections_lo` or
-    /// (the number of outgoing connections is less than `minimum_outbound_peers`
-    ///     and the total connections is less than `max_num_peers`)
+    /// If the number of active connections is less than `ideal_connections_lo`
+    /// or (the number of outgoing connections is less than
+    /// `minimum_outbound_peers`     and the total connections is less than
+    /// `max_num_peers`)
     fn is_outbound_bootstrap_needed(&self) -> bool {
         let tier2 = self.state.tier2.load();
         let total_connections = tier2.ready.len() + tier2.outbound_handshakes.len();
@@ -350,7 +360,8 @@ impl PeerManagerActor {
             Some(height) => height,
             None => return vec![],
         };
-        // Find all peers whose height is within `highest_peer_horizon` from max height peer(s).
+        // Find all peers whose height is within `highest_peer_horizon` from max height
+        // peer(s).
         infos
             .into_iter()
             .filter(|i| {
@@ -360,12 +371,13 @@ impl PeerManagerActor {
             .collect()
     }
 
-    // Get peers that are potentially unreliable and we should avoid routing messages through them.
-    // Currently we're picking the peers that are too much behind (in comparison to us).
+    // Get peers that are potentially unreliable and we should avoid routing
+    // messages through them. Currently we're picking the peers that are too
+    // much behind (in comparison to us).
     fn unreliable_peers(&self) -> HashSet<PeerId> {
         // If chain info is not set, that means we haven't received chain info message
-        // from chain yet. Return empty set in that case. This should only last for a short period
-        // of time.
+        // from chain yet. Return empty set in that case. This should only last for a
+        // short period of time.
         let binding = self.state.chain_info.load();
         let chain_info = if let Some(it) = binding.as_ref() {
             it
@@ -373,8 +385,8 @@ impl PeerManagerActor {
             return HashSet::new();
         };
         let my_height = chain_info.block.header().height();
-        // Find all peers whose height is below `highest_peer_horizon` from max height peer(s).
-        // or the ones we don't have height information yet
+        // Find all peers whose height is below `highest_peer_horizon` from max height
+        // peer(s). or the ones we don't have height information yet
         self.state
             .tier2
             .load()
@@ -391,17 +403,19 @@ impl PeerManagerActor {
             .collect()
     }
 
-    /// Check if the number of connections (excluding whitelisted ones) exceeds ideal_connections_hi.
-    /// If so, constructs a safe set of peers and selects one random peer outside of that set
-    /// and sends signal to stop connection to it gracefully.
+    /// Check if the number of connections (excluding whitelisted ones) exceeds
+    /// ideal_connections_hi. If so, constructs a safe set of peers and
+    /// selects one random peer outside of that set and sends signal to stop
+    /// connection to it gracefully.
     ///
     /// Safe set contruction process:
     /// 1. Add all whitelisted peers to the safe set.
-    /// 2. If the number of outbound connections is less or equal than minimum_outbound_connections,
-    ///    add all outbound connections to the safe set.
-    /// 3. Find all peers who sent us a message within the last peer_recent_time_window,
-    ///    and add them one by one to the safe_set (starting from earliest connection time)
-    ///    until safe set has safe_set_size elements.
+    /// 2. If the number of outbound connections is less or equal than
+    /// minimum_outbound_connections,    add all outbound connections to the
+    /// safe set. 3. Find all peers who sent us a message within the last
+    /// peer_recent_time_window,    and add them one by one to the safe_set
+    /// (starting from earliest connection time)    until safe set has
+    /// safe_set_size elements.
     fn maybe_stop_active_connection(&self) {
         let tier2 = self.state.tier2.load();
         let filter_peers = |predicate: &dyn Fn(&connection::Connection) -> bool| -> Vec<_> {
@@ -420,7 +434,8 @@ impl PeerManagerActor {
         let whitelisted_peers = filter_peers(&|p| self.state.is_peer_whitelisted(&p.peer_info));
         safe_set.extend(whitelisted_peers);
 
-        // If there is not enough non-whitelisted peers, return without disconnecting anyone.
+        // If there is not enough non-whitelisted peers, return without disconnecting
+        // anyone.
         if tier2.ready.len() - safe_set.len() <= self.state.config.ideal_connections_hi as usize {
             return;
         }
@@ -466,7 +481,8 @@ impl PeerManagerActor {
             safe_set.insert(p.peer_info.id.clone());
         }
 
-        // Build valid candidate list to choose the peer to be removed. All peers outside the safe set.
+        // Build valid candidate list to choose the peer to be removed. All peers
+        // outside the safe set.
         let candidates = tier2.ready.values().filter(|p| !safe_set.contains(&p.peer_info.id));
         if let Some(p) = candidates.choose(&mut rand::thread_rng()) {
             tracing::debug!(target: "network", id = ?p.peer_info.id,
@@ -486,10 +502,11 @@ impl PeerManagerActor {
     ///
     /// # Arguments:
     /// - `interval` - Time between consequent runs.
-    /// - `default_interval` - we will set `interval` to this value once, after first successful connection
+    /// - `default_interval` - we will set `interval` to this value once, after
+    ///   first successful connection
     /// - `max_interval` - maximum value of interval
-    /// NOTE: in the current implementation `interval` increases by 1% every time, and it will
-    ///       reach value of `max_internal` eventually.
+    /// NOTE: in the current implementation `interval` increases by 1% every
+    /// time, and it will       reach value of `max_internal` eventually.
     fn monitor_peers_trigger(
         &mut self,
         ctx: &mut actix::Context<Self>,
@@ -504,7 +521,8 @@ impl PeerManagerActor {
 
         if self.is_outbound_bootstrap_needed() {
             let tier2 = self.state.tier2.load();
-            // With some odds - try picking one of the 'NotConnected' peers -- these are the ones that we were able to connect to in the past.
+            // With some odds - try picking one of the 'NotConnected' peers -- these are the
+            // ones that we were able to connect to in the past.
             let prefer_previously_connected_peer =
                 thread_rng().gen_bool(PREFER_PREVIOUSLY_CONNECTED_PEER);
             if let Some(peer_info) = self.state.peer_store.unconnected_peer(
@@ -517,7 +535,8 @@ impl PeerManagerActor {
                 },
                 prefer_previously_connected_peer,
             ) {
-                // Start monitor_peers_attempts from start after we discover the first healthy peer
+                // Start monitor_peers_attempts from start after we discover the first healthy
+                // peer
                 if !self.started_connect_attempts {
                     self.started_connect_attempts = true;
                     interval = default_interval;
@@ -546,7 +565,8 @@ impl PeerManagerActor {
         // If there are too many active connections try to remove some connections
         self.maybe_stop_active_connection();
 
-        // Find peers that are not reliable (too much behind) - and make sure that we're not routing messages through them.
+        // Find peers that are not reliable (too much behind) - and make sure that we're
+        // not routing messages through them.
         let unreliable_peers = self.unreliable_peers();
         metrics::PEER_UNRELIABLE.set(unreliable_peers.len() as i64);
         self.state.graph.set_unreliable_peers(unreliable_peers);
@@ -756,8 +776,8 @@ impl PeerManagerActor {
                     .observe((self.clock.now() - create_time.0).as_seconds_f64());
                 let mut success = false;
 
-                // Make two attempts to send the message. First following the preference of `prefer_peer`,
-                // and if it fails, against the preference.
+                // Make two attempts to send the message. First following the preference of
+                // `prefer_peer`, and if it fails, against the preference.
                 for prefer_peer in &[target.prefer_peer, !target.prefer_peer] {
                     if !prefer_peer {
                         if let Some(account_id) = target.account_id.as_ref() {
@@ -930,9 +950,9 @@ impl PeerManagerActor {
 
 /// Fetches NetworkInfo, which contains a bunch of stats about the
 /// P2P network state. Currently used only in tests.
-/// TODO(gprusak): In prod, NetworkInfo is pushed periodically from PeerManagerActor to ClientActor.
-/// It would be cleaner to replace the push loop in PeerManagerActor with a pull loop
-/// in the ClientActor.
+/// TODO(gprusak): In prod, NetworkInfo is pushed periodically from
+/// PeerManagerActor to ClientActor. It would be cleaner to replace the push
+/// loop in PeerManagerActor with a pull loop in the ClientActor.
 impl actix::Handler<WithSpanContext<GetNetworkInfo>> for PeerManagerActor {
     type Result = NetworkInfo;
     fn handle(
@@ -970,9 +990,10 @@ impl actix::Handler<WithSpanContext<SetChainInfo>> for PeerManagerActor {
                 // This node might have become a TIER1 node due to the change of the key set.
                 // If so we should recompute and readvertise the list of proxies.
                 // This is mostly important in case a node is its own proxy. In all other cases
-                // (when proxies are different nodes) the update of the key set happens asynchronously
-                // and this node won't be able to connect to proxies until it happens (and only the
-                // connected proxies are included in the advertisement). We run tier1_advertise_proxies
+                // (when proxies are different nodes) the update of the key set happens
+                // asynchronously and this node won't be able to connect to
+                // proxies until it happens (and only the connected proxies are
+                // included in the advertisement). We run tier1_advertise_proxies
                 // periodically in the background anyway to cover those cases.
                 state.tier1_advertise_proxies(&clock).await;
             }

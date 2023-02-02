@@ -49,8 +49,8 @@ struct ScopeState {
     cancelled: bool,
 }
 
-// Scope represents a collection of spawned futures with a common bounded lifetime.
-// See Scope::run for details.
+// Scope represents a collection of spawned futures with a common bounded
+// lifetime. See Scope::run for details.
 pub struct Scope {
     ctx: CtxWithCancel,
     // Main futures have to exit before the scope is cancelled.
@@ -111,39 +111,49 @@ impl Scope {
         });
     }
 
-    // Scope represents a collection of futures executed concurrently on a tokio runtime, which share a context.
-    // Scope allows for cooperative execution, therefore all coroutines are allowed to run as long
-    // as they want. If you cancel the context, the futures will get notified (see documentation of
+    // Scope represents a collection of futures executed concurrently on a tokio
+    // runtime, which share a context. Scope allows for cooperative execution,
+    // therefore all coroutines are allowed to run as long as they want. If you
+    // cancel the context, the futures will get notified (see documentation of
     // Ctx) but won't get preempted: they will be able to shutdown gracefully.
     //
     // run() is a lambda-abstraction of the Scope:
     // 1. it creates a new scope, spawns f(ctx,scope) and adds it to the scope.
-    // 2. This first future of the scope is allowed to spawn additional futures in the scope.
-    // 3. run() is blocking until all members of the scope complete.
+    // 2. This first future of the scope is allowed to spawn additional futures in
+    // the scope. 3. run() is blocking until all members of the scope complete.
     //
-    // Since from the point of view of the caller of Scope::run, it is just a blocking call, which
-    // might spawn coroutines internally, but all of them will complete before Scope::run returns,
-    // therefore Scope::run allows for expressing STRUCTURED CONCURRENCY.
+    // Since from the point of view of the caller of Scope::run, it is just a
+    // blocking call, which might spawn coroutines internally, but all of them
+    // will complete before Scope::run returns, therefore Scope::run allows for
+    // expressing STRUCTURED CONCURRENCY.
     //
     // Additional details:
-    // - Scope doesn't have a public constructor - it can only be constructed via Scope::run, for
+    // - Scope doesn't have a public constructor - it can only be constructed via
+    //   Scope::run, for
     // encapsulation.
-    // - All the futures of the scope are expected to complete successfully. If any of the futures
-    // returns an error, the scope context will get cancelled, all still-ongoing scope futures will
-    // be notified and are expected to shutdown gracefully. The first error encountered will be returned.
-    // - Scope supports 2 methods to spawn futures: spawn() which spawns "main" futures and
-    // spawn_weak(), which spawns "weak" futures. "main" futures are allowed to spawn additional
-    // futures, "weak" futures are not. Scope will wait for all "main" to complete, then it will
-    // cancel the context and wait for the "weak" futures to complete.
-    // TODO: consider renaming "main and weak" to "foreground and background".
+    // - All the futures of the scope are expected to complete successfully. If any
+    //   of the futures
+    // returns an error, the scope context will get cancelled, all still-ongoing
+    // scope futures will be notified and are expected to shutdown gracefully.
+    // The first error encountered will be returned.
+    // - Scope supports 2 methods to spawn futures: spawn() which spawns "main"
+    //   futures and
+    // spawn_weak(), which spawns "weak" futures. "main" futures are allowed to
+    // spawn additional futures, "weak" futures are not. Scope will wait for all
+    // "main" to complete, then it will cancel the context and wait for the
+    // "weak" futures to complete. TODO: consider renaming "main and weak" to
+    // "foreground and background".
     //
     // Missing features:
-    // - Even though the spawned futures are guaranteed to have a bounded lifetime, I failed so
-    // far to express that reliably in rust lifetimes, therefore for now all futures are required
-    // to be 'static.
-    // - As a consequence the Scope object lifetime is also 'static, so there is no compile-time
+    // - Even though the spawned futures are guaranteed to have a bounded lifetime,
+    //   I failed so
+    // far to express that reliably in rust lifetimes, therefore for now all futures
+    // are required to be 'static.
+    // - As a consequence the Scope object lifetime is also 'static, so there is no
+    //   compile-time
     // protection from having scope outlive the run() call.
-    // - There is no compile-time protection from having "weak" futures spawn stuff. Any
+    // - There is no compile-time protection from having "weak" futures spawn stuff.
+    //   Any
     // suggestions how to achieve that are welcome.
     pub async fn run<F, T>(ctx: &Ctx, f: impl FnOnce(Ctx, Arc<Scope>) -> F) -> anyhow::Result<T>
     where

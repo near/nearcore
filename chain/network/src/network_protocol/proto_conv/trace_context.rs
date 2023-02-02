@@ -24,8 +24,9 @@ pub(crate) fn extract_span_context(
 ) -> Result<SpanContext, ExtractError> {
     if trace_context.is_some() {
         let trace_id = extract_trace_id(&trace_context.trace_id)?;
-        // If we have a trace_id but can't get the parent span, we default it to invalid instead of completely erroring
-        // out so that the rest of the spans aren't completely lost.
+        // If we have a trace_id but can't get the parent span, we default it to invalid
+        // instead of completely erroring out so that the rest of the spans
+        // aren't completely lost.
         let span_id = extract_span_id(&trace_context.span_id).unwrap_or(SpanId::INVALID);
         let sampled = match trace_context.sampling_priority.enum_value() {
             Ok(SamplingPriority::UserReject) | Ok(SamplingPriority::AutoReject) => {

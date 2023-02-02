@@ -9,7 +9,8 @@ use near_primitives::types::{
     AccountId, Balance, NumSeats, ProtocolVersion, ValidatorKickoutReason,
 };
 
-/// Find threshold of stake per seat, given provided stakes and required number of seats.
+/// Find threshold of stake per seat, given provided stakes and required number
+/// of seats.
 pub(crate) fn find_threshold(
     stakes: &[Balance],
     num_seats: NumSeats,
@@ -36,7 +37,8 @@ pub(crate) fn find_threshold(
     }
 }
 
-/// Calculates new seat assignments based on current seat assignments and proposals.
+/// Calculates new seat assignments based on current seat assignments and
+/// proposals.
 pub fn proposals_to_epoch_info(
     epoch_config: &EpochConfig,
     rng_seed: RngSeed,
@@ -141,8 +143,8 @@ mod old_validator_selection {
                 continue;
             }
             if !ordered_proposals.contains_key(account_id) {
-                // safe to do this here because fishermen from previous epoch is guaranteed to have no
-                // duplicates.
+                // safe to do this here because fishermen from previous epoch is guaranteed to
+                // have no duplicates.
                 stake_change.insert(account_id.clone(), r.stake());
                 fishermen.push(r);
             }
@@ -276,7 +278,8 @@ mod old_validator_selection {
 
     fn gen_index_old(rng: &mut Hc128Rng, bound: u64) -> u64 {
         // This is a simplified copy of the rand gen_index implementation to ensure that
-        // upgrades to the rand library will not cause a change in the shuffling behavior.
+        // upgrades to the rand library will not cause a change in the shuffling
+        // behavior.
         let zone = (bound << bound.leading_zeros()).wrapping_sub(1);
         loop {
             let v = rng.next_u64();

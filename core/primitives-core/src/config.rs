@@ -29,7 +29,8 @@ pub struct VMConfig {
 }
 
 /// Describes limits for VM and Runtime.
-/// TODO #4139: consider switching to strongly-typed wrappers instead of raw quantities
+/// TODO #4139: consider switching to strongly-typed wrappers instead of raw
+/// quantities
 #[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
 pub struct VMLimitConfig {
     /// Max amount of gas that can be used, excluding gas attached to promises.
@@ -46,7 +47,8 @@ pub struct VMLimitConfig {
     pub stack_limiter_version: StackLimiterVersion,
 
     /// The initial number of memory pages.
-    /// NOTE: It's not a limiter itself, but it's a value we use for initial_memory_pages.
+    /// NOTE: It's not a limiter itself, but it's a value we use for
+    /// initial_memory_pages.
     pub initial_memory_pages: u32,
     /// What is the maximal memory pages amount is allowed to have for
     /// a contract.
@@ -73,8 +75,8 @@ pub struct VMLimitConfig {
 
     /// Max number of actions per receipt.
     pub max_actions_per_receipt: u64,
-    /// Max total length of all method names (including terminating character) for a function call
-    /// permission access key.
+    /// Max total length of all method names (including terminating character)
+    /// for a function call permission access key.
     pub max_number_bytes_method_names: u64,
     /// Max length of any method name (without terminating character).
     pub max_length_method_name: u64,
@@ -102,7 +104,8 @@ pub struct VMLimitConfig {
     /// This limit should never be hit normally.
     #[serde(default = "wasmer2_stack_limit_default")]
     pub wasmer2_stack_limit: i32,
-    /// If present, stores max number of locals declared globally in one contract
+    /// If present, stores max number of locals declared globally in one
+    /// contract
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_locals_per_contract: Option<u64>,
     /// Whether to enforce account_id well-formedness where it wasn't enforced
@@ -134,7 +137,8 @@ fn wasmer2_stack_limit_default() -> i32 {
 )]
 #[repr(u8)]
 pub enum StackLimiterVersion {
-    /// Old, buggy version, don't use it unless specifically to support old protocol version.
+    /// Old, buggy version, don't use it unless specifically to support old
+    /// protocol version.
     V0,
     /// What we use in today's protocol.
     V1,
@@ -160,7 +164,8 @@ impl StackLimiterVersion {
 pub enum AccountIdValidityRulesVersion {
     /// Skip account ID validation according to legacy rules.
     V0,
-    /// Limit `receiver_id` in `FunctionCallPermission` to be a valid account ID.
+    /// Limit `receiver_id` in `FunctionCallPermission` to be a valid account
+    /// ID.
     V1,
 }
 
@@ -180,8 +185,8 @@ impl VMConfig {
         }
     }
 
-    /// Computes non-cryptographically-proof hash. The computation is fast but not cryptographically
-    /// secure.
+    /// Computes non-cryptographically-proof hash. The computation is fast but
+    /// not cryptographically secure.
     pub fn non_crypto_hash(&self) -> u64 {
         let mut s = DefaultHasher::new();
         self.hash(&mut s);
@@ -203,10 +208,11 @@ impl VMLimitConfig {
     pub fn test() -> Self {
         let max_contract_size = 4 * 2u64.pow(20);
         Self {
-            max_gas_burnt: 2 * 10u64.pow(14), // with 10**15 block gas limit this will allow 5 calls.
+            max_gas_burnt: 2 * 10u64.pow(14), /* with 10**15 block gas limit this will allow 5
+                                               * calls. */
 
-            // NOTE: Stack height has to be 16K, otherwise Wasmer produces non-deterministic results.
-            // For experimentation try `test_stack_overflow`.
+            // NOTE: Stack height has to be 16K, otherwise Wasmer produces non-deterministic
+            // results. For experimentation try `test_stack_overflow`.
             max_stack_height: 16 * 1024, // 16Kib of stack.
             stack_limiter_version: StackLimiterVersion::V1,
             initial_memory_pages: 2u32.pow(10), // 64Mib of memory.
@@ -255,7 +261,8 @@ impl VMLimitConfig {
     }
 }
 
-/// Configuration of view methods execution, during which no costs should be charged.
+/// Configuration of view methods execution, during which no costs should be
+/// charged.
 #[derive(Default, Clone, Serialize, Deserialize, Debug, Hash, PartialEq, Eq)]
 pub struct ViewConfig {
     /// If specified, defines max burnt gas per view method.

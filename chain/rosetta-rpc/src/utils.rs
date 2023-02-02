@@ -502,7 +502,8 @@ pub(crate) async fn get_block_if_final(
         Err(near_client_primitives::types::GetBlockError::UnknownBlock { .. }) => return Ok(None),
         Err(err) => return Err(errors::ErrorKind::InternalError(err.to_string()).into()),
     };
-    // if block height is larger than the last final block height, then the block is not final
+    // if block height is larger than the last final block height, then the block is
+    // not final
     if block.header.height > final_block.header.height {
         return Ok(None);
     }

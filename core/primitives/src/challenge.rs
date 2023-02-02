@@ -40,16 +40,17 @@ pub struct ChunkProofs {
 }
 
 /// Either `EncodedShardChunk` or `ShardChunk`. Used for `ChunkProofs`.
-/// `Decoded` is used to avoid re-encoding an already decoded chunk to construct a challenge.
-/// `Encoded` is still needed in case a challenge challenges an invalid encoded chunk that can't be
-/// decoded.
+/// `Decoded` is used to avoid re-encoding an already decoded chunk to construct
+/// a challenge. `Encoded` is still needed in case a challenge challenges an
+/// invalid encoded chunk that can't be decoded.
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub enum MaybeEncodedShardChunk {
     Encoded(EncodedShardChunk),
     Decoded(ShardChunk),
 }
 
-/// Doesn't match post-{state root, outgoing receipts, gas used, etc} results after applying previous chunk.
+/// Doesn't match post-{state root, outgoing receipts, gas used, etc} results
+/// after applying previous chunk.
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct ChunkState {
     /// Encoded prev block header.
@@ -114,5 +115,6 @@ impl SlashedValidator {
 }
 
 /// Result of checking challenge, contains which accounts to slash.
-/// If challenge is invalid this is sender, otherwise author of chunk (and possibly other participants that signed invalid blocks).
+/// If challenge is invalid this is sender, otherwise author of chunk (and
+/// possibly other participants that signed invalid blocks).
 pub type ChallengesResult = Vec<SlashedValidator>;

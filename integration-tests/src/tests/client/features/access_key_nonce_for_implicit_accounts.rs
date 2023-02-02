@@ -31,8 +31,8 @@ use std::path::Path;
 use std::sync::Arc;
 use tracing::debug;
 
-/// Try to process tx in the next blocks, check that tx and all generated receipts succeed.
-/// Return height of the next block.
+/// Try to process tx in the next blocks, check that tx and all generated
+/// receipts succeed. Return height of the next block.
 fn check_tx_processing(
     env: &mut TestEnv,
     tx: SignedTransaction,
@@ -103,10 +103,11 @@ fn test_transaction_hash_collision() {
     assert_matches!(res, ProcessTxResponse::InvalidTx(_));
 }
 
-/// Helper for checking that duplicate transactions from implicit accounts are properly rejected.
-/// It creates implicit account, deletes it and creates again, so that nonce of the access
-/// key is updated. Then it tries to send tx from implicit account with invalid nonce, which
-/// should fail since the protocol upgrade.
+/// Helper for checking that duplicate transactions from implicit accounts are
+/// properly rejected. It creates implicit account, deletes it and creates
+/// again, so that nonce of the access key is updated. Then it tries to send tx
+/// from implicit account with invalid nonce, which should fail since the
+/// protocol upgrade.
 fn get_status_of_tx_hash_collision_for_implicit_account(
     protocol_version: ProtocolVersion,
 ) -> ProcessTxResponse {
@@ -178,7 +179,8 @@ fn get_status_of_tx_hash_collision_for_implicit_account(
     );
     let status = env.clients[0].process_tx(send_money_from_implicit_account_tx, false, false);
 
-    // Check that sending money from implicit account with correct nonce is still valid.
+    // Check that sending money from implicit account with correct nonce is still
+    // valid.
     let send_money_from_implicit_account_tx = SignedTransaction::send_money(
         (height - 1) * AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER,
         implicit_account_id,
@@ -192,7 +194,8 @@ fn get_status_of_tx_hash_collision_for_implicit_account(
     status
 }
 
-/// Test that duplicate transactions from implicit accounts are properly rejected.
+/// Test that duplicate transactions from implicit accounts are properly
+/// rejected.
 #[test]
 fn test_transaction_hash_collision_for_implicit_account_fail() {
     let protocol_version = ProtocolFeature::AccessKeyNonceForImplicitAccounts.protocol_version();
@@ -202,7 +205,8 @@ fn test_transaction_hash_collision_for_implicit_account_fail() {
     );
 }
 
-/// Test that duplicate transactions from implicit accounts are not rejected until protocol upgrade.
+/// Test that duplicate transactions from implicit accounts are not rejected
+/// until protocol upgrade.
 #[test]
 fn test_transaction_hash_collision_for_implicit_account_ok() {
     let protocol_version =
@@ -274,26 +278,33 @@ fn test_transaction_nonce_too_large() {
 }
 
 /// This test tests the logic regarding requesting chunks for orphan.
-/// The test tests the following scenario, there is one validator(test0) and one non-validator node(test1)
-/// test0 produces and processes 20 blocks and test1 processes these blocks with some delays. We
-/// want to test that test1 requests missing chunks for orphans ahead of time.
-/// Note: this test assumes NUM_ORPHAN_ANCESTORS_CHECK <= 5 and >= 2
+/// The test tests the following scenario, there is one validator(test0) and one
+/// non-validator node(test1) test0 produces and processes 20 blocks and test1
+/// processes these blocks with some delays. We want to test that test1 requests
+/// missing chunks for orphans ahead of time. Note: this test assumes
+/// NUM_ORPHAN_ANCESTORS_CHECK <= 5 and >= 2
 ///
 /// - test1 processes blocks 1, 2 successfully
-/// - test1 processes blocks 3, 4, ..., 20, but it doesn't have chunks for these blocks, so block 3
-///         will be put to the missing chunks pool while block 4 - 20 will be orphaned
-/// - check that test1 sends missing chunk requests for block 4 - 2 + NUM_ORPHAN_ANCESTORS_CHECK
-/// - test1 processes partial chunk responses for block 4 - 2 + NUM_ORPHAN_ANCESTORS_CHECK
+/// - test1 processes blocks 3, 4, ..., 20, but it doesn't have chunks for these
+///   blocks, so block 3 will be put to the missing chunks pool while block 4 -
+///   20 will be orphaned
+/// - check that test1 sends missing chunk requests for block 4 - 2 +
+///   NUM_ORPHAN_ANCESTORS_CHECK
+/// - test1 processes partial chunk responses for block 4 - 2 +
+///   NUM_ORPHAN_ANCESTORS_CHECK
 /// - test1 processes partial chunk responses for block 3
-/// - check that block 3 - 2 + NUM_ORPHAN_ANCESTORS_CHECK are accepted, this confirms that the missing chunk requests are sent
-///   and processed successfully for block 4 - 2 + NUM_ORPHAN_ANCESTORS_CHECK
-/// - process until block 8 and check that the node sends missing chunk requests for the new orphans
-///   add unlocked
-/// - check that test1 does not send missing chunk requests for block 10, because it breaks
-///   the requirement that the block must be in the same epoch as the next block after its accepted ancestor
+/// - check that block 3 - 2 + NUM_ORPHAN_ANCESTORS_CHECK are accepted, this
+///   confirms that the missing chunk requests are sent and processed
+///   successfully for block 4 - 2 + NUM_ORPHAN_ANCESTORS_CHECK
+/// - process until block 8 and check that the node sends missing chunk requests
+///   for the new orphans add unlocked
+/// - check that test1 does not send missing chunk requests for block 10,
+///   because it breaks the requirement that the block must be in the same epoch
+///   as the next block after its accepted ancestor
 /// - test1 processes partial chunk responses for block 8 and 9
-/// - check that test1 sends missing chunk requests for block 11 to 10+NUM_ORPHAN_ANCESTORS+CHECK,
-///   since now they satisfy the the requirements for requesting chunks for orphans
+/// - check that test1 sends missing chunk requests for block 11 to
+///   10+NUM_ORPHAN_ANCESTORS+CHECK, since now they satisfy the the requirements
+///   for requesting chunks for orphans
 /// - process the rest of blocks
 #[test]
 fn test_request_chunks_for_orphan() {
@@ -360,14 +371,16 @@ fn test_request_chunks_for_orphan() {
     // block 3 will be put into the blocks_with_missing_chunks pool
     let res = env.clients[1].process_block_test(blocks[3].clone().into(), Provenance::NONE);
     assert_matches!(res.unwrap_err(), near_chain::Error::ChunksMissing(_));
-    // remove the missing chunk request from the network queue because we want to process it later
+    // remove the missing chunk request from the network queue because we want to
+    // process it later
     let missing_chunk_request = env.network_adapters[1].pop().unwrap();
     // block 4-20 will be put to the orphan pool
     for i in 4..20 {
         let res = env.clients[1].process_block_test(blocks[i].clone().into(), Provenance::NONE);
         assert_matches!(res.unwrap_err(), near_chain::Error::Orphan);
     }
-    // check that block 4-2+NUM_ORPHAN_ANCESTORS_CHECK requested partial encoded chunks already
+    // check that block 4-2+NUM_ORPHAN_ANCESTORS_CHECK requested partial encoded
+    // chunks already
     for i in 4..3 + NUM_ORPHAN_ANCESTORS_CHECK {
         assert!(
             env.clients[1].chain.check_orphan_partial_chunks_requested(blocks[i as usize].hash()),
@@ -381,11 +394,13 @@ fn test_request_chunks_for_orphan() {
     assert!(!env.clients[1].chain.check_orphan_partial_chunks_requested(
         blocks[4 + NUM_ORPHAN_ANCESTORS_CHECK as usize].hash()
     ));
-    // process all the partial encoded chunk requests for block 4 - 2 + NUM_ORPHAN_ANCESTORS_CHECK
+    // process all the partial encoded chunk requests for block 4 - 2 +
+    // NUM_ORPHAN_ANCESTORS_CHECK
     env.process_partial_encoded_chunks_requests(1);
     env.process_shards_manager_responses_and_finish_processing_blocks(1);
 
-    // process partial encoded chunk request for block 3, which will unlock block 4 - 2 + NUM_ORPHAN_ANCESTORS_CHECK
+    // process partial encoded chunk request for block 3, which will unlock block 4
+    // - 2 + NUM_ORPHAN_ANCESTORS_CHECK
     env.process_partial_encoded_chunk_request(1, missing_chunk_request);
     env.process_shards_manager_responses_and_finish_processing_blocks(1);
     assert_eq!(
@@ -393,9 +408,9 @@ fn test_request_chunks_for_orphan() {
         blocks[2 + NUM_ORPHAN_ANCESTORS_CHECK as usize].hash()
     );
 
-    // check that `check_orphans` will request PartialChunks for new orphans as new blocks are processed
-    // keep processing the partial encoded chunk requests in the queue, which will process
-    // block 3+NUM_ORPHAN_ANCESTORS to 8.
+    // check that `check_orphans` will request PartialChunks for new orphans as new
+    // blocks are processed keep processing the partial encoded chunk requests
+    // in the queue, which will process block 3+NUM_ORPHAN_ANCESTORS to 8.
     for i in 4 + NUM_ORPHAN_ANCESTORS_CHECK..10 {
         assert!(env.clients[1]
             .chain
@@ -410,7 +425,8 @@ fn test_request_chunks_for_orphan() {
     // blocks[10] is at the new epoch, so we can't request partial chunks for it yet
     assert!(!env.clients[1].chain.check_orphan_partial_chunks_requested(blocks[10].hash()));
 
-    // process missing chunks for block 9, which has 4 chunks, so there are 4 requests in total
+    // process missing chunks for block 9, which has 4 chunks, so there are 4
+    // requests in total
     for _ in 0..4 {
         let request = env.network_adapters[1].pop().unwrap();
         env.process_partial_encoded_chunk_request(1, request);
@@ -436,18 +452,20 @@ fn test_request_chunks_for_orphan() {
     }
 }
 
-/// This test tests that if a node's requests for chunks are eventually answered,
-/// it can process blocks, which also means chunks and parts and processed correctly.
-/// It can be seen as a sanity test for the logic in processing chunks,
-/// while abstracting away the logic for requesting chunks by assuming chunks requests are
-/// always answered (it does test for delayed response).
+/// This test tests that if a node's requests for chunks are eventually
+/// answered, it can process blocks, which also means chunks and parts and
+/// processed correctly. It can be seen as a sanity test for the logic in
+/// processing chunks, while abstracting away the logic for requesting chunks by
+/// assuming chunks requests are always answered (it does test for delayed
+/// response).
 ///
-/// This test tests the following scenario: there is one validator(test0) and one non-validator node(test1)
-/// test0 produces and processes 21 blocks and test1 processes these blocks.
-/// test1 processes the blocks in some random order, to simulate in production, a node may not
-/// receive blocks in order. All of test1's requests for chunks are eventually answered, but
-/// with some delays. In the end, we check that test1 processes all 21 blocks, and it only
-/// requests for each chunk once
+/// This test tests the following scenario: there is one validator(test0) and
+/// one non-validator node(test1) test0 produces and processes 21 blocks and
+/// test1 processes these blocks. test1 processes the blocks in some random
+/// order, to simulate in production, a node may not receive blocks in order.
+/// All of test1's requests for chunks are eventually answered, but
+/// with some delays. In the end, we check that test1 processes all 21 blocks,
+/// and it only requests for each chunk once
 #[test]
 fn test_processing_chunks_sanity() {
     init_test_logger();
@@ -498,8 +516,8 @@ fn test_processing_chunks_sanity() {
 
     // make test1 process these blocks, while grouping blocks to groups of three
     // and process blocks in each group in a random order.
-    // Verify that it can process the blocks successfully if all its requests for missing
-    // chunks are answered
+    // Verify that it can process the blocks successfully if all its requests for
+    // missing chunks are answered
     let mut rng = thread_rng();
     let mut num_requests = 0;
     for i in 0..=6 {
@@ -706,9 +724,9 @@ impl ChunkForwardingOptimizationTestData {
 
 #[test]
 fn test_chunk_forwarding_optimization() {
-    // Tests that a node should fully take advantage of forwarded chunk parts to never request
-    // a part that was already forwarded to it. We simulate four validator nodes, with one
-    // block producer and four chunk producers.
+    // Tests that a node should fully take advantage of forwarded chunk parts to
+    // never request a part that was already forwarded to it. We simulate four
+    // validator nodes, with one block producer and four chunk producers.
     init_test_logger();
     PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_HEADER.reset();
     let mut test = ChunkForwardingOptimizationTestData::new();
@@ -724,10 +742,10 @@ fn test_chunk_forwarding_optimization() {
         let block = test.env.clients[0].produce_block(height + 1).unwrap().unwrap();
         if block.header().height() > 1 {
             // For any block except the first, the previous block's application at each
-            // current chunk producer should have produced a chunk and distributed the chunk.
-            // Since we've processed all network messages just now, the block producer should
-            // have all chunks and able to create a block with all chunks. So we check the
-            // heights.
+            // current chunk producer should have produced a chunk and distributed the
+            // chunk. Since we've processed all network messages just now, the
+            // block producer should have all chunks and able to create a block
+            // with all chunks. So we check the heights.
             for i in 0..4 {
                 assert_eq!(block.chunks()[i].height_created(), block.header().height());
             }
@@ -742,8 +760,9 @@ fn test_chunk_forwarding_optimization() {
             );
             let mut accepted_blocks =
                 test.env.clients[i].finish_block_in_processing(block.header().hash());
-            // Process any chunk part requests that this client sent. Note that this would also
-            // process other network messages (such as production of the next chunk) which is OK.
+            // Process any chunk part requests that this client sent. Note that this would
+            // also process other network messages (such as production of the
+            // next chunk) which is OK.
             test.process_network_messages();
             test.env.process_shards_manager_responses(i);
             accepted_blocks.extend(test.env.clients[i].finish_blocks_in_processing());
@@ -759,9 +778,9 @@ fn test_chunk_forwarding_optimization() {
         }
     }
 
-    // With very high probability we should've encountered some cases where forwarded parts
-    // could not be applied because the chunk header is not available. Assert this did indeed
-    // happen.
+    // With very high probability we should've encountered some cases where
+    // forwarded parts could not be applied because the chunk header is not
+    // available. Assert this did indeed happen.
     assert!(PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_HEADER.get() > 0.0);
     debug!(target: "test",
         "Counters for debugging:
@@ -777,8 +796,8 @@ fn test_chunk_forwarding_optimization() {
 }
 
 /// Test asynchronous block processing (start_process_block_async).
-/// test0 produces 20 blocks. Shuffle the 20 blocks and make test1 process these blocks.
-/// Verify that test1 can succesfully finish processing the 20 blocks
+/// test0 produces 20 blocks. Shuffle the 20 blocks and make test1 process these
+/// blocks. Verify that test1 can succesfully finish processing the 20 blocks
 #[test]
 fn test_processing_blocks_async() {
     init_test_logger();

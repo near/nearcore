@@ -23,8 +23,8 @@ pub use near_vm_logic::with_ext_cost_counter;
 pub use cache::{get_contract_cache_key, precompile_contract, MockCompiledContractCache};
 pub use runner::{run, VM};
 
-/// This is public for internal experimentation use only, and should otherwise be considered an
-/// implementation detail of `near-vm-runner`.
+/// This is public for internal experimentation use only, and should otherwise
+/// be considered an implementation detail of `near-vm-runner`.
 #[doc(hidden)]
 pub mod internal {
     pub use crate::vm_kind::VMKind;

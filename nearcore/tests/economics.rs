@@ -83,17 +83,18 @@ fn test_burn_mint() {
     assert_eq!(calc_total_supply(&mut env), initial_total_supply);
     for i in 1..6 {
         env.produce_block(0, i);
-        // TODO: include receipts into total supply calculations and check with total supply in the next block?
-        //        print_accounts(&mut env);
-        //        assert_eq!(
+        // TODO: include receipts into total supply calculations and check with
+        // total supply in the next block?        print_accounts(&mut
+        // env);        assert_eq!(
         //            calc_total_supply(&mut env),
-        //            env.clients[0].chain.get_block_by_height(i + 1).unwrap().header.total_supply()
-        //        );
+        //            env.clients[0].chain.get_block_by_height(i +
+        // 1).unwrap().header.total_supply()        );
     }
 
     // Block 3: epoch ends, it gets it's 10% of total supply - transfer cost.
     let block3 = env.clients[0].chain.get_block_by_height(3).unwrap();
-    // We burn half of the cost when tx executed and the other half in the next block for the receipt processing.
+    // We burn half of the cost when tx executed and the other half in the next
+    // block for the receipt processing.
     let half_transfer_cost = fee_helper.transfer_cost() / 2;
     let epoch_total_reward = {
         let block0 = env.clients[0].chain.get_block_by_height(0).unwrap();

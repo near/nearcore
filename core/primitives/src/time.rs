@@ -4,9 +4,11 @@
 ///
 /// WARNING WARNING WARNING
 /// WARNING WARNING WARNING
-/// Use at your own risk. The implementation is not complete, we have a places in code not mocked properly.
-/// For example, it's possible to call `::elapsed()` on `Instant` returned by `Instant::now()`.
-/// We use that that function, throughout the code, and the current mocking of `Instant` is not done properly.
+/// Use at your own risk. The implementation is not complete, we have a places
+/// in code not mocked properly. For example, it's possible to call
+/// `::elapsed()` on `Instant` returned by `Instant::now()`. We use that that
+/// function, throughout the code, and the current mocking of `Instant` is not
+/// done properly.
 ///
 /// Example:
 /// ```rust, ignore
@@ -38,13 +40,17 @@ pub use time::Time;
 
 #[derive(Default)]
 struct MockClockPerState {
-    /// List of timestamps, we will return one timestamp for each call of `Clock::utc()`.
+    /// List of timestamps, we will return one timestamp for each call of
+    /// `Clock::utc()`.
     utc_list: VecDeque<DateTime<Utc>>,
-    /// List of timestamps, we will return one timestamp to each call of `Clock::instant()`.
+    /// List of timestamps, we will return one timestamp to each call of
+    /// `Clock::instant()`.
     instant_list: VecDeque<Instant>,
-    /// Number of times `Clock::utc()` method was called since we started mocking.
+    /// Number of times `Clock::utc()` method was called since we started
+    /// mocking.
     utc_call_count: u64,
-    /// Number of times `Clock::instant()` method was called since we started mocking.
+    /// Number of times `Clock::instant()` method was called since we started
+    /// mocking.
     instant_call_count: u64,
 }
 
@@ -103,7 +109,8 @@ impl MockClockGuard {
         })
     }
 
-    /// Returns number of calls  to `Self::instant` since `Self::mock()` was called.
+    /// Returns number of calls  to `Self::instant` since `Self::mock()` was
+    /// called.
     pub fn instant_call_count(&self) -> u64 {
         MockClockPerThread::with(|clock| match &mut clock.mock {
             Some(clock) => clock.instant_call_count,

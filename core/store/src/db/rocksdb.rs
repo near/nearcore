@@ -36,8 +36,8 @@ pub struct RocksDB {
     _instance_tracker: instance_tracker::InstanceTracker,
 }
 
-// DB was already Send+Sync. cf and read_options are const pointers using only functions in
-// this file and safe to share across threads.
+// DB was already Send+Sync. cf and read_options are const pointers using only
+// functions in this file and safe to share across threads.
 unsafe impl Send for RocksDB {}
 unsafe impl Sync for RocksDB {}
 
@@ -413,7 +413,8 @@ fn rocksdb_block_based_options(
 ) -> BlockBasedOptions {
     let mut block_opts = BlockBasedOptions::default();
     block_opts.set_block_size(block_size.as_u64().try_into().unwrap());
-    // We create block_cache for each of 47 columns, so the total cache size is 32 * 47 = 1504mb
+    // We create block_cache for each of 47 columns, so the total cache size is 32 *
+    // 47 = 1504mb
     block_opts
         .set_block_cache(&Cache::new_lru_cache(cache_size.as_u64().try_into().unwrap()).unwrap());
     block_opts.set_pin_l0_filter_and_index_blocks_in_cache(true);
@@ -440,8 +441,8 @@ fn rocksdb_column_options(col: DBCol, store_config: &StoreConfig, temp: Temperat
     //      target_file_size_base = memtable_memory_budget / 8
     //      max_bytes_for_level_base = memtable_memory_budget
     //      compaction_style = kCompactionStyleLevel
-    // Also it sets compression_per_level in a way that the first 2 levels have no compression and
-    // the rest use LZ4 compression.
+    // Also it sets compression_per_level in a way that the first 2 levels have no
+    // compression and the rest use LZ4 compression.
     // See the implementation here:
     //      https://github.com/facebook/rocksdb/blob/c18c4a081c74251798ad2a1abf83bad417518481/options/options.cc#L588.
     let memtable_memory_budget = 128 * bytesize::MIB as usize;
@@ -460,18 +461,18 @@ fn set_compression_options(opts: &mut Options) {
     opts.set_bottommost_compression_type(rocksdb::DBCompressionType::Zstd);
     // RocksDB documenation says that 16KB is a typical dictionary size.
     // We've empirically tuned the dicionary size to twice of that 'typical' size.
-    // Having train data size x100 from dictionary size is a recommendation from RocksDB.
-    // See: https://rocksdb.org/blog/2021/05/31/dictionary-compression.html?utm_source=dbplatz
+    // Having train data size x100 from dictionary size is a recommendation from
+    // RocksDB. See: https://rocksdb.org/blog/2021/05/31/dictionary-compression.html?utm_source=dbplatz
     let dict_size = 2 * 16384;
     let max_train_bytes = dict_size * 100;
     // We use default parameters of RocksDB here:
     //      window_bits is -14 and is unused (Zlib-specific parameter),
-    //      compression_level is 32767 meaning the default compression level for ZSTD,
-    //      compression_strategy is 0 and is unused (Zlib-specific parameter).
-    // See: https://github.com/facebook/rocksdb/blob/main/include/rocksdb/advanced_options.h#L176:
+    //      compression_level is 32767 meaning the default compression level for
+    // ZSTD,      compression_strategy is 0 and is unused (Zlib-specific
+    // parameter). See: https://github.com/facebook/rocksdb/blob/main/include/rocksdb/advanced_options.h#L176:
     opts.set_bottommost_compression_options(
-        /*window_bits */ -14, /*compression_level */ 32767,
-        /*compression_strategy */ 0, dict_size, /*enabled */ true,
+        /* window_bits */ -14, /* compression_level */ 32767,
+        /* compression_strategy */ 0, dict_size, /* enabled */ true,
     );
     opts.set_bottommost_zstd_max_train_bytes(max_train_bytes, true);
 }
@@ -543,7 +544,8 @@ fn parse_statistics(
         // Each line follows one of two formats:
         // 1) <stat_name> COUNT : <value>
         // 2) <stat_name> P50 : <value> P90 : <value> COUNT : <value> SUM : <value>
-        // Each line gets split into words and we parse statistics according to this format.
+        // Each line gets split into words and we parse statistics according to this
+        // format.
         if let Some((stat_name, words)) = line.split_once(' ') {
             let mut values = vec![];
             let mut words = words.split(" : ").flat_map(|v| v.split(" "));

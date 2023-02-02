@@ -53,8 +53,8 @@ pub fn wait_for_block_in_processing(
     chain.blocks_in_processing.wait_for_block(hash)
 }
 
-/// Unlike Chain::start_process_block_async, this function blocks until the processing of this block
-/// finishes
+/// Unlike Chain::start_process_block_async, this function blocks until the
+/// processing of this block finishes
 pub fn process_block_sync(
     chain: &mut Chain,
     me: &Option<AccountId>,

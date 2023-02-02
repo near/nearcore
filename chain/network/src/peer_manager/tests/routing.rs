@@ -28,17 +28,17 @@ use std::collections::HashSet;
 use std::net::Ipv6Addr;
 use std::sync::Arc;
 
-/// Initializes the test logger and then, iff the current process is executed under
-/// nextest in process-per-test mode, changes the behavior of the process to [panic=abort].
-/// In particular it doesn't enable [panic=abort] when run via "cargo test".
-/// Note that (unfortunately) some tests may expect a panic, so we cannot apply blindly
-/// [panic=abort] in compilation time to all tests.
-// TODO: investigate whether "-Zpanic-abort-tests" could replace this function once the flag
-// becomes stable: https://github.com/rust-lang/rust/issues/67650, so we don't use it.
+/// Initializes the test logger and then, iff the current process is executed
+/// under nextest in process-per-test mode, changes the behavior of the process
+/// to [panic=abort]. In particular it doesn't enable [panic=abort] when run via
+/// "cargo test". Note that (unfortunately) some tests may expect a panic, so we
+/// cannot apply blindly [panic=abort] in compilation time to all tests.
+// TODO: investigate whether "-Zpanic-abort-tests" could replace this function
+// once the flag becomes stable: https://github.com/rust-lang/rust/issues/67650, so we don't use it.
 fn abort_on_panic() {
     init_test_logger();
-    // I don't know a way to set panic=abort for nextest builds in compilation time, so we set it
-    // in runtime. https://nexte.st/book/env-vars.html#environment-variables-nextest-sets
+    // I don't know a way to set panic=abort for nextest builds in compilation time,
+    // so we set it in runtime. https://nexte.st/book/env-vars.html#environment-variables-nextest-sets
     let Ok(nextest) = std::env::var("NEXTEST") else { return };
     let Ok(nextest_execution_mode) = std::env::var("NEXTEST_EXECUTION_MODE") else { return };
     if nextest != "1" || nextest_execution_mode != "process-per-test" {
@@ -123,7 +123,8 @@ async fn three_nodes_path() {
     .await;
 }
 
-// test routing for three nodes in a line, then test routing after completing the triangle
+// test routing for three nodes in a line, then test routing after completing
+// the triangle
 #[tokio::test]
 async fn three_nodes_star() {
     abort_on_panic();
@@ -186,8 +187,8 @@ async fn three_nodes_star() {
     .await;
 }
 
-// test routing in a network with two connected components having two nodes each,
-// then test routing after joining them into a square
+// test routing in a network with two connected components having two nodes
+// each, then test routing after joining them into a square
 #[tokio::test]
 async fn join_components() {
     abort_on_panic();
@@ -598,7 +599,8 @@ async fn test_dropping_duplicate_messages() {
     let mut pm1_ev = pm1.events.from_now();
     let mut pm2_ev = pm2.events.from_now();
 
-    // Send two identical messages. One will be dropped, because the delay between them was less than 50ms.
+    // Send two identical messages. One will be dropped, because the delay between
+    // them was less than 50ms.
     tracing::info!(target:"test", "send ping from {id0} to {id2}");
     pm0.send_ping(0, id2.clone()).await;
     tracing::info!(target:"test", "await ping at {id2}");
@@ -633,10 +635,11 @@ async fn test_dropping_duplicate_messages() {
     drop(pm2);
 }
 
-/// Awaits until a ConnectionClosed event with the expected reason is seen in the event stream.
-/// This helper function should be used in tests with peer manager instances with
-/// `config.outbound_enabled = true`, because it makes the order of spawning connections
-/// non-deterministic, so we cannot just wait for the first ConnectionClosed event.
+/// Awaits until a ConnectionClosed event with the expected reason is seen in
+/// the event stream. This helper function should be used in tests with peer
+/// manager instances with `config.outbound_enabled = true`, because it makes
+/// the order of spawning connections non-deterministic, so we cannot just wait
+/// for the first ConnectionClosed event.
 pub(crate) async fn wait_for_connection_closed(
     events: &mut broadcast::Receiver<Event>,
     want_reason: ClosingReason,
@@ -658,8 +661,8 @@ pub(crate) async fn wait_for_connection_closed(
         .await;
 }
 
-// Constructs NetworkConfigs for num_nodes nodes, the first num_boot_nodes of which
-// are configured as boot nodes for all nodes.
+// Constructs NetworkConfigs for num_nodes nodes, the first num_boot_nodes of
+// which are configured as boot nodes for all nodes.
 fn make_configs(
     chain: &data::Chain,
     rng: &mut Rng,
@@ -805,8 +808,9 @@ async fn blacklist_all() {
     pm1.wait_for_routing_table(&[]).await;
 }
 
-// Spawn 3 nodes with max peers configured to 2, then allow them to connect to each other in a triangle.
-// Spawn a fourth node and see it fail to connect since the first three are at max capacity.
+// Spawn 3 nodes with max peers configured to 2, then allow them to connect to
+// each other in a triangle. Spawn a fourth node and see it fail to connect
+// since the first three are at max capacity.
 #[tokio::test]
 async fn max_num_peers_limit() {
     abort_on_panic();
@@ -887,14 +891,15 @@ async fn max_num_peers_limit() {
     // this is NOT strictly necessary, as the destructors of these values should
     // be called exactly at the end of the function anyway
     // (unless the problem is even deeper: for example the compiler incorrectly
-    // figures out that it can reorder some instructions). However, I add those every time
-    // I observe some flakiness that I can't reproduce, just to eliminate the possibility that
-    // I just don't understand how NLL works.
+    // figures out that it can reorder some instructions). However, I add those
+    // every time I observe some flakiness that I can't reproduce, just to
+    // eliminate the possibility that I just don't understand how NLL works.
     //
     // The proper solution would be to:
-    // 1. Make nearcore presubmit run tests with "[panic=abort]" (which is not supported with
-    //    "cargo test"), so that the test actually stop if some thread panic.
-    // 2. Set some timeout on the test execution (with an enourmous heardoom), so that we actually get some logs
+    // 1. Make nearcore presubmit run tests with "[panic=abort]" (which is not
+    // supported with    "cargo test"), so that the test actually stop if some
+    // thread panic. 2. Set some timeout on the test execution (with an
+    // enourmous heardoom), so that we actually get some logs
     //    if the presubmit times out (also not supported by "cargo test").
     drop(pm0);
     drop(pm1);
@@ -931,7 +936,8 @@ async fn ttl() {
         let msg = RoutedMessageBody::Ping(Ping { nonce: rng.gen(), source: peer.cfg.id() });
         let msg = Box::new(peer.routed_message(msg, peer.cfg.id(), ttl, Some(clock.now_utc())));
         peer.send(PeerMessage::Routed(msg.clone())).await;
-        // If TTL is <2, then the message will be dropped (at least 2 hops are required).
+        // If TTL is <2, then the message will be dropped (at least 2 hops are
+        // required).
         if ttl < 2 {
             pm.events
                 .recv_until(|ev| match ev {
@@ -991,9 +997,10 @@ async fn repeated_data_in_sync_routing_table() {
     for i in 0..10 {
         tracing::info!(target: "test", "iteration {i}");
         // Wait for the new data to be broadcasted.
-        // Note that in the first iteration we expect just 1 edge, without sending anything before.
-        // It is important because the first SyncRoutingTable contains snapshot of all data known to
-        // the node (not just the diff), so we expect incremental behavior only after the first
+        // Note that in the first iteration we expect just 1 edge, without sending
+        // anything before. It is important because the first SyncRoutingTable
+        // contains snapshot of all data known to the node (not just the diff),
+        // so we expect incremental behavior only after the first
         // SyncRoutingTable.
         while edges_got != edges_want || accounts_got != accounts_want {
             match peer.events.recv().await {
@@ -1026,7 +1033,8 @@ async fn repeated_data_in_sync_routing_table() {
         let key = data::make_secret_key(rng);
         edges_want.insert(data::make_edge(&peer.cfg.network.node_key, &key, 1));
         accounts_want.insert(data::make_announce_account(rng));
-        // Send all the data created so far. PeerManager is expected to discard the duplicates.
+        // Send all the data created so far. PeerManager is expected to discard the
+        // duplicates.
         peer.send(PeerMessage::SyncRoutingTable(RoutingTableUpdate {
             edges: edges_want.iter().cloned().collect(),
             accounts: accounts_want.iter().cloned().collect(),
@@ -1078,12 +1086,14 @@ async fn no_edge_broadcast_after_restart() {
         ]
     };
 
-    // Create a bunch of fresh unreachable edges, then send all the edges created so far.
+    // Create a bunch of fresh unreachable edges, then send all the edges created so
+    // far.
     let stored_edges = make_edges(rng);
 
-    // We are preparing the initial storage by hand (rather than simulating the restart),
-    // because semantics of the RoutingTable protocol are very poorly defined, and it
-    // is hard to write a solid test for it without literally assuming the implementation details.
+    // We are preparing the initial storage by hand (rather than simulating the
+    // restart), because semantics of the RoutingTable protocol are very poorly
+    // defined, and it is hard to write a solid test for it without literally
+    // assuming the implementation details.
     let store = near_store::db::TestDB::new();
     {
         let mut stored_peers = HashSet::new();
@@ -1192,8 +1202,9 @@ async fn fix_local_edges() {
         .await
         .handshake(&clock.clock())
         .await;
-    // TODO(gprusak): the case when the edge is updated via UpdateNondeRequest is not covered yet,
-    // as it requires awaiting for the RPC roundtrip which is not implemented yet.
+    // TODO(gprusak): the case when the edge is updated via UpdateNondeRequest is
+    // not covered yet, as it requires awaiting for the RPC roundtrip which is
+    // not implemented yet.
     let edge1 = data::make_edge(&pm.cfg.node_key, &data::make_secret_key(rng), 1);
     let edge2 = conn
         .edge
@@ -1265,11 +1276,13 @@ async fn do_not_block_announce_account_broadcast() {
     assert_eq!(&aa.peer_id, &pm2.wait_for_account_owner(&aa.account_id).await);
 }
 
-/// Check that two archival nodes keep connected after network rebalance. Nodes 0 and 1 are archival nodes, others aren't.
-/// Initially connect 2, 3, 4 to 0. Then connect 1 to 0, this connection should persist, even after other nodes tries
-/// to connect to node 0 again.
+/// Check that two archival nodes keep connected after network rebalance. Nodes
+/// 0 and 1 are archival nodes, others aren't. Initially connect 2, 3, 4 to 0.
+/// Then connect 1 to 0, this connection should persist, even after other nodes
+/// tries to connect to node 0 again.
 ///
-/// Do four rounds where 2, 3, 4 tries to connect to 0 and check that connection between 0 and 1 was never dropped.
+/// Do four rounds where 2, 3, 4 tries to connect to 0 and check that connection
+/// between 0 and 1 was never dropped.
 #[tokio::test]
 async fn archival_node() {
     abort_on_panic();
@@ -1362,7 +1375,8 @@ async fn wait_for_stream_closed(
         .await
 }
 
-/// Check two peers are able to connect again after one peers is banned and unbanned.
+/// Check two peers are able to connect again after one peers is banned and
+/// unbanned.
 #[tokio::test]
 async fn connect_to_unbanned_peer() {
     abort_on_panic();

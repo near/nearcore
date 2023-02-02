@@ -605,8 +605,8 @@ pub fn test_create_account_again(node: impl Node) {
     assert_ne!(root, new_root);
     assert_eq!(node_user.get_access_key_nonce_for_signer(account_id).unwrap(), 2);
 
-    // Additional cost for trying to create an account with repeated name. Will fail after
-    // the first action.
+    // Additional cost for trying to create an account with repeated name. Will fail
+    // after the first action.
     let additional_cost = fee_helper.create_account_transfer_full_key_cost_fail_on_create_account();
 
     let result1 = node_user.view_account(account_id).unwrap();
@@ -1363,9 +1363,10 @@ fn get_trie_nodes_count(
     count
 }
 
-/// Checks correctness of touching trie node cost for writing value into contract storage.
-/// First call should touch 2 nodes (Extension and Branch), because before it contract storage is empty.
-/// The second call should touch 4 nodes, because the first call adds Leaf and Value nodes to trie.
+/// Checks correctness of touching trie node cost for writing value into
+/// contract storage. First call should touch 2 nodes (Extension and Branch),
+/// because before it contract storage is empty. The second call should touch 4
+/// nodes, because the first call adds Leaf and Value nodes to trie.
 pub fn test_contract_write_key_value_cost(node: impl Node) {
     let node_user = node.user();
     let results: Vec<_> = vec![
@@ -1422,9 +1423,10 @@ fn make_receipt(node: &impl Node, actions: Vec<Action>, receiver_id: AccountId) 
     }
 }
 
-/// Check that numbers of charged trie node accesses during execution of the given receipts matches the provided
-/// results.
-/// Runs the list of receipts 2 times. 1st run establishes the state structure, 2nd run is used to get node counts.
+/// Check that numbers of charged trie node accesses during execution of the
+/// given receipts matches the provided results.
+/// Runs the list of receipts 2 times. 1st run establishes the state structure,
+/// 2nd run is used to get node counts.
 fn check_trie_nodes_count(
     node: impl Node,
     runtime_config: RuntimeConfig,
@@ -1453,18 +1455,19 @@ fn check_trie_nodes_count(
     assert_eq!(node_touches, results);
 }
 
-/// Check correctness of charging for trie node accesses with enabled chunk nodes cache.
-/// We run the same set of receipts 2 times and compare resulting trie node counts. Each receipt writes some key-value
-/// pair to the contract storage.
-/// 1st run establishes the trie structure. For our needs, the structure is:
+/// Check correctness of charging for trie node accesses with enabled chunk
+/// nodes cache. We run the same set of receipts 2 times and compare resulting
+/// trie node counts. Each receipt writes some key-value pair to the contract
+/// storage. 1st run establishes the trie structure. For our needs, the
+/// structure is:
 ///
 ///                                                    --> (Leaf) -> (Value 1)
 /// (Extension) -> (Branch) -> (Extension) -> (Branch) |-> (Leaf) -> (Value 2)
 ///                                                    --> (Leaf) -> (Value 3)
 ///
 /// 1st receipt should count 6 db reads.
-/// 2nd and 3rd receipts should count 2 db and 4 memory reads, because for them first 4 nodes were already put into the
-/// chunk cache.
+/// 2nd and 3rd receipts should count 2 db and 4 memory reads, because for them
+/// first 4 nodes were already put into the chunk cache.
 pub fn test_chunk_nodes_cache_common_parent(node: impl Node, runtime_config: RuntimeConfig) {
     let receipts: Vec<Receipt> = (0..3)
         .map(|i| {
@@ -1484,7 +1487,8 @@ pub fn test_chunk_nodes_cache_common_parent(node: impl Node, runtime_config: Run
     check_trie_nodes_count(node, runtime_config, receipts, results);
 }
 
-/// This test is similar to `test_chunk_nodes_cache_common_parent` but checks another trie structure:
+/// This test is similar to `test_chunk_nodes_cache_common_parent` but checks
+/// another trie structure:
 ///
 ///                                                    --> (Value 1)
 /// (Extension) -> (Branch) -> (Extension) -> (Branch) |-> (Leaf) -> (Value 2)
@@ -1509,22 +1513,25 @@ pub fn test_chunk_nodes_cache_branch_value(node: impl Node, runtime_config: Runt
     check_trie_nodes_count(node, runtime_config, receipts, results);
 }
 
-/// This test is similar to `test_chunk_nodes_cache_common_parent` but checks another trie structure:
+/// This test is similar to `test_chunk_nodes_cache_common_parent` but checks
+/// another trie structure:
 ///
 ///                                                     --> (Leaf) -> (Value 1)
 /// (Extension) -> (Branch) --> (Extension) -> (Branch) |-> (Leaf) -> (Value 2)
 ///                         |-> (Leaf) -> (Value 2)
 ///
-/// Here we check that chunk cache is enabled *only during function calls execution*.
-/// 1st receipt writes `Value 1` and should count 6 db reads.
-/// 2nd receipt deploys a new contract which *code* is the same as `Value 2`. But this value shouldn't be put into the
-/// chunk cache.
+/// Here we check that chunk cache is enabled *only during function calls
+/// execution*. 1st receipt writes `Value 1` and should count 6 db reads.
+/// 2nd receipt deploys a new contract which *code* is the same as `Value 2`.
+/// But this value shouldn't be put into the chunk cache.
 /// 3rd receipt writes `Value 2` and should count 2 db and 4 memory reads.
 ///
-/// We have checked manually that if chunk cache mode is not disabled, then the following scenario happens:
+/// We have checked manually that if chunk cache mode is not disabled, then the
+/// following scenario happens:
 /// - 1st receipt enables chunk cache mode but doesn't disable it
 /// - 2nd receipt triggers insertion of `Value 2` into the chunk cache
-/// - 3rd receipt reads it from the chunk cache, so it incorrectly charges user for 1 db and 5 memory reads.
+/// - 3rd receipt reads it from the chunk cache, so it incorrectly charges user
+///   for 1 db and 5 memory reads.
 pub fn test_chunk_nodes_cache_mode(node: impl Node, runtime_config: RuntimeConfig) {
     let receipts: Vec<Receipt> = vec![
         make_receipt(&node, vec![make_write_key_value_action(vec![1], vec![1])], bob_account()),

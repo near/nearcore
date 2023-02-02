@@ -11,28 +11,32 @@ use near_primitives::types::{AccountId, ApprovalStake, Balance, BlockHeight, Blo
 use near_primitives::validator_signer::ValidatorSigner;
 use tracing::info;
 
-/// Have that many iterations in the timer instead of `loop` to prevent potential bugs from blocking
-/// the node
+/// Have that many iterations in the timer instead of `loop` to prevent
+/// potential bugs from blocking the node
 const MAX_TIMER_ITERS: usize = 20;
 
-/// How many heights ahead to track approvals. This needs to be sufficiently large so that we can
-/// recover after rather long network interruption, but not too large to consume too much memory if
-/// someone in the network spams with invalid approvals. Note that we will only store approvals for
-/// heights that are targeting us, which is once per as many heights as there are block producers,
-/// thus 10_000 heights in practice will mean on the order of one hundred entries.
+/// How many heights ahead to track approvals. This needs to be sufficiently
+/// large so that we can recover after rather long network interruption, but not
+/// too large to consume too much memory if someone in the network spams with
+/// invalid approvals. Note that we will only store approvals for heights that
+/// are targeting us, which is once per as many heights as there are block
+/// producers, thus 10_000 heights in practice will mean on the order of one
+/// hundred entries.
 const MAX_HEIGHTS_AHEAD_TO_STORE_APPROVALS: BlockHeight = 10_000;
 
-// Number of blocks (before head) for which to keep the history of approvals (for debugging).
+// Number of blocks (before head) for which to keep the history of approvals
+// (for debugging).
 const MAX_HEIGHTS_BEFORE_TO_STORE_APPROVALS: u64 = 20;
 
 // Maximum amount of historical approvals that we'd keep for debugging purposes.
 const MAX_HISTORY_SIZE: usize = 1000;
 
 /// The threshold for doomslug to create a block.
-/// `TwoThirds` means the block can only be produced if at least 2/3 of the stake is approving it,
-///             and is what should be used in production (and what guarantees finality)
-/// `NoApprovals` means the block production is not blocked on approvals. This is used
-///             in many tests (e.g. `cross_shard_tx`) to create lots of forkfulness.
+/// `TwoThirds` means the block can only be produced if at least 2/3 of the
+/// stake is approving it,             and is what should be used in production
+/// (and what guarantees finality) `NoApprovals` means the block production is
+/// not blocked on approvals. This is used             in many tests (e.g.
+/// `cross_shard_tx`) to create lots of forkfulness.
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
 pub enum DoomslugThresholdMode {
     NoApprovals,
@@ -72,57 +76,62 @@ struct DoomslugApprovalsTracker {
     threshold_mode: DoomslugThresholdMode,
 }
 
-/// Approvals can arrive before the corresponding blocks, and we need a meaningful way to keep as
-/// many approvals as possible that can be useful in the future, while not allowing an adversary
-/// to spam us with invalid approvals.
-/// To that extent, for each `account_id` and each `target_height` we keep exactly one approval,
-/// whichever came last. We only maintain those for
-///  a) `account_id`s that match the corresponding epoch (and for which we can validate a signature)
-///  b) `target_height`s for which we produce blocks
+/// Approvals can arrive before the corresponding blocks, and we need a
+/// meaningful way to keep as many approvals as possible that can be useful in
+/// the future, while not allowing an adversary to spam us with invalid
+/// approvals. To that extent, for each `account_id` and each `target_height` we
+/// keep exactly one approval, whichever came last. We only maintain those for
+///  a) `account_id`s that match the corresponding epoch (and for which we can
+/// validate a signature)  b) `target_height`s for which we produce blocks
 ///  c) `target_height`s within a meaningful horizon from the current tip.
-/// This class is responsible for maintaining witnesses for the blocks, while also ensuring that
-/// only one approval per (`account_id`) is kept. We instantiate one such class per height, thus
-/// ensuring that only one approval is kept per (`target_height`, `account_id`). `Doomslug` below
-/// ensures that only instances within the horizon are kept, and the user of the `Doomslug` is
-/// responsible for ensuring that only approvals for proper account_ids with valid signatures are
-/// provided.
+/// This class is responsible for maintaining witnesses for the blocks, while
+/// also ensuring that only one approval per (`account_id`) is kept. We
+/// instantiate one such class per height, thus ensuring that only one approval
+/// is kept per (`target_height`, `account_id`). `Doomslug` below ensures that
+/// only instances within the horizon are kept, and the user of the `Doomslug`
+/// is responsible for ensuring that only approvals for proper account_ids with
+/// valid signatures are provided.
 struct DoomslugApprovalsTrackersAtHeight {
     approval_trackers: HashMap<ApprovalInner, DoomslugApprovalsTracker>,
     last_approval_per_account: HashMap<AccountId, ApprovalInner>,
 }
 
-/// Contains all the logic for Doomslug, but no integration with chain or storage. The integration
-/// happens via `PersistentDoomslug` struct. The split is to simplify testing of the logic separate
-/// from the chain.
+/// Contains all the logic for Doomslug, but no integration with chain or
+/// storage. The integration happens via `PersistentDoomslug` struct. The split
+/// is to simplify testing of the logic separate from the chain.
 pub struct Doomslug {
     approval_tracking: HashMap<BlockHeight, DoomslugApprovalsTrackersAtHeight>,
     /// Largest target height for which we issued an approval
     largest_target_height: BlockHeight,
-    /// Largest height for which we saw a block containing 1/2 endorsements in it
+    /// Largest height for which we saw a block containing 1/2 endorsements in
+    /// it
     largest_final_height: BlockHeight,
-    /// Largest height for which we saw threshold approvals (and thus can potentially create a block)
+    /// Largest height for which we saw threshold approvals (and thus can
+    /// potentially create a block)
     largest_threshold_height: BlockHeight,
     /// Largest target height of approvals that we've received
     largest_approval_height: BlockHeight,
     /// Information Doomslug tracks about the chain tip
     tip: DoomslugTip,
-    /// Whether an endorsement (or in general an approval) was sent since updating the tip
+    /// Whether an endorsement (or in general an approval) was sent since
+    /// updating the tip
     endorsement_pending: bool,
     /// Information to track the timer (see `start_timer` routine in the paper)
     timer: DoomslugTimer,
     signer: Option<Arc<dyn ValidatorSigner>>,
-    /// How many approvals to have before producing a block. In production should be always `HalfStake`,
-    ///    but for many tests we use `NoApprovals` to invoke more forkfulness
+    /// How many approvals to have before producing a block. In production
+    /// should be always `HalfStake`,    but for many tests we use
+    /// `NoApprovals` to invoke more forkfulness
     threshold_mode: DoomslugThresholdMode,
 
-    /// Approvals that were created by this doomslug instance (for debugging only).
-    /// Keeps up to MAX_HISTORY_SIZE entries.
+    /// Approvals that were created by this doomslug instance (for debugging
+    /// only). Keeps up to MAX_HISTORY_SIZE entries.
     history: VecDeque<ApprovalHistoryEntry>,
 }
 
 impl DoomslugTimer {
-    /// Computes the delay to sleep given the number of heights from the last final block
-    /// This is what `T` represents in the paper.
+    /// Computes the delay to sleep given the number of heights from the last
+    /// final block This is what `T` represents in the paper.
     ///
     /// # Arguments
     /// * `n` - number of heights since the last block with doomslug finality
@@ -155,9 +164,9 @@ impl DoomslugApprovalsTracker {
         }
     }
 
-    /// Given a single approval (either an endorsement or a skip-message) updates the approved
-    /// stake on the block that is being approved, and returns whether the block is now ready to be
-    /// produced.
+    /// Given a single approval (either an endorsement or a skip-message)
+    /// updates the approved stake on the block that is being approved, and
+    /// returns whether the block is now ready to be produced.
     ///
     /// # Arguments
     /// * now      - the current timestamp
@@ -182,14 +191,15 @@ impl DoomslugApprovalsTracker {
             self.approved_stake_next_epoch += stakes.1;
         }
 
-        // We call to `get_block_production_readiness` here so that if the number of approvals crossed
-        // the threshold, the timer for block production starts.
+        // We call to `get_block_production_readiness` here so that if the number of
+        // approvals crossed the threshold, the timer for block production
+        // starts.
         self.get_block_production_readiness(now)
     }
 
-    /// Withdraws an approval. This happens if a newer approval for the same `target_height` comes
-    /// from the same account. Removes the approval from the `witness` and updates approved and
-    /// endorsed stakes.
+    /// Withdraws an approval. This happens if a newer approval for the same
+    /// `target_height` comes from the same account. Removes the approval
+    /// from the `witness` and updates approved and endorsed stakes.
     fn withdraw_approval(&mut self, account_id: &AccountId) {
         let approval = match self.witness.remove(account_id) {
             None => return,
@@ -201,15 +211,16 @@ impl DoomslugApprovalsTracker {
         self.approved_stake_next_epoch -= stakes.1;
     }
 
-    /// Returns whether the block has enough approvals, and if yes, since what moment it does.
+    /// Returns whether the block has enough approvals, and if yes, since what
+    /// moment it does.
     ///
     /// # Arguments
     /// * now - the current timestamp
     ///
     /// # Returns
-    /// `NotReady` if the block doesn't have enough approvals yet to cross the threshold
-    /// `ReadySince` if the block has enough approvals to pass the threshold, and since when it
-    ///     does
+    /// `NotReady` if the block doesn't have enough approvals yet to cross the
+    /// threshold `ReadySince` if the block has enough approvals to pass the
+    /// threshold, and since when it     does
     fn get_block_production_readiness(&mut self, now: Instant) -> DoomslugBlockProductionReadiness {
         if (self.approved_stake_this_epoch > self.total_stake_this_epoch * 2 / 3
             && (self.approved_stake_next_epoch > self.total_stake_next_epoch * 2 / 3
@@ -239,18 +250,21 @@ impl DoomslugApprovalsTrackersAtHeight {
         Self { approval_trackers: HashMap::new(), last_approval_per_account: HashMap::new() }
     }
 
-    /// This method is a wrapper around `DoomslugApprovalsTracker::process_approval`, see comment
+    /// This method is a wrapper around
+    /// `DoomslugApprovalsTracker::process_approval`, see comment
     /// above it for more details.
-    /// This method has an extra logic that ensures that we only track one approval per `account_id`,
-    /// if we already know some other approval for this account, we first withdraw it from the
-    /// corresponding tracker, and associate the new approval with the account.
+    /// This method has an extra logic that ensures that we only track one
+    /// approval per `account_id`, if we already know some other approval
+    /// for this account, we first withdraw it from the corresponding
+    /// tracker, and associate the new approval with the account.
     ///
     /// # Arguments
     /// * `now`      - the current timestamp
     /// * `approval` - the approval to be processed
-    /// * `stakes`   - all the stakes of all the block producers in the current epoch
-    /// * `threshold_mode` - how many approvals are needed to produce a block. Is used to compute
-    ///                the return value
+    /// * `stakes`   - all the stakes of all the block producers in the current
+    ///   epoch
+    /// * `threshold_mode` - how many approvals are needed to produce a block.
+    ///   Is used to compute the return value
     ///
     /// # Returns
     /// Same as `DoomslugApprovalsTracker::process_approval`
@@ -301,7 +315,8 @@ impl DoomslugApprovalsTrackersAtHeight {
     }
 
     /// Returns the current approvals status for the trackers at this height.
-    /// Status contains information about which account voted (and for what) and whether the doomslug voting threshold was reached.
+    /// Status contains information about which account voted (and for what) and
+    /// whether the doomslug voting threshold was reached.
     pub fn status(&self) -> ApprovalAtHeightStatus {
         let approvals = self
             .approval_trackers
@@ -365,14 +380,16 @@ impl Doomslug {
         self.threshold_mode = DoomslugThresholdMode::NoApprovals
     }
 
-    /// Returns the `(hash, height)` of the current tip. Currently is only used by tests.
+    /// Returns the `(hash, height)` of the current tip. Currently is only used
+    /// by tests.
     pub fn get_tip(&self) -> (CryptoHash, BlockHeight) {
         (self.tip.block_hash, self.tip.height)
     }
 
-    /// Returns the largest height for which we have enough approvals to be theoretically able to
-    ///     produce a block (in practice a blocks might not be produceable yet if not enough time
-    ///     passed since it accumulated enough approvals)
+    /// Returns the largest height for which we have enough approvals to be
+    /// theoretically able to     produce a block (in practice a blocks
+    /// might not be produceable yet if not enough time     passed since it
+    /// accumulated enough approvals)
     pub fn get_largest_height_crossing_threshold(&self) -> BlockHeight {
         self.largest_threshold_height
     }
@@ -411,21 +428,24 @@ impl Doomslug {
         self.history.push_back(entry);
     }
 
-    /// Is expected to be called periodically and processed the timer (`start_timer` in the paper)
-    /// If the `cur_time` way ahead of last time the `process_timer` was called, will only process
-    /// a bounded number of steps, to avoid an infinite loop in case of some bugs.
-    /// Processes sending delayed approvals or skip messages
-    /// A major difference with the paper is that we process endorsement from the `process_timer`,
-    /// not at the time of receiving a block. It is done to stagger blocks if the network is way
-    /// too fast (e.g. during tests, or if a large set of validators have connection significantly
+    /// Is expected to be called periodically and processed the timer
+    /// (`start_timer` in the paper) If the `cur_time` way ahead of last
+    /// time the `process_timer` was called, will only process
+    /// a bounded number of steps, to avoid an infinite loop in case of some
+    /// bugs. Processes sending delayed approvals or skip messages
+    /// A major difference with the paper is that we process endorsement from
+    /// the `process_timer`, not at the time of receiving a block. It is
+    /// done to stagger blocks if the network is way too fast (e.g. during
+    /// tests, or if a large set of validators have connection significantly
     /// better between themselves than with the rest of the validators)
     ///
     /// # Arguments
-    /// * `cur_time` - is expected to receive `now`. Doesn't directly use `now` to simplify testing
+    /// * `cur_time` - is expected to receive `now`. Doesn't directly use `now`
+    ///   to simplify testing
     ///
     /// # Returns
-    /// A vector of approvals that need to be sent to other block producers as a result of processing
-    /// the timers
+    /// A vector of approvals that need to be sent to other block producers as a
+    /// result of processing the timers
     #[must_use]
     pub fn process_timer(&mut self, cur_time: Instant) -> Vec<Approval> {
         let mut ret = vec![];
@@ -433,9 +453,10 @@ impl Doomslug {
             let skip_delay =
                 self.timer.get_delay(self.timer.height.saturating_sub(self.largest_final_height));
 
-            // The `endorsement_delay` is time to send approval to the block producer at `timer.height`,
-            // while the `skip_delay` is the time before sending the approval to BP of `timer_height + 1`,
-            // so it makes sense for them to be at least 2x apart
+            // The `endorsement_delay` is time to send approval to the block producer at
+            // `timer.height`, while the `skip_delay` is the time before sending
+            // the approval to BP of `timer_height + 1`, so it makes sense for
+            // them to be at least 2x apart
             debug_assert!(skip_delay >= 2 * self.timer.endorsement_delay);
 
             let tip_height = self.tip.height;
@@ -501,12 +522,14 @@ impl Doomslug {
     }
 
     /// Determines whether a block has enough approvals to be produced.
-    /// In production (with `mode == HalfStake`) we require the total stake of all the approvals to
-    /// be strictly more than half of the total stake. For many non-doomslug specific tests
-    /// (with `mode == NoApprovals`) no approvals are needed.
+    /// In production (with `mode == HalfStake`) we require the total stake of
+    /// all the approvals to be strictly more than half of the total stake.
+    /// For many non-doomslug specific tests (with `mode == NoApprovals`) no
+    /// approvals are needed.
     ///
     /// # Arguments
-    /// * `mode`      - whether we want half of the total stake or just a single approval
+    /// * `mode`      - whether we want half of the total stake or just a single
+    ///   approval
     /// * `approvals` - the set of approvals in the current block
     /// * `stakes`    - the vector of validator stakes in the current epoch
     pub fn can_approved_block_be_produced(
@@ -561,10 +584,12 @@ impl Doomslug {
     /// Updates the current tip of the chain. Restarts the timer accordingly.
     ///
     /// # Arguments
-    /// * `now`            - current time. Doesn't call to `Utc::now()` directly to simplify testing
+    /// * `now`            - current time. Doesn't call to `Utc::now()` directly
+    ///   to simplify testing
     /// * `block_hash`     - the hash of the new tip
     /// * `height`         - the height of the tip
-    /// * `last_ds_final_height` - last height at which a block in this chain has doomslug finality
+    /// * `last_ds_final_height` - last height at which a block in this chain
+    ///   has doomslug finality
     pub fn set_tip(
         &mut self,
         now: Instant,
@@ -587,8 +612,9 @@ impl Doomslug {
         self.endorsement_pending = true;
     }
 
-    /// Records an approval message, and return whether the block has passed the threshold / ready
-    /// to be produced without waiting any further. See the comment for `DoomslugApprovalTracker::process_approval`
+    /// Records an approval message, and return whether the block has passed the
+    /// threshold / ready to be produced without waiting any further. See
+    /// the comment for `DoomslugApprovalTracker::process_approval`
     /// for details
     #[must_use]
     fn on_approval_message_internal(
@@ -634,27 +660,29 @@ impl Doomslug {
     }
 
     /// Gets the current status of approvals for a given height.
-    /// It will only work for heights that we have in memory, that is that are not older than MAX_HEIGHTS_BEFORE_TO_STORE_APPROVALS
-    /// blocks from the head.
+    /// It will only work for heights that we have in memory, that is that are
+    /// not older than MAX_HEIGHTS_BEFORE_TO_STORE_APPROVALS blocks from the
+    /// head.
     pub fn approval_status_at_height(&self, height: &BlockHeight) -> ApprovalAtHeightStatus {
         self.approval_tracking.get(height).map(|it| it.status()).unwrap_or_default()
     }
 
-    /// Returns whether we can produce a block for this height. The check for whether `me` is the
-    /// block producer for the height needs to be done by the caller.
-    /// We can produce a block if:
-    ///  - The block has 2/3 of approvals, doomslug-finalizing the previous block, and we have
-    ///    enough chunks, or
-    ///  - The block has 1/2 of approvals, and T(h' / 6) has passed since the block has had 1/2 of
-    ///    approvals for the first time, where h' is time since the last ds-final block.
-    /// Only the height is passed into the function, we use the tip known to `Doomslug` as the
-    /// parent hash.
+    /// Returns whether we can produce a block for this height. The check for
+    /// whether `me` is the block producer for the height needs to be done
+    /// by the caller. We can produce a block if:
+    ///  - The block has 2/3 of approvals, doomslug-finalizing the previous
+    ///    block, and we have enough chunks, or
+    ///  - The block has 1/2 of approvals, and T(h' / 6) has passed since the
+    ///    block has had 1/2 of approvals for the first time, where h' is time
+    ///    since the last ds-final block.
+    /// Only the height is passed into the function, we use the tip known to
+    /// `Doomslug` as the parent hash.
     ///
     /// # Arguments:
     /// * `now`               - current timestamp
     /// * `target_height`     - the height for which the readiness is checked
-    /// * `has_enough_chunks` - if not, we will wait for T(h' / 6) even if we have 2/3 approvals &
-    ///                         have the previous block ds-final.
+    /// * `has_enough_chunks` - if not, we will wait for T(h' / 6) even if we
+    ///   have 2/3 approvals & have the previous block ds-final.
     #[must_use]
     pub fn ready_to_produce_block(
         &mut self,
@@ -734,7 +762,8 @@ mod tests {
             DoomslugThresholdMode::TwoThirds,
         );
 
-        let mut now = Clock::instant(); // For the test purposes the absolute value of the initial instant doesn't matter
+        let mut now = Clock::instant(); // For the test purposes the absolute value of the initial instant doesn't
+                                        // matter
 
         // Set a new tip, must produce an endorsement
         ds.set_tip(now, hash(&[1]), 1, 1);
@@ -747,7 +776,8 @@ mod tests {
         // Same tip => no approval
         assert_eq!(ds.process_timer(now + Duration::from_millis(400)), vec![]);
 
-        // The block was `ds_final` and therefore started the timer. Try checking before one second expires
+        // The block was `ds_final` and therefore started the timer. Try checking before
+        // one second expires
         assert_eq!(ds.process_timer(now + Duration::from_millis(999)), vec![]);
 
         // But one second should trigger the skip
@@ -769,7 +799,8 @@ mod tests {
         // Shift now 1 second forward
         now += Duration::from_millis(1000);
 
-        // But at height 3 should (also neither block has finality set, keep last final at 0 for now)
+        // But at height 3 should (also neither block has finality set, keep last final
+        // at 0 for now)
         ds.set_tip(now, hash(&[3]), 3, 0);
         let approval =
             ds.process_timer(now + Duration::from_millis(400)).into_iter().nth(0).unwrap();
@@ -821,7 +852,8 @@ mod tests {
         // Move 1 second further
         now += Duration::from_millis(1000);
 
-        // Accept block at 5 with finality on the prev block, expect it to not produce an approval
+        // Accept block at 5 with finality on the prev block, expect it to not produce
+        // an approval
         ds.set_tip(now, hash(&[5]), 5, 4);
         assert_eq!(ds.process_timer(now + Duration::from_millis(400)), vec![]);
 
@@ -829,16 +861,17 @@ mod tests {
         now += Duration::from_millis(100_000);
         assert!(ds.process_timer(now).len() > 10);
 
-        // Add some random small number of milliseconds to test that when the next block is added, the
-        // timer is reset
+        // Add some random small number of milliseconds to test that when the next block
+        // is added, the timer is reset
         now += Duration::from_millis(17);
 
         // No approval, since we skipped 6
         ds.set_tip(now, hash(&[6]), 6, 4);
         assert_eq!(ds.process_timer(now + Duration::from_millis(400)), vec![]);
 
-        // The block height was less than the timer height, and thus the timer was reset.
-        // The wait time for height 7 with last ds final block at 5 is 1100
+        // The block height was less than the timer height, and thus the timer was
+        // reset. The wait time for height 7 with last ds final block at 5 is
+        // 1100
         assert_eq!(ds.process_timer(now + Duration::from_millis(1099)), vec![]);
 
         match ds.process_timer(now + Duration::from_millis(1100)) {
@@ -1089,7 +1122,8 @@ mod tests {
             5
         );
 
-        // Process new approvals one by one, expect the approved and endorsed stake to slowly decrease
+        // Process new approvals one by one, expect the approved and endorsed stake to
+        // slowly decrease
         tracker.process_approval(
             Clock::instant(),
             &a2_1,
@@ -1140,7 +1174,8 @@ mod tests {
             3
         );
 
-        // As we update the last of the three approvals, the tracker for the first block should be completely removed
+        // As we update the last of the three approvals, the tracker for the first block
+        // should be completely removed
         tracker.process_approval(
             Clock::instant(),
             &a2_3,
@@ -1150,8 +1185,8 @@ mod tests {
 
         assert!(tracker.approval_trackers.get(&ApprovalInner::Skip(1)).is_none());
 
-        // Check the approved and endorsed stake for the new block, and also ensure that processing one of the same approvals
-        // again works fine
+        // Check the approved and endorsed stake for the new block, and also ensure that
+        // processing one of the same approvals again works fine
 
         assert_eq!(
             tracker

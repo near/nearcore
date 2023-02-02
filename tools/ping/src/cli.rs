@@ -16,18 +16,19 @@ pub struct PingCommand {
     #[clap(long)]
     chain_id: String,
     #[clap(long)]
-    /// genesis hash to use in the Handshake we send. This must be provided if --chain-id
-    /// is not "mainnet" or "testnet"
+    /// genesis hash to use in the Handshake we send. This must be provided if
+    /// --chain-id is not "mainnet" or "testnet"
     genesis_hash: Option<String>,
     #[clap(long)]
-    /// head height to use in the Handshake we send. This must be provided if --chain-id
-    /// is not "mainnet" or "testnet"
+    /// head height to use in the Handshake we send. This must be provided if
+    /// --chain-id is not "mainnet" or "testnet"
     head_height: Option<u64>,
     /// Protocol version to advertise in our handshake
     #[clap(long)]
     protocol_version: Option<u32>,
-    /// node public key and socket address in the format {pub key}@{socket addr}. e.g.:
-    /// ed25519:7PGseFbWxvYVgZ89K1uTJKYoKetWs7BJtbyXDzfbAcqX@127.0.0.1:24567
+    /// node public key and socket address in the format {pub key}@{socket
+    /// addr}. e.g.: ed25519:7PGseFbWxvYVgZ89K1uTJKYoKetWs7BJtbyXDzfbAcqX@
+    /// 127.0.0.1:24567
     #[clap(long)]
     peer: String,
     /// ttl to set on our Routed messages
@@ -58,8 +59,8 @@ fn display_stats(stats: &mut [(crate::PeerIdentifier, crate::PingStats)], peer_i
     for (peer, _) in stats.iter() {
         acc_width = std::cmp::max(acc_width, format!("{}", peer).len());
     }
-    // the ones that never responded should end up at the top with this sorting, which is a
-    // little weird, but we can fix it later.
+    // the ones that never responded should end up at the top with this sorting,
+    // which is a little weird, but we can fix it later.
     stats.sort_by(|(_, left), (_, right)| left.average_latency.cmp(&right.average_latency));
     println!(
         "{:<acc_width$} | {:<10} | {:<10} | {:<17} | {:<17} | {:<17}",

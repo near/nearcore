@@ -12,24 +12,26 @@ use near_primitives::{
 };
 
 pub trait ClientAdapterForShardsManager: Send + Sync + 'static {
-    /// Notifies the client that the ShardsManager has collected a complete chunk.
-    /// Note that this does NOT mean that the chunk is fully constructed. If we are
-    /// not tracking the shard this chunk is in, then being complete only means that
-    /// we have received the parts we own, and the receipt proofs corresponding to
-    /// shards that we do track. On the other hand if we are tracking the shard this
-    /// chunk is in, then being complete does mean having the full chunk, in which
+    /// Notifies the client that the ShardsManager has collected a complete
+    /// chunk. Note that this does NOT mean that the chunk is fully
+    /// constructed. If we are not tracking the shard this chunk is in, then
+    /// being complete only means that we have received the parts we own,
+    /// and the receipt proofs corresponding to shards that we do track. On
+    /// the other hand if we are tracking the shard this chunk is in, then
+    /// being complete does mean having the full chunk, in which
     /// case the shard_chunk is also provided.
     fn did_complete_chunk(
         &self,
         partial_chunk: PartialEncodedChunk,
         shard_chunk: Option<ShardChunk>,
     );
-    /// Notifies the client that we have collected a full chunk but the chunk cannot
-    /// be properly decoded.
+    /// Notifies the client that we have collected a full chunk but the chunk
+    /// cannot be properly decoded.
     fn saw_invalid_chunk(&self, chunk: EncodedShardChunk);
-    /// Notifies the client that the chunk header is ready for inclusion into a new
-    /// block, so that if we are a block producer, we may create a block that contains
-    /// this chunk now. The producer of this chunk is also provided.
+    /// Notifies the client that the chunk header is ready for inclusion into a
+    /// new block, so that if we are a block producer, we may create a block
+    /// that contains this chunk now. The producer of this chunk is also
+    /// provided.
     fn chunk_header_ready_for_inclusion(
         &self,
         chunk_header: ShardChunkHeader,
@@ -103,7 +105,8 @@ impl ShardedTransactionPool {
     /// Computes a deterministic random seed for given `shard_id`.
     /// This seed is used to randomize the transaction pool.
     /// For better security we want the seed to different in each shard.
-    /// For testing purposes we want it to be the reproducible and derived from the `self.rng_seed` and `shard_id`
+    /// For testing purposes we want it to be the reproducible and derived from
+    /// the `self.rng_seed` and `shard_id`
     fn random_seed(base_seed: &RngSeed, shard_id: ShardId) -> RngSeed {
         let mut res = *base_seed;
         res[0] = shard_id as u8;

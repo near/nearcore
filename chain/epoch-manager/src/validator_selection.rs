@@ -70,11 +70,12 @@ pub fn proposals_to_epoch_info(
             (block_producer_proposals, block_producers.clone(), bp_stake_threshold)
         };
 
-    // since block producer proposals could become chunk producers, their actual stake threshold
-    // is the smaller of the two thresholds
+    // since block producer proposals could become chunk producers, their actual
+    // stake threshold is the smaller of the two thresholds
     let threshold = cmp::min(bp_stake_threshold, cp_stake_threshold);
 
-    // process remaining chunk_producer_proposals that were not selected for either role
+    // process remaining chunk_producer_proposals that were not selected for either
+    // role
     for OrderedValidatorStake(p) in chunk_producer_proposals {
         let stake = p.stake();
         let account_id = p.account_id();
@@ -152,10 +153,11 @@ pub fn proposals_to_epoch_info(
             return Err(EpochError::NotEnoughValidators { num_validators: 0u64, num_shards });
         }
         let mut id = 0usize;
-        // Here we assign validators to chunks (we try to keep number of shards assigned for
-        // each validator as even as possible). Note that in prod configuration number of seats
-        // per shard is the same as maximal number of block producers, so normally all
-        // validators would be assigned to all chunks
+        // Here we assign validators to chunks (we try to keep number of shards assigned
+        // for each validator as even as possible). Note that in prod
+        // configuration number of seats per shard is the same as maximal number
+        // of block producers, so normally all validators would be assigned to
+        // all chunks
         (0usize..(num_shards as usize))
             .map(|shard_id| {
                 (0..epoch_config.num_block_producer_seats_per_shard[shard_id]
@@ -195,17 +197,18 @@ pub fn proposals_to_epoch_info(
     ))
 }
 
-/// Generates proposals based on new proposals, last epoch validators/fishermen and validator
-/// kickouts
-/// For each account that was validator or fisherman in last epoch or made stake action last epoch
-/// we apply the following in the order of priority
-/// 1. If account is in validator_kickout it cannot be validator or fisherman for the next epoch,
-///        we will not include it in proposals or fishermen
-/// 2. If account made staking action last epoch, it will be included in proposals with stake
-///        adjusted by rewards from last epoch, if any
-/// 3. If account was validator last epoch, it will be included in proposals with the same stake
-///        as last epoch, adjusted by rewards from last epoch, if any
-/// 4. If account was fisherman last epoch, it is included in fishermen
+/// Generates proposals based on new proposals, last epoch validators/fishermen
+/// and validator kickouts
+/// For each account that was validator or fisherman in last epoch or made stake
+/// action last epoch we apply the following in the order of priority
+/// 1. If account is in validator_kickout it cannot be validator or fisherman
+/// for the next epoch,        we will not include it in proposals or fishermen
+/// 2. If account made staking action last epoch, it will be included in
+/// proposals with stake        adjusted by rewards from last epoch, if any
+/// 3. If account was validator last epoch, it will be included in proposals
+/// with the same stake        as last epoch, adjusted by rewards from last
+/// epoch, if any 4. If account was fisherman last epoch, it is included in
+/// fishermen
 fn proposals_with_rollover(
     proposals: Vec<ValidatorStake>,
     prev_epoch_info: &EpochInfo,
@@ -246,8 +249,8 @@ fn proposals_with_rollover(
             continue;
         }
         if !proposals_by_account.contains_key(account_id) {
-            // safe to do this here because fishermen from previous epoch is guaranteed to have no
-            // duplicates.
+            // safe to do this here because fishermen from previous epoch is guaranteed to
+            // have no duplicates.
             stake_change.insert(account_id.clone(), r.stake());
             fishermen.push(r);
         }
@@ -288,8 +291,8 @@ fn select_chunk_producers(
 
 // Takes the top N proposals (by stake), or fewer if there are not enough or the
 // next proposals is too small relative to the others. In the case where all N
-// slots are filled, or the stake ratio falls too low, the threshold stake to be included
-// is also returned.
+// slots are filled, or the stake ratio falls too low, the threshold stake to be
+// included is also returned.
 fn select_validators(
     proposals: &mut BinaryHeap<OrderedValidatorStake>,
     max_number_selected: usize,
@@ -410,8 +413,9 @@ mod tests {
 
     #[test]
     fn test_validator_assignment_with_chunk_only_producers() {
-        // A more complex test. Here there are more BP proposals than spots, so some will
-        // become chunk-only producers, along side the other chunk-only proposals.
+        // A more complex test. Here there are more BP proposals than spots, so some
+        // will become chunk-only producers, along side the other chunk-only
+        // proposals.
         let num_bp_seats = 10;
         let num_cp_seats = 30;
         let epoch_config = create_epoch_config(
@@ -623,9 +627,9 @@ mod tests {
     fn test_validator_assignment_ratio_condition() {
         // There are more seats than proposals, however the
         // lower proposals are too small relative to the total
-        // (the reason we can't choose them is because the the probability of them actually
-        // being selected to make a block would be too low since it is done in
-        // proportion to stake).
+        // (the reason we can't choose them is because the the probability of them
+        // actually being selected to make a block would be too low since it is
+        // done in proportion to stake).
         let epoch_config = create_epoch_config(
             1,
             100,
@@ -661,7 +665,8 @@ mod tests {
         )
         .unwrap();
 
-        // stake below validator threshold, but above fishermen threshold become fishermen
+        // stake below validator threshold, but above fishermen threshold become
+        // fishermen
         let fishermen: Vec<_> = epoch_info.fishermen_iter().map(|v| v.take_account_id()).collect();
         assert_eq!(fishermen, vec!["test4".parse().unwrap()]);
 
@@ -801,7 +806,8 @@ mod tests {
         validator_ids.into_iter().map(|id| epoch_info.get_validator(*id).stake()).sum()
     }
 
-    /// Create EpochConfig, only filling in the fields important for validator selection.
+    /// Create EpochConfig, only filling in the fields important for validator
+    /// selection.
     fn create_epoch_config(
         num_shards: u64,
         num_block_producer_seats: u64,

@@ -26,7 +26,8 @@ use crate::adapter::{ProcessTxRequest, ProcessTxResponse};
 use crate::test_utils::{setup_mock_all_validators, ActorHandlesForTesting, BlockStats};
 use crate::{ClientActor, Query, ViewClientActor};
 
-/// Tests that the KeyValueRuntime properly sets balances in genesis and makes them queriable
+/// Tests that the KeyValueRuntime properly sets balances in genesis and makes
+/// them queriable
 #[test]
 fn test_keyvalue_runtime_balances() {
     let successful_queries = Arc::new(AtomicUsize::new(0));
@@ -379,18 +380,18 @@ fn test_cross_shard_tx_callback(
 }
 
 /// The basic flow of the test spins up validators, and starts sending to them
-/// several (at most 64) cross-shard transactions. i-th transaction sends money from
-/// validator i/8 to validator i%8. What makes the test good is that due to very low
-/// block production time, it creates lots of forks, delaying both the transaction
-/// acceptance, and the receipt delivery.
+/// several (at most 64) cross-shard transactions. i-th transaction sends money
+/// from validator i/8 to validator i%8. What makes the test good is that due to
+/// very low block production time, it creates lots of forks, delaying both the
+/// transaction acceptance, and the receipt delivery.
 ///
-/// It submits txs one at a time, and waits for their completion before sending the
-/// next. Whenever the transaction completed, it traces "Finished iteration 1" (with
-/// the ordinal increasing). Given the test takes a while, checking how far below
-/// the last some message is a good way to early tell that the test has stalled.
-/// E.g. if the last message is not in the last 15% of the output, it is likely that
-/// the test will not make further progress, depending on the mode (with validator
-/// rotation some iterations are way longer than other).
+/// It submits txs one at a time, and waits for their completion before sending
+/// the next. Whenever the transaction completed, it traces "Finished iteration
+/// 1" (with the ordinal increasing). Given the test takes a while, checking how
+/// far below the last some message is a good way to early tell that the test
+/// has stalled. E.g. if the last message is not in the last 15% of the output,
+/// it is likely that the test will not make further progress, depending on the
+/// mode (with validator rotation some iterations are way longer than other).
 fn test_cross_shard_tx_common(
     num_iters: usize,
     rotate_validators: bool,

@@ -49,8 +49,8 @@ impl EpochSelection {
             }
             EpochSelection::EpochHeight { epoch_height } => {
                 // Fetch epochs at the given height.
-                // There should only be one epoch at a given height. But this is a debug tool, let's check
-                // if there are multiple epochs at a given height.
+                // There should only be one epoch at a given height. But this is a debug tool,
+                // let's check if there are multiple epochs at a given height.
                 let epoch_ids = iterate_and_filter(store, |epoch_info| {
                     epoch_info.epoch_height() == *epoch_height
                 });
@@ -99,7 +99,8 @@ impl Location {
     }
 }
 
-/// Returns block hash of the last block of an epoch preceding the given `epoch_info`.
+/// Returns block hash of the last block of an epoch preceding the given
+/// `epoch_info`.
 fn get_prev_hash_of_epoch(
     epoch_info: &EpochInfo,
     chain_store: &ChainStore,
@@ -107,8 +108,8 @@ fn get_prev_hash_of_epoch(
 ) -> CryptoHash {
     let head = chain_store.head().unwrap();
     let mut cur_block_info = epoch_manager.get_block_info(&head.last_block_hash).unwrap();
-    // EpochManager doesn't have an API that maps EpochId to Blocks, and this function works
-    // around that limitation by iterating over the epochs.
+    // EpochManager doesn't have an API that maps EpochId to Blocks, and this
+    // function works around that limitation by iterating over the epochs.
     // This workaround is acceptable because:
     // 1) Extending EpochManager's API is a major change.
     // 2) This use case is not critical at all.

@@ -760,7 +760,8 @@ pub(crate) enum OperationMetadataTransferFeeType {
 
 #[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct OperationMetadata {
-    /// Has to be specified for TRANSFER operations which represent gas prepayments or gas refunds
+    /// Has to be specified for TRANSFER operations which represent gas
+    /// prepayments or gas refunds
     #[serde(skip_serializing_if = "Option::is_none")]
     pub transfer_fee_type: Option<OperationMetadataTransferFeeType>,
     /// Has to be specified for ADD_KEY, REMOVE_KEY, and STAKE operations
@@ -1021,7 +1022,6 @@ pub(crate) struct RelatedTransaction {
     // since all our related transactions are always on the same network we can
     // leave out this field.
     // pub network_identifier: NetworkIdentifier,
-    //
     pub transaction_identifier: TransactionIdentifier,
 
     pub direction: RelatedTransactionDirection,

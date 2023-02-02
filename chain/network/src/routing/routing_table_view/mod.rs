@@ -24,13 +24,14 @@ struct Inner {
     account_peers: LruCache<AccountId, AnnounceAccount>,
     /// Subset of account_peers, which we have broadcasted to the peers.
     /// It is used to skip rebroadcasting the same data multiple times.
-    /// It contains less entries than account_peers in case some AnnounceAccounts
-    /// have been loaded from storage without broadcasting.
+    /// It contains less entries than account_peers in case some
+    /// AnnounceAccounts have been loaded from storage without broadcasting.
     account_peers_broadcasted: LruCache<AccountId, AnnounceAccount>,
 
-    /// For each peer, the set of neighbors which are one hop closer to `my_peer_id`.
-    /// Alternatively, if we look at the set of all shortest path from `my_peer_id` to peer,
-    /// this will be the set of first nodes on all such paths.
+    /// For each peer, the set of neighbors which are one hop closer to
+    /// `my_peer_id`. Alternatively, if we look at the set of all shortest
+    /// path from `my_peer_id` to peer, this will be the set of first nodes
+    /// on all such paths.
     next_hops: Arc<routing::NextHopTable>,
     /// Hash of messages that requires routing back to respective previous hop.
     route_back: RouteBackCache,
@@ -105,9 +106,10 @@ impl RoutingTableView {
     }
 
     pub(crate) fn reachable_peers(&self) -> usize {
-        // There is an implicit assumption here that all next_hops entries are non-empty.
-        // To enforce this, we would need to make NextHopTable a newtype rather than an alias,
-        // and add appropriate constructors, which would filter out empty entries.
+        // There is an implicit assumption here that all next_hops entries are
+        // non-empty. To enforce this, we would need to make NextHopTable a
+        // newtype rather than an alias, and add appropriate constructors, which
+        // would filter out empty entries.
         self.0.lock().next_hops.len()
     }
 
@@ -184,7 +186,8 @@ impl RoutingTableView {
         self.0.lock().account_peers.iter().map(|(_, v)| v.clone()).collect()
     }
 
-    /// Get AnnounceAccount for the given AccountIds, that we already broadcasted.
+    /// Get AnnounceAccount for the given AccountIds, that we already
+    /// broadcasted.
     pub(crate) fn get_broadcasted_announces<'a>(
         &'a self,
         account_ids: impl Iterator<Item = &'a AccountId>,

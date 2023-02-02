@@ -113,8 +113,9 @@ pub fn create_nightshade_runtime_with_store(
         as Arc<dyn RuntimeWithEpochManagerAdapter>
 }
 
-/// Produce `blocks_number` block in the given environment, starting from the given height.
-/// Returns the first unoccupied height in the chain after this operation.
+/// Produce `blocks_number` block in the given environment, starting from the
+/// given height. Returns the first unoccupied height in the chain after this
+/// operation.
 pub(crate) fn produce_blocks_from_height_with_protocol_version(
     env: &mut TestEnv,
     blocks_number: u64,
@@ -182,7 +183,8 @@ pub(crate) fn deploy_test_contract(
     )
 }
 
-/// Create environment and set of transactions which cause congestion on the chain.
+/// Create environment and set of transactions which cause congestion on the
+/// chain.
 pub(crate) fn prepare_env_with_congestion(
     protocol_version: ProtocolVersion,
     gas_price_adjustment_rate: Option<Rational32>,
@@ -256,7 +258,8 @@ pub(crate) fn prepare_env_with_congestion(
     (env, tx_hashes)
 }
 
-/// Runs block producing client and stops after network mock received two blocks.
+/// Runs block producing client and stops after network mock received two
+/// blocks.
 #[test]
 fn produce_two_blocks() {
     init_test_logger();
@@ -304,7 +307,8 @@ fn produce_blocks_with_tx() {
                     let height = header.height_created() as usize;
                     assert!(encoded_chunks.len() + 2 >= height);
 
-                    // the following two lines must match data_parts and total_parts in KeyValueRuntimeAdapter
+                    // the following two lines must match data_parts and total_parts in
+                    // KeyValueRuntimeAdapter
                     let data_parts = 12 + 2 * (((height - 1) as usize) % 4);
                     let total_parts = 1 + data_parts * (1 + ((height - 1) as usize) % 3);
                     if encoded_chunks.len() + 2 == height {
@@ -353,14 +357,15 @@ fn produce_blocks_with_tx() {
     });
 }
 
-/// Runs client that receives a block from network and announces header to the network with approval.
-/// Need 3 block producers, to receive approval.
+/// Runs client that receives a block from network and announces header to the
+/// network with approval. Need 3 block producers, to receive approval.
 #[test]
 fn receive_network_block() {
     init_test_logger();
     run_actix(async {
-        // The first header announce will be when the block is received. We don't immediately endorse
-        // it. The second header announce will happen with the endorsement a little later.
+        // The first header announce will be when the block is received. We don't
+        // immediately endorse it. The second header announce will happen with
+        // the endorsement a little later.
         let first_header_announce = Arc::new(RwLock::new(true));
         let actor_handles = setup_mock(
             vec!["test2".parse().unwrap(), "test1".parse().unwrap(), "test3".parse().unwrap()],
@@ -439,10 +444,10 @@ fn produce_block_with_approvals() {
             false,
             Box::new(move |msg, _ctx, _| {
                 if let NetworkRequests::Block { block } = msg.as_network_requests_ref() {
-                    // Below we send approvals from all the block producers except for test1 and test2
-                    // test1 will only create their approval for height 10 after their doomslug timer
-                    // runs 10 iterations, which is way further in the future than them producing the
-                    // block
+                    // Below we send approvals from all the block producers except for test1 and
+                    // test2 test1 will only create their approval for height 10
+                    // after their doomslug timer runs 10 iterations, which is
+                    // way further in the future than them producing the block
                     if block.header().num_approvals() == validators.len() as u64 - 2 {
                         System::current().stop();
                     } else if block.header().height() == 10 {
@@ -616,8 +621,9 @@ fn produce_block_with_approvals_arrived_early() {
     });
 }
 
-/// Sends one invalid block followed by one valid block, and checks that client announces only valid block.
-/// and that the node bans the peer for invalid block header.
+/// Sends one invalid block followed by one valid block, and checks that client
+/// announces only valid block. and that the node bans the peer for invalid
+/// block header.
 fn invalid_blocks_common(is_requested: bool) {
     init_test_logger();
     run_actix(async move {
@@ -870,7 +876,8 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
                                         block_mut.mut_header().resign(&validator_signer1);
                                     }
                                     InvalidBlockMode::InvalidBlock => {
-                                        // produce an invalid block whose invalidity cannot be verified by just
+                                        // produce an invalid block whose invalidity cannot be
+                                        // verified by just
                                         // having its header.
                                         let proposals = vec![ValidatorStake::new(
                                             "test1".parse().unwrap(),
@@ -959,19 +966,22 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
     });
 }
 
-/// If a peer sends a block whose header is valid and passes basic validation, the peer is not banned.
+/// If a peer sends a block whose header is valid and passes basic validation,
+/// the peer is not banned.
 #[test]
 fn test_not_ban_peer_for_invalid_block() {
     ban_peer_for_invalid_block_common(InvalidBlockMode::InvalidBlock);
 }
 
-/// If a peer sends a block whose header is invalid, we should ban them and do not forward the block
+/// If a peer sends a block whose header is invalid, we should ban them and do
+/// not forward the block
 #[test]
 fn test_ban_peer_for_invalid_block_header() {
     ban_peer_for_invalid_block_common(InvalidBlockMode::InvalidHeader);
 }
 
-/// If a peer sends a block that is ill-formed, we should ban them and do not forward the block
+/// If a peer sends a block that is ill-formed, we should ban them and do not
+/// forward the block
 #[test]
 fn test_ban_peer_for_ill_formed_block() {
     ban_peer_for_invalid_block_common(InvalidBlockMode::IllFormed);
@@ -1116,7 +1126,8 @@ fn test_process_invalid_tx() {
     );
 }
 
-/// If someone produce a block with Utc::now() + 1 min, we should produce a block with valid timestamp
+/// If someone produce a block with Utc::now() + 1 min, we should produce a
+/// block with valid timestamp
 #[test]
 fn test_time_attack() {
     init_test_logger();
@@ -1507,14 +1518,16 @@ fn test_gc_with_epoch_length() {
     }
 }
 
-/// When an epoch is very long there should not be anything garbage collected unexpectedly
+/// When an epoch is very long there should not be anything garbage collected
+/// unexpectedly
 #[test]
 fn test_gc_long_epoch() {
     test_gc_with_epoch_length_common(200);
 }
 
-/// Test that producing blocks works in archival mode with save_trie_changes enabled.
-/// In that case garbage collection should not happen but trie changes should be saved to the store.
+/// Test that producing blocks works in archival mode with save_trie_changes
+/// enabled. In that case garbage collection should not happen but trie changes
+/// should be saved to the store.
 #[test]
 fn test_archival_save_trie_changes() {
     let epoch_length = 10;
@@ -1539,7 +1552,8 @@ fn test_archival_save_trie_changes() {
         env.process_block(0, block.clone(), Provenance::PRODUCED);
         blocks.push(block);
     }
-    // Go through all of the blocks and verify that the block are stored and that the trie changes were stored too.
+    // Go through all of the blocks and verify that the block are stored and that
+    // the trie changes were stored too.
     for i in 0..=epoch_length * (DEFAULT_GC_NUM_EPOCHS_TO_KEEP + 1) {
         let client = &env.clients[0];
         let chain = &client.chain;
@@ -1559,7 +1573,8 @@ fn test_archival_save_trie_changes() {
             continue;
         }
 
-        // Go through chunks and test that trie changes were correctly saved to the store.
+        // Go through chunks and test that trie changes were correctly saved to the
+        // store.
         let chunks = block.chunks();
         for chunk in chunks.iter() {
             let shard_id = chunk.shard_id() as u32;
@@ -1571,7 +1586,8 @@ fn test_archival_save_trie_changes() {
                 store.store().get_ser(DBCol::TrieChanges, &key).unwrap();
 
             if let Some(trie_changes) = trie_changes {
-                // We don't do any transactions in this test so the root should remain unchanged.
+                // We don't do any transactions in this test so the root should remain
+                // unchanged.
                 assert_eq!(trie_changes.old_root, trie_changes.new_root);
             }
         }
@@ -1668,7 +1684,8 @@ fn test_archival_gc_migration() {
 /// blocks older than 5 epochs.
 #[test]
 fn test_archival_gc_split_storage_current() {
-    // Fully migrated split storage has each store configured with kind = temperature.
+    // Fully migrated split storage has each store configured with kind =
+    // temperature.
     let storage = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
 
     let epoch_length = 10;
@@ -1683,7 +1700,8 @@ fn test_archival_gc_split_storage_current() {
 /// older than the cold head.
 #[test]
 fn test_archival_gc_split_storage_behind() {
-    // Fully migrated split storage has each store configured with kind = temperature.
+    // Fully migrated split storage has each store configured with kind =
+    // temperature.
     let storage = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
 
     let epoch_length = 10;
@@ -2039,7 +2057,8 @@ fn test_gc_tail_update() {
     assert_eq!(env.clients[1].chain.store().tail().unwrap(), prev_sync_height);
 }
 
-/// Test that transaction does not become invalid when there is some gas price change.
+/// Test that transaction does not become invalid when there is some gas price
+/// change.
 #[test]
 fn test_gas_price_change() {
     init_test_logger();
@@ -2376,8 +2395,9 @@ fn test_validate_chunk_extra() {
         env.process_block(0, last_block.clone(), Provenance::PRODUCED);
     }
 
-    // Construct a chunk that such when the receipts generated by this chunk are included
-    // in blocks of different heights, the state transitions are different.
+    // Construct a chunk that such when the receipts generated by this chunk are
+    // included in blocks of different heights, the state transitions are
+    // different.
     let function_call_tx = SignedTransaction::from_actions(
         2,
         "test0".parse().unwrap(),
@@ -2403,7 +2423,8 @@ fn test_validate_chunk_extra() {
         }
     }
 
-    // Construct two blocks that contain the same chunk and make the chunk unavailable.
+    // Construct two blocks that contain the same chunk and make the chunk
+    // unavailable.
     let validator_signer = create_test_signer("test0");
     let next_height = last_block.header().height() + 1;
     let (encoded_chunk, merkle_paths, receipts) =
@@ -2470,8 +2491,9 @@ fn test_validate_chunk_extra() {
     .is_ok());
 }
 
-/// Change protocol version back and forth and make sure that we do not produce invalid blocks
-/// TODO (#3759): re-enable the test when we have the ability to mutate `PROTOCOL_VERSION`
+/// Change protocol version back and forth and make sure that we do not produce
+/// invalid blocks TODO (#3759): re-enable the test when we have the ability to
+/// mutate `PROTOCOL_VERSION`
 #[test]
 #[ignore]
 fn test_gas_price_change_no_chunk() {
@@ -2598,7 +2620,8 @@ fn test_catchup_gas_price_change() {
         env.clients[1].chain.get_chunk_extra(blocks[4].hash(), &ShardUId::single_shard()).unwrap();
     let expected_chunk_extra =
         env.clients[0].chain.get_chunk_extra(blocks[4].hash(), &ShardUId::single_shard()).unwrap();
-    // The chunk extra of the prev block of sync block should be the same as the node that it is syncing from
+    // The chunk extra of the prev block of sync block should be the same as the
+    // node that it is syncing from
     assert_eq!(chunk_extra_after_sync, expected_chunk_extra);
 }
 
@@ -2638,8 +2661,9 @@ fn test_block_execution_outcomes() {
 
     let mut expected_outcome_ids = HashSet::new();
     let mut delayed_receipt_id = vec![];
-    // Due to gas limit, the first two transaactions will create local receipts and they get executed
-    // in the same block. The last local receipt will become delayed receipt
+    // Due to gas limit, the first two transaactions will create local receipts and
+    // they get executed in the same block. The last local receipt will become
+    // delayed receipt
     for (i, id) in tx_hashes.into_iter().enumerate() {
         let execution_outcome = env.clients[0].chain.get_execution_outcome(&id).unwrap();
         assert_eq!(execution_outcome.outcome_with_id.outcome.receipt_ids.len(), 1);
@@ -2930,7 +2954,8 @@ fn test_epoch_protocol_version_change() {
             env.clients[0].runtime_adapter.get_block_producer(&epoch_id, i).unwrap();
         let index = if block_producer.as_ref() == "test0" { 0 } else { 1 };
         let mut block = env.clients[index].produce_block(i).unwrap().unwrap();
-        // upgrade to new protocol version but in the second epoch one node vote for the old version.
+        // upgrade to new protocol version but in the second epoch one node vote for the
+        // old version.
         if i != 10 {
             set_block_protocol_version(&mut block, block_producer.clone(), PROTOCOL_VERSION);
         }
@@ -2986,7 +3011,8 @@ fn test_discard_non_finalizable_block() {
     }
 
     assert_eq!(env.clients[0].chain.final_head().unwrap().height, 2);
-    // Check that the first test block can't be finalized, because it is produced behind final head.
+    // Check that the first test block can't be finalized, because it is produced
+    // behind final head.
     assert_matches!(
         env.clients[0]
             .process_block_test(non_finalizable_block.into(), Provenance::NONE)
@@ -3000,8 +3026,8 @@ fn test_discard_non_finalizable_block() {
     );
 }
 
-/// Final state should be consistent when a node switches between forks in the following scenario
-///                      /-----------h+2
+/// Final state should be consistent when a node switches between forks in the
+/// following scenario                      /-----------h+2
 /// h-2 ---- h-1 ------ h
 ///                      \------h+1
 /// even though from the perspective of h+2 the last final block is h-2.
@@ -3101,7 +3127,8 @@ fn test_fork_receipt_ids() {
     let produced_block = env.clients[0].produce_block(1).unwrap().unwrap();
     env.process_block(0, produced_block.clone(), Provenance::PRODUCED);
 
-    // Construct two blocks that contain the same chunk and make the chunk unavailable.
+    // Construct two blocks that contain the same chunk and make the chunk
+    // unavailable.
     let validator_signer = create_test_signer("test0");
     let next_height = produced_block.header().height() + 1;
     let (encoded_chunk, _, _) = create_chunk_on_height(&mut env.clients[0], next_height);
@@ -3148,7 +3175,8 @@ fn test_fork_execution_outcome() {
         last_height = last_block.header().height();
     }
 
-    // Construct two blocks that contain the same chunk and make the chunk unavailable.
+    // Construct two blocks that contain the same chunk and make the chunk
+    // unavailable.
     let validator_signer = create_test_signer("test0");
     let next_height = last_height + 1;
     let (encoded_chunk, _, _) = create_chunk_on_height(&mut env.clients[0], next_height);
@@ -3403,7 +3431,8 @@ fn test_congestion_receipt_execution() {
         let final_outcome = env.clients[0].chain.get_final_transaction_result(tx_hash).unwrap();
         assert_matches!(final_outcome.status, FinalExecutionStatus::SuccessValue(_));
 
-        // Check that all receipt ids have corresponding execution outcomes. This means that all receipts generated are executed.
+        // Check that all receipt ids have corresponding execution outcomes. This means
+        // that all receipts generated are executed.
         let transaction_outcome = env.clients[0].chain.get_execution_outcome(tx_hash).unwrap();
         let mut receipt_ids: VecDeque<_> =
             transaction_outcome.outcome_with_id.outcome.receipt_ids.into();
@@ -3459,8 +3488,8 @@ fn test_validator_stake_host_function() {
 }
 
 #[test]
-/// Test that if a node's shard assignment will not change in the next epoch, the node
-/// does not need to catch up.
+/// Test that if a node's shard assignment will not change in the next epoch,
+/// the node does not need to catch up.
 fn test_catchup_no_sharding_change() {
     init_integration_logger();
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
@@ -3471,8 +3500,8 @@ fn test_catchup_no_sharding_change() {
         .validator_seats(1)
         .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
         .build();
-    // run the chain to a few epochs and make sure no catch up is triggered and the chain still
-    // functions
+    // run the chain to a few epochs and make sure no catch up is triggered and the
+    // chain still functions
     for h in 1..20 {
         let block = env.clients[0].produce_block(h).unwrap().unwrap();
         let _ =
@@ -3485,7 +3514,8 @@ fn test_catchup_no_sharding_change() {
     }
 }
 
-/// These tests fail on aarch because the WasmtimeVM::precompile method doesn't populate the cache.
+/// These tests fail on aarch because the WasmtimeVM::precompile method doesn't
+/// populate the cache.
 mod contract_precompilation_tests {
     use super::*;
     use near_primitives::contract::ContractCode;
@@ -3593,7 +3623,8 @@ mod contract_precompilation_tests {
         let state_root = *chunk_extra.state_root();
 
         let viewer = TrieViewer::default();
-        // TODO (#7327): set use_flat_storage to true when we implement support for state sync for FlatStorage
+        // TODO (#7327): set use_flat_storage to true when we implement support for
+        // state sync for FlatStorage
         let trie = Rc::new(
             env.clients[1]
                 .runtime_adapter

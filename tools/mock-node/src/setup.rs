@@ -84,15 +84,16 @@ pub struct MockNode {
 /// Setup up a mock node, including setting up
 /// a MockPeerManagerActor and a ClientActor and a ViewClientActor
 /// `client_home_dir`: home dir for the new client
-/// `network_home_dir`: home dir that contains the pre-generated chain history, will be used
-///                     to construct `MockPeerManagerActor`
+/// `network_home_dir`: home dir that contains the pre-generated chain history,
+/// will be used                     to construct `MockPeerManagerActor`
 /// `config`: config for the new client
 /// `network_delay`: delay for getting response from the simulated network
 /// `client_start_height`: start height for client
-/// `network_start_height`: height at which the simulated network starts producing blocks
-/// `target_height`: height that the simulated peers will produce blocks until. If None, will
-///                  use the height from the chain head in storage
-/// `in_memory_storage`: if true, make client use in memory storage instead of rocksdb
+/// `network_start_height`: height at which the simulated network starts
+/// producing blocks `target_height`: height that the simulated peers will
+/// produce blocks until. If None, will                  use the height from the
+/// chain head in storage `in_memory_storage`: if true, make client use in
+/// memory storage instead of rocksdb
 ///
 /// Returns a struct representing the node under test
 pub fn setup_mock_node(
@@ -341,8 +342,8 @@ mod tests {
     use std::time::Duration;
 
     // Just a test to test that the basic mocknet setup works
-    // This test first starts a localnet with one validator node that generates 20 blocks
-    // to generate a chain history
+    // This test first starts a localnet with one validator node that generates 20
+    // blocks to generate a chain history
     // then start a mock network with this chain history and test that
     // the client in the mock network can catch up these 20 blocks
     #[cfg_attr(not(feature = "mock_node"), ignore)]

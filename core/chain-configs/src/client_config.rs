@@ -100,13 +100,15 @@ pub struct ClientConfig {
     pub sync_check_period: Duration,
     /// While syncing, how long to check for each step.
     pub sync_step_period: Duration,
-    /// Sync height threshold: below this difference in height don't start syncing.
+    /// Sync height threshold: below this difference in height don't start
+    /// syncing.
     pub sync_height_threshold: BlockHeightDelta,
     /// How much time to wait after initial header sync
     pub header_sync_initial_timeout: Duration,
     /// How much time to wait after some progress is made in header sync
     pub header_sync_progress_timeout: Duration,
-    /// How much time to wait before banning a peer in header sync if sync is too slow
+    /// How much time to wait before banning a peer in header sync if sync is
+    /// too slow
     pub header_sync_stall_ban_timeout: Duration,
     /// Expected increase of header head weight per second during header sync
     pub header_sync_expected_height_per_second: u64,
@@ -124,7 +126,8 @@ pub struct ClientConfig {
     pub epoch_length: BlockHeightDelta,
     /// Number of block producer seats
     pub num_block_producer_seats: NumSeats,
-    /// Maximum blocks ahead of us before becoming validators to announce account.
+    /// Maximum blocks ahead of us before becoming validators to announce
+    /// account.
     pub announce_account_horizon: BlockHeightDelta,
     /// Time to persist Accounts Id in the router without removing them.
     pub ttl_account_id_router: Duration,
@@ -149,9 +152,12 @@ pub struct ClientConfig {
     /// Not clear old data, set `true` for archive nodes.
     pub archive: bool,
     /// save_trie_changes should be set to true iff
-    /// - archive if false - non-archivale nodes need trie changes to perform garbage collection
-    /// - archive is true, cold_store is configured and migration to split_storage is finished - node
-    /// working in split storage mode needs trie changes in order to do garbage collection on hot.
+    /// - archive if false - non-archivale nodes need trie changes to perform
+    ///   garbage collection
+    /// - archive is true, cold_store is configured and migration to
+    ///   split_storage is finished - node
+    /// working in split storage mode needs trie changes in order to do garbage
+    /// collection on hot.
     pub save_trie_changes: bool,
     /// Number of threads for ViewClientActor pool.
     pub view_client_threads: usize,
@@ -159,7 +165,8 @@ pub struct ClientConfig {
     pub epoch_sync_enabled: bool,
     /// Number of seconds between state requests for view client.
     pub view_client_throttle_period: Duration,
-    /// Upper bound of the byte size of contract state that is still viewable. None is no limit
+    /// Upper bound of the byte size of contract state that is still viewable.
+    /// None is no limit
     pub trie_viewer_state_size_limit: Option<u64>,
     /// Max burnt gas per view method.  If present, overrides value stored in
     /// genesis file.  The value only affects the RPCs without influencing the

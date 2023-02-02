@@ -5,9 +5,10 @@ use near_primitives::utils::min_heap::{MinHeap, PeekMut};
 /// Assign chunk producers (a.k.a. validators) to shards.  The i-th element
 /// of the output corresponds to the validators assigned to the i-th shard.
 ///
-/// This function ensures that every shard has at least `min_validators_per_shard`
-/// assigned to it, and attempts to balance the stakes between shards (keep the total
-/// stake assigned to each shard approximately equal).
+/// This function ensures that every shard has at least
+/// `min_validators_per_shard` assigned to it, and attempts to balance the
+/// stakes between shards (keep the total stake assigned to each shard
+/// approximately equal).
 ///
 /// This function performs best when the number of chunk producers is greater or
 /// equal than `num_shards * min_validators_per_shard` in which case each chunk
@@ -135,8 +136,8 @@ fn assign_with_possible_repeats<T: HasStake + Eq, I: Iterator<Item = (usize, T)>
     }
 }
 
-/// Marker struct to communicate the error where you try to assign validators to shards
-/// and there are not enough to even meet the minimum per shard.
+/// Marker struct to communicate the error where you try to assign validators to
+/// shards and there are not enough to even meet the minimum per shard.
 #[derive(Debug)]
 pub struct NotEnoughValidators;
 
@@ -159,7 +160,8 @@ mod tests {
 
     #[test]
     fn test_exponential_distribution_few_shards() {
-        // algorithm works well when there are few shards relative to the number of chunk producers
+        // algorithm works well when there are few shards relative to the number of
+        // chunk producers
         test_distribution_common(&EXPONENTIAL_STAKES, 3, 3);
     }
 

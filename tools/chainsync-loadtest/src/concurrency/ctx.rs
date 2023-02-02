@@ -44,17 +44,19 @@ impl Drop for Ctx_ {
 }
 
 // Ctx is an implementation of https://pkg.go.dev/context.
-// Ctxs are a mechanism of broadcasting cancellation to concurrent routines (aka futures).
-// The routines are expected to react to context cancellation on their own (they are not preempted)
-// and perform a graceful shutdown. In general the graceful shutdown is expected to
-// be non-blocking, but it still can be asynchronous (if it is known that an async call will
-// be non-blocking as well). Ctx is similar to a rust lifetime but for runtime:
-// Ctx is expected to be passed down the call stack and to the spawned subroutines.
-// At any level of the call stack the Ctx can be narrowed down via Ctx::with_cancel (which
+// Ctxs are a mechanism of broadcasting cancellation to concurrent routines (aka
+// futures). The routines are expected to react to context cancellation on their
+// own (they are not preempted) and perform a graceful shutdown. In general the
+// graceful shutdown is expected to be non-blocking, but it still can be
+// asynchronous (if it is known that an async call will be non-blocking as
+// well). Ctx is similar to a rust lifetime but for runtime: Ctx is expected to
+// be passed down the call stack and to the spawned subroutines. At any level of
+// the call stack the Ctx can be narrowed down via Ctx::with_cancel (which
 // allows the routine to cancel context of subroutines it spawns) or via
-// Ctx::with_timeout/Ctx::with_deadline, which cancels the scope automatically after a given time.
-// If is NOT possible to extend the context given by the parent - a subroutine is expected
-// to adhere to the lifetime it represents and finish as soon as it gets cancelled (or earlier).
+// Ctx::with_timeout/Ctx::with_deadline, which cancels the scope automatically
+// after a given time. If is NOT possible to extend the context given by the
+// parent - a subroutine is expected to adhere to the lifetime it represents and
+// finish as soon as it gets cancelled (or earlier).
 #[derive(Clone)]
 pub struct Ctx(Arc<Ctx_>);
 
@@ -93,10 +95,10 @@ impl Ctx {
         self.0.done.wait().await
     }
 
-    // wrap() executes the future f to completion, or until the context gets cancelled.
-    // This function is expected to be called only by the low level code, which
-    // wraps context-unaware code (context-aware code is expected to take ctx as an argument
-    // instead).
+    // wrap() executes the future f to completion, or until the context gets
+    // cancelled. This function is expected to be called only by the low level
+    // code, which wraps context-unaware code (context-aware code is expected to
+    // take ctx as an argument instead).
     pub async fn wrap<F, T>(&self, f: F) -> Result<T, Error>
     where
         F: std::future::Future<Output = T>,
@@ -153,8 +155,8 @@ impl Ctx {
         return CtxWithCancel(self.new_child(None, None));
     }
 
-    // with_deadline() creates a child context which will be automatically cancelled,
-    // once deadline passes (or parent context gets cancelled).
+    // with_deadline() creates a child context which will be automatically
+    // cancelled, once deadline passes (or parent context gets cancelled).
     pub fn with_deadline(&self, deadline: tokio::time::Instant) -> Ctx {
         return self.new_child(None, Some(deadline));
     }

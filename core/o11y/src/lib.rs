@@ -77,10 +77,12 @@ type TracingLayer<Inner> = Layered<
     Inner,
 >;
 
-// Records the level of opentelemetry tracing verbosity configured via command-line flags at the startup.
+// Records the level of opentelemetry tracing verbosity configured via
+// command-line flags at the startup.
 static DEFAULT_OTLP_LEVEL: OnceCell<OpenTelemetryLevel> = OnceCell::new();
 
-/// The default value for the `RUST_LOG` environment variable if one isn't specified otherwise.
+/// The default value for the `RUST_LOG` environment variable if one isn't
+/// specified otherwise.
 pub const DEFAULT_RUST_LOG: &str = "tokio_reactor=info,\
      config=info,\
      near=info,\
@@ -94,8 +96,9 @@ pub const DEFAULT_RUST_LOG: &str = "tokio_reactor=info,\
 
 /// The resource representing a registered subscriber.
 ///
-/// Once dropped, the subscriber is unregistered, and the output is flushed. Any messages output
-/// after this value is dropped will be delivered to a previously active subscriber, if any.
+/// Once dropped, the subscriber is unregistered, and the output is flushed. Any
+/// messages output after this value is dropped will be delivered to a
+/// previously active subscriber, if any.
 pub struct DefaultSubscriberGuard<S> {
     // NB: the field order matters here. I would've used `ManuallyDrop` to indicate this
     // particularity, but somebody decided at some point that doing so is unconventional Rust and
@@ -113,7 +116,8 @@ pub struct DefaultSubscriberGuard<S> {
     io_trace_guard: Option<tracing_appender::non_blocking::WorkerGuard>,
 }
 
-// Doesn't define WARN and ERROR, because the highest verbosity of spans is INFO.
+// Doesn't define WARN and ERROR, because the highest verbosity of spans is
+// INFO.
 #[derive(Copy, Clone, Debug, clap::ArgEnum, Serialize, Deserialize)]
 pub enum OpenTelemetryLevel {
     OFF,
@@ -140,8 +144,9 @@ pub struct Options {
     #[clap(long, arg_enum, default_value = "auto")]
     color: ColorOutput,
 
-    /// Enable logging of spans. For instance, this prints timestamps of entering and exiting a span,
-    /// together with the span duration and used/idle CPU time.
+    /// Enable logging of spans. For instance, this prints timestamps of
+    /// entering and exiting a span, together with the span duration and
+    /// used/idle CPU time.
     #[clap(long)]
     log_span_events: bool,
 
@@ -153,7 +158,8 @@ pub struct Options {
 impl<S: tracing::Subscriber + Send + Sync> DefaultSubscriberGuard<S> {
     /// Register this default subscriber globally , for all threads.
     ///
-    /// Must not be called more than once. Mutually exclusive with `Self::local`.
+    /// Must not be called more than once. Mutually exclusive with
+    /// `Self::local`.
     pub fn global(mut self) -> Self {
         if let Some(subscriber) = self.subscriber.take() {
             tracing::subscriber::set_global_default(subscriber)
@@ -166,7 +172,8 @@ impl<S: tracing::Subscriber + Send + Sync> DefaultSubscriberGuard<S> {
 
     /// Register this default subscriber for the current thread.
     ///
-    /// Must not be called more than once. Mutually exclusive with `Self::global`.
+    /// Must not be called more than once. Mutually exclusive with
+    /// `Self::global`.
     pub fn local(mut self) -> Self {
         if let Some(subscriber) = self.subscriber.take() {
             self.local_subscriber_guard = Some(tracing::subscriber::set_default(subscriber));
@@ -178,8 +185,8 @@ impl<S: tracing::Subscriber + Send + Sync> DefaultSubscriberGuard<S> {
 }
 
 /// Whether to use colored log format.
-/// Option `Auto` enables color output only if the logging is done to a terminal and
-/// `NO_COLOR` environment variable is not set.
+/// Option `Auto` enables color output only if the logging is done to a terminal
+/// and `NO_COLOR` environment variable is not set.
 #[derive(clap::ArgEnum, Debug, Clone)]
 pub enum ColorOutput {
     Always,
@@ -194,7 +201,8 @@ impl Default for ColorOutput {
 }
 
 fn is_terminal() -> bool {
-    // Crate `atty` provides a platform-independent way of checking whether the output is a tty.
+    // Crate `atty` provides a platform-independent way of checking whether the
+    // output is a tty.
     atty::is(atty::Stream::Stderr)
 }
 
@@ -242,10 +250,11 @@ where
     (subscriber.with(layer), handle)
 }
 
-/// Constructs an OpenTelemetryConfig which sends span data to an external collector.
+/// Constructs an OpenTelemetryConfig which sends span data to an external
+/// collector.
 //
-// NB: this function is `async` because `install_batch(Tokio)` requires a tokio context to
-// register timers and channels and whatnot.
+// NB: this function is `async` because `install_batch(Tokio)` requires a tokio
+// context to register timers and channels and whatnot.
 async fn add_opentelemetry_layer<S>(
     opentelemetry_level: OpenTelemetryLevel,
     chain_id: String,
@@ -362,8 +371,9 @@ pub fn default_subscriber(
 }
 
 pub fn set_default_otlp_level(options: &Options) {
-    // Record the initial tracing level specified as a command-line flag. Use this recorded value to
-    // reset opentelemetry filter when the LogConfig file gets deleted.
+    // Record the initial tracing level specified as a command-line flag. Use this
+    // recorded value to reset opentelemetry filter when the LogConfig file gets
+    // deleted.
     DEFAULT_OTLP_LEVEL.set(options.opentelemetry).unwrap();
 }
 
@@ -380,7 +390,8 @@ pub async fn default_subscriber_with_opentelemetry(
 ) -> DefaultSubscriberGuard<impl tracing::Subscriber + Send + Sync> {
     let color_output = use_color_output(options);
 
-    // Do not lock the `stderr` here to allow for things like `dbg!()` work during development.
+    // Do not lock the `stderr` here to allow for things like `dbg!()` work during
+    // development.
     let stderr = std::io::stderr();
     let lined_stderr = std::io::LineWriter::new(stderr);
     let (writer, writer_guard) = tracing_appender::non_blocking(lined_stderr);
@@ -455,21 +466,23 @@ pub fn reload_log_config(config: Option<&log_config::LogConfig>) -> Result<(), V
             config.opentelemetry_level,
         )
     } else {
-        // When the LOG_CONFIG_FILENAME is not available, reset to the tracing and logging config
-        // when the node was started.
+        // When the LOG_CONFIG_FILENAME is not available, reset to the tracing and
+        // logging config when the node was started.
         reload(None, None, None)
     }
 }
 
 /// Constructs new filters for the logging and opentelemetry layers.
 ///
-/// Attempts to reload all available errors. Returns errors for each layer that failed to reload.
+/// Attempts to reload all available errors. Returns errors for each layer that
+/// failed to reload.
 ///
-/// The newly constructed `EnvFilter` provides behavior equivalent to what can be obtained via
-/// setting `RUST_LOG` environment variable and the `--verbose` command-line flag.
-/// `rust_log` is equivalent to setting `RUST_LOG` environment variable.
-/// `verbose` indicates whether `--verbose` command-line flag is present.
-/// `verbose_module` is equivalent to the value of the `--verbose` command-line flag.
+/// The newly constructed `EnvFilter` provides behavior equivalent to what can
+/// be obtained via setting `RUST_LOG` environment variable and the `--verbose`
+/// command-line flag. `rust_log` is equivalent to setting `RUST_LOG`
+/// environment variable. `verbose` indicates whether `--verbose` command-line
+/// flag is present. `verbose_module` is equivalent to the value of the
+/// `--verbose` command-line flag.
 pub fn reload(
     rust_log: Option<&str>,
     verbose_module: Option<&str>,
@@ -539,8 +552,8 @@ pub struct EnvFilterBuilder<'a> {
 }
 
 impl<'a> EnvFilterBuilder<'a> {
-    /// Create the `EnvFilter` from the environment variable or the [`DEFAULT_RUST_LOG`] value if
-    /// the environment is not set.
+    /// Create the `EnvFilter` from the environment variable or the
+    /// [`DEFAULT_RUST_LOG`] value if the environment is not set.
     pub fn from_env() -> Self {
         Self::new(
             std::env::var("RUST_LOG").map(Cow::Owned).unwrap_or(Cow::Borrowed(DEFAULT_RUST_LOG)),
@@ -556,8 +569,8 @@ impl<'a> EnvFilterBuilder<'a> {
 
     /// Make the produced [`EnvFilter`] verbose.
     ///
-    /// If the `module` string is empty, all targets will log debug output. Otherwise only the
-    /// specified target will log the debug output.
+    /// If the `module` string is empty, all targets will log debug output.
+    /// Otherwise only the specified target will log the debug output.
     pub fn verbose(mut self, target: Option<&'a str>) -> Self {
         self.verbose = target;
         self

@@ -1,9 +1,9 @@
 //! Client actor orchestrates Client and facilitates network connection.
-//! It should just serve as a coordinator class to handle messages and check triggers but immediately
-//! pass the control to Client. This means, any real block processing or production logic should
-//! be put in Client.
-//! Unfortunately, this is not the case today. We are in the process of refactoring ClientActor
-//! https://github.com/near/nearcore/issues/7899
+//! It should just serve as a coordinator class to handle messages and check
+//! triggers but immediately pass the control to Client. This means, any real
+//! block processing or production logic should be put in Client.
+//! Unfortunately, this is not the case today. We are in the process of
+//! refactoring ClientActor https://github.com/near/nearcore/issues/7899
 
 use crate::adapter::{
     BlockApproval, BlockHeadersResponse, BlockResponse, ProcessTxRequest, ProcessTxResponse,
@@ -74,8 +74,8 @@ use tracing::{debug, error, info, trace, warn};
 
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.
 const STATUS_WAIT_TIME_MULTIPLIER: u64 = 10;
-/// `max_block_production_time` times this multiplier is how long we wait before rebroadcasting
-/// the current `head`
+/// `max_block_production_time` times this multiplier is how long we wait before
+/// rebroadcasting the current `head`
 const HEAD_STALL_MULTIPLIER: u32 = 4;
 
 pub struct ClientActor {
@@ -261,13 +261,15 @@ impl Actor for ClientActor {
 }
 
 impl ClientActor {
-    /// Wrapper for processing actix message which must be called after receiving it.
+    /// Wrapper for processing actix message which must be called after
+    /// receiving it.
     ///
-    /// Due to a bug in Actix library, while there are messages in mailbox, Actix
-    /// will prioritize processing messages until mailbox is empty. In such case execution
-    /// of any other task scheduled with `run_later` will be delayed. At the same time,
-    /// we have several important functions which have to be called regularly, so we put
-    /// these calls into `check_triggers` and call it here as a quick hack.
+    /// Due to a bug in Actix library, while there are messages in mailbox,
+    /// Actix will prioritize processing messages until mailbox is empty. In
+    /// such case execution of any other task scheduled with `run_later`
+    /// will be delayed. At the same time, we have several important
+    /// functions which have to be called regularly, so we put these calls
+    /// into `check_triggers` and call it here as a quick hack.
     fn wrap<Req: std::fmt::Debug + actix::Message, Res>(
         &mut self,
         msg: WithSpanContext<Req>,
@@ -495,7 +497,8 @@ impl Handler<WithSpanContext<BlockApproval>> for ClientActor {
 }
 
 /// StateResponse is used during StateSync and catchup.
-/// It contains either StateSync header information (that tells us how many parts there are etc) or a single part.
+/// It contains either StateSync header information (that tells us how many
+/// parts there are etc) or a single part.
 impl Handler<WithSpanContext<StateResponse>> for ClientActor {
     type Result = ();
 
@@ -777,9 +780,9 @@ impl Handler<WithSpanContext<GetNetworkInfo>> for ClientActor {
     }
 }
 
-/// `ApplyChunksDoneMessage` is a message that signals the finishing of applying chunks of a block.
-/// Upon receiving this message, ClientActors knows that it's time to finish processing the blocks that
-/// just finished applying chunks.
+/// `ApplyChunksDoneMessage` is a message that signals the finishing of applying
+/// chunks of a block. Upon receiving this message, ClientActors knows that it's
+/// time to finish processing the blocks that just finished applying chunks.
 #[derive(Message)]
 #[rtype(result = "()")]
 pub struct ApplyChunksDoneMessage;
@@ -799,7 +802,8 @@ impl Handler<WithSpanContext<ApplyChunksDoneMessage>> for ClientActor {
 
 impl ClientActor {
     /// Check if client Account Id should be sent and send it.
-    /// Account Id is sent when is not current a validator but are becoming a validator soon.
+    /// Account Id is sent when is not current a validator but are becoming a
+    /// validator soon.
     fn check_send_announce_account(&mut self, prev_block_hash: CryptoHash) {
         // If no peers, there is no one to announce to.
         if self.network_info.num_connected_peers == 0 {
@@ -816,8 +820,9 @@ impl ClientActor {
         let now = Clock::instant();
         // Check that we haven't announced it too recently
         if let Some(last_validator_announce_time) = self.last_validator_announce_time {
-            // Don't make announcement if have passed less than half of the time in which other peers
-            // should remove our Account Id from their Routing Tables.
+            // Don't make announcement if have passed less than half of the time in which
+            // other peers should remove our Account Id from their Routing
+            // Tables.
             if 2 * (now - last_validator_announce_time) < self.client.config.ttl_account_id_router {
                 return;
             }
@@ -855,9 +860,10 @@ impl ClientActor {
         }
     }
 
-    /// Process the sandbox fast forward request. If the change in block height is past an epoch,
-    /// we fast forward to just right before the epoch, produce some blocks to get past and into
-    /// a new epoch, then we continue on with the residual amount to fast forward.
+    /// Process the sandbox fast forward request. If the change in block height
+    /// is past an epoch, we fast forward to just right before the epoch,
+    /// produce some blocks to get past and into a new epoch, then we
+    /// continue on with the residual amount to fast forward.
     #[cfg(feature = "sandbox")]
     fn sandbox_process_fast_forward(
         &mut self,
@@ -968,7 +974,8 @@ impl ClientActor {
                 latest_known.height - epoch_start_height < EPOCH_START_INFO_BLOCKS
             };
 
-        // We try to produce block for multiple heights (up to the highest height for which we've seen 2/3 of approvals).
+        // We try to produce block for multiple heights (up to the highest height for
+        // which we've seen 2/3 of approvals).
         if latest_known.height + 1 <= self.client.doomslug.get_largest_height_crossing_threshold() {
             debug!(target: "client", "Considering blocks for production between {} and {} ", latest_known.height + 1, self.client.doomslug.get_largest_height_crossing_threshold());
         } else {
@@ -981,7 +988,8 @@ impl ClientActor {
             return Ok(());
         };
 
-        // For debug purpose, we record the approvals we have seen so far to the future blocks
+        // For debug purpose, we record the approvals we have seen so far to the future
+        // blocks
         for height in latest_known.height + 1..=self.client.doomslug.get_largest_approval_height() {
             let next_block_producer_account =
                 self.client.runtime_adapter.get_block_producer(&epoch_id, height)?;
@@ -1035,18 +1043,21 @@ impl ClientActor {
         });
     }
 
-    /// Check if the scheduled time of any "triggers" has passed, and if so, call the trigger.
-    /// Triggers are important functions of client, like running single step of state sync or
-    /// checking if we can produce a block.
+    /// Check if the scheduled time of any "triggers" has passed, and if so,
+    /// call the trigger. Triggers are important functions of client, like
+    /// running single step of state sync or checking if we can produce a
+    /// block.
     ///
-    /// It is called before processing Actix message and also in schedule_triggers.
-    /// This is to ensure all triggers enjoy higher priority than any actix message.
-    /// Otherwise due to a bug in Actix library Actix prioritizes processing messages
-    /// while there are messages in mailbox. Because of that we handle scheduling
-    /// triggers with custom `run_timer` function instead of `run_later` in Actix.
+    /// It is called before processing Actix message and also in
+    /// schedule_triggers. This is to ensure all triggers enjoy higher
+    /// priority than any actix message. Otherwise due to a bug in Actix
+    /// library Actix prioritizes processing messages while there are
+    /// messages in mailbox. Because of that we handle scheduling
+    /// triggers with custom `run_timer` function instead of `run_later` in
+    /// Actix.
     ///
-    /// Returns the delay before the next time `check_triggers` should be called, which is
-    /// min(time until the closest trigger, 1 second).
+    /// Returns the delay before the next time `check_triggers` should be
+    /// called, which is min(time until the closest trigger, 1 second).
     fn check_triggers(&mut self, ctx: &mut Context<ClientActor>) -> Duration {
         if let Some(config_updater) = &mut self.config_updater {
             config_updater.try_update(&|updateable_client_config| {
@@ -1060,7 +1071,8 @@ impl ClientActor {
                 if head.height >= block_height_to_shutdown {
                     info!(target: "client", "Expected shutdown triggered: head block({}) >= ({:?})", head.height, block_height_to_shutdown);
                     if let Some(tx) = self.shutdown_signal.take() {
-                        let _ = tx.send(()); // Ignore send signal fail, it will send again in next trigger
+                        let _ = tx.send(()); // Ignore send signal fail, it will
+                                             // send again in next trigger
                     }
                 }
             }
@@ -1143,16 +1155,19 @@ impl ClientActor {
         delay
     }
 
-    /// "Unfinished" blocks means that blocks that client has started the processing and haven't
-    /// finished because it was waiting for applying chunks to be done. This function checks
-    /// if there are any "unfinished" blocks that are ready to be processed again and finish processing
-    /// these blocks.
-    /// This function is called at two places, upon receiving ApplyChunkDoneMessage and `check_triggers`.
-    /// The job that executes applying chunks will send an ApplyChunkDoneMessage to ClientActor after
-    /// applying chunks is done, so when receiving ApplyChunkDoneMessage messages, ClientActor
-    /// calls this function to finish processing the unfinished blocks. ClientActor also calls
-    /// this function in `check_triggers`, because the actix queue may be blocked by other messages
-    /// and we want to prioritize block processing.
+    /// "Unfinished" blocks means that blocks that client has started the
+    /// processing and haven't finished because it was waiting for applying
+    /// chunks to be done. This function checks if there are any
+    /// "unfinished" blocks that are ready to be processed again and finish
+    /// processing these blocks.
+    /// This function is called at two places, upon receiving
+    /// ApplyChunkDoneMessage and `check_triggers`. The job that executes
+    /// applying chunks will send an ApplyChunkDoneMessage to ClientActor after
+    /// applying chunks is done, so when receiving ApplyChunkDoneMessage
+    /// messages, ClientActor calls this function to finish processing the
+    /// unfinished blocks. ClientActor also calls this function in
+    /// `check_triggers`, because the actix queue may be blocked by other
+    /// messages and we want to prioritize block processing.
     fn try_process_unfinished_blocks(&mut self) {
         let (accepted_blocks, _errors) =
             self.client.postprocess_ready_blocks(self.get_apply_chunks_done_callback(), true);
@@ -1171,8 +1186,9 @@ impl ClientActor {
         let _ = self.client.check_and_update_doomslug_tip();
         let approvals = self.client.doomslug.process_timer(Clock::instant());
 
-        // Important to save the largest approval target height before sending approvals, so
-        // that if the node crashes in the meantime, we cannot get slashed on recovery
+        // Important to save the largest approval target height before sending
+        // approvals, so that if the node crashes in the meantime, we cannot get
+        // slashed on recovery
         let mut chain_store_update = self.client.chain.mut_store().store_update();
         chain_store_update
             .save_largest_target_height(self.client.doomslug.get_largest_target_height());
@@ -1197,7 +1213,8 @@ impl ClientActor {
     }
 
     /// Produce block if we are block producer for given `next_height` height.
-    /// Can return error, should be called with `produce_block` to handle errors and reschedule.
+    /// Can return error, should be called with `produce_block` to handle errors
+    /// and reschedule.
     fn produce_block(&mut self, next_height: BlockHeight) -> Result<(), Error> {
         let _span = tracing::debug_span!(target: "client", "produce_block", next_height).entered();
         if let Some(block) = self.client.produce_block(next_height)? {
@@ -1218,8 +1235,8 @@ impl ClientActor {
             if let Err(e) = &res {
                 match e {
                     near_chain::Error::ChunksMissing(_) => {
-                        // missing chunks were already handled in Client::process_block, we don't need to
-                        // do anything here
+                        // missing chunks were already handled in Client::process_block, we don't
+                        // need to do anything here
                         return Ok(());
                     }
                     _ => {
@@ -1233,7 +1250,8 @@ impl ClientActor {
         Ok(())
     }
 
-    /// Process all blocks that were accepted by calling other relevant services.
+    /// Process all blocks that were accepted by calling other relevant
+    /// services.
     fn process_accepted_blocks(&mut self, accepted_blocks: Vec<CryptoHash>) {
         let _span = tracing::debug_span!(
             target: "client",
@@ -1290,9 +1308,9 @@ impl ClientActor {
         }
     }
 
-    /// Returns the callback function that will be passed to various functions that may trigger
-    /// the processing of new blocks. This callback will be called at the end of applying chunks
-    /// for every block.
+    /// Returns the callback function that will be passed to various functions
+    /// that may trigger the processing of new blocks. This callback will be
+    /// called at the end of applying chunks for every block.
     fn get_apply_chunks_done_callback(&self) -> DoneApplyChunkCallback {
         let addr = self.my_address.clone();
         Arc::new(move |_| {
@@ -1413,14 +1431,15 @@ impl ClientActor {
         // Sync loop will be started by check_triggers.
     }
 
-    /// Select the block hash we are using to sync state. It will sync with the state before applying the
-    /// content of such block.
+    /// Select the block hash we are using to sync state. It will sync with the
+    /// state before applying the content of such block.
     ///
     /// The selected block will always be the first block on a new epoch:
     /// <https://github.com/nearprotocol/nearcore/issues/2021#issuecomment-583039862>.
     ///
-    /// To prevent syncing from a fork, we move `state_fetch_horizon` steps backwards and use that epoch.
-    /// Usually `state_fetch_horizon` is much less than the expected number of produced blocks on an epoch,
+    /// To prevent syncing from a fork, we move `state_fetch_horizon` steps
+    /// backwards and use that epoch. Usually `state_fetch_horizon` is much
+    /// less than the expected number of produced blocks on an epoch,
     /// so this is only relevant on epoch boundaries.
     fn find_sync_hash(&mut self) -> Result<CryptoHash, near_chain::Error> {
         let header_head = self.client.chain.header_head()?;
@@ -1432,10 +1451,11 @@ impl ClientActor {
             StateSync::get_epoch_start_sync_hash(&mut self.client.chain, &sync_hash)?;
 
         if &epoch_start_sync_hash == self.client.chain.genesis().hash() {
-            // If we are within `state_fetch_horizon` blocks of the second epoch, the sync hash will
-            // be the first block of the first epoch (or, the genesis block). Due to implementation
-            // details of the state sync, we can't state sync to the genesis block, so redo the
-            // search without going back `state_fetch_horizon` blocks.
+            // If we are within `state_fetch_horizon` blocks of the second epoch, the sync
+            // hash will be the first block of the first epoch (or, the genesis
+            // block). Due to implementation details of the state sync, we can't
+            // state sync to the genesis block, so redo the search without going
+            // back `state_fetch_horizon` blocks.
             epoch_start_sync_hash = StateSync::get_epoch_start_sync_hash(
                 &mut self.client.chain,
                 &header_head.last_block_hash,
@@ -1446,7 +1466,8 @@ impl ClientActor {
     }
 
     /// Runs catchup on repeat, if this client is a validator.
-    /// Schedules itself again if it was not ran as response to state parts job result
+    /// Schedules itself again if it was not ran as response to state parts job
+    /// result
     fn catchup(&mut self, ctx: &mut Context<ClientActor>) {
         let _d = delay_detector::DelayDetector::new(|| "client catchup".into());
         if let Err(err) = self.client.run_catchup(
@@ -1469,7 +1490,8 @@ impl ClientActor {
     }
 
     /// Runs given callback if the time now is at least `next_attempt`.
-    /// Returns time for next run which should be made based on given `delay` between runs.
+    /// Returns time for next run which should be made based on given `delay`
+    /// between runs.
     fn run_timer<F>(
         &mut self,
         delay: Duration,

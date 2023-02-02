@@ -33,7 +33,8 @@ impl PeerInfo {
     }
 }
 
-// Note, `Display` automatically implements `ToString` which must be reciprocal to `FromStr`.
+// Note, `Display` automatically implements `ToString` which must be reciprocal
+// to `FromStr`.
 impl fmt::Display for PeerInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.id)?;
@@ -63,12 +64,14 @@ impl FromStr for PeerInfo {
     ///     ed25519:C6HLP37VJN1Wj2irxxZPsVsSya92Rnx12tqK3us5erKV
     ///     ed25519:C6HLP37VJN1Wj2irxxZPsVsSya92Rnx12tqK3us5erKV@127.0.0.1:24567
     ///     ed25519:C6HLP37VJN1Wj2irxxZPsVsSya92Rnx12tqK3us5erKV@test.near
-    ///     ed25519:C6HLP37VJN1Wj2irxxZPsVsSya92Rnx12tqK3us5erKV@127.0.0.1:24567@test.near
+    ///     ed25519:C6HLP37VJN1Wj2irxxZPsVsSya92Rnx12tqK3us5erKV@127.0.0.1:
+    /// 24567@test.near
     ///
-    /// Hostname can be used instead of IP address, if node trusts DNS server it connects to, for example:
-    ///     ed25519:C6HLP37VJN1Wj2irxxZPsVsSya92Rnx12tqK3us5erKV@localhost:24567@test.near
-    ///     ed25519:C6HLP37VJN1Wj2irxxZPsVsSya92Rnx12tqK3us5erKV@my.own.node.test:24567@test.near
-    ///
+    /// Hostname can be used instead of IP address, if node trusts DNS server it
+    /// connects to, for example:     ed25519:
+    /// C6HLP37VJN1Wj2irxxZPsVsSya92Rnx12tqK3us5erKV@localhost:24567@test.near
+    ///     ed25519:C6HLP37VJN1Wj2irxxZPsVsSya92Rnx12tqK3us5erKV@my.own.node.
+    /// test:24567@test.near
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let chunks: Vec<&str> = s.split('@').collect();
         let id = match chunks.get(0) {
@@ -117,7 +120,8 @@ mod test {
     use std::net::{Ipv4Addr, Ipv6Addr};
 
     #[test]
-    /// TODO this test might require an improvement (probably by mocking the DNS resolution)
+    /// TODO this test might require an improvement (probably by mocking the DNS
+    /// resolution)
     fn test_from_str() {
         use crate::network_protocol::PeerInfo;
         use std::str::FromStr;

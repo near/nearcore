@@ -150,8 +150,8 @@ impl Default for LargeContract {
 impl LargeContract {
     /// Construct a contract with many entitites.
     ///
-    /// Currently supports constructing contracts that contain a specified number of functions with the
-    /// specified number of locals each.
+    /// Currently supports constructing contracts that contain a specified
+    /// number of functions with the specified number of locals each.
     ///
     /// Exports a function called `main` that does nothing.
     pub fn make(&self) -> Vec<u8> {

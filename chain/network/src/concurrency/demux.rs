@@ -16,7 +16,6 @@
 //! the arguments `arg` will be collected and just one
 //! of the provided handlers will be executed asynchronously
 //! (other handlers will be dropped).
-//!
 use crate::concurrency::rate;
 use crate::time;
 use futures::future::BoxFuture;
@@ -63,20 +62,23 @@ struct Call<Arg, Res> {
 type Stream<Arg, Res> = mpsc::UnboundedSender<Call<Arg, Res>>;
 
 /// Rate limited demultiplexer.
-/// The current implementation spawns a dedicated future with an infinite loop to
-/// aggregate the requests, and every bulk of requests is handled also in a separate spawned
-/// future. The drawback of this approach is that every `d.call()` call requires to specify a
-/// handler (and with multiple call sites these handlers might be inconsistent).
-/// Instead we could technically make the handler an argument of the new() call. Then however
-/// we risk that the handler will (indirectly) store the reference to the demux, therefore creating
-/// a reference loop. In such case we get a memory leak: the spawned demux-handling future will never be cleaned
-/// up, because the channel will never be closed.
+/// The current implementation spawns a dedicated future with an infinite loop
+/// to aggregate the requests, and every bulk of requests is handled also in a
+/// separate spawned future. The drawback of this approach is that every
+/// `d.call()` call requires to specify a handler (and with multiple call sites
+/// these handlers might be inconsistent). Instead we could technically make the
+/// handler an argument of the new() call. Then however we risk that the handler
+/// will (indirectly) store the reference to the demux, therefore creating
+/// a reference loop. In such case we get a memory leak: the spawned
+/// demux-handling future will never be cleaned up, because the channel will
+/// never be closed.
 ///
 /// Alternatives:
 /// - use a separate closing signal (a golang-like structured concurrency).
-/// - get rid of the dedicated futures whatsoever and make one of the callers do the work:
-///   callers may synchronize and select a leader to execute the handler. This will however make
-///   the demux implementation way more complicated.
+/// - get rid of the dedicated futures whatsoever and make one of the callers do
+///   the work: callers may synchronize and select a leader to execute the
+///   handler. This will however make the demux implementation way more
+///   complicated.
 #[derive(Clone)]
 pub struct Demux<Arg, Res>(Stream<Arg, Res>);
 
@@ -107,8 +109,9 @@ impl<Arg: 'static + Send, Res: 'static + Send> Demux<Arg, Res> {
         rl.validate().unwrap();
         let (send, mut recv): (Stream<Arg, Res>, _) = mpsc::unbounded_channel();
         // TODO(gprusak): this task should be running as long as Demux object exists.
-        // "Current" runtime can have a totally different lifespan, so we shouldn't spawn on it.
-        // Find a way to express "runtime lifetime > Demux lifetime".
+        // "Current" runtime can have a totally different lifespan, so we shouldn't
+        // spawn on it. Find a way to express "runtime lifetime > Demux
+        // lifetime".
         tokio::spawn(async move {
             let mut calls = vec![];
             let mut closed = false;
@@ -141,19 +144,20 @@ impl<Arg: 'static + Send, Res: 'static + Send> Demux<Arg, Res> {
                 }
                 if !calls.is_empty() && tokens > 0 {
                     // First pop all the elements already accumulated on the queue.
-                    // TODO(gprusak): technically calling try_recv() in a loop may cause a starvation,
-                    // in case elements are added to the queue faster than we can take them out,
-                    // so ideally we should rather atomically dump the content of the queue:
-                    // we can achieve that by maintaining an atomic counter with number of elements in
-                    // the queue.
+                    // TODO(gprusak): technically calling try_recv() in a loop may cause a
+                    // starvation, in case elements are added to the queue
+                    // faster than we can take them out, so ideally we should
+                    // rather atomically dump the content of the queue:
+                    // we can achieve that by maintaining an atomic counter with number of elements
+                    // in the queue.
                     while let Ok(call) = recv.try_recv() {
                         calls.push(call);
                     }
 
                     tokens -= 1;
                     // TODO(gprusak): as of now Demux (as a concurrency primitive) doesn't support
-                    // cancellation. Once we add cancellation support, this task could accept a context sum:
-                    // the sum is valid iff any context is valid.
+                    // cancellation. Once we add cancellation support, this task could accept a
+                    // context sum: the sum is valid iff any context is valid.
                     let calls = std::mem::take(&mut calls);
                     let mut args = vec![];
                     let mut outs = vec![];

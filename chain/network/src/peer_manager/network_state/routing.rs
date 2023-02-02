@@ -8,8 +8,9 @@ use near_primitives::network::{AnnounceAccount, PeerId};
 use std::sync::Arc;
 
 impl NetworkState {
-    // TODO(gprusak): eventually, this should be blocking, as it should be up to the caller
-    // whether to wait for the broadcast to finish, or run it in parallel with sth else.
+    // TODO(gprusak): eventually, this should be blocking, as it should be up to the
+    // caller whether to wait for the broadcast to finish, or run it in parallel
+    // with sth else.
     fn broadcast_routing_table_update(&self, mut rtu: RoutingTableUpdate) {
         if rtu == RoutingTableUpdate::default() {
             return;
@@ -22,7 +23,8 @@ impl NetworkState {
     }
 
     /// Adds AnnounceAccounts (without validating them) to the routing table.
-    /// Then it broadcasts all the AnnounceAccounts that haven't been seen before.
+    /// Then it broadcasts all the AnnounceAccounts that haven't been seen
+    /// before.
     pub async fn add_accounts(self: &Arc<NetworkState>, accounts: Vec<AnnounceAccount>) {
         let this = self.clone();
         self.spawn(async move {
@@ -43,13 +45,14 @@ impl NetworkState {
         peer1: &PeerId,
         with_nonce: Option<u64>,
     ) -> PartialEdgeInfo {
-        // When we create a new edge we increase the latest nonce by 2 in case we miss a removal
-        // proposal from our partner.
+        // When we create a new edge we increase the latest nonce by 2 in case we miss a
+        // removal proposal from our partner.
         let nonce = with_nonce.unwrap_or_else(|| {
             let nonce = Edge::create_fresh_nonce(clock);
             // If we already had a connection to this peer - check that edge's nonce.
             // And use either that one or the one from the current timestamp.
-            // We would use existing edge's nonce, if we were trying to connect to a given peer multiple times per second.
+            // We would use existing edge's nonce, if we were trying to connect to a given
+            // peer multiple times per second.
             self.graph
                 .load()
                 .local_edges
@@ -78,29 +81,31 @@ impl NetworkState {
         Ok(edge)
     }
 
-    /// Validates edges, then adds them to the graph and then broadcasts all the edges that
-    /// hasn't been observed before. Returns an error iff any edge was invalid. Even if an
-    /// error was returned some of the valid input edges might have been added to the graph.
+    /// Validates edges, then adds them to the graph and then broadcasts all the
+    /// edges that hasn't been observed before. Returns an error iff any
+    /// edge was invalid. Even if an error was returned some of the valid
+    /// input edges might have been added to the graph.
     pub async fn add_edges(
         self: &Arc<Self>,
         clock: &time::Clock,
         edges: Vec<Edge>,
     ) -> Result<(), ReasonForBan> {
-        // TODO(gprusak): sending duplicate edges should be considered a malicious behavior
-        // instead, however that would be backward incompatible, so it can be introduced in
-        // PROTOCOL_VERSION 60 earliest.
+        // TODO(gprusak): sending duplicate edges should be considered a malicious
+        // behavior instead, however that would be backward incompatible, so it
+        // can be introduced in PROTOCOL_VERSION 60 earliest.
         let (edges, ok) = self.graph.verify(edges).await;
         // Recompute if there are new edges which have been verified.
         if !edges.is_empty() {
             self.recompute_added_edges(clock.clone(), edges).await;
         }
-        // self.graph.verify() returns a partial result if it encountered an invalid edge:
-        // Edge verification is expensive, and it would be an attack vector if we dropped on the
-        // floor valid edges verified so far: an attacker could prepare a SyncRoutingTable
-        // containing a lot of valid edges, except for the last one, and send it repeatedly to a
-        // node. The node would then validate all the edges every time, then reject the whole set
-        // because just the last edge was invalid. Instead, we accept all the edges verified so
-        // far and return an error only afterwards.
+        // self.graph.verify() returns a partial result if it encountered an invalid
+        // edge: Edge verification is expensive, and it would be an attack
+        // vector if we dropped on the floor valid edges verified so far: an
+        // attacker could prepare a SyncRoutingTable containing a lot of valid
+        // edges, except for the last one, and send it repeatedly to a node. The
+        // node would then validate all the edges every time, then reject the whole set
+        // because just the last edge was invalid. Instead, we accept all the edges
+        // verified so far and return an error only afterwards.
         if ok {
             Ok(())
         } else {

@@ -80,7 +80,8 @@ async fn happy_path() {
     assert!(!cache.set_keys(e0));
     assert_eq!([&a0new, &a1, &a2].as_set(), cache.load().data.values().collect());
 
-    // set_keys again. Data for accounts which are not in the new set should be dropped.
+    // set_keys again. Data for accounts which are not in the new set should be
+    // dropped.
     assert!(cache.set_keys(e1));
     assert_eq!([&a2].as_set(), cache.load().data.values().collect());
     // insert some entries again.
@@ -200,13 +201,13 @@ async fn single_account_multiple_data() {
     assert_eq!(Some(Error::SingleAccountMultipleData), res.1);
     // Partial update is allowed, in case an error is encountered.
     assert_is_superset(&[&a0, &a1, &a2old, &a2new].as_set(), &res.0.as_set());
-    // Partial update should match the state, this also verifies that only 1 of the competing
-    // entries has been applied.
+    // Partial update should match the state, this also verifies that only 1 of the
+    // competing entries has been applied.
     assert_eq!(res.0.as_set(), cache.load().data.values().collect());
 }
 
-/// Test checking that cache immediately overrides any inserted AccountData for local.signer
-/// with local.data.
+/// Test checking that cache immediately overrides any inserted AccountData for
+/// local.signer with local.data.
 #[tokio::test]
 async fn set_local() {
     init_test_logger();
@@ -238,7 +239,8 @@ async fn set_local() {
     let a0 = Arc::new(make_account_data(rng, &clock.clock(), 7, &signers[0]));
     // Regular entry for a signer in cache.keys. The new version should be accepted.
     let a1 = Arc::new(make_account_data(rng, &clock.clock(), 10, &signers[1]));
-    // Regular entry for a signer outside of cache.keys. The new version should be ignored.
+    // Regular entry for a signer outside of cache.keys. The new version should be
+    // ignored.
     let a2 = Arc::new(make_account_data(rng, &clock.clock(), 8, &signers[2]));
 
     let res = cache.clone().insert(&clock.clock(), vec![a0.clone(), a1.clone(), a2.clone()]).await;
@@ -250,12 +252,13 @@ async fn set_local() {
     assert_eq!(a1.as_ref(), res.get(&signers[1].public_key()).unwrap().as_ref());
     assert_eq!(None, res.get(&signers[2].public_key()));
 
-    // Insert new version while local data is set but local.signer is not in cache.keys.
-    // local data should be just ignored.
+    // Insert new version while local data is set but local.signer is not in
+    // cache.keys. local data should be just ignored.
     clock.advance(time::Duration::hours(1));
     assert!(cache.set_keys(e1.clone()));
     let a0 = Arc::new(make_account_data(rng, &clock.clock(), got.version + 1, &signers[0]));
-    // Regular entries for a signers in cache.keys. The new version should be accepted.
+    // Regular entries for a signers in cache.keys. The new version should be
+    // accepted.
     let a1 = Arc::new(make_account_data(rng, &clock.clock(), a1.version + 1, &signers[1]));
     let a2 = Arc::new(make_account_data(rng, &clock.clock(), a2.version + 1, &signers[2]));
 

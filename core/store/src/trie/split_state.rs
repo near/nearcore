@@ -17,7 +17,8 @@ use near_primitives::types::{
 use std::collections::HashMap;
 
 impl Trie {
-    /// Computes the set of trie items (nodes with keys and values) for a state part.
+    /// Computes the set of trie items (nodes with keys and values) for a state
+    /// part.
     ///
     /// # Panics
     /// storage must be a TrieCachingStorage
@@ -37,10 +38,11 @@ impl Trie {
 impl ShardTries {
     /// applies `changes` to split states
     /// and returns the generated TrieChanges for all split states
-    /// Note that this function is different from the function `add_values_to_split_states`
-    /// This function is used for applying updates to split states when processing blocks
-    /// `add_values_to_split_states` are used to generate the initial states for shards split
-    /// from the original parent shard.
+    /// Note that this function is different from the function
+    /// `add_values_to_split_states` This function is used for applying
+    /// updates to split states when processing blocks
+    /// `add_values_to_split_states` are used to generate the initial states for
+    /// shards split from the original parent shard.
     pub fn apply_state_changes_to_split_states(
         &self,
         state_roots: &HashMap<ShardUId, StateRoot>,
@@ -74,7 +76,8 @@ impl ShardTries {
                 | TrieKey::PostponedReceipt { receiver_id: account_id, .. }
                 | TrieKey::ContractData { account_id, .. } => {
                     let new_shard_uid = account_id_to_shard_id(account_id);
-                    // we can safely unwrap here because the caller of this function guarantees trie_updates contains all shard_uids for the new shards
+                    // we can safely unwrap here because the caller of this function guarantees
+                    // trie_updates contains all shard_uids for the new shards
                     let trie_update = trie_updates.get_mut(&new_shard_uid).unwrap();
                     match value {
                         Some(value) => trie_update.set(trie_key, value),
@@ -107,8 +110,8 @@ impl ShardTries {
         Ok(trie_changes_map)
     }
 
-    /// add `values` (key-value pairs of items stored in states) to build states for new shards
-    /// `state_roots` contains state roots for the new shards
+    /// add `values` (key-value pairs of items stored in states) to build states
+    /// for new shards `state_roots` contains state roots for the new shards
     /// The caller must guarantee that `state_roots` contains all shard_ids
     /// that `key_to_shard_id` that may return
     /// Ignore changes on DelayedReceipts or DelayedReceiptsIndices
@@ -121,9 +124,9 @@ impl ShardTries {
     ) -> Result<(StoreUpdate, HashMap<ShardUId, StateRoot>), StorageError> {
         self.add_values_to_split_states_impl(state_roots, values, &|raw_key| {
             // Here changes on DelayedReceipts or DelayedReceiptsIndices will be excluded
-            // This is because we cannot migrate delayed receipts part by part. They have to be
-            // reconstructed in the new states after all DelayedReceipts are ready in the original
-            // shard.
+            // This is because we cannot migrate delayed receipts part by part. They have to
+            // be reconstructed in the new states after all DelayedReceipts are
+            // ready in the original shard.
             if let Some(account_id) = parse_account_id_from_raw_key(raw_key).map_err(|e| {
                 let err = format!("error parsing account id from trie key {:?}: {:?}", raw_key, e);
                 StorageError::StorageInconsistentState(err)
@@ -151,7 +154,8 @@ impl ShardTries {
         let mut new_state_roots = state_roots.clone();
         let mut store_update = self.store_update();
         for (shard_uid, changes) in changes_by_shard {
-            // Here we assume that state_roots contains shard_uid, the caller of this method will guarantee that.
+            // Here we assume that state_roots contains shard_uid, the caller of this method
+            // will guarantee that.
             let trie_changes =
                 self.get_trie_for_shard(shard_uid, state_roots[&shard_uid]).update(changes)?;
             let state_root = self.apply_all(&trie_changes, shard_uid, &mut store_update);
@@ -225,8 +229,8 @@ fn apply_delayed_receipts_to_split_states_impl(
             );
             return Err(StorageError::StorageInconsistentState(err));
         }
-        // we already checked that new_shard_uid is in trie_updates and delayed_receipts_indices
-        // so we can safely unwrap here
+        // we already checked that new_shard_uid is in trie_updates and
+        // delayed_receipts_indices so we can safely unwrap here
         let mut delayed_receipts_indices =
             delayed_receipts_indices_by_shard.get_mut(&new_shard_uid).unwrap();
         set(
@@ -280,8 +284,8 @@ fn apply_delayed_receipts_to_split_states_impl(
     Ok(())
 }
 
-/// Retrieve delayed receipts starting with `start_index` until `memory_limit` is hit
-/// return None if there is no delayed receipts with index >= start_index
+/// Retrieve delayed receipts starting with `start_index` until `memory_limit`
+/// is hit return None if there is no delayed receipts with index >= start_index
 pub fn get_delayed_receipts(
     state_update: &TrieUpdate,
     start_index: Option<u64>,

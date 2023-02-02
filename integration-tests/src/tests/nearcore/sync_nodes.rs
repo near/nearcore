@@ -30,7 +30,8 @@ use near_primitives::version::PROTOCOL_VERSION;
 use nearcore::config::{GenesisExt, TESTING_INIT_STAKE};
 use nearcore::{load_test_config, start_with_config, NearConfig};
 
-// This assumes that there is no height skipped. Otherwise epoch hash calculation will be wrong.
+// This assumes that there is no height skipped. Otherwise epoch hash
+// calculation will be wrong.
 fn add_blocks(
     mut blocks: Vec<Block>,
     client: Addr<ClientActor>,
@@ -121,7 +122,8 @@ fn setup_configs() -> (Genesis, Block, NearConfig, NearConfig) {
     (genesis, genesis_block, near1, near2)
 }
 
-/// One client is in front, another must sync to it before they can produce blocks.
+/// One client is in front, another must sync to it before they can produce
+/// blocks.
 #[test]
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn sync_nodes() {
@@ -164,7 +166,8 @@ fn sync_nodes() {
     });
 }
 
-/// Clients connect and then one of them becomes in front. The other one must then sync to it.
+/// Clients connect and then one of them becomes in front. The other one must
+/// then sync to it.
 #[test]
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn sync_after_sync_nodes() {
@@ -226,7 +229,8 @@ fn sync_after_sync_nodes() {
 }
 
 /// Starts one validation node, it reduces it's stake to 1/2 of the stake.
-/// Second node starts after 1s, needs to catchup & state sync and then make sure it's
+/// Second node starts after 1s, needs to catchup & state sync and then make
+/// sure it's
 #[test]
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn sync_state_stake_change() {

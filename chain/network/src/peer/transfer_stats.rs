@@ -1,6 +1,7 @@
 use crate::time;
-/// The purpose of `TransferStats` is to keep track of transfer sizes in done in a period of 1 minute.
-/// And then; to provide a summary, the count and total size in bytes when requested.
+/// The purpose of `TransferStats` is to keep track of transfer sizes in done in
+/// a period of 1 minute. And then; to provide a summary, the count and total
+/// size in bytes when requested.
 ///
 /// ```rust,ignore
 /// use crate::peer::transfer_stats::TransferStats;

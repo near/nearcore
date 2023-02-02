@@ -61,7 +61,8 @@ pub enum StateViewerSubCommand {
     /// Generate a file that contains all transactions from a block.
     #[clap(alias = "dump_tx")]
     DumpTx(DumpTxCmd),
-    /// Print `EpochInfo` of an epoch given by `--epoch_id` or by `--epoch_height`.
+    /// Print `EpochInfo` of an epoch given by `--epoch_id` or by
+    /// `--epoch_height`.
     #[clap(alias = "epoch_info")]
     EpochInfo(EpochInfoCmd),
     /// Looks up a certain partial chunk.
@@ -215,7 +216,8 @@ impl ApplyReceiptCmd {
 
 #[derive(Parser)]
 pub struct ApplyStatePartsCmd {
-    /// Selects an epoch. The dump will be of the state at the beginning of this epoch.
+    /// Selects an epoch. The dump will be of the state at the beginning of this
+    /// epoch.
     #[clap(subcommand)]
     epoch_selection: state_parts::EpochSelection,
     /// Shard id.
@@ -360,8 +362,8 @@ pub struct DumpStateCmd {
     /// Dumps state records and genesis config into separate files.
     /// Has reasonable RAM requirements.
     /// Use for chains with large state, such as mainnet and testnet.
-    /// If false - writes all information into a single file, which is useful for smaller networks,
-    /// such as betanet.
+    /// If false - writes all information into a single file, which is useful
+    /// for smaller networks, such as betanet.
     #[clap(long)]
     stream: bool,
     /// Location of the dumped state.
@@ -398,7 +400,8 @@ impl DumpStateCmd {
 
 #[derive(Parser)]
 pub struct DumpStatePartsCmd {
-    /// Selects an epoch. The dump will be of the state at the beginning of this epoch.
+    /// Selects an epoch. The dump will be of the state at the beginning of this
+    /// epoch.
     #[clap(subcommand)]
     epoch_selection: state_parts::EpochSelection,
     /// Shard id.
@@ -447,10 +450,12 @@ impl DumpStateRedisCmd {
 
 #[derive(Parser)]
 pub struct DumpTxCmd {
-    /// Specify the start block by height to begin dumping transactions from, inclusive.
+    /// Specify the start block by height to begin dumping transactions from,
+    /// inclusive.
     #[clap(long)]
     start_height: BlockHeight,
-    /// Specify the end block by height to stop dumping transactions at, inclusive.
+    /// Specify the end block by height to stop dumping transactions at,
+    /// inclusive.
     #[clap(long)]
     end_height: BlockHeight,
     /// List of account IDs to dump.
@@ -481,7 +486,8 @@ impl DumpTxCmd {
 pub struct EpochInfoCmd {
     #[clap(subcommand)]
     epoch_selection: epoch_info::EpochSelection,
-    /// Displays kickouts of the given validator and expected and missed blocks and chunks produced.
+    /// Displays kickouts of the given validator and expected and missed blocks
+    /// and chunks produced.
     #[clap(long)]
     validator_account_id: Option<String>,
 }
@@ -588,27 +594,31 @@ impl std::str::FromStr for ViewTrieFormat {
 #[derive(Parser)]
 pub struct ViewTrieCmd {
     /// The format of the output. This can be either `full` or `pretty`.
-    /// The full format will print all the trie nodes and can be rooted anywhere in the trie.
-    /// The pretty format will only print leaf nodes and must be rooted in the state root but is more human friendly.
+    /// The full format will print all the trie nodes and can be rooted anywhere
+    /// in the trie. The pretty format will only print leaf nodes and must
+    /// be rooted in the state root but is more human friendly.
     #[clap(long, default_value = "pretty")]
     format: ViewTrieFormat,
     /// The hash of the trie node.
     /// For format=full this can be any node in the trie.
     /// For format=pretty this must the state root node.
-    /// You can find the state root hash using the `view-state view-chain` command.
+    /// You can find the state root hash using the `view-state view-chain`
+    /// command.
     #[clap(long)]
     hash: String,
-    /// The id of the shard, a number between [0-NUM_SHARDS). When looking for particular
-    /// account you will need to know on which shard it's located.
+    /// The id of the shard, a number between [0-NUM_SHARDS). When looking for
+    /// particular account you will need to know on which shard it's
+    /// located.
     #[clap(long)]
     shard_id: u32,
     /// The current shard version based on the shard layout.
-    /// You can find the shard version by using the `view-state view-chain` command.
-    /// It's typically equal to 0 for single shard localnet or the most recent near_primitives::shard_layout::ShardLayout for prod.
+    /// You can find the shard version by using the `view-state view-chain`
+    /// command. It's typically equal to 0 for single shard localnet or the
+    /// most recent near_primitives::shard_layout::ShardLayout for prod.
     #[clap(long)]
     shard_version: u32,
-    /// The max depth of trie iteration. It's recommended to keep that value small,
-    /// otherwise the output may be really large.
+    /// The max depth of trie iteration. It's recommended to keep that value
+    /// small, otherwise the output may be really large.
     /// For format=full this measures depth in terms of number of trie nodes.
     /// For format=pretty this measures depth in terms of key nibbles.
     #[clap(long)]

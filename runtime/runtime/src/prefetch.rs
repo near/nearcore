@@ -155,10 +155,11 @@ impl TriePrefetcher {
     /// be perfect, as long as we remove each unclaimed value eventually. Doing
     /// it one chunk later is also okay.
     ///
-    /// TODO: In the presence of forks, multiple chunks of a shard can be processed
-    /// at the same time. They share a prefetcher, so they will clean each others
-    /// data. Handling this is a bit more involved. Failing to do so makes prefetching
-    /// less effective in those cases but crucially nothing breaks.
+    /// TODO: In the presence of forks, multiple chunks of a shard can be
+    /// processed at the same time. They share a prefetcher, so they will
+    /// clean each others data. Handling this is a bit more involved.
+    /// Failing to do so makes prefetching less effective in those cases but
+    /// crucially nothing breaks.
     pub(crate) fn clear(&self) {
         self.prefetch_api.clear_queue();
         self.prefetch_api.clear_data();
@@ -248,8 +249,9 @@ mod tests {
             "333.bob.near",
         ];
         // root is an extension with the prefix for accounts
-        // that extension leads to a branch with four extensions ("000.","111.","222.","333.")
-        // each extension leads to a branch with two leafs ("alice.near", "bob.near")
+        // that extension leads to a branch with four extensions
+        // ("000.","111.","222.","333.") each extension leads to a branch with
+        // two leafs ("alice.near", "bob.near")
         //
         //                           root
         //                           extension
@@ -276,17 +278,20 @@ mod tests {
         // Note: drawing does not show values. Also, upper nibble is always equal
         // on branches, so we can just assume bytes instead of nibbles.
 
-        // prefetching a single node results in 2 extensions + 2 branches + 1 leaf + 1 value
+        // prefetching a single node results in 2 extensions + 2 branches + 1 leaf + 1
+        // value
         let prefetch_accounts = &accounts[..1];
         let expected_prefetched = 6;
         check_prefetch_account(&accounts, prefetch_accounts, expected_prefetched);
 
-        // prefetching two distant nodes results in 3 extensions + 3 branches + 2 leafs + 2 values
+        // prefetching two distant nodes results in 3 extensions + 3 branches + 2 leafs
+        // + 2 values
         let prefetch_accounts = &accounts[..2];
         let expected_prefetched = 10;
         check_prefetch_account(&accounts, prefetch_accounts, expected_prefetched);
 
-        // prefetching two neighboring nodes results in 2 extensions + 2 branches + 2 leafs + 2 values
+        // prefetching two neighboring nodes results in 2 extensions + 2 branches + 2
+        // leafs + 2 values
         let prefetch_accounts = &["000.alice.near", "000.bob.near"];
         let expected_prefetched = 8;
         check_prefetch_account(&accounts, prefetch_accounts, expected_prefetched);
@@ -383,7 +388,8 @@ mod tests {
             "unexpected number of prefetched values"
         );
 
-        // Read all prefetched values to ensure everything gets removed from the staging area.
+        // Read all prefetched values to ensure everything gets removed from the staging
+        // area.
         for trie_key in &prefetch_keys {
             let storage_key = trie_key.to_vec();
             let _value = trie.get(&storage_key).unwrap();

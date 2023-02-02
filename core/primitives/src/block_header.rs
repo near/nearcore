@@ -29,7 +29,8 @@ pub struct BlockHeaderInnerLite {
     pub prev_state_root: MerkleHash,
     /// Root of the outcomes of transactions and receipts.
     pub outcome_root: MerkleHash,
-    /// Timestamp at which the block was built (number of non-leap-nanoseconds since January 1, 1970 0:00:00 UTC).
+    /// Timestamp at which the block was built (number of non-leap-nanoseconds
+    /// since January 1, 1970 0:00:00 UTC).
     pub timestamp: u64,
     /// Hash of the next epoch block producers set
     pub next_bp_hash: CryptoHash,
@@ -228,8 +229,8 @@ impl ApprovalMessage {
 pub struct BlockHeaderV1 {
     pub prev_hash: CryptoHash,
 
-    /// Inner part of the block header that gets hashed, split into two parts, one that is sent
-    ///    to light clients, and the rest
+    /// Inner part of the block header that gets hashed, split into two parts,
+    /// one that is sent    to light clients, and the rest
     pub inner_lite: BlockHeaderInnerLite,
     pub inner_rest: BlockHeaderInnerRest,
 
@@ -257,8 +258,8 @@ impl BlockHeaderV1 {
 pub struct BlockHeaderV2 {
     pub prev_hash: CryptoHash,
 
-    /// Inner part of the block header that gets hashed, split into two parts, one that is sent
-    ///    to light clients, and the rest
+    /// Inner part of the block header that gets hashed, split into two parts,
+    /// one that is sent    to light clients, and the rest
     pub inner_lite: BlockHeaderInnerLite,
     pub inner_rest: BlockHeaderInnerRestV2,
 
@@ -277,8 +278,8 @@ pub struct BlockHeaderV2 {
 pub struct BlockHeaderV3 {
     pub prev_hash: CryptoHash,
 
-    /// Inner part of the block header that gets hashed, split into two parts, one that is sent
-    ///    to light clients, and the rest
+    /// Inner part of the block header that gets hashed, split into two parts,
+    /// one that is sent    to light clients, and the rest
     pub inner_lite: BlockHeaderInnerLite,
     pub inner_rest: BlockHeaderInnerRestV3,
 
@@ -374,8 +375,8 @@ impl BlockHeader {
         };
         let last_header_v2_version =
             crate::version::ProtocolFeature::BlockHeaderV3.protocol_version() - 1;
-        // Previously we passed next_epoch_protocol_version here, which is incorrect, but we need
-        // to preserve this for archival nodes
+        // Previously we passed next_epoch_protocol_version here, which is incorrect,
+        // but we need to preserve this for archival nodes
         if next_epoch_protocol_version <= 29 {
             let chunks_included = chunk_mask.iter().map(|val| *val as u64).sum::<u64>();
             let inner_rest = BlockHeaderInnerRest {

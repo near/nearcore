@@ -195,11 +195,13 @@ pub struct EpochSyncFinalizationResponse {
     pub prev_epoch_headers: Vec<BlockHeader>,
     pub header_sync_init_header: BlockHeader,
     pub header_sync_init_header_tree: PartialMerkleTree,
-    // This Block Info is required by Epoch Manager when it checks if it's a good time to start a new Epoch.
-    // Epoch Manager asks for height difference by obtaining first Block Info of the Epoch.
+    // This Block Info is required by Epoch Manager when it checks if it's a good time to start a
+    // new Epoch. Epoch Manager asks for height difference by obtaining first Block Info of the
+    // Epoch.
     pub prev_epoch_first_block_info: BlockInfo,
-    // This Block Info is required in State Sync that is started right after Epoch Sync is finished.
-    // It is used by `verify_chunk_signature_with_header_parts` in `save_block` as it calls `get_epoch_id_from_prev_block`.
+    // This Block Info is required in State Sync that is started right after Epoch Sync is
+    // finished. It is used by `verify_chunk_signature_with_header_parts` in `save_block` as it
+    // calls `get_epoch_id_from_prev_block`.
     pub prev_epoch_prev_last_block_info: BlockInfo,
     // This Block Info is connected with the first actual Block received in State Sync.
     // It is also used in Epoch Manager.

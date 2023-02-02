@@ -1,10 +1,10 @@
 /// Sink is a handler/wrapper of a function Fn(T) -> ().
 /// It supports composition with functions Fn(U) -> Fn(T).
-/// It is a test-only feature for aggregating internal events of a component under test
-/// which are otherwise not observable via public API.
-/// Ideally tests should rely solely on public API, however it is not the case as of today.
-/// TODO(gprusak): once all network integration tests are migrated to crate, Sink should
-/// be hidden behind #[cfg(test)].
+/// It is a test-only feature for aggregating internal events of a component
+/// under test which are otherwise not observable via public API.
+/// Ideally tests should rely solely on public API, however it is not the case
+/// as of today. TODO(gprusak): once all network integration tests are migrated
+/// to crate, Sink should be hidden behind #[cfg(test)].
 use std::sync::Arc;
 
 pub struct Sink<T>(Option<Arc<Box<dyn Fn(T) + Sync + Send + 'static>>>);

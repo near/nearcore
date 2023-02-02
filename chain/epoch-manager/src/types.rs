@@ -15,12 +15,15 @@ use crate::EpochManager;
 
 pub type RngSeed = [u8; 32];
 
-/// Aggregator of information needed for validator computation at the end of the epoch.
+/// Aggregator of information needed for validator computation at the end of the
+/// epoch.
 #[derive(Clone, BorshSerialize, BorshDeserialize, Debug, Default)]
 pub struct EpochInfoAggregator {
-    /// Map from validator index to (num_blocks_produced, num_blocks_expected) so far in the given epoch.
+    /// Map from validator index to (num_blocks_produced, num_blocks_expected)
+    /// so far in the given epoch.
     pub block_tracker: HashMap<ValidatorId, ValidatorStats>,
-    /// For each shard, a map of validator id to (num_chunks_produced, num_chunks_expected) so far in the given epoch.
+    /// For each shard, a map of validator id to (num_chunks_produced,
+    /// num_chunks_expected) so far in the given epoch.
     pub shard_tracker: HashMap<ShardId, HashMap<ValidatorId, ValidatorStats>>,
     /// Latest protocol version that each validator supports.
     pub version_tracker: HashMap<ValidatorId, ProtocolVersion>,

@@ -1,5 +1,5 @@
-//! Structs in this file are used for debug purposes, and might change at any time
-//! without backwards compatibility.
+//! Structs in this file are used for debug purposes, and might change at any
+//! time without backwards compatibility.
 use crate::ClientActor;
 use actix::{Context, Handler};
 use borsh::BorshSerialize;
@@ -47,7 +47,8 @@ const DEBUG_PRODUCTION_OLD_BLOCKS_TO_SHOW: u64 = 50;
 // Maximum number of blocks to show.
 const DEBUG_MAX_PRODUCTION_BLOCKS_TO_SHOW: u64 = 1000;
 
-/// Number of blocks (and chunks) for which to keep the detailed timing information for debug purposes.
+/// Number of blocks (and chunks) for which to keep the detailed timing
+/// information for debug purposes.
 pub const PRODUCTION_TIMES_CACHE_SIZE: usize = 1000;
 
 pub struct BlockProductionTracker(lru::LruCache<BlockHeight, BlockProduction>);
@@ -61,14 +62,15 @@ impl BlockProductionTracker {
         self.0.get(&height).cloned().unwrap_or_default()
     }
 
-    /// Record approvals received so far for this block. Must be called before block is produced.
+    /// Record approvals received so far for this block. Must be called before
+    /// block is produced.
     pub(crate) fn record_approvals(
         &mut self,
         height: BlockHeight,
         approvals: ApprovalAtHeightStatus,
     ) {
-        // This function will only be called before block production, so it is ok to overwrite
-        // the previous value
+        // This function will only be called before block production, so it is ok to
+        // overwrite the previous value
         if let Some(prev_block_production) = self.0.put(
             height,
             BlockProduction {
@@ -98,8 +100,9 @@ impl BlockProductionTracker {
         }
     }
 
-    /// Record chunk collected after a block is produced if the block didn't include a chunk for the shard.
-    /// If called before the block was produced, nothing happens.
+    /// Record chunk collected after a block is produced if the block didn't
+    /// include a chunk for the shard. If called before the block was
+    /// produced, nothing happens.
     pub(crate) fn record_chunk_collected(&mut self, height: BlockHeight, shard_id: ShardId) {
         if let Some(block_production) = self.0.get_mut(&height) {
             let chunk_collections = &mut block_production.chunks_collection_time;
@@ -109,8 +112,9 @@ impl BlockProductionTracker {
                     chunk_collection.received_time = Some(Clock::utc());
                 }
             }
-            // Otherwise, it means chunk_collections is not set yet, which means the block wasn't produced.
-            // And we do nothing in this case.
+            // Otherwise, it means chunk_collections is not set yet, which means
+            // the block wasn't produced. And we do nothing in this
+            // case.
         }
     }
 
@@ -496,8 +500,9 @@ impl ClientActor {
                         gas_price_ratio: block_header.gas_price() as f64 / initial_gas_price as f64,
                     },
                 );
-                // TODO(robin): using last epoch id when iterating in reverse height direction is
-                // not a good idea for calculating producer of missing heights. Revisit this.
+                // TODO(robin): using last epoch id when iterating in reverse height direction
+                // is not a good idea for calculating producer of missing
+                // heights. Revisit this.
                 last_epoch_id = block_header.epoch_id().clone();
                 if let Some(prev_height) = block_header.prev_height() {
                     if block_header.height() != prev_height + 1 {
@@ -519,7 +524,8 @@ impl ClientActor {
         })
     }
 
-    /// Returns debugging information about the validator - including things like which approvals were received, which blocks/chunks will be
+    /// Returns debugging information about the validator - including things
+    /// like which approvals were received, which blocks/chunks will be
     /// produced and some detailed timing information.
     fn get_validator_status(&mut self) -> Result<ValidatorStatus, near_chain_primitives::Error> {
         let head = self.client.chain.head()?;
@@ -528,8 +534,9 @@ impl ClientActor {
         if let Some(signer) = &self.client.validator_signer {
             let validator_id = signer.validator_id().to_string();
 
-            // We want to show some older blocks (up to DEBUG_PRODUCTION_OLD_BLOCKS_TO_SHOW in the past)
-            // and new blocks (up to the current height for which we've sent approval).
+            // We want to show some older blocks (up to DEBUG_PRODUCTION_OLD_BLOCKS_TO_SHOW
+            // in the past) and new blocks (up to the current height for which
+            // we've sent approval).
 
             let estimated_epoch_end = max(
                 head.height,
@@ -553,7 +560,8 @@ impl ClientActor {
                     epoch_id = header.epoch_id().clone();
                 }
 
-                // And if we are the block (or chunk) producer for this height - collect some timing info.
+                // And if we are the block (or chunk) producer for this height - collect some
+                // timing info.
                 let block_producer = self
                     .client
                     .runtime_adapter
@@ -604,8 +612,9 @@ impl ClientActor {
                 .validator_signer
                 .as_ref()
                 .map(|signer| signer.validator_id().clone()),
-            // TODO: this might not work correctly when we're at the epoch boundary (as it will just return the validators for the current epoch).
-            // We can fix it in the future, if we see that this debug page is useful.
+            // TODO: this might not work correctly when we're at the epoch boundary (as it will just
+            // return the validators for the current epoch). We can fix it in the
+            // future, if we see that this debug page is useful.
             validators: self
                 .client
                 .runtime_adapter

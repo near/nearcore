@@ -21,8 +21,9 @@ use std::fs::File;
 use std::path::Path;
 
 /// Returns a `NearConfig` with genesis records taken from the current state.
-/// If `records_path` argument is provided, then records will be streamed into a separate file,
-/// otherwise the returned `NearConfig` will contain all the records within itself.
+/// If `records_path` argument is provided, then records will be streamed into a
+/// separate file, otherwise the returned `NearConfig` will contain all the
+/// records within itself.
 pub fn state_dump(
     runtime: NightshadeRuntime,
     state_roots: &[StateRoot],
@@ -77,7 +78,8 @@ pub fn state_dump(
     genesis_config.avg_hidden_validator_seats_per_shard =
         shard_config.avg_hidden_validator_seats_per_shard;
     // Record only the filename of the records file.
-    // Otherwise the absolute path is stored making it impossible to copy the dumped state to actually use it.
+    // Otherwise the absolute path is stored making it impossible to copy the dumped
+    // state to actually use it.
     match records_path {
         Some(records_path) => {
             let mut records_path_dir = records_path.to_path_buf();
@@ -98,8 +100,8 @@ pub fn state_dump(
                 change_config,
             );
             seq.end().unwrap();
-            // `total_supply` is expected to change due to the natural processes of burning tokens and
-            // minting tokens every epoch.
+            // `total_supply` is expected to change due to the natural processes of burning
+            // tokens and minting tokens every epoch.
             genesis_config.total_supply = total_supply;
             change_genesis_config(&mut genesis_config, change_config);
             near_config.genesis =
@@ -118,8 +120,8 @@ pub fn state_dump(
                 &mut |sr| records.push(sr),
                 change_config,
             );
-            // `total_supply` is expected to change due to the natural processes of burning tokens and
-            // minting tokens every epoch.
+            // `total_supply` is expected to change due to the natural processes of burning
+            // tokens and minting tokens every epoch.
             genesis_config.total_supply = total_supply;
             change_genesis_config(&mut genesis_config, change_config);
             near_config.genesis = Genesis::new(genesis_config, records.into());
@@ -216,7 +218,8 @@ fn should_include_record(
     }
 }
 
-/// Iterates over the state, calling `callback` for every record that genesis needs to contain.
+/// Iterates over the state, calling `callback` for every record that genesis
+/// needs to contain.
 fn iterate_over_records(
     runtime: NightshadeRuntime,
     state_roots: &[StateRoot],
@@ -372,9 +375,10 @@ mod test {
         (store, genesis, env, near_config)
     }
 
-    /// Produces blocks, avoiding the potential failure where the client is not the
-    /// block producer for each subsequent height (this can happen when a new validator
-    /// is staked since they will also have heights where they should produce the block instead).
+    /// Produces blocks, avoiding the potential failure where the client is not
+    /// the block producer for each subsequent height (this can happen when
+    /// a new validator is staked since they will also have heights where
+    /// they should produce the block instead).
     fn safe_produce_blocks(
         env: &mut TestEnv,
         initial_height: BlockHeight,
@@ -660,7 +664,8 @@ mod test {
         assert_eq!(new_genesis.config.avg_hidden_validator_seats_per_shard, vec![0; 4]);
     }
 
-    /// If the node does not track a shard, state dump will not give the correct result.
+    /// If the node does not track a shard, state dump will not give the correct
+    /// result.
     #[test]
     #[should_panic(expected = "Trie node missing")]
     fn test_dump_state_not_track_shard() {

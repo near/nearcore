@@ -98,7 +98,8 @@ pub struct StateRequestStruct {
     pub target: AccountOrPeerIdOrHash,
 }
 
-/// Sanity checks that the incoming and outgoing receipts are properly sent and received
+/// Sanity checks that the incoming and outgoing receipts are properly sent and
+/// received
 #[test]
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_catchup_receipts_sync_third_epoch() {
@@ -106,12 +107,13 @@ fn test_catchup_receipts_sync_third_epoch() {
 }
 
 /// The test aggressively blocks lots of state requests
-/// and causes at least two timeouts per node (first for header, second for parts).
+/// and causes at least two timeouts per node (first for header, second for
+/// parts).
 ///
-/// WARNING! For your convenience, set manually STATE_SYNC_TIMEOUT to 1 before running the test.
-/// It will be executed 10 times faster.
-/// The reason of increasing block_prod_time in the test is to allow syncing complete.
-/// Otherwise epochs will be changing faster than state sync happen.
+/// WARNING! For your convenience, set manually STATE_SYNC_TIMEOUT to 1 before
+/// running the test. It will be executed 10 times faster.
+/// The reason of increasing block_prod_time in the test is to allow syncing
+/// complete. Otherwise epochs will be changing faster than state sync happen.
 #[test]
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_catchup_receipts_sync_hold() {
@@ -225,9 +227,10 @@ fn test_catchup_receipts_sync_common(wait_till: u64, send: u64, sync_hold: bool)
                             ..
                         } = msg
                         {
-                            // The chunk producers in all epochs before `distant` need to be trying to
-                            //     include the receipt. The `distant` epoch is the first one that
-                            //     will get the receipt through the state sync.
+                            // The chunk producers in all epochs before `distant` need to be trying
+                            // to     include the receipt. The `distant`
+                            // epoch is the first one that     will get
+                            // the receipt through the state sync.
                             let receipts: Vec<Receipt> = partial_encoded_chunk
                                 .receipts
                                 .iter()
@@ -303,7 +306,8 @@ fn test_catchup_receipts_sync_common(wait_till: u64, send: u64, sync_hold: bool)
                                 seen_heights_with_receipts.contains(&height)
                             );
                             if !sync_hold {
-                                // If we don't delay the state, all heights should contain the same receipts
+                                // If we don't delay the state, all heights should contain the same
+                                // receipts
                                 assert!(seen_heights_with_receipts.contains(&height));
                             }
                         }
@@ -365,10 +369,11 @@ enum RandomSinglePartPhases {
     WaitingForSixEpoch,
 }
 
-/// Verifies that fetching of random parts works properly by issuing transactions during the
-/// third epoch, and then making sure that the balances are correct for the next three epochs.
-/// If random one parts fetched during the epoch preceding the epoch a block producer is
-/// assigned to were to have incorrect receipts, the balances in the fourth epoch would have
+/// Verifies that fetching of random parts works properly by issuing
+/// transactions during the third epoch, and then making sure that the balances
+/// are correct for the next three epochs. If random one parts fetched during
+/// the epoch preceding the epoch a block producer is assigned to were to have
+/// incorrect receipts, the balances in the fourth epoch would have
 /// been incorrect due to wrong receipts applied during the third epoch.
 #[test]
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
@@ -376,9 +381,10 @@ fn test_catchup_random_single_part_sync() {
     test_catchup_random_single_part_sync_common(false, false, 13)
 }
 
-// Same test as `test_catchup_random_single_part_sync`, but skips the chunks on height 14 and 15
-// It causes all the receipts to be applied only on height 16, which is the next epoch.
-// It tests that the incoming receipts are property synced through epochs
+// Same test as `test_catchup_random_single_part_sync`, but skips the chunks on
+// height 14 and 15 It causes all the receipts to be applied only on height 16,
+// which is the next epoch. It tests that the incoming receipts are property
+// synced through epochs
 #[test]
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_catchup_random_single_part_sync_skip_15() {
@@ -596,11 +602,11 @@ fn test_catchup_random_single_part_sync_common(skip_15: bool, non_zero: bool, he
     });
 }
 
-/// Makes sure that 24 consecutive blocks are produced by 12 validators split into three epochs.
-/// For extra coverage doesn't allow block propagation of some heights (and expects the blocks
-/// to be skipped)
-/// This test would fail if at any point validators got stuck with state sync, or block
-/// production stalled for any other reason.
+/// Makes sure that 24 consecutive blocks are produced by 12 validators split
+/// into three epochs. For extra coverage doesn't allow block propagation of
+/// some heights (and expects the blocks to be skipped)
+/// This test would fail if at any point validators got stuck with state sync,
+/// or block production stalled for any other reason.
 #[test]
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_catchup_sanity_blocks_produced() {
@@ -730,7 +736,8 @@ fn test_chunk_grieving() {
                                     partial_encoded_chunk
                                 );
                                 if account_id == &victim_node {
-                                    // "test3.5" is a block producer of block on height 12, sending to it
+                                    // "test3.5" is a block producer of block on height 12, sending
+                                    // to it
                                     *grieving_chunk_hash =
                                         partial_encoded_chunk.header.chunk_hash();
                                 } else {

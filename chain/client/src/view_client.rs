@@ -89,7 +89,8 @@ pub struct ViewClientRequestManager {
     pub receipt_outcome_requests: lru::LruCache<CryptoHash, Instant>,
 }
 
-/// View client provides currently committed (to the storage) view of the current chain and state.
+/// View client provides currently committed (to the storage) view of the
+/// current chain and state.
 pub struct ViewClientActor {
     pub adv: crate::adversarial::Controls,
 
@@ -116,7 +117,8 @@ impl ViewClientRequestManager {
 }
 
 impl ViewClientActor {
-    /// Maximum number of state requests allowed per `view_client_throttle_period`.
+    /// Maximum number of state requests allowed per
+    /// `view_client_throttle_period`.
     const MAX_NUM_STATE_REQUESTS: usize = 30;
 
     pub fn new(
@@ -128,7 +130,8 @@ impl ViewClientActor {
         request_manager: Arc<RwLock<ViewClientRequestManager>>,
         adv: crate::adversarial::Controls,
     ) -> Result<Self, Error> {
-        // TODO: should we create shared ChainStore that is passed to both Client and ViewClient?
+        // TODO: should we create shared ChainStore that is passed to both Client and
+        // ViewClient?
         let chain = Chain::new_for_view_client(
             runtime_adapter.clone(),
             chain_genesis,
@@ -520,8 +523,8 @@ impl ViewClientActor {
             if now.saturating_duration_since(instant) > self.config.view_client_throttle_period {
                 cache.pop_front();
             } else {
-                // Assume that time is linear. While in different threads there might be some small differences,
-                // it should not matter in practice.
+                // Assume that time is linear. While in different threads there might be some
+                // small differences, it should not matter in practice.
                 break;
             }
         }
@@ -674,8 +677,9 @@ impl Handler<WithSpanContext<GetValidatorInfo>> for ViewClientActor {
         let epoch_identifier = match msg.epoch_reference {
             EpochReference::EpochId(id) => {
                 // By `EpochId` we can get only cached epochs.
-                // Request for not finished epoch by `EpochId` will return an error because epoch has not been cached yet
-                // If the requested one is current ongoing we need to handle it like `Latest`
+                // Request for not finished epoch by `EpochId` will return an error because
+                // epoch has not been cached yet If the requested one is current
+                // ongoing we need to handle it like `Latest`
                 let tip = self.chain.header_head()?;
                 if tip.epoch_id == id {
                     ValidatorInfoIdentifier::BlockHash(tip.last_block_hash)
@@ -756,7 +760,8 @@ impl Handler<WithSpanContext<GetStateChangesInBlock>> for ViewClientActor {
     }
 }
 
-/// Returns a list of changes in a store for a given block filtering by the state changes request.
+/// Returns a list of changes in a store for a given block filtering by the
+/// state changes request.
 impl Handler<WithSpanContext<GetStateChanges>> for ViewClientActor {
     type Result = Result<StateChangesView, GetStateChangesError>;
 
@@ -844,14 +849,17 @@ impl Handler<WithSpanContext<GetStateChangesWithCauseInBlockForTrackedShards>> f
     }
 }
 
-/// Returns the next light client block, given the hash of the last block known to the light client.
-/// There are three cases:
-///  1. The last block known to the light client is in the same epoch as the tip:
-///     - Then return the last known final block, as long as it's more recent that the last known
-///  2. The last block known to the light client is in the epoch preceding that of the tip:
+/// Returns the next light client block, given the hash of the last block known
+/// to the light client. There are three cases:
+///  1. The last block known to the light client is in the same epoch as the
+/// tip:
+///     - Then return the last known final block, as long as it's more recent
+///       that the last known
+///  2. The last block known to the light client is in the epoch preceding that
+/// of the tip:
 ///     - Same as above
-///  3. Otherwise, return the last final block in the epoch that follows that of the last block known
-///     to the light client
+///  3. Otherwise, return the last final block in the epoch that follows that of
+/// the last block known     to the light client
 impl Handler<WithSpanContext<GetNextLightClientBlock>> for ViewClientActor {
     type Result = Result<Option<Arc<LightClientBlockView>>, GetNextLightClientBlockError>;
 
@@ -1373,10 +1381,10 @@ impl Handler<WithSpanContext<AnnounceAccountRequest>> for ViewClientActor {
                 // TODO(gprusak): Here we ban for broadcasting accounts which have been slashed
                 // according to BlockInfo for the current chain tip. It is unfair,
                 // given that peers do not have perfectly synchronized heads:
-                // - AFAIU each block can introduce a slashed account, so the announcement
-                //   could be OK at the moment that peer has sent it out.
-                // - the current epoch_id is not related to announce_account.epoch_id,
-                //   so it carry a perfectly valid (outdated) information.
+                // - AFAIU each block can introduce a slashed account, so the announcement could be
+                //   OK at the moment that peer has sent it out.
+                // - the current epoch_id is not related to announce_account.epoch_id, so it carry a
+                //   perfectly valid (outdated) information.
                 Ok(false) => {
                     return Err(ReasonForBan::InvalidSignature);
                 }

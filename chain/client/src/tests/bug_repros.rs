@@ -1,5 +1,5 @@
-// This test tracks tests that reproduce previously fixed bugs to make sure the regressions we
-// fix do not resurface
+// This test tracks tests that reproduce previously fixed bugs to make sure the
+// regressions we fix do not resurface
 
 use std::cmp::max;
 use std::collections::HashMap;

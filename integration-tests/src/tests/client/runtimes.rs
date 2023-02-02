@@ -1,5 +1,6 @@
-//! Client is responsible for tracking the chain, chunks, and producing them when needed.
-//! This client works completely synchronously and must be operated by some async actor outside.
+//! Client is responsible for tracking the chain, chunks, and producing them
+//! when needed. This client works completely synchronously and must be operated
+//! by some async actor outside.
 
 use near_chain::{ChainGenesis, RuntimeWithEpochManagerAdapter};
 use near_chain_configs::Genesis;

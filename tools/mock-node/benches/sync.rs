@@ -30,8 +30,9 @@ struct Sys {
 
 impl Drop for Sys {
     fn drop(&mut self) {
-        // TODO: we only have to do this because shutdown is not well handled right now. Ideally we would not have
-        // to tear down the whole system, and could just stop the client actor/view client actors each time.
+        // TODO: we only have to do this because shutdown is not well handled right now.
+        // Ideally we would not have to tear down the whole system, and could
+        // just stop the client actor/view client actors each time.
         let system = System::current();
         let sys = self.sys.take().unwrap();
 
@@ -78,13 +79,14 @@ fn extract_home(home_archive: &str) -> anyhow::Result<PathBuf> {
     Ok(extracted)
 }
 
-// Sets up a mock node with the extracted contents of `home_archive` serving as the equivalent
-// to the `chain_history_home_dir` argument to the `start_mock_node` tool, and measures the time
-// taken to sync to target_height.
+// Sets up a mock node with the extracted contents of `home_archive` serving as
+// the equivalent to the `chain_history_home_dir` argument to the
+// `start_mock_node` tool, and measures the time taken to sync to target_height.
 fn do_bench(c: &mut Criterion, home_archive: &str, target_height: Option<BlockHeight>) {
     let name = String::from("mock_node_sync_") + test_name(home_archive);
     let mut group = c.benchmark_group(name.clone());
-    // The default of 100 is way too big for the longer running ones, and 10 is actually the minimum allowed.
+    // The default of 100 is way too big for the longer running ones, and 10 is
+    // actually the minimum allowed.
     group.sample_size(10);
     group.bench_function(name, |bench| {
         bench.iter_with_setup(|| {

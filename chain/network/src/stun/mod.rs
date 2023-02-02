@@ -17,8 +17,8 @@ pub(crate) type Error = stun::Error;
 const QUERY_TIMEOUT: time::Duration = time::Duration::seconds(5);
 
 /// Sends a STUN BINDING request to `addr`.
-/// Returns the result of the query: the IP of this machine as perceived by the STUN server.
-/// It should be used to determine the public IP of this machine.
+/// Returns the result of the query: the IP of this machine as perceived by the
+/// STUN server. It should be used to determine the public IP of this machine.
 pub(crate) async fn query(
     clock: &time::Clock,
     addr: &ServerAddr,

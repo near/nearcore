@@ -147,8 +147,8 @@ fn do_fork(
 
 // This test infrastructure do the following:
 // Build Chain 1 from the full data, then GC it.
-// Build Chain 2 from the data removing everything that should be removed after GC.
-// Make sure that Chain 1 == Chain 2.
+// Build Chain 2 from the data removing everything that should be removed after
+// GC. Make sure that Chain 1 == Chain 2.
 fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
     // Running the test
     println!(
@@ -305,8 +305,8 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
     }
 }
 
-// from is an index in blocks array, length is the number of blocks in a chain on top of blocks[from],
-// is_removed = should this chain be removed after GC
+// from is an index in blocks array, length is the number of blocks in a chain
+// on top of blocks[from], is_removed = should this chain be removed after GC
 #[derive(Debug, Clone)]
 pub struct SimpleChain {
     from: u64,
@@ -605,11 +605,13 @@ fn test_gc_star_large() {
 }
 
 #[test]
-// This test covers the situation when fork happens far away from the end of the epoch.
-// Currently, we start fork cleanup, once we are at the epoch boundary, by setting 'fork_tail'.
-// Then in each step, we move the fork_tail backwards, cleaning up any forks that we might encounter.
-// But in order not to do too much work in one go, we check up to 1000 blocks (and we continue during the next execution of clean).
-// This test checks what happens when fork is more than 1k blocks from the epoch end - and checks that it gets properly cleaned
+// This test covers the situation when fork happens far away from the end of the
+// epoch. Currently, we start fork cleanup, once we are at the epoch boundary,
+// by setting 'fork_tail'. Then in each step, we move the fork_tail backwards,
+// cleaning up any forks that we might encounter. But in order not to do too
+// much work in one go, we check up to 1000 blocks (and we continue during the
+// next execution of clean). This test checks what happens when fork is more
+// than 1k blocks from the epoch end - and checks that it gets properly cleaned
 // during the second run.
 fn test_fork_far_away_from_epoch_end() {
     let verbose = false;
@@ -659,8 +661,9 @@ fn test_fork_far_away_from_epoch_end() {
         )
         .expect("Clear data failed");
 
-    // The run above would clear just the first 5 blocks from the beginning, but shouldn't clear any forks
-    // yet - as fork_tail only clears the 'last' 1k blocks.
+    // The run above would clear just the first 5 blocks from the beginning, but
+    // shouldn't clear any forks yet - as fork_tail only clears the 'last' 1k
+    // blocks.
     for i in 1..5 {
         let (block, _, _) = states1[i as usize].clone();
         assert_eq!(
@@ -682,7 +685,8 @@ fn test_fork_far_away_from_epoch_end() {
             block.header().height()
         );
     }
-    // Now let's add one more block - and now the fork (and the rest) should be successfully removed.
+    // Now let's add one more block - and now the fork (and the rest) should be
+    // successfully removed.
     {
         let (source_block1, state_root1, _) = states1.last().unwrap().clone();
         do_fork(

@@ -179,10 +179,10 @@ pub(crate) fn check_balance(
     let outgoing_receipts_balance = receipts_cost(outgoing_receipts)?;
     let processed_delayed_receipts_balance = receipts_cost(&processed_delayed_receipts)?;
     let new_delayed_receipts_balance = receipts_cost(&new_delayed_receipts)?;
-    // Postponed actions receipts. The receipts can be postponed and stored with the receiver's
-    // account ID when the input data is not received yet.
-    // We calculate all potential receipts IDs that might be postponed initially or after the
-    // execution.
+    // Postponed actions receipts. The receipts can be postponed and stored with the
+    // receiver's account ID when the input data is not received yet.
+    // We calculate all potential receipts IDs that might be postponed initially or
+    // after the execution.
     let all_potential_postponed_receipt_ids = incoming_receipts
         .iter()
         .chain(processed_delayed_receipts.iter())

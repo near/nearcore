@@ -121,7 +121,8 @@ async fn load_component() {
     )
     .await;
 
-    // Add an active edge from me() to p1. This should trigger loading the whole component from DB.
+    // Add an active edge from me() to p1. This should trigger loading the whole
+    // component from DB.
     g.update(&clock.clock(), vec![e1v2.clone()]).await;
     g.check(&[e1v2, e2, e3], &[]).await;
 }
@@ -160,10 +161,10 @@ async fn components_nonces_are_tracked_in_storage() {
     .await;
 
     // Spawn a new graph with the same storage.
-    // Add another inactive edge and prune it. The previously created component shouldn't get
-    // overwritten, but rather a new one should be created.
-    // This verifies that the last_component_nonce (which indicates which component IDs have been
-    // already utilized) is persistently stored in DB.
+    // Add another inactive edge and prune it. The previously created component
+    // shouldn't get overwritten, but rather a new one should be created.
+    // This verifies that the last_component_nonce (which indicates which component
+    // IDs have been already utilized) is persistently stored in DB.
     let g = Arc::new(Graph::new(cfg.clone(), store));
     let p4 = data::make_peer_id(rng);
     let e4 = edge(&cfg.node_id, &p4, 2);
@@ -178,7 +179,8 @@ async fn components_nonces_are_tracked_in_storage() {
     )
     .await;
 
-    // Add an active edge between unreachable nodes, which will merge 2 components in DB.
+    // Add an active edge between unreachable nodes, which will merge 2 components
+    // in DB.
     let e34 = edge(&p3, &p4, 1);
     g.update(&clock.clock(), vec![e34.clone()]).await;
     g.check(
@@ -227,12 +229,14 @@ async fn expired_edges() {
     // Add an active edge.
     g.update(&clock.clock(), vec![e1.clone(), old_e2.clone()]).await;
     g.check(&[e1.clone(), old_e2.clone()], &[]).await;
-    // Update RT with pruning. e1 should stay - as it is fresh, but old_e2 should be removed.
+    // Update RT with pruning. e1 should stay - as it is fresh, but old_e2 should be
+    // removed.
     clock.advance(40 * SEC);
     g.update(&clock.clock(), vec![]).await;
     g.check(&[e1.clone()], &[]).await;
 
-    // Adding 'still old' edge to e2 should fail (as it is older than the last prune_edges_older_than)
+    // Adding 'still old' edge to e2 should fail (as it is older than the last
+    // prune_edges_older_than)
     g.update(&clock.clock(), vec![still_old_e2.clone()]).await;
     g.check(&[e1.clone()], &[]).await;
 

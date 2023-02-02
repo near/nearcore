@@ -68,7 +68,8 @@ pub enum GCMode {
     StateSync { clear_block_info: bool },
 }
 
-/// Accesses the chain store. Used to create atomic editable views that can be reverted.
+/// Accesses the chain store. Used to create atomic editable views that can be
+/// reverted.
 pub trait ChainStoreAccess {
     /// Returns underlaying store.
     fn store(&self) -> &Store;
@@ -82,7 +83,8 @@ pub trait ChainStoreAccess {
     fn fork_tail(&self) -> Result<BlockHeight, Error>;
     /// Head of the header chain (not the same thing as head_header).
     fn header_head(&self) -> Result<Tip, Error>;
-    /// Header of the block at the head of the block chain (not the same thing as header_head).
+    /// Header of the block at the head of the block chain (not the same thing
+    /// as header_head).
     fn head_header(&self) -> Result<BlockHeader, Error>;
     /// The chain final head. It is guaranteed to be monotonically increasing.
     fn final_head(&self) -> Result<Tip, Error>;
@@ -94,7 +96,8 @@ pub trait ChainStoreAccess {
     fn get_chunk(&self, chunk_hash: &ChunkHash) -> Result<Arc<ShardChunk>, Error>;
     /// Get partial chunk.
     fn get_partial_chunk(&self, chunk_hash: &ChunkHash) -> Result<Arc<PartialEncodedChunk>, Error>;
-    /// Get full chunk from header, with possible error that contains the header for further retrieval.
+    /// Get full chunk from header, with possible error that contains the header
+    /// for further retrieval.
     fn get_chunk_clone_from_header(&self, header: &ShardChunkHeader) -> Result<ShardChunk, Error> {
         let shard_chunk_result = self.get_chunk(&header.chunk_hash());
         match shard_chunk_result {
@@ -172,7 +175,8 @@ pub trait ChainStoreAccess {
     ) -> Result<Arc<LightClientBlockView>, Error>;
     /// Returns a number of references for Block with `block_hash`
     fn get_block_refcount(&self, block_hash: &CryptoHash) -> Result<u64, Error>;
-    /// Returns block header from the current chain defined by `sync_hash` for given height if present.
+    /// Returns block header from the current chain defined by `sync_hash` for
+    /// given height if present.
     fn get_block_header_on_chain_by_height(
         &self,
         sync_hash: &CryptoHash,
@@ -202,9 +206,10 @@ pub trait ChainStoreAccess {
         shard_id: ShardId,
     ) -> Result<Arc<Vec<ReceiptProof>>, Error>;
     /// Collect incoming receipts for shard `shard_id` from
-    /// the block at height `last_chunk_height_included` (non-inclusive) to the block `block_hash` (inclusive)
-    /// This is because the chunks for the shard are empty for the blocks in between,
-    /// so the receipts from these blocks are propagated
+    /// the block at height `last_chunk_height_included` (non-inclusive) to the
+    /// block `block_hash` (inclusive) This is because the chunks for the
+    /// shard are empty for the blocks in between, so the receipts from
+    /// these blocks are propagated
     fn get_incoming_receipts_for_shard(
         &self,
         shard_id: ShardId,
@@ -290,7 +295,8 @@ pub trait ChainStoreAccess {
         }
     }
 
-    /// Get epoch id of the last block with existing chunk for the given shard id.
+    /// Get epoch id of the last block with existing chunk for the given shard
+    /// id.
     fn get_epoch_id_of_last_block_with_chunk(
         &self,
         runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
@@ -339,7 +345,8 @@ pub struct ChainStore {
     block_hash_per_height: CellLruCache<Vec<u8>, Arc<HashMap<EpochId, HashSet<CryptoHash>>>>,
     /// Next block hashes for each block on the canonical chain
     next_block_hashes: CellLruCache<Vec<u8>, CryptoHash>,
-    /// Light client blocks corresponding to the last finalized block of each epoch
+    /// Light client blocks corresponding to the last finalized block of each
+    /// epoch
     epoch_light_client_blocks: CellLruCache<Vec<u8>, Arc<LightClientBlockView>>,
     /// Cache with outgoing receipts.
     outgoing_receipts: CellLruCache<Vec<u8>, Arc<Vec<Receipt>>>,
@@ -362,9 +369,12 @@ pub struct ChainStore {
     /// Processed block heights.
     processed_block_heights: CellLruCache<Vec<u8>, ()>,
     /// save_trie_changes should be set to true iff
-    /// - archive if false - non-archival nodes need trie changes to perform garbage collection
-    /// - archive is true, cold_store is configured and migration to split_storage is finished - node
-    /// working in split storage mode needs trie changes in order to do garbage collection on hot.
+    /// - archive if false - non-archival nodes need trie changes to perform
+    ///   garbage collection
+    /// - archive is true, cold_store is configured and migration to
+    ///   split_storage is finished - node
+    /// working in split storage mode needs trie changes in order to do garbage
+    /// collection on hot.
     save_trie_changes: bool,
 }
 
@@ -449,23 +459,25 @@ impl ChainStore {
         )
     }
 
-    /// Get outgoing receipts that will be *sent* from shard `shard_id` from block whose prev block
-    /// is `prev_block_hash`
-    /// Note that the meaning of outgoing receipts here are slightly different from
-    /// `save_outgoing_receipts` or `get_outgoing_receipts`.
-    /// There, outgoing receipts for a shard refers to receipts that are generated
-    /// from the shard from block `prev_block_hash`.
-    /// Here, outgoing receipts for a shard refers to receipts that will be sent from this shard
-    /// to other shards in the block after `prev_block_hash`
-    /// The difference of one block is important because shard layout may change between the previous
-    /// block and the current block and the meaning of `shard_id` will change.
+    /// Get outgoing receipts that will be *sent* from shard `shard_id` from
+    /// block whose prev block is `prev_block_hash`
+    /// Note that the meaning of outgoing receipts here are slightly different
+    /// from `save_outgoing_receipts` or `get_outgoing_receipts`.
+    /// There, outgoing receipts for a shard refers to receipts that are
+    /// generated from the shard from block `prev_block_hash`.
+    /// Here, outgoing receipts for a shard refers to receipts that will be sent
+    /// from this shard to other shards in the block after `prev_block_hash`
+    /// The difference of one block is important because shard layout may change
+    /// between the previous block and the current block and the meaning of
+    /// `shard_id` will change.
     ///
-    /// Note, the current way of implementation assumes that at least one chunk is generated before
-    /// shard layout are changed twice. This is not a problem right now because we are changing shard
-    /// layout for the first time for simple nightshade and generally not a problem if shard layout
+    /// Note, the current way of implementation assumes that at least one chunk
+    /// is generated before shard layout are changed twice. This is not a
+    /// problem right now because we are changing shard layout for the first
+    /// time for simple nightshade and generally not a problem if shard layout
     /// changes very rarely.
-    /// But we need to implement a more theoretically correct algorithm if shard layouts will change
-    /// more often in the future
+    /// But we need to implement a more theoretically correct algorithm if shard
+    /// layouts will change more often in the future
     /// <https://github.com/near/nearcore/issues/4877>
     pub fn get_outgoing_receipts_for_shard(
         &self,
@@ -508,8 +520,9 @@ impl ChainStore {
         }
     }
 
-    /// For a given transaction, it expires if the block that the chunk points to is more than `validity_period`
-    /// ahead of the block that has `base_block_hash`.
+    /// For a given transaction, it expires if the block that the chunk points
+    /// to is more than `validity_period` ahead of the block that has
+    /// `base_block_hash`.
     pub fn check_transaction_validity_period(
         &self,
         prev_block_header: &BlockHeader,
@@ -517,7 +530,8 @@ impl ChainStore {
         validity_period: BlockHeight,
     ) -> Result<(), InvalidTxError> {
         // if both are on the canonical chain, comparing height is sufficient
-        // we special case this because it is expected that this scenario will happen in most cases.
+        // we special case this because it is expected that this scenario will happen in
+        // most cases.
         let base_height =
             self.get_block_header(base_block_hash).map_err(|_| InvalidTxError::Expired)?.height();
         let prev_height = prev_block_header.height();
@@ -535,9 +549,10 @@ impl ChainStore {
             }
         }
 
-        // if the base block height is smaller than `last_final_height` we only need to check
-        // whether the base block is the same as the one with that height on the canonical fork.
-        // Otherwise we walk back the chain to check whether base block is on the same chain.
+        // if the base block height is smaller than `last_final_height` we only need to
+        // check whether the base block is the same as the one with that height
+        // on the canonical fork. Otherwise we walk back the chain to check
+        // whether base block is on the same chain.
         let last_final_height = self
             .get_block_height(prev_block_header.last_final_block())
             .map_err(|_| InvalidTxError::InvalidChain)?;
@@ -620,7 +635,8 @@ impl ChainStore {
             .unwrap_or_default())
     }
 
-    /// Returns a hashmap of epoch id -> set of all blocks got for current (height, epoch_id)
+    /// Returns a hashmap of epoch id -> set of all blocks got for current
+    /// (height, epoch_id)
     pub fn get_all_block_hashes_by_height(
         &self,
         height: BlockHeight,
@@ -691,19 +707,22 @@ impl ChainStore {
 
     /// Retrieve the kinds of state changes occurred in a given block.
     ///
-    /// We store different types of data, so we prefer to only expose minimal information about the
-    /// changes (i.e. a kind of the change and an account id).
+    /// We store different types of data, so we prefer to only expose minimal
+    /// information about the changes (i.e. a kind of the change and an
+    /// account id).
     pub fn get_state_changes_in_block(
         &self,
         block_hash: &CryptoHash,
     ) -> Result<StateChangesKinds, Error> {
-        // We store the trie changes under a compound key: `block_hash + trie_key`, so when we
-        // query the changes, we reverse the process by splitting the key using simple slicing of an
-        // array of bytes, essentially, extracting `trie_key`.
+        // We store the trie changes under a compound key: `block_hash + trie_key`, so
+        // when we query the changes, we reverse the process by splitting the
+        // key using simple slicing of an array of bytes, essentially,
+        // extracting `trie_key`.
         //
         // Example: data changes are stored under a key:
         //
-        //     block_hash + (col::ACCOUNT + account_id + ACCOUNT_DATA_SEPARATOR + user_specified_key)
+        //     block_hash + (col::ACCOUNT + account_id + ACCOUNT_DATA_SEPARATOR +
+        // user_specified_key)
         //
         // Thus, to query the list of touched accounts we do the following:
         // 1. Query RocksDB for `block_hash` prefix.
@@ -728,37 +747,44 @@ impl ChainStore {
         Ok(StateChanges::from_changes(&mut block_changes)?)
     }
 
-    /// Retrieve the key-value changes from the store and decode them appropriately.
+    /// Retrieve the key-value changes from the store and decode them
+    /// appropriately.
     ///
-    /// We store different types of data, so we need to take care of all the types. That is, the
-    /// account data and the access keys are internally-serialized and we have to deserialize those
-    /// values appropriately. Code and data changes are simple blobs of data, so we return them as
-    /// base64-encoded blobs.
+    /// We store different types of data, so we need to take care of all the
+    /// types. That is, the account data and the access keys are
+    /// internally-serialized and we have to deserialize those
+    /// values appropriately. Code and data changes are simple blobs of data, so
+    /// we return them as base64-encoded blobs.
     pub fn get_state_changes(
         &self,
         block_hash: &CryptoHash,
         state_changes_request: &StateChangesRequest,
     ) -> Result<StateChanges, Error> {
-        // We store the trie changes under a compound key: `block_hash + trie_key`, so when we
-        // query the changes, we reverse the process by splitting the key using simple slicing of an
-        // array of bytes, essentially, extracting `trie_key`.
+        // We store the trie changes under a compound key: `block_hash + trie_key`, so
+        // when we query the changes, we reverse the process by splitting the
+        // key using simple slicing of an array of bytes, essentially,
+        // extracting `trie_key`.
         //
         // Example: data changes are stored under a key:
         //
-        //     block_hash + (col::ACCOUNT + account_id + ACCOUNT_DATA_SEPARATOR + user_specified_key)
+        //     block_hash + (col::ACCOUNT + account_id + ACCOUNT_DATA_SEPARATOR +
+        // user_specified_key)
         //
-        // Thus, to query all the changes by a user-specified key prefix, we do the following:
-        // 1. Query RocksDB for
-        //     block_hash + (col::ACCOUNT + account_id + ACCOUNT_DATA_SEPARATOR + user_specified_key_prefix)
+        // Thus, to query all the changes by a user-specified key prefix, we do the
+        // following: 1. Query RocksDB for
+        //     block_hash + (col::ACCOUNT + account_id + ACCOUNT_DATA_SEPARATOR +
+        // user_specified_key_prefix)
         //
-        // 2. In the simplest case, to extract the full key we need to slice the RocksDB key by a length of
-        //     block_hash + (col::ACCOUNT + account_id + ACCOUNT_DATA_SEPARATOR)
+        // 2. In the simplest case, to extract the full key we need to slice the RocksDB
+        // key by a length of     block_hash + (col::ACCOUNT + account_id +
+        // ACCOUNT_DATA_SEPARATOR)
         //
         //    In this implementation, however, we decoupled this process into two steps:
         //
-        //    2.1. Split off the `block_hash` (internally in `KeyForStateChanges`), thus we are
-        //         left working with a key that was used in the trie.
-        //    2.2. Parse the trie key with a relevant KeyFor* implementation to ensure consistency
+        //    2.1. Split off the `block_hash` (internally in `KeyForStateChanges`), thus
+        // we are         left working with a key that was used in the trie.
+        //    2.2. Parse the trie key with a relevant KeyFor* implementation to ensure
+        // consistency
 
         Ok(match state_changes_request {
             StateChangesRequest::AccountChanges { account_ids } => {
@@ -881,7 +907,8 @@ impl ChainStoreAccess for ChainStore {
             .map_err(|e| e.into())
     }
 
-    /// Header of the block at the head of the block chain (not the same thing as header_head).
+    /// Header of the block at the head of the block chain (not the same thing
+    /// as header_head).
     fn head_header(&self) -> Result<BlockHeader, Error> {
         self.get_block_header(&self.head()?.last_block_hash)
     }
@@ -1021,8 +1048,9 @@ impl ChainStoreAccess for ChainStore {
         )
     }
 
-    /// Get outgoing receipts *generated* from shard `shard_id` in block `prev_hash`
-    /// Note that this function is different from get_outgoing_receipts_for_shard, see comments there
+    /// Get outgoing receipts *generated* from shard `shard_id` in block
+    /// `prev_hash` Note that this function is different from
+    /// get_outgoing_receipts_for_shard, see comments there
     fn get_outgoing_receipts(
         &self,
         prev_block_hash: &CryptoHash,
@@ -1175,11 +1203,13 @@ struct ChainStoreCacheUpdate {
 }
 
 /// Provides layer to update chain without touching the underlying database.
-/// This serves few purposes, main one is that even if executable exists/fails during update the database is in consistent state.
+/// This serves few purposes, main one is that even if executable exists/fails
+/// during update the database is in consistent state.
 pub struct ChainStoreUpdate<'a> {
     chain_store: &'a mut ChainStore,
     store_updates: Vec<StoreUpdate>,
-    /// Blocks added during this update. Takes ownership (unclear how to not do it because of failure exists).
+    /// Blocks added during this update. Takes ownership (unclear how to not do
+    /// it because of failure exists).
     chain_store_cache_update: ChainStoreCacheUpdate,
     head: Option<Tip>,
     tail: Option<BlockHeight>,
@@ -1294,7 +1324,8 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         }
     }
 
-    /// Header of the block at the head of the block chain (not the same thing as header_head).
+    /// Header of the block at the head of the block chain (not the same thing
+    /// as header_head).
     fn head_header(&self) -> Result<BlockHeader, Error> {
         self.get_block_header(&(self.head()?.last_block_hash))
     }
@@ -1456,7 +1487,8 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
     }
 
     fn get_blocks_to_catchup(&self, prev_hash: &CryptoHash) -> Result<Vec<CryptoHash>, Error> {
-        // Make sure we never request a block to catchup after altering the data structure
+        // Make sure we never request a block to catchup after altering the data
+        // structure
         assert_eq!(self.add_blocks_to_catchup.len(), 0);
         assert_eq!(self.remove_blocks_to_catchup.len(), 0);
         assert_eq!(self.remove_prev_blocks_to_catchup.len(), 0);
@@ -1571,8 +1603,9 @@ impl<'a> ChainStoreUpdate<'a> {
         Ok(())
     }
 
-    /// This function checks that the block is not on a chain with challenged blocks and updates
-    /// fields in ChainStore that stores information of the canonical chain
+    /// This function checks that the block is not on a chain with challenged
+    /// blocks and updates fields in ChainStore that stores information of
+    /// the canonical chain
     fn update_height_if_not_challenged(
         &mut self,
         height: BlockHeight,
@@ -1598,8 +1631,9 @@ impl<'a> ChainStoreUpdate<'a> {
                     return Ok(());
                 }
                 _ => {
-                    // TODO: remove this check from this function and use Chain::check_if_challenged_block_on_chain
-                    // I'm not doing that now because I'm afraid that this will make header sync take
+                    // TODO: remove this check from this function and use
+                    // Chain::check_if_challenged_block_on_chain I'm not doing
+                    // that now because I'm afraid that this will make header sync take
                     // even longer.
                     if self.is_block_challenged(&header_hash)? {
                         return Err(Error::ChallengedBlockOnChain);
@@ -1623,12 +1657,14 @@ impl<'a> ChainStoreUpdate<'a> {
         self.try_save_latest_known(t.height)?;
 
         // TODO #3488
-        // Bowen: It seems that height_to_hashes is used to update DBCol::BlockHeight, which stores blocks,
-        // not block headers, by height. Therefore I wonder whether this line here breaks some invariant
-        // since now we potentially don't have the corresponding block in storage.
+        // Bowen: It seems that height_to_hashes is used to update DBCol::BlockHeight,
+        // which stores blocks, not block headers, by height. Therefore I wonder
+        // whether this line here breaks some invariant since now we potentially
+        // don't have the corresponding block in storage.
 
-        //self.chain_tore_cache_update.height_to_hashes.insert(t.height, Some(t.last_block_hash));
-        //self.chain_store_cache_update.next_block_hashes.insert(t.prev_block_hash, t.last_block_hash);
+        //self.chain_tore_cache_update.height_to_hashes.insert(t.height,
+        // Some(t.last_block_hash)); self.chain_store_cache_update.
+        // next_block_hashes.insert(t.prev_block_hash, t.last_block_hash);
         self.header_head = Some(t.clone());
         Ok(())
     }
@@ -1783,7 +1819,8 @@ impl<'a> ChainStoreUpdate<'a> {
             .insert(*epoch_hash, Arc::new(light_client_block));
     }
 
-    // save the outgoing receipts generated by chunk from block `hash` for shard `shard_id`
+    // save the outgoing receipts generated by chunk from block `hash` for shard
+    // `shard_id`
     pub fn save_outgoing_receipt(
         &mut self,
         hash: &CryptoHash,
@@ -1917,7 +1954,8 @@ impl<'a> ChainStoreUpdate<'a> {
     pub fn update_tail(&mut self, height: BlockHeight) -> Result<(), Error> {
         self.tail = Some(height);
         let genesis_height = self.get_genesis_height();
-        // When fork tail is behind tail, it doesn't hurt to set it to tail for consistency.
+        // When fork tail is behind tail, it doesn't hurt to set it to tail for
+        // consistency.
         if self.fork_tail()? < height {
             self.fork_tail = Some(height);
         }
@@ -1981,11 +2019,11 @@ impl<'a> ChainStoreUpdate<'a> {
 
     /// Clears chunk data which can be computed from other data in the storage.
     ///
-    /// We are storing PartialEncodedChunk objects in the DBCol::PartialChunks in
-    /// the storage.  However, those objects can be computed from data in
-    /// DBCol::Chunks and as such are redundant.  For performance reasons we want to
-    /// keep that data when operating at head of the chain but the data can be
-    /// safely removed from archival storage.
+    /// We are storing PartialEncodedChunk objects in the DBCol::PartialChunks
+    /// in the storage.  However, those objects can be computed from data in
+    /// DBCol::Chunks and as such are redundant.  For performance reasons we
+    /// want to keep that data when operating at head of the chain but the
+    /// data can be safely removed from archival storage.
     ///
     /// `gc_stop_height` indicates height starting from which no data should be
     /// garbage collected.  Roughly speaking this represents start of the ‘hot’
@@ -2031,11 +2069,11 @@ impl<'a> ChainStoreUpdate<'a> {
             .expect("epoch info must exist");
         // gc shards in this epoch
         let mut shard_uids_to_gc: Vec<_> = shard_layout.get_shard_uids();
-        // gc shards in the shard layout in the next epoch if shards will change in the next epoch
-        // Suppose shard changes at epoch T, we need to garbage collect the new shard layout
-        // from the last block in epoch T-2 to the last block in epoch T-1
-        // Because we need to gc the last block in epoch T-2, we can't simply use
-        // block_header.epoch_id() as next_epoch_id
+        // gc shards in the shard layout in the next epoch if shards will change in the
+        // next epoch Suppose shard changes at epoch T, we need to garbage
+        // collect the new shard layout from the last block in epoch T-2 to the
+        // last block in epoch T-1 Because we need to gc the last block in epoch
+        // T-2, we can't simply use block_header.epoch_id() as next_epoch_id
         let next_epoch_id = block_header.next_epoch_id();
         let next_shard_layout =
             runtime_adapter.get_shard_layout(next_epoch_id).expect("epoch info must exist");
@@ -2060,7 +2098,8 @@ impl<'a> ChainStoreUpdate<'a> {
             let shard_uids_to_gc: Vec<_> = self.get_shard_uids_to_gc(runtime_adapter, &block_hash);
             match gc_mode.clone() {
                 GCMode::Fork(tries) => {
-                    // If the block is on a fork, we delete the state that's the result of applying this block
+                    // If the block is on a fork, we delete the state that's the result of applying
+                    // this block
                     for shard_uid in shard_uids_to_gc {
                         let trie_changes = self.store().get_ser(
                             DBCol::TrieChanges,
@@ -2076,7 +2115,8 @@ impl<'a> ChainStoreUpdate<'a> {
                     }
                 }
                 GCMode::Canonical(tries) => {
-                    // If the block is on canonical chain, we delete the state that's before applying this block
+                    // If the block is on canonical chain, we delete the state that's before
+                    // applying this block
                     for shard_uid in shard_uids_to_gc {
                         let trie_changes = self.store().get_ser(
                             DBCol::TrieChanges,
@@ -2129,7 +2169,8 @@ impl<'a> ChainStoreUpdate<'a> {
                 self.gc_col(DBCol::StateHeaders, &key);
             }
         }
-        // gc DBCol::ChunkExtra based on shard_uid since it's indexed by shard_uid in the storage
+        // gc DBCol::ChunkExtra based on shard_uid since it's indexed by shard_uid in
+        // the storage
         for shard_uid in self.get_shard_uids_to_gc(runtime_adapter, &block_hash) {
             let block_shard_uid = get_block_shard_uid(&block_hash, &shard_uid);
             self.gc_col(DBCol::ChunkExtra, &block_shard_uid);
@@ -2247,8 +2288,10 @@ impl<'a> ChainStoreUpdate<'a> {
             Err(error) => {
                 match error {
                     Error::DBNotFoundErr(_) => {
-                        // Sometimes we don't save outgoing receipts. See the usages of save_outgoing_receipt.
-                        // The invariant is that DBCol::OutgoingReceipts has same receipts as DBCol::ReceiptIdToShardId.
+                        // Sometimes we don't save outgoing receipts. See the
+                        // usages of save_outgoing_receipt.
+                        // The invariant is that DBCol::OutgoingReceipts has
+                        // same receipts as DBCol::ReceiptIdToShardId.
                     }
                     _ => {
                         tracing::error!(target: "chain", "Error getting outgoing receipts for block {}, shard {}: {:?}", block_hash, shard_id, error);
@@ -2440,8 +2483,8 @@ impl<'a> ChainStoreUpdate<'a> {
     }
 
     /// Only used in mock network
-    /// Create a new ChainStoreUpdate that copies the necessary chain state related to `block_hash`
-    /// from `source_store` to the current store.
+    /// Create a new ChainStoreUpdate that copies the necessary chain state
+    /// related to `block_hash` from `source_store` to the current store.
     pub fn copy_chain_state_as_of_block(
         chain_store: &'a mut ChainStore,
         block_hash: &CryptoHash,
@@ -2750,8 +2793,8 @@ impl<'a> ChainStoreUpdate<'a> {
         }
 
         // Convert trie changes to database ops for trie nodes.
-        // Create separate store update for deletions, because we want to update cache and don't want to remove nodes
-        // from the store.
+        // Create separate store update for deletions, because we want to update cache
+        // and don't want to remove nodes from the store.
         let mut deletions_store_update = self.store().store_update();
         for mut wrapped_trie_changes in self.trie_changes.drain(..) {
             wrapped_trie_changes.insertions_into(&mut store_update);
@@ -3203,8 +3246,9 @@ mod tests {
         assert_ne!(epoch_id_to_hash, epoch_id_to_hash1);
     }
 
-    /// Test that garbage collection works properly. The blocks behind gc head should be garbage
-    /// collected while the blocks that are ahead of it should not.
+    /// Test that garbage collection works properly. The blocks behind gc head
+    /// should be garbage collected while the blocks that are ahead of it
+    /// should not.
     #[test]
     fn test_clear_old_data() {
         let mut chain = get_chain_with_epoch_length(1);
@@ -3465,7 +3509,8 @@ mod tests {
             store_update.update_tail(1).unwrap();
             store_update.commit().unwrap();
         }
-        // Chunk tail should be auto updated to genesis (if not set) and fork_tail to the tail.
+        // Chunk tail should be auto updated to genesis (if not set) and fork_tail to
+        // the tail.
         {
             let store_update = chain.mut_store().store_update();
             assert_eq!(store_update.tail().unwrap(), 1);

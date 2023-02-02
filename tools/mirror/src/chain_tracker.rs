@@ -118,8 +118,9 @@ struct NonceInfo {
     txs_awaiting_nonce: BTreeSet<TxRef>,
 }
 
-// Keeps the queue of upcoming transactions and provides them in regular intervals via next_batch()
-// Also keeps track of txs we've sent so far and looks for them on chain, for metrics/logging purposes.
+// Keeps the queue of upcoming transactions and provides them in regular
+// intervals via next_batch() Also keeps track of txs we've sent so far and
+// looks for them on chain, for metrics/logging purposes.
 #[derive(Default)]
 pub(crate) struct TxTracker {
     sent_txs: HashMap<CryptoHash, TxSendInfo>,
@@ -139,18 +140,21 @@ pub(crate) struct TxTracker {
     height_popped: Option<BlockHeight>,
     height_seen: Option<BlockHeight>,
     send_time: Option<Pin<Box<tokio::time::Sleep>>>,
-    // Config value in the target chain, used to judge how long to wait before sending a new batch of txs
+    // Config value in the target chain, used to judge how long to wait before sending a new batch
+    // of txs
     min_block_production_delay: Duration,
-    // timestamps in the target chain, used to judge how long to wait before sending a new batch of txs
+    // timestamps in the target chain, used to judge how long to wait before sending a new batch of
+    // txs
     recent_block_timestamps: VecDeque<u64>,
     // last source block we'll be sending transactions for
     stop_height: Option<BlockHeight>,
 }
 
 impl TxTracker {
-    // `next_heights` should show the next several valid heights in the chain, starting from
-    // the first block we want to send txs for. Right now we are assuming this arg is not empty when
-    // we unwrap() self.height_queued() in Self::next_heights()
+    // `next_heights` should show the next several valid heights in the chain,
+    // starting from the first block we want to send txs for. Right now we are
+    // assuming this arg is not empty when we unwrap() self.height_queued() in
+    // Self::next_heights()
     pub(crate) fn new<'a, I>(
         min_block_production_delay: Duration,
         next_heights: I,
@@ -168,8 +172,8 @@ impl TxTracker {
         source_chain: &T,
     ) -> anyhow::Result<(Option<BlockHeight>, Option<BlockHeight>)> {
         while self.next_heights.len() <= crate::CREATE_ACCOUNT_DELTA {
-            // we unwrap() the height_queued because Self::new() should have been called with
-            // nonempty next_heights.
+            // we unwrap() the height_queued because Self::new() should have been called
+            // with nonempty next_heights.
             let h = self
                 .next_heights
                 .iter()
@@ -242,7 +246,8 @@ impl TxTracker {
                         };
                     }
                     // TODO: this ugliness is because we are not keeping track of what we have
-                    // modified on disk and what has been modified in memory. need to fix w/ a struct StoreUpdate
+                    // modified on disk and what has been modified in memory. need to fix w/ a
+                    // struct StoreUpdate
                     t = crate::read_target_nonce(db, &access_key.0, &access_key.1)?.unwrap();
                     t.nonce = std::cmp::max(t.nonce, nonce);
                     crate::put_target_nonce(db, &access_key.0, &access_key.1, &t)?;
@@ -403,9 +408,9 @@ impl TxTracker {
         target_view_client: &Addr<ViewClientActor>,
         db: &DB,
     ) -> anyhow::Result<&mut MappedBlock> {
-        // sleep until 20 milliseconds before we want to send transactions before we check for nonces
-        // in the target chain. In the second or so between now and then, we might process another block
-        // that will set the nonces.
+        // sleep until 20 milliseconds before we want to send transactions before we
+        // check for nonces in the target chain. In the second or so between now
+        // and then, we might process another block that will set the nonces.
         if let Some(s) = &self.send_time {
             tokio::time::sleep_until(s.as_ref().deadline() - Duration::from_millis(20)).await;
         }
@@ -474,8 +479,9 @@ impl TxTracker {
                 if !txs.remove(&TxId { hash: tx.transaction.hash, nonce: tx.transaction.nonce }) {
                     tracing::warn!(target: "mirror", "tried to remove nonexistent tx {} from txs_by_signer", tx.transaction.hash);
                 }
-                // split off from hash: default() since that's the smallest hash, which will leave us with every tx with nonce
-                // greater than this one in txs_left.
+                // split off from hash: default() since that's the smallest hash, which will
+                // leave us with every tx with nonce greater than this one in
+                // txs_left.
                 let txs_left = txs.split_off(&TxId {
                     hash: CryptoHash::default(),
                     nonce: tx.transaction.nonce + 1,
@@ -792,8 +798,8 @@ impl TxTracker {
             tx.target_tx.transaction.signer_id.clone(),
             tx.target_tx.transaction.public_key.clone(),
         );
-        // TODO: don't keep adding txs if we're not ever finding them on chain, since we'll OOM eventually
-        // if that happens.
+        // TODO: don't keep adding txs if we're not ever finding them on chain, since
+        // we'll OOM eventually if that happens.
         self.sent_txs.insert(hash, TxSendInfo::new(&tx, tx_ref.source_height, target_height, now));
         let txs = self.txs_by_signer.entry(access_key.clone()).or_default();
 
@@ -889,10 +895,11 @@ impl TxTracker {
         Ok(())
     }
 
-    // among the last 10 blocks, what's the second longest time between their timestamps?
-    // probably there's a better heuristic to use than that but this will do for now.
-    // TODO: it's possible these tiimestamps are just increasing by one nanosecond each time
-    // if block producers' clocks are off. should handle that case
+    // among the last 10 blocks, what's the second longest time between their
+    // timestamps? probably there's a better heuristic to use than that but this
+    // will do for now. TODO: it's possible these tiimestamps are just
+    // increasing by one nanosecond each time if block producers' clocks are
+    // off. should handle that case
     fn second_longest_recent_block_delay(&self) -> Option<Duration> {
         if self.recent_block_timestamps.len() < 5 {
             return None;
@@ -1019,7 +1026,8 @@ impl TxTracker {
         block
     }
 
-    // We just successfully sent some transactions. Remember them so we can see if they really show up on chain.
+    // We just successfully sent some transactions. Remember them so we can see if
+    // they really show up on chain.
     pub(crate) async fn on_txs_sent(
         &mut self,
         target_view_client: &Addr<ViewClientActor>,

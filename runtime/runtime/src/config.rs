@@ -20,11 +20,12 @@ use near_primitives::version::{is_implicit_account_creation_enabled, ProtocolVer
 /// Describes the cost of converting this transaction into a receipt.
 #[derive(Debug)]
 pub struct TransactionCost {
-    /// Total amount of gas burnt for converting this transaction into a receipt.
+    /// Total amount of gas burnt for converting this transaction into a
+    /// receipt.
     pub gas_burnt: Gas,
-    /// The remaining amount of gas used for converting this transaction into a receipt.
-    /// It includes gas that is not yet spent, e.g. prepaid gas for function calls and
-    /// future execution fees.
+    /// The remaining amount of gas used for converting this transaction into a
+    /// receipt. It includes gas that is not yet spent, e.g. prepaid gas for
+    /// function calls and future execution fees.
     pub gas_remaining: Gas,
     /// The gas price at which the gas was purchased in the receipt.
     pub receipt_gas_price: Balance,
@@ -34,7 +35,8 @@ pub struct TransactionCost {
     pub burnt_amount: Balance,
 }
 
-/// Multiplies `gas_price` by the power of `inflation_base` with exponent `inflation_exponent`.
+/// Multiplies `gas_price` by the power of `inflation_base` with exponent
+/// `inflation_exponent`.
 pub fn safe_gas_price_inflated(
     gas_price: Balance,
     inflation_base: Rational32,
@@ -145,11 +147,12 @@ pub fn total_send_fees(
     Ok(result)
 }
 
-/// Total sum of gas that needs to be burnt to send the inner actions of DelegateAction
+/// Total sum of gas that needs to be burnt to send the inner actions of
+/// DelegateAction
 ///
-/// This is only relevant for DelegateAction, where the send fees of the inner actions
-/// need to be prepaid. All other actions burn send fees directly, so calling this function
-/// with other actions will return 0.
+/// This is only relevant for DelegateAction, where the send fees of the inner
+/// actions need to be prepaid. All other actions burn send fees directly, so
+/// calling this function with other actions will return 0.
 #[cfg(feature = "protocol_feature_nep366_delegate_action")]
 pub fn total_prepaid_send_fees(
     config: &RuntimeFeesConfig,
@@ -180,11 +183,12 @@ pub fn total_prepaid_send_fees(
     Ok(result)
 }
 
-/// Total sum of gas that needs to be burnt to send the inner actions of DelegateAction
+/// Total sum of gas that needs to be burnt to send the inner actions of
+/// DelegateAction
 ///
-/// This is only relevant for DelegateAction, where the send fees of the inner actions
-/// need to be prepaid. All other actions burn send fees directly, so calling this function
-/// with other actions will return 0.
+/// This is only relevant for DelegateAction, where the send fees of the inner
+/// actions need to be prepaid. All other actions burn send fees directly, so
+/// calling this function with other actions will return 0.
 #[cfg(not(feature = "protocol_feature_nep366_delegate_action"))]
 pub fn total_prepaid_send_fees(
     _config: &RuntimeFeesConfig,
@@ -268,8 +272,9 @@ pub fn tx_cost(
         total_prepaid_gas(&transaction.actions)?,
         total_prepaid_send_fees(config, &transaction.actions, current_protocol_version)?,
     )?;
-    // If signer is equals to receiver the receipt will be processed at the same block as this
-    // transaction. Otherwise it will processed in the next block and the gas might be inflated.
+    // If signer is equals to receiver the receipt will be processed at the same
+    // block as this transaction. Otherwise it will processed in the next block
+    // and the gas might be inflated.
     let initial_receipt_hop = if transaction.signer_id == transaction.receiver_id { 0 } else { 1 };
     let minimum_new_receipt_gas = config.min_receipt_with_function_call_gas();
     // In case the config is free, we don't care about the maximum depth.
@@ -305,7 +310,8 @@ pub fn tx_cost(
     Ok(TransactionCost { gas_burnt, gas_remaining, receipt_gas_price, total_cost, burnt_amount })
 }
 
-/// Total sum of gas that would need to be burnt before we start executing the given actions.
+/// Total sum of gas that would need to be burnt before we start executing the
+/// given actions.
 pub fn total_prepaid_exec_fees(
     config: &RuntimeFeesConfig,
     actions: &[Action],
@@ -316,7 +322,8 @@ pub fn total_prepaid_exec_fees(
     for action in actions {
         #[cfg_attr(not(feature = "protocol_feature_nep366_delegate_action"), allow(unused_mut))]
         let mut delta;
-        // In case of Action::Delegate it's needed to add Gas which is required for the inner actions.
+        // In case of Action::Delegate it's needed to add Gas which is required for the
+        // inner actions.
         #[cfg(feature = "protocol_feature_nep366_delegate_action")]
         if let Action::Delegate(signed_delegate_action) = action {
             let actions = signed_delegate_action.delegate_action.get_actions();

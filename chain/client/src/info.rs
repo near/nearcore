@@ -36,7 +36,8 @@ struct ValidatorInfoHelper {
     pub num_validators: usize,
 }
 
-/// A helper that prints information about current chain and reports to telemetry.
+/// A helper that prints information about current chain and reports to
+/// telemetry.
 pub struct InfoHelper {
     /// Nearcore agent (executable) version
     nearcore_version: Version,
@@ -296,10 +297,10 @@ impl InfoHelper {
         // TODO: Deprecated.
         (metrics::AVG_TGAS_USAGE.set((avg_gas_used as f64 / TERAGAS).round() as i64));
 
-        // In case we can't get the list of validators for the current and the previous epoch,
-        // skip updating the per-validator metrics.
-        // Note that the metrics are set to 0 for previous epoch validators who are no longer
-        // validators.
+        // In case we can't get the list of validators for the current and the previous
+        // epoch, skip updating the per-validator metrics.
+        // Note that the metrics are set to 0 for previous epoch validators who are no
+        // longer validators.
         for stats in validator_epoch_stats {
             (metrics::VALIDATORS_BLOCKS_PRODUCED
                 .with_label_values(&[stats.account_id.as_str()])

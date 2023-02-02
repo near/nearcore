@@ -8,13 +8,13 @@ use crate::types::{
     PartialEncodedChunkResponseMsg,
 };
 
-/// The interface of the ShardsManager for the networking component. Note that this is defined
-/// in near-network and not in near-chunks because near-chunks has a dependency on
-/// near-network.
+/// The interface of the ShardsManager for the networking component. Note that
+/// this is defined in near-network and not in near-chunks because near-chunks
+/// has a dependency on near-network.
 pub trait ShardsManagerAdapterForNetwork: Send + Sync + 'static {
     /// Processes a PartialEncodedChunk received from the network.
-    /// These are received from chunk producers, containing owned parts and tracked
-    /// receipt proofs.
+    /// These are received from chunk producers, containing owned parts and
+    /// tracked receipt proofs.
     fn process_partial_encoded_chunk(&self, partial_encoded_chunk: PartialEncodedChunk);
     /// Processes a PartialEncodedChunkForwardMsg received from the network.
     /// These are received from part owners as an optimization (of the otherwise

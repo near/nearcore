@@ -51,8 +51,9 @@ fn assert_zero_balance_account(env: &mut TestEnv, account_id: &AccountId) {
     }
 }
 
-/// Test 2 things: 1) a valid zero balance account can be created and 2) a nonzero balance account
-/// (one with a contract deployed) cannot be created without maintaining an initial balance
+/// Test 2 things: 1) a valid zero balance account can be created and 2) a
+/// nonzero balance account (one with a contract deployed) cannot be created
+/// without maintaining an initial balance
 #[cfg(feature = "nightly_protocol")]
 #[test]
 fn test_zero_balance_account_creation() {
@@ -88,7 +89,8 @@ fn test_zero_balance_account_creation() {
     // new account should have been created
     assert_zero_balance_account(&mut env, &new_account_id);
 
-    // create a zero balance account with contract deployed. The transaction should fail
+    // create a zero balance account with contract deployed. The transaction should
+    // fail
     let new_account_id: AccountId = "hell.test0".parse().unwrap();
     let create_account_tx = SignedTransaction::create_contract(
         2,
@@ -116,9 +118,9 @@ fn test_zero_balance_account_creation() {
     );
 }
 
-/// Test that if a zero balance account becomes a regular account (through adding more keys),
-/// it has to pay for storage cost of the account structure and the keys that
-/// it didn't have to pay while it was a zero balance account.
+/// Test that if a zero balance account becomes a regular account (through
+/// adding more keys), it has to pay for storage cost of the account structure
+/// and the keys that it didn't have to pay while it was a zero balance account.
 #[cfg(feature = "nightly_protocol")]
 #[test]
 fn test_zero_balance_account_add_key() {
@@ -194,8 +196,8 @@ fn test_zero_balance_account_add_key() {
         env.produce_block(0, i);
     }
 
-    // since the account is no longer zero balance account, it cannot transfer all its tokens out
-    // and must keep some amount for storage staking
+    // since the account is no longer zero balance account, it cannot transfer all
+    // its tokens out and must keep some amount for storage staking
     let send_money_tx = SignedTransaction::send_money(
         nonce + 10,
         new_account_id.clone(),
@@ -227,8 +229,8 @@ fn test_zero_balance_account_add_key() {
     assert_zero_balance_account(&mut env, &new_account_id);
 }
 
-/// Test that zero balance accounts cannot be created before the upgrade but can succeed after
-/// the protocol upgrade
+/// Test that zero balance accounts cannot be created before the upgrade but can
+/// succeed after the protocol upgrade
 #[cfg(feature = "nightly_protocol")]
 #[test]
 fn test_zero_balance_account_upgrade() {
@@ -246,7 +248,8 @@ fn test_zero_balance_account_upgrade() {
     let new_signer =
         InMemorySigner::from_seed(new_account_id.clone(), KeyType::ED25519, "hello.test0");
 
-    // before protocol upgrade, should not be possible to create a zero balance account
+    // before protocol upgrade, should not be possible to create a zero balance
+    // account
     let create_account_tx = SignedTransaction::create_account(
         1,
         signer0.account_id.clone(),

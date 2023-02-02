@@ -102,7 +102,8 @@ fn test_stake_validator() {
             ("test2".parse().unwrap(), amount_staked),
         ]),
         vec![],
-        // only the validator who produced the block in this epoch gets the reward since epoch length is 1
+        // only the validator who produced the block in this epoch gets the reward since epoch
+        // length is 1
         reward(vec![("test1".parse().unwrap(), 0), ("near".parse().unwrap(), 0)]),
         0,
         4,
@@ -111,7 +112,8 @@ fn test_stake_validator() {
     let epoch3 = epoch_manager.get_epoch_id(&h[3]).unwrap();
     assert!(compare_epoch_infos(&epoch_manager.get_epoch_info(&epoch3).unwrap(), &expected3));
 
-    // Start another epoch manager from the same store to check that it saved the state.
+    // Start another epoch manager from the same store to check that it saved the
+    // state.
     let epoch_manager2 = EpochManager::new(
         epoch_manager.store.clone(),
         epoch_manager.config.clone(),
@@ -173,8 +175,8 @@ fn test_validator_change_of_stake() {
 }
 
 /// Test handling forks across the epoch finalization.
-/// Fork with where one BP produces blocks in one chain and 2 BPs are in another chain.
-///     |   | /--1---4------|--7---10------|---13---
+/// Fork with where one BP produces blocks in one chain and 2 BPs are in another
+/// chain.     |   | /--1---4------|--7---10------|---13---
 ///   x-|-0-|-
 ///     |   | \--2---3---5--|---6---8---9--|----11---12--
 /// In upper fork, only test2 left + new validator test4.
@@ -192,7 +194,8 @@ fn test_fork_finalization() {
         setup_default_epoch_manager(validators.clone(), epoch_length, 1, 3, 0, 90, 60);
 
     let h = hash_range((5 * epoch_length - 1) as usize);
-    // Have an alternate set of hashes to use on the other branch to avoid collisions.
+    // Have an alternate set of hashes to use on the other branch to avoid
+    // collisions.
     let h2: Vec<CryptoHash> = h.iter().map(|x| hash(x.as_ref())).collect();
 
     record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
@@ -274,7 +277,8 @@ fn test_fork_finalization() {
         vec![("test1".parse().unwrap(), false), ("test3".parse().unwrap(), false),]
     );
 
-    // Check that if we have a different epoch manager and apply only second branch we get the same results.
+    // Check that if we have a different epoch manager and apply only second branch
+    // we get the same results.
     let mut epoch_manager2 = setup_default_epoch_manager(validators, epoch_length, 1, 3, 0, 90, 60);
     record_block(&mut epoch_manager2, CryptoHash::default(), h[0], 0, vec![]);
     build_branch(&mut epoch_manager2, h[0], &h2, &["test1", "test3"]);
@@ -299,8 +303,9 @@ fn test_one_validator_kickout() {
     );
 
     let h = hash_range(6);
-    // this validator only produces one block every epoch whereas they should have produced 2. However, since
-    // this is the only validator left, we still keep them as validator.
+    // this validator only produces one block every epoch whereas they should have
+    // produced 2. However, since this is the only validator left, we still keep
+    // them as validator.
     record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
     record_block(&mut epoch_manager, h[0], h[2], 2, vec![]);
     record_block(&mut epoch_manager, h[2], h[4], 4, vec![]);
@@ -313,8 +318,9 @@ fn test_one_validator_kickout() {
     check_stake_change(&epoch_info, vec![("test1".parse().unwrap(), amount_staked)]);
 }
 
-/// When computing validator kickout, we should not kickout validators such that the union
-/// of kickout for this epoch and last epoch equals the entire validator set.
+/// When computing validator kickout, we should not kickout validators such that
+/// the union of kickout for this epoch and last epoch equals the entire
+/// validator set.
 #[test]
 fn test_validator_kickout() {
     let amount_staked = 1_000_000;
@@ -384,7 +390,8 @@ fn test_validator_unstake() {
             .unwrap();
     let h = hash_range(8);
     record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
-    // test1 unstakes in epoch 1, and should be kicked out in epoch 3 (validators stored at h2).
+    // test1 unstakes in epoch 1, and should be kicked out in epoch 3 (validators
+    // stored at h2).
     record_block(&mut epoch_manager, h[0], h[1], 1, vec![stake("test1".parse().unwrap(), 0)]);
     record_block(&mut epoch_manager, h[1], h[2], 2, vec![]);
     record_block(&mut epoch_manager, h[2], h[3], 3, vec![]);
@@ -985,7 +992,8 @@ fn test_unstake_and_then_change_stake() {
     let mut epoch_manager = setup_default_epoch_manager(validators, 2, 1, 2, 0, 90, 60);
     let h = hash_range(8);
     record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
-    // test1 unstakes in epoch 1, and should be kicked out in epoch 3 (validators stored at h2).
+    // test1 unstakes in epoch 1, and should be kicked out in epoch 3 (validators
+    // stored at h2).
     record_block(&mut epoch_manager, h[0], h[1], 1, vec![stake("test1".parse().unwrap(), 0)]);
     record_block(
         &mut epoch_manager,
@@ -1015,8 +1023,9 @@ fn test_unstake_and_then_change_stake() {
     );
 }
 
-/// When a block producer fails to produce a block, check that other chunk producers who produce
-/// chunks for that block are not kicked out because of it.
+/// When a block producer fails to produce a block, check that other chunk
+/// producers who produce chunks for that block are not kicked out because of
+/// it.
 #[test]
 fn test_expected_chunks() {
     let stake_amount = 1_000_000;
@@ -1278,7 +1287,8 @@ fn test_epoch_info_aggregator_data_loss() {
     );
 }
 
-/// Aggregator should still work even if there is a reorg past the last final block.
+/// Aggregator should still work even if there is a reorg past the last final
+/// block.
 #[test]
 fn test_epoch_info_aggregator_reorg_past_final_block() {
     let stake_amount = 1_000_000;
@@ -1415,7 +1425,8 @@ fn test_num_missing_blocks() {
     // Build chain 0 <- x <- x <- x <- ( 4 <- 5 ) <- x <- 7
     record_block(&mut em, h[0], h[4], 4, vec![]);
     let epoch_id = em.get_epoch_id(&h[4]).unwrap();
-    // Block 4 is first block after genesis and starts new epoch, but we actually count how many missed blocks have happened since block 0.
+    // Block 4 is first block after genesis and starts new epoch, but we actually
+    // count how many missed blocks have happened since block 0.
     assert_eq!(
         em.get_num_validator_blocks(&epoch_id, &h[4], &"test1".parse().unwrap()).unwrap(),
         count_missing_blocks(&mut em, &epoch_id, 1..5, &[4], "test1"),
@@ -1427,15 +1438,16 @@ fn test_num_missing_blocks() {
     record_block(&mut em, h[4], h[5], 5, vec![]);
     record_block(&mut em, h[5], h[7], 7, vec![]);
     let epoch_id = em.get_epoch_id(&h[7]).unwrap();
-    // The next epoch started after 5 with 6, and test2 missed their slot from perspective of block 7.
+    // The next epoch started after 5 with 6, and test2 missed their slot from
+    // perspective of block 7.
     assert_eq!(
         em.get_num_validator_blocks(&epoch_id, &h[7], &"test2".parse().unwrap()).unwrap(),
         count_missing_blocks(&mut em, &epoch_id, 6..8, &[7], "test2"),
     );
 }
 
-/// Test when blocks are all produced, validators can be kicked out because of not producing
-/// enough chunks
+/// Test when blocks are all produced, validators can be kicked out because of
+/// not producing enough chunks
 #[test]
 fn test_chunk_validator_kickout() {
     let stake_amount = 1_000_000;
@@ -1531,7 +1543,8 @@ fn test_compare_epoch_id() {
     let mut epoch_manager = setup_default_epoch_manager(validators, 2, 1, 2, 0, 90, 60);
     let h = hash_range(8);
     record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
-    // test1 unstakes in epoch 1, and should be kicked out in epoch 3 (validators stored at h2).
+    // test1 unstakes in epoch 1, and should be kicked out in epoch 3 (validators
+    // stored at h2).
     record_block(&mut epoch_manager, h[0], h[1], 1, vec![stake("test1".parse().unwrap(), 0)]);
     record_block(
         &mut epoch_manager,
@@ -1655,8 +1668,8 @@ fn test_validator_consistency() {
     }
 }
 
-/// Test that when epoch length is larger than the cache size of block info cache, there is
-/// no unexpected error.
+/// Test that when epoch length is larger than the cache size of block info
+/// cache, there is no unexpected error.
 #[test]
 fn test_finalize_epoch_large_epoch_length() {
     let stake_amount = 1_000;
@@ -2062,7 +2075,8 @@ fn test_fisherman_kickout() {
     // test1 starts as validator,
     // - reduces stake in epoch T, will be fisherman in epoch T+2
     // - Misses a block in epoch T+1, will be kicked out in epoch T+3
-    // - Finalize epoch T+1 => T+3 kicks test1 as fisherman without a record in stake_change
+    // - Finalize epoch T+1 => T+3 kicks test1 as fisherman without a record in
+    //   stake_change
     record_block(&mut epoch_manager, h[1], h[3], 3, vec![]);
 
     let epoch_info2 = epoch_manager.get_epoch_info(&EpochId(h[1])).unwrap();
@@ -2179,7 +2193,8 @@ fn test_protocol_version_switch_with_shard_layout_change() {
     );
 
     // Check split shards
-    // h[5] is the first block of epoch epochs[1] and shard layout will change at epochs[2]
+    // h[5] is the first block of epoch epochs[1] and shard layout will change at
+    // epochs[2]
     assert_eq!(epoch_manager.will_shard_layout_change(&h[3]).unwrap(), false);
     for i in 4..=5 {
         assert_eq!(epoch_manager.will_shard_layout_change(&h[i]).unwrap(), true);
@@ -2307,8 +2322,8 @@ fn test_protocol_version_switch_after_switch() {
     assert_eq!(epoch_infos[3].protocol_version(), UPGRADABILITY_FIX_PROTOCOL_VERSION);
 }
 
-/// Epoch aggregator should not need to be recomputed under the following scenario
-///                      /-----------h+2
+/// Epoch aggregator should not need to be recomputed under the following
+/// scenario                      /-----------h+2
 /// h-2 ---- h-1 ------ h
 ///                      \------h+1
 /// even though from the perspective of h+2 the last final block is h-2.
@@ -2378,8 +2393,9 @@ fn test_epoch_validators_cache() {
 #[test]
 fn test_chunk_producers() {
     let amount_staked = 1_000_000;
-    // Make sure that last validator has at least 160/1'000'000  / num_shards of stake.
-    // We're running with 2 shards and test1 + test2 has 2'000'000 tokens - so chunk_only should have over 160.
+    // Make sure that last validator has at least 160/1'000'000  / num_shards of
+    // stake. We're running with 2 shards and test1 + test2 has 2'000'000 tokens
+    // - so chunk_only should have over 160.
     let validators = vec![
         ("test1".parse().unwrap(), amount_staked),
         ("test2".parse().unwrap(), amount_staked),
@@ -2388,7 +2404,8 @@ fn test_chunk_producers() {
     ];
 
     // There are 2 shards, and 2 block producers seats.
-    // So test1 and test2 should become block producers, and chunk_only should become chunk only producer.
+    // So test1 and test2 should become block producers, and chunk_only should
+    // become chunk only producer.
     let mut epoch_manager = setup_default_epoch_manager(validators, 2, 2, 2, 0, 90, 60);
     let h = hash_range(10);
     record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
@@ -2422,7 +2439,8 @@ fn test_chunk_producers() {
 }
 
 /// A sanity test for the compute_kickout_info function, tests that
-/// the validators that don't meet the block/chunk producer kickout threshold is kicked out
+/// the validators that don't meet the block/chunk producer kickout threshold is
+/// kicked out
 #[test]
 fn test_validator_kickout_sanity() {
     let epoch_config =
@@ -2508,7 +2526,8 @@ fn test_validator_kickout_sanity() {
 }
 
 #[test]
-/// Test that the stake of validators kicked out in an epoch doesn't exceed the max_kickout_stake_ratio
+/// Test that the stake of validators kicked out in an epoch doesn't exceed the
+/// max_kickout_stake_ratio
 fn test_max_kickout_stake_ratio() {
     #[allow(unused_mut)]
     let mut epoch_config =
@@ -2571,8 +2590,8 @@ fn test_max_kickout_stake_ratio() {
         kickouts,
         // We would have kicked out test0, test1, test2 and test4, but test3 was kicked out
         // last epoch. To avoid kicking out all validators in two epochs, we saved test1 because
-        // it produced the most blocks (test1 and test2 produced the same number of blocks, but test1
-        // is listed before test2 in the validators list).
+        // it produced the most blocks (test1 and test2 produced the same number of blocks, but
+        // test1 is listed before test2 in the validators list).
         HashMap::from([
             ("test0".parse().unwrap(), NotEnoughBlocks { produced: 50, expected: 100 }),
             ("test2".parse().unwrap(), NotEnoughBlocks { produced: 70, expected: 100 }),

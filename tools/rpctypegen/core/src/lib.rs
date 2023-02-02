@@ -43,7 +43,8 @@ pub fn parse_error_type(schema: &mut BTreeMap<String, ErrorType>, input: &Derive
                         }
                     }
                     Fields::Named(FieldsNamed { ref named, .. }) => {
-                        // If variant is Enum with a named fields - create a new type for each variant with named props
+                        // If variant is Enum with a named fields - create a new type for each
+                        // variant with named props
                         let mut error_type =
                             ErrorType { name: variant.ident.to_string(), ..Default::default() };
                         for field in named {

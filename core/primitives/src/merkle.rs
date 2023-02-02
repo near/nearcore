@@ -123,7 +123,8 @@ pub fn compute_root_from_path_and_item<T: BorshSerialize>(
 /// when a new leaf is inserted, the existing `path` is its proof.
 /// The root can be computed by folding `path` from right but is not explicitly
 /// maintained to save space.
-/// The size of the object is O(log(n)) where n is the number of leaves in the tree, i.e, `size`.
+/// The size of the object is O(log(n)) where n is the number of leaves in the
+/// tree, i.e, `size`.
 #[derive(Default, Clone, BorshSerialize, BorshDeserialize, Eq, PartialEq, Debug, Serialize)]
 pub struct PartialMerkleTree {
     /// Path for the next leaf.

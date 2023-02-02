@@ -9,19 +9,22 @@ pub struct UnknownInstruction;
 pub trait Rules {
     /// Returns the cost for the passed `instruction`.
     ///
-    /// Returning `None` makes the gas instrumention end with an error. This is meant
-    /// as a way to have a partial rule set where any instruction that is not specifed
-    /// is considered as forbidden.
+    /// Returning `None` makes the gas instrumention end with an error. This is
+    /// meant as a way to have a partial rule set where any instruction that
+    /// is not specifed is considered as forbidden.
     fn instruction_cost(&self, instruction: &Instruction) -> Option<u32>;
 
-    /// Returns the costs for growing the memory using the `memory.grow` instruction.
+    /// Returns the costs for growing the memory using the `memory.grow`
+    /// instruction.
     ///
-    /// Please note that these costs are in addition to the costs specified by `instruction_cost`
-    /// for the `memory.grow` instruction. Specifying `None` leads to no additional charge.
-    /// Those are meant as dynamic costs which take the amount of pages that the memory is
-    /// grown by into consideration. This is not possible using `instruction_cost` because
-    /// those costs depend on the stack and must be injected as code into the function calling
-    /// `memory.grow`. Therefore returning `Some` comes with a performance cost.
+    /// Please note that these costs are in addition to the costs specified by
+    /// `instruction_cost` for the `memory.grow` instruction. Specifying
+    /// `None` leads to no additional charge. Those are meant as dynamic
+    /// costs which take the amount of pages that the memory is
+    /// grown by into consideration. This is not possible using
+    /// `instruction_cost` because those costs depend on the stack and must
+    /// be injected as code into the function calling `memory.grow`.
+    /// Therefore returning `Some` comes with a performance cost.
     fn memory_grow_cost(&self) -> Option<MemoryGrowCost>;
 }
 

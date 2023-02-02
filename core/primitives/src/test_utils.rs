@@ -309,10 +309,10 @@ impl BlockHeader {
 /// Builder class for blocks to make testing easier.
 /// # Examples
 ///
-/// // TODO(mm-near): change it to doc-tested code once we have easy way to create a genesis block.
-/// let signer = EmptyValidatorSigner::default();
-/// let test_block = test_utils::TestBlockBuilder::new(prev, signer).height(33).build();
-///
+/// // TODO(mm-near): change it to doc-tested code once we have easy way to
+/// create a genesis block. let signer = EmptyValidatorSigner::default();
+/// let test_block = test_utils::TestBlockBuilder::new(prev,
+/// signer).height(33).build();
 
 pub struct TestBlockBuilder {
     prev: Block,
@@ -366,7 +366,8 @@ impl TestBlockBuilder {
         self
     }
 
-    /// Updates the merkle tree by adding the previous hash, and updates the new block's merkle_root.
+    /// Updates the merkle tree by adding the previous hash, and updates the new
+    /// block's merkle_root.
     pub fn block_merkle_tree(mut self, block_merkle_tree: &mut PartialMerkleTree) -> Self {
         block_merkle_tree.insert(self.prev.hash().clone());
         self.block_merkle_root = block_merkle_tree.root();
@@ -478,8 +479,8 @@ pub fn encode(xs: &[u64]) -> Vec<u8> {
     xs.iter().flat_map(|it| it.to_le_bytes()).collect()
 }
 
-// Helper function that creates a new signer for a given account, that uses the account name as seed.
-// Should be used only in tests.
+// Helper function that creates a new signer for a given account, that uses the
+// account name as seed. Should be used only in tests.
 pub fn create_test_signer(account_name: &str) -> InMemoryValidatorSigner {
     InMemoryValidatorSigner::from_seed(
         account_name.parse().unwrap(),

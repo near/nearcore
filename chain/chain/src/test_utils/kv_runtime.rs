@@ -68,11 +68,12 @@ use super::ValidatorSchedule;
 pub struct KeyValueRuntime {
     store: Store,
     tries: ShardTries,
-    /// A pre determined list of validator sets. We rotate validator set in this list.
-    /// Epoch i uses validators from `validators_by_valset[i % validators_by_valset.len()]`.
+    /// A pre determined list of validator sets. We rotate validator set in this
+    /// list. Epoch i uses validators from `validators_by_valset[i %
+    /// validators_by_valset.len()]`.
     validators_by_valset: Vec<EpochValidatorSet>,
-    /// Maps from account id to validator stake for all validators, both block producers and
-    /// chunk producers
+    /// Maps from account id to validator stake for all validators, both block
+    /// producers and chunk producers
     validators: HashMap<AccountId, ValidatorStake>,
     num_shards: NumShards,
     tracks_all_shards: bool,
@@ -87,17 +88,18 @@ pub struct KeyValueRuntime {
     hash_to_epoch: RwLock<HashMap<CryptoHash, EpochId>>,
     hash_to_next_epoch_approvals_req: RwLock<HashMap<CryptoHash, bool>>,
     hash_to_next_epoch: RwLock<HashMap<CryptoHash, EpochId>>,
-    /// Maps EpochId to index of `validators_by_valset` to determine validators for an epoch
+    /// Maps EpochId to index of `validators_by_valset` to determine validators
+    /// for an epoch
     hash_to_valset: RwLock<HashMap<EpochId, u64>>,
     epoch_start: RwLock<HashMap<CryptoHash, u64>>,
 }
 
 /// Stores the validator information in an epoch.
 /// Block producers are specified by `block_producers`
-/// Chunk producers have two types, validators who are also block producers and chunk only producers.
-/// Block producers are assigned to shards via `validator_groups`.
-/// Each shard will have `block_producers.len() / validator_groups` of validators who are also block
-/// producers
+/// Chunk producers have two types, validators who are also block producers and
+/// chunk only producers. Block producers are assigned to shards via
+/// `validator_groups`. Each shard will have `block_producers.len() /
+/// validator_groups` of validators who are also block producers
 struct EpochValidatorSet {
     block_producers: Vec<ValidatorStake>,
     /// index of this list is shard_id
@@ -246,7 +248,8 @@ impl KeyValueRuntime {
     /// Get epoch and index of validator set by the hash of previous block.
     /// Note that it also fills in-memory chain info and there is some
     /// assumption that it is called for all previous blocks.
-    /// TODO (#8269): should we call it recursively for previous blocks if info is not found?
+    /// TODO (#8269): should we call it recursively for previous blocks if info
+    /// is not found?
     fn get_epoch_and_valset(
         &self,
         prev_hash: CryptoHash,
@@ -327,8 +330,8 @@ impl KeyValueRuntime {
     }
 
     fn get_valset_for_epoch(&self, epoch_id: &EpochId) -> Result<usize, Error> {
-        // conveniently here if the prev_hash is passed mistakenly instead of the epoch_hash,
-        // the `unwrap` will trigger
+        // conveniently here if the prev_hash is passed mistakenly instead of the
+        // epoch_hash, the `unwrap` will trigger
         Ok(*self
             .hash_to_valset
             .read()
@@ -398,8 +401,9 @@ impl EpochManagerAdapter for KeyValueRuntime {
     fn get_part_owner(&self, epoch_id: &EpochId, part_id: u64) -> Result<AccountId, Error> {
         let validators =
             &self.get_epoch_block_producers_ordered(epoch_id, &CryptoHash::default())?;
-        // if we don't use data_parts and total_parts as part of the formula here, the part owner
-        //     would not depend on height, and tests wouldn't catch passing wrong height here
+        // if we don't use data_parts and total_parts as part of the formula here, the
+        // part owner     would not depend on height, and tests wouldn't catch
+        // passing wrong height here
         let idx = part_id as usize + self.num_data_parts() + self.num_total_parts();
         Ok(validators[idx as usize % validators.len()].0.account_id().clone())
     }
@@ -873,9 +877,9 @@ impl RuntimeAdapter for KeyValueRuntime {
         if self.tracks_all_shards {
             return true;
         }
-        // This `unwrap` here tests that in all code paths we check that the epoch exists before
-        //    we check if we care about a shard. Please do not remove the unwrap, fix the logic of
-        //    the calling function.
+        // This `unwrap` here tests that in all code paths we check that the epoch
+        // exists before    we check if we care about a shard. Please do not
+        // remove the unwrap, fix the logic of    the calling function.
         let epoch_valset = self.get_epoch_and_valset(*parent_hash).unwrap();
         let chunk_producers = self.get_chunk_producers(epoch_valset.1, shard_id);
         if let Some(account_id) = account_id {
@@ -898,9 +902,9 @@ impl RuntimeAdapter for KeyValueRuntime {
         if self.tracks_all_shards {
             return true;
         }
-        // This `unwrap` here tests that in all code paths we check that the epoch exists before
-        //    we check if we care about a shard. Please do not remove the unwrap, fix the logic of
-        //    the calling function.
+        // This `unwrap` here tests that in all code paths we check that the epoch
+        // exists before    we check if we care about a shard. Please do not
+        // remove the unwrap, fix the logic of    the calling function.
         let epoch_valset = self.get_epoch_and_valset(*parent_hash).unwrap();
         let chunk_producers = self
             .get_chunk_producers((epoch_valset.1 + 1) % self.validators_by_valset.len(), shard_id);

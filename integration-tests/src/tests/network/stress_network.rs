@@ -35,11 +35,12 @@ fn make_peer_manager(
     .unwrap()
 }
 
-/// This test spawns several (7) nodes but node 0 crash very frequently and restart.
-/// Other nodes should not panic because node 0 behavior.
+/// This test spawns several (7) nodes but node 0 crash very frequently and
+/// restart. Other nodes should not panic because node 0 behavior.
 ///
-/// If everything goes well this test should panic after the timeout triggered by WaitOrTimeout.
-/// The test is stopped gracefully (no panic) if some node other than node0 panicked.
+/// If everything goes well this test should panic after the timeout triggered
+/// by WaitOrTimeout. The test is stopped gracefully (no panic) if some node
+/// other than node0 panicked.
 ///
 /// This was fixed in (#1954). To reproduce this bug:
 /// ```

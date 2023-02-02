@@ -131,9 +131,10 @@ impl PrepareCmd {
 
 // copied from neard/src/cli.rs
 fn new_actix_system(runtime: tokio::runtime::Runtime) -> actix::SystemRunner {
-    // `with_tokio_rt()` accepts an `Fn()->Runtime`, however we know that this function is called exactly once.
-    // This makes it safe to move out of the captured variable `runtime`, which is done by a trick
-    // using a `swap` of `Cell<Option<Runtime>>`s.
+    // `with_tokio_rt()` accepts an `Fn()->Runtime`, however we know that this
+    // function is called exactly once. This makes it safe to move out of the
+    // captured variable `runtime`, which is done by a trick using a `swap` of
+    // `Cell<Option<Runtime>>`s.
     let runtime_cell = Cell::new(Some(runtime));
     actix::System::with_tokio_rt(|| {
         let r = Cell::new(None);

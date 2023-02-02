@@ -1,5 +1,6 @@
-//! Client is responsible for tracking the chain, chunks, and producing them when needed.
-//! This client works completely synchronously and must be operated by some async actor outside.
+//! Client is responsible for tracking the chain, chunks, and producing them
+//! when needed. This client works completely synchronously and must be operated
+//! by some async actor outside.
 
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
@@ -77,7 +78,8 @@ pub const EPOCH_SYNC_REQUEST_TIMEOUT: Duration = Duration::from_millis(1_000);
 /// How frequently a Epoch Sync response can be sent to a particular peer
 // TODO #3488 set 60_000
 pub const EPOCH_SYNC_PEER_TIMEOUT: Duration = Duration::from_millis(10);
-/// Drop blocks whose height are beyond head + horizon if it is not in the current epoch.
+/// Drop blocks whose height are beyond head + horizon if it is not in the
+/// current epoch.
 const BLOCK_HORIZON: u64 = 500;
 
 /// number of blocks at the epoch start for which we will log more detailed info
@@ -94,7 +96,8 @@ pub struct Client {
     #[cfg(feature = "test_features")]
     pub produce_invalid_tx_in_chunks: bool,
 
-    /// Fast Forward accrued delta height used to calculate fast forwarded timestamps for each block.
+    /// Fast Forward accrued delta height used to calculate fast forwarded
+    /// timestamps for each block.
     #[cfg(feature = "sandbox")]
     pub(crate) accrued_fastforward_delta: near_primitives::types::BlockHeightDelta,
 
@@ -117,8 +120,9 @@ pub struct Client {
     /// Approvals for which we do not have the block yet
     pub pending_approvals:
         lru::LruCache<ApprovalInner, HashMap<AccountId, (Approval, ApprovalType)>>,
-    /// A mapping from a block for which a state sync is underway for the next epoch, and the object
-    /// storing the current status of the state sync and blocks catch up
+    /// A mapping from a block for which a state sync is underway for the next
+    /// epoch, and the object storing the current status of the state sync
+    /// and blocks catch up
     pub catchup_state_syncs:
         HashMap<CryptoHash, (StateSync, HashMap<u64, ShardSyncDownload>, BlocksCatchUpState)>,
     /// Keeps track of information needed to perform the initial Epoch Sync
@@ -133,10 +137,12 @@ pub struct Client {
     pub challenges: HashMap<CryptoHash, Challenge>,
     /// A ReedSolomon instance to reconstruct shard.
     pub rs_for_chunk_production: ReedSolomonWrapper,
-    /// Blocks that have been re-broadcast recently. They should not be broadcast again.
+    /// Blocks that have been re-broadcast recently. They should not be
+    /// broadcast again.
     rebroadcasted_blocks: lru::LruCache<CryptoHash, ()>,
-    /// Last time the head was updated, or our head was rebroadcasted. Used to re-broadcast the head
-    /// again to prevent network from stalling if a large percentage of the network missed a block
+    /// Last time the head was updated, or our head was rebroadcasted. Used to
+    /// re-broadcast the head again to prevent network from stalling if a
+    /// large percentage of the network missed a block
     last_time_head_progress_made: Instant,
 
     /// Block production timing information. Used only for debug purposes.
@@ -148,7 +154,8 @@ pub struct Client {
     /// Cached precomputed set of TIER1 accounts.
     /// See send_network_chain_info().
     tier1_accounts_cache: Option<(EpochId, Arc<AccountKeys>)>,
-    /// Used when it is needed to create flat storage in background for some shards.
+    /// Used when it is needed to create flat storage in background for some
+    /// shards.
     flat_storage_creator: Option<FlatStorageCreator>,
 }
 
@@ -300,8 +307,9 @@ impl Client {
         })
     }
 
-    // Checks if it's been at least `stall_timeout` since the last time the head was updated, or
-    // this method was called. If yes, rebroadcasts the current head.
+    // Checks if it's been at least `stall_timeout` since the last time the head was
+    // updated, or this method was called. If yes, rebroadcasts the current
+    // head.
     pub fn check_head_progress_stalled(&mut self, stall_timeout: Duration) -> Result<(), Error> {
         if Clock::instant() > self.last_time_head_progress_made + stall_timeout
             && !self.sync_status.is_syncing()
@@ -329,7 +337,8 @@ impl Client {
                 ) {
                     self.sharded_tx_pool.remove_transactions(
                         shard_id,
-                        // By now the chunk must be in store, otherwise the block would have been orphaned
+                        // By now the chunk must be in store, otherwise the block would have been
+                        // orphaned
                         self.chain.get_chunk(&chunk_header.chunk_hash()).unwrap().transactions(),
                     );
                 }
@@ -353,7 +362,8 @@ impl Client {
                 ) {
                     self.sharded_tx_pool.reintroduce_transactions(
                         shard_id,
-                        // By now the chunk must be in store, otherwise the block would have been orphaned
+                        // By now the chunk must be in store, otherwise the block would have been
+                        // orphaned
                         self.chain.get_chunk(&chunk_header.chunk_hash()).unwrap().transactions(),
                     );
                 }
@@ -427,9 +437,10 @@ impl Client {
                 // are not yet caught up (e.g. still state syncing).
                 // We reschedule block production.
                 // Alex's comment:
-                // The previous block is not caught up for the next epoch relative to the previous
-                // block, which is the current epoch for this block, so this block cannot be applied
-                // at all yet, block production must to be rescheduled
+                // The previous block is not caught up for the next epoch relative to the
+                // previous block, which is the current epoch for this block, so
+                // this block cannot be applied at all yet, block production
+                // must to be rescheduled
                 debug!(target: "client", "Produce block: prev block is not caught up");
                 return Ok(true);
             }
@@ -485,8 +496,8 @@ impl Client {
             .count()
     }
 
-    /// Produce block if we are block producer for given `next_height` block height.
-    /// Either returns produced block (not applied) or error.
+    /// Produce block if we are block producer for given `next_height` block
+    /// height. Either returns produced block (not applied) or error.
     pub fn produce_block(&mut self, next_height: BlockHeight) -> Result<Option<Block>, Error> {
         let _span = tracing::debug_span!(target: "client", "produce_block", next_height).entered();
         let known_height = self.chain.store().get_latest_known()?.height;
@@ -515,8 +526,9 @@ impl Client {
         let prev_epoch_id = prev.epoch_id().clone();
         let prev_next_bp_hash = *prev.next_bp_hash();
 
-        // Check and update the doomslug tip here. This guarantees that our endorsement will be in the
-        // doomslug witness. Have to do it before checking the ability to produce a block.
+        // Check and update the doomslug tip here. This guarantees that our endorsement
+        // will be in the doomslug witness. Have to do it before checking the
+        // ability to produce a block.
         let _ = self.check_and_update_doomslug_tip()?;
 
         if self.should_reschedule_block(
@@ -619,14 +631,16 @@ impl Client {
         let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
         block_merkle_tree.insert(prev_hash);
         let block_merkle_root = block_merkle_tree.root();
-        // The number of leaves in Block Merkle Tree is the amount of Blocks on the Canonical Chain by construction.
-        // The ordinal of the next Block will be equal to this amount plus one.
+        // The number of leaves in Block Merkle Tree is the amount of Blocks on the
+        // Canonical Chain by construction. The ordinal of the next Block will
+        // be equal to this amount plus one.
         let block_ordinal: NumBlocks = block_merkle_tree.size() + 1;
         let prev_block_extra = self.chain.get_block_extra(&prev_hash)?;
         let prev_block = self.chain.get_block(&prev_hash)?;
         let mut chunks = Chain::get_prev_chunk_headers(&*self.runtime_adapter, &prev_block)?;
 
-        // Add debug information about the block production (and info on when did the chunks arrive).
+        // Add debug information about the block production (and info on when did the
+        // chunks arrive).
         self.block_production_info.record_block_production(
             next_height,
             BlockProductionTracker::construct_chunk_collection_info(
@@ -669,7 +683,8 @@ impl Client {
 
         // Get all the current challenges.
         // TODO(2445): Enable challenges when they are working correctly.
-        // let challenges = self.challenges.drain().map(|(_, challenge)| challenge).collect();
+        // let challenges = self.challenges.drain().map(|(_, challenge)|
+        // challenge).collect();
         let this_epoch_protocol_version =
             self.runtime_adapter.get_epoch_protocol_version(&epoch_id)?;
         let next_epoch_protocol_version =
@@ -698,7 +713,8 @@ impl Client {
             timestamp_override,
         );
 
-        // Update latest known even before returning block out, to prevent race conditions.
+        // Update latest known even before returning block out, to prevent race
+        // conditions.
         self.chain.mut_store().save_latest_known(LatestKnown {
             height: next_height,
             seen: block.header().raw_timestamp(),
@@ -861,7 +877,8 @@ impl Client {
         txs
     }
 
-    /// Prepares an ordered list of valid transactions from the pool up the limits.
+    /// Prepares an ordered list of valid transactions from the pool up the
+    /// limits.
     fn prepare_transactions(
         &mut self,
         shard_id: ShardId,
@@ -882,9 +899,10 @@ impl Client {
                 &next_epoch_id,
                 shard_id,
                 *chunk_extra.state_root(),
-                // while the height of the next block that includes the chunk might not be prev_height + 1,
-                // passing it will result in a more conservative check and will not accidentally allow
-                // invalid transactions to be included.
+                // while the height of the next block that includes the chunk might not be
+                // prev_height + 1, passing it will result in a more conservative
+                // check and will not accidentally allow invalid transactions to be
+                // included.
                 prev_block_header.height() + 1,
                 &mut iter,
                 &mut |tx: &SignedTransaction| -> bool {
@@ -902,8 +920,8 @@ impl Client {
         } else {
             vec![]
         };
-        // Reintroduce valid transactions back to the pool. They will be removed when the chunk is
-        // included into the block.
+        // Reintroduce valid transactions back to the pool. They will be removed when
+        // the chunk is included into the block.
         sharded_tx_pool.reintroduce_transactions(shard_id, &transactions);
         Ok(transactions)
     }
@@ -923,8 +941,10 @@ impl Client {
         }
     }
 
-    /// Processes received block. Ban peer if the block header is invalid or the block is ill-formed.
-    // This function is just a wrapper for process_block_impl that makes error propagation easier.
+    /// Processes received block. Ban peer if the block header is invalid or the
+    /// block is ill-formed.
+    // This function is just a wrapper for process_block_impl that makes error
+    // propagation easier.
     pub fn receive_block(
         &mut self,
         block: Block,
@@ -975,10 +995,11 @@ impl Client {
     }
 
     /// Processes received block.
-    /// This function first does some pre-check based on block height to avoid processing
-    /// blocks multiple times.
-    /// Then it process the block header. If the header if valid, broadcast the block to its peers
-    /// Then it starts the block processing process to process the full block.
+    /// This function first does some pre-check based on block height to avoid
+    /// processing blocks multiple times.
+    /// Then it process the block header. If the header if valid, broadcast the
+    /// block to its peers Then it starts the block processing process to
+    /// process the full block.
     pub(crate) fn receive_block_impl(
         &mut self,
         block: Block,
@@ -987,8 +1008,8 @@ impl Client {
         apply_chunks_done_callback: DoneApplyChunkCallback,
     ) -> Result<(), near_chain::Error> {
         self.chain.blocks_delay_tracker.mark_block_received(&block, Clock::instant(), Clock::utc());
-        // To protect ourselves from spamming, we do some pre-check on block height before we do any
-        // real processing.
+        // To protect ourselves from spamming, we do some pre-check on block height
+        // before we do any real processing.
         if !self.check_block_height(&block, was_requested)? {
             self.chain
                 .blocks_delay_tracker
@@ -1012,8 +1033,9 @@ impl Client {
         res
     }
 
-    /// To protect ourselves from spamming, we do some pre-check on block height before we do any
-    /// processing. This function returns true if the block height is valid.
+    /// To protect ourselves from spamming, we do some pre-check on block height
+    /// before we do any processing. This function returns true if the block
+    /// height is valid.
     fn check_block_height(
         &self,
         block: &Block,
@@ -1030,8 +1052,9 @@ impl Client {
             debug!(target: "client", tail_height = tail, "Dropping a block that is too far behind.");
             return Ok(false);
         }
-        // drop the block if a) it is not requested, b) we already processed this height,
-        //est-utils/actix-test-utils/src/lib.rs c) it is not building on top of current head
+        // drop the block if a) it is not requested, b) we already processed this
+        // height, est-utils/actix-test-utils/src/lib.rs c) it is not building
+        // on top of current head
         if !was_requested
             && block.header().prev_hash()
                 != &self
@@ -1047,10 +1070,11 @@ impl Client {
         Ok(true)
     }
 
-    /// Verify the block and rebroadcast it if it is valid, ban the peer if it's invalid.
-    /// Ignore all other errors because the full block will be processed later.
-    /// Note that this happens before the full block processing logic because we want blocks to be
-    /// propagated in the network fast.
+    /// Verify the block and rebroadcast it if it is valid, ban the peer if it's
+    /// invalid. Ignore all other errors because the full block will be
+    /// processed later. Note that this happens before the full block
+    /// processing logic because we want blocks to be propagated in the
+    /// network fast.
     fn verify_and_rebroadcast_block(
         &mut self,
         block: &MaybeValidated<Block>,
@@ -1073,9 +1097,10 @@ impl Client {
                 Ok(())
             }
             Err(e) if e.is_bad_data() => {
-                // We don't ban a peer if the block timestamp is too much in the future since it's possible
-                // that a block is considered valid in one machine and invalid in another machine when their
-                // clocks are not synced.
+                // We don't ban a peer if the block timestamp is too much in the future since
+                // it's possible that a block is considered valid in one machine
+                // and invalid in another machine when their clocks are not
+                // synced.
                 if !matches!(e, near_chain::Error::InvalidBlockFutureTime(_)) {
                     self.ban_peer(peer_id.clone(), ReasonForBan::BadBlockHeader);
                 }
@@ -1092,10 +1117,11 @@ impl Client {
         }
     }
 
-    /// Start the processing of a block. Note that this function will return before
-    /// the full processing is finished because applying chunks is done asynchronously
-    /// in the rayon thread pool.
-    /// `apply_chunks_done_callback`: a callback that will be called when applying chunks is finished.
+    /// Start the processing of a block. Note that this function will return
+    /// before the full processing is finished because applying chunks is
+    /// done asynchronously in the rayon thread pool.
+    /// `apply_chunks_done_callback`: a callback that will be called when
+    /// applying chunks is finished.
     pub fn start_process_block(
         &mut self,
         block: MaybeValidated<Block>,
@@ -1154,8 +1180,8 @@ impl Client {
         result
     }
 
-    /// Check if there are any blocks that has finished applying chunks, run post processing on these
-    /// blocks.
+    /// Check if there are any blocks that has finished applying chunks, run
+    /// post processing on these blocks.
     pub fn postprocess_ready_blocks(
         &mut self,
         apply_chunks_done_callback: DoneApplyChunkCallback,
@@ -1191,8 +1217,8 @@ impl Client {
         (accepted_blocks_hashes, errors)
     }
 
-    /// Process the result of block processing from chain, finish the steps that can't be done
-    /// in chain, including
+    /// Process the result of block processing from chain, finish the steps that
+    /// can't be done in chain, including
     ///  - sending challenges
     ///  - requesting missing chunks
     pub(crate) fn process_block_processing_artifact(
@@ -1207,8 +1233,8 @@ impl Client {
         } = block_processing_artifacts;
         // Send out challenges that accumulated via on_challenge.
         self.send_challenges(challenges);
-        // For any missing chunk, let the ShardsManager know of the chunk header so that it may
-        // apply forwarded parts. This may end up completing the chunk.
+        // For any missing chunk, let the ShardsManager know of the chunk header so that
+        // it may apply forwarded parts. This may end up completing the chunk.
         let missing_chunks = blocks_missing_chunks
             .iter()
             .flat_map(|block| block.missing_chunks.iter())
@@ -1261,7 +1287,8 @@ impl Client {
         }
     }
 
-    /// Called asynchronously when the ShardsManager finishes processing a chunk.
+    /// Called asynchronously when the ShardsManager finishes processing a
+    /// chunk.
     pub fn on_chunk_completed(
         &mut self,
         partial_chunk: PartialEncodedChunk,
@@ -1276,12 +1303,13 @@ impl Client {
             .expect("Could not persist chunk");
         // We're marking chunk as accepted.
         self.chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());
-        // If this was the last chunk that was missing for a block, it will be processed now.
+        // If this was the last chunk that was missing for a block, it will be processed
+        // now.
         self.process_blocks_with_missing_chunks(apply_chunks_done_callback)
     }
 
-    /// Called asynchronously when the ShardsManager finishes processing a chunk but the chunk
-    /// is invalid.
+    /// Called asynchronously when the ShardsManager finishes processing a chunk
+    /// but the chunk is invalid.
     pub fn on_invalid_chunk(&mut self, encoded_chunk: EncodedShardChunk) {
         let mut update = self.chain.mut_store().store_update();
         update.save_invalid_chunk(encoded_chunk);
@@ -1316,7 +1344,8 @@ impl Client {
         Ok(())
     }
 
-    /// Checks if the latest hash known to Doomslug matches the current head, and updates it if not.
+    /// Checks if the latest hash known to Doomslug matches the current head,
+    /// and updates it if not.
     pub fn check_and_update_doomslug_tip(&mut self) -> Result<(), Error> {
         let tip = self.chain.head()?;
 
@@ -1356,7 +1385,8 @@ impl Client {
         Ok(())
     }
 
-    /// Gets the advanced timestamp delta in nanoseconds for sandbox once it has been fast-forwarded
+    /// Gets the advanced timestamp delta in nanoseconds for sandbox once it has
+    /// been fast-forwarded
     #[cfg(feature = "sandbox")]
     pub fn sandbox_delta_time(&self) -> chrono::Duration {
         let avg_block_prod_time = (self.config.min_block_production_delay.as_nanos()
@@ -1398,7 +1428,8 @@ impl Client {
 
     /// Gets called when block got accepted.
     /// Only produce chunk if `skip_produce_chunk` is false.
-    /// `skip_produce_chunk` is set to true to simulate when there are missing chunks in a block
+    /// `skip_produce_chunk` is set to true to simulate when there are missing
+    /// chunks in a block
     pub fn on_block_accepted_with_optional_chunk_produce(
         &mut self,
         block_hash: CryptoHash,
@@ -1417,7 +1448,8 @@ impl Client {
         let _ = self.check_and_update_doomslug_tip();
 
         // If we produced the block, then it should have already been broadcasted.
-        // If received the block from another node then broadcast "header first" to minimize network traffic.
+        // If received the block from another node then broadcast "header first" to
+        // minimize network traffic.
         if provenance == Provenance::NONE {
             let endorsements = self
                 .pending_approvals
@@ -1464,8 +1496,9 @@ impl Client {
         }
 
         if let Some(validator_signer) = self.validator_signer.clone() {
-            // Reconcile the txpool against the new block *after* we have broadcast it too our peers.
-            // This may be slow and we do not want to delay block propagation.
+            // Reconcile the txpool against the new block *after* we have broadcast it too
+            // our peers. This may be slow and we do not want to delay block
+            // propagation.
             let validator_id = validator_signer.validator_id().clone();
             match status {
                 BlockStatus::Next => {
@@ -1714,13 +1747,15 @@ impl Client {
     /// We send the approval to doomslug given the epoch of the current tip iff:
     ///  1. We are the block producer for the target height in the tip's epoch;
     ///  2. The signature matches that of the account;
-    /// If we are not the block producer, but we also don't know the previous block, we add the
-    /// approval to `pending_approvals`, since it could be that the approval is from the next epoch.
+    /// If we are not the block producer, but we also don't know the previous
+    /// block, we add the approval to `pending_approvals`, since it could be
+    /// that the approval is from the next epoch.
     ///
     /// # Arguments
     /// * `approval` - the approval to be collected
-    /// * `approval_type`  - whether the approval was just produced by us (in which case skip validation,
-    ///                      only check whether we are the next block producer and store in Doomslug)
+    /// * `approval_type`  - whether the approval was just produced by us (in
+    ///   which case skip validation, only check whether we are the next block
+    ///   producer and store in Doomslug)
     pub fn collect_block_approval(&mut self, approval: &Approval, approval_type: ApprovalType) {
         let Approval { inner, account_id, target_height, signature } = approval;
 
@@ -1767,13 +1802,15 @@ impl Client {
 
         if let ApprovalType::PeerApproval(_) = approval_type {
             // Check signature is correct for given validator.
-            // Note that on the epoch boundary the blocks contain approvals from both the current
-            // and the next epoch. Here we try to fetch the validator for the epoch of the next block,
-            // if we succeed, it must use the key from that epoch, and thus we use the epoch of the
-            // next block below when verifying the signature. Otherwise, if the block producer doesn't
-            // exist in the epoch of the next block, we use the epoch after next to validate the
-            // signature. We don't care here if the block is actually on the epochs boundary yet,
-            // `Doomslug::on_approval_message` below will handle it.
+            // Note that on the epoch boundary the blocks contain approvals from both the
+            // current and the next epoch. Here we try to fetch the validator
+            // for the epoch of the next block, if we succeed, it must use the
+            // key from that epoch, and thus we use the epoch of the next block
+            // below when verifying the signature. Otherwise, if the block producer doesn't
+            // exist in the epoch of the next block, we use the epoch after next to validate
+            // the signature. We don't care here if the block is actually on the
+            // epochs boundary yet, `Doomslug::on_approval_message` below will
+            // handle it.
             let validator_epoch_id = match self.runtime_adapter.get_validator_by_account_id(
                 &next_block_epoch_id,
                 &parent_hash,
@@ -1901,7 +1938,8 @@ impl Client {
         })
     }
 
-    /// If we are close to epoch boundary, return next epoch id, otherwise return None.
+    /// If we are close to epoch boundary, return next epoch id, otherwise
+    /// return None.
     fn get_next_epoch_id_if_at_boundary(&self, head: &Tip) -> Result<Option<EpochId>, Error> {
         let next_epoch_started =
             self.runtime_adapter.is_next_block_epoch_start(&head.last_block_hash)?;
@@ -1921,8 +1959,8 @@ impl Client {
         }
     }
 
-    /// If we're a validator in one of the next few chunks, but epoch switch could happen soon,
-    /// we forward to a validator from next epoch.
+    /// If we're a validator in one of the next few chunks, but epoch switch
+    /// could happen soon, we forward to a validator from next epoch.
     fn possibly_forward_tx_to_next_epoch(&mut self, tx: &SignedTransaction) -> Result<(), Error> {
         let head = self.chain.head()?;
         if let Some(next_epoch_id) = self.get_next_epoch_id_if_at_boundary(&head)? {
@@ -1933,7 +1971,8 @@ impl Client {
         Ok(())
     }
 
-    /// Process transaction and either add it to the mempool or return to redirect to another validator.
+    /// Process transaction and either add it to the mempool or return to
+    /// redirect to another validator.
     fn process_tx_internal(
         &mut self,
         tx: &SignedTransaction,
@@ -1944,9 +1983,9 @@ impl Client {
         let me = self.validator_signer.as_ref().map(|vs| vs.validator_id());
         let cur_block_header = self.chain.head_header()?;
         let transaction_validity_period = self.chain.transaction_validity_period;
-        // here it is fine to use `cur_block_header` as it is a best effort estimate. If the transaction
-        // were to be included, the block that the chunk points to will have height >= height of
-        // `cur_block_header`.
+        // here it is fine to use `cur_block_header` as it is a best effort estimate. If
+        // the transaction were to be included, the block that the chunk points
+        // to will have height >= height of `cur_block_header`.
         if let Err(e) = self.chain.store().check_transaction_validity_period(
             &cur_block_header,
             &tx.transaction.block_hash,
@@ -2000,8 +2039,8 @@ impl Client {
             } else {
                 let active_validator = self.active_validator(shard_id)?;
 
-                // TODO #6713: Transactions don't need to be recorded if the node is not a validator
-                // for the shard.
+                // TODO #6713: Transactions don't need to be recorded if the node is not a
+                // validator for the shard.
                 // If I'm not an active validator I should forward tx to next validators.
                 self.sharded_tx_pool.insert_transaction(shard_id, tx.clone());
                 trace!(target: "client", shard_id, "Recorded a transaction.");
@@ -2038,14 +2077,16 @@ impl Client {
                 debug!(target: "client", "Received forwarded transaction but no tracking shard {}, I'm {:?}", shard_id, me);
                 return Ok(ProcessTxResponse::NoResponse);
             }
-            // We are not tracking this shard, so there is no way to validate this tx. Just rerouting.
+            // We are not tracking this shard, so there is no way to validate this tx. Just
+            // rerouting.
 
             self.forward_tx(&epoch_id, tx)?;
             Ok(ProcessTxResponse::RequestRouted)
         }
     }
 
-    /// Determine if I am a validator in next few blocks for specified shard, assuming epoch doesn't change.
+    /// Determine if I am a validator in next few blocks for specified shard,
+    /// assuming epoch doesn't change.
     fn active_validator(&self, shard_id: ShardId) -> Result<bool, Error> {
         let head = self.chain.head()?;
         let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(&head.last_block_hash)?;
@@ -2066,7 +2107,8 @@ impl Client {
         Ok(false)
     }
 
-    /// Walks through all the ongoing state syncs for future epochs and processes them
+    /// Walks through all the ongoing state syncs for future epochs and
+    /// processes them
     pub fn run_catchup(
         &mut self,
         highest_height_peers: &[HighestHeightPeerInfo],
@@ -2085,7 +2127,8 @@ impl Client {
                 let need_to_split_states =
                     self.runtime_adapter.will_shard_layout_change_next_epoch(&prev_hash)?;
                 if need_to_split_states {
-                    // If the client already has the state for this epoch, skip the downloading phase
+                    // If the client already has the state for this epoch, skip the downloading
+                    // phase
                     let new_shard_sync = state_sync_info
                         .shards
                         .iter()
@@ -2177,7 +2220,8 @@ impl Client {
         Ok(())
     }
 
-    /// When accepting challenge, we verify that it's valid given signature with current validators.
+    /// When accepting challenge, we verify that it's valid given signature with
+    /// current validators.
     pub fn process_challenge(&mut self, _challenge: Challenge) -> Result<(), Error> {
         // TODO(2445): Enable challenges when they are working correctly.
         //        if self.challenges.contains_key(&challenge.hash) {
@@ -2192,8 +2236,8 @@ impl Client {
         //            challenge.hash.as_ref(),
         //            &challenge.signature,
         //        )? {
-        //            // If challenge is not double sign, we should process it right away to invalidate the chain.
-        //            match challenge.body {
+        //            // If challenge is not double sign, we should process it right
+        // away to invalidate the chain.            match challenge.body {
         //                ChallengeBody::BlockDoubleSign(_) => {}
         //                _ => {
         //                    self.chain.process_challenge(&challenge);
@@ -2204,9 +2248,9 @@ impl Client {
         Ok(())
     }
 
-    /// Check updates from background flat storage creation processes and possibly update
-    /// creation statuses. Returns boolean indicating if all flat storages are created or
-    /// creation is not needed.
+    /// Check updates from background flat storage creation processes and
+    /// possibly update creation statuses. Returns boolean indicating if all
+    /// flat storages are created or creation is not needed.
     pub fn run_flat_storage_creation_step(&mut self) -> Result<bool, Error> {
         let result = match &mut self.flat_storage_creator {
             Some(flat_storage_creator) => flat_storage_creator.update_status(self.chain.store())?,
@@ -2273,19 +2317,22 @@ impl Client {
 }
 
 impl Client {
-    /// Each epoch defines a set of important accounts: block producers, chunk producers,
-    /// approvers. Low-latency reliable communication between those accounts is critical,
-    /// so that the blocks can be produced on time. This function computes the set of
-    /// important accounts (aka TIER1 accounts) so that it can be fed to PeerManager, which
+    /// Each epoch defines a set of important accounts: block producers, chunk
+    /// producers, approvers. Low-latency reliable communication between
+    /// those accounts is critical, so that the blocks can be produced on
+    /// time. This function computes the set of important accounts (aka
+    /// TIER1 accounts) so that it can be fed to PeerManager, which
     /// will take care of the traffic prioritization.
     ///
-    /// It returns both TIER1 accounts for both current epoch (according to the `tip`)
-    /// and the next epoch, so that the PeerManager can establish the priority connections
-    /// in advance (before the epoch starts and they are actually needed).
+    /// It returns both TIER1 accounts for both current epoch (according to the
+    /// `tip`) and the next epoch, so that the PeerManager can establish the
+    /// priority connections in advance (before the epoch starts and they
+    /// are actually needed).
     ///
-    /// The result of the last call to get_tier1_accounts() is cached, so that it is not recomputed
-    /// if the current epoch didn't change since the last call. In particular SetChainInfo is being
-    /// send after processing each block (order of seconds), while the epoch changes way less
+    /// The result of the last call to get_tier1_accounts() is cached, so that
+    /// it is not recomputed if the current epoch didn't change since the
+    /// last call. In particular SetChainInfo is being send after processing
+    /// each block (order of seconds), while the epoch changes way less
     /// frequently (order of hours).
     fn get_tier1_accounts(&mut self, tip: &Tip) -> Result<Arc<AccountKeys>, Error> {
         match &self.tier1_accounts_cache {
@@ -2296,27 +2343,32 @@ impl Client {
         let _guard =
             tracing::debug_span!(target: "client", "get_tier1_accounts(): recomputing").entered();
 
-        // What we really need are: chunk producers, block producers and block approvers for
-        // this epoch and the beginnig of the next epoch (so that all required connections are
-        // established in advance). Note that block producers and block approvers are not
-        // exactly the same - last blocks of this epoch will also need to be signed by the
-        // block producers of the next epoch. On the other hand, block approvers
-        // of the next epoch will also include block producers of the N+2 epoch (which we
-        // definitely don't need to connect to right now). Still, as long as there is no big churn
-        // in the set of block producers, it doesn't make much difference.
+        // What we really need are: chunk producers, block producers and block approvers
+        // for this epoch and the beginnig of the next epoch (so that all
+        // required connections are established in advance). Note that block
+        // producers and block approvers are not exactly the same - last blocks
+        // of this epoch will also need to be signed by the block producers of
+        // the next epoch. On the other hand, block approvers of the next epoch
+        // will also include block producers of the N+2 epoch (which we
+        // definitely don't need to connect to right now). Still, as long as there is no
+        // big churn in the set of block producers, it doesn't make much
+        // difference.
         //
-        // With the current implementation we just fetch chunk producers and block producers
-        // of this and the next epoch (which covers what we need, as described above), but may
-        // require some tuning in the future. In particular, if we decide that connecting to
-        // block & chunk producers of the next expoch is too expensive, we can postpone it
-        // till almost the end of this epoch.
+        // With the current implementation we just fetch chunk producers and block
+        // producers of this and the next epoch (which covers what we need, as
+        // described above), but may require some tuning in the future. In
+        // particular, if we decide that connecting to block & chunk producers
+        // of the next expoch is too expensive, we can postpone it till almost
+        // the end of this epoch.
         let mut account_keys = AccountKeys::new();
         for epoch_id in [&tip.epoch_id, &tip.next_epoch_id] {
-            // We assume here that calls to get_epoch_chunk_producers and get_epoch_block_producers_ordered
-            // are cheaper than block processing (and that they will work with both this and
-            // the next epoch). The caching on top of that (in tier1_accounts_cache field) is just
-            // a defence in depth, based on the previous experience with expensive
-            // RuntimeWithEpochManagerAdapter::get_validators_info call.
+            // We assume here that calls to get_epoch_chunk_producers and
+            // get_epoch_block_producers_ordered are cheaper than block
+            // processing (and that they will work with both this and
+            // the next epoch). The caching on top of that (in tier1_accounts_cache field)
+            // is just a defence in depth, based on the previous experience with
+            // expensive RuntimeWithEpochManagerAdapter::get_validators_info
+            // call.
             for cp in self.runtime_adapter.get_epoch_chunk_producers(epoch_id)? {
                 account_keys
                     .entry(cp.account_id().clone())
@@ -2340,20 +2392,24 @@ impl Client {
 
     /// send_network_chain_info sends ChainInfo to PeerManagerActor.
     /// ChainInfo contains chain information relevant to p2p networking.
-    /// It is expected to be called every time the head of the chain changes (or more often).
-    /// Subsequent calls will probably re-send to PeerManagerActor a lot of redundant
-    /// information (for example epoch-related data changes way less often than chain head
-    /// changes), but that's fine - we avoid recomputing rarely changing data in ChainInfo by caching it.
-    /// The condition to call this function is simple - every time chain head changes -
-    /// which hopefully will make it hard to forget to call it. And even if there is some
-    /// corner case not covered - since blocks are sent frequently (every few seconds),
-    /// the POV of Client and PeerManagerActor will be desynchronized only for a short time.
+    /// It is expected to be called every time the head of the chain changes (or
+    /// more often). Subsequent calls will probably re-send to
+    /// PeerManagerActor a lot of redundant information (for example
+    /// epoch-related data changes way less often than chain head
+    /// changes), but that's fine - we avoid recomputing rarely changing data in
+    /// ChainInfo by caching it. The condition to call this function is
+    /// simple - every time chain head changes - which hopefully will make
+    /// it hard to forget to call it. And even if there is some corner case
+    /// not covered - since blocks are sent frequently (every few seconds),
+    /// the POV of Client and PeerManagerActor will be desynchronized only for a
+    /// short time.
     ///
-    /// TODO(gprusak): consider making send_network_chain_info accept chain Tip as an argument
-    /// to underline that it is expected to be called whenever Tip changes. Currently
-    /// self.chain.head() is fallible for some reason, so calling it at the
-    /// send_network_chain_info() call site would be ugly (we just log the error).
-    /// In theory we should already have the tip at the call-site, eg from
+    /// TODO(gprusak): consider making send_network_chain_info accept chain Tip
+    /// as an argument to underline that it is expected to be called
+    /// whenever Tip changes. Currently self.chain.head() is fallible for
+    /// some reason, so calling it at the send_network_chain_info() call
+    /// site would be ugly (we just log the error). In theory we should
+    /// already have the tip at the call-site, eg from
     /// check_And_update_doomslug_tip, but that would require a bigger refactor.
     pub(crate) fn send_network_chain_info(&mut self) -> Result<(), Error> {
         let tip = self.chain.head()?;

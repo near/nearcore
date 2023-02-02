@@ -25,7 +25,8 @@ use tracing::debug;
 pub mod errors;
 
 pub struct TrieViewer {
-    /// Upper bound of the byte size of contract state that is still viewable. None is no limit
+    /// Upper bound of the byte size of contract state that is still viewable.
+    /// None is no limit
     state_size_limit: Option<u64>,
     /// Gas limit used when when handling call_function queries.
     max_gas_burnt_view: Gas,

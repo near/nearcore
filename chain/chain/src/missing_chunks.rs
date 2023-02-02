@@ -40,8 +40,8 @@ impl<T: BlockLike> Ord for HeightOrdered<T> {
 
 /// Structure for keeping track of missing chunks.
 /// The reason to have a Block type parameter instead of using the
-/// `block::Block` type is to make testing easier (`block::Block` is a complex structure and I
-/// don't care about most of it).
+/// `block::Block` type is to make testing easier (`block::Block` is a complex
+/// structure and I don't care about most of it).
 #[derive(Debug, Default)]
 pub struct MissingChunksPool<Block: BlockLike> {
     missing_chunks: HashMap<ChunkHash, HashSet<BlockHash>>,
@@ -84,12 +84,14 @@ impl<Block: BlockLike> MissingChunksPool<Block> {
 
     pub fn add_block_with_missing_chunks(&mut self, block: Block, missing_chunks: Vec<ChunkHash>) {
         let block_hash = block.hash();
-        // This case can only happen when missing chunks are not being eventually received and
-        // thus removing blocks from the HashMap. It means the this node has severely stalled out.
-        // It is ok to ignore further blocks because either (a) we will start receiving chunks
-        // again, work through the backlog of the pool, then naturally sync the later blocks
-        // which were not added initially, or (b) someone will restart the node because something
-        // has gone horribly wrong, in which case these HashMaps will be lost anyways.
+        // This case can only happen when missing chunks are not being eventually
+        // received and thus removing blocks from the HashMap. It means the this
+        // node has severely stalled out. It is ok to ignore further blocks
+        // because either (a) we will start receiving chunks again, work through
+        // the backlog of the pool, then naturally sync the later blocks
+        // which were not added initially, or (b) someone will restart the node because
+        // something has gone horribly wrong, in which case these HashMaps will
+        // be lost anyways.
         if self.blocks_missing_chunks.len() >= MAX_BLOCKS_MISSING_CHUNKS {
             warn!(target: "chunks", "Not recording block with hash {} even though it is missing chunks. The missing chunks pool is full.", block_hash);
             return;

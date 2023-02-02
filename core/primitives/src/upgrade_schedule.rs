@@ -63,14 +63,15 @@ pub(crate) fn get_protocol_version_internal(
 mod tests {
     use super::*;
 
-    // The tests call `get_protocol_version_internal()` with the following parameters:
-    // No schedule:                  (X-2,X), (X,X), (X+2,X)
+    // The tests call `get_protocol_version_internal()` with the following
+    // parameters: No schedule:                  (X-2,X), (X,X), (X+2,X)
     // Before the scheduled upgrade: (X-2,X), (X,X), (X+2,X)
     // After the scheduled upgrade:  (X-2,X), (X,X), (X+2,X)
 
     #[test]
     fn test_no_upgrade_schedule() {
-        // As no protocol upgrade voting schedule is set, always return the version supported by the client.
+        // As no protocol upgrade voting schedule is set, always return the version
+        // supported by the client.
 
         let client_protocol_version = 100;
         assert_eq!(
@@ -101,7 +102,8 @@ mod tests {
 
     #[test]
     fn test_none_upgrade_schedule() {
-        // As no protocol upgrade voting schedule is set, always return the version supported by the client.
+        // As no protocol upgrade voting schedule is set, always return the version
+        // supported by the client.
 
         let client_protocol_version = 100;
 
@@ -137,7 +139,8 @@ mod tests {
         let schedule = ProtocolUpgradeVotingSchedule::from_str("2050-01-01 00:00:00").unwrap();
 
         // The client supports a newer version than the version of the next epoch.
-        // Upgrade voting will start in the far future, therefore don't announce the newest supported version.
+        // Upgrade voting will start in the far future, therefore don't announce the
+        // newest supported version.
         let next_epoch_protocol_version = client_protocol_version - 2;
         assert_eq!(
             next_epoch_protocol_version,
@@ -159,7 +162,8 @@ mod tests {
             )
         );
 
-        // Several upgrades happened before the scheduled time. Announce only the currently supported protocol version.
+        // Several upgrades happened before the scheduled time. Announce only the
+        // currently supported protocol version.
         let next_epoch_protocol_version = client_protocol_version + 2;
         assert_eq!(
             client_protocol_version,
@@ -176,7 +180,8 @@ mod tests {
         let client_protocol_version = 100;
         let schedule = ProtocolUpgradeVotingSchedule::from_str("1900-01-01 00:00:00").unwrap();
 
-        // Regardless of the protocol version of the next epoch, return the version supported by the client.
+        // Regardless of the protocol version of the next epoch, return the version
+        // supported by the client.
         assert_eq!(
             client_protocol_version,
             get_protocol_version_internal(

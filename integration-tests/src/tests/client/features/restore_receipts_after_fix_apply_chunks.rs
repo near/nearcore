@@ -58,9 +58,10 @@ fn run_test(
     let mut last_update_height: BlockHeight = 0;
 
     // Simulate several blocks to guarantee that they are produced successfully.
-    // Stop block production if all receipts were restored. Or, if some receipts are still not
-    // applied, upgrade already happened, and no new receipt was applied in some last blocks,
-    // consider the process stuck to avoid any possibility of infinite loop.
+    // Stop block production if all receipts were restored. Or, if some receipts are
+    // still not applied, upgrade already happened, and no new receipt was
+    // applied in some last blocks, consider the process stuck to avoid any
+    // possibility of infinite loop.
     while height < 15
         || (!receipt_hashes_to_restore.is_empty() && height - last_update_height < HEIGHT_TIMEOUT)
     {
@@ -127,8 +128,8 @@ fn test_no_chunks_missing() {
 
 #[test]
 fn test_first_chunk_in_epoch_missing() {
-    // If the first chunk in the first epoch with needed protocol version is missing,
-    // all receipts should still be applied
+    // If the first chunk in the first epoch with needed protocol version is
+    // missing, all receipts should still be applied
     run_test("mainnet", 8, 12, true);
 }
 
@@ -140,7 +141,7 @@ fn test_all_chunks_in_epoch_missing() {
 
 #[test]
 fn test_run_for_testnet() {
-    // Run the same process for chain other than mainnet to ensure that blocks are produced
-    // successfully during the protocol upgrade.
+    // Run the same process for chain other than mainnet to ensure that blocks are
+    // produced successfully during the protocol upgrade.
     run_test("testnet", 1, 0, true);
 }

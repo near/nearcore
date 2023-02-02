@@ -86,7 +86,8 @@ pub enum ShardSyncStatus {
     StateSyncDone,
 }
 
-/// Manually implement compare for ShardSyncStatus to compare only based on variant name
+/// Manually implement compare for ShardSyncStatus to compare only based on
+/// variant name
 impl PartialEq<Self> for ShardSyncStatus {
     fn eq(&self, other: &Self) -> bool {
         std::mem::discriminant(self) == std::mem::discriminant(other)
@@ -153,14 +154,16 @@ impl StateSplitApplyingStatus {
 /// Stores status of shard sync and statuses of downloading shards.
 #[derive(Clone, Debug)]
 pub struct ShardSyncDownload {
-    /// Stores all download statuses. If we are downloading state parts, its length equals the number of state parts.
-    /// Otherwise it is 1, since we have only one piece of data to download, like shard state header.
+    /// Stores all download statuses. If we are downloading state parts, its
+    /// length equals the number of state parts. Otherwise it is 1, since we
+    /// have only one piece of data to download, like shard state header.
     pub downloads: Vec<DownloadStatus>,
     pub status: ShardSyncStatus,
 }
 
 impl ShardSyncDownload {
-    /// Creates a instance of self which includes initial statuses for shard sync and download at the given time.
+    /// Creates a instance of self which includes initial statuses for shard
+    /// sync and download at the given time.
     pub fn new(now: DateTime<Utc>) -> Self {
         Self {
             downloads: vec![

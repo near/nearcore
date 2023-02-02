@@ -12,17 +12,21 @@ use std::ops::Bound;
 mod metrics;
 pub mod types;
 
-/// Transaction pool: keeps track of transactions that were not yet accepted into the block chain.
+/// Transaction pool: keeps track of transactions that were not yet accepted
+/// into the block chain.
 pub struct TransactionPool {
     /// Transactions are grouped by a pair of (account ID, signer public key).
-    /// NOTE: It's more efficient on average to keep transactions unsorted and with potentially
-    /// conflicting nonce than to create a BTreeMap for every transaction.
+    /// NOTE: It's more efficient on average to keep transactions unsorted and
+    /// with potentially conflicting nonce than to create a BTreeMap for
+    /// every transaction.
     transactions: BTreeMap<PoolKey, Vec<SignedTransaction>>,
-    /// Set of all hashes to quickly check if the given transaction is in the pool.
+    /// Set of all hashes to quickly check if the given transaction is in the
+    /// pool.
     unique_transactions: HashSet<CryptoHash>,
     /// A uniquely generated key seed to randomize PoolKey order.
     key_seed: RngSeed,
-    /// The key after which the pool iterator starts. Doesn't have to be present in the pool.
+    /// The key after which the pool iterator starts. Doesn't have to be present
+    /// in the pool.
     last_used_key: PoolKey,
 }
 
@@ -65,15 +69,16 @@ impl TransactionPool {
         true
     }
 
-    /// Returns a pool iterator wrapper that implements an iterator like trait to iterate over
-    /// transaction groups in the proper order defined by the protocol.
-    /// When the iterator is dropped, all remaining groups are inserted back into the pool.
+    /// Returns a pool iterator wrapper that implements an iterator like trait
+    /// to iterate over transaction groups in the proper order defined by
+    /// the protocol. When the iterator is dropped, all remaining groups are
+    /// inserted back into the pool.
     pub fn pool_iterator(&mut self) -> PoolIteratorWrapper<'_> {
         PoolIteratorWrapper::new(self)
     }
 
-    /// Quick reconciliation step - evict all transactions that already in the block
-    /// or became invalid after it.
+    /// Quick reconciliation step - evict all transactions that already in the
+    /// block or became invalid after it.
     pub fn remove_transactions(&mut self, transactions: &[SignedTransaction]) {
         let mut grouped_transactions = HashMap::new();
         for tx in transactions {
@@ -116,10 +121,12 @@ impl TransactionPool {
 }
 
 /// PoolIterator is a structure to pull transactions from the pool.
-/// It implements `PoolIterator` trait that iterates over transaction groups one by one.
-/// When the wrapper is dropped the remaining transactions are returned back to the pool.
+/// It implements `PoolIterator` trait that iterates over transaction groups one
+/// by one. When the wrapper is dropped the remaining transactions are returned
+/// back to the pool.
 pub struct PoolIteratorWrapper<'a> {
-    /// Mutable reference to the pool, to avoid exposing it while the iterator exists.
+    /// Mutable reference to the pool, to avoid exposing it while the iterator
+    /// exists.
     pool: &'a mut TransactionPool,
 
     /// Queue of transaction groups. Each group there is sorted by nonce.
@@ -133,22 +140,26 @@ impl<'a> PoolIteratorWrapper<'a> {
 }
 
 /// The iterator works with the following algorithm:
-/// On next(), the iterator tries to get a transaction group from the pool, sorts transactions in
-/// it, and add it to the back of the sorted groups queue.
+/// On next(), the iterator tries to get a transaction group from the pool,
+/// sorts transactions in it, and add it to the back of the sorted groups queue.
 /// Remembers the last used key, so it can continue from the next key.
 ///
-/// If the pool is empty, the iterator gets the group from the front of the sorted groups queue.
+/// If the pool is empty, the iterator gets the group from the front of the
+/// sorted groups queue.
 ///
-/// If this group is empty (no transactions left inside), then the iterator discards it and
-/// updates `unique_transactions` in the pool. Then gets the next one.
+/// If this group is empty (no transactions left inside), then the iterator
+/// discards it and updates `unique_transactions` in the pool. Then gets the
+/// next one.
 ///
-/// Once a non-empty group is found, this group is pushed to the back of the sorted groups queue
-/// and the iterator returns a mutable reference to this group.
+/// Once a non-empty group is found, this group is pushed to the back of the
+/// sorted groups queue and the iterator returns a mutable reference to this
+/// group.
 ///
 /// If the sorted groups queue is empty, the iterator returns None.
 ///
-/// When the iterator is dropped, `unique_transactions` in the pool is updated for every group.
-/// And all non-empty group from the sorted groups queue are inserted back into the pool.
+/// When the iterator is dropped, `unique_transactions` in the pool is updated
+/// for every group. And all non-empty group from the sorted groups queue are
+/// inserted back into the pool.
 impl<'a> PoolIterator for PoolIteratorWrapper<'a> {
     fn next(&mut self) -> Option<&mut TransactionGroup> {
         if !self.pool.transactions.is_empty() {
@@ -193,9 +204,10 @@ impl<'a> PoolIterator for PoolIteratorWrapper<'a> {
     }
 }
 
-/// When a pool iterator is dropped, all remaining non empty transaction groups from the sorted
-/// groups queue are inserted back into the pool. And removed transactions hashes from groups are
-/// removed from the pool's unique_transactions.
+/// When a pool iterator is dropped, all remaining non empty transaction groups
+/// from the sorted groups queue are inserted back into the pool. And removed
+/// transactions hashes from groups are removed from the pool's
+/// unique_transactions.
 impl<'a> Drop for PoolIteratorWrapper<'a> {
     fn drop(&mut self) {
         for group in self.sorted_groups.drain(..) {
@@ -303,8 +315,8 @@ mod tests {
         assert_eq!(nonces, (1..=10).collect::<Vec<u64>>());
     }
 
-    /// Add transactions of nonce from 1..10 in random order from 2 signers. Check that mempool
-    /// orders them correctly.
+    /// Add transactions of nonce from 1..10 in random order from 2 signers.
+    /// Check that mempool orders them correctly.
     #[test]
     fn test_order_nonce_two_signers() {
         let mut transactions = generate_transactions("alice.near", "alice.near", 1, 10);
@@ -314,8 +326,8 @@ mod tests {
         assert_eq!(nonces, (1..=5).map(|a| vec![a; 2]).flatten().collect::<Vec<u64>>());
     }
 
-    /// Add transactions of nonce from 1..10 in random order from the same account but with
-    /// different public keys.
+    /// Add transactions of nonce from 1..10 in random order from the same
+    /// account but with different public keys.
     #[test]
     fn test_order_nonce_same_account_two_access_keys_variable_nonces() {
         let mut transactions = generate_transactions("alice.near", "alice.near", 1, 10);
@@ -326,8 +338,8 @@ mod tests {
         assert_eq!(nonces, (1..=5).map(|a| vec![a, a + 20]).flatten().collect::<Vec<u64>>());
     }
 
-    /// Add transactions of nonce from 1..=3 and transactions with nonce 21..=31. Pull 10.
-    /// Then try to get another 10.
+    /// Add transactions of nonce from 1..=3 and transactions with nonce
+    /// 21..=31. Pull 10. Then try to get another 10.
     #[test]
     fn test_retain() {
         let mut transactions = generate_transactions("alice.near", "alice.near", 1, 3);
@@ -387,8 +399,8 @@ mod tests {
         assert_eq!(pool_txs, expected_txs);
     }
 
-    /// Add transactions of nonce from 1..=3 and transactions with nonce 21..=31. Pull 10.
-    /// Then try to get another 10.
+    /// Add transactions of nonce from 1..=3 and transactions with nonce
+    /// 21..=31. Pull 10. Then try to get another 10.
     #[test]
     fn test_pool_iterator() {
         let mut transactions = generate_transactions("alice.near", "alice.near", 1, 3);

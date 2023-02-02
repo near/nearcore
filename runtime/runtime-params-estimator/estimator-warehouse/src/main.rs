@@ -27,7 +27,8 @@ struct CliArgs {
 enum SubCommand {
     /// Call runtime-params-estimator for all metrics and import the results.
     Estimate(EstimateConfig),
-    /// Read estimations in JSON format from STDIN and store it in the warehouse.
+    /// Read estimations in JSON format from STDIN and store it in the
+    /// warehouse.
     Import(ImportConfig),
     /// Compares parameters, estimations, and how estimations changed over time.
     /// Reports any deviations from the norm to STDOUT. Combine with `--zulip`

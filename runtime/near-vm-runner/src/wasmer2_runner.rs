@@ -162,8 +162,9 @@ fn translate_runtime_error(
     error: wasmer_engine::RuntimeError,
     logic: &mut VMLogic,
 ) -> Result<FunctionCallError, VMRunnerError> {
-    // Errors produced by host function calls also become `RuntimeError`s that wrap a dynamic
-    // instance of `VMLogicError` internally. See the implementation of `Wasmer2Imports`.
+    // Errors produced by host function calls also become `RuntimeError`s that wrap
+    // a dynamic instance of `VMLogicError` internally. See the implementation
+    // of `Wasmer2Imports`.
     let error = match error.downcast::<near_vm_errors::VMLogicError>() {
         Ok(vm_logic) => {
             return vm_logic.try_into();
@@ -360,15 +361,16 @@ impl Wasmer2VM {
                     let _span =
                         tracing::debug_span!(target: "vm", "Wasmer2VM::read_from_cache").entered();
                     unsafe {
-                        // (UN-)SAFETY: the `serialized_module` must have been produced by a prior call to
-                        // `serialize`.
+                        // (UN-)SAFETY: the `serialized_module` must have been produced by a prior
+                        // call to `serialize`.
                         //
-                        // In practice this is not necessarily true. One could have forgotten to change the
-                        // cache key when upgrading the version of the wasmer library or the database could
+                        // In practice this is not necessarily true. One could have forgotten to
+                        // change the cache key when upgrading the version
+                        // of the wasmer library or the database could
                         // have had its data corrupted while at rest.
                         //
-                        // There should definitely be some validation in wasmer to ensure we load what we think
-                        // we load.
+                        // There should definitely be some validation in wasmer to ensure we load
+                        // what we think we load.
                         let executable = UniversalExecutableRef::deserialize(&serialized_module)
                             .map_err(|_| CacheError::DeserializationError)?;
                         let artifact = self
@@ -442,12 +444,14 @@ impl Wasmer2VM {
         unsafe {
             let instance = {
                 let _span = tracing::debug_span!(target: "vm", "run_method/instantiate").entered();
-                // An important caveat is that the `'static` lifetime here refers to the lifetime
-                // of `VMLogic` reference to which is retained by the `InstanceHandle` we create.
-                // However this `InstanceHandle` only lives during the execution of this body, so
+                // An important caveat is that the `'static` lifetime here refers to the
+                // lifetime of `VMLogic` reference to which is retained by the
+                // `InstanceHandle` we create. However this `InstanceHandle`
+                // only lives during the execution of this body, so
                 // we can be sure that `VMLogic` remains live and valid at any time.
-                // SAFETY: we ensure that the tables are valid during the lifetime of this instance
-                // by retaining an instance to `UniversalEngine` which holds the allocations.
+                // SAFETY: we ensure that the tables are valid during the lifetime of this
+                // instance by retaining an instance to `UniversalEngine` which
+                // holds the allocations.
                 let maybe_handle = Arc::clone(artifact).instantiate(
                     &self,
                     &mut import,
@@ -490,8 +494,9 @@ impl Wasmer2VM {
             };
             if let Some(function) = instance.function_by_index(entrypoint) {
                 let _span = tracing::debug_span!(target: "vm", "run_method/call").entered();
-                // Signature for the entry point should be `() -> ()`. This is only a sanity check
-                // – this should've been already checked by `get_entrypoint_index`.
+                // Signature for the entry point should be `() -> ()`. This is only a sanity
+                // check – this should've been already checked by
+                // `get_entrypoint_index`.
                 let signature = artifact
                     .engine()
                     .lookup_signature(function.signature)
@@ -550,8 +555,8 @@ impl wasmer_vm::Tunables for &Wasmer2VM {
         ty: &MemoryType,
         _style: &MemoryStyle,
     ) -> Result<std::sync::Arc<dyn Memory>, wasmer_vm::MemoryError> {
-        // We do not support arbitrary Host memories. The only memory contracts may use is the
-        // memory imported via `env.memory`.
+        // We do not support arbitrary Host memories. The only memory contracts may use
+        // is the memory imported via `env.memory`.
         Err(wasmer_vm::MemoryError::CouldNotGrow { current: Pages(0), attempted_delta: ty.minimum })
     }
 
@@ -561,8 +566,8 @@ impl wasmer_vm::Tunables for &Wasmer2VM {
         _style: &MemoryStyle,
         _vm_definition_location: std::ptr::NonNull<wasmer_vm::VMMemoryDefinition>,
     ) -> Result<std::sync::Arc<dyn Memory>, wasmer_vm::MemoryError> {
-        // We do not support VM memories. The only memory contracts may use is the memory imported
-        // via `env.memory`.
+        // We do not support VM memories. The only memory contracts may use is the
+        // memory imported via `env.memory`.
         Err(wasmer_vm::MemoryError::CouldNotGrow { current: Pages(0), attempted_delta: ty.minimum })
     }
 

@@ -7,8 +7,8 @@
 
 //! JSON-RPC 2.0 messages.
 //!
-//! The main entrypoint here is the [Message](enum.Message.html). The others are just building
-//! blocks and you should generally work with `Message` instead.
+//! The main entrypoint here is the [Message](enum.Message.html). The others are
+//! just building blocks and you should generally work with `Message` instead.
 
 use std::fmt::{Formatter, Result as FmtResult};
 
@@ -98,8 +98,8 @@ impl Serialize for Response {
 
 /// Deserializer for `Option<Value>` that produces `Some(Value::Null)`.
 ///
-/// The usual one produces None in that case. But we need to know the difference between
-/// `{x: null}` and `{}`.
+/// The usual one produces None in that case. But we need to know the difference
+/// between `{x: null}` and `{}`.
 fn some_value<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Value>, D::Error> {
     Deserialize::deserialize(deserializer).map(Some)
 }
@@ -118,9 +118,9 @@ struct WireResponse {
     id: Value,
 }
 
-// Implementing deserialize is hard. We sidestep the difficulty by deserializing a similar
-// structure that directly corresponds to whatever is on the wire and then convert it to our more
-// convenient representation.
+// Implementing deserialize is hard. We sidestep the difficulty by deserializing
+// a similar structure that directly corresponds to whatever is on the wire and
+// then convert it to our more convenient representation.
 impl<'de> Deserialize<'de> for Response {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let wr: WireResponse = Deserialize::deserialize(deserializer)?;
@@ -151,14 +151,17 @@ pub struct Notification {
 /// One message, directly mapped from the structures of the protocol. See the
 /// [specification](http://www.jsonrpc.org/specification) for more details.
 ///
-/// Since the protocol allows one endpoint to be both client and server at the same time, the
-/// message can decode and encode both directions of the protocol.
+/// Since the protocol allows one endpoint to be both client and server at the
+/// same time, the message can decode and encode both directions of the
+/// protocol.
 ///
-/// The `Batch` variant is supposed to be created directly, without a constructor.
+/// The `Batch` variant is supposed to be created directly, without a
+/// constructor.
 ///
-/// The `UnmatchedSub` variant is used when a request is an array and some of the subrequests
-/// aren't recognized as valid json rpc 2.0 messages. This is never returned as a top-level
-/// element, it is returned as `Err(Broken::Unmatched)`.
+/// The `UnmatchedSub` variant is used when a request is an array and some of
+/// the subrequests aren't recognized as valid json rpc 2.0 messages. This is
+/// never returned as a top-level element, it is returned as
+/// `Err(Broken::Unmatched)`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Message {
@@ -170,16 +173,18 @@ pub enum Message {
     Notification(Notification),
     /// A batch of more requests or responses.
     ///
-    /// The protocol allows bundling multiple requests, notifications or responses to a single
-    /// message.
+    /// The protocol allows bundling multiple requests, notifications or
+    /// responses to a single message.
     ///
-    /// This variant has no direct constructor and is expected to be constructed manually.
+    /// This variant has no direct constructor and is expected to be constructed
+    /// manually.
     Batch(Vec<Message>),
     /// An unmatched sub entry in a `Batch`.
     ///
-    /// When there's a `Batch` and an element doesn't comform to the JSONRPC 2.0 format, that one
-    /// is represented by this. This is never produced as a top-level value when parsing, the
-    /// `Err(Broken::Unmatched)` is used instead. It is not possible to serialize.
+    /// When there's a `Batch` and an element doesn't comform to the JSONRPC 2.0
+    /// format, that one is represented by this. This is never produced as a
+    /// top-level value when parsing, the `Err(Broken::Unmatched)` is used
+    /// instead. It is not possible to serialize.
     #[serde(skip_serializing)]
     UnmatchedSub(Value),
 }
@@ -229,8 +234,8 @@ pub enum Broken {
 impl Broken {
     /// Generate an appropriate error message.
     ///
-    /// The error message for these things are specified in the RFC, so this just creates an error
-    /// with the right values.
+    /// The error message for these things are specified in the RFC, so this
+    /// just creates an error with the right values.
     pub fn reply(&self) -> Message {
         match *self {
             Broken::Unmatched(_) => Message::error(RpcError::parse_error(
@@ -297,9 +302,10 @@ mod tests {
 
     /// Test serialization and deserialization of the Message
     ///
-    /// We first deserialize it from a string. That way we check deserialization works.
-    /// But since serialization doesn't have to produce the exact same result (order, spaces, …),
-    /// we then serialize and deserialize the thing again and check it matches.
+    /// We first deserialize it from a string. That way we check deserialization
+    /// works. But since serialization doesn't have to produce the exact
+    /// same result (order, spaces, …), we then serialize and deserialize
+    /// the thing again and check it matches.
     #[test]
     fn message_serde() {
         // A helper for running one message test
@@ -414,7 +420,8 @@ mod tests {
 
     /// A helper for the `broken` test.
     ///
-    /// Check that the given JSON string parses, but is not recognized as a valid RPC message.
+    /// Check that the given JSON string parses, but is not recognized as a
+    /// valid RPC message.
 
     /// Test things that are almost but not entirely JSONRPC are rejected
     ///
@@ -451,8 +458,8 @@ mod tests {
 
     /// Test some non-trivial aspects of the constructors
     ///
-    /// This doesn't have a full coverage, because there's not much to actually test there.
-    /// Most of it is related to the ids.
+    /// This doesn't have a full coverage, because there's not much to actually
+    /// test there. Most of it is related to the ids.
     #[test]
     fn constructors() {
         let msg1 = Message::request("call".to_owned(), json!([1, 2, 3]));

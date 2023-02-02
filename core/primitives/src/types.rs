@@ -53,10 +53,12 @@ pub struct AccountInfo {
     pub amount: Balance,
 }
 
-/// This type is used to mark keys (arrays of bytes) that are queried from store.
+/// This type is used to mark keys (arrays of bytes) that are queried from
+/// store.
 ///
-/// NOTE: Currently, this type is only used in the view_client and RPC to be able to transparently
-/// pretty-serialize the bytes arrays as base64-encoded strings (see `serialize.rs`).
+/// NOTE: Currently, this type is only used in the view_client and RPC to be
+/// able to transparently pretty-serialize the bytes arrays as base64-encoded
+/// strings (see `serialize.rs`).
 #[derive(
     Debug, Clone, PartialEq, Eq, DeriveAsRef, DeriveFrom, BorshSerialize, BorshDeserialize,
 )]
@@ -65,8 +67,9 @@ pub struct StoreKey(Vec<u8>);
 
 /// This type is used to mark values returned from store (arrays of bytes).
 ///
-/// NOTE: Currently, this type is only used in the view_client and RPC to be able to transparently
-/// pretty-serialize the bytes arrays as base64-encoded strings (see `serialize.rs`).
+/// NOTE: Currently, this type is only used in the view_client and RPC to be
+/// able to transparently pretty-serialize the bytes arrays as base64-encoded
+/// strings (see `serialize.rs`).
 #[derive(
     Debug, Clone, PartialEq, Eq, DeriveAsRef, DeriveFrom, BorshSerialize, BorshDeserialize,
 )]
@@ -75,16 +78,17 @@ pub struct StoreValue(Vec<u8>);
 
 /// This type is used to mark function arguments.
 ///
-/// NOTE: The main reason for this to exist (except the type-safety) is that the value is
-/// transparently serialized and deserialized as a base64-encoded string when serde is used
-/// (serde_json).
+/// NOTE: The main reason for this to exist (except the type-safety) is that the
+/// value is transparently serialized and deserialized as a base64-encoded
+/// string when serde is used (serde_json).
 #[derive(
     Debug, Clone, PartialEq, Eq, DeriveAsRef, DeriveFrom, BorshSerialize, BorshDeserialize,
 )]
 #[as_ref(forward)]
 pub struct FunctionArgs(Vec<u8>);
 
-/// A structure used to indicate the kind of state changes due to transaction/receipt processing, etc.
+/// A structure used to indicate the kind of state changes due to
+/// transaction/receipt processing, etc.
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
 pub enum StateChangeKind {
     AccountTouched { account_id: AccountId },
@@ -126,38 +130,41 @@ impl StateChangesKinds {
     }
 }
 
-/// A structure used to index state changes due to transaction/receipt processing and other things.
+/// A structure used to index state changes due to transaction/receipt
+/// processing and other things.
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
 pub enum StateChangeCause {
-    /// A type of update that does not get finalized. Used for verification and execution of
-    /// immutable smart contract methods. Attempt fo finalize a `TrieUpdate` containing such
-    /// change will lead to panic.
+    /// A type of update that does not get finalized. Used for verification and
+    /// execution of immutable smart contract methods. Attempt fo finalize a
+    /// `TrieUpdate` containing such change will lead to panic.
     NotWritableToDisk,
-    /// A type of update that is used to mark the initial storage update, e.g. during genesis
-    /// or in tests setup.
+    /// A type of update that is used to mark the initial storage update, e.g.
+    /// during genesis or in tests setup.
     InitialState,
     /// Processing of a transaction.
     TransactionProcessing { tx_hash: CryptoHash },
-    /// Before the receipt is going to be processed, inputs get drained from the state, which
-    /// causes state modification.
+    /// Before the receipt is going to be processed, inputs get drained from the
+    /// state, which causes state modification.
     ActionReceiptProcessingStarted { receipt_hash: CryptoHash },
     /// Computation of gas reward.
     ActionReceiptGasReward { receipt_hash: CryptoHash },
     /// Processing of a receipt.
     ReceiptProcessing { receipt_hash: CryptoHash },
-    /// The given receipt was postponed. This is either a data receipt or an action receipt.
-    /// A `DataReceipt` can be postponed if the corresponding `ActionReceipt` is not received yet,
-    /// or other data dependencies are not satisfied.
-    /// An `ActionReceipt` can be postponed if not all data dependencies are received.
+    /// The given receipt was postponed. This is either a data receipt or an
+    /// action receipt. A `DataReceipt` can be postponed if the
+    /// corresponding `ActionReceipt` is not received yet, or other data
+    /// dependencies are not satisfied. An `ActionReceipt` can be postponed
+    /// if not all data dependencies are received.
     PostponedReceipt { receipt_hash: CryptoHash },
     /// Updated delayed receipts queue in the state.
-    /// We either processed previously delayed receipts or added more receipts to the delayed queue.
+    /// We either processed previously delayed receipts or added more receipts
+    /// to the delayed queue.
     UpdatedDelayedReceipts,
-    /// State change that happens when we update validator accounts. Not associated with with any
-    /// specific transaction or receipt.
+    /// State change that happens when we update validator accounts. Not
+    /// associated with with any specific transaction or receipt.
     ValidatorAccountsUpdate,
-    /// State change that is happens due to migration that happens in first block of an epoch
-    /// after protocol upgrade
+    /// State change that is happens due to migration that happens in first
+    /// block of an epoch after protocol upgrade
     Migration,
     /// State changes for building states for re-sharding
     Resharding,
@@ -177,7 +184,8 @@ pub struct RawStateChangesWithTrieKey {
     pub changes: Vec<RawStateChange>,
 }
 
-/// Consolidate state change of trie_key and the final value the trie key will be changed to
+/// Consolidate state change of trie_key and the final value the trie key will
+/// be changed to
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
 pub struct ConsolidatedStateChange {
     pub trie_key: TrieKey,
@@ -209,7 +217,8 @@ impl StateChangesForSplitStates {
     }
 }
 
-/// key that was updated -> list of updates with the corresponding indexing event.
+/// key that was updated -> list of updates with the corresponding indexing
+/// event.
 pub type RawStateChanges = std::collections::BTreeMap<Vec<u8>, RawStateChangesWithTrieKey>;
 
 #[derive(Debug)]
@@ -460,8 +469,8 @@ impl StateRootNode {
 pub struct EpochId(pub CryptoHash);
 
 /// Stores validator and its stake for two consecutive epochs.
-/// It is necessary because the blocks on the epoch boundary need to contain approvals from both
-/// epochs.
+/// It is necessary because the blocks on the epoch boundary need to contain
+/// approvals from both epochs.
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct ApprovalStake {
     /// Account that stakes money.
@@ -653,7 +662,8 @@ pub mod chunk_extra {
 
     pub use super::ChunkExtraV1;
 
-    /// Information after chunk was processed, used to produce or check next chunk.
+    /// Information after chunk was processed, used to produce or check next
+    /// chunk.
     #[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Clone, Eq)]
     pub enum ChunkExtra {
         V1(ChunkExtraV1),
@@ -670,7 +680,8 @@ pub mod chunk_extra {
         pub validator_proposals: Vec<ValidatorStake>,
         /// Actually how much gas were used.
         pub gas_used: Gas,
-        /// Gas limit, allows to increase or decrease limit based on expected time vs real time for computing the chunk.
+        /// Gas limit, allows to increase or decrease limit based on expected
+        /// time vs real time for computing the chunk.
         pub gas_limit: Gas,
         /// Total balance burnt after processing the current chunk.
         pub balance_burnt: Balance,
@@ -768,7 +779,8 @@ pub struct ChunkExtraV1 {
     pub validator_proposals: Vec<ValidatorStakeV1>,
     /// Actually how much gas were used.
     pub gas_used: Gas,
-    /// Gas limit, allows to increase or decrease limit based on expected time vs real time for computing the chunk.
+    /// Gas limit, allows to increase or decrease limit based on expected time
+    /// vs real time for computing the chunk.
     pub gas_limit: Gas,
     /// Total balance burnt after processing the current chunk.
     pub balance_burnt: Balance,
@@ -935,27 +947,32 @@ pub trait EpochInfoProvider {
 /// Mode of the trie cache.
 #[derive(Debug, Copy, Clone)]
 pub enum TrieCacheMode {
-    /// In this mode we put each visited node to LRU cache to optimize performance.
-    /// Presence of any exact node is not guaranteed.
+    /// In this mode we put each visited node to LRU cache to optimize
+    /// performance. Presence of any exact node is not guaranteed.
     CachingShard,
-    /// In this mode we put each visited node to the chunk cache which is a hash map.
-    /// This is needed to guarantee that all nodes for which we charged a touching trie node cost are retrieved from DB
-    /// only once during a single chunk processing. Such nodes remain in cache until the chunk processing is finished,
-    /// and thus users (potentially different) are not required to pay twice for retrieval of the same node.
+    /// In this mode we put each visited node to the chunk cache which is a hash
+    /// map. This is needed to guarantee that all nodes for which we charged
+    /// a touching trie node cost are retrieved from DB only once during a
+    /// single chunk processing. Such nodes remain in cache until the chunk
+    /// processing is finished, and thus users (potentially different) are
+    /// not required to pay twice for retrieval of the same node.
     CachingChunk,
 }
 
-/// Counts trie nodes reads during tx/receipt execution for proper storage costs charging.
+/// Counts trie nodes reads during tx/receipt execution for proper storage costs
+/// charging.
 #[derive(Debug, PartialEq)]
 pub struct TrieNodesCount {
-    /// Potentially expensive trie node reads which are served from disk in the worst case.
+    /// Potentially expensive trie node reads which are served from disk in the
+    /// worst case.
     pub db_reads: u64,
     /// Cheap trie node reads which are guaranteed to be served from RAM.
     pub mem_reads: u64,
 }
 
 impl TrieNodesCount {
-    /// Used to determine the number of trie nodes charged during some operation.
+    /// Used to determine the number of trie nodes charged during some
+    /// operation.
     pub fn checked_sub(self, other: &Self) -> Option<Self> {
         Some(Self {
             db_reads: self.db_reads.checked_sub(other.db_reads)?,

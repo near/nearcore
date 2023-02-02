@@ -86,7 +86,8 @@ fn test_function_type_not_defined_contract_1() {
 }
 
 #[test]
-// Weird case. It's not valid wasm (wat2wasm validate will fail), but wasmer allows it.
+// Weird case. It's not valid wasm (wat2wasm validate will fail), but wasmer
+// allows it.
 fn test_function_type_not_defined_contract_2() {
     test_builder()
         .wasm(&function_type_not_defined_contract(0))

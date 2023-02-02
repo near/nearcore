@@ -4,9 +4,10 @@ use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet, VecDeque};
 use tracing::warn;
 
-/// `Graph` is used to compute `peer_routing`, which contains information how to route messages to
-/// all known peers. That is, for each `peer`, we get a sub-set of peers to which we are connected
-/// to that are on the shortest path between us as destination `peer`.
+/// `Graph` is used to compute `peer_routing`, which contains information how to
+/// route messages to all known peers. That is, for each `peer`, we get a
+/// sub-set of peers to which we are connected to that are on the shortest path
+/// between us as destination `peer`.
 #[derive(Clone)]
 pub struct Graph {
     /// `id` as integer corresponding to `my_peer_id`.
@@ -20,8 +21,9 @@ pub struct Graph {
     used: Vec<bool>,
     /// List of unused peer ids
     unused: Vec<u32>,
-    /// Compressed adjacency table, we use 32 bit integer as ids instead of using full `PeerId`.
-    /// This is undirected graph, we store edges in both directions.
+    /// Compressed adjacency table, we use 32 bit integer as ids instead of
+    /// using full `PeerId`. This is undirected graph, we store edges in
+    /// both directions.
     adjacency: Vec<Vec<u32>>,
 
     /// Total number of edges used for stats.
@@ -131,9 +133,10 @@ impl Graph {
         }
     }
 
-    /// Compute for every node `u` on the graph (other than `source`) which are the neighbors of
-    /// `sources` which belong to the shortest path from `source` to `u`. Nodes that are
-    /// not connected to `source` will not appear in the result.
+    /// Compute for every node `u` on the graph (other than `source`) which are
+    /// the neighbors of `sources` which belong to the shortest path from
+    /// `source` to `u`. Nodes that are not connected to `source` will not
+    /// appear in the result.
     pub fn calculate_distance(
         &self,
         unreliable_peers: &HashSet<PeerId>,
@@ -186,8 +189,8 @@ impl Graph {
     /// Converts representation of the result, from an array representation, to
     /// a hashmap of PeerId -> Vec<PeerIds>
     /// Arguments:
-    ///   - routes - for node given node at index `i`, give list of connected peers, which
-    ///     are on the optimal path
+    ///   - routes - for node given node at index `i`, give list of connected
+    ///     peers, which are on the optimal path
     ///   - distances - not really needed: TODO remove this argument
     fn compute_result(&self, routes: &[u128], distance: &[i32]) -> HashMap<PeerId, Vec<PeerId>> {
         let mut res = HashMap::with_capacity(routes.len());

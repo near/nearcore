@@ -19,7 +19,8 @@ pub trait ValidatorSigner: Sync + Send {
     /// Public key that identifies this validator.
     fn public_key(&self) -> PublicKey;
 
-    /// Serializes telemetry info to JSON and signs it, returning JSON with "signature" field.
+    /// Serializes telemetry info to JSON and signs it, returning JSON with
+    /// "signature" field.
     fn sign_telemetry(&self, info: &TelemetryInfo) -> serde_json::Value;
 
     /// Signs given parts of the header.
@@ -65,7 +66,8 @@ pub trait ValidatorSigner: Sync + Send {
         data: &[u8],
     ) -> (near_crypto::vrf::Value, near_crypto::vrf::Proof);
 
-    /// Used by test infrastructure, only implement if make sense for testing otherwise raise `unimplemented`.
+    /// Used by test infrastructure, only implement if make sense for testing
+    /// otherwise raise `unimplemented`.
     fn write_to_file(&self, path: &Path) -> std::io::Result<()>;
 }
 

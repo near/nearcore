@@ -79,8 +79,8 @@ pub(crate) struct StateRequestPart {
 pub(crate) struct StateResponse(pub Box<StateResponseInfo>);
 
 /// Account announcements that needs to be validated before being processed.
-/// They are paired with last epoch id known to this announcement, in order to accept only
-/// newer announcements.
+/// They are paired with last epoch id known to this announcement, in order to
+/// accept only newer announcements.
 #[derive(actix::Message)]
 #[rtype(result = "Result<Vec<AnnounceAccount>,ReasonForBan>")]
 pub(crate) struct AnnounceAccountRequest(pub Vec<(AnnounceAccount, Option<EpochId>)>);
@@ -130,8 +130,8 @@ pub enum ProcessTxResponse {
     InvalidTx(InvalidTxError),
     /// The request is routed to other shards
     RequestRouted,
-    /// The node being queried does not track the shard needed and therefore cannot provide userful
-    /// response.
+    /// The node being queried does not track the shard needed and therefore
+    /// cannot provide userful response.
     DoesNotTrackShard,
 }
 

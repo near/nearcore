@@ -64,7 +64,8 @@ pub struct TrieCosts {
     pub node_cost: u64,
 }
 
-/// Whether a key lookup will be performed through flat storage or through iterating the trie
+/// Whether a key lookup will be performed through flat storage or through
+/// iterating the trie
 pub enum KeyLookupMode {
     FlatStorage,
     Trie,
@@ -265,8 +266,9 @@ impl TrieNode {
         match self {
             TrieNode::Empty => {
                 // DEVNOTE: empty nodes don't exist in storage.
-                // In the in-memory implementation Some(TrieNode::Empty) and None are interchangeable as
-                // children of branch nodes which means cost has to be 0
+                // In the in-memory implementation Some(TrieNode::Empty) and None are
+                // interchangeable as children of branch nodes which means cost
+                // has to be 0
                 0
             }
             TrieNode::Leaf(key, value) => {
@@ -360,7 +362,8 @@ fn decode_children(bytes: &mut &[u8]) -> Result<[Option<CryptoHash>; 16], std::i
 
 impl RawTrieNode {
     fn encode_into(&self, out: &mut Vec<u8>) {
-        // size in state_parts = size + 8 for RawTrieNodeWithSize + 8 for borsh vector length
+        // size in state_parts = size + 8 for RawTrieNodeWithSize + 8 for borsh vector
+        // length
         match &self {
             // size <= 1 + 4 + 4 + 32 + key_length + value_length
             RawTrieNode::Leaf(key, value_length, value_hash) => {
@@ -492,11 +495,12 @@ pub struct TrieRefcountChange {
     /// Hash of trie_node_or_value and part of the DB key.
     /// Used for uniting with shard id to get actual DB key.
     trie_node_or_value_hash: CryptoHash,
-    /// DB value. Can be either serialized RawTrieNodeWithSize or value corresponding to
-    /// some TrieKey.
+    /// DB value. Can be either serialized RawTrieNodeWithSize or value
+    /// corresponding to some TrieKey.
     trie_node_or_value: Vec<u8>,
-    /// Reference count difference which will be added to the total refcount if it corresponds to
-    /// insertion and subtracted from it in the case of deletion.
+    /// Reference count difference which will be added to the total refcount if
+    /// it corresponds to insertion and subtracted from it in the case of
+    /// deletion.
     rc: std::num::NonZeroU32,
 }
 
@@ -517,20 +521,23 @@ impl TrieRefcountChange {
 /// state0 /
 ///        \__changes2___state2
 ///
-/// To store state0, state1 and state2, apply insertions from changes1 and changes2
+/// To store state0, state1 and state2, apply insertions from changes1 and
+/// changes2
 ///
 /// Then, to discard state2, apply insertions from changes2 as deletions
 ///
 /// Then, to discard state0, apply deletions from changes1.
 /// deleting state0 while both state1 and state2 exist is not possible.
-/// Applying deletions from changes1 while state2 exists makes accessing state2 invalid.
+/// Applying deletions from changes1 while state2 exists makes accessing state2
+/// invalid.
 ///
 ///
 /// create a fork -> apply insertions
 /// resolve a fork -> apply opposite of insertions
 /// discard old parent which has no forks from it -> apply deletions
 ///
-/// Having old_root and values in deletions allows to apply TrieChanges in reverse
+/// Having old_root and values in deletions allows to apply TrieChanges in
+/// reverse
 ///
 /// StoreUpdate are the changes from current state refcount to refcount + delta.
 #[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug)]
@@ -694,9 +701,10 @@ impl Trie {
         };
     }
 
-    // Prints the trie leaves starting from the state root node, up to max_depth depth.
-    // This method can only iterate starting from the root node and it only prints the
-    // leaf nodes but it shows output in more human friendly way.
+    // Prints the trie leaves starting from the state root node, up to max_depth
+    // depth. This method can only iterate starting from the root node and it
+    // only prints the leaf nodes but it shows output in more human friendly
+    // way.
     pub fn print_recursive_leaves(&self, f: &mut dyn std::io::Write, max_depth: u32) {
         let iter = match self.iter_with_max_depth(max_depth as usize) {
             Ok(iter) => iter,
@@ -714,8 +722,8 @@ impl Trie {
                 }
             };
 
-            // Try to parse the key in UTF8 which works only for the simplest keys (e.g. account),
-            // or get whitespace padding instead.
+            // Try to parse the key in UTF8 which works only for the simplest keys (e.g.
+            // account), or get whitespace padding instead.
             let key_string = match str::from_utf8(&key) {
                 Ok(value) => String::from(value),
                 Err(_) => " ".repeat(key.len()),
@@ -837,8 +845,9 @@ impl Trie {
         Ok(Some((bytes, node)))
     }
 
-    // Similar to retrieve_raw_node but handles the case where there is a Value (and not a Node) in the database.
-    // This method is not safe to be used in any real scenario as it can incorrectly interpret a value as a trie node.
+    // Similar to retrieve_raw_node but handles the case where there is a Value (and
+    // not a Node) in the database. This method is not safe to be used in any
+    // real scenario as it can incorrectly interpret a value as a trie node.
     // It's only provided as a convenience for debugging tools.
     fn retrieve_raw_node_or_value(&self, hash: &CryptoHash) -> Result<NodeOrValue, StorageError> {
         let bytes = self.storage.retrieve_raw_bytes(hash)?;
@@ -938,14 +947,16 @@ impl Trie {
     }
 
     /// Return the value reference to the `key`
-    /// `mode`: whether we will try to perform the lookup through flat storage or trie.
-    ///         Note that even if `mode == KeyLookupMode::FlatStorage`, we still may not use
-    ///         flat storage if the trie is not created with a flat storage object in it.
-    ///         Such double check may seem redundant but it is necessary for now.
-    ///         Not all tries are created with flat storage, for example, we don't
-    ///         enable flat storage for state-viewer. And we do not use flat
-    ///         storage for key lookup performed in `storage_write`, so we need
-    ///         the `use_flat_storage` to differentiate whether the lookup is performed for
+    /// `mode`: whether we will try to perform the lookup through flat storage
+    /// or trie.         Note that even if `mode ==
+    /// KeyLookupMode::FlatStorage`, we still may not use         flat
+    /// storage if the trie is not created with a flat storage object in it.
+    ///         Such double check may seem redundant but it is necessary for
+    /// now.         Not all tries are created with flat storage, for
+    /// example, we don't         enable flat storage for state-viewer. And
+    /// we do not use flat         storage for key lookup performed in
+    /// `storage_write`, so we need         the `use_flat_storage` to
+    /// differentiate whether the lookup is performed for
     ///         storage_write or not.
     #[allow(unused)]
     pub fn get_ref(

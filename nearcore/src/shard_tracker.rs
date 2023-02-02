@@ -28,12 +28,13 @@ impl TrackedConfig {
 // bit mask for which shard to track
 type BitMask = Vec<bool>;
 
-/// Tracker that tracks shard ids and accounts. Right now, it only supports two modes
-/// TrackedConfig::Accounts(accounts): track the shards where `accounts` belong to
-/// TrackedConfig::AllShards: track all shards
+/// Tracker that tracks shard ids and accounts. Right now, it only supports two
+/// modes TrackedConfig::Accounts(accounts): track the shards where `accounts`
+/// belong to TrackedConfig::AllShards: track all shards
 pub struct ShardTracker {
     tracked_config: TrackedConfig,
-    /// Stores shard tracking information by epoch, only useful if TrackedState == Accounts
+    /// Stores shard tracking information by epoch, only useful if TrackedState
+    /// == Accounts
     tracking_shards: AppendOnlyMap<EpochId, BitMask>,
     /// Epoch manager that for given block hash computes the epoch id.
     epoch_manager: EpochManagerHandle,
@@ -82,8 +83,8 @@ impl ShardTracker {
         shard_id: ShardId,
         is_me: bool,
     ) -> bool {
-        // TODO: fix these unwrap_or here and handle error correctly. The current behavior masks potential errors and bugs
-        // https://github.com/near/nearcore/issues/4936
+        // TODO: fix these unwrap_or here and handle error correctly. The current
+        // behavior masks potential errors and bugs https://github.com/near/nearcore/issues/4936
         if let Some(account_id) = account_id {
             let account_cares_about_shard = {
                 let epoch_manager = self.epoch_manager.read();
@@ -101,9 +102,9 @@ impl ShardTracker {
             || self.tracks_shard(shard_id, parent_hash).unwrap_or(false)
     }
 
-    // `shard_id` always refers to a shard in the current epoch that the next block from `parent_hash` belongs
-    // If shard layout will change next epoch, returns true if it cares about any shard
-    // that `shard_id` will split to
+    // `shard_id` always refers to a shard in the current epoch that the next block
+    // from `parent_hash` belongs If shard layout will change next epoch,
+    // returns true if it cares about any shard that `shard_id` will split to
     pub fn will_care_about_shard(
         &self,
         account_id: Option<&AccountId>,

@@ -24,7 +24,8 @@ fn prepare_env_with_contract(
     env
 }
 
-/// Check that normal execution has the same gas cost after FixContractLoadingCost.
+/// Check that normal execution has the same gas cost after
+/// FixContractLoadingCost.
 #[test]
 fn unchanged_gas_cost() {
     let new_protocol_version =
@@ -53,7 +54,8 @@ fn unchanged_gas_cost() {
     assert_eq!(old_gas, new_gas);
 }
 
-/// Check that execution that fails during contract preparation has the updated gas cost after the update.
+/// Check that execution that fails during contract preparation has the updated
+/// gas cost after the update.
 #[test]
 fn preparation_error_gas_cost() {
     let new_protocol_version =

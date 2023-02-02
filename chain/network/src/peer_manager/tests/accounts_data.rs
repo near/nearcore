@@ -18,8 +18,8 @@ use rand::seq::SliceRandom as _;
 use std::collections::HashSet;
 use std::sync::Arc;
 
-/// Each actix arbiter (in fact, the underlying tokio runtime) creates 4 file descriptors:
-/// 1. eventfd2()
+/// Each actix arbiter (in fact, the underlying tokio runtime) creates 4 file
+/// descriptors: 1. eventfd2()
 /// 2. epoll_create1()
 /// 3. fcntl() duplicating one end of some globally shared socketpair()
 /// 4. fcntl() duplicating epoll socket created in (2)
@@ -174,7 +174,8 @@ async fn gradual_epoch_change() {
 #[tokio::test(flavor = "multi_thread")]
 async fn rate_limiting() {
     init_test_logger();
-    // Adjust the file descriptors limit, so that we can create many connection in the test.
+    // Adjust the file descriptors limit, so that we can create many connection in
+    // the test.
     const MAX_CONNECTIONS: usize = 300;
     let limit = rlimit::Resource::NOFILE.get().unwrap();
     rlimit::Resource::NOFILE
@@ -186,8 +187,8 @@ async fn rate_limiting() {
     let mut clock = time::FakeClock::default();
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
-    // TODO(gprusak): 10 connections per peer is not much, try to scale up this test 2x (some config
-    // tweaking might be required).
+    // TODO(gprusak): 10 connections per peer is not much, try to scale up this test
+    // 2x (some config tweaking might be required).
     let n = 4; // layers
     let m = 5; // peer managers per layer
     let mut pms = vec![];
@@ -254,11 +255,12 @@ async fn rate_limiting() {
         }
     }
 
-    // We expect 3 rounds communication to cover the distance from 1st layer to 4th layer
-    // and +1 full sync at handshake.
+    // We expect 3 rounds communication to cover the distance from 1st layer to 4th
+    // layer and +1 full sync at handshake.
     // The communication is bidirectional, which gives 8 messages per connection.
-    // Then add +50% to accomodate for test execution flakiness (12 messages per connection).
-    // TODO(gprusak): if the test is still flaky, upgrade FakeClock for stricter flow control.
+    // Then add +50% to accomodate for test execution flakiness (12 messages per
+    // connection). TODO(gprusak): if the test is still flaky, upgrade FakeClock
+    // for stricter flow control.
     let want_max = connections * 12;
     println!("got {msgs}, want <= {want_max}");
     assert!(msgs <= want_max, "got {msgs} messages, want at most {want_max}");
@@ -276,8 +278,8 @@ async fn validator_node_restart() {
     const SEC: time::Duration = time::Duration::seconds(1);
 
     // We test restarting node with various number of AccountsData versions
-    // broadcasted before restart, and various downtime (represented as UTC clock shift, which may
-    // be negative).
+    // broadcasted before restart, and various downtime (represented as UTC clock
+    // shift, which may be negative).
     for (n, downtime) in [
         // If no version was emitted, timestamp is not important
         (0, -SEC),
@@ -327,8 +329,9 @@ async fn validator_node_restart() {
         // Connect to the node which knows the old AccountData.
         pm0.connect_to(&pm1.peer_info(), tcp::Tier::T2).await;
 
-        // Now pm0 should learn from pm1 about the conflicting version and should broadcast
-        // new AccountData (with higher version) to override the old AccountData.
+        // Now pm0 should learn from pm1 about the conflicting version and should
+        // broadcast new AccountData (with higher version) to override the old
+        // AccountData.
         let pm0_account_key = cfg.validator.as_ref().unwrap().signer.public_key();
         pm1.wait_for_accounts_data_pred(|accounts_data| {
             let data = match accounts_data.data.get(&pm0_account_key) {

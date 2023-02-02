@@ -7,8 +7,8 @@ use near_primitives::types::validator_stake::ValidatorStake;
 use std::sync::Arc;
 
 /// Only process one block per height
-/// Test that if a node receives two blocks at the same height, it doesn't process the second one
-/// if the second block is not requested
+/// Test that if a node receives two blocks at the same height, it doesn't
+/// process the second one if the second block is not requested
 #[test]
 fn test_not_process_height_twice() {
     let mut env = TestEnv::builder(ChainGenesis::test()).build();
@@ -23,7 +23,8 @@ fn test_not_process_height_twice() {
     duplicate_block.mut_header().get_mut().inner_rest.validator_proposals = proposals;
     duplicate_block.mut_header().resign(&validator_signer);
     let dup_block_hash = *duplicate_block.hash();
-    // we should have dropped the block before we even tried to process it, so the result should be ok
+    // we should have dropped the block before we even tried to process it, so the
+    // result should be ok
     env.clients[0]
         .receive_block_impl(
             duplicate_block,

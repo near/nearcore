@@ -114,8 +114,9 @@ impl RocksDBMetrics {
     }
 
     /// `stat_name` is the name of the statistics at the storage level.
-    /// `metric_fn` returns a name of the prometheus metric that re-exports that statistic.
-    /// `key_fn` returns a hashmap key for the hashmaps in the ROCKSDB_METRICS singleton.
+    /// `metric_fn` returns a name of the prometheus metric that re-exports that
+    /// statistic. `key_fn` returns a hashmap key for the hashmaps in the
+    /// ROCKSDB_METRICS singleton.
     fn set_int_value(
         &mut self,
         key_fn: fn(&str) -> String,

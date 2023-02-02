@@ -80,7 +80,8 @@ const STATE_DUMP_FILE: &str = "state_dump";
 const GENESIS_ROOTS_FILE: &str = "genesis_roots";
 
 /// Defines Nightshade state transition and validator rotation.
-/// TODO: this possibly should be merged with the runtime cargo or at least reconciled on the interfaces.
+/// TODO: this possibly should be merged with the runtime cargo or at least
+/// reconciled on the interfaces.
 pub struct NightshadeRuntime {
     genesis_config: GenesisConfig,
     runtime_config_store: RuntimeConfigStore,
@@ -199,10 +200,11 @@ impl NightshadeRuntime {
 
     /// Create store of runtime configs for the given chain id.
     ///
-    /// For mainnet and other chains except testnet we don't need to override runtime config for
-    /// first protocol versions.
-    /// For testnet, runtime config for genesis block was (incorrectly) different, that's why we
-    /// need to override it specifically to preserve compatibility.
+    /// For mainnet and other chains except testnet we don't need to override
+    /// runtime config for first protocol versions.
+    /// For testnet, runtime config for genesis block was (incorrectly)
+    /// different, that's why we need to override it specifically to
+    /// preserve compatibility.
     fn create_runtime_config_store(chain_id: &str) -> RuntimeConfigStore {
         match chain_id {
             "testnet" => {
@@ -294,8 +296,8 @@ impl NightshadeRuntime {
     }
 
     /// On first start: compute state roots, load genesis state into storage.
-    /// After that: return genesis state roots. The state is not guaranteed to be in storage, as
-    /// GC and state sync are allowed to delete it.
+    /// After that: return genesis state roots. The state is not guaranteed to
+    /// be in storage, as GC and state sync are allowed to delete it.
     pub fn initialize_genesis_state_if_needed(
         store: Store,
         home_dir: &Path,
@@ -304,7 +306,8 @@ impl NightshadeRuntime {
         let stored_hash = get_genesis_hash(&store).expect("Store failed on genesis intialization");
         if let Some(_hash) = stored_hash {
             // TODO: re-enable this check (#4447)
-            //assert_eq!(hash, genesis_hash, "Storage already exists, but has a different genesis");
+            //assert_eq!(hash, genesis_hash, "Storage already exists, but has a different
+            // genesis");
             get_genesis_state_roots(&store)
                 .expect("Store failed on genesis intialization")
                 .expect("Genesis state roots not found in storage")
@@ -585,8 +588,8 @@ impl NightshadeRuntime {
         let runtime_config = self.runtime_config_store.get_config(protocol_version);
         let compiled_contract_cache: Option<Box<dyn CompiledContractCache>> =
             Some(Box::new(StoreCompiledContractCache::new(&self.store)));
-        // Execute precompile_contract in parallel but prevent it from using more than half of all
-        // threads so that node will still function normally.
+        // Execute precompile_contract in parallel but prevent it from using more than
+        // half of all threads so that node will still function normally.
         rayon::scope(|scope| {
             let (slot_sender, slot_receiver) = std::sync::mpsc::channel();
             // Use up-to half of the threads for the compilation.
@@ -740,7 +743,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         store_helper::get_flat_storage_creation_status(&self.store, shard_id)
     }
 
-    // TODO (#7327): consider passing flat storage errors here to handle them gracefully
+    // TODO (#7327): consider passing flat storage errors here to handle them
+    // gracefully
     fn create_flat_storage_state_for_shard(
         &self,
         shard_id: ShardId,
@@ -1008,7 +1012,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         if generate_storage_proof {
             panic!("Storage proof generation is not enabled yet");
         }
-        // let trie = if generate_storage_proof { trie.recording_reads() } else { trie };
+        // let trie = if generate_storage_proof { trie.recording_reads() } else { trie
+        // };
         match self.process_state_update(
             trie,
             shard_id,
@@ -1222,8 +1227,9 @@ impl RuntimeAdapter for NightshadeRuntime {
     }
 
     /// Returns StorageError when storage is inconsistent.
-    /// This is possible with the used isolation level + running ViewClient in a separate thread
-    /// `block_hash` is a block whose `prev_state_root` is `state_root`
+    /// This is possible with the used isolation level + running ViewClient in a
+    /// separate thread `block_hash` is a block whose `prev_state_root` is
+    /// `state_root`
     fn obtain_state_part(
         &self,
         shard_id: ShardId,
@@ -1317,8 +1323,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         let split_shard_ids: HashSet<_> = new_shards.into_iter().collect();
         let checked_account_id_to_shard_id = |account_id: &AccountId| {
             let new_shard_uid = account_id_to_shard_uid(account_id, next_epoch_shard_layout);
-            // check that all accounts in the shard are mapped the shards that this shard will split
-            // to according to shard layout
+            // check that all accounts in the shard are mapped the shards that this shard
+            // will split to according to shard layout
             assert!(
                 split_shard_ids.contains(&new_shard_uid),
                 "Inconsistent shard_layout specs. Account {:?} in shard {:?} and in shard {:?}, but the former is not parent shard for the latter",
@@ -1422,12 +1428,13 @@ impl RuntimeAdapter for NightshadeRuntime {
         let chunk_next_epoch_id =
             epoch_manager.get_next_epoch_id_from_prev_block(chunk_prev_block_hash)?;
 
-        // `chunk_epoch_id != head_epoch_id && chunk_next_epoch_id != head_epoch_id` covers the
-        // common case: the chunk is in the current epoch, or in the previous epoch, relative to the
-        // header head. The third condition (`chunk_epoch_id != head_next_epoch_id`) covers a
-        // corner case, in which the `header_head` is the last block of an epoch, and the chunk is
-        // for the next block. In this case the `chunk_epoch_id` will be one epoch ahead of the
-        // `header_head`.
+        // `chunk_epoch_id != head_epoch_id && chunk_next_epoch_id != head_epoch_id`
+        // covers the common case: the chunk is in the current epoch, or in the
+        // previous epoch, relative to the header head. The third condition
+        // (`chunk_epoch_id != head_next_epoch_id`) covers a corner case, in
+        // which the `header_head` is the last block of an epoch, and the chunk is
+        // for the next block. In this case the `chunk_epoch_id` will be one epoch ahead
+        // of the `header_head`.
         Ok(chunk_epoch_id != head_epoch_id
             && chunk_next_epoch_id != head_epoch_id
             && chunk_epoch_id != head_next_epoch_id)
@@ -1666,7 +1673,8 @@ mod test {
         }
     }
 
-    /// Stores chain data for genesis block to initialize flat storage in test environment.
+    /// Stores chain data for genesis block to initialize flat storage in test
+    /// environment.
     struct MockChainForFlatStorage {
         height_to_hashes: HashMap<BlockHeight, CryptoHash>,
         blocks: HashMap<CryptoHash, flat_state::BlockInfo>,
@@ -1704,8 +1712,8 @@ mod test {
     }
 
     /// Environment to test runtime behaviour separate from Chain.
-    /// Runtime operates in a mock chain where i-th block is attached to (i-1)-th one, has height `i` and hash
-    /// `hash([i])`.
+    /// Runtime operates in a mock chain where i-th block is attached to
+    /// (i-1)-th one, has height `i` and hash `hash([i])`.
     struct TestEnv {
         pub runtime: NightshadeRuntime,
         pub head: Tip,
@@ -1804,8 +1812,9 @@ mod test {
             let (_store, state_roots) = runtime.genesis_state();
             let genesis_hash = hash(&[0]);
 
-            // Create flat storage. Naturally it happens on Chain creation, but here we test only Runtime behaviour
-            // and use a mock chain, so we need to initialize flat storage manually.
+            // Create flat storage. Naturally it happens on Chain creation, but here we test
+            // only Runtime behaviour and use a mock chain, so we need to
+            // initialize flat storage manually.
             let store_update = runtime
                 .set_flat_storage_state_for_genesis(&genesis_hash, &EpochId::default())
                 .unwrap();
@@ -1946,7 +1955,8 @@ mod test {
                 .into()
         }
 
-        /// Compute per epoch per validator reward and per epoch protocol treasury reward
+        /// Compute per epoch per validator reward and per epoch protocol
+        /// treasury reward
         pub fn compute_reward(
             &self,
             num_validators: usize,
@@ -1978,7 +1988,8 @@ mod test {
     /// 2. Validator 0 creates new account Validator 2 with 3 * X in balance
     /// 3. Validator 2 stakes 2 * X
     /// 4. Validator 1 gets unstaked because not enough stake.
-    /// 5. At the end Validator 0 and 2 with 2 * X are validators. Validator 1 has stake returned to balance.
+    /// 5. At the end Validator 0 and 2 with 2 * X are validators. Validator 1
+    /// has stake returned to balance.
     #[test]
     fn test_validator_rotation() {
         init_test_logger();
@@ -1994,7 +2005,8 @@ mod test {
             KeyType::ED25519,
             validators[0].as_ref(),
         );
-        // test1 doubles stake and the new account stakes the same, so test2 will be kicked out.`
+        // test1 doubles stake and the new account stakes the same, so test2 will be
+        // kicked out.`
         let staking_transaction = stake(1, &signer, &block_producers[0], TESTING_INIT_STAKE * 2);
         let new_account = AccountId::try_from(format!("test{}", num_nodes + 1)).unwrap();
         let new_validator = create_test_signer(new_account.as_str());
@@ -2073,7 +2085,8 @@ mod test {
         );
     }
 
-    /// One validator tries to decrease their stake in epoch T. Make sure that the stake return happens in epoch T+3.
+    /// One validator tries to decrease their stake in epoch T. Make sure that
+    /// the stake return happens in epoch T+3.
     #[test]
     fn test_validator_stake_change() {
         let num_nodes = 2;
@@ -2555,8 +2568,8 @@ mod test {
             0,
             true
         ));
-        // which validator is selected to shard 1 sole validator seat depends on which validator
-        // selection algorithm is used
+        // which validator is selected to shard 1 sole validator seat depends on which
+        // validator selection algorithm is used
         assert!(
             env.runtime.cares_about_shard(Some(&validators[0]), &env.head.last_block_hash, 1, true)
                 ^ env.runtime.cares_about_shard(
@@ -2631,14 +2644,16 @@ mod test {
                 &signature,
             )
             .unwrap());
-        // Run for 3 epochs, to finalize the given block and make sure that slashed stake actually correctly propagates.
+        // Run for 3 epochs, to finalize the given block and make sure that slashed
+        // stake actually correctly propagates.
         for _ in 0..6 {
             env.step(vec![vec![]], vec![true], vec![]);
         }
     }
 
-    /// Test that in case of a double sign, not all stake is slashed if the double signed stake is
-    /// less than 33% and all stake is slashed if the stake is more than 33%
+    /// Test that in case of a double sign, not all stake is slashed if the
+    /// double signed stake is less than 33% and all stake is slashed if the
+    /// stake is more than 33%
     #[test]
     fn test_double_sign_challenge_not_all_slashed() {
         init_test_logger();
@@ -2726,7 +2741,8 @@ mod test {
         assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE / 3 + remaining);
     }
 
-    /// Test that double sign from multiple accounts may result in all of their stake slashed.
+    /// Test that double sign from multiple accounts may result in all of their
+    /// stake slashed.
     #[test]
     fn test_double_sign_challenge_all_slashed() {
         init_test_logger();
@@ -2776,8 +2792,8 @@ mod test {
         assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
     }
 
-    /// Test that if double sign occurs in the same epoch as other type of challenges all stake
-    /// is slashed.
+    /// Test that if double sign occurs in the same epoch as other type of
+    /// challenges all stake is slashed.
     #[test]
     fn test_double_sign_with_other_challenges() {
         init_test_logger();
@@ -2815,10 +2831,12 @@ mod test {
         assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
     }
 
-    /// Run 4 validators. Two of them first change their stake to below validator threshold but above
-    /// fishermen threshold. Make sure their balance is correct. Then one fisherman increases their
-    /// stake to become a validator again while the other one decreases to below fishermen threshold.
-    /// Check that the first one becomes a validator and the second one gets unstaked completely.
+    /// Run 4 validators. Two of them first change their stake to below
+    /// validator threshold but above fishermen threshold. Make sure their
+    /// balance is correct. Then one fisherman increases their
+    /// stake to become a validator again while the other one decreases to below
+    /// fishermen threshold. Check that the first one becomes a validator
+    /// and the second one gets unstaked completely.
     #[test]
     fn test_fishermen_stake() {
         init_test_logger();
@@ -2949,7 +2967,8 @@ mod test {
         assert!(response.current_fishermen.is_empty());
     }
 
-    /// Enable reward and make sure that validators get reward proportional to their stake.
+    /// Enable reward and make sure that validators get reward proportional to
+    /// their stake.
     #[test]
     fn test_validator_reward() {
         init_test_logger();
@@ -3076,8 +3095,9 @@ mod test {
         assert_eq!(env.last_proposals[0].stake(), 0);
     }
 
-    /// Check that flat state is included into trie and is not included into view trie, because we can't apply flat
-    /// state optimization to view calls.
+    /// Check that flat state is included into trie and is not included into
+    /// view trie, because we can't apply flat state optimization to view
+    /// calls.
     #[test]
     fn test_flat_state_usage() {
         let env = TestEnv::new(vec![vec!["test1".parse().unwrap()]], 4, false);
@@ -3122,7 +3142,8 @@ mod test {
         }
 
         // Extract account in two ways:
-        // - using state trie, which should use flat state after enabling it in the protocol
+        // - using state trie, which should use flat state after enabling it in the
+        //   protocol
         // - using view state, which should never use flat state
         let head_prev_block_hash = env.head.prev_block_hash;
         let state_root = env.state_roots[0];
@@ -3141,7 +3162,8 @@ mod test {
         assert_eq!(state_value, view_state_value);
     }
 
-    /// Check that mainnet genesis hash still matches, to make sure that we're still backwards compatible.
+    /// Check that mainnet genesis hash still matches, to make sure that we're
+    /// still backwards compatible.
     #[test]
     fn test_genesis_hash() {
         let genesis = near_mainnet_res::mainnet_genesis();

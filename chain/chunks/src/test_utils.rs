@@ -64,8 +64,8 @@ impl Default for SealsManagerTestFixture {
 
         // Header for some distant block (with a very large height). The only field that
         // is important is the height because this influences the GC cut-off. The hash
-        // in the header is used to check that the `SealsManager` seals cache is properly
-        // cleared.
+        // in the header is used to check that the `SealsManager` seals cache is
+        // properly cleared.
         let mock_distant_block_header = BlockHeader::genesis(
             PROTOCOL_VERSION,
             mock_height + PAST_SEAL_HEIGHT_HORIZON + 1,
@@ -368,7 +368,8 @@ fn default_runtime() -> KeyValueRuntime {
     let vs = make_validators(12, 0, 3);
     KeyValueRuntime::new_with_validators(store.clone(), vs, 5)
 }
-// Mocked `PeerManager` adapter, has a queue of `PeerManagerMessageRequest` messages.
+// Mocked `PeerManager` adapter, has a queue of `PeerManagerMessageRequest`
+// messages.
 #[derive(Default)]
 pub struct MockClientAdapterForShardsManager {
     pub requests: Arc<RwLock<VecDeque<ShardsManagerResponse>>>,
@@ -397,10 +398,10 @@ impl MockClientAdapterForShardsManager {
     }
 }
 
-// Allows ShardsManagerActor-like behavior, except without having to spawn an actor,
-// and without having to manually route ShardsManagerRequest messages. This only works
-// for single-threaded (synchronous) tests. The ShardsManager is immediately called
-// upon receiving a ShardsManagerRequest message.
+// Allows ShardsManagerActor-like behavior, except without having to spawn an
+// actor, and without having to manually route ShardsManagerRequest messages.
+// This only works for single-threaded (synchronous) tests. The ShardsManager is
+// immediately called upon receiving a ShardsManagerRequest message.
 #[derive(Clone)]
 pub struct SynchronousShardsManagerAdapter {
     // Need a mutex here even though we only support single-threaded tests, because

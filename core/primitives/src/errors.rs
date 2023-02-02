@@ -47,19 +47,23 @@ impl From<InvalidTxError> for TxExecutionError {
 /// Error returned from `Runtime::apply`
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuntimeError {
-    /// An unexpected integer overflow occurred. The likely issue is an invalid state or the transition.
+    /// An unexpected integer overflow occurred. The likely issue is an invalid
+    /// state or the transition.
     UnexpectedIntegerOverflow,
-    /// An error happened during TX verification and account charging. It's likely the chunk is invalid.
-    /// and should be challenged.
+    /// An error happened during TX verification and account charging. It's
+    /// likely the chunk is invalid. and should be challenged.
     InvalidTxError(InvalidTxError),
-    /// Unexpected error which is typically related to the node storage corruption.
-    /// It's possible the input state is invalid or malicious.
+    /// Unexpected error which is typically related to the node storage
+    /// corruption. It's possible the input state is invalid or malicious.
     StorageError(StorageError),
-    /// An error happens if `check_balance` fails, which is likely an indication of an invalid state.
+    /// An error happens if `check_balance` fails, which is likely an indication
+    /// of an invalid state.
     BalanceMismatchError(BalanceMismatchError),
-    /// The incoming receipt didn't pass the validation, it's likely a malicious behaviour.
+    /// The incoming receipt didn't pass the validation, it's likely a malicious
+    /// behaviour.
     ReceiptValidationError(ReceiptValidationError),
-    /// Error when accessing validator information. Happens inside epoch manager.
+    /// Error when accessing validator information. Happens inside epoch
+    /// manager.
     ValidatorError(EpochError),
 }
 
@@ -80,9 +84,10 @@ pub enum StorageError {
     TrieNodeMissing,
     /// Either invalid state or key-value db is corrupted.
     /// For PartialStorage it cannot be corrupted.
-    /// Error message is unreliable and for debugging purposes only. It's also probably ok to
-    /// panic in every place that produces this error.
-    /// We can check if db is corrupted by verifying everything in the state trie.
+    /// Error message is unreliable and for debugging purposes only. It's also
+    /// probably ok to panic in every place that produces this error.
+    /// We can check if db is corrupted by verifying everything in the state
+    /// trie.
     StorageInconsistentState(String),
     /// Error from flat storage
     FlatStorageError(String),
@@ -101,7 +106,8 @@ impl std::error::Error for StorageError {}
     BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
 )]
 pub enum InvalidTxError {
-    /// Happens if a wrong AccessKey used or AccessKey has not enough permissions
+    /// Happens if a wrong AccessKey used or AccessKey has not enough
+    /// permissions
     InvalidAccessKeyError(InvalidAccessKeyError),
     /// TX signer_id is not a valid [`AccountId`]
     InvalidSignerId { signer_id: String },
@@ -109,7 +115,8 @@ pub enum InvalidTxError {
     SignerDoesNotExist { signer_id: AccountId },
     /// Transaction nonce must be `account[access_key].nonce + 1`.
     InvalidNonce { tx_nonce: Nonce, ak_nonce: Nonce },
-    /// Transaction nonce is larger than the upper bound given by the block height
+    /// Transaction nonce is larger than the upper bound given by the block
+    /// height
     NonceTooLarge { tx_nonce: Nonce, upper_bound: Nonce },
     /// TX receiver_id is not a valid AccountId
     InvalidReceiverId { receiver_id: String },
@@ -149,7 +156,8 @@ impl std::error::Error for InvalidTxError {}
     BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
 )]
 pub enum InvalidAccessKeyError {
-    /// The access key identified by the `public_key` doesn't exist for the account
+    /// The access key identified by the `public_key` doesn't exist for the
+    /// account
     AccessKeyNotFound { account_id: AccountId, public_key: PublicKey },
     /// Transaction `receiver_id` doesn't match the access key receiver_id
     ReceiverMismatch { tx_receiver: AccountId, ak_receiver: String },
@@ -166,7 +174,8 @@ pub enum InvalidAccessKeyError {
         #[serde(with = "dec_format")]
         cost: Balance,
     },
-    /// Having a deposit with a function call action is not allowed with a function call access key.
+    /// Having a deposit with a function call action is not allowed with a
+    /// function call access key.
     DepositWithFunctionCall,
 }
 
@@ -181,7 +190,8 @@ pub enum ActionsValidationError {
     TotalPrepaidGasExceeded { total_prepaid_gas: Gas, limit: Gas },
     /// The number of actions exceeded the given limit.
     TotalNumberOfActionsExceeded { total_number_of_actions: u64, limit: u64 },
-    /// The total number of bytes of the method names exceeded the limit in a Add Key action.
+    /// The total number of bytes of the method names exceeded the limit in a
+    /// Add Key action.
     AddKeyMethodNamesNumberOfBytesExceeded { total_number_of_bytes: u64, limit: u64 },
     /// The length of some method name exceeded the limit in a Add Key action.
     AddKeyMethodNameLengthExceeded { length: u64, limit: u64 },
@@ -189,17 +199,23 @@ pub enum ActionsValidationError {
     IntegerOverflow,
     /// Invalid account ID.
     InvalidAccountId { account_id: String },
-    /// The size of the contract code exceeded the limit in a DeployContract action.
+    /// The size of the contract code exceeded the limit in a DeployContract
+    /// action.
     ContractSizeExceeded { size: u64, limit: u64 },
-    /// The length of the method name exceeded the limit in a Function Call action.
+    /// The length of the method name exceeded the limit in a Function Call
+    /// action.
     FunctionCallMethodNameLengthExceeded { length: u64, limit: u64 },
-    /// The length of the arguments exceeded the limit in a Function Call action.
+    /// The length of the arguments exceeded the limit in a Function Call
+    /// action.
     FunctionCallArgumentsLengthExceeded { length: u64, limit: u64 },
-    /// An attempt to stake with a public key that is not convertible to ristretto.
+    /// An attempt to stake with a public key that is not convertible to
+    /// ristretto.
     UnsuitableStakingKey { public_key: PublicKey },
-    /// The attached amount of gas in a FunctionCall action has to be a positive number.
+    /// The attached amount of gas in a FunctionCall action has to be a positive
+    /// number.
     FunctionCallZeroAttachedGas,
-    /// DelegateAction actions contain another DelegateAction. This is not allowed.
+    /// DelegateAction actions contain another DelegateAction. This is not
+    /// allowed.
     DelegateActionCantContainNestedOne,
     /// There should be the only one DelegateAction
     DelegateActionMustBeOnlyOne,
@@ -223,11 +239,13 @@ pub enum ReceiptValidationError {
     InvalidReceiverId { account_id: String },
     /// The `signer_id` of an ActionReceipt is not valid.
     InvalidSignerId { account_id: String },
-    /// The `receiver_id` of a DataReceiver within an ActionReceipt is not valid.
+    /// The `receiver_id` of a DataReceiver within an ActionReceipt is not
+    /// valid.
     InvalidDataReceiverId { account_id: String },
     /// The length of the returned data exceeded the limit in a DataReceipt.
     ReturnedValueLengthExceeded { length: u64, limit: u64 },
-    /// The number of input data dependencies exceeds the limit in an ActionReceipt.
+    /// The number of input data dependencies exceeds the limit in an
+    /// ActionReceipt.
     NumberInputDataDependenciesExceeded { number_of_input_data_dependencies: u64, limit: u64 },
     /// An error occurred while validating actions of an ActionReceipt.
     ActionsValidation(ActionsValidationError),
@@ -352,7 +370,8 @@ impl std::error::Error for ActionsValidationError {}
 )]
 pub struct ActionError {
     /// Index of the failed action in the transaction.
-    /// Action index is not defined if ActionError.kind is `ActionErrorKind::LackBalanceForState`
+    /// Action index is not defined if ActionError.kind is
+    /// `ActionErrorKind::LackBalanceForState`
     pub index: Option<u64>,
     /// The kind of ActionError happened
     pub kind: ActionErrorKind,
@@ -364,9 +383,11 @@ impl std::error::Error for ActionError {}
     BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
 )]
 pub enum ActionErrorKind {
-    /// Happens when CreateAccount action tries to create an account with account_id which is already exists in the storage
+    /// Happens when CreateAccount action tries to create an account with
+    /// account_id which is already exists in the storage
     AccountAlreadyExists { account_id: AccountId },
-    /// Happens when TX receiver_id doesn't exist (but action is not Action::CreateAccount)
+    /// Happens when TX receiver_id doesn't exist (but action is not
+    /// Action::CreateAccount)
     AccountDoesNotExist { account_id: AccountId },
     /// A top-level account ID can only be created by registrar.
     CreateAccountOnlyByRegistrar {
@@ -376,8 +397,9 @@ pub enum ActionErrorKind {
     },
     /// A newly created account must be under a namespace of the creator account
     CreateAccountNotAllowed { account_id: AccountId, predecessor_id: AccountId },
-    /// Administrative actions like `DeployContract`, `Stake`, `AddKey`, `DeleteKey`. can be proceed only if sender=receiver
-    /// or the first TX action is a `CreateAccount` action
+    /// Administrative actions like `DeployContract`, `Stake`, `AddKey`,
+    /// `DeleteKey`. can be proceed only if sender=receiver or the first TX
+    /// action is a `CreateAccount` action
     ActorNoPermission { account_id: AccountId, actor_id: AccountId },
     /// Account tries to remove an access key that doesn't exist
     DeleteKeyDoesNotExist { account_id: AccountId, public_key: PublicKey },
@@ -385,7 +407,8 @@ pub enum ActionErrorKind {
     AddKeyAlreadyExists { account_id: AccountId, public_key: PublicKey },
     /// Account is staking and can not be deleted
     DeleteAccountStaking { account_id: AccountId },
-    /// ActionReceipt can't be completed, because the remaining balance will not be enough to cover storage.
+    /// ActionReceipt can't be completed, because the remaining balance will not
+    /// be enough to cover storage.
     LackBalanceForState {
         /// An account which needs balance
         account_id: AccountId,
@@ -412,10 +435,11 @@ pub enum ActionErrorKind {
         #[serde(with = "dec_format")]
         minimum_stake: Balance,
     },
-    /// An error occurred during a `FunctionCall` Action, parameter is debug message.
+    /// An error occurred during a `FunctionCall` Action, parameter is debug
+    /// message.
     FunctionCallError(FunctionCallErrorSer),
-    /// Error occurs when a new `ActionReceipt` created by the `FunctionCall` action fails
-    /// receipt validation.
+    /// Error occurs when a new `ActionReceipt` created by the `FunctionCall`
+    /// action fails receipt validation.
     NewReceiptValidationError(ReceiptValidationError),
     /// Error occurs when a `CreateAccount` action is called on hex-characters
     /// account of length 64.  See implicit account creation NEP:
@@ -423,17 +447,20 @@ pub enum ActionErrorKind {
     OnlyImplicitAccountCreationAllowed { account_id: AccountId },
     /// Delete account whose state is large is temporarily banned.
     DeleteAccountWithLargeState { account_id: AccountId },
-    /// Signature does not match the provided actions and given signer public key.
+    /// Signature does not match the provided actions and given signer public
+    /// key.
     DelegateActionInvalidSignature,
     /// Receiver of the transaction doesn't match Sender of the delegate action
     DelegateActionSenderDoesNotMatchTxReceiver { sender_id: AccountId, receiver_id: AccountId },
-    /// Delegate action has expired. `max_block_height` is less than actual block height.
+    /// Delegate action has expired. `max_block_height` is less than actual
+    /// block height.
     DelegateActionExpired,
     /// The given public key doesn't exist for Sender account
     DelegateActionAccessKeyError(InvalidAccessKeyError),
     /// DelegateAction nonce must be greater sender[public_key].nonce
     DelegateActionInvalidNonce { delegate_nonce: Nonce, ak_nonce: Nonce },
-    /// DelegateAction nonce is larger than the upper bound given by the block height
+    /// DelegateAction nonce is larger than the upper bound given by the block
+    /// height
     DelegateActionNonceTooLarge { delegate_nonce: Nonce, upper_bound: Nonce },
 }
 
@@ -546,7 +573,8 @@ impl Display for InvalidAccessKeyError {
 
 impl std::error::Error for InvalidAccessKeyError {}
 
-/// Happens when the input balance doesn't match the output balance in Runtime apply.
+/// Happens when the input balance doesn't match the output balance in Runtime
+/// apply.
 #[derive(
     BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
 )]
@@ -758,14 +786,16 @@ impl Display for ActionErrorKind {
 #[derive(Eq, PartialEq, Clone)]
 pub enum EpochError {
     /// Error calculating threshold from given stakes for given number of seats.
-    /// Only should happened if calling code doesn't check for integer value of stake > number of seats.
+    /// Only should happened if calling code doesn't check for integer value of
+    /// stake > number of seats.
     ThresholdError {
         stake_sum: Balance,
         num_seats: u64,
     },
     /// Requesting validators for an epoch that wasn't computed yet.
     EpochOutOfBounds(EpochId),
-    /// Missing block hash in the storage (means there is some structural issue).
+    /// Missing block hash in the storage (means there is some structural
+    /// issue).
     MissingBlock(CryptoHash),
     /// Error due to IO (DB read/write, serialization, etc.).
     IOErr(String),

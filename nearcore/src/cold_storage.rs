@@ -11,7 +11,8 @@ use near_store::{
 
 use crate::{NearConfig, NightshadeRuntime};
 
-/// A handle that keeps the state of the cold store loop and can be used to stop it.
+/// A handle that keeps the state of the cold store loop and can be used to stop
+/// it.
 pub struct ColdStoreLoopHandle {
     join_handle: std::thread::JoinHandle<()>,
     keep_going: Arc<AtomicBool>,
@@ -74,13 +75,14 @@ fn cold_store_copy(
         return Ok(ColdStoreCopyResult::NoBlockCopied);
     }
 
-    // TODO - there may be holes in the chain where there is no block at a given height
-    // We should make sure to fix the current implementation to account for that.
-    // https://pagodaplatform.atlassian.net/browse/ND-285
+    // TODO - there may be holes in the chain where there is no block at a given
+    // height We should make sure to fix the current implementation to account
+    // for that. https://pagodaplatform.atlassian.net/browse/ND-285
     let next_height = cold_head_height + 1;
 
     // Here it should be sufficient to just read from hot storage.
-    // Because BlockHeight is never garbage collectable and is not even copied to cold.
+    // Because BlockHeight is never garbage collectable and is not even copied to
+    // cold.
     let cold_head_hash =
         hot_store.get_ser::<CryptoHash>(DBCol::BlockHeight, &cold_head_height.to_le_bytes())?;
     let cold_head_hash = cold_head_hash
@@ -102,11 +104,11 @@ fn cold_store_copy(
 }
 
 // This method will copy data from hot storage to cold storage in a loop.
-// It will try to copy blocks as fast as possible up until cold head = final head.
-// Once the cold head reaches the final head it will sleep for one second before
-// trying to copy data at the next height.
-// TODO clean up the interface, currently we need to pass hot store, cold store and
-// cold_db which is redundant.
+// It will try to copy blocks as fast as possible up until cold head = final
+// head. Once the cold head reaches the final head it will sleep for one second
+// before trying to copy data at the next height.
+// TODO clean up the interface, currently we need to pass hot store, cold store
+// and cold_db which is redundant.
 fn cold_store_loop(
     keep_going: Arc<AtomicBool>,
     hot_store: Store,
@@ -149,13 +151,13 @@ fn cold_store_loop(
     }
 }
 
-/// Spawns the cold store loop in a background thread and returns ColdStoreLoopHandle.
-/// If cold store is not configured it does nothing and returns None.
-/// The cold store loop is spawned in a rust native thread because it's quite heavy
-/// and it is not suitable for async frameworks such as actix or tokio. It's not suitable
-/// for async because RocksDB itself doesn't support async. Running this in an async
-/// environment would just hog a thread while synchronously waiting for the IO operations
-/// to finish.
+/// Spawns the cold store loop in a background thread and returns
+/// ColdStoreLoopHandle. If cold store is not configured it does nothing and
+/// returns None. The cold store loop is spawned in a rust native thread because
+/// it's quite heavy and it is not suitable for async frameworks such as actix
+/// or tokio. It's not suitable for async because RocksDB itself doesn't support
+/// async. Running this in an async environment would just hog a thread while
+/// synchronously waiting for the IO operations to finish.
 pub fn spawn_cold_store_loop(
     config: &NearConfig,
     storage: &NodeStorage,

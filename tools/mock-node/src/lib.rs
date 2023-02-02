@@ -1,5 +1,5 @@
-//! Implements `ChainHistoryAccess` and `MockPeerManagerActor`, which is the main
-//! components of the mock network.
+//! Implements `ChainHistoryAccess` and `MockPeerManagerActor`, which is the
+//! main components of the mock network.
 
 use actix::{Actor, Context, Handler};
 use anyhow::{anyhow, Context as AnyhowContext};
@@ -30,7 +30,8 @@ use std::time::Duration;
 pub mod setup;
 
 // For now this is a simple struct with one field just to leave the door
-// open for adding stuff and/or having different configs for different message types later.
+// open for adding stuff and/or having different configs for different message
+// types later.
 #[derive(Clone, Debug, Deserialize)]
 pub struct MockIncomingRequestConfig {
     // How long we wait between sending each incoming request
@@ -86,9 +87,10 @@ struct IncomingRequests {
 }
 
 // get some chunk hash to serve as the source of unrequested incoming chunks.
-// For now we find the first chunk hash we know about starting from the height the client will start at.
-// The lower the height, the better, so that the client will actually do some work on these
-// requests instead of just seeing that the chunk hash is unknown.
+// For now we find the first chunk hash we know about starting from the height
+// the client will start at. The lower the height, the better, so that the
+// client will actually do some work on these requests instead of just seeing
+// that the chunk hash is unknown.
 fn retrieve_starting_chunk_hash(
     chain: &mut Chain,
     client_start_height: BlockHeight,
@@ -185,14 +187,15 @@ impl IncomingRequests {
     }
 }
 
-/// MockPeerManagerActor mocks PeerManagerActor and responds to messages from ClientActor.
-/// Instead of sending these messages out to other peers, it simulates a network and reads
-/// the needed block and chunk content from storage.
-/// MockPeerManagerActor has the following responsibilities
-/// - Responds to the requests sent from ClientActor, including
-///     BlockRequest, BlockHeadersRequest and PartialEncodedChunkRequest
+/// MockPeerManagerActor mocks PeerManagerActor and responds to messages from
+/// ClientActor. Instead of sending these messages out to other peers, it
+/// simulates a network and reads the needed block and chunk content from
+/// storage. MockPeerManagerActor has the following responsibilities
+/// - Responds to the requests sent from ClientActor, including BlockRequest,
+///   BlockHeadersRequest and PartialEncodedChunkRequest
 /// - Sends NetworkInfo to ClientActor periodically
-/// - Simulates block production and sends the most "recent" block to ClientActor
+/// - Simulates block production and sends the most "recent" block to
+///   ClientActor
 pub struct MockPeerManagerActor {
     /// Client address for the node that we are testing
     client: Arc<dyn near_network::client::Client>,
@@ -282,8 +285,9 @@ impl MockPeerManagerActor {
     }
 
     /// This function gets called periodically
-    /// When it is called, it increments peer heights by 1 and sends the block at that height
-    /// to ClientActor. In a way, it simulates peers that broadcast new blocks
+    /// When it is called, it increments peer heights by 1 and sends the block
+    /// at that height to ClientActor. In a way, it simulates peers that
+    /// broadcast new blocks
     fn update_peers(&mut self, ctx: &mut Context<MockPeerManagerActor>) {
         actix::spawn({
             let client = self.client.clone();
@@ -350,8 +354,9 @@ impl MockPeerManagerActor {
         if let Some((interval, request)) = &self.incoming_requests.chunk_request {
             self.shards_manager_adapter.process_partial_encoded_chunk_request(
                 request.clone(),
-                // this can just be nonsense since the PeerManager is mocked out anyway. If/when we update the mock node
-                // to exercise the PeerManager code as well, then this won't matter anyway since the mock code won't be
+                // this can just be nonsense since the PeerManager is mocked out anyway. If/when we
+                // update the mock node to exercise the PeerManager code as well,
+                // then this won't matter anyway since the mock code won't be
                 // responsible for it.
                 CryptoHash::default(),
             );

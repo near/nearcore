@@ -35,13 +35,14 @@ impl Trie {
         Ok(trie_nodes)
     }
 
-    /// Assume we lay out all trie nodes in dfs order visiting children after the parent.
-    /// We take all node sizes (memory_usage_direct()) and take all nodes intersecting with
-    /// [size_start, size_end) interval, also all nodes necessary to prove it and some
-    /// additional nodes defined by the current implementation (TODO #1603 strict spec).
+    /// Assume we lay out all trie nodes in dfs order visiting children after
+    /// the parent. We take all node sizes (memory_usage_direct()) and take
+    /// all nodes intersecting with [size_start, size_end) interval, also
+    /// all nodes necessary to prove it and some additional nodes defined by
+    /// the current implementation (TODO #1603 strict spec).
     ///
-    /// Creating a StatePart takes all these nodes, validating a StatePart checks that it has the
-    /// right set of nodes.
+    /// Creating a StatePart takes all these nodes, validating a StatePart
+    /// checks that it has the right set of nodes.
     fn visit_nodes_for_state_part(&self, part_id: PartId) -> Result<(), StorageError> {
         let path_begin = self.find_path_for_part_boundary(part_id.idx, part_id.total)?;
         let path_end = self.find_path_for_part_boundary(part_id.idx + 1, part_id.total)?;
@@ -52,7 +53,8 @@ impl Trie {
             target: "state_parts",
             num_nodes = nodes_list.len());
 
-        // Extra nodes for compatibility with the previous version of computing state parts
+        // Extra nodes for compatibility with the previous version of computing state
+        // parts
         if part_id.idx + 1 != part_id.total {
             let mut iterator = self.iter()?;
             let path_end_encoded = NibbleSlice::encode_nibbles(&path_end, false);
@@ -153,7 +155,8 @@ impl Trie {
         }
     }
 
-    // find the first node so that including this node, the traversed size is larger than size
+    // find the first node so that including this node, the traversed size is larger
+    // than size
     fn find_path(&self, root_node: &TrieNodeWithSize, size: u64) -> Result<Vec<u8>, StorageError> {
         if root_node.memory_usage <= size {
             return Ok(vec![16u8]);
@@ -239,8 +242,9 @@ impl Trie {
         })
     }
 
-    /// Applies state part and returns the storage changes for the state part and all contract codes extracted from it.
-    /// Writing all storage changes gives the complete trie.
+    /// Applies state part and returns the storage changes for the state part
+    /// and all contract codes extracted from it. Writing all storage
+    /// changes gives the complete trie.
     pub fn apply_state_part(
         state_root: &StateRoot,
         part_id: PartId,
@@ -275,13 +279,15 @@ mod tests {
     use near_primitives::shard_layout::ShardUId;
 
     impl Trie {
-        /// Combines all parts and returns TrieChanges that can be applied to storage.
+        /// Combines all parts and returns TrieChanges that can be applied to
+        /// storage.
         ///
         /// # Input
         /// parts[i] has trie nodes for part i
         ///
         /// # Errors
-        /// StorageError if data is inconsistent. Should never happen if each part was validated.
+        /// StorageError if data is inconsistent. Should never happen if each
+        /// part was validated.
         pub fn combine_state_parts_naive(
             state_root: &StateRoot,
             parts: &[Vec<StateItem>],
@@ -421,7 +427,8 @@ mod tests {
                         return Err(e);
                     }
                     Some(Ok(_item)) => {
-                        // The last iteration actually reads a value we don't need.
+                        // The last iteration actually reads a value we don't
+                        // need.
                     }
                 }
                 // TODO #1603 this is bad for large keys
@@ -489,8 +496,8 @@ mod tests {
         max_key_length: u64,
         big_value_length: u64,
     ) -> Vec<(Vec<u8>, Option<Vec<u8>>)> {
-        // Test #2: a long path where every node on the path has a large value, is a branch
-        // and each of its children is a branch.
+        // Test #2: a long path where every node on the path has a large value, is a
+        // branch and each of its children is a branch.
         let mut trie_changes =
             construct_trie_for_big_parts_1(rng, max_key_length, big_value_length);
         let small_value_length = 20;
@@ -499,7 +506,8 @@ mod tests {
                 for y in 0u8..15u8 {
                     {
                         // ([255,255,..,255]xy, small_value)
-                        // this means every 000..000 node is a branch and all of its children are branches
+                        // this means every 000..000 node is a branch and all of its children are
+                        // branches
                         let mut key = (0..(i + 1)).map(|_| 255u8).collect::<Vec<_>>();
                         key.push(x * 16 + y);
                         let value =

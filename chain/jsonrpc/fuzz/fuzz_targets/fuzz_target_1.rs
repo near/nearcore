@@ -112,7 +112,11 @@ fuzz_target!(|requests: Vec<JsonRpcRequest>| {
         if let Some(_node_addr) = unsafe { NODE_ADDR.as_ref() } {
             break;
         } else {
-            std::thread::sleep(std::time::Duration::from_millis(100)); // ensure node have enough time to start
+            std::thread::sleep(std::time::Duration::from_millis(100)); // ensure
+                                                                       // node have
+                                                                       // enough
+                                                                       // time to
+                                                                       // start
         }
     }
 

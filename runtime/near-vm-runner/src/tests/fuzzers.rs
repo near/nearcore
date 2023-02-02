@@ -11,7 +11,8 @@ use near_vm_errors::FunctionCallError;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::{VMConfig, VMContext};
 
-/// Finds a no-parameter exported function, something like `(func (export "entry-point"))`.
+/// Finds a no-parameter exported function, something like `(func (export
+/// "entry-point"))`.
 pub fn find_entry_point(contract: &ContractCode) -> Option<String> {
     let mut tys = Vec::new();
     let mut fns = Vec::new();
@@ -105,7 +106,8 @@ fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> VMResult {
     context.prepaid_gas = 10u64.pow(14);
 
     let mut config = VMConfig::test();
-    config.limit_config.wasmer2_stack_limit = i32::MAX; // If we can crash wasmer2 even without the secondary stack limit it's still good to know
+    config.limit_config.wasmer2_stack_limit = i32::MAX; // If we can crash wasmer2 even without the secondary stack limit it's still
+                                                        // good to know
 
     let fees = RuntimeFeesConfig::test();
 

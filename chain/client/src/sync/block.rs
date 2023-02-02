@@ -52,8 +52,9 @@ impl BlockSync {
         BlockSync { network_adapter, last_request: None, block_fetch_horizon, archive }
     }
 
-    /// Runs check if block sync is needed, if it's needed and it's too far - sync state is started instead (returning true).
-    /// Otherwise requests recent blocks from peers.
+    /// Runs check if block sync is needed, if it's needed and it's too far -
+    /// sync state is started instead (returning true). Otherwise requests
+    /// recent blocks from peers.
     pub fn run(
         &mut self,
         sync_status: &mut SyncStatus,
@@ -103,8 +104,8 @@ impl BlockSync {
         Ok(false)
     }
 
-    /// Returns true if state download is required (last known block is too far).
-    /// Otherwise request recent blocks from peers round robin.
+    /// Returns true if state download is required (last known block is too
+    /// far). Otherwise request recent blocks from peers round robin.
     fn block_sync(
         &mut self,
         chain: &Chain,
@@ -115,12 +116,13 @@ impl BlockSync {
         }
 
         let chain_head = chain.head()?;
-        // update last request now because we want to update it whether or not the rest of the logic
-        // succeeds
+        // update last request now because we want to update it whether or not the rest
+        // of the logic succeeds
         self.last_request =
             Some(BlockSyncRequest { head: chain_head.last_block_hash, when: Clock::utc() });
 
-        // reference_hash is the last block on the canonical chain that is in store (processed)
+        // reference_hash is the last block on the canonical chain that is in store
+        // (processed)
         let reference_hash = {
             let reference_hash = chain_head.last_block_hash;
 
@@ -216,8 +218,8 @@ impl BlockSync {
     }
 
     /// Check if we should run block body sync and ask for more full blocks.
-    /// Block sync is due either if the chain head has changed since the last request
-    /// or if time since the last request is > BLOCK_REQUEST_TIMEOUT
+    /// Block sync is due either if the chain head has changed since the last
+    /// request or if time since the last request is > BLOCK_REQUEST_TIMEOUT
     fn block_sync_due(&mut self, chain: &Chain) -> Result<bool, near_chain::Error> {
         match &self.last_request {
             None => Ok(true),

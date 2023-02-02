@@ -14,15 +14,16 @@ pub struct AmendGenesisCommand {
     /// path to the output genesis file
     #[clap(long)]
     genesis_file_out: PathBuf,
-    /// path to the input records file. Note that right now this must be provided, and
-    /// this command will not work with a genesis file that itself contains the records
+    /// path to the input records file. Note that right now this must be
+    /// provided, and this command will not work with a genesis file that
+    /// itself contains the records
     #[clap(long)]
     records_file_in: PathBuf,
     /// path to the output records file
     #[clap(long)]
     records_file_out: PathBuf,
-    /// path to a JSON list of AccountInfos representing the validators to put in the
-    /// output genesis state. These are JSON maps of the form
+    /// path to a JSON list of AccountInfos representing the validators to put
+    /// in the output genesis state. These are JSON maps of the form
     /// {
     ///   "account_id": <ACCOUNT_ID>,
     ///   "public_key": <PUBLIC_KEY>,
@@ -30,8 +31,9 @@ pub struct AmendGenesisCommand {
     /// }
     #[clap(long)]
     validators: PathBuf,
-    /// path to extra records to add to the output state. Right now only Accounts and AccessKey
-    /// records are supported, and any added accounts must have zero `code_hash`
+    /// path to extra records to add to the output state. Right now only
+    /// Accounts and AccessKey records are supported, and any added accounts
+    /// must have zero `code_hash`
     #[clap(long)]
     extra_records: Option<PathBuf>,
     /// chain ID to set on the output genesis
@@ -55,18 +57,19 @@ pub struct AmendGenesisCommand {
     /// chunk_producer_kickout_threshold to set in the output genesis file
     #[clap(long)]
     chunk_producer_kickout_threshold: Option<u8>,
-    /// protocol_reward_rate to set in the output genesis file. Give a ratio here (e.g. "1/10")
+    /// protocol_reward_rate to set in the output genesis file. Give a ratio
+    /// here (e.g. "1/10")
     #[clap(long)]
     protocol_reward_rate: Option<Rational32>,
     /// optional file that should contain a JSON-serialized shard layout
     #[clap(long)]
     shard_layout_file: Option<PathBuf>,
-    /// runtime fees config `num_bytes_account` value. Used to initialize the `storage_usage` field
-    /// on accounts in the output state
+    /// runtime fees config `num_bytes_account` value. Used to initialize the
+    /// `storage_usage` field on accounts in the output state
     #[clap(long)]
     num_bytes_account: Option<u64>,
-    /// runtime fees config `num_extra_bytes_record` value. Used to initialize the `storage_usage` field
-    /// on accounts in the output state
+    /// runtime fees config `num_extra_bytes_record` value. Used to initialize
+    /// the `storage_usage` field on accounts in the output state
     #[clap(long)]
     num_extra_bytes_record: Option<u64>,
 }

@@ -163,8 +163,9 @@ fn process_query_response(
         near_jsonrpc_primitives::types::query::RpcQueryError,
     >,
 ) -> Result<Value, RpcError> {
-    // This match is used here to give backward compatible error message for specific
-    // error variants. Should be refactored once structured errors fully shipped
+    // This match is used here to give backward compatible error message for
+    // specific error variants. Should be refactored once structured errors
+    // fully shipped
     match query_response {
         Ok(rpc_query_response) => serialize_response(rpc_query_response),
         Err(err) => match err {
@@ -245,8 +246,8 @@ impl JsonRpcHandler {
         }
     }
 
-    // `process_request` increments affected metrics but the request processing is done by
-    // `process_request_internal`.
+    // `process_request` increments affected metrics but the request processing is
+    // done by `process_request_internal`.
     async fn process_request(&self, request: Request) -> Result<Value, RpcError> {
         let timer = Instant::now();
 
@@ -609,9 +610,9 @@ impl JsonRpcHandler {
         })?
     }
 
-    /// Send a transaction idempotently (subsequent send of the same transaction will not cause
-    /// any new side-effects and the result will be the same unless we garbage collected it
-    /// already).
+    /// Send a transaction idempotently (subsequent send of the same transaction
+    /// will not cause any new side-effects and the result will be the same
+    /// unless we garbage collected it already).
     async fn send_tx(
         &self,
         tx: SignedTransaction,
@@ -629,9 +630,9 @@ impl JsonRpcHandler {
             .await
             .map_err(RpcFrom::rpc_from)?;
 
-        // If we receive InvalidNonce error, it might be the case that the transaction was
-        // resubmitted, and we should check if that is the case and return ValidTx response to
-        // maintain idempotence of the send_tx method.
+        // If we receive InvalidNonce error, it might be the case that the transaction
+        // was resubmitted, and we should check if that is the case and return
+        // ValidTx response to maintain idempotence of the send_tx method.
         if let ProcessTxResponse::InvalidTx(
             near_primitives::errors::InvalidTxError::InvalidNonce { .. },
         ) = response
@@ -1057,9 +1058,9 @@ impl JsonRpcHandler {
         Ok(near_jsonrpc_primitives::types::validator::RpcValidatorResponse { validator_info })
     }
 
-    /// Returns the current epoch validators ordered in the block producer order with repetition.
-    /// This endpoint is solely used for bridge currently and is not intended for other external use
-    /// cases.
+    /// Returns the current epoch validators ordered in the block producer order
+    /// with repetition. This endpoint is solely used for bridge currently
+    /// and is not intended for other external use cases.
     async fn validators_ordered(
         &self,
         request: near_jsonrpc_primitives::types::validator::RpcValidatorsOrderedRequest,
@@ -1073,8 +1074,8 @@ impl JsonRpcHandler {
         Ok(validators)
     }
 
-    /// If experimental_debug_pages_src_path config is set, reads the html file from that
-    /// directory. Otherwise, returns None.
+    /// If experimental_debug_pages_src_path config is set, reads the html file
+    /// from that directory. Otherwise, returns None.
     fn read_html_file_override(&self, html_file: &'static str) -> Option<String> {
         if let Some(directory) = &self.debug_pages_src_path {
             let path = directory.join(html_file);
@@ -1085,8 +1086,9 @@ impl JsonRpcHandler {
         None
     }
 
-    /// Returns the future windows for maintenance in current epoch for the specified account
-    /// In the maintenance windows, the node will not be block producer or chunk producer
+    /// Returns the future windows for maintenance in current epoch for the
+    /// specified account In the maintenance windows, the node will not be
+    /// block producer or chunk producer
     async fn maintenance_windows(
         &self,
         request: near_jsonrpc_primitives::types::maintenance::RpcMaintenanceWindowsRequest,
@@ -1185,8 +1187,9 @@ impl JsonRpcHandler {
             .await
             .map_err(RpcFrom::rpc_from)?;
 
-        // Hard limit the request to timeout at an hour, since fast forwarding can take a while,
-        // where we can leave it to the rpc clients to set their own timeouts if necessary.
+        // Hard limit the request to timeout at an hour, since fast forwarding can take
+        // a while, where we can leave it to the rpc clients to set their own
+        // timeouts if necessary.
         timeout(Duration::from_secs(60 * 60), async {
             loop {
                 let fast_forward_finished = self
@@ -1367,7 +1370,8 @@ async fn debug_handler(
     handler: web::Data<JsonRpcHandler>,
 ) -> Result<HttpResponse, HttpError> {
     if req.path() == "/debug/api/status" {
-        // This is a temporary workaround - as we migrate the debug information to the separate class below.
+        // This is a temporary workaround - as we migrate the debug information to the
+        // separate class below.
         return match handler.old_debug().await {
             Ok(Some(value)) => Ok(HttpResponse::Ok().json(&value)),
             Ok(None) => Ok(HttpResponse::MethodNotAllowed().finish()),
@@ -1596,8 +1600,8 @@ pub fn start_http(
 
     if let Some(prometheus_addr) = prometheus_addr {
         info!(target:"network", "Starting http monitoring server at {}", prometheus_addr);
-        // Export only the /metrics service. It's a read-only service and can have very relaxed
-        // access restrictions.
+        // Export only the /metrics service. It's a read-only service and can have very
+        // relaxed access restrictions.
         let server = HttpServer::new(move || {
             App::new()
                 .wrap(get_cors(&cors_allowed_origins_clone))

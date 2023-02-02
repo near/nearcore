@@ -64,8 +64,8 @@ fn test_problematic_blocks_hash() {
 }
 
 /// This function supposed to return the entire `StreamerMessage`.
-/// It fetches the block and all related parts (chunks, outcomes, state changes etc.)
-/// and returns everything together in one struct
+/// It fetches the block and all related parts (chunks, outcomes, state changes
+/// etc.) and returns everything together in one struct
 #[async_recursion]
 async fn build_streamer_message(
     client: &Addr<near_client::ViewClientActor>,
@@ -104,7 +104,8 @@ async fn build_streamer_message(
             .remove(&header.shard_id)
             .expect("Execution outcomes for given shard should be present");
 
-        // Take execution outcomes for receipts from the vec and keep only the ones for transactions
+        // Take execution outcomes for receipts from the vec and keep only the ones for
+        // transactions
         let mut receipt_outcomes = outcomes.split_off(transactions.len());
 
         let indexer_transactions = transactions
@@ -184,12 +185,13 @@ async fn build_streamer_message(
         }
 
         // Blocks #47317863 and #47317864
-        // (ErdT2vLmiMjkRoSUfgowFYXvhGaLJZUWrgimHRkousrK, 2Fr7dVAZGoPYgpwj6dfASSde6Za34GNUJb4CkZ8NSQqw)
-        // are the first blocks of an upgraded protocol version on mainnet.
-        // In this block ExecutionOutcomes for restored Receipts appear.
-        // However the Receipts are not included in any Chunk. Indexer Framework needs to include them,
-        // so it was decided to artificially include the Receipts into the Chunk of the Block where
-        // ExecutionOutcomes appear.
+        // (ErdT2vLmiMjkRoSUfgowFYXvhGaLJZUWrgimHRkousrK,
+        // 2Fr7dVAZGoPYgpwj6dfASSde6Za34GNUJb4CkZ8NSQqw) are the first blocks of
+        // an upgraded protocol version on mainnet. In this block
+        // ExecutionOutcomes for restored Receipts appear. However the Receipts
+        // are not included in any Chunk. Indexer Framework needs to include them,
+        // so it was decided to artificially include the Receipts into the Chunk of the
+        // Block where ExecutionOutcomes appear.
         // ref: https://github.com/near/nearcore/pull/4248
         if PROBLEMATIC_BLOCKS.contains(&block.header.hash)
             && &protocol_config_view.chain_id == "mainnet"
@@ -218,9 +220,9 @@ async fn build_streamer_message(
         });
     }
 
-    // Ideally we expect `shards_outcomes` to be empty by this time, but if something went wrong with
-    // chunks and we end up with non-empty `shards_outcomes` we want to be sure we put them into IndexerShard
-    // That might happen before the fix https://github.com/near/nearcore/pull/4228
+    // Ideally we expect `shards_outcomes` to be empty by this time, but if
+    // something went wrong with chunks and we end up with non-empty
+    // `shards_outcomes` we want to be sure we put them into IndexerShard That might happen before the fix https://github.com/near/nearcore/pull/4228
     for (shard_id, outcomes) in shards_outcomes {
         indexer_shards[shard_id as usize].receipt_execution_outcomes.extend(
             outcomes.into_iter().map(|outcome| IndexerExecutionOutcomeWithReceipt {
@@ -278,10 +280,12 @@ async fn find_local_receipt_by_id_in_block(
     Ok(None)
 }
 
-/// Function that starts Streamer's busy loop. Every half a seconds it fetches the status
-/// compares to already fetched block height and in case it differs fetches new block of given height.
+/// Function that starts Streamer's busy loop. Every half a seconds it fetches
+/// the status compares to already fetched block height and in case it differs
+/// fetches new block of given height.
 ///
-/// We have to pass `client: Addr<near_client::ClientActor>` and `view_client: Addr<near_client::ViewClientActor>`.
+/// We have to pass `client: Addr<near_client::ClientActor>` and `view_client:
+/// Addr<near_client::ViewClientActor>`.
 pub(crate) async fn start(
     view_client: Addr<near_client::ViewClientActor>,
     client: Addr<near_client::ClientActor>,

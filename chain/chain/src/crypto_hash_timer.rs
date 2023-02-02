@@ -7,13 +7,14 @@ use std::{
 
 use once_cell::sync::Lazy;
 
-// Cache with the mapping from CryptoHash (blocks, chunks) to the number milliseconds that it took to process them.
-// Used only for debugging purposes.
+// Cache with the mapping from CryptoHash (blocks, chunks) to the number
+// milliseconds that it took to process them. Used only for debugging purposes.
 static CRYPTO_HASH_TIMER_RESULTS: Lazy<Mutex<LruCache<CryptoHash, Duration>>> =
     Lazy::new(|| Mutex::new(LruCache::new(10000)));
 
-/// Struct to measure computation times related to different CryptoHashes (for example chunk or block computations).
-/// It stores the data in the global LRU cache, which allows it to be read afterwards.
+/// Struct to measure computation times related to different CryptoHashes (for
+/// example chunk or block computations). It stores the data in the global LRU
+/// cache, which allows it to be read afterwards.
 ///
 /// Example use:
 /// ```rust, ignore
@@ -70,6 +71,7 @@ fn test_crypto_hash_timer() {
     {
         let _timer = CryptoHashTimer::new(crypto_hash);
     }
-    // Now we run the second time (with the same hash) - so the counter should show 3 seconds.
+    // Now we run the second time (with the same hash) - so the counter should show
+    // 3 seconds.
     assert_eq!(CryptoHashTimer::get_timer_value(crypto_hash), Some(Duration::from_millis(3000)));
 }

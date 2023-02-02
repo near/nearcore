@@ -178,8 +178,9 @@ impl<D: Database + 'static> NodeStorage<D> {
     /// Anything above the tail of hot storage is hot and everything else is
     /// cold.
     ///
-    /// This method panics if trying to access cold store but it wasn't configured.
-    /// Please consider using the get_hot_store and get_cold_store methods to avoid panics.
+    /// This method panics if trying to access cold store but it wasn't
+    /// configured. Please consider using the get_hot_store and
+    /// get_cold_store methods to avoid panics.
     pub fn get_store(&self, temp: Temperature) -> Store {
         match temp {
             Temperature::Hot => self.get_hot_store(),
@@ -201,7 +202,8 @@ impl<D: Database + 'static> NodeStorage<D> {
     /// Returns underlying database for given temperature.
     ///
     /// This allows accessing underlying hot and cold databases directly
-    /// bypassing any abstractions offered by [`NodeStorage`] or [`Store`] interfaces.
+    /// bypassing any abstractions offered by [`NodeStorage`] or [`Store`]
+    /// interfaces.
     ///
     /// This is useful for certain data which only lives in hot storage and
     /// interfaces which deal with it.  For example, peer store uses hot
@@ -213,7 +215,8 @@ impl<D: Database + 'static> NodeStorage<D> {
     /// it should go through [`Store`] interface since data it manipulates
     /// (e.g. blocks) are live in both databases.
     ///
-    /// This method panics if trying to access cold store but it wasn't configured.
+    /// This method panics if trying to access cold store but it wasn't
+    /// configured.
     pub fn into_inner(self, temp: Temperature) -> Arc<dyn Database> {
         match temp {
             Temperature::Hot => self.hot_storage,
@@ -417,7 +420,8 @@ impl Store {
     }
 }
 
-/// Keeps track of current changes to the database and can commit all of them to the database.
+/// Keeps track of current changes to the database and can commit all of them to
+/// the database.
 pub struct StoreUpdate {
     transaction: DBTransaction,
     storage: StoreUpdateStorage,
@@ -466,9 +470,9 @@ impl StoreUpdate {
     /// Inserts a new reference-counted value or increases its reference count
     /// if it’s already there.
     ///
-    /// It is a programming error if `increment_refcount_by` supplies a different
-    /// value than the one stored in the database.  It may lead to data
-    /// corruption or panics.
+    /// It is a programming error if `increment_refcount_by` supplies a
+    /// different value than the one stored in the database.  It may lead to
+    /// data corruption or panics.
     ///
     /// Panics if this is used for columns which are not reference-counted
     /// (see [`DBCol::is_rc`]).

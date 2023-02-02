@@ -59,8 +59,9 @@ impl GasCost {
         GasClock { start, metric }
     }
 
-    /// Creates `GasCost` out of raw numeric value of gas. This is required mostly for
-    /// compatibility with existing code, prefer using `measure` instead.
+    /// Creates `GasCost` out of raw numeric value of gas. This is required
+    /// mostly for compatibility with existing code, prefer using `measure`
+    /// instead.
     pub(crate) fn from_gas(raw: Ratio<u64>, metric: GasMetric) -> GasCost {
         let mut result = GasCost::zero();
         match metric {
@@ -76,7 +77,8 @@ impl GasCost {
         result
     }
 
-    /// Like [`std::cmp::Ord::min`] but operates on heterogenous types ([`GasCost`] + [`Gas`]).
+    /// Like [`std::cmp::Ord::min`] but operates on heterogenous types
+    /// ([`GasCost`] + [`Gas`]).
     pub(crate) fn min_gas(mut self, gas: Gas) -> Self {
         let Some(to_add) = gas.checked_sub(self.to_gas()) else { return self; };
         if let Some(qemu) = &mut self.qemu {
@@ -104,7 +106,8 @@ impl GasCost {
     pub(crate) fn set_uncertain(&mut self, reason: &'static str) {
         self.uncertain = Some(MeasurementUncertainty { reason, location: Location::caller() });
     }
-    /// Performs least squares using a separate variable for each component of the gas cost.
+    /// Performs least squares using a separate variable for each component of
+    /// the gas cost.
     ///
     /// Least-squares linear regression sometimes to produces negative
     /// parameters even when all input values are positive. However, negative
@@ -135,7 +138,8 @@ impl GasCost {
         match least_squares_method_gas_cost_pos_neg(xs, ys, verbose) {
             Ok(res) => res,
             Err((mut pos, neg)) => {
-                // On negative parameters, return positive part and mark as uncertain if necessary
+                // On negative parameters, return positive part and mark as uncertain if
+                // necessary
                 if !tolerance.tolerates(&pos, &neg) {
                     pos.0.set_uncertain("NEG-LEAST-SQUARES");
                     pos.1.set_uncertain("NEG-LEAST-SQUARES");
@@ -145,8 +149,9 @@ impl GasCost {
         }
     }
 
-    /// Subtracts two gas costs from each other without panicking on an arithmetic underflow.
-    /// If the given tolerance is breached, the result will be marked as uncertain.
+    /// Subtracts two gas costs from each other without panicking on an
+    /// arithmetic underflow. If the given tolerance is breached, the result
+    /// will be marked as uncertain.
     #[track_caller]
     pub(crate) fn saturating_sub(&self, rhs: &Self, tolerance: &NonNegativeTolerance) -> Self {
         let mut pos = self.saturating_sub_no_uncertain_check(rhs);
@@ -258,7 +263,8 @@ impl LeastSquaresTolerance {
 pub(crate) enum NonNegativeTolerance {
     /// Allow no negative values
     Strict,
-    /// Tolerate negative values if it changes the total gas by less than X times.
+    /// Tolerate negative values if it changes the total gas by less than X
+    /// times.
     RelativeTolerance(f64),
     /// Tolerate negative values if they are below X gas
     AbsoluteTolerance(Gas),
@@ -581,7 +587,8 @@ mod tests {
         // Check low-level least-squares method
         check_least_squares_method_gas_cost_pos_neg(&xs, &ys, expected);
 
-        // Also check applied tolerance strategies, in  this case they should always be certain as the solution is positive
+        // Also check applied tolerance strategies, in  this case they should always be
+        // certain as the solution is positive
         check_uncertainty(&xs, &ys, Default::default(), false);
         check_uncertainty(&xs, &ys, abs_tolerance(1, 1), false);
         check_uncertainty(&xs, &ys, rel_tolerance(0.1, 0.1), false);
@@ -760,8 +767,9 @@ mod tests {
 
         if IO_READ_BYTE_COST + IO_WRITE_BYTE_COST == Ratio::zero() || GAS_IN_INSTR == Ratio::zero()
         {
-            // Relative tolerance only makes sense if two different scalars of the vector cost can be non-zero.
-            // Otherwise, one of the (pos,neg) pair has to be 0.
+            // Relative tolerance only makes sense if two different scalars of the vector
+            // cost can be non-zero. Otherwise, one of the (pos,neg) pair has to
+            // be 0.
             return;
         }
 

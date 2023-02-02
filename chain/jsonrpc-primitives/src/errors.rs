@@ -51,7 +51,8 @@ pub enum ServerError {
 impl RpcError {
     /// A generic constructor.
     ///
-    /// Mostly for completeness, doesn't do anything but filling in the corresponding fields.
+    /// Mostly for completeness, doesn't do anything but filling in the
+    /// corresponding fields.
     pub fn new(code: i64, message: String, data: Option<Value>) -> Self {
         RpcError { code, message, data, error_struct: None }
     }

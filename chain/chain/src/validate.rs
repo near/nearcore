@@ -270,7 +270,8 @@ fn validate_chunk_proofs_challenge(
         // Merkle proof is invalid. It's a malicious challenge.
         return Err(Error::MaliciousChallenge);
     }
-    // Temporary holds the decoded chunk, since we use a reference below to avoid cloning it.
+    // Temporary holds the decoded chunk, since we use a reference below to avoid
+    // cloning it.
     let tmp_chunk;
     let chunk_ref = match &chunk_proofs.chunk {
         MaybeEncodedShardChunk::Encoded(encoded_chunk) => {
@@ -307,7 +308,8 @@ fn validate_chunk_state_challenge(
     _chunk_state: &ChunkState,
 ) -> Result<(CryptoHash, Vec<AccountId>), Error> {
     // TODO (#2445): Enable challenges when they are working correctly.
-    // let prev_block_header = BlockHeader::try_from_slice(&chunk_state.prev_block_header)?;
+    // let prev_block_header =
+    // BlockHeader::try_from_slice(&chunk_state.prev_block_header)?;
     // let block_header = BlockHeader::try_from_slice(&chunk_state.block_header)?;
     //
     // // Validate previous chunk and block header.
@@ -324,8 +326,8 @@ fn validate_chunk_state_challenge(
     //
     // // Validate current chunk and block header.
     // validate_header_authorship(runtime_adapter, &block_header)?;
-    // let chunk_producer = validate_chunk_authorship(runtime_adapter, &chunk_state.chunk_header)?;
-    // if !Block::validate_chunk_header_proof(
+    // let chunk_producer = validate_chunk_authorship(runtime_adapter,
+    // &chunk_state.chunk_header)?; if !Block::validate_chunk_header_proof(
     //     &chunk_state.chunk_header,
     //     block_header.chunk_headers_root(),
     //     &chunk_state.merkle_proof,
@@ -333,10 +335,10 @@ fn validate_chunk_state_challenge(
     //     return Err(ErrorKind::MaliciousChallenge.into());
     // }
 
-    // Apply state transition and check that the result state and other data doesn't match.
-    // TODO (#6316): enable storage proof generation
-    // let partial_storage = PartialStorage { nodes: chunk_state.partial_state.clone() };
-    // let result = runtime_adapter
+    // Apply state transition and check that the result state and other data doesn't
+    // match. TODO (#6316): enable storage proof generation
+    // let partial_storage = PartialStorage { nodes:
+    // chunk_state.partial_state.clone() }; let result = runtime_adapter
     //     .check_state_transition(
     //         partial_storage,
     //         prev_chunk_header.shard_id(),
@@ -357,7 +359,8 @@ fn validate_chunk_state_challenge(
     //         false,
     //     )
     //     .map_err(|_| Error::from(ErrorKind::MaliciousChallenge))?;
-    // let outcome_root = ApplyTransactionResult::compute_outcomes_proof(&result.outcomes).0;
+    // let outcome_root =
+    // ApplyTransactionResult::compute_outcomes_proof(&result.outcomes).0;
     // let proposals_match = result.validator_proposals.len()
     //     == chunk_state.chunk_header.validator_proposals().len()
     //     && result
@@ -372,8 +375,8 @@ fn validate_chunk_state_challenge(
     // {
     //     Ok((*block_header.hash(), vec![chunk_producer]))
     // } else {
-    //     // If all the data matches, this is actually valid chunk and challenge is malicious.
-    //     Err(ErrorKind::MaliciousChallenge.into())
+    //     // If all the data matches, this is actually valid chunk and challenge is
+    // malicious.     Err(ErrorKind::MaliciousChallenge.into())
     // }
     // Ok((*block_header.hash(), vec![chunk_producer]))
 

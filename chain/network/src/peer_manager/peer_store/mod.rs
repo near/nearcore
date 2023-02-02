@@ -72,7 +72,8 @@ pub struct Config {
     pub ban_window: time::Duration,
 }
 
-/// Known peers store, maintaining cache of known peers and connection to storage to save/load them.
+/// Known peers store, maintaining cache of known peers and connection to
+/// storage to save/load them.
 struct Inner {
     config: Config,
     store: store::Store,
@@ -109,8 +110,9 @@ impl Inner {
                 }
                 TrustLevel::Direct => {
                     // If this peer already exists with a signed connection ignore this update.
-                    // Warning: This is a problem for nodes that changes its address without changing peer_id.
-                    //          It is recommended to change peer_id if address is changed.
+                    // Warning: This is a problem for nodes that changes its address without
+                    // changing peer_id.          It is recommended to change
+                    // peer_id if address is changed.
                     let trust_level = (|| {
                         let state = self.peer_states.get(&peer_info.id)?;
                         let addr = state.peer_info.addr?;
@@ -123,8 +125,8 @@ impl Inner {
                     self.update_peer_info(clock, peer_info, peer_addr, TrustLevel::Direct)?;
                 }
                 TrustLevel::Indirect => {
-                    // We should only update an Indirect connection if we don't know anything about the peer
-                    // or about the address.
+                    // We should only update an Indirect connection if we don't know anything about
+                    // the peer or about the address.
                     if !self.peer_states.contains_key(&peer_info.id)
                         && !self.addr_peers.contains_key(&peer_addr)
                     {
@@ -196,7 +198,8 @@ impl Inner {
     ) -> anyhow::Result<()> {
         let mut touch_other = None;
 
-        // If there is a peer associated with current address remove the address from it.
+        // If there is a peer associated with current address remove the address from
+        // it.
         if let Some(verified_peer) = self.addr_peers.remove(&peer_addr) {
             self.peer_states.entry(verified_peer.peer_id).and_modify(|peer_state| {
                 peer_state.peer_info.addr = None;
@@ -264,7 +267,8 @@ impl Inner {
         }
     }
 
-    /// Update the 'last_seen' time for all the peers that we're currently connected to.
+    /// Update the 'last_seen' time for all the peers that we're currently
+    /// connected to.
     fn update_last_seen(&mut self, now: time::Utc) {
         for (peer_id, peer_state) in self.peer_states.iter_mut() {
             if peer_state.status == KnownPeerStatus::Connected
@@ -281,11 +285,13 @@ impl Inner {
     /// Cleans up the state of the PeerStore, due to passing time.
     /// * it unbans a peer if config.ban_window has passed
     /// * it updates KnownPeerStatus.last_seen of the connected peers
-    /// * it removes peers which were not seen for config.peer_expiration_duration
+    /// * it removes peers which were not seen for
+    ///   config.peer_expiration_duration
     /// This function should be called periodically.
     pub fn update(&mut self, clock: &time::Clock) {
         let now = clock.now_utc();
-        // TODO(gprusak): these operations could be put into a single DB write transaction.
+        // TODO(gprusak): these operations could be put into a single DB write
+        // transaction.
         self.unban(now);
         self.update_last_seen(now);
         self.remove_expired(now);
@@ -385,8 +391,10 @@ impl PeerStore {
                             entry2.insert(VerifiedPeer::new(peer_state.peer_info.id.clone()));
                             entry.insert(peer_state);
                         }
-                        // else: There already exists a peer with a same addr, that's a boot node.
-                        // Note: We don't load this entry into the memory, but it still stays on disk.
+                        // else: There already exists a peer with a same addr,
+                        // that's a boot node.
+                        // Note: We don't load this entry into the memory, but
+                        // it still stays on disk.
                     }
                 }
             }
@@ -497,8 +505,8 @@ impl PeerStore {
         Ok(())
     }
 
-    /// Return unconnected or peers with unknown status that we can try to connect to.
-    /// Peers with unknown addresses are filtered out.
+    /// Return unconnected or peers with unknown status that we can try to
+    /// connect to. Peers with unknown addresses are filtered out.
     pub fn unconnected_peer(
         &self,
         ignore_fn: impl Fn(&KnownPeerState) -> bool,

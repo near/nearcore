@@ -22,8 +22,8 @@ pub fn costs_to_runtime_config(cost_table: &CostTable) -> anyhow::Result<Runtime
         .with_context(|| format!("undefined cost: {}", Cost::WasmInstruction))?;
 
     // Take latest VM limit config, because estimation doesn't affect it.
-    // Note that if you run estimation against stable version, it doesn't catch updates of nightly
-    // version.
+    // Note that if you run estimation against stable version, it doesn't catch
+    // updates of nightly version.
     let config_store = RuntimeConfigStore::new(None);
     let latest_runtime_config = config_store.get_config(PROTOCOL_VERSION);
     let vm_limit_config = latest_runtime_config.wasm_config.limit_config.clone();

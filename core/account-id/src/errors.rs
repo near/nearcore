@@ -34,11 +34,13 @@ impl fmt::Display for ParseAccountError {
 pub enum ParseErrorKind {
     /// The Account ID is too long.
     ///
-    /// Returned if the `AccountId` is longer than [`AccountId::MAX_LEN`](crate::AccountId::MAX_LEN).
+    /// Returned if the `AccountId` is longer than
+    /// [`AccountId::MAX_LEN`](crate::AccountId::MAX_LEN).
     TooLong,
     /// The Account ID is too short.
     ///
-    /// Returned if the `AccountId` is shorter than [`AccountId::MIN_LEN`](crate::AccountId::MIN_LEN).
+    /// Returned if the `AccountId` is shorter than
+    /// [`AccountId::MIN_LEN`](crate::AccountId::MIN_LEN).
     TooShort,
     /// The Account ID has a redundant separator.
     ///
@@ -49,7 +51,8 @@ pub enum ParseErrorKind {
     RedundantSeparator,
     /// The Account ID contains an invalid character.
     ///
-    /// This variant would be returned if the Account ID contains an upper-case character, non-separating symbol or space.
+    /// This variant would be returned if the Account ID contains an upper-case
+    /// character, non-separating symbol or space.
     ///
     /// Cases: `ƒelicia.near`, `user@app.com`, `Emily.near`.
     InvalidChar,

@@ -71,7 +71,8 @@ macro_rules! test_with_client {
 
 type RpcRequest<T> = LocalBoxFuture<'static, Result<T, near_jsonrpc_primitives::errors::RpcError>>;
 
-/// Prepare a `RPCRequest` with a given client, server address, method and parameters.
+/// Prepare a `RPCRequest` with a given client, server address, method and
+/// parameters.
 pub fn call_method<R>(
     client: &awc::Client,
     server_addr: &str,

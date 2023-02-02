@@ -3,8 +3,8 @@ use std::convert::Infallible;
 use std::hash::Hash;
 use std::sync::Mutex;
 
-/// A wrapper around `LruCache`. This struct is thread safe, doesn't return any references to any
-/// elements inside.
+/// A wrapper around `LruCache`. This struct is thread safe, doesn't return any
+/// references to any elements inside.
 pub struct SyncLruCache<K, V> {
     inner: Mutex<LruCache<K, V>>,
 }
@@ -19,7 +19,8 @@ where
         Self { inner: Mutex::new(LruCache::<K, V>::new(cap)) }
     }
 
-    /// Returns the number of key-value pairs that are currently in the the cache.
+    /// Returns the number of key-value pairs that are currently in the the
+    /// cache.
     pub fn len(&self) -> usize {
         self.inner.lock().unwrap().len()
     }
@@ -29,9 +30,9 @@ where
         self.inner.lock().unwrap().is_empty()
     }
 
-    /// Return the value of they key in the cache otherwise computes the value and inserts it into
-    /// the cache. If the key is already in the cache, they gets gets moved to the head of
-    /// the LRU list.
+    /// Return the value of they key in the cache otherwise computes the value
+    /// and inserts it into the cache. If the key is already in the cache,
+    /// they gets gets moved to the head of the LRU list.
     pub fn get_or_put<F>(&self, key: K, f: F) -> V
     where
         V: Clone,
@@ -62,14 +63,15 @@ where
         Ok(val)
     }
 
-    /// Puts a key-value pair into cache. If the key already exists in the cache,
-    /// then it updates the key's value.
+    /// Puts a key-value pair into cache. If the key already exists in the
+    /// cache, then it updates the key's value.
     pub fn put(&self, key: K, value: V) {
         self.inner.lock().unwrap().put(key, value);
     }
 
-    /// Returns the value of the key in the cache or None if it is not present in the cache.
-    /// Moves the key to the head of the LRU list if it exists.
+    /// Returns the value of the key in the cache or None if it is not present
+    /// in the cache. Moves the key to the head of the LRU list if it
+    /// exists.
     pub fn get(&self, key: &K) -> Option<V> {
         self.inner.lock().unwrap().get(key).cloned()
     }

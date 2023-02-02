@@ -1,4 +1,5 @@
-//! QEMU instrumentation code to get used resources as measured by the QEMU plugin.
+//! QEMU instrumentation code to get used resources as measured by the QEMU
+//! plugin.
 
 use num_rational::Ratio;
 use std::fmt::Write;
@@ -7,8 +8,9 @@ use std::os::raw::c_void;
 use std::process::Command;
 
 // We use several "magical" file descriptors to interact with the plugin in QEMU
-// intercepting read syscall. Plugin counts instructions executed and amount of data transferred
-// by IO operations. We "normalize" all those costs into instruction count.
+// intercepting read syscall. Plugin counts instructions executed and amount of
+// data transferred by IO operations. We "normalize" all those costs into
+// instruction count.
 const CATCH_BASE: u32 = 0xcafebabe;
 const HYPERCALL_START_COUNTING: u32 = 0;
 const HYPERCALL_STOP_AND_GET_INSTRUCTIONS_EXECUTED: u32 = 1;
@@ -56,7 +58,8 @@ pub struct QemuCommandBuilder {
 }
 
 impl QemuCommandBuilder {
-    /// Start measurement immediately, without having to call `start_count_instructions` first.
+    /// Start measurement immediately, without having to call
+    /// `start_count_instructions` first.
     pub fn started(mut self, yes: bool) -> Self {
         self.started = yes;
         self

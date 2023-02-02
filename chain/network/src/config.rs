@@ -27,24 +27,27 @@ pub const MAX_ROUTES_TO_STORE: usize = 5;
 /// Maximum number of PeerAddts in the ValidatorConfig::endpoints field.
 pub const MAX_PEER_ADDRS: usize = 10;
 
-/// ValidatorProxies are nodes with public IP (aka proxies) that this validator trusts to be honest
-/// and willing to forward traffic to this validator. Whenever this node is a TIER1 validator
-/// (i.e. whenever it is a block producer/chunk producer/approver for the given epoch),
-/// it will connect to all the proxies in this config and advertise a signed list of proxies that
+/// ValidatorProxies are nodes with public IP (aka proxies) that this validator
+/// trusts to be honest and willing to forward traffic to this validator.
+/// Whenever this node is a TIER1 validator (i.e. whenever it is a block
+/// producer/chunk producer/approver for the given epoch), it will connect to
+/// all the proxies in this config and advertise a signed list of proxies that
 /// it has established a connection to.
 ///
-/// Once other TIER1 nodes learn the list of proxies, they will maintain a connection to a random
-/// proxy on this list. This way a message from any TIER1 node to this node will require at most 2
-/// hops.
+/// Once other TIER1 nodes learn the list of proxies, they will maintain a
+/// connection to a random proxy on this list. This way a message from any TIER1
+/// node to this node will require at most 2 hops.
 ///
 /// neard supports 2 modes for configuring proxy addresses:
-/// * [recommended] `Static` list of proxies (public SocketAddr + PeerId), supports up to 10 proxies.
-///   It is a totally valid setup for a TIER1 validator to be its own (perahaps only) proxy:
-///   to achieve that, add an entry with the public address of this node to the Static list.
-/// * [discouraged] `Dynamic` proxy - in case you want this validator to be its own and only proxy,
-///   instead of adding the public address explicitly to the `Static` list, you can specify a STUN
-///   server address (or a couple of them) which will be used to dynamically resolve the public IP
-///   of this validator. Note that in this case the validator trusts the STUN servers to correctly
+/// * [recommended] `Static` list of proxies (public SocketAddr + PeerId),
+///   supports up to 10 proxies. It is a totally valid setup for a TIER1
+///   validator to be its own (perahaps only) proxy: to achieve that, add an
+///   entry with the public address of this node to the Static list.
+/// * [discouraged] `Dynamic` proxy - in case you want this validator to be its
+///   own and only proxy, instead of adding the public address explicitly to the
+///   `Static` list, you can specify a STUN server address (or a couple of them)
+///   which will be used to dynamically resolve the public IP of this validator.
+///   Note that in this case the validator trusts the STUN servers to correctly
 ///   resolve the public IP.
 #[derive(Clone)]
 pub enum ValidatorProxies {
@@ -69,18 +72,21 @@ pub struct Tier1 {
     /// Interval between attempts to connect to proxies of other TIER1 nodes.
     pub connect_interval: time::Duration,
     /// Maximal number of new connections established every connect_interval.
-    /// TIER1 can consists of hundreds of nodes, so it is not feasible to connect to all of them at
-    /// once.
+    /// TIER1 can consists of hundreds of nodes, so it is not feasible to
+    /// connect to all of them at once.
     pub new_connections_per_attempt: u64,
     /// Interval between broacasts of the list of validator's proxies.
-    /// Before the broadcast, validator tries to establish all the missing connections to proxies.
+    /// Before the broadcast, validator tries to establish all the missing
+    /// connections to proxies.
     pub advertise_proxies_interval: time::Duration,
     /// Support for gradual TIER1 feature rollout:
-    /// - establishing connection to node's own proxies is always enabled (it is a part of peer
-    ///   discovery mechanism). Note that unless the proxy has enable_inbound set, establishing
-    ///   those connections will fail anyway.
-    /// - a node will start accepting TIER1 inbound connections iff `enable_inbound` is true.
-    /// - a node will try to start outbound TIER1 connections iff `enable_outbound` is true.
+    /// - establishing connection to node's own proxies is always enabled (it is
+    ///   a part of peer discovery mechanism). Note that unless the proxy has
+    ///   enable_inbound set, establishing those connections will fail anyway.
+    /// - a node will start accepting TIER1 inbound connections iff
+    ///   `enable_inbound` is true.
+    /// - a node will try to start outbound TIER1 connections iff
+    ///   `enable_outbound` is true.
     pub enable_inbound: bool,
     pub enable_outbound: bool,
 }
@@ -100,16 +106,19 @@ pub struct NetworkConfig {
     pub monitor_peers_max_period: time::Duration,
     /// Maximum number of active peers. Hard limit.
     pub max_num_peers: u32,
-    /// Minimum outbound connections a peer should have to avoid eclipse attacks.
+    /// Minimum outbound connections a peer should have to avoid eclipse
+    /// attacks.
     pub minimum_outbound_peers: u32,
     /// Lower bound of the ideal number of connections.
     pub ideal_connections_lo: u32,
     /// Upper bound of the ideal number of connections.
     pub ideal_connections_hi: u32,
-    /// Peers which last message is was within this period of time are considered active recent peers.
+    /// Peers which last message is was within this period of time are
+    /// considered active recent peers.
     pub peer_recent_time_window: time::Duration,
     /// Number of peers to keep while removing a connection.
-    /// Used to avoid disconnecting from peers we have been connected since long time.
+    /// Used to avoid disconnecting from peers we have been connected since long
+    /// time.
     pub safe_set_size: u32,
     /// Lower bound of the number of connections to archival peers to keep
     /// if we are an archival node.
@@ -121,10 +130,11 @@ pub struct NetworkConfig {
     /// Time to persist Accounts Id in the router without removing them.
     pub ttl_account_id_router: time::Duration,
     /// Number of hops a message is allowed to travel before being dropped.
-    /// This is used to avoid infinite loop because of inconsistent view of the network
-    /// by different nodes.
+    /// This is used to avoid infinite loop because of inconsistent view of the
+    /// network by different nodes.
     pub routed_message_ttl: u8,
-    /// Maximum number of routes that we should keep track for each Account id in the Routing Table.
+    /// Maximum number of routes that we should keep track for each Account id
+    /// in the Routing Table.
     pub max_routes_to_store: usize,
     /// Height horizon for highest height peers
     /// For example if one peer is 1 height away from max height peer,
@@ -132,12 +142,13 @@ pub struct NetworkConfig {
     pub highest_peer_horizon: u64,
     /// Period between pushing network info to client
     pub push_info_period: time::Duration,
-    /// Flag to disable outbound connections. When this flag is active, nodes will not try to
-    /// establish connection with other nodes, but will accept incoming connection if other requirements
-    /// are satisfied.
+    /// Flag to disable outbound connections. When this flag is active, nodes
+    /// will not try to establish connection with other nodes, but will
+    /// accept incoming connection if other requirements are satisfied.
     /// This flag should be ALWAYS FALSE. Only set to true for testing purposes.
     pub outbound_disabled: bool,
-    /// Flag to disable inbound connections. When true, all the incoming handshake/connection requests will be rejected.
+    /// Flag to disable inbound connections. When true, all the incoming
+    /// handshake/connection requests will be rejected.
     pub inbound_disabled: bool,
     /// Whether this is an archival node.
     pub archive: bool,
@@ -390,8 +401,8 @@ impl NetworkConfig {
 }
 
 /// On every message from peer don't update `last_time_received_message`
-/// but wait some "small" timeout between updates to avoid a lot of messages between
-/// Peer and PeerManager.
+/// but wait some "small" timeout between updates to avoid a lot of messages
+/// between Peer and PeerManager.
 pub const UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE: time::Duration = time::Duration::seconds(60);
 
 #[derive(Clone)]

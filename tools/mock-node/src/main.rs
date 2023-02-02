@@ -20,17 +20,20 @@ use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-/// Program to start a mock node, which runs a regular client in a mock network environment.
-/// The mock network simulates the entire network by replaying a pre-generated chain history
-/// from storage and responds to the client's network requests.
+/// Program to start a mock node, which runs a regular client in a mock network
+/// environment. The mock network simulates the entire network by replaying a
+/// pre-generated chain history from storage and responds to the client's
+/// network requests.
 ///
 /// There are two ways to replay the stored history:
-///   * catchup: client is behind the network and applies the blocks as fast as possible
+///   * catchup: client is behind the network and applies the blocks as fast as
+///     possible
 ///   * normal block production: client accept "new" blocks as they are produced
 ///     (in reality, blocks are just fetched from the pre-generated store).
 ///
 /// This is controlled by two flags:
-///   * `--client-height` specifies the height the client starts at. Defaults to 0.
+///   * `--client-height` specifies the height the client starts at. Defaults to
+///     0.
 ///   * `--network-height` specifies the hight the rest of the (simulated)
 ///     network starts at. Defaults to the latest recorded height.
 ///
@@ -51,11 +54,11 @@ use std::time::{Duration, Instant};
 /// ```
 #[derive(Parser)]
 struct Cli {
-    /// Existing home dir for the pre-generated chain history. For example, you can use
-    /// the home dir of a near node.
+    /// Existing home dir for the pre-generated chain history. For example, you
+    /// can use the home dir of a near node.
     chain_history_home_dir: String,
-    /// Home dir for the new client that will be started. If not specified, the binary will
-    /// generate a temporary directory
+    /// Home dir for the new client that will be started. If not specified, the
+    /// binary will generate a temporary directory
     client_home_dir: Option<PathBuf>,
     /// Simulated network delay (in ms)
     #[clap(short = 'd', long)]
@@ -75,8 +78,8 @@ struct Cli {
     /// Shortcut to set both `--client-height` and `--network-height`.
     #[clap(long, conflicts_with_all(&["client-height", "network-height"]))]
     start_height: Option<BlockHeight>,
-    /// Target height that the client should sync to before stopping. If not specified,
-    /// use the height of the last block in chain history
+    /// Target height that the client should sync to before stopping. If not
+    /// specified, use the height of the last block in chain history
     #[clap(long)]
     target_height: Option<BlockHeight>,
     /// If true, use in memory storage instead of rocksdb for the client
@@ -156,7 +159,8 @@ fn main() -> anyhow::Result<()> {
         // Wait until the client reach target_height.
         wait_or_timeout(
             100,
-            // Let's set the timeout to 5 seconds per block - just in case we test on very full blocks.
+            // Let's set the timeout to 5 seconds per block - just in case we test on very full
+            // blocks.
             target_height * 5_000,
             || async {
                 match view_client.send(GetBlock::latest().with_span_context()).await {

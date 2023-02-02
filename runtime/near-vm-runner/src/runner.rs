@@ -15,15 +15,16 @@ use near_vm_logic::{External, VMContext, VMOutcome};
 /// We are unable to produce a deterministic result. The correct action usually
 /// is to crash or maybe ban a peer and/or send a challenge.
 ///
-/// A `VMOutcome` is a graceful completion of a VM execution. It can also contain
-/// an guest error message in the `aborted` field. But these are not errors in
-/// the real sense, those are just reasons why execution failed at some point.
-/// Such as when a smart contract code panics.
+/// A `VMOutcome` is a graceful completion of a VM execution. It can also
+/// contain an guest error message in the `aborted` field. But these are not
+/// errors in the real sense, those are just reasons why execution failed at
+/// some point. Such as when a smart contract code panics.
 /// Note that the fact that `VMOutcome` contains is tracked on the blockchain.
-/// All validators must produce an error deterministically or all should succeed.
-/// (See also `PartialExecutionStatus`.)
+/// All validators must produce an error deterministically or all should
+/// succeed. (See also `PartialExecutionStatus`.)
 /// Similarly, the gas values on `VMOutcome` must be the exact same on all
-/// validators, even when a guest error occurs, or else their state will diverge.
+/// validators, even when a guest error occurs, or else their state will
+/// diverge.
 pub(crate) type VMResult<T = VMOutcome> = Result<T, VMRunnerError>;
 
 /// Validate and run the specified contract.

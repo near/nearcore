@@ -16,10 +16,11 @@ pub mod testonly;
 /// Opaque error type representing storage errors.
 ///
 /// Invariant: any store error is a critical operational operational error
-/// which signals about data corruption. It wouldn't be wrong to replace all places /// where the error originates with outright panics.
+/// which signals about data corruption. It wouldn't be wrong to replace all
+/// places /// where the error originates with outright panics.
 ///
-/// If you have an error condition which needs to be handled somehow, it should be
-/// some *other* error type.
+/// If you have an error condition which needs to be handled somehow, it should
+/// be some *other* error type.
 #[derive(thiserror::Error, Debug)]
 #[error("{0}")]
 pub(crate) struct Error(schema::Error);
@@ -30,17 +31,18 @@ pub(crate) struct Error(schema::Error);
 #[derive(Clone)]
 pub(crate) struct Store(schema::Store);
 
-/// Everytime a group of peers becomes unreachable at the same time; We store edges belonging to
-/// them in components. We remove all of those edges from memory, and save them to database,
-/// If any of them become reachable again, we re-add whole component.
+/// Everytime a group of peers becomes unreachable at the same time; We store
+/// edges belonging to them in components. We remove all of those edges from
+/// memory, and save them to database, If any of them become reachable again, we
+/// re-add whole component.
 ///
 /// To store components, we have following column in the DB.
-/// DBCol::LastComponentNonce -> stores component_nonce: u64, which is the lowest nonce that
-///                          hasn't been used yet. If new component gets created it will use
-///                          this nonce.
+/// DBCol::LastComponentNonce -> stores component_nonce: u64, which is the
+/// lowest nonce that                          hasn't been used yet. If new
+/// component gets created it will use                          this nonce.
 /// DBCol::ComponentEdges     -> Mapping from `component_nonce` to list of edges
-/// DBCol::PeerComponent      -> Mapping from `peer_id` to last component nonce if there
-///                          exists one it belongs to.
+/// DBCol::PeerComponent      -> Mapping from `peer_id` to last component nonce
+/// if there                          exists one it belongs to.
 impl Store {
     /// Inserts (account_id,aa) to the AccountAnnouncements column.
     pub fn set_account_announcement(
@@ -62,11 +64,12 @@ impl Store {
     }
 
     /// Atomically stores a graph component consisting of <peers> and <edges>
-    /// to the DB. On completion, all peers are considered members of the new component
-    /// (even if they were members of a different component so far).
-    /// The name (even though technically correct) is misleading, because the <edges> do
-    /// NOT have to constitute a CONNECTED component. I'm not fixing that because
-    /// the whole routing table in the current form is scheduled for deprecation.
+    /// to the DB. On completion, all peers are considered members of the new
+    /// component (even if they were members of a different component so
+    /// far). The name (even though technically correct) is misleading,
+    /// because the <edges> do NOT have to constitute a CONNECTED component.
+    /// I'm not fixing that because the whole routing table in the current
+    /// form is scheduled for deprecation.
     pub fn push_component(
         &mut self,
         peers: &HashSet<PeerId>,

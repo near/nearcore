@@ -271,8 +271,9 @@ fn sync_state_nodes_multishard() {
     });
 }
 
-/// Start a validator that validators four shards. Since we only have 3 accounts one shard must have
-/// empty state. Start another node that does state sync. Check state sync on empty state works.
+/// Start a validator that validators four shards. Since we only have 3 accounts
+/// one shard must have empty state. Start another node that does state sync.
+/// Check state sync on empty state works.
 #[test]
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn sync_empty_state() {

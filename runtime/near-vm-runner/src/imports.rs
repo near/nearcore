@@ -443,9 +443,9 @@ pub(crate) mod wasmer2 {
         engine: &'e UniversalEngine,
     ) -> Wasmer2Imports<'e, 'a, 'b> {
         let metadata = unsafe {
-            // SAFETY: the functions here are thread-safe. We ensure that the lifetime of `VMLogic`
-            // is sufficiently long by tying the lifetime of VMLogic to the return type which
-            // contains this metadata.
+            // SAFETY: the functions here are thread-safe. We ensure that the lifetime of
+            // `VMLogic` is sufficiently long by tying the lifetime of VMLogic
+            // to the return type which contains this metadata.
             ExportFunctionMetadata::new(logic as *mut _ as *mut _, None, |ptr| ptr, |_| {})
         };
         Wasmer2Imports {
@@ -465,9 +465,10 @@ pub(crate) mod wasmtime {
     use std::cell::UnsafeCell;
     use std::ffi::c_void;
 
-    /// This is a container from which an error can be taken out by value. This is necessary as
-    /// `anyhow` does not really give any opportunity to grab causes by value and the VM Logic
-    /// errors end up a couple layers deep in a causal chain.
+    /// This is a container from which an error can be taken out by value. This
+    /// is necessary as `anyhow` does not really give any opportunity to
+    /// grab causes by value and the VM Logic errors end up a couple layers
+    /// deep in a causal chain.
     #[derive(Debug)]
     pub(crate) struct ErrorContainer(std::sync::Mutex<Option<VMLogicError>>);
     impl ErrorContainer {
