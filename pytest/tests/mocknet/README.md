@@ -11,4 +11,4 @@ Mirror transactions from a given network into a custom mocktest network and add 
 - If you get an ssh connection reset or other disconnection error while running the previous command, re-run the command or ssh into the instances and run `top` command to see if the neard is using a lot of CPU to make backups. 
 3. Run `python3 tests/mocknet/mirror.py --chain-id {chain_id} --start-height {start_height} --unique-id {unique_id} --start-traffic` replacing the `{}`s with appropriate values
 4. Monitoring
-- TODO
+- See metrics on grafana mocknet https://grafana.near.org/d/jHbiNgSnz/mocknet?orgId=1&refresh=30s&var-chain_id=All&var-node_id=.*unique_id.*&var-account_id=All replacing the "unique_id" with the value from earlier
