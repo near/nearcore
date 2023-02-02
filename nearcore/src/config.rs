@@ -391,7 +391,7 @@ impl Default for Config {
 }
 
 impl Config {
-    pub fn from_file(path: &Path) -> anyhow::Result<Self> {
+    pub fn from_file(path: &Path, config_validation: ConfigValidationMode) -> anyhow::Result<Self> {
         let json_str = std::fs::read_to_string(path)
             .with_context(|| format!("Failed to read config from {}", path.display()))?;
         let mut unrecognised_fields = Vec::new();
@@ -424,8 +424,11 @@ impl Config {
             );
         }
 
-        // panics if the Config is invalid
-        config.validate_with_panic();
+        match config_validation {
+            ConfigValidationMode::Full => config.validate_with_panic(),
+            ConfigValidationMode::UnsafeFast => {}
+        }
+        
         Ok(config)
     }
 
@@ -881,7 +884,7 @@ pub fn init_configs(
 
     // Check if config already exists in home dir.
     if dir.join(CONFIG_FILENAME).exists() {
-        let config = Config::from_file(&dir.join(CONFIG_FILENAME))
+        let config = Config::from_file(&dir.join(CONFIG_FILENAME), ConfigValidationMode::Full)
             .with_context(|| anyhow!("Failed to read config {}", dir.display()))?;
         let file_path = dir.join(&config.genesis_file);
         let genesis = GenesisConfig::from_file(&file_path).with_context(move || {
@@ -902,12 +905,12 @@ pub fn init_configs(
     if let Some(url) = download_config_url {
         download_config(&url.to_string(), &dir.join(CONFIG_FILENAME))
             .context(format!("Failed to download the config file from {}", url))?;
-        config = Config::from_file(&dir.join(CONFIG_FILENAME))?;
+        config = Config::from_file(&dir.join(CONFIG_FILENAME), ConfigValidationMode::Full)?;
     } else if should_download_config {
         let url = get_config_url(&chain_id);
         download_config(&url, &dir.join(CONFIG_FILENAME))
             .context(format!("Failed to download the config file from {}", url))?;
-        config = Config::from_file(&dir.join(CONFIG_FILENAME))?;
+        config = Config::from_file(&dir.join(CONFIG_FILENAME), ConfigValidationMode::Full)?;
     }
 
     if let Some(nodes) = boot_nodes {
@@ -1356,7 +1359,11 @@ pub fn load_config(
     dir: &Path,
     config_validation: ConfigValidationMode,
 ) -> anyhow::Result<NearConfig> {
-    let config = Config::from_file(&dir.join(CONFIG_FILENAME))?;
+    let genesis_validation = match config_validation {
+        ConfigValidationMode::Full => GenesisValidationMode::Full,
+        ConfigValidationMode::UnsafeFast => GenesisValidationMode::UnsafeFast
+    };
+    let config = Config::from_file(&dir.join(CONFIG_FILENAME), config_validation)?;
     let genesis_file = dir.join(&config.genesis_file);
     let validator_file = dir.join(&config.validator_key_file);
     let validator_signer = if validator_file.exists() {
@@ -1371,11 +1378,6 @@ pub fn load_config(
     let network_signer = NodeKeyFile::from_file(&node_key_path).with_context(|| {
         format!("Failed reading node key file from {}", node_key_path.display())
     })?;
-
-    let genesis_validation = match config_validation {
-        ConfigValidationMode::Full => GenesisValidationMode::Full,
-        ConfigValidationMode::UnsafeFast => GenesisValidationMode::UnsafeFast
-    };
 
     let genesis = match &config.genesis_records_file {
         Some(records_file) => {
@@ -1395,11 +1397,6 @@ pub fn load_config(
 
     let near_config = NearConfig::new(config, genesis, network_signer.into(), validator_signer)?;
     
-    if let ConfigValidationMode::Full = config_validation {
-        // panics if client_config is invalid
-        near_config.client_config.validate();
-    }
-    
     Ok(near_config)
 }
 
@@ -1407,7 +1404,7 @@ pub fn validate_configs(
     dir: &Path,
 ) {
     let config_json_path = dir.join(CONFIG_FILENAME);
-    let config = Config::from_file(&config_json_path)
+    let config = Config::from_file(&config_json_path, ConfigValidationMode::Full)
         .expect(&format!("Failed initializing Config from {}", config_json_path.display()));
     
     let validator_file = dir.join(&config.validator_key_file);
@@ -1514,7 +1511,7 @@ fn test_config_from_file() {
         let tmp = tempfile::NamedTempFile::new().unwrap();
         tmp.as_file().write_all(&data).unwrap();
 
-        let config = Config::from_file(&tmp.into_temp_path()).unwrap();
+        let config = Config::from_file(&tmp.into_temp_path(), ConfigValidationMode::Full).unwrap();
 
         // TODO(mina86): We might want to add more checks.  Looking at all
         // values is probably not worth it but there may be some other defaults

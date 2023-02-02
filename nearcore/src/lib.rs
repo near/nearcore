@@ -291,7 +291,7 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
     use strum::IntoEnumIterator;
 
     let config_path = home_dir.join(config::CONFIG_FILENAME);
-    let config = config::Config::from_file(&config_path)
+    let config = config::Config::from_file(&config_path, config::ConfigValidationMode::Full)
         .map_err(|err| anyhow::anyhow!("{}: {}", config_path.display(), err))?;
     let archive = config.archive;
     let mut skip_columns = Vec::new();

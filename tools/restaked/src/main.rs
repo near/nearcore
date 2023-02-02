@@ -2,7 +2,7 @@ use clap::{Arg, Command};
 use near_crypto::{InMemorySigner, KeyFile};
 use near_o11y::tracing::{error, info};
 use near_primitives::views::CurrentEpochValidatorInfo;
-use nearcore::config::{Config, BLOCK_PRODUCER_KICKOUT_THRESHOLD, CONFIG_FILENAME};
+use nearcore::config::{Config, ConfigValidationMode, BLOCK_PRODUCER_KICKOUT_THRESHOLD, CONFIG_FILENAME};
 use nearcore::get_default_home;
 use std::path::Path;
 use std::sync::Arc;
@@ -69,7 +69,7 @@ fn main() {
         .map(|s| s.parse().expect("Stake amount must be a number"))
         .unwrap();
 
-    let config = Config::from_file(&home_dir.join(CONFIG_FILENAME)).expect("can't load config");
+    let config = Config::from_file(&home_dir.join(CONFIG_FILENAME), ConfigValidationMode::Full).expect("can't load config");
 
     let key_path = home_dir.join(&config.validator_key_file);
     let key_file = KeyFile::from_file(&key_path)
