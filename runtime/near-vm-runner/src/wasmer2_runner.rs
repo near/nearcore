@@ -612,13 +612,12 @@ impl finite_wasm::max_stack::SizeConfig for MaxStackCfg {
             ValType::ExternRef => 8,
         }
     }
-    fn size_of_function_activation(&self, locals: &prefix_sum_vec::PrefixSumVec<finite_wasm::wasmparser::ValType, u32>) -> u64 {
+    fn size_of_function_activation(
+        &self,
+        locals: &prefix_sum_vec::PrefixSumVec<finite_wasm::wasmparser::ValType, u32>,
+    ) -> u64 {
         let mut res = 0;
-        res += locals
-            .max_index()
-            .map(|l| u64::from(*l).saturating_add(1))
-            .unwrap_or(0)
-            * 8;
+        res += locals.max_index().map(|l| u64::from(*l).saturating_add(1)).unwrap_or(0) * 8;
         // TODO: make the above take into account the types of locals by adding an iter on PrefixSumVec that returns (count, type)
         // THIS MUST HAPPEN BEFORE RELEASING THE PROTOCOL VERSION, SO PREFERABLY BEFORE LANDING
         res += 32; // Rough accounting for rip, rbp and some registers spilled. Not exact.

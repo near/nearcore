@@ -130,11 +130,13 @@ pub fn prepare_contract(original_code: &[u8], config: &VMConfig) -> Result<Vec<u
             .inject_gas_metering()?
             .inject_stack_height_metering()?
             .into_wasm_code(),
-        near_vm_logic::StackLimiterVersion::V2 => ContractModule::init(original_code, config)? // TODO: completely get rid of pwasm-utils
-            .scan_imports()?
-            .standardize_mem()
-            .ensure_no_internal_memory()?
-            .into_wasm_code(),
+        near_vm_logic::StackLimiterVersion::V2 => {
+            ContractModule::init(original_code, config)? // TODO: completely get rid of pwasm-utils
+                .scan_imports()?
+                .standardize_mem()
+                .ensure_no_internal_memory()?
+                .into_wasm_code()
+        }
     }
 }
 
