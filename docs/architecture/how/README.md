@@ -13,7 +13,7 @@ implemented using an [actor
 framework](https://en.wikipedia.org/wiki/Actor_model) called
 [actix](https://docs.rs/actix).
 
-**Note**: Using actix was decided in the early days of the implementation of
+**Note:** Using actix was decided in the early days of the implementation of
 nearcore and by no means represents our confidence in actix. On the contrary, we
 have noticed a number of issues with actix and are considering implementing an
 actor framework in house.
@@ -161,7 +161,7 @@ to sync. The synchronization process is done in three steps:
    runs again if head has changed (progress is made) or if a timeout (which is
    set to 2s) has happened.
 
-**Note**: when a block is received and its height is no more than 500 + the
+**Note:** when a block is received and its height is no more than 500 + the
 node’s current head height, then the node would request its previous block
 automatically. This is called orphan sync and helps to speed up the syncing
 process. If, on the other hand, the height is more than 500 + the node’s current

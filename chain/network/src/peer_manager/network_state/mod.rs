@@ -13,6 +13,7 @@ use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::peer_store;
 use crate::private_actix::RegisterPeerError;
 use crate::routing::route_back_cache::RouteBackCache;
+use crate::shards_manager::ShardsManagerAdapterForNetwork;
 use crate::stats::metrics;
 use crate::store;
 use crate::tcp;
@@ -88,6 +89,7 @@ pub(crate) struct NetworkState {
     /// GenesisId of the chain.
     pub genesis_id: GenesisId,
     pub client: Arc<dyn client::Client>,
+    pub shards_manager_adapter: Arc<dyn ShardsManagerAdapterForNetwork>,
 
     /// Network-related info about the chain.
     pub chain_info: ArcSwap<Option<ChainInfo>>,
@@ -148,6 +150,7 @@ impl NetworkState {
         config: config::VerifiedConfig,
         genesis_id: GenesisId,
         client: Arc<dyn client::Client>,
+        shards_manager_adapter: Arc<dyn ShardsManagerAdapterForNetwork>,
         whitelist_nodes: Vec<WhitelistNode>,
     ) -> Self {
         Self {
@@ -162,6 +165,7 @@ impl NetworkState {
             )),
             genesis_id,
             client,
+            shards_manager_adapter,
             chain_info: Default::default(),
             tier2: connection::Pool::new(config.node_id()),
             tier1: connection::Pool::new(config.node_id()),
