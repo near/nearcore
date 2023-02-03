@@ -42,10 +42,11 @@ impl Inner {
         }
     }
 
-    /// Takes a list of ConnectionInfos and inserts them to the front of the outbound store,
-    /// retaining only the newest entry for each PeerId and up to OUTBOUND_CONNECTIONS_CACHE_SIZE
-    /// entries in total.
-    fn insert_outbound(&mut self, mut conns: Vec<ConnectionInfo>) {
+    /// Takes a list of ConnectionInfos and inserts them to the front of the outbound store.
+    /// Any existing entry having the same PeerId as a newly inserted entry is dropped.
+    /// Evicts from the back if OUTBOUND_CONNECTIONS_CACHE_SIZE is reached.
+    /// Timestamps are stored for debugging purposes, but not otherwise used.
+    fn push_front_outbound(&mut self, mut conns: Vec<ConnectionInfo>) {
         // Collect the PeerIds of the newly inserted connections
         let updated_peer_ids: HashSet<PeerId> =
             conns.iter().map(|c| c.peer_info.id.clone()).collect();
@@ -140,7 +141,7 @@ impl ConnectionStore {
         }
 
         self.0.update(|mut inner| {
-            inner.insert_outbound(outbound);
+            inner.push_front_outbound(outbound);
             ((), inner)
         });
     }
