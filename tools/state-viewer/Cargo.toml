@@ -51,3 +51,4 @@ nightly = [
 ]
 nightly_protocol = ["nearcore/nightly_protocol"]
 protocol_feature_flat_state = ["nearcore/protocol_feature_flat_state"]
+protocol_feature_nep366_delegate_action = ["nearcore/protocol_feature_nep366_delegate_action"]
