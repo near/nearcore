@@ -134,6 +134,9 @@ impl TryFrom<&net::PeerMessage> for mem::PeerMessage {
                 num_hops: Some(0),
             })),
             net::PeerMessage::Disconnect => mem::PeerMessage::Disconnect(mem::Disconnect {
+                // This flag is used by the disconnecting peer to advise the other peer that there
+                // is a reason to remove the connection from storage (for example, a peer ban).
+                // In the absence of such information, it should default to false.
                 remove_from_connection_store: false,
             }),
             net::PeerMessage::Challenge(c) => mem::PeerMessage::Challenge(c),
