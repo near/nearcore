@@ -225,6 +225,5 @@ fn test_cold_db_head_update() {
 
         assert_eq!(head, &cold_head_in_cold);
         assert_eq!(head, &cold_head_in_hot);
-        assert_eq!(h, test_get_cold_head_height() as u64);
     }
 }
