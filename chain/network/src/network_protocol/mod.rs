@@ -324,6 +324,14 @@ pub struct SyncAccountsData {
     pub incremental: bool,
 }
 
+/// Message sent when gracefully disconnecting from the other peer.
+#[derive(PartialEq, Eq, Clone, Debug)]
+pub struct Disconnect {
+    /// Advises the other peer to remove the connection from storage
+    /// Used when it is not expected that a reconnect attempt would succeed
+    pub remove_from_connection_store: bool,
+}
+
 #[derive(PartialEq, Eq, Clone, Debug, strum::IntoStaticStr, strum::EnumVariantNames)]
 #[allow(clippy::large_enum_variant)]
 pub enum PeerMessage {
@@ -351,7 +359,7 @@ pub enum PeerMessage {
     Routed(Box<RoutedMessageV2>),
 
     /// Gracefully disconnect from other peer.
-    Disconnect,
+    Disconnect(Disconnect),
     Challenge(Challenge),
 }
 

@@ -126,7 +126,8 @@ impl FakeClockInner {
         self.utc
     }
     pub fn advance(&mut self, d: Duration) {
-        if d <= Duration::ZERO {
+        assert!(d >= Duration::ZERO);
+        if d == Duration::ZERO {
             return;
         }
         let now = *self.mono.borrow();
