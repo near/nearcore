@@ -12,8 +12,7 @@ use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
 use near_store::cold_storage::{
-    test_cold_genesis_update, test_get_cold_head_height, test_get_store_reads, update_cold_db,
-    update_cold_head,
+    test_cold_genesis_update, test_get_store_reads, update_cold_db, update_cold_head,
 };
 use near_store::metadata::DbKind;
 use near_store::metadata::DB_VERSION;

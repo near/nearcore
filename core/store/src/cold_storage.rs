@@ -160,10 +160,6 @@ pub fn test_get_store_reads(column: DBCol) -> u64 {
     crate::metrics::COLD_MIGRATION_READS.with_label_values(&[<&str>::from(column)]).get()
 }
 
-pub fn test_get_cold_head_height() -> i64 {
-    crate::metrics::COLD_HEAD_HEIGHT.get()
-}
-
 /// Returns HashMap from DBKeyType to possible keys of that type for provided height.
 /// Only constructs keys for key types that are used in cold columns.
 /// The goal is to capture all changes to db made during production of the block at provided height.
