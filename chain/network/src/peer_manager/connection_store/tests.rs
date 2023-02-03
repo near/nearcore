@@ -6,7 +6,6 @@ use crate::testonly::make_rng;
 use crate::testonly::AsSet;
 use crate::time;
 use crate::types::ConnectionInfo;
-use near_store::NodeStorage;
 use rand::Rng;
 
 /// Returns a ConnectionInfo with the given value for time_connected_until,
@@ -26,11 +25,7 @@ fn make_connection_infos<R: Rng>(
     time_connected_until: time::Utc,
     num_connections: usize,
 ) -> Vec<ConnectionInfo> {
-    let mut conn_infos = vec![];
-    for _ in 0..num_connections {
-        conn_infos.push(make_connection_info(rng, time_connected_until));
-    }
-    return conn_infos;
+    (0..num_connections).map(|_| make_connection_info(rng, time_connected_until)).collect()
 }
 
 #[test]
@@ -38,8 +33,7 @@ fn test_reload_from_storage() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let clock = time::FakeClock::default();
-    let (_tmp_dir, opener) = NodeStorage::test_opener();
-    let store = store::Store::from(opener.open().unwrap());
+    let store = store::Store::from(near_store::db::TestDB::new());
 
     let now_utc = clock.now_utc();
     let conn_info = make_connection_info(rng, now_utc);
@@ -60,8 +54,7 @@ fn test_overwrite_stored_connection() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let clock = time::FakeClock::default();
-    let (_tmp_dir, opener) = NodeStorage::test_opener();
-    let store = store::Store::from(opener.open().unwrap());
+    let store = store::Store::from(near_store::db::TestDB::new());
     let connection_store = ConnectionStore::new(store).unwrap();
 
     tracing::debug!(target:"test", "create and store a connection");
@@ -86,8 +79,7 @@ fn test_evict_longest_disconnected() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let clock = time::FakeClock::default();
-    let (_tmp_dir, opener) = NodeStorage::test_opener();
-    let store = store::Store::from(opener.open().unwrap());
+    let store = store::Store::from(near_store::db::TestDB::new());
     let connection_store = ConnectionStore::new(store).unwrap();
 
     tracing::debug!(target:"test", "create and store live connections up to the ConnectionStore limit");
@@ -118,8 +110,7 @@ fn test_recovery_from_clock_skew() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let clock = time::FakeClock::default();
-    let (_tmp_dir, opener) = NodeStorage::test_opener();
-    let store = store::Store::from(opener.open().unwrap());
+    let store = store::Store::from(near_store::db::TestDB::new());
     let connection_store = ConnectionStore::new(store).unwrap();
 
     tracing::debug!(target:"test", "create and store live connections up to the ConnectionStore limit");
@@ -131,7 +122,8 @@ fn test_recovery_from_clock_skew() {
     ));
 
     tracing::debug!(target:"test", "turn back the clock 1 year");
-    clock.advance(time::Duration::days(-365));
+    clock.set_utc(now_utc - time::Duration::days(365));
+    assert!(clock.now_utc() < now_utc);
 
     tracing::debug!(target:"test", "insert a new connection and check that it's at the front of the storage");
     let now_utc = clock.now_utc();
