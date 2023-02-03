@@ -7,6 +7,7 @@ use crate::network_protocol::{
     Edge, EdgeState, PartialEdgeInfo, PeerIdOrHash, PeerInfo, PeerMessage, Ping, Pong,
     RawRoutedMessage, RoutedMessageBody, RoutedMessageV2, SignedAccountData,
 };
+use crate::peer::peer_actor::PeerActor;
 use crate::peer::peer_actor::{ClosingReason, ConnectionClosedEvent};
 use crate::peer_manager::connection;
 use crate::peer_manager::connection_store;
@@ -20,6 +21,7 @@ use crate::store;
 use crate::tcp;
 use crate::time;
 use crate::types::{ChainInfo, PeerType, ReasonForBan};
+use anyhow::Context;
 use arc_swap::ArcSwap;
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
@@ -51,6 +53,9 @@ const PRUNE_UNREACHABLE_PEERS_AFTER: time::Duration = time::Duration::hours(1);
 
 /// Remove the edges that were created more that this duration ago.
 pub const PRUNE_EDGES_AFTER: time::Duration = time::Duration::minutes(30);
+
+/// How long to wait between reconnection attempts to the same peer
+pub(crate) const RECONNECT_ATTEMPT_INTERVAL: time::Duration = time::Duration::seconds(10);
 
 impl WhitelistNode {
     pub fn from_peer_info(pi: &PeerInfo) -> anyhow::Result<Self> {
@@ -389,6 +394,44 @@ impl NetworkState {
                 .event_sink
                 .push(Event::ConnectionClosed(ConnectionClosedEvent { stream_id, reason }));
         });
+    }
+
+    /// Attempt to connect to the given peer until successful, up to max_attempts times
+    pub async fn reconnect(
+        self: &Arc<Self>,
+        clock: time::Clock,
+        peer_info: PeerInfo,
+        max_attempts: usize,
+    ) {
+        let mut interval = time::Interval::new(clock.now(), RECONNECT_ATTEMPT_INTERVAL);
+        for _attempt in 0..max_attempts {
+            interval.tick(&clock).await;
+
+            let result = async {
+                let stream = tcp::Stream::connect(&peer_info, tcp::Tier::T2)
+                    .await
+                    .context("tcp::Stream::connect()")?;
+                PeerActor::spawn_and_handshake(clock.clone(), stream, None, self.clone())
+                    .await
+                    .context("PeerActor::spawn()")?;
+                anyhow::Ok(())
+            }
+            .await;
+
+            let succeeded = !result.is_err();
+
+            if result.is_err() {
+                tracing::info!(target:"network", ?result, "Failed to connect to {peer_info}");
+            }
+
+            if self.peer_store.peer_connection_attempt(&clock, &peer_info.id, result).is_err() {
+                tracing::error!(target: "network", ?peer_info, "Failed to store connection attempt.");
+            }
+
+            if succeeded {
+                return;
+            }
+        }
     }
 
     /// Determine if the given target is referring to us.
