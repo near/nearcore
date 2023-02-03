@@ -152,7 +152,7 @@ shard 1).</p>
 processed by near?</p>
 <h2 id="from-explorer-perspective"><a class="header" href="#from-explorer-perspective">From Explorer perspective</a></h2>
 <p>If you look at a simple token transfer in explorer
-(<a href="https://explorer.testnet.near.org/transactions/6cNJpNKWP55YrxrgRzc2gi6BM91fo3V6n2vVAo41MvZv">example</a>),
+(<a href="https://explorer.near.org/transactions/79gPsyYRG2xghr6oNLpMbdjP2jpafjVT35no9atS6zUf">example</a>),
 you can see that it is broken into three separate sections:</p>
 <ul>
 <li>convert transaction into receipt ( executed in block B )</li>
@@ -249,11 +249,9 @@ B, we'll see the transaction:</p>
     ),
 )
 </code></pre>
-<p><strong>Side note:</strong> When we're changing the transaction into a receipt, we also use
+<p><strong>Side note:</strong> When we're converting the transaction into a receipt, we also use
 this moment to deduct prepaid gas fees and transfered tokens from the 'signer'
-account. The details on how much gas is charged etc will be in a separate
-article.</p>
-<!-- TODO: maybe add the link to that article here? -->
+account. The details on how much gas is charged can be found at https://nomicon.io/RuntimeSpec/Fees/.</p>
 <h2 id="step-2---cross-shard-receipt"><a class="header" href="#step-2---cross-shard-receipt">Step 2 - cross shard receipt</a></h2>
 <p>After transaction was changed into a receipt, this receipt must now be sent to
 the shard where the <code>receiver</code> is (in our example <code>shard1</code> is on shard 1).</p>
