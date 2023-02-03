@@ -24,98 +24,23 @@ pub(crate) const WASM_FEATURES: wasmparser::WasmFeatures = wasmparser::WasmFeatu
     memory64: false,
 };
 
-/// Decode and validate the provided WebAssembly code with the `wasmparser` crate.
-///
-/// This function will return the number of functions defined globally in the provided WebAssembly
-/// module as well as the number of locals declared by all functions. If either counter overflows,
-/// `None` is returned in its place.
-fn wasmparser_decode(
-    code: &[u8],
-) -> Result<(Option<u64>, Option<u64>), wasmparser::BinaryReaderError> {
-    use wasmparser::{ImportSectionEntryType, ValidPayload};
-    let mut validator = wasmparser::Validator::new();
-    validator.wasm_features(WASM_FEATURES);
-    let mut function_count = Some(0u64);
-    let mut local_count = Some(0u64);
-    for payload in wasmparser::Parser::new(0).parse_all(code) {
-        let payload = payload?;
-
-        // The validator does not output `ValidPayload::Func` for imported functions.
-        if let wasmparser::Payload::ImportSection(ref import_section_reader) = payload {
-            let mut import_section_reader = import_section_reader.clone();
-            for _ in 0..import_section_reader.get_count() {
-                let import = import_section_reader.read()?;
-                match import.ty {
-                    ImportSectionEntryType::Function(_) => {
-                        function_count = function_count.and_then(|f| f.checked_add(1))
-                    }
-                    ImportSectionEntryType::Table(_)
-                    | ImportSectionEntryType::Memory(_)
-                    | ImportSectionEntryType::Event(_)
-                    | ImportSectionEntryType::Global(_)
-                    | ImportSectionEntryType::Module(_)
-                    | ImportSectionEntryType::Instance(_) => {}
-                }
-            }
-        }
-
-        match validator.payload(&payload)? {
-            ValidPayload::Ok => (),
-            ValidPayload::Submodule(_) => panic!("submodules are not reachable (not enabled)"),
-            ValidPayload::Func(mut validator, body) => {
-                validator.validate(&body)?;
-                function_count = function_count.and_then(|f| f.checked_add(1));
-                // Count the global number of local variables.
-                let mut local_reader = body.get_locals_reader()?;
-                for _ in 0..local_reader.get_count() {
-                    let (count, _type) = local_reader.read()?;
-                    local_count = local_count.and_then(|l| l.checked_add(count.into()));
-                }
-            }
-        }
-    }
-    Ok((function_count, local_count))
-}
-
-fn validate_contract(code: &[u8], config: &VMConfig) -> Result<(), PrepareError> {
-    let (function_count, local_count) = wasmparser_decode(code).map_err(|e| {
-        tracing::debug!(err=?e, "wasmparser failed decoding a contract");
-        PrepareError::Deserialization
-    })?;
-    // Verify the number of functions does not exceed the limit we imposed. Note that the ordering
-    // of this check is important. In the past we first validated the entire module and only then
-    // verified that the limit is not exceeded. While it would be more efficient to check for this
-    // before validating the function bodies, it would change the results for malformed WebAssembly
-    // modules.
-    if let Some(max_functions) = config.limit_config.max_functions_number_per_contract {
-        if function_count.ok_or(PrepareError::TooManyFunctions)? > max_functions {
-            return Err(PrepareError::TooManyFunctions);
-        }
-    }
-    // Similarly, do the same for the number of locals.
-    if let Some(max_locals) = config.limit_config.max_locals_per_contract {
-        if local_count.ok_or(PrepareError::TooManyLocals)? > max_locals {
-            return Err(PrepareError::TooManyLocals);
-        }
-    }
-    Ok(())
-}
-
 pub fn prepare_contract(
     original_code: &[u8],
     config: &VMConfig,
     kind: VMKind,
 ) -> Result<Vec<u8>, PrepareError> {
-    validate_contract(original_code, config)?;
     match config.limit_config.contract_prepare_version {
         // Support for old protocol versions, where we incorrectly didn't
         // account for many locals of the same type.
         //
         // See `test_stack_instrumentation_protocol_upgrade` test.
         near_vm_logic::ContractPrepareVersion::V0 => {
+            // NB: v1 here is not a bug, we are reusing the code.
+            prepare_v1::validate_contract(original_code, config)?;
             prepare_v0::prepare_contract(original_code, config)
         }
         near_vm_logic::ContractPrepareVersion::V1 => {
+            prepare_v1::validate_contract(original_code, config)?;
             prepare_v1::prepare_contract(original_code, config)
         }
         near_vm_logic::ContractPrepareVersion::V2 => {
@@ -128,6 +53,7 @@ pub fn prepare_contract(
 mod tests {
     use super::*;
     use assert_matches::assert_matches;
+    use near_vm_logic::ContractPrepareVersion;
 
     fn parse_and_prepare_wat(wat: &str) -> Result<Vec<u8>, PrepareError> {
         let wasm = wat::parse_str(wat).unwrap();
@@ -206,29 +132,5 @@ mod tests {
         let r = parse_and_prepare_wat(r#"(module (import "env" "unknown_func" (func)))"#);
         assert_matches!(r, Err(Error::Instantiate));
         */
-    }
-
-    #[test]
-    fn preparation_generates_valid_contract() {
-        bolero::check!().for_each(|input: &[u8]| {
-            // DO NOT use ArbitraryModule. We do want modules that may be invalid here, if they pass our validation step!
-            let config = VMConfig::test();
-            if let Ok(_) = validate_contract(input, &config) {
-                match prepare_contract(input, &config, VMKind::Wasmtime) {
-                    Err(_e) => (), // TODO: this should be a panic, but for now it’d actually trigger
-                    Ok(code) => {
-                        let mut validator = wasmparser::Validator::new();
-                        validator.wasm_features(WASM_FEATURES);
-                        match validator.validate_all(&code) {
-                            Ok(()) => (),
-                            Err(e) => panic!(
-                                "prepared code failed validation: {e:?}\ncontract: {}",
-                                hex::encode(input),
-                            ),
-                        }
-                    }
-                }
-            }
-        });
     }
 }
