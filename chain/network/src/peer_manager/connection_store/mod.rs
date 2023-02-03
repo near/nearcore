@@ -84,7 +84,7 @@ impl ConnectionStore {
     }
 
     /// If there is an outbound connection to the given peer in storage, removes it
-    pub fn remove_from_recent_outbound_connections(&self, peer_id: &PeerId) {
+    pub fn remove_from_connection_store(&self, peer_id: &PeerId) {
         self.0.update(|mut inner| {
             inner.remove_outbound(peer_id);
             ((), inner)
@@ -104,7 +104,7 @@ impl ConnectionStore {
             return false;
         }
 
-        if reason.remove_from_recent_outbound_connections() {
+        if reason.remove_from_connection_store() {
             // If the outbound connection closed for a reason which indicates we should not
             // re-establish the connection, remove it from the connection store.
             self.0.update(|mut inner| {

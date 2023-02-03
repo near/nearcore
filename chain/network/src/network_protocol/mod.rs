@@ -327,9 +327,9 @@ pub struct SyncAccountsData {
 /// Message sent when gracefully disconnecting from the other peer.
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub struct Disconnect {
-    /// Advises the other peer not to attempt to re-establish the connection and to remove it from
-    /// its recent outbound connections.
-    pub remove_from_recent_outbound_connections: bool,
+    /// Advises the other peer to remove the connection from storage
+    /// Used when it is not expected that a reconnect attempt would succeed
+    pub remove_from_connection_store: bool,
 }
 
 #[derive(PartialEq, Eq, Clone, Debug, strum::IntoStaticStr, strum::EnumVariantNames)]

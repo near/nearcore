@@ -112,7 +112,7 @@ impl ClosingReason {
     /// Used upon closing an outbound connection to decide whether to remove it from the ConnectionStore.
     /// If the inbound side is the one closing the connection, it evaluates this function on the closing
     /// reason and includes the result in the Disconnect message.
-    pub(crate) fn remove_from_recent_outbound_connections(&self) -> bool {
+    pub(crate) fn remove_from_connection_store(&self) -> bool {
         match self {
             ClosingReason::TooManyInbound => false, // outbound may be still be OK
             ClosingReason::OutboundNotAllowed(_) => true, // outbound not allowed
@@ -1093,10 +1093,10 @@ impl PeerActor {
             PeerMessage::Disconnect(d) => {
                 tracing::debug!(target: "network", "Disconnect signal. Me: {:?} Peer: {:?}", self.my_node_info.id, self.other_peer_id());
 
-                if d.remove_from_recent_outbound_connections {
+                if d.remove_from_connection_store {
                     self.network_state
                         .connection_store
-                        .remove_from_recent_outbound_connections(self.other_peer_id().unwrap())
+                        .remove_from_connection_store(self.other_peer_id().unwrap())
                 }
 
                 self.stop(ctx, ClosingReason::DisconnectMessage);
@@ -1412,11 +1412,11 @@ impl actix::Actor for PeerActor {
 
                 // If we are on the inbound side of the connection, set a flag in the disconnect
                 // message advising the outbound side whether to attempt to re-establish the connection.
-                let remove_from_recent_outbound_connections = self.peer_type == PeerType::Inbound
-                    && reason.remove_from_recent_outbound_connections();
+                let remove_from_connection_store = self.peer_type == PeerType::Inbound
+                    && reason.remove_from_connection_store();
 
                 self.send_message_or_log(&PeerMessage::Disconnect(Disconnect {
-                    remove_from_recent_outbound_connections,
+                    remove_from_connection_store,
                 }));
             }
         }

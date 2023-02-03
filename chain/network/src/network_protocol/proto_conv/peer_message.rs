@@ -145,8 +145,8 @@ impl From<&PeerMessage> for proto::PeerMessage {
                     ..Default::default()
                 }),
                 PeerMessage::Disconnect(r) => ProtoMT::Disconnect(proto::Disconnect {
-                    remove_from_recent_outbound_connections: r
-                        .remove_from_recent_outbound_connections,
+                    remove_from_connection_store: r
+                        .remove_from_connection_store,
                     ..Default::default()
                 }),
                 PeerMessage::Challenge(r) => ProtoMT::Challenge(proto::Challenge {
@@ -272,7 +272,7 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
                 num_hops: r.num_hops,
             })),
             ProtoMT::Disconnect(d) => PeerMessage::Disconnect(Disconnect {
-                remove_from_recent_outbound_connections: d.remove_from_recent_outbound_connections,
+                remove_from_connection_store: d.remove_from_connection_store,
             }),
             ProtoMT::Challenge(c) => PeerMessage::Challenge(
                 Challenge::try_from_slice(&c.borsh).map_err(Self::Error::Challenge)?,
