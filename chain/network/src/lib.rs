@@ -9,6 +9,7 @@ mod peer_manager;
 mod private_actix;
 mod stats;
 mod store;
+mod stun;
 
 pub mod actix;
 pub mod blacklist;

@@ -47,12 +47,12 @@ fn test_deploy_cost_increased() {
     let actions = vec![Action::DeployContract(DeployContractAction { code: test_contract })];
 
     let tx = env.tx_from_actions(actions.clone(), &signer, signer.account_id.clone());
-    let old_outcome = env.execute_tx(tx);
+    let old_outcome = env.execute_tx(tx).unwrap();
 
     env.upgrade_protocol(new_protocol_version);
 
     let tx = env.tx_from_actions(actions, &signer, signer.account_id.clone());
-    let new_outcome = env.execute_tx(tx);
+    let new_outcome = env.execute_tx(tx).unwrap();
 
     assert_matches!(old_outcome.status, FinalExecutionStatus::SuccessValue(_));
     assert_matches!(new_outcome.status, FinalExecutionStatus::SuccessValue(_));

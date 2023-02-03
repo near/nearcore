@@ -1531,7 +1531,7 @@ impl<T: ChainAccess> TxMirror<T> {
 
             if check_send_time
                 && tracker.num_blocks_queued() > 0
-                && Instant::now() > next_batch_time - Duration::from_millis(20)
+                && Instant::now() + Duration::from_millis(20) > next_batch_time
             {
                 break;
             }
