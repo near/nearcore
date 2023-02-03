@@ -175,7 +175,7 @@ wasm_alt_bn128_g1_sum_element: 5_000_000_000
 max_gas_burnt: 200_000_000_000_000
 max_gas_burnt_view: 200_000_000_000_000
 max_stack_height: 16_384
-stack_limiter_version: 0
+contract_prepare_version: 0
 initial_memory_pages: 1_024
 max_memory_pages: 2_048
 registers_memory_limit: 1_073_741_824

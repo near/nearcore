@@ -246,7 +246,7 @@ impl Wasmer0VM {
         code: &ContractCode,
     ) -> Result<wasmer_runtime::Module, CompilationError> {
         let _span = tracing::debug_span!(target: "vm", "Wasmer0VM::compile_uncached").entered();
-        let prepared_code = prepare::prepare_contract(code.code(), &self.config)
+        let prepared_code = prepare::prepare_contract(code.code(), &self.config, VMKind::Wasmer0)
             .map_err(CompilationError::PrepareError)?;
         wasmer_runtime::compile(&prepared_code).map_err(|err| match err {
             wasmer_runtime::error::CompileError::ValidationError { .. } => {
@@ -266,6 +266,7 @@ impl Wasmer0VM {
         cache: Option<&dyn CompiledContractCache>,
     ) -> Result<Result<wasmer_runtime::Module, CompilationError>, CacheError> {
         let module_or_error = self.compile_uncached(code);
+        // TODO: this needs to incorporate the protocol version too now
         let key = get_contract_cache_key(code, VMKind::Wasmer0, &self.config);
 
         if let Some(cache) = cache {
