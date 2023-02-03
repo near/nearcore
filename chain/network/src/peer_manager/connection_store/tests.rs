@@ -18,8 +18,8 @@ fn make_connection_info<R: Rng>(rng: &mut R, time_connected_until: time::Utc) ->
     }
 }
 
-/// Returns num_connections ConnectionInfos with the given value for time_connected_until
-/// and with distinct randomly generated peer_infos and time_established values
+/// Returns num_connections ConnectionInfos with the given value for time_connected_until,
+/// and with randomly generated peer_infos and time_established values
 fn make_connection_infos<R: Rng>(
     rng: &mut R,
     time_connected_until: time::Utc,
@@ -35,15 +35,14 @@ fn test_reload_from_storage() {
     let clock = time::FakeClock::default();
     let store = store::Store::from(near_store::db::TestDB::new());
 
-    let now_utc = clock.now_utc();
-    let conn_info = make_connection_info(rng, now_utc);
+    let conn_info = make_connection_info(rng, clock.now_utc());
     {
-        tracing::debug!(target:"test", "Writing connection info to storage");
+        tracing::debug!(target:"test", "write connection info to storage");
         let connection_store = ConnectionStore::new(store.clone()).unwrap();
         connection_store.insert_outbound_connections(vec![conn_info.clone()]);
     }
     {
-        tracing::debug!(target:"test", "Reading connection info to storage");
+        tracing::debug!(target:"test", "read connection info from storage");
         let connection_store = ConnectionStore::new(store.clone()).unwrap();
         assert_eq!(connection_store.get_recent_outbound_connections(), vec![conn_info]);
     }
@@ -62,9 +61,8 @@ fn test_overwrite_stored_connection() {
     let conn_info_a = make_connection_info(rng, now_utc);
     connection_store.insert_outbound_connections(vec![conn_info_a.clone()]);
 
+    tracing::debug!(target:"test", "insert a second connection with the same PeerId but different data");
     clock.advance(time::Duration::seconds(123));
-
-    tracing::debug!(target:"test", "push a second connection with the same PeerId but different data");
     let now_utc = clock.now_utc();
     let mut conn_info_b = make_connection_info(rng, now_utc);
     conn_info_b.peer_info.id = conn_info_a.peer_info.id.clone();
@@ -106,7 +104,7 @@ fn test_evict_longest_disconnected() {
 }
 
 #[test]
-fn test_recovery_from_clock_skew() {
+fn test_recovery_from_clock_rewind() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let clock = time::FakeClock::default();

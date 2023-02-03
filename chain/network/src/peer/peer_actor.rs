@@ -1400,7 +1400,6 @@ impl actix::Actor for PeerActor {
         // closing_reason may be None in case the whole actix system is stopped.
         // It happens a lot in tests.
         metrics::PEER_CONNECTIONS_TOTAL.dec();
-
         match &self.closing_reason {
             None => {
                 // Due to Actix semantics, sometimes closing reason may be not set.

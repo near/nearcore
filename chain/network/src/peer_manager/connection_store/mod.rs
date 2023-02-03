@@ -58,7 +58,7 @@ impl Inner {
             }
         }
 
-        // Evicts the longest-disconnected connections, if needed
+        // Evict the longest-disconnected connections, if needed
         conns.truncate(OUTBOUND_CONNECTIONS_CACHE_SIZE);
 
         if let Err(err) = self.store.set_recent_outbound_connections(&conns) {
@@ -121,7 +121,7 @@ impl ConnectionStore {
         let now = clock.now();
         let now_utc = clock.now_utc();
 
-        // Gather information about outbound connections which have lasted long enough
+        // Gather information about active outbound connections which have lasted long enough
         let mut outbound = vec![];
         for c in tier2.ready.values() {
             if c.peer_type != PeerType::Outbound {
@@ -140,6 +140,7 @@ impl ConnectionStore {
             });
         }
 
+        // Push the information about the active connections to the front of the store
         self.0.update(|mut inner| {
             inner.push_front_outbound(outbound);
             ((), inner)

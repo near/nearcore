@@ -78,7 +78,7 @@ const PREFER_PREVIOUSLY_CONNECTED_PEER: f64 = 0.6;
 
 /// How often to update the connections in storage.
 pub(crate) const UPDATE_CONNECTION_STORE_INTERVAL: time::Duration = time::Duration::minutes(1);
-/// How often to check the connection store for closed connections we'd like to re-establish.
+/// How often to poll the NetworkState for closed connections we'd like to re-establish.
 pub(crate) const POLL_CONNECTION_STORE_INTERVAL: time::Duration = time::Duration::minutes(1);
 
 /// Actor that manages peers connections.
@@ -133,7 +133,7 @@ impl actix::Actor for PeerManagerActor {
         // Periodically push network information to client.
         self.push_network_info_trigger(ctx, self.state.config.push_info_period);
 
-        // Reconnect to recent connections
+        // Attempt to reconnect to recent outbound connections from storage
         self.bootstrap_outbound_from_recent_connections(ctx);
 
         // Periodically starts peer monitoring.
@@ -163,8 +163,8 @@ impl actix::Actor for PeerManagerActor {
         ctx.spawn(wrap_future(async move {
             let mut interval = time::Interval::new(clock.now(), UPDATE_CONNECTION_STORE_INTERVAL);
             loop {
-                state.update_connection_store(&clock);
                 interval.tick(&clock).await;
+                state.update_connection_store(&clock);
             }
         }));
 
@@ -300,6 +300,7 @@ impl PeerManagerActor {
                     async move {
                         loop {
                             interval.tick(&clock).await;
+                            // Poll the NetworkState for all pending reconnect attempts
                             let pending_reconnect = state.poll_pending_reconnect();
                             // Spawn a separate reconnect loop for each pending reconnect attempt
                             for peer_info in pending_reconnect {

@@ -40,7 +40,7 @@ async fn wait_for_connection_closed(events: &mut broadcast::Receiver<Event>) {
 }
 
 #[tokio::test]
-async fn test_recent_outbound_connection() {
+async fn test_store_outbound_connection() {
     init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
@@ -67,6 +67,7 @@ async fn test_recent_outbound_connection() {
     check_recent_outbound_connections(&pm1, vec![]).await;
 
     tracing::info!(target:"test", "check that pm2 stores the outbound connection to pm0");
+    pm2.update_connection_store(&clock.clock()).await;
     check_recent_outbound_connections(&pm2, vec![id0.clone()]).await;
 }
 
@@ -124,9 +125,11 @@ async fn test_reconnect_after_restart_outbound_side() {
     pm0.update_connection_store(&clock.clock()).await;
     check_recent_outbound_connections(&pm0, vec![id1.clone()]).await;
 
-    tracing::info!(target:"test", "drop pm0 and start it again with the same db, check that it reconnects");
+    tracing::info!(target:"test", "drop pm0 and start it again with the same db");
     drop(pm0);
     let pm0 = start_pm(clock.clock(), pm0_db, chain.make_config(rng), chain.clone()).await;
+
+    tracing::info!(target:"test", "check that pm0 reconnects to pm1");
     pm0.wait_for_direct_connection(id1.clone()).await;
 }
 
