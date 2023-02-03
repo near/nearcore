@@ -131,6 +131,8 @@ pub fn update_cold_head<D: Database>(
         let mut transaction = DBTransaction::new();
         transaction.set(DBCol::BlockMisc, COLD_HEAD_KEY.to_vec(), tip.try_to_vec()?);
         hot_store.storage.write(transaction)?;
+
+        crate::metrics::COLD_HEAD_HEIGHT.set(*height as i64);
     }
 
     return Ok(());
@@ -156,6 +158,10 @@ pub fn test_cold_genesis_update<D: Database>(
 
 pub fn test_get_store_reads(column: DBCol) -> u64 {
     crate::metrics::COLD_MIGRATION_READS.with_label_values(&[<&str>::from(column)]).get()
+}
+
+pub fn test_get_cold_head_height() -> i64 {
+    crate::metrics::COLD_HEAD_HEIGHT.get()
 }
 
 /// Returns HashMap from DBKeyType to possible keys of that type for provided height.
