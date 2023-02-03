@@ -1,5 +1,5 @@
 use super::test_builder::test_builder;
-use crate::prepare::prepare_contract;
+use crate::{internal::VMKind, prepare::prepare_contract};
 use expect_test::expect;
 use near_vm_logic::VMConfig;
 
@@ -103,7 +103,7 @@ fn ensure_fails_verification() {
     for (feature_name, wat) in EXPECTED_UNSUPPORTED {
         let wasm = wat::parse_str(wat).expect("parsing test wat should succeed");
         let config = VMConfig::test();
-        if let Ok(_) = prepare_contract(&wasm, &config) {
+        if let Ok(_) = prepare_contract(&wasm, &config, VMKind::Wasmtime) {
             panic!("wasm containing use of {} feature did not fail to prepare", feature_name);
         }
     }

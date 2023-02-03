@@ -1,11 +1,13 @@
 //! Module that takes care of loading, checking and preprocessing of a
 //! wasm module before execution.
 
+use crate::internal::VMKind;
 use near_vm_errors::PrepareError;
 use near_vm_logic::VMConfig;
 
 mod prepare_v0;
 mod prepare_v1;
+mod prepare_v2;
 
 pub(crate) const WASM_FEATURES: wasmparser::WasmFeatures = wasmparser::WasmFeatures {
     reference_types: false,
@@ -42,7 +44,8 @@ fn wasmparser_decode(
         if let wasmparser::Payload::ImportSection(ref import_section_reader) = payload {
             let mut import_section_reader = import_section_reader.clone();
             for _ in 0..import_section_reader.get_count() {
-                match import_section_reader.read()?.ty {
+                let import = import_section_reader.read()?;
+                match import.ty {
                     ImportSectionEntryType::Function(_) => {
                         function_count = function_count.and_then(|f| f.checked_add(1))
                     }
@@ -98,33 +101,38 @@ fn validate_contract(code: &[u8], config: &VMConfig) -> Result<(), PrepareError>
     Ok(())
 }
 
-pub fn prepare_contract(original_code: &[u8], config: &VMConfig) -> Result<Vec<u8>, PrepareError> {
+pub fn prepare_contract(
+    original_code: &[u8],
+    config: &VMConfig,
+    kind: VMKind,
+) -> Result<Vec<u8>, PrepareError> {
     validate_contract(original_code, config)?;
-    // FIXME: why is this matching on the stack_limiter_version rather than the protocol version?
-    match config.limit_config.stack_limiter_version {
+    match config.limit_config.contract_prepare_version {
         // Support for old protocol versions, where we incorrectly didn't
         // account for many locals of the same type.
         //
         // See `test_stack_instrumentation_protocol_upgrade` test.
-        near_vm_logic::StackLimiterVersion::V0 => {
+        near_vm_logic::ContractPrepareVersion::V0 => {
             prepare_v0::prepare_contract(original_code, config)
         }
-        near_vm_logic::StackLimiterVersion::V1 => {
+        near_vm_logic::ContractPrepareVersion::V1 => {
             prepare_v1::prepare_contract(original_code, config)
+        }
+        near_vm_logic::ContractPrepareVersion::V2 => {
+            prepare_v2::prepare_contract(original_code, config, kind)
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use assert_matches::assert_matches;
-
     use super::*;
+    use assert_matches::assert_matches;
 
     fn parse_and_prepare_wat(wat: &str) -> Result<Vec<u8>, PrepareError> {
         let wasm = wat::parse_str(wat).unwrap();
         let config = VMConfig::test();
-        prepare_contract(wasm.as_ref(), &config)
+        prepare_contract(wasm.as_ref(), &config, VMKind::Wasmtime)
     }
 
     #[test]
@@ -206,7 +214,7 @@ mod tests {
             // DO NOT use ArbitraryModule. We do want modules that may be invalid here, if they pass our validation step!
             let config = VMConfig::test();
             if let Ok(_) = validate_contract(input, &config) {
-                match prepare_contract(input, &config) {
+                match prepare_contract(input, &config, VMKind::Wasmtime) {
                     Err(_e) => (), // TODO: this should be a panic, but for now it’d actually trigger
                     Ok(code) => {
                         let mut validator = wasmparser::Validator::new();

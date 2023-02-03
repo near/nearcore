@@ -286,7 +286,7 @@ impl Wasmer2VM {
         code: &ContractCode,
     ) -> Result<UniversalExecutable, CompilationError> {
         let _span = tracing::debug_span!(target: "vm", "Wasmer2VM::compile_uncached").entered();
-        let prepared_code = prepare::prepare_contract(code.code(), &self.config)
+        let prepared_code = prepare::prepare_contract(code.code(), &self.config, VMKind::Wasmer2)
             .map_err(CompilationError::PrepareError)?;
 
         debug_assert!(
