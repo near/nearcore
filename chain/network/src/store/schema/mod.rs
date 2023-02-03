@@ -69,7 +69,7 @@ impl From<KnownPeerStatus> for primitives::KnownPeerStatus {
 /// to the KnownPeerStateRepr, but in the following PR the
 /// timestamp type (currently u64), will be replaced with time::Utc.
 #[derive(BorshSerialize, BorshDeserialize)]
-pub struct KnownPeerStateRepr {
+pub(super) struct KnownPeerStateRepr {
     peer_info: primitives::PeerInfo,
     status: KnownPeerStatus,
     /// UNIX timestamps in nanos.
@@ -101,8 +101,40 @@ impl BorshRepr for KnownPeerStateRepr {
     }
 }
 
+/// A Borsh representation of the primitives::ConnectionInfo.
 #[derive(BorshSerialize, BorshDeserialize)]
-pub struct EdgeRepr {
+pub(super) struct ConnectionInfoRepr {
+    peer_info: primitives::PeerInfo,
+    /// UNIX timestamps in nanos.
+    time_established: u64,
+    time_connected_until: u64,
+}
+
+impl BorshRepr for ConnectionInfoRepr {
+    type T = primitives::ConnectionInfo;
+    fn to_repr(s: &primitives::ConnectionInfo) -> Self {
+        Self {
+            peer_info: s.peer_info.clone(),
+            time_established: s.time_established.unix_timestamp_nanos() as u64,
+            time_connected_until: s.time_connected_until.unix_timestamp_nanos() as u64,
+        }
+    }
+
+    fn from_repr(s: Self) -> Result<primitives::ConnectionInfo, Error> {
+        Ok(primitives::ConnectionInfo {
+            peer_info: s.peer_info,
+            time_established: time::Utc::from_unix_timestamp_nanos(s.time_established as i128)
+                .map_err(invalid_data)?,
+            time_connected_until: time::Utc::from_unix_timestamp_nanos(
+                s.time_connected_until as i128,
+            )
+            .map_err(invalid_data)?,
+        })
+    }
+}
+
+#[derive(BorshSerialize, BorshDeserialize)]
+pub(super) struct EdgeRepr {
     key: (PeerId, PeerId),
     nonce: u64,
     signature0: Signature,
@@ -131,35 +163,42 @@ impl BorshRepr for EdgeRepr {
 /////////////////////////////////////////////
 // Columns
 
-pub struct AccountAnnouncements;
+pub(super) struct AccountAnnouncements;
 impl Column for AccountAnnouncements {
     const COL: DBCol = DBCol::AccountAnnouncements;
     type Key = AccountIdFormat;
     type Value = Borsh<AnnounceAccount>;
 }
 
-pub struct Peers;
+pub(super) struct Peers;
 impl Column for Peers {
     const COL: DBCol = DBCol::Peers;
     type Key = Borsh<PeerId>;
     type Value = KnownPeerStateRepr;
 }
 
-pub struct PeerComponent;
+pub(super) struct RecentOutboundConnections;
+impl Column for RecentOutboundConnections {
+    const COL: DBCol = DBCol::RecentOutboundConnections;
+    type Key = Borsh<()>;
+    type Value = Vec<ConnectionInfoRepr>;
+}
+
+pub(super) struct PeerComponent;
 impl Column for PeerComponent {
     const COL: DBCol = DBCol::PeerComponent;
     type Key = Borsh<PeerId>;
     type Value = Borsh<u64>;
 }
 
-pub struct ComponentEdges;
+pub(super) struct ComponentEdges;
 impl Column for ComponentEdges {
     const COL: DBCol = DBCol::ComponentEdges;
     type Key = U64LE;
     type Value = Vec<EdgeRepr>;
 }
 
-pub struct LastComponentNonce;
+pub(super) struct LastComponentNonce;
 impl Column for LastComponentNonce {
     const COL: DBCol = DBCol::LastComponentNonce;
     type Key = Borsh<()>;

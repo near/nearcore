@@ -27,7 +27,7 @@ pub fn start_all_with_validity_period_and_no_epoch_sync(
     transaction_validity_period: NumBlocks,
     enable_doomslug: bool,
 ) -> (Addr<ViewClientActor>, tcp::ListenerAddr) {
-    let (client_addr, view_client_addr) = setup_no_network_with_validity_period_and_no_epoch_sync(
+    let actor_handles = setup_no_network_with_validity_period_and_no_epoch_sync(
         vec!["test1".parse().unwrap(), "test2".parse().unwrap()],
         if let NodeType::Validator = node_type {
             "test1".parse().unwrap()
@@ -43,11 +43,11 @@ pub fn start_all_with_validity_period_and_no_epoch_sync(
     start_http(
         RpcConfig::new(addr),
         TEST_GENESIS_CONFIG.clone(),
-        client_addr,
-        view_client_addr.clone(),
+        actor_handles.client_actor,
+        actor_handles.view_client_actor.clone(),
         None,
     );
-    (view_client_addr, addr)
+    (actor_handles.view_client_actor, addr)
 }
 
 #[macro_export]

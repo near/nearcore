@@ -33,6 +33,7 @@
 
         $(document).ready(() => {
             $('.detailed-peer-storage-div').hide();
+            $('.recent-outbound-connections-div').hide();
             $('span').text("Loading...");
             $.ajax({
                 type: "GET",
@@ -184,8 +185,33 @@
 
                         $(".tbody-detailed-peer-storage").append(row);
                     });
+
                     $(".detailed-peer-storage-div").show();
-                    $(".detailed-peer-storage-button").text("Refresh");
+                    $(".detailed-peer-storage-button").text("Refresh peer storage");
+                }
+            });
+        }
+
+        function show_recent_outbound_connections() {
+            $(".recent-outbound-connections-button").text("Loading...");
+            $(".tbody-recent-outbound-connections").html("");
+            $.ajax({
+                type: "GET",
+                url: "../api/recent_outbound_connections",
+                success: data => {
+                    $(".recent-outbound-connections-size").text(data.status_response.RecentOutboundConnections.recent_outbound_connections.length);
+                    data.status_response.RecentOutboundConnections.recent_outbound_connections.forEach(element => {
+                        let row = $("<tr>");
+                        row.append($("<td>").append(element['peer_id']));
+                        row.append($("<td>").append(element['addr']));
+                        row.append($("<td>").append(to_human_time(Math.floor(Date.now() / 1000) - element['time_established'])));
+                        row.append($("<td>").append(to_human_time(Math.floor(Date.now() / 1000) - element['time_connected_until'])));
+
+                        $(".tbody-recent-outbound-connections").append(row);
+                    });
+
+                    $(".recent-outbound-connections-div").show();
+                    $(".recent-outbound-connections-button").text("Refresh connection storage");
                 }
             });
         }
@@ -286,6 +312,24 @@ Unreachable: <span class="js-unreachable-chunk-producers"></span>
                 <th>Status</th>
             </thead>
             <tbody class="tbody-detailed-peer-storage">
+
+            </tbody>
+        </table>
+        <br>
+    </div>
+    <button onclick="show_recent_outbound_connections()" class="recent-outbound-connections-button">
+        Show outbound connections in storage
+    </button>
+    <div class="recent-outbound-connections-div">
+        <h2>Outbound connections in storage: <span class="recent-outbound-connections-size"></span></h2>
+        <table class="recent-outbound-connections">
+            <thead>
+                <th>Peer id</th>
+                <th>Peer address</th>
+                <th>First connected</th>
+                <th>Last connected</th>
+            </thead>
+            <tbody class="tbody-recent-outbound-connections">
 
             </tbody>
         </table>

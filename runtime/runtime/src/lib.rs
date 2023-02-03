@@ -533,7 +533,11 @@ impl Runtime {
             )?;
             if new_result.result.is_ok() {
                 if let Err(e) = new_result.new_receipts.iter().try_for_each(|receipt| {
-                    validate_receipt(&apply_state.config.wasm_config.limit_config, receipt)
+                    validate_receipt(
+                        &apply_state.config.wasm_config.limit_config,
+                        receipt,
+                        apply_state.current_protocol_version,
+                    )
                 }) {
                     new_result.result = Err(ActionErrorKind::NewReceiptValidationError(e).into());
                 }
@@ -1351,14 +1355,17 @@ impl Runtime {
             }
 
             // Validating the delayed receipt. If it fails, it's likely the state is inconsistent.
-            validate_receipt(&apply_state.config.wasm_config.limit_config, &receipt).map_err(
-                |e| {
-                    StorageError::StorageInconsistentState(format!(
-                        "Delayed receipt #{} in the state is invalid: {}",
-                        delayed_receipts_indices.first_index, e
-                    ))
-                },
-            )?;
+            validate_receipt(
+                &apply_state.config.wasm_config.limit_config,
+                &receipt,
+                apply_state.current_protocol_version,
+            )
+            .map_err(|e| {
+                StorageError::StorageInconsistentState(format!(
+                    "Delayed receipt #{} in the state is invalid: {}",
+                    delayed_receipts_indices.first_index, e
+                ))
+            })?;
 
             state_update.remove(key);
             // Math checked above: first_index is less than next_available_index
@@ -1376,8 +1383,12 @@ impl Runtime {
         for receipt in incoming_receipts.iter() {
             // Validating new incoming no matter whether we have available gas or not. We don't
             // want to store invalid receipts in state as delayed.
-            validate_receipt(&apply_state.config.wasm_config.limit_config, receipt)
-                .map_err(RuntimeError::ReceiptValidationError)?;
+            validate_receipt(
+                &apply_state.config.wasm_config.limit_config,
+                receipt,
+                apply_state.current_protocol_version,
+            )
+            .map_err(RuntimeError::ReceiptValidationError)?;
             if total_gas_burnt < gas_limit {
                 process_receipt(receipt, &mut state_update, &mut total_gas_burnt)?;
             } else {

@@ -140,27 +140,3 @@ steps:
     timeout: 30
     agents:
     - "distro=amazonlinux"
-
-  #- label: "near-sdk-rs tests"
-  #  trigger: "near-sdk-rs"
-  #  branches: "!master"
-
-  # Disable rainbow bridge tests as they are temporary broken
-  # - label: "rainbow-bridge test"
-  #   command: |
-  #    source ~/.cargo/env && set -eux
-  #    source ~/.nvm/nvm.sh
-
-  #    git clone https://github.com/near/rainbow-bridge
-  #    cd rainbow-bridge
-  #    source ci/e2e_ci_prepare_env.sh
-  #    source ci/e2e_ci_prepare_log.sh
-
-  #    LOCAL_CORE_SRC=.. ci/e2e.sh
-
-  #  timeout: 60
-  #  agents:
-  #  - "queue=default"
-  #  branches: "!master"
-  #  artifact_paths:
-  #  - "rainbow-bridge/logs/**/*.log"

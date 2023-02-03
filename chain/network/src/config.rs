@@ -5,6 +5,7 @@ use crate::network_protocol::PeerInfo;
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::peer_store;
 use crate::sink::Sink;
+use crate::stun;
 use crate::tcp;
 use crate::time;
 use crate::types::ROUTED_MESSAGE_TTL;
@@ -25,10 +26,6 @@ pub const MAX_ROUTES_TO_STORE: usize = 5;
 
 /// Maximum number of PeerAddts in the ValidatorConfig::endpoints field.
 pub const MAX_PEER_ADDRS: usize = 10;
-
-/// Address of the format "<domain/ip>:<port>" of STUN servers.
-// TODO(gprusak): turn into a proper struct implementing Display and FromStr.
-pub type StunServerAddr = String;
 
 /// ValidatorProxies are nodes with public IP (aka proxies) that this validator trusts to be honest
 /// and willing to forward traffic to this validator. Whenever this node is a TIER1 validator
@@ -52,7 +49,7 @@ pub type StunServerAddr = String;
 #[derive(Clone)]
 pub enum ValidatorProxies {
     Static(Vec<PeerAddr>),
-    Dynamic(Vec<StunServerAddr>),
+    Dynamic(Vec<stun::ServerAddr>),
 }
 
 #[derive(Clone)]
@@ -176,9 +173,6 @@ impl NetworkConfig {
                 "public_addrs has {} entries, limit is {MAX_PEER_ADDRS}",
                 cfg.public_addrs.len()
             );
-        }
-        if cfg.public_addrs.len() > 0 && cfg.trusted_stun_servers.len() > 0 {
-            anyhow::bail!("you cannot specify both public_addrs and trusted_stun_servers");
         }
         let mut proxies = HashSet::new();
         for proxy in &cfg.public_addrs {
