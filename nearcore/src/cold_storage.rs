@@ -74,11 +74,6 @@ fn cold_store_copy(
         return Ok(ColdStoreCopyResult::NoBlockCopied);
     }
 
-    // TODO - there may be holes in the chain where there is no block at a given height
-    // We should make sure to fix the current implementation to account for that.
-    // https://pagodaplatform.atlassian.net/browse/ND-285
-    let next_height = cold_head_height + 1;
-
     // Here it should be sufficient to just read from hot storage.
     // Because BlockHeight is never garbage collectable and is not even copied to cold.
     let cold_head_hash =
@@ -90,7 +85,18 @@ fn cold_store_copy(
     let epoch_id = &runtime.get_epoch_id_from_prev_block(&cold_head_hash)?;
     let shard_layout = runtime.get_shard_layout(epoch_id)?;
 
-    update_cold_db(cold_db, hot_store, &shard_layout, &next_height)?;
+    let mut next_height = cold_head_height + 1;
+    while !update_cold_db(cold_db, hot_store, &shard_layout, &next_height)? {
+        next_height += 1;
+        if next_height > hot_final_head_height {
+            return Err(anyhow::anyhow!(
+                "All blocks between cold head and next height were skipped, but next height > hot final head. cold head {} next height to copy: {} final head height {}",
+                cold_head_height,
+                next_height,
+                hot_final_head_height
+            ));
+        }
+    }
 
     update_cold_head(cold_db, hot_store, &next_height)?;
 
