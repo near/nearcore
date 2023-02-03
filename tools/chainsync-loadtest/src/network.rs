@@ -1,6 +1,6 @@
 use crate::concurrency::{Ctx, Once, RateLimiter, Scope, WeakMap};
 use log::info;
-use near_network::time;
+
 use near_network::types::{
     AccountIdOrPeerTrackingShard, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
     PartialEncodedChunkResponseMsg, ReasonForBan, StateResponseInfo,
@@ -13,8 +13,8 @@ use near_primitives::block::{Approval, Block, BlockHeader};
 use near_primitives::challenge::Challenge;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::sharding::ChunkHash;
 use near_primitives::sharding::ShardChunkHeader;
-use near_primitives::sharding::{ChunkHash, PartialEncodedChunk};
 use near_primitives::time::Clock;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, EpochId, ShardId};
@@ -288,25 +288,6 @@ impl near_network::client::Client for Network {
 
     async fn transaction(&self, _transaction: SignedTransaction, _is_forwarded: bool) {}
 
-    async fn partial_encoded_chunk_request(
-        &self,
-        _req: PartialEncodedChunkRequestMsg,
-        _msg_hash: CryptoHash,
-    ) {
-    }
-
-    async fn partial_encoded_chunk_response(
-        &self,
-        resp: PartialEncodedChunkResponseMsg,
-        _timestamp: time::Instant,
-    ) {
-        self.chunks.get(&resp.chunk_hash.clone()).map(|p| p.set(resp));
-    }
-
-    async fn partial_encoded_chunk(&self, _chunk: PartialEncodedChunk) {}
-
-    async fn partial_encoded_chunk_forward(&self, _msg: PartialEncodedChunkForwardMsg) {}
-
     async fn block_request(&self, _hash: CryptoHash) -> Option<Box<Block>> {
         None
     }
@@ -350,5 +331,33 @@ impl near_network::client::Client for Network {
         accounts: Vec<(AnnounceAccount, Option<EpochId>)>,
     ) -> Result<Vec<AnnounceAccount>, ReasonForBan> {
         Ok(accounts.into_iter().map(|a| a.0).collect())
+    }
+}
+
+impl near_network::shards_manager::ShardsManagerAdapterForNetwork for Network {
+    fn process_partial_encoded_chunk(
+        &self,
+        _partial_encoded_chunk: near_primitives::sharding::PartialEncodedChunk,
+    ) {
+    }
+
+    fn process_partial_encoded_chunk_forward(
+        &self,
+        _partial_encoded_chunk_forward: PartialEncodedChunkForwardMsg,
+    ) {
+    }
+
+    fn process_partial_encoded_chunk_response(
+        &self,
+        _partial_encoded_chunk_response: PartialEncodedChunkResponseMsg,
+        _received_time: std::time::Instant,
+    ) {
+    }
+
+    fn process_partial_encoded_chunk_request(
+        &self,
+        _partial_encoded_chunk_request: PartialEncodedChunkRequestMsg,
+        _route_back: CryptoHash,
+    ) {
     }
 }

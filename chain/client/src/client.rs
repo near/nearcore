@@ -7,7 +7,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use lru::LruCache;
-use near_chunks::client::{ClientAdapterForShardsManager, ShardedTransactionPool};
+use near_chunks::adapter::ShardsManagerAdapterForClient;
+use near_chunks::client::ShardedTransactionPool;
 use near_chunks::logic::{
     cares_about_shard_this_or_next_epoch, decode_encoded_chunk, persist_chunk,
 };
@@ -102,7 +103,7 @@ pub struct Client {
     pub chain: Chain,
     pub doomslug: Doomslug,
     pub runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
-    pub shards_mgr: ShardsManager,
+    pub shards_manager_adapter: Arc<dyn ShardsManagerAdapterForClient>,
     pub sharded_tx_pool: ShardedTransactionPool,
     prev_block_to_chunk_headers_ready_for_inclusion: LruCache<
         CryptoHash,
@@ -187,7 +188,7 @@ impl Client {
         chain_genesis: ChainGenesis,
         runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
         network_adapter: Arc<dyn PeerManagerAdapter>,
-        client_adapter: Arc<dyn ClientAdapterForShardsManager>,
+        shards_manager_adapter: Arc<dyn ShardsManagerAdapterForClient>,
         validator_signer: Option<Arc<dyn ValidatorSigner>>,
         enable_doomslug: bool,
         rng_seed: RngSeed,
@@ -215,14 +216,6 @@ impl Client {
             chain.store(),
             chain_config.background_migration_threads,
         )?;
-        let shards_mgr = ShardsManager::new(
-            me.clone(),
-            runtime_adapter.clone(),
-            network_adapter.clone(),
-            client_adapter.clone(),
-            chain.store().new_read_only_chunks_store(),
-            chain.head().ok(),
-        );
         let sharded_tx_pool = ShardedTransactionPool::new(rng_seed);
         let sync_status = SyncStatus::AwaitingPeers;
         let genesis_block = chain.genesis_block();
@@ -280,7 +273,7 @@ impl Client {
             chain,
             doomslug,
             runtime_adapter,
-            shards_mgr,
+            shards_manager_adapter,
             sharded_tx_pool,
             prev_block_to_chunk_headers_ready_for_inclusion: LruCache::new(
                 CHUNK_HEADERS_FOR_INCLUSION_CACHE_SIZE,
@@ -1178,6 +1171,10 @@ impl Client {
             &mut block_processing_artifacts,
             apply_chunks_done_callback,
         );
+        if accepted_blocks.iter().any(|accepted_block| accepted_block.status.is_new_head()) {
+            self.shards_manager_adapter
+                .update_chain_heads(self.chain.head().unwrap(), self.chain.header_head().unwrap());
+        }
         self.process_block_processing_artifact(block_processing_artifacts);
         let accepted_blocks_hashes =
             accepted_blocks.iter().map(|accepted_block| accepted_block.hash.clone()).collect();
@@ -1210,21 +1207,17 @@ impl Client {
         } = block_processing_artifacts;
         // Send out challenges that accumulated via on_challenge.
         self.send_challenges(challenges);
-        // For any missing chunk, call the ShardsManager with it so that it may apply forwarded parts.
-        // This may end up completing the chunk.
+        // For any missing chunk, let the ShardsManager know of the chunk header so that it may
+        // apply forwarded parts. This may end up completing the chunk.
         let missing_chunks = blocks_missing_chunks
             .iter()
             .flat_map(|block| block.missing_chunks.iter())
             .chain(orphans_missing_chunks.iter().flat_map(|block| block.missing_chunks.iter()));
         for chunk in missing_chunks {
-            match self.shards_mgr.process_chunk_header_from_block(chunk) {
-                Ok(_) => {}
-                Err(err) => {
-                    warn!(target: "client", "Failed to process missing chunk from block: {:?}", err)
-                }
-            }
+            self.shards_manager_adapter.process_chunk_header_from_block(chunk);
         }
-        // Request any (still) missing chunks.
+        // Request any missing chunks (which may be completed by the
+        // process_chunk_header_from_block call, but that is OK as it would be noop).
         self.request_missing_chunks(blocks_missing_chunks, orphans_missing_chunks);
 
         for chunk_header in invalid_chunks {
@@ -1276,9 +1269,11 @@ impl Client {
         apply_chunks_done_callback: DoneApplyChunkCallback,
     ) {
         let chunk_header = partial_chunk.cloned_header();
+        self.chain.blocks_delay_tracker.mark_chunk_completed(&chunk_header, Clock::utc());
+        self.block_production_info
+            .record_chunk_collected(partial_chunk.height_created(), partial_chunk.shard_id());
         persist_chunk(partial_chunk, shard_chunk, self.chain.mut_store())
             .expect("Could not persist chunk");
-        self.chain.blocks_delay_tracker.mark_chunk_completed(&chunk_header, Clock::utc());
         // We're marking chunk as accepted.
         self.chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());
         // If this was the last chunk that was missing for a block, it will be processed now.
@@ -1316,6 +1311,8 @@ impl Client {
         let mut challenges = vec![];
         self.chain.sync_block_headers(headers, &mut challenges)?;
         self.send_challenges(challenges);
+        self.shards_manager_adapter
+            .update_chain_heads(self.chain.head().unwrap(), self.chain.header_head().unwrap());
         Ok(())
     }
 
@@ -1439,7 +1436,6 @@ impl Client {
         }
 
         if status.is_new_head() {
-            self.shards_mgr.update_chain_head(Tip::from_header(&block.header()));
             let last_final_block = block.header().last_final_block();
             let last_finalized_height = if last_final_block == &CryptoHash::default() {
                 self.chain.genesis().height()
@@ -1580,7 +1576,7 @@ impl Client {
                 }
             }
         }
-        self.shards_mgr.check_incomplete_chunks(block.hash());
+        self.shards_manager_adapter.check_incomplete_chunks(*block.hash());
     }
 
     pub fn persist_and_distribute_encoded_chunk(
@@ -1601,12 +1597,12 @@ impl Client {
             encoded_chunk.cloned_header(),
             validator_id.clone(),
         );
-        self.shards_mgr.distribute_encoded_chunk(
+        self.shards_manager_adapter.distribute_encoded_chunk(
             partial_chunk,
             encoded_chunk,
-            &merkle_paths,
+            merkle_paths,
             receipts,
-        )?;
+        );
         Ok(())
     }
 
@@ -1620,14 +1616,7 @@ impl Client {
             for chunk in &missing_chunks {
                 self.chain.blocks_delay_tracker.mark_chunk_requested(chunk, now);
             }
-            self.shards_mgr.request_chunks(
-                missing_chunks,
-                prev_hash,
-                &self
-                    .chain
-                    .header_head()
-                    .expect("header_head must be available when processing a block"),
-            );
+            self.shards_manager_adapter.request_chunks(missing_chunks, prev_hash);
         }
 
         for OrphanMissingChunks { missing_chunks, epoch_id, ancestor_hash } in
@@ -1636,14 +1625,10 @@ impl Client {
             for chunk in &missing_chunks {
                 self.chain.blocks_delay_tracker.mark_chunk_requested(chunk, now);
             }
-            self.shards_mgr.request_chunks_for_orphan(
+            self.shards_manager_adapter.request_chunks_for_orphan(
                 missing_chunks,
-                &epoch_id,
+                epoch_id,
                 ancestor_hash,
-                &self
-                    .chain
-                    .header_head()
-                    .expect("header_head must be available when processing a block"),
             );
         }
     }

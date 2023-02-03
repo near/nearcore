@@ -29,6 +29,7 @@ fn make_peer_manager(
         near_store::db::TestDB::new(),
         config,
         Arc::new(near_network::client::Noop),
+        Arc::new(near_network::client::Noop),
         GenesisId::default(),
     )
     .unwrap()

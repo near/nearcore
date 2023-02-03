@@ -67,9 +67,11 @@ nightly = [
   "nightly_protocol",
   "protocol_feature_flat_state",
   "near-chain/nightly",
+  "protocol_feature_nep366_delegate_action"
 ]
 sandbox = [
   "near-client-primitives/sandbox",
   "near-chain/sandbox",
 ]
 protocol_feature_flat_state = ["near-store/protocol_feature_flat_state", "near-chain/protocol_feature_flat_state"]
+protocol_feature_nep366_delegate_action = []

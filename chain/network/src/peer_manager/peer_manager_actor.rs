@@ -9,6 +9,7 @@ use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
 use crate::peer_manager::network_state::{NetworkState, WhitelistNode};
 use crate::peer_manager::peer_store;
+use crate::shards_manager::ShardsManagerAdapterForNetwork;
 use crate::stats::metrics;
 use crate::store;
 use crate::tcp;
@@ -163,6 +164,7 @@ impl PeerManagerActor {
         store: Arc<dyn near_store::db::Database>,
         config: config::NetworkConfig,
         client: Arc<dyn client::Client>,
+        shards_manager_adapter: Arc<dyn ShardsManagerAdapterForNetwork>,
         genesis_id: GenesisId,
     ) -> anyhow::Result<actix::Addr<Self>> {
         let config = config.verify().context("config")?;
@@ -193,6 +195,7 @@ impl PeerManagerActor {
             config.clone(),
             genesis_id,
             client,
+            shards_manager_adapter,
             whitelist_nodes,
         ));
         arbiter.spawn({
