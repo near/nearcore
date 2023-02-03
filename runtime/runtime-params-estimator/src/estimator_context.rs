@@ -148,29 +148,39 @@ impl<'c> EstimatorContext<'c> {
         };
         use std::collections::HashSet;
 
+        const BLOCK_HEIGHT: BlockHeight = 0;
+
+        /// Dummy ChainAccessForFlatStorage implementation to be able to create
+        /// FlatStorageState.
         struct ChainAccess;
 
         impl ChainAccessForFlatStorage for ChainAccess {
             fn get_block_info(&self, block_hash: &CryptoHash) -> BlockInfo {
-                BlockInfo { hash: block_hash.clone(), prev_hash: Default::default(), height: 0 }
+                BlockInfo {
+                    hash: block_hash.clone(),
+                    prev_hash: Default::default(),
+                    height: BLOCK_HEIGHT,
+                }
             }
 
             fn get_block_hashes_at_height(
                 &self,
                 _block_height: BlockHeight,
             ) -> HashSet<CryptoHash> {
+                // This is only needed to accumulate deltas when flat head doesn't
+                // match the latest block height.
                 unimplemented!()
             }
         }
 
-        let shard_id = 0;
-        let block_height = 0;
+        let shard_id = ShardUId::single_shard().shard_id();
+        // Set up flat head to be equal to the latest block height
         let mut store_update = store.store_update();
         store_helper::set_flat_head(&mut store_update, shard_id, &FLAT_STATE_HEAD);
         store_update.commit().expect("failed to set flat head");
         let factory = FlatStateFactory::new(store.clone());
         let flat_storage_state =
-            FlatStorageState::new(store.clone(), shard_id, block_height, &ChainAccess {});
+            FlatStorageState::new(store.clone(), shard_id, BLOCK_HEIGHT, &ChainAccess {});
         factory.add_flat_storage_state_for_shard(shard_id, flat_storage_state);
         factory
     }
