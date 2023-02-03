@@ -1412,8 +1412,8 @@ impl actix::Actor for PeerActor {
 
                 // If we are on the inbound side of the connection, set a flag in the disconnect
                 // message advising the outbound side whether to attempt to re-establish the connection.
-                let remove_from_connection_store = self.peer_type == PeerType::Inbound
-                    && reason.remove_from_connection_store();
+                let remove_from_connection_store =
+                    self.peer_type == PeerType::Inbound && reason.remove_from_connection_store();
 
                 self.send_message_or_log(&PeerMessage::Disconnect(Disconnect {
                     remove_from_connection_store,

@@ -145,8 +145,7 @@ impl From<&PeerMessage> for proto::PeerMessage {
                     ..Default::default()
                 }),
                 PeerMessage::Disconnect(r) => ProtoMT::Disconnect(proto::Disconnect {
-                    remove_from_connection_store: r
-                        .remove_from_connection_store,
+                    remove_from_connection_store: r.remove_from_connection_store,
                     ..Default::default()
                 }),
                 PeerMessage::Challenge(r) => ProtoMT::Challenge(proto::Challenge {
