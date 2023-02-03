@@ -469,6 +469,12 @@ impl ContractAccountFilter {
             true
         }
     }
+
+    // If any of the fields are no computable on-the-fly / streaming, then we
+    // cannot stream.
+    pub(crate) fn can_stream(&self) -> bool {
+        !(self.actions || self.receipts_in || self.receipts_out)
+    }
 }
 
 #[cfg(test)]

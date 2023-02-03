@@ -872,9 +872,10 @@ pub(crate) fn contract_accounts(
     });
 
     filter.write_header(&mut std::io::stdout().lock())?;
-    let streaming = false; // TODO
-    if streaming {
-        // Process account after account and displayed results immediately.
+    // Prefer streaming the results, to use less memory and provide
+    // a feedback more quickly.
+    if filter.can_stream() {
+        // Process account after account and display results immediately.
         for (i, trie) in tries.enumerate() {
             eprintln!("Starting shard {i}");
             let trie_iter = ContractAccount::in_trie(trie, filter.clone())?;
