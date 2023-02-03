@@ -131,6 +131,8 @@ pub fn update_cold_head<D: Database>(
         let mut transaction = DBTransaction::new();
         transaction.set(DBCol::BlockMisc, COLD_HEAD_KEY.to_vec(), tip.try_to_vec()?);
         hot_store.storage.write(transaction)?;
+
+        crate::metrics::COLD_HEAD_HEIGHT.set(*height as i64);
     }
 
     return Ok(());
