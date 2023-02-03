@@ -160,7 +160,7 @@ contract deployed right now. This should be fairly quick. Using flags, you can
 display more information but it will also slow down the process.
 
 To see a list of flags, run 
-```
+```ignore
 cargo run -p neard -- view-state contract-accounts --help
 ```
 
@@ -176,7 +176,7 @@ Additionally, the output contains a list of actions that were in the outgoing
 receipts. This is particularly useful to find contracts that call certain
 actions on-chain.
 
-```bash
+```ignore
 cargo run -p neard -- view-state contract-accounts \
   --skip-accounts "aurora,relay.aurora,token.sweat,oracle.sweat,tge-lockup.near,sweat_welcome.near" \
   --receipts-in \
@@ -186,7 +186,7 @@ cargo run -p neard -- view-state contract-accounts \
 ```
 
 And the output may look something like thi:
-```
+```ignore
 ACCOUNT_ID                                                         RCPTS_IN  RCPTS_OUT ACTIONS
 0-0.near                                                                 37         14 Transfer
 0-1.near                                                                797        117 Transfer
