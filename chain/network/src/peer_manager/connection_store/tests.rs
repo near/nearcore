@@ -1,75 +1,76 @@
+use crate::network_protocol::testonly::make_peer_info;
 use crate::peer_manager::connection_store::ConnectionStore;
 use crate::peer_manager::connection_store::OUTBOUND_CONNECTIONS_CACHE_SIZE;
 use crate::store;
+use crate::testonly::make_rng;
 use crate::testonly::AsSet;
 use crate::time;
-use crate::types::{ConnectionInfo, PeerInfo};
-use near_crypto::{KeyType, SecretKey};
-use near_primitives::network::PeerId;
+use crate::types::ConnectionInfo;
 use near_store::NodeStorage;
 use rand::Rng;
-use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 
-fn get_addr(port: u16) -> SocketAddr {
-    SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), port).into()
-}
-
-fn gen_peer_info(port: u16) -> PeerInfo {
-    PeerInfo {
-        id: PeerId::new(SecretKey::from_random(KeyType::ED25519).public_key()),
-        addr: Some(get_addr(port)),
-        account_id: None,
+/// Returns a ConnectionInfo with the given value for time_connected_until,
+/// and with randomly generated peer_info and time_established
+fn make_connection_info<R: Rng>(rng: &mut R, time_connected_until: time::Utc) -> ConnectionInfo {
+    ConnectionInfo {
+        peer_info: make_peer_info(rng),
+        time_established: time_connected_until - time::Duration::hours(rng.gen_range(1..1000)),
+        time_connected_until,
     }
 }
 
+/// Returns num_connections ConnectionInfos with the given value for time_connected_until
+/// and with distinct randomly generated peer_infos and time_established values
+fn make_connection_infos<R: Rng>(
+    rng: &mut R,
+    time_connected_until: time::Utc,
+    num_connections: usize,
+) -> Vec<ConnectionInfo> {
+    let mut conn_infos = vec![];
+    for _ in 0..num_connections {
+        conn_infos.push(make_connection_info(rng, time_connected_until));
+    }
+    return conn_infos;
+}
+
 #[test]
-fn test_store_connection() {
+fn test_reload_from_storage() {
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
     let clock = time::FakeClock::default();
     let (_tmp_dir, opener) = NodeStorage::test_opener();
+    let store = store::Store::from(opener.open().unwrap());
 
-    let now_utc = clock.now_utc();
-
-    let conn_info_a = ConnectionInfo {
-        peer_info: gen_peer_info(0),
-        time_established: now_utc - time::Duration::hours(1),
-        time_connected_until: now_utc,
-    };
-
+    let conn_info = make_connection_info(rng, clock.now_utc());
     {
-        let store = store::Store::from(opener.open().unwrap());
-        let connection_store = ConnectionStore::new(store).unwrap();
-        connection_store.insert_outbound_connections(vec![conn_info_a.clone()]);
+        tracing::debug!(target:"test", "Writing connection info to storage");
+        let connection_store = ConnectionStore::new(store.clone()).unwrap();
+        connection_store.insert_outbound_connections(vec![conn_info.clone()]);
     }
     {
-        let store = store::Store::from(opener.open().unwrap());
-        let connection_store = ConnectionStore::new(store).unwrap();
-        assert!(connection_store.contains_outbound_connection(&conn_info_a.peer_info.id));
+        tracing::debug!(target:"test", "Reading connection info to storage");
+        let connection_store = ConnectionStore::new(store.clone()).unwrap();
+        assert_eq!(connection_store.get_recent_outbound_connections(), vec![conn_info]);
     }
 }
 
 #[test]
-fn test_multiple_connections_to_same_peer() {
+fn test_overwrite_stored_connection() {
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
     let clock = time::FakeClock::default();
     let (_tmp_dir, opener) = NodeStorage::test_opener();
     let store = store::Store::from(opener.open().unwrap());
     let connection_store = ConnectionStore::new(store).unwrap();
 
-    let now_utc = clock.now_utc();
-
     tracing::debug!(target:"test", "create and store a connection");
-    let conn_info_a = ConnectionInfo {
-        peer_info: gen_peer_info(0),
-        time_established: now_utc - time::Duration::hours(1),
-        time_connected_until: now_utc,
-    };
+    let conn_info_a = make_connection_info(rng, clock.now_utc());
     connection_store.insert_outbound_connections(vec![conn_info_a.clone()]);
 
     tracing::debug!(target:"test", "push a second connection with the same peer but different data");
-    let conn_info_b = ConnectionInfo {
-        peer_info: conn_info_a.peer_info,
-        time_established: now_utc - time::Duration::hours(2),
-        time_connected_until: now_utc + time::Duration::hours(1),
-    };
+    let mut conn_info_b = conn_info_a.clone();
+    conn_info_b.time_established += time::Duration::seconds(123);
+    conn_info_b.time_connected_until += time::Duration::seconds(456);
     connection_store.insert_outbound_connections(vec![conn_info_b.clone()]);
 
     tracing::debug!(target:"test", "check that precisely the second connection is present (and not the first)");
@@ -78,25 +79,19 @@ fn test_multiple_connections_to_same_peer() {
 
 #[test]
 fn test_evict_longest_disconnected() {
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
     let clock = time::FakeClock::default();
     let (_tmp_dir, opener) = NodeStorage::test_opener();
     let store = store::Store::from(opener.open().unwrap());
     let connection_store = ConnectionStore::new(store).unwrap();
 
-    let now_utc = clock.now_utc();
-
     tracing::debug!(target:"test", "create and store live connections up to the ConnectionStore limit");
-    let mut conn_infos = vec![];
-    for i in 0..OUTBOUND_CONNECTIONS_CACHE_SIZE {
-        conn_infos.push(ConnectionInfo {
-            peer_info: gen_peer_info(i.try_into().unwrap()),
-            time_established: now_utc - time::Duration::hours(1),
-            time_connected_until: now_utc,
-        });
-    }
+    let mut conn_infos =
+        make_connection_infos(rng, clock.now_utc(), OUTBOUND_CONNECTIONS_CACHE_SIZE);
     connection_store.insert_outbound_connections(conn_infos.clone());
 
-    tracing::debug!(target:"test", "remove one of the connections, advance the clock and update the connection_store");
+    tracing::debug!(target:"test", "remove one of the connections, advance the clock and update the ConnectionStore");
     conn_infos.remove(rand::thread_rng().gen_range(0..OUTBOUND_CONNECTIONS_CACHE_SIZE));
     clock.advance(time::Duration::hours(1));
     let now_utc = clock.now_utc();
@@ -106,11 +101,7 @@ fn test_evict_longest_disconnected() {
     connection_store.insert_outbound_connections(conn_infos.clone());
 
     tracing::debug!(target:"test", "insert a new connection");
-    let conn = ConnectionInfo {
-        peer_info: gen_peer_info(OUTBOUND_CONNECTIONS_CACHE_SIZE.try_into().unwrap()),
-        time_established: now_utc - time::Duration::hours(1),
-        time_connected_until: now_utc,
-    };
+    let conn = make_connection_info(rng, now_utc);
     connection_store.insert_outbound_connections(vec![conn.clone()]);
     conn_infos.push(conn);
 
