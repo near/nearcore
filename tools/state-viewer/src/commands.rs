@@ -858,7 +858,6 @@ pub(crate) fn contract_accounts(
 ) -> anyhow::Result<()> {
     let (_runtime, state_roots, _header) = load_trie(store.clone(), home_dir, &near_config);
 
-    // shard_accounts.push(ContractAccount::in_trie(tries.last().unwrap())?);
     let tries = state_roots.iter().enumerate().map(|(shard_id, &state_root)| {
         // TODO: This assumes simple nightshade layout, it will need an update when we reshard.
         let shard_uid = ShardUId::from_shard_id_and_layout(
@@ -873,7 +872,7 @@ pub(crate) fn contract_accounts(
     });
 
     filter.write_header(&mut std::io::stdout().lock())?;
-    let streaming = false;
+    let streaming = false; // TODO
     if streaming {
         // Process account after account and displayed results immediately.
         for (i, trie) in tries.enumerate() {

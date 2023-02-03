@@ -171,13 +171,19 @@ impl ContractAccount {
         trie: &Trie,
         filter: &ContractAccountFilter,
     ) -> Result<Self> {
-        let get_code = || {
-            trie.storage
-                .retrieve_raw_bytes(&value_hash)
-                .map_err(|err| ContractAccountError::NoCode(err, account_id.clone()))
+        let code = if filter.code_size {
+            Some(
+                trie.storage
+                    .retrieve_raw_bytes(&value_hash)
+                    .map_err(|err| ContractAccountError::NoCode(err, account_id.clone()))?,
+            )
+        } else {
+            None
         };
-        let code_size = if filter.code_size { Some(get_code()?.len()) } else { None };
-        Ok(Self { account_id, info: ContractInfo { code_size, ..Default::default() } })
+        Ok(Self {
+            account_id,
+            info: ContractInfo { code_size: code.map(|bytes| bytes.len()), ..Default::default() },
+        })
     }
 }
 
@@ -215,14 +221,16 @@ impl<T: Iterator<Item = Result<ContractAccount>>> Summary for T {
     /// that are not available in the streaming iterator.
     fn summary(self, store: &Store, filter: &ContractAccountFilter) -> ContractAccountSummary {
         let mut errors = vec![];
-        let mut contracts: BTreeMap<_, _> = self
-            .flat_map(|result| match result {
+        let mut contracts = BTreeMap::new();
+
+        for result in self {
+            match result {
                 Ok(mut contract) => {
                     // initialize values, we want zero values in the output when nothing is found
                     contract.info.receipts_in = Some(0);
                     contract.info.receipts_out = Some(0);
                     contract.info.actions = Some(BTreeSet::new());
-                    Some((contract.account_id, contract.info))
+                    contracts.insert(contract.account_id, contract.info);
                 }
                 Err(e) => {
                     // Print the error in stderr so that it is immediately
@@ -231,10 +239,9 @@ impl<T: Iterator<Item = Result<ContractAccount>>> Summary for T {
                     eprintln!("skipping contract due to {e}");
                     // Also store the error in the summary.
                     errors.push(e);
-                    None
                 }
-            })
-            .collect();
+            }
+        }
 
         eprintln!("Done collecting {} contracts.", contracts.len());
 
@@ -455,12 +462,12 @@ impl ContractAccountFilter {
 
     fn include_account(&self, account: &AccountId) -> bool {
         if let Some(include) = &self.select_accounts {
-            return include.contains(account);
+            include.contains(account)
+        } else if let Some(exclude) = &self.skip_accounts {
+            !exclude.contains(account)
+        } else {
+            true
         }
-        if let Some(exclude) = &self.skip_accounts {
-            return !exclude.contains(account);
-        }
-        true
     }
 }
 
