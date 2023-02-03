@@ -41,7 +41,8 @@ fn test_reload_from_storage() {
     let (_tmp_dir, opener) = NodeStorage::test_opener();
     let store = store::Store::from(opener.open().unwrap());
 
-    let conn_info = make_connection_info(rng, clock.now_utc());
+    let now_utc = clock.now_utc();
+    let conn_info = make_connection_info(rng, now_utc);
     {
         tracing::debug!(target:"test", "Writing connection info to storage");
         let connection_store = ConnectionStore::new(store.clone()).unwrap();
@@ -64,17 +65,20 @@ fn test_overwrite_stored_connection() {
     let connection_store = ConnectionStore::new(store).unwrap();
 
     tracing::debug!(target:"test", "create and store a connection");
-    let conn_info_a = make_connection_info(rng, clock.now_utc());
+    let now_utc = clock.now_utc();
+    let conn_info_a = make_connection_info(rng, now_utc);
     connection_store.insert_outbound_connections(vec![conn_info_a.clone()]);
 
-    tracing::debug!(target:"test", "push a second connection with the same peer but different data");
-    let mut conn_info_b = conn_info_a.clone();
-    conn_info_b.time_established += time::Duration::seconds(123);
-    conn_info_b.time_connected_until += time::Duration::seconds(456);
+    clock.advance(time::Duration::seconds(123));
+
+    tracing::debug!(target:"test", "push a second connection with the same PeerId but different data");
+    let now_utc = clock.now_utc();
+    let mut conn_info_b = make_connection_info(rng, now_utc);
+    conn_info_b.peer_info.id = conn_info_a.peer_info.id.clone();
     connection_store.insert_outbound_connections(vec![conn_info_b.clone()]);
 
     tracing::debug!(target:"test", "check that precisely the second connection is present (and not the first)");
-    assert!(connection_store.get_recent_outbound_connections() == vec![conn_info_b.clone()]);
+    assert_eq!(connection_store.get_recent_outbound_connections(), vec![conn_info_b.clone()]);
 }
 
 #[test]
@@ -87,8 +91,8 @@ fn test_evict_longest_disconnected() {
     let connection_store = ConnectionStore::new(store).unwrap();
 
     tracing::debug!(target:"test", "create and store live connections up to the ConnectionStore limit");
-    let mut conn_infos =
-        make_connection_infos(rng, clock.now_utc(), OUTBOUND_CONNECTIONS_CACHE_SIZE);
+    let now_utc = clock.now_utc();
+    let mut conn_infos = make_connection_infos(rng, now_utc, OUTBOUND_CONNECTIONS_CACHE_SIZE);
     connection_store.insert_outbound_connections(conn_infos.clone());
 
     tracing::debug!(target:"test", "remove one of the connections, advance the clock and update the ConnectionStore");
@@ -107,4 +111,31 @@ fn test_evict_longest_disconnected() {
 
     tracing::debug!(target:"test", "check that the store contains exactly the expected connections");
     assert_eq!(connection_store.get_recent_outbound_connections().as_set(), conn_infos.as_set());
+}
+
+#[test]
+fn test_recovery_from_clock_skew() {
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let clock = time::FakeClock::default();
+    let (_tmp_dir, opener) = NodeStorage::test_opener();
+    let store = store::Store::from(opener.open().unwrap());
+    let connection_store = ConnectionStore::new(store).unwrap();
+
+    tracing::debug!(target:"test", "create and store live connections up to the ConnectionStore limit");
+    let now_utc = clock.now_utc();
+    connection_store.insert_outbound_connections(make_connection_infos(
+        rng,
+        now_utc,
+        OUTBOUND_CONNECTIONS_CACHE_SIZE,
+    ));
+
+    tracing::debug!(target:"test", "turn back the clock 1 year");
+    clock.advance(time::Duration::days(-365));
+
+    tracing::debug!(target:"test", "insert a new connection and check that it's at the front of the storage");
+    let now_utc = clock.now_utc();
+    let conn = make_connection_info(rng, now_utc);
+    connection_store.insert_outbound_connections(vec![conn.clone()]);
+    assert_eq!(connection_store.get_recent_outbound_connections()[0], conn);
 }

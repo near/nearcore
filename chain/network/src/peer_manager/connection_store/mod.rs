@@ -5,7 +5,7 @@ use crate::store;
 use crate::time;
 use crate::types::{ConnectionInfo, PeerInfo, PeerType};
 use near_primitives::network::PeerId;
-use std::collections::HashMap;
+use std::collections::HashSet;
 
 #[cfg(test)]
 mod testonly;
@@ -42,31 +42,28 @@ impl Inner {
         }
     }
 
-    /// Takes a list of ConnectionInfos and inserts them to the outbound store
-    fn insert_outbound(&mut self, conns: Vec<ConnectionInfo>) {
-        // Start with the connections already in storage
-        let mut updated_outbound: HashMap<PeerId, ConnectionInfo> =
-            self.outbound.iter().map(|c| (c.peer_info.id.clone(), c.clone())).collect();
+    /// Takes a list of ConnectionInfos and inserts them to the front of the outbound store,
+    /// retaining only the newest entry for each PeerId and up to OUTBOUND_CONNECTIONS_CACHE_SIZE
+    /// entries in total.
+    fn insert_outbound(&mut self, mut conns: Vec<ConnectionInfo>) {
+        // Collect the PeerIds of the newly inserted connections
+        let updated_peer_ids: HashSet<PeerId> =
+            conns.iter().map(|c| c.peer_info.id.clone()).collect();
 
-        // Insert the new connections
-        for conn_info in conns {
-            updated_outbound.insert(conn_info.peer_info.id.clone(), conn_info);
+        // Append entries from storage for disconnected peers, preserving order
+        for stored in &self.outbound {
+            if !updated_peer_ids.contains(&stored.peer_info.id) {
+                conns.push(stored.clone());
+            }
         }
 
-        // Order by time_connected_until and reverse so that more recent connections appear
-        // earlier. Break ties by time_established for determinism when testing.
-        let mut updated_outbound: Vec<ConnectionInfo> =
-            updated_outbound.values().cloned().collect();
-        updated_outbound.sort_by_key(|c| (c.time_connected_until, c.time_established));
-        updated_outbound.reverse();
+        // Evicts the longest-disconnected connections, if needed
+        conns.truncate(OUTBOUND_CONNECTIONS_CACHE_SIZE);
 
-        // Evict the longest-disconnected connections, if needed
-        updated_outbound.truncate(OUTBOUND_CONNECTIONS_CACHE_SIZE);
-
-        if let Err(err) = self.store.set_recent_outbound_connections(&updated_outbound) {
+        if let Err(err) = self.store.set_recent_outbound_connections(&conns) {
             tracing::error!(target: "network", ?err, "Failed to save recent outbound connections");
         }
-        self.outbound = updated_outbound;
+        self.outbound = conns;
     }
 }
 
