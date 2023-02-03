@@ -1,6 +1,6 @@
 use near_o11y::metrics::{
-    try_create_histogram_vec, try_create_int_counter_vec, try_create_int_gauge_vec, HistogramVec,
-    IntCounterVec, IntGaugeVec,
+    try_create_histogram_vec, try_create_int_counter_vec, try_create_int_gauge,
+    try_create_int_gauge_vec, HistogramVec, IntCounterVec, IntGauge, IntGaugeVec,
 };
 use once_cell::sync::Lazy;
 
@@ -220,6 +220,9 @@ pub static COLD_MIGRATION_READS: Lazy<IntCounterVec> = Lazy::new(|| {
         &["col"],
     )
     .unwrap()
+});
+pub static COLD_HEAD_HEIGHT: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge("near_cold_head_height", "Height of the head of cold storage").unwrap()
 });
 
 pub static FLAT_STORAGE_HEAD_HEIGHT: Lazy<IntGaugeVec> = Lazy::new(|| {
