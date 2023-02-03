@@ -1,8 +1,11 @@
+use std::time::Instant;
+
 use crate::client;
 use crate::network_protocol::{
     PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg,
     StateResponseInfo,
 };
+use crate::shards_manager::ShardsManagerAdapterForNetwork;
 use crate::sink::Sink;
 use crate::types::{NetworkInfo, ReasonForBan, StateResponseInfoV2};
 use near_primitives::block::{Approval, Block, BlockHeader};
@@ -82,30 +85,6 @@ impl client::Client for Fake {
         self.event_sink.push(Event::Transaction(transaction));
     }
 
-    async fn partial_encoded_chunk_request(
-        &self,
-        req: PartialEncodedChunkRequestMsg,
-        _msg_hash: CryptoHash,
-    ) {
-        self.event_sink.push(Event::ChunkRequest(req.chunk_hash));
-    }
-
-    async fn partial_encoded_chunk_response(
-        &self,
-        resp: PartialEncodedChunkResponseMsg,
-        _timestamp: time::Instant,
-    ) {
-        self.event_sink.push(Event::Chunk(resp.parts));
-    }
-
-    async fn partial_encoded_chunk(&self, _chunk: PartialEncodedChunk) {
-        unimplemented!();
-    }
-
-    async fn partial_encoded_chunk_forward(&self, _msg: PartialEncodedChunkForwardMsg) {
-        unimplemented!();
-    }
-
     async fn block_request(&self, hash: CryptoHash) -> Option<Box<Block>> {
         self.event_sink.push(Event::BlockRequest(hash));
         None
@@ -141,5 +120,34 @@ impl client::Client for Fake {
     ) -> Result<Vec<AnnounceAccount>, ReasonForBan> {
         self.event_sink.push(Event::AnnounceAccount(accounts.clone()));
         Ok(accounts.into_iter().map(|a| a.0).collect())
+    }
+}
+
+impl ShardsManagerAdapterForNetwork for Fake {
+    fn process_partial_encoded_chunk(&self, _partial_encoded_chunk: PartialEncodedChunk) {
+        unimplemented!()
+    }
+
+    fn process_partial_encoded_chunk_forward(
+        &self,
+        _partial_encoded_chunk_forward: PartialEncodedChunkForwardMsg,
+    ) {
+        unimplemented!()
+    }
+
+    fn process_partial_encoded_chunk_response(
+        &self,
+        partial_encoded_chunk_response: PartialEncodedChunkResponseMsg,
+        _received_time: Instant,
+    ) {
+        self.event_sink.push(Event::Chunk(partial_encoded_chunk_response.parts));
+    }
+
+    fn process_partial_encoded_chunk_request(
+        &self,
+        partial_encoded_chunk_request: PartialEncodedChunkRequestMsg,
+        _route_back: CryptoHash,
+    ) {
+        self.event_sink.push(Event::ChunkRequest(partial_encoded_chunk_request.chunk_hash));
     }
 }

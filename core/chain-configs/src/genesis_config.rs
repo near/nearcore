@@ -258,21 +258,28 @@ pub struct Genesis {
 
 impl GenesisConfig {
     /// Parses GenesisConfig from a JSON string.
-    ///
+    /// The string can be a JSON with comments.
     /// It panics if the contents cannot be parsed from JSON to the GenesisConfig structure.
     pub fn from_json(value: &str) -> Self {
-        serde_json::from_str(value).expect("Failed to deserialize the genesis config.")
+        let json_str_without_comments: String =
+            near_config_utils::strip_comments_from_json_str(&value.to_string())
+                .expect("Failed to strip comments from genesis config.");
+        serde_json::from_str(&json_str_without_comments)
+            .expect("Failed to deserialize the genesis config.")
     }
 
     /// Reads GenesisConfig from a JSON file.
-    ///
+    /// The file can be a JSON with comments.
     /// It panics if file cannot be open or read, or the contents cannot be parsed from JSON to the
     /// GenesisConfig structure.
     pub fn from_file<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
-        let file = File::open(path).with_context(|| "Could not open genesis config file.")?;
-        let reader = BufReader::new(file);
-        let genesis_config: GenesisConfig = serde_json::from_reader(reader)
-            .with_context(|| "Failed to deserialize the genesis records.")?;
+        let mut file = File::open(path).with_context(|| "Could not open genesis config file.")?;
+        let mut json_str = String::new();
+        file.read_to_string(&mut json_str)?;
+        let json_str_without_comments: String =
+            near_config_utils::strip_comments_from_json_str(&json_str)?;
+        let genesis_config: GenesisConfig = serde_json::from_str(&json_str_without_comments)
+            .with_context(|| "Failed to deserialize the genesis config.")?;
         Ok(genesis_config)
     }
 
@@ -309,12 +316,19 @@ impl GenesisRecords {
     }
 
     /// Reads GenesisRecords from a JSON file.
-    ///
+    /// The file can be a JSON with comments.
     /// It panics if file cannot be open or read, or the contents cannot be parsed from JSON to the
     /// GenesisConfig structure.
     pub fn from_file<P: AsRef<Path>>(path: P) -> Self {
-        let reader = BufReader::new(File::open(path).expect("Could not open genesis config file."));
-        serde_json::from_reader(reader).expect("Failed to deserialize the genesis records.")
+        let mut file = File::open(path).expect("Failed to open genesis config file.");
+        let mut json_str = String::new();
+        file.read_to_string(&mut json_str)
+            .expect("Failed to read the genesis config file to string. ");
+        let json_str_without_comments: String =
+            near_config_utils::strip_comments_from_json_str(&json_str)
+                .expect("Failed to strip comments from Genesis config file.");
+        serde_json::from_str(&json_str_without_comments)
+            .expect("Failed to deserialize the genesis records.")
     }
 
     /// Writes GenesisRecords to the file.
@@ -394,11 +408,13 @@ impl<'de, F: FnMut(StateRecord)> DeserializeSeed<'de> for RecordsProcessor<&'_ m
     }
 }
 
+/// The file can be a JSON with comments
 pub fn stream_records_from_file(
     reader: impl Read,
     mut callback: impl FnMut(StateRecord),
 ) -> serde_json::Result<()> {
-    let mut deserializer = serde_json::Deserializer::from_reader(reader);
+    let reader_without_comments = near_config_utils::strip_comments_from_json_reader(reader);
+    let mut deserializer = serde_json::Deserializer::from_reader(reader_without_comments);
     let records_processor = RecordsProcessor { sink: &mut callback };
     deserializer.deserialize_any(records_processor)
 }
@@ -449,10 +465,16 @@ impl Genesis {
     }
 
     /// Reads Genesis from a single file.
+    /// the file can be JSON with comments
     pub fn from_file<P: AsRef<Path>>(path: P, genesis_validation: GenesisValidationMode) -> Self {
-        let reader = BufReader::new(File::open(path).expect("Could not open genesis config file."));
-        let genesis: Genesis =
-            serde_json::from_reader(reader).expect("Failed to deserialize the genesis records.");
+        let mut file = File::open(path).expect("Could not open genesis config file.");
+        let mut json_str = String::new();
+        file.read_to_string(&mut json_str).expect("Failed to read genesis config file to string. ");
+        let json_str_without_comments: String =
+            near_config_utils::strip_comments_from_json_str(&json_str)
+                .expect("Failed to strip comments from Genesis config file.");
+        let genesis: Genesis = serde_json::from_str(&json_str_without_comments)
+            .expect("Failed to deserialize the genesis records.");
         // As serde skips the `records_file` field, we can assume that `Genesis` has `records` and
         // doesn't have `records_file`.
         Self::new_validated(genesis.config, genesis.records, genesis_validation)

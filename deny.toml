@@ -54,6 +54,9 @@ skip = [
     { name = "lock_api", version = "=0.3.4" },
     { name = "digest", version = "=0.8.1" },
 
+    # wasmer 0.18
+    { name = "nix", version = "=0.15.0" },
+
     # old version of tokio, parking_lot
     { name = "windows-sys", version = "=0.36.1" },
     { name = "windows_x86_64_msvc", version = "=0.36.1" },
