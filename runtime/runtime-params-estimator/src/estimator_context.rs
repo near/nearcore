@@ -168,7 +168,7 @@ impl<'c> EstimatorContext<'c> {
                 _block_height: BlockHeight,
             ) -> HashSet<CryptoHash> {
                 // This is only needed to accumulate deltas when flat head doesn't
-                // match the latest block height.
+                // match the latest block height, so it won't be called in our case.
                 unimplemented!()
             }
         }
