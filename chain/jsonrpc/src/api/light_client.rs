@@ -16,13 +16,13 @@ use near_primitives::views::LightClientBlockView;
 use super::{parse_params, RpcFrom, RpcRequest};
 
 impl RpcRequest for RpcLightClientExecutionProofRequest {
-    fn parse(value: Option<Value>) -> Result<Self, RpcParseError> {
+    fn parse(value: Value) -> Result<Self, RpcParseError> {
         Ok(parse_params::<Self>(value)?)
     }
 }
 
 impl RpcRequest for RpcLightClientNextBlockRequest {
-    fn parse(value: Option<Value>) -> Result<Self, RpcParseError> {
+    fn parse(value: Value) -> Result<Self, RpcParseError> {
         if let Ok((last_block_hash,)) = parse_params::<(CryptoHash,)>(value.clone()) {
             Ok(Self { last_block_hash })
         } else {

@@ -1,4 +1,4 @@
-use near_chain::{ChainGenesis, RuntimeAdapter};
+use near_chain::{ChainGenesis, RuntimeWithEpochManagerAdapter};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
@@ -39,7 +39,7 @@ fn test_account_id_in_function_call_permission_upgrade() {
                     TrackedConfig::new_empty(),
                     RuntimeConfigStore::new(None),
                 ),
-            ) as Arc<dyn RuntimeAdapter>])
+            ) as Arc<dyn RuntimeWithEpochManagerAdapter>])
             .build()
     };
 
@@ -106,7 +106,7 @@ fn test_very_long_account_id() {
                     TrackedConfig::new_empty(),
                     RuntimeConfigStore::new(None),
                 ),
-            ) as Arc<dyn RuntimeAdapter>])
+            ) as Arc<dyn RuntimeWithEpochManagerAdapter>])
             .build()
     };
 

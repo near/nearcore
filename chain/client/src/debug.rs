@@ -5,7 +5,7 @@ use actix::{Context, Handler};
 use borsh::BorshSerialize;
 use itertools::Itertools;
 use near_chain::crypto_hash_timer::CryptoHashTimer;
-use near_chain::{near_chain_primitives, Chain, ChainStoreAccess, RuntimeAdapter};
+use near_chain::{near_chain_primitives, Chain, ChainStoreAccess, RuntimeWithEpochManagerAdapter};
 use near_client_primitives::debug::{
     ApprovalAtHeightStatus, BlockProduction, ChunkCollection, DebugBlockStatusData, DebugStatus,
     DebugStatusResponse, MissedHeightInfo, ProductionAtHeight, ValidatorStatus,
@@ -119,7 +119,7 @@ impl BlockProductionTracker {
         epoch_id: &EpochId,
         num_shards: ShardId,
         new_chunks: &HashMap<ShardId, (ShardChunkHeader, chrono::DateTime<chrono::Utc>, AccountId)>,
-        runtime_adapter: &dyn RuntimeAdapter,
+        runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
     ) -> Result<Vec<ChunkCollection>, Error> {
         let mut chunk_collection_info = vec![];
         for shard_id in 0..num_shards {
@@ -432,8 +432,16 @@ impl ClientActor {
                 if blocks.contains_key(&block_hash) {
                     continue;
                 }
-                let block_header = self.client.chain.get_block_header(&block_hash)?;
-                let block = self.client.chain.get_block(&block_hash).ok();
+                let block_header = if block_hash == CryptoHash::default() {
+                    self.client.chain.genesis().clone()
+                } else {
+                    self.client.chain.get_block_header(&block_hash)?
+                };
+                let block = if block_hash == CryptoHash::default() {
+                    Some(self.client.chain.genesis_block().clone())
+                } else {
+                    self.client.chain.get_block(&block_hash).ok()
+                };
                 let is_on_canonical_chain =
                     match self.client.chain.get_block_by_height(block_header.height()) {
                         Ok(block) => block.hash() == &block_hash,

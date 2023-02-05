@@ -1,0 +1,15 @@
+action_deploy_contract_per_byte: {
+  old: {
+    send_sir: 6_812_999,
+    send_not_sir: 6_812_999,
+    execution: 6_812_999,
+  },
+  new: {
+    send_sir: 6_812_999,
+    send_not_sir: 6_812_999,
+    execution: 64_572_944,
+  },
+}
+wasmer2_stack_limit: { new: 204_800 }
+max_length_storage_key: { old: 4_194_304, new: 2_048 }
+max_locals_per_contract: { new: 1_000_000 }

@@ -1,3 +1,4 @@
+use crate::cold_storage::spawn_cold_store_loop;
 pub use crate::config::{init_configs, load_config, load_test_config, NearConfig, NEAR_BASE};
 pub use crate::runtime::NightshadeRuntime;
 pub use crate::shard_tracker::TrackedConfig;
@@ -5,8 +6,10 @@ use actix::{Actor, Addr};
 use actix_rt::ArbiterHandle;
 use actix_web;
 use anyhow::Context;
+use cold_storage::ColdStoreLoopHandle;
 use near_chain::{Chain, ChainGenesis};
-use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
+use near_chunks::shards_manager_actor::start_shards_manager;
+use near_client::{start_client, start_view_client, ClientActor, ConfigUpdater, ViewClientActor};
 use near_network::time;
 use near_network::types::NetworkRecipient;
 use near_network::PeerManagerActor;
@@ -15,12 +18,13 @@ use near_store::{DBCol, Mode, NodeStorage, StoreOpenerError, Temperature};
 use near_telemetry::TelemetryActor;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tokio::sync::oneshot;
+use tokio::sync::broadcast;
 use tracing::{info, trace};
-
 pub mod append_only_map;
+mod cold_storage;
 pub mod config;
 mod download_file;
+pub mod dyn_config;
 mod metrics;
 pub mod migrations;
 mod runtime;
@@ -55,10 +59,7 @@ fn open_storage(home_dir: &Path, near_config: &mut NearConfig) -> anyhow::Result
     let opener = NodeStorage::opener(
         home_dir,
         &near_config.config.store,
-        #[cfg(feature = "cold_store")]
         near_config.config.cold_store.as_ref(),
-        #[cfg(not(feature = "cold_store"))]
-        None,
     )
     .with_migrator(&migrator)
     .expect_archive(near_config.client_config.archive);
@@ -150,10 +151,13 @@ pub struct NearNode {
     pub view_client: Addr<ViewClientActor>,
     pub arbiters: Vec<ArbiterHandle>,
     pub rpc_servers: Vec<(&'static str, actix_web::dev::ServerHandle)>,
+    /// The cold_store_loop_handle will only be set if the cold store is configured.
+    /// It's a handle to a background thread that copies data from the hot store to the cold store.
+    pub cold_store_loop_handle: Option<ColdStoreLoopHandle>,
 }
 
 pub fn start_with_config(home_dir: &Path, config: NearConfig) -> anyhow::Result<NearNode> {
-    start_with_config_and_synchronization(home_dir, config, None)
+    start_with_config_and_synchronization(home_dir, config, None, None)
 }
 
 pub fn start_with_config_and_synchronization(
@@ -161,7 +165,8 @@ pub fn start_with_config_and_synchronization(
     mut config: NearConfig,
     // 'shutdown_signal' will notify the corresponding `oneshot::Receiver` when an instance of
     // `ClientActor` gets dropped.
-    shutdown_signal: Option<oneshot::Sender<()>>,
+    shutdown_signal: Option<broadcast::Sender<()>>,
+    config_updater: Option<ConfigUpdater>,
 ) -> anyhow::Result<NearNode> {
     let store = open_storage(home_dir, &mut config)?;
 
@@ -170,6 +175,8 @@ pub fn start_with_config_and_synchronization(
         store.get_store(Temperature::Hot),
         &config,
     ));
+
+    let cold_store_loop_handle = spawn_cold_store_loop(&config, &store, runtime.clone())?;
 
     let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();
     let chain_genesis = ChainGenesis::new(&config.genesis);
@@ -181,6 +188,8 @@ pub fn start_with_config_and_synchronization(
 
     let node_id = config.network_config.node_id();
     let network_adapter = Arc::new(NetworkRecipient::default());
+    let shards_manager_adapter = Arc::new(NetworkRecipient::default());
+    let client_adapter_for_shards_manager = Arc::new(NetworkRecipient::default());
     let adv = near_client::adversarial::Controls::new(config.client_config.archive);
 
     let view_client = start_view_client(
@@ -192,16 +201,28 @@ pub fn start_with_config_and_synchronization(
         adv.clone(),
     );
     let (client_actor, client_arbiter_handle) = start_client(
-        config.client_config,
+        config.client_config.clone(),
         chain_genesis,
-        runtime,
+        runtime.clone(),
         node_id,
         network_adapter.clone(),
-        config.validator_signer,
+        shards_manager_adapter.clone(),
+        config.validator_signer.clone(),
         telemetry,
-        shutdown_signal,
+        shutdown_signal.clone(),
         adv,
+        config_updater,
     );
+    client_adapter_for_shards_manager.set_recipient(client_actor.clone());
+    let (shards_manager_actor, shards_manager_arbiter_handle) = start_shards_manager(
+        runtime,
+        network_adapter.clone(),
+        client_adapter_for_shards_manager.clone(),
+        config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
+        store.get_store(Temperature::Hot),
+        config.client_config.chunk_request_retry_period,
+    );
+    shards_manager_adapter.set_recipient(shards_manager_actor.clone());
 
     #[allow(unused_mut)]
     let mut rpc_servers = Vec::new();
@@ -210,6 +231,7 @@ pub fn start_with_config_and_synchronization(
         store.into_inner(near_store::Temperature::Hot),
         config.network_config,
         Arc::new(near_client::adapter::Adapter::new(client_actor.clone(), view_client.clone())),
+        shards_manager_adapter,
         genesis_id,
     )
     .context("PeerManager::spawn()")?;
@@ -248,7 +270,8 @@ pub fn start_with_config_and_synchronization(
         client: client_actor,
         view_client,
         rpc_servers,
-        arbiters: vec![client_arbiter_handle],
+        arbiters: vec![client_arbiter_handle, shards_manager_arbiter_handle],
+        cold_store_loop_handle,
     })
 }
 

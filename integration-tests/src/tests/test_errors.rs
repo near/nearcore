@@ -4,7 +4,7 @@ use crate::node::{Node, ThreadNode};
 use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, KeyType};
 use near_jsonrpc::RpcInto;
-use near_network::test_utils::open_port;
+use near_network::tcp;
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::account::AccessKey;
 use near_primitives::errors::{InvalidAccessKeyError, InvalidTxError};
@@ -20,7 +20,8 @@ use testlib::runtime_utils::{alice_account, bob_account};
 fn start_node() -> ThreadNode {
     init_integration_logger();
     let genesis = Genesis::test(vec![alice_account(), bob_account()], 1);
-    let mut near_config = load_test_config("alice.near", open_port(), genesis);
+    let mut near_config =
+        load_test_config("alice.near", tcp::ListenerAddr::reserve_for_test(), genesis);
     near_config.client_config.skip_sync_wait = true;
 
     let mut node = ThreadNode::new(near_config);

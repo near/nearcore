@@ -29,7 +29,7 @@ fn parse_bs58_data(max_len: usize, encoded: String) -> Result<Vec<u8>, RpcParseE
 }
 
 impl RpcRequest for RpcQueryRequest {
-    fn parse(value: Option<Value>) -> Result<Self, RpcParseError> {
+    fn parse(value: Value) -> Result<Self, RpcParseError> {
         let params = parse_params::<(String, String)>(value.clone());
         let query_request = if let Ok((path, data)) = params {
             // Handle a soft-deprecated version of the query API, which is based on

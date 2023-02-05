@@ -670,5 +670,5 @@ impl crate::runner::VM for Wasmer2VM {
 
 #[test]
 fn test_memory_like() {
-    crate::tests::test_memory_like(|| Box::new(Wasmer2Memory::new(1, 1).unwrap()));
+    near_vm_logic::test_utils::test_memory_like(|| Box::new(Wasmer2Memory::new(1, 1).unwrap()));
 }

@@ -78,9 +78,10 @@ Print `HEAD` of cold storage, `FINAL_HEAD` from hot storage
 and also `HEAD` for hot storage.
 It is useful to check that some blocks has been copied/produced. 
 
-### (TODO) CopyOneBlock
-Copy block at height "cold HEAD + 1" to cold storage.  
-Update cold storage `HEAD`.
+### CopyNextBlocks
+Does `num_of_blocks`(1 by default) iterations of
+- Copy block at height "cold HEAD + 1" to cold storage.  
+- Update cold storage `HEAD`.
 
 ### (TODO) CopyAllBlocks
 Initial population of cold storage, where we copy all cold column

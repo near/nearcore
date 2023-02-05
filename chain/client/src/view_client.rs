@@ -2,8 +2,10 @@
 //! Useful for querying from RPC.
 
 use actix::{Actor, Addr, Handler, SyncArbiter, SyncContext};
+use near_chain::types::Tip;
 use near_primitives::receipt::Receipt;
 use near_primitives::time::Clock;
+use near_store::{DBCol, COLD_HEAD_KEY, FINAL_HEAD_KEY, HEAD_KEY};
 use std::cmp::Ordering;
 use std::collections::{HashMap, VecDeque};
 use std::hash::Hash;
@@ -14,7 +16,7 @@ use tracing::{debug, error, info, trace, warn};
 
 use near_chain::{
     get_epoch_block_producers_view, Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode,
-    RuntimeAdapter,
+    RuntimeWithEpochManagerAdapter,
 };
 use near_chain_configs::{ClientConfig, ProtocolConfigView};
 use near_client_primitives::types::{
@@ -22,7 +24,8 @@ use near_client_primitives::types::{
     GetBlockWithMerkleTree, GetChunkError, GetExecutionOutcome, GetExecutionOutcomeError,
     GetExecutionOutcomesForBlock, GetGasPrice, GetGasPriceError, GetMaintenanceWindows,
     GetMaintenanceWindowsError, GetNextLightClientBlockError, GetProtocolConfig,
-    GetProtocolConfigError, GetReceipt, GetReceiptError, GetStateChangesError,
+    GetProtocolConfigError, GetReceipt, GetReceiptError, GetSplitStorageInfo,
+    GetSplitStorageInfoError, GetSplitStorageInfoResult, GetStateChangesError,
     GetStateChangesWithCauseInBlock, GetStateChangesWithCauseInBlockForTrackedShards,
     GetValidatorInfoError, Query, QueryError, TxStatus, TxStatusError,
 };
@@ -93,7 +96,7 @@ pub struct ViewClientActor {
     /// Validator account (if present).
     validator_account_id: Option<AccountId>,
     chain: Chain,
-    runtime_adapter: Arc<dyn RuntimeAdapter>,
+    runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
     network_adapter: Arc<dyn PeerManagerAdapter>,
     pub config: ClientConfig,
     request_manager: Arc<RwLock<ViewClientRequestManager>>,
@@ -119,7 +122,7 @@ impl ViewClientActor {
     pub fn new(
         validator_account_id: Option<AccountId>,
         chain_genesis: &ChainGenesis,
-        runtime_adapter: Arc<dyn RuntimeAdapter>,
+        runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
         network_adapter: Arc<dyn PeerManagerAdapter>,
         config: ClientConfig,
         request_manager: Arc<RwLock<ViewClientRequestManager>>,
@@ -513,11 +516,14 @@ impl ViewClientActor {
     fn check_state_sync_request(&self) -> bool {
         let mut cache = self.state_request_cache.lock().expect(POISONED_LOCK_ERR);
         let now = Clock::instant();
-        let cutoff = now - self.config.view_client_throttle_period;
-        // Assume that time is linear. While in different threads there might be some small differences,
-        // it should not matter in practice.
-        while !cache.is_empty() && *cache.front().unwrap() < cutoff {
-            cache.pop_front();
+        while let Some(&instant) = cache.front() {
+            if now.saturating_duration_since(instant) > self.config.view_client_throttle_period {
+                cache.pop_front();
+            } else {
+                // Assume that time is linear. While in different threads there might be some small differences,
+                // it should not matter in practice.
+                break;
+            }
         }
         if cache.len() >= Self::MAX_NUM_STATE_REQUESTS {
             return false;
@@ -1422,11 +1428,35 @@ impl Handler<WithSpanContext<GetMaintenanceWindows>> for ViewClientActor {
     }
 }
 
+impl Handler<WithSpanContext<GetSplitStorageInfo>> for ViewClientActor {
+    type Result = Result<GetSplitStorageInfoResult, GetSplitStorageInfoError>;
+
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<GetSplitStorageInfo>,
+        _: &mut Self::Context,
+    ) -> Self::Result {
+        let (_span, _msg) = handler_debug_span!(target: "client", msg);
+        let _d = delay_detector::DelayDetector::new(|| "client get split storage info".into());
+
+        let store = self.chain.store().store();
+        let head = store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)?;
+        let final_head = store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?;
+        let cold_head = store.get_ser::<Tip>(DBCol::BlockMisc, COLD_HEAD_KEY)?;
+
+        Ok(GetSplitStorageInfoResult {
+            head_height: head.map(|tip| tip.height),
+            final_head_height: final_head.map(|tip| tip.height),
+            cold_head_height: cold_head.map(|tip| tip.height),
+        })
+    }
+}
+
 /// Starts the View Client in a new arbiter (thread).
 pub fn start_view_client(
     validator_account_id: Option<AccountId>,
     chain_genesis: ChainGenesis,
-    runtime_adapter: Arc<dyn RuntimeAdapter>,
+    runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
     network_adapter: Arc<dyn PeerManagerAdapter>,
     config: ClientConfig,
     adv: crate::adversarial::Controls,

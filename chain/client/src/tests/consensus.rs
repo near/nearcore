@@ -1,13 +1,12 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, RwLock, RwLockWriteGuard};
 
-use actix::{Addr, System};
+use actix::System;
 use near_chain::test_utils::ValidatorSchedule;
 use rand::{thread_rng, Rng};
 
 use crate::adapter::{BlockApproval, BlockResponse};
-use crate::test_utils::setup_mock_all_validators;
-use crate::{ClientActor, ViewClientActor};
+use crate::test_utils::{setup_mock_all_validators, ActorHandlesForTesting};
 use near_actix_test_utils::run_actix;
 use near_chain::Block;
 use near_network::types::PeerInfo;
@@ -30,8 +29,7 @@ fn test_consensus_with_epoch_switches() {
     const HEIGHT_GOAL: u64 = 120;
 
     run_actix(async move {
-        let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
-            Arc::new(RwLock::new(vec![]));
+        let connectors: Arc<RwLock<Vec<ActorHandlesForTesting>>> = Arc::new(RwLock::new(vec![]));
         let connectors1 = connectors.clone();
 
         let validators: Vec<Vec<AccountId>> = [
@@ -154,7 +152,7 @@ fn test_consensus_with_epoch_switches() {
                             }
                             if delayed_block.header().height() <= block.header().height() + 2 {
                                 for target_ord in 0..24 {
-                                    connectors1.write().unwrap()[target_ord].0.do_send(
+                                    connectors1.write().unwrap()[target_ord].client_actor.do_send(
                                         BlockResponse {
                                             block: delayed_block.clone(),
                                             peer_id: key_pairs[0].clone().id,
@@ -255,7 +253,7 @@ fn test_consensus_with_epoch_switches() {
                             );
                             connectors1.write().unwrap()
                                 [epoch_id * 8 + (destination_ord + delta) % 8]
-                                .0
+                                .client_actor
                                 .do_send(
                                     BlockApproval(approval, key_pairs[my_ord].id.clone())
                                         .with_span_context(),

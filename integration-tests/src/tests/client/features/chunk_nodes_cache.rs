@@ -1,6 +1,6 @@
 use crate::tests::client::process_blocks::{deploy_test_contract, set_block_protocol_version};
 use assert_matches::assert_matches;
-use near_chain::{ChainGenesis, Provenance, RuntimeAdapter};
+use near_chain::{ChainGenesis, Provenance, RuntimeWithEpochManagerAdapter};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType, Signer};
@@ -93,7 +93,7 @@ fn compare_node_counts() {
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = old_protocol_version;
     let chain_genesis = ChainGenesis::new(&genesis);
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> =
+    let runtimes: Vec<Arc<dyn RuntimeWithEpochManagerAdapter>> =
         vec![Arc::new(nearcore::NightshadeRuntime::test_with_runtime_config_store(
             Path::new("../../../.."),
             create_test_store(),
@@ -133,7 +133,8 @@ fn compare_node_counts() {
             let metadata = receipt_execution_outcome.outcome_with_id.outcome.metadata;
             match metadata {
                 ExecutionMetadata::V1 => panic!("ExecutionMetadata cannot be empty"),
-                ExecutionMetadata::V2(profile_data) => TrieNodesCount {
+                ExecutionMetadata::V2(_profile_data) => panic!("expected newest ExecutionMetadata"),
+                ExecutionMetadata::V3(profile_data) => TrieNodesCount {
                     db_reads: {
                         let cost = profile_data.get_ext_cost(ExtCosts::touching_trie_node);
                         assert_eq!(cost % touching_trie_node_cost, 0);

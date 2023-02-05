@@ -3,8 +3,9 @@ use crate::tests::client::process_blocks::{
 };
 use assert_matches::assert_matches;
 use near_chain::chain::NUM_ORPHAN_ANCESTORS_CHECK;
-use near_chain::{ChainGenesis, Error, Provenance, RuntimeAdapter};
+use near_chain::{ChainGenesis, Error, Provenance, RuntimeWithEpochManagerAdapter};
 use near_chain_configs::Genesis;
+use near_chunks::metrics::PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_HEADER;
 use near_client::test_utils::{create_chunk_with_transactions, TestEnv};
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType, Signer};
@@ -15,7 +16,7 @@ use near_primitives::account::AccessKey;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::sharding::{ChunkHash, PartialEncodedChunk};
+use near_primitives::sharding::ChunkHash;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
@@ -236,8 +237,14 @@ fn test_chunk_transaction_validity() {
     }
     let (encoded_shard_chunk, merkle_path, receipts, block) =
         create_chunk_with_transactions(&mut env.clients[0], vec![tx]);
+    let validator_id = env.clients[0].validator_signer.as_ref().unwrap().validator_id().clone();
     env.clients[0]
-        .persist_and_distribute_encoded_chunk(encoded_shard_chunk, merkle_path, receipts)
+        .persist_and_distribute_encoded_chunk(
+            encoded_shard_chunk,
+            merkle_path,
+            receipts,
+            validator_id,
+        )
         .unwrap();
     let res = env.clients[0].process_block_test(block.into(), Provenance::NONE);
     assert_matches!(res.unwrap_err(), Error::InvalidTransactions);
@@ -311,7 +318,7 @@ fn test_request_chunks_for_orphan() {
     genesis.config.num_block_producer_seats_per_shard =
         vec![num_validators, num_validators, num_validators, num_validators];
     let chain_genesis = ChainGenesis::new(&genesis);
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = (0..2)
+    let runtimes: Vec<Arc<dyn RuntimeWithEpochManagerAdapter>> = (0..2)
         .map(|_| {
             Arc::new(nearcore::NightshadeRuntime::test_with_runtime_config_store(
                 Path::new("."),
@@ -319,7 +326,7 @@ fn test_request_chunks_for_orphan() {
                 &genesis,
                 TrackedConfig::AllShards,
                 RuntimeConfigStore::test(),
-            )) as Arc<dyn RuntimeAdapter>
+            )) as Arc<dyn RuntimeWithEpochManagerAdapter>
         })
         .collect();
     let mut env = TestEnv::builder(chain_genesis)
@@ -458,7 +465,7 @@ fn test_processing_chunks_sanity() {
     genesis.config.num_block_producer_seats_per_shard =
         vec![num_validators, num_validators, num_validators, num_validators];
     let chain_genesis = ChainGenesis::new(&genesis);
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = (0..2)
+    let runtimes: Vec<Arc<dyn RuntimeWithEpochManagerAdapter>> = (0..2)
         .map(|_| {
             Arc::new(nearcore::NightshadeRuntime::test_with_runtime_config_store(
                 Path::new("."),
@@ -466,7 +473,7 @@ fn test_processing_chunks_sanity() {
                 &genesis,
                 TrackedConfig::AllShards,
                 RuntimeConfigStore::test(),
-            )) as Arc<dyn RuntimeAdapter>
+            )) as Arc<dyn RuntimeWithEpochManagerAdapter>
         })
         .collect();
     let mut env = TestEnv::builder(chain_genesis)
@@ -541,7 +548,6 @@ struct ChunkForwardingOptimizationTestData {
     num_part_ords_requested: usize,
     num_part_ords_sent_as_partial_encoded_chunk: usize,
     num_part_ords_forwarded: usize,
-    num_forwards_with_missing_chunk_header: usize,
     chunk_parts_that_must_be_known: HashSet<(ChunkHash, u64, usize)>,
 }
 
@@ -568,7 +574,7 @@ impl ChunkForwardingOptimizationTestData {
             config.num_block_producer_seats = num_block_producers as u64;
         }
         let chain_genesis = ChainGenesis::new(&genesis);
-        let runtimes: Vec<Arc<dyn RuntimeAdapter>> = (0..num_clients)
+        let runtimes: Vec<Arc<dyn RuntimeWithEpochManagerAdapter>> = (0..num_clients)
             .map(|_| {
                 Arc::new(nearcore::NightshadeRuntime::test_with_runtime_config_store(
                     Path::new("."),
@@ -576,7 +582,7 @@ impl ChunkForwardingOptimizationTestData {
                     &genesis,
                     TrackedConfig::AllShards,
                     RuntimeConfigStore::test(),
-                )) as Arc<dyn RuntimeAdapter>
+                )) as Arc<dyn RuntimeWithEpochManagerAdapter>
             })
             .collect();
         let env = TestEnv::builder(chain_genesis)
@@ -591,7 +597,6 @@ impl ChunkForwardingOptimizationTestData {
             num_part_ords_requested: 0,
             num_part_ords_sent_as_partial_encoded_chunk: 0,
             num_part_ords_forwarded: 0,
-            num_forwards_with_missing_chunk_header: 0,
             chunk_parts_that_must_be_known: HashSet::new(),
         }
     }
@@ -648,12 +653,8 @@ impl ChunkForwardingOptimizationTestData {
                 self.num_part_ords_sent_as_partial_encoded_chunk +=
                     partial_encoded_chunk.parts.len();
                 self.env
-                    .client(&account_id)
-                    .shards_mgr
-                    .process_partial_encoded_chunk(
-                        PartialEncodedChunk::from(partial_encoded_chunk).into(),
-                    )
-                    .unwrap();
+                    .shards_manager(&account_id)
+                    .process_partial_encoded_chunk(partial_encoded_chunk.into());
             }
             NetworkRequests::PartialEncodedChunkForward { account_id, forward } => {
                 debug!(
@@ -672,20 +673,7 @@ impl ChunkForwardingOptimizationTestData {
                     ));
                 }
                 self.num_part_ords_forwarded += forward.parts.len();
-                match self
-                    .env
-                    .client(&account_id)
-                    .shards_mgr
-                    .process_partial_encoded_chunk_forward(forward)
-                {
-                    Ok(_) => {}
-                    Err(near_chunks::Error::UnknownChunk) => {
-                        self.num_forwards_with_missing_chunk_header += 1;
-                    }
-                    Err(e) => {
-                        panic!("Unexpected error from chunk forward: {:?}", e)
-                    }
-                }
+                self.env.shards_manager(&account_id).process_partial_encoded_chunk_forward(forward);
             }
             _ => {
                 panic!("Unexpected network request: {:?}", requests);
@@ -722,6 +710,7 @@ fn test_chunk_forwarding_optimization() {
     // a part that was already forwarded to it. We simulate four validator nodes, with one
     // block producer and four chunk producers.
     init_test_logger();
+    PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_HEADER.reset();
     let mut test = ChunkForwardingOptimizationTestData::new();
     loop {
         let height = test.env.clients[0].chain.head().unwrap().height;
@@ -773,7 +762,7 @@ fn test_chunk_forwarding_optimization() {
     // With very high probability we should've encountered some cases where forwarded parts
     // could not be applied because the chunk header is not available. Assert this did indeed
     // happen.
-    assert!(test.num_forwards_with_missing_chunk_header > 0);
+    assert!(PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_HEADER.get() > 0.0);
     debug!(target: "test",
         "Counters for debugging:
                 num_part_ords_requested: {}
@@ -783,7 +772,7 @@ fn test_chunk_forwarding_optimization() {
         test.num_part_ords_requested,
         test.num_part_ords_sent_as_partial_encoded_chunk,
         test.num_part_ords_forwarded,
-        test.num_forwards_with_missing_chunk_header
+        PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_HEADER.get(),
     );
 }
 
@@ -807,7 +796,7 @@ fn test_processing_blocks_async() {
     genesis.config.num_block_producer_seats_per_shard =
         vec![num_validators, num_validators, num_validators, num_validators];
     let chain_genesis = ChainGenesis::new(&genesis);
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = (0..2)
+    let runtimes: Vec<Arc<dyn RuntimeWithEpochManagerAdapter>> = (0..2)
         .map(|_| {
             Arc::new(nearcore::NightshadeRuntime::test_with_runtime_config_store(
                 Path::new("."),
@@ -815,7 +804,7 @@ fn test_processing_blocks_async() {
                 &genesis,
                 TrackedConfig::AllShards,
                 RuntimeConfigStore::test(),
-            )) as Arc<dyn RuntimeAdapter>
+            )) as Arc<dyn RuntimeWithEpochManagerAdapter>
         })
         .collect();
     let mut env = TestEnv::builder(chain_genesis)

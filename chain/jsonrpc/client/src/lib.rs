@@ -42,8 +42,7 @@ where
     P: Serialize,
     R: serde::de::DeserializeOwned + 'static,
 {
-    let request =
-        Message::request(method.to_string(), Some(serde_json::to_value(&params).unwrap()));
+    let request = Message::request(method.to_string(), serde_json::to_value(&params).unwrap());
     // TODO: simplify this.
     client
         .post(server_addr)
@@ -257,6 +256,15 @@ impl JsonRpcClient {
         request: near_jsonrpc_primitives::types::config::RpcProtocolConfigRequest,
     ) -> RpcRequest<near_jsonrpc_primitives::types::config::RpcProtocolConfigResponse> {
         call_method(&self.client, &self.server_addr, "EXPERIMENTAL_protocol_config", request)
+    }
+
+    #[allow(non_snake_case)]
+    pub fn EXPERIMENTAL_split_storage_info(
+        &self,
+        request: near_jsonrpc_primitives::types::split_storage::RpcSplitStorageInfoRequest,
+    ) -> RpcRequest<near_jsonrpc_primitives::types::split_storage::RpcSplitStorageInfoResponse>
+    {
+        call_method(&self.client, &self.server_addr, "EXPERIMENTAL_split_storage_info", request)
     }
 }
 
