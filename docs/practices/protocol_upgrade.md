@@ -7,15 +7,14 @@ this process.
 
 ### Background
 
-At NEAR, we use protocol version to mean the version of the blockchain protocol
-and is separate from the version of some specific client (such as nearcore),
+At NEAR, we use the term protocol version to mean the version of the blockchain
+protocol and is separate from the version of some specific client (such as nearcore),
 since the protocol version defines the protocol rather than some specific
 implementation of the protocol. More concretely, for each epoch, there is a
-corresponding protocol version that is agreed upon by validators through [a
-voting
-mechanism](https://github.com/near/NEPs/blob/master/specs/ChainSpec/Upgradability.md).
+corresponding protocol version that is agreed upon by validators through
+[a voting mechanism](https://github.com/near/NEPs/blob/master/specs/ChainSpec/Upgradability.md).
 Our upgrade scheme dictates that protocol version X is backward compatible with
-protocol version X-1, so that nodes in the network can seamlessly upgrade into
+protocol version X-1 so that nodes in the network can seamlessly upgrade to
 the new protocol. However, there is **no guarantee** that protocol version X is
 backward compatible with protocol version X-2.
 
@@ -26,7 +25,7 @@ and that it doesn't break other parts of the system.
 
 ### Nightly Protocol features
 
-To make protocol upgrades more robust, we introduce the concept of nightly
+To make protocol upgrades more robust, we introduce the concept of a nightly
 protocol version together with the protocol feature flags to allow easy testing
 of the cutting-edge protocol changes without jeopardizing the stability of the
 codebase overall. In `Cargo.toml` file of the crates we have in nearcore, we
@@ -44,7 +43,7 @@ where `nightly_protocol` is a marker feature that indicates that we are on
 nightly protocol whereas `nightly` is a collection of new protocol features
 which also implies `nightly_protocol`. For example, when we introduce EVM as a
 new protocol change, suppose the current protocol version is 40, then we would
-do the following change in Cargo.toml:
+do the following change in `Cargo.toml`:
 
 ```toml
 nightly_protocol = []
@@ -67,7 +66,7 @@ pub const PROTOCOL_VERSION: u32 = 40;
 
 This way the stable versions remain unaffected after the change. Note that
 nightly protocol version intentionally starts at a much higher number to make
-the distinction between stable protocol and nightly protocol more clear.
+the distinction between the stable protocol and nightly protocol clearer.
 
 To determine whether a protocol feature is enabled, we do the following:
 
@@ -97,7 +96,7 @@ It is worth mentioning that there are two types of checks related to protocol fe
 ### Testing
 
 Nightly protocol features allow us to enable the most bleeding-edge code in some
-testing environment. We can choose to enable all nightly protocol features by
+testing environments. We can choose to enable all nightly protocol features by
 
 ```rust
 cargo build -p neard --release --features nightly
@@ -116,15 +115,16 @@ on betanet, which is updated daily.
 
 New protocol features are introduced first as nightly features and when the
 author of the feature thinks that the feature is ready to be stabilized, they
-should submit a pull request to stabilize the feature using [this
-template](../.github/PULL_REQUEST_TEMPLATE/feature_stabilization.md). In this
-pull request, they should the feature gating, increase the `PROTOCOL_VERSION`
-constant (if it hasn't been increased since the last release), and change the
-`protocol_version` implementation to map the stabilized features to the new
-protocol version.
+should submit a pull request to stabilize the feature using
+[this template](../../.github/PULL_REQUEST_TEMPLATE/feature_stabilization.md).
+In this pull request, they should do the feature gating, increase the
+`PROTOCOL_VERSION` constant (if it hasn't been increased since the last
+release), and change the `protocol_version` implementation to map the
+stabilized features to the new protocol version.
 
-A feature stabilization request must be approved by at least **two** [nearcore
-code owners](https://github.com/orgs/near/teams/nearcore-codeowners) Unless it
-is a security related fix, a protocol feature cannot be included in any release
-until at least **one** week after its stabilization. This is to ensure that
-feature implementation and stabilization are not rushed.
+A feature stabilization request must be approved by at least **two**
+[nearcore code owners](https://github.com/orgs/near/teams/nearcore-codeowners).
+Unless it is a security-related fix, a protocol feature cannot be included in
+any release until at least **one** week after its stabilization. This is to ensure
+that feature implementation and stabilization are not rushed.
+

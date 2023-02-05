@@ -140,7 +140,7 @@ This crate contains most of the chain logic (consensus, block processing, etc).
 `ChainUpdate::process_block` is where most of the block processing logic
 happens.
 
-**Architecture Invariant**: interface between chain and runtime is defined by
+**Architecture Invariant:** interface between chain and runtime is defined by
 `RuntimeWithEpochManagerAdapter`. All invocations of runtime go through `RuntimeWithEpochManagerAdapter`
 
 **State update**
@@ -179,11 +179,11 @@ blockchain nodes.
 Two important structs here: `PeerManagerActor` and `Peer`. Peer manager
 orchestrates all the communications from network to other components and from
 other components to network. `Peer` is responsible for low-level network
-communications from and to a given peer. Peer manager runs in one thread while
-each `Peer` runs in its own thread.
-<!--TODO: Maybe add more clarification about what Peer is? -->
+communications from and to a given peer (more details in
+[this article](./network.md#23-peeractor)). Peer manager runs in one thread while each
+`Peer` runs in its own thread.
 
-**Architecture Invariant**: Network communicates to `Client` through
+**Architecture Invariant:** Network communicates to `Client` through
 `NetworkClientMessages` and to `ViewClient` through `NetworkViewClientMessages`.
 Conversely, `Client` and `ViewClient` communicates to network through
 `NetworkRequests`.
@@ -193,7 +193,7 @@ Conversely, `Client` and `ViewClient` communicates to network through
 This crate is responsible for determining validators and other epoch related
 information such as epoch id for each epoch.
 
-**Note**: `EpochManager` is constructed in `NightshadeRuntime` rather than in
+**Note:** `EpochManager` is constructed in `NightshadeRuntime` rather than in
 `Chain`, partially because we had this idea of making epoch manager a smart
 contract.
 
@@ -214,7 +214,7 @@ function takes `ApplyState`, which contains necessary information passed from
 chain to runtime, a list of `SignedTransaction` and a list of `Receipt`, and
 returns a `ApplyResult`, which includes state changes, execution outcomes, etc.
 
-**Architecture Invariant**: The state update is only finalized at the end of
+**Architecture Invariant:** The state update is only finalized at the end of
 `apply`. During all intermediate steps state changes can be reverted.
 
 ### `runtime/near-vm-logic`

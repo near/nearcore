@@ -12,9 +12,9 @@ use near_o11y::WithSpanContextExt;
 fn test_get_maintenance_windows_for_validator() {
     init_test_logger();
     run_actix(async {
-        let (_, view_client) =
+        let actor_handles =
             setup_no_network(vec!["test".parse().unwrap()], "other".parse().unwrap(), true, true);
-        let actor = view_client.send(
+        let actor = actor_handles.view_client_actor.send(
             GetMaintenanceWindows { account_id: "test".parse().unwrap() }.with_span_context(),
         );
 
@@ -41,9 +41,9 @@ fn test_get_maintenance_windows_for_validator() {
 fn test_get_maintenance_windows_for_not_validator() {
     init_test_logger();
     run_actix(async {
-        let (_, view_client) =
+        let actor_handles =
             setup_no_network(vec!["test".parse().unwrap()], "other".parse().unwrap(), true, true);
-        let actor = view_client.send(
+        let actor = actor_handles.view_client_actor.send(
             GetMaintenanceWindows { account_id: "alice".parse().unwrap() }.with_span_context(),
         );
         let actor = actor.then(|res| {

@@ -174,14 +174,6 @@ pub(crate) static CHUNK_DROPPED_BECAUSE_OF_BANNED_CHUNK_PRODUCER: Lazy<IntCounte
         .unwrap()
     });
 
-pub(crate) static PARTIAL_ENCODED_CHUNK_RESPONSE_DELAY: Lazy<Histogram> = Lazy::new(|| {
-    try_create_histogram(
-        "near_partial_encoded_chunk_response_delay",
-        "Delay between when a partial encoded chunk response is sent from PeerActor and when it is received by ClientActor",
-    )
-        .unwrap()
-});
-
 pub(crate) static CLIENT_MESSAGES_COUNT: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
         "near_client_messages_count",

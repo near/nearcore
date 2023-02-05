@@ -703,7 +703,7 @@ mod tests {
     fn test_convert_block_changes_to_transactions() {
         run_actix(async {
             let runtime_config: RuntimeConfigView = RuntimeConfig::test().into();
-            let (_client, view_client) = setup_no_network(
+            let actor_handles = setup_no_network(
                 vec!["test".parse().unwrap()],
                 "other".parse().unwrap(),
                 true,
@@ -793,7 +793,7 @@ mod tests {
                 },
             );
             let transactions = super::transactions::convert_block_changes_to_transactions(
-                &view_client,
+                &actor_handles.view_client_actor,
                 &runtime_config,
                 &block_hash,
                 accounts_changes,

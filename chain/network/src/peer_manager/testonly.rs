@@ -137,7 +137,7 @@ impl ActorHandler {
     pub fn peer_info(&self) -> PeerInfo {
         PeerInfo {
             id: PeerId::new(self.cfg.node_key.public_key()),
-            addr: self.cfg.node_addr.clone(),
+            addr: self.cfg.node_addr.as_ref().map(|a| **a),
             account_id: None,
         }
     }
@@ -202,7 +202,7 @@ impl ActorHandler {
         // 1. reserve a TCP port
         // 2. snapshot event stream
         // 3. establish connection.
-        let socket = tcp::Socket::bind_v4();
+        let socket = tcp::Socket::bind();
         let events = self.events.from_now();
         let stream = socket.connect(&self.peer_info(), tcp::Tier::T2).await;
         let stream_id = stream.id();
@@ -324,6 +324,25 @@ impl ActorHandler {
     ) -> Option<Arc<SignedAccountData>> {
         let clock = clock.clone();
         self.with_state(move |s| async move { s.tier1_advertise_proxies(&clock).await }).await
+    }
+
+    pub async fn disconnect(&self, peer_id: &PeerId) {
+        let peer_id = peer_id.clone();
+        self.with_state(move |s| async move {
+            let stopped: Vec<()> = s
+                .tier2
+                .load()
+                .ready
+                .values()
+                .filter(|c| c.peer_info.id == peer_id)
+                .map(|c| {
+                    c.stop(None);
+                    ()
+                })
+                .collect();
+            assert!(stopped.len() == 1);
+        })
+        .await
     }
 
     pub async fn disconnect_and_ban(
@@ -471,6 +490,15 @@ impl ActorHandler {
         })
         .await;
     }
+
+    /// Executes `NetworkState::update_connection_store` method.
+    pub async fn update_connection_store(&self, clock: &time::Clock) {
+        let clock = clock.clone();
+        self.with_state(move |s| async move {
+            s.update_connection_store(&clock);
+        })
+        .await;
+    }
 }
 
 pub(crate) async fn start(
@@ -487,7 +515,7 @@ pub(crate) async fn start(
             let genesis_id = chain.genesis_id.clone();
             let fc = Arc::new(fake_client::Fake { event_sink: send.sink().compose(Event::Client) });
             cfg.event_sink = send.sink().compose(Event::PeerManager);
-            PeerManagerActor::spawn(clock, store, cfg, fc, genesis_id).unwrap()
+            PeerManagerActor::spawn(clock, store, cfg, fc.clone(), fc, genesis_id).unwrap()
         }
     })
     .await;

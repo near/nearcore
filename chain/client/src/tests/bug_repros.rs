@@ -5,13 +5,13 @@ use std::cmp::max;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
-use actix::{Addr, System};
+use actix::System;
 use futures::FutureExt;
 use rand::{thread_rng, Rng};
 
-use crate::adapter::{BlockApproval, BlockResponse, ProcessTxRequest, RecvPartialEncodedChunk};
-use crate::test_utils::setup_mock_all_validators;
-use crate::{ClientActor, GetBlock, ViewClientActor};
+use crate::adapter::{BlockApproval, BlockResponse, ProcessTxRequest};
+use crate::test_utils::{setup_mock_all_validators, ActorHandlesForTesting};
+use crate::GetBlock;
 use near_actix_test_utils::run_actix;
 use near_chain::test_utils::{account_id_to_shard_id, ValidatorSchedule};
 use near_crypto::{InMemorySigner, KeyType};
@@ -29,8 +29,7 @@ use near_primitives::transaction::SignedTransaction;
 fn repro_1183() {
     init_test_logger();
     run_actix(async {
-        let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
-            Arc::new(RwLock::new(vec![]));
+        let connectors: Arc<RwLock<Vec<ActorHandlesForTesting>>> = Arc::new(RwLock::new(vec![]));
 
         let vs = ValidatorSchedule::new()
             .num_shards(4)
@@ -70,8 +69,8 @@ fn repro_1183() {
                     let mut delayed_one_parts = delayed_one_parts.write().unwrap();
 
                     if let Some(last_block) = last_block.clone() {
-                        for (client, _) in connectors1.write().unwrap().iter() {
-                            client.do_send(
+                        for actor_handles in connectors1.write().unwrap().iter() {
+                            actor_handles.client_actor.do_send(
                                 BlockResponse {
                                     block: last_block.clone(),
                                     peer_id: PeerInfo::random().id,
@@ -90,12 +89,11 @@ fn repro_1183() {
                         {
                             for (i, name) in validators.iter().enumerate() {
                                 if name == account_id {
-                                    connectors1.write().unwrap()[i].0.do_send(
-                                        RecvPartialEncodedChunk(
+                                    connectors1.write().unwrap()[i]
+                                        .shards_manager_adapter
+                                        .process_partial_encoded_chunk(
                                             partial_encoded_chunk.clone().into(),
-                                        )
-                                        .with_span_context(),
-                                    );
+                                        );
                                 }
                             }
                         } else {
@@ -108,7 +106,7 @@ fn repro_1183() {
                         for to in ["test1", "test2", "test3", "test4"].iter() {
                             let (from, to) = (from.parse().unwrap(), to.parse().unwrap());
                             connectors1.write().unwrap()[account_id_to_shard_id(&from, 4) as usize]
-                                .0
+                                .client_actor
                                 .do_send(
                                     ProcessTxRequest {
                                         transaction: SignedTransaction::send_money(
@@ -208,9 +206,9 @@ fn test_sync_from_archival_node() {
                     if *largest_height.read().unwrap() <= 30 {
                         match msg {
                             NetworkRequests::Block { block } => {
-                                for (i, (client, _)) in conns.iter().enumerate() {
+                                for (i, actor_handles) in conns.iter().enumerate() {
                                     if i != 3 {
-                                        client.do_send(
+                                        actor_handles.client_actor.do_send(
                                             BlockResponse {
                                                 block: block.clone(),
                                                 peer_id: PeerInfo::random().id,
@@ -226,9 +224,9 @@ fn test_sync_from_archival_node() {
                                 (NetworkResponses::NoResponse.into(), false)
                             }
                             NetworkRequests::Approval { approval_message } => {
-                                for (i, (client, _)) in conns.clone().into_iter().enumerate() {
+                                for (i, actor_handles) in conns.clone().into_iter().enumerate() {
                                     if i != 3 {
-                                        client.do_send(
+                                        actor_handles.client_actor.do_send(
                                             BlockApproval(
                                                 approval_message.approval.clone(),
                                                 PeerInfo::random().id,
@@ -246,7 +244,7 @@ fn test_sync_from_archival_node() {
                             panic!("incorrect rebroadcasting of blocks");
                         }
                         for (_, block) in blocks.write().unwrap().drain() {
-                            conns[3].0.do_send(
+                            conns[3].client_actor.do_send(
                                 BlockResponse {
                                     block,
                                     peer_id: PeerInfo::random().id,
@@ -302,7 +300,9 @@ fn test_long_gap_between_blocks() {
                       -> (PeerManagerMessageResponse, bool) {
                     match msg.as_network_requests_ref() {
                         NetworkRequests::Approval { approval_message } => {
-                            let actor = conns[1].1.send(GetBlock::latest().with_span_context());
+                            let actor = conns[1]
+                                .view_client_actor
+                                .send(GetBlock::latest().with_span_context());
                             let actor = actor.then(move |res| {
                                 let res = res.unwrap().unwrap();
                                 if res.header.height > target_height {

@@ -8,7 +8,6 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::{
     runtime::config_store::RuntimeConfigStore,
     shard_layout::ShardLayout,
-    sharding::PartialEncodedChunk,
     types::{AccountId, EpochId, ShardId},
 };
 use near_store::test_utils::create_test_store;
@@ -78,25 +77,11 @@ impl AdversarialBehaviorTestData {
             }
             NetworkRequests::PartialEncodedChunkMessage { account_id, partial_encoded_chunk } => {
                 self.env
-                    .client(&account_id)
-                    .shards_mgr
-                    .process_partial_encoded_chunk(
-                        PartialEncodedChunk::from(partial_encoded_chunk).into(),
-                    )
-                    .unwrap();
+                    .shards_manager(&account_id)
+                    .process_partial_encoded_chunk(partial_encoded_chunk.into());
             }
             NetworkRequests::PartialEncodedChunkForward { account_id, forward } => {
-                match self
-                    .env
-                    .client(&account_id)
-                    .shards_mgr
-                    .process_partial_encoded_chunk_forward(forward)
-                {
-                    Ok(_) | Err(near_chunks::Error::UnknownChunk) => {}
-                    Err(e) => {
-                        panic!("Unexpected error from chunk forward: {:?}", e)
-                    }
-                }
+                self.env.shards_manager(&account_id).process_partial_encoded_chunk_forward(forward);
             }
             NetworkRequests::Challenge(_) => {
                 // challenges not enabled.

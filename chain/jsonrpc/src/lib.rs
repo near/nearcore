@@ -31,6 +31,7 @@ pub use near_jsonrpc_client as client;
 use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::message::{Message, Request};
 use near_jsonrpc_primitives::types::config::RpcProtocolConfigResponse;
+use near_network::tcp;
 use near_o11y::metrics::{prometheus, Encoder, TextEncoder};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
@@ -77,7 +78,7 @@ fn default_enable_debug_rpc() -> bool {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct RpcConfig {
-    pub addr: String,
+    pub addr: tcp::ListenerAddr,
     // If provided, will start an http server exporting only Prometheus metrics on that address.
     pub prometheus_addr: Option<String>,
     pub cors_allowed_origins: Vec<String>,
@@ -97,7 +98,7 @@ pub struct RpcConfig {
 impl Default for RpcConfig {
     fn default() -> Self {
         RpcConfig {
-            addr: "0.0.0.0:3030".to_owned(),
+            addr: tcp::ListenerAddr::new("0.0.0.0:3030".parse().unwrap()),
             prometheus_addr: None,
             cors_allowed_origins: vec!["*".to_owned()],
             polling_config: Default::default(),
@@ -109,8 +110,8 @@ impl Default for RpcConfig {
 }
 
 impl RpcConfig {
-    pub fn new(addr: &str) -> Self {
-        RpcConfig { addr: addr.to_owned(), ..Default::default() }
+    pub fn new(addr: tcp::ListenerAddr) -> Self {
+        RpcConfig { addr, ..Default::default() }
     }
 }
 
@@ -815,6 +816,12 @@ impl JsonRpcHandler {
                         .peer_manager_send(near_network::debug::GetDebugStatus::Graph)
                         .await?
                         .rpc_into(),
+                    "/debug/api/recent_outbound_connections" => self
+                        .peer_manager_send(
+                            near_network::debug::GetDebugStatus::RecentOutboundConnections,
+                        )
+                        .await?
+                        .rpc_into(),
                     _ => return Ok(None),
                 };
             return Ok(Some(near_jsonrpc_primitives::types::status::RpcDebugStatusResponse {
@@ -1225,7 +1232,7 @@ impl JsonRpcHandler {
 
 #[cfg(feature = "test_features")]
 impl JsonRpcHandler {
-    async fn adv_disable_header_sync(&self, _params: Option<Value>) -> Result<Value, RpcError> {
+    async fn adv_disable_header_sync(&self, _params: Value) -> Result<Value, RpcError> {
         actix::spawn(
             self.client_addr
                 .send(
@@ -1242,10 +1249,10 @@ impl JsonRpcHandler {
                 )
                 .map(|_| ()),
         );
-        Ok(Value::String("".to_string()))
+        Ok(Value::String(String::new()))
     }
 
-    async fn adv_disable_doomslug(&self, _params: Option<Value>) -> Result<Value, RpcError> {
+    async fn adv_disable_doomslug(&self, _params: Value) -> Result<Value, RpcError> {
         actix::spawn(
             self.client_addr
                 .send(
@@ -1262,10 +1269,10 @@ impl JsonRpcHandler {
                 )
                 .map(|_| ()),
         );
-        Ok(Value::String("".to_string()))
+        Ok(Value::String(String::new()))
     }
 
-    async fn adv_produce_blocks(&self, params: Option<Value>) -> Result<Value, RpcError> {
+    async fn adv_produce_blocks(&self, params: Value) -> Result<Value, RpcError> {
         let (num_blocks, only_valid) = crate::api::parse_params::<(u64, bool)>(params)?;
         actix::spawn(
             self.client_addr
@@ -1277,10 +1284,10 @@ impl JsonRpcHandler {
                 )
                 .map(|_| ()),
         );
-        Ok(Value::String("".to_string()))
+        Ok(Value::String(String::new()))
     }
 
-    async fn adv_switch_to_height(&self, params: Option<Value>) -> Result<Value, RpcError> {
+    async fn adv_switch_to_height(&self, params: Value) -> Result<Value, RpcError> {
         let (height,) = crate::api::parse_params::<(u64,)>(params)?;
         actix::spawn(
             self.client_addr
@@ -1298,10 +1305,10 @@ impl JsonRpcHandler {
                 )
                 .map(|_| ()),
         );
-        Ok(Value::String("".to_string()))
+        Ok(Value::String(String::new()))
     }
 
-    async fn adv_get_saved_blocks(&self, _params: Option<Value>) -> Result<Value, RpcError> {
+    async fn adv_get_saved_blocks(&self, _params: Value) -> Result<Value, RpcError> {
         match self
             .client_addr
             .send(
@@ -1318,7 +1325,7 @@ impl JsonRpcHandler {
         }
     }
 
-    async fn adv_check_store(&self, _params: Option<Value>) -> Result<Value, RpcError> {
+    async fn adv_check_store(&self, _params: Value) -> Result<Value, RpcError> {
         match self
             .client_addr
             .send(
@@ -1536,7 +1543,7 @@ pub fn start_http(
         enable_debug_rpc,
         experimental_debug_pages_src_path: debug_pages_src_path,
     } = config;
-    let prometheus_addr = prometheus_addr.filter(|it| it != &addr);
+    let prometheus_addr = prometheus_addr.filter(|it| it != &addr.to_string());
     let cors_allowed_origins_clone = cors_allowed_origins.clone();
     info!(target:"network", "Starting http server at {}", addr);
     let mut servers = Vec::new();
@@ -1582,7 +1589,7 @@ pub fn start_http(
             .service(debug_html)
             .service(display_debug_html)
     })
-    .bind(addr)
+    .listen(addr.std_listener().unwrap())
     .unwrap()
     .workers(4)
     .shutdown_timeout(5)
