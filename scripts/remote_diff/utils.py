@@ -4,9 +4,8 @@ import subprocess
 def get_zone(project, host):
     zone_call = subprocess.run(
         [
-            "gcloud compute instances list \
-        --project={} | grep ^{} | awk -F ' ' '{{print $2}}'".format(
-                project, host)
+            f"gcloud compute instances list \
+        --project={project} | grep ^{host} | awk -F ' ' '{{print $2}}'"
         ],
         stdout=subprocess.PIPE,
         check=True,
@@ -20,8 +19,7 @@ def run_on_machine(command, user, host, project):
     zone = get_zone(project, host)
     call = subprocess.run(
         [
-            "gcloud compute ssh {}@{} --command='{}' --project {} --zone {} ".
-            format(user, host, command, project, zone)
+            f"gcloud compute ssh {user}@{host} --command='{command}' --project {project} --zone {zone}"
         ],
         stdout=subprocess.PIPE,
         check=True,
@@ -35,6 +33,6 @@ def display_table(rows):
     widths = [
         max([len(str(row[i])) for row in rows]) for i in range(len(rows[0]))
     ]
-    format_str = " | ".join(["{{:<{}}}".format(w) for w in widths])
+    format_str = " | ".join([f"{{:<{w}}}" for w in widths])
     for row in rows:
         print(format_str.format(*row))
