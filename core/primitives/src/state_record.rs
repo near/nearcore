@@ -9,7 +9,7 @@ use crate::trie_key::trie_key_parsers::{
     parse_account_id_from_received_data_key, parse_data_id_from_received_data_key,
     parse_data_key_from_contract_data_key, parse_public_key_from_access_key_key,
 };
-use crate::types::AccountId;
+use crate::types::{AccountId, StoreKey, StoreValue};
 use borsh::BorshDeserialize;
 use near_crypto::PublicKey;
 use std::fmt::{Display, Formatter};
@@ -20,13 +20,7 @@ pub enum StateRecord {
     /// Account information.
     Account { account_id: AccountId, account: Account },
     /// Data records inside the contract, encoded in base64.
-    Data {
-        account_id: AccountId,
-        #[serde(with = "base64_format")]
-        data_key: Vec<u8>,
-        #[serde(with = "base64_format")]
-        value: Vec<u8>,
-    },
+    Data { account_id: AccountId, data_key: StoreKey, value: StoreValue },
     /// Contract code encoded in base64.
     Contract {
         account_id: AccountId,
@@ -63,7 +57,11 @@ impl StateRecord {
             col::CONTRACT_DATA => {
                 let account_id = parse_account_id_from_contract_data_key(&key).unwrap();
                 let data_key = parse_data_key_from_contract_data_key(&key, &account_id).unwrap();
-                Some(StateRecord::Data { account_id, data_key: data_key.to_vec(), value })
+                Some(StateRecord::Data {
+                    account_id,
+                    data_key: data_key.to_vec().into(),
+                    value: value.into(),
+                })
             }
             col::CONTRACT_CODE => Some(StateRecord::Contract {
                 account_id: parse_account_id_from_contract_code_key(&key).unwrap(),
@@ -107,8 +105,8 @@ impl Display for StateRecord {
                 f,
                 "Storage {:?},{:?}: {:?}",
                 account_id,
-                to_printable(data_key),
-                to_printable(value)
+                to_printable(data_key.as_ref()),
+                to_printable(value.as_ref())
             ),
             StateRecord::Contract { account_id, code: _ } => {
                 write!(f, "Code for {:?}: ...", account_id)
