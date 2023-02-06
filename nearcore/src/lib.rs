@@ -124,6 +124,9 @@ fn open_storage(home_dir: &Path, near_config: &mut NearConfig) -> anyhow::Result
         Err(StoreOpenerError::DbVersionMismatchOnRead { .. }) => unreachable!(),
         // Cannot happen when migrator is specified.
         Err(StoreOpenerError::DbVersionMismatch { .. }) => unreachable!(),
+        Err(StoreOpenerError::DbVersionMissing { .. }) => {
+            Err(anyhow::anyhow!("Database version is missing!"))
+        },
         Err(StoreOpenerError::DbVersionTooOld { got, latest_release, .. }) => {
             Err(anyhow::anyhow!(
                 "Database version {got} is created by an old version \
