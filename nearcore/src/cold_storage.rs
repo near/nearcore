@@ -43,8 +43,9 @@ enum ColdStoreCopyResult {
     OtherBlockCopied,
 }
 
-// Checks if cold store head is behind the final head and if so copies data
-// at height equal to the cold store head height + 1.
+/// Checks if cold store head is behind the final head and if so copies data
+/// for the next available produced block after current cold store head.
+/// Updates cold store head after.
 fn cold_store_copy(
     hot_store: &Store,
     cold_store: &Store,
