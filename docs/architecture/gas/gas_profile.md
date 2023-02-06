@@ -16,8 +16,12 @@ You can query the gas profile of a transaction with
 [NEAR CLI](https://docs.near.org/tools/near-cli).
 
 ```bash
-NEAR_ENV=mainnet near tx-status 8vYxsqYp5Kkfe8j9LsTqZRsEupNkAs1WvgcGcUE4MUUw --accountId app.nearcrowd.near
+NEAR_ENV=mainnet near tx-status 8vYxsqYp5Kkfe8j9LsTqZRsEupNkAs1WvgcGcUE4MUUw  \
+  --accountId app.nearcrowd.near  \
+  --nodeUrl https://archival-rpc.mainnet.near.org  # Allows to retrieve older transactions.
+```
 
+```
 Transaction app.nearcrowd.near:8vYxsqYp5Kkfe8j9LsTqZRsEupNkAs1WvgcGcUE4MUUw
 {
   receipts_outcome: [
