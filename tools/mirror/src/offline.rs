@@ -1,4 +1,4 @@
-use crate::{ChainError, SourceChunk};
+use crate::{ChainError, SourceBlock, SourceChunk};
 use anyhow::Context;
 use async_trait::async_trait;
 use near_chain::types::RuntimeAdapter;
@@ -102,6 +102,10 @@ impl crate::ChainAccess for ChainAccess {
         Ok(block_heights)
     }
 
+    async fn block_height_to_hash(&self, height: BlockHeight) -> Result<CryptoHash, ChainError> {
+        Ok(self.chain.get_block_hash_by_height(height)?)
+    }
+
     async fn head_height(&self) -> Result<BlockHeight, ChainError> {
         Ok(self.chain.head()?.height)
     }
@@ -110,7 +114,7 @@ impl crate::ChainAccess for ChainAccess {
         &self,
         height: BlockHeight,
         shards: &[ShardId],
-    ) -> Result<Vec<SourceChunk>, ChainError> {
+    ) -> Result<SourceBlock, ChainError> {
         let block_hash = self.chain.get_block_hash_by_height(height)?;
         let block = self
             .chain
@@ -141,7 +145,7 @@ impl crate::ChainAccess for ChainAccess {
                 receipts: chunk.receipts().iter().cloned().collect(),
             })
         }
-        Ok(chunks)
+        Ok(SourceBlock { hash: block_hash, chunks })
     }
 
     async fn get_next_block_height(&self, height: BlockHeight) -> Result<BlockHeight, ChainError> {
