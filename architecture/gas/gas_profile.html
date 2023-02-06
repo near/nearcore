@@ -152,9 +152,11 @@ details of how they are computed can change without a protocol version bump.</p>
 <h2 id="example-transaction-gas-profile"><a class="header" href="#example-transaction-gas-profile">Example Transaction Gas Profile</a></h2>
 <p>You can query the gas profile of a transaction with
 <a href="https://docs.near.org/tools/near-cli">NEAR CLI</a>.</p>
-<pre><code class="language-bash">NEAR_ENV=mainnet near tx-status 8vYxsqYp5Kkfe8j9LsTqZRsEupNkAs1WvgcGcUE4MUUw --accountId app.nearcrowd.near
-
-Transaction app.nearcrowd.near:8vYxsqYp5Kkfe8j9LsTqZRsEupNkAs1WvgcGcUE4MUUw
+<pre><code class="language-bash">NEAR_ENV=mainnet near tx-status 8vYxsqYp5Kkfe8j9LsTqZRsEupNkAs1WvgcGcUE4MUUw  \
+  --accountId app.nearcrowd.near  \
+  --nodeUrl https://archival-rpc.mainnet.near.org  # Allows to retrieve older transactions.
+</code></pre>
+<pre><code>Transaction app.nearcrowd.near:8vYxsqYp5Kkfe8j9LsTqZRsEupNkAs1WvgcGcUE4MUUw
 {
   receipts_outcome: [
     {
