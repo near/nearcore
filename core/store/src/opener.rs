@@ -280,7 +280,8 @@ impl<'a> StoreOpener<'a> {
         mode: Mode,
         metadata: DbMetadata,
     ) -> Result<crate::NodeStorage, StoreOpenerError> {
-        let snapshots = self.apply_migrations(mode, metadata)?;
+        let snapshots =
+            Self::apply_migrations(mode, metadata, &self.migrator, &self.hot, &self.cold)?;
         tracing::info!(target: "near", path=%self.path().display(),
                        "Opening an existing RocksDB database");
         let (storage, hot_meta, cold_meta) =
@@ -341,23 +342,26 @@ impl<'a> StoreOpener<'a> {
 
     /// Applies database migrations to the database.
     fn apply_migrations(
-        &self,
         mode: Mode,
         metadata: DbMetadata,
+        migrator: &Option<&dyn StoreMigrator>,
+        hot_opener: &DBOpener,
+        cold_opener: &Option<DBOpener>,
     ) -> Result<(Snapshot, Snapshot), StoreOpenerError> {
         if metadata.version == DB_VERSION {
             return Ok((Snapshot::none(), Snapshot::none()));
-        } else if metadata.version > DB_VERSION {
+        }
+        if metadata.version > DB_VERSION {
             return Err(StoreOpenerError::DbVersionTooNew {
                 got: metadata.version,
                 want: DB_VERSION,
             });
         }
 
+        // If we’re opening for reading, we cannot perform migrations thus we
+        // must fail if the database has old version (even if we support
+        // migration from that version).
         if mode.read_only() {
-            // If we’re opening for reading, we cannot perform migrations thus
-            // we must fail if the database has old version (even if we support
-            // migration from that version).
             return Err(StoreOpenerError::DbVersionMismatchOnRead {
                 got: metadata.version,
                 want: DB_VERSION,
@@ -365,7 +369,7 @@ impl<'a> StoreOpener<'a> {
         }
 
         // Figure out if we have migrator which supports the database version.
-        let migrator = self.migrator.ok_or(StoreOpenerError::DbVersionMismatch {
+        let migrator = migrator.ok_or(StoreOpenerError::DbVersionMismatch {
             got: metadata.version,
             want: DB_VERSION,
         })?;
@@ -377,18 +381,23 @@ impl<'a> StoreOpener<'a> {
             });
         }
 
-        let hot_snapshot = self.hot.snapshot()?;
-        let cold_snapshot = match self.cold {
+        let hot_snapshot = hot_opener.snapshot()?;
+        let cold_snapshot = match cold_opener {
             None => Snapshot::none(),
             Some(ref opener) => opener.snapshot()?,
         };
 
+        let hot_path = hot_opener.path.display().to_string();
+        let cold_path = cold_opener
+            .as_ref()
+            .map_or(String::from("<none>"), |opener| opener.path.display().to_string());
+
         for version in metadata.version..DB_VERSION {
-            tracing::info!(target: "near", path=%self.path().display(),
+            tracing::info!(target: "near", hot_path=hot_path, cold_path=cold_path,
                            "Migrating the database from version {version} to {}",
                            version + 1);
             let storage =
-                Self::open_storage(Mode::ReadWriteExisting, version, &self.hot, &self.cold)?.0;
+                Self::open_storage(Mode::ReadWriteExisting, version, hot_opener, cold_opener)?.0;
             migrator.migrate(&storage, version).map_err(StoreOpenerError::MigrationError)?;
             set_store_version(&storage, version + 1)?;
         }
@@ -397,7 +406,7 @@ impl<'a> StoreOpener<'a> {
             // Set some dummy value to avoid conflict with other migrations from
             // nightly features.
             let storage =
-                Self::open_storage(Mode::ReadWriteExisting, DB_VERSION, &self.hot, &self.cold)?.0;
+                Self::open_storage(Mode::ReadWriteExisting, DB_VERSION, hot_opener, cold_opener)?.0;
             set_store_version(&storage, 10000)?;
         }
 
