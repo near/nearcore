@@ -17,7 +17,7 @@ use crate::stats::metrics;
 use crate::tcp;
 use crate::time;
 use crate::types::{
-    BlockInfo, Handshake, HandshakeFailureReason, PeerMessage, PeerType, ReasonForBan,
+    BlockInfo, Disconnect, Handshake, HandshakeFailureReason, PeerMessage, PeerType, ReasonForBan,
 };
 use actix::fut::future::wrap_future;
 use actix::{Actor as _, ActorContext as _, ActorFutureExt as _, AsyncContext as _};
@@ -106,6 +106,28 @@ pub(crate) enum ClosingReason {
     OwnedAccountMismatch,
     #[error("PeerActor stopped NOT via PeerActor::stop()")]
     Unknown,
+}
+
+impl ClosingReason {
+    /// Used upon closing an outbound connection to decide whether to remove it from the ConnectionStore.
+    /// If the inbound side is the one closing the connection, it evaluates this function on the closing
+    /// reason and includes the result in the Disconnect message.
+    pub(crate) fn remove_from_connection_store(&self) -> bool {
+        match self {
+            ClosingReason::TooManyInbound => false, // outbound may be still be OK
+            ClosingReason::OutboundNotAllowed(_) => true, // outbound not allowed
+            ClosingReason::Ban(_) => true,          // banned
+            ClosingReason::HandshakeFailed => false, // handshake may simply time out
+            ClosingReason::RejectedByPeerManager(_) => true, // rejected by peer manager
+            ClosingReason::StreamError => false,    // connection issue
+            ClosingReason::DisallowedMessage => true, // misbehaving peer
+            ClosingReason::PeerManagerRequest => true, // closed intentionally
+            ClosingReason::DisconnectMessage => false, // graceful disconnect
+            ClosingReason::TooLargeClockSkew => true, // reconnect will fail for the same reason
+            ClosingReason::OwnedAccountMismatch => true, // misbehaving peer
+            ClosingReason::Unknown => false,        // only happens in tests
+        }
+    }
 }
 
 pub(crate) struct PeerActor {
@@ -1068,8 +1090,15 @@ impl PeerActor {
         .entered();
 
         match peer_msg.clone() {
-            PeerMessage::Disconnect => {
+            PeerMessage::Disconnect(d) => {
                 tracing::debug!(target: "network", "Disconnect signal. Me: {:?} Peer: {:?}", self.my_node_info.id, self.other_peer_id());
+
+                if d.remove_from_connection_store {
+                    self.network_state
+                        .connection_store
+                        .remove_from_connection_store(self.other_peer_id().unwrap())
+                }
+
                 self.stop(ctx, ClosingReason::DisconnectMessage);
             }
             PeerMessage::Tier1Handshake(_) | PeerMessage::Tier2Handshake(_) => {
@@ -1379,11 +1408,21 @@ impl actix::Actor for PeerActor {
             }
             Some(reason) => {
                 tracing::info!(target: "network", "{:?}: Peer {} disconnected, reason: {reason}", self.my_node_info.id, self.peer_info);
+
+                // If we are on the inbound side of the connection, set a flag in the disconnect
+                // message advising the outbound side whether to attempt to re-establish the connection.
+                let remove_from_connection_store =
+                    self.peer_type == PeerType::Inbound && reason.remove_from_connection_store();
+
+                self.send_message_or_log(&PeerMessage::Disconnect(Disconnect {
+                    remove_from_connection_store,
+                }));
             }
         }
+
         match &self.peer_status {
             // If PeerActor is in Connecting state, then
-            // it was not registered in the NewtorkState,
+            // it was not registered in the NetworkState,
             // so there is nothing to be done.
             PeerStatus::Connecting(..) => {
                 // TODO(gprusak): reporting ConnectionClosed event is quite scattered right now and

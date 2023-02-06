@@ -1,6 +1,6 @@
 /// Type that belong to the network protocol.
 pub use crate::network_protocol::{
-    AccountOrPeerIdOrHash, Encoding, Handshake, HandshakeFailureReason, PeerMessage,
+    AccountOrPeerIdOrHash, Disconnect, Encoding, Handshake, HandshakeFailureReason, PeerMessage,
     RoutingTableUpdate, SignedAccountData,
 };
 use crate::routing::routing_table_view::RoutingTableInfo;
@@ -115,6 +115,13 @@ impl KnownPeerState {
             last_outbound_attempt: None,
         }
     }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+pub struct ConnectionInfo {
+    pub peer_info: PeerInfo,
+    pub time_established: time::Utc,
+    pub time_connected_until: time::Utc,
 }
 
 impl KnownPeerStatus {

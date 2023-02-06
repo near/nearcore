@@ -1,5 +1,7 @@
 use crate::apply_chain_range::apply_chain_range;
 use crate::contract_accounts::ContractAccount;
+use crate::contract_accounts::ContractAccountFilter;
+use crate::contract_accounts::Summary;
 use crate::state_dump::state_dump;
 use crate::state_dump::state_dump_redis;
 use crate::tx_dump::dump_tx_from_block;
@@ -852,11 +854,11 @@ pub(crate) fn contract_accounts(
     home_dir: &Path,
     store: Store,
     near_config: NearConfig,
+    filter: ContractAccountFilter,
 ) -> anyhow::Result<()> {
     let (_runtime, state_roots, _header) = load_trie(store.clone(), home_dir, &near_config);
 
-    for (shard_id, &state_root) in state_roots.iter().enumerate() {
-        eprintln!("Starting shard {shard_id}");
+    let tries = state_roots.iter().enumerate().map(|(shard_id, &state_root)| {
         // TODO: This assumes simple nightshade layout, it will need an update when we reshard.
         let shard_uid = ShardUId::from_shard_id_and_layout(
             shard_id as u64,
@@ -866,14 +868,32 @@ pub(crate) fn contract_accounts(
         let storage = TrieDBStorage::new(store.clone(), shard_uid);
         // We don't need flat state to traverse all accounts.
         let flat_state = None;
-        let trie = Trie::new(Box::new(storage), state_root, flat_state);
+        Trie::new(Box::new(storage), state_root, flat_state)
+    });
 
-        for contract in ContractAccount::in_trie(&trie)? {
-            match contract {
-                Ok(contract) => println!("{contract}"),
-                Err(err) => eprintln!("{err}"),
+    filter.write_header(&mut std::io::stdout().lock())?;
+    // Prefer streaming the results, to use less memory and provide
+    // a feedback more quickly.
+    if filter.can_stream() {
+        // Process account after account and display results immediately.
+        for (i, trie) in tries.enumerate() {
+            eprintln!("Starting shard {i}");
+            let trie_iter = ContractAccount::in_trie(trie, filter.clone())?;
+            for contract in trie_iter {
+                match contract {
+                    Ok(contract) => println!("{contract}"),
+                    Err(err) => eprintln!("{err}"),
+                }
             }
         }
+    } else {
+        // Load all results into memory, which allows advanced lookups but also
+        // means we have to wait for everything to complete before output can be
+        // shown.
+        let tries_iterator = ContractAccount::in_tries(tries.collect(), &filter)?;
+        let result = tries_iterator.summary(&store, &filter);
+        println!("{result}");
     }
+
     Ok(())
 }
