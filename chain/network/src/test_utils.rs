@@ -1,12 +1,13 @@
 use crate::network_protocol::PeerInfo;
 use crate::types::{
-    MsgRecipient, NetworkInfo, NetworkResponses, PeerManagerMessageRequest,
-    PeerManagerMessageResponse, SetChainInfo,
+    NetworkInfo, NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
+    SetChainInfo,
 };
 use crate::PeerManagerActor;
-use actix::{Actor, ActorContext, Context, Handler, MailboxError};
+use actix::{Actor, ActorContext, Context, Handler};
 use futures::future::BoxFuture;
 use futures::{future, Future, FutureExt};
+use near_async::messaging::{CanSend, CanSendAsync};
 use near_crypto::{KeyType, SecretKey};
 use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContext};
 use near_primitives::hash::hash;
@@ -233,30 +234,29 @@ pub struct MockPeerManagerAdapter {
     pub notify: Notify,
 }
 
-impl MsgRecipient<WithSpanContext<PeerManagerMessageRequest>> for MockPeerManagerAdapter {
-    fn send(
+impl CanSendAsync<PeerManagerMessageRequest, Result<PeerManagerMessageResponse, ()>>
+    for MockPeerManagerAdapter
+{
+    fn send_async(
         &self,
-        msg: WithSpanContext<PeerManagerMessageRequest>,
-    ) -> BoxFuture<'static, Result<PeerManagerMessageResponse, MailboxError>> {
-        self.do_send(msg);
-        future::ok(PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse))
+        message: PeerManagerMessageRequest,
+    ) -> BoxFuture<'static, Result<PeerManagerMessageResponse, ()>> {
+        self.requests.write().unwrap().push_back(message);
+        self.notify.notify_one();
+        async { Ok(PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)) }
             .boxed()
     }
+}
 
-    fn do_send(&self, msg: WithSpanContext<PeerManagerMessageRequest>) {
-        self.requests.write().unwrap().push_back(msg.msg);
+impl CanSend<PeerManagerMessageRequest> for MockPeerManagerAdapter {
+    fn send(&self, msg: PeerManagerMessageRequest) {
+        self.requests.write().unwrap().push_back(msg);
         self.notify.notify_one();
     }
 }
 
-impl MsgRecipient<WithSpanContext<SetChainInfo>> for MockPeerManagerAdapter {
-    fn send(
-        &self,
-        _msg: WithSpanContext<SetChainInfo>,
-    ) -> BoxFuture<'static, Result<(), MailboxError>> {
-        async { Ok(()) }.boxed()
-    }
-    fn do_send(&self, _msg: WithSpanContext<SetChainInfo>) {}
+impl CanSend<SetChainInfo> for MockPeerManagerAdapter {
+    fn send(&self, _msg: SetChainInfo) {}
 }
 
 impl MockPeerManagerAdapter {

@@ -20,6 +20,7 @@ use actix::{Actor, Addr, Arbiter, AsyncContext, Context, Handler, Message};
 use actix_rt::ArbiterHandle;
 use borsh::BorshSerialize;
 use chrono::DateTime;
+use near_async::messaging::CanSend;
 use near_chain::chain::{
     do_apply_chunks, ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest,
     BlockCatchUpResponse, StateSplitRequest, StateSplitResponse,
@@ -85,7 +86,7 @@ pub struct ClientActor {
     // Address of this ClientActor. Can be used to send messages to self.
     my_address: Addr<ClientActor>,
     pub(crate) client: Client,
-    network_adapter: Arc<dyn PeerManagerAdapter>,
+    network_adapter: PeerManagerAdapter,
     network_info: NetworkInfo,
     /// Identity that represents this Client at the network level.
     /// It is used as part of the messages that identify this client.
@@ -147,7 +148,7 @@ impl ClientActor {
         address: Addr<ClientActor>,
         config: ClientConfig,
         node_id: PeerId,
-        network_adapter: Arc<dyn PeerManagerAdapter>,
+        network_adapter: PeerManagerAdapter,
         validator_signer: Option<Arc<dyn ValidatorSigner>>,
         telemetry_actor: Addr<TelemetryActor>,
         ctx: &Context<ClientActor>,
@@ -330,11 +331,10 @@ impl Handler<WithSpanContext<NetworkAdversarialMessage>> for ClientActor {
                     }
                     let block = block.expect("block should exist after produced");
                     info!(target: "adversary", "Producing {} block out of {}, height = {}", blocks_produced, num_blocks, height);
-                    this.network_adapter.do_send(
+                    this.network_adapter.send(
                         PeerManagerMessageRequest::NetworkRequests(
                             NetworkRequests::Block { block: block.clone() },
                         )
-                        .with_span_context(),
                     );
                     let _ = this.client.start_process_block(
                         block.into(),
@@ -841,17 +841,14 @@ impl ClientActor {
                 &self.node_id,
                 &next_epoch_id,
             );
-            self.network_adapter.do_send(
-                PeerManagerMessageRequest::NetworkRequests(NetworkRequests::AnnounceAccount(
-                    AnnounceAccount {
-                        account_id: validator_signer.validator_id().clone(),
-                        peer_id: self.node_id.clone(),
-                        epoch_id: next_epoch_id,
-                        signature,
-                    },
-                ))
-                .with_span_context(),
-            );
+            self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::AnnounceAccount(AnnounceAccount {
+                    account_id: validator_signer.validator_id().clone(),
+                    peer_id: self.node_id.clone(),
+                    epoch_id: next_epoch_id,
+                    signature,
+                }),
+            ));
         }
     }
 
@@ -1202,12 +1199,9 @@ impl ClientActor {
         let _span = tracing::debug_span!(target: "client", "produce_block", next_height).entered();
         if let Some(block) = self.client.produce_block(next_height)? {
             // If we produced the block, send it out before we apply the block.
-            self.network_adapter.do_send(
-                PeerManagerMessageRequest::NetworkRequests(NetworkRequests::Block {
-                    block: block.clone(),
-                })
-                .with_span_context(),
-            );
+            self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::Block { block: block.clone() },
+            ));
             // We’ve produced the block so that counts as validated block.
             let block = MaybeValidated::from_validated(block);
             let res = self.client.start_process_block(
@@ -1893,7 +1887,7 @@ pub fn start_client(
     chain_genesis: ChainGenesis,
     runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
     node_id: PeerId,
-    network_adapter: Arc<dyn PeerManagerAdapter>,
+    network_adapter: PeerManagerAdapter,
     shards_manager_adapter: Arc<dyn ShardsManagerAdapterForClient>,
     validator_signer: Option<Arc<dyn ValidatorSigner>>,
     telemetry_actor: Addr<TelemetryActor>,

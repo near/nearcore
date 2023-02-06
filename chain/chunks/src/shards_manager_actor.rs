@@ -1,8 +1,11 @@
 use std::{sync::Arc, time::Duration};
 
 use actix::{Actor, Addr, Arbiter, ArbiterHandle, Context, Handler};
+use near_async::messaging::Sender;
 use near_chain::{chunks_store::ReadOnlyChunksStore, types::Tip, RuntimeWithEpochManagerAdapter};
-use near_network::{shards_manager::ShardsManagerRequestFromNetwork, types::PeerManagerAdapter};
+use near_network::{
+    shards_manager::ShardsManagerRequestFromNetwork, types::PeerManagerMessageRequest,
+};
 use near_primitives::types::AccountId;
 use near_store::{DBCol, Store, HEADER_HEAD_KEY, HEAD_KEY};
 
@@ -59,7 +62,7 @@ impl Handler<ShardsManagerRequestFromNetwork> for ShardsManagerActor {
 
 pub fn start_shards_manager(
     runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
-    network_adapter: Arc<dyn PeerManagerAdapter>,
+    network_adapter: Sender<PeerManagerMessageRequest>,
     client_adapter_for_shards_manager: Arc<dyn ClientAdapterForShardsManager>,
     me: Option<AccountId>,
     store: Store,

@@ -8,6 +8,8 @@ use std::time::Duration;
 use actix::{Actor, Addr, AsyncContext, Context};
 use chrono::DateTime;
 use futures::{future, FutureExt};
+
+use near_async::messaging::{IntoSender, LateBoundSender};
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_chunks::ShardsManager;
 use near_network::shards_manager::{
@@ -46,14 +48,13 @@ use near_network::types::{
 };
 use near_network::types::{BlockInfo, PeerChainInfo};
 use near_network::types::{
-    ConnectedPeerInfo, FullPeerInfo, NetworkRecipient, NetworkRequests, NetworkResponses,
-    PeerManagerAdapter,
+    ConnectedPeerInfo, FullPeerInfo, NetworkRequests, NetworkResponses, PeerManagerAdapter,
 };
 use near_network::types::{
     NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, SetChainInfo,
 };
 use near_o11y::testonly::TracingCapture;
-use near_o11y::{WithSpanContext, WithSpanContextExt};
+use near_o11y::WithSpanContextExt;
 use near_primitives::block::{ApprovalInner, Block, GenesisId};
 #[cfg(feature = "protocol_feature_nep366_delegate_action")]
 use near_primitives::delegate_action::{DelegateAction, NonDelegateAction, SignedDelegateAction};
@@ -91,7 +92,7 @@ use crate::adapter::{
 pub struct PeerManagerMock {
     handle: Box<
         dyn FnMut(
-            WithSpanContext<PeerManagerMessageRequest>,
+            PeerManagerMessageRequest,
             &mut actix::Context<Self>,
         ) -> PeerManagerMessageResponse,
     >,
@@ -101,7 +102,7 @@ impl PeerManagerMock {
     fn new(
         f: impl 'static
             + FnMut(
-                WithSpanContext<PeerManagerMessageRequest>,
+                PeerManagerMessageRequest,
                 &mut actix::Context<Self>,
             ) -> PeerManagerMessageResponse,
     ) -> Self {
@@ -113,20 +114,16 @@ impl actix::Actor for PeerManagerMock {
     type Context = actix::Context<Self>;
 }
 
-impl actix::Handler<WithSpanContext<PeerManagerMessageRequest>> for PeerManagerMock {
+impl actix::Handler<PeerManagerMessageRequest> for PeerManagerMock {
     type Result = PeerManagerMessageResponse;
-    fn handle(
-        &mut self,
-        msg: WithSpanContext<PeerManagerMessageRequest>,
-        ctx: &mut Self::Context,
-    ) -> Self::Result {
+    fn handle(&mut self, msg: PeerManagerMessageRequest, ctx: &mut Self::Context) -> Self::Result {
         (self.handle)(msg, ctx)
     }
 }
 
-impl actix::Handler<WithSpanContext<SetChainInfo>> for PeerManagerMock {
+impl actix::Handler<SetChainInfo> for PeerManagerMock {
     type Result = ();
-    fn handle(&mut self, _msg: WithSpanContext<SetChainInfo>, _ctx: &mut Self::Context) {}
+    fn handle(&mut self, _msg: SetChainInfo, _ctx: &mut Self::Context) {}
 }
 
 /// min block production time in milliseconds
@@ -205,7 +202,7 @@ pub fn setup(
     enable_doomslug: bool,
     archive: bool,
     epoch_sync_enabled: bool,
-    network_adapter: Arc<dyn PeerManagerAdapter>,
+    network_adapter: PeerManagerAdapter,
     transaction_validity_period: NumBlocks,
     genesis_time: DateTime<Utc>,
     ctx: &Context<ClientActor>,
@@ -269,7 +266,7 @@ pub fn setup(
 
     let (shards_manager_addr, _) = start_shards_manager(
         runtime.clone(),
-        network_adapter.clone(),
+        network_adapter.clone().into_sender(),
         Arc::new(ctx.address()),
         Some(account_id.clone()),
         store.clone(),
@@ -315,7 +312,7 @@ pub fn setup_only_view(
     enable_doomslug: bool,
     archive: bool,
     epoch_sync_enabled: bool,
-    network_adapter: Arc<dyn PeerManagerAdapter>,
+    network_adapter: PeerManagerAdapter,
     transaction_validity_period: NumBlocks,
     genesis_time: DateTime<Utc>,
 ) -> Addr<ViewClientActor> {
@@ -411,7 +408,7 @@ pub fn setup_mock_with_validity_period_and_no_epoch_sync(
     >,
     transaction_validity_period: NumBlocks,
 ) -> ActorHandlesForTesting {
-    let network_adapter = Arc::new(NetworkRecipient::default());
+    let network_adapter = Arc::new(LateBoundSender::default());
     let mut vca: Option<Addr<ViewClientActor>> = None;
     let mut sma: Option<Arc<dyn ShardsManagerAdapterForTest>> = None;
     let client_addr = ClientActor::create(|ctx: &mut Context<ClientActor>| {
@@ -426,7 +423,7 @@ pub fn setup_mock_with_validity_period_and_no_epoch_sync(
             enable_doomslug,
             false,
             false,
-            network_adapter.clone(),
+            network_adapter.clone().into(),
             transaction_validity_period,
             Clock::utc(),
             ctx,
@@ -438,10 +435,10 @@ pub fn setup_mock_with_validity_period_and_no_epoch_sync(
     let client_addr1 = client_addr.clone();
 
     let network_actor =
-        PeerManagerMock::new(move |msg, ctx| peermanager_mock(&msg.msg, ctx, client_addr1.clone()))
+        PeerManagerMock::new(move |msg, ctx| peermanager_mock(&msg, ctx, client_addr1.clone()))
             .start();
 
-    network_adapter.set_recipient(network_actor);
+    network_adapter.bind(network_actor);
 
     ActorHandlesForTesting {
         client_actor: client_addr,
@@ -682,7 +679,6 @@ pub fn setup_mock_all_validators(
             let client_addr = ctx.address();
             let _account_id = account_id.clone();
             let pm = PeerManagerMock::new(move |msg, _ctx| {
-                let msg = msg.msg;
                 // Note: this `.wait` will block until all `ClientActors` are created.
                 let connectors1 = connectors1.wait();
                 let mut guard = network_mock1.write().unwrap();
@@ -1062,8 +1058,6 @@ pub fn setup_mock_all_validators(
                 resp
             })
             .start();
-            let network_adapter = NetworkRecipient::default();
-            network_adapter.set_recipient(pm);
             let (block, client, view_client_addr, shards_manager_adapter) = setup(
                 vs,
                 epoch_length,
@@ -1074,7 +1068,7 @@ pub fn setup_mock_all_validators(
                 enable_doomslug,
                 archive1[index],
                 epoch_sync_enabled1[index],
-                Arc::new(network_adapter),
+                Arc::new(pm).into(),
                 10000,
                 genesis_time,
                 ctx,
@@ -1139,7 +1133,7 @@ pub fn setup_client_with_runtime(
     num_validator_seats: NumSeats,
     account_id: Option<AccountId>,
     enable_doomslug: bool,
-    network_adapter: Arc<dyn PeerManagerAdapter>,
+    network_adapter: PeerManagerAdapter,
     shards_manager_adapter: Arc<dyn ShardsManagerAdapterForTest>,
     chain_genesis: ChainGenesis,
     runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
@@ -1172,7 +1166,7 @@ pub fn setup_client(
     vs: ValidatorSchedule,
     account_id: Option<AccountId>,
     enable_doomslug: bool,
-    network_adapter: Arc<dyn PeerManagerAdapter>,
+    network_adapter: PeerManagerAdapter,
     shards_manager_adapter: Arc<dyn ShardsManagerAdapterForTest>,
     chain_genesis: ChainGenesis,
     rng_seed: RngSeed,
@@ -1199,7 +1193,7 @@ pub fn setup_client(
 pub fn setup_synchronous_shards_manager(
     account_id: Option<AccountId>,
     client_adapter: Arc<dyn ClientAdapterForShardsManager>,
-    network_adapter: Arc<dyn PeerManagerAdapter>,
+    network_adapter: PeerManagerAdapter,
     runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
     chain_genesis: &ChainGenesis,
 ) -> Arc<dyn ShardsManagerAdapterForTest> {
@@ -1220,7 +1214,7 @@ pub fn setup_synchronous_shards_manager(
     let shards_manager = ShardsManager::new(
         account_id,
         runtime_adapter,
-        network_adapter,
+        network_adapter.request_sender,
         client_adapter,
         chain.store().new_read_only_chunks_store(),
         chain_head,
@@ -1234,7 +1228,7 @@ pub fn setup_client_with_synchronous_shards_manager(
     vs: ValidatorSchedule,
     account_id: Option<AccountId>,
     enable_doomslug: bool,
-    network_adapter: Arc<dyn PeerManagerAdapter>,
+    network_adapter: PeerManagerAdapter,
     client_adapter: Arc<dyn ClientAdapterForShardsManager>,
     chain_genesis: ChainGenesis,
     rng_seed: RngSeed,
@@ -1461,7 +1455,7 @@ impl TestEnvBuilder {
                 setup_synchronous_shards_manager(
                     Some(clients[i].clone()),
                     client_adapter,
-                    network_adapter,
+                    network_adapter.into(),
                     runtime_adapter,
                     &chain_genesis,
                 )
@@ -1481,7 +1475,7 @@ impl TestEnvBuilder {
                     u64::try_from(num_validators).unwrap(),
                     Some(account_id),
                     false,
-                    network_adapter,
+                    network_adapter.into(),
                     shards_manager_adapter,
                     chain_genesis.clone(),
                     runtime_adapter,
@@ -1800,7 +1794,7 @@ impl TestEnv {
             num_validator_seats,
             Some(self.get_client_id(idx).clone()),
             false,
-            self.network_adapters[idx].clone(),
+            self.network_adapters[idx].clone().into(),
             self.shards_manager_adapters[idx].clone(),
             self.chain_genesis.clone(),
             runtime_adapter,

@@ -1,5 +1,7 @@
 use actix::{Actor, Addr};
 use anyhow::{anyhow, bail, Context};
+use near_async::actix::AddrWithAutoSpanContextExt;
+use near_async::messaging::{IntoSender, LateBoundSender};
 use near_chain::test_utils::{KeyValueRuntime, ValidatorSchedule};
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis};
@@ -12,9 +14,9 @@ use near_network::config;
 use near_network::tcp;
 use near_network::test_utils::{expected_routing_tables, peer_id_from_seed, GetInfo};
 use near_network::time;
-use near_network::types::NetworkRecipient;
 use near_network::types::{
-    PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, ROUTED_MESSAGE_TTL,
+    NetworkRecipient, PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse,
+    ROUTED_MESSAGE_TTL,
 };
 use near_network::PeerManagerActor;
 use near_o11y::testonly::init_test_logger;
@@ -67,7 +69,7 @@ fn setup_network_node(
         chain_id: client_config.chain_id.clone(),
         hash: genesis_block.header().hash().clone(),
     };
-    let network_adapter = Arc::new(NetworkRecipient::default());
+    let network_adapter = Arc::new(LateBoundSender::default());
     let shards_manager_adapter = Arc::new(NetworkRecipient::default());
     let adv = near_client::adversarial::Controls::default();
     let client_actor = start_client(
@@ -75,7 +77,7 @@ fn setup_network_node(
         chain_genesis.clone(),
         runtime.clone(),
         config.node_id(),
-        network_adapter.clone(),
+        network_adapter.clone().into(),
         shards_manager_adapter.clone(),
         Some(signer.clone()),
         telemetry_actor,
@@ -88,13 +90,13 @@ fn setup_network_node(
         config.validator.as_ref().map(|v| v.account_id()),
         chain_genesis.clone(),
         runtime.clone(),
-        network_adapter.clone(),
+        network_adapter.clone().into(),
         client_config.clone(),
         adv,
     );
     let (shards_manager_actor, _) = start_shards_manager(
         runtime.clone(),
-        network_adapter.clone(),
+        network_adapter.as_sender(),
         Arc::new(client_actor.clone()),
         Some(signer.validator_id().clone()),
         runtime.store().clone(),
@@ -110,7 +112,7 @@ fn setup_network_node(
         genesis_id,
     )
     .unwrap();
-    network_adapter.set_recipient(peer_manager.clone());
+    network_adapter.bind(peer_manager.clone().with_auto_span_context());
     peer_manager
 }
 
