@@ -5,7 +5,7 @@ use near_primitives::types::Gas;
 use near_primitives::utils::index_to_bytes;
 use near_store::metadata::{DbVersion, DB_VERSION};
 use near_store::migrations::BatchedStoreUpdate;
-use near_store::{DBCol, NodeStorage, Temperature};
+use near_store::{DBCol, NodeStorage, Store, Temperature};
 
 /// Fix an issue with block ordinal (#5761)
 // This migration takes at least 3 hours to complete on mainnet
@@ -136,35 +136,36 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
         }
     }
 
-    fn migrate(&self, storage: &NodeStorage, version: DbVersion) -> anyhow::Result<()> {
-        match version {
-            0..=26 => unreachable!(),
-            27 => {
-                // version 27 => 28: add DBCol::StateChangesForSplitStates
-                //
-                // Does not need to do anything since open db with option
-                // `create_missing_column_families`.  Nevertheless need to bump
-                // db version, because db_version 27 binary can't open
-                // db_version 28 db.  Combine it with migration from 28 to 29;
-                // don’t do anything here.
-                Ok(())
-            }
-            28 => near_store::migrations::migrate_28_to_29(storage),
-            29 => near_store::migrations::migrate_29_to_30(storage),
-            30 => migrate_30_to_31(storage, &self.config),
-            31 => near_store::migrations::migrate_31_to_32(storage),
-            32 => near_store::migrations::migrate_32_to_33(storage),
-            33 => {
-                near_store::migrations::migrate_33_to_34(storage, self.config.client_config.archive)
-            }
-            #[cfg(feature = "protocol_feature_flat_state")]
-            34 => {
-                tracing::info!(target: "migrations", "Migrating DB version from 34 to 35. Flat storage data will be created on disk.");
-                tracing::info!(target: "migrations", "It will happen in parallel with regular block processing. ETA is 5h for RPC node and 10h for archival node.");
-                Ok(())
-            }
-            DB_VERSION.. => unreachable!(),
-        }
+    fn migrate(&self, _store: &Store, _version: DbVersion) -> anyhow::Result<()> {
+        todo!();
+        // match version {
+        //     0..=26 => unreachable!(),
+        //     27 => {
+        //         // version 27 => 28: add DBCol::StateChangesForSplitStates
+        //         //
+        //         // Does not need to do anything since open db with option
+        //         // `create_missing_column_families`.  Nevertheless need to bump
+        //         // db version, because db_version 27 binary can't open
+        //         // db_version 28 db.  Combine it with migration from 28 to 29;
+        //         // don’t do anything here.
+        //         Ok(())
+        //     }
+        //     28 => near_store::migrations::migrate_28_to_29(storage),
+        //     29 => near_store::migrations::migrate_29_to_30(storage),
+        //     30 => migrate_30_to_31(storage, &self.config),
+        //     31 => near_store::migrations::migrate_31_to_32(storage),
+        //     32 => near_store::migrations::migrate_32_to_33(storage),
+        //     33 => {
+        //         near_store::migrations::migrate_33_to_34(storage, self.config.client_config.archive)
+        //     }
+        //     #[cfg(feature = "protocol_feature_flat_state")]
+        //     34 => {
+        //         tracing::info!(target: "migrations", "Migrating DB version from 34 to 35. Flat storage data will be created on disk.");
+        //         tracing::info!(target: "migrations", "It will happen in parallel with regular block processing. ETA is 5h for RPC node and 10h for archival node.");
+        //         Ok(())
+        //     }
+        //     DB_VERSION.. => unreachable!(),
+        // }
     }
 }
 
