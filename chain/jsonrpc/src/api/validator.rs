@@ -10,7 +10,7 @@ use near_primitives::types::{EpochReference, MaybeBlockId};
 use super::{parse_params, RpcFrom, RpcRequest};
 
 impl RpcRequest for RpcValidatorRequest {
-    fn parse(value: Option<Value>) -> Result<Self, RpcParseError> {
+    fn parse(value: Value) -> Result<Self, RpcParseError> {
         let epoch_reference =
             if let Ok((block_id,)) = parse_params::<(MaybeBlockId,)>(value.clone()) {
                 match block_id {
@@ -25,7 +25,7 @@ impl RpcRequest for RpcValidatorRequest {
 }
 
 impl RpcRequest for RpcValidatorsOrderedRequest {
-    fn parse(value: Option<Value>) -> Result<Self, RpcParseError> {
+    fn parse(value: Value) -> Result<Self, RpcParseError> {
         parse_params::<Self>(value)
     }
 }

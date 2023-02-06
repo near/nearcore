@@ -67,7 +67,7 @@ use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, GCMode};
 use crate::types::{
     AcceptedBlock, ApplySplitStateResult, ApplySplitStateResultOrStateChanges,
     ApplyTransactionResult, Block, BlockEconomicsConfig, BlockHeader, BlockHeaderInfo, BlockStatus,
-    ChainConfig, ChainGenesis, Provenance, RuntimeAdapter,
+    ChainConfig, ChainGenesis, Provenance, RuntimeWithEpochManagerAdapter,
 };
 use crate::validate::{
     validate_challenge, validate_chunk_proofs, validate_chunk_with_chunk_extra,
@@ -429,7 +429,7 @@ type BlockApplyChunksResult = (CryptoHash, Vec<Result<ApplyChunkResult, Error>>)
 /// Provides current view on the state according to the chain state.
 pub struct Chain {
     store: ChainStore,
-    pub runtime_adapter: Arc<dyn RuntimeAdapter>,
+    pub runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
     orphans: OrphanBlockPool,
     pub blocks_with_missing_chunks: MissingChunksPool<Orphan>,
     genesis: Block,
@@ -479,7 +479,7 @@ impl Drop for Chain {
 }
 impl Chain {
     pub fn make_genesis_block(
-        runtime_adapter: &dyn RuntimeAdapter,
+        runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
         chain_genesis: &ChainGenesis,
     ) -> Result<Block, Error> {
         let (_, state_roots) = runtime_adapter.genesis_state();
@@ -507,7 +507,7 @@ impl Chain {
     }
 
     pub fn new_for_view_client(
-        runtime_adapter: Arc<dyn RuntimeAdapter>,
+        runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
         chain_genesis: &ChainGenesis,
         doomslug_threshold_mode: DoomslugThresholdMode,
         save_trie_changes: bool,
@@ -538,7 +538,7 @@ impl Chain {
     }
 
     pub fn new(
-        runtime_adapter: Arc<dyn RuntimeAdapter>,
+        runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
         chain_genesis: &ChainGenesis,
         doomslug_threshold_mode: DoomslugThresholdMode,
         chain_config: ChainConfig,
@@ -692,7 +692,7 @@ impl Chain {
     }
 
     pub fn compute_bp_hash(
-        runtime_adapter: &dyn RuntimeAdapter,
+        runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
         epoch_id: EpochId,
         prev_epoch_id: EpochId,
         last_known_hash: &CryptoHash,
@@ -719,7 +719,7 @@ impl Chain {
     ///               compute the light client block
     pub fn create_light_client_block(
         header: &BlockHeader,
-        runtime_adapter: &dyn RuntimeAdapter,
+        runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
         chain_store: &dyn ChainStoreAccess,
     ) -> Result<LightClientBlockView, Error> {
         let final_block_header = {
@@ -1086,7 +1086,7 @@ impl Chain {
     }
 
     fn validate_block_impl(
-        runtime_adapter: &dyn RuntimeAdapter,
+        runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
         genesis_block: &Block,
         block: &Block,
     ) -> Result<(), Error> {
@@ -2560,7 +2560,7 @@ impl Chain {
     /// 2) Shard layout will be the same. In this case, the method returns all shards that `me` will
     ///    track in the next epoch but not this epoch
     fn get_shards_to_dl_state(
-        runtime_adapter: Arc<dyn RuntimeAdapter>,
+        runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
         me: &Option<AccountId>,
         parent_hash: &CryptoHash,
     ) -> Result<Vec<ShardId>, Error> {
@@ -2573,7 +2573,7 @@ impl Chain {
     }
 
     fn should_catch_up_shard(
-        runtime_adapter: Arc<dyn RuntimeAdapter>,
+        runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
         me: &Option<AccountId>,
         parent_hash: &CryptoHash,
         shard_id: ShardId,
@@ -3172,7 +3172,6 @@ impl Chain {
         let chunk = shard_state_header.cloned_chunk();
 
         let block_hash = chunk.prev_block();
-        let block_height = self.get_block_header(block_hash)?.height();
 
         // Flat storage must not exist at this point because leftover keys corrupt its state.
         assert!(self.runtime_adapter.get_flat_storage_state_for_shard(shard_id).is_none());
@@ -3190,11 +3189,18 @@ impl Chain {
         if self.runtime_adapter.get_flat_storage_creation_status(shard_id)
             == FlatStorageCreationStatus::Ready
         {
-            self.runtime_adapter.create_flat_storage_state_for_shard(
-                shard_id,
-                block_height,
-                self.store(),
-            );
+            // If block_hash is equal to default - this means that we're all the way back at genesis.
+            // So we don't have to add the storage state for shard in such case.
+            // TODO(8438) - add additional test scenarios for this case.
+            if *block_hash != CryptoHash::default() {
+                let block_height = self.get_block_header(block_hash)?.height();
+
+                self.runtime_adapter.create_flat_storage_state_for_shard(
+                    shard_id,
+                    block_height,
+                    self.store(),
+                );
+            }
         }
 
         let mut height = shard_state_header.chunk_height_included();
@@ -4406,9 +4412,9 @@ impl Chain {
         &mut self.store
     }
 
-    /// Returns underlying RuntimeAdapter.
+    /// Returns underlying RuntimeWithEpochManagerAdapter.
     #[inline]
-    pub fn runtime_adapter(&self) -> Arc<dyn RuntimeAdapter> {
+    pub fn runtime_adapter(&self) -> Arc<dyn RuntimeWithEpochManagerAdapter> {
         self.runtime_adapter.clone()
     }
 
@@ -4551,7 +4557,7 @@ impl Chain {
     /// `get_prev_chunks(runtime_adapter, prev_block)` will return
     /// `[prev_block.chunks()[0], prev_block.chunks()[0], prev_block.chunks()[1], prev_block.chunks()[1]]`
     pub fn get_prev_chunk_headers(
-        runtime_adapter: &dyn RuntimeAdapter,
+        runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
         prev_block: &Block,
     ) -> Result<Vec<ShardChunkHeader>, Error> {
         let epoch_id = runtime_adapter.get_epoch_id_from_prev_block(prev_block.hash())?;
@@ -4566,7 +4572,7 @@ impl Chain {
     }
 
     pub fn get_prev_chunk_header(
-        runtime_adapter: &dyn RuntimeAdapter,
+        runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
         prev_block: &Block,
         shard_id: ShardId,
     ) -> Result<ShardChunkHeader, Error> {
@@ -4637,7 +4643,7 @@ impl Chain {
 /// If rejected nothing will be updated in underlying storage.
 /// Safe to stop process mid way (Ctrl+C or crash).
 pub struct ChainUpdate<'a> {
-    runtime_adapter: Arc<dyn RuntimeAdapter>,
+    runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
     chain_store_update: ChainStoreUpdate<'a>,
     doomslug_threshold_mode: DoomslugThresholdMode,
     #[allow(unused)]
@@ -4672,7 +4678,7 @@ pub enum ApplyChunkResult {
 impl<'a> ChainUpdate<'a> {
     pub fn new(
         store: &'a mut ChainStore,
-        runtime_adapter: Arc<dyn RuntimeAdapter>,
+        runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
         doomslug_threshold_mode: DoomslugThresholdMode,
         transaction_validity_period: BlockHeightDelta,
     ) -> Self {
@@ -4686,7 +4692,7 @@ impl<'a> ChainUpdate<'a> {
     }
 
     fn new_impl(
-        runtime_adapter: Arc<dyn RuntimeAdapter>,
+        runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
         doomslug_threshold_mode: DoomslugThresholdMode,
         transaction_validity_period: BlockHeightDelta,
         chain_store_update: ChainStoreUpdate<'a>,
@@ -4779,7 +4785,7 @@ impl<'a> ChainUpdate<'a> {
     ///    otherwise, this function returns state changes needed to be applied to split
     ///    states. These state changes will be stored in the database by `process_split_state`
     fn apply_split_state_changes(
-        runtime_adapter: &dyn RuntimeAdapter,
+        runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
         block_hash: &CryptoHash,
         prev_block_hash: &CryptoHash,
         apply_result: &ApplyTransactionResult,
@@ -5514,7 +5520,7 @@ pub fn collect_receipts_from_response(
 #[derive(Message)]
 #[rtype(result = "()")]
 pub struct ApplyStatePartsRequest {
-    pub runtime: Arc<dyn RuntimeAdapter>,
+    pub runtime: Arc<dyn RuntimeWithEpochManagerAdapter>,
     pub shard_id: ShardId,
     pub state_root: StateRoot,
     pub num_parts: u64,
@@ -5550,7 +5556,7 @@ pub struct BlockCatchUpResponse {
 #[derive(Message)]
 #[rtype(result = "()")]
 pub struct StateSplitRequest {
-    pub runtime: Arc<dyn RuntimeAdapter>,
+    pub runtime: Arc<dyn RuntimeWithEpochManagerAdapter>,
     pub sync_hash: CryptoHash,
     pub shard_id: ShardId,
     pub shard_uid: ShardUId,

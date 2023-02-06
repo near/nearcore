@@ -1,6 +1,6 @@
 use crate::tests::client::process_blocks::deploy_test_contract;
 use assert_matches::assert_matches;
-use near_chain::{ChainGenesis, RuntimeAdapter};
+use near_chain::{ChainGenesis, RuntimeWithEpochManagerAdapter};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_primitives::errors::{ActionErrorKind, TxExecutionError};
@@ -31,7 +31,7 @@ fn verify_contract_limits_upgrade(
         genesis.config.epoch_length = epoch_length;
         genesis.config.protocol_version = old_protocol_version;
         let chain_genesis = ChainGenesis::new(&genesis);
-        let runtimes: Vec<Arc<dyn RuntimeAdapter>> =
+        let runtimes: Vec<Arc<dyn RuntimeWithEpochManagerAdapter>> =
             vec![Arc::new(nearcore::NightshadeRuntime::test_with_runtime_config_store(
                 Path::new("../../../.."),
                 create_test_store(),

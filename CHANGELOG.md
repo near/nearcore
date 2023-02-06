@@ -3,9 +3,22 @@
 ## [unreleased]
 
 ### Protocol Changes
+* Stabilize `ed25519_verify` feature: introducing a host function to verify
+ed25519 signatures efficiently.
+[#8098](https://github.com/near/nearcore/pull/8098)
+[NEP-364](https://github.com/near/NEPs/pull/364)
+* Added STUN-based self-discovery to make configuration of TIER1 network easier in the simplest validator setups.
+  [#8472](https://github.com/near/nearcore/pull/8472)
 
 ### Non-protocol Changes
 * `/debug` page now has client_config linked. You can also check your client_config directly at /debug/client_config
+* Added cold store loop - a background thread that copies data from hot to cold storage and a new json rpc endpoing - split_storage_info - that
+  exposes debug info about the split storage.
+  [#8432](https://github.com/near/nearcore/pull/8432)
+
+* `ClientConfig` can be updated while the node is running.
+  `dyn_config.json` is no longer needed as its contents were merged into `config.json`.
+  [#8240](https://github.com/near/nearcore/pull/8240)
 
 ## 1.31.0
 

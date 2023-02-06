@@ -21,13 +21,13 @@ fn test_request_chunk_restart() {
         part_ords: vec![0],
         tracking_shards: HashSet::default(),
     };
-    let client = &mut env.clients[0];
-    client.shards_mgr.process_partial_encoded_chunk_request(request.clone(), CryptoHash::default());
+    env.shards_manager_adapters[0]
+        .process_partial_encoded_chunk_request(request.clone(), CryptoHash::default());
     assert!(env.network_adapters[0].pop().is_some());
 
     env.restart(0);
-    let client = &mut env.clients[0];
-    client.shards_mgr.process_partial_encoded_chunk_request(request, CryptoHash::default());
+    env.shards_manager_adapters[0]
+        .process_partial_encoded_chunk_request(request, CryptoHash::default());
     let response = env.network_adapters[0].pop().unwrap().as_network_requests();
 
     if let NetworkRequests::PartialEncodedChunkResponse { response: response_body, .. } = response {

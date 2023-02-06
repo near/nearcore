@@ -56,6 +56,7 @@ near-store = { path = "../core/store" }
 near-telemetry = { path = "../chain/telemetry" }
 near-vm-runner = { path = "../runtime/near-vm-runner"}
 node-runtime = { path = "../runtime/runtime" }
+near-config-utils = { path = "../utils/config" }
 
 delay-detector = { path = "../tools/delay-detector" }
 
@@ -111,6 +112,7 @@ protocol_feature_nep366_delegate_action = [
   "near-primitives/protocol_feature_nep366_delegate_action",
   "near-rosetta-rpc/protocol_feature_nep366_delegate_action",
 ]
+protocol_feature_zero_balance_account = ["node-runtime/protocol_feature_zero_balance_account"]
 
 nightly = [
   "nightly_protocol",
@@ -127,6 +129,7 @@ nightly = [
 nightly_protocol = [
   "near-primitives/nightly_protocol",
   "near-jsonrpc/nightly_protocol",
+  "node-runtime/nightly_protocol"
 ]
 
 # Force usage of a specific wasm vm irrespective of protocol version.
@@ -140,3 +143,5 @@ sandbox = [
   "near-jsonrpc/sandbox",
 ]
 io_trace = ["near-vm-runner/io_trace"]
+
+calimero_zero_storage = ["near-primitives/calimero_zero_storage"]

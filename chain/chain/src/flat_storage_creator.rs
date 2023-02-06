@@ -9,7 +9,7 @@
 //! `CatchingUp`: moves flat storage head forward, so it may reach chain final head.
 //! `Ready`: flat storage is created and it is up-to-date.
 
-use crate::{ChainStore, ChainStoreAccess, RuntimeAdapter};
+use crate::{ChainStore, ChainStoreAccess, RuntimeWithEpochManagerAdapter};
 #[cfg(feature = "protocol_feature_flat_state")]
 use assert_matches::assert_matches;
 use crossbeam_channel::{unbounded, Receiver, Sender};
@@ -64,7 +64,7 @@ pub struct FlatStorageShardCreator {
     #[allow(unused)]
     start_height: BlockHeight,
     #[allow(unused)]
-    runtime_adapter: Arc<dyn RuntimeAdapter>,
+    runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
     /// Tracks number of state parts which are not fetched yet during a single step.
     /// Stores Some(parts) if threads for fetching state were spawned and None otherwise.
     #[allow(unused)]
@@ -87,7 +87,7 @@ impl FlatStorageShardCreator {
     pub fn new(
         shard_id: ShardId,
         start_height: BlockHeight,
-        runtime_adapter: Arc<dyn RuntimeAdapter>,
+        runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
     ) -> Self {
         let (fetched_parts_sender, fetched_parts_receiver) = unbounded();
         // `itoa` is much faster for printing shard_id to a string than trivial alternatives.
@@ -241,6 +241,7 @@ impl FlatStorageShardCreator {
                     let num_state_parts =
                         root_node.memory_usage / STATE_PART_MEMORY_LIMIT.as_u64() + 1;
                     let status = FetchingStateStatus {
+                        block_hash,
                         part_id: 0,
                         num_parts_in_step: NUM_PARTS_IN_ONE_STEP,
                         num_parts: num_state_parts,
@@ -249,14 +250,17 @@ impl FlatStorageShardCreator {
 
                     let mut store_update = chain_store.store().store_update();
                     self.metrics.flat_head_height.set(final_head.height as i64);
-                    store_helper::set_flat_head(&mut store_update, shard_id, &block_hash);
-                    store_helper::set_fetching_state_status(&mut store_update, shard_id, status);
+                    store_helper::set_flat_storage_creation_status(
+                        &mut store_update,
+                        shard_id,
+                        FlatStorageCreationStatus::FetchingState(status),
+                    );
                     store_update.commit()?;
                 }
             }
             FlatStorageCreationStatus::FetchingState(fetching_state_status) => {
                 let store = self.runtime_adapter.store().clone();
-                let block_hash = store_helper::get_flat_head(&store, shard_id).unwrap();
+                let block_hash = fetching_state_status.block_hash;
                 let start_part_id = fetching_state_status.part_id;
                 let num_parts_in_step = fetching_state_status.num_parts_in_step;
                 let num_parts = fetching_state_status.num_parts;
@@ -320,30 +324,33 @@ impl FlatStorageShardCreator {
                             // If there are still remaining state parts, switch status to the new range of state parts.
                             // We will spawn new rayon tasks on the next status update.
                             let new_status = FetchingStateStatus {
+                                block_hash,
                                 part_id: next_start_part_id,
                                 num_parts_in_step,
                                 num_parts,
                             };
                             debug!(target: "chain", %shard_id, %block_hash, ?new_status);
-                            store_helper::set_fetching_state_status(
+                            store_helper::set_flat_storage_creation_status(
                                 &mut store_update,
                                 shard_id,
-                                new_status,
+                                FlatStorageCreationStatus::FetchingState(new_status),
                             );
                         } else {
                             // If all parts were fetched, we can start catchup.
                             info!(target: "chain", %shard_id, %block_hash, "Finished fetching state");
                             self.metrics.remaining_state_parts.set(0);
-                            store_helper::remove_fetching_state_status(&mut store_update, shard_id);
-                            store_helper::start_catchup(&mut store_update, shard_id);
+                            store_helper::set_flat_storage_creation_status(
+                                &mut store_update,
+                                shard_id,
+                                FlatStorageCreationStatus::CatchingUp(block_hash),
+                            );
                         }
                         store_update.commit()?;
                     }
                 }
             }
-            FlatStorageCreationStatus::CatchingUp => {
+            FlatStorageCreationStatus::CatchingUp(old_flat_head) => {
                 let store = self.runtime_adapter.store();
-                let old_flat_head = store_helper::get_flat_head(store, shard_id).unwrap();
                 let mut flat_head = old_flat_head.clone();
                 let chain_final_head = chain_store.final_head()?;
                 let mut merged_delta = FlatStateDelta::default();
@@ -365,19 +372,22 @@ impl FlatStorageShardCreator {
                     merged_delta.merge(delta.as_ref());
                 }
 
-                if old_flat_head != flat_head {
+                if old_flat_head != &flat_head {
                     // If flat head changes, save all changes to store.
                     let old_height = chain_store.get_block_height(&old_flat_head).unwrap();
                     let height = chain_store.get_block_height(&flat_head).unwrap();
                     debug!(target: "chain", %shard_id, %old_flat_head, %old_height, %flat_head, %height, "Catching up flat head");
                     self.metrics.flat_head_height.set(height as i64);
                     let mut store_update = self.runtime_adapter.store().store_update();
-                    store_helper::set_flat_head(&mut store_update, shard_id, &flat_head);
                     merged_delta.apply_to_flat_state(&mut store_update);
 
                     if flat_head == chain_final_head.last_block_hash {
                         // If we reached chain final head, we can finish catchup and finally create flat storage.
-                        store_helper::finish_catchup(&mut store_update, shard_id);
+                        store_helper::remove_flat_storage_creation_status(
+                            &mut store_update,
+                            shard_id,
+                        );
+                        store_helper::set_flat_head(&mut store_update, shard_id, &flat_head);
                         store_update.commit()?;
                         self.runtime_adapter.create_flat_storage_state_for_shard(
                             shard_id,
@@ -386,6 +396,11 @@ impl FlatStorageShardCreator {
                         );
                         info!(target: "chain", %shard_id, %flat_head, %height, "Flat storage creation done");
                     } else {
+                        store_helper::set_flat_storage_creation_status(
+                            &mut store_update,
+                            shard_id,
+                            FlatStorageCreationStatus::CatchingUp(flat_head),
+                        );
                         store_update.commit()?;
                     }
                 }
@@ -411,7 +426,7 @@ impl FlatStorageCreator {
     /// or starts migration to flat storage which updates DB in background and creates flat storage afterwards.
     pub fn new(
         me: Option<&AccountId>,
-        runtime_adapter: Arc<dyn RuntimeAdapter>,
+        runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
         chain_store: &ChainStore,
         num_threads: usize,
     ) -> Result<Option<Self>, Error> {

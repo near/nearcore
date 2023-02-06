@@ -1,6 +1,6 @@
 use std::{collections::HashSet, path::Path, sync::Arc};
 
-use near_chain::{ChainGenesis, Provenance, RuntimeAdapter};
+use near_chain::{ChainGenesis, Provenance, RuntimeWithEpochManagerAdapter};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
@@ -8,7 +8,6 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::{
     runtime::config_store::RuntimeConfigStore,
     shard_layout::ShardLayout,
-    sharding::PartialEncodedChunk,
     types::{AccountId, EpochId, ShardId},
 };
 use near_store::test_utils::create_test_store;
@@ -48,7 +47,7 @@ impl AdversarialBehaviorTestData {
             config.chunk_producer_kickout_threshold = 50;
         }
         let chain_genesis = ChainGenesis::new(&genesis);
-        let runtimes: Vec<Arc<dyn RuntimeAdapter>> = (0..num_clients)
+        let runtimes: Vec<Arc<dyn RuntimeWithEpochManagerAdapter>> = (0..num_clients)
             .map(|_| {
                 Arc::new(nearcore::NightshadeRuntime::test_with_runtime_config_store(
                     Path::new("."),
@@ -56,7 +55,7 @@ impl AdversarialBehaviorTestData {
                     &genesis,
                     TrackedConfig::AllShards,
                     RuntimeConfigStore::test(),
-                )) as Arc<dyn RuntimeAdapter>
+                )) as Arc<dyn RuntimeWithEpochManagerAdapter>
             })
             .collect();
         let env = TestEnv::builder(chain_genesis)
@@ -78,25 +77,11 @@ impl AdversarialBehaviorTestData {
             }
             NetworkRequests::PartialEncodedChunkMessage { account_id, partial_encoded_chunk } => {
                 self.env
-                    .client(&account_id)
-                    .shards_mgr
-                    .process_partial_encoded_chunk(
-                        PartialEncodedChunk::from(partial_encoded_chunk).into(),
-                    )
-                    .unwrap();
+                    .shards_manager(&account_id)
+                    .process_partial_encoded_chunk(partial_encoded_chunk.into());
             }
             NetworkRequests::PartialEncodedChunkForward { account_id, forward } => {
-                match self
-                    .env
-                    .client(&account_id)
-                    .shards_mgr
-                    .process_partial_encoded_chunk_forward(forward)
-                {
-                    Ok(_) | Err(near_chunks::Error::UnknownChunk) => {}
-                    Err(e) => {
-                        panic!("Unexpected error from chunk forward: {:?}", e)
-                    }
-                }
+                self.env.shards_manager(&account_id).process_partial_encoded_chunk_forward(forward);
             }
             NetworkRequests::Challenge(_) => {
                 // challenges not enabled.

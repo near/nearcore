@@ -200,6 +200,15 @@ pub(crate) static PEER_MESSAGE_SENT_BY_TYPE_TOTAL: Lazy<IntCounterVec> = Lazy::n
     )
     .unwrap()
 });
+pub(crate) static SYNC_ACCOUNTS_DATA: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_sync_accounts_data",
+        "Number of SyncAccountsData messages sent/received",
+        &["direction", "incremental", "requesting_full_sync"],
+    )
+    .unwrap()
+});
+
 pub(crate) static REQUEST_COUNT_BY_TYPE_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
         "near_requests_count_by_type_total",
@@ -349,6 +358,19 @@ pub(crate) static ALREADY_CONNECTED_ACCOUNT: Lazy<IntCounter> = Lazy::new(|| {
     .unwrap()
 });
 
+pub(crate) static ACCOUNT_TO_PEER_LOOKUPS: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_account_to_peer_lookups",
+        "number of lookups of peer_id by account_id (for routed messages)",
+        // Source is either "AnnounceAccount" or "AccountData".
+        // We want to deprecate AnnounceAccount, so eventually we want all
+        // lookups to be done via AccountData. For now AnnounceAccount is
+        // used as a fallback.
+        &["source"],
+    )
+    .unwrap()
+});
+
 /// Updated the prometheus metrics about the received routed message `msg`.
 /// `tier` indicates the network over which the message was transmitted.
 /// `fastest` indicates whether this message is the first copy of `msg` received -
@@ -364,6 +386,13 @@ pub(crate) fn record_routed_msg_metrics(
     record_routed_msg_hops(msg);
 }
 
+pub(crate) fn bool_to_str(b: bool) -> &'static str {
+    match b {
+        true => "true",
+        false => "false",
+    }
+}
+
 // The routed message reached its destination. If the timestamp of creation of this message is
 // known, then update the corresponding latency metric histogram.
 fn record_routed_msg_latency(
@@ -376,14 +405,7 @@ fn record_routed_msg_latency(
         let now = clock.now_utc();
         let duration = now - created_at;
         NETWORK_ROUTED_MSG_LATENCY
-            .with_label_values(&[
-                msg.body_variant(),
-                tier.as_ref(),
-                match fastest {
-                    true => "true",
-                    false => "false",
-                },
-            ])
+            .with_label_values(&[msg.body_variant(), tier.as_ref(), bool_to_str(fastest)])
             .observe(duration.as_seconds_f64());
     }
 }

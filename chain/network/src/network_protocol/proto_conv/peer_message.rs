@@ -3,7 +3,7 @@ use super::*;
 
 use crate::network_protocol::proto;
 use crate::network_protocol::proto::peer_message::Message_type as ProtoMT;
-use crate::network_protocol::{PeerMessage, RoutingTableUpdate, SyncAccountsData};
+use crate::network_protocol::{Disconnect, PeerMessage, RoutingTableUpdate, SyncAccountsData};
 use crate::network_protocol::{RoutedMessage, RoutedMessageV2};
 use crate::time::error::ComponentRange;
 use borsh::{BorshDeserialize as _, BorshSerialize as _};
@@ -144,7 +144,10 @@ impl From<&PeerMessage> for proto::PeerMessage {
                     num_hops: r.num_hops,
                     ..Default::default()
                 }),
-                PeerMessage::Disconnect => ProtoMT::Disconnect(proto::Disconnect::new()),
+                PeerMessage::Disconnect(r) => ProtoMT::Disconnect(proto::Disconnect {
+                    remove_from_connection_store: r.remove_from_connection_store,
+                    ..Default::default()
+                }),
                 PeerMessage::Challenge(r) => ProtoMT::Challenge(proto::Challenge {
                     borsh: r.try_to_vec().unwrap(),
                     ..Default::default()
@@ -267,7 +270,9 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
                     .map_err(Self::Error::RoutedCreatedAtTimestamp)?,
                 num_hops: r.num_hops,
             })),
-            ProtoMT::Disconnect(_) => PeerMessage::Disconnect,
+            ProtoMT::Disconnect(d) => PeerMessage::Disconnect(Disconnect {
+                remove_from_connection_store: d.remove_from_connection_store,
+            }),
             ProtoMT::Challenge(c) => PeerMessage::Challenge(
                 Challenge::try_from_slice(&c.borsh).map_err(Self::Error::Challenge)?,
             ),

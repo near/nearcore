@@ -18,3 +18,12 @@ near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
 near-chain = { path = "../../chain/chain" }
 near-test-contracts = { path = "../../runtime/near-test-contracts" }
+
+[features]
+protocol_feature_flat_state = [
+  "nearcore/protocol_feature_flat_state",
+]
+nightly = [
+  "protocol_feature_flat_state",
+  "nearcore/nightly",
+]

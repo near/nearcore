@@ -1,7 +1,8 @@
 use crate::{ChainError, SourceBlock};
 use anyhow::Context;
 use async_trait::async_trait;
-use near_chain::{ChainStore, ChainStoreAccess, RuntimeAdapter};
+use near_chain::types::RuntimeAdapter;
+use near_chain::{ChainStore, ChainStoreAccess};
 use near_chain_configs::GenesisValidationMode;
 use near_crypto::PublicKey;
 use near_epoch_manager::EpochManagerAdapter;

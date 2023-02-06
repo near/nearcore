@@ -24,7 +24,7 @@ use std::sync::{Arc, RwLockReadGuard, RwLockWriteGuard};
 /// A trait that abstracts the interface of the EpochManager.
 ///
 /// It is intended to be an intermediate state in a refactor: we want to remove
-/// epoch manager stuff from RuntimeAdapter's interface, and, as a first step,
+/// epoch manager stuff from RuntimeWithEpochManagerAdapter's interface, and, as a first step,
 /// we move it to a new trait. The end goal is for the code to use the concrete
 /// epoch manager type directly. Though, we might want to still keep this trait
 /// in, to allow for easy overriding of epoch manager in tests.
@@ -348,7 +348,7 @@ pub trait EpochManagerAdapter: Send + Sync {
 /// A technical plumbing trait to conveniently implement [`EpochManagerAdapter`]
 /// for `NightshadeRuntime` without too much copy-paste.
 ///
-/// Once we remove `RuntimeAdapter: EpochManagerAdapter` bound, we could get rid
+/// Once we remove `RuntimeWithEpochManagerAdapter: EpochManagerAdapter` bound, we could get rid
 /// of this trait and instead add inherent methods directly to
 /// `EpochManagerHandle`.
 pub trait HasEpochMangerHandle {
