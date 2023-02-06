@@ -2,7 +2,7 @@
 /// All transactions should be implemented within this module,
 /// in particular schema::StoreUpdate is not exported.
 use crate::network_protocol::Edge;
-use crate::types::KnownPeerState;
+use crate::types::{ConnectionInfo, KnownPeerState};
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::AccountId;
 use std::collections::HashSet;
@@ -143,6 +143,22 @@ impl Store {
     /// Reads the whole Peers column.
     pub fn list_peer_states(&self) -> Result<Vec<(PeerId, KnownPeerState)>, Error> {
         self.0.iter::<schema::Peers>().collect::<Result<_, _>>().map_err(Error)
+    }
+
+    pub fn set_recent_outbound_connections(
+        &mut self,
+        recent_outbound_connections: &Vec<ConnectionInfo>,
+    ) -> Result<(), Error> {
+        let mut update = self.0.new_update();
+        update.set::<schema::RecentOutboundConnections>(&(), &recent_outbound_connections);
+        self.0.commit(update).map_err(Error)
+    }
+
+    pub fn get_recent_outbound_connections(&self) -> Vec<ConnectionInfo> {
+        self.0
+            .get::<schema::RecentOutboundConnections>(&())
+            .unwrap_or(Some(vec![]))
+            .unwrap_or(vec![])
     }
 }
 
