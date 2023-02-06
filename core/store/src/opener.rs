@@ -283,7 +283,8 @@ impl<'a> StoreOpener<'a> {
         let snapshots = self.apply_migrations(mode, metadata)?;
         tracing::info!(target: "near", path=%self.path().display(),
                        "Opening an existing RocksDB database");
-        let (storage, hot_meta, cold_meta) = self.open_storage(mode, DB_VERSION)?;
+        let (storage, hot_meta, cold_meta) =
+            Self::open_storage(mode, DB_VERSION, &self.hot, &self.cold)?;
         if let Some(cold_meta) = cold_meta {
             assert!(matches!(hot_meta.kind, Some(DbKind::Hot) | Some(DbKind::Archive)));
             assert!(matches!(cold_meta.kind, Some(DbKind::Cold)));
@@ -386,7 +387,8 @@ impl<'a> StoreOpener<'a> {
             tracing::info!(target: "near", path=%self.path().display(),
                            "Migrating the database from version {version} to {}",
                            version + 1);
-            let storage = self.open_storage(Mode::ReadWriteExisting, version)?.0;
+            let storage =
+                Self::open_storage(Mode::ReadWriteExisting, version, &self.hot, &self.cold)?.0;
             migrator.migrate(&storage, version).map_err(StoreOpenerError::MigrationError)?;
             set_store_version(&storage, version + 1)?;
         }
@@ -394,7 +396,8 @@ impl<'a> StoreOpener<'a> {
         if cfg!(feature = "nightly") || cfg!(feature = "nightly_protocol") {
             // Set some dummy value to avoid conflict with other migrations from
             // nightly features.
-            let storage = self.open_storage(Mode::ReadWriteExisting, DB_VERSION)?.0;
+            let storage =
+                Self::open_storage(Mode::ReadWriteExisting, DB_VERSION, &self.hot, &self.cold)?.0;
             set_store_version(&storage, 10000)?;
         }
 
@@ -402,13 +405,14 @@ impl<'a> StoreOpener<'a> {
     }
 
     fn open_storage(
-        &self,
         mode: Mode,
         want_version: DbVersion,
+        hot_opener: &DBOpener,
+        cold_opener: &Option<DBOpener>,
     ) -> std::io::Result<(NodeStorage, DbMetadata, Option<DbMetadata>)> {
-        let (hot, hot_meta) = self.hot.open(mode, want_version)?;
+        let (hot, hot_meta) = hot_opener.open(mode, want_version)?;
         let (cold, cold_meta) =
-            match self.cold.as_ref().map(|opener| opener.open(mode, want_version)).transpose()? {
+            match cold_opener.as_ref().map(|opener| opener.open(mode, want_version)).transpose()? {
                 None => (None, None),
                 Some((db, meta)) => (Some(db), Some(meta)),
             };
