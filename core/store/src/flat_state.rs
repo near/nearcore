@@ -134,11 +134,17 @@ mod imp {
             let mut result = Vec::new();
             for item in self.store.iter(DBCol::FlatState) {
                 let (key, value) = item.unwrap();
-                let account = parse_account_id_from_raw_key(&key).unwrap().unwrap();
-                if account_id_to_shard_id(&account, shard_layout) == shard_id {
-                    if key >= from.into() && to.as_ref().map_or(true, |x| *(*x) >= *key) {
-                        result.push((key, value));
+                let account = parse_account_id_from_raw_key(&key).unwrap();
+                match account {
+                    Some(account) => {
+                        if account_id_to_shard_id(&account, shard_layout) == shard_id {
+                            if key >= from.into() && to.as_ref().map_or(true, |x| *(*x) >= *key) {
+                                result.push((key, value));
+                            }
+                        }
                     }
+                    // This is delayed receipt or delayed receipt index.
+                    None => continue,
                 }
             }
             result
@@ -276,12 +282,14 @@ mod imp {
             shard_id: ShardId,
             shard_layout: ShardLayout,
         ) -> Result<(), StorageError> {
+            tracing::error!("HERE");
             let mut flat_storage_states =
                 self.0.flat_storage_states.lock().expect(POISONED_LOCK_ERR);
 
             match flat_storage_states.remove(&shard_id) {
                 None => {}
                 Some(flat_storage_state) => {
+                    tracing::error!("!!! CLEARING STATE");
                     flat_storage_state.clear_state(shard_layout)?;
                 }
             }

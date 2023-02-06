@@ -45,6 +45,7 @@ members = [
     "test-utils/testlib",
     "tools/chainsync-loadtest",
     "tools/delay-detector",
+    "tools/flat-storage",
     "tools/indexer/example",
     "tools/mirror",
     "tools/mock-node",

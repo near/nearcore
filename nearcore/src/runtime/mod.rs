@@ -88,7 +88,7 @@ pub struct NightshadeRuntime {
     store: Store,
     tries: ShardTries,
     trie_viewer: TrieViewer,
-    flat_state_factory: FlatStateFactory,
+    pub flat_state_factory: FlatStateFactory,
     pub runtime: Runtime,
     epoch_manager: EpochManagerHandle,
     shard_tracker: ShardTracker,

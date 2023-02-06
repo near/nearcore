@@ -68,7 +68,7 @@ pub struct FlatStorageShardCreator {
     /// Tracks number of state parts which are not fetched yet during a single step.
     /// Stores Some(parts) if threads for fetching state were spawned and None otherwise.
     #[allow(unused)]
-    remaining_state_parts: Option<u64>,
+    pub remaining_state_parts: Option<u64>,
     /// Used by threads which traverse state parts to tell that traversal is finished.
     #[allow(unused)]
     fetched_parts_sender: Sender<u64>,
@@ -142,16 +142,29 @@ impl FlatStorageShardCreator {
         progress: Arc<AtomicU64>,
         result_sender: Sender<u64>,
     ) {
+        println!("Inside thread");
         let trie_storage = TrieDBStorage::new(store.clone(), shard_uid);
         let trie = Trie::new(Box::new(trie_storage), state_root, None);
+        println!("Finding part for {:?}", part_id);
         let path_begin = trie.find_path_for_part_boundary(part_id.idx, part_id.total).unwrap();
+        println!("Finding path {:?}", path_begin);
+
         let path_end = trie.find_path_for_part_boundary(part_id.idx + 1, part_id.total).unwrap();
+        println!("Finding path {:?}", path_end);
         let hex_path_begin = Self::nibbles_to_hex(&path_begin);
         debug!(target: "store", "Preload state part from {hex_path_begin}");
         let mut trie_iter = trie.iter().unwrap();
 
         let mut store_update = BatchedStoreUpdate::new(&store, 10_000_000);
         let mut num_items = 0;
+        println!("Before visit part");
+
+        let foo = trie_iter.visit_nodes_interval(&path_begin, &path_end);
+        println!("Inside state fetch part");
+        if foo.is_err() {
+            println!("!!!! ERROR: {:?}", foo.err());
+        }
+
         for TrieTraversalItem { hash, key } in
             trie_iter.visit_nodes_interval(&path_begin, &path_end).unwrap()
         {
@@ -188,11 +201,13 @@ impl FlatStorageShardCreator {
     /// Creates flat storage when all intermediate steps are finished.
     /// Returns boolean indicating if flat storage was created.
     #[cfg(feature = "protocol_feature_flat_state")]
-    pub(crate) fn update_status(
+    pub fn update_status(
         &mut self,
         chain_store: &ChainStore,
         thread_pool: &rayon::ThreadPool,
     ) -> Result<bool, Error> {
+        println!("In update status");
+        debug!("in update status");
         let current_status =
             store_helper::get_flat_storage_creation_status(chain_store.store(), self.shard_id);
         self.metrics.status.set((&current_status).into());
@@ -202,7 +217,7 @@ impl FlatStorageShardCreator {
                 let final_head = chain_store.final_head()?;
                 let final_height = final_head.height;
 
-                if final_height > self.start_height {
+                if final_height >= self.start_height {
                     // If it holds, deltas for all blocks after final head are saved to disk, because they have bigger
                     // heights than one on which we launched a node. Check that it is true:
                     for height in final_height + 1..=chain_store.head()?.height {
@@ -263,6 +278,9 @@ impl FlatStorageShardCreator {
                 let next_start_part_id = num_parts.min(start_part_id + num_parts_in_step);
                 self.metrics.remaining_state_parts.set((num_parts - start_part_id) as i64);
 
+                println!("IN fetching state");
+                debug!("in fetching state");
+
                 match self.remaining_state_parts.clone() {
                     None => {
                         // We need to spawn threads to fetch state parts and fill flat storage data.
@@ -285,6 +303,7 @@ impl FlatStorageShardCreator {
                             let inner_progress = progress.clone();
                             let inner_sender = self.fetched_parts_sender.clone();
                             let inner_threads_used = self.metrics.threads_used.clone();
+                            println!("About to spawn");
                             thread_pool.spawn(move || {
                                 inner_threads_used.inc();
                                 Self::fetch_state_part(
@@ -302,6 +321,7 @@ impl FlatStorageShardCreator {
                         self.remaining_state_parts = Some(next_start_part_id - start_part_id);
                     }
                     Some(state_parts) if state_parts > 0 => {
+                        println!("Now in receiver part");
                         // If not all state parts were fetched, try receiving new results.
                         let mut updated_state_parts = state_parts;
                         while let Ok(num_items) = self.fetched_parts_receiver.try_recv() {
@@ -365,7 +385,7 @@ impl FlatStorageShardCreator {
                     merged_delta.merge(delta.as_ref());
                 }
 
-                if old_flat_head != flat_head {
+                if (old_flat_head != flat_head) || (flat_head == chain_final_head.last_block_hash) {
                     // If flat head changes, save all changes to store.
                     let old_height = chain_store.get_block_height(&old_flat_head).unwrap();
                     let height = chain_store.get_block_height(&flat_head).unwrap();

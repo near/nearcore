@@ -6,6 +6,7 @@ use near_chain_configs::GenesisValidationMode;
 use near_client::ConfigUpdater;
 use near_cold_store_tool::ColdStoreCommand;
 use near_dyn_configs::{UpdateableConfigLoader, UpdateableConfigLoaderError, UpdateableConfigs};
+use near_flat_storage::FlatStorageCommand;
 use near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofResponse;
 use near_mirror::MirrorCommand;
 use near_o11y::tracing_subscriber::EnvFilter;
@@ -116,6 +117,9 @@ impl NeardCmd {
             NeardSubCommand::StateParts(cmd) => {
                 cmd.run()?;
             }
+            NeardSubCommand::FlatStorage(cmd) => {
+                cmd.run(&home_dir)?;
+            }
         };
         Ok(())
     }
@@ -225,6 +229,9 @@ pub(super) enum NeardSubCommand {
 
     /// Connects to a NEAR node and sends state parts requests after the handshake is completed.
     StateParts(StatePartsCommand),
+
+    /// Flat storage related tooling.
+    FlatStorage(FlatStorageCommand),
 }
 
 #[derive(Parser)]
