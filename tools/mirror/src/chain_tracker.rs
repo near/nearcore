@@ -1,7 +1,6 @@
 use crate::{
-    ChainAccess, ChainError, ChainObjectId, LatestTargetNonce, MappedBlock, MappedTx,
-    MappedTxProvenance, NonceUpdater, ReceiptInfo, TargetChainTx, TargetNonce, TxInfo, TxOutcome,
-    TxRef,
+    ChainAccess, ChainError, LatestTargetNonce, MappedBlock, MappedTx, MappedTxProvenance,
+    NonceUpdater, TargetChainTx, TargetNonce, TxRef,
 };
 use actix::Addr;
 use anyhow::Context;
@@ -12,6 +11,7 @@ use near_indexer_primitives::IndexerTransactionWithOutcome;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::Transaction;
 use near_primitives::types::{AccountId, BlockHeight};
+use near_primitives::views::ExecutionStatusView;
 use near_primitives_core::types::{Gas, Nonce};
 use rocksdb::DB;
 use std::cmp::Ordering;
@@ -120,6 +120,9 @@ struct NonceInfo {
 
 // Keeps the queue of upcoming transactions and provides them in regular intervals via next_batch()
 // Also keeps track of txs we've sent so far and looks for them on chain, for metrics/logging purposes.
+
+// TODO: the separation between what's in here and what's in the main file with struct TxMirror is not
+// that clear and doesn't make that much sense. Should refactor
 #[derive(Default)]
 pub(crate) struct TxTracker {
     sent_txs: HashMap<CryptoHash, TxSendInfo>,
@@ -216,51 +219,26 @@ impl TxTracker {
         source_height: BlockHeight,
     ) -> anyhow::Result<&'a mut NonceInfo> {
         if !self.nonces.contains_key(access_key) {
-            let nonce =
-                crate::fetch_access_key_nonce(target_view_client, &access_key.0, &access_key.1)
-                    .await?;
-
             let info = match crate::read_target_nonce(db, &access_key.0, &access_key.1)? {
-                Some(mut t) => {
-                    // lazily update it here. things might have changed since we last restarted
-                    for id in t.pending_outcomes.iter() {
-                        let access_keys = crate::read_access_key_outcome(db, id)?.unwrap();
-                        match crate::fetch_outcome(target_view_client, id).await? {
-                            TxOutcome::TxPending { .. } => {}
-                            TxOutcome::ReceiptPending(receipt_id) => {
-                                if matches!(id, ChainObjectId::Tx(_)) {
-                                    self.tx_to_receipt(db, id, &receipt_id, access_keys)?;
-                                }
-                            }
-                            TxOutcome::Failure | TxOutcome::Success => {
-                                self.on_outcome_finished(target_view_client, db, id, access_keys)
-                                    .await?
-                            }
-                            TxOutcome::Unknown => {
-                                tracing::warn!(target: "mirror", "can't find {:?} on chain even though it's stored on disk", id)
-                            }
-                        };
-                    }
-                    // TODO: this ugliness is because we are not keeping track of what we have
-                    // modified on disk and what has been modified in memory. need to fix w/ a struct StoreUpdate
-                    t = crate::read_target_nonce(db, &access_key.0, &access_key.1)?.unwrap();
-                    t.nonce = std::cmp::max(t.nonce, nonce);
-                    crate::put_target_nonce(db, &access_key.0, &access_key.1, &t)?;
-
-                    NonceInfo {
-                        target_nonce: TargetNonce {
-                            nonce: t.nonce.clone(),
-                            pending_outcomes: t
-                                .pending_outcomes
-                                .into_iter()
-                                .map(NonceUpdater::ChainObjectId)
-                                .collect(),
-                        },
-                        last_height: source_height,
-                        txs_awaiting_nonce: BTreeSet::new(),
-                    }
-                }
+                Some(t) => NonceInfo {
+                    target_nonce: TargetNonce {
+                        nonce: t.nonce.clone(),
+                        pending_outcomes: t
+                            .pending_outcomes
+                            .into_iter()
+                            .map(NonceUpdater::ChainObjectId)
+                            .collect(),
+                    },
+                    last_height: source_height,
+                    txs_awaiting_nonce: BTreeSet::new(),
+                },
                 None => {
+                    let nonce = crate::fetch_access_key_nonce(
+                        target_view_client,
+                        &access_key.0,
+                        &access_key.1,
+                    )
+                    .await?;
                     let t = LatestTargetNonce { nonce, pending_outcomes: HashSet::new() };
                     crate::put_target_nonce(db, &access_key.0, &access_key.1, &t)?;
                     NonceInfo {
@@ -588,23 +566,22 @@ impl TxTracker {
     fn tx_to_receipt(
         &mut self,
         db: &DB,
-        id: &ChainObjectId,
-        receipt_id: &ReceiptInfo,
+        tx_hash: &CryptoHash,
+        receipt_id: &CryptoHash,
         access_keys: HashSet<(AccountId, PublicKey)>,
     ) -> anyhow::Result<()> {
-        crate::delete_access_key_outcome(db, id)?;
+        crate::delete_pending_outcome(db, tx_hash)?;
 
-        let updater = NonceUpdater::ChainObjectId(id.clone());
+        let updater = NonceUpdater::ChainObjectId(tx_hash.clone());
         if let Some(keys) = self.updater_to_keys.remove(&updater) {
             assert!(access_keys == keys);
         }
 
-        let receipt_id = ChainObjectId::Receipt(receipt_id.clone());
         let new_updater = NonceUpdater::ChainObjectId(receipt_id.clone());
 
         for access_key in access_keys.iter() {
             let mut n = crate::read_target_nonce(db, &access_key.0, &access_key.1)?.unwrap();
-            assert!(n.pending_outcomes.remove(id));
+            assert!(n.pending_outcomes.remove(tx_hash));
             n.pending_outcomes.insert(receipt_id.clone());
             crate::put_target_nonce(db, &access_key.0, &access_key.1, &n)?;
 
@@ -628,8 +605,10 @@ impl TxTracker {
                 info.target_nonce.pending_outcomes.insert(new_updater.clone());
             }
         }
-        crate::put_access_key_outcome(db, receipt_id.clone(), access_keys.clone())?;
-        self.updater_to_keys.insert(new_updater, access_keys);
+        crate::put_pending_outcome(db, receipt_id.clone(), access_keys.clone())?;
+        if !access_keys.is_empty() {
+            self.updater_to_keys.insert(new_updater, access_keys);
+        }
         Ok(())
     }
 
@@ -638,7 +617,7 @@ impl TxTracker {
         target_view_client: &Addr<ViewClientActor>,
         db: &DB,
         access_key: &(AccountId, PublicKey),
-        id: Option<&ChainObjectId>,
+        id: Option<&CryptoHash>,
     ) -> anyhow::Result<()> {
         let mut n = crate::read_target_nonce(db, &access_key.0, &access_key.1)?.unwrap();
         if let Some(id) = id {
@@ -702,7 +681,7 @@ impl TxTracker {
         &mut self,
         target_view_client: &Addr<ViewClientActor>,
         db: &DB,
-        id: &ChainObjectId,
+        id: &CryptoHash,
         access_keys: HashSet<(AccountId, PublicKey)>,
     ) -> anyhow::Result<()> {
         let updater = NonceUpdater::ChainObjectId(id.clone());
@@ -713,7 +692,7 @@ impl TxTracker {
         for access_key in access_keys.iter() {
             self.try_set_nonces(target_view_client, db, &access_key, Some(id)).await?;
         }
-        crate::delete_access_key_outcome(db, id)
+        crate::delete_pending_outcome(db, id)
     }
 
     pub(crate) async fn on_target_block(
@@ -735,30 +714,49 @@ impl TxTracker {
                             self.height_seen = Some(info.source_height);
                         }
                     }
-                    let id = ChainObjectId::Tx(TxInfo {
-                        hash: tx.transaction.hash,
-                        signer_id: tx.transaction.signer_id,
-                        receiver_id: tx.transaction.receiver_id,
-                    });
-                    if let Some(access_keys) = crate::read_access_key_outcome(db, &id)? {
-                        match crate::fetch_outcome(target_view_client, &id).await? {
-                            TxOutcome::TxPending{..} | TxOutcome::Unknown => anyhow::bail!("can't find outcome for target chain tx {} even though HEAD block includes it", &tx.transaction.hash),
-                            TxOutcome::ReceiptPending(receipt_id) => self.tx_to_receipt(db, &id, &receipt_id, access_keys)?,
-                            TxOutcome::Failure | TxOutcome::Success => self.on_outcome_finished(target_view_client, db, &id, access_keys).await?,
-                        };
+                    if let Some(access_keys) =
+                        crate::read_pending_outcome(db, &tx.transaction.hash)?
+                    {
+                        match tx.outcome.execution_outcome.outcome.status {
+                            ExecutionStatusView::SuccessReceiptId(receipt_id) => self
+                                .tx_to_receipt(
+                                    db,
+                                    &tx.transaction.hash,
+                                    &receipt_id,
+                                    access_keys,
+                                )?,
+                            ExecutionStatusView::SuccessValue(_) | ExecutionStatusView::Unknown => {
+                                unreachable!()
+                            }
+                            ExecutionStatusView::Failure(_) => {
+                                self.on_outcome_finished(
+                                    target_view_client,
+                                    db,
+                                    &tx.transaction.hash,
+                                    access_keys,
+                                )
+                                .await?
+                            }
+                        }
                     }
                 }
-                for r in c.receipts {
-                    let id = ChainObjectId::Receipt(ReceiptInfo {
-                        id: r.receipt_id,
-                        receiver_id: r.receiver_id.clone(),
-                    });
-                    if let Some(access_keys) = crate::read_access_key_outcome(db, &id)? {
-                        match crate::fetch_outcome(target_view_client, &id).await? {
-                            TxOutcome::TxPending{..} => unreachable!(),
-                            TxOutcome::ReceiptPending(_) | TxOutcome::Unknown => anyhow::bail!("can't find outcome for target chain receipt {} even though HEAD block includes it", &r.receipt_id),
-                            TxOutcome::Failure | TxOutcome::Success => self.on_outcome_finished(target_view_client, db, &id, access_keys).await?,
-                        };
+                for outcome in s.receipt_execution_outcomes {
+                    if let Some(access_keys) =
+                        crate::read_pending_outcome(db, &outcome.execution_outcome.id)?
+                    {
+                        self.on_outcome_finished(
+                            target_view_client,
+                            db,
+                            &outcome.execution_outcome.id,
+                            access_keys,
+                        )
+                        .await?;
+                        for receipt_id in outcome.execution_outcome.outcome.receipt_ids {
+                            // we don't carry over the access keys here, because we set pending access keys when we send a tx with
+                            // an add key action, which should be applied after one receipt. Setting empty access keys here allows us
+                            // to keep track of which receipts are descendants of our transactions, so that we can reverse any stake actions
+                            crate::put_pending_outcome(db, receipt_id, HashSet::default())?;
+                        }
                     }
                 }
             }
@@ -768,7 +766,6 @@ impl TxTracker {
 
     async fn on_tx_sent(
         &mut self,
-        target_view_client: &Addr<ViewClientActor>,
         db: &DB,
         tx_ref: TxRef,
         tx: MappedTx,
@@ -811,65 +808,37 @@ impl TxTracker {
 
         let source_height = tx_ref.source_height;
         let updater = NonceUpdater::TxRef(tx_ref);
+        let new_updater = NonceUpdater::ChainObjectId(hash);
 
-        let new_updater = NonceUpdater::ChainObjectId(ChainObjectId::Tx(TxInfo {
-            hash: tx.target_tx.get_hash(),
-            signer_id: tx.target_tx.transaction.signer_id.clone(),
-            receiver_id: tx.target_tx.transaction.receiver_id.clone(),
-        }));
-        if !tx.nonce_updates.is_empty() {
-            assert!(&tx.nonce_updates == &self.updater_to_keys.remove(&updater).unwrap());
-            for access_key in tx.nonce_updates.iter() {
-                let mut t = match crate::read_target_nonce(db, &access_key.0, &access_key.1)? {
-                    Some(t) => t,
-                    None => {
-                        let nonce = crate::fetch_access_key_nonce(
-                            target_view_client,
-                            &access_key.0,
-                            &access_key.1,
-                        )
-                        .await?;
-                        LatestTargetNonce { nonce, pending_outcomes: HashSet::new() }
-                    }
-                };
-                t.pending_outcomes.insert(ChainObjectId::Tx(TxInfo {
-                    hash,
-                    signer_id: tx.target_tx.transaction.signer_id.clone(),
-                    receiver_id: tx.target_tx.transaction.receiver_id.clone(),
-                }));
-                crate::put_target_nonce(db, &access_key.0, &access_key.1, &t)?;
+        assert!(&tx.nonce_updates == &self.updater_to_keys.remove(&updater).unwrap_or_default());
+        for access_key in tx.nonce_updates.iter() {
+            let mut t = crate::read_target_nonce(db, &access_key.0, &access_key.1)?.unwrap();
+            t.pending_outcomes.insert(hash);
+            crate::put_target_nonce(db, &access_key.0, &access_key.1, &t)?;
 
-                let info = self.nonces.get_mut(access_key).unwrap();
-                assert!(info.target_nonce.pending_outcomes.remove(&updater));
-                info.target_nonce.pending_outcomes.insert(new_updater.clone());
-                let txs_awaiting_nonce = info.txs_awaiting_nonce.clone();
-                if info.last_height <= source_height {
-                    access_keys_to_remove.insert(access_key.clone());
-                }
-
-                for r in txs_awaiting_nonce.iter() {
-                    let t = self.get_tx(r);
-
-                    match t {
-                        TargetChainTx::AwaitingNonce(t) => {
-                            assert!(t.target_nonce.pending_outcomes.remove(&updater));
-                            t.target_nonce.pending_outcomes.insert(new_updater.clone());
-                        }
-                        TargetChainTx::Ready(_) => unreachable!(),
-                    };
-                }
+            let info = self.nonces.get_mut(access_key).unwrap();
+            assert!(info.target_nonce.pending_outcomes.remove(&updater));
+            info.target_nonce.pending_outcomes.insert(new_updater.clone());
+            let txs_awaiting_nonce = info.txs_awaiting_nonce.clone();
+            if info.last_height <= source_height {
+                access_keys_to_remove.insert(access_key.clone());
             }
 
-            crate::put_access_key_outcome(
-                db,
-                ChainObjectId::Tx(TxInfo {
-                    hash,
-                    signer_id: tx.target_tx.transaction.signer_id.clone(),
-                    receiver_id: tx.target_tx.transaction.receiver_id.clone(),
-                }),
-                tx.nonce_updates,
-            )?;
+            for r in txs_awaiting_nonce.iter() {
+                let t = self.get_tx(r);
+
+                match t {
+                    TargetChainTx::AwaitingNonce(t) => {
+                        assert!(t.target_nonce.pending_outcomes.remove(&updater));
+                        t.target_nonce.pending_outcomes.insert(new_updater.clone());
+                    }
+                    TargetChainTx::Ready(_) => unreachable!(),
+                };
+            }
         }
+
+        crate::put_pending_outcome(db, hash, tx.nonce_updates)?;
+
         let mut t = crate::read_target_nonce(
             db,
             &tx.target_tx.transaction.signer_id,
@@ -1022,7 +991,6 @@ impl TxTracker {
     // We just successfully sent some transactions. Remember them so we can see if they really show up on chain.
     pub(crate) async fn on_txs_sent(
         &mut self,
-        target_view_client: &Addr<ViewClientActor>,
         db: &DB,
         target_height: BlockHeight,
     ) -> anyhow::Result<()> {
@@ -1040,7 +1008,6 @@ impl TxTracker {
                     crate::TargetChainTx::Ready(t) => {
                         if t.sent_successfully {
                             self.on_tx_sent(
-                                target_view_client,
                                 db,
                                 tx_ref,
                                 t,

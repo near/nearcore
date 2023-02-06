@@ -311,7 +311,14 @@ pub struct Config {
     pub tracked_shards: Vec<ShardId>,
     #[serde(skip_serializing_if = "is_false")]
     pub archive: bool,
-    pub save_trie_changes: bool,
+    /// If save_trie_changes is not set it will get inferred from the `archive` field as follows:
+    /// save_trie_changes = !archive
+    /// save_trie_changes should be set to true iff
+    /// - archive if false - non-archival nodes need trie changes to perform garbage collection
+    /// - archive is true, cold_store is configured and migration to split_storage is finished - node
+    /// working in split storage mode needs trie changes in order to do garbage collection on hot.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub save_trie_changes: Option<bool>,
     pub log_summary_style: LogSummaryStyle,
     /// Garbage collection configuration.
     #[serde(default, flatten)]
@@ -369,7 +376,7 @@ impl Default for Config {
             tracked_accounts: vec![],
             tracked_shards: vec![],
             archive: false,
-            save_trie_changes: true,
+            save_trie_changes: None,
             log_summary_style: LogSummaryStyle::Colored,
             gc: GCConfig::default(),
             epoch_sync_enabled: true,
@@ -388,11 +395,12 @@ impl Default for Config {
 
 impl Config {
     pub fn from_file(path: &Path) -> anyhow::Result<Self> {
-        let contents = std::fs::read_to_string(path)
+        let json_str = std::fs::read_to_string(path)
             .with_context(|| format!("Failed to read config from {}", path.display()))?;
         let mut unrecognised_fields = Vec::new();
+        let json_str_without_comments = near_config_utils::strip_comments_from_json_str(&json_str)?;
         let config: Config = serde_ignored::deserialize(
-            &mut serde_json::Deserializer::from_str(&contents),
+            &mut serde_json::Deserializer::from_str(&json_str_without_comments),
             |field| {
                 let field = field.to_string();
                 // TODO(mina86): Remove this deprecation notice some time by the
@@ -427,7 +435,7 @@ impl Config {
     /// This is the place to check that all config values make sense and fit well together.
     /// `validate()` is called every time `config.json` is read.
     fn validate(&self) -> Result<(), ConfigValidationError> {
-        if !self.archive && !self.save_trie_changes {
+        if self.archive == false && self.save_trie_changes == Some(false) {
             Err(ConfigValidationError::TrieChanges)
         } else {
             Ok(())
@@ -624,7 +632,7 @@ impl NearConfig {
                 tracked_accounts: config.tracked_accounts,
                 tracked_shards: config.tracked_shards,
                 archive: config.archive,
-                save_trie_changes: config.save_trie_changes,
+                save_trie_changes: config.save_trie_changes.unwrap_or(!config.archive),
                 log_summary_style: config.log_summary_style,
                 gc: config.gc,
                 view_client_threads: config.view_client_threads,
@@ -1290,11 +1298,15 @@ struct NodeKeyFile {
 }
 
 impl NodeKeyFile {
+    // the file can be JSON with comments
     fn from_file(path: &Path) -> std::io::Result<Self> {
         let mut file = File::open(path)?;
-        let mut content = String::new();
-        file.read_to_string(&mut content)?;
-        Ok(serde_json::from_str(&content)?)
+        let mut json_str = String::new();
+        file.read_to_string(&mut json_str)?;
+
+        let json_str_without_comments = near_config_utils::strip_comments_from_json_str(&json_str)?;
+
+        Ok(serde_json::from_str(&json_str_without_comments)?)
     }
 }
 

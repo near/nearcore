@@ -5,6 +5,7 @@ use crate::network_protocol::{
 };
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
+use crate::stun;
 use crate::tcp;
 use crate::time;
 use crate::types::PeerType;
@@ -92,21 +93,50 @@ impl super::NetworkState {
         let _lock = self.tier1_advertise_proxies_mutex.lock().await;
         let accounts_data = self.accounts_data.load();
 
-        // No matter if this node is a TIER1 node
-
         let vc = match self.tier1_validator_config(&accounts_data) {
             Some(it) => it,
             None => return None,
         };
-        let proxies = match &vc.proxies {
-            config::ValidatorProxies::Dynamic(_) => {
-                // TODO(gprusak): If Dynamic are specified,
-                // it means that this node is its own proxy.
-                // Resolve the public IP of this node using those STUN servers,
-                // then connect to yourself (to verify the public IP).
-                vec![]
+        let proxies = match (&self.config.node_addr, &vc.proxies) {
+            (None, _) => vec![],
+            (_, config::ValidatorProxies::Static(peer_addrs)) => peer_addrs.clone(),
+            // If Dynamic are specified,
+            // it means that this node is its own proxy.
+            // Discover the public IP of this node using those STUN servers.
+            // We do not require all stun servers to be available, but
+            // we require the received responses to be consistent.
+            (Some(node_addr), config::ValidatorProxies::Dynamic(stun_servers)) => {
+                // Query all the STUN servers in parallel.
+                let queries = stun_servers.iter().map(|addr| {
+                    let clock = clock.clone();
+                    let addr = addr.clone();
+                    self.spawn(async move {
+                        match stun::query(&clock, &addr).await {
+                            Ok(ip) => Some(ip),
+                            Err(err) => {
+                                tracing::warn!(target:"network", "STUN lookup failed for {addr}: {err}");
+                                None
+                            }
+                        }
+                    })
+                });
+                let mut node_ips = vec![];
+                for q in queries {
+                    node_ips.extend(q.await.unwrap());
+                }
+                // Check that we have received non-zero responses and that they are consistent.
+                if node_ips.len() == 0 {
+                    vec![]
+                } else if !node_ips.iter().all(|ip| ip == &node_ips[0]) {
+                    tracing::warn!(target:"network", "received inconsistent responses from the STUN servers");
+                    vec![]
+                } else {
+                    vec![PeerAddr {
+                        peer_id: self.config.node_id(),
+                        addr: std::net::SocketAddr::new(node_ips[0], node_addr.port()),
+                    }]
+                }
             }
-            config::ValidatorProxies::Static(peer_addrs) => peer_addrs.clone(),
         };
         self.tier1_connect_to_my_proxies(clock, &proxies).await;
 

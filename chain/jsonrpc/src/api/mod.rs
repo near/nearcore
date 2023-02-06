@@ -23,11 +23,11 @@ mod transactions;
 mod validator;
 
 pub(crate) trait RpcRequest: Sized {
-    fn parse(value: Option<Value>) -> Result<Self, RpcParseError>;
+    fn parse(value: Value) -> Result<Self, RpcParseError>;
 }
 
 impl RpcRequest for () {
-    fn parse(_: Option<Value>) -> Result<Self, RpcParseError> {
+    fn parse(_: Value) -> Result<Self, RpcParseError> {
         Ok(())
     }
 }
@@ -80,17 +80,13 @@ impl RpcFrom<near_primitives::errors::InvalidTxError> for ServerError {
     }
 }
 
-pub(crate) fn parse_params<T: DeserializeOwned>(value: Option<Value>) -> Result<T, RpcParseError> {
-    if let Some(value) = value {
-        serde_json::from_value(value)
-            .map_err(|err| RpcParseError(format!("Failed parsing args: {}", err)))
-    } else {
-        Err(RpcParseError("Require at least one parameter".to_owned()))
-    }
+pub(crate) fn parse_params<T: DeserializeOwned>(value: Value) -> Result<T, RpcParseError> {
+    serde_json::from_value(value)
+        .map_err(|err| RpcParseError(format!("Failed parsing args: {}", err)))
 }
 
 fn parse_signed_transaction(
-    value: Option<Value>,
+    value: Value,
 ) -> Result<near_primitives::transaction::SignedTransaction, RpcParseError> {
     let (encoded,) = parse_params::<(String,)>(value)?;
     let bytes = near_primitives::serialize::from_base64(&encoded)
