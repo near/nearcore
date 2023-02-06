@@ -1,5 +1,7 @@
 use assert_matches::assert_matches;
 use borsh::BorshSerialize;
+use near_async::messaging::CanSend;
+use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_primitives::test_utils::create_test_signer;
 
 use crate::tests::client::process_blocks::create_nightshade_runtimes;
@@ -533,7 +535,8 @@ fn test_receive_invalid_chunk_as_chunk_producer() {
         one_part_receipt_proofs,
         &[merkle_paths[0].clone()],
     );
-    env.shards_manager_adapters[1].process_partial_encoded_chunk(partial_encoded_chunk);
+    env.shards_manager_adapters[1]
+        .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(partial_encoded_chunk));
     env.process_block(1, block, Provenance::NONE);
 
     // At this point we should create a challenge and send it out.

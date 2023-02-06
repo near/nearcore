@@ -44,6 +44,7 @@ tracing.workspace = true
 time.workspace = true
 
 delay-detector = { path = "../../tools/delay-detector" }
+near-async = { path = "../../core/async" }
 near-o11y = { path = "../../core/o11y" }
 near-crypto = { path = "../../core/crypto" }
 near-performance-metrics = { path = "../../utils/near-performance-metrics" }

@@ -2,6 +2,7 @@ use crate::tests::client::process_blocks::{
     create_nightshade_runtimes, produce_blocks_from_height,
 };
 use assert_matches::assert_matches;
+use near_async::messaging::CanSend;
 use near_chain::chain::NUM_ORPHAN_ANCESTORS_CHECK;
 use near_chain::{ChainGenesis, Error, Provenance, RuntimeWithEpochManagerAdapter};
 use near_chain_configs::Genesis;
@@ -9,6 +10,7 @@ use near_chunks::metrics::PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_HEADER;
 use near_client::test_utils::{create_chunk_with_transactions, TestEnv};
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType, Signer};
+use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::types::{MsgRecipient, NetworkRequests, PeerManagerMessageRequest};
 use near_o11y::testonly::init_test_logger;
 use near_o11y::WithSpanContextExt;
@@ -652,9 +654,11 @@ impl ChunkForwardingOptimizationTestData {
                 }
                 self.num_part_ords_sent_as_partial_encoded_chunk +=
                     partial_encoded_chunk.parts.len();
-                self.env
-                    .shards_manager(&account_id)
-                    .process_partial_encoded_chunk(partial_encoded_chunk.into());
+                self.env.shards_manager(&account_id).send(
+                    ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(
+                        partial_encoded_chunk.into(),
+                    ),
+                );
             }
             NetworkRequests::PartialEncodedChunkForward { account_id, forward } => {
                 debug!(
@@ -673,7 +677,9 @@ impl ChunkForwardingOptimizationTestData {
                     ));
                 }
                 self.num_part_ords_forwarded += forward.parts.len();
-                self.env.shards_manager(&account_id).process_partial_encoded_chunk_forward(forward);
+                self.env.shards_manager(&account_id).send(
+                    ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(forward),
+                );
             }
             _ => {
                 panic!("Unexpected network request: {:?}", requests);

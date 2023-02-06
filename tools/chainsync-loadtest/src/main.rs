@@ -6,6 +6,8 @@ use std::sync::Arc;
 
 use anyhow::{anyhow, Context};
 use clap::Parser;
+use near_async::messaging::Sender;
+use near_network::types::NetworkRecipient;
 use openssl_probe;
 
 use concurrency::{Ctx, Scope};
@@ -13,7 +15,6 @@ use network::Network;
 
 use near_chain_configs::Genesis;
 use near_network::time;
-use near_network::types::NetworkRecipient;
 use near_network::PeerManagerActor;
 use near_o11y::tracing::{error, info};
 use near_primitives::block::GenesisId;
@@ -43,7 +44,7 @@ pub fn start_with_config(config: NearConfig, qps_limit: u32) -> anyhow::Result<A
         near_store::db::TestDB::new(),
         config.network_config,
         network.clone(),
-        network.clone(),
+        Sender::noop(),
         GenesisId {
             chain_id: config.client_config.chain_id.clone(),
             hash: genesis_hash(&config.client_config.chain_id),

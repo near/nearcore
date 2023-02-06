@@ -13,6 +13,7 @@ use crate::peer_manager::network_state::{NetworkState, PRUNE_EDGES_AFTER};
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::private_actix::{RegisterPeerError, SendMessage};
 use crate::routing::edge::verify_nonce;
+use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::stats::metrics;
 use crate::tcp;
 use crate::time;
@@ -938,23 +939,33 @@ impl PeerActor {
                 None
             }
             RoutedMessageBody::PartialEncodedChunkRequest(request) => {
-                network_state
-                    .shards_manager_adapter
-                    .process_partial_encoded_chunk_request(request, msg_hash);
+                network_state.shards_manager_adapter.send(
+                    ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkRequest {
+                        partial_encoded_chunk_request: request,
+                        route_back: msg_hash,
+                    },
+                );
                 None
             }
             RoutedMessageBody::PartialEncodedChunkResponse(response) => {
-                network_state
-                    .shards_manager_adapter
-                    .process_partial_encoded_chunk_response(response, clock.now().into());
+                network_state.shards_manager_adapter.send(
+                    ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkResponse {
+                        partial_encoded_chunk_response: response,
+                        received_time: clock.now().into(),
+                    },
+                );
                 None
             }
             RoutedMessageBody::VersionedPartialEncodedChunk(chunk) => {
-                network_state.shards_manager_adapter.process_partial_encoded_chunk(chunk);
+                network_state
+                    .shards_manager_adapter
+                    .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(chunk));
                 None
             }
             RoutedMessageBody::PartialEncodedChunkForward(msg) => {
-                network_state.shards_manager_adapter.process_partial_encoded_chunk_forward(msg);
+                network_state
+                    .shards_manager_adapter
+                    .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(msg));
                 None
             }
             RoutedMessageBody::ReceiptOutcomeRequest(_) => {
