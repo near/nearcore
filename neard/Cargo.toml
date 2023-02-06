@@ -63,11 +63,15 @@ rosetta_rpc = ["nearcore/rosetta_rpc"]
 json_rpc = ["nearcore/json_rpc"]
 protocol_feature_fix_staking_threshold = ["nearcore/protocol_feature_fix_staking_threshold"]
 protocol_feature_flat_state = ["nearcore/protocol_feature_flat_state"]
-protocol_feature_nep366_delegate_action = ["nearcore/protocol_feature_nep366_delegate_action"]
+protocol_feature_nep366_delegate_action = [
+  "nearcore/protocol_feature_nep366_delegate_action",
+  "near-state-viewer/protocol_feature_nep366_delegate_action",
+]
 
 nightly = [
   "nightly_protocol",
-  "nearcore/nightly"
+  "nearcore/nightly",
+  "near-state-viewer/nightly",
 ]
 nightly_protocol = ["nearcore/nightly_protocol"]
 
