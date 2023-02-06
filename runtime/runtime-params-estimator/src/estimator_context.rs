@@ -3,6 +3,7 @@ use crate::config::{Config, GasMetric};
 use crate::gas_cost::GasCost;
 use genesis_populate::get_account_id;
 use genesis_populate::state_dump::StateDump;
+use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
@@ -10,6 +11,7 @@ use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
 use near_primitives::types::{Gas, MerkleHash};
 use near_primitives::version::PROTOCOL_VERSION;
+use near_store::flat_state::FlatStateFactory;
 use near_store::{ShardTries, ShardUId, Store, StoreCompiledContractCache, TrieUpdate};
 use near_store::{TrieCache, TrieCachingStorage, TrieConfig};
 use near_vm_logic::{ExtCosts, VMLimitConfig};
@@ -17,6 +19,8 @@ use node_runtime::{ApplyState, Runtime};
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
+
+const FLAT_STATE_HEAD: CryptoHash = CryptoHash::new();
 
 /// Global context shared by all cost calculating functions.
 pub(crate) struct EstimatorContext<'c> {
@@ -71,7 +75,7 @@ impl<'c> EstimatorContext<'c> {
             store.clone(),
             trie_config,
             &shard_uids,
-            near_store::flat_state::FlatStateFactory::new(store.clone()),
+            Self::create_flat_state_factory(store.clone()),
         );
 
         Testbed {
@@ -132,6 +136,58 @@ impl<'c> EstimatorContext<'c> {
             migration_data: Arc::new(MigrationData::default()),
             migration_flags: MigrationFlags::default(),
         }
+    }
+
+    #[cfg(feature = "protocol_feature_flat_state")]
+    fn create_flat_state_factory(store: Store) -> FlatStateFactory {
+        // function-level `use` statements here to avoid `unused import` warning
+        // when flat state feature is disabled
+        use near_primitives::types::BlockHeight;
+        use near_store::flat_state::{
+            store_helper, BlockInfo, ChainAccessForFlatStorage, FlatStorageState,
+        };
+        use std::collections::HashSet;
+
+        const BLOCK_HEIGHT: BlockHeight = 0;
+
+        /// Dummy ChainAccessForFlatStorage implementation to be able to create
+        /// FlatStorageState.
+        struct ChainAccess;
+
+        impl ChainAccessForFlatStorage for ChainAccess {
+            fn get_block_info(&self, block_hash: &CryptoHash) -> BlockInfo {
+                BlockInfo {
+                    hash: block_hash.clone(),
+                    prev_hash: Default::default(),
+                    height: BLOCK_HEIGHT,
+                }
+            }
+
+            fn get_block_hashes_at_height(
+                &self,
+                _block_height: BlockHeight,
+            ) -> HashSet<CryptoHash> {
+                // This is only needed to accumulate deltas when flat head doesn't
+                // match the latest block height, so it won't be called in our case.
+                unimplemented!()
+            }
+        }
+
+        let shard_id = ShardUId::single_shard().shard_id();
+        // Set up flat head to be equal to the latest block height
+        let mut store_update = store.store_update();
+        store_helper::set_flat_head(&mut store_update, shard_id, &FLAT_STATE_HEAD);
+        store_update.commit().expect("failed to set flat head");
+        let factory = FlatStateFactory::new(store.clone());
+        let flat_storage_state =
+            FlatStorageState::new(store.clone(), shard_id, BLOCK_HEIGHT, &ChainAccess {});
+        factory.add_flat_storage_state_for_shard(shard_id, flat_storage_state);
+        factory
+    }
+
+    #[cfg(not(feature = "protocol_feature_flat_state"))]
+    fn create_flat_state_factory(store: Store) -> FlatStateFactory {
+        FlatStateFactory::new(store.clone())
     }
 }
 
@@ -260,6 +316,9 @@ impl Testbed<'_> {
             ShardUId::single_shard(),
             &mut store_update,
         );
+        #[cfg(feature = "protocol_feature_flat_state")]
+        near_store::FlatStateDelta::from_state_changes(&apply_result.state_changes)
+            .apply_to_flat_state(&mut store_update);
         store_update.commit().unwrap();
         self.apply_state.block_height += 1;
 
@@ -351,6 +410,10 @@ impl Testbed<'_> {
 
     /// Instantiate a new trie for the estimator.
     fn trie(&mut self) -> near_store::Trie {
-        self.tries.get_trie_for_shard(ShardUId::single_shard(), self.root.clone())
+        self.tries.get_trie_with_block_hash_for_shard(
+            ShardUId::single_shard(),
+            self.root.clone(),
+            &FLAT_STATE_HEAD,
+        )
     }
 }

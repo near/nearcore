@@ -206,13 +206,13 @@ pub(crate) fn fn_cost_with_setup(
 
         // flat storage check: we only expect TTN costs for writes
         #[cfg(feature = "protocol_feature_flat_state")]
-        // TODO(#8322): This assertion is ignored, we know flat storage doesn't
+        // TODO(#7327): This assertion is ignored, we know flat storage doesn't
         // work for the estimator. Remove cfg once it once it works.
         #[cfg(ignore)]
         {
-            let is_write = *ext_costs.get(&ExtCosts::storage_write_base).unwrap_or(&0) > 0
-                || *ext_costs.get(&ExtCosts::storage_remove_base).unwrap_or(&0) > 0;
-
+            let is_write = [ExtCosts::storage_write_base, ExtCosts::storage_remove_base]
+                .iter()
+                .any(|cost| *ext_costs.get(cost).unwrap_or(&0) > 0);
             if !is_write {
                 assert_eq!(
                     0,
