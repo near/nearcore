@@ -8,6 +8,8 @@ use std::time::Duration;
 use actix::{Actor, Addr, AsyncContext, Context};
 use chrono::DateTime;
 use futures::{future, FutureExt};
+use near_async::actix::AddrWithAutoSpanContextExt;
+use near_async::messaging::{IntoSender, Sender};
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_chunks::ShardsManager;
 use near_network::shards_manager::{
@@ -33,7 +35,7 @@ use near_chain::{
 };
 use near_chain_configs::ClientConfig;
 use near_chunks::adapter::{ShardsManagerAdapterForClient, ShardsManagerRequestFromClient};
-use near_chunks::client::{ClientAdapterForShardsManager, ShardsManagerResponse};
+use near_chunks::client::ShardsManagerResponse;
 use near_chunks::test_utils::{MockClientAdapterForShardsManager, SynchronousShardsManagerAdapter};
 use near_client_primitives::types::Error;
 #[cfg(feature = "protocol_feature_nep366_delegate_action")]
@@ -270,7 +272,7 @@ pub fn setup(
     let (shards_manager_addr, _) = start_shards_manager(
         runtime.clone(),
         network_adapter.clone(),
-        Arc::new(ctx.address()),
+        ctx.address().with_auto_span_context().into_sender(),
         Some(account_id.clone()),
         store.clone(),
         config.chunk_request_retry_period,
@@ -1198,7 +1200,7 @@ pub fn setup_client(
 
 pub fn setup_synchronous_shards_manager(
     account_id: Option<AccountId>,
-    client_adapter: Arc<dyn ClientAdapterForShardsManager>,
+    client_adapter: Sender<ShardsManagerResponse>,
     network_adapter: Arc<dyn PeerManagerAdapter>,
     runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
     chain_genesis: &ChainGenesis,
@@ -1235,7 +1237,7 @@ pub fn setup_client_with_synchronous_shards_manager(
     account_id: Option<AccountId>,
     enable_doomslug: bool,
     network_adapter: Arc<dyn PeerManagerAdapter>,
-    client_adapter: Arc<dyn ClientAdapterForShardsManager>,
+    client_adapter: Sender<ShardsManagerResponse>,
     chain_genesis: ChainGenesis,
     rng_seed: RngSeed,
     archive: bool,
@@ -1460,7 +1462,7 @@ impl TestEnvBuilder {
                 let client_adapter = client_adapters[i].clone();
                 setup_synchronous_shards_manager(
                     Some(clients[i].clone()),
-                    client_adapter,
+                    client_adapter.as_sender(),
                     network_adapter,
                     runtime_adapter,
                     &chain_genesis,
