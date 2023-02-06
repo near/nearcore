@@ -64,12 +64,12 @@ impl ProfileDataV3 {
     }
 
     #[inline]
-    pub fn add_action_cost(&mut self, action: ActionCosts, value: u64) {
+    pub fn add_action_cost(&mut self, action: ActionCosts, value: Gas) {
         self.actions_profile[action] = self.actions_profile[action].saturating_add(value);
     }
 
     #[inline]
-    pub fn add_ext_cost(&mut self, ext: ExtCosts, value: u64) {
+    pub fn add_ext_cost(&mut self, ext: ExtCosts, value: Gas) {
         self.wasm_ext_profile[ext] = self.wasm_ext_profile[ext].saturating_add(value);
     }
 
@@ -81,29 +81,29 @@ impl ProfileDataV3 {
     /// This is because WasmInstruction is the hottest cost and is implemented
     /// with the help on the VM side, so we don't want to have profiling logic
     /// there both for simplicity and efficiency reasons.
-    pub fn compute_wasm_instruction_cost(&mut self, total_gas_burnt: u64) {
+    pub fn compute_wasm_instruction_cost(&mut self, total_gas_burnt: Gas) {
         self.wasm_gas =
             total_gas_burnt.saturating_sub(self.action_gas()).saturating_sub(self.host_gas());
     }
 
-    pub fn get_action_cost(&self, action: ActionCosts) -> u64 {
+    pub fn get_action_cost(&self, action: ActionCosts) -> Gas {
         self.actions_profile[action]
     }
 
-    pub fn get_ext_cost(&self, ext: ExtCosts) -> u64 {
+    pub fn get_ext_cost(&self, ext: ExtCosts) -> Gas {
         self.wasm_ext_profile[ext]
     }
 
-    pub fn get_wasm_cost(&self) -> u64 {
+    pub fn get_wasm_cost(&self) -> Gas {
         self.wasm_gas
     }
 
-    fn host_gas(&self) -> u64 {
-        self.wasm_ext_profile.as_slice().iter().copied().fold(0, u64::saturating_add)
+    fn host_gas(&self) -> Gas {
+        self.wasm_ext_profile.as_slice().iter().copied().fold(0, Gas::saturating_add)
     }
 
-    pub fn action_gas(&self) -> u64 {
-        self.actions_profile.as_slice().iter().copied().fold(0, u64::saturating_add)
+    pub fn action_gas(&self) -> Gas {
+        self.actions_profile.as_slice().iter().copied().fold(0, Gas::saturating_add)
     }
 }
 

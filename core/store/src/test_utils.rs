@@ -5,7 +5,7 @@ use rand::Rng;
 
 use crate::db::TestDB;
 use crate::metadata::{DbKind, DbVersion, DB_VERSION};
-use crate::{NodeStorage, ShardTries, Store, Temperature};
+use crate::{DBCol, NodeStorage, ShardTries, Store, Temperature};
 use near_primitives::account::id::AccountId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{DataReceipt, Receipt, ReceiptEnum};
@@ -82,6 +82,24 @@ pub fn test_populate_trie(
         assert_eq!(trie.get(&key), Ok(value));
     }
     root
+}
+
+/// Insert values to non-reference-counted columns in the store.
+pub fn test_populate_store(store: &Store, data: &[(DBCol, Vec<u8>, Vec<u8>)]) {
+    let mut update = store.store_update();
+    for (column, key, value) in data {
+        update.insert(*column, key, value);
+    }
+    update.commit().expect("db commit failed");
+}
+
+/// Insert values to reference-counted columns in the store.
+pub fn test_populate_store_rc(store: &Store, data: &[(DBCol, Vec<u8>, Vec<u8>)]) {
+    let mut update = store.store_update();
+    for (column, key, value) in data {
+        update.increment_refcount(*column, key, value);
+    }
+    update.commit().expect("db commit failed");
 }
 
 fn gen_accounts_from_alphabet(

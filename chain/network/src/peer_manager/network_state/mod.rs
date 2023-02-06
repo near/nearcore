@@ -7,8 +7,10 @@ use crate::network_protocol::{
     Edge, EdgeState, PartialEdgeInfo, PeerIdOrHash, PeerInfo, PeerMessage, Ping, Pong,
     RawRoutedMessage, RoutedMessageBody, RoutedMessageV2, SignedAccountData,
 };
+use crate::peer::peer_actor::PeerActor;
 use crate::peer::peer_actor::{ClosingReason, ConnectionClosedEvent};
 use crate::peer_manager::connection;
+use crate::peer_manager::connection_store;
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::peer_store;
 use crate::private_actix::RegisterPeerError;
@@ -19,6 +21,7 @@ use crate::store;
 use crate::tcp;
 use crate::time;
 use crate::types::{ChainInfo, PeerType, ReasonForBan};
+use anyhow::Context;
 use arc_swap::ArcSwap;
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
@@ -50,6 +53,9 @@ const PRUNE_UNREACHABLE_PEERS_AFTER: time::Duration = time::Duration::hours(1);
 
 /// Remove the edges that were created more that this duration ago.
 pub const PRUNE_EDGES_AFTER: time::Duration = time::Duration::minutes(30);
+
+/// How long to wait between reconnection attempts to the same peer
+pub(crate) const RECONNECT_ATTEMPT_INTERVAL: time::Duration = time::Duration::seconds(10);
 
 impl WhitelistNode {
     pub fn from_peer_info(pi: &PeerInfo) -> anyhow::Result<Self> {
@@ -102,6 +108,10 @@ pub(crate) struct NetworkState {
     pub inbound_handshake_permits: Arc<tokio::sync::Semaphore>,
     /// Peer store that provides read/write access to peers.
     pub peer_store: peer_store::PeerStore,
+    /// Connection store that provides read/write access to stored connections.
+    pub connection_store: connection_store::ConnectionStore,
+    /// List of peers to which we should re-establish a connection
+    pub pending_reconnect: Mutex<Vec<PeerInfo>>,
     /// A graph of the whole NEAR network.
     pub graph: Arc<crate::routing::Graph>,
 
@@ -171,6 +181,8 @@ impl NetworkState {
             tier1: connection::Pool::new(config.node_id()),
             inbound_handshake_permits: Arc::new(tokio::sync::Semaphore::new(LIMIT_PENDING_PEERS)),
             peer_store,
+            connection_store: connection_store::ConnectionStore::new(store.clone()).unwrap(),
+            pending_reconnect: Mutex::new(Vec::<PeerInfo>::new()),
             accounts_data: Arc::new(accounts_data::Cache::new()),
             tier1_route_back: Mutex::new(RouteBackCache::default()),
             recent_routed_messages: Mutex::new(lru::LruCache::new(
@@ -371,10 +383,55 @@ impl NetworkState {
             if let Err(err) = res {
                 tracing::error!(target: "network", ?err, "Failed to save peer data");
             }
+
+            // Save the fact that we are disconnecting to the ConnectionStore,
+            // and push a reconnect attempt, if applicable
+            if this.connection_store.connection_closed(&conn.peer_info, &conn.peer_type, &reason) {
+                this.pending_reconnect.lock().push(conn.peer_info.clone());
+            }
+
             this.config
                 .event_sink
                 .push(Event::ConnectionClosed(ConnectionClosedEvent { stream_id, reason }));
         });
+    }
+
+    /// Attempt to connect to the given peer until successful, up to max_attempts times
+    pub async fn reconnect(
+        self: &Arc<Self>,
+        clock: time::Clock,
+        peer_info: PeerInfo,
+        max_attempts: usize,
+    ) {
+        let mut interval = time::Interval::new(clock.now(), RECONNECT_ATTEMPT_INTERVAL);
+        for _attempt in 0..max_attempts {
+            interval.tick(&clock).await;
+
+            let result = async {
+                let stream = tcp::Stream::connect(&peer_info, tcp::Tier::T2)
+                    .await
+                    .context("tcp::Stream::connect()")?;
+                PeerActor::spawn_and_handshake(clock.clone(), stream, None, self.clone())
+                    .await
+                    .context("PeerActor::spawn()")?;
+                anyhow::Ok(())
+            }
+            .await;
+
+            let succeeded = !result.is_err();
+
+            if result.is_err() {
+                tracing::info!(target:"network", ?result, "Failed to connect to {peer_info}");
+            }
+
+            if self.peer_store.peer_connection_attempt(&clock, &peer_info.id, result).is_err() {
+                tracing::error!(target: "network", ?peer_info, "Failed to store connection attempt.");
+            }
+
+            if succeeded {
+                return;
+            }
+        }
     }
 
     /// Determine if the given target is referring to us.
@@ -650,6 +707,18 @@ impl NetworkState {
         })
         .await
         .unwrap()
+    }
+
+    pub fn update_connection_store(self: &Arc<Self>, clock: &time::Clock) {
+        self.connection_store.update(clock, &self.tier2.load());
+    }
+
+    /// Clears pending_reconnect and returns the cleared values
+    pub fn poll_pending_reconnect(&self) -> Vec<PeerInfo> {
+        let mut pending_reconnect = self.pending_reconnect.lock();
+        let polled = pending_reconnect.clone();
+        pending_reconnect.clear();
+        return polled;
     }
 
     /// Sets the chain info, and updates the set of TIER1 keys.

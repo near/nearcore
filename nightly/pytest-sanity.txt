@@ -42,9 +42,8 @@ pytest --timeout=600 sanity/state_sync_routed.py manytx 115 --features nightly
 
 pytest --timeout=3600 sanity/state_sync_massive.py
 pytest --timeout=3600 sanity/state_sync_massive_validator.py
-# TODO(pugachag) - re-enable these tests when near/nayduck#38 is merged
-# pytest --timeout=3600 sanity/state_sync_massive.py --features nightly
-# pytest --timeout=3600 sanity/state_sync_massive_validator.py --features nightly
+pytest --timeout=3600 sanity/state_sync_massive.py --features nightly
+pytest --timeout=3600 sanity/state_sync_massive_validator.py --features nightly
 
 # TODO(#8211) - tests broken due to bad behavior in chunk fetching - re-enable when that PR is submitted.
 # pytest sanity/sync_chunks_from_archival.py
