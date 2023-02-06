@@ -3012,6 +3012,7 @@ dependencies = [
  "actix",
  "derive-enum-from-into",
  "derive_more",
+ "futures",
  "near-o11y",
  "once_cell",
  "serde",

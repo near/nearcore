@@ -1,4 +1,4 @@
-use crate::messaging::ArcSender;
+use crate::messaging::Sender;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct ReportSumMsg(pub i64);
@@ -11,15 +11,15 @@ pub enum SumRequest {
 
 // Mimics a typical backing component of some actor in nearcore. Handles request
 // messages, and sends some other messages to another actor. The other actor is
-// abstracted with an ArcSender here. We'll show how to test this in
+// abstracted with an Sender here. We'll show how to test this in
 // sum_numbers_test.rs.
 pub struct SumNumbersComponent {
-    result_sender: ArcSender<ReportSumMsg>,
+    result_sender: Sender<ReportSumMsg>,
     numbers: Vec<i64>,
 }
 
 impl SumNumbersComponent {
-    pub fn new(result_sender: ArcSender<ReportSumMsg>) -> Self {
+    pub fn new(result_sender: Sender<ReportSumMsg>) -> Self {
         Self { result_sender, numbers: vec![] }
     }
 
