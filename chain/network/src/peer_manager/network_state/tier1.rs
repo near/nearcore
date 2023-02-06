@@ -93,10 +93,7 @@ impl super::NetworkState {
         let _lock = self.tier1_advertise_proxies_mutex.lock().await;
         let accounts_data = self.accounts_data.load();
 
-        let vc = match self.tier1_validator_config(&accounts_data) {
-            Some(it) => it,
-            None => return None,
-        };
+        let vc = self.tier1_validator_config(&accounts_data)?;
         let proxies = match (&self.config.node_addr, &vc.proxies) {
             (None, _) => vec![],
             (_, config::ValidatorProxies::Static(peer_addrs)) => peer_addrs.clone(),

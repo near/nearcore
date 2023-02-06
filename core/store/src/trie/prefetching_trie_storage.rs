@@ -346,10 +346,8 @@ impl PrefetchStagingArea {
     pub(crate) fn blocking_get(&self, key: CryptoHash) -> Option<Arc<[u8]>> {
         let mut guard = self.0.lock();
         loop {
-            match guard.slots.get(&key) {
-                Some(PrefetchSlot::Done(value)) => return Some(value.clone()),
-                Some(_) => (),
-                None => return None,
+            if let PrefetchSlot::Done(value) = guard.slots.get(&key)? {
+                return Some(value.clone());
             }
             guard = self.0.wait(guard);
         }
