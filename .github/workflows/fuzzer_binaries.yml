@@ -1,0 +1,32 @@
+name: Fuzzer Binaries
+on:
+  push:
+    paths:
+      - "scripts/build_fuzzers.py"
+
+jobs:
+  build_binary:
+    runs-on: "ubuntu-latest"
+
+    permissions:
+      contents: "read"
+      id-token: "write"
+
+    steps:
+      - id: "auth"
+        uses: "google-github-actions/auth@v1"
+        with:
+          workload_identity_provider: "projects/750982429559/locations/global/workloadIdentityPools/github-actions-pool"
+          service_account: "github-service-account@near-fuzzers.iam.gserviceaccount.com"
+
+      - name: "Set up GCP SDK"
+        uses: "google-github-actions/setup-gcloud@v1"
+        with:
+          version: ">= 416.0.0"
+
+      - name: "Check available fuzzer binaries"
+        run: gsutil ls gs://fuzzer_binaries/
+
+      - run: echo $RUSTC_BOOTSTRAP
+        env:
+          RUSTC_BOOTSTRAP: "1"
