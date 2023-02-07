@@ -26,6 +26,7 @@ use near_primitives::views::{
     ExecutionOutcomeWithIdView, ExecutionStatusView, QueryRequest, QueryResponseKind,
     SignedTransactionView,
 };
+use near_primitives_core::account::{AccessKey, AccessKeyPermission};
 use near_primitives_core::types::{Nonce, ShardId};
 use nearcore::config::NearConfig;
 use rocksdb::DB;
@@ -952,10 +953,15 @@ impl<T: ChainAccess> TxMirror<T> {
         let mut actions = Vec::new();
         let mut nonce_updates = HashSet::new();
 
+        let mut account_created = false;
+        let mut full_key_added = false;
         let source_actions = tx.actions();
         for action in source_actions.iter() {
             match &action {
                 Action::AddKey(add_key) => {
+                    if add_key.access_key.permission == AccessKeyPermission::FullAccess {
+                        full_key_added = true;
+                    }
                     let public_key =
                         crate::key_mapping::map_key(&add_key.public_key, self.secret.as_ref())
                             .public_key();
@@ -1004,8 +1010,18 @@ impl<T: ChainAccess> TxMirror<T> {
                         actions.push(action.clone());
                     }
                 }
+                Action::CreateAccount(_) => {
+                    account_created = true;
+                    actions.push(action.clone());
+                }
                 _ => actions.push(action.clone()),
             };
+        }
+        if account_created && !full_key_added {
+            actions.push(Action::AddKey(AddKeyAction {
+                public_key: crate::key_mapping::EXTRA_KEY.public_key(),
+                access_key: AccessKey::full_access(),
+            }));
         }
         Ok((actions, nonce_updates))
     }
@@ -1141,22 +1157,15 @@ impl<T: ChainAccess> TxMirror<T> {
                 match key {
                     Some(key) => key,
                     None => {
-                        tracing::warn!(
-                            target: "mirror", "not preparing a transaction for {} because no full access key for {} in the source chain is known at block {}",
+                        tracing::debug!(
+                            target: "mirror", "trying to prepare a transaction with the default extra key for {} because no full access key for {} in the source chain is known at block {}",
                             &provenance, &target_signer_id, &block_hash,
                         );
-                        return Ok(());
+                        crate::key_mapping::EXTRA_KEY
                     }
                 }
             }
-            Err(ChainError::Unknown) => {
-                tracing::warn!(
-                    target: "mirror", "not preparing a transaction for {} because no full access key for {} in the source chain is known at block {}",
-                    &provenance, &predecessor_id, &block_hash,
-                );
-                return Ok(());
-            }
-            Err(ChainError::Other(e)) => {
+            Err(e) => {
                 return Err(e)
                     .with_context(|| format!("failed fetching access key for {}", &predecessor_id))
             }
