@@ -217,7 +217,7 @@ impl FlatStorageShardCreator {
                             for hash in hashes {
                                 debug!(target: "store", %shard_id, %height, %hash, "Checking delta existence");
                                 assert_matches!(
-                                    store_helper::get_delta(
+                                    FlatStateDelta::read_from_store(
                                         chain_store.store(),
                                         shard_id,
                                         hash.clone(),
@@ -367,8 +367,9 @@ impl FlatStorageShardCreator {
                         break;
                     }
                     flat_head = chain_store.get_next_block_hash(&flat_head).unwrap();
-                    let delta =
-                        store_helper::get_delta(store, shard_id, flat_head).unwrap().unwrap();
+                    let delta = FlatStateDelta::read_from_store(store, shard_id, flat_head)
+                        .unwrap()
+                        .unwrap();
                     merged_delta.merge(delta.as_ref());
                 }
 

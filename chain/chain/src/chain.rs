@@ -4928,7 +4928,8 @@ impl<'a> ChainUpdate<'a> {
                 // Otherwise, save delta to disk so it will be used for flat storage creation later.
                 info!(target: "chain", %shard_id, "Add delta for flat storage creation");
                 let mut store_update = self.chain_store_update.store().store_update();
-                store_helper::set_delta(&mut store_update, shard_id, block_hash.clone(), &delta)
+                delta
+                    .save_to_store(&mut store_update, shard_id, block_hash.clone())
                     .map_err(|e| StorageError::from(e))?;
                 self.chain_store_update.merge(store_update);
             }

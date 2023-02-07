@@ -80,7 +80,8 @@ mod imp {
         /// flat_storage_state.head, except for delayed receipt keys.
         #[allow(unused)]
         store: Store,
-        /// Block hash on top of which `FlatState` will return `ValueRef`s.
+        /// The block for which key-value pairs of its state will be retrieved. The flat state
+        /// will reflect the state AFTER the block is applied.
         block_hash: CryptoHash,
         /// In-memory cache for the key value pairs stored on disk.
         #[allow(unused)]
@@ -106,7 +107,7 @@ mod imp {
             Self { store, block_hash, cache, flat_storage_state }
         }
         /// Returns value reference using raw trie key, taken from the state
-        /// corresponding to block hash for which `FlatState` was created.
+        /// corresponding to `FlatState::block_hash`.
         ///
         /// To avoid duplication, we don't store values themselves in flat state,
         /// they are stored in `DBCol::State`. Also the separation is done so we
@@ -332,26 +333,21 @@ mod imp {
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
-use crate::{metrics, CryptoHash, Store, StoreUpdate};
+use crate::{metrics, CryptoHash, DBCol, Store, StoreUpdate};
 pub use imp::{FlatState, FlatStateFactory};
 use near_primitives::state::ValueRef;
 use near_primitives::types::{BlockHeight, RawStateChangesWithTrieKey, ShardId};
 use std::collections::{HashMap, HashSet};
 use std::io::Read;
 
-#[derive(BorshSerialize, BorshDeserialize)]
-pub struct KeyForFlatStateDelta {
-    pub shard_id: ShardId,
-    pub block_hash: CryptoHash,
-}
-
-pub struct NewKeyForFlatStateDelta {
+#[derive(PartialEq, Eq, Debug)]
+pub struct FlatStateDeltaKey {
     pub shard_id: ShardId,
     pub block_hash: CryptoHash,
     pub key: Vec<u8>,
 }
 
-impl NewKeyForFlatStateDelta {
+impl FlatStateDeltaKey {
     #[allow(unused)]
     fn db_prefix(shard_id: ShardId, block_hash: CryptoHash) -> Vec<u8> {
         let mut out = Vec::new();
@@ -377,7 +373,7 @@ impl NewKeyForFlatStateDelta {
         let block_hash = CryptoHash(arr);
         let mut key = Vec::new();
         bytes.read_to_end(&mut key)?;
-        Ok(NewKeyForFlatStateDelta { shard_id, block_hash, key })
+        Ok(FlatStateDeltaKey { shard_id, block_hash, key })
     }
 }
 
@@ -459,14 +455,81 @@ impl FlatStateDelta {
     pub fn apply_to_flat_state(self, _store_update: &mut StoreUpdate) {}
 
     #[cfg(feature = "protocol_feature_flat_state")]
-    pub fn save(
-        &self,
+    pub fn read_from_store(
+        store: &Store,
         shard_id: ShardId,
         block_hash: CryptoHash,
+    ) -> Result<Option<Arc<Self>>, FlatStorageError> {
+        let key_prefix = FlatStateDeltaKey::db_prefix(shard_id, block_hash);
+        let mut delta = Self::default();
+        let mut delta_exists = false;
+        for item in store.iter_prefix_ser(DBCol::FlatStateDeltas, &key_prefix) {
+            let (bytes_key, state_value) =
+                item.map_err(|_| FlatStorageError::StorageInternalError)?;
+            let delta_key = FlatStateDeltaKey::decode(&bytes_key)
+                .map_err(|_| FlatStorageError::StorageInternalError)?;
+            let state_key = delta_key.key;
+
+            if state_key.is_empty() {
+                delta_exists = true;
+            } else {
+                delta.insert(state_key, state_value);
+            }
+        }
+
+        if delta_exists {
+            Ok(Some(Arc::new(delta)))
+        } else {
+            if delta.len() > 0 {
+                // If we didn't find flat state delta mark in storage, but found some KV pair, then storage is in
+                // inconsistent state.
+                Err(FlatStorageError::StorageInternalError)
+            } else {
+                Ok(None)
+            }
+        }
+    }
+
+    #[cfg(not(feature = "protocol_feature_flat_state"))]
+    pub fn read_from_store(
+        _store: &Store,
+        _shard_id: ShardId,
+        _block_hash: CryptoHash,
+    ) -> Result<Option<Arc<Self>>, FlatStorageError> {
+        Err(FlatStorageError::StorageInternalError)
+    }
+
+    #[cfg(feature = "protocol_feature_flat_state")]
+    pub fn remove_from_store(
         store_update: &mut StoreUpdate,
+        shard_id: ShardId,
+        block_hash: CryptoHash,
+    ) {
+        let key_prefix_from = FlatStateDeltaKey::db_prefix(shard_id, block_hash);
+        let mut key_prefix_to = key_prefix_from.clone();
+        // Append 255 to the key prefix because it exceeds all trie key prefixes, so range deletion removes both
+        // the flat state delta mark and all keys.
+        key_prefix_to.push(255u8);
+        store_update.delete_range(DBCol::FlatStateDeltas, &key_prefix_from, &key_prefix_to);
+    }
+
+    #[cfg(feature = "protocol_feature_flat_state")]
+    pub fn save_to_store(
+        &self,
+        store_update: &mut StoreUpdate,
+        shard_id: ShardId,
+        block_hash: CryptoHash,
     ) -> Result<(), FlatStorageError> {
+        // Set a key which marks flat storage delta existence in the storage, even if it is empty.
+        // This is not necessary, but helps to determine if flat storage was updated for specific block.
+        let key = FlatStateDeltaKey::db_prefix(shard_id, block_hash);
+        let flat_state_delta_mark: Option<ValueRef> = None;
+        store_update
+            .set_ser(crate::DBCol::FlatStateDeltas, &key, &flat_state_delta_mark)
+            .map_err(|_| FlatStorageError::StorageInternalError)?;
+
         for (key, value) in self.0.iter() {
-            let item_key = NewKeyForFlatStateDelta { shard_id, block_hash, key: key.clone() };
+            let item_key = FlatStateDeltaKey { shard_id, block_hash, key: key.clone() };
             let bytes = item_key.encode();
             store_update
                 .set_ser(crate::DBCol::FlatStateDeltas, &bytes, value)
@@ -476,7 +539,7 @@ impl FlatStateDelta {
     }
 
     #[cfg(not(feature = "protocol_feature_flat_state"))]
-    pub fn save(
+    pub fn save_to_store(
         &self,
         _shard_id: ShardId,
         _block_hash: CryptoHash,
@@ -631,16 +694,13 @@ impl Into<i64> for &FlatStorageCreationStatus {
 
 #[cfg(feature = "protocol_feature_flat_state")]
 pub mod store_helper {
-    use crate::flat_state::{
-        FetchingStateStatus, FlatStorageCreationStatus, FlatStorageError, NewKeyForFlatStateDelta,
-    };
-    use crate::{DBCol, FlatStateDelta, Store, StoreUpdate};
+    use crate::flat_state::{FetchingStateStatus, FlatStorageCreationStatus, FlatStorageError};
+    use crate::{Store, StoreUpdate};
     use borsh::{BorshDeserialize, BorshSerialize};
     use byteorder::ReadBytesExt;
     use near_primitives::hash::CryptoHash;
     use near_primitives::state::ValueRef;
     use near_primitives::types::ShardId;
-    use std::sync::Arc;
 
     /// Prefixes determining type of flat storage creation status stored in DB.
     /// Note that non-existent status is treated as SavingDeltas if flat storage
@@ -651,45 +711,6 @@ pub mod store_helper {
     /// Prefixes for keys in `FlatStateMisc` DB column.
     pub const FLAT_STATE_HEAD_KEY_PREFIX: &[u8; 4] = b"HEAD";
     pub const FLAT_STATE_CREATION_STATUS_KEY_PREFIX: &[u8; 6] = b"STATUS";
-
-    pub fn get_delta(
-        store: &Store,
-        shard_id: ShardId,
-        block_hash: CryptoHash,
-    ) -> Result<Option<Arc<FlatStateDelta>>, FlatStorageError> {
-        let key_prefix = NewKeyForFlatStateDelta::db_prefix(shard_id, block_hash);
-        let mut delta = FlatStateDelta::default();
-        for item in store.iter_prefix_ser(DBCol::FlatStateDeltas, &key_prefix) {
-            let (key, value) = item.map_err(|_| FlatStorageError::StorageInternalError)?;
-            delta.insert(key.to_vec(), value);
-        }
-        if delta.len() == 0 {
-            Ok(None)
-        } else {
-            Ok(Some(Arc::new(delta)))
-        }
-    }
-
-    pub fn set_delta(
-        store_update: &mut StoreUpdate,
-        shard_id: ShardId,
-        block_hash: CryptoHash,
-        delta: &FlatStateDelta,
-    ) -> Result<(), FlatStorageError> {
-        // let key = KeyForFlatStateDelta { shard_id, block_hash };
-        // store_update
-        //     .set_ser(crate::DBCol::FlatStateDeltas, &key.try_to_vec().unwrap(), delta)
-        //     .map_err(|_| FlatStorageError::StorageInternalError)
-        delta.save(shard_id, block_hash, store_update)
-    }
-
-    pub fn remove_delta(store_update: &mut StoreUpdate, shard_id: ShardId, block_hash: CryptoHash) {
-        let key_prefix_from = NewKeyForFlatStateDelta::db_prefix(shard_id, block_hash);
-        // Append 255 because it exceeds all trie key prefixes
-        let mut key_prefix_to = key_prefix_from.clone();
-        key_prefix_to.push(255u8);
-        store_update.delete_range(crate::DBCol::FlatStateDeltas, &key_prefix_from, &key_prefix_to);
-    }
 
     fn flat_head_key(shard_id: ShardId) -> Vec<u8> {
         let mut fetching_state_step_key = FLAT_STATE_HEAD_KEY_PREFIX.to_vec();
@@ -813,22 +834,13 @@ pub mod store_helper {
 
 #[cfg(not(feature = "protocol_feature_flat_state"))]
 pub mod store_helper {
-    use crate::flat_state::{FlatStateDelta, FlatStorageCreationStatus, FlatStorageError};
+    use crate::flat_state::FlatStorageCreationStatus;
     use crate::Store;
     use near_primitives::hash::CryptoHash;
     use near_primitives::types::ShardId;
-    use std::sync::Arc;
 
     pub fn get_flat_head(_store: &Store, _shard_id: ShardId) -> Option<CryptoHash> {
         None
-    }
-
-    pub fn get_delta(
-        _store: &Store,
-        _shard_id: ShardId,
-        _block_hash: CryptoHash,
-    ) -> Result<Option<Arc<FlatStateDelta>>, FlatStorageError> {
-        Err(FlatStorageError::StorageInternalError)
     }
 
     pub fn get_flat_storage_creation_status(
@@ -955,10 +967,14 @@ impl FlatStorageState {
                 );
                 blocks.insert(hash, block_info);
                 metrics.cached_blocks.inc();
-                let delta = store_helper::get_delta(&store, shard_id, hash)
+
+                let delta = FlatStateDelta::read_from_store(&store, shard_id, hash)
                     .expect(BORSH_ERR)
                     .unwrap_or_else(|| {
-                        panic!("Cannot find block delta for block {:?} shard {}", hash, shard_id)
+                        panic!(
+                            "Cannot find block delta for block {:?} on height {} for shard {}",
+                            hash, height, shard_id
+                        )
                     });
                 metrics.cached_deltas.inc();
                 metrics.cached_deltas_num_items.add(delta.len() as i64);
@@ -1064,7 +1080,7 @@ impl FlatStorageState {
             for hash in hashes_to_remove {
                 // It is fine to remove all deltas in single store update, because memory overhead of `DeleteRange`
                 // operation is low.
-                store_helper::remove_delta(&mut store_update, guard.shard_id, hash);
+                FlatStateDelta::remove_from_store(&mut store_update, guard.shard_id, hash);
                 match guard.deltas.remove(&hash) {
                     Some(delta) => {
                         guard.metrics.cached_deltas.dec();
@@ -1126,7 +1142,8 @@ impl FlatStorageState {
             return Err(guard.create_block_not_supported_error(block_hash));
         }
         let mut store_update = StoreUpdate::new(guard.store.storage.clone());
-        store_helper::set_delta(&mut store_update, guard.shard_id, block_hash.clone(), &delta)?;
+        delta.save_to_store(&mut store_update, guard.shard_id, block_hash.clone())?;
+
         guard.metrics.cached_deltas.inc();
         guard.metrics.cached_deltas_num_items.add(delta.len() as i64);
         guard.metrics.cached_deltas_size.add(delta.total_size() as i64);
@@ -1192,8 +1209,8 @@ impl FlatStorageState {
 #[cfg(feature = "protocol_feature_flat_state")]
 mod tests {
     use crate::flat_state::{
-        store_helper, BlockInfo, ChainAccessForFlatStorage, FlatStateFactory, FlatStorageError,
-        FlatStorageState,
+        store_helper, BlockInfo, ChainAccessForFlatStorage, FlatStateDeltaKey, FlatStateFactory,
+        FlatStorageError, FlatStorageState,
     };
     use crate::test_utils::create_test_store;
     use crate::FlatStateDelta;
@@ -1209,6 +1226,18 @@ mod tests {
 
     use assert_matches::assert_matches;
     use std::collections::HashMap;
+
+    #[test]
+    fn encode_decode_key() {
+        let key = FlatStateDeltaKey { shard_id: 1, block_hash: hash(&[2]), key: vec![3] };
+        let key_bytes = key.encode();
+        let decoded_key = FlatStateDeltaKey::decode(&key_bytes).unwrap();
+        assert_eq!(key, decoded_key);
+
+        let db_prefix_bytes = FlatStateDeltaKey::db_prefix(1, hash(&[2]));
+        assert!(key_bytes.len() >= db_prefix_bytes.len(), "Encoded key prefix is shorter than DB prefix defined for it: {key_bytes:?}, {db_prefix_bytes:?}");
+        assert_eq!(&key_bytes[..db_prefix_bytes.len()], &db_prefix_bytes, "Encoded key prefix must start from DB prefix defined for it: {key_bytes:?}, {db_prefix_bytes:?}")
+    }
 
     struct MockChain {
         height_to_hashes: HashMap<BlockHeight, CryptoHash>,
@@ -1421,13 +1450,9 @@ mod tests {
         let mut store_update = store.store_update();
         store_helper::set_flat_head(&mut store_update, 0, &chain.get_block_hash(0));
         for i in 1..5 {
-            store_helper::set_delta(
-                &mut store_update,
-                0,
-                chain.get_block_hash(i),
-                &FlatStateDelta::default(),
-            )
-            .unwrap();
+            FlatStateDelta::default()
+                .save_to_store(&mut store_update, 0, chain.get_block_hash(i))
+                .unwrap();
         }
         store_update.commit().unwrap();
 
@@ -1467,13 +1492,9 @@ mod tests {
         let mut store_update = store.store_update();
         store_helper::set_flat_head(&mut store_update, 0, &chain.get_block_hash(0));
         for i in 1..5 {
-            store_helper::set_delta(
-                &mut store_update,
-                0,
-                chain.get_block_hash(i * 2),
-                &FlatStateDelta::default(),
-            )
-            .unwrap();
+            FlatStateDelta::default()
+                .save_to_store(&mut store_update, 0, chain.get_block_hash(i * 2))
+                .unwrap();
         }
         store_update.commit().unwrap();
 
@@ -1502,13 +1523,9 @@ mod tests {
         store_helper::set_flat_head(&mut store_update, 0, &chain.get_block_hash(0));
         store_helper::set_ref(&mut store_update, vec![1], Some(ValueRef::new(&[0]))).unwrap();
         for i in 1..10 {
-            store_helper::set_delta(
-                &mut store_update,
-                0,
-                chain.get_block_hash(i),
-                &FlatStateDelta::from([(vec![1], Some(ValueRef::new(&[i as u8])))]),
-            )
-            .unwrap();
+            FlatStateDelta::from([(vec![1], Some(ValueRef::new(&[i as u8])))])
+                .save_to_store(&mut store_update, 0, chain.get_block_hash(i))
+                .unwrap();
         }
         store_update.commit().unwrap();
 
@@ -1554,11 +1571,11 @@ mod tests {
         assert_eq!(flat_state1.get_ref(&[1]).unwrap(), Some(ValueRef::new(&[4])));
         assert_eq!(flat_state1.get_ref(&[2]).unwrap(), None);
         assert_matches!(
-            store_helper::get_delta(&store, 0, chain.get_block_hash(5)).unwrap(),
+            FlatStateDelta::read_from_store(&store, 0, chain.get_block_hash(5)).unwrap(),
             Some(_)
         );
         assert_matches!(
-            store_helper::get_delta(&store, 0, chain.get_block_hash(10)).unwrap(),
+            FlatStateDelta::read_from_store(&store, 0, chain.get_block_hash(10)).unwrap(),
             Some(_)
         );
 
@@ -1571,9 +1588,12 @@ mod tests {
         assert_eq!(flat_state0.get_ref(&[1]).unwrap(), None);
         assert_eq!(flat_state0.get_ref(&[2]).unwrap(), Some(ValueRef::new(&[1])));
         assert_matches!(flat_state1.get_ref(&[1]), Err(StorageError::FlatStorageError(_)));
-        assert_matches!(store_helper::get_delta(&store, 0, chain.get_block_hash(5)).unwrap(), None);
         assert_matches!(
-            store_helper::get_delta(&store, 0, chain.get_block_hash(10)).unwrap(),
+            FlatStateDelta::read_from_store(&store, 0, chain.get_block_hash(5)).unwrap(),
+            None
+        );
+        assert_matches!(
+            FlatStateDelta::read_from_store(&store, 0, chain.get_block_hash(10)).unwrap(),
             Some(_)
         );
 
@@ -1587,7 +1607,7 @@ mod tests {
         assert_eq!(flat_state0.get_ref(&[1]).unwrap(), None);
         assert_eq!(flat_state0.get_ref(&[2]).unwrap(), Some(ValueRef::new(&[1])));
         assert_matches!(
-            store_helper::get_delta(&store, 0, chain.get_block_hash(10)).unwrap(),
+            FlatStateDelta::read_from_store(&store, 0, chain.get_block_hash(10)).unwrap(),
             None
         );
     }
