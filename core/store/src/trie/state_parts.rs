@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use near_primitives::challenge::{PartialState, StateItem};
 use near_primitives::hash::{hash, CryptoHash};
@@ -11,7 +12,7 @@ use tracing::error;
 
 use crate::trie::iterator::TrieTraversalItem;
 use crate::trie::nibble_slice::NibbleSlice;
-use crate::trie::trie_storage::HashmapStorage;
+use crate::trie::trie_storage::TrieMemoryPartialStorage;
 use crate::trie::{
     ApplyStatePartResult, NodeHandle, RawTrieNodeWithSize, TrieNode, TrieNodeWithSize,
 };
@@ -42,8 +43,8 @@ impl Trie {
 
     pub fn temp_foobar(&self, part_id: PartId) -> Result<PartialState, StorageError> {
         self.visit_nodes_for_state_part(part_id).expect("Failed to visit nodes for part");
-        let hashmap_storage = self.storage.as_foobar().unwrap();
-        Ok(hashmap_storage.partial_state())
+        let memory_storage = self.storage.as_partial_storage().unwrap();
+        Ok(memory_storage.partial_state())
     }
 
     pub fn get_trie_nodes_for_part_with_flat_storage(
@@ -83,23 +84,26 @@ impl Trie {
 
             // Now let's create a new trie with all these values included.
             let in_memory_trie =
-                Trie::new(Box::new(HashmapStorage::default()), StateRoot::new(), None);
+                Trie::new(Box::new(TrieMemoryPartialStorage::default()), StateRoot::new(), None);
             // This will generate all the intermediate nodes.
             let trie_updates = in_memory_trie.update(with_values).unwrap();
 
             // Now let's create another storage with everything included.
-            let mut all_nodes: HashMap<CryptoHash, Vec<u8>> = HashMap::new();
+            let mut all_nodes: HashMap<CryptoHash, Arc<[u8]>> = HashMap::new();
             // Adding nodes from the 'boundary'
-            all_nodes.extend(trie_nodes.0.iter().map(|entry| (hash(entry), entry.to_vec())));
+            all_nodes.extend(trie_nodes.0.iter().map(|entry| (hash(entry), entry.clone())));
             all_nodes.extend(
                 trie_updates
                     .insertions
                     .iter()
-                    .map(|entry| (entry.hash().clone(), entry.payload().to_vec())),
+                    .map(|entry| (entry.hash().clone(), entry.payload().to_vec().into())),
             );
 
             let final_trie = Trie::new(
-                Box::new(HashmapStorage { entries: all_nodes, touched_nodes: RefCell::default() }),
+                Box::new(TrieMemoryPartialStorage {
+                    recorded_storage: all_nodes,
+                    visited_nodes: RefCell::default(),
+                }),
                 self.root,
                 None,
             );

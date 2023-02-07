@@ -306,59 +306,7 @@ pub trait TrieStorage {
         None
     }
 
-    fn as_foobar(&self) -> Option<&HashmapStorage> {
-        None
-    }
-
     fn get_trie_nodes_count(&self) -> TrieNodesCount;
-}
-
-#[derive(Default)]
-pub struct HashmapStorage {
-    pub entries: HashMap<CryptoHash, Vec<u8>>,
-    pub touched_nodes: RefCell<HashSet<CryptoHash>>,
-}
-
-impl TrieStorage for HashmapStorage {
-    fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
-        //self.touched_nodes.insert(hash.clone());
-
-        self.touched_nodes.borrow_mut().insert(hash.clone());
-        self.entries
-            .get(hash)
-            .and_then(|a| Some(a.as_slice().into()))
-            .ok_or(StorageError::StorageInternalError)
-    }
-
-    fn get_trie_nodes_count(&self) -> near_primitives::types::TrieNodesCount {
-        todo!()
-    }
-    fn as_foobar(&self) -> Option<&HashmapStorage> {
-        Some(self)
-    }
-}
-
-impl HashmapStorage {
-    pub fn partial_state(&self) -> PartialState {
-        let touched_nodes = self.touched_nodes.borrow();
-        let mut nodes: Vec<_> = self
-            .entries
-            .iter()
-            .filter_map(|(node_hash, value)| {
-                //let tmp = value.into_boxed_slice();
-                //let tmp2: Arc<[u8]> = Arc::from(tmp);
-
-                if touched_nodes.contains(node_hash) {
-                    Some(Arc::from(value.clone().into_boxed_slice()))
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        nodes.sort();
-        PartialState(nodes)
-    }
 }
 
 /// Records every value read by retrieve_raw_bytes.
@@ -403,6 +351,7 @@ impl TrieStorage for TrieRecordingStorage {
     }
 }
 
+#[derive(Default)]
 /// Storage for validating recorded partial storage.
 /// visited_nodes are to validate that partial storage doesn't contain unnecessary nodes.
 pub struct TrieMemoryPartialStorage {
@@ -425,6 +374,26 @@ impl TrieStorage for TrieMemoryPartialStorage {
 
     fn get_trie_nodes_count(&self) -> TrieNodesCount {
         unimplemented!();
+    }
+}
+
+impl TrieMemoryPartialStorage {
+    pub fn partial_state(&self) -> PartialState {
+        let touched_nodes = self.visited_nodes.borrow();
+        let mut nodes: Vec<_> =
+            self.recorded_storage
+                .iter()
+                .filter_map(|(node_hash, value)| {
+                    if touched_nodes.contains(node_hash) {
+                        Some(value.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+        nodes.sort();
+        PartialState(nodes)
     }
 }
 
