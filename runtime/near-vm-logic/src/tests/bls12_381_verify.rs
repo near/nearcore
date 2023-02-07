@@ -2,7 +2,7 @@
 /// https://github.com/ethereum/bls12-381-tests/releases/tag/v0.1.1
 ///
 /// For getting the test data you can download and unzip the `bls_tests_yaml.tar.gz` archive
-/// `cd bls_tests_yaml`
+/// `mkdir bls_tests_yaml`
 /// `wget https://github.com/ethereum/bls12-381-tests/releases/download/v0.1.1/bls_tests_yaml.tar.gz -O - | tar -xz -C bls_tests_yaml`
 ///
 /// For tests were used data from `bls_tests_yaml/fast_aggregate_verify` folder.
