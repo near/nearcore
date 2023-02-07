@@ -295,10 +295,7 @@ impl NetworkState {
                             return Err(RegisterPeerError::Tier1InboundDisabled);
                         }
                         // Allow for inbound TIER1 connections only directly from a TIER1 peers.
-                        let owned_account = match &conn.owned_account {
-                            Some(it) => it,
-                            None => return Err(RegisterPeerError::NotTier1Peer),
-                        };
+                        let owned_account = conn.owned_account.as_ref().ok_or(RegisterPeerError::NotTier1Peer)?;
                         if !this.accounts_data.load().keys.contains(&owned_account.account_key) {
                             return Err(RegisterPeerError::NotTier1Peer);
                         }

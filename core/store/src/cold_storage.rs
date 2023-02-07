@@ -23,6 +23,7 @@ struct StoreWithCache<'a> {
 }
 
 /// Updates provided cold database from provided hot store with information about block at `height`.
+/// Returns if the block was copied (false only if height is not present in `hot_store`).
 /// Block as `height` has to be final.
 /// Wraps hot store in `StoreWithCache` for optimizing reads.
 ///
@@ -46,10 +47,14 @@ pub fn update_cold_db<D: Database>(
     hot_store: &Store,
     shard_layout: &ShardLayout,
     height: &BlockHeight,
-) -> io::Result<()> {
+) -> io::Result<bool> {
     let _span = tracing::debug_span!(target: "store", "update cold db", height = height);
 
     let mut store_with_cache = StoreWithCache { store: hot_store, cache: StoreCache::new() };
+
+    if store_with_cache.get(DBCol::BlockHeight, &height.to_le_bytes())?.is_none() {
+        return Ok(false);
+    }
 
     let key_type_to_keys = get_keys_from_store(&mut store_with_cache, shard_layout, height)?;
     for col in DBCol::iter() {
@@ -63,7 +68,7 @@ pub fn update_cold_db<D: Database>(
         }
     }
 
-    Ok(())
+    Ok(true)
 }
 
 /// Gets values for given keys in a column from provided hot_store.
