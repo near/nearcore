@@ -18,7 +18,7 @@ processed by near?
 ## From Explorer perspective
 
 If you look at a simple token transfer in explorer
-([example](https://explorer.testnet.near.org/transactions/6cNJpNKWP55YrxrgRzc2gi6BM91fo3V6n2vVAo41MvZv)),
+([example](https://explorer.near.org/transactions/79gPsyYRG2xghr6oNLpMbdjP2jpafjVT35no9atS6zUf)),
 you can see that it is broken into three separate sections:
 
 * convert transaction into receipt ( executed in block B )
@@ -123,11 +123,9 @@ Chunk: Ok(
 )
 ```
 
-**Side note:** When we're changing the transaction into a receipt, we also use
+**Side note:** When we're converting the transaction into a receipt, we also use
 this moment to deduct prepaid gas fees and transfered tokens from the 'signer'
-account. The details on how much gas is charged etc will be in a separate
-article.
-<!-- TODO: maybe add the link to that article here? -->
+account. The details on how much gas is charged can be found at https://nomicon.io/RuntimeSpec/Fees/.
 
 ## Step 2 - cross shard receipt
 

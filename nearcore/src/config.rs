@@ -1353,7 +1353,9 @@ pub fn load_config(
         None => Genesis::from_file(&genesis_file, genesis_validation),
     };
 
-    if matches!(genesis.config.chain_id.as_ref(), "mainnet" | "testnet" | "betanet") {
+    if validator_signer.is_some()
+        && matches!(genesis.config.chain_id.as_ref(), "mainnet" | "testnet" | "betanet")
+    {
         // Make sure validators tracks all shards, see
         // https://github.com/near/nearcore/issues/7388
         anyhow::ensure!(!config.tracked_shards.is_empty(),

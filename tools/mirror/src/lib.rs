@@ -7,8 +7,8 @@ use near_chain_primitives::error::QueryError as RuntimeQueryError;
 use near_client::{ClientActor, ViewClientActor};
 use near_client::{ProcessTxRequest, ProcessTxResponse};
 use near_client_primitives::types::{
-    GetBlockError, GetChunkError, GetExecutionOutcome, GetExecutionOutcomeError,
-    GetExecutionOutcomeResponse, GetReceiptError, Query, QueryError,
+    GetBlock, GetBlockError, GetChunkError, GetExecutionOutcomeError, GetReceiptError, Query,
+    QueryError, Status,
 };
 use near_crypto::{PublicKey, SecretKey};
 use near_indexer::{Indexer, StreamerMessage};
@@ -68,24 +68,6 @@ impl DBCol {
 }
 
 // TODO: maybe move these type defs to `mod types` or something
-#[derive(BorshDeserialize, BorshSerialize, Clone, Debug, PartialEq, Eq, PartialOrd, Hash)]
-struct TxInfo {
-    hash: CryptoHash,
-    signer_id: AccountId,
-    receiver_id: AccountId,
-}
-
-#[derive(BorshDeserialize, BorshSerialize, Clone, Debug, PartialEq, Eq, PartialOrd, Hash)]
-struct ReceiptInfo {
-    id: CryptoHash,
-    receiver_id: AccountId,
-}
-
-#[derive(BorshDeserialize, BorshSerialize, Clone, Debug, PartialEq, Eq, PartialOrd, Hash)]
-enum ChainObjectId {
-    Tx(TxInfo),
-    Receipt(ReceiptInfo),
-}
 
 // we want a reference to transactions in .queued_blocks that need to have nonces
 // set later. To avoid having the struct be self referential we keep this struct
@@ -121,7 +103,7 @@ impl Ord for TxRef {
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 enum NonceUpdater {
     TxRef(TxRef),
-    ChainObjectId(ChainObjectId),
+    ChainObjectId(CryptoHash),
 }
 
 // returns bytes that serve as the key corresponding to this pair in the Nonces column
@@ -153,7 +135,7 @@ struct TargetNonce {
 #[derive(BorshDeserialize, BorshSerialize, Debug)]
 struct LatestTargetNonce {
     nonce: Option<Nonce>,
-    pending_outcomes: HashSet<ChainObjectId>,
+    pending_outcomes: HashSet<CryptoHash>,
 }
 
 // TODO: move DB related stuff to its own file and add a way to
@@ -181,18 +163,25 @@ fn put_target_nonce(
     Ok(())
 }
 
-fn read_access_key_outcome(
+// we store a value (empty HashSet if it affects no access keys) in the database for any tx we send,
+// as well as all generated descendant receipts. Once we see it on chain, we update any access keys
+// that might be updated by it, and we insert any generated receipts in the DB. When we see an
+// execution outcome that adds stake actions, the presence/absence of that receipt's ID in the DB
+// will tell us whether it resulted from one of our txs that we mirrored from the source so that
+// we can send a stake tx to reverse it
+
+fn read_pending_outcome(
     db: &DB,
-    id: &ChainObjectId,
+    id: &CryptoHash,
 ) -> anyhow::Result<Option<HashSet<(AccountId, PublicKey)>>> {
     Ok(db
         .get_cf(db.cf_handle(DBCol::AccessKeyOutcomes.name()).unwrap(), &id.try_to_vec().unwrap())?
         .map(|v| HashSet::try_from_slice(&v).unwrap()))
 }
 
-fn put_access_key_outcome(
+fn put_pending_outcome(
     db: &DB,
-    id: ChainObjectId,
+    id: CryptoHash,
     access_keys: HashSet<(AccountId, PublicKey)>,
 ) -> anyhow::Result<()> {
     tracing::debug!(target: "mirror", "storing {:?} in DB for {:?}", &access_keys, &id);
@@ -203,7 +192,7 @@ fn put_access_key_outcome(
     )?)
 }
 
-fn delete_access_key_outcome(db: &DB, id: &ChainObjectId) -> anyhow::Result<()> {
+fn delete_pending_outcome(db: &DB, id: &CryptoHash) -> anyhow::Result<()> {
     tracing::debug!(target: "mirror", "deleting {:?} from DB", &id);
     Ok(db.delete_cf(
         db.cf_handle(DBCol::AccessKeyOutcomes.name()).unwrap(),
@@ -748,102 +737,6 @@ async fn fetch_access_key_nonce(
     }
 }
 
-#[derive(Clone, Debug)]
-enum TxOutcome {
-    Unknown,
-    TxPending(TxInfo),
-    ReceiptPending(ReceiptInfo),
-    Success,
-    Failure,
-}
-
-async fn fetch_outcome(
-    view_client: &Addr<ViewClientActor>,
-    id: &ChainObjectId,
-) -> anyhow::Result<TxOutcome> {
-    match id.clone() {
-        ChainObjectId::Tx(id) => fetch_tx_outcome(view_client, id).await,
-        ChainObjectId::Receipt(id) => fetch_receipt_outcome(view_client, id).await,
-    }
-}
-
-async fn fetch_tx_outcome(
-    view_client: &Addr<ViewClientActor>,
-    id: TxInfo,
-) -> anyhow::Result<TxOutcome> {
-    match view_client
-        .send(
-            GetExecutionOutcome {
-                id: TransactionOrReceiptId::Transaction {
-                    transaction_hash: id.hash,
-                    sender_id: id.signer_id.clone(),
-                },
-            }
-            .with_span_context(),
-        )
-        .await
-        .unwrap()
-    {
-        Ok(GetExecutionOutcomeResponse { outcome_proof, .. }) => {
-            match outcome_proof.outcome.status {
-                ExecutionStatusView::SuccessReceiptId(receipt_id) => {
-                    fetch_receipt_outcome(
-                        view_client,
-                        ReceiptInfo { id: receipt_id, receiver_id: id.receiver_id.clone() },
-                    )
-                    .await
-                }
-                ExecutionStatusView::SuccessValue(_) => unreachable!(),
-                ExecutionStatusView::Failure(_) | ExecutionStatusView::Unknown => {
-                    Ok(TxOutcome::Failure)
-                }
-            }
-        }
-        Err(GetExecutionOutcomeError::UnknownTransactionOrReceipt { .. }) => Ok(TxOutcome::Unknown),
-        Err(
-            GetExecutionOutcomeError::NotConfirmed { .. }
-            | GetExecutionOutcomeError::UnknownBlock { .. },
-        ) => Ok(TxOutcome::TxPending(id)),
-        Err(e) => Err(e).with_context(|| format!("failed fetching outcome for tx {}", &id.hash)),
-    }
-}
-
-async fn fetch_receipt_outcome(
-    view_client: &Addr<ViewClientActor>,
-    id: ReceiptInfo,
-) -> anyhow::Result<TxOutcome> {
-    match view_client
-        .send(
-            GetExecutionOutcome {
-                id: TransactionOrReceiptId::Receipt {
-                    receipt_id: id.id.clone(),
-                    receiver_id: id.receiver_id.clone(),
-                },
-            }
-            .with_span_context(),
-        )
-        .await
-        .unwrap()
-    {
-        Ok(GetExecutionOutcomeResponse { outcome_proof, .. }) => {
-            match outcome_proof.outcome.status {
-                ExecutionStatusView::SuccessReceiptId(_) | ExecutionStatusView::SuccessValue(_) => {
-                    Ok(TxOutcome::Success)
-                }
-                ExecutionStatusView::Failure(_) | ExecutionStatusView::Unknown => {
-                    Ok(TxOutcome::Failure)
-                }
-            }
-        }
-        Err(
-            GetExecutionOutcomeError::NotConfirmed { .. }
-            | GetExecutionOutcomeError::UnknownBlock { .. }
-            | GetExecutionOutcomeError::UnknownTransactionOrReceipt { .. },
-        ) => Ok(TxOutcome::ReceiptPending(id)),
-        Err(e) => Err(e).with_context(|| format!("failed fetching outcome for receipt {}", &id.id)),
-    }
-}
-
 impl<T: ChainAccess> TxMirror<T> {
     fn new<P: AsRef<Path>>(
         source_chain_access: T,
@@ -855,12 +748,19 @@ impl<T: ChainAccess> TxMirror<T> {
                 .with_context(|| {
                     format!("Error loading target config from {:?}", target_home.as_ref())
                 })?;
+        if !target_config.client_config.archive {
+            // this is probably not going to come up, but we want to avoid a situation where
+            // we go offline for a long time and then come back online, and we state sync to
+            // the head of the target chain without looking for our outcomes that made it on
+            // chain right before we went offline
+            anyhow::bail!("config file in {} has archive: false, but archive must be set to true for the target chain", target_home.as_ref().display());
+        }
         let db =
             open_db(target_home.as_ref(), &target_config).context("failed to open mirror DB")?;
         let target_indexer = Indexer::new(near_indexer::IndexerConfig {
             home_dir: target_home.as_ref().to_path_buf(),
-            sync_mode: near_indexer::SyncModeEnum::LatestSynced,
-            await_for_node_synced: near_indexer::AwaitForNodeSyncedEnum::WaitForFullSync,
+            sync_mode: near_indexer::SyncModeEnum::FromInterruption,
+            await_for_node_synced: near_indexer::AwaitForNodeSyncedEnum::StreamWhileSyncing,
             validate_genesis: false,
         })
         .context("failed to start target chain indexer")?;
@@ -1362,6 +1262,7 @@ impl<T: ChainAccess> TxMirror<T> {
             .with_context(|| {
                 format!("Failed fetching chunks for source chain #{}", create_account_height)
             })?;
+        let mut added_chunk = false;
         for ch in source_chunks {
             let txs = match chunks.iter_mut().find(|c| c.shard_id == ch.shard_id) {
                 Some(c) => &mut c.txs,
@@ -1372,6 +1273,10 @@ impl<T: ChainAccess> TxMirror<T> {
                         ch.shard_id,
                         create_account_height
                     );
+                    if chunks.is_empty() {
+                        chunks.push(MappedChunk { shard_id: 0, txs: Vec::new() });
+                        added_chunk = true;
+                    }
                     &mut chunks[0].txs
                 }
             };
@@ -1403,6 +1308,9 @@ impl<T: ChainAccess> TxMirror<T> {
                 )
                 .await?;
             }
+        }
+        if added_chunk && chunks[0].txs.is_empty() {
+            chunks.clear();
         }
         Ok(())
     }
@@ -1550,7 +1458,7 @@ impl<T: ChainAccess> TxMirror<T> {
                 // time to send a batch of transactions
                 mapped_block = tracker.next_batch(&self.target_view_client, &self.db), if tracker.num_blocks_queued() > 0 => {
                     self.send_transactions(mapped_block?).await?;
-                    tracker.on_txs_sent(&self.target_view_client, &self.db, target_height).await?;
+                    tracker.on_txs_sent(&self.db, target_height).await?;
 
                     // now we have one second left until we need to send more transactions. In the
                     // meantime, we might as well prepare some more batches of transactions.
@@ -1576,13 +1484,55 @@ impl<T: ChainAccess> TxMirror<T> {
         }
     }
 
-    async fn wait_target_synced(&mut self) -> (BlockHeight, CryptoHash) {
-        let msg = self.target_stream.recv().await.unwrap();
-        (msg.block.header.height, msg.block.header.hash)
+    async fn target_chain_syncing(&self) -> bool {
+        self.target_client
+            .send(Status { is_health_check: false, detailed: false }.with_span_context())
+            .await
+            .unwrap()
+            .map(|s| s.sync_info.syncing)
+            .unwrap_or(true)
+    }
+
+    async fn target_chain_head(&self) -> anyhow::Result<(BlockHeight, CryptoHash)> {
+        let header = self
+            .target_view_client
+            .send(GetBlock(BlockReference::Finality(Finality::Final)).with_span_context())
+            .await
+            .unwrap()
+            .context("failed fetching target chain HEAD")?
+            .header;
+        Ok((header.height, header.hash))
+    }
+
+    // call tracker.on_target_block() on each target chain block until that client is synced
+    async fn index_target_chain(
+        &mut self,
+        tracker: &mut crate::chain_tracker::TxTracker,
+    ) -> anyhow::Result<(BlockHeight, CryptoHash)> {
+        let mut head = None;
+
+        loop {
+            let msg = self.target_stream.recv().await.unwrap();
+            let height = msg.block.header.height;
+
+            tracker.on_target_block(&self.target_view_client, &self.db, msg).await?;
+
+            match head {
+                Some((head_height, head_hash)) => {
+                    if height >= head_height {
+                        return Ok((head_height, head_hash));
+                    }
+                }
+                None => {
+                    if !self.target_chain_syncing().await {
+                        head = Some(self.target_chain_head().await?);
+                    }
+                }
+            }
+        }
     }
 
     async fn run(mut self, stop_height: Option<BlockHeight>) -> anyhow::Result<()> {
-        let (target_height, target_head) = self.wait_target_synced().await;
         let last_stored_height = get_last_source_height(&self.db)?;
         let last_height = last_stored_height.unwrap_or(self.target_genesis_height - 1);
 
@@ -1608,6 +1558,7 @@ impl<T: ChainAccess> TxMirror<T> {
             next_heights.iter(),
             stop_height,
         );
+        let (target_height, target_head) = self.index_target_chain(&mut tracker).await?;
         if last_stored_height.is_none() {
             // send any extra function call-initiated create accounts for the first few blocks right now
             let chunks = self
@@ -1625,7 +1576,7 @@ impl<T: ChainAccess> TxMirror<T> {
                 tracker.queue_block(block, &self.target_view_client, &self.db).await?;
                 let b = tracker.next_batch(&self.target_view_client, &self.db).await?;
                 self.send_transactions(b).await?;
-                tracker.on_txs_sent(&self.target_view_client, &self.db, target_height).await?;
+                tracker.on_txs_sent(&self.db, target_height).await?;
             }
         }
 
