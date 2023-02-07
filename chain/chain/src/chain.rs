@@ -5213,10 +5213,8 @@ impl<'a> ChainUpdate<'a> {
         let last_final_block_header =
             match self.chain_store_update.get_block_header(header.last_final_block()) {
                 Ok(final_header) => final_header,
-                Err(e) => match e {
-                    Error::DBNotFoundErr(_) => return Ok(None),
-                    _ => return Err(e),
-                },
+                Err(Error::DBNotFoundErr(_)) => return Ok(None),
+                Err(err) => return Err(err),
             };
         if last_final_block_header.height() > final_head.height {
             let tip = Tip::from_header(&last_final_block_header);

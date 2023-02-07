@@ -17,6 +17,7 @@ members = [
     "chain/pool",
     "chain/rosetta-rpc",
     "chain/telemetry",
+    "core/async",
     "core/account-id",
     "core/account-id/fuzz",
     "core/chain-configs",
@@ -57,6 +58,7 @@ members = [
     "tools/state-viewer",
     "tools/storage-usage-delta-calculator",
     "tools/themis",
+    "utils/config",
     "utils/mainnet-res",
     "utils/near-cache",
     "utils/stdx",
@@ -104,6 +106,7 @@ crossbeam = "0.8"
 crossbeam-channel = "0.5"
 csv = "1.1.1"
 curve25519-dalek = "3"
+derive-enum-from-into = "0.1.1"
 derive_more = "0.99.9"
 dirs = "4"
 easy-ext = "0.2"
@@ -124,13 +127,14 @@ indicatif = { version = "0.15.0", features = ["with_rayon"] }
 insta = { version = "1.26.0", features = ["json", "yaml"] }
 itertools = "0.10.0"
 itoa = "1.0"
+json_comments = "0.2.1"
 libc = "0.2.81"
 libfuzzer-sys = { version = "0.4", features = ["arbitrary-derive"] }
 log = "0.4"
 loupe = "0.1"
 lru = "0.7.2"
 memoffset = "0.6"
-nix = "0.15.0"
+nix = "0.24"
 num-bigint = "0.3"
 num-rational = { version = "0.3.1", features = ["serde"] }
 num-traits = "0.2.12"
@@ -179,6 +183,7 @@ shell-escape = "0.1.5"
 smart-default = "0.6"
 smartstring = "1.0.1"
 strum = { version = "0.24", features = ["derive"] }
+stun = "0.4"
 subtle = "2.2"
 syn = { version = "1.0.54", features = ["extra-traits", "full"] }
 sysinfo = "0.24.5"
@@ -187,7 +192,7 @@ tempfile = "3.3"
 thiserror = "1.0.30"
 tikv-jemallocator = "0.5.0"
 time = "0.3.9"
-tokio = { version = "~1.18", features = ["fs", "macros", "net", "rt-multi-thread", "sync", "time"] }
+tokio = { version = "~1.19", features = ["fs", "macros", "net", "rt-multi-thread", "sync", "time"] }
 tokio-stream = { version = "0.1.2", features = ["net"] }
 tokio-util = { version = "0.7.1", features = ["codec", "io"] }
 toml = "0.5.8"
@@ -196,6 +201,7 @@ tracing-appender = "0.2.2"
 tracing-opentelemetry = "0.17.0"
 tracing-span-tree = "0.1"
 tracing-subscriber = { version = "0.3.15", features = ["env-filter", "fmt", "registry", "std"] }
+turn = "0.6"
 validator = "0.12"
 wasm-encoder = "0.11.0"
 wasm-smith = "0.10"
@@ -203,6 +209,7 @@ wasmparser = "0.78"
 wasmprinter = "0.2"
 wasmtime = { version = "4.0.0", default-features = false, features = ["cranelift"] }
 wat = "1.0.40"
+webrtc-util = "0.7"
 xshell = "0.2.1"
 xz2 = "0.1.6"
 

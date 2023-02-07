@@ -76,6 +76,7 @@ protocol_feature_nep366_delegate_action = [
 ]
 protocol_feature_flat_state = [
   "nearcore/protocol_feature_flat_state",
+  "genesis-populate/protocol_feature_flat_state"
 ]
 sandbox = ["node-runtime/sandbox"]
 io_trace = ["near-store/io_trace", "near-o11y/io_trace", "near-vm-logic/io_trace"]
