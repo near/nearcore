@@ -499,6 +499,8 @@ impl RocksDB {
         let db = Self::open_with_columns(path, config, Mode::ReadOnly, Temperature::Hot, &cols)?;
         Some(metadata::DbMetadata::read(&db)).transpose()
     }
+
+    /// Creates RocksDB Checkpoint in the provided `path`.
     pub(crate) fn create_checkpoint(&self, path: &Path) -> io::Result<()> {
         let checkpoint = rocksdb::checkpoint::Checkpoint::new(&self.db).map_err(into_other)?;
         checkpoint.create_checkpoint(path).map_err(into_other)?;
