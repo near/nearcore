@@ -203,6 +203,8 @@ pub fn copy_all_data_to_cold<D: Database + 'static>(
                 let (key, value) = result?;
                 transaction.set(col, key.to_vec(), value.to_vec())?;
             }
+            // BatchTransaction automatically performs writes when there is enough data.
+            // All the writes will be finished before transaction is dropped.
         }
     }
     Ok(())
@@ -549,8 +551,10 @@ impl<D: Database + 'static> BatchTransaction<D> {
 
 impl<D: Database + 'static> Drop for BatchTransaction<D> {
     fn drop(&mut self) {
+        // Write `self.transaction`.
         self.write().expect("Error while writing BatchTransaction");
-        self.handles_resize(0).expect("Error writing BatchTransaction");
+        // Join all write handles thus actually finish all the writes.
+        self.handles_resize(0).expect("Error joining BatchTransaction handles");
     }
 }
 
