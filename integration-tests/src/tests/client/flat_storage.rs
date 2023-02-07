@@ -13,7 +13,7 @@ use near_store::flat_state::{
 use near_store::test_utils::create_test_store;
 #[cfg(feature = "protocol_feature_flat_state")]
 use near_store::DBCol;
-use near_store::{Store, TrieTraversalItem};
+use near_store::{FlatStateDelta, Store, TrieTraversalItem};
 use nearcore::config::GenesisExt;
 use std::path::Path;
 use std::str::FromStr;

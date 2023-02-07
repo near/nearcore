@@ -331,9 +331,10 @@ mod imp {
     }
 }
 
+#[cfg(feature = "protocol_feature_flat_state")]
+use crate::DBCol;
+use crate::{metrics, CryptoHash, Store, StoreUpdate};
 use borsh::{BorshDeserialize, BorshSerialize};
-
-use crate::{metrics, CryptoHash, DBCol, Store, StoreUpdate};
 pub use imp::{FlatState, FlatStateFactory};
 use near_primitives::state::ValueRef;
 use near_primitives::types::{BlockHeight, RawStateChangesWithTrieKey, ShardId};
