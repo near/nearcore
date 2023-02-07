@@ -342,14 +342,19 @@ use std::collections::{HashMap, HashSet};
 use std::io::Read;
 
 #[derive(PartialEq, Eq, Debug)]
+/// Contents of `FlatStateDelta` key in the DB.
 pub struct FlatStateDeltaKey {
+    /// Shard id to which the delta belongs to.
     pub shard_id: ShardId,
+    /// Hash of block on top of which the delta was created.
     pub block_hash: CryptoHash,
+    /// Trie key.
     pub key: Vec<u8>,
 }
 
 impl FlatStateDeltaKey {
     #[allow(unused)]
+    /// Should return prefix of all `FlatStateDeltaKey`s corresponding to one flat storage delta.
     fn db_prefix(shard_id: ShardId, block_hash: CryptoHash) -> Vec<u8> {
         let mut out = Vec::new();
         out.extend(shard_id.to_be_bytes());
