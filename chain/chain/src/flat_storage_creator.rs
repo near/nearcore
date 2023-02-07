@@ -188,7 +188,7 @@ impl FlatStorageShardCreator {
     /// Creates flat storage when all intermediate steps are finished.
     /// Returns boolean indicating if flat storage was created.
     #[cfg(feature = "protocol_feature_flat_state")]
-    pub(crate) fn update_status(
+    pub fn update_status(
         &mut self,
         chain_store: &ChainStore,
         thread_pool: &rayon::ThreadPool,
@@ -202,7 +202,7 @@ impl FlatStorageShardCreator {
                 let final_head = chain_store.final_head()?;
                 let final_height = final_head.height;
 
-                if final_height > self.start_height {
+                if final_height >= self.start_height {
                     // If it holds, deltas for all blocks after final head are saved to disk, because they have bigger
                     // heights than one on which we launched a node. Check that it is true:
                     for height in final_height + 1..=chain_store.head()?.height {
@@ -372,7 +372,8 @@ impl FlatStorageShardCreator {
                     merged_delta.merge(delta.as_ref());
                 }
 
-                if old_flat_head != &flat_head {
+                if (old_flat_head != &flat_head) || (flat_head == chain_final_head.last_block_hash)
+                {
                     // If flat head changes, save all changes to store.
                     let old_height = chain_store.get_block_height(&old_flat_head).unwrap();
                     let height = chain_store.get_block_height(&flat_head).unwrap();
