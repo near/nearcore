@@ -208,10 +208,9 @@ impl ViewClientActor {
                 Ok(Some(self.chain.genesis().clone()))
             }
             BlockReference::SyncCheckpoint(SyncCheckpoint::EarliestAvailable) => {
-                let block_hash = match self.chain.get_earliest_block_hash() {
-                    Ok(Some(block_hash)) => block_hash,
-                    Ok(None) => return Ok(None),
-                    Err(err) => return Err(err),
+                let block_hash = match self.chain.get_earliest_block_hash()? {
+                    Some(block_hash) => block_hash,
+                    None => return Ok(None),
                 };
                 self.chain.get_block_header(&block_hash).map(Some)
             }
@@ -242,10 +241,9 @@ impl ViewClientActor {
                 Ok(Some(self.chain.genesis_block().clone()))
             }
             BlockReference::SyncCheckpoint(SyncCheckpoint::EarliestAvailable) => {
-                let block_hash = match self.chain.get_earliest_block_hash() {
-                    Ok(Some(block_hash)) => block_hash,
-                    Ok(None) => return Ok(None),
-                    Err(err) => return Err(err),
+                let block_hash = match self.chain.get_earliest_block_hash()? {
+                    Some(block_hash) => block_hash,
+                    None => return Ok(None),
                 };
                 self.chain.get_block(&block_hash).map(Some)
             }
@@ -557,10 +555,7 @@ impl Handler<WithSpanContext<GetBlock>> for ViewClientActor {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["GetBlock"]).start_timer();
-        let block = match self.get_block_by_reference(&msg.0)? {
-            None => return Err(GetBlockError::NotSyncedYet),
-            Some(block) => block,
-        };
+        let block = self.get_block_by_reference(&msg.0)?.ok_or(GetBlockError::NotSyncedYet)?;
         let block_author = self
             .runtime_adapter
             .get_block_producer(block.header().epoch_id(), block.header().height())?;

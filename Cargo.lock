@@ -1512,6 +1512,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "derive-enum-from-into"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "adc2a1b7c0031fb651e9bc1fa4255da82747c187b9ac1dc36b3783d71fadd9d5"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "derive_arbitrary"
 version = "1.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2992,6 +3003,19 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tracing",
+]
+
+[[package]]
+name = "near-async"
+version = "0.0.0"
+dependencies = [
+ "actix",
+ "derive-enum-from-into",
+ "derive_more",
+ "near-o11y",
+ "once_cell",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
