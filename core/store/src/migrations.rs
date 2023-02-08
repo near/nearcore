@@ -279,10 +279,8 @@ pub fn migrate_32_to_33(store: &Store) -> anyhow::Result<()> {
 pub fn migrate_33_to_34(store: &Store, mut is_node_archival: bool) -> anyhow::Result<()> {
     const IS_ARCHIVE_KEY: &[u8; 10] = b"IS_ARCHIVE";
 
-    let hot = store;
-
     let is_store_archival =
-        hot.get_ser::<bool>(DBCol::BlockMisc, IS_ARCHIVE_KEY)?.unwrap_or_default();
+        store.get_ser::<bool>(DBCol::BlockMisc, IS_ARCHIVE_KEY)?.unwrap_or_default();
 
     if is_store_archival != is_node_archival {
         if is_store_archival {
@@ -296,7 +294,7 @@ pub fn migrate_33_to_34(store: &Store, mut is_node_archival: bool) -> anyhow::Re
         is_node_archival = true;
     }
 
-    let mut update = hot.store_update();
+    let mut update = store.store_update();
     if is_store_archival {
         update.delete(DBCol::BlockMisc, IS_ARCHIVE_KEY);
     }

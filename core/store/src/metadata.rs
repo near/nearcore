@@ -75,8 +75,8 @@ impl DbMetadata {
     }
 
     /// Reads the version from the db. If version is not set returns None. This
-    /// method doesn't enforce the invariant that version must alays be set so
-    /// it can be used when setting the kind for the version first time.
+    /// method doesn't enforce the invariant that version must always be set so
+    /// it should only be used when setting the version for the first time.
     pub(super) fn maybe_read_version(
         db: &dyn crate::Database,
     ) -> std::io::Result<Option<DbVersion>> {
@@ -84,8 +84,8 @@ impl DbMetadata {
     }
 
     /// Reads the kind from the db. If kind is not set returns None. This method
-    /// doesn't enforce the invariant of kind always being set so it can be used
-    /// when setting the kind for the first time.
+    /// doesn't enforce the invariant that kind must always be set so it should
+    /// only be used when setting the kind for the first time.
     pub(super) fn maybe_read_kind(db: &dyn crate::Database) -> std::io::Result<Option<DbKind>> {
         maybe_read("DbKind", db, KIND_KEY)
     }
@@ -93,9 +93,7 @@ impl DbMetadata {
 
 /// Reads value from DbVersion column and parses it using `FromStr`.
 ///
-/// Reads raw bytes for given `key` from [`DBCol::DbVersion`], verifies that
-/// they’re valid UTF-8 and then converts into `T` using `from_str`.  If the
-/// value is missing or parsing fails returns an error.
+/// Same as maybe_read but this method returns an error if the value is not set.
 fn read<T: std::str::FromStr>(
     what: &str,
     db: &dyn crate::Database,

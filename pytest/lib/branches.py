@@ -78,6 +78,8 @@ def _compile_binary(branch: str) -> Executables:
     try:
         subprocess.check_output([
             'git',
+            # When checking out old releases we end up in a detached head state
+            # and git prints a scary warning about that. This config silences it.
             '-c',
             'advice.detachedHead=false',
             'checkout',

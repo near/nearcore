@@ -220,7 +220,7 @@ impl<'a> StoreOpener<'a> {
         self.open_in_mode(Mode::ReadWrite)
     }
 
-    /// Opens the RocksDB database(s) for hot and, potentially, cold storages.
+    /// Opens the RocksDB database(s) for hot and cold (if configured) storages.
     ///
     /// When opening in read-only mode, verifies that the database version is
     /// what the node expects and fails if it isn’t.  If database doesn’t exist,
