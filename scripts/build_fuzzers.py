@@ -14,7 +14,7 @@ CONFIG_NAME = 'x86_64-unknown-linux-gnu'
 def get_current_rev(g_storage_files: typing.ByteString) -> int:
     """ Return current revision for the build
     
-    Decodes byte strings (from subprocess stdout) to str
+    Decode byte strings (from subprocess stdout) to str
     Parses current revisions in GS and extracts the highest revision number.
     Cast revision to int
     Incremenets revision int by one and returns it 

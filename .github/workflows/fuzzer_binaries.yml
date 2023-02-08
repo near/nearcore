@@ -43,5 +43,3 @@ jobs:
       - run: pip install -r scripts/build_fuzzers_requirements.txt
 
       - run: python scripts/build_fuzzers.py
-        env:
-          RUSTC_BOOTSTRAP: "1"
