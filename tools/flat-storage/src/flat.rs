@@ -8,7 +8,7 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::{state::ValueRef, trie_key::trie_key_parsers::parse_account_id_from_raw_key};
 use near_store::{
     flat_state::store_helper::{self, get_flat_head, get_flat_storage_creation_status},
-    Mode, NodeStorage, Store, StoreOpener,
+    Mode, NodeStorage, ShardUId, Store, StoreOpener,
 };
 use nearcore::{load_config, NearConfig, NightshadeRuntime};
 use std::{path::PathBuf, sync::Arc, time::Duration};
@@ -177,18 +177,23 @@ impl FlatStorageCommand {
                     verify_cmd.shard_id
                 ));
                 let block_header = chain_store.get_block_header(&head_hash).unwrap();
-                let block = chain_store.get_block(&head_hash).unwrap();
+                let shard_layout = hot_runtime.get_shard_layout(block_header.epoch_id()).unwrap();
+
                 println!(
                     "Verifying flat storage for shard {:?} - flat head @{:?} ({:?})",
                     verify_cmd.shard_id,
                     block_header.height(),
                     block_header.hash()
                 );
-                let chunks_collection = block.chunks();
-                let shard_chunk_header =
-                    chunks_collection.get(verify_cmd.shard_id as usize).unwrap();
-                // TODO: this might be wrong..
-                let state_root = shard_chunk_header.prev_state_root();
+                let chunk_extra = chain_store
+                    .get_chunk_extra(
+                        &head_hash,
+                        &ShardUId::from_shard_id_and_layout(verify_cmd.shard_id, &shard_layout),
+                    )
+                    .unwrap();
+
+                // The state root must be from AFTER applying the final block (that's why we're taking it from the chunk extra).
+                let state_root = chunk_extra.state_root();
 
                 println!("Verifying using the {:?} as state_root", state_root);
                 let tip = chain_store.final_head().unwrap();
@@ -200,10 +205,8 @@ impl FlatStorageCommand {
                 );
 
                 let trie = hot_runtime
-                    .get_view_trie_for_shard(verify_cmd.shard_id, &head_hash, state_root)
+                    .get_view_trie_for_shard(verify_cmd.shard_id, &head_hash, state_root.clone())
                     .unwrap();
-
-                let shard_layout = hot_runtime.get_shard_layout(block_header.epoch_id()).unwrap();
 
                 let all_entries = store_helper::iter_flat_state_entries(
                     shard_layout,
