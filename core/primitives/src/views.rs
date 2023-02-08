@@ -2169,6 +2169,16 @@ pub struct StorageUsageConfigView {
     pub num_extra_bytes_record: u64,
 }
 
+/// Contains the split storage information.
+#[derive(Serialize, Deserialize, Debug)]
+pub struct SplitStorageInfoView {
+    pub head_height: Option<BlockHeight>,
+    pub final_head_height: Option<BlockHeight>,
+    pub cold_head_height: Option<BlockHeight>,
+
+    pub hot_db_kind: Option<String>,
+}
+
 impl From<RuntimeConfig> for RuntimeConfigView {
     fn from(config: RuntimeConfig) -> Self {
         Self {
