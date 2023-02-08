@@ -1,4 +1,4 @@
-name: Fuzzer Binaries
+name: Build @master fuzzers
 on:
   schedule:
     # Run once a day, at midnight
