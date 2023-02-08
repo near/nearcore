@@ -423,6 +423,7 @@ impl FlatStateDelta {
     pub fn apply_to_flat_state(self, _store_update: &mut StoreUpdate) {}
 }
 
+use lru::LruCache;
 use near_o11y::metrics::IntGauge;
 use near_primitives::errors::StorageError;
 #[cfg(feature = "protocol_feature_flat_state")]
@@ -486,6 +487,11 @@ struct FlatStorageStateInner {
     /// All these deltas here are stored on disk too.
     #[allow(unused)]
     deltas: HashMap<CryptoHash, Arc<FlatStateDelta>>,
+    /// Cache for the mapping from trie storage keys to value refs for `flat_head`.
+    /// Must be equivalent to the mapping stored on disk only for `flat_head`. For
+    /// other blocks, deltas have to be applied as usual.
+    #[allow(unused)]
+    value_ref_cache: LruCache<Vec<u8>, Option<ValueRef>>,
     #[allow(unused)]
     metrics: FlatStorageMetrics,
 }
@@ -823,6 +829,11 @@ impl FlatStorageStateInner {
 
         Ok(blocks)
     }
+
+    #[cfg(feature = "protocol_feature_flat_state")]
+    fn get_cached_ref(&mut self, key: &[u8]) -> Option<Option<ValueRef>> {
+        self.value_ref_cache.get(key).cloned()
+    }
 }
 
 impl FlatStorageState {
@@ -836,6 +847,7 @@ impl FlatStorageState {
         // Unfortunately we don't have access to ChainStore inside this file because of package
         // dependencies, so we pass these functions in to access chain info
         chain_access: &dyn ChainAccessForFlatStorage,
+        cache_capacity: usize,
     ) -> Self {
         let flat_head = store_helper::get_flat_head(&store, shard_id)
             .unwrap_or_else(|| panic!("Cannot read flat head for shard {} from storage", shard_id));
@@ -899,6 +911,7 @@ impl FlatStorageState {
             flat_head,
             blocks,
             deltas,
+            value_ref_cache: LruCache::new(cache_capacity),
             metrics,
         })))
     }
@@ -967,6 +980,9 @@ impl FlatStorageState {
         for block in blocks.into_iter().rev() {
             let mut store_update = StoreUpdate::new(guard.store.storage.clone());
             let delta = guard.get_delta(&block)?.as_ref().clone();
+            for (key, value) in delta.0.iter() {
+                guard.value_ref_cache.put(key.clone(), value.clone());
+            }
             delta.apply_to_flat_state(&mut store_update);
             store_helper::set_flat_head(&mut store_update, guard.shard_id, &block);
 
@@ -1357,7 +1373,7 @@ mod tests {
         }
         store_update.commit().unwrap();
 
-        let flat_storage_state = FlatStorageState::new(store.clone(), 0, 4, &chain);
+        let flat_storage_state = FlatStorageState::new(store.clone(), 0, 4, &chain, 0);
         let flat_state_factory = FlatStateFactory::new(store.clone());
         flat_state_factory.add_flat_storage_state_for_shard(0, flat_storage_state);
         let flat_storage_state = flat_state_factory.get_flat_storage_state_for_shard(0).unwrap();
@@ -1404,7 +1420,7 @@ mod tests {
         store_update.commit().unwrap();
 
         // Check that flat storage state is created correctly for chain which has skipped heights.
-        let flat_storage_state = FlatStorageState::new(store.clone(), 0, 8, &chain);
+        let flat_storage_state = FlatStorageState::new(store.clone(), 0, 8, &chain, 0);
         let flat_state_factory = FlatStateFactory::new(store.clone());
         flat_state_factory.add_flat_storage_state_for_shard(0, flat_storage_state);
         let flat_storage_state = flat_state_factory.get_flat_storage_state_for_shard(0).unwrap();
@@ -1438,7 +1454,7 @@ mod tests {
         }
         store_update.commit().unwrap();
 
-        let flat_storage_state = FlatStorageState::new(store.clone(), 0, 9, &chain);
+        let flat_storage_state = FlatStorageState::new(store.clone(), 0, 9, &chain, 0);
         let flat_state_factory = FlatStateFactory::new(store.clone());
         flat_state_factory.add_flat_storage_state_for_shard(0, flat_storage_state);
         let flat_storage_state = flat_state_factory.get_flat_storage_state_for_shard(0).unwrap();
