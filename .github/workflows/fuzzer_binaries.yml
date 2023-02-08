@@ -5,7 +5,7 @@ on:
       - "scripts/build_fuzzers.py"
 
 jobs:
-  build_binary:
+  build_fuzzers:
     runs-on: "ubuntu-latest"
 
     permissions:
@@ -16,17 +16,30 @@ jobs:
       - id: "auth"
         uses: "google-github-actions/auth@v1"
         with:
-          workload_identity_provider: "projects/750982429559/locations/global/workloadIdentityPools/github-actions-pool"
+          workload_identity_provider: "projects/750982429559/locations/global/workloadIdentityPools/github-actions-pool/providers/github-provider"
           service_account: "github-service-account@near-fuzzers.iam.gserviceaccount.com"
+
+      - uses: hecrj/setup-rust-action@v1
+        with:
+          rust-version: nightly
+
+      - name: Install cargo fuzz subcommand crate
+        run: cargo install cargo-fuzz
 
       - name: "Set up GCP SDK"
         uses: "google-github-actions/setup-gcloud@v1"
         with:
           version: ">= 416.0.0"
 
-      - name: "Check available fuzzer binaries"
-        run: gsutil ls gs://fuzzer_binaries/
+      - name: "Check gcloud setup"
+        run: gcloud info
 
-      - run: echo $RUSTC_BOOTSTRAP
+      - uses: actions/checkout@master
+
+      - uses: actions/setup-python@v4
+
+      - run: pip install -r scripts/build_fuzzers_requirements.txt
+
+      - run: python scripts/build_fuzzers.py
         env:
           RUSTC_BOOTSTRAP: "1"
