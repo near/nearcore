@@ -5,9 +5,9 @@ use std::sync::Arc;
 use ansi_term::Color::{Green, Red, White, Yellow};
 use clap::{Arg, Command};
 
-use nearcore::config::ConfigValidationMode;
 use near_chain::store_validator::StoreValidator;
 use near_chain::RuntimeWithEpochManagerAdapter;
+use near_chain_configs::GenesisValidationMode;
 use near_o11y::testonly::init_integration_logger;
 use nearcore::{get_default_home, load_config};
 
@@ -27,7 +27,7 @@ fn main() {
         .get_matches();
 
     let home_dir = matches.value_of("home").map(Path::new).unwrap();
-    let near_config = load_config(home_dir, ConfigValidationMode::Full)
+    let near_config = load_config(home_dir, GenesisValidationMode::Full)
         .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
 
     let store = near_store::NodeStorage::opener(

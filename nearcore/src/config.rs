@@ -9,6 +9,14 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
+
+use anyhow::{anyhow, bail, Context};
+use near_config_utils::{ValidationError, ValidationErrors};
+use near_primitives::test_utils::create_test_signer;
+use near_primitives::time::Clock;
+use num_rational::Rational32;
+use serde::{Deserialize, Serialize};
+
 #[cfg(test)]
 use tempfile::tempdir;
 use tracing::{info, warn};
@@ -198,6 +206,7 @@ fn default_trie_viewer_state_size_limit() -> Option<u64> {
     Some(50_000)
 }
 
+<<<<<<< HEAD
 #[derive(thiserror::Error, Debug)]
 pub enum ConfigValidationError {
     #[error("Configuration with archive = false and save_trie_changes = false is not supported because non-archival nodes must save trie changes in order to do do garbage collection.")]
@@ -205,6 +214,9 @@ pub enum ConfigValidationError {
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+=======
+#[derive(Serialize, Deserialize, Clone, Debug)]
+>>>>>>> 1f12528e2 (refactor code so that when running validate-config command, one panic will report all check results from all config files)
 pub struct Consensus {
     /// Minimum number of peers to start syncing.
     pub min_num_peers: usize,
@@ -391,7 +403,7 @@ impl Default for Config {
 }
 
 impl Config {
-    pub fn from_file(path: &Path, config_validation: ConfigValidationMode) -> anyhow::Result<Self> {
+    pub fn from_file(path: &Path) -> anyhow::Result<Self> {
         let json_str = std::fs::read_to_string(path)
             .with_context(|| format!("Failed to read config from {}", path.display()))?;
         let mut unrecognised_fields = Vec::new();
@@ -424,48 +436,72 @@ impl Config {
             );
         }
 
-        match config_validation {
-            ConfigValidationMode::Full => config.validate_with_panic(),
-            ConfigValidationMode::UnsafeFast => {}
+        Ok(config.validate())
+    }
+
+    /// load Config from config.json without panic
+    /// Add all errors including file error and semantic validation errors to validation_errors.
+    pub fn from_file_no_panic(
+        path: &Path,
+        validation_errors: &mut ValidationErrors,
+    ) -> anyhow::Result<Self> {
+        let json_str = match std::fs::read_to_string(path) {
+            Ok(json) => Ok(json),
+            Err(e) => {
+                validation_errors.push_errors(ValidationError::ConfigFileError {
+                    error_message: format!("Failed to read config from {}", path.display()),
+                });
+                Err(e)
+            }
+        }?;
+        let mut unrecognised_fields = Vec::new();
+        let json_str_without_comments = near_config_utils::strip_comments_from_json_str(&json_str)?;
+        let config: Config = match serde_ignored::deserialize(
+            &mut serde_json::Deserializer::from_str(&json_str_without_comments),
+            |field| {
+                let field = field.to_string();
+                // TODO(mina86): Remove this deprecation notice some time by the
+                // end of 2022.
+                if field == "network.external_address" {
+                    warn!(
+                        target: "neard",
+                        "{}: {field} is deprecated; please remove it from the config file",
+                        path.display(),
+                    );
+                } else {
+                    unrecognised_fields.push(field);
+                }
+            },
+        ) {
+            Ok(config) => Ok(config),
+            Err(e) => {
+                validation_errors.push_errors(ValidationError::ConfigFileError {
+                    error_message: format!("Failed to deserialize config from {}", path.display()),
+                });
+                Err(e)
+            }
+        }?;
+        if !unrecognised_fields.is_empty() {
+            let s = if unrecognised_fields.len() > 1 { "s" } else { "" };
+            let fields = unrecognised_fields.join(", ");
+            warn!(
+                target: "neard",
+                "{}: encountered unrecognised field{s}: {fields}",
+                path.display(),
+            );
         }
-        
+
+        config.validate_no_panic(validation_errors);
         Ok(config)
     }
 
-    fn validate_with_panic(&self) {
-        println!("Validating Config, extracted from config.json...");
-        assert!(
-            !(self.archive == false && self.save_trie_changes == Some(false)), 
-            "Configuration with archive = false and save_trie_changes = false is not supported because non-archival nodes must save trie changes in order to do do garbage collection."
-        );
-        assert!(
-            self.consensus.min_block_production_delay < self.consensus.max_block_production_delay, 
-            "consensus.min_block_production_delay must be smaller than consensus.max_block_production_delay."
-        );
-        assert!(
-            self.consensus.max_block_wait_delay > self.consensus.min_block_production_delay,
-            "consensus.max_block_wait_delay must be bigger than consensus.min_block_production_delay."
-        );
-        assert!(
-            self.consensus.sync_height_threshold > 0,
-            "consensus.sync_height_threshold should be greater than 0."
-        );
-        assert!(
-            self.consensus.header_sync_expected_height_per_second > 0,
-            "consensus.header_sync_expected_height_per_second should be greater than 0."
-        );
-        assert!(
-            self.consensus.min_num_peers > 0,
-            "consensus.min_num_peers should be greater than 0."
-        );
-        assert!(
-            !self.tracked_shards.is_empty(),
-            "tracked_shards should be non-empty."
-        );
-        assert!(
-            self.gc.gc_blocks_limit > 0 && self.gc.gc_fork_clean_step > 0 && self.gc.gc_num_epochs_to_keep > 0,
-            "gc config values should all be greater than 0."
-        )
+    fn validate(self) -> Self {
+        crate::config_validate::validate_config(&self);
+        self
+    }
+
+    fn validate_no_panic(&self, validation_errors: &mut ValidationErrors) {
+        crate::config_validate::validate_config_no_panic(self, validation_errors)
     }
 
     pub fn write_to_file(&self, path: &Path) -> std::io::Result<()> {
@@ -884,7 +920,7 @@ pub fn init_configs(
 
     // Check if config already exists in home dir.
     if dir.join(CONFIG_FILENAME).exists() {
-        let config = Config::from_file(&dir.join(CONFIG_FILENAME), ConfigValidationMode::Full)
+        let config = Config::from_file(&dir.join(CONFIG_FILENAME))
             .with_context(|| anyhow!("Failed to read config {}", dir.display()))?;
         let file_path = dir.join(&config.genesis_file);
         let genesis = GenesisConfig::from_file(&file_path).with_context(move || {
@@ -905,12 +941,12 @@ pub fn init_configs(
     if let Some(url) = download_config_url {
         download_config(&url.to_string(), &dir.join(CONFIG_FILENAME))
             .context(format!("Failed to download the config file from {}", url))?;
-        config = Config::from_file(&dir.join(CONFIG_FILENAME), ConfigValidationMode::Full)?;
+        config = Config::from_file(&dir.join(CONFIG_FILENAME))?;
     } else if should_download_config {
         let url = get_config_url(&chain_id);
         download_config(&url, &dir.join(CONFIG_FILENAME))
             .context(format!("Failed to download the config file from {}", url))?;
-        config = Config::from_file(&dir.join(CONFIG_FILENAME), ConfigValidationMode::Full)?;
+        config = Config::from_file(&dir.join(CONFIG_FILENAME))?;
     }
 
     if let Some(nodes) = boot_nodes {
@@ -1314,8 +1350,13 @@ pub fn download_config(url: &str, path: &Path) -> Result<(), FileDownloadError> 
     result
 }
 
+<<<<<<< HEAD
 #[derive(serde::Deserialize)]
 struct NodeKeyFile {
+=======
+#[derive(Deserialize)]
+pub struct NodeKeyFile {
+>>>>>>> 1f12528e2 (refactor code so that when running validate-config command, one panic will report all check results from all config files)
     account_id: String,
     public_key: PublicKey,
     secret_key: near_crypto::SecretKey,
@@ -1323,7 +1364,7 @@ struct NodeKeyFile {
 
 impl NodeKeyFile {
     // the file can be JSON with comments
-    fn from_file(path: &Path) -> std::io::Result<Self> {
+    pub fn from_file(path: &Path) -> std::io::Result<Self> {
         let mut file = File::open(path)?;
         let mut json_str = String::new();
         file.read_to_string(&mut json_str)?;
@@ -1350,20 +1391,86 @@ impl From<NodeKeyFile> for KeyFile {
     }
 }
 
-pub enum ConfigValidationMode {
-    Full,
-    UnsafeFast
+pub fn load_config_panic_last(
+    dir: &Path,
+    genesis_validation: GenesisValidationMode,
+) -> anyhow::Result<NearConfig> {
+    let genesis_validation = match genesis_validation {
+        GenesisValidationMode::Full => GenesisValidationMode::Full,
+        GenesisValidationMode::UnsafeFast => GenesisValidationMode::UnsafeFast,
+    };
+    let mut validation_errors = ValidationErrors::new();
+    // if not able to create Config from config.json, the program will stop. The error is already pushed to validation_errors.
+    let config = Config::from_file_no_panic(&dir.join(CONFIG_FILENAME), &mut validation_errors)?;
+    let genesis_file = dir.join(&config.genesis_file);
+    let validator_file = dir.join(&config.validator_key_file);
+    let validator_signer = if validator_file.exists() {
+        match InMemoryValidatorSigner::from_file(&validator_file) {
+            Ok(signer) => Some(Arc::new(signer) as Arc<dyn ValidatorSigner>),
+            Err(_) => None,
+        }
+    } else {
+        let error_message =
+            format!("validator key file does not exist at the path {}", validator_file.display());
+        validation_errors
+            .push_errors(ValidationError::ValidatorKeyFileError { error_message: error_message });
+        None
+    };
+    let node_key_path = dir.join(&config.node_key_file);
+    let network_signer_result = NodeKeyFile::from_file(&node_key_path);
+    let network_signer = match network_signer_result {
+        Ok(node_key_file) => Some(node_key_file),
+        Err(_) => {
+            validation_errors.push_errors(ValidationError::NodeKeyFileError {
+                error_message: format!(
+                    "Failed reading node key file from {}",
+                    node_key_path.display()
+                ),
+            });
+            None
+        }
+    };
+
+    let genesis_result = match &config.genesis_records_file {
+        Some(records_file) => Genesis::from_files_no_panic(
+            &genesis_file,
+            &dir.join(records_file),
+            genesis_validation,
+            &mut validation_errors,
+        ),
+        None => {
+            Genesis::from_file_no_panic(&genesis_file, genesis_validation, &mut validation_errors)
+        }
+    };
+
+    let genesis = match genesis_result {
+        Ok(genesis) => Some(genesis),
+        Err(_) => None,
+    };
+
+    validation_errors.panic_if_errors();
+
+    if genesis.is_none() || network_signer.is_none() {
+        panic!("Genesis and network_signer should not be None by now.")
+    }
+    let near_config = NearConfig::new(
+        config,
+        genesis.unwrap(),
+        network_signer.unwrap().into(),
+        validator_signer,
+    )?;
+    Ok(near_config)
 }
 
 pub fn load_config(
     dir: &Path,
-    config_validation: ConfigValidationMode,
+    genesis_validation: GenesisValidationMode,
 ) -> anyhow::Result<NearConfig> {
-    let genesis_validation = match config_validation {
-        ConfigValidationMode::Full => GenesisValidationMode::Full,
-        ConfigValidationMode::UnsafeFast => GenesisValidationMode::UnsafeFast
+    let genesis_validation = match genesis_validation {
+        GenesisValidationMode::Full => GenesisValidationMode::Full,
+        GenesisValidationMode::UnsafeFast => GenesisValidationMode::UnsafeFast,
     };
-    let config = Config::from_file(&dir.join(CONFIG_FILENAME), config_validation)?;
+    let config = Config::from_file(&dir.join(CONFIG_FILENAME))?;
     let genesis_file = dir.join(&config.genesis_file);
     let validator_file = dir.join(&config.validator_key_file);
     let validator_signer = if validator_file.exists() {
@@ -1396,36 +1503,8 @@ pub fn load_config(
     }
 
     let near_config = NearConfig::new(config, genesis, network_signer.into(), validator_signer)?;
-    
+
     Ok(near_config)
-}
-
-pub fn validate_configs(
-    dir: &Path,
-) {
-    let config_json_path = dir.join(CONFIG_FILENAME);
-    let config = Config::from_file(&config_json_path, ConfigValidationMode::Full)
-        .expect(&format!("Failed initializing Config from {}", config_json_path.display()));
-    
-    let validator_file = dir.join(&config.validator_key_file);
-    if validator_file.exists() {
-        _ = InMemoryValidatorSigner::from_file(&validator_file)
-            .expect(&format!("Failed initializing validator signer from {}", validator_file.display()));
-    } else {
-        panic!("Validator key file does not exist at path {}", validator_file.display());
-    };
-    
-    let node_key_path = dir.join(&config.node_key_file);
-    let _network_signer = NodeKeyFile::from_file(&node_key_path)
-        .expect(&format!("Failed initializing node key file from {}", node_key_path.display()));
-
-    let genesis_file = dir.join(&config.genesis_file);
-    match &config.genesis_records_file {
-        Some(records_file) => {
-            Genesis::from_files(&genesis_file, &dir.join(records_file), GenesisValidationMode::Full)
-        }
-        None => Genesis::from_file(&genesis_file, GenesisValidationMode::Full),
-    };
 }
 
 pub fn load_test_config(seed: &str, addr: tcp::ListenerAddr, genesis: Genesis) -> NearConfig {
@@ -1511,7 +1590,7 @@ fn test_config_from_file() {
         let tmp = tempfile::NamedTempFile::new().unwrap();
         tmp.as_file().write_all(&data).unwrap();
 
-        let config = Config::from_file(&tmp.into_temp_path(), ConfigValidationMode::Full).unwrap();
+        let config = Config::from_file(&tmp.into_temp_path()).unwrap();
 
         // TODO(mina86): We might want to add more checks.  Looking at all
         // values is probably not worth it but there may be some other defaults

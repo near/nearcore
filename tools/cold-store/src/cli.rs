@@ -9,6 +9,7 @@ use near_store::{DBCol, NodeStorage, Store, Temperature};
 use near_store::{COLD_HEAD_KEY, FINAL_HEAD_KEY, HEAD_KEY, TAIL_KEY};
 use nearcore::{NearConfig, NightshadeRuntime};
 use std::io::Result;
+
 use std::path::Path;
 use std::sync::Arc;
 use strum::IntoEnumIterator;
@@ -45,7 +46,7 @@ impl ColdStoreCommand {
     pub fn run(self, home_dir: &Path) -> anyhow::Result<()> {
         let near_config = nearcore::config::load_config(
             &home_dir,
-            ConfigValidationMode::Full,
+            near_chain_configs::GenesisValidationMode::Full,
         )
         .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
 

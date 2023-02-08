@@ -3249,6 +3249,7 @@ name = "near-config-utils"
 version = "0.0.0"
 dependencies = [
  "json_comments",
+ "thiserror",
 ]
 
 [[package]]
@@ -4019,6 +4020,8 @@ dependencies = [
  "near-amend-genesis",
  "near-chain-configs",
  "near-client",
+ "near-config-utils",
+ "near-crypto",
  "near-dyn-configs",
  "near-jsonrpc-primitives",
  "near-mirror",

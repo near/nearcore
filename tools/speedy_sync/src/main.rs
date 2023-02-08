@@ -1,7 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_chain::types::{ChainConfig, Tip};
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
-use nearcore::config::ConfigValidationMode;
+use near_chain_configs::GenesisValidationMode;
 use near_epoch_manager::types::EpochInfoAggregator;
 use near_primitives::block::Block;
 use near_primitives::block_header::BlockHeader;
@@ -220,7 +220,7 @@ fn load_snapshot(load_cmd: LoadCmd) {
     )
     .unwrap();
 
-    let config = nearcore::config::load_config(&home_dir, ConfigValidationMode::UnsafeFast)
+    let config = nearcore::config::load_config(&home_dir, GenesisValidationMode::UnsafeFast)
         .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
     let store = NodeStorage::opener(home_dir, config.config.archive, &Default::default(), None)
         .open()

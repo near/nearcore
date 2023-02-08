@@ -1,4 +1,4 @@
-use crate::config::{Config, ConfigValidationMode};
+use crate::config::Config;
 use near_chain_configs::UpdateableClientConfig;
 use near_dyn_configs::{UpdateableConfigLoaderError, UpdateableConfigs};
 use near_o11y::log_config::LogConfig;
@@ -20,7 +20,7 @@ pub fn read_updateable_configs(
         }
     };
     let updateable_client_config =
-        match Config::from_file(&home_dir.join(crate::config::CONFIG_FILENAME), ConfigValidationMode::Full)
+        match Config::from_file(&home_dir.join(crate::config::CONFIG_FILENAME))
             .map(get_updateable_client_config)
         {
             Ok(config) => Some(config),

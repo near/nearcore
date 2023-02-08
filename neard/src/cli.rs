@@ -1,9 +1,10 @@
 #[cfg(unix)]
 use anyhow::Context;
 use near_amend_genesis::AmendGenesisCommand;
-use nearcore::config::ConfigValidationMode;
+use near_chain_configs::{Genesis, GenesisValidationMode};
 use near_client::ConfigUpdater;
 use near_cold_store_tool::ColdStoreCommand;
+use near_config_utils::{ValidationError, ValidationErrors};
 use near_dyn_configs::{UpdateableConfigLoader, UpdateableConfigLoaderError, UpdateableConfigs};
 use near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofResponse;
 use near_mirror::MirrorCommand;
@@ -17,10 +18,12 @@ use near_ping::PingCommand;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::compute_root_from_path;
 use near_primitives::types::{Gas, NumSeats, NumShards};
+use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_state_parts::cli::StatePartsCommand;
 use near_state_viewer::StateViewerSubCommand;
 use near_store::db::RocksDB;
 use near_store::Mode;
+use nearcore::config::{Config, NodeKeyFile, CONFIG_FILENAME};
 use serde_json::Value;
 use std::fs::File;
 use std::io::BufReader;
@@ -74,10 +77,10 @@ impl NeardCmd {
         }
 
         let home_dir = neard_cmd.opts.home.clone();
-        let config_validation = if neard_cmd.opts.unsafe_fast_startup {
-            ConfigValidationMode::UnsafeFast
+        let genesis_validation = if neard_cmd.opts.unsafe_fast_startup {
+            GenesisValidationMode::UnsafeFast
         } else {
-            ConfigValidationMode::Full
+            GenesisValidationMode::Full
         };
 
         match neard_cmd.subcmd {
@@ -85,14 +88,14 @@ impl NeardCmd {
             NeardSubCommand::Localnet(cmd) => cmd.run(&home_dir),
             NeardSubCommand::Run(cmd) => cmd.run(
                 &home_dir,
-                config_validation,
+                genesis_validation,
                 neard_cmd.opts.verbose_target(),
                 &neard_cmd.opts.o11y,
             ),
 
             NeardSubCommand::StateViewer(cmd) => {
                 let mode = if cmd.readwrite { Mode::ReadWrite } else { Mode::ReadOnly };
-                cmd.subcmd.run(&home_dir, config_validation, mode, cmd.store_temperature);
+                cmd.subcmd.run(&home_dir, genesis_validation, mode, cmd.store_temperature);
             }
 
             NeardSubCommand::RecompressStorage(cmd) => {
@@ -148,7 +151,7 @@ struct NeardOpts {
     /// Directory for config and data.
     #[clap(long, parse(from_os_str), default_value_os = crate::DEFAULT_HOME.as_os_str())]
     home: PathBuf,
-    /// Skips consistency checks of the config files including 
+    /// Skips consistency checks of the config files including
     /// genesis.json, config.json, node_key.json and validator_key.json upon startup.
     /// Let's you start `neard` slightly faster.
     #[clap(long)]
@@ -396,13 +399,14 @@ impl RunCmd {
     pub(super) fn run(
         self,
         home_dir: &Path,
-        config_validation: ConfigValidationMode,
+        genesis_validation: GenesisValidationMode,
         verbose_target: Option<&str>,
         o11y_opts: &near_o11y::Options,
     ) {
         // Load configs from home.
-        let mut near_config = nearcore::config::load_config(&home_dir, config_validation)
-            .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
+        let mut near_config =
+            nearcore::config::load_config_panic_last(&home_dir, genesis_validation)
+                .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
 
         check_release_build(&near_config.client_config.chain_id);
 
@@ -773,15 +777,93 @@ fn make_env_filter(verbose: Option<&str>) -> Result<EnvFilter, BuildEnvFilterErr
 }
 
 #[derive(Parser)]
-pub(super) struct ValidateConfigCommand {
-}
+pub(super) struct ValidateConfigCommand {}
 
 impl ValidateConfigCommand {
-    pub(super) fn run(
-        &self,
-        home_dir: &Path,
+    pub(super) fn run(&self, home_dir: &Path) {
+        Self::validate_configs(home_dir)
+    }
+
+    fn validate_validator_file(
+        dir: &Path,
+        config: &Config,
+        validation_errors: &mut ValidationErrors,
     ) {
-        nearcore::config::validate_configs(&home_dir)
+        let validator_file = dir.join(&config.validator_key_file);
+        if validator_file.exists() {
+            match InMemoryValidatorSigner::from_file(&validator_file) {
+                Ok(_) => (),
+                Err(_) => validation_errors.push_errors(ValidationError::ValidatorKeyFileError {
+                    error_message: format!(
+                        "Failed initializing validator signer from {}",
+                        validator_file.display()
+                    ),
+                }),
+            }
+        } else {
+            validation_errors.push_errors(ValidationError::ValidatorKeyFileError {
+                error_message: format!(
+                    "Validator key file does not exist at path {}",
+                    validator_file.display()
+                ),
+            })
+        };
+    }
+
+    fn validate_node_key_file(
+        dir: &Path,
+        config: &Config,
+        validation_errors: &mut ValidationErrors,
+    ) {
+        let node_key_path = dir.join(&config.node_key_file);
+        match NodeKeyFile::from_file(&node_key_path) {
+            Ok(_) => (),
+            Err(_) => validation_errors.push_errors(ValidationError::NodeKeyFileError {
+                error_message: format!(
+                    "Failed initializing node key file from {}",
+                    node_key_path.display()
+                ),
+            }),
+        }
+    }
+
+    fn validate_genesis(dir: &Path, config: &Config, validation_errors: &mut ValidationErrors) {
+        let genesis_file = dir.join(&config.genesis_file);
+        match &config.genesis_records_file {
+            Some(records_file) => {
+                let _ = Genesis::from_files_no_panic(
+                    &genesis_file,
+                    dir.join(records_file),
+                    GenesisValidationMode::Full,
+                    validation_errors,
+                );
+            }
+            None => {
+                let _ = Genesis::from_file_no_panic(
+                    &genesis_file,
+                    GenesisValidationMode::Full,
+                    validation_errors,
+                );
+            }
+        };
+    }
+
+    /// validates config.json, genesis.json, node_key.json and validator_key.json
+    /// First load Config from config.json, if such Config cannot be created, the paths of the other JSON's are unknown thus program stops;
+    /// if such Config can be created, we proceed to validate the rest.
+    /// The program won't stop at any error other than unable to creat Config object. All errors will be reported at the end.
+    fn validate_configs(dir: &Path) {
+        let mut validation_errors = near_config_utils::ValidationErrors::new();
+        let config_json_path = dir.join(CONFIG_FILENAME);
+        match Config::from_file_no_panic(&config_json_path, &mut validation_errors) {
+            Ok(config) => {
+                Self::validate_validator_file(dir, &config, &mut validation_errors);
+                Self::validate_node_key_file(dir, &config, &mut validation_errors);
+                Self::validate_genesis(dir, &config, &mut validation_errors);
+                validation_errors.panic_if_errors()
+            }
+            Err(_) => validation_errors.panic_if_errors(),
+        }
     }
 }
 

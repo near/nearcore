@@ -6,6 +6,17 @@
 use crate::genesis_validate::validate_genesis;
 use anyhow::Context;
 use chrono::{DateTime, Utc};
+use near_config_utils::{ValidationError, ValidationErrors};
+use near_primitives::views::RuntimeConfigView;
+use num_rational::Rational32;
+use serde::de::{self, DeserializeSeed, IgnoredAny, MapAccess, SeqAccess, Visitor};
+use serde::{Deserialize, Deserializer, Serialize};
+use serde_json::Serializer;
+use sha2::digest::Digest;
+use smart_default::SmartDefault;
+use tracing::warn;
+
+use crate::genesis_validate::{validate_genesis_no_panic, validate_genesis_panic};
 use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::validator_stake::ValidatorStake;
@@ -477,6 +488,66 @@ impl Genesis {
         Self::new_validated(genesis.config, genesis.records, genesis_validation)
     }
 
+    /// Reads Genesis from a single JSON file, the file can be JSON with comments
+    /// This function will collect all errors regarding genesis.json and push them to validation_errors
+    pub fn from_file_no_panic<P: AsRef<Path>>(
+        path: P,
+        genesis_validation: GenesisValidationMode,
+        validation_errors: &mut ValidationErrors,
+    ) -> anyhow::Result<Self> {
+        let mut file = match File::open(path) {
+            Ok(f) => Ok(f),
+            Err(e) => {
+                validation_errors.push_errors(ValidationError::GenesisFileError {
+                    error_message: format!("Could not open genesis config file."),
+                });
+                Err(e)
+            }
+        }?;
+        let mut json_str = String::new();
+        match file.read_to_string(&mut json_str) {
+            Ok(res) => Ok(res),
+            Err(e) => {
+                validation_errors.push_errors(ValidationError::GenesisFileError {
+                    error_message: format!("Failed to read genesis config file to string. "),
+                });
+                Err(e)
+            }
+        }?;
+
+        let mut json_str_without_comments: String = String::new();
+
+        match near_config_utils::strip_comments_from_json_str(&json_str) {
+            Ok(s) => {
+                json_str_without_comments = s.clone();
+                Ok(s)
+            }
+            Err(e) => {
+                validation_errors.push_errors(ValidationError::GenesisFileError {
+                    error_message: format!("Failed to strip comments from Genesis config file."),
+                });
+                Err(e)
+            }
+        }?;
+
+        let genesis = match serde_json::from_str::<Genesis>(&json_str_without_comments) {
+            Ok(genesis) => Ok(Self::new_validated_no_panic(
+                genesis.config,
+                genesis.records,
+                genesis_validation,
+                validation_errors,
+            )),
+            Err(e) => {
+                validation_errors.push_errors(ValidationError::GenesisFileError {
+                    error_message: format!("Failed to deserialize the genesis records."),
+                });
+                Err(e)
+            }
+        }?;
+
+        Ok(genesis)
+    }
+
     /// Reads Genesis from config and records files.
     pub fn from_files<P1, P2>(
         config_path: P1,
@@ -491,6 +562,34 @@ impl Genesis {
         Self::new_with_path_validated(config, records_path, genesis_validation)
     }
 
+    /// Reads Genesis from config and records files.
+    pub fn from_files_no_panic<P1, P2>(
+        config_path: P1,
+        records_path: P2,
+        genesis_validation: GenesisValidationMode,
+        validation_errors: &mut ValidationErrors,
+    ) -> anyhow::Result<Self>
+    where
+        P1: AsRef<Path>,
+        P2: AsRef<Path>,
+    {
+        match GenesisConfig::from_file(config_path) {
+            Ok(config) => Ok(Self::new_with_path_validated_no_panic(
+                config,
+                records_path,
+                genesis_validation,
+                validation_errors,
+            )),
+            Err(e) => {
+                let error_message = e.to_string();
+                validation_errors.push_errors(ValidationError::GenesisFileError {
+                    error_message: error_message,
+                });
+                Err(e)
+            }
+        }
+    }
+
     fn new_validated(
         config: GenesisConfig,
         records: GenesisRecords,
@@ -498,6 +597,16 @@ impl Genesis {
     ) -> Self {
         let genesis = Self { config, records, records_file: PathBuf::new() };
         genesis.validate(genesis_validation)
+    }
+
+    fn new_validated_no_panic(
+        config: GenesisConfig,
+        records: GenesisRecords,
+        genesis_validation: GenesisValidationMode,
+        validation_errors: &mut ValidationErrors,
+    ) -> Self {
+        let genesis = Self { config, records, records_file: PathBuf::new() };
+        genesis.validate_no_panic(genesis_validation, validation_errors)
     }
 
     fn new_with_path_validated<P: AsRef<Path>>(
@@ -513,10 +622,40 @@ impl Genesis {
         genesis.validate(genesis_validation)
     }
 
+    fn new_with_path_validated_no_panic<P: AsRef<Path>>(
+        config: GenesisConfig,
+        records_file: P,
+        genesis_validation: GenesisValidationMode,
+        validation_errors: &mut ValidationErrors,
+    ) -> Self {
+        let genesis = Self {
+            config,
+            records: GenesisRecords(vec![]),
+            records_file: records_file.as_ref().to_path_buf(),
+        };
+        genesis.validate_no_panic(genesis_validation, validation_errors)
+    }
+
     fn validate(self, genesis_validation: GenesisValidationMode) -> Self {
         match genesis_validation {
             GenesisValidationMode::Full => {
-                validate_genesis(&self);
+                validate_genesis_panic(&self);
+            }
+            GenesisValidationMode::UnsafeFast => {
+                warn!(target: "genesis", "Skipped genesis validation");
+            }
+        }
+        self
+    }
+
+    fn validate_no_panic(
+        self,
+        genesis_validation: GenesisValidationMode,
+        validation_errors: &mut ValidationErrors,
+    ) -> Self {
+        match genesis_validation {
+            GenesisValidationMode::Full => {
+                validate_genesis_no_panic(&self, validation_errors);
             }
             GenesisValidationMode::UnsafeFast => {
                 warn!(target: "genesis", "Skipped genesis validation");

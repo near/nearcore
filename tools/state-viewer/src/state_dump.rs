@@ -294,7 +294,7 @@ mod test {
     use std::sync::Arc;
 
     use near_chain::{ChainGenesis, Provenance};
-    use near_chain_configs::genesis_validate::validate_genesis;
+    use near_chain_configs::genesis_validate::validate_genesis_panic;
     use near_chain_configs::{Genesis, GenesisChangeConfig};
     #[cfg(not(feature = "protocol_feature_flat_state"))]
     use near_client::test_utils::run_catchup;
@@ -428,7 +428,7 @@ mod test {
         );
         let new_genesis = new_near_config.genesis;
         assert_eq!(new_genesis.config.validators.len(), 2);
-        validate_genesis(&new_genesis);
+        validate_genesis_panic(&new_genesis);
     }
 
     /// Test that we respect the specified account ID list in dump_state.
@@ -512,7 +512,7 @@ mod test {
             }
         });
         assert_eq!(expected_accounts, actual_accounts);
-        validate_genesis(&new_genesis);
+        validate_genesis_panic(&new_genesis);
     }
 
     /// Test that we preserve the validators from the epoch of the state dump.
@@ -559,7 +559,7 @@ mod test {
         );
         let new_genesis = new_near_config.genesis;
         assert_eq!(new_genesis.config.validators.len(), 2);
-        validate_genesis(&new_genesis);
+        validate_genesis_panic(&new_genesis);
     }
 
     /// Test that we return locked tokens for accounts that are not validators.
@@ -608,7 +608,7 @@ mod test {
                 .collect::<Vec<_>>(),
             vec!["test0".parse().unwrap()]
         );
-        validate_genesis(&new_genesis);
+        validate_genesis_panic(&new_genesis);
     }
 
     // TODO (#7327): enable test when flat storage will support resharding.
@@ -799,7 +799,7 @@ mod test {
         let new_genesis = new_near_config.genesis;
 
         assert_eq!(new_genesis.config.validators.len(), 2);
-        validate_genesis(&new_genesis);
+        validate_genesis_panic(&new_genesis);
     }
 
     #[test]
@@ -869,6 +869,6 @@ mod test {
 
         assert_eq!(stake.get("test0").unwrap_or(&(0 as Balance)), &(0 as Balance));
 
-        validate_genesis(&new_genesis);
+        validate_genesis_panic(&new_genesis);
     }
 }

@@ -58,7 +58,7 @@ fn download_configs(chain_id: &str, dir: &std::path::Path) -> anyhow::Result<Nea
     let url = config::get_config_url(chain_id);
     let config_path = &dir.join(config::CONFIG_FILENAME);
     config::download_config(&url, config_path)?;
-    let config = config::Config::from_file(config_path, config::ConfigValidationMode::Full)?;
+    let config = config::Config::from_file(config_path)?;
 
     // Generate node key.
     let account_id = "node".parse().unwrap();
