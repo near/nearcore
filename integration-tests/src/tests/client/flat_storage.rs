@@ -5,6 +5,7 @@ use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
+#[cfg(feature = "protocol_feature_flat_state")]
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::AccountId;
 use near_primitives_core::types::{BlockHeight, NumShards};
