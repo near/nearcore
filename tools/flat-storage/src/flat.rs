@@ -148,7 +148,7 @@ impl FlatStorageCommand {
                 let tip = rw_chain_store.final_head().unwrap();
 
                 let mut creator =
-                    FlatStorageShardCreator::new(init_cmd.shard_id, tip.height, rw_hot_runtime);
+                    FlatStorageShardCreator::new(init_cmd.shard_id, tip.height - 1, rw_hot_runtime);
                 let pool = rayon::ThreadPoolBuilder::new()
                     .num_threads(init_cmd.num_threads)
                     .build()

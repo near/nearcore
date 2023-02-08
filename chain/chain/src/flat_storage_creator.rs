@@ -202,7 +202,7 @@ impl FlatStorageShardCreator {
                 let final_head = chain_store.final_head()?;
                 let final_height = final_head.height;
 
-                if final_height >= self.start_height {
+                if final_height > self.start_height {
                     // If it holds, deltas for all blocks after final head are saved to disk, because they have bigger
                     // heights than one on which we launched a node. Check that it is true:
                     for height in final_height + 1..=chain_store.head()?.height {
