@@ -1,8 +1,9 @@
 name: Fuzzer Binaries
 on:
   push:
-    paths:
-      - "scripts/build_fuzzers.py"
+    branches:
+      - master
+      # TODO: see with node team how the info that this is a push to a testnet/mainnet branch should be recorded
 
 jobs:
   build_fuzzers:
@@ -41,5 +42,3 @@ jobs:
       - run: pip install -r scripts/build_fuzzers_requirements.txt
 
       - run: python scripts/build_fuzzers.py
-        env:
-          RUSTC_BOOTSTRAP: "1"
