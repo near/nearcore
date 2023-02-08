@@ -14,22 +14,24 @@ use near_crypto::{PublicKey, SecretKey};
 use near_indexer::{Indexer, StreamerMessage};
 use near_o11y::WithSpanContextExt;
 use near_primitives::hash::CryptoHash;
+use near_primitives::receipt::{Receipt, ReceiptEnum};
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteKeyAction, SignedTransaction, Transaction,
-    TransferAction,
 };
 use near_primitives::types::{
     AccountId, BlockHeight, BlockReference, Finality, TransactionOrReceiptId,
 };
 use near_primitives::views::{
-    ActionView, ExecutionOutcomeWithIdView, ExecutionStatusView, QueryRequest, QueryResponseKind,
-    ReceiptEnumView, ReceiptView, SignedTransactionView,
+    ExecutionOutcomeWithIdView, ExecutionStatusView, QueryRequest, QueryResponseKind,
+    SignedTransactionView,
 };
 use near_primitives_core::types::{Nonce, ShardId};
 use nearcore::config::NearConfig;
 use rocksdb::DB;
+use std::borrow::Cow;
 use std::collections::HashSet;
 use std::path::Path;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use strum::IntoEnumIterator;
 use tokio::sync::mpsc;
@@ -222,10 +224,70 @@ fn get_last_source_height(db: &DB) -> anyhow::Result<Option<BlockHeight>> {
         .map(|v| BlockHeight::try_from_slice(&v).unwrap()))
 }
 
-struct SourceBlock {
+enum SourceTransaction {
+    Tx(SignedTransaction),
+    TxView(SignedTransactionView),
+}
+
+impl From<SignedTransaction> for SourceTransaction {
+    fn from(tx: SignedTransaction) -> Self {
+        Self::Tx(tx)
+    }
+}
+
+impl From<SignedTransactionView> for SourceTransaction {
+    fn from(tx: SignedTransactionView) -> Self {
+        Self::TxView(tx)
+    }
+}
+
+impl SourceTransaction {
+    fn hash(&self) -> CryptoHash {
+        match self {
+            Self::Tx(tx) => tx.get_hash(),
+            Self::TxView(tx) => tx.hash,
+        }
+    }
+
+    fn public_key(&self) -> &PublicKey {
+        match self {
+            Self::Tx(tx) => &tx.transaction.public_key,
+            Self::TxView(tx) => &tx.public_key,
+        }
+    }
+
+    fn signer_id(&self) -> &AccountId {
+        match self {
+            Self::Tx(tx) => &tx.transaction.signer_id,
+            Self::TxView(tx) => &tx.signer_id,
+        }
+    }
+
+    fn receiver_id(&self) -> &AccountId {
+        match self {
+            Self::Tx(tx) => &tx.transaction.receiver_id,
+            Self::TxView(tx) => &tx.receiver_id,
+        }
+    }
+
+    fn actions<'a>(&'a self) -> Cow<'a, [Action]> {
+        match self {
+            Self::Tx(tx) => Cow::Borrowed(&tx.transaction.actions),
+            Self::TxView(tx) => {
+                Cow::Owned(tx.actions.iter().map(|a| a.clone().try_into().unwrap()).collect())
+            }
+        }
+    }
+
+    fn is_view(&self) -> bool {
+        matches!(self, Self::TxView(_))
+    }
+}
+
+struct SourceChunk {
     shard_id: ShardId,
-    transactions: Vec<SignedTransactionView>,
-    receipts: Vec<ReceiptView>,
+    transactions: Vec<SourceTransaction>,
+    receipts: Vec<Receipt>,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -332,7 +394,7 @@ trait ChainAccess {
         &self,
         height: BlockHeight,
         shards: &[ShardId],
-    ) -> Result<Vec<SourceBlock>, ChainError>;
+    ) -> Result<Vec<SourceChunk>, ChainError>;
 
     async fn get_next_block_height(&self, height: BlockHeight) -> Result<BlockHeight, ChainError>;
 
@@ -366,7 +428,7 @@ trait ChainAccess {
         }
     }
 
-    async fn get_receipt(&self, id: &CryptoHash) -> Result<ReceiptView, ChainError>;
+    async fn get_receipt(&self, id: &CryptoHash) -> Result<Arc<Receipt>, ChainError>;
 
     // returns all public keys with full permissions for the given account
     async fn get_full_access_keys(
@@ -841,22 +903,20 @@ impl<T: ChainAccess> TxMirror<T> {
 
     async fn map_actions(
         &self,
-        tx: &SignedTransactionView,
+        tx: &SourceTransaction,
     ) -> anyhow::Result<(Vec<Action>, HashSet<(AccountId, PublicKey)>)> {
         let mut actions = Vec::new();
         let mut nonce_updates = HashSet::new();
 
-        for a in tx.actions.iter() {
-            // this try_from() won't fail since the ActionView was constructed from the Action
-            let action = Action::try_from(a.clone()).unwrap();
-
+        let source_actions = tx.actions();
+        for action in source_actions.iter() {
             match &action {
                 Action::AddKey(add_key) => {
                     let public_key =
                         crate::key_mapping::map_key(&add_key.public_key, self.secret.as_ref())
                             .public_key();
                     let receiver_id =
-                        crate::key_mapping::map_account(&tx.receiver_id, self.secret.as_ref());
+                        crate::key_mapping::map_account(tx.receiver_id(), self.secret.as_ref());
 
                     nonce_updates.insert((receiver_id, public_key.clone()));
                     actions.push(Action::AddKey(AddKeyAction {
@@ -872,13 +932,16 @@ impl<T: ChainAccess> TxMirror<T> {
                     actions.push(Action::DeleteKey(DeleteKeyAction { public_key }));
                 }
                 Action::Transfer(_) => {
-                    if tx.receiver_id.is_implicit() && tx.actions.len() == 1 {
+                    if tx.receiver_id().is_implicit() && source_actions.len() == 1 {
                         let target_account =
-                            crate::key_mapping::map_account(&tx.receiver_id, self.secret.as_ref());
+                            crate::key_mapping::map_account(tx.receiver_id(), self.secret.as_ref());
                         if !account_exists(&self.target_view_client, &target_account)
                             .await
                             .with_context(|| {
-                                format!("failed checking existence for account {}", &tx.receiver_id)
+                                format!(
+                                    "failed checking existence for account {}",
+                                    tx.receiver_id()
+                                )
                             })?
                         {
                             let public_key =
@@ -886,11 +949,18 @@ impl<T: ChainAccess> TxMirror<T> {
                             nonce_updates.insert((target_account, public_key));
                         }
                     }
-                    actions.push(action);
+                    actions.push(action.clone());
                 }
                 // We don't want to mess with the set of validators in the target chain
                 Action::Stake(_) => {}
-                _ => actions.push(action),
+                Action::DeployContract(_) => {
+                    // if we're getting transactions from a ViewClient instead of directly from the DB,
+                    // DeployContract actions are silently mangled, so we can't recover the original contract code here
+                    if !tx.is_view() {
+                        actions.push(action.clone());
+                    }
+                }
+                _ => actions.push(action.clone()),
             };
         }
         Ok((actions, nonce_updates))
@@ -960,7 +1030,7 @@ impl<T: ChainAccess> TxMirror<T> {
         txs: &mut Vec<TargetChainTx>,
         predecessor_id: AccountId,
         receiver_id: AccountId,
-        actions: Vec<ActionView>,
+        actions: &[Action],
         ref_hash: &CryptoHash,
         provenance: MappedTxProvenance,
         source_height: BlockHeight,
@@ -1036,22 +1106,23 @@ impl<T: ChainAccess> TxMirror<T> {
 
         for a in actions {
             match a {
-                ActionView::AddKey { public_key, access_key } => {
+                Action::AddKey(a) => {
                     let target_public_key =
-                        crate::key_mapping::map_key(&public_key, self.secret.as_ref()).public_key();
+                        crate::key_mapping::map_key(&a.public_key, self.secret.as_ref())
+                            .public_key();
 
                     nonce_updates.insert((target_receiver_id.clone(), target_public_key.clone()));
                     target_actions.push(Action::AddKey(AddKeyAction {
                         public_key: target_public_key,
-                        access_key: access_key.into(),
+                        access_key: a.access_key.clone(),
                     }));
                 }
-                ActionView::CreateAccount => {
+                Action::CreateAccount(_) => {
                     target_actions.push(Action::CreateAccount(CreateAccountAction {}))
                 }
-                ActionView::Transfer { deposit } => {
+                Action::Transfer(_) => {
                     if provenance.is_create_account() {
-                        target_actions.push(Action::Transfer(TransferAction { deposit }))
+                        target_actions.push(a.clone())
                     }
                 }
                 _ => {}
@@ -1116,7 +1187,7 @@ impl<T: ChainAccess> TxMirror<T> {
                 Err(ChainError::Other(e)) => return Err(e),
             };
 
-            if let ReceiptEnumView::Action { actions, .. } = receipt.receipt {
+            if let ReceiptEnum::Action(r) = &receipt.receipt {
                 if (provenance.is_create_account() && receipt.predecessor_id == receipt.receiver_id)
                     || (!provenance.is_create_account()
                         && receipt.predecessor_id != receipt.receiver_id)
@@ -1127,10 +1198,10 @@ impl<T: ChainAccess> TxMirror<T> {
                 // implicit accounts, etc...
                 let mut key_added = false;
                 let mut account_created = false;
-                for a in actions.iter() {
+                for a in r.actions.iter() {
                     match a {
-                        ActionView::AddKey { .. } => key_added = true,
-                        ActionView::CreateAccount => account_created = true,
+                        Action::AddKey(_) => key_added = true,
+                        Action::CreateAccount(_) => account_created = true,
                         _ => {}
                     };
                 }
@@ -1140,12 +1211,12 @@ impl<T: ChainAccess> TxMirror<T> {
                 if provenance.is_create_account() && !account_created {
                     tracing::warn!(
                         target: "mirror", "for receipt {} predecessor and receiver are different but no create account in the actions: {:?}",
-                        &receipt.receipt_id, &actions,
+                        &receipt.receipt_id, &r.actions,
                     );
                 } else if !provenance.is_create_account() && account_created {
                     tracing::warn!(
                         target: "mirror", "for receipt {} predecessor and receiver are the same but there's a create account in the actions: {:?}",
-                        &receipt.receipt_id, &actions,
+                        &receipt.receipt_id, &r.actions,
                     );
                 }
                 let outcome = self
@@ -1166,9 +1237,9 @@ impl<T: ChainAccess> TxMirror<T> {
                     tracker,
                     outcome.block_hash,
                     txs,
-                    receipt.predecessor_id,
-                    receipt.receiver_id,
-                    actions,
+                    receipt.predecessor_id.clone(),
+                    receipt.receiver_id.clone(),
+                    &r.actions,
                     ref_hash,
                     provenance,
                     source_height,
@@ -1182,7 +1253,7 @@ impl<T: ChainAccess> TxMirror<T> {
 
     async fn add_tx_function_call_keys(
         &self,
-        tx: &SignedTransactionView,
+        tx: &SourceTransaction,
         provenance: MappedTxProvenance,
         source_height: BlockHeight,
         ref_hash: &CryptoHash,
@@ -1192,20 +1263,21 @@ impl<T: ChainAccess> TxMirror<T> {
         // if signer and receiver are the same then the resulting local receipt
         // is only logically included, and we won't see it in the receipts in any chunk,
         // so handle that case here
-        if tx.signer_id == tx.receiver_id
-            && tx.actions.iter().any(|a| matches!(a, ActionView::FunctionCall { .. }))
+        if tx.signer_id() == tx.receiver_id()
+            && tx.actions().iter().any(|a| matches!(a, Action::FunctionCall(_)))
         {
+            let tx_hash = tx.hash();
             if let Some(receipt_id) = self
                 .source_chain_access
-                .get_tx_receipt_id(&tx.hash, &tx.signer_id)
+                .get_tx_receipt_id(&tx_hash, tx.signer_id())
                 .await
-                .with_context(|| format!("failed fetching local receipt ID for tx {}", &tx.hash))?
+                .with_context(|| format!("failed fetching local receipt ID for tx {}", &tx_hash))?
             {
                 self.add_function_call_keys(
                     tracker,
                     txs,
                     &receipt_id,
-                    &tx.receiver_id,
+                    &tx.receiver_id(),
                     ref_hash,
                     provenance,
                     source_height,
@@ -1221,15 +1293,15 @@ impl<T: ChainAccess> TxMirror<T> {
 
     async fn add_receipt_function_call_keys(
         &self,
-        receipt: &ReceiptView,
+        receipt: &Receipt,
         provenance: MappedTxProvenance,
         source_height: BlockHeight,
         ref_hash: &CryptoHash,
         tracker: &mut crate::chain_tracker::TxTracker,
         txs: &mut Vec<TargetChainTx>,
     ) -> anyhow::Result<()> {
-        if let ReceiptEnumView::Action { actions, .. } = &receipt.receipt {
-            if actions.iter().any(|a| matches!(a, ActionView::FunctionCall { .. })) {
+        if let ReceiptEnum::Action(r) = &receipt.receipt {
+            if r.actions.iter().any(|a| matches!(a, Action::FunctionCall(_))) {
                 self.add_function_call_keys(
                     tracker,
                     txs,
@@ -1344,18 +1416,18 @@ impl<T: ChainAccess> TxMirror<T> {
                     continue;
                 }
                 let target_private_key =
-                    crate::key_mapping::map_key(&source_tx.public_key, self.secret.as_ref());
+                    crate::key_mapping::map_key(source_tx.public_key(), self.secret.as_ref());
 
                 let target_signer_id =
-                    crate::key_mapping::map_account(&source_tx.signer_id, self.secret.as_ref());
+                    crate::key_mapping::map_account(source_tx.signer_id(), self.secret.as_ref());
                 let target_receiver_id =
-                    crate::key_mapping::map_account(&source_tx.receiver_id, self.secret.as_ref());
+                    crate::key_mapping::map_account(source_tx.receiver_id(), self.secret.as_ref());
 
                 let target_tx = self
                     .prepare_tx(
                         tracker,
-                        source_tx.signer_id.clone(),
-                        source_tx.receiver_id.clone(),
+                        source_tx.signer_id().clone(),
+                        source_tx.receiver_id().clone(),
                         target_signer_id,
                         target_receiver_id,
                         &target_private_key,
@@ -1600,6 +1672,7 @@ async fn run<P: AsRef<Path>>(
         );
         TxMirror::new(source_chain_access, target_home, secret)?.run(Some(stop_height)).await
     } else {
+        tracing::warn!(target: "mirror", "FIXME: currently --online-source will skip DeployContract actions");
         TxMirror::new(crate::online::ChainAccess::new(source_home)?, target_home, secret)?
             .run(stop_height)
             .await
