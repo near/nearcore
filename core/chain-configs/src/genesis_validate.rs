@@ -103,7 +103,7 @@ impl<'a> GenesisValidator<'a> {
             })
             .collect::<HashMap<_, _>>();
 
-        if validators.len() != self.account_ids.len() {
+        if validators.len() != self.genesis_config.validators.len() {
             let err_message = format!("Duplicate account in validators. The number of account_ids: {} does not match the number of validators: {}.", self.account_ids.len(), validators.len());
             self.validation_errors
                 .push_errors(ValidationError::GenesisSemanticsError { error_message: err_message })
