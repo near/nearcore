@@ -3,6 +3,7 @@
 //! NEP: https://github.com/near/NEPs/pull/366
 //! This is the module containing the types introduced for delegate actions.
 
+pub use self::private_non_delegate_action::NonDelegateAction;
 use crate::hash::{hash, CryptoHash};
 use crate::transaction::Action;
 use crate::types::{AccountId, Nonce};
@@ -11,38 +12,6 @@ use near_crypto::{PublicKey, Signature};
 use near_primitives_core::types::BlockHeight;
 use serde::{Deserialize, Serialize};
 use std::io::{Error, ErrorKind};
-
-// This is an index number of Action::Delegate in Action enumeration
-const ACTION_DELEGATE_NUMBER: u8 = 8;
-
-/// This is Action which mustn't contain DelegateAction.
-// This struct is needed to avoid the recursion when Action/DelegateAction is deserialized.
-#[derive(Serialize, BorshSerialize, Deserialize, PartialEq, Eq, Clone, Debug)]
-pub struct NonDelegateAction(pub Action);
-
-impl From<NonDelegateAction> for Action {
-    fn from(action: NonDelegateAction) -> Self {
-        action.0
-    }
-}
-
-impl borsh::de::BorshDeserialize for NonDelegateAction {
-    fn deserialize(buf: &mut &[u8]) -> ::core::result::Result<Self, borsh::maybestd::io::Error> {
-        if buf.is_empty() {
-            return Err(Error::new(
-                ErrorKind::InvalidInput,
-                "Failed to deserialize DelegateAction",
-            ));
-        }
-        match buf[0] {
-            ACTION_DELEGATE_NUMBER => Err(Error::new(
-                ErrorKind::InvalidInput,
-                "DelegateAction mustn't contain a nested one",
-            )),
-            _ => Ok(Self(borsh::BorshDeserialize::deserialize(buf)?)),
-        }
-    }
-}
 
 /// This action allows to execute the inner actions behalf of the defined sender.
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
@@ -101,6 +70,69 @@ impl DelegateAction {
     pub fn get_hash(&self) -> CryptoHash {
         let bytes = self.try_to_vec().expect("Failed to deserialize");
         hash(&bytes)
+    }
+}
+
+/// A small private module to protect the private fields inside `NonDelegateAction`.
+mod private_non_delegate_action {
+    use super::*;
+
+    /// This is Action which mustn't contain DelegateAction.
+    ///
+    /// This struct is needed to avoid the recursion when Action/DelegateAction is deserialized.
+    ///
+    /// Important: Don't make the inner Action public, this must only be constructed
+    /// through the correct interface that ensures the inner Action is actually not
+    /// a delegate action. That would break an assumption of this type, which we use
+    /// in several places. For example, borsh de-/serialization relies on it. If the
+    /// invariant is broken, we may end up with a `Transaction` or `Receipt` that we
+    /// can serialize but deserializing it back causes a parsing error.
+    #[derive(Serialize, BorshSerialize, Deserialize, PartialEq, Eq, Clone, Debug)]
+    pub struct NonDelegateAction(Action);
+
+    /// This is an index number of Action::Delegate in Action enumeration
+    const ACTION_DELEGATE_NUMBER: u8 = 8;
+
+    impl From<NonDelegateAction> for Action {
+        fn from(action: NonDelegateAction) -> Self {
+            action.0
+        }
+    }
+
+    #[derive(Debug, thiserror::Error)]
+    #[error("attempted to construct NonDelegateAction from Action::Delegate")]
+    pub struct IsDelegateAction;
+
+    impl TryFrom<Action> for NonDelegateAction {
+        type Error = IsDelegateAction;
+
+        fn try_from(action: Action) -> Result<Self, IsDelegateAction> {
+            if matches!(action, Action::Delegate(_)) {
+                Err(IsDelegateAction)
+            } else {
+                Ok(Self(action))
+            }
+        }
+    }
+
+    impl borsh::de::BorshDeserialize for NonDelegateAction {
+        fn deserialize(
+            buf: &mut &[u8],
+        ) -> ::core::result::Result<Self, borsh::maybestd::io::Error> {
+            if buf.is_empty() {
+                return Err(Error::new(
+                    ErrorKind::InvalidInput,
+                    "Failed to deserialize DelegateAction",
+                ));
+            }
+            match buf[0] {
+                ACTION_DELEGATE_NUMBER => Err(Error::new(
+                    ErrorKind::InvalidInput,
+                    "DelegateAction mustn't contain a nested one",
+                )),
+                _ => Ok(Self(borsh::BorshDeserialize::deserialize(buf)?)),
+            }
+        }
     }
 }
 
