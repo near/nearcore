@@ -103,6 +103,7 @@ mod private_non_delegate_action {
     #[error("attempted to construct NonDelegateAction from Action::Delegate")]
     pub struct IsDelegateAction;
 
+    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
     impl TryFrom<Action> for NonDelegateAction {
         type Error = IsDelegateAction;
 
