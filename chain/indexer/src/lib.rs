@@ -79,7 +79,7 @@ pub struct IndexerConfig {
     pub sync_mode: SyncModeEnum,
     /// Whether await for node to be synced or not
     pub await_for_node_synced: AwaitForNodeSyncedEnum,
-    /// Tells whether to validate the genesis config before starting
+    /// Tells whether to validate the genesis file before starting
     pub validate_genesis: bool,
 }
 
