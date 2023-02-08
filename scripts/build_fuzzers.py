@@ -4,6 +4,7 @@ import typing
 import logging
 import tarfile
 import re
+import time
 
 REPO_DIR = '/home/runner/work/nearcore/nearcore/'
 G_BUCKET = 'gs://fuzzer_binaries/'
@@ -28,21 +29,7 @@ def get_current_rev(g_storage_files: typing.ByteString) -> int:
 
 
 def get_archive_name(runner: str) -> str:
-    existing_fuzzers = subprocess.run([
-        'gsutil',
-        'ls',
-        G_BUCKET + runner + "*",
-    ],
-                                      stderr=subprocess.STDOUT,
-                                      stdout=subprocess.PIPE)
-    logger.debug(f"Binaries in Google Storage: \n{existing_fuzzers.stdout}")
-
-    if b'One or more URLs matched no objects' in existing_fuzzers.stdout:
-        logger.info(
-            f"Could'nt find any revisions for {runner}. Revision set to 1")
-        current_rev = 1
-    else:
-        current_rev = get_current_rev(existing_fuzzers.stdout)
+    current_rev = time.strftime('%Y%m%d%H%M%S', time.gmtime())
     tar_name = f'{runner}-{current_rev}.tar.gz'
     logger.debug(f"Archive name: {tar_name}")
 
