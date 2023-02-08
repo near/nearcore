@@ -39,12 +39,18 @@ fn setup_env(genesis: &Genesis, store: Store) -> TestEnv {
 /// We have a pause after processing each block because state data is being fetched in rayon threads,
 /// but we expect it to finish in <30s because state is small and there is only one state part.
 /// Returns next block height available to produce.
-fn wait_for_flat_storage_creation(env: &mut TestEnv, start_height: BlockHeight) -> BlockHeight {
+fn wait_for_flat_storage_creation(
+    env: &mut TestEnv,
+    start_height: BlockHeight,
+    produce_blocks: bool,
+) -> BlockHeight {
     let store = env.clients[0].runtime_adapter.store().clone();
     let mut next_height = start_height;
     let mut prev_status = store_helper::get_flat_storage_creation_status(&store, 0);
     while next_height < start_height + CREATION_TIMEOUT {
-        env.produce_block(0, next_height);
+        if produce_blocks {
+            env.produce_block(0, next_height);
+        }
         env.clients[0].run_flat_storage_creation_step().unwrap();
 
         let status = store_helper::get_flat_storage_creation_status(&store, 0);
@@ -68,6 +74,7 @@ fn wait_for_flat_storage_creation(env: &mut TestEnv, start_height: BlockHeight) 
                 panic!("Invalid status {prev_status:?} observed during flat storage creation for height {next_height}");
             }
         }
+        tracing::info!("Flat Creation status: {:?}", status);
 
         prev_status = status;
         next_height += 1;
@@ -187,7 +194,7 @@ fn test_flat_storage_creation() {
         })
     );
 
-    wait_for_flat_storage_creation(&mut env, START_HEIGHT + 3);
+    wait_for_flat_storage_creation(&mut env, START_HEIGHT + 3, true);
 }
 
 /// Check that client can create flat storage on some shard while it already exists on another shard.
@@ -249,7 +256,7 @@ fn test_flat_storage_creation_two_shards() {
         FlatStorageCreationStatus::Ready
     );
 
-    wait_for_flat_storage_creation(&mut env, START_HEIGHT);
+    wait_for_flat_storage_creation(&mut env, START_HEIGHT, true);
 }
 
 /// Check that flat storage creation can be started from intermediate state where one
@@ -342,7 +349,7 @@ fn test_flat_storage_creation_start_from_state_part() {
         assert!(env.clients[0].runtime_adapter.get_flat_storage_state_for_shard(0).is_none());
 
         // Run chain for a couple of blocks and check that flat storage for shard 0 is eventually created.
-        let next_height = wait_for_flat_storage_creation(&mut env, START_HEIGHT);
+        let next_height = wait_for_flat_storage_creation(&mut env, START_HEIGHT, true);
 
         // Check that all the keys are present in flat storage.
         let block_hash = env.clients[0].chain.get_block_hash_by_height(next_height - 1).unwrap();
@@ -363,4 +370,45 @@ fn test_flat_storage_creation_start_from_state_part() {
             }
         }
     }
+}
+
+/// Tests the scenario where we start flat storage migration, and get just a few new blocks.
+/// (in this test we still generate 3 blocks in order to generate deltas).
+#[cfg(feature = "protocol_feature_flat_state")]
+#[test]
+fn test_cachup_succeeds_even_if_no_new_blocks() {
+    init_test_logger();
+    let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
+    let store = create_test_store();
+
+    // Process some blocks with flat storage. Then remove flat storage data from disk.
+    {
+        let mut env = setup_env(&genesis, store.clone());
+        for height in 1..START_HEIGHT {
+            env.produce_block(0, height);
+        }
+        // Remove flat storage.
+        let block_hash = env.clients[0].chain.get_block_hash_by_height(START_HEIGHT - 1).unwrap();
+        let epoch_id = env.clients[0].chain.runtime_adapter.get_epoch_id(&block_hash).unwrap();
+        env.clients[0]
+            .chain
+            .runtime_adapter
+            .remove_flat_storage_state_for_shard(0, &epoch_id)
+            .unwrap();
+    }
+    let mut env = setup_env(&genesis, store.clone());
+    assert!(env.clients[0].runtime_adapter.get_flat_storage_state_for_shard(0).is_none());
+    assert_eq!(
+        store_helper::get_flat_storage_creation_status(&store, 0),
+        FlatStorageCreationStatus::SavingDeltas
+    );
+    // Create 3 more blocks (so that the deltas are generated) - and assume that no new blocks are received.
+    // In the future, we should also support the scenario where no new blocks are created.
+
+    for block_height in START_HEIGHT + 1..=START_HEIGHT + 3 {
+        env.produce_block(0, block_height);
+    }
+
+    assert!(!env.clients[0].run_flat_storage_creation_step().unwrap());
+    wait_for_flat_storage_creation(&mut env, START_HEIGHT + 3, false);
 }
