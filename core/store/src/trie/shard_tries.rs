@@ -331,6 +331,10 @@ impl ShardTries {
     ) -> StateRoot {
         self.apply_all_inner(trie_changes, shard_uid, true, store_update)
     }
+
+    pub fn flat_state_cache_capacity(&self) -> u64 {
+        self.0.trie_config.flat_state_cache_capacity
+    }
 }
 
 pub struct WrappedTrieChanges {

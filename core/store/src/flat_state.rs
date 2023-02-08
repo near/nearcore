@@ -830,6 +830,7 @@ impl FlatStorageStateInner {
         Ok(blocks)
     }
 
+    /// Get cached `ValueRef` for flat storage head.
     #[cfg(feature = "protocol_feature_flat_state")]
     fn get_cached_ref(&mut self, key: &[u8]) -> Option<Option<ValueRef>> {
         self.value_ref_cache.get(key).cloned()
@@ -943,7 +944,7 @@ impl FlatStorageState {
         block_hash: &CryptoHash,
         key: &[u8],
     ) -> Result<Option<ValueRef>, crate::StorageError> {
-        let guard = self.0.write().expect(POISONED_LOCK_ERR);
+        let mut guard = self.0.write().expect(POISONED_LOCK_ERR);
         let blocks_to_head =
             guard.get_blocks_to_head(block_hash).map_err(|e| StorageError::from(e))?;
         for block_hash in blocks_to_head.iter() {
@@ -957,6 +958,9 @@ impl FlatStorageState {
             };
         }
 
+        if let Some(value_ref) = guard.get_cached_ref(key) {
+            return Ok(value_ref);
+        }
         Ok(store_helper::get_ref(&guard.store, key)?)
     }
 
@@ -1430,12 +1434,11 @@ mod tests {
         assert_eq!(flat_storage_state.update_flat_head(&flat_head_hash), Ok(()));
     }
 
-    // This test tests basic use cases for FlatState and FlatStorageState.
+    // This setup tests basic use cases for FlatState and FlatStorageState.
     // We created a linear chain with no forks, start with flat head at the genesis block, then
     // moves the flat head forward, which checking that flat_state.get_ref() still returns the correct
     // values and the state is being updated in store.
-    #[test]
-    fn flat_storage_state_sanity() {
+    fn flat_storage_state_sanity(cache_capacity: usize) {
         // 1. Create a chain with 10 blocks with no forks. Set flat head to be at block 0.
         //    Block i sets value for key &[1] to &[i].
         let mut chain = MockChain::linear_chain(10);
@@ -1532,5 +1535,15 @@ mod tests {
             store_helper::get_delta(&store, 0, chain.get_block_hash(10)).unwrap(),
             None
         );
+    }
+
+    #[test]
+    fn flat_storage_state_sanity_cache() {
+        flat_storage_state_sanity(100);
+    }
+
+    #[test]
+    fn flat_storage_state_sanity_no_cache() {
+        flat_storage_state_sanity(0);
     }
 }

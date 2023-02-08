@@ -75,7 +75,10 @@ impl<'c> EstimatorContext<'c> {
             store.clone(),
             trie_config,
             &shard_uids,
-            Self::create_flat_state_factory(store.clone()),
+            Self::create_flat_state_factory(
+                store.clone(),
+                trie_config.flat_state_cache_capacity.clone(),
+            ),
         );
 
         Testbed {
@@ -139,7 +142,7 @@ impl<'c> EstimatorContext<'c> {
     }
 
     #[cfg(feature = "protocol_feature_flat_state")]
-    fn create_flat_state_factory(store: Store) -> FlatStateFactory {
+    fn create_flat_state_factory(store: Store, cache_capacity: u64) -> FlatStateFactory {
         // function-level `use` statements here to avoid `unused import` warning
         // when flat state feature is disabled
         use near_primitives::types::BlockHeight;
@@ -179,8 +182,13 @@ impl<'c> EstimatorContext<'c> {
         store_helper::set_flat_head(&mut store_update, shard_id, &FLAT_STATE_HEAD);
         store_update.commit().expect("failed to set flat head");
         let factory = FlatStateFactory::new(store.clone());
-        let flat_storage_state =
-            FlatStorageState::new(store.clone(), shard_id, BLOCK_HEIGHT, &ChainAccess {});
+        let flat_storage_state = FlatStorageState::new(
+            store.clone(),
+            shard_id,
+            BLOCK_HEIGHT,
+            &ChainAccess {},
+            cache_capacity as usize,
+        );
         factory.add_flat_storage_state_for_shard(shard_id, flat_storage_state);
         factory
     }
