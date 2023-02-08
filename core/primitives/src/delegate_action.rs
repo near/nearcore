@@ -13,6 +13,8 @@ use near_primitives_core::types::BlockHeight;
 use serde::{Deserialize, Serialize};
 use std::io::{Error, ErrorKind};
 
+/// This is an index number of Action::Delegate in Action enumeration
+const ACTION_DELEGATE_NUMBER: u8 = 8;
 /// This action allows to execute the inner actions behalf of the defined sender.
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
 pub struct DelegateAction {
@@ -90,9 +92,6 @@ mod private_non_delegate_action {
     #[derive(Serialize, BorshSerialize, Deserialize, PartialEq, Eq, Clone, Debug)]
     pub struct NonDelegateAction(Action);
 
-    /// This is an index number of Action::Delegate in Action enumeration
-    const ACTION_DELEGATE_NUMBER: u8 = 8;
-
     impl From<NonDelegateAction> for Action {
         fn from(action: NonDelegateAction) -> Self {
             action.0
@@ -140,6 +139,23 @@ mod private_non_delegate_action {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+    use crate::transaction::CreateAccountAction;
+    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+    use near_crypto::KeyType;
+
+    /// A serialized `Action::Delegate(SignedDelegateAction)` for testing.
+    ///
+    /// We want this to be parseable and accepted by protocol versions with meta
+    /// transactions enabled. But it should fail either in parsing or in
+    /// validation when this is included in a receipt for a block of an earlier
+    /// version. For now, it just fails to parse, as a test below checks.
+    const DELEGATE_ACTION_HEX: &str = concat!(
+        "0803000000616161030000006262620100000000010000000000000002000000000000",
+        "0000000000000000000000000000000000000000000000000000000000000000000000",
+        "0000000000000000000000000000000000000000000000000000000000000000000000",
+        "0000000000000000000000000000000000000000000000000000000000"
+    );
 
     #[cfg(feature = "protocol_feature_nep366_delegate_action")]
     fn create_delegate_action(actions: Vec<Action>) -> Action {
@@ -147,7 +163,10 @@ mod tests {
             delegate_action: DelegateAction {
                 sender_id: "aaa".parse().unwrap(),
                 receiver_id: "bbb".parse().unwrap(),
-                actions: actions.iter().map(|a| NonDelegateAction(a.clone())).collect(),
+                actions: actions
+                    .iter()
+                    .map(|a| NonDelegateAction::try_from(a.clone()).unwrap())
+                    .collect(),
                 nonce: 1,
                 max_block_height: 2,
                 public_key: PublicKey::empty(KeyType::ED25519),
@@ -166,8 +185,7 @@ mod tests {
         );
 
         let delegate_action = create_delegate_action(Vec::<Action>::new());
-        let serialized_non_delegate_action =
-            create_delegate_action(vec![delegate_action]).try_to_vec().expect("Expect ok");
+        let serialized_non_delegate_action = delegate_action.try_to_vec().expect("Expect ok");
 
         // Expected Action::Delegate has not been moved in enum Action
         assert_eq!(serialized_non_delegate_action[0], ACTION_DELEGATE_NUMBER);
@@ -217,6 +235,8 @@ mod tests {
     #[test]
     #[cfg(feature = "protocol_feature_nep366_delegate_action")]
     fn test_delegate_action_deserialization_hard_coded() {
+        use crate::transaction::CreateAccountAction;
+
         let serialized_delegate_action = hex::decode(DELEGATE_ACTION_HEX).expect("invalid hex");
         // The hex data is the same as the one we create below.
         let delegate_action =

@@ -456,19 +456,6 @@ mod tests {
     use borsh::BorshDeserialize;
     use near_crypto::{InMemorySigner, KeyType, Signature, Signer};
 
-    /// A serialized `Action::Delegate(SignedDelegateAction)` for testing.
-    ///
-    /// We want this to be parseable and accepted by protocol versions with meta
-    /// transactions enabled. But it should fail either in parsing or in
-    /// validation when this is included in a receipt for a block of an earlier
-    /// version. For now, it just fails to parse, as a test below checks.
-    const DELEGATE_ACTION_HEX: &str = concat!(
-        "0803000000616161030000006262620100000000010000000000000002000000000000",
-        "0000000000000000000000000000000000000000000000000000000000000000000000",
-        "0000000000000000000000000000000000000000000000000000000000000000000000",
-        "0000000000000000000000000000000000000000000000000000000000"
-    );
-
     #[test]
     fn test_verify_transaction() {
         let signer = InMemorySigner::from_random("test".parse().unwrap(), KeyType::ED25519);
