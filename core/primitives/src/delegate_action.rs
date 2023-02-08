@@ -10,7 +10,6 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{PublicKey, Signature};
 use near_primitives_core::types::BlockHeight;
 use serde::{Deserialize, Serialize};
-use std::hash::Hasher;
 use std::io::{Error, ErrorKind};
 
 // This is an index number of Action::Delegate in Action enumeration

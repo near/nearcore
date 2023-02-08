@@ -38,9 +38,9 @@ use near_vm_runner::precompile_contract;
 #[cfg(feature = "protocol_feature_nep366_delegate_action")]
 use crate::config::{total_prepaid_exec_fees, total_prepaid_gas, total_prepaid_send_fees};
 #[cfg(feature = "protocol_feature_nep366_delegate_action")]
-use near_primitives::errors::InvalidAccessKeyError;
+use near_primitives::delegate_action::{DelegateAction, SignedDelegateAction};
 #[cfg(feature = "protocol_feature_nep366_delegate_action")]
-use near_primitives::transaction::{DelegateAction, SignedDelegateAction};
+use near_primitives::errors::InvalidAccessKeyError;
 #[cfg(feature = "protocol_feature_nep366_delegate_action")]
 use near_primitives::types::Gas;
 #[cfg(feature = "protocol_feature_nep366_delegate_action")]

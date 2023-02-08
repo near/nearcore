@@ -54,7 +54,7 @@ use crate::version::{ProtocolVersion, Version};
 use validator_stake_view::ValidatorStakeView;
 
 #[cfg(feature = "protocol_feature_nep366_delegate_action")]
-use crate::transaction::{DelegateAction, SignedDelegateAction};
+use crate::delegate_action::{DelegateAction, SignedDelegateAction};
 
 /// A view of the account
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]

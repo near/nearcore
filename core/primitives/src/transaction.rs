@@ -16,6 +16,9 @@ use crate::merkle::MerklePath;
 use crate::serialize::{base64_format, dec_format};
 use crate::types::{AccountId, Balance, Gas, Nonce};
 
+#[cfg(feature = "protocol_feature_nep366_delegate_action")]
+use crate::delegate_action::SignedDelegateAction;
+
 pub type LogEntry = String;
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]

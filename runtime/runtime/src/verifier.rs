@@ -134,7 +134,7 @@ fn is_zero_balance_account(
 }
 
 #[cfg(feature = "protocol_feature_nep366_delegate_action")]
-use near_primitives::transaction::SignedDelegateAction;
+use near_primitives::delegate_action::SignedDelegateAction;
 
 /// Validates the transaction without using the state. It allows any node to validate a
 /// transaction before forwarding it to the node that tracks the `signer_id` account.
