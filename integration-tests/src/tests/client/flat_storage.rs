@@ -5,6 +5,8 @@ use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
+#[cfg(feature = "protocol_feature_flat_state")]
+use near_primitives::trie_key::TrieKey;
 use near_primitives::types::AccountId;
 use near_primitives_core::types::{BlockHeight, NumShards};
 use near_store::flat_state::{
@@ -411,4 +413,66 @@ fn test_cachup_succeeds_even_if_no_new_blocks() {
 
     assert!(!env.clients[0].run_flat_storage_creation_step().unwrap());
     wait_for_flat_storage_creation(&mut env, START_HEIGHT + 3, false);
+}
+
+/// Tests the flat storage iterator. Running on a chain with 3 shards, and couple blocks produced.
+#[cfg(feature = "protocol_feature_flat_state")]
+#[test]
+fn test_flat_storage_iter() {
+    init_test_logger();
+    let num_shards: NumShards = 3;
+
+    let shard_layout =
+        ShardLayout::v1(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], vec![], None, 0);
+
+    let genesis = Genesis::test_with_seeds(
+        vec!["test0".parse().unwrap()],
+        1,
+        vec![1; num_shards as usize],
+        shard_layout.clone(),
+    );
+
+    let store = create_test_store();
+
+    let mut env = setup_env(&genesis, store.clone());
+    for height in 1..START_HEIGHT {
+        env.produce_block(0, height);
+    }
+
+    for shard_id in 0..3 {
+        let items: Vec<_> = store_helper::iter_flat_state_entries(
+            shard_layout.clone(),
+            shard_id,
+            &store,
+            None,
+            None,
+        )
+        .collect();
+
+        match shard_id {
+            0 => {
+                // Two entries - one for account, the other for contract.
+                assert_eq!(2, items.len());
+                assert_eq!(
+                    TrieKey::Account { account_id: "test0".parse().unwrap() }.to_vec().as_slice(),
+                    items.get(0).unwrap().0.as_ref()
+                );
+            }
+            1 => {
+                // Test1 account was not created yet - so no entries.
+                assert_eq!(0, items.len());
+            }
+            2 => {
+                assert_eq!(2, items.len());
+                // Two entries - one for 'near' system account, the other for the contract.
+                assert_eq!(
+                    TrieKey::Account { account_id: "near".parse().unwrap() }.to_vec().as_slice(),
+                    items.get(0).unwrap().0.as_ref()
+                );
+            }
+            _ => {
+                panic!("Unexpected shard_id");
+            }
+        }
+    }
 }
