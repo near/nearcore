@@ -194,7 +194,7 @@ impl<'c> EstimatorContext<'c> {
     }
 
     #[cfg(not(feature = "protocol_feature_flat_state"))]
-    fn create_flat_state_factory(store: Store) -> FlatStateFactory {
+    fn create_flat_state_factory(store: Store, _cache_capacity: u64) -> FlatStateFactory {
         FlatStateFactory::new(store.clone())
     }
 }

@@ -504,6 +504,8 @@ struct FlatStorageMetrics {
     cached_deltas_size: IntGauge,
     #[allow(unused)]
     distance_to_head: IntGauge,
+    value_ref_cache_len: IntGauge,
+    value_ref_cache_total_key_size: IntGauge,
 }
 
 /// Number of traversed parts during a single step of fetching state.
@@ -878,6 +880,10 @@ impl FlatStorageState {
                 .with_label_values(&[shard_id_label]),
             distance_to_head: metrics::FLAT_STORAGE_DISTANCE_TO_HEAD
                 .with_label_values(&[shard_id_label]),
+            value_ref_cache_len: metrics::FLAT_STORAGE_VALUE_REF_CACHE_LEN
+                .with_label_values(&[shard_id_label]),
+            value_ref_cache_total_key_size: metrics::FLAT_STORAGE_VALUE_REF_CACHE_TOTAL_KEY_SIZE
+                .with_label_values(&[shard_id_label]),
         };
         metrics.flat_head_height.set(flat_head_height as i64);
 
@@ -985,7 +991,17 @@ impl FlatStorageState {
             let mut store_update = StoreUpdate::new(guard.store.storage.clone());
             let delta = guard.get_delta(&block)?.as_ref().clone();
             for (key, value) in delta.0.iter() {
-                guard.value_ref_cache.put(key.clone(), value.clone());
+                // Note that capacity can be zero, and we need to treat the case when no value can be pushed/popped.
+                if guard.value_ref_cache.len() == guard.value_ref_cache.cap() {
+                    if let Some((key, _)) = guard.value_ref_cache.pop_lru() {
+                        guard.metrics.value_ref_cache_total_key_size.sub(key.len() as i64);
+                    }
+                }
+                if guard.value_ref_cache.len() < guard.value_ref_cache.cap() {
+                    guard.metrics.value_ref_cache_total_key_size.add(key.len() as i64);
+                    guard.value_ref_cache.put(key.clone(), value.clone());
+                }
+                guard.metrics.value_ref_cache_len.set(guard.value_ref_cache.len() as i64);
             }
             delta.apply_to_flat_state(&mut store_update);
             store_helper::set_flat_head(&mut store_update, guard.shard_id, &block);
@@ -1457,7 +1473,7 @@ mod tests {
         }
         store_update.commit().unwrap();
 
-        let flat_storage_state = FlatStorageState::new(store.clone(), 0, 9, &chain, 0);
+        let flat_storage_state = FlatStorageState::new(store.clone(), 0, 9, &chain, cache_capacity);
         let flat_state_factory = FlatStateFactory::new(store.clone());
         flat_state_factory.add_flat_storage_state_for_shard(0, flat_storage_state);
         let flat_storage_state = flat_state_factory.get_flat_storage_state_for_shard(0).unwrap();
