@@ -25,9 +25,9 @@ use near_client_primitives::types::{
     GetExecutionOutcomesForBlock, GetGasPrice, GetGasPriceError, GetMaintenanceWindows,
     GetMaintenanceWindowsError, GetNextLightClientBlockError, GetProtocolConfig,
     GetProtocolConfigError, GetReceipt, GetReceiptError, GetSplitStorageInfo,
-    GetSplitStorageInfoError, GetSplitStorageInfoResult, GetStateChangesError,
-    GetStateChangesWithCauseInBlock, GetStateChangesWithCauseInBlockForTrackedShards,
-    GetValidatorInfoError, Query, QueryError, TxStatus, TxStatusError,
+    GetSplitStorageInfoError, GetStateChangesError, GetStateChangesWithCauseInBlock,
+    GetStateChangesWithCauseInBlockForTrackedShards, GetValidatorInfoError, Query, QueryError,
+    TxStatus, TxStatusError,
 };
 #[cfg(feature = "test_features")]
 use near_network::types::NetworkAdversarialMessage;
@@ -55,8 +55,8 @@ use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
     FinalExecutionOutcomeView, FinalExecutionOutcomeViewEnum, GasPriceView, LightClientBlockView,
-    MaintenanceWindowsView, QueryRequest, QueryResponse, ReceiptView, StateChangesKindsView,
-    StateChangesView,
+    MaintenanceWindowsView, QueryRequest, QueryResponse, ReceiptView, SplitStorageInfoView,
+    StateChangesKindsView, StateChangesView,
 };
 
 use crate::adapter::{
@@ -1424,7 +1424,7 @@ impl Handler<WithSpanContext<GetMaintenanceWindows>> for ViewClientActor {
 }
 
 impl Handler<WithSpanContext<GetSplitStorageInfo>> for ViewClientActor {
-    type Result = Result<GetSplitStorageInfoResult, GetSplitStorageInfoError>;
+    type Result = Result<SplitStorageInfoView, GetSplitStorageInfoError>;
 
     fn handle(
         &mut self,
@@ -1439,10 +1439,13 @@ impl Handler<WithSpanContext<GetSplitStorageInfo>> for ViewClientActor {
         let final_head = store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?;
         let cold_head = store.get_ser::<Tip>(DBCol::BlockMisc, COLD_HEAD_KEY)?;
 
-        Ok(GetSplitStorageInfoResult {
+        let hot_db_kind = store.get_db_kind()?.map(|kind| kind.to_string());
+
+        Ok(SplitStorageInfoView {
             head_height: head.map(|tip| tip.height),
             final_head_height: final_head.map(|tip| tip.height),
             cold_head_height: cold_head.map(|tip| tip.height),
+            hot_db_kind: hot_db_kind,
         })
     }
 }

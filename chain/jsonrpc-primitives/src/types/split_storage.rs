@@ -1,4 +1,4 @@
-use near_client_primitives::types::GetSplitStorageInfoResult;
+use near_primitives::views::SplitStorageInfoView;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -8,7 +8,7 @@ pub struct RpcSplitStorageInfoRequest {}
 #[derive(Serialize, Deserialize, Debug)]
 pub struct RpcSplitStorageInfoResponse {
     #[serde(flatten)]
-    pub result: GetSplitStorageInfoResult,
+    pub result: SplitStorageInfoView,
 }
 
 #[derive(thiserror::Error, Debug, Serialize, Deserialize)]

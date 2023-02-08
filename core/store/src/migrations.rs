@@ -123,8 +123,8 @@ where
 ///
 /// Deletes all data from _NextBlockWithNewChunk and _LastBlockWithNewChunk
 /// columns.
-pub fn migrate_28_to_29(storage: &crate::NodeStorage) -> anyhow::Result<()> {
-    let mut update = storage.get_store(crate::Temperature::Hot).store_update();
+pub fn migrate_28_to_29(store: &Store) -> anyhow::Result<()> {
+    let mut update = store.store_update();
     update.delete_all(DBCol::_NextBlockWithNewChunk);
     update.delete_all(DBCol::_LastBlockWithNewChunk);
     update.commit()?;
@@ -134,7 +134,7 @@ pub fn migrate_28_to_29(storage: &crate::NodeStorage) -> anyhow::Result<()> {
 /// Migrates database from version 29 to 30.
 ///
 /// Migrates all structures that use ValidatorStake to versionized version.
-pub fn migrate_29_to_30(storage: &crate::NodeStorage) -> anyhow::Result<()> {
+pub fn migrate_29_to_30(store: &Store) -> anyhow::Result<()> {
     use near_primitives::epoch_manager::block_info::BlockInfo;
     use near_primitives::epoch_manager::epoch_info::EpochSummary;
     use near_primitives::epoch_manager::AGGREGATOR_KEY;
@@ -145,8 +145,6 @@ pub fn migrate_29_to_30(storage: &crate::NodeStorage) -> anyhow::Result<()> {
         ValidatorKickoutReason, ValidatorStats,
     };
     use std::collections::BTreeMap;
-
-    let store = storage.get_store(crate::Temperature::Hot);
 
     #[derive(BorshDeserialize)]
     pub struct OldEpochSummary {
@@ -228,8 +226,8 @@ pub fn migrate_29_to_30(storage: &crate::NodeStorage) -> anyhow::Result<()> {
 ///
 /// This involves deleting contents of ChunkPerHeightShard column which is now
 /// deprecated and no longer used.
-pub fn migrate_31_to_32(storage: &crate::NodeStorage) -> anyhow::Result<()> {
-    let mut update = storage.get_store(crate::Temperature::Hot).store_update();
+pub fn migrate_31_to_32(store: &Store) -> anyhow::Result<()> {
+    let mut update = store.store_update();
     update.delete_all(DBCol::_ChunkPerHeightShard);
     update.commit()?;
     Ok(())
@@ -240,8 +238,7 @@ pub fn migrate_31_to_32(storage: &crate::NodeStorage) -> anyhow::Result<()> {
 /// This removes the TransactionResult column and moves it to TransactionResultForBlock.
 /// The new column removes the need for high-latency read-modify-write operations when committing
 /// new blocks.
-pub fn migrate_32_to_33(storage: &crate::NodeStorage) -> anyhow::Result<()> {
-    let store = storage.get_store(crate::Temperature::Hot);
+pub fn migrate_32_to_33(store: &Store) -> anyhow::Result<()> {
     let mut update = BatchedStoreUpdate::new(&store, 10_000_000);
     for row in
         store.iter_prefix_ser::<Vec<ExecutionOutcomeWithIdAndProof>>(DBCol::_TransactionResult, &[])
@@ -279,16 +276,11 @@ pub fn migrate_32_to_33(storage: &crate::NodeStorage) -> anyhow::Result<()> {
 /// If the database has IS_ARCHIVAL key in BlockMisc column set to true, this
 /// overrides value of is_node_archival argument.  Otherwise, the kind of the
 /// resulting database is determined based on that argument.
-pub fn migrate_33_to_34(
-    storage: &crate::NodeStorage,
-    mut is_node_archival: bool,
-) -> anyhow::Result<()> {
+pub fn migrate_33_to_34(store: &Store, mut is_node_archival: bool) -> anyhow::Result<()> {
     const IS_ARCHIVE_KEY: &[u8; 10] = b"IS_ARCHIVE";
 
-    let hot = storage.get_store(crate::Temperature::Hot);
-
     let is_store_archival =
-        hot.get_ser::<bool>(DBCol::BlockMisc, IS_ARCHIVE_KEY)?.unwrap_or_default();
+        store.get_ser::<bool>(DBCol::BlockMisc, IS_ARCHIVE_KEY)?.unwrap_or_default();
 
     if is_store_archival != is_node_archival {
         if is_store_archival {
@@ -302,7 +294,7 @@ pub fn migrate_33_to_34(
         is_node_archival = true;
     }
 
-    let mut update = hot.store_update();
+    let mut update = store.store_update();
     if is_store_archival {
         update.delete(DBCol::BlockMisc, IS_ARCHIVE_KEY);
     }
