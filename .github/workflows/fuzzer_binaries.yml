@@ -1,8 +1,8 @@
 name: Fuzzer Binaries
 on:
-  push:
-    paths:
-      - "scripts/build_fuzzers.py"
+  schedule:
+    # Run once a day, at midnight
+    - cron: "0 0 * * *"
 
 jobs:
   build_fuzzers:

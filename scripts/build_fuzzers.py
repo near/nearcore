@@ -8,30 +8,14 @@ import time
 
 REPO_DIR = '/home/runner/work/nearcore/nearcore/'
 G_BUCKET = 'gs://fuzzer_binaries/'
-CONFIG_NAME = 'x86_64-unknown-linux-gnu'
-
-
-def get_current_rev(g_storage_files: typing.ByteString) -> int:
-    """ Return current revision for the build
-    
-    Decode byte strings (from subprocess stdout) to str
-    Parses current revisions in GS and extracts the highest revision number.
-    Cast revision to int
-    Incremenets revision int by one and returns it 
-
-    """
-    binaries = g_storage_files.decode('utf-8').split('\n')
-
-    revision = sorted(
-        [int(re.match(r".*-(\d+).*", i).group(1)) for i in binaries if i])[-1]
-
-    return revision + 1
+ARCH_CONFIG_NAME = 'x86_64-unknown-linux-gnu'
 
 
 def get_archive_name(runner: str) -> str:
     current_rev = time.strftime('%Y%m%d%H%M%S', time.gmtime())
     tar_name = f'{runner}-{current_rev}.tar.gz'
-    logger.debug(f"Archive name: {tar_name}")
+
+    logger.debug(f"archive name: {tar_name}")
 
     return tar_name
 
@@ -39,7 +23,7 @@ def get_archive_name(runner: str) -> str:
 def push_to_google_bucket(runner: str) -> None:
     tar_name = get_archive_name(runner)
     with tarfile.open(name=tar_name, mode='w') as archiver:
-        archiver.add(f"target/{CONFIG_NAME}/debug/{runner}", runner)
+        archiver.add(f"target/{ARCH_CONFIG_NAME}/debug/{runner}", runner)
 
     _proc = subprocess.run([
         'gsutil',
