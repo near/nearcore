@@ -700,14 +700,23 @@ def spin_up_node(config,
     return node
 
 
-def init_cluster(num_nodes, num_observers, num_shards, config,
-                 genesis_config_changes, client_config_changes):
+def init_cluster(num_nodes,
+                 num_observers,
+                 num_shards,
+                 config,
+                 genesis_config_changes,
+                 client_config_changes,
+                 prefix="test"):
     """
     Create cluster configuration
     """
     if 'local' not in config and 'nodes' in config:
         logger.critical(
             "Attempt to launch a regular test with a mocknet config")
+        sys.exit(1)
+
+    if not prefix.startswith("test"):
+        logger.critical(f"The prefix must begin with 'test'. prefix = {prefix}")
         sys.exit(1)
 
     is_local = config['local']
@@ -730,7 +739,7 @@ def init_cluster(num_nodes, num_observers, num_shards, config,
         "--tracked-shards",
         "none",
         "--prefix",
-        "test",
+        prefix,
     ],
                                stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE)
