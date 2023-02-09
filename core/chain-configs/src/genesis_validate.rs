@@ -108,14 +108,14 @@ impl<'a> GenesisValidator<'a> {
         }
 
         if self.total_supply != self.genesis_config.total_supply {
-            let error_message = format!("account.locked() + account.amount() = {} is not equal to the total supply = {} specified in genesis config.", self.total_supply, self.genesis_config.total_supply);
+            let error_message = format!("wrong total supply. account.locked() + account.amount() = {} is not equal to the total supply = {} specified in genesis config.", self.total_supply, self.genesis_config.total_supply);
             self.validation_errors.push_errors(ValidationError::GenesisSemanticsError {
                 error_message: error_message,
             })
         }
 
         if validators != self.staked_accounts {
-            let error_message = format!("validators do not match staked accounts.");
+            let error_message = format!("Validator accounts do not match staked accounts.");
             self.validation_errors.push_errors(ValidationError::GenesisSemanticsError {
                 error_message: error_message,
             })
@@ -267,7 +267,7 @@ mod test {
     }
 
     #[test]
-    #[should_panic(expected = "validator accounts do not match staked accounts")]
+    #[should_panic(expected = "Validator accounts do not match staked accounts")]
     fn test_validator_not_match() {
         let mut config = GenesisConfig::default();
         config.validators = vec![AccountInfo {
@@ -284,7 +284,7 @@ mod test {
     }
 
     #[test]
-    #[should_panic(expected = "no validators in genesis")]
+    #[should_panic(expected = "No validators in genesis")]
     fn test_empty_validator() {
         let config = GenesisConfig::default();
         let records = GenesisRecords(vec![StateRecord::Account {

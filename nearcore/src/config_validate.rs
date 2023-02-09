@@ -102,3 +102,45 @@ impl<'a> ConfigValidator<'a> {
         }
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    #[should_panic(expected = "min_num_peers should not be 0")]
+    fn test_total_supply_not_match() {
+        let mut config = Config::default();
+        config.consensus.min_num_peers = 0;
+        // set tracked_shards to be non-empty
+        config.tracked_shards.push(20);
+        validate_config(&config).unwrap();
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Configuration with archive = false and save_trie_changes = false is not supported"
+    )]
+    fn test_archive_false_save_trie_changes_false() {
+        let mut config = Config::default();
+        config.archive = false;
+        config.save_trie_changes = Some(false);
+        // set tracked_shards to be non-empty
+        config.tracked_shards.push(20);
+        validate_config(&config).unwrap();
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "\\nconfig.json semantic issue: Configuration with archive = false and save_trie_changes = false is not supported because non-archival nodes must save trie changes in order to do do garbage collection.\\nconfig.json semantic issue: consensus.min_num_peers should not be 0\\n"
+    )]
+    fn test_multiple_config_validation_errors() {
+        let mut config = Config::default();
+        config.archive = false;
+        config.save_trie_changes = Some(false);
+        config.consensus.min_num_peers = 0;
+        // set tracked_shards to be non-empty
+        config.tracked_shards.push(20);
+        validate_config(&config).unwrap();
+    }
+}
