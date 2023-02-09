@@ -511,7 +511,7 @@ impl FlatStateDelta {
         block_hash: CryptoHash,
     ) {
         let key_prefix_from = FlatStateDeltaKey::encode_prefix(shard_id, block_hash);
-        let mut key_prefix_to = key_prefix_from.clone();
+        let mut key_prefix_to = key_prefix_from.to_vec();
         // Append 255 to the key prefix because it exceeds all trie key prefixes, so range deletion removes both
         // the flat state delta mark and all keys.
         key_prefix_to.push(255u8);
