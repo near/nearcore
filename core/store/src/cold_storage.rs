@@ -1,13 +1,14 @@
 use crate::columns::DBKeyType;
 use crate::db::{ColdDB, COLD_HEAD_KEY, HEAD_KEY};
 use crate::trie::TrieRefcountChange;
-use crate::{DBCol, DBTransaction, Database, Store, TrieChanges};
+use crate::{metrics, DBCol, DBTransaction, Database, Store, TrieChanges};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ShardChunk;
+use near_primitives::time::Clock;
 use near_primitives::types::BlockHeight;
 use std::collections::HashMap;
 use std::io;
@@ -49,6 +50,7 @@ pub fn update_cold_db<D: Database>(
     height: &BlockHeight,
 ) -> io::Result<bool> {
     let _span = tracing::debug_span!(target: "store", "update cold db", height = height);
+    let start_time = Clock::instant();
 
     let mut store_with_cache = StoreWithCache { store: hot_store, cache: StoreCache::new() };
 
@@ -67,6 +69,10 @@ pub fn update_cold_db<D: Database>(
             )?;
         }
     }
+
+    let end_time = Clock::instant();
+    let duration = end_time.saturating_duration_since(start_time);
+    metrics::COLD_COPY_DURATION.observe(duration.as_secs_f64());
 
     Ok(true)
 }
