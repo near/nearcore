@@ -1058,6 +1058,7 @@ dependencies = [
 name = "cold-store-tool"
 version = "0.0.0"
 dependencies = [
+ "anyhow",
  "clap 3.1.18",
  "near-chain-configs",
  "near-epoch-manager",
@@ -1065,6 +1066,7 @@ dependencies = [
  "near-store",
  "nearcore",
  "strum",
+ "tracing",
 ]
 
 [[package]]

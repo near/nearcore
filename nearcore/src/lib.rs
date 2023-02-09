@@ -58,11 +58,11 @@ fn open_storage(home_dir: &Path, near_config: &mut NearConfig) -> anyhow::Result
     let migrator = migrations::Migrator::new(near_config);
     let opener = NodeStorage::opener(
         home_dir,
+        near_config.client_config.archive,
         &near_config.config.store,
         near_config.config.cold_store.as_ref(),
     )
-    .with_migrator(&migrator)
-    .expect_archive(near_config.client_config.archive);
+    .with_migrator(&migrator);
     let storage = match opener.open() {
         Ok(storage) => Ok(storage),
         Err(StoreOpenerError::IO(err)) => {
@@ -303,8 +303,7 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
         skip_columns.push(DBCol::TrieChanges);
     }
 
-    let src_opener = NodeStorage::opener(home_dir, &config.store, None);
-    let src_opener = src_opener.expect_archive(archive);
+    let src_opener = NodeStorage::opener(home_dir, archive, &config.store, None);
     let src_path = src_opener.path();
 
     let mut dst_config = config.store.clone();
@@ -312,8 +311,7 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
     // Note: opts.dest_dir is resolved relative to current working directory
     // (since it’s a command line option) which is why we set home to cwd.
     let cwd = std::env::current_dir()?;
-    let dst_opener = NodeStorage::opener(&cwd, &dst_config, None);
-    let dst_opener = dst_opener.expect_archive(archive);
+    let dst_opener = NodeStorage::opener(&cwd, archive, &dst_config, None);
     let dst_path = dst_opener.path();
 
     info!(target: "recompress",
