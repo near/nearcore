@@ -16,7 +16,7 @@ async fn main() -> std::io::Result<()> {
     let _subscriber = near_o11y::default_subscriber(env_filter, &Default::default()).global();
     debug!(target: "storage-calculator", "Start");
 
-    let genesis = Genesis::from_file("output.json", GenesisValidationMode::Full);
+    let genesis = Genesis::from_file("output.json", GenesisValidationMode::Full).unwrap();
     debug!(target: "storage-calculator", "Genesis read");
 
     let config_store = RuntimeConfigStore::new(None);

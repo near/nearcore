@@ -17,11 +17,12 @@ pub fn strip_comments_from_json_reader(reader: impl Read) -> impl Read {
     StripComments::new(reader)
 }
 
+/// errors that arise when loading config files or config semantic checks
 #[derive(thiserror::Error, Debug)]
 pub enum ValidationError {
-    #[error("config.json semantic check failed: {error_message}")]
-    ConfigSemanticsError { error_message: String },
-    #[error("genesis.json semantic check failed: {error_message}")]
+    #[error("config.json semantic issue: {error_message}")]
+    ConfigSemanticsError{ error_message: String },
+    #[error("genesis.json semantic issue: {error_message}")]
     GenesisSemanticsError { error_message: String },
     #[error("config.json file issue: {error_message}")]
     ConfigFileError { error_message: String },
@@ -33,6 +34,7 @@ pub enum ValidationError {
     ValidatorKeyFileError { error_message: String },
 }
 
+/// used to collect multiple errors
 pub struct ValidationErrors(Vec<ValidationError>);
 
 impl ValidationErrors {
@@ -40,24 +42,63 @@ impl ValidationErrors {
         ValidationErrors(Vec::new())
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
     pub fn push_errors(&mut self, error: ValidationError) {
         self.0.push(error)
     }
 
+    // this includes all errors collected so far and formats them nicely
+    pub fn generate_final_error_message(&self) -> Option<String> {
+        if self.0.is_empty() {
+            None
+        } else {
+            let mut final_error_message = String::new();
+            for error in &self.0 {
+                final_error_message += "\n";
+                if let ValidationError::ConfigSemanticsError { error_message } = error {
+                    final_error_message += error_message;
+                    continue;
+                }
+
+                if let ValidationError::GenesisSemanticsError { error_message } = error {
+                    final_error_message += error_message;
+                    continue;
+                }
+
+                final_error_message += &error.to_string();
+                
+            }
+            Some(final_error_message)
+        }
+    }
+
+    // this includes all errors collected so far and formats them nicely
+    pub fn generate_error_message_per_type(&self) -> Option<String> {
+        if self.0.is_empty() {
+            None
+        } else {
+            let mut final_error_message = String::new();
+            for error in &self.0 {
+                final_error_message += "\n";
+                final_error_message += &error.to_string();
+            }
+            final_error_message += "\n";
+            Some(final_error_message)
+        }
+    }
+
+    // only call this function when you want the program to panic with all the errors collected so far
     pub fn panic_if_errors(&self) {
         if self.0.is_empty() {
             println!("All validations have passed!")
         } else {
-            let mut final_error_message = String::new();
-            for error in &self.0 {
-                final_error_message += "ERROR: ";
-                final_error_message += &error.to_string();
-                final_error_message += "\n";
-            }
             panic!(
-                "\nThe following config checks failed:\n{}\nPlease fix the config json files and validate again!",
-                final_error_message
-            );
+                "\nThe following config checks failed:\n{}Please fix the config json files and validate again!",
+                self.generate_final_error_message().unwrap()
+            )
         }
     }
 }

@@ -3248,6 +3248,7 @@ dependencies = [
 name = "near-config-utils"
 version = "0.0.0"
 dependencies = [
+ "anyhow",
  "json_comments",
  "thiserror",
 ]

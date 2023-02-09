@@ -2,18 +2,13 @@ use near_config_utils::{ValidationError, ValidationErrors};
 
 use crate::config::Config;
 
-/// Validate Config extracted from config.json. Panics if Config is ill-formed.
-pub fn validate_config(config: &Config) {
+/// Validate Config extracted from config.json.
+/// This function does not panic. It returns the error if any validation fails.
+pub fn validate_config(config: &Config) -> Result<(), ValidationError> {
     let mut validation_errors = ValidationErrors::new();
     let mut config_validator = ConfigValidator::new(config, &mut validation_errors);
     println!("\nValidating Config, extracted from config.json...");
-    config_validator.validate();
-}
-
-pub fn validate_config_no_panic(config: &Config, validation_errors: &mut ValidationErrors) {
-    let mut config_validator = ConfigValidator::new(config, validation_errors);
-    println!("\nValidating Config, extracted from config.json...");
-    config_validator.validate_no_panic()
+    config_validator.validate()
 }
 
 struct ConfigValidator<'a> {
@@ -26,13 +21,9 @@ impl<'a> ConfigValidator<'a> {
         Self { config, validation_errors }
     }
 
-    fn validate(&mut self) {
+    fn validate(&mut self) -> Result<(), ValidationError> {
         self.validate_all_conditions();
-        self.pass_or_panic_with_full_error();
-    }
-
-    fn validate_no_panic(&mut self) {
-        self.validate_all_conditions();
+        self.result_with_full_error()
     }
 
     /// this function would check all conditions, and add all error messages to ConfigValidator.errors
@@ -102,8 +93,12 @@ impl<'a> ConfigValidator<'a> {
         }
     }
 
-    /// this function iterates over all the error_messages and report pass if no error mesasge is found, otherwise panic and print all the error messages in a formatted way
-    fn pass_or_panic_with_full_error(&self) {
-        self.validation_errors.panic_if_errors()
+    fn result_with_full_error(&self) -> Result<(), ValidationError> {
+        if self.validation_errors.is_empty() {
+            Ok(())
+        } else {
+            let full_err_msg = self.validation_errors.generate_error_message_per_type().unwrap();
+            Err(ValidationError::ConfigSemanticsError { error_message: full_err_msg }.into())
+        }
     }
 }

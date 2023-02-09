@@ -7,8 +7,8 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::types::AccountId;
 use num_rational::Rational32;
 
-/// Validate genesis config and records. Panics if genesis is ill-formed.
-pub fn validate_genesis_panic(genesis: &Genesis) {
+/// Validate genesis config and records. Returns ValidationError if semantic checks of genesis failed.
+pub fn validate_genesis(genesis: &Genesis) -> Result<(), ValidationError> {
     let mut validation_errors = ValidationErrors::new();
     let mut genesis_validator = GenesisValidator::new(&genesis.config, &mut validation_errors);
     println!("\nValidating Genesis config and records, extracted from genesis.json. This could take a few minutes...");
@@ -16,17 +16,7 @@ pub fn validate_genesis_panic(genesis: &Genesis) {
         genesis_validator.process_record(record);
     });
     genesis_validator.validate_processed_records();
-    genesis_validator.pass_or_panic_with_full_error();
-}
-
-/// Validate genesis config and records. Add errors to the passed in validation_errors. No panic at all.
-pub fn validate_genesis_no_panic(genesis: &Genesis, validation_errors: &mut ValidationErrors) {
-    let mut genesis_validator = GenesisValidator::new(&genesis.config, validation_errors);
-    println!("\nValidating Genesis config and records, extracted from genesis.json. This could take a few minutes...");
-    genesis.for_each_record(|record: &StateRecord| {
-        genesis_validator.process_record(record);
-    });
-    genesis_validator.validate_processed_records();
+    genesis_validator.result_with_full_error()
 }
 
 struct GenesisValidator<'a> {
@@ -95,10 +85,9 @@ impl<'a> GenesisValidator<'a> {
             .clone()
             .into_iter()
             .map(|account_info| {
-                assert!(
-                    is_valid_staking_key(&account_info.public_key),
-                    "validator staking key is not valid"
-                );
+                if !is_valid_staking_key(&account_info.public_key) {
+                    self.validation_errors.push_errors(ValidationError::GenesisSemanticsError { error_message: format!("validator staking key is not valid") });
+                }
                 (account_info.account_id, account_info.amount)
             })
             .collect::<HashMap<_, _>>();
@@ -218,9 +207,13 @@ impl<'a> GenesisValidator<'a> {
         }
     }
 
-    /// this function iterates over all the error_messages and report pass if no error mesasge is found, otherwise panic and print all the error messages in a formatted way
-    fn pass_or_panic_with_full_error(&self) {
-        self.validation_errors.panic_if_errors()
+    fn result_with_full_error(&self) -> Result<(), ValidationError> {
+        if self.validation_errors.is_empty() {
+            Ok(())
+        } else {
+            let full_error = self.validation_errors.generate_error_message_per_type().unwrap();
+            Err(ValidationError::GenesisSemanticsError { error_message: full_error })
+        }
     }
 }
 
@@ -252,7 +245,7 @@ mod test {
             account_id: "test".parse().unwrap(),
             account: create_account(),
         }]);
-        validate_genesis_panic(&Genesis::new(config, records));
+        validate_genesis(&Genesis::new(config, records)).unwrap();
     }
 
     #[test]
@@ -268,7 +261,7 @@ mod test {
             account_id: "test".parse().unwrap(),
             account: create_account(),
         }]);
-        validate_genesis_panic(&Genesis::new(config, records));
+        validate_genesis(&Genesis::new(config, records)).unwrap();
     }
 
     #[test]
@@ -285,7 +278,7 @@ mod test {
             account_id: "test".parse().unwrap(),
             account: create_account(),
         }]);
-        validate_genesis_panic(&Genesis::new(config, records));
+        validate_genesis(&Genesis::new(config, records)).unwrap();
     }
 
     #[test]
@@ -296,7 +289,7 @@ mod test {
             account_id: "test".parse().unwrap(),
             account: create_account(),
         }]);
-        validate_genesis_panic(&Genesis::new(config, records));
+        validate_genesis(&Genesis::new(config, records)).unwrap();
     }
 
     #[test]
@@ -317,7 +310,7 @@ mod test {
                 access_key: AccessKey::full_access(),
             },
         ]);
-        validate_genesis_panic(&Genesis::new(config, records));
+        validate_genesis(&Genesis::new(config, records)).unwrap();
     }
 
     #[test]
@@ -338,6 +331,6 @@ mod test {
                 code: [1, 2, 3, 4].to_vec(),
             },
         ]);
-        validate_genesis_panic(&Genesis::new(config, records));
+        validate_genesis(&Genesis::new(config, records)).unwrap();
     }
 }

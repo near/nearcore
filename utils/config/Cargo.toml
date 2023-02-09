@@ -13,3 +13,4 @@ description = "This is an internal crate to provide utils for reading config fil
 [dependencies]
 json_comments.workspace = true
 thiserror.workspace = true
+anyhow.workspace = true
