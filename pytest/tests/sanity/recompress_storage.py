@@ -47,6 +47,7 @@ class RecompressStorageTestCase(unittest.TestCase):
         self.nodes = ()
 
     def do_test_recompress_storage(self, *, archive: bool) -> None:
+        logger.info(f'start cluster')
         self.nodes = sanity.rpc_tx_status.start_cluster(archive=archive)
 
         # Give the network some time to generate a few blocks.  The same goes
@@ -58,20 +59,32 @@ class RecompressStorageTestCase(unittest.TestCase):
         time.sleep(5)
 
         # Recompress storage on each node
+        logger.info(f'Recompress storage on each node')
         for idx, node in enumerate(self.nodes):
             logger.info(f'Stopping node{idx}')
             node.kill(gentle=True)
 
             node_dir = pathlib.Path(node.node_dir)
-            self._call(node, 'recompress-storage',
-                       '--output-dir=' + str(node_dir / 'data-new'))
+            self._call(
+                node,
+                'recompress-storage-',
+                'recompress-storage',
+                '--output-dir=' + str(node_dir / 'data-new'),
+            )
             (node_dir / 'data').rename(node_dir / 'data-old')
             (node_dir / 'data-new').rename(node_dir / 'data')
 
-            cmd = self._call(node, 'view-state', 'apply-range',
-                             '--start-index=0', '--verbose-output')
+            self._call(
+                node,
+                'view-state-',
+                'view-state',
+                'apply-range',
+                '--start-index=0',
+                '--verbose-output',
+            )
 
         # Restart all nodes with the new database
+        logger.info(f'Restart all nodes with the new database')
         for idx, node in enumerate(self.nodes):
             logger.info(f'Starting node{idx}')
             node.start()
@@ -80,7 +93,7 @@ class RecompressStorageTestCase(unittest.TestCase):
         time.sleep(5)
         sanity.rpc_tx_status.test_tx_status(self.nodes, nonce_offset=3)
 
-    def _call(self, node: cluster.LocalNode,
+    def _call(self, node: cluster.LocalNode, prefix: str,
               *args: typing.Union[str, pathlib.Path]) -> None:
         """Calls node’s neard with given arguments."""
         node_dir = pathlib.Path(node.node_dir)
@@ -89,8 +102,8 @@ class RecompressStorageTestCase(unittest.TestCase):
             f'--home={node_dir}',
         ] + list(args)
         logger.info('Running ' + ' '.join(str(arg) for arg in cmd))
-        with open(node_dir / 'stdout', 'ab') as stdout, \
-             open(node_dir / 'stderr', 'ab') as stderr:
+        with open(node_dir / (prefix + 'stdout'), 'ab') as stdout, \
+             open(node_dir / (prefix + 'stderr'), 'ab') as stderr:
             subprocess.check_call(cmd,
                                   stdin=subprocess.DEVNULL,
                                   stdout=stdout,
