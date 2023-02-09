@@ -206,16 +206,33 @@ impl RocksDB {
         })
     }
 
-    fn iter_raw_bytes_prefix<'a>(&'a self, col: DBCol, prefix: &'a [u8]) -> RocksDBIterator<'a> {
+    /// Iterates over rocksDB storage.
+    /// You can optionally specify the bounds to limit the range over which it will iterate.
+    /// You can specify EITHER the prefix, OR lower/upper bounds.
+    /// Upper bound value is not included in the iteration.
+    /// Specifying both prefix and lower & upper bounds will result in undetermined behavior.
+    fn iter_raw_bytes_internal<'a>(
+        &'a self,
+        col: DBCol,
+        prefix: Option<&'a [u8]>,
+        lower_bound: Option<&'a [u8]>,
+        upper_bound: Option<&'a [u8]>,
+    ) -> RocksDBIterator<'a> {
         let cf_handle = self.cf_handle(col).unwrap();
         let mut read_options = rocksdb_read_options();
-        if !prefix.is_empty() {
+        if let Some(prefix) = prefix {
             read_options.set_iterate_range(::rocksdb::PrefixRange(prefix));
             // Note: prefix_same_as_start doesn’t do anything for us.  It takes
             // effect only if prefix extractor is configured for the column
             // family which is something we’re not doing.  Setting this option
             // is therefore pointless.
             //     read_options.set_prefix_same_as_start(true);
+        }
+        if let Some(lower_bound) = lower_bound {
+            read_options.set_iterate_lower_bound(lower_bound);
+        }
+        if let Some(upper_bound) = upper_bound {
+            read_options.set_iterate_upper_bound(upper_bound);
         }
         let iter = self.db.iterator_cf_opt(cf_handle, read_options, IteratorMode::Start);
         RocksDBIterator(iter)
@@ -273,15 +290,25 @@ impl Database for RocksDB {
     }
 
     fn iter_raw_bytes<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
-        Box::new(self.iter_raw_bytes_prefix(col, &[]))
+        Box::new(self.iter_raw_bytes_internal(col, None, None, None))
     }
 
     fn iter<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
-        refcount::iter_with_rc_logic(col, self.iter_raw_bytes_prefix(col, &[]))
+        refcount::iter_with_rc_logic(col, self.iter_raw_bytes_internal(col, None, None, None))
     }
 
     fn iter_prefix<'a>(&'a self, col: DBCol, key_prefix: &'a [u8]) -> DBIterator<'a> {
-        let iter = self.iter_raw_bytes_prefix(col, key_prefix);
+        let iter = self.iter_raw_bytes_internal(col, Some(key_prefix), None, None);
+        refcount::iter_with_rc_logic(col, iter)
+    }
+
+    fn iter_range<'a>(
+        &'a self,
+        col: DBCol,
+        lower_bound: Option<&'a [u8]>,
+        upper_bound: Option<&'a [u8]>,
+    ) -> DBIterator<'a> {
+        let iter = self.iter_raw_bytes_internal(col, None, lower_bound, upper_bound);
         refcount::iter_with_rc_logic(col, iter)
     }
 
@@ -641,7 +668,7 @@ fn col_name(col: DBCol) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use crate::db::{Database, StatsValue};
+    use crate::db::{self, Database, StatsValue};
     use crate::{DBCol, NodeStorage, StoreStatistics};
     use assert_matches::assert_matches;
 
