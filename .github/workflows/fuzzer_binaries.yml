@@ -6,7 +6,7 @@ on:
 
 jobs:
   build_fuzzers:
-    runs-on: "ubuntu-latest"
+    runs-on: "ubuntu-20.04"
 
     permissions:
       contents: "read"
