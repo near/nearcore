@@ -8,19 +8,11 @@ import toml
 REPO_DIR = '/home/runner/work/nearcore/nearcore/'
 G_BUCKET = 'gs://fuzzer_binaries/'
 ARCH_CONFIG_NAME = 'x86_64-unknown-linux-gnu'
-
-
-def get_archive_name(runner: str) -> str:
-    current_rev = time.strftime('%Y%m%d%H%M%S', time.gmtime())
-    tar_name = f'{runner}-{current_rev}.tar.gz'
-
-    logger.debug(f"archive name: {tar_name}")
-
-    return tar_name
+BUILDER_START_TIME = time.strftime('%Y%m%d%H%M%S', time.gmtime())
 
 
 def push_to_google_bucket(runner: str) -> None:
-    tar_name = get_archive_name(runner)
+    tar_name = f'{runner}-master-{BUILDER_START_TIME}.tar.gz'
     with tarfile.open(name=tar_name, mode='w') as archiver:
         archiver.add(f"target/{ARCH_CONFIG_NAME}/debug/{runner}", runner)
 
@@ -49,7 +41,6 @@ def main() -> None:
                 'fuzz',
                 'build',
                 target['runner'],
-                '--dev',
             ],
             check=True,
             cwd=target['crate'],
