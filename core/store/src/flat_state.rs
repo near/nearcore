@@ -355,18 +355,17 @@ pub struct FlatStateDeltaKey {
 impl FlatStateDeltaKey {
     #[allow(unused)]
     /// Should return prefix of all `FlatStateDeltaKey`s corresponding to one flat storage delta.
-    fn db_prefix(shard_id: ShardId, block_hash: CryptoHash) -> Vec<u8> {
-        let mut out = Vec::new();
-        out.extend(shard_id.to_be_bytes());
-        out.extend(block_hash.as_bytes());
+    fn encode_prefix(shard_id: ShardId, block_hash: CryptoHash) -> [u8; 40] {
+        let mut out = [0u8; 40];
+        out[0..8].copy_from_slice(&shard_id.to_be_bytes());
+        out[8..40].copy_from_slice(block_hash.as_bytes());
         out
     }
 
     #[allow(unused)]
     fn encode(&self) -> Vec<u8> {
         let mut out = Vec::new();
-        out.extend(self.shard_id.to_be_bytes());
-        out.extend(self.block_hash.as_bytes());
+        out.extend(Self::encode_prefix(self.shard_id, self.block_hash));
         out.extend(&self.key);
         out
     }
@@ -466,7 +465,7 @@ impl FlatStateDelta {
         shard_id: ShardId,
         block_hash: CryptoHash,
     ) -> Result<Option<Arc<Self>>, FlatStorageError> {
-        let key_prefix = FlatStateDeltaKey::db_prefix(shard_id, block_hash);
+        let key_prefix = FlatStateDeltaKey::encode_prefix(shard_id, block_hash);
         let mut delta = Self::default();
         let mut delta_exists = false;
         for item in store.iter_prefix_ser(DBCol::FlatStateDeltas, &key_prefix) {
@@ -511,7 +510,7 @@ impl FlatStateDelta {
         shard_id: ShardId,
         block_hash: CryptoHash,
     ) {
-        let key_prefix_from = FlatStateDeltaKey::db_prefix(shard_id, block_hash);
+        let key_prefix_from = FlatStateDeltaKey::encode_prefix(shard_id, block_hash);
         let mut key_prefix_to = key_prefix_from.clone();
         // Append 255 to the key prefix because it exceeds all trie key prefixes, so range deletion removes both
         // the flat state delta mark and all keys.
@@ -528,7 +527,7 @@ impl FlatStateDelta {
     ) -> Result<(), FlatStorageError> {
         // Set a key which marks flat storage delta existence in the storage, even if it is empty.
         // This is not necessary, but helps to determine if flat storage was updated for specific block.
-        let key = FlatStateDeltaKey::db_prefix(shard_id, block_hash);
+        let key = FlatStateDeltaKey::encode_prefix(shard_id, block_hash);
         let flat_state_delta_mark: Option<ValueRef> = None;
         store_update
             .set_ser(crate::DBCol::FlatStateDeltas, &key, &flat_state_delta_mark)
@@ -1240,7 +1239,7 @@ mod tests {
         let decoded_key = FlatStateDeltaKey::decode(&key_bytes).unwrap();
         assert_eq!(key, decoded_key);
 
-        let db_prefix_bytes = FlatStateDeltaKey::db_prefix(1, hash(&[2]));
+        let db_prefix_bytes = FlatStateDeltaKey::encode_prefix(1, hash(&[2]));
         assert!(key_bytes.len() >= db_prefix_bytes.len(), "Encoded key prefix is shorter than DB prefix defined for it: {key_bytes:?}, {db_prefix_bytes:?}");
         assert_eq!(&key_bytes[..db_prefix_bytes.len()], &db_prefix_bytes, "Encoded key prefix must start from DB prefix defined for it: {key_bytes:?}, {db_prefix_bytes:?}")
     }
