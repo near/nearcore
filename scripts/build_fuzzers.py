@@ -1,10 +1,9 @@
-import subprocess
-import toml
-import typing
 import logging
+import subprocess
 import tarfile
-import re
 import time
+
+import toml
 
 REPO_DIR = '/home/runner/work/nearcore/nearcore/'
 G_BUCKET = 'gs://fuzzer_binaries/'
@@ -30,7 +29,7 @@ def push_to_google_bucket(runner: str) -> None:
         'cp',
         tar_name,
         G_BUCKET,
-    ])
+    ], check=True)
 
 
 def main() -> None:
@@ -52,6 +51,7 @@ def main() -> None:
                 target['runner'],
                 '--dev',
             ],
+            check=True,
             cwd=target['crate'],
         )
 
@@ -61,5 +61,4 @@ def main() -> None:
 if __name__ == '__main__':
     logger = logging.getLogger()
     logging.basicConfig()
-    logger.setLevel(logging.DEBUG)
     main()

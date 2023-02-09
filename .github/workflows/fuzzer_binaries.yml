@@ -31,15 +31,12 @@ jobs:
         with:
           version: ">= 416.0.0"
 
-      - name: "Check gcloud setup"
-        run: gcloud info
-
-      - uses: actions/checkout@master
-
       - uses: actions/setup-python@v4
         with:
           python-version: "3.9"
 
       - run: pip install -r scripts/build_fuzzers_requirements.txt
+
+      - uses: actions/checkout@master
 
       - run: python scripts/build_fuzzers.py
