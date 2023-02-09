@@ -71,14 +71,13 @@ impl<'c> EstimatorContext<'c> {
         let shard_uids = [ShardUId { shard_id: 0, version: 0 }];
         let mut trie_config = near_store::TrieConfig::default();
         trie_config.enable_receipt_prefetching = true;
+        let flat_state_cache_capacity = trie_config.flat_state_cache_capacity.clone();
+
         let tries = ShardTries::new(
             store.clone(),
             trie_config,
             &shard_uids,
-            Self::create_flat_state_factory(
-                store.clone(),
-                trie_config.flat_state_cache_capacity.clone(),
-            ),
+            Self::create_flat_state_factory(store.clone(), flat_state_cache_capacity),
         );
 
         Testbed {

@@ -500,7 +500,9 @@ struct FlatStorageMetrics {
     cached_deltas_size: IntGauge,
     #[allow(unused)]
     distance_to_head: IntGauge,
+    #[allow(unused)]
     value_ref_cache_len: IntGauge,
+    #[allow(unused)]
     value_ref_cache_total_key_size: IntGauge,
 }
 
@@ -879,6 +881,17 @@ impl FlatStorageStateInner {
         Ok(blocks)
     }
 
+    #[allow(unused)]
+    fn put_value_ref_to_cache(&mut self, key: Vec<u8>, value: Option<ValueRef>) {
+        if let Some((key, _)) = self.value_ref_cache.push(key.to_vec(), value) {
+            self.metrics.value_ref_cache_total_key_size.sub(key.len() as i64);
+        }
+        if self.value_ref_cache.cap() > 0 {
+            self.metrics.value_ref_cache_total_key_size.add(key.len() as i64);
+        }
+        self.metrics.value_ref_cache_len.set(self.value_ref_cache.len() as i64);
+    }
+
     /// Get cached `ValueRef` for flat storage head.
     #[cfg(feature = "protocol_feature_flat_state")]
     fn get_cached_ref(&mut self, key: &[u8]) -> Option<Option<ValueRef>> {
@@ -1014,7 +1027,10 @@ impl FlatStorageState {
         if let Some(value_ref) = guard.get_cached_ref(key) {
             return Ok(value_ref);
         }
-        Ok(store_helper::get_ref(&guard.store, key)?)
+
+        let value_ref = store_helper::get_ref(&guard.store, key)?;
+        guard.put_value_ref_to_cache(key.to_vec(), value_ref.clone());
+        Ok(value_ref)
     }
 
     #[cfg(not(feature = "protocol_feature_flat_state"))]
@@ -1038,17 +1054,7 @@ impl FlatStorageState {
             let mut store_update = StoreUpdate::new(guard.store.storage.clone());
             let delta = guard.get_delta(&block)?.as_ref().clone();
             for (key, value) in delta.0.iter() {
-                // Note that capacity can be zero, and we need to treat the case when no value can be pushed/popped.
-                if guard.value_ref_cache.len() == guard.value_ref_cache.cap() {
-                    if let Some((key, _)) = guard.value_ref_cache.pop_lru() {
-                        guard.metrics.value_ref_cache_total_key_size.sub(key.len() as i64);
-                    }
-                }
-                if guard.value_ref_cache.len() < guard.value_ref_cache.cap() {
-                    guard.metrics.value_ref_cache_total_key_size.add(key.len() as i64);
-                    guard.value_ref_cache.put(key.clone(), value.clone());
-                }
-                guard.metrics.value_ref_cache_len.set(guard.value_ref_cache.len() as i64);
+                guard.put_value_ref_to_cache(key.clone(), value.clone());
             }
             delta.apply_to_flat_state(&mut store_update);
             store_helper::set_flat_head(&mut store_update, guard.shard_id, &block);
