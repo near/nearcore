@@ -406,13 +406,10 @@ impl Config {
     /// If config file issues occur, a ValidationError::ConfigFileError will be returned;
     /// If config semantic checks failed, a ValidationError::ConfigSemanticError will be returned
     pub fn from_file(path: &Path) -> Result<Self, ValidationError> {
-        match Self::from_file_skip_validation(path) {
-            Ok(config) => {
-                config.validate()?;
-                Ok(config)
-            }
-            Err(e) => Err(e),
-        }
+        Self::from_file_skip_validation(path).and_then(|config| {
+            config.validate()?;
+            Ok(config)
+        })
     }
 
     /// load Config from config.json without panic.
@@ -1366,12 +1363,7 @@ pub fn load_config(
     // if config.json has file issues, the program will directly panic
     let config = Config::from_file_skip_validation(&dir.join(CONFIG_FILENAME))?;
     // do config.json validation separately so that genesis_file, validator_file and genesis_file can be validated before program panic
-    match config.validate() {
-        Ok(_) => (),
-        Err(e) => {
-            validation_errors.push_errors(e);
-        }
-    }
+    config.validate().map_or_else(|e| validation_errors.push_errors(e), |_| ());
 
     let validator_file = dir.join(&config.validator_key_file);
     let validator_signer = if validator_file.exists() {

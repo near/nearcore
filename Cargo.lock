@@ -3251,6 +3251,7 @@ dependencies = [
  "anyhow",
  "json_comments",
  "thiserror",
+ "tracing",
 ]
 
 [[package]]

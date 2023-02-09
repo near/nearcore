@@ -99,7 +99,7 @@ impl ValidationErrors {
     /// only call this function when you want the program to panic with all the errors
     pub fn panic_if_errors(&self) {
         if self.0.is_empty() {
-            println!("All validations have passed!")
+            tracing::info!(target: "config", "All validations have passed!")
         } else {
             panic!(
                 "\nThe following config checks failed:{}\nPlease fix the config json files and validate again!",

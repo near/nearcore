@@ -11,7 +11,7 @@ use num_rational::Rational32;
 pub fn validate_genesis(genesis: &Genesis) -> Result<(), ValidationError> {
     let mut validation_errors = ValidationErrors::new();
     let mut genesis_validator = GenesisValidator::new(&genesis.config, &mut validation_errors);
-    println!("\nValidating Genesis config and records, extracted from genesis.json. This could take a few minutes...");
+    tracing::info!(target: "config", "Validating Genesis config and records. This could take a few minutes...");
     genesis.for_each_record(|record: &StateRecord| {
         genesis_validator.process_record(record);
     });

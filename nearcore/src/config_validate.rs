@@ -7,7 +7,7 @@ use crate::config::Config;
 pub fn validate_config(config: &Config) -> Result<(), ValidationError> {
     let mut validation_errors = ValidationErrors::new();
     let mut config_validator = ConfigValidator::new(config, &mut validation_errors);
-    println!("\nValidating Config, extracted from config.json...");
+    tracing::info!(target: "config", "Validating Config, extracted from config.json...");
     config_validator.validate()
 }
 
