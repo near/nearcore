@@ -35,8 +35,8 @@ jobs:
         with:
           python-version: "3.9"
 
-      - run: pip install -r scripts/build_fuzzers_requirements.txt
-
       - uses: actions/checkout@master
+
+      - run: pip install -r scripts/build_fuzzers_requirements.txt
 
       - run: python scripts/build_fuzzers.py
