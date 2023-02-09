@@ -18,10 +18,11 @@ pub fn strip_comments_from_json_reader(reader: impl Read) -> impl Read {
 }
 
 /// errors that arise when loading config files or config semantic checks
+/// config files here include: genesis.json, config.json, node_key.json, validator_key.json
 #[derive(thiserror::Error, Debug)]
 pub enum ValidationError {
     #[error("config.json semantic issue: {error_message}")]
-    ConfigSemanticsError{ error_message: String },
+    ConfigSemanticsError { error_message: String },
     #[error("genesis.json semantic issue: {error_message}")]
     GenesisSemanticsError { error_message: String },
     #[error("config.json file issue: {error_message}")]
@@ -34,7 +35,7 @@ pub enum ValidationError {
     ValidatorKeyFileError { error_message: String },
 }
 
-/// used to collect multiple errors
+/// Used to collect errors on the go.
 pub struct ValidationErrors(Vec<ValidationError>);
 
 impl ValidationErrors {
@@ -50,32 +51,37 @@ impl ValidationErrors {
         self.0.push(error)
     }
 
-    // this includes all errors collected so far and formats them nicely
-    pub fn generate_final_error_message(&self) -> Option<String> {
+    /// only to be used in panic_if_errors()
+    fn generate_final_error_message(&self) -> Option<String> {
         if self.0.is_empty() {
             None
         } else {
             let mut final_error_message = String::new();
             for error in &self.0 {
                 final_error_message += "\n";
+
                 if let ValidationError::ConfigSemanticsError { error_message } = error {
+                    // the final ConfigSemanticsError.error_message is concatenation of ConfigSemanticsError's ever seen
+                    // not including the whole error.to_string() makes the final error message less confusing to read
                     final_error_message += error_message;
                     continue;
                 }
 
                 if let ValidationError::GenesisSemanticsError { error_message } = error {
+                    // the final GenesisSemanticsError.error_message is concatenation of GenesisSemanticsError's ever seen
+                    // not including the whole error.to_string() makes the final error message less confusing to read
                     final_error_message += error_message;
                     continue;
                 }
 
                 final_error_message += &error.to_string();
-                
             }
             Some(final_error_message)
         }
     }
 
-    // this includes all errors collected so far and formats them nicely
+    /// concatenate all errors of a certain type in one error message
+    /// to be used for error types that tend to appear in multiples, e.g. ConfigSemanticsError and GenesisSemanticsError
     pub fn generate_error_message_per_type(&self) -> Option<String> {
         if self.0.is_empty() {
             None
@@ -90,13 +96,13 @@ impl ValidationErrors {
         }
     }
 
-    // only call this function when you want the program to panic with all the errors collected so far
+    /// only call this function when you want the program to panic with all the errors
     pub fn panic_if_errors(&self) {
         if self.0.is_empty() {
             println!("All validations have passed!")
         } else {
             panic!(
-                "\nThe following config checks failed:\n{}Please fix the config json files and validate again!",
+                "\nThe following config checks failed:{}\nPlease fix the config json files and validate again!",
                 self.generate_final_error_message().unwrap()
             )
         }

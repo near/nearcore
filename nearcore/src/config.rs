@@ -402,9 +402,23 @@ impl Default for Config {
 }
 
 impl Config {
-    /// load Config from config.json without panic
-    /// Add all errors including file error and semantic validation errors to validation_errors.
+    /// load Config from config.json without panic. Do semantic validation on field values.
+    /// If config file issues occur, a ValidationError::ConfigFileError will be returned;
+    /// If config semantic checks failed, a ValidationError::ConfigSemanticError will be returned
     pub fn from_file(path: &Path) -> Result<Self, ValidationError> {
+        match Self::from_file_skip_validation(path) {
+            Ok(config) => {
+                config.validate()?;
+                Ok(config)
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    /// load Config from config.json without panic.
+    /// Skips semantic validation on field values.
+    /// This function should only return error for file issues.
+    pub fn from_file_skip_validation(path: &Path) -> Result<Self, ValidationError> {
         let json_str =
             std::fs::read_to_string(path).map_err(|_| ValidationError::ConfigFileError {
                 error_message: format!("Failed to read config from {}", path.display()),
@@ -445,12 +459,11 @@ impl Config {
             );
         }
 
-        config.validate()
+        Ok(config)
     }
 
-    fn validate(self) -> Result<Self, ValidationError> {
-        crate::config_validate::validate_config(&self)?;
-        Ok(self)
+    fn validate(&self) -> Result<(), ValidationError> {
+        crate::config_validate::validate_config(self)
     }
 
     pub fn write_to_file(&self, path: &Path) -> std::io::Result<()> {
@@ -1349,9 +1362,17 @@ pub fn load_config(
         GenesisValidationMode::UnsafeFast => GenesisValidationMode::UnsafeFast,
     };
     let mut validation_errors = ValidationErrors::new();
-    // if not able to create Config from config.json, the program will stop. The error is already pushed to validation_errors.
-    let config = Config::from_file(&dir.join(CONFIG_FILENAME))?;
-    let genesis_file = dir.join(&config.genesis_file);
+
+    // if config.json has file issues, the program will directly panic
+    let config = Config::from_file_skip_validation(&dir.join(CONFIG_FILENAME))?;
+    // do config.json validation separately so that genesis_file, validator_file and genesis_file can be validated before program panic
+    match config.validate() {
+        Ok(_) => (),
+        Err(e) => {
+            validation_errors.push_errors(e);
+        }
+    }
+
     let validator_file = dir.join(&config.validator_key_file);
     let validator_signer = if validator_file.exists() {
         match InMemoryValidatorSigner::from_file(&validator_file) {
@@ -1365,6 +1386,7 @@ pub fn load_config(
             .push_errors(ValidationError::ValidatorKeyFileError { error_message: error_message });
         None
     };
+
     let node_key_path = dir.join(&config.node_key_file);
     let network_signer_result = NodeKeyFile::from_file(&node_key_path);
     let network_signer = match network_signer_result {
@@ -1380,6 +1402,7 @@ pub fn load_config(
         }
     };
 
+    let genesis_file = dir.join(&config.genesis_file);
     let genesis_result = match &config.genesis_records_file {
         Some(records_file) => {
             Genesis::from_files(&genesis_file, &dir.join(records_file), genesis_validation)

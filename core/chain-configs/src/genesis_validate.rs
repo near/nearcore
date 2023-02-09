@@ -86,7 +86,9 @@ impl<'a> GenesisValidator<'a> {
             .into_iter()
             .map(|account_info| {
                 if !is_valid_staking_key(&account_info.public_key) {
-                    self.validation_errors.push_errors(ValidationError::GenesisSemanticsError { error_message: format!("validator staking key is not valid") });
+                    self.validation_errors.push_errors(ValidationError::GenesisSemanticsError {
+                        error_message: format!("validator staking key is not valid"),
+                    });
                 }
                 (account_info.account_id, account_info.amount)
             })
