@@ -39,7 +39,7 @@ pub enum StoreOpenerError {
     /// Specifically, this happens if node is running with a single database and
     /// its kind is not RPC or Archive; or it’s running with two databases and
     /// their types aren’t Hot and Cold respectively.
-    #[error("{which} database kind should be {want} but got {got:?}")]
+    #[error("{which} database kind should be {want} but got {got:?}. Did you forget to set expect_archive on your store opener?")]
     DbKindMismatch { which: &'static str, got: Option<DbKind>, want: DbKind },
 
     /// Unable to create a migration snapshot because one already exists.

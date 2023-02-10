@@ -55,6 +55,8 @@ use near_network::types::{
 use near_o11y::testonly::TracingCapture;
 use near_o11y::{WithSpanContext, WithSpanContextExt};
 use near_primitives::block::{ApprovalInner, Block, GenesisId};
+#[cfg(feature = "protocol_feature_nep366_delegate_action")]
+use near_primitives::delegate_action::{DelegateAction, NonDelegateAction, SignedDelegateAction};
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, MerklePath, PartialMerkleTree};
@@ -66,8 +68,6 @@ use near_primitives::sharding::{EncodedShardChunk, PartialEncodedChunk, ReedSolo
 use near_primitives::time::Utc;
 use near_primitives::time::{Clock, Instant};
 use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
-#[cfg(feature = "protocol_feature_nep366_delegate_action")]
-use near_primitives::transaction::{DelegateAction, NonDelegateAction, SignedDelegateAction};
 
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, EpochId, NumBlocks, NumSeats, ShardId,
@@ -1855,7 +1855,10 @@ impl TestEnv {
         let delegate_action = DelegateAction {
             sender_id: inner_signer.account_id.clone(),
             receiver_id,
-            actions: actions.into_iter().map(NonDelegateAction).collect(),
+            actions: actions
+                .into_iter()
+                .map(|action| NonDelegateAction::try_from(action).unwrap())
+                .collect(),
             nonce: user_nonce,
             max_block_height: tip.height + 100,
             public_key: inner_signer.public_key(),

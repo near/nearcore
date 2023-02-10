@@ -199,8 +199,6 @@ pub enum ActionsValidationError {
     UnsuitableStakingKey { public_key: PublicKey },
     /// The attached amount of gas in a FunctionCall action has to be a positive number.
     FunctionCallZeroAttachedGas,
-    /// DelegateAction actions contain another DelegateAction. This is not allowed.
-    DelegateActionCantContainNestedOne,
     /// There should be the only one DelegateAction
     DelegateActionMustBeOnlyOne,
     /// The transaction includes a feature that the current protocol version
@@ -325,10 +323,6 @@ impl Display for ActionsValidationError {
             ActionsValidationError::FunctionCallZeroAttachedGas => write!(
                 f,
                 "The attached amount of gas in a FunctionCall action has to be a positive number",
-            ),
-            ActionsValidationError::DelegateActionCantContainNestedOne => write!(
-                f,
-                "DelegateAction must not contain another DelegateAction"
             ),
             ActionsValidationError::DelegateActionMustBeOnlyOne => write!(
                 f,
