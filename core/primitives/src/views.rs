@@ -54,7 +54,7 @@ use crate::version::{ProtocolVersion, Version};
 use validator_stake_view::ValidatorStakeView;
 
 #[cfg(feature = "protocol_feature_nep366_delegate_action")]
-use crate::transaction::{DelegateAction, SignedDelegateAction};
+use crate::delegate_action::{DelegateAction, SignedDelegateAction};
 
 /// A view of the account
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
@@ -2167,6 +2167,16 @@ pub struct StorageUsageConfigView {
     pub num_bytes_account: u64,
     /// Additional number of bytes for a k/v record
     pub num_extra_bytes_record: u64,
+}
+
+/// Contains the split storage information.
+#[derive(Serialize, Deserialize, Debug)]
+pub struct SplitStorageInfoView {
+    pub head_height: Option<BlockHeight>,
+    pub final_head_height: Option<BlockHeight>,
+    pub cold_head_height: Option<BlockHeight>,
+
+    pub hot_db_kind: Option<String>,
 }
 
 impl From<RuntimeConfig> for RuntimeConfigView {

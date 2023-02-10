@@ -38,9 +38,9 @@ use near_vm_runner::precompile_contract;
 #[cfg(feature = "protocol_feature_nep366_delegate_action")]
 use crate::config::{total_prepaid_exec_fees, total_prepaid_gas, total_prepaid_send_fees};
 #[cfg(feature = "protocol_feature_nep366_delegate_action")]
-use near_primitives::errors::InvalidAccessKeyError;
+use near_primitives::delegate_action::{DelegateAction, SignedDelegateAction};
 #[cfg(feature = "protocol_feature_nep366_delegate_action")]
-use near_primitives::transaction::{DelegateAction, SignedDelegateAction};
+use near_primitives::errors::InvalidAccessKeyError;
 #[cfg(feature = "protocol_feature_nep366_delegate_action")]
 use near_primitives::types::Gas;
 #[cfg(feature = "protocol_feature_nep366_delegate_action")]
@@ -985,11 +985,13 @@ mod tests {
     #[cfg(feature = "protocol_feature_nep366_delegate_action")]
     use near_primitives::account::FunctionCallPermission;
     #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+    use near_primitives::delegate_action::NonDelegateAction;
+    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
     use near_primitives::errors::InvalidAccessKeyError;
     #[cfg(feature = "protocol_feature_nep366_delegate_action")]
     use near_primitives::runtime::migration_data::MigrationFlags;
     #[cfg(feature = "protocol_feature_nep366_delegate_action")]
-    use near_primitives::transaction::{CreateAccountAction, NonDelegateAction};
+    use near_primitives::transaction::CreateAccountAction;
     #[cfg(feature = "protocol_feature_nep366_delegate_action")]
     use near_primitives::types::{EpochId, StateChangeCause};
     #[cfg(feature = "protocol_feature_nep366_delegate_action")]
@@ -1182,7 +1184,7 @@ mod tests {
                 sender_id: "bob.test.near".parse().unwrap(),
                 receiver_id: "token.test.near".parse().unwrap(),
                 actions: vec![
-                    NonDelegateAction(
+                    non_delegate_action(
                         Action::FunctionCall(
                             FunctionCallAction {
                                  method_name: "ft_transfer".parse().unwrap(),
@@ -1253,6 +1255,11 @@ mod tests {
         store_update.commit().unwrap();
 
         tries.new_trie_update(ShardUId::single_shard(), root)
+    }
+    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+    fn non_delegate_action(action: Action) -> NonDelegateAction {
+        NonDelegateAction::try_from(action)
+            .expect("cannot violate type invariants, not even in test")
     }
 
     #[test]
@@ -1591,7 +1598,7 @@ mod tests {
 
         let mut delegate_action = signed_delegate_action.delegate_action.clone();
         delegate_action.actions =
-            vec![NonDelegateAction(Action::FunctionCall(FunctionCallAction {
+            vec![non_delegate_action(Action::FunctionCall(FunctionCallAction {
                 args: Vec::new(),
                 deposit: 0,
                 gas: 300,
@@ -1616,7 +1623,7 @@ mod tests {
 
         let mut delegate_action = signed_delegate_action.delegate_action.clone();
         delegate_action.actions =
-            vec![NonDelegateAction(Action::CreateAccount(CreateAccountAction {}))];
+            vec![non_delegate_action(Action::CreateAccount(CreateAccountAction {}))];
 
         let result = test_delegate_action_key_permissions(&access_key, &delegate_action);
 
@@ -1644,13 +1651,13 @@ mod tests {
 
         let mut delegate_action = signed_delegate_action.delegate_action.clone();
         delegate_action.actions = vec![
-            NonDelegateAction(Action::FunctionCall(FunctionCallAction {
+            non_delegate_action(Action::FunctionCall(FunctionCallAction {
                 args: Vec::new(),
                 deposit: 0,
                 gas: 300,
                 method_name: "test_method".parse().unwrap(),
             })),
-            NonDelegateAction(Action::FunctionCall(FunctionCallAction {
+            non_delegate_action(Action::FunctionCall(FunctionCallAction {
                 args: Vec::new(),
                 deposit: 0,
                 gas: 300,
@@ -1684,7 +1691,7 @@ mod tests {
 
         let mut delegate_action = signed_delegate_action.delegate_action.clone();
         delegate_action.actions =
-            vec![NonDelegateAction(Action::FunctionCall(FunctionCallAction {
+            vec![non_delegate_action(Action::FunctionCall(FunctionCallAction {
                 args: Vec::new(),
                 deposit: 1,
                 gas: 300,
@@ -1717,7 +1724,7 @@ mod tests {
 
         let mut delegate_action = signed_delegate_action.delegate_action.clone();
         delegate_action.actions =
-            vec![NonDelegateAction(Action::FunctionCall(FunctionCallAction {
+            vec![non_delegate_action(Action::FunctionCall(FunctionCallAction {
                 args: Vec::new(),
                 deposit: 0,
                 gas: 300,
@@ -1753,7 +1760,7 @@ mod tests {
 
         let mut delegate_action = signed_delegate_action.delegate_action.clone();
         delegate_action.actions =
-            vec![NonDelegateAction(Action::FunctionCall(FunctionCallAction {
+            vec![non_delegate_action(Action::FunctionCall(FunctionCallAction {
                 args: Vec::new(),
                 deposit: 0,
                 gas: 300,
