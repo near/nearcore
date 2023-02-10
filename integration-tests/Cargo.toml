@@ -76,7 +76,10 @@ protocol_feature_reject_blocks_with_outdated_protocol_version = [
 ]
 protocol_feature_flat_state = ["nearcore/protocol_feature_flat_state"]
 protocol_feature_zero_balance_account = ["node-runtime/protocol_feature_zero_balance_account"]
-protocol_feature_nep366_delegate_action = ["nearcore/protocol_feature_nep366_delegate_action"]
+protocol_feature_nep366_delegate_action = [
+  "nearcore/protocol_feature_nep366_delegate_action",
+  "testlib/protocol_feature_nep366_delegate_action",
+]
 
 
 nightly = [

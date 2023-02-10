@@ -1334,6 +1334,9 @@ impl Chain {
             if header.challenges_root() != &MerkleHash::default() {
                 return Err(Error::InvalidChallengeRoot);
             }
+            if !header.challenges_result().is_empty() {
+                return Err(Error::InvalidChallenge);
+            }
         }
 
         Ok(())
