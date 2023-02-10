@@ -1,0 +1,41 @@
+[package]
+name = "wasmer-vm-near"
+version = "2.4.0"
+description = "Runtime library support for Wasmer"
+categories = ["wasm"]
+keywords = ["wasm", "webassembly"]
+authors = ["Wasmer Engineering Team <engineering@wasmer.io>"]
+repository = "https://github.com/wasmerio/wasmer"
+license = "MIT OR Apache-2.0 WITH LLVM-exception"
+readme = "README.md"
+edition = "2018"
+
+[lib]
+name = "wasmer_vm"
+
+[dependencies]
+backtrace = "0.3"
+cfg-if = "1.0"
+finite-wasm = "0.3.0"
+indexmap = { version = "1.6" }
+libc = { version = "^0.2", default-features = false }
+memoffset = "0.6"
+more-asserts = "0.2"
+region = "3.0"
+rkyv = { version = "0.7.20" }
+thiserror = "1.0"
+tracing = "0.1"
+wasmer-types = { path = "../types", package = "wasmer-types-near", version = "=2.4.0" }
+wasmparser = "0.99.0"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+winapi = { version = "0.3", features = ["winbase", "memoryapi", "errhandlingapi"] }
+
+[build-dependencies]
+cc = "1.0"
+
+[badges]
+maintenance = { status = "actively-developed" }
+
+[features]
+default = []

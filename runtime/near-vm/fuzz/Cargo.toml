@@ -1,0 +1,32 @@
+[package]
+name = "wasmer-bin-fuzz"
+version = "0.0.0"
+authors = ["Automatically generated"]
+publish = false
+edition = "2018"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+anyhow = "1"
+wasm-smith = "0.4.4"
+libfuzzer-sys = "0.4.0"
+wasmer = { path = "../lib/api", package = "wasmer-near" }
+wasmer-compiler-singlepass = { path = "../lib/compiler-singlepass", package = "wasmer-compiler-singlepass-near", optional = true }
+wasmer-engine-universal = { path = "../lib/engine-universal", package = "wasmer-engine-universal-near", optional = true }
+wasmprinter = "0.2"
+
+[features]
+singlepass = [ "wasmer-compiler-singlepass" ]
+universal = [ "wasmer-engine-universal" ]
+
+[[bin]]
+name = "equivalence_universal"
+path = "fuzz_targets/equivalence_universal.rs"
+required-features = ["universal"]
+
+[[bin]]
+name = "universal_singlepass"
+path = "fuzz_targets/universal_singlepass.rs"
+required-features = ["universal", "singlepass"]

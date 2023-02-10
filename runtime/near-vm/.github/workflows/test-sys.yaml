@@ -1,0 +1,100 @@
+name: Runtime tests
+
+env:
+  RUST_BACKTRACE: 1
+  ENABLE_SINGLEPASS: 1
+  ENABLE_LLVM: 0
+  ENABLE_CRANELIFT: 0
+
+on:
+  push:
+    branches:
+      - 'near-main'
+      - 'staging'
+      - 'trying'
+  pull_request:
+    branches: [ 'near-main' ]
+
+jobs:
+  test:
+    name: Test on ${{ matrix.build }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - build: linux-x64
+            os: ubuntu-latest
+          - build: macos-x64
+            os: macos-latest
+            run_ios_tests: true
+          # Singlepass does not support windows...
+          # - build: windows-x64
+          #   os: windows-latest
+          # Tests SIGSEGV due to probably signal wonkyness...
+          # - build: linux-musl-x64
+          #   os: ubuntu-latest
+          #   container: alpine:latest
+    container: ${{ matrix.container }}
+    steps:
+      - uses: actions/checkout@v2
+      - name: Set up base deps on musl
+        if: matrix.build == 'linux-musl-x64'
+        run: apk add build-base musl-dev wget curl make libtool libffi-dev gcc automake autoconf git openssl-dev g++
+      - name: Set up dependencies for Mac OS
+        if: matrix.os == 'macos-latest'
+        run: |
+          brew install automake
+          # using gnu-tar is a workaround for https://github.com/actions/cache/issues/403
+          brew install gnu-tar
+          echo PATH="/usr/local/opt/gnu-tar/libexec/gnubin:$PATH" >> $GITHUB_ENV
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          default: true
+      - name: Test
+        run: make test
+        env:
+          RUSTFLAGS: -Cdebuginfo=0
+
+  audit:
+    name: Audit
+    env:
+      CARGO_AUDIT_VERSION: 0.16.0
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/cache@master
+        with:
+          path: ${{ runner.tool_cache }}/cargo-audit
+          key: cargo-audit-bin-${{ env.CARGO_AUDIT_VERSION }}
+      - run: |
+          echo "'${{ runner.tool_cache }}/cargo-audit/bin'" >> $GITHUB_PATH
+      - run: |
+          cargo install cargo-audit --version ${{ env.CARGO_AUDIT_VERSION }} --root '${{ runner.tool_cache }}/cargo-audit'
+          # No fixed dependencies available for the first two and the emscripten is not fixed for
+          # the last one...
+          cargo audit --ignore RUSTSEC-2021-0119 --ignore RUSTSEC-2020-0095 --ignore RUSTSEC-2020-0071
+
+  lint:
+    name: Code lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          override: true
+          components: rustfmt, clippy
+      - run: cargo fmt --all -- --check
+      - run: cargo fmt --manifest-path fuzz/Cargo.toml -- --check
+      - run: make lint
+        env:
+          RUSTFLAGS: -Cdebuginfo=0
+
+      - name: Assert no files have changed
+        run: |
+          git status
+          ! [[ $(git status -s) ]]

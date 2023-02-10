@@ -1,0 +1,8 @@
+wasmer:
+  language: rust
+  features:
+    - universal
+    - singlepass
+  deps:
+    - run: apt update
+    - run: apt install -y zlib1g-dev libffi-dev build-essential

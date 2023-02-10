@@ -1,0 +1,192 @@
+[package]
+name = "wasmer-workspace"
+version = "2.4.0"
+description = "Wasmer workspace"
+authors = ["Wasmer Engineering Team <engineering@wasmer.io>"]
+repository = "https://github.com/wasmerio/wasmer"
+license = "MIT"
+edition = "2018"
+publish = false
+autoexamples = false
+
+[dependencies]
+wasmer = { version = "=2.4.0", path = "lib/api", package = "wasmer-near" }
+wasmer-compiler = { version = "=2.4.0", path = "lib/compiler", package = "wasmer-compiler-near" }
+wasmer-compiler-singlepass = { version = "=2.4.0", path = "lib/compiler-singlepass", optional = true, package = "wasmer-compiler-singlepass-near" }
+wasmer-engine = { version = "=2.4.0", path = "lib/engine", package = "wasmer-engine-near"  }
+wasmer-engine-universal = { version = "=2.4.0", path = "lib/engine-universal", optional = true, package = "wasmer-engine-universal-near" }
+wasmer-wast = { version = "2.0.0", path = "tests/lib/wast", optional = true }
+wasmer-types = { version = "=2.4.0", path = "lib/types", package = "wasmer-types-near" }
+wasmer-vm = { version = "=2.4.0", path = "lib/vm", package = "wasmer-vm-near" }
+
+cfg-if = "1.0"
+tracing = "0.1"
+
+[workspace]
+members = [
+    "lib/api",
+    "lib/compiler",
+    "lib/compiler-singlepass",
+    "lib/engine",
+    "lib/engine-universal",
+    "lib/vm",
+    "lib/types",
+    "tests/lib/wast",
+    "tests/lib/compiler-test-derive",
+    "fuzz",
+]
+resolver = "2"
+
+[build-dependencies]
+test-generator = { path = "tests/lib/test-generator" }
+build-deps = "0.1.4"
+anyhow = "1.0"
+glob = "0.3"
+rustc_version = "0.4"
+
+[dev-dependencies]
+anyhow = "1.0"
+criterion = "0.3"
+lazy_static = "1.4"
+serial_test = "0.5"
+compiler-test-derive = { path = "tests/lib/compiler-test-derive" }
+rayon = "1.5"
+tempfile = "3.1"
+# For logging tests using the `RUST_LOG=debug` when testing
+test-log = { version = "0.2", default-features = false, features = ["trace"] }
+tracing = { version = "0.1", default-features = false, features = ["log"] }
+tracing-subscriber = { version = "0.3", default-features = false, features = ["env-filter", "fmt"] }
+tracing-tracy = "0.9"
+tracy-client = "0.13"
+wat = "1.0"
+wasm-encoder = "0.12"
+
+[features]
+# Don't add the compiler features in default, please add them on the Makefile
+# since we might want to autoconfigure them depending on the availability on the host.
+default = [
+    "wasmer/wat",
+    "wast",
+    "universal",
+    "singlepass",
+]
+engine = []
+universal = [
+    "wasmer-engine-universal",
+    "engine",
+]
+wast = ["wasmer-wast"]
+compiler = [
+    "wasmer/compiler",
+    "wasmer-compiler/translator",
+    "wasmer-engine-universal/compiler",
+]
+singlepass = [
+    "wasmer-compiler-singlepass",
+    "compiler",
+]
+
+# Specifies that we're running in coverage testing mode. This disables tests
+# that raise signals because that interferes with tarpaulin.
+coverage = []
+
+[profile.dev]
+split-debuginfo = "unpacked"
+
+[[bench]]
+name = "static_and_dynamic_functions"
+harness = false
+
+[[bench]]
+name = "limits"
+harness = false
+
+[[example]]
+name = "tracy-exec"
+path = "examples/tracy_exec.rs"
+required-features = ["singlepass"]
+
+[[example]]
+name = "early-exit"
+path = "examples/early_exit.rs"
+required-features = ["singlepass"]
+
+[[example]]
+name = "engine-universal"
+path = "examples/engine_universal.rs"
+required-features = ["singlepass"]
+
+[[example]]
+name = "compiler-singlepass"
+path = "examples/compiler_singlepass.rs"
+required-features = ["singlepass"]
+
+[[example]]
+name = "exported-function"
+path = "examples/exports_function.rs"
+required-features = ["singlepass"]
+
+[[example]]
+name = "exported-global"
+path = "examples/exports_global.rs"
+required-features = ["singlepass"]
+
+[[example]]
+name = "exported-memory"
+path = "examples/exports_memory.rs"
+required-features = ["singlepass"]
+
+[[example]]
+name = "imported-function"
+path = "examples/imports_function.rs"
+required-features = ["singlepass"]
+
+[[example]]
+name = "imported-global"
+path = "examples/imports_global.rs"
+required-features = ["singlepass"]
+
+[[example]]
+name = "table"
+path = "examples/table.rs"
+required-features = ["singlepass"]
+
+[[example]]
+name = "memory"
+path = "examples/memory.rs"
+required-features = ["singlepass"]
+
+[[example]]
+name = "instance"
+path = "examples/instance.rs"
+required-features = ["singlepass"]
+
+[[example]]
+name = "errors"
+path = "examples/errors.rs"
+required-features = ["singlepass"]
+
+[[example]]
+name = "imported-function-env"
+path = "examples/imports_function_env.rs"
+required-features = ["singlepass"]
+
+[[example]]
+name = "hello-world"
+path = "examples/hello_world.rs"
+required-features = ["singlepass"]
+
+[[example]]
+name = "imports-exports"
+path = "examples/imports_exports.rs"
+required-features = ["singlepass"]
+
+[[example]]
+name = "features"
+path = "examples/features.rs"
+required-features = ["singlepass"]
+
+[[example]]
+name = "coremark"
+path = "examples/coremark.rs"
+required-features = ["singlepass"]

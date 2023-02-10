@@ -1,0 +1,32 @@
+[package]
+name = "wasmer-engine-near"
+version = "2.4.0"
+description = "Wasmer Engine abstraction"
+categories = ["wasm"]
+keywords = ["wasm", "webassembly", "engine"]
+authors = ["Wasmer Engineering Team <engineering@wasmer.io>"]
+repository = "https://github.com/wasmerio/wasmer"
+license = "MIT OR Apache-2.0 WITH LLVM-exception "
+readme = "README.md"
+edition = "2018"
+
+[lib]
+name = "wasmer_engine"
+
+[dependencies]
+finite-wasm = "0.3.0"
+wasmer-types = { path = "../types", version = "=2.4.0", package = "wasmer-types-near" }
+wasmer-compiler = { path = "../compiler", version = "=2.4.0", package = "wasmer-compiler-near" }
+wasmer-vm = { path = "../vm", version = "=2.4.0", package = "wasmer-vm-near" }
+target-lexicon = { version = "0.12.2", default-features = false }
+# flexbuffers = { path = "../../../flatbuffers/rust/flexbuffers", version = "0.1.0" }
+backtrace = "0.3"
+rustc-demangle = "0.1"
+memmap2 = "0.5"
+more-asserts = "0.2"
+thiserror = "1.0"
+lazy_static = "1.4"
+enumset = "1.0"
+
+[badges]
+maintenance = { status = "actively-developed" }

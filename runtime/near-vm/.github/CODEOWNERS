@@ -1,0 +1,23 @@
+benches                            @syrusakbary
+examples                           
+fuzz                               @syrusakbary
+lib/api                            @syrusakbary
+lib/c-api                          
+lib/cache                          @syrusakbary
+lib/cli                            @syrusakbary
+lib/compiler                       @syrusakbary
+lib/compiler-cranelift             @syrusakbary
+lib/compiler-llvm                  
+lib/compiler-singlepass            @syrusakbary
+lib/deprecated                     
+lib/emscripten                     
+lib/engine                         @syrusakbary
+lib/engine-jit                     @syrusakbary
+lib/engine-native                  @syrusakbary
+lib/engine-object-file             @syrusakbary
+lib/object                         @syrusakbary
+lib/vm                             @syrusakbary
+lib/wasi                           
+lib/wasmer-types                   @syrusakbary
+scripts                            @syrusakbary
+tests                              
