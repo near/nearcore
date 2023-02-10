@@ -156,9 +156,7 @@ pub fn update_cold_head<D: Database>(
 }
 
 /// Copies all contents of all cold columns from `hot_store` to `cold_db`.
-/// Does it column by column, and because columns can be huge, writes in batches.
-/// `max_mem_size` specifies the maximum size of all batches that we are currently writing.
-/// `min_batch_size` is a threshold for a single batch size.
+/// Does it column by column, and because columns can be huge, writes in batches of ~`batch_size`.
 pub fn copy_all_data_to_cold<D: Database + 'static>(
     cold_db: std::sync::Arc<ColdDB<D>>,
     hot_store: &Store,

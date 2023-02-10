@@ -72,7 +72,7 @@ struct CopyNextBlocksCmd {
 #[derive(Parser)]
 struct CopyAllBlocksCmd {
     /// Threshold size of the write transaction.
-    #[clap(short = 'm', long, default_value_t = 500_000_000)]
+    #[clap(short = 'b', long, default_value_t = 500_000_000)]
     batch_size: usize,
     /// Flag to not check correctness of cold db after copying.
     #[clap(long = "nc")]

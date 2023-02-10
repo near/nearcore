@@ -344,7 +344,7 @@ fn test_cold_db_copy_with_height_skips() {
 /// Call copying full contents of cold columns to cold storage in batches of specified max_size.
 /// Currently only supports super small or super big batch.
 /// If batch_size = 0, check that every value was copied in a separate batch.
-/// If batch_size > 0, check that everything was copied in one batch.
+/// If batch_size = usize::MAX, check that everything was copied in one batch.
 /// Most importantly, checking that everything from cold columns was indeed copied into cold storage.
 fn test_initial_copy_to_cold(batch_size: usize) {
     init_test_logger();
