@@ -780,7 +780,7 @@ impl Handler<WithSpanContext<GetNetworkInfo>> for ClientActor {
 /// `ApplyChunksDoneMessage` is a message that signals the finishing of applying chunks of a block.
 /// Upon receiving this message, ClientActors knows that it's time to finish processing the blocks that
 /// just finished applying chunks.
-#[derive(Message)]
+#[derive(actix::Message)]
 #[rtype(result = "()")]
 pub struct ApplyChunksDoneMessage;
 

@@ -1,19 +1,18 @@
 mod metrics;
 
-use actix::{Actor, Addr, Context, Handler, Message};
+use actix::{Actor, Addr, Context, Handler};
 use awc::{Client, Connector};
 use futures::FutureExt;
 use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
 use near_performance_metrics_macros::perf;
 use near_primitives::time::{Clock, Instant};
-use serde::{Deserialize, Serialize};
 use std::ops::Sub;
 use std::time::Duration;
 
 /// Timeout for establishing connection.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct TelemetryConfig {
     pub endpoints: Vec<String>,
     /// Only one request will be allowed in the specified time interval.
@@ -32,7 +31,7 @@ impl Default for TelemetryConfig {
 }
 
 /// Event to send over telemetry.
-#[derive(Message, Debug)]
+#[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
 pub struct TelemetryEvent {
     content: serde_json::Value,

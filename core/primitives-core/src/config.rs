@@ -1,8 +1,6 @@
 use crate::parameter::Parameter;
 use crate::types::Gas;
-
 use enum_map::{enum_map, EnumMap};
-use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use strum::Display;
@@ -30,7 +28,7 @@ pub struct VMConfig {
 
 /// Describes limits for VM and Runtime.
 /// TODO #4139: consider switching to strongly-typed wrappers instead of raw quantities
-#[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, Hash, PartialEq, Eq)]
 pub struct VMLimitConfig {
     /// Max amount of gas that can be used, excluding gas attached to promises.
     pub max_gas_burnt: Gas,
@@ -256,7 +254,7 @@ impl VMLimitConfig {
 }
 
 /// Configuration of view methods execution, during which no costs should be charged.
-#[derive(Default, Clone, Serialize, Deserialize, Debug, Hash, PartialEq, Eq)]
+#[derive(Default, Clone, serde::Serialize, serde::Deserialize, Debug, Hash, PartialEq, Eq)]
 pub struct ViewConfig {
     /// If specified, defines max burnt gas per view method.
     pub max_gas_burnt: Gas,

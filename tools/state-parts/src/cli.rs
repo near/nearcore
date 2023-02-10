@@ -1,11 +1,10 @@
-use clap::Parser;
 use near_network::types::PeerInfo;
 use near_ping::cli::CHAIN_INFO;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::ShardId;
 use std::str::FromStr;
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub struct StatePartsCommand {
     /// The hash of the first block of an epoch of which we are requesting state.
     #[clap(long)]

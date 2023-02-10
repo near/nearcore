@@ -5,15 +5,14 @@ use near_primitives::views::{
     CatchupStatusView, ChainProcessingInfo, NetworkGraphView, PeerStoreView,
     RecentOutboundConnectionsView, RequestedStatePartsView, SyncStatusView,
 };
-use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct RpcStatusResponse {
     #[serde(flatten)]
     pub status_response: near_primitives::views::StatusResponse,
 }
 
-#[derive(Serialize, Debug)]
+#[derive(serde::Serialize, Debug)]
 pub enum DebugStatusResponse {
     SyncStatus(SyncStatusView),
     CatchupStatus(Vec<CatchupStatusView>),
@@ -33,15 +32,15 @@ pub enum DebugStatusResponse {
 }
 
 #[cfg(feature = "debug_types")]
-#[derive(Debug, Serialize)]
+#[derive(Debug, serde::Serialize)]
 pub struct RpcDebugStatusResponse {
     pub status_response: DebugStatusResponse,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct RpcHealthResponse;
 
-#[derive(thiserror::Error, Debug, Serialize, Deserialize)]
+#[derive(thiserror::Error, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcStatusError {
     #[error("Node is syncing")]
