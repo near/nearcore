@@ -326,6 +326,25 @@ impl ActorHandler {
         self.with_state(move |s| async move { s.tier1_advertise_proxies(&clock).await }).await
     }
 
+    pub async fn disconnect(&self, peer_id: &PeerId) {
+        let peer_id = peer_id.clone();
+        self.with_state(move |s| async move {
+            let stopped: Vec<()> = s
+                .tier2
+                .load()
+                .ready
+                .values()
+                .filter(|c| c.peer_info.id == peer_id)
+                .map(|c| {
+                    c.stop(None);
+                    ()
+                })
+                .collect();
+            assert!(stopped.len() == 1);
+        })
+        .await
+    }
+
     pub async fn disconnect_and_ban(
         &self,
         clock: &time::Clock,
@@ -468,6 +487,15 @@ impl ActorHandler {
         let clock = clock.clone();
         self.with_state(move |s| async move {
             s.tier1_connect(&clock).await;
+        })
+        .await;
+    }
+
+    /// Executes `NetworkState::update_connection_store` method.
+    pub async fn update_connection_store(&self, clock: &time::Clock) {
+        let clock = clock.clone();
+        self.with_state(move |s| async move {
+            s.update_connection_store(&clock);
         })
         .await;
     }

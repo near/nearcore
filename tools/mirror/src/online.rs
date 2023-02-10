@@ -1,4 +1,4 @@
-use crate::{ChainError, SourceBlock};
+use crate::{ChainError, SourceChunk};
 use actix::Addr;
 use anyhow::Context;
 use async_trait::async_trait;
@@ -10,15 +10,16 @@ use near_client_primitives::types::{
 use near_crypto::PublicKey;
 use near_o11y::WithSpanContextExt;
 use near_primitives::hash::CryptoHash;
+use near_primitives::receipt::Receipt;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockId, BlockReference, Finality, TransactionOrReceiptId,
 };
 use near_primitives::views::{
     AccessKeyPermissionView, ExecutionOutcomeWithIdView, QueryRequest, QueryResponseKind,
-    ReceiptView,
 };
 use near_primitives_core::types::ShardId;
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
 
 pub(crate) struct ChainAccess {
@@ -105,7 +106,7 @@ impl crate::ChainAccess for ChainAccess {
         &self,
         height: BlockHeight,
         shards: &[ShardId],
-    ) -> Result<Vec<SourceBlock>, ChainError> {
+    ) -> Result<Vec<SourceChunk>, ChainError> {
         let mut chunks = Vec::new();
         for shard_id in shards.iter() {
             let chunk = match self
@@ -127,10 +128,10 @@ impl crate::ChainAccess for ChainAccess {
                 },
             };
             if chunk.header.height_included == height {
-                chunks.push(SourceBlock {
+                chunks.push(SourceChunk {
                     shard_id: *shard_id,
-                    transactions: chunk.transactions.clone(),
-                    receipts: chunk.receipts.clone(),
+                    transactions: chunk.transactions.into_iter().map(Into::into).collect(),
+                    receipts: chunk.receipts.into_iter().map(|r| r.try_into().unwrap()).collect(),
                 })
             }
         }
@@ -184,11 +185,12 @@ impl crate::ChainAccess for ChainAccess {
             .outcome_proof)
     }
 
-    async fn get_receipt(&self, id: &CryptoHash) -> Result<ReceiptView, ChainError> {
+    async fn get_receipt(&self, id: &CryptoHash) -> Result<Arc<Receipt>, ChainError> {
         self.view_client
             .send(GetReceipt { receipt_id: id.clone() }.with_span_context())
             .await
             .unwrap()?
+            .map(|r| Arc::new(r.try_into().unwrap()))
             .ok_or(ChainError::Unknown)
     }
 

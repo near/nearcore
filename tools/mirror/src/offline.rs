@@ -1,4 +1,4 @@
-use crate::{ChainError, SourceBlock};
+use crate::{ChainError, SourceChunk};
 use anyhow::Context;
 use async_trait::async_trait;
 use near_chain::types::RuntimeAdapter;
@@ -12,11 +12,11 @@ use near_primitives::receipt::Receipt;
 use near_primitives::types::{AccountId, BlockHeight, TransactionOrReceiptId};
 use near_primitives::views::{
     AccessKeyPermissionView, ExecutionOutcomeWithIdView, QueryRequest, QueryResponseKind,
-    ReceiptView,
 };
 use near_primitives_core::types::ShardId;
 use nearcore::NightshadeRuntime;
 use std::path::Path;
+use std::sync::Arc;
 
 fn is_on_current_chain(
     chain: &ChainStore,
@@ -110,7 +110,7 @@ impl crate::ChainAccess for ChainAccess {
         &self,
         height: BlockHeight,
         shards: &[ShardId],
-    ) -> Result<Vec<SourceBlock>, ChainError> {
+    ) -> Result<Vec<SourceChunk>, ChainError> {
         let block_hash = self.chain.get_block_hash_by_height(height)?;
         let block = self
             .chain
@@ -135,10 +135,10 @@ impl crate::ChainAccess for ChainAccess {
                     continue;
                 }
             };
-            chunks.push(SourceBlock {
+            chunks.push(SourceChunk {
                 shard_id: chunk.shard_id(),
                 transactions: chunk.transactions().iter().map(|t| t.clone().into()).collect(),
-                receipts: chunk.receipts().iter().map(|t| t.clone().into()).collect(),
+                receipts: chunk.receipts().iter().cloned().collect(),
             })
         }
         Ok(chunks)
@@ -172,8 +172,8 @@ impl crate::ChainAccess for ChainAccess {
             .ok_or(ChainError::Unknown)
     }
 
-    async fn get_receipt(&self, id: &CryptoHash) -> Result<ReceiptView, ChainError> {
-        self.chain.get_receipt(id)?.map(|r| Receipt::clone(&r).into()).ok_or(ChainError::Unknown)
+    async fn get_receipt(&self, id: &CryptoHash) -> Result<Arc<Receipt>, ChainError> {
+        self.chain.get_receipt(id)?.ok_or(ChainError::Unknown)
     }
 
     async fn get_full_access_keys(

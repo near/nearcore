@@ -56,6 +56,7 @@ near-store = { path = "../core/store" }
 near-telemetry = { path = "../chain/telemetry" }
 near-vm-runner = { path = "../runtime/near-vm-runner"}
 node-runtime = { path = "../runtime/runtime" }
+near-config-utils = { path = "../utils/config" }
 
 delay-detector = { path = "../tools/delay-detector" }
 

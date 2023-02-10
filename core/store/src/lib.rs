@@ -394,9 +394,8 @@ impl Store {
 }
 
 impl Store {
-    pub fn get_db_version(&self) -> io::Result<DbVersion> {
-        let metadata = metadata::DbMetadata::read(self.storage.as_ref())?;
-        Ok(metadata.version)
+    pub fn get_db_version(&self) -> io::Result<Option<DbVersion>> {
+        metadata::DbMetadata::maybe_read_version(self.storage.as_ref())
     }
 
     pub fn set_db_version(&self, version: DbVersion) -> io::Result<()> {
@@ -406,8 +405,7 @@ impl Store {
     }
 
     pub fn get_db_kind(&self) -> io::Result<Option<DbKind>> {
-        let metadata = metadata::DbMetadata::read(self.storage.as_ref())?;
-        Ok(metadata.kind)
+        metadata::DbMetadata::maybe_read_kind(self.storage.as_ref())
     }
 
     pub fn set_db_kind(&self, kind: DbKind) -> io::Result<()> {

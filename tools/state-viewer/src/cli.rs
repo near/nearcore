@@ -1,4 +1,5 @@
 use crate::commands::*;
+use crate::contract_accounts::ContractAccountFilter;
 use crate::rocksdb_stats::get_rocksdb_stats;
 use crate::state_parts::{apply_state_parts, dump_state_parts};
 use crate::{epoch_info, state_parts};
@@ -97,11 +98,9 @@ impl StateViewerSubCommand {
         let near_config = load_config(home_dir, genesis_validation)
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
 
-        let cold_store_config: Option<&near_store::StoreConfig> =
-            near_config.config.cold_store.as_ref();
-
-        let store_opener =
-            NodeStorage::opener(home_dir, &near_config.config.store, cold_store_config);
+        let cold_config: Option<&near_store::StoreConfig> = near_config.config.cold_store.as_ref();
+        let store_opener = NodeStorage::opener(home_dir, &near_config.config.store, cold_config);
+        let store_opener = store_opener.expect_archive(near_config.config.archive);
 
         let storage = store_opener.open_in_mode(mode).unwrap();
         let store = storage.get_store(temperature);
@@ -302,13 +301,13 @@ impl ChunksCmd {
 
 #[derive(Parser)]
 pub struct ContractAccountsCmd {
-    // TODO: add filter options, e.g. only contracts that execute certain
-    // actions
+    #[clap(flatten)]
+    filter: ContractAccountFilter,
 }
 
 impl ContractAccountsCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
-        contract_accounts(home_dir, store, near_config).unwrap();
+        contract_accounts(home_dir, store, near_config, self.filter).unwrap();
     }
 }
 
