@@ -1024,7 +1024,7 @@ pub fn init_configs(
                     Duration::from_millis(FAST_MAX_BLOCK_PRODUCTION_DELAY);
             }
             let account_id = account_id.unwrap_or_else(|| "test.near".parse().unwrap());
-            config.tracked_accounts = vec!(account_id.clone());
+            config.tracked_accounts = vec![account_id.clone()];
             config.write_to_file(&dir.join(CONFIG_FILENAME)).with_context(|| {
                 format!("Error writing config to {}", dir.join(CONFIG_FILENAME).display())
             })?;
