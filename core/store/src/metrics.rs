@@ -326,3 +326,12 @@ pub static COLD_MIGRATION_INITIAL_WRITES: Lazy<IntCounterVec> = Lazy::new(|| {
     )
     .unwrap()
 });
+pub static COLD_MIGRATION_INITIAL_WRITES_TIME: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_cold_migration_initial_writes_time",
+        "Time spent on writing initial migration batches by column.",
+        &["column"],
+        None,
+    )
+    .unwrap()
+});

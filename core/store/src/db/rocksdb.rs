@@ -500,13 +500,6 @@ impl RocksDB {
         Some(metadata::DbMetadata::read(&db)).transpose()
     }
 
-    /// Creates RocksDB Checkpoint in the provided `path`.
-    pub(crate) fn create_checkpoint(&self, path: &Path) -> io::Result<()> {
-        let checkpoint = rocksdb::checkpoint::Checkpoint::new(&self.db).map_err(into_other)?;
-        checkpoint.create_checkpoint(path).map_err(into_other)?;
-        Ok(())
-    }
-
     /// Gets every int property in CF_PROPERTY_NAMES for every column in DBCol.
     fn get_cf_statistics(&self, result: &mut StoreStatistics) {
         for prop_name in CF_PROPERTY_NAMES {

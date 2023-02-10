@@ -361,7 +361,7 @@ fn test_initial_copy_to_cold(batch_size: usize) {
         .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
         .build();
 
-    let store = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
+    let store = create_test_node_storage_with_cold(DB_VERSION, DbKind::Archive);
 
     let mut last_hash = *env.clients[0].chain.genesis().hash();
 
@@ -388,7 +388,6 @@ fn test_initial_copy_to_cold(batch_size: usize) {
         (*store.cold_db().unwrap()).clone(),
         &env.clients[0].runtime_adapter.store(),
         batch_size,
-        batch_size,
     )
     .unwrap();
 
@@ -407,7 +406,7 @@ fn test_initial_copy_to_cold(batch_size: usize) {
             assert!(num_checks > 0);
             if batch_size == 0 {
                 assert_eq!(num_checks, test_get_store_initial_writes(col));
-            } else {
+            } else if batch_size == usize::MAX {
                 assert_eq!(1, test_get_store_initial_writes(col));
             }
         }
@@ -422,4 +421,9 @@ fn test_initial_copy_to_cold_small_batch() {
 #[test]
 fn test_initial_copy_to_cold_huge_batch() {
     test_initial_copy_to_cold(usize::MAX);
+}
+
+#[test]
+fn test_initial_copy_to_cold_medium_batch() {
+    test_initial_copy_to_cold(5000);
 }

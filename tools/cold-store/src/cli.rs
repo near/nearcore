@@ -1,9 +1,7 @@
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
-use near_store::cold_storage::{
-    copy_all_data_to_cold, create_checkpoint_for_cold_copy, update_cold_db, update_cold_head,
-};
+use near_store::cold_storage::{copy_all_data_to_cold, update_cold_db, update_cold_head};
 use near_store::{DBCol, NodeStorage, Temperature, COLD_HEAD_KEY, FINAL_HEAD_KEY, HEAD_KEY};
 use nearcore::{NearConfig, NightshadeRuntime};
 
@@ -35,24 +33,12 @@ enum SubCommand {
 
 impl ColdStoreCommand {
     pub fn run(self, home_dir: &Path) {
-        let near_config = {
-            let mut near_config = nearcore::config::load_config(
-                &home_dir,
-                near_chain_configs::GenesisValidationMode::Full,
-            )
-            .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
+        let near_config = nearcore::config::load_config(
+            &home_dir,
+            near_chain_configs::GenesisValidationMode::Full,
+        )
+        .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
 
-            // Before copying all blocks create a checkpoint and open it as hot db.
-            if let SubCommand::CopyAllBlocks(_) = self.subcmd {
-                near_config.config.store = create_checkpoint_for_cold_copy(
-                    &near_config.config.store,
-                    home_dir,
-                    &"data/data-checkpoint",
-                )
-                .unwrap();
-            }
-            near_config
-        };
         let opener = NodeStorage::opener(
             home_dir,
             &near_config.config.store,
@@ -71,7 +57,7 @@ impl ColdStoreCommand {
                 }
             }
             SubCommand::CopyAllBlocks(cmd) => {
-                copy_all_blocks(&store, cmd.max_mem_size, cmd.min_batch_size, cmd.check_after)
+                copy_all_blocks(&store, cmd.batch_size, !cmd.no_check_after)
             }
         }
     }
@@ -85,12 +71,12 @@ struct CopyNextBlocksCmd {
 
 #[derive(Parser)]
 struct CopyAllBlocksCmd {
-    #[clap(short = 'M', long, default_value_t = 0)]
-    max_mem_size: usize,
-    #[clap(short = 'm', long, default_value_t = 0)]
-    min_batch_size: usize,
-    #[clap(short, long)]
-    check_after: bool,
+    /// Threshold size of the write transaction.
+    #[clap(short = 'm', long, default_value_t = 500_000_000)]
+    batch_size: usize,
+    /// Flag to not check correctness of cold db after copying.
+    #[clap(long = "nc")]
+    no_check_after: bool,
 }
 
 fn check_open(store: &NodeStorage) {
@@ -174,15 +160,7 @@ fn copy_next_block(store: &NodeStorage, config: &NearConfig, hot_runtime: &Arc<N
         .expect(&std::format!("Failed to update cold HEAD to {}", next_height));
 }
 
-fn copy_all_blocks(store: &NodeStorage, max_mem_size: usize, min_batch_size: usize, check: bool) {
-    copy_all_data_to_cold(
-        (*store.cold_db().unwrap()).clone(),
-        &store.get_store(Temperature::Hot),
-        max_mem_size,
-        min_batch_size,
-    )
-    .expect("Failed to do migration to cold db");
-
+fn copy_all_blocks(store: &NodeStorage, batch_size: usize, check: bool) {
     // If FINAL_HEAD is not set for hot storage though, we default it to 0.
     let hot_final_head = store
         .get_store(Temperature::Hot)
@@ -190,6 +168,13 @@ fn copy_all_blocks(store: &NodeStorage, max_mem_size: usize, min_batch_size: usi
         .unwrap_or_else(|e| panic!("Error reading hot FINAL_HEAD: {:#}", e))
         .map(|t| t.height)
         .unwrap_or(0);
+
+    copy_all_data_to_cold(
+        (*store.cold_db().unwrap()).clone(),
+        &store.get_store(Temperature::Hot),
+        batch_size,
+    )
+    .expect("Failed to do migration to cold db");
 
     update_cold_head(
         &*store.cold_db().unwrap(),
@@ -207,7 +192,6 @@ fn copy_all_blocks(store: &NodeStorage, max_mem_size: usize, min_batch_size: usi
                         &store.get_store(Temperature::Hot),
                         &store.get_store(Temperature::Cold),
                         col,
-                        &vec![],
                     ),
                     col
                 );
@@ -232,20 +216,11 @@ fn check_iter(
     first_store: &near_store::Store,
     second_store: &near_store::Store,
     col: DBCol,
-    no_check_rules: &Vec<Box<dyn Fn(DBCol, &Box<[u8]>) -> bool>>,
 ) -> u64 {
     let mut num_checks = 0;
     for (key, value) in first_store.iter(col).map(Result::unwrap) {
-        let mut check = true;
-        for no_check in no_check_rules {
-            if no_check(col, &value) {
-                check = false;
-            }
-        }
-        if check {
-            check_key(first_store, second_store, col, &key);
-            num_checks += 1;
-        }
+        check_key(first_store, second_store, col, &key);
+        num_checks += 1;
     }
     num_checks
 }

@@ -1,8 +1,7 @@
 use crate::columns::DBKeyType;
 use crate::db::{ColdDB, COLD_HEAD_KEY, HEAD_KEY};
-use crate::metadata::DB_VERSION;
 use crate::trie::TrieRefcountChange;
-use crate::{DBCol, DBTransaction, Database, Mode, Store, StoreConfig, TrieChanges};
+use crate::{DBCol, DBTransaction, Database, Store, TrieChanges};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::block::{Block, BlockHeader, Tip};
@@ -10,9 +9,8 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::types::BlockHeight;
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::io;
-use std::thread::JoinHandle;
 use strum::IntoEnumIterator;
 
 type StoreKey = Vec<u8>;
@@ -24,26 +22,15 @@ struct StoreWithCache<'a> {
     cache: StoreCache,
 }
 
-/// Asynchronously writes set operations to `cold_db` in batches.
-/// Collects operation in batch, until its size is bigger than `min_transaction_size`.
-/// Then creates a thread to write that information to `cold_db`.
-/// Then joins some old thread,
-/// until size of transactions in `handles` is smaller than `max_handles_size`.
-/// Takes care of writing information to `cold_db`,
-/// [`write`] and [`join`] for all handles will be called on destruction.
+/// The BatchTransaction can be used to write multiple set operations to the cold db in batches.
+/// [`write`] is called every time `transaction_size` overgrows `threshold_transaction_size`.
 struct BatchTransaction<D: Database + 'static> {
     cold_db: std::sync::Arc<ColdDB<D>>,
     transaction: DBTransaction,
     /// Size of all values keys and values in `transaction` in bytes.
     transaction_size: usize,
-    /// Size of all values keys and values in `handles` in bytes.
-    handles_size: usize,
-    /// Maximum size, that we keep by joining front elements of handles.
-    max_handles_size: usize,
     /// Minimum size, after which we write transaction
-    min_transaction_size: usize,
-    /// Currently not joined write threads.
-    handles: VecDeque<(JoinHandle<io::Result<()>>, usize)>,
+    threshold_transaction_size: usize,
 }
 
 /// Updates provided cold database from provided hot store with information about block at `height`.
@@ -167,25 +154,6 @@ pub fn update_cold_head<D: Database>(
     return Ok(());
 }
 
-/// Creates checkpoint of hot database.
-/// Returns modified config, that only differs in store path, that now points to checkpoint.
-pub fn create_checkpoint_for_cold_copy(
-    config: &StoreConfig,
-    home_dir: &std::path::Path,
-    checkpoint_dir: &str,
-) -> io::Result<StoreConfig> {
-    let opener = crate::NodeStorage::opener(home_dir, &config, None);
-    let hot_rocksdb = opener.open_hot_rocksdb(Mode::ReadWrite, DB_VERSION)?;
-
-    let new_path = home_dir.join(checkpoint_dir);
-    hot_rocksdb.create_checkpoint(&std::path::Path::new(&new_path))?;
-
-    let mut new_config = config.clone();
-    new_config.path = Some(std::path::Path::new(&new_path).to_path_buf());
-
-    Ok(new_config)
-}
-
 /// Copies all contents of all cold columns from `hot_store` to `cold_db`.
 /// Does it column by column, and because columns can be huge, writes in batches.
 /// `max_mem_size` specifies the maximum size of all batches that we are currently writing.
@@ -193,19 +161,16 @@ pub fn create_checkpoint_for_cold_copy(
 pub fn copy_all_data_to_cold<D: Database + 'static>(
     cold_db: std::sync::Arc<ColdDB<D>>,
     hot_store: &Store,
-    max_mem_size: usize,
-    min_batch_size: usize,
+    batch_size: usize,
 ) -> io::Result<()> {
     for col in DBCol::iter() {
         if col.is_cold() {
-            let mut transaction =
-                BatchTransaction::new(cold_db.clone(), max_mem_size, min_batch_size);
+            let mut transaction = BatchTransaction::new(cold_db.clone(), batch_size);
             for result in hot_store.iter(col) {
                 let (key, value) = result?;
                 transaction.set(col, key.to_vec(), value.to_vec())?;
             }
-            // BatchTransaction automatically performs writes when there is enough data.
-            // All the writes will be finished before transaction is dropped.
+            transaction.write()?;
         }
     }
     Ok(())
@@ -476,19 +441,12 @@ impl StoreWithCache<'_> {
 }
 
 impl<D: Database + 'static> BatchTransaction<D> {
-    pub fn new(
-        cold_db: std::sync::Arc<ColdDB<D>>,
-        max_mem_size: usize,
-        min_batch_size: usize,
-    ) -> Self {
+    pub fn new(cold_db: std::sync::Arc<ColdDB<D>>, batch_size: usize) -> Self {
         Self {
             cold_db,
             transaction: DBTransaction::new(),
             transaction_size: 0,
-            handles_size: 0,
-            max_handles_size: max_mem_size,
-            min_transaction_size: min_batch_size,
-            handles: VecDeque::new(),
+            threshold_transaction_size: batch_size,
         }
     }
 
@@ -500,7 +458,7 @@ impl<D: Database + 'static> BatchTransaction<D> {
         self.transaction.set(col, key, value);
         self.transaction_size += size;
 
-        if self.transaction_size > self.min_transaction_size {
+        if self.transaction_size > self.threshold_transaction_size {
             self.write()?;
         }
         Ok(())
@@ -508,54 +466,23 @@ impl<D: Database + 'static> BatchTransaction<D> {
 
     /// Writes `self.transaction` and replaces it with new empty DBTransaction.
     /// Sets `self.transaction_size` to 0.
-    /// Updates `self.handles_size`.
-    /// Calls for [`self.handles_resize`].
     fn write(&mut self) -> io::Result<()> {
-        if !self.transaction.ops.is_empty() {
-            crate::metrics::COLD_MIGRATION_INITIAL_WRITES
-                .with_label_values(&[<&str>::from(self.transaction.ops[0].col())])
-                .inc();
-
-            let transaction = std::mem::replace(&mut self.transaction, DBTransaction::new());
-            let cold_db = self.cold_db.clone();
-
-            self.handles.push_back((
-                std::thread::Builder::new()
-                    .spawn(move || -> io::Result<()> { cold_db.write(transaction) })
-                    .map_err(|_| {
-                        io::Error::new(
-                            io::ErrorKind::Other,
-                            "Error building thread for BatchTransaction write.",
-                        )
-                    })?,
-                self.transaction_size,
-            ));
-
-            self.handles_size += self.transaction_size;
-            self.transaction_size = 0;
-
-            self.handles_resize(self.max_handles_size)?;
+        if self.transaction.ops.is_empty() {
+            return Ok(());
         }
-        Ok(())
-    }
 
-    fn handles_resize(&mut self, desired_size: usize) -> io::Result<()> {
-        while self.handles_size > desired_size {
-            if let Some((handle, size)) = self.handles.pop_front() {
-                handle.join().expect("Error joining handle for BatchTransaction write")?;
-                self.handles_size -= size;
-            }
-        }
-        Ok(())
-    }
-}
+        let column_label = [<&str>::from(self.transaction.ops[0].col())];
 
-impl<D: Database + 'static> Drop for BatchTransaction<D> {
-    fn drop(&mut self) {
-        // Write `self.transaction`.
-        self.write().expect("Error while writing BatchTransaction");
-        // Join all write handles thus actually finish all the writes.
-        self.handles_resize(0).expect("Error joining BatchTransaction handles");
+        crate::metrics::COLD_MIGRATION_INITIAL_WRITES.with_label_values(&column_label).inc();
+        let _timer = crate::metrics::COLD_MIGRATION_INITIAL_WRITES_TIME
+            .with_label_values(&column_label)
+            .start_timer();
+
+        let transaction = std::mem::take(&mut self.transaction);
+        self.cold_db.write(transaction)?;
+        self.transaction_size = 0;
+
+        Ok(())
     }
 }
 
