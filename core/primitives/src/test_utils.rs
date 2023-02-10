@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use near_crypto::{EmptySigner, KeyType, PublicKey, Signature, Signer};
+use near_crypto::{EmptySigner, InMemorySigner, KeyType, PublicKey, Signature, Signer};
 use near_primitives_core::types::ProtocolVersion;
 
 use crate::account::{AccessKey, AccessKeyPermission, Account};
@@ -20,6 +20,7 @@ use crate::transaction::{
 use crate::types::{AccountId, Balance, EpochId, EpochInfoProvider, Gas, Nonce};
 use crate::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use crate::version::PROTOCOL_VERSION;
+use crate::views::{ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionStatus};
 
 pub fn account_new(amount: Balance, code_hash: CryptoHash) -> Account {
     Account::new(amount, 0, code_hash, std::mem::size_of::<Account>() as u64)
@@ -486,4 +487,28 @@ pub fn create_test_signer(account_name: &str) -> InMemoryValidatorSigner {
         KeyType::ED25519,
         account_name,
     )
+}
+
+/// Helper function that creates a new signer for a given account, that uses the account name as seed.
+///
+/// Should be used only in tests.
+pub fn create_user_test_signer(account_name: &str) -> InMemorySigner {
+    InMemorySigner::from_seed(account_name.parse().unwrap(), KeyType::ED25519, account_name)
+}
+
+impl FinalExecutionOutcomeView {
+    #[track_caller]
+    /// Check transaction and all transitive receipts for success status.
+    pub fn assert_success(&self) {
+        assert_eq!(self.status, FinalExecutionStatus::SuccessValue(Vec::new()));
+        for (i, receipt) in self.receipts_outcome.iter().enumerate() {
+            assert!(
+                matches!(
+                    receipt.outcome.status,
+                    ExecutionStatusView::SuccessReceiptId(_) | ExecutionStatusView::SuccessValue(_),
+                ),
+                "receipt #{i} failed: {receipt:?}",
+            );
+        }
+    }
 }
