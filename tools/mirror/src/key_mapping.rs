@@ -4,6 +4,17 @@ use near_crypto::{ED25519PublicKey, ED25519SecretKey, PublicKey, Secp256K1Public
 use near_primitives::types::AccountId;
 use sha2::Sha256;
 
+// there is nothing special about this key, it's just some randomly generated one.
+// We will ensure that every account in the target chain has at least one full access
+// key by adding this one (when preparing the records file, or when sending a create account tx)
+// if one doesn't exist
+pub(crate) const EXTRA_KEY: SecretKey = SecretKey::ED25519(ED25519SecretKey([
+    213, 175, 27, 65, 239, 63, 64, 126, 187, 96, 90, 207, 42, 75, 1, 199, 109, 5, 0, 67, 207, 80,
+    147, 19, 53, 126, 142, 30, 162, 168, 97, 155, 119, 161, 145, 134, 247, 30, 152, 37, 178, 129,
+    174, 62, 225, 47, 43, 131, 212, 59, 200, 4, 158, 143, 3, 235, 237, 190, 51, 82, 253, 38, 36,
+    145,
+]));
+
 fn ed25519_map_secret(
     buf: &mut [u8],
     public: &ED25519PublicKey,

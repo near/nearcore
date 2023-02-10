@@ -16,7 +16,8 @@ use near_o11y::WithSpanContextExt;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceiptEnum};
 use near_primitives::transaction::{
-    Action, AddKeyAction, CreateAccountAction, DeleteKeyAction, SignedTransaction, Transaction,
+    Action, AddKeyAction, CreateAccountAction, DeleteKeyAction, SignedTransaction, StakeAction,
+    Transaction,
 };
 use near_primitives::types::{
     AccountId, BlockHeight, BlockReference, Finality, TransactionOrReceiptId,
@@ -25,11 +26,12 @@ use near_primitives::views::{
     ExecutionOutcomeWithIdView, ExecutionStatusView, QueryRequest, QueryResponseKind,
     SignedTransactionView,
 };
+use near_primitives_core::account::{AccessKey, AccessKeyPermission};
 use near_primitives_core::types::{Nonce, ShardId};
 use nearcore::config::NearConfig;
 use rocksdb::DB;
 use std::borrow::Cow;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -122,7 +124,7 @@ fn nonce_col_key(account_id: &AccountId, public_key: &PublicKey) -> Vec<u8> {
 // on disk will only record the transactions/receipts updating the nonce that we actually sent
 // or saw on chain
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 struct TargetNonce {
     nonce: Option<Nonce>,
     pending_outcomes: HashSet<NonceUpdater>,
@@ -290,6 +292,11 @@ struct SourceChunk {
     receipts: Vec<Receipt>,
 }
 
+struct SourceBlock {
+    hash: CryptoHash,
+    chunks: Vec<SourceChunk>,
+}
+
 #[derive(thiserror::Error, Debug)]
 enum ChainError {
     #[error("unknown")]
@@ -388,13 +395,15 @@ trait ChainAccess {
         num_initial_blocks: usize,
     ) -> anyhow::Result<Vec<BlockHeight>>;
 
+    async fn block_height_to_hash(&self, height: BlockHeight) -> Result<CryptoHash, ChainError>;
+
     async fn head_height(&self) -> Result<BlockHeight, ChainError>;
 
     async fn get_txs(
         &self,
         height: BlockHeight,
         shards: &[ShardId],
-    ) -> Result<Vec<SourceChunk>, ChainError>;
+    ) -> Result<SourceBlock, ChainError>;
 
     async fn get_next_block_height(&self, height: BlockHeight) -> Result<BlockHeight, ChainError>;
 
@@ -484,6 +493,7 @@ enum MappedTxProvenance {
     ReceiptAddKey(BlockHeight, ShardId, usize),
     TxCreateAccount(BlockHeight, ShardId, usize),
     ReceiptCreateAccount(BlockHeight, ShardId, usize),
+    Unstake(CryptoHash),
 }
 
 impl MappedTxProvenance {
@@ -500,6 +510,10 @@ impl MappedTxProvenance {
             self,
             MappedTxProvenance::TxAddKey(_, _, _) | MappedTxProvenance::ReceiptAddKey(_, _, _)
         )
+    }
+
+    fn is_unstake(&self) -> bool {
+        matches!(self, MappedTxProvenance::Unstake(_))
     }
 }
 
@@ -526,6 +540,9 @@ impl std::fmt::Display for MappedTxProvenance {
                     "extra CreateAccount for source #{} shard {} receipt #{}",
                     height, shard_id, idx
                 )
+            }
+            Self::Unstake(hash) => {
+                write!(f, "unstake after stake receipt in target block {}", hash,)
             }
         }
     }
@@ -628,6 +645,13 @@ impl MappedTx {
             sent_successfully: false,
         }
     }
+
+    fn inc_nonce(&mut self, target_secret_key: &SecretKey) {
+        let mut tx = self.target_tx.transaction.clone();
+        tx.nonce += 1;
+        self.target_tx =
+            SignedTransaction::new(target_secret_key.sign(&tx.get_hash_and_size().0.as_ref()), tx);
+    }
 }
 
 #[derive(Debug)]
@@ -726,6 +750,27 @@ impl TargetChainTx {
             nonce_updates,
         ))
     }
+
+    fn target_nonce(&self) -> TargetNonce {
+        match self {
+            Self::Ready(t) => TargetNonce {
+                nonce: Some(t.target_tx.transaction.nonce),
+                pending_outcomes: HashSet::new(),
+            },
+            Self::AwaitingNonce(t) => t.target_nonce.clone(),
+        }
+    }
+
+    fn inc_target_nonce(&mut self, target_secret_key: &SecretKey) {
+        match self {
+            Self::Ready(t) => t.inc_nonce(target_secret_key),
+            Self::AwaitingNonce(t) => {
+                if let Some(n) = &mut t.target_nonce.nonce {
+                    *n += 1;
+                }
+            }
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -737,6 +782,7 @@ struct MappedChunk {
 #[derive(Debug)]
 struct MappedBlock {
     source_height: BlockHeight,
+    source_hash: CryptoHash,
     chunks: Vec<MappedChunk>,
 }
 
@@ -844,57 +890,56 @@ impl<T: ChainAccess> TxMirror<T> {
         })
     }
 
-    async fn send_transactions(&mut self, block: &mut MappedBlock) -> anyhow::Result<()> {
-        for chunk in block.chunks.iter_mut() {
-            for tx in chunk.txs.iter_mut() {
-                match tx {
-                    TargetChainTx::Ready(tx) => {
-                        match self
-                            .target_client
-                            .send(
-                                ProcessTxRequest {
-                                    transaction: tx.target_tx.clone(),
-                                    is_forwarded: false,
-                                    check_only: false,
-                                }
-                                .with_span_context(),
-                            )
-                            .await?
-                        {
-                            ProcessTxResponse::RequestRouted => {
-                                crate::metrics::TRANSACTIONS_SENT.with_label_values(&["ok"]).inc();
-                                tx.sent_successfully = true;
+    async fn send_transactions<'a, I: Iterator<Item = &'a mut TargetChainTx>>(
+        &mut self,
+        txs: I,
+    ) -> anyhow::Result<()> {
+        for tx in txs {
+            match tx {
+                TargetChainTx::Ready(tx) => {
+                    match self
+                        .target_client
+                        .send(
+                            ProcessTxRequest {
+                                transaction: tx.target_tx.clone(),
+                                is_forwarded: false,
+                                check_only: false,
                             }
-                            ProcessTxResponse::InvalidTx(e) => {
-                                // TODO: here if we're getting an error because the tx was already included, it is possible
-                                // that some other instance of this code ran and made progress already. For now we can assume
-                                // only once instance of this code will run, but this is the place to detect if that's not the case.
-                                tracing::error!(
-                                    target: "mirror", "Tried to send an invalid tx for ({}, {:?}) from {}: {:?}",
-                                    &tx.target_tx.transaction.signer_id, &tx.target_tx.transaction.public_key, &tx.provenance, e
-                                );
-                                crate::metrics::TRANSACTIONS_SENT
-                                    .with_label_values(&["invalid"])
-                                    .inc();
-                            }
-                            r => {
-                                tracing::error!(
-                                    target: "mirror", "Unexpected response sending tx from {}: {:?}. The transaction was not sent",
-                                    &tx.provenance, r
-                                );
-                                crate::metrics::TRANSACTIONS_SENT
-                                    .with_label_values(&["internal_error"])
-                                    .inc();
-                            }
+                            .with_span_context(),
+                        )
+                        .await?
+                    {
+                        ProcessTxResponse::RequestRouted => {
+                            crate::metrics::TRANSACTIONS_SENT.with_label_values(&["ok"]).inc();
+                            tx.sent_successfully = true;
+                        }
+                        ProcessTxResponse::InvalidTx(e) => {
+                            // TODO: here if we're getting an error because the tx was already included, it is possible
+                            // that some other instance of this code ran and made progress already. For now we can assume
+                            // only once instance of this code will run, but this is the place to detect if that's not the case.
+                            tracing::error!(
+                                target: "mirror", "Tried to send an invalid tx for ({}, {:?}) from {}: {:?}",
+                                &tx.target_tx.transaction.signer_id, &tx.target_tx.transaction.public_key, &tx.provenance, e
+                            );
+                            crate::metrics::TRANSACTIONS_SENT.with_label_values(&["invalid"]).inc();
+                        }
+                        r => {
+                            tracing::error!(
+                                target: "mirror", "Unexpected response sending tx from {}: {:?}. The transaction was not sent",
+                                &tx.provenance, r
+                            );
+                            crate::metrics::TRANSACTIONS_SENT
+                                .with_label_values(&["internal_error"])
+                                .inc();
                         }
                     }
-                    TargetChainTx::AwaitingNonce(tx) => {
-                        // TODO: here we should just save this transaction for later and send it when it's known
-                        tracing::warn!(
-                            target: "mirror", "skipped sending transaction for ({}, {:?}) because valid target chain nonce not known",
-                            &tx.target_tx.signer_id, &tx.target_tx.public_key
-                        );
-                    }
+                }
+                TargetChainTx::AwaitingNonce(tx) => {
+                    // TODO: here we should just save this transaction for later and send it when it's known
+                    tracing::warn!(
+                        target: "mirror", "skipped sending transaction for ({}, {:?}) because valid target chain nonce not known",
+                        &tx.target_tx.signer_id, &tx.target_tx.public_key
+                    );
                 }
             }
         }
@@ -908,10 +953,15 @@ impl<T: ChainAccess> TxMirror<T> {
         let mut actions = Vec::new();
         let mut nonce_updates = HashSet::new();
 
+        let mut account_created = false;
+        let mut full_key_added = false;
         let source_actions = tx.actions();
         for action in source_actions.iter() {
             match &action {
                 Action::AddKey(add_key) => {
+                    if add_key.access_key.permission == AccessKeyPermission::FullAccess {
+                        full_key_added = true;
+                    }
                     let public_key =
                         crate::key_mapping::map_key(&add_key.public_key, self.secret.as_ref())
                             .public_key();
@@ -960,8 +1010,18 @@ impl<T: ChainAccess> TxMirror<T> {
                         actions.push(action.clone());
                     }
                 }
+                Action::CreateAccount(_) => {
+                    account_created = true;
+                    actions.push(action.clone());
+                }
                 _ => actions.push(action.clone()),
             };
+        }
+        if account_created && !full_key_added {
+            actions.push(Action::AddKey(AddKeyAction {
+                public_key: crate::key_mapping::EXTRA_KEY.public_key(),
+                access_key: AccessKey::full_access(),
+            }));
         }
         Ok((actions, nonce_updates))
     }
@@ -976,20 +1036,40 @@ impl<T: ChainAccess> TxMirror<T> {
         target_secret_key: &SecretKey,
         actions: Vec<Action>,
         ref_hash: &CryptoHash,
-        source_height: BlockHeight,
+        source_height: Option<BlockHeight>,
         provenance: MappedTxProvenance,
         nonce_updates: HashSet<(AccountId, PublicKey)>,
     ) -> anyhow::Result<TargetChainTx> {
         let target_public_key = target_secret_key.public_key();
-        let target_nonce = tracker
-            .next_nonce(
-                &self.target_view_client,
-                &self.db,
-                &target_signer_id,
-                &target_public_key,
-                source_height,
-            )
-            .await?;
+        let target_nonce = match source_height.as_ref() {
+            Some(_) => None,
+            None => Some(
+                tracker
+                    .insert_nonce(
+                        &self.target_view_client,
+                        &self.db,
+                        &target_signer_id,
+                        &target_public_key,
+                        target_secret_key,
+                    )
+                    .await?,
+            ),
+        };
+        let target_nonce = match source_height {
+            Some(source_height) => {
+                tracker
+                    .next_nonce(
+                        &self.target_view_client,
+                        &self.db,
+                        &target_signer_id,
+                        &target_public_key,
+                        source_height,
+                    )
+                    .await?
+            }
+            None => target_nonce.as_ref().unwrap(),
+        };
+
         if target_nonce.pending_outcomes.is_empty() && target_nonce.nonce.is_some() {
             Ok(TargetChainTx::new_ready(
                 source_signer_id,
@@ -1033,7 +1113,7 @@ impl<T: ChainAccess> TxMirror<T> {
         actions: &[Action],
         ref_hash: &CryptoHash,
         provenance: MappedTxProvenance,
-        source_height: BlockHeight,
+        source_height: Option<BlockHeight>,
     ) -> anyhow::Result<()> {
         let target_signer_id =
             crate::key_mapping::map_account(&predecessor_id, self.secret.as_ref());
@@ -1077,22 +1157,15 @@ impl<T: ChainAccess> TxMirror<T> {
                 match key {
                     Some(key) => key,
                     None => {
-                        tracing::warn!(
-                            target: "mirror", "not preparing a transaction for {} because no full access key for {} in the source chain is known at block {}",
+                        tracing::debug!(
+                            target: "mirror", "trying to prepare a transaction with the default extra key for {} because no full access key for {} in the source chain is known at block {}",
                             &provenance, &target_signer_id, &block_hash,
                         );
-                        return Ok(());
+                        crate::key_mapping::EXTRA_KEY
                     }
                 }
             }
-            Err(ChainError::Unknown) => {
-                tracing::warn!(
-                    target: "mirror", "not preparing a transaction for {} because no full access key for {} in the source chain is known at block {}",
-                    &provenance, &predecessor_id, &block_hash,
-                );
-                return Ok(());
-            }
-            Err(ChainError::Other(e)) => {
+            Err(e) => {
                 return Err(e)
                     .with_context(|| format!("failed fetching access key for {}", &predecessor_id))
             }
@@ -1123,6 +1196,11 @@ impl<T: ChainAccess> TxMirror<T> {
                 Action::Transfer(_) => {
                     if provenance.is_create_account() {
                         target_actions.push(a.clone())
+                    }
+                }
+                Action::Stake(_) => {
+                    if provenance.is_unstake() {
+                        target_actions.push(a.clone());
                     }
                 }
                 _ => {}
@@ -1242,7 +1320,7 @@ impl<T: ChainAccess> TxMirror<T> {
                     &r.actions,
                     ref_hash,
                     provenance,
-                    source_height,
+                    Some(source_height),
                 )
                 .await?;
             }
@@ -1327,7 +1405,7 @@ impl<T: ChainAccess> TxMirror<T> {
         tracker: &mut crate::chain_tracker::TxTracker,
         chunks: &mut Vec<MappedChunk>,
     ) -> anyhow::Result<()> {
-        let source_chunks = self
+        let source_block = self
             .source_chain_access
             .get_txs(create_account_height, &self.tracked_shards)
             .await
@@ -1335,7 +1413,7 @@ impl<T: ChainAccess> TxMirror<T> {
                 format!("Failed fetching chunks for source chain #{}", create_account_height)
             })?;
         let mut added_chunk = false;
-        for ch in source_chunks {
+        for ch in source_block.chunks {
             let txs = match chunks.iter_mut().find(|c| c.shard_id == ch.shard_id) {
                 Some(c) => &mut c.txs,
                 None => {
@@ -1397,7 +1475,7 @@ impl<T: ChainAccess> TxMirror<T> {
         ref_hash: CryptoHash,
         tracker: &mut crate::chain_tracker::TxTracker,
     ) -> anyhow::Result<MappedBlock> {
-        let source_chunks = self
+        let source_block = self
             .source_chain_access
             .get_txs(source_height, &self.tracked_shards)
             .await
@@ -1406,7 +1484,7 @@ impl<T: ChainAccess> TxMirror<T> {
             })?;
 
         let mut chunks = Vec::new();
-        for ch in source_chunks {
+        for ch in source_block.chunks {
             let mut txs = Vec::new();
 
             for (idx, source_tx) in ch.transactions.into_iter().enumerate() {
@@ -1433,7 +1511,7 @@ impl<T: ChainAccess> TxMirror<T> {
                         &target_private_key,
                         actions,
                         &ref_hash,
-                        source_height,
+                        Some(source_height),
                         MappedTxProvenance::MappedSourceTx(source_height, ch.shard_id, idx),
                         nonce_updates,
                     )
@@ -1470,7 +1548,7 @@ impl<T: ChainAccess> TxMirror<T> {
             self.add_create_account_txs(create_account_height, ref_hash, tracker, &mut chunks)
                 .await?;
         }
-        Ok(MappedBlock { source_height, chunks })
+        Ok(MappedBlock { source_height, source_hash: source_block.hash, chunks })
     }
 
     // Up to a certain capacity, prepare and queue up batches of
@@ -1519,18 +1597,62 @@ impl<T: ChainAccess> TxMirror<T> {
         Ok(())
     }
 
+    // send stake txs for zero stake for each of the stake actions we just saw in
+    // the last block's processed receipts. These would have come from function calls
+    // rather than normal stake txs, since we skip sending those.
+    // TODO: here we're just sending it and forgetting about it, but would be good to
+    // retry later if the tx got lost for some reason
+    async fn unstake(
+        &mut self,
+        tracker: &mut crate::chain_tracker::TxTracker,
+        stakes: HashMap<(AccountId, PublicKey), AccountId>,
+        source_hash: &CryptoHash,
+        target_hash: &CryptoHash,
+        target_height: BlockHeight,
+    ) -> anyhow::Result<()> {
+        let mut txs = Vec::new();
+        for ((receiver_id, public_key), predecessor_id) in stakes {
+            self.push_extra_tx(
+                tracker,
+                source_hash.clone(),
+                &mut txs,
+                predecessor_id,
+                receiver_id.clone(),
+                &[Action::Stake(StakeAction { public_key, stake: 0 })],
+                target_hash,
+                MappedTxProvenance::Unstake(target_hash.clone()),
+                None,
+            )
+            .await?;
+        }
+        if !txs.is_empty() {
+            self.send_transactions(txs.iter_mut()).await?;
+            tracker
+                .on_txs_sent(
+                    &self.db,
+                    crate::chain_tracker::SentBatch::ExtraTxs(txs),
+                    target_height,
+                )
+                .await?;
+        }
+        Ok(())
+    }
+
     async fn main_loop(
         &mut self,
         mut tracker: crate::chain_tracker::TxTracker,
         mut target_height: BlockHeight,
         mut target_head: CryptoHash,
+        mut source_hash: CryptoHash,
     ) -> anyhow::Result<()> {
         loop {
             tokio::select! {
                 // time to send a batch of transactions
                 mapped_block = tracker.next_batch(&self.target_view_client, &self.db), if tracker.num_blocks_queued() > 0 => {
-                    self.send_transactions(mapped_block?).await?;
-                    tracker.on_txs_sent(&self.db, target_height).await?;
+                    let mut mapped_block = mapped_block?;
+                    source_hash = mapped_block.source_hash;
+                    self.send_transactions(mapped_block.chunks.iter_mut().flat_map(|c| c.txs.iter_mut())).await?;
+                    tracker.on_txs_sent(&self.db, crate::chain_tracker::SentBatch::MappedBlock(mapped_block), target_height).await?;
 
                     // now we have one second left until we need to send more transactions. In the
                     // meantime, we might as well prepare some more batches of transactions.
@@ -1541,7 +1663,8 @@ impl<T: ChainAccess> TxMirror<T> {
                     let msg = msg.unwrap();
                     target_head = msg.block.header.hash;
                     target_height = msg.block.header.height;
-                    tracker.on_target_block(&self.target_view_client, &self.db, msg).await?;
+                    let staked_accounts = tracker.on_target_block(&self.target_view_client, &self.db, msg).await?;
+                    self.unstake(&mut tracker, staked_accounts, &source_hash, &target_head, target_height).await?;
                 }
                 // If we don't have any upcoming sets of transactions to send already built, we probably fell behind in the source
                 // chain and can't fetch the transactions. Check if we have them now here.
@@ -1622,6 +1745,11 @@ impl<T: ChainAccess> TxMirror<T> {
                 );
             }
         }
+        let source_hash = self
+            .source_chain_access
+            .block_height_to_hash(next_heights[0])
+            .await
+            .with_context(|| format!("error fetching hash of block #{}", next_heights[0]))?;
 
         tracing::debug!(target: "mirror", "source chain initialized with first heights: {:?}", &next_heights);
 
@@ -1638,7 +1766,13 @@ impl<T: ChainAccess> TxMirror<T> {
                 .iter()
                 .map(|s| MappedChunk { shard_id: *s, txs: Vec::new() })
                 .collect();
-            let mut block = MappedBlock { source_height: last_height, chunks };
+            // we set source_hash to 0 because we don't actually care about it here, and it doesn't even exist since these are
+            // not transactions corresponding to some actual block, but just extra txs create account actions in the first few blocks.
+            let mut block = MappedBlock {
+                source_hash: CryptoHash::default(),
+                source_height: last_height,
+                chunks,
+            };
             for h in next_heights {
                 self.add_create_account_txs(h, target_head, &mut tracker, &mut block.chunks)
                     .await?;
@@ -1646,15 +1780,21 @@ impl<T: ChainAccess> TxMirror<T> {
             if block.chunks.iter().any(|c| !c.txs.is_empty()) {
                 tracing::debug!(target: "mirror", "sending extra create account transactions for the first {} blocks", CREATE_ACCOUNT_DELTA);
                 tracker.queue_block(block, &self.target_view_client, &self.db).await?;
-                let b = tracker.next_batch(&self.target_view_client, &self.db).await?;
-                self.send_transactions(b).await?;
-                tracker.on_txs_sent(&self.db, target_height).await?;
+                let mut b = tracker.next_batch(&self.target_view_client, &self.db).await?;
+                self.send_transactions(b.chunks.iter_mut().flat_map(|c| c.txs.iter_mut())).await?;
+                tracker
+                    .on_txs_sent(
+                        &self.db,
+                        crate::chain_tracker::SentBatch::MappedBlock(b),
+                        target_height,
+                    )
+                    .await?;
             }
         }
 
         self.queue_txs(&mut tracker, target_head, false).await?;
 
-        self.main_loop(tracker, target_height, target_head).await
+        self.main_loop(tracker, target_height, target_head, source_hash).await
     }
 }
 
