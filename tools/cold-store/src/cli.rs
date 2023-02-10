@@ -218,7 +218,7 @@ fn check_iter(
     col: DBCol,
 ) -> u64 {
     let mut num_checks = 0;
-    for (key, value) in first_store.iter(col).map(Result::unwrap) {
+    for (key, _value) in first_store.iter(col).map(Result::unwrap) {
         check_key(first_store, second_store, col, &key);
         num_checks += 1;
     }
