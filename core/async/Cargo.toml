@@ -13,6 +13,7 @@ description = "This crate contains the async helpers specific for nearcore"
 actix.workspace = true
 derive-enum-from-into.workspace = true
 derive_more.workspace = true
+futures.workspace = true
 once_cell.workspace = true
 serde.workspace = true
 serde_json.workspace = true

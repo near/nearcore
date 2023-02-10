@@ -359,7 +359,7 @@ impl<Event> Clone for DelaySender<Event> {
 
 /// Allows DelaySender to be used in contexts where we don't need a delay,
 /// such as being given to something that expects an actix recipient.
-impl<Message, Event: From<Message> + 'static> messaging::Sender<Message> for DelaySender<Event> {
+impl<Message, Event: From<Message> + 'static> messaging::CanSend<Message> for DelaySender<Event> {
     fn send(&self, message: Message) {
         self.send_with_delay(message.into(), Duration::ZERO);
     }
