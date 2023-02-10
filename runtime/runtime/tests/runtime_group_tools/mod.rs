@@ -64,6 +64,7 @@ impl StandaloneRuntime {
             GenesisConfig {
                 validators,
                 total_supply: get_initial_supply(state_records),
+                epoch_length: 60,
                 ..Default::default()
             },
             GenesisRecords(state_records.to_vec()),

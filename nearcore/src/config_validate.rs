@@ -77,8 +77,8 @@ impl<'a> ConfigValidator<'a> {
                 .push_errors(ValidationError::ConfigSemanticsError { error_message: error_message })
         }
 
-        if self.config.tracked_shards.is_empty() {
-            let error_message = format!("Tracked_shards should be non-empty.");
+        if self.config.tracked_accounts.is_empty() {
+            let error_message = format!("Tracked_accounts should be non-empty.");
             self.validation_errors
                 .push_errors(ValidationError::ConfigSemanticsError { error_message: error_message })
         }
