@@ -6,7 +6,7 @@ import time
 import toml
 
 REPO_DIR = '/home/runner/work/nearcore/nearcore/'
-G_BUCKET = 'gs://fuzzer_binaries/'
+G_BUCKET = 'gs://fuzzer_targets/master/'
 ARCH_CONFIG_NAME = 'x86_64-unknown-linux-gnu'
 BUILDER_START_TIME = time.strftime('%Y%m%d%H%M%S', time.gmtime())
 
@@ -14,7 +14,7 @@ BUILDER_START_TIME = time.strftime('%Y%m%d%H%M%S', time.gmtime())
 def push_to_google_bucket(runner: str) -> None:
     tar_name = f'{runner}-master-{BUILDER_START_TIME}.tar.gz'
     with tarfile.open(name=tar_name, mode='w') as archiver:
-        archiver.add(f"target/{ARCH_CONFIG_NAME}/debug/{runner}", runner)
+        archiver.add(f"target/{ARCH_CONFIG_NAME}/release/{runner}", runner)
 
     _proc = subprocess.run([
         'gsutil',
@@ -32,7 +32,7 @@ def main() -> None:
     logger.debug(f"Crates from nightly/fuzz.toml: \n{crates}")
 
     for target in crates:
-        logger.info(f"Working on {target}")
+        logger.info(f"working on {target}")
 
         _proc = subprocess.run(
             [

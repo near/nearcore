@@ -16,8 +16,8 @@ jobs:
       - id: "auth"
         uses: "google-github-actions/auth@v1"
         with:
-          workload_identity_provider: "projects/750982429559/locations/global/workloadIdentityPools/github-actions-pool/providers/github-provider"
-          service_account: "github-service-account@near-fuzzers.iam.gserviceaccount.com"
+          workload_identity_provider: "projects/968400232856/locations/global/workloadIdentityPools/project-identity-pool/providers/github-provider"
+          service_account: "near-fuzzer-service-account@near-fuzzer.iam.gserviceaccount.com"
 
       - uses: hecrj/setup-rust-action@v1
         with:
