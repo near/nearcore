@@ -1158,6 +1158,7 @@ pub fn create_testnet_configs_from_seeds(
         .iter()
         .map(|account_info| account_info.account_id.clone())
         .collect();
+    info!(target: "near", "create_testnet_configs_from_seeds: config.tracked_shards are {:?}", tracked_accounts.clone());
     for i in 0..seeds.len() {
         let mut config = Config::default();
         config.rpc.get_or_insert(Default::default()).enable_debug_rpc = true;
