@@ -425,11 +425,7 @@ impl FlatStateDelta {
 
 use near_o11y::metrics::IntGauge;
 use near_primitives::errors::StorageError;
-#[cfg(feature = "protocol_feature_flat_state")]
-use near_primitives::shard_layout::account_id_to_shard_id;
 use near_primitives::shard_layout::ShardLayout;
-#[cfg(feature = "protocol_feature_flat_state")]
-use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_raw_key;
 use std::sync::{Arc, RwLock};
 #[cfg(feature = "protocol_feature_flat_state")]
 use tracing::info;
@@ -573,8 +569,11 @@ pub mod store_helper {
     use crate::{FlatStateDelta, Store, StoreUpdate};
     use borsh::{BorshDeserialize, BorshSerialize};
     use byteorder::ReadBytesExt;
+    use near_primitives::errors::StorageError;
     use near_primitives::hash::CryptoHash;
+    use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout};
     use near_primitives::state::ValueRef;
+    use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_raw_key;
     use near_primitives::types::ShardId;
     use std::sync::Arc;
 
@@ -734,6 +733,54 @@ pub mod store_helper {
 
     pub fn remove_flat_storage_creation_status(store_update: &mut StoreUpdate, shard_id: ShardId) {
         store_update.delete(crate::DBCol::FlatStateMisc, &creation_status_key(shard_id));
+    }
+
+    /// Iterate over flat storage entries for a given shard.
+    /// It reads data only from the 'main' column - which represents the state as of final head.k
+    ///
+    /// WARNING: flat storage keeps changing, so the results might be inconsistent, unless you're running
+    /// this method on the shapshot of the data.
+    pub fn iter_flat_state_entries<'a>(
+        shard_layout: ShardLayout,
+        shard_id: u64,
+        store: &'a Store,
+        from: Option<Vec<u8>>,
+        to: Option<Vec<u8>>,
+    ) -> impl Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a {
+        store.iter(crate::DBCol::FlatState).filter_map(move |result| {
+            if let Ok((key, value)) = result {
+                // Currently all the data in flat storage is 'together' - so we have to parse the key,
+                // to see if this element belongs to this shard.
+                if let Ok(key_in_shard) = key_belongs_to_shard(&key, &shard_layout, shard_id) {
+                    if key_in_shard {
+                        // Right now this function is very slow, as we iterate over whole flat storage DB (and ignore most of the keys).
+                        // We should add support to our Database object to handle range iterators.
+                        if from.as_ref().map_or(true, |x| x.as_slice() <= key.as_ref())
+                            && to.as_ref().map_or(true, |x| x.as_slice() >= key.as_ref())
+                        {
+                            return Some((key, value));
+                        }
+                    }
+                }
+            }
+            return None;
+        })
+    }
+
+    /// Currently all the data in flat storage is 'together' - so we have to parse the key,
+    /// to see if this element belongs to this shard.
+    pub fn key_belongs_to_shard(
+        key: &Box<[u8]>,
+        shard_layout: &ShardLayout,
+        shard_id: u64,
+    ) -> Result<bool, StorageError> {
+        let account_id = parse_account_id_from_raw_key(key)
+            .map_err(|e| StorageError::StorageInconsistentState(e.to_string()))?
+            .ok_or(StorageError::FlatStorageError(format!(
+                "Failed to find account id in flat storage key {:?}",
+                key
+            )))?;
+        Ok(account_id_to_shard_id(&account_id, &shard_layout) == shard_id)
     }
 }
 
@@ -1092,13 +1139,8 @@ impl FlatStorageState {
         for item in guard.store.iter(crate::DBCol::FlatState) {
             let (key, _) =
                 item.map_err(|e| StorageError::StorageInconsistentState(e.to_string()))?;
-            let account_id = parse_account_id_from_raw_key(&key)
-                .map_err(|e| StorageError::StorageInconsistentState(e.to_string()))?
-                .ok_or(StorageError::FlatStorageError(format!(
-                    "Failed to find account id in flat storage key {:?}",
-                    key
-                )))?;
-            if account_id_to_shard_id(&account_id, &shard_layout) == shard_id {
+
+            if store_helper::key_belongs_to_shard(&key, &shard_layout, shard_id)? {
                 removed_items += 1;
                 store_update.delete(crate::DBCol::FlatState, &key);
             }

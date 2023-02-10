@@ -134,7 +134,7 @@ fn is_zero_balance_account(
 }
 
 #[cfg(feature = "protocol_feature_nep366_delegate_action")]
-use near_primitives::transaction::SignedDelegateAction;
+use near_primitives::delegate_action::SignedDelegateAction;
 
 /// Validates the transaction without using the state. It allows any node to validate a
 /// transaction before forwarding it to the node that tracks the `signer_id` account.
@@ -629,7 +629,7 @@ mod tests {
     #[cfg(feature = "protocol_feature_nep366_delegate_action")]
     use near_crypto::Signature;
     #[cfg(feature = "protocol_feature_nep366_delegate_action")]
-    use near_primitives::transaction::{DelegateAction, NonDelegateAction};
+    use near_primitives::delegate_action::{DelegateAction, NonDelegateAction};
 
     /// Initial balance used in tests.
     const TESTING_INIT_BALANCE: Balance = 1_000_000_000 * NEAR_BASE;
@@ -1905,7 +1905,10 @@ mod tests {
             delegate_action: DelegateAction {
                 sender_id: "bob.test.near".parse().unwrap(),
                 receiver_id: "token.test.near".parse().unwrap(),
-                actions: vec![NonDelegateAction(Action::CreateAccount(CreateAccountAction {}))],
+                actions: vec![NonDelegateAction::try_from(Action::CreateAccount(
+                    CreateAccountAction {},
+                ))
+                .unwrap()],
                 nonce: 19000001,
                 max_block_height: 57,
                 public_key: PublicKey::empty(KeyType::ED25519),

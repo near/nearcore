@@ -1,7 +1,7 @@
 use crate::columns::DBKeyType;
 use crate::db::{ColdDB, COLD_HEAD_KEY, HEAD_KEY};
 use crate::trie::TrieRefcountChange;
-use crate::{DBCol, DBTransaction, Database, Store, TrieChanges};
+use crate::{metrics, DBCol, DBTransaction, Database, Store, TrieChanges};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::block::{Block, BlockHeader, Tip};
@@ -49,6 +49,7 @@ pub fn update_cold_db<D: Database>(
     height: &BlockHeight,
 ) -> io::Result<bool> {
     let _span = tracing::debug_span!(target: "store", "update cold db", height = height);
+    let _timer = metrics::COLD_COPY_DURATION.start_timer();
 
     let mut store_with_cache = StoreWithCache { store: hot_store, cache: StoreCache::new() };
 
