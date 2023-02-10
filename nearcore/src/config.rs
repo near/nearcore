@@ -1031,7 +1031,6 @@ pub fn init_configs(
             generate_or_load_key(dir, &config.node_key_file, Some("node".parse().unwrap()), None)?;
 
             config.tracked_accounts = vec![signer.account_id.clone()];
-            info!(target: "near", "config.tracked_accounts are {:?}", &config.tracked_accounts);
             config.write_to_file(&dir.join(CONFIG_FILENAME)).with_context(|| {
                 format!("Error writing config to {}", dir.join(CONFIG_FILENAME).display())
             })?;
@@ -1101,6 +1100,7 @@ pub fn init_configs(
             let genesis = Genesis::new(genesis_config, records.into());
             genesis.to_file(&dir.join(config.genesis_file));
             info!(target: "near", "Generated node key, validator key, genesis file in {}", dir.display());
+            info!(target: "near", "init_configs: config.tracked_accounts are {:?}", &config.tracked_accounts);
         }
     }
     Ok(())
@@ -1158,7 +1158,7 @@ pub fn create_testnet_configs_from_seeds(
         .iter()
         .map(|account_info| account_info.account_id.clone())
         .collect();
-    info!(target: "near", "create_testnet_configs_from_seeds: config.tracked_shards are {:?}", tracked_accounts.clone());
+    println!("create_testnet_configs_from_seeds: config.tracked_shards are {:?}", tracked_accounts.clone());
     for i in 0..seeds.len() {
         let mut config = Config::default();
         config.rpc.get_or_insert(Default::default()).enable_debug_rpc = true;
