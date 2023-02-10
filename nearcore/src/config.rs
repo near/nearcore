@@ -1099,7 +1099,7 @@ pub fn init_configs(
             };
             let genesis = Genesis::new(genesis_config, records.into());
             genesis.to_file(&dir.join(config.genesis_file));
-            info!(target: "near", "Generated node key, validator key, genesis file in {}", dir.display());
+            //info!(target: "near", "Generated node key, validator key, genesis file in {}", dir.display());
             info!(target: "near", "init_configs: config.tracked_accounts are {:?}", &config.tracked_accounts);
         }
     }
