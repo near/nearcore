@@ -1023,11 +1023,12 @@ pub fn init_configs(
                 config.consensus.max_block_production_delay =
                     Duration::from_millis(FAST_MAX_BLOCK_PRODUCTION_DELAY);
             }
+            let account_id = account_id.unwrap_or_else(|| "test.near".parse().unwrap());
+            config.tracked_accounts = vec!(account_id.clone());
             config.write_to_file(&dir.join(CONFIG_FILENAME)).with_context(|| {
                 format!("Error writing config to {}", dir.join(CONFIG_FILENAME).display())
             })?;
 
-            let account_id = account_id.unwrap_or_else(|| "test.near".parse().unwrap());
             let signer =
                 generate_or_load_key(dir, &config.validator_key_file, Some(account_id), test_seed)?
                     .unwrap();
