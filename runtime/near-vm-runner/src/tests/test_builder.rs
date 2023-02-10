@@ -36,10 +36,11 @@ pub(crate) fn test_builder() -> TestBuilder {
         opaque_error: false,
         opaque_outcome: false,
     };
-    res.skip_wasmer0().skip_wasmtime()
-    // TODO: actually run tests for wasmer0 / wasmtime... but with the new
-    // instrumentation only working for wasmer2, I’m not sure keeping the
-    // same expect! strings makes sense?
+    res.skip_wasmer0().skip_wasmtime().skip_wasmer2()
+    // TODO: actually run tests for other engines wasmer0 / wasmtime... but
+    // with the new instrumentation only working for wasmer2, I’m not sure
+    // keeping the same expect! strings makes sense? we need to implement
+    // js->js instrumentation for that basically.
 }
 
 pub(crate) struct TestBuilder {
@@ -107,6 +108,31 @@ impl TestBuilder {
         self
     }
 
+    #[allow(dead_code)]
+    pub(crate) fn skip_near_vm(mut self) -> Self {
+        self.skip.insert(VMKind::NearVm);
+        self
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn only_wasmtime(self) -> Self {
+        self.skip_wasmer0().skip_wasmer2().skip_near_vm()
+    }
+
+    pub(crate) fn only_wasmer0(self) -> Self {
+        self.skip_wasmer2().skip_near_vm().skip_wasmtime()
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn only_wasmer2(self) -> Self {
+        self.skip_wasmer0().skip_near_vm().skip_wasmtime()
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn only_near_vm(self) -> Self {
+        self.skip_wasmer0().skip_wasmer2().skip_wasmtime()
+    }
+
     /// Run  the necessary tests to check protocol upgrades for the given
     /// features.
     ///
@@ -151,7 +177,7 @@ impl TestBuilder {
 
         for (want, &protocol_version) in wants.iter().zip(&self.protocol_versions) {
             let mut results = vec![];
-            for vm_kind in [VMKind::Wasmer2, VMKind::Wasmer0, VMKind::Wasmtime] {
+            for vm_kind in [VMKind::NearVm, VMKind::Wasmer2, VMKind::Wasmer0, VMKind::Wasmtime] {
                 if self.skip.contains(&vm_kind) {
                     continue;
                 }

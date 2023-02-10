@@ -25,7 +25,7 @@ use wasmer_engine::Executable;
 fn test_caches_compilation_error() {
     with_vm_variants(|vm_kind: VMKind| {
         match vm_kind {
-            VMKind::Wasmer0 | VMKind::Wasmer2 => {}
+            VMKind::Wasmer0 | VMKind::Wasmer2 | VMKind::NearVm => {}
             VMKind::Wasmtime => return,
         }
         let cache = MockCompiledContractCache::default();
@@ -48,7 +48,7 @@ fn test_caches_compilation_error() {
 fn test_does_not_cache_io_error() {
     with_vm_variants(|vm_kind: VMKind| {
         match vm_kind {
-            VMKind::Wasmer0 | VMKind::Wasmer2 => {}
+            VMKind::Wasmer0 | VMKind::Wasmer2 | VMKind::NearVm=> {}
             VMKind::Wasmtime => return,
         }
 
@@ -118,13 +118,13 @@ fn test_wasmer2_artifact_output_stability() {
     ];
     let mut got_prepared_hashes = Vec::with_capacity(seeds.len());
     let compiled_hashes = [
-        12551131314811786323,
-        9250503313022209780,
-        2580973929183801763,
-        13145300348935033331,
-        8634071806725552420,
-        701772735860447193,
-        8400828837036618513,
+        12914803299205462410,
+        13880247118209071668,
+        4059327185827284260,
+        4945603412975905596,
+        16226134256846235281,
+        11697422317264208186,
+        5296197780491249215,
     ];
     let mut got_compiled_hashes = Vec::with_capacity(seeds.len());
     for seed in seeds {

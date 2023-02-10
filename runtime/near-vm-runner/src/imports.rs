@@ -419,7 +419,7 @@ pub(crate) mod wasmer2 {
                     if field == stringify!($name) {
                         let args = [$(<$arg_type as Wasmer2Type>::ty()),*];
                         let rets = [$(<$returns as Wasmer2Type>::ty()),*];
-                        let signature = wasmer_types::FunctionType::new(&args[..], &rets[..]);
+                        let signature = wasmer_types::FunctionTypeRef::new(&args[..], &rets[..]);
                         let signature = self.engine.register_signature(signature);
                         return Some(wasmer_vm::Export::Function(ExportFunction {
                             vm_function: VMFunction {
@@ -459,6 +459,172 @@ pub(crate) mod wasmer2 {
             ExportFunctionMetadata::new(logic as *mut _ as *mut _, None, |ptr| ptr, |_| {})
         };
         Wasmer2Imports {
+            memory,
+            vmlogic: logic,
+            metadata: Arc::new(metadata),
+            protocol_version,
+            engine,
+        }
+    }
+}
+
+
+#[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
+pub(crate) mod near_vm {
+    use std::sync::Arc;
+
+    use super::str_eq;
+    use near_vm_logic::{ProtocolVersion, VMLogic};
+    use near_vm_engine::Engine;
+    use near_vm_engine_universal::UniversalEngine;
+    use near_vm_vm::{
+        ExportFunction, ExportFunctionMetadata, Resolver, VMFunction, VMFunctionKind, VMMemory,
+    };
+
+    pub(crate) struct NearVmImports<'engine, 'vmlogic, 'vmlogic_refs> {
+        pub(crate) memory: VMMemory,
+        // Note: this same object is also referenced by the `metadata` field!
+        pub(crate) vmlogic: &'vmlogic mut VMLogic<'vmlogic_refs>,
+        pub(crate) metadata: Arc<ExportFunctionMetadata>,
+        pub(crate) protocol_version: ProtocolVersion,
+        pub(crate) engine: &'engine UniversalEngine,
+    }
+
+    trait NearVmType {
+        type NearVm;
+        fn to_near_vm(self) -> Self::NearVm;
+        fn ty() -> near_vm_types::Type;
+    }
+    macro_rules! near_vm_types {
+        ($($native:ty as $near_vm:ty => $type_expr:expr;)*) => {
+            $(impl NearVmType for $native {
+                type NearVm = $near_vm;
+                fn to_near_vm(self) -> $near_vm {
+                    self as _
+                }
+                fn ty() -> near_vm_types::Type {
+                    $type_expr
+                }
+            })*
+        }
+    }
+    near_vm_types! {
+        u32 as i32 => near_vm_types::Type::I32;
+        u64 as i64 => near_vm_types::Type::I64;
+    }
+
+    macro_rules! return_ty {
+        ($return_type: ident = [ ]) => {
+            type $return_type = ();
+            fn make_ret() -> () {}
+        };
+        ($return_type: ident = [ $($returns: ident),* ]) => {
+            #[repr(C)]
+            struct $return_type($(<$returns as NearVmType>::NearVm),*);
+            fn make_ret($($returns: $returns),*) -> Ret { Ret($($returns.to_near_vm()),*) }
+        }
+    }
+
+    impl<'e, 'l, 'lr> Resolver for NearVmImports<'e, 'l, 'lr> {
+        fn resolve(&self, _index: u32, module: &str, field: &str) -> Option<near_vm_vm::Export> {
+            if module != "env" {
+                return None;
+            }
+            if field == "memory" {
+                return Some(near_vm_vm::Export::Memory(self.memory.clone()));
+            }
+
+            macro_rules! add_import {
+                (
+                  $name:ident : $func:ident <
+                    [ $( $arg_name:ident : $arg_type:ident ),* ]
+                    -> [ $( $returns:ident ),* ]
+                  >
+                ) => {
+                    return_ty!(Ret = [ $($returns),* ]);
+
+                    extern "C" fn $name(env: *mut VMLogic<'_>, $( $arg_name: $arg_type ),* )
+                    -> Ret {
+                        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            const IS_GAS: bool = str_eq(stringify!($name), "gas");
+                            let _span = if IS_GAS {
+                                None
+                            } else {
+                                Some(tracing::trace_span!(
+                                    target: "host-function",
+                                    stringify!($name)
+                                ).entered())
+                            };
+
+                            // SAFETY: This code should only be executable within `'vmlogic`
+                            // lifetime and so it is safe to dereference the `env` pointer which is
+                            // known to be derived from a valid `&'vmlogic mut VMLogic<'_>` in the
+                            // first place.
+                            unsafe { (*env).$func( $( $arg_name, )* ) }
+                        }));
+                        // We want to ensure that the only kind of error that host function calls
+                        // return are VMLogicError. This is important because we later attempt to
+                        // downcast the `RuntimeError`s into `VMLogicError`.
+                        let result: Result<Result<_, near_vm_errors::VMLogicError>, _>  = result;
+                        #[allow(unused_parens)]
+                        match result {
+                            Ok(Ok(($($returns),*))) => make_ret($($returns),*),
+                            Ok(Err(trap)) => unsafe {
+                                // SAFETY: this can only be called by a WASM contract, so all the
+                                // necessary hooks are known to be in place.
+                                near_vm_vm::raise_user_trap(Box::new(trap))
+                            },
+                            Err(e) => unsafe {
+                                // SAFETY: this can only be called by a WASM contract, so all the
+                                // necessary hooks are known to be in place.
+                                near_vm_vm::resume_panic(e)
+                            },
+                        }
+                    }
+                    // TODO: a phf hashmap would probably work better here.
+                    if field == stringify!($name) {
+                        let args = [$(<$arg_type as NearVmType>::ty()),*];
+                        let rets = [$(<$returns as NearVmType>::ty()),*];
+                        let signature = near_vm_types::FunctionType::new(&args[..], &rets[..]);
+                        let signature = self.engine.register_signature(signature);
+                        return Some(near_vm_vm::Export::Function(ExportFunction {
+                            vm_function: VMFunction {
+                                address: $name as *const _,
+                                // SAFETY: here we erase the lifetime of the `vmlogic` reference,
+                                // but we believe that the lifetimes on `NearVmImports` enforce
+                                // sufficiently that it isn't possible to call this exported
+                                // function when vmlogic is no loger live.
+                                vmctx: near_vm_vm::VMFunctionEnvironment {
+                                    host_env: self.vmlogic as *const _ as *mut _
+                                },
+                                signature,
+                                kind: VMFunctionKind::Static,
+                                call_trampoline: None,
+                                instance_ref: None,
+                            },
+                            metadata: Some(Arc::clone(&self.metadata)),
+                        }));
+                    }
+                };
+            }
+            for_each_available_import!(self.protocol_version, add_import);
+            return None;
+        }
+    }
+
+    pub(crate) fn build<'e, 'a, 'b>(
+        memory: VMMemory,
+        logic: &'a mut VMLogic<'b>,
+        protocol_version: ProtocolVersion,
+        engine: &'e UniversalEngine,
+    ) -> NearVmImports<'e, 'a, 'b> {
+        let metadata = unsafe {
+            // SAFETY: the functions here are thread-safe. We ensure that the lifetime of `VMLogic`
+            // is sufficiently long by tying the lifetime of VMLogic to the return type which
+            // contains this metadata.
+            ExportFunctionMetadata::new(logic as *mut _ as *mut _, None, |ptr| ptr, |_| {})
+        };
+        NearVmImports {
             memory,
             vmlogic: logic,
             metadata: Arc::new(metadata),

@@ -15,12 +15,10 @@ This crate implements the specification of the interface that Near blockchain ex
 [dependencies]
 anyhow = { workspace = true, optional = true }
 borsh.workspace = true
-finite-wasm.workspace = true
 loupe.workspace = true
 memoffset.workspace = true
 once_cell.workspace = true
 parity-wasm.workspace = true
-prefix-sum-vec.workspace = true
 serde.workspace = true
 tracing.workspace = true
 wasmparser.workspace = true
@@ -46,12 +44,21 @@ wasmer-runtime-core = { version = "0.18.2", package = "wasmer-runtime-core-near"
 # wasmer-compiler-singlepass = { package = "wasmer-compiler-singlepass-near", git = "https://github.com/near/wasmer", branch = "near-main", optional = true }
 # wasmer-engine-universal = { package = "wasmer-engine-universal-near", git = "https://github.com/near/wasmer", branch = "near-main", optional = true }
 # wasmer-vm = { package = "wasmer-vm-near", git = "https://github.com/near/wasmer", branch = "near-main" }
-wasmer-compiler = { package = "wasmer-compiler-near", path = "../../../wasmer/lib/compiler", optional = true }
-wasmer-compiler-singlepass = { package = "wasmer-compiler-singlepass-near", path = "../../../wasmer/lib/compiler-singlepass", optional = true, default-features = false, features = ["std"] } # Available features: std, rayon
-wasmer-engine = { package = "wasmer-engine-near", path = "../../../wasmer/lib/engine", optional = true }
-wasmer-engine-universal = { package = "wasmer-engine-universal-near", path = "../../../wasmer/lib/engine-universal", features = ["compiler"], optional = true }
-wasmer-types = { package = "wasmer-types-near", path = "../../../wasmer/lib/types", optional = true }
-wasmer-vm = { package = "wasmer-vm-near", path = "../../../wasmer/lib/vm", optional = true }
+wasmer-compiler = { package = "wasmer-compiler-near", version = "=2.4.0", optional = true }
+wasmer-compiler-singlepass = { package = "wasmer-compiler-singlepass-near", version = "=2.4.0", optional = true }
+wasmer-engine = { package = "wasmer-engine-near", version = "=2.4.0", optional = true }
+wasmer-engine-universal = { package = "wasmer-engine-universal-near", version = "=2.4.0", optional = true, features = ["compiler"] }
+wasmer-types = { package = "wasmer-types-near", version = "=2.4.0", optional = true }
+wasmer-vm = { package = "wasmer-vm-near", version = "=2.4.0", optional = true }
+
+finite-wasm = "0.3.0"
+prefix-sum-vec = "0.1.2"
+near-vm-compiler = { package = "wasmer-compiler-near", path = "../../../wasmer/lib/compiler", optional = true }
+near-vm-compiler-singlepass = { package = "wasmer-compiler-singlepass-near", path = "../../../wasmer/lib/compiler-singlepass", optional = true, default-features = false, features = ["std"] } # Available features: std, rayon
+near-vm-engine = { package = "wasmer-engine-near", path = "../../../wasmer/lib/engine", optional = true }
+near-vm-engine-universal = { package = "wasmer-engine-universal-near", path = "../../../wasmer/lib/engine-universal", features = ["compiler"], optional = true }
+near-vm-types = { package = "wasmer-types-near", path = "../../../wasmer/lib/types", optional = true }
+near-vm-vm = { package = "wasmer-vm-near", path = "../../../wasmer/lib/vm", optional = true }
 
 [dev-dependencies]
 arbitrary.workspace = true
@@ -83,11 +90,20 @@ wasmer2_vm = [
     "wasmer-types",
     "wasmer-vm"
 ]
+near_vm = [
+    "near-vm-compiler",
+    "near-vm-compiler-singlepass",
+    "near-vm-engine",
+    "near-vm-engine-universal",
+    "near-vm-types",
+    "near-vm-vm"
+]
 
 # Force usage of a specific wasm vm irrespective of protocol version.
 force_wasmer0 = ["wasmer0_vm"]
 force_wasmtime = ["wasmtime_vm"]
 force_wasmer2 = ["wasmer2_vm"]
+force_near_vm = ["near_vm"]
 
 no_cpu_compatibility_checks = []
 

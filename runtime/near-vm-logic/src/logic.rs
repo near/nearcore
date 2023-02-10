@@ -147,6 +147,7 @@ impl<'a> VMLogic<'a> {
         let gas_counter = GasCounter::new(
             config.ext_costs.clone(),
             max_gas_burnt,
+            config.regular_op_cost,
             context.prepaid_gas,
             context.is_view(),
         );

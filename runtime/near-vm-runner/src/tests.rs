@@ -25,10 +25,13 @@ fn with_vm_variants(runner: fn(VMKind) -> ()) {
 
     #[cfg(feature = "wasmtime_vm")]
     runner(VMKind::Wasmtime);
-    */
 
     #[cfg(all(feature = "wasmer2_vm", target_arch = "x86_64"))]
     runner(VMKind::Wasmer2);
+    */
+
+    #[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
+    runner(VMKind::NearVm);
 }
 
 fn create_context(input: Vec<u8>) -> VMContext {

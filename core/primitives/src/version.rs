@@ -91,6 +91,12 @@ pub enum ProtocolFeature {
     /// Although wasmer2 is faster, we don't change fees with this protocol
     /// version -- we can safely do that in a separate step.
     Wasmer2,
+    /// This feature switch our WASM engine implementation from wasmer 2.* to
+    /// near-vm, bringing better performance and reliability.
+    ///
+    /// Although near-vm is faster, we don't change fees with this protocol
+    /// version -- we can safely do that in a separate step.
+    NearVm,
     SimpleNightshade,
     LowerDataReceiptAndEcrecoverBaseCost,
     /// Lowers the cost of wasm instruction due to switch to wasmer2.
@@ -224,6 +230,7 @@ impl ProtocolFeature {
             ProtocolFeature::AltBn128 => 55,
             ProtocolFeature::ChunkOnlyProducers | ProtocolFeature::MaxKickoutStake => 56,
             ProtocolFeature::AccountIdInFunctionCallPermission => 57,
+            ProtocolFeature::NearVm => 58,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_fix_staking_threshold")]

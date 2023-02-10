@@ -39,6 +39,8 @@ pub struct FastGasCounter {
     pub burnt_gas: u64,
     /// Hard gas limit for execution
     pub gas_limit: u64,
+    /// Cost for one opcode. Used only by VMs preceding near_vm.
+    pub opcode_cost: u64,
 }
 
 /// Gas counter (a part of VMlogic)
@@ -63,6 +65,7 @@ impl GasCounter {
     pub fn new(
         ext_costs_config: ExtCostsConfig,
         max_gas_burnt: Gas,
+        opcode_cost: u32,
         prepaid_gas: Gas,
         is_view: bool,
     ) -> Self {
@@ -74,6 +77,7 @@ impl GasCounter {
             fast_counter: FastGasCounter {
                 burnt_gas: 0,
                 gas_limit: min(max_gas_burnt, prepaid_gas),
+                opcode_cost: Gas::from(opcode_cost),
             },
             max_gas_burnt: max_gas_burnt,
             promises_gas: 0,
@@ -276,7 +280,7 @@ mod tests {
     use near_primitives_core::types::Gas;
 
     fn make_test_counter(max_burnt: Gas, prepaid: Gas, is_view: bool) -> super::GasCounter {
-        super::GasCounter::new(ExtCostsConfig::test(), max_burnt, prepaid, is_view)
+        super::GasCounter::new(ExtCostsConfig::test(), max_burnt, 1, prepaid, is_view)
     }
 
     #[test]

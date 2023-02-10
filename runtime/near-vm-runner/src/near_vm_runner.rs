@@ -1,5 +1,5 @@
 use crate::errors::ContractPrecompilatonResult;
-use crate::imports::wasmer2::Wasmer2Imports;
+use crate::imports::near_vm::NearVmImports;
 use crate::internal::VMKind;
 use crate::prepare::{self, WASM_FEATURES};
 use crate::runner::VMResult;
@@ -19,43 +19,45 @@ use std::borrow::Cow;
 use std::hash::{Hash, Hasher};
 use std::mem::size_of;
 use std::sync::Arc;
-use wasmer_compiler_singlepass::Singlepass;
-use wasmer_engine::{Engine, Executable};
-use wasmer_engine_universal::{
+use near_vm_compiler_singlepass::Singlepass;
+use near_vm_engine::{Engine, Executable};
+use near_vm_engine_universal::{
     Universal, UniversalEngine, UniversalExecutable, UniversalExecutableRef,
 };
-use wasmer_types::{Features, FunctionIndex, InstanceConfig, MemoryType, Pages, WASM_PAGE_SIZE};
-use wasmer_vm::{
+use near_vm_types::{Features, FunctionIndex, InstanceConfig, MemoryType, Pages, WASM_PAGE_SIZE};
+use near_vm_vm::{
     Artifact, Instantiatable, LinearMemory, LinearTable, Memory, MemoryStyle, TrapCode, VMMemory,
 };
 
-const WASMER_FEATURES: Features = Features {
+const VM_FEATURES: Features = Features {
     threads: WASM_FEATURES.threads,
     reference_types: WASM_FEATURES.reference_types,
     simd: WASM_FEATURES.simd,
     bulk_memory: WASM_FEATURES.bulk_memory,
     multi_value: WASM_FEATURES.multi_value,
     tail_call: WASM_FEATURES.tail_call,
-    module_linking: false,
     multi_memory: WASM_FEATURES.multi_memory,
     memory64: WASM_FEATURES.memory64,
     exceptions: WASM_FEATURES.exceptions,
+    mutable_global: WASM_FEATURES.mutable_global,
+    saturating_float_to_int: WASM_FEATURES.saturating_float_to_int,
+    sign_extension: WASM_FEATURES.sign_extension,
 };
 
 #[derive(Clone)]
-pub struct Wasmer2Memory(Arc<LinearMemory>);
+pub struct NearVmMemory(Arc<LinearMemory>);
 
-impl Wasmer2Memory {
+impl NearVmMemory {
     fn new(
         initial_memory_pages: u32,
         max_memory_pages: u32,
-    ) -> Result<Self, wasmer_vm::MemoryError> {
+    ) -> Result<Self, near_vm_vm::MemoryError> {
         let max_pages = Pages(max_memory_pages);
-        Ok(Wasmer2Memory(Arc::new(LinearMemory::new(
+        Ok(NearVmMemory(Arc::new(LinearMemory::new(
             &MemoryType::new(Pages(initial_memory_pages), Some(max_pages), false),
             &MemoryStyle::Static {
                 bound: max_pages,
-                offset_guard_size: wasmer_types::WASM_PAGE_SIZE as u64,
+                offset_guard_size: near_vm_types::WASM_PAGE_SIZE as u64,
             },
         )?)))
     }
@@ -108,7 +110,7 @@ impl Wasmer2Memory {
     }
 }
 
-impl MemoryLike for Wasmer2Memory {
+impl MemoryLike for NearVmMemory {
     fn fits_memory(&self, slice: MemSlice) -> Result<(), ()> {
         // SAFETY: Contracts are executed on a single thread thus we know no one
         // will change guest memory mapping under us.
@@ -137,14 +139,14 @@ impl MemoryLike for Wasmer2Memory {
 }
 
 fn get_entrypoint_index(
-    artifact: &wasmer_engine_universal::UniversalArtifact,
+    artifact: &near_vm_engine_universal::UniversalArtifact,
     method_name: &str,
 ) -> Result<FunctionIndex, FunctionCallError> {
     if method_name.is_empty() {
         // Do we really need this code?
         return Err(FunctionCallError::MethodResolveError(MethodResolveError::MethodEmptyName));
     }
-    if let Some(wasmer_types::ExportIndex::Function(index)) = artifact.export_field(method_name) {
+    if let Some(near_vm_types::ExportIndex::Function(index)) = artifact.export_field(method_name) {
         let signature = artifact.function_signature(index).expect("index should produce signature");
         let signature =
             artifact.engine().lookup_signature(signature).expect("signature store invlidated?");
@@ -159,11 +161,11 @@ fn get_entrypoint_index(
 }
 
 fn translate_runtime_error(
-    error: wasmer_engine::RuntimeError,
+    error: near_vm_engine::RuntimeError,
     logic: &mut VMLogic,
 ) -> Result<FunctionCallError, VMRunnerError> {
     // Errors produced by host function calls also become `RuntimeError`s that wrap a dynamic
-    // instance of `VMLogicError` internally. See the implementation of `Wasmer2Imports`.
+    // instance of `VMLogicError` internally. See the implementation of `NearVmImports`.
     let error = match error.downcast::<near_vm_errors::VMLogicError>() {
         Ok(vm_logic) => {
             return vm_logic.try_into();
@@ -199,7 +201,7 @@ fn translate_runtime_error(
 
 #[derive(Hash, PartialEq, Debug)]
 #[allow(unused)]
-enum WasmerEngine {
+enum NearVmEngine {
     Universal = 1,
     StaticLib = 2,
     DynamicLib = 3,
@@ -207,20 +209,20 @@ enum WasmerEngine {
 
 #[derive(Hash, PartialEq, Debug)]
 #[allow(unused)]
-enum WasmerCompiler {
+enum NearVmCompiler {
     Singlepass = 1,
     Cranelift = 2,
     Llvm = 3,
 }
 
 #[derive(Hash)]
-struct Wasmer2Config {
+struct NearVmConfig {
     seed: u32,
-    engine: WasmerEngine,
-    compiler: WasmerCompiler,
+    engine: NearVmEngine,
+    compiler: NearVmCompiler,
 }
 
-impl Wasmer2Config {
+impl NearVmConfig {
     fn config_hash(self: Self) -> u64 {
         let mut s = StableHasher::new();
         self.hash(&mut s);
@@ -229,41 +231,41 @@ impl Wasmer2Config {
 }
 
 // We use following scheme for the bits forming seed:
-//  kind << 10, kind is 1 for Wasmer2
+//  kind << 10, kind is 1 for Wasmer2, 2 for NearVm
 //  major version << 6
 //  minor version
-const WASMER2_CONFIG: Wasmer2Config = Wasmer2Config {
-    seed: (1 << 10) | (8 << 6) | 0,
-    engine: WasmerEngine::Universal,
-    compiler: WasmerCompiler::Singlepass,
+const VM_CONFIG: NearVmConfig = NearVmConfig {
+    seed: (2 << 10) | (0 << 6) | 0,
+    engine: NearVmEngine::Universal,
+    compiler: NearVmCompiler::Singlepass,
 };
 
-pub(crate) fn wasmer2_vm_hash() -> u64 {
-    WASMER2_CONFIG.config_hash()
+pub(crate) fn near_vm_vm_hash() -> u64 {
+    VM_CONFIG.config_hash()
 }
 
-pub(crate) type VMArtifact = Arc<wasmer_engine_universal::UniversalArtifact>;
+pub(crate) type VMArtifact = Arc<near_vm_engine_universal::UniversalArtifact>;
 
-pub(crate) struct Wasmer2VM {
+pub(crate) struct NearVmVM {
     pub(crate) config: VMConfig,
     pub(crate) engine: UniversalEngine,
 }
 
-impl Wasmer2VM {
-    pub(crate) fn new_for_target(config: VMConfig, target: wasmer_compiler::Target) -> Self {
+impl NearVmVM {
+    pub(crate) fn new_for_target(config: VMConfig, target: near_vm_compiler::Target) -> Self {
         // We only support singlepass compiler at the moment.
-        assert_eq!(WASMER2_CONFIG.compiler, WasmerCompiler::Singlepass);
+        assert_eq!(VM_CONFIG.compiler, NearVmCompiler::Singlepass);
         let compiler = Singlepass::new();
         // We only support universal engine at the moment.
-        assert_eq!(WASMER2_CONFIG.engine, WasmerEngine::Universal);
+        assert_eq!(VM_CONFIG.engine, NearVmEngine::Universal);
         Self {
             config,
-            engine: Universal::new(compiler).target(target).features(WASMER_FEATURES).engine(),
+            engine: Universal::new(compiler).target(target).features(VM_FEATURES).engine(),
         }
     }
 
     pub(crate) fn new(config: VMConfig) -> Self {
-        use wasmer_compiler::{CpuFeature, Target, Triple};
+        use near_vm_compiler::{CpuFeature, Target, Triple};
         let target_features = if cfg!(feature = "no_cpu_compatibility_checks") {
             let mut fs = CpuFeature::set();
             // These features should be sufficient to run the single pass compiler.
@@ -285,19 +287,20 @@ impl Wasmer2VM {
         &self,
         code: &ContractCode,
     ) -> Result<UniversalExecutable, CompilationError> {
-        let _span = tracing::debug_span!(target: "vm", "Wasmer2VM::compile_uncached").entered();
-        let prepared_code = prepare::prepare_contract(code.code(), &self.config)
+        let _span = tracing::debug_span!(target: "vm", "NearVmVM::compile_uncached").entered();
+        let prepared_code = prepare::prepare_contract_for_near_vm(code.code(), &self.config)
             .map_err(CompilationError::PrepareError)?;
+        std::fs::write("/tmp/foo.wasm", &prepared_code).unwrap();
 
         debug_assert!(
             matches!(self.engine.validate(&prepared_code), Ok(_)),
-            "wasmer failed to validate the prepared code"
+            "near_vm failed to validate the prepared code"
         );
         let executable = self
             .engine
             .compile_universal(&prepared_code, &self)
             .map_err(|err| {
-                tracing::error!(?err, "wasmer failed to compile the prepared code (this is defense-in-depth, the error was recovered from but should be reported to pagoda)");
+                tracing::error!(?err, "near_vm failed to compile the prepared code (this is defense-in-depth, the error was recovered from but should be reported to pagoda)");
                 CompilationError::WasmerCompileError { msg: err.to_string() }
             })?;
         Ok(executable)
@@ -309,7 +312,7 @@ impl Wasmer2VM {
         cache: Option<&dyn CompiledContractCache>,
     ) -> Result<Result<UniversalExecutable, CompilationError>, CacheError> {
         let executable_or_error = self.compile_uncached(code);
-        let key = get_contract_cache_key(code, VMKind::Wasmer2, &self.config);
+        let key = get_contract_cache_key(code, VMKind::NearVm, &self.config);
 
         if let Some(cache) = cache {
             let record = match &executable_or_error {
@@ -340,12 +343,12 @@ impl Wasmer2VM {
         // Caches also cache _compilation_ errors, so that we don't have to
         // re-parse invalid code (invalid code, in a sense, is a normal
         // outcome). And `cache`, being a database, can fail with an `io::Error`.
-        let _span = tracing::debug_span!(target: "vm", "Wasmer2VM::compile_and_load").entered();
+        let _span = tracing::debug_span!(target: "vm", "NearVmVM::compile_and_load").entered();
 
-        let key = get_contract_cache_key(code, VMKind::Wasmer2, &self.config);
+        let key = get_contract_cache_key(code, VMKind::NearVm, &self.config);
 
         let compile_or_read_from_cache = || -> VMResult<Result<VMArtifact, CompilationError>> {
-            let _span = tracing::debug_span!(target: "vm", "Wasmer2VM::compile_or_read_from_cache")
+            let _span = tracing::debug_span!(target: "vm", "NearVmVM::compile_or_read_from_cache")
                 .entered();
             let cache_record = cache
                 .map(|cache| cache.get(&key))
@@ -358,16 +361,16 @@ impl Wasmer2VM {
                 Some(CompiledContract::CompileModuleError(err)) => return Ok(Err(err)),
                 Some(CompiledContract::Code(serialized_module)) => {
                     let _span =
-                        tracing::debug_span!(target: "vm", "Wasmer2VM::read_from_cache").entered();
+                        tracing::debug_span!(target: "vm", "NearVmVM::read_from_cache").entered();
                     unsafe {
                         // (UN-)SAFETY: the `serialized_module` must have been produced by a prior call to
                         // `serialize`.
                         //
                         // In practice this is not necessarily true. One could have forgotten to change the
-                        // cache key when upgrading the version of the wasmer library or the database could
+                        // cache key when upgrading the version of the near_vm library or the database could
                         // have had its data corrupted while at rest.
                         //
-                        // There should definitely be some validation in wasmer to ensure we load what we think
+                        // There should definitely be some validation in near_vm to ensure we load what we think
                         // we load.
                         let executable = UniversalExecutableRef::deserialize(&serialized_module)
                             .map_err(|_| CacheError::DeserializationError)?;
@@ -415,26 +418,22 @@ impl Wasmer2VM {
     fn run_method(
         &self,
         artifact: &VMArtifact,
-        mut import: Wasmer2Imports<'_, '_, '_>,
+        mut import: NearVmImports<'_, '_, '_>,
         method_name: &str,
     ) -> Result<Result<(), FunctionCallError>, VMRunnerError> {
         let _span = tracing::debug_span!(target: "vm", "run_method").entered();
 
-        // FastGasCounter in Nearcore and Wasmer must match in layout.
-        assert_eq!(size_of::<FastGasCounter>(), size_of::<wasmer_types::FastGasCounter>());
+        // FastGasCounter in Nearcore must be reinterpret_cast-able to the one in NearVm.
+        assert_eq!(size_of::<FastGasCounter>(), size_of::<near_vm_types::FastGasCounter>() + size_of::<u64>());
         assert_eq!(
             offset_of!(FastGasCounter, burnt_gas),
-            offset_of!(wasmer_types::FastGasCounter, burnt_gas)
+            offset_of!(near_vm_types::FastGasCounter, burnt_gas)
         );
         assert_eq!(
             offset_of!(FastGasCounter, gas_limit),
-            offset_of!(wasmer_types::FastGasCounter, gas_limit)
+            offset_of!(near_vm_types::FastGasCounter, gas_limit)
         );
-        assert_eq!(
-            offset_of!(FastGasCounter, opcode_cost),
-            offset_of!(wasmer_types::FastGasCounter, opcode_cost)
-        );
-        let gas = import.vmlogic.gas_counter_pointer() as *mut wasmer_types::FastGasCounter;
+        let gas = import.vmlogic.gas_counter_pointer() as *mut near_vm_types::FastGasCounter;
         let entrypoint = match get_entrypoint_index(&*artifact, method_name) {
             Ok(index) => index,
             Err(abort) => return Ok(Err(abort)),
@@ -458,12 +457,13 @@ impl Wasmer2VM {
                     // entirety of this function.
                     InstanceConfig::default()
                         .with_counter(gas)
+                        // TODO: check wasmer2_stack_limit is actually a protocol const and not a local config
                         .with_stack_limit(self.config.limit_config.wasmer2_stack_limit),
                 );
                 let handle = match maybe_handle {
                     Ok(handle) => handle,
                     Err(err) => {
-                        use wasmer_engine::InstantiationError::*;
+                        use near_vm_engine::InstantiationError::*;
                         let abort = match err {
                             Start(err) => translate_runtime_error(err.clone(), import.vmlogic)?,
                             Link(e) => FunctionCallError::LinkError { msg: e.to_string() },
@@ -480,7 +480,7 @@ impl Wasmer2VM {
                     Ok(handle) => handle,
                     Err(trap) => {
                         let abort = translate_runtime_error(
-                            wasmer_engine::RuntimeError::from_trap(trap),
+                            near_vm_engine::RuntimeError::from_trap(trap),
                             import.vmlogic,
                         )?;
                         return Ok(Err(abort));
@@ -501,7 +501,7 @@ impl Wasmer2VM {
                         function.call_trampoline.expect("externs always have a trampoline");
                     // SAFETY: we double-checked the signature, and all of the remaining arguments
                     // come from an exported function definition which must be valid since it comes
-                    // from wasmer itself.
+                    // from near_vm itself.
                     let res = instance.invoke_function(
                         function.vmctx,
                         trampoline,
@@ -510,7 +510,7 @@ impl Wasmer2VM {
                     );
                     if let Err(trap) = res {
                         let abort = translate_runtime_error(
-                            wasmer_engine::RuntimeError::from_trap(trap),
+                            near_vm_engine::RuntimeError::from_trap(trap),
                             import.vmlogic,
                         )?;
                         return Ok(Err(abort));
@@ -533,7 +533,7 @@ impl Wasmer2VM {
     }
 }
 
-impl wasmer_vm::Tunables for &Wasmer2VM {
+impl near_vm_vm::Tunables for &NearVmVM {
     fn memory_style(&self, memory: &MemoryType) -> MemoryStyle {
         MemoryStyle::Static {
             bound: memory.maximum.unwrap_or(Pages(self.config.limit_config.max_memory_pages)),
@@ -541,51 +541,123 @@ impl wasmer_vm::Tunables for &Wasmer2VM {
         }
     }
 
-    fn table_style(&self, _table: &wasmer_types::TableType) -> wasmer_vm::TableStyle {
-        wasmer_vm::TableStyle::CallerChecksSignature
+    fn table_style(&self, _table: &near_vm_types::TableType) -> near_vm_vm::TableStyle {
+        near_vm_vm::TableStyle::CallerChecksSignature
     }
 
     fn create_host_memory(
         &self,
         ty: &MemoryType,
         _style: &MemoryStyle,
-    ) -> Result<std::sync::Arc<dyn Memory>, wasmer_vm::MemoryError> {
+    ) -> Result<std::sync::Arc<dyn Memory>, near_vm_vm::MemoryError> {
         // We do not support arbitrary Host memories. The only memory contracts may use is the
         // memory imported via `env.memory`.
-        Err(wasmer_vm::MemoryError::CouldNotGrow { current: Pages(0), attempted_delta: ty.minimum })
+        Err(near_vm_vm::MemoryError::CouldNotGrow { current: Pages(0), attempted_delta: ty.minimum })
     }
 
     unsafe fn create_vm_memory(
         &self,
         ty: &MemoryType,
         _style: &MemoryStyle,
-        _vm_definition_location: std::ptr::NonNull<wasmer_vm::VMMemoryDefinition>,
-    ) -> Result<std::sync::Arc<dyn Memory>, wasmer_vm::MemoryError> {
+        _vm_definition_location: std::ptr::NonNull<near_vm_vm::VMMemoryDefinition>,
+    ) -> Result<std::sync::Arc<dyn Memory>, near_vm_vm::MemoryError> {
         // We do not support VM memories. The only memory contracts may use is the memory imported
         // via `env.memory`.
-        Err(wasmer_vm::MemoryError::CouldNotGrow { current: Pages(0), attempted_delta: ty.minimum })
+        Err(near_vm_vm::MemoryError::CouldNotGrow { current: Pages(0), attempted_delta: ty.minimum })
     }
 
     fn create_host_table(
         &self,
-        _ty: &wasmer_types::TableType,
-        _style: &wasmer_vm::TableStyle,
-    ) -> Result<std::sync::Arc<dyn wasmer_vm::Table>, String> {
+        _ty: &near_vm_types::TableType,
+        _style: &near_vm_vm::TableStyle,
+    ) -> Result<std::sync::Arc<dyn near_vm_vm::Table>, String> {
         panic!("should never be called")
     }
 
     unsafe fn create_vm_table(
         &self,
-        ty: &wasmer_types::TableType,
-        style: &wasmer_vm::TableStyle,
-        vm_definition_location: std::ptr::NonNull<wasmer_vm::VMTableDefinition>,
-    ) -> Result<std::sync::Arc<dyn wasmer_vm::Table>, String> {
+        ty: &near_vm_types::TableType,
+        style: &near_vm_vm::TableStyle,
+        vm_definition_location: std::ptr::NonNull<near_vm_vm::VMTableDefinition>,
+    ) -> Result<std::sync::Arc<dyn near_vm_vm::Table>, String> {
         // This is called when instantiating a module.
         Ok(Arc::new(LinearTable::from_definition(&ty, &style, vm_definition_location)?))
     }
+
+    fn stack_init_gas_cost(&self, stack_size: u64) -> u64 {
+        ((u64::from(self.config.regular_op_cost) + 7) / 8).saturating_mul(stack_size)
+    }
+
+    /// Instrumentation configuration: stack limiter config
+    fn stack_limiter_cfg(&self) -> Box<dyn finite_wasm::max_stack::SizeConfig> {
+        Box::new(MaxStackCfg)
+    }
+
+    /// Instrumentation configuration: gas accounting config
+    fn gas_cfg(&self) -> Box<dyn finite_wasm::wasmparser::VisitOperator<Output = u64>> {
+        Box::new(GasCostCfg(u64::from(self.config.regular_op_cost)))
+    }
 }
 
-impl crate::runner::VM for Wasmer2VM {
+struct MaxStackCfg;
+
+impl finite_wasm::max_stack::SizeConfig for MaxStackCfg {
+    fn size_of_value(&self, ty: finite_wasm::wasmparser::ValType) -> u8 {
+        use finite_wasm::wasmparser::ValType;
+        match ty {
+            ValType::I32 => 4,
+            ValType::I64 => 8,
+            ValType::F32 => 4,
+            ValType::F64 => 8,
+            ValType::V128 => 16,
+            ValType::FuncRef => 8,
+            ValType::ExternRef => 8,
+        }
+    }
+    fn size_of_function_activation(
+        &self,
+        locals: &prefix_sum_vec::PrefixSumVec<finite_wasm::wasmparser::ValType, u32>,
+    ) -> u64 {
+        let mut res = 0;
+        res += locals.max_index().map(|l| u64::from(*l).saturating_add(1)).unwrap_or(0) * 8;
+        // TODO: make the above take into account the types of locals by adding an iter on PrefixSumVec that returns (count, type)
+        // THIS MUST HAPPEN BEFORE RELEASING THE PROTOCOL VERSION, SO PREFERABLY BEFORE LANDING
+        res += 32; // Rough accounting for rip, rbp and some registers spilled. Not exact.
+        res
+    }
+}
+
+struct GasCostCfg(u64);
+
+macro_rules! gas_cost {
+    ($( @$proposal:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident)*) => {
+        $(
+            fn $visit(&mut self $($(, $arg: $argty)*)?) -> u64 {
+                gas_cost!(@@$proposal $op self $({ $($arg: $argty),* })? => $visit)
+            }
+        )*
+    };
+
+    (@@mvp $_op:ident $_self:ident $({ $($_arg:ident: $_argty:ty),* })? => visit_block) => {
+        0
+    };
+    (@@mvp $_op:ident $_self:ident $({ $($_arg:ident: $_argty:ty),* })? => visit_end) => {
+        0
+    };
+    (@@mvp $_op:ident $_self:ident $({ $($_arg:ident: $_argty:ty),* })? => visit_else) => {
+        0
+    };
+    (@@$_proposal:ident $_op:ident $self:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident) => {
+        $self.0
+    };
+}
+
+impl<'a> finite_wasm::wasmparser::VisitOperator<'a> for GasCostCfg {
+    type Output = u64;
+    finite_wasm::wasmparser::for_each_operator!(gas_cost);
+}
+
+impl crate::runner::VM for NearVmVM {
     fn run(
         &self,
         code: &ContractCode,
@@ -597,7 +669,7 @@ impl crate::runner::VM for Wasmer2VM {
         current_protocol_version: ProtocolVersion,
         cache: Option<&dyn CompiledContractCache>,
     ) -> Result<VMOutcome, VMRunnerError> {
-        let mut memory = Wasmer2Memory::new(
+        let mut memory = NearVmMemory::new(
             self.config.limit_config.initial_memory_pages,
             self.config.limit_config.max_memory_pages,
         )
@@ -637,7 +709,7 @@ impl crate::runner::VM for Wasmer2VM {
         if let Err(e) = result {
             return Ok(VMOutcome::abort(logic, e));
         }
-        let import = imports::wasmer2::build(
+        let import = imports::near_vm::build(
             vmmemory,
             &mut logic,
             current_protocol_version,
@@ -670,5 +742,5 @@ impl crate::runner::VM for Wasmer2VM {
 
 #[test]
 fn test_memory_like() {
-    crate::tests::test_memory_like(|| Box::new(Wasmer2Memory::new(1, 1).unwrap()));
+    crate::tests::test_memory_like(|| Box::new(NearVmMemory::new(1, 1).unwrap()));
 }

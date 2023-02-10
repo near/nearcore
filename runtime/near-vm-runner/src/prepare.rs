@@ -140,6 +140,17 @@ pub fn prepare_contract(original_code: &[u8], config: &VMConfig) -> Result<Vec<u
     }
 }
 
+// TODO: this should go away before landing in favor just validate_contract and then everything straight in near_vm.
+// Leaving it here for now making incremental improvements.
+pub fn prepare_contract_for_near_vm(original_code: &[u8], config: &VMConfig) -> Result<Vec<u8>, PrepareError> {
+    validate_contract(original_code, config)?;
+    ContractModule::init(original_code, config)? // TODO: completely get rid of pwasm-utils
+        .scan_imports()?
+        .standardize_mem()
+        .ensure_no_internal_memory()?
+        .into_wasm_code()
+}
+
 struct ContractModule<'a> {
     module: elements::Module,
     config: &'a VMConfig,

@@ -351,7 +351,7 @@ fn test_stack_instrumentation_protocol_upgrade() {
         .skip_wasmtime()
         .expects(&[
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 28126561501 used gas 28126561501
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 12687551573 used gas 12687551573
                 Err: WebAssembly trap: Stack overflow.
             "#]],
             expect![[r#"
@@ -377,7 +377,7 @@ fn test_stack_instrumentation_protocol_upgrade() {
         .skip_wasmtime()
         .expects(&[
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 22274300194 used gas 22274300194
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 11897705813 used gas 11897705813
                 Err: WebAssembly trap: Stack overflow.
             "#]],
             expect![[r#"
@@ -594,7 +594,7 @@ fn test_address_overflow() {
     "#]]);
 
     // wasmer0 incorrectly doesn't catch overflow during address calculation
-    test_builder().wat(code).skip_wasmtime().skip_wasmer2().expect(expect![[r#"
+    test_builder().wat(code).only_wasmer0().expect(expect![[r#"
         VMOutcome: balance 4 storage_usage 12 return data None burnt gas 46066713 used gas 46066713
     "#]]);
 }
@@ -645,7 +645,7 @@ fn test_nan_sign() {
     "#]]);
 
     // wasmer0 doesn't canonicalize NaNs
-    test_builder().wat(code).skip_wasmtime().skip_wasmer2().expect(expect![[r#"
+    test_builder().wat(code).only_wasmer0().expect(expect![[r#"
         VMOutcome: balance 4 storage_usage 12 return data None burnt gas 47583963 used gas 47583963
         Err: WebAssembly trap: An arithmetic exception, e.g. divided by zero.
     "#]]);

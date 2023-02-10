@@ -168,7 +168,7 @@ fn test_limit_contract_functions_number() {
     ])
     .expects(&[
         expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13094397615 used gas 13094397615
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13056863733 used gas 13056863733
         "#]],
         expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13051323253 used gas 13051323253
@@ -193,7 +193,7 @@ fn test_limit_contract_functions_number() {
     ])
     .expects(&[
         expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13095698115 used gas 13095698115
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13058164233 used gas 13058164233
         "#]],
         expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
@@ -315,7 +315,7 @@ fn test_limit_locals_global() {
     ])
     .expects(&[
         expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 8358832131 used gas 8358832131
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 8344845263 used gas 8344845263
         "#]],
         expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
