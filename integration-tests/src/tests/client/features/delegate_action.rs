@@ -1,6 +1,7 @@
 //! DelegateAction is a type of action to support meta transactions.
 //!
 //! NEP: https://github.com/near/NEPs/pull/366
+//! This is the module for its integration tests.
 
 use crate::tests::client::process_blocks::create_nightshade_runtimes;
 use near_chain::ChainGenesis;
@@ -49,7 +50,7 @@ fn accept_valid_meta_tx() {
 /// During the protocol upgrade phase, before the voting completes, we must not
 /// include meta transaction on the chain.
 ///
-/// Imagine a validator with an update binary. A malicious node sends it a meta
+/// Imagine a validator with an updated binary. A malicious node sends it a meta
 /// transaction to execute before the upgrade has finished. We must ensure the
 /// validator will not attempt adding it to the change unless the protocol
 /// upgrade has completed.
