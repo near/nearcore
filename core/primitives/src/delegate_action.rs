@@ -23,13 +23,17 @@ pub struct DelegateAction {
     /// Receiver of the delegated actions.
     pub receiver_id: AccountId,
     /// List of actions to be executed.
+    ///
+    /// With the meta transactions MVP defined in NEP-366, nested
+    /// DelegateActions are not allowed. A separate type is used to enforce it.
     pub actions: Vec<NonDelegateAction>,
-    /// Nonce to ensure that the same delegate action is not sent twice by a relayer and should match for given account's `public_key`.
+    /// Nonce to ensure that the same delegate action is not sent twice by a
+    /// relayer and should match for given account's `public_key`.
     /// After this action is processed it will increment.
     pub nonce: Nonce,
     /// The maximal height of the block in the blockchain below which the given DelegateAction is valid.
     pub max_block_height: BlockHeight,
-    /// Public key that is used to sign this delegated action.
+    /// Public key used to sign this delegated action.
     pub public_key: PublicKey,
 }
 
