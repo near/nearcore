@@ -1,9 +1,9 @@
-use std::{sync::Arc, time::Duration};
+use std::time::Duration;
 
 use derive_enum_from_into::{EnumFrom, EnumTryInto};
 
 use crate::{
-    messaging::Sender,
+    messaging::{CanSend, IntoSender},
     test_loop::{CaptureEvents, LoopEventHandler, TestLoopBuilder, TryIntoOrSelf},
 };
 
@@ -45,7 +45,7 @@ fn test_simple() {
     let builder = TestLoopBuilder::<TestEvent>::new();
     // Build the SumNumberComponents so that it sends messages back to the test loop.
     let data =
-        TestData { summer: SumNumbersComponent::new(Arc::new(builder.sender())), sums: vec![] };
+        TestData { summer: SumNumbersComponent::new(builder.sender().into_sender()), sums: vec![] };
     let sender = builder.sender();
     let mut test = builder.build(data);
     test.register_handler(ForwardSumRequest);
