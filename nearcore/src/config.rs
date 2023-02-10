@@ -1158,7 +1158,6 @@ pub fn create_testnet_configs_from_seeds(
         .iter()
         .map(|account_info| account_info.account_id.clone())
         .collect();
-    println!("create_testnet_configs_from_seeds: config.tracked_shards are {:?}", tracked_accounts.clone());
     for i in 0..seeds.len() {
         let mut config = Config::default();
         config.rpc.get_or_insert(Default::default()).enable_debug_rpc = true;
@@ -1268,7 +1267,8 @@ pub fn init_testnet_configs(
 
         genesis.to_file(&node_dir.join(&configs[i].genesis_file));
         configs[i].write_to_file(&node_dir.join(CONFIG_FILENAME)).expect("Error writing config");
-        info!(target: "near", "Generated node key, validator key, genesis file in {}", node_dir.display());
+        info!(target: "near", "create_testnet_configs_from_seeds: config.tracked_shards are {:?}", &configs[i].tracked_accounts);
+        // info!(target: "near", "Generated node key, validator key, genesis file in {}", node_dir.display());
     }
 }
 
