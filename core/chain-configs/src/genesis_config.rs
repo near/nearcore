@@ -525,7 +525,8 @@ impl Genesis {
         genesis_validation: GenesisValidationMode,
     ) -> Result<Self, ValidationError> {
         let genesis = Self { config, records, records_file: PathBuf::new() };
-        genesis.validate(genesis_validation)
+        genesis.validate(genesis_validation)?;
+        Ok(genesis)
     }
 
     fn new_with_path_validated<P: AsRef<Path>>(
@@ -538,19 +539,21 @@ impl Genesis {
             records: GenesisRecords(vec![]),
             records_file: records_file.as_ref().to_path_buf(),
         };
-        genesis.validate(genesis_validation)
+        genesis.validate(genesis_validation)?;
+        Ok(genesis)
     }
 
-    fn validate(self, genesis_validation: GenesisValidationMode) -> Result<Self, ValidationError> {
+    pub fn validate(
+        &self,
+        genesis_validation: GenesisValidationMode,
+    ) -> Result<(), ValidationError> {
         match genesis_validation {
-            GenesisValidationMode::Full => {
-                validate_genesis(&self)?;
-            }
+            GenesisValidationMode::Full => validate_genesis(self),
             GenesisValidationMode::UnsafeFast => {
                 warn!(target: "genesis", "Skipped genesis validation");
+                Ok(())
             }
         }
-        Ok(self)
     }
 
     /// Writes Genesis to the file.

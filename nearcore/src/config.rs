@@ -1149,6 +1149,12 @@ pub fn create_testnet_configs_from_seeds(
     );
     let mut configs = vec![];
     let first_node_addr = tcp::ListenerAddr::reserve_for_test();
+    let tracked_accounts: Vec<AccountId> = genesis
+        .config
+        .validators
+        .iter()
+        .map(|account_info| account_info.account_id.clone())
+        .collect();
     for i in 0..seeds.len() {
         let mut config = Config::default();
         config.rpc.get_or_insert(Default::default()).enable_debug_rpc = true;
@@ -1170,6 +1176,7 @@ pub fn create_testnet_configs_from_seeds(
         }
         config.archive = archive;
         config.tracked_shards = tracked_shards.clone();
+        config.tracked_accounts = tracked_accounts.clone();
         config.consensus.min_num_peers =
             std::cmp::min(num_validator_seats as usize - 1, config.consensus.min_num_peers);
         configs.push(config);
@@ -1362,7 +1369,7 @@ pub fn load_config(
 
     // if config.json has file issues, the program will directly panic
     let config = Config::from_file_skip_validation(&dir.join(CONFIG_FILENAME))?;
-    // do config.json validation separately so that genesis_file, validator_file and genesis_file can be validated before program panic
+    // do config.json validation later so that genesis_file, validator_file and genesis_file can be validated before program panic
     config.validate().map_or_else(|e| validation_errors.push_errors(e), |_| ());
 
     let validator_file = dir.join(&config.validator_key_file);
@@ -1396,14 +1403,33 @@ pub fn load_config(
 
     let genesis_file = dir.join(&config.genesis_file);
     let genesis_result = match &config.genesis_records_file {
-        Some(records_file) => {
-            Genesis::from_files(&genesis_file, &dir.join(records_file), genesis_validation)
-        }
-        None => Genesis::from_file(&genesis_file, genesis_validation),
+        // only load Genesis from file. Skip test for now.
+        // this allows us to know the chain_id in order to check tracked_shards even if semantics checks fail.
+        Some(records_file) => Genesis::from_files(
+            &genesis_file,
+            &dir.join(records_file),
+            GenesisValidationMode::UnsafeFast,
+        ),
+        None => Genesis::from_file(&genesis_file, GenesisValidationMode::UnsafeFast),
     };
 
     let genesis = match genesis_result {
-        Ok(genesis) => Some(genesis),
+        Ok(genesis) => {
+            genesis
+                .validate(genesis_validation)
+                .map_or_else(|e| validation_errors.push_errors(e), |_| ());
+            if matches!(genesis.config.chain_id.as_ref(), "mainnet" | "testnet" | "betanet")
+                && config.tracked_shards.is_empty()
+            {
+                // Make sure validators tracks all shards, see
+                // https://github.com/near/nearcore/issues/7388
+                let error_message = format!("The `chain_id` field specified in genesis is among mainnet/betanet/testnet, so validator must track all shards. Please change `tracked_shards` field in config.json to be any non-empty vector");
+                validation_errors.push_errors(ValidationError::CrossFileSematicError {
+                    error_message: error_message,
+                });
+            }
+            Some(genesis)
+        }
         Err(error) => {
             validation_errors.push_errors(error);
             None
@@ -1496,8 +1522,9 @@ fn test_init_config_localnet() {
 
 /// Tests that loading a config.json file works and results in values being
 /// correctly parsed and defaults being applied correctly applied.
+/// We skip config validation since we only care about Config being correctly loaded from file.
 #[test]
-fn test_config_from_file() {
+fn test_config_from_file_skip_validation() {
     let base = Path::new(env!("CARGO_MANIFEST_DIR"));
 
     for (has_gc, path) in
@@ -1508,7 +1535,7 @@ fn test_config_from_file() {
         let tmp = tempfile::NamedTempFile::new().unwrap();
         tmp.as_file().write_all(&data).unwrap();
 
-        let config = Config::from_file(&tmp.into_temp_path()).unwrap();
+        let config = Config::from_file_skip_validation(&tmp.into_temp_path()).unwrap();
 
         // TODO(mina86): We might want to add more checks.  Looking at all
         // values is probably not worth it but there may be some other defaults

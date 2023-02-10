@@ -33,6 +33,8 @@ pub enum ValidationError {
     NodeKeyFileError { error_message: String },
     #[error("validator_key.json file issue: {error_message}")]
     ValidatorKeyFileError { error_message: String },
+    #[error("cross config files semantic issue: {error_message}")]
+    CrossFileSematicError { error_message: String },
 }
 
 /// Used to collect errors on the go.
