@@ -136,10 +136,8 @@ fn wasmer2_stack_limit_default() -> i32 {
 pub enum StackLimiterVersion {
     /// Old, buggy version, don't use it unless specifically to support old protocol version.
     V0,
-    /// What we used in the wasmer2 era.
+    /// What we used in the wasmer2 era. Nowadays we just don’t use a separate stack limiter.
     V1,
-    /// What we use in today's protocol.
-    V2,
 }
 
 impl StackLimiterVersion {
