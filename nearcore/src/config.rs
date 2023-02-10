@@ -1024,15 +1024,17 @@ pub fn init_configs(
                     Duration::from_millis(FAST_MAX_BLOCK_PRODUCTION_DELAY);
             }
             let account_id = account_id.unwrap_or_else(|| "test.near".parse().unwrap());
-            config.tracked_accounts = vec![account_id.clone()];
-            config.write_to_file(&dir.join(CONFIG_FILENAME)).with_context(|| {
-                format!("Error writing config to {}", dir.join(CONFIG_FILENAME).display())
-            })?;
 
             let signer =
                 generate_or_load_key(dir, &config.validator_key_file, Some(account_id), test_seed)?
                     .unwrap();
             generate_or_load_key(dir, &config.node_key_file, Some("node".parse().unwrap()), None)?;
+
+            config.tracked_accounts = vec![signer.account_id.clone()];
+            info!(target: "near", "config.tracked_accounts are {:?}", &config.tracked_accounts);
+            config.write_to_file(&dir.join(CONFIG_FILENAME)).with_context(|| {
+                format!("Error writing config to {}", dir.join(CONFIG_FILENAME).display())
+            })?;
 
             let mut records = vec![];
             add_account_with_key(
