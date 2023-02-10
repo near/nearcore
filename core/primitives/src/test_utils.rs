@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use near_crypto::{EmptySigner, KeyType, PublicKey, Signature, Signer};
+use near_crypto::{EmptySigner, InMemorySigner, KeyType, PublicKey, Signature, Signer};
 use near_primitives_core::types::ProtocolVersion;
 
 use crate::account::{AccessKey, AccessKeyPermission, Account};
@@ -487,6 +487,13 @@ pub fn create_test_signer(account_name: &str) -> InMemoryValidatorSigner {
         KeyType::ED25519,
         account_name,
     )
+}
+
+/// Helper function that creates a new signer for a given account, that uses the account name as seed.
+///
+/// Should be used only in tests.
+pub fn create_user_test_signer(account_name: &str) -> InMemorySigner {
+    InMemorySigner::from_seed(account_name.parse().unwrap(), KeyType::ED25519, account_name)
 }
 
 impl FinalExecutionOutcomeView {

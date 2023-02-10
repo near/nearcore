@@ -2,8 +2,6 @@ use std::sync::Arc;
 
 use futures::{future::LocalBoxFuture, FutureExt};
 
-#[cfg(feature = "protocol_feature_nep366_delegate_action")]
-use near_crypto::{InMemorySigner, KeyType};
 use near_crypto::{PublicKey, Signer};
 use near_jsonrpc_primitives::errors::ServerError;
 use near_primitives::account::AccessKey;
@@ -11,6 +9,8 @@ use near_primitives::account::AccessKey;
 use near_primitives::delegate_action::{DelegateAction, NonDelegateAction, SignedDelegateAction};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
+#[cfg(feature = "protocol_feature_nep366_delegate_action")]
+use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, ExecutionOutcome, FunctionCallAction, SignedTransaction, StakeAction,
@@ -245,6 +245,10 @@ pub trait User {
         )
     }
 
+    /// Wrap the given actions in a delegate action and execute them.
+    ///
+    /// The signer signs the delegate action to be sent to the receiver. The
+    /// relayer packs that in a transaction and signs it .
     #[cfg(feature = "protocol_feature_nep366_delegate_action")]
     fn meta_tx(
         &self,
@@ -253,8 +257,7 @@ pub trait User {
         relayer_id: AccountId,
         actions: Vec<Action>,
     ) -> Result<FinalExecutionOutcomeView, ServerError> {
-        let inner_signer =
-            InMemorySigner::from_seed(signer_id.clone(), KeyType::ED25519, &signer_id);
+        let inner_signer = create_user_test_signer(&signer_id);
         let user_nonce = self
             .get_access_key(&signer_id, &inner_signer.public_key)
             .expect("failed reading user's nonce for access key")

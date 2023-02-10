@@ -95,13 +95,17 @@ fn reject_valid_meta_tx_in_older_versions() {
 fn check_meta_tx_execution(
     node: impl Node,
     actions: Vec<Action>,
+    sender: AccountId,
+    relayer: AccountId,
+    receiver: AccountId,
 ) -> (FinalExecutionOutcomeView, i128, i128, i128) {
-    let account_id = &node.account_id().unwrap();
     let node_user = node.user();
 
-    let relayer = account_id.clone();
-    let sender = bob_account();
-    let receiver = carol_account();
+    assert_eq!(
+        relayer,
+        node.account_id().unwrap(),
+        "the relayer must be the signer in meta transactions"
+    );
 
     let sender_before = node_user.view_balance(&sender).unwrap();
     let relayer_before = node_user.view_balance(&relayer).unwrap();
@@ -116,7 +120,7 @@ fn check_meta_tx_execution(
 
     // both nonces started at 0 and should be updated to 1 now
     let relayer_nonce = node_user
-        .get_access_key(&account_id, &PublicKey::from_seed(KeyType::ED25519, &account_id))
+        .get_access_key(&relayer, &PublicKey::from_seed(KeyType::ED25519, &relayer))
         .unwrap()
         .nonce;
     let user_nonce = node_user
@@ -144,12 +148,15 @@ fn check_meta_tx_no_fn_call(
     actions: Vec<Action>,
     normal_tx_cost: Balance,
     tokens_transferred: Balance,
+    sender: AccountId,
+    relayer: AccountId,
+    receiver: AccountId,
 ) -> FinalExecutionOutcomeView {
     let fee_helper = fee_helper(&node);
     let gas_cost = normal_tx_cost + fee_helper.meta_tx_overhead_cost(&actions);
 
     let (tx_result, sender_diff, relayer_diff, receiver_diff) =
-        check_meta_tx_execution(node, actions);
+        check_meta_tx_execution(node, actions, sender, relayer, receiver);
 
     assert_eq!(sender_diff, 0, "sender should not pay for anything");
     assert_eq!(receiver_diff, tokens_transferred as i128, "unexpected receiver balance");
@@ -170,13 +177,16 @@ fn check_meta_tx_fn_call(
     actions: Vec<Action>,
     msg_len: u64,
     tokens_transferred: Balance,
+    sender: AccountId,
+    relayer: AccountId,
+    receiver: AccountId,
 ) -> FinalExecutionOutcomeView {
     let fee_helper = fee_helper(&node);
     let gas_cost =
         fee_helper.function_call_cost(msg_len, 0) + fee_helper.meta_tx_overhead_cost(&actions);
 
     let (tx_result, sender_diff, relayer_diff, receiver_diff) =
-        check_meta_tx_execution(node, actions);
+        check_meta_tx_execution(node, actions, sender, relayer, receiver);
 
     assert_eq!(sender_diff, 0, "sender should not pay for anything");
 
@@ -204,19 +214,26 @@ fn check_meta_tx_fn_call(
 /// specified in NEP-366.
 #[test]
 fn meta_tx_near_transfer() {
-    let node = RuntimeNode::new(&alice_account());
+    let sender = bob_account();
+    let relayer = alice_account();
+    let receiver = carol_account();
+    let node = RuntimeNode::new(&relayer);
     let fee_helper = fee_helper(&node);
 
     let amount = nearcore::NEAR_BASE;
     let actions = vec![Action::Transfer(TransferAction { deposit: amount })];
     let tx_cost = fee_helper.transfer_cost();
-    check_meta_tx_no_fn_call(node, actions, tx_cost, amount);
+    check_meta_tx_no_fn_call(node, actions, tx_cost, amount, sender, relayer, receiver);
 }
 
 /// Call a function on the test contract provided by default in the test environment.
 #[test]
 fn meta_tx_fn_call() {
-    let node = RuntimeNode::new(&alice_account());
+    let sender = bob_account();
+    let relayer = alice_account();
+    let receiver = carol_account();
+    let node = RuntimeNode::new(&relayer);
+
     let method_name = "log_something".to_owned();
     let method_name_len = method_name.len() as u64;
     let actions = vec![Action::FunctionCall(FunctionCallAction {
@@ -226,7 +243,8 @@ fn meta_tx_fn_call() {
         deposit: 0,
     })];
 
-    let outcome = check_meta_tx_fn_call(node, actions, method_name_len, 0);
+    let outcome =
+        check_meta_tx_fn_call(node, actions, method_name_len, 0, sender, relayer, receiver);
 
     // Check that the function call was executed as expected
     let fn_call_logs = &outcome.receipts_outcome[1].outcome.logs;
