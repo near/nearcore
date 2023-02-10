@@ -304,6 +304,7 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
     }
 
     let src_opener = NodeStorage::opener(home_dir, &config.store, None);
+    let src_opener = src_opener.expect_archive(archive);
     let src_path = src_opener.path();
 
     let mut dst_config = config.store.clone();
@@ -312,16 +313,15 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
     // (since it’s a command line option) which is why we set home to cwd.
     let cwd = std::env::current_dir()?;
     let dst_opener = NodeStorage::opener(&cwd, &dst_config, None);
+    let dst_opener = dst_opener.expect_archive(archive);
     let dst_path = dst_opener.path();
 
     info!(target: "recompress",
           src = %src_path.display(), dest = %dst_path.display(),
           "Recompressing database");
 
-    let src_store = src_opener
-        .open_in_mode(Mode::ReadOnly)
-        .with_context(|| format!("Opening database at {}", src_opener.path().display()))?
-        .get_store(Temperature::Hot);
+    info!("Opening database at {}", src_path.display());
+    let src_store = src_opener.open_in_mode(Mode::ReadOnly)?.get_store(Temperature::Hot);
 
     let final_head_height = if skip_columns.contains(&DBCol::PartialChunks) {
         let tip: Option<near_primitives::block::Tip> =
@@ -337,10 +337,8 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
         None
     };
 
-    let dst_store = dst_opener
-        .open_in_mode(Mode::Create)
-        .with_context(|| format!("Creating database at {}", dst_path.display()))?
-        .get_store(Temperature::Hot);
+    info!("Creating database at {}", dst_path.display());
+    let dst_store = dst_opener.open_in_mode(Mode::Create)?.get_store(Temperature::Hot);
 
     const BATCH_SIZE_BYTES: u64 = 150_000_000;
 
