@@ -487,7 +487,6 @@
         "FunctionCallArgumentsLengthExceeded",
         "UnsuitableStakingKey",
         "FunctionCallZeroAttachedGas",
-        "DelegateActionCantContainNestedOne",
         "DelegateActionMustBeOnlyOne",
         "UnsupportedProtocolFeature"
       ],
@@ -564,11 +563,6 @@
         "predecessor_id": "",
         "registrar_account_id": ""
       }
-    },
-    "DelegateActionCantContainNestedOne": {
-      "name": "DelegateActionCantContainNestedOne",
-      "subtypes": [],
-      "props": {}
     },
     "DelegateActionExpired": {
       "name": "DelegateActionExpired",
