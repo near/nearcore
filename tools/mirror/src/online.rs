@@ -1,4 +1,4 @@
-use crate::{ChainError, SourceChunk};
+use crate::{ChainError, SourceBlock, SourceChunk};
 use actix::Addr;
 use anyhow::Context;
 use async_trait::async_trait;
@@ -92,6 +92,16 @@ impl crate::ChainAccess for ChainAccess {
         }
     }
 
+    async fn block_height_to_hash(&self, height: BlockHeight) -> Result<CryptoHash, ChainError> {
+        Ok(self
+            .view_client
+            .send(GetBlock(BlockReference::BlockId(BlockId::Height(height))).with_span_context())
+            .await
+            .unwrap()?
+            .header
+            .hash)
+    }
+
     async fn head_height(&self) -> Result<BlockHeight, ChainError> {
         Ok(self
             .view_client
@@ -106,7 +116,8 @@ impl crate::ChainAccess for ChainAccess {
         &self,
         height: BlockHeight,
         shards: &[ShardId],
-    ) -> Result<Vec<SourceChunk>, ChainError> {
+    ) -> Result<SourceBlock, ChainError> {
+        let block_hash = self.block_height_to_hash(height).await?;
         let mut chunks = Vec::new();
         for shard_id in shards.iter() {
             let chunk = match self
@@ -136,7 +147,7 @@ impl crate::ChainAccess for ChainAccess {
             }
         }
 
-        Ok(chunks)
+        Ok(SourceBlock { hash: block_hash, chunks })
     }
 
     async fn get_next_block_height(
