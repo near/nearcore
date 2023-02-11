@@ -14,6 +14,9 @@ deny = [
     { name = "keccak-hash", version = "<0.4.1" },
     { name = "primitive-types", version = "<0.10.1" },
     { name = "uint", version = "<0.8.2" },
+
+    # https://github.com/near/nearcore/pull/8562
+    { name = "borsh", version = "0.10, <0.10.2" },
 ]
 
 skip = [
@@ -112,4 +115,10 @@ skip = [
     # published crate when they are published.
     # TODO(#8604) Remove this skip entry.
     { name = "near-stdx", version = "0.0.0" },
+
+    # zeropool-bn uses borsh 0.9
+    { name = "borsh", version = "=0.9.3" },
+    { name = "borsh-derive", version = "=0.9.3" },
+    { name = "borsh-derive-internal", version = "=0.9.3" },
+    { name = "borsh-schema-derive-internal", version = "=0.9.3" },
 ]
