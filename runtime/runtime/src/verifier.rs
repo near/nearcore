@@ -29,8 +29,8 @@ use crate::near_primitives::trie_key::trie_key_parsers;
 use crate::VerificationResult;
 use near_primitives::hash::CryptoHash;
 
-const ZERO_BALANCE_ACCOUNT_FULL_ACCESS_KEY_LIMIT: u64 = 4;
-const ZERO_BALANCE_ACCOUNT_FUNCTION_CALL_ACCESS_KEY_LIMIT: u64 = 2;
+pub const ZERO_BALANCE_ACCOUNT_FULL_ACCESS_KEY_LIMIT: u64 = 4;
+pub const ZERO_BALANCE_ACCOUNT_FUNCTION_CALL_ACCESS_KEY_LIMIT: u64 = 2;
 
 /// Possible errors when checking whether an account has enough tokens for storage staking
 /// Read details of state staking
@@ -105,7 +105,7 @@ fn is_zero_balance_account(
     {
         return Ok(false);
     }
-    // Check access keys. There can be at most 2 full access keys and at most 2 function call access keys.
+    // Check access keys. There can be at most 4 full access keys and at most 2 function call access keys.
     // Function call access keys must not specify method names.
     let mut full_access_key_count = 0;
     let mut function_call_access_key_count = 0;
@@ -750,6 +750,7 @@ mod tests {
         use crate::verifier::tests::{setup_accounts, TESTING_INIT_BALANCE};
         use crate::verifier::{
             is_zero_balance_account, ZERO_BALANCE_ACCOUNT_FULL_ACCESS_KEY_LIMIT,
+            ZERO_BALANCE_ACCOUNT_FUNCTION_CALL_ACCESS_KEY_LIMIT,
         };
         use near_primitives::account::AccessKey;
         use near_store::{get_account, TrieUpdate};
@@ -790,8 +791,8 @@ mod tests {
         }
 
         /// Testing all combination of access keys and contract code/data deployed in this test
-        /// to make sure that an account is zero balance only if it has <=2 full access keys and
-        /// <= function call access keys and doesn't have contract code or contract data
+        /// to make sure that an account is zero balance only if it has <= 4 full access keys and
+        /// <=2 function call access keys and doesn't have contract code or contract data
         #[test]
         fn test_zero_balance_account_with_keys_and_contract() {
             for num_full_access_key in 0..10 {
@@ -820,7 +821,7 @@ mod tests {
                                 is_zero_balance_account(&account_id, &account, &mut state_update);
                             if num_full_access_key <= ZERO_BALANCE_ACCOUNT_FULL_ACCESS_KEY_LIMIT
                                 && num_function_call_access_key
-                                    <= ZERO_BALANCE_ACCOUNT_FULL_ACCESS_KEY_LIMIT
+                                    <= ZERO_BALANCE_ACCOUNT_FUNCTION_CALL_ACCESS_KEY_LIMIT
                                 && !has_contract_code
                                 && !has_contract_data
                             {
@@ -1216,7 +1217,8 @@ mod tests {
         let initial_balance = 1_000_000_000;
         let transfer_amount = 950_000_000;
         let account_id = alice_account();
-        let access_keys = vec![AccessKey::full_access(); 3];
+        let access_keys =
+            vec![AccessKey::full_access(); ZERO_BALANCE_ACCOUNT_FULL_ACCESS_KEY_LIMIT as usize + 1];
         let (signer, mut state_update, gas_price) = setup_accounts(vec![(
             account_id.clone(),
             initial_balance,

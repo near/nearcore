@@ -53,7 +53,6 @@ fn assert_zero_balance_account(env: &mut TestEnv, account_id: &AccountId) {
 
 /// Test 2 things: 1) a valid zero balance account can be created and 2) a nonzero balance account
 /// (one with a contract deployed) cannot be created without maintaining an initial balance
-#[cfg(feature = "nightly_protocol")]
 #[test]
 fn test_zero_balance_account_creation() {
     let epoch_length = 1000;
@@ -119,7 +118,6 @@ fn test_zero_balance_account_creation() {
 /// Test that if a zero balance account becomes a regular account (through adding more keys),
 /// it has to pay for storage cost of the account structure and the keys that
 /// it didn't have to pay while it was a zero balance account.
-#[cfg(feature = "nightly_protocol")]
 #[test]
 fn test_zero_balance_account_add_key() {
     let epoch_length = 1000;
@@ -231,7 +229,6 @@ fn test_zero_balance_account_add_key() {
 
 /// Test that zero balance accounts cannot be created before the upgrade but can succeed after
 /// the protocol upgrade
-#[cfg(feature = "nightly_protocol")]
 #[test]
 fn test_zero_balance_account_upgrade() {
     let epoch_length = 5;
