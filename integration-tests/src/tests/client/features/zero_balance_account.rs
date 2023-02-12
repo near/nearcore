@@ -168,9 +168,17 @@ fn test_zero_balance_account_add_key() {
         env.produce_block(0, i);
     }
 
-    // add two more keys so that the account is no longer a zero balance account
-    let new_key1 = PublicKey::from_seed(KeyType::ED25519, "random1");
-    let new_key2 = PublicKey::from_seed(KeyType::ED25519, "random2");
+    // add four more keys so that the account is no longer a zero balance account
+    let mut actions = vec![];
+    let mut keys = vec![];
+    for i in 1..5 {
+        let new_key = PublicKey::from_seed(KeyType::ED25519, format!("{}", i).as_str());
+        keys.push(new_key.clone());
+        actions.push(AddKey(AddKeyAction {
+            public_key: new_key,
+            access_key: AccessKey::full_access(),
+        }));
+    }
 
     let head = env.clients[0].chain.head().unwrap();
     let nonce = head.height * AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER + 1;
@@ -179,13 +187,7 @@ fn test_zero_balance_account_add_key() {
         new_account_id.clone(),
         new_account_id.clone(),
         &new_signer,
-        vec![
-            AddKey(AddKeyAction { public_key: new_key1, access_key: AccessKey::full_access() }),
-            AddKey(AddKeyAction {
-                public_key: new_key2.clone(),
-                access_key: AccessKey::full_access(),
-            }),
-        ],
+        actions,
         *genesis_block.hash(),
     );
     let res = env.clients[0].process_tx(add_key_tx, false, false);
@@ -212,7 +214,7 @@ fn test_zero_balance_account_add_key() {
         new_account_id.clone(),
         new_account_id.clone(),
         &new_signer,
-        vec![Action::DeleteKey(DeleteKeyAction { public_key: new_key2 })],
+        vec![Action::DeleteKey(DeleteKeyAction { public_key: keys.last().unwrap().clone() })],
         *genesis_block.hash(),
     );
     env.clients[0].process_tx(delete_key_tx, false, false);

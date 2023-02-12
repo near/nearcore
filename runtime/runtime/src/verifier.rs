@@ -29,6 +29,9 @@ use crate::near_primitives::trie_key::trie_key_parsers;
 use crate::VerificationResult;
 use near_primitives::hash::CryptoHash;
 
+const ZERO_BALANCE_ACCOUNT_FULL_ACCESS_KEY_LIMIT: u64 = 4;
+const ZERO_BALANCE_ACCOUNT_FUNCTION_CALL_ACCESS_KEY_LIMIT: u64 = 2;
+
 /// Possible errors when checking whether an account has enough tokens for storage staking
 /// Read details of state staking
 /// <https://nomicon.io/Economics/README.html#state-stake>.
@@ -72,12 +75,9 @@ pub fn check_storage_stake(
     } else {
         // Check if the account is a zero balance account. The check is delayed until here because
         // it requires storage reads
-        if checked_feature!(
-            "protocol_feature_zero_balance_account",
-            ZeroBalanceAccount,
-            current_protocol_version
-        ) && is_zero_balance_account(account_id, account, state_update)
-            .map_err(|e| StorageStakingError::StorageError(e.to_string()))?
+        if checked_feature!("stable", ZeroBalanceAccount, current_protocol_version)
+            && is_zero_balance_account(account_id, account, state_update)
+                .map_err(|e| StorageStakingError::StorageError(e.to_string()))?
         {
             return Ok(());
         }
@@ -125,7 +125,9 @@ fn is_zero_balance_account(
                 function_call_access_key_count += 1
             }
         }
-        if full_access_key_count > 2 || function_call_access_key_count > 2 {
+        if full_access_key_count > ZERO_BALANCE_ACCOUNT_FULL_ACCESS_KEY_LIMIT
+            || function_call_access_key_count > ZERO_BALANCE_ACCOUNT_FUNCTION_CALL_ACCESS_KEY_LIMIT
+        {
             return Ok(false);
         }
     }
@@ -745,8 +747,10 @@ mod tests {
         use crate::near_primitives::account::{
             AccessKeyPermission, Account, FunctionCallPermission,
         };
-        use crate::verifier::is_zero_balance_account;
         use crate::verifier::tests::{setup_accounts, TESTING_INIT_BALANCE};
+        use crate::verifier::{
+            is_zero_balance_account, ZERO_BALANCE_ACCOUNT_FULL_ACCESS_KEY_LIMIT,
+        };
         use near_primitives::account::AccessKey;
         use near_store::{get_account, TrieUpdate};
         use testlib::runtime_utils::{alice_account, bob_account};
@@ -814,8 +818,9 @@ mod tests {
                             );
                             let res =
                                 is_zero_balance_account(&account_id, &account, &mut state_update);
-                            if num_full_access_key <= 2
-                                && num_function_call_access_key <= 2
+                            if num_full_access_key <= ZERO_BALANCE_ACCOUNT_FULL_ACCESS_KEY_LIMIT
+                                && num_function_call_access_key
+                                    <= ZERO_BALANCE_ACCOUNT_FULL_ACCESS_KEY_LIMIT
                                 && !has_contract_code
                                 && !has_contract_data
                             {
@@ -1198,24 +1203,10 @@ mod tests {
             None,
             PROTOCOL_VERSION,
         );
-
-        #[cfg(not(feature = "protocol_feature_zero_balance_account"))]
-        assert_eq!(
-            res.expect_err("expected an error"),
-            RuntimeError::InvalidTxError(InvalidTxError::LackBalanceForState {
-                signer_id: alice_account(),
-                amount: Balance::from(std::mem::size_of::<Account>() as u64)
-                    * config.storage_amount_per_byte()
-                    - (initial_balance - transfer_amount)
-            })
-        );
-        #[cfg(feature = "protocol_feature_zero_balance_account")]
-        {
-            let verification_result = res.unwrap();
-            assert_eq!(verification_result.gas_burnt, 0);
-            assert_eq!(verification_result.gas_remaining, 0);
-            assert_eq!(verification_result.burnt_amount, 0);
-        }
+        let verification_result = res.unwrap();
+        assert_eq!(verification_result.gas_burnt, 0);
+        assert_eq!(verification_result.gas_remaining, 0);
+        assert_eq!(verification_result.burnt_amount, 0);
     }
 
     #[test]
