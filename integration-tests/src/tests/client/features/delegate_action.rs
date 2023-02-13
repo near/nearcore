@@ -19,7 +19,9 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
-use near_primitives::views::{FinalExecutionOutcomeView, FinalExecutionStatus};
+use near_primitives::views::{
+    AccessKeyPermissionView, FinalExecutionOutcomeView, FinalExecutionStatus,
+};
 use near_test_contracts::smallest_rs_contract;
 use nearcore::config::GenesisExt;
 use nearcore::NEAR_BASE;
@@ -315,9 +317,21 @@ fn meta_tx_add_key() {
     // any public key works as long as it doesn't exists on the receiver, the
     // relayer public key is just handy
     let public_key = node.signer().public_key();
-    let actions =
-        vec![Action::AddKey(AddKeyAction { public_key, access_key: AccessKey::full_access() })];
-    check_meta_tx_no_fn_call(&node, actions, tx_cost, 0, sender, relayer, receiver);
+    let actions = vec![Action::AddKey(AddKeyAction {
+        public_key: public_key.clone(),
+        access_key: AccessKey::full_access(),
+    })];
+    check_meta_tx_no_fn_call(&node, actions, tx_cost, 0, sender, relayer, receiver.clone());
+
+    let key_view = node
+        .user()
+        .get_access_key(&receiver, &public_key)
+        .expect("looking up key that was just added failed");
+    assert_eq!(
+        key_view.permission,
+        AccessKeyPermissionView::FullAccess,
+        "wrong permissions for new key"
+    );
 }
 
 #[test]
@@ -331,8 +345,14 @@ fn meta_tx_delete_key() {
 
     let tx_cost = fee_helper.delete_key_cost();
     let public_key = PublicKey::from_seed(KeyType::ED25519, &receiver);
-    let actions = vec![Action::DeleteKey(DeleteKeyAction { public_key })];
-    check_meta_tx_no_fn_call(&node, actions, tx_cost, 0, sender, relayer, receiver);
+    let actions = vec![Action::DeleteKey(DeleteKeyAction { public_key: public_key.clone() })];
+    check_meta_tx_no_fn_call(&node, actions, tx_cost, 0, sender, relayer, receiver.clone());
+
+    let err = node
+        .user()
+        .get_access_key(&receiver, &public_key)
+        .expect_err("key should have been deleted");
+    assert_eq!(err, "Access key for public key #ed25519:4mhK4txd8Z5r71iCZ41UguSHuHFKUeCXPHv646DbQPYi does not exist");
 }
 
 #[test]
@@ -363,7 +383,7 @@ fn meta_tx_delete_account() {
     let gas_cost =
         fee_helper.prepaid_delete_account_cost() + fee_helper.meta_tx_overhead_cost(&actions);
     let (_tx_result, sender_diff, relayer_diff, receiver_diff) =
-        check_meta_tx_execution(&node, actions, sender, relayer, receiver);
+        check_meta_tx_execution(&node, actions, sender, relayer, receiver.clone());
 
     assert_eq!(
         sender_diff,
@@ -372,4 +392,6 @@ fn meta_tx_delete_account() {
     );
     assert_eq!(sender_diff, receiver_diff);
     assert_eq!(relayer_diff, balance as i128 - (gas_cost as i128), "unexpected relayer balance");
+    let err = node.view_account(&receiver).expect_err("account should have been deleted");
+    assert_eq!(err, "Account ID #eve.alice.near does not exist");
 }
