@@ -76,6 +76,13 @@ impl wasm_smith::Config for ModuleConfig {
     fn available_imports(&self) -> Option<std::borrow::Cow<'_, [u8]>> {
         Some(near_test_contracts::rs_contract().into())
     }
+
+    /// Make sure to canonicalize the NaNs, as otherwise behavior differs
+    /// between wasmtime (that does not canonicalize) and near-vm (that
+    /// should canonicalize)
+    fn canonicalize_nans(&self) -> bool {
+        true
+    }
 }
 
 /// Wrapper to get more useful Debug.
