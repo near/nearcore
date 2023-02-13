@@ -1,7 +1,7 @@
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
-use near_store::cold_storage::{update_cold_db, update_cold_head};
+use near_store::cold_storage::{copy_all_data_to_cold, update_cold_db, update_cold_head};
 use near_store::{DBCol, NodeStorage, Temperature, COLD_HEAD_KEY, FINAL_HEAD_KEY, HEAD_KEY};
 use nearcore::{NearConfig, NightshadeRuntime};
 
@@ -9,6 +9,7 @@ use clap::Parser;
 use std::io::Result;
 use std::path::Path;
 use std::sync::Arc;
+use strum::IntoEnumIterator;
 
 #[derive(Parser)]
 pub struct ColdStoreCommand {
@@ -26,6 +27,8 @@ enum SubCommand {
     /// Copy n blocks to cold storage and update cold HEAD. One by one.
     /// Updating of HEAD happens in every iteration.
     CopyNextBlocks(CopyNextBlocksCmd),
+    /// Copy all blocks to cold storage and update cold HEAD.
+    CopyAllBlocks(CopyAllBlocksCmd),
 }
 
 impl ColdStoreCommand {
@@ -35,6 +38,7 @@ impl ColdStoreCommand {
             near_chain_configs::GenesisValidationMode::Full,
         )
         .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
+
         let opener = NodeStorage::opener(
             home_dir,
             &near_config.config.store,
@@ -52,6 +56,9 @@ impl ColdStoreCommand {
                     copy_next_block(&store, &near_config, &hot_runtime);
                 }
             }
+            SubCommand::CopyAllBlocks(cmd) => {
+                copy_all_blocks(&store, cmd.batch_size, !cmd.no_check_after)
+            }
         }
     }
 }
@@ -60,6 +67,16 @@ impl ColdStoreCommand {
 struct CopyNextBlocksCmd {
     #[clap(short, long, default_value_t = 1)]
     number_of_blocks: usize,
+}
+
+#[derive(Parser)]
+struct CopyAllBlocksCmd {
+    /// Threshold size of the write transaction.
+    #[clap(short = 'b', long, default_value_t = 500_000_000)]
+    batch_size: usize,
+    /// Flag to not check correctness of cold db after copying.
+    #[clap(long = "nc")]
+    no_check_after: bool,
 }
 
 fn check_open(store: &NodeStorage) {
@@ -141,6 +158,71 @@ fn copy_next_block(store: &NodeStorage, config: &NearConfig, hot_runtime: &Arc<N
 
     update_cold_head(&*store.cold_db().unwrap(), &store.get_store(Temperature::Hot), &next_height)
         .expect(&std::format!("Failed to update cold HEAD to {}", next_height));
+}
+
+fn copy_all_blocks(store: &NodeStorage, batch_size: usize, check: bool) {
+    // If FINAL_HEAD is not set for hot storage though, we default it to 0.
+    let hot_final_head = store
+        .get_store(Temperature::Hot)
+        .get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)
+        .unwrap_or_else(|e| panic!("Error reading hot FINAL_HEAD: {:#}", e))
+        .map(|t| t.height)
+        .unwrap_or(0);
+
+    copy_all_data_to_cold(
+        (*store.cold_db().unwrap()).clone(),
+        &store.get_store(Temperature::Hot),
+        batch_size,
+    )
+    .expect("Failed to do migration to cold db");
+
+    update_cold_head(
+        &*store.cold_db().unwrap(),
+        &store.get_store(Temperature::Hot),
+        &hot_final_head,
+    )
+    .expect(&std::format!("Failed to update cold HEAD to {}", hot_final_head));
+
+    if check {
+        for col in DBCol::iter() {
+            if col.is_cold() {
+                println!(
+                    "Performed {} {:?} checks",
+                    check_iter(
+                        &store.get_store(Temperature::Hot),
+                        &store.get_store(Temperature::Cold),
+                        col,
+                    ),
+                    col
+                );
+            }
+        }
+    }
+}
+
+fn check_key(
+    first_store: &near_store::Store,
+    second_store: &near_store::Store,
+    col: DBCol,
+    key: &[u8],
+) {
+    let first_res = first_store.get(col, key);
+    let second_res = second_store.get(col, key);
+
+    assert_eq!(first_res.unwrap(), second_res.unwrap());
+}
+
+fn check_iter(
+    first_store: &near_store::Store,
+    second_store: &near_store::Store,
+    col: DBCol,
+) -> u64 {
+    let mut num_checks = 0;
+    for (key, _value) in first_store.iter(col).map(Result::unwrap) {
+        check_key(first_store, second_store, col, &key);
+        num_checks += 1;
+    }
+    num_checks
 }
 
 /// Calls get_ser on Store with provided temperature from provided NodeStorage.

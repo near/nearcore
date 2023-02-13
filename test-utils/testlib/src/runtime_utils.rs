@@ -12,6 +12,9 @@ pub fn alice_account() -> AccountId {
 pub fn bob_account() -> AccountId {
     "bob.near".parse().unwrap()
 }
+pub fn carol_account() -> AccountId {
+    "carol.near".parse().unwrap()
+}
 pub fn eve_dot_alice_account() -> AccountId {
     "eve.alice.near".parse().unwrap()
 }
