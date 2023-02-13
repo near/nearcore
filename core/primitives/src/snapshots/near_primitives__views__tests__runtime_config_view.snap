@@ -24,9 +24,9 @@ expression: "&view"
     },
     "action_creation_config": {
       "create_account_cost": {
-        "send_sir": 99607375000,
-        "send_not_sir": 99607375000,
-        "execution": 99607375000
+        "send_sir": 3800000000000,
+        "send_not_sir": 3800000000000,
+        "execution": 3800000000000
       },
       "deploy_contract_cost": {
         "send_sir": 184765750000,
