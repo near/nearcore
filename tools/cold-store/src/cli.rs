@@ -4,20 +4,18 @@ use near_primitives::hash::CryptoHash;
 use near_store::cold_storage::{copy_all_data_to_cold, update_cold_db, update_cold_head};
 use near_store::{DBCol, NodeStorage, Temperature, COLD_HEAD_KEY, FINAL_HEAD_KEY, HEAD_KEY};
 use nearcore::{NearConfig, NightshadeRuntime};
-
-use clap::Parser;
 use std::io::Result;
 use std::path::Path;
 use std::sync::Arc;
 use strum::IntoEnumIterator;
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub struct ColdStoreCommand {
     #[clap(subcommand)]
     subcmd: SubCommand,
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 #[clap(subcommand_required = true, arg_required_else_help = true)]
 enum SubCommand {
     /// Open NodeStorage and check that is has cold storage.
@@ -63,13 +61,13 @@ impl ColdStoreCommand {
     }
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 struct CopyNextBlocksCmd {
     #[clap(short, long, default_value_t = 1)]
     number_of_blocks: usize,
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 struct CopyAllBlocksCmd {
     /// Threshold size of the write transaction.
     #[clap(short = 'b', long, default_value_t = 500_000_000)]

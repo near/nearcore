@@ -1,21 +1,19 @@
-use std::convert::AsRef;
-use std::fmt::{Debug, Display, Formatter};
-use std::hash::{Hash, Hasher};
-use std::io::{Error, ErrorKind, Read, Write};
-use std::str::FromStr;
-
 use borsh::{BorshDeserialize, BorshSerialize};
 use ed25519_dalek::ed25519::signature::{Signer, Verifier};
 use once_cell::sync::Lazy;
 use primitive_types::U256;
 use rand::rngs::OsRng;
 use secp256k1::Message;
-use serde::{Deserialize, Serialize};
+use std::convert::AsRef;
+use std::fmt::{Debug, Display, Formatter};
+use std::hash::{Hash, Hasher};
+use std::io::{Error, ErrorKind, Read, Write};
+use std::str::FromStr;
 
 pub static SECP256K1: Lazy<secp256k1::Secp256k1<secp256k1::All>> =
     Lazy::new(secp256k1::Secp256k1::new);
 
-#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, serde::Serialize, serde::Deserialize)]
 pub enum KeyType {
     ED25519 = 0,
     SECP256K1 = 1,

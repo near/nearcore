@@ -1,16 +1,15 @@
 use anyhow::Context;
-use clap::Parser;
 use near_primitives::types::BlockHeight;
 use std::cell::Cell;
 use std::path::PathBuf;
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub struct MirrorCommand {
     #[clap(subcommand)]
     subcmd: SubCommand,
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 enum SubCommand {
     Prepare(PrepareCmd),
     Run(RunCmd),
@@ -18,7 +17,7 @@ enum SubCommand {
 
 /// initialize a target chain with genesis records from the source chain, and
 /// then try to mirror transactions from the source chain to the target chain.
-#[derive(Parser)]
+#[derive(clap::Parser)]
 struct RunCmd {
     /// source chain home dir
     #[clap(long)]
@@ -91,7 +90,7 @@ impl RunCmd {
 /// Write a new genesis records file where the public keys have been
 /// altered so that this binary can sign transactions when mirroring
 /// them from the source chain to the target chain
-#[derive(Parser)]
+#[derive(clap::Parser)]
 struct PrepareCmd {
     /// A genesis records file as output by `neard view-state
     /// dump-state --stream`

@@ -64,7 +64,7 @@ pub fn create_context(input: Vec<u8>) -> VMContext {
 ///
 /// [`available_imports`]: wasm_smith::Config::available_imports
 /// [`ConfiguredModule`]: wasm_smith::ConfiguredModule
-#[derive(Arbitrary, Debug)]
+#[derive(arbitrary::Arbitrary, Debug)]
 pub struct ModuleConfig {}
 
 impl wasm_smith::Config for ModuleConfig {

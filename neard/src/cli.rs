@@ -1,6 +1,5 @@
 #[cfg(unix)]
 use anyhow::Context;
-use clap::{Args, Parser};
 use near_amend_genesis::AmendGenesisCommand;
 use near_chain_configs::GenesisValidationMode;
 use near_client::ConfigUpdater;
@@ -33,7 +32,7 @@ use tokio::sync::broadcast::Receiver;
 use tracing::{debug, error, info, warn};
 
 /// NEAR Protocol Node
-#[derive(Parser)]
+#[derive(clap::Parser)]
 #[clap(version = crate::NEARD_VERSION_STRING.as_str())]
 #[clap(subcommand_required = true, arg_required_else_help = true)]
 pub(super) struct NeardCmd {
@@ -45,7 +44,7 @@ pub(super) struct NeardCmd {
 
 impl NeardCmd {
     pub(super) fn parse_and_run() -> anyhow::Result<()> {
-        let neard_cmd = Self::parse();
+        let neard_cmd: Self = clap::Parser::parse();
 
         // Enable logging of the current thread.
         let _subscriber_guard = default_subscriber(
@@ -122,7 +121,7 @@ impl NeardCmd {
     }
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub(super) struct StateViewerCommand {
     /// By default state viewer opens rocks DB in the read only mode, which allows it to run
     /// multiple instances in parallel and be sure that no unintended changes get written to the DB.
@@ -137,7 +136,7 @@ pub(super) struct StateViewerCommand {
     subcmd: StateViewerSubCommand,
 }
 
-#[derive(Parser, Debug)]
+#[derive(clap::Parser, Debug)]
 struct NeardOpts {
     /// Sets verbose logging for the given target, or for all targets if no
     /// target is given.
@@ -165,7 +164,7 @@ impl NeardOpts {
     }
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub(super) enum NeardSubCommand {
     /// Initializes NEAR configuration
     Init(InitCmd),
@@ -228,7 +227,7 @@ pub(super) enum NeardSubCommand {
     StateParts(StatePartsCommand),
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub(super) struct InitCmd {
     /// Download the verified NEAR genesis file automatically.
     #[clap(long)]
@@ -338,7 +337,7 @@ impl InitCmd {
     }
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub(super) struct RunCmd {
     /// Configure node to run as archival node which prevents deletion of old
     /// blocks.  This is a persistent setting; once client is started as
@@ -542,7 +541,7 @@ async fn wait_for_interrupt_signal(_home_dir: &Path, rx_crash: &mut Receiver<()>
     }
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub(super) struct LocalnetCmd {
     /// Number of non-validators to initialize the localnet with.
     #[clap(short = 'n', long, alias = "n", default_value = "0")]
@@ -600,7 +599,7 @@ impl LocalnetCmd {
     }
 }
 
-#[derive(Args)]
+#[derive(clap::Args)]
 #[clap(arg_required_else_help = true)]
 pub(super) struct RecompressStorageSubCommand {
     /// Directory where to save new storage.
@@ -649,7 +648,7 @@ pub enum VerifyProofError {
     InvalidBlockHashProof,
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub struct VerifyProofSubCommand {
     #[clap(long)]
     json_file_path: String,
@@ -759,7 +758,8 @@ fn make_env_filter(verbose: Option<&str>) -> Result<EnvFilter, BuildEnvFilterErr
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{CryptoHash, NeardCmd, NeardSubCommand, VerifyProofError, VerifyProofSubCommand};
+    use clap::Parser;
     use std::str::FromStr;
 
     #[test]

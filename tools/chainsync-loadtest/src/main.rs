@@ -2,15 +2,8 @@ mod concurrency;
 mod fetch_chain;
 mod network;
 
-use std::sync::Arc;
-
 use anyhow::{anyhow, Context};
-use clap::Parser;
-use openssl_probe;
-
 use concurrency::{Ctx, Scope};
-use network::Network;
-
 use near_chain_configs::Genesis;
 use near_network::time;
 use near_network::types::NetworkRecipient;
@@ -20,6 +13,9 @@ use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
 use nearcore::config;
 use nearcore::config::NearConfig;
+use network::Network;
+use openssl_probe;
+use std::sync::Arc;
 
 fn genesis_hash(chain_id: &str) -> CryptoHash {
     return match chain_id {
@@ -71,7 +67,7 @@ fn download_configs(chain_id: &str, dir: &std::path::Path) -> anyhow::Result<Nea
     NearConfig::new(config, genesis, (&node_signer).into(), None)
 }
 
-#[derive(Parser, Debug)]
+#[derive(clap::Parser, Debug)]
 struct Cmd {
     #[clap(long)]
     pub chain_id: String,
@@ -85,7 +81,7 @@ struct Cmd {
 
 impl Cmd {
     fn parse_and_run() -> anyhow::Result<()> {
-        let cmd = Self::parse();
+        let cmd: Self = clap::Parser::parse();
         let start_block_hash =
             cmd.start_block_hash.parse::<CryptoHash>().map_err(|x| anyhow!(x.to_string()))?;
 

@@ -1,12 +1,10 @@
-use std::collections::{HashMap, HashSet};
-
+use crate::StoreValidator;
 use borsh::BorshSerialize;
-use thiserror::Error;
-
 use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::hash::CryptoHash;
+use near_primitives::shard_layout::{get_block_shard_uid, ShardUId};
 use near_primitives::sharding::{ChunkHash, ShardChunk, StateSyncInfo};
 use near_primitives::syncing::{
     get_num_state_parts, ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey,
@@ -18,11 +16,9 @@ use near_primitives::utils::{get_block_shard_id, get_outcome_id_block_hash, inde
 use near_store::{
     DBCol, TrieChanges, CHUNK_TAIL_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY, TAIL_KEY,
 };
+use std::collections::{HashMap, HashSet};
 
-use crate::StoreValidator;
-use near_primitives::shard_layout::{get_block_shard_uid, ShardUId};
-
-#[derive(Error, Debug)]
+#[derive(thiserror::Error, Debug)]
 pub enum StoreValidatorError {
     #[error(transparent)]
     IOError(#[from] std::io::Error),
