@@ -771,7 +771,7 @@ fn make_env_filter(verbose: Option<&str>) -> Result<EnvFilter, BuildEnvFilterErr
     Ok(env_filter)
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub(super) struct ValidateConfigCommand {}
 
 impl ValidateConfigCommand {

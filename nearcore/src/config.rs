@@ -10,11 +10,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::{anyhow, bail, Context};
 use near_config_utils::{ValidationError, ValidationErrors};
-use near_primitives::test_utils::create_test_signer;
-use near_primitives::time::Clock;
-use num_rational::Rational32;
 use serde::{Deserialize, Serialize};
 
 #[cfg(test)]
@@ -206,17 +202,7 @@ fn default_trie_viewer_state_size_limit() -> Option<u64> {
     Some(50_000)
 }
 
-<<<<<<< HEAD
-#[derive(thiserror::Error, Debug)]
-pub enum ConfigValidationError {
-    #[error("Configuration with archive = false and save_trie_changes = false is not supported because non-archival nodes must save trie changes in order to do do garbage collection.")]
-    TrieChanges,
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
-=======
 #[derive(Serialize, Deserialize, Clone, Debug)]
->>>>>>> 1f12528e2 (refactor code so that when running validate-config command, one panic will report all check results from all config files)
 pub struct Consensus {
     /// Minimum number of peers to start syncing.
     pub min_num_peers: usize,
@@ -1320,13 +1306,8 @@ pub fn download_config(url: &str, path: &Path) -> Result<(), FileDownloadError> 
     result
 }
 
-<<<<<<< HEAD
 #[derive(serde::Deserialize)]
 struct NodeKeyFile {
-=======
-#[derive(Deserialize)]
-pub struct NodeKeyFile {
->>>>>>> 1f12528e2 (refactor code so that when running validate-config command, one panic will report all check results from all config files)
     account_id: String,
     public_key: PublicKey,
     secret_key: near_crypto::SecretKey,

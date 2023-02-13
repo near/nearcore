@@ -9,7 +9,6 @@ use near_store::{DBCol, NodeStorage, Store, Temperature};
 use near_store::{COLD_HEAD_KEY, FINAL_HEAD_KEY, HEAD_KEY, TAIL_KEY};
 use nearcore::{NearConfig, NightshadeRuntime};
 use std::io::Result;
-
 use std::path::Path;
 use std::sync::Arc;
 use strum::IntoEnumIterator;
