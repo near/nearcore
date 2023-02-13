@@ -1,33 +1,5 @@
-use near_o11y::log_assert;
 use rayon::iter::ParallelIterator;
-use std::future::Future;
 use std::sync::atomic::{AtomicBool, Ordering};
-struct MustCompleteGuard;
-
-impl Drop for MustCompleteGuard {
-    fn drop(&mut self) {
-        log_assert!(false, "dropped a non-abortable future before completion");
-    }
-}
-
-/// must_complete wraps a future, so that it logs an error if it is dropped before completion.
-/// Possibility of future abort at every await makes the control flow unnecessarily complicated.
-/// In fact, only few basic futures (like io primitives) actually need to be abortable, so
-/// that they can be put together into a tokio::select block. All the higher level logic
-/// would greatly benefit (in terms of readability and bug-resistance) from being non-abortable.
-/// Rust doesn't support linear types as of now, so best we can do is a runtime check.
-/// TODO(gprusak): we would like to make the futures non-abortable, however with the current
-/// semantics of actix, which drops all the futures when stopped this is not feasible.
-/// Reconsider how to introduce must_complete to our codebase.
-#[allow(dead_code)]
-pub fn must_complete<Fut: Future>(fut: Fut) -> impl Future<Output = Fut::Output> {
-    let guard = MustCompleteGuard;
-    async move {
-        let res = fut.await;
-        let _ = std::mem::ManuallyDrop::new(guard);
-        res
-    }
-}
 
 /// spawns a closure on a global rayon threadpool and awaits its completion.
 /// Returns the closure result.
