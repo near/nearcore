@@ -1,13 +1,9 @@
-use std::cmp::Ordering::Greater;
-use std::{fmt, str};
-
-use serde::{Deserialize, Serialize};
-
-use near_primitives_core::types::ShardId;
-
 use crate::hash::CryptoHash;
 use crate::types::{AccountId, NumShards};
+use near_primitives_core::types::ShardId;
+use std::cmp::Ordering::Greater;
 use std::collections::HashMap;
+use std::{fmt, str};
 
 /// This file implements two data structure `ShardLayout` and `ShardUId`
 ///
@@ -51,7 +47,7 @@ use std::collections::HashMap;
 
 pub type ShardVersion = u32;
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq)]
 pub enum ShardLayout {
     V0(ShardLayoutV0),
     V1(ShardLayoutV1),
@@ -62,7 +58,7 @@ pub enum ShardLayout {
 /// to keep backward compatibility for some existing tests.
 /// `parent_shards` for `ShardLayoutV1` is always `None`, meaning it can only be the first shard layout
 /// a chain uses.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct ShardLayoutV0 {
     /// Map accounts evenly across all shards
     num_shards: NumShards,
@@ -76,7 +72,7 @@ pub struct ShardLayoutV0 {
 /// will be `[[0, 1, 2, 3]]`
 type ShardSplitMap = Vec<Vec<ShardId>>;
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct ShardLayoutV1 {
     /// num_shards = fixed_shards.len() + boundary_accounts.len() + 1
     /// Each account and all sub-accounts map to the shard of position in this array.

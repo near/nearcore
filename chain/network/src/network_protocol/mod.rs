@@ -767,9 +767,9 @@ impl StateResponseInfo {
     Clone,
     PartialEq,
     Eq,
+    Hash,
     borsh::BorshSerialize,
     borsh::BorshDeserialize,
-    Hash,
     serde::Serialize,
 )]
 pub enum AccountOrPeerIdOrHash {

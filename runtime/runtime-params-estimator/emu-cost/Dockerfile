@@ -1,5 +1,5 @@
 # our local base image
-FROM rust:1.66.0
+FROM rust:1.67.1
 
 LABEL description="Container for builds"
 

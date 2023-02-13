@@ -1,3 +1,7 @@
+use anyhow::{anyhow, bail, Context};
+use near_primitives::test_utils::create_test_signer;
+use near_primitives::time::Clock;
+use num_rational::Rational32;
 use std::fs;
 use std::fs::File;
 use std::io::{Read, Write};
@@ -5,16 +9,11 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
-
-use anyhow::{anyhow, bail, Context};
-use near_primitives::test_utils::create_test_signer;
-use near_primitives::time::Clock;
-use num_rational::Rational32;
-use serde::{Deserialize, Serialize};
 #[cfg(test)]
 use tempfile::tempdir;
 use tracing::{info, warn};
 
+use crate::download_file::{run_download_file, FileDownloadError};
 use near_chain_configs::{
     get_initial_supply, ClientConfig, GCConfig, Genesis, GenesisConfig, GenesisValidationMode,
     LogSummaryStyle, MutableConfigValue,
@@ -40,8 +39,6 @@ use near_primitives::version::PROTOCOL_VERSION;
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::RosettaRpcConfig;
 use near_telemetry::TelemetryConfig;
-
-use crate::download_file::{run_download_file, FileDownloadError};
 
 /// Initial balance used in tests.
 pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000 * NEAR_BASE;
@@ -207,7 +204,7 @@ pub enum ConfigValidationError {
     TrieChanges,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct Consensus {
     /// Minimum number of peers to start syncing.
     pub min_num_peers: usize,
@@ -291,7 +288,7 @@ impl Default for Consensus {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 #[serde(default)]
 pub struct Config {
     pub genesis_file: String,
@@ -1290,7 +1287,7 @@ pub fn download_config(url: &str, path: &Path) -> Result<(), FileDownloadError> 
     result
 }
 
-#[derive(Deserialize)]
+#[derive(serde::Deserialize)]
 struct NodeKeyFile {
     account_id: String,
     public_key: PublicKey,

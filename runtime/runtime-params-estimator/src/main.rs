@@ -1,7 +1,6 @@
 #![doc = include_str!("../README.md")]
 
 use anyhow::Context;
-use clap::Parser;
 use genesis_populate::GenesisBuilder;
 use near_chain_configs::GenesisValidationMode;
 use near_primitives::version::PROTOCOL_VERSION;
@@ -23,7 +22,7 @@ use tracing_subscriber::Layer;
 
 mod replay;
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 struct CliArgs {
     /// Directory for config and data. If not set, a temporary directory is used
     /// to generate appropriate data.
@@ -109,8 +108,7 @@ enum CliSubCmd {
 
 fn main() -> anyhow::Result<()> {
     let start = time::Instant::now();
-
-    let cli_args = CliArgs::parse();
+    let cli_args: CliArgs = clap::Parser::parse();
 
     if let Some(cmd) = cli_args.sub_cmd {
         return match cmd {
@@ -518,7 +516,7 @@ mod tests {
             tracing_span_tree: false,
             record_io_trace: None,
             in_memory_db: false,
-            db_test_config: RocksDBTestConfig::parse_from(std::iter::empty::<std::ffi::OsString>()),
+            db_test_config: clap::Parser::parse_from(std::iter::empty::<std::ffi::OsString>()),
             sub_cmd: None,
         };
         run_estimation(args).unwrap();

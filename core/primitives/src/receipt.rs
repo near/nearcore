@@ -1,21 +1,26 @@
-use std::borrow::Borrow;
-use std::fmt;
-
-use borsh::{BorshDeserialize, BorshSerialize};
-use serde::{Deserialize, Serialize};
-
-use near_crypto::{KeyType, PublicKey};
-use near_o11y::pretty;
-
 use crate::borsh::maybestd::collections::HashMap;
 use crate::hash::CryptoHash;
 use crate::serialize::{dec_format, option_base64_format};
 use crate::transaction::{Action, TransferAction};
 use crate::types::{AccountId, Balance, ShardId};
+use borsh::{BorshDeserialize, BorshSerialize};
+use near_crypto::{KeyType, PublicKey};
+use near_o11y::pretty;
+use std::borrow::Borrow;
+use std::fmt;
 
 /// Receipts are used for a cross-shard communication.
 /// Receipts could be 2 types (determined by a `ReceiptEnum`): `ReceiptEnum::Action` of `ReceiptEnum::Data`.
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Debug,
+    PartialEq,
+    Eq,
+    Clone,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub struct Receipt {
     /// An issuer account_id of a particular receipt.
     /// `predecessor_id` could be either `Transaction` `signer_id` or intermediate contract's `account_id`.
@@ -89,14 +94,32 @@ impl Receipt {
 }
 
 /// Receipt could be either ActionReceipt or DataReceipt
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub enum ReceiptEnum {
     Action(ActionReceipt),
     Data(DataReceipt),
 }
 
 /// ActionReceipt is derived from an Action from `Transaction or from Receipt`
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Debug,
+    PartialEq,
+    Eq,
+    Clone,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub struct ActionReceipt {
     /// A signer of the original transaction
     pub signer_id: AccountId,
@@ -119,7 +142,16 @@ pub struct ActionReceipt {
 
 /// An incoming (ingress) `DataReceipt` which is going to a Receipt's `receiver` input_data_ids
 /// Which will be converted to `PromiseResult::Successful(value)` or `PromiseResult::Failed`
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Hash, PartialEq, Eq, Clone)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Hash,
+    PartialEq,
+    Eq,
+    Clone,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub struct DataReceipt {
     pub data_id: CryptoHash,
     #[serde(with = "option_base64_format")]
@@ -138,7 +170,15 @@ impl fmt::Debug for DataReceipt {
 /// The outgoing (egress) data which will be transformed
 /// to a `DataReceipt` to be sent to a `receipt.receiver`
 #[derive(
-    BorshSerialize, BorshDeserialize, Serialize, Deserialize, Hash, Clone, Debug, PartialEq, Eq,
+    BorshSerialize,
+    BorshDeserialize,
+    Hash,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
 )]
 pub struct DataReceiver {
     pub data_id: CryptoHash,

@@ -1065,6 +1065,7 @@ dependencies = [
  "near-primitives",
  "near-store",
  "nearcore",
+ "strum",
 ]
 
 [[package]]
