@@ -85,9 +85,9 @@ impl RuntimeFeesConfig {
             pessimistic_gas_price_inflation_ratio: Rational32::new(103, 100),
             action_fees: enum_map::enum_map! {
                 ActionCosts::create_account => Fee {
-                    send_sir: 99607375000,
-                    send_not_sir: 99607375000,
-                    execution: 99607375000,
+                    send_sir: 3_800_000_000_000,
+                    send_not_sir: 3_800_000_000_000,
+                    execution: 3_800_000_000_000,
                 },
                 ActionCosts::delete_account => Fee {
                     send_sir: 147489000000,

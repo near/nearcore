@@ -721,7 +721,7 @@ class RosettaTestCase(unittest.TestCase):
                             'decimals': 24,
                             'symbol': 'NEAR'
                         },
-                        'value': '1273665187500000000'
+                        'value': '12374843062500000000'
                     },
                     'operation_identifier': {
                         'index': 0
