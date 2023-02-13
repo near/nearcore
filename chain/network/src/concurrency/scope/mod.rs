@@ -297,5 +297,4 @@ macro_rules! run {
     }};
 }
 
-#[allow(dead_code)]
 pub use run;
