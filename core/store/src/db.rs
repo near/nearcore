@@ -2,14 +2,12 @@ use std::io;
 
 use crate::DBCol;
 
-#[cfg(feature = "cold_store")]
 mod colddb;
 pub mod refcount;
 pub(crate) mod rocksdb;
 mod slice;
 mod testdb;
 
-#[cfg(feature = "cold_store")]
 pub use self::colddb::ColdDB;
 pub use self::rocksdb::RocksDB;
 pub use self::slice::DBSlice;
@@ -25,6 +23,7 @@ pub const LATEST_KNOWN_KEY: &[u8; 12] = b"LATEST_KNOWN";
 pub const LARGEST_TARGET_HEIGHT_KEY: &[u8; 21] = b"LARGEST_TARGET_HEIGHT";
 pub const GENESIS_JSON_HASH_KEY: &[u8; 17] = b"GENESIS_JSON_HASH";
 pub const GENESIS_STATE_ROOTS_KEY: &[u8; 19] = b"GENESIS_STATE_ROOTS";
+pub const COLD_HEAD_KEY: &[u8; 9] = b"COLD_HEAD";
 
 #[derive(Default)]
 pub struct DBTransaction {
@@ -44,6 +43,22 @@ pub(crate) enum DBOp {
     Delete { col: DBCol, key: Vec<u8> },
     /// Deletes all data from a column.
     DeleteAll { col: DBCol },
+    /// Deletes [`from`, `to`) key range, i.e. including `from` and excluding `to`
+    DeleteRange { col: DBCol, from: Vec<u8>, to: Vec<u8> },
+}
+
+impl DBOp {
+    pub fn col(&self) -> DBCol {
+        match self {
+            DBOp::Set { col, .. } => col,
+            DBOp::Insert { col, .. } => col,
+            DBOp::UpdateRefcount { col, .. } => col,
+            DBOp::Delete { col, .. } => col,
+            DBOp::DeleteAll { col } => col,
+            DBOp::DeleteRange { col, .. } => col,
+        }
+        .clone()
+    }
 }
 
 impl DBTransaction {
@@ -71,6 +86,10 @@ impl DBTransaction {
 
     pub fn delete_all(&mut self, col: DBCol) {
         self.ops.push(DBOp::DeleteAll { col });
+    }
+
+    pub fn delete_range(&mut self, col: DBCol, from: Vec<u8>, to: Vec<u8>) {
+        self.ops.push(DBOp::DeleteRange { col, from, to });
     }
 
     pub fn merge(&mut self, other: DBTransaction) {

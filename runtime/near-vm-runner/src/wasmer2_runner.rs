@@ -233,7 +233,7 @@ impl Wasmer2Config {
 //  major version << 6
 //  minor version
 const WASMER2_CONFIG: Wasmer2Config = Wasmer2Config {
-    seed: (1 << 10) | (8 << 6) | 0,
+    seed: (1 << 10) | (9 << 6) | 0,
     engine: WasmerEngine::Universal,
     compiler: WasmerCompiler::Singlepass,
 };
@@ -670,5 +670,5 @@ impl crate::runner::VM for Wasmer2VM {
 
 #[test]
 fn test_memory_like() {
-    crate::tests::test_memory_like(|| Box::new(Wasmer2Memory::new(1, 1).unwrap()));
+    near_vm_logic::test_utils::test_memory_like(|| Box::new(Wasmer2Memory::new(1, 1).unwrap()));
 }

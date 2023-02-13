@@ -7,7 +7,7 @@ use actix::Message;
 use chrono::DateTime;
 use near_primitives::time::Utc;
 
-use near_chain_configs::ProtocolConfigView;
+use near_chain_configs::{ClientConfig, ProtocolConfigView};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
 use near_primitives::network::PeerId;
@@ -21,7 +21,8 @@ use near_primitives::views::{
     BlockView, ChunkView, DownloadStatusView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
     FinalExecutionOutcomeViewEnum, GasPriceView, LightClientBlockLiteView, LightClientBlockView,
     MaintenanceWindowsView, QueryRequest, QueryResponse, ReceiptView, ShardSyncDownloadView,
-    StateChangesKindsView, StateChangesRequestView, StateChangesView, SyncStatusView,
+    SplitStorageInfoView, StateChangesKindsView, StateChangesRequestView, StateChangesView,
+    SyncStatusView,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 use serde::Serialize;
@@ -937,6 +938,66 @@ impl From<near_chain_primitives::Error> for GetMaintenanceWindowsError {
             near_chain_primitives::Error::IOErr(error) => Self::IOError(error.to_string()),
             _ => Self::Unreachable(error.to_string()),
         }
+    }
+}
+
+pub struct GetClientConfig {}
+
+impl Message for GetClientConfig {
+    type Result = Result<ClientConfig, GetClientConfigError>;
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum GetClientConfigError {
+    #[error("IO Error: {0}")]
+    IOError(String),
+    // NOTE: Currently, the underlying errors are too broad, and while we tried to handle
+    // expected cases, we cannot statically guarantee that no other errors will be returned
+    // in the future.
+    // TODO #3851: Remove this variant once we can exhaustively match all the underlying errors
+    #[error("It is a bug if you receive this error type, please, report this incident: https://github.com/near/nearcore/issues/new/choose. Details: {0}")]
+    Unreachable(String),
+}
+
+impl From<near_chain_primitives::Error> for GetClientConfigError {
+    fn from(error: near_chain_primitives::Error) -> Self {
+        match error {
+            near_chain_primitives::Error::IOErr(error) => Self::IOError(error.to_string()),
+            _ => Self::Unreachable(error.to_string()),
+        }
+    }
+}
+
+pub struct GetSplitStorageInfo {}
+
+impl Message for GetSplitStorageInfo {
+    type Result = Result<SplitStorageInfoView, GetSplitStorageInfoError>;
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum GetSplitStorageInfoError {
+    #[error("IO Error: {0}")]
+    IOError(String),
+    // NOTE: Currently, the underlying errors are too broad, and while we tried to handle
+    // expected cases, we cannot statically guarantee that no other errors will be returned
+    // in the future.
+    // TODO #3851: Remove this variant once we can exhaustively match all the underlying errors
+    #[error("It is a bug if you receive this error type, please, report this incident: https://github.com/near/nearcore/issues/new/choose. Details: {0}")]
+    Unreachable(String),
+}
+
+impl From<near_chain_primitives::Error> for GetSplitStorageInfoError {
+    fn from(error: near_chain_primitives::Error) -> Self {
+        match error {
+            near_chain_primitives::Error::IOErr(error) => Self::IOError(error.to_string()),
+            _ => Self::Unreachable(error.to_string()),
+        }
+    }
+}
+
+impl From<std::io::Error> for GetSplitStorageInfoError {
+    fn from(error: std::io::Error) -> Self {
+        Self::IOError(error.to_string())
     }
 }
 

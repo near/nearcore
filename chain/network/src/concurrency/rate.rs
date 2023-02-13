@@ -19,7 +19,7 @@ impl Limit {
         if self.qps <= 0. {
             anyhow::bail!("qps has to be >0");
         }
-        if self.burst <= 0 {
+        if self.burst == 0 {
             anyhow::bail!("burst has to be >0");
         }
         Ok(())

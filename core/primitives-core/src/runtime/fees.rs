@@ -7,7 +7,7 @@ use enum_map::EnumMap;
 use serde::{Deserialize, Serialize};
 
 use crate::config::ActionCosts;
-use crate::num_rational::Rational;
+use crate::num_rational::Rational32;
 use crate::types::{Balance, Gas};
 
 /// Costs associated with an object that can only be sent over the network (and executed
@@ -54,71 +54,10 @@ pub struct RuntimeFeesConfig {
     pub storage_usage_config: StorageUsageConfig,
 
     /// Fraction of the burnt gas to reward to the contract account for execution.
-    pub burnt_gas_reward: Rational,
+    pub burnt_gas_reward: Rational32,
 
     /// Pessimistic gas price inflation ratio.
-    pub pessimistic_gas_price_inflation_ratio: Rational,
-}
-
-/// Describes the cost of creating a data receipt, `DataReceipt`.
-#[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
-pub struct DataReceiptCreationConfig {
-    /// Base cost of creating a data receipt.
-    /// Both `send` and `exec` costs are burned when a new receipt has input dependencies. The gas
-    /// is charged for each input dependency. The dependencies are specified when a receipt is
-    /// created using `promise_then` and `promise_batch_then`.
-    /// NOTE: Any receipt with output dependencies will produce data receipts. Even if it fails.
-    /// Even if the last action is not a function call (in case of success it will return empty
-    /// value).
-    pub base_cost: Fee,
-    /// Additional cost per byte sent.
-    /// Both `send` and `exec` costs are burned when a function call finishes execution and returns
-    /// `N` bytes of data to every output dependency. For each output dependency the cost is
-    /// `(send(sir) + exec()) * N`.
-    pub cost_per_byte: Fee,
-}
-
-/// Describes the cost of creating a specific action, `Action`. Includes all variants.
-#[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
-pub struct ActionCreationConfig {
-    /// Base cost of creating an account.
-    pub create_account_cost: Fee,
-
-    /// Base cost of deploying a contract.
-    pub deploy_contract_cost: Fee,
-    /// Cost per byte of deploying a contract.
-    pub deploy_contract_cost_per_byte: Fee,
-
-    /// Base cost of calling a function.
-    pub function_call_cost: Fee,
-    /// Cost per byte of method name and arguments of calling a function.
-    pub function_call_cost_per_byte: Fee,
-
-    /// Base cost of making a transfer.
-    pub transfer_cost: Fee,
-
-    /// Base cost of staking.
-    pub stake_cost: Fee,
-
-    /// Base cost of adding a key.
-    pub add_key_cost: AccessKeyCreationConfig,
-
-    /// Base cost of deleting a key.
-    pub delete_key_cost: Fee,
-
-    /// Base cost of deleting an account.
-    pub delete_account_cost: Fee,
-}
-
-/// Describes the cost of creating an access key.
-#[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
-pub struct AccessKeyCreationConfig {
-    /// Base cost of creating a full access access-key.
-    pub full_access_cost: Fee,
-    /// Base cost of creating an access-key restricted to specific functions.
-    pub function_call_cost: Fee,
-    /// Cost per byte of method_names of creating a restricted access-key.
-    pub function_call_cost_per_byte: Fee,
+    pub pessimistic_gas_price_inflation_ratio: Rational32,
 }
 
 /// Describes cost of storage per block
@@ -142,8 +81,8 @@ impl RuntimeFeesConfig {
     pub fn test() -> Self {
         Self {
             storage_usage_config: StorageUsageConfig::test(),
-            burnt_gas_reward: Rational::new(3, 10),
-            pessimistic_gas_price_inflation_ratio: Rational::new(103, 100),
+            burnt_gas_reward: Rational32::new(3, 10),
+            pessimistic_gas_price_inflation_ratio: Rational32::new(103, 100),
             action_fees: enum_map::enum_map! {
                 ActionCosts::create_account => Fee {
                     send_sir: 99607375000,
@@ -220,6 +159,12 @@ impl RuntimeFeesConfig {
                     send_not_sir: 59357464,
                     execution: 59357464,
                 },
+                #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+                ActionCosts::delegate => Fee {
+                    send_sir: 2319861500000,
+                    send_not_sir: 2319861500000,
+                    execution: 2319861500000,
+                },
             },
         }
     }
@@ -230,8 +175,8 @@ impl RuntimeFeesConfig {
                 _ => Fee { send_sir: 0, send_not_sir: 0, execution: 0 }
             },
             storage_usage_config: StorageUsageConfig::free(),
-            burnt_gas_reward: Rational::from_integer(0),
-            pessimistic_gas_price_inflation_ratio: Rational::from_integer(0),
+            burnt_gas_reward: Rational32::from_integer(0),
+            pessimistic_gas_price_inflation_ratio: Rational32::from_integer(0),
         }
     }
 

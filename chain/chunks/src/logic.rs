@@ -1,4 +1,6 @@
-use near_chain::{validate::validate_chunk_proofs, Chain, ChainStore, RuntimeAdapter};
+use near_chain::{
+    validate::validate_chunk_proofs, Chain, ChainStore, RuntimeWithEpochManagerAdapter,
+};
 use near_chunks_primitives::Error;
 use near_primitives::{
     hash::CryptoHash,
@@ -16,7 +18,7 @@ pub fn need_receipt(
     prev_block_hash: &CryptoHash,
     shard_id: ShardId,
     me: Option<&AccountId>,
-    runtime_adapter: &dyn RuntimeAdapter,
+    runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
 ) -> bool {
     cares_about_shard_this_or_next_epoch(me, prev_block_hash, shard_id, true, runtime_adapter)
 }
@@ -26,7 +28,7 @@ pub fn need_part(
     prev_block_hash: &CryptoHash,
     part_ord: u64,
     me: Option<&AccountId>,
-    runtime_adapter: &dyn RuntimeAdapter,
+    runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
 ) -> Result<bool, Error> {
     let epoch_id = runtime_adapter.get_epoch_id_from_prev_block(prev_block_hash)?;
     Ok(Some(&runtime_adapter.get_part_owner(&epoch_id, part_ord)?) == me)
@@ -37,7 +39,7 @@ pub fn cares_about_shard_this_or_next_epoch(
     parent_hash: &CryptoHash,
     shard_id: ShardId,
     is_me: bool,
-    runtime_adapter: &dyn RuntimeAdapter,
+    runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
 ) -> bool {
     runtime_adapter.cares_about_shard(account_id, parent_hash, shard_id, is_me)
         || runtime_adapter.will_care_about_shard(account_id, parent_hash, shard_id, is_me)
@@ -48,7 +50,7 @@ pub fn cares_about_shard_this_or_next_epoch(
 pub fn make_outgoing_receipts_proofs(
     chunk_header: &ShardChunkHeader,
     outgoing_receipts: &[Receipt],
-    runtime_adapter: &dyn RuntimeAdapter,
+    runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
 ) -> Result<impl Iterator<Item = ReceiptProof>, near_chunks_primitives::Error> {
     let shard_id = chunk_header.shard_id();
     let shard_layout =
@@ -75,7 +77,7 @@ pub fn make_partial_encoded_chunk_from_owned_parts_and_needed_receipts<'a>(
     parts: impl Iterator<Item = &'a PartialEncodedChunkPart>,
     receipts: impl Iterator<Item = &'a ReceiptProof>,
     me: Option<&AccountId>,
-    runtime_adapter: &dyn RuntimeAdapter,
+    runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
 ) -> PartialEncodedChunk {
     let prev_block_hash = header.prev_block_hash();
     let cares_about_shard = cares_about_shard_this_or_next_epoch(
@@ -111,7 +113,7 @@ pub fn decode_encoded_chunk(
     encoded_chunk: &EncodedShardChunk,
     merkle_paths: Vec<MerklePath>,
     me: Option<&AccountId>,
-    runtime_adapter: &dyn RuntimeAdapter,
+    runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
 ) -> Result<(ShardChunk, PartialEncodedChunk), Error> {
     let chunk_hash = encoded_chunk.chunk_hash();
 
@@ -148,7 +150,7 @@ fn create_partial_chunk(
     merkle_paths: Vec<MerklePath>,
     outgoing_receipts: Vec<Receipt>,
     me: Option<&AccountId>,
-    runtime_adapter: &dyn RuntimeAdapter,
+    runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
 ) -> Result<PartialEncodedChunk, Error> {
     let header = encoded_chunk.cloned_header();
     let receipts =

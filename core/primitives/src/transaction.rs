@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use near_crypto::{PublicKey, Signature};
 use near_o11y::pretty;
-use near_primitives_core::profile::ProfileData;
+use near_primitives_core::profile::{ProfileDataV2, ProfileDataV3};
 
 use crate::account::AccessKey;
 use crate::errors::TxExecutionError;
@@ -15,6 +15,9 @@ use crate::hash::{hash, CryptoHash};
 use crate::merkle::MerklePath;
 use crate::serialize::{base64_format, dec_format};
 use crate::types::{AccountId, Balance, Gas, Nonce};
+
+#[cfg(feature = "protocol_feature_nep366_delegate_action")]
+use crate::delegate_action::SignedDelegateAction;
 
 pub type LogEntry = String;
 
@@ -68,6 +71,8 @@ pub enum Action {
     AddKey(AddKeyAction),
     DeleteKey(DeleteKeyAction),
     DeleteAccount(DeleteAccountAction),
+    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+    Delegate(SignedDelegateAction),
 }
 
 impl Action {
@@ -366,11 +371,12 @@ pub struct ExecutionOutcome {
 
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Clone, Eq, Debug)]
 pub enum ExecutionMetadata {
-    // V1: Empty Metadata
+    /// V1: Empty Metadata
     V1,
-
-    // V2: With ProfileData
-    V2(ProfileData),
+    /// V2: With ProfileData by legacy `Cost` enum
+    V2(ProfileDataV2),
+    // V3: With ProfileData by gas parameters
+    V3(ProfileDataV3),
 }
 
 impl Default for ExecutionMetadata {
@@ -445,13 +451,10 @@ pub struct ExecutionOutcomeWithProof {
 }
 #[cfg(test)]
 mod tests {
-    use borsh::BorshDeserialize;
-
-    use near_crypto::{InMemorySigner, KeyType, Signature, Signer};
-
-    use crate::account::{AccessKeyPermission, FunctionCallPermission};
-
     use super::*;
+    use crate::account::{AccessKeyPermission, FunctionCallPermission};
+    use borsh::BorshDeserialize;
+    use near_crypto::{InMemorySigner, KeyType, Signature, Signer};
 
     #[test]
     fn test_verify_transaction() {

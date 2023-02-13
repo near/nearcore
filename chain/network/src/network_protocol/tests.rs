@@ -3,7 +3,7 @@ use crate::network_protocol::testonly as data;
 use crate::network_protocol::Encoding;
 use crate::testonly::make_rng;
 use crate::time;
-use crate::types::{HandshakeFailureReason, PeerMessage};
+use crate::types::{Disconnect, HandshakeFailureReason, PeerMessage};
 use crate::types::{PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg};
 use anyhow::{bail, Context as _};
 use itertools::Itertools as _;
@@ -39,15 +39,17 @@ fn bad_account_data_size() {
     // rule of thumb: 1000x IPv6 should be considered too much.
     let signer = data::make_validator_signer(&mut rng);
 
-    let ad = AccountData {
-        proxies: (0..1000)
-            .map(|_| {
-                let ip = data::make_ipv6(&mut rng);
-                data::make_peer_addr(&mut rng, ip)
-            })
-            .collect(),
+    let ad = VersionedAccountData {
+        data: AccountData {
+            proxies: (0..1000)
+                .map(|_| {
+                    let ip = data::make_ipv6(&mut rng);
+                    data::make_peer_addr(&mut rng, ip)
+                })
+                .collect(),
+            peer_id: data::make_peer_id(&mut rng),
+        },
         account_key: signer.public_key(),
-        peer_id: data::make_peer_id(&mut rng),
         version: rng.gen(),
         timestamp: clock.now_utc(),
     };
@@ -122,7 +124,7 @@ fn serialize_deserialize() -> anyhow::Result<()> {
         PeerMessage::Transaction(data::make_signed_transaction(&mut rng)),
         PeerMessage::Routed(routed_message1),
         PeerMessage::Routed(routed_message2),
-        PeerMessage::Disconnect,
+        PeerMessage::Disconnect(Disconnect { remove_from_connection_store: false }),
         PeerMessage::Challenge(data::make_challenge(&mut rng)),
     ];
 

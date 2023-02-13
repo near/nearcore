@@ -11,6 +11,15 @@ repository = "https://github.com/near/nearcore"
 description = "Dynamic configure helpers for the near codebase"
 
 [dependencies]
+anyhow.workspace = true
 once_cell.workspace = true
 prometheus.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+near-chain-configs = { path = "../chain-configs" }
 near-o11y = { path = "../o11y" }
+near-primitives = { path = "../primitives" }

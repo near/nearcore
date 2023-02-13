@@ -700,14 +700,23 @@ def spin_up_node(config,
     return node
 
 
-def init_cluster(num_nodes, num_observers, num_shards, config,
-                 genesis_config_changes, client_config_changes):
+def init_cluster(num_nodes,
+                 num_observers,
+                 num_shards,
+                 config,
+                 genesis_config_changes,
+                 client_config_changes,
+                 prefix="test"):
     """
     Create cluster configuration
     """
     if 'local' not in config and 'nodes' in config:
         logger.critical(
             "Attempt to launch a regular test with a mocknet config")
+        sys.exit(1)
+
+    if not prefix.startswith("test"):
+        logger.critical(f"The prefix must begin with 'test'. prefix = {prefix}")
         sys.exit(1)
 
     is_local = config['local']
@@ -730,7 +739,7 @@ def init_cluster(num_nodes, num_observers, num_shards, config,
         "--tracked-shards",
         "none",
         "--prefix",
-        "test",
+        prefix,
     ],
                                stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE)
@@ -796,6 +805,18 @@ def apply_config_changes(node_dir, client_config_change):
         json.dump(config_json, fd, indent=2)
 
 
+def get_config_json(node_dir):
+    fname = os.path.join(node_dir, 'config.json')
+    with open(fname) as fd:
+        return json.load(fd)
+
+
+def set_config_json(node_dir, config_json):
+    fname = os.path.join(node_dir, 'config.json')
+    with open(fname, 'w') as fd:
+        json.dump(config_json, fd, indent=2)
+
+
 def start_cluster(num_nodes,
                   num_observers,
                   num_shards,
@@ -856,9 +877,17 @@ def start_cluster(num_nodes,
 
 
 ROOT_DIR = pathlib.Path(__file__).resolve().parents[2]
+
+
+def get_near_root():
+    cargo_target_dir = os.environ.get('CARGO_TARGET_DIR', 'target')
+    default_root = (ROOT_DIR / cargo_target_dir / 'debug').resolve()
+    return os.environ.get('NEAR_ROOT', str(default_root))
+
+
 DEFAULT_CONFIG = {
     'local': True,
-    'near_root': os.environ.get('NEAR_ROOT', str(ROOT_DIR / 'target/debug')),
+    'near_root': get_near_root(),
     'binary_name': 'neard',
     'release': False,
 }

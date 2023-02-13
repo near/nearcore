@@ -45,7 +45,7 @@ use near_store::{
 
 use crate::chunks_store::ReadOnlyChunksStore;
 use crate::types::{Block, BlockHeader, LatestKnown};
-use crate::{byzantine_assert, RuntimeAdapter};
+use crate::{byzantine_assert, RuntimeWithEpochManagerAdapter};
 use near_store::db::StoreStatistics;
 use near_store::flat_state::{BlockInfo, ChainAccessForFlatStorage};
 use std::sync::Arc;
@@ -293,7 +293,7 @@ pub trait ChainStoreAccess {
     /// Get epoch id of the last block with existing chunk for the given shard id.
     fn get_epoch_id_of_last_block_with_chunk(
         &self,
-        runtime_adapter: &dyn RuntimeAdapter,
+        runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
         hash: &CryptoHash,
         shard_id: ShardId,
     ) -> Result<EpochId, Error> {
@@ -361,9 +361,10 @@ pub struct ChainStore {
     block_ordinal_to_hash: CellLruCache<Vec<u8>, CryptoHash>,
     /// Processed block heights.
     processed_block_heights: CellLruCache<Vec<u8>, ()>,
-    /// Should this node store trie changes? Must be set to true if either of the following is true
-    /// - archive is false - non archival nodes need trie changes for garbage collection
-    /// - the node will be migrated to split storage in the near future - split storage nodes need trie changes for hot storage garbage collection
+    /// save_trie_changes should be set to true iff
+    /// - archive if false - non-archival nodes need trie changes to perform garbage collection
+    /// - archive is true, cold_store is configured and migration to split_storage is finished - node
+    /// working in split storage mode needs trie changes in order to do garbage collection on hot.
     save_trie_changes: bool,
 }
 
@@ -468,7 +469,7 @@ impl ChainStore {
     /// <https://github.com/near/nearcore/issues/4877>
     pub fn get_outgoing_receipts_for_shard(
         &self,
-        runtime_adapter: &dyn RuntimeAdapter,
+        runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
         prev_block_hash: CryptoHash,
         shard_id: ShardId,
         last_included_height: BlockHeight,
@@ -2021,7 +2022,7 @@ impl<'a> ChainStoreUpdate<'a> {
 
     fn get_shard_uids_to_gc(
         &mut self,
-        runtime_adapter: &dyn RuntimeAdapter,
+        runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
         block_hash: &CryptoHash,
     ) -> Vec<ShardUId> {
         let block_header = self.get_block_header(block_hash).expect("block header must exist");
@@ -2048,7 +2049,7 @@ impl<'a> ChainStoreUpdate<'a> {
     // Clearing block data of `block_hash.prev`, if on the Canonical Chain.
     pub fn clear_block_data(
         &mut self,
-        runtime_adapter: &dyn RuntimeAdapter,
+        runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
         mut block_hash: CryptoHash,
         gc_mode: GCMode,
     ) -> Result<(), Error> {
@@ -2394,6 +2395,7 @@ impl<'a> ChainStoreUpdate<'a> {
             | DBCol::_GCCount
             | DBCol::BlockHeight  // block sync needs it + genesis should be accessible
             | DBCol::Peers
+            | DBCol::RecentOutboundConnections
             | DBCol::BlockMerkleTree
             | DBCol::AccountAnnouncements
             | DBCol::EpochLightClientBlocks
@@ -2444,7 +2446,7 @@ impl<'a> ChainStoreUpdate<'a> {
     pub fn copy_chain_state_as_of_block(
         chain_store: &'a mut ChainStore,
         block_hash: &CryptoHash,
-        source_runtime: Arc<dyn RuntimeAdapter>,
+        source_runtime: Arc<dyn RuntimeWithEpochManagerAdapter>,
         source_store: &ChainStore,
     ) -> Result<ChainStoreUpdate<'a>, Error> {
         let mut chain_store_update = ChainStoreUpdate::new(chain_store);
@@ -2992,7 +2994,7 @@ mod tests {
     use crate::store_validator::StoreValidator;
     use crate::test_utils::{KeyValueRuntime, ValidatorSchedule};
     use crate::types::ChainConfig;
-    use crate::{Chain, ChainGenesis, DoomslugThresholdMode, RuntimeAdapter};
+    use crate::{Chain, ChainGenesis, DoomslugThresholdMode, RuntimeWithEpochManagerAdapter};
 
     fn get_chain() -> Chain {
         get_chain_with_epoch_length(10)
@@ -3245,7 +3247,7 @@ mod tests {
     // Adds block to the chain at given height after prev_block.
     fn add_block(
         chain: &mut Chain,
-        runtime_adapter: Arc<dyn RuntimeAdapter>,
+        runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
         prev_block: &mut Block,
         blocks: &mut Vec<Block>,
         signer: Arc<InMemoryValidatorSigner>,

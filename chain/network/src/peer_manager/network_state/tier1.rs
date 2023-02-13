@@ -5,7 +5,7 @@ use crate::network_protocol::{
 };
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
-use crate::peer_manager::peer_manager_actor::Event;
+use crate::stun;
 use crate::tcp;
 use crate::time;
 use crate::types::PeerType;
@@ -66,13 +66,24 @@ impl super::NetworkState {
         futures_util::future::join_all(handles).await;
     }
 
+    /// Requests direct peers for accounts data full sync.
+    /// Should be called whenever the accounts_data.keys changes, and
+    /// periodically just in case.
+    pub fn tier1_request_full_sync(&self) {
+        self.tier2.broadcast_message(Arc::new(PeerMessage::SyncAccountsData(SyncAccountsData {
+            incremental: true,
+            requesting_full_sync: true,
+            accounts_data: vec![],
+        })));
+    }
+
     /// Tries to connect to ALL trusted proxies from the config, then broadcasts AccountData with
     /// the set of proxies it managed to connect to. This way other TIER1 nodes can just connect
     /// to ANY proxy of this node.
     pub async fn tier1_advertise_proxies(
         self: &Arc<Self>,
         clock: &time::Clock,
-    ) -> Vec<Arc<SignedAccountData>> {
+    ) -> Option<Arc<SignedAccountData>> {
         // Tier1 advertise proxies calls should be disjoint,
         // to avoid a race condition while connecting to the proxies.
         // TODO(gprusak): there are more corner cases to cover, because
@@ -81,21 +92,48 @@ impl super::NetworkState {
         // handshake on connection attempts, even if another call spawned them.
         let _lock = self.tier1_advertise_proxies_mutex.lock().await;
         let accounts_data = self.accounts_data.load();
-        let vc = match self.tier1_validator_config(&accounts_data) {
-            Some(it) => it,
-            None => {
-                return vec![];
+
+        let vc = self.tier1_validator_config(&accounts_data)?;
+        let proxies = match (&self.config.node_addr, &vc.proxies) {
+            (None, _) => vec![],
+            (_, config::ValidatorProxies::Static(peer_addrs)) => peer_addrs.clone(),
+            // If Dynamic are specified,
+            // it means that this node is its own proxy.
+            // Discover the public IP of this node using those STUN servers.
+            // We do not require all stun servers to be available, but
+            // we require the received responses to be consistent.
+            (Some(node_addr), config::ValidatorProxies::Dynamic(stun_servers)) => {
+                // Query all the STUN servers in parallel.
+                let queries = stun_servers.iter().map(|addr| {
+                    let clock = clock.clone();
+                    let addr = addr.clone();
+                    self.spawn(async move {
+                        match stun::query(&clock, &addr).await {
+                            Ok(ip) => Some(ip),
+                            Err(err) => {
+                                tracing::warn!(target:"network", "STUN lookup failed for {addr}: {err}");
+                                None
+                            }
+                        }
+                    })
+                });
+                let mut node_ips = vec![];
+                for q in queries {
+                    node_ips.extend(q.await.unwrap());
+                }
+                // Check that we have received non-zero responses and that they are consistent.
+                if node_ips.len() == 0 {
+                    vec![]
+                } else if !node_ips.iter().all(|ip| ip == &node_ips[0]) {
+                    tracing::warn!(target:"network", "received inconsistent responses from the STUN servers");
+                    vec![]
+                } else {
+                    vec![PeerAddr {
+                        peer_id: self.config.node_id(),
+                        addr: std::net::SocketAddr::new(node_ips[0], node_addr.port()),
+                    }]
+                }
             }
-        };
-        let proxies = match &vc.proxies {
-            config::ValidatorProxies::Dynamic(_) => {
-                // TODO(gprusak): If Dynamic are specified,
-                // it means that this node is its own proxy.
-                // Resolve the public IP of this node using those STUN servers,
-                // then connect to yourself (to verify the public IP).
-                vec![]
-            }
-            config::ValidatorProxies::Static(peer_addrs) => peer_addrs.clone(),
         };
         self.tier1_connect_to_my_proxies(clock, &proxies).await;
 
@@ -147,45 +185,25 @@ impl super::NetworkState {
             }
         };
         tracing::info!(target:"network","connected to proxies {my_proxies:?}");
-        let now = clock.now_utc();
-        let version =
-            self.accounts_data.load().data.get(&vc.signer.public_key()).map_or(0, |d| d.version)
-                + 1;
-        // This unwrap is safe, because we did signed a sample payload during
-        // config validation. See config::Config::new().
-        let my_data = Arc::new(
-            AccountData {
-                peer_id: self.config.node_id(),
-                account_key: vc.signer.public_key(),
-                proxies: my_proxies.clone(),
-                timestamp: now,
-                version,
-            }
-            .sign(vc.signer.as_ref())
-            .unwrap(),
+        let new_data = self.accounts_data.set_local(
+            clock,
+            accounts_data::LocalData {
+                signer: vc.signer.clone(),
+                data: Arc::new(AccountData {
+                    peer_id: self.config.node_id(),
+                    proxies: my_proxies.clone(),
+                }),
+            },
         );
-        let (new_data, err) = self.accounts_data.insert(vec![my_data]).await;
-        // Inserting node's own AccountData should never fail.
-        if let Some(err) = err {
-            panic!("inserting node's own AccountData to self.state.accounts_data: {err}");
-        }
-        if new_data.is_empty() {
-            // If new_data is empty, it means that accounts_data contains entry newer than `version`.
-            // This means that this node has been restarted and forgot what was the latest `version`
-            // of accounts_data published AND it just learned about it from a peer.
-            // TODO(gprusak): for better resiliency, consider persisting latest version in storage.
-            // TODO(gprusak): consider broadcasting a new version immediately after learning about
-            //   conflicting version.
-            tracing::info!("received a conflicting version of AccountData (expected, iff node has been just restarted)");
-            return vec![];
-        }
+        // Early exit in case this node is not a TIER1 node any more.
+        let new_data = new_data?;
+        // Advertise the new_data.
         self.tier2.broadcast_message(Arc::new(PeerMessage::SyncAccountsData(SyncAccountsData {
             incremental: true,
-            requesting_full_sync: true,
-            accounts_data: new_data.clone(),
+            requesting_full_sync: false,
+            accounts_data: vec![new_data.clone()],
         })));
-        self.config.event_sink.push(Event::Tier1AdvertiseProxies(new_data.clone()));
-        new_data
+        Some(new_data)
     }
 
     /// Closes TIER1 connections from nodes which are not TIER1 any more.

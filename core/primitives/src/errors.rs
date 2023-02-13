@@ -2,6 +2,7 @@ use crate::serialize::dec_format;
 use crate::types::{AccountId, Balance, EpochId, Gas, Nonce};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
+use near_primitives_core::types::ProtocolVersion;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Display};
 
@@ -198,6 +199,15 @@ pub enum ActionsValidationError {
     UnsuitableStakingKey { public_key: PublicKey },
     /// The attached amount of gas in a FunctionCall action has to be a positive number.
     FunctionCallZeroAttachedGas,
+    /// There should be the only one DelegateAction
+    DelegateActionMustBeOnlyOne,
+    /// The transaction includes a feature that the current protocol version
+    /// does not support.
+    ///
+    /// Note: we stringify the protocol feature name instead of using
+    /// `ProtocolFeature` here because we don't want to leak the internals of
+    /// that type into observable borsh serialization.
+    UnsupportedProtocolFeature { protocol_feature: String, version: ProtocolVersion },
 }
 
 /// Describes the error for validating a receipt.
@@ -314,6 +324,16 @@ impl Display for ActionsValidationError {
                 f,
                 "The attached amount of gas in a FunctionCall action has to be a positive number",
             ),
+            ActionsValidationError::DelegateActionMustBeOnlyOne => write!(
+                f,
+                "The actions can contain the ony one DelegateAction"
+            ),
+            ActionsValidationError::UnsupportedProtocolFeature { protocol_feature, version } => write!(
+                    f,
+                    "Transaction requires protocol feature {} / version {} which is not supported by the current protocol version",
+                    protocol_feature,
+                    version,
+            ),
         }
     }
 }
@@ -397,6 +417,18 @@ pub enum ActionErrorKind {
     OnlyImplicitAccountCreationAllowed { account_id: AccountId },
     /// Delete account whose state is large is temporarily banned.
     DeleteAccountWithLargeState { account_id: AccountId },
+    /// Signature does not match the provided actions and given signer public key.
+    DelegateActionInvalidSignature,
+    /// Receiver of the transaction doesn't match Sender of the delegate action
+    DelegateActionSenderDoesNotMatchTxReceiver { sender_id: AccountId, receiver_id: AccountId },
+    /// Delegate action has expired. `max_block_height` is less than actual block height.
+    DelegateActionExpired,
+    /// The given public key doesn't exist for Sender account
+    DelegateActionAccessKeyError(InvalidAccessKeyError),
+    /// DelegateAction nonce must be greater sender[public_key].nonce
+    DelegateActionInvalidNonce { delegate_nonce: Nonce, ak_nonce: Nonce },
+    /// DelegateAction nonce is larger than the upper bound given by the block height
+    DelegateActionNonceTooLarge { delegate_nonce: Nonce, upper_bound: Nonce },
 }
 
 impl From<ActionErrorKind> for ActionError {
@@ -707,6 +739,12 @@ impl Display for ActionErrorKind {
             ActionErrorKind::InsufficientStake { account_id, stake, minimum_stake } => write!(f, "Account {} tries to stake {} but minimum required stake is {}", account_id, stake, minimum_stake),
             ActionErrorKind::OnlyImplicitAccountCreationAllowed { account_id } => write!(f, "CreateAccount action is called on hex-characters account of length 64 {}", account_id),
             ActionErrorKind::DeleteAccountWithLargeState { account_id } => write!(f, "The state of account {} is too large and therefore cannot be deleted", account_id),
+            ActionErrorKind::DelegateActionInvalidSignature => write!(f, "DelegateAction is not signed with the given public key"),
+            ActionErrorKind::DelegateActionSenderDoesNotMatchTxReceiver { sender_id, receiver_id } => write!(f, "Transaction receiver {} doesn't match DelegateAction sender {}", receiver_id, sender_id),
+            ActionErrorKind::DelegateActionExpired => write!(f, "DelegateAction has expired"),
+            ActionErrorKind::DelegateActionAccessKeyError(access_key_error) => Display::fmt(&access_key_error, f),
+            ActionErrorKind::DelegateActionInvalidNonce { delegate_nonce, ak_nonce } => write!(f, "DelegateAction nonce {} must be larger than nonce of the used access key {}", delegate_nonce, ak_nonce),
+            ActionErrorKind::DelegateActionNonceTooLarge { delegate_nonce, upper_bound } => write!(f, "DelegateAction nonce {} must be smaller than the access key nonce upper bound {}", delegate_nonce, upper_bound),
         }
     }
 }

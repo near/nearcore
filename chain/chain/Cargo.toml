@@ -14,6 +14,7 @@ chrono.workspace = true
 crossbeam-channel.workspace = true
 enum-map.workspace = true
 itertools.workspace = true
+itoa.workspace = true
 lru.workspace = true
 num-rational.workspace = true
 once_cell.workspace = true

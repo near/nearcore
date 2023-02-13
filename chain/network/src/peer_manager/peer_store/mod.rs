@@ -7,11 +7,13 @@ use anyhow::bail;
 use im::hashmap::Entry;
 use im::{HashMap, HashSet};
 use near_primitives::network::PeerId;
+use near_store::db::Database;
 use parking_lot::Mutex;
 use rand::seq::IteratorRandom;
 use rand::thread_rng;
 use std::net::SocketAddr;
 use std::ops::Not;
+use std::sync::Arc;
 
 #[cfg(test)]
 mod testonly;
@@ -390,15 +392,15 @@ impl PeerStore {
             }
         }
 
-        let mut peer_store = Inner {
+        let mut inner = Inner {
             config,
             store,
             boot_nodes,
             peer_states: peerid_2_state,
             addr_peers: addr_2_peer,
         };
-        peer_store.delete_peers(&peers_to_delete)?;
-        Ok(PeerStore(Mutex::new(peer_store)))
+        inner.delete_peers(&peers_to_delete)?;
+        Ok(PeerStore(Mutex::new(inner)))
     }
 
     pub fn is_blacklisted(&self, addr: &SocketAddr) -> bool {
@@ -451,7 +453,6 @@ impl PeerStore {
     }
 
     /// Records the last attempt to connect to peer.
-    /// Marks the peer as Unknown (as we failed to connect to it).
     pub fn peer_connection_attempt(
         &self,
         clock: &time::Clock,
@@ -463,6 +464,7 @@ impl PeerStore {
 
         if let Some(peer_state) = inner.peer_states.get_mut(peer_id) {
             if result.is_err() {
+                // Marks the peer status as Unknown (as we failed to connect to it).
                 peer_state.status = KnownPeerStatus::Unknown;
             }
             peer_state.last_outbound_attempt =
@@ -592,12 +594,12 @@ impl PeerStore {
 }
 
 /// Public method used to iterate through all peers stored in the database.
-pub fn iter_peers_from_store<F>(store: near_store::NodeStorage, f: F)
+pub fn iter_peers_from_store<F>(db: Arc<dyn Database>, f: F)
 where
     F: Fn((PeerId, KnownPeerState)),
 {
-    let db = store.into_inner(near_store::Temperature::Hot);
-    for x in crate::store::Store::from(db).list_peer_states().unwrap() {
+    let store = crate::store::Store::from(db);
+    for x in store.list_peer_states().unwrap() {
         f(x)
     }
 }

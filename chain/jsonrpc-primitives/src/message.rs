@@ -55,8 +55,8 @@ impl<'de> Deserialize<'de> for Version {
 pub struct Request {
     jsonrpc: Version,
     pub method: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub params: Option<Value>,
+    #[serde(default, skip_serializing_if = "Value::is_null")]
+    pub params: Value,
     pub id: Value,
 }
 
@@ -142,8 +142,8 @@ impl<'de> Deserialize<'de> for Response {
 pub struct Notification {
     jsonrpc: Version,
     pub method: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub params: Option<Value>,
+    #[serde(default, skip_serializing_if = "Value::is_null")]
+    pub params: Value,
 }
 
 /// One message of the JSON RPC protocol.
@@ -188,7 +188,7 @@ impl Message {
     /// A constructor for a request.
     ///
     /// The ID is auto-generated.
-    pub fn request(method: String, params: Option<Value>) -> Self {
+    pub fn request(method: String, params: Value) -> Self {
         let id = Value::from(near_primitives::utils::generate_random_string(9));
         Message::Request(Request { jsonrpc: Version, method, params, id })
     }
@@ -197,7 +197,7 @@ impl Message {
         Message::Response(Response { jsonrpc: Version, result: Err(error), id: Value::Null })
     }
     /// A constructor for a notification.
-    pub fn notification(method: String, params: Option<Value>) -> Self {
+    pub fn notification(method: String, params: Value) -> Self {
         Message::Notification(Notification { jsonrpc: Version, method, params })
     }
     /// A constructor for a response.
@@ -317,7 +317,7 @@ mod tests {
             &Message::Request(Request {
                 jsonrpc: Version,
                 method: "call".to_owned(),
-                params: None,
+                params: Value::Null,
                 id: json!(1),
             }),
         );
@@ -327,7 +327,7 @@ mod tests {
             &Message::Request(Request {
                 jsonrpc: Version,
                 method: "call".to_owned(),
-                params: Some(json!([1, 2, 3])),
+                params: json!([1, 2, 3]),
                 id: json!(2),
             }),
         );
@@ -337,7 +337,7 @@ mod tests {
             &Message::Notification(Notification {
                 jsonrpc: Version,
                 method: "notif".to_owned(),
-                params: Some(json!({"x": "y"})),
+                params: json!({"x": "y"}),
             }),
         );
         // A successful response
@@ -373,12 +373,12 @@ mod tests {
                 Message::Notification(Notification {
                     jsonrpc: Version,
                     method: "notif".to_owned(),
-                    params: None,
+                    params: Value::Null,
                 }),
                 Message::Request(Request {
                     jsonrpc: Version,
                     method: "call".to_owned(),
-                    params: None,
+                    params: Value::Null,
                     id: json!(42),
                 }),
             ]),
@@ -397,12 +397,12 @@ mod tests {
                 Message::Notification(Notification {
                     jsonrpc: Version,
                     method: "notif".to_owned(),
-                    params: None,
+                    params: Value::Null,
                 }),
                 Message::Request(Request {
                     jsonrpc: Version,
                     method: "call".to_owned(),
-                    params: None,
+                    params: Value::Null,
                     id: json!(42),
                 }),
                 Message::UnmatchedSub(Value::Bool(true)),
@@ -455,8 +455,8 @@ mod tests {
     /// Most of it is related to the ids.
     #[test]
     fn constructors() {
-        let msg1 = Message::request("call".to_owned(), Some(json!([1, 2, 3])));
-        let msg2 = Message::request("call".to_owned(), Some(json!([1, 2, 3])));
+        let msg1 = Message::request("call".to_owned(), json!([1, 2, 3]));
+        let msg2 = Message::request("call".to_owned(), json!([1, 2, 3]));
         // They differ, even when created with the same parameters
         assert_ne!(msg1, msg2);
         // And, specifically, they differ in the ID's

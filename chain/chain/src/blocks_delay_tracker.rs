@@ -14,7 +14,7 @@ use std::mem;
 use std::time::Instant;
 use tracing::error;
 
-use crate::{metrics, Chain, ChainStoreAccess, RuntimeAdapter};
+use crate::{metrics, Chain, ChainStoreAccess, RuntimeWithEpochManagerAdapter};
 
 const BLOCK_DELAY_TRACKING_COUNT: u64 = 50;
 
@@ -92,7 +92,7 @@ impl ChunkTrackingStats {
     fn to_chunk_processing_info(
         &self,
         chunk_hash: ChunkHash,
-        runtime_adapter: &dyn RuntimeAdapter,
+        runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
     ) -> ChunkProcessingInfo {
         let status = if self.completed_timestamp.is_some() {
             ChunkProcessingStatus::Completed
@@ -353,7 +353,7 @@ impl BlocksDelayTracker {
         block_height: BlockHeight,
         block_hash: &CryptoHash,
         chain: &Chain,
-        runtime_adapter: &dyn RuntimeAdapter,
+        runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
     ) -> Option<BlockProcessingInfo> {
         self.blocks.get(block_hash).map(|block_stats| {
             let chunks_info: Vec<_> = block_stats

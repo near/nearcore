@@ -16,3 +16,4 @@ near-test-contracts = { path = "../../runtime/near-test-contracts" }
 
 [features]
 default = []
+protocol_feature_nep366_delegate_action = []
