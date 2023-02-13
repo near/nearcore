@@ -1,6 +1,7 @@
 use crate::internal::wasmparser::{Export, ExternalKind, Parser, Payload, TypeDef};
 use crate::internal::VMKind;
 use crate::runner::VMResult;
+use arbitrary::Arbitrary;
 use bolero::check;
 use core::fmt;
 use near_primitives::contract::ContractCode;
@@ -80,7 +81,7 @@ impl wasm_smith::Config for ModuleConfig {
 /// Wrapper to get more useful Debug.
 pub struct ArbitraryModule(pub wasm_smith::ConfiguredModule<ModuleConfig>);
 
-impl<'a> arbitrary::Arbitrary<'a> for ArbitraryModule {
+impl<'a> Arbitrary<'a> for ArbitraryModule {
     fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
         wasm_smith::ConfiguredModule::<ModuleConfig>::arbitrary(u).map(ArbitraryModule)
     }

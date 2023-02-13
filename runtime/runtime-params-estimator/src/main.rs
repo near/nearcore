@@ -516,7 +516,7 @@ mod tests {
             tracing_span_tree: false,
             record_io_trace: None,
             in_memory_db: false,
-            db_test_config: RocksDBTestConfig::parse_from(std::iter::empty::<std::ffi::OsString>()),
+            db_test_config: clap::Parser::parse_from(std::iter::empty::<std::ffi::OsString>()),
             sub_cmd: None,
         };
         run_estimation(args).unwrap();

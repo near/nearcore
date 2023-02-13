@@ -67,7 +67,7 @@ struct CopyNextBlocksCmd {
     number_of_blocks: usize,
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 struct CopyAllBlocksCmd {
     /// Threshold size of the write transaction.
     #[clap(short = 'b', long, default_value_t = 500_000_000)]
