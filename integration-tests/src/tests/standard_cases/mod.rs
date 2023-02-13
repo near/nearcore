@@ -34,7 +34,7 @@ use testlib::runtime_utils::{
 /// The amount to send with function call.
 const FUNCTION_CALL_AMOUNT: Balance = TESTING_INIT_BALANCE / 10;
 
-fn fee_helper(node: &impl Node) -> FeeHelper {
+pub(crate) fn fee_helper(node: &impl Node) -> FeeHelper {
     FeeHelper::new(RuntimeConfig::test().fees, node.genesis().config.min_gas_price)
 }
 

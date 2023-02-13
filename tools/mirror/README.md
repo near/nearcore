@@ -51,9 +51,3 @@ about security, then we pass a `--secret-key-file` argument to the
 that makes things a little bit more delicate, since if the generated
 secret is ever lost, then it will no longer be possible to mirror any
 traffic to the target chain.
-
-known problems:
-
-keys in the source chain added with the `promise_batch_action_add_key*`
-host functions will not be mapped in the target chain. Maybe a solution
-could be to replace those keys manually or something?

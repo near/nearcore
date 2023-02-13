@@ -17,6 +17,7 @@ members = [
     "chain/pool",
     "chain/rosetta-rpc",
     "chain/telemetry",
+    "core/async",
     "core/account-id",
     "core/account-id/fuzz",
     "core/chain-configs",
@@ -88,7 +89,7 @@ bitflags = "1.2"
 blake2 = "0.9.1"
 bn = { package = "zeropool-bn", version = "0.5.11" }
 bolero = "0.8.0"
-borsh = { version = "0.9", features = ["rc"] }
+borsh = { version = "0.10.1", features = ["rc"] }
 bs58 = "0.4"
 byteorder = "1.3"
 bytes = "1"
@@ -105,6 +106,7 @@ crossbeam = "0.8"
 crossbeam-channel = "0.5"
 csv = "1.1.1"
 curve25519-dalek = "3"
+derive-enum-from-into = "0.1.1"
 derive_more = "0.99.9"
 dirs = "4"
 easy-ext = "0.2"

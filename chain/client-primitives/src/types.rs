@@ -21,10 +21,11 @@ use near_primitives::views::{
     BlockView, ChunkView, DownloadStatusView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
     FinalExecutionOutcomeViewEnum, GasPriceView, LightClientBlockLiteView, LightClientBlockView,
     MaintenanceWindowsView, QueryRequest, QueryResponse, ReceiptView, ShardSyncDownloadView,
-    StateChangesKindsView, StateChangesRequestView, StateChangesView, SyncStatusView,
+    SplitStorageInfoView, StateChangesKindsView, StateChangesRequestView, StateChangesView,
+    SyncStatusView,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 /// Combines errors coming from chain, tx pool and block producer.
 #[derive(Debug, thiserror::Error)]
@@ -969,15 +970,8 @@ impl From<near_chain_primitives::Error> for GetClientConfigError {
 
 pub struct GetSplitStorageInfo {}
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct GetSplitStorageInfoResult {
-    pub head_height: Option<BlockHeight>,
-    pub final_head_height: Option<BlockHeight>,
-    pub cold_head_height: Option<BlockHeight>,
-}
-
 impl Message for GetSplitStorageInfo {
-    type Result = Result<GetSplitStorageInfoResult, GetSplitStorageInfoError>;
+    type Result = Result<SplitStorageInfoView, GetSplitStorageInfoError>;
 }
 
 #[derive(thiserror::Error, Debug)]
