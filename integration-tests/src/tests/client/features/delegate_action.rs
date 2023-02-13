@@ -3,24 +3,29 @@
 //! NEP: https://github.com/near/NEPs/pull/366
 //! This is the module for its integration tests.
 
-use crate::node::Node;
-use crate::node::RuntimeNode;
+use crate::node::{Node, RuntimeNode};
 use crate::tests::client::process_blocks::create_nightshade_runtimes;
 use crate::tests::standard_cases::fee_helper;
 use near_chain::ChainGenesis;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
-use near_crypto::KeyType;
-use near_crypto::PublicKey;
+use near_crypto::{KeyType, PublicKey};
+use near_primitives::account::AccessKey;
 use near_primitives::errors::{ActionsValidationError, InvalidTxError, TxExecutionError};
-use near_primitives::transaction::{Action, FunctionCallAction, TransferAction};
-use near_primitives::types::AccountId;
-use near_primitives::types::Balance;
+use near_primitives::test_utils::create_user_test_signer;
+use near_primitives::transaction::{
+    Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
+    FunctionCallAction, StakeAction, TransferAction,
+};
+use near_primitives::types::{AccountId, Balance};
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
-use near_primitives::views::FinalExecutionOutcomeView;
-use near_primitives::views::FinalExecutionStatus;
+use near_primitives::views::{
+    AccessKeyPermissionView, FinalExecutionOutcomeView, FinalExecutionStatus,
+};
+use near_test_contracts::smallest_rs_contract;
 use nearcore::config::GenesisExt;
-use testlib::runtime_utils::{alice_account, bob_account, carol_account};
+use nearcore::NEAR_BASE;
+use testlib::runtime_utils::{alice_account, bob_account, carol_account, eve_dot_alice_account};
 
 fn exec_meta_transaction(
     actions: Vec<Action>,
@@ -93,7 +98,7 @@ fn reject_valid_meta_tx_in_older_versions() {
 ///
 /// This is a common checker function used by the tests below.
 fn check_meta_tx_execution(
-    node: impl Node,
+    node: &impl Node,
     actions: Vec<Action>,
     sender: AccountId,
     relayer: AccountId,
@@ -110,6 +115,14 @@ fn check_meta_tx_execution(
     let sender_before = node_user.view_balance(&sender).unwrap();
     let relayer_before = node_user.view_balance(&relayer).unwrap();
     let receiver_before = node_user.view_balance(&receiver).unwrap();
+    let relayer_nonce_before = node_user
+        .get_access_key(&relayer, &PublicKey::from_seed(KeyType::ED25519, &relayer))
+        .unwrap()
+        .nonce;
+    let user_nonce_before = node_user
+        .get_access_key(&sender, &PublicKey::from_seed(KeyType::ED25519, &sender))
+        .unwrap()
+        .nonce;
 
     let tx_result = node_user
         .meta_tx(sender.clone(), receiver.clone(), relayer.clone(), actions.clone())
@@ -118,21 +131,23 @@ fn check_meta_tx_execution(
     // Execution of the transaction and all receipts should succeed
     tx_result.assert_success();
 
-    // both nonces started at 0 and should be updated to 1 now
+    // both nonces should be increased by 1
     let relayer_nonce = node_user
         .get_access_key(&relayer, &PublicKey::from_seed(KeyType::ED25519, &relayer))
         .unwrap()
         .nonce;
-    let user_nonce = node_user
+    assert_eq!(relayer_nonce, relayer_nonce_before + 1);
+    // user key must be checked for existence (to test DeleteKey action)
+    if let Ok(user_nonce) = node_user
         .get_access_key(&sender, &PublicKey::from_seed(KeyType::ED25519, &sender))
-        .unwrap()
-        .nonce;
-    assert_eq!(relayer_nonce, 1);
-    assert_eq!(user_nonce, 1);
+        .map(|key| key.nonce)
+    {
+        assert_eq!(user_nonce, user_nonce_before + 1);
+    }
 
-    let sender_after = node_user.view_balance(&sender).unwrap();
-    let relayer_after = node_user.view_balance(&relayer).unwrap();
-    let receiver_after = node_user.view_balance(&receiver).unwrap();
+    let sender_after = node_user.view_balance(&sender).unwrap_or(0);
+    let relayer_after = node_user.view_balance(&relayer).unwrap_or(0);
+    let receiver_after = node_user.view_balance(&receiver).unwrap_or(0);
 
     let sender_diff = sender_after as i128 - sender_before as i128;
     let relayer_diff = relayer_after as i128 - relayer_before as i128;
@@ -144,7 +159,7 @@ fn check_meta_tx_execution(
 ///
 /// This is a common checker function used by the tests below.
 fn check_meta_tx_no_fn_call(
-    node: impl Node,
+    node: &impl Node,
     actions: Vec<Action>,
     normal_tx_cost: Balance,
     tokens_transferred: Balance,
@@ -152,7 +167,7 @@ fn check_meta_tx_no_fn_call(
     relayer: AccountId,
     receiver: AccountId,
 ) -> FinalExecutionOutcomeView {
-    let fee_helper = fee_helper(&node);
+    let fee_helper = fee_helper(node);
     let gas_cost = normal_tx_cost + fee_helper.meta_tx_overhead_cost(&actions);
 
     let (tx_result, sender_diff, relayer_diff, receiver_diff) =
@@ -173,7 +188,7 @@ fn check_meta_tx_no_fn_call(
 ///
 /// This is a common checker function used by the tests below.
 fn check_meta_tx_fn_call(
-    node: impl Node,
+    node: &impl Node,
     actions: Vec<Action>,
     msg_len: u64,
     tokens_transferred: Balance,
@@ -181,7 +196,7 @@ fn check_meta_tx_fn_call(
     relayer: AccountId,
     receiver: AccountId,
 ) -> FinalExecutionOutcomeView {
-    let fee_helper = fee_helper(&node);
+    let fee_helper = fee_helper(node);
     let gas_cost =
         fee_helper.function_call_cost(msg_len, 0) + fee_helper.meta_tx_overhead_cost(&actions);
 
@@ -223,7 +238,7 @@ fn meta_tx_near_transfer() {
     let amount = nearcore::NEAR_BASE;
     let actions = vec![Action::Transfer(TransferAction { deposit: amount })];
     let tx_cost = fee_helper.transfer_cost();
-    check_meta_tx_no_fn_call(node, actions, tx_cost, amount, sender, relayer, receiver);
+    check_meta_tx_no_fn_call(&node, actions, tx_cost, amount, sender, relayer, receiver);
 }
 
 /// Call a function on the test contract provided by default in the test environment.
@@ -244,9 +259,139 @@ fn meta_tx_fn_call() {
     })];
 
     let outcome =
-        check_meta_tx_fn_call(node, actions, method_name_len, 0, sender, relayer, receiver);
+        check_meta_tx_fn_call(&node, actions, method_name_len, 0, sender, relayer, receiver);
 
     // Check that the function call was executed as expected
     let fn_call_logs = &outcome.receipts_outcome[1].outcome.logs;
     assert_eq!(fn_call_logs, &vec!["hello".to_owned()]);
+}
+
+#[test]
+fn meta_tx_deploy() {
+    let sender = bob_account();
+    let relayer = alice_account();
+    // Can only deploy on own account
+    let receiver = sender.clone();
+    let node = RuntimeNode::new(&relayer);
+    let fee_helper = fee_helper(&node);
+
+    let code = smallest_rs_contract().to_vec();
+    let tx_cost = fee_helper.deploy_contract_cost(code.len() as u64);
+    let actions = vec![Action::DeployContract(DeployContractAction { code })];
+    check_meta_tx_no_fn_call(&node, actions, tx_cost, 0, sender, relayer, receiver);
+}
+
+#[test]
+fn meta_tx_stake() {
+    let sender = bob_account();
+    let relayer = alice_account();
+    // Can only stake on own account
+    let receiver = sender.clone();
+    let node = RuntimeNode::new(&relayer);
+    let fee_helper = fee_helper(&node);
+
+    let tx_cost = fee_helper.stake_cost();
+    let public_key = create_user_test_signer(&sender).public_key;
+    let actions = vec![Action::Stake(StakeAction { public_key, stake: 0 })];
+    check_meta_tx_no_fn_call(
+        &node,
+        actions,
+        tx_cost,
+        0,
+        sender.clone(),
+        relayer.clone(),
+        receiver.clone(),
+    );
+}
+
+#[test]
+fn meta_tx_add_key() {
+    let sender = bob_account();
+    let relayer = alice_account();
+    // Can only add key on own account
+    let receiver = sender.clone();
+    let node = RuntimeNode::new(&relayer);
+    let fee_helper = fee_helper(&node);
+
+    let tx_cost = fee_helper.add_key_full_cost();
+    // any public key works as long as it doesn't exists on the receiver, the
+    // relayer public key is just handy
+    let public_key = node.signer().public_key();
+    let actions = vec![Action::AddKey(AddKeyAction {
+        public_key: public_key.clone(),
+        access_key: AccessKey::full_access(),
+    })];
+    check_meta_tx_no_fn_call(&node, actions, tx_cost, 0, sender, relayer, receiver.clone());
+
+    let key_view = node
+        .user()
+        .get_access_key(&receiver, &public_key)
+        .expect("looking up key that was just added failed");
+    assert_eq!(
+        key_view.permission,
+        AccessKeyPermissionView::FullAccess,
+        "wrong permissions for new key"
+    );
+}
+
+#[test]
+fn meta_tx_delete_key() {
+    let sender = bob_account();
+    let relayer = alice_account();
+    // Can only delete keys on own account
+    let receiver = sender.clone();
+    let node = RuntimeNode::new(&relayer);
+    let fee_helper = fee_helper(&node);
+
+    let tx_cost = fee_helper.delete_key_cost();
+    let public_key = PublicKey::from_seed(KeyType::ED25519, &receiver);
+    let actions = vec![Action::DeleteKey(DeleteKeyAction { public_key: public_key.clone() })];
+    check_meta_tx_no_fn_call(&node, actions, tx_cost, 0, sender, relayer, receiver.clone());
+
+    let err = node
+        .user()
+        .get_access_key(&receiver, &public_key)
+        .expect_err("key should have been deleted");
+    assert_eq!(err, "Access key for public key #ed25519:4mhK4txd8Z5r71iCZ41UguSHuHFKUeCXPHv646DbQPYi does not exist");
+}
+
+#[test]
+fn meta_tx_delete_account() {
+    let relayer = alice_account();
+    let sender = eve_dot_alice_account();
+    let receiver = sender.clone();
+    let node = RuntimeNode::new(&relayer);
+
+    // setup: create new account because the standard accounts are validators (can't be deleted)
+    let balance = NEAR_BASE;
+    node.user()
+        .create_account(
+            relayer.clone(),
+            sender.clone(),
+            PublicKey::from_seed(KeyType::ED25519, &sender),
+            balance,
+        )
+        .expect("account setup failed")
+        .assert_success();
+
+    let fee_helper = fee_helper(&node);
+
+    let actions =
+        vec![Action::DeleteAccount(DeleteAccountAction { beneficiary_id: relayer.clone() })];
+
+    // special case balance check for deleting account
+    let gas_cost =
+        fee_helper.prepaid_delete_account_cost() + fee_helper.meta_tx_overhead_cost(&actions);
+    let (_tx_result, sender_diff, relayer_diff, receiver_diff) =
+        check_meta_tx_execution(&node, actions, sender, relayer, receiver.clone());
+
+    assert_eq!(
+        sender_diff,
+        -(balance as i128),
+        "sender should be deleted and thus have zero balance"
+    );
+    assert_eq!(sender_diff, receiver_diff);
+    assert_eq!(relayer_diff, balance as i128 - (gas_cost as i128), "unexpected relayer balance");
+    let err = node.view_account(&receiver).expect_err("account should have been deleted");
+    assert_eq!(err, "Account ID #eve.alice.near does not exist");
 }
