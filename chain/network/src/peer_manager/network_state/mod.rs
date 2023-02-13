@@ -145,7 +145,7 @@ pub(crate) struct NetworkState {
     /// Mutex which prevents overlapping calls to tier1_advertise_proxies.
     tier1_advertise_proxies_mutex: tokio::sync::Mutex<()>,
     /// Demultiplexer aggregating calls to add_edges().
-    add_edges_demux: demux::Demux<Vec<Edge>, ()>,
+    add_edges_demux: demux::Demux<Vec<Edge>, Result<(), ReasonForBan>>,
 
     /// Mutex serializing calls to set_chain_info(), which mutates a bunch of stuff non-atomically.
     /// TODO(gprusak): make it use synchronization primitives in some more canonical way.
@@ -300,8 +300,7 @@ impl NetworkState {
                             return Err(RegisterPeerError::NotTier1Peer);
                         }
                     }
-                    let (_, ok) = this.graph.verify(vec![edge]).await;
-                    if !ok {
+                    if !edge.verify() {
                         return Err(RegisterPeerError::InvalidEdge);
                     }
                     this.tier1.insert_ready(conn).map_err(RegisterPeerError::PoolError)?;
