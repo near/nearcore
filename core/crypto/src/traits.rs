@@ -116,7 +116,7 @@ macro_rules! eq {
 
 macro_rules! value_type {
     ($vis:vis, $ty:ident, $l:literal, $what:literal) => {
-        #[derive(Copy, Clone, Eq, PartialEq, borsh::BorshDeserialize, borsh::BorshSerialize)]
+        #[derive(Copy, Clone, Eq, PartialEq)]
         $vis struct $ty(pub [u8; $l]);
 
         impl AsMut<[u8; $l]> for $ty {
@@ -134,6 +134,30 @@ macro_rules! value_type {
         impl From<&[u8; $l]> for $ty {
             fn from(value: &[u8; $l]) -> Self {
                 Self(*value)
+            }
+        }
+
+        impl borsh::BorshSerialize for $ty {
+            #[inline]
+            fn serialize<W: std::io::Write>(&self, writer: &mut W) -> Result<(), std::io::Error> {
+                writer.write_all(&self.0)
+            }
+        }
+
+        impl borsh::BorshDeserialize for $ty {
+            #[inline]
+            fn deserialize(buf: &mut &[u8]) -> Result<Self, std::io::Error> {
+                if buf.len() < $l {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "Unexpected length of input",
+                    ));
+                }
+
+                let mut data = [0u8; $l];
+                data.copy_from_slice(&buf[..$l]);
+                *buf = &buf[$l..];
+                Ok($ty(data))
             }
         }
 
