@@ -4,7 +4,7 @@ use crate::types::{
     PeerManagerMessageResponse, SetChainInfo,
 };
 use crate::PeerManagerActor;
-use actix::{Actor, ActorContext, Context, Handler, MailboxError, Message};
+use actix::{Actor, ActorContext, Context, Handler, MailboxError};
 use futures::future::BoxFuture;
 use futures::{future, Future, FutureExt};
 use near_crypto::{KeyType, SecretKey};
@@ -181,7 +181,7 @@ pub fn expected_routing_tables(
 }
 
 /// `GetInfo` gets `NetworkInfo` from `PeerManager`.
-#[derive(Message)]
+#[derive(actix::Message)]
 #[rtype(result = "NetworkInfo")]
 pub struct GetInfo {}
 
@@ -195,7 +195,7 @@ impl Handler<WithSpanContext<GetInfo>> for PeerManagerActor {
 }
 
 // `StopSignal is used to stop PeerManagerActor for unit tests
-#[derive(Message, Default)]
+#[derive(actix::Message, Default)]
 #[rtype(result = "()")]
 pub struct StopSignal {
     pub should_panic: bool,
@@ -271,7 +271,7 @@ impl MockPeerManagerAdapter {
     }
 }
 
-#[derive(Message, Clone, Debug)]
+#[derive(actix::Message, Clone, Debug)]
 #[rtype(result = "()")]
 pub struct SetAdvOptions {
     pub set_max_peers: Option<u64>,

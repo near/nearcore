@@ -1,6 +1,5 @@
 use crate::network_protocol::PeerAddr;
 use crate::stun;
-use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
 /// Time to persist Accounts Id in the router without removing them in seconds.
@@ -74,7 +73,7 @@ fn default_trusted_stun_servers() -> Vec<stun::ServerAddr> {
     ]
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct Config {
     /// Local address to listen for incoming connections.
     pub addr: String,
@@ -206,7 +205,7 @@ fn default_tier1_new_connections_per_attempt() -> u64 {
     50
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct ExperimentalConfig {
     // If true - don't allow any inbound connections.
     #[serde(default)]

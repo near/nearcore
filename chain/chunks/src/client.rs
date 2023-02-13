@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use actix::Message;
 use near_network::types::MsgRecipient;
 use near_o11y::{WithSpanContext, WithSpanContextExt};
 use near_pool::{PoolIteratorWrapper, TransactionPool};
@@ -37,7 +36,7 @@ pub trait ClientAdapterForShardsManager: Send + Sync + 'static {
     );
 }
 
-#[derive(Message)]
+#[derive(actix::Message)]
 #[rtype(result = "()")]
 pub enum ShardsManagerResponse {
     ChunkCompleted { partial_chunk: PartialEncodedChunk, shard_chunk: Option<ShardChunk> },

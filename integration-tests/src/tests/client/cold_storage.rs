@@ -12,7 +12,8 @@ use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
 use near_store::cold_storage::{
-    test_cold_genesis_update, test_get_store_reads, update_cold_db, update_cold_head,
+    copy_all_data_to_cold, test_cold_genesis_update, test_get_store_initial_writes,
+    test_get_store_reads, update_cold_db, update_cold_head,
 };
 use near_store::metadata::DbKind;
 use near_store::metadata::DB_VERSION;
@@ -337,4 +338,92 @@ fn test_cold_db_copy_with_height_skips() {
             );
         }
     }
+}
+
+/// Producing 4 epochs of blocks with some transactions.
+/// Call copying full contents of cold columns to cold storage in batches of specified max_size.
+/// Currently only supports super small or super big batch.
+/// If batch_size = 0, check that every value was copied in a separate batch.
+/// If batch_size = usize::MAX, check that everything was copied in one batch.
+/// Most importantly, checking that everything from cold columns was indeed copied into cold storage.
+fn test_initial_copy_to_cold(batch_size: usize) {
+    init_test_logger();
+
+    let epoch_length = 5;
+    let max_height = epoch_length * 4;
+
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+
+    genesis.config.epoch_length = epoch_length;
+    let mut chain_genesis = ChainGenesis::test();
+    chain_genesis.epoch_length = epoch_length;
+    let mut env = TestEnv::builder(chain_genesis)
+        .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
+        .build();
+
+    let store = create_test_node_storage_with_cold(DB_VERSION, DbKind::Archive);
+
+    let mut last_hash = *env.clients[0].chain.genesis().hash();
+
+    for h in 1..max_height {
+        let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+        for i in 0..5 {
+            let tx = SignedTransaction::send_money(
+                h * 10 + i,
+                "test0".parse().unwrap(),
+                "test1".parse().unwrap(),
+                &signer,
+                1,
+                last_hash,
+            );
+            env.clients[0].process_tx(tx, false, false);
+        }
+
+        let block = env.clients[0].produce_block(h).unwrap().unwrap();
+        env.process_block(0, block.clone(), Provenance::PRODUCED);
+        last_hash = block.hash().clone();
+    }
+
+    copy_all_data_to_cold(
+        (*store.cold_db().unwrap()).clone(),
+        &env.clients[0].runtime_adapter.store(),
+        batch_size,
+    )
+    .unwrap();
+
+    for col in DBCol::iter() {
+        if col.is_cold() {
+            let num_checks = check_iter(
+                &env.clients[0].runtime_adapter.store(),
+                &store.get_store(Temperature::Cold),
+                col,
+                &vec![],
+            );
+            if col == DBCol::StateChangesForSplitStates || col == DBCol::StateHeaders {
+                continue;
+            }
+            // assert that this test actually checks something
+            assert!(num_checks > 0);
+            if batch_size == 0 {
+                assert_eq!(num_checks, test_get_store_initial_writes(col));
+            } else if batch_size == usize::MAX {
+                assert_eq!(1, test_get_store_initial_writes(col));
+            }
+        }
+    }
+}
+
+#[test]
+fn test_initial_copy_to_cold_small_batch() {
+    test_initial_copy_to_cold(0);
+}
+
+#[test]
+fn test_initial_copy_to_cold_huge_batch() {
+    test_initial_copy_to_cold(usize::MAX);
+}
+
+#[test]
+fn test_initial_copy_to_cold_medium_batch() {
+    test_initial_copy_to_cold(5000);
 }

@@ -1,59 +1,3 @@
-use std::collections::{HashMap, HashSet};
-
-use std::sync::Arc;
-use std::time::{Duration as TimeDuration, Instant};
-
-use borsh::BorshSerialize;
-use chrono::Duration;
-use itertools::Itertools;
-use near_o11y::log_assert;
-use near_primitives::sandbox::state_patch::SandboxStatePatch;
-use near_primitives::time::Clock;
-use rand::seq::SliceRandom;
-use rand::SeedableRng;
-use rand_chacha::ChaCha20Rng;
-use tracing::{debug, error, info, warn, Span};
-
-use near_chain_primitives::error::{BlockKnownError, Error, LogTransientStorageError};
-use near_primitives::block::{genesis_chunks, Tip};
-use near_primitives::challenge::{
-    BlockDoubleSign, Challenge, ChallengeBody, ChallengesResult, ChunkProofs, ChunkState,
-    MaybeEncodedShardChunk, PartialState, SlashedValidator,
-};
-use near_primitives::checked_feature;
-use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::merkle::{
-    combine_hash, merklize, verify_path, Direction, MerklePath, MerklePathItem, PartialMerkleTree,
-};
-use near_primitives::receipt::Receipt;
-use near_primitives::sharding::{
-    ChunkHash, ChunkHashHeight, EncodedShardChunk, ReceiptList, ReceiptProof, ShardChunk,
-    ShardChunkHeader, ShardInfo, ShardProof, StateSyncInfo,
-};
-use near_primitives::state_part::PartId;
-use near_primitives::syncing::{
-    get_num_state_parts, ReceiptProofResponse, RootProof, ShardStateSyncResponseHeader,
-    ShardStateSyncResponseHeaderV1, ShardStateSyncResponseHeaderV2, StateHeaderKey, StatePartKey,
-};
-use near_primitives::transaction::{
-    ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction,
-};
-use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{
-    AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash,
-    NumBlocks, NumShards, ShardId, StateChangesForSplitStates, StateRoot,
-};
-use near_primitives::unwrap_or_return;
-use near_primitives::utils::MaybeValidated;
-use near_primitives::views::{
-    BlockStatusView, DroppedReason, ExecutionOutcomeWithIdView, ExecutionStatusView,
-    FinalExecutionOutcomeView, FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus,
-    LightClientBlockView, SignedTransactionView,
-};
-#[cfg(feature = "protocol_feature_flat_state")]
-use near_store::{flat_state, StorageError};
-use near_store::{DBCol, ShardTries, StoreUpdate, WrappedTrieChanges};
-
 use crate::block_processing_utils::{
     BlockPreprocessInfo, BlockProcessingArtifact, BlocksInProcessing, DoneApplyChunkCallback,
 };
@@ -75,20 +19,71 @@ use crate::validate::{
 };
 use crate::{byzantine_assert, create_light_client_block_view, Doomslug};
 use crate::{metrics, DoomslugThresholdMode};
-use actix::Message;
+use borsh::BorshSerialize;
+use chrono::Duration;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use delay_detector::DelayDetector;
+use itertools::Itertools;
 use lru::LruCache;
+use near_chain_primitives::error::{BlockKnownError, Error, LogTransientStorageError};
 use near_client_primitives::types::StateSplitApplyingStatus;
+use near_o11y::log_assert;
+use near_primitives::block::{genesis_chunks, Tip};
+use near_primitives::challenge::{
+    BlockDoubleSign, Challenge, ChallengeBody, ChallengesResult, ChunkProofs, ChunkState,
+    MaybeEncodedShardChunk, PartialState, SlashedValidator,
+};
+use near_primitives::checked_feature;
+use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::merkle::{
+    combine_hash, merklize, verify_path, Direction, MerklePath, MerklePathItem, PartialMerkleTree,
+};
+use near_primitives::receipt::Receipt;
+use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::{
     account_id_to_shard_id, account_id_to_shard_uid, ShardLayout, ShardUId,
 };
+use near_primitives::sharding::{
+    ChunkHash, ChunkHashHeight, EncodedShardChunk, ReceiptList, ReceiptProof, ShardChunk,
+    ShardChunkHeader, ShardInfo, ShardProof, StateSyncInfo,
+};
+use near_primitives::state_part::PartId;
+use near_primitives::syncing::{
+    get_num_state_parts, ReceiptProofResponse, RootProof, ShardStateSyncResponseHeader,
+    ShardStateSyncResponseHeaderV1, ShardStateSyncResponseHeaderV2, StateHeaderKey, StatePartKey,
+};
+use near_primitives::time::Clock;
+use near_primitives::transaction::{
+    ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction,
+};
+use near_primitives::types::chunk_extra::ChunkExtra;
+use near_primitives::types::{
+    AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash,
+    NumBlocks, NumShards, ShardId, StateChangesForSplitStates, StateRoot,
+};
+use near_primitives::unwrap_or_return;
+use near_primitives::utils::MaybeValidated;
 use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::views::{
+    BlockStatusView, DroppedReason, ExecutionOutcomeWithIdView, ExecutionStatusView,
+    FinalExecutionOutcomeView, FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus,
+    LightClientBlockView, SignedTransactionView,
+};
 #[cfg(feature = "protocol_feature_flat_state")]
 use near_store::flat_state::{store_helper, FlatStateDelta};
 use near_store::flat_state::{FlatStorageCreationStatus, FlatStorageError};
+#[cfg(feature = "protocol_feature_flat_state")]
+use near_store::{flat_state, StorageError};
+use near_store::{DBCol, ShardTries, StoreUpdate, WrappedTrieChanges};
 use once_cell::sync::OnceCell;
+use rand::seq::SliceRandom;
+use rand::SeedableRng;
+use rand_chacha::ChaCha20Rng;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+use std::time::{Duration as TimeDuration, Instant};
+use tracing::{debug, error, info, warn, Span};
 
 /// Maximum number of orphans chain can store.
 pub const MAX_ORPHAN_SIZE: usize = 1024;
@@ -5516,7 +5511,7 @@ pub fn collect_receipts_from_response(
     )
 }
 
-#[derive(Message)]
+#[derive(actix::Message)]
 #[rtype(result = "()")]
 pub struct ApplyStatePartsRequest {
     pub runtime: Arc<dyn RuntimeWithEpochManagerAdapter>,
@@ -5527,7 +5522,7 @@ pub struct ApplyStatePartsRequest {
     pub sync_hash: CryptoHash,
 }
 
-#[derive(Message)]
+#[derive(actix::Message)]
 #[rtype(result = "()")]
 pub struct ApplyStatePartsResponse {
     pub apply_result: Result<(), near_chain_primitives::error::Error>,
@@ -5535,7 +5530,7 @@ pub struct ApplyStatePartsResponse {
     pub sync_hash: CryptoHash,
 }
 
-#[derive(Message)]
+#[derive(actix::Message)]
 #[rtype(result = "()")]
 pub struct BlockCatchUpRequest {
     pub sync_hash: CryptoHash,
@@ -5544,7 +5539,7 @@ pub struct BlockCatchUpRequest {
     pub work: Vec<Box<dyn FnOnce(&Span) -> Result<ApplyChunkResult, Error> + Send>>,
 }
 
-#[derive(Message)]
+#[derive(actix::Message)]
 #[rtype(result = "()")]
 pub struct BlockCatchUpResponse {
     pub sync_hash: CryptoHash,
@@ -5552,7 +5547,7 @@ pub struct BlockCatchUpResponse {
     pub results: Vec<Result<ApplyChunkResult, Error>>,
 }
 
-#[derive(Message)]
+#[derive(actix::Message)]
 #[rtype(result = "()")]
 pub struct StateSplitRequest {
     pub runtime: Arc<dyn RuntimeWithEpochManagerAdapter>,
@@ -5564,7 +5559,7 @@ pub struct StateSplitRequest {
     pub state_split_status: Arc<StateSplitApplyingStatus>,
 }
 
-#[derive(Message)]
+#[derive(actix::Message)]
 #[rtype(result = "()")]
 pub struct StateSplitResponse {
     pub sync_hash: CryptoHash,

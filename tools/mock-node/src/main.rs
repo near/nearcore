@@ -5,7 +5,6 @@
 
 use actix::System;
 use anyhow::Context;
-use clap::Parser;
 use mock_node::setup::{setup_mock_node, MockNode};
 use mock_node::MockNetworkConfig;
 use near_actix_test_utils::run_actix;
@@ -49,7 +48,7 @@ use std::time::{Duration, Instant};
 /// # Mixed: client starts at genesis and tries to catch up with the network, which starts at height 20.
 /// $ mock-node ~/.near/localnet/node0 --network-height 20
 /// ```
-#[derive(Parser)]
+#[derive(clap::Parser)]
 struct Cli {
     /// Existing home dir for the pre-generated chain history. For example, you can use
     /// the home dir of a near node.
@@ -86,7 +85,7 @@ struct Cli {
 
 fn main() -> anyhow::Result<()> {
     init_integration_logger();
-    let args = Cli::parse();
+    let args: Cli = clap::Parser::parse();
     let home_dir = Path::new(&args.chain_history_home_dir);
     let mut near_config = nearcore::config::load_config(home_dir, GenesisValidationMode::Full)
         .context("Error loading config")?;

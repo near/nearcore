@@ -3,27 +3,13 @@
 //! NOTE: chain-configs is not the best place for `GenesisConfig` since it
 //! contains `RuntimeConfig`, but we keep it here for now until we figure
 //! out the better place.
-use std::collections::HashSet;
-use std::fs::File;
-use std::io::{BufReader, Read};
-use std::path::{Path, PathBuf};
-use std::{fmt, io};
-
+use crate::genesis_validate::validate_genesis;
 use anyhow::Context;
 use chrono::{DateTime, Utc};
-use near_primitives::views::RuntimeConfigView;
-use num_rational::Rational32;
-use serde::de::{self, DeserializeSeed, IgnoredAny, MapAccess, SeqAccess, Visitor};
-use serde::{Deserialize, Deserializer, Serialize};
-use serde_json::Serializer;
-use sha2::digest::Digest;
-use smart_default::SmartDefault;
-use tracing::warn;
-
-use crate::genesis_validate::validate_genesis;
 use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::validator_stake::ValidatorStake;
+use near_primitives::views::RuntimeConfigView;
 use near_primitives::{
     hash::CryptoHash,
     runtime::config::RuntimeConfig,
@@ -35,6 +21,18 @@ use near_primitives::{
     },
     version::ProtocolVersion,
 };
+use num_rational::Rational32;
+use serde::de::{self, DeserializeSeed, IgnoredAny, MapAccess, SeqAccess, Visitor};
+use serde::{Deserializer, Serialize};
+use serde_json::Serializer;
+use sha2::digest::Digest;
+use smart_default::SmartDefault;
+use std::collections::HashSet;
+use std::fs::File;
+use std::io::{BufReader, Read};
+use std::path::{Path, PathBuf};
+use std::{fmt, io};
+use tracing::warn;
 
 const MAX_GAS_PRICE: Balance = 10_000_000_000_000_000_000_000;
 
@@ -78,7 +76,7 @@ fn default_max_kickout_stake_threshold() -> u8 {
     100
 }
 
-#[derive(Debug, Clone, SmartDefault, Serialize, Deserialize)]
+#[derive(Debug, Clone, SmartDefault, serde::Serialize, serde::Deserialize)]
 pub struct GenesisConfig {
     /// Protocol version that this genesis works with.
     pub protocol_version: ProtocolVersion,
@@ -235,15 +233,15 @@ impl From<&GenesisConfig> for AllEpochConfig {
     derive_more::AsRef,
     derive_more::AsMut,
     derive_more::From,
-    Serialize,
-    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
 )]
 pub struct GenesisRecords(pub Vec<StateRecord>);
 
 /// `Genesis` has an invariant that `total_supply` is equal to the supply seen in the records.
 /// However, we can't enfore that invariant. All fields are public, but the clients are expected to
 /// use the provided methods for instantiation, serialization and deserialization.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct Genesis {
     #[serde(flatten)]
     pub config: GenesisConfig,
@@ -618,7 +616,7 @@ impl GenesisChangeConfig {
 // Ideally we should create `RuntimeConfigView`, but given the deeply nested nature and the number of fields inside
 // `RuntimeConfig`, it should be its own endeavor.
 // TODO: This has changed, there is now `RuntimeConfigView`. Reconsider if moving this is possible now.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct ProtocolConfigView {
     /// Current Protocol Version
     pub protocol_version: ProtocolVersion,
