@@ -77,12 +77,6 @@ impl<'a> ConfigValidator<'a> {
                 .push_errors(ValidationError::ConfigSemanticsError { error_message: error_message })
         }
 
-        if self.config.tracked_accounts.is_empty() {
-            let error_message = format!("Tracked_accounts should be non-empty.");
-            self.validation_errors
-                .push_errors(ValidationError::ConfigSemanticsError { error_message: error_message })
-        }
-
         if self.config.gc.gc_blocks_limit == 0
             || self.config.gc.gc_fork_clean_step == 0
             || self.config.gc.gc_num_epochs_to_keep == 0

@@ -1016,7 +1016,6 @@ pub fn init_configs(
                     .unwrap();
             generate_or_load_key(dir, &config.node_key_file, Some("node".parse().unwrap()), None)?;
 
-            config.tracked_accounts = vec![signer.account_id.clone()];
             config.write_to_file(&dir.join(CONFIG_FILENAME)).with_context(|| {
                 format!("Error writing config to {}", dir.join(CONFIG_FILENAME).display())
             })?;
@@ -1085,8 +1084,7 @@ pub fn init_configs(
             };
             let genesis = Genesis::new(genesis_config, records.into());
             genesis.to_file(&dir.join(config.genesis_file));
-            //info!(target: "near", "Generated node key, validator key, genesis file in {}", dir.display());
-            info!(target: "near", "init_configs: config.tracked_accounts are {:?}", &config.tracked_accounts);
+            info!(target: "near", "Generated node key, validator key, genesis file in {}", dir.display());
         }
     }
     Ok(())
@@ -1138,12 +1136,6 @@ pub fn create_testnet_configs_from_seeds(
     );
     let mut configs = vec![];
     let first_node_addr = tcp::ListenerAddr::reserve_for_test();
-    let tracked_accounts: Vec<AccountId> = genesis
-        .config
-        .validators
-        .iter()
-        .map(|account_info| account_info.account_id.clone())
-        .collect();
     for i in 0..seeds.len() {
         let mut config = Config::default();
         config.rpc.get_or_insert(Default::default()).enable_debug_rpc = true;
@@ -1165,7 +1157,6 @@ pub fn create_testnet_configs_from_seeds(
         }
         config.archive = archive;
         config.tracked_shards = tracked_shards.clone();
-        config.tracked_accounts = tracked_accounts.clone();
         config.consensus.min_num_peers =
             std::cmp::min(num_validator_seats as usize - 1, config.consensus.min_num_peers);
         configs.push(config);
@@ -1253,8 +1244,7 @@ pub fn init_testnet_configs(
 
         genesis.to_file(&node_dir.join(&configs[i].genesis_file));
         configs[i].write_to_file(&node_dir.join(CONFIG_FILENAME)).expect("Error writing config");
-        info!(target: "near", "create_testnet_configs_from_seeds: config.tracked_shards are {:?}", &configs[i].tracked_accounts);
-        // info!(target: "near", "Generated node key, validator key, genesis file in {}", node_dir.display());
+        info!(target: "near", "Generated node key, validator key, genesis file in {}", node_dir.display());
     }
 }
 
