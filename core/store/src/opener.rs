@@ -318,7 +318,7 @@ impl<'a> StoreOpener<'a> {
         temp: Temperature,
     ) -> Result<(), StoreOpenerError> {
         let which: &'static str = temp.into();
-        tracing::debug!(target: "db_opener", path=%opener.path.display(), archive = archive, which = which, "Ensure db kind is correct and set.");
+        tracing::debug!(target: "db_opener", path = %opener.path.display(), archive, which, "Ensure db kind is correct and set.");
         let store = Self::open_store_unsafe(mode, opener)?;
 
         let current_kind = store.get_db_kind()?;

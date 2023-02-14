@@ -331,14 +331,11 @@ impl PrepareHotCmd {
         // with the node owner still. We don't want to do a full check here
         // as it would take too long.
 
-        tracing::info!(
-            target = "prepare-hot",
-            "The hot, cold and rpc stores are suitable for cold storage migration"
-        );
-        tracing::info!(target = "prepare-hot", "Changing the DbKind of the rpc store to Hot");
+        tracing::info!(target : "prepare-hot", "The hot, cold and RPC stores are suitable for cold storage migration");
+        tracing::info!(target : "prepare-hot", "Changing the DbKind of the RPC store to Hot");
         rpc_store.set_db_kind(DbKind::Hot)?;
 
-        tracing::info!(target="prepare-hot", "Great success! You can now replace the config.store.path in neard config to point to {:#?}", path);
+        tracing::info!(target="prepare-hot", "Successfully prepared the hot store for migration. You can now set the config.store.path in neard config to {:#?}", path);
 
         Ok(())
     }
