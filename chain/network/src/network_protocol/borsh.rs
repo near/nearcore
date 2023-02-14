@@ -57,8 +57,8 @@ struct HandshakeAutoDes {
 // Use custom deserializer for HandshakeV2. Try to read version of the other peer from the header.
 // If the version is supported then fallback to standard deserializer.
 impl BorshDeserialize for Handshake {
-    fn deserialize_reader<R: std::io::Read>(rd: &mut R) -> std::io::Result<Self> {
-        HandshakeAutoDes::deserialize_reader(rd).map(Into::into)
+    fn deserialize(buf: &mut &[u8]) -> std::io::Result<Self> {
+        <HandshakeAutoDes as BorshDeserialize>::deserialize(buf).map(Into::into)
     }
 }
 

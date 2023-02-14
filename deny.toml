@@ -107,10 +107,4 @@ skip = [
 
     # validator 0.12 ~ 0.16 is still using an old version of idna
     { name = "idna", version = "=0.2.3" },
-
-    # zeropool-bn uses borsh 0.9
-    { name = "borsh", version = "=0.9.3" },
-    { name = "borsh-derive", version = "=0.9.3" },
-    { name = "borsh-derive-internal", version = "=0.9.3" },
-    { name = "borsh-schema-derive-internal", version = "=0.9.3" },
 ]

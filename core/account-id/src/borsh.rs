@@ -1,18 +1,18 @@
 use super::AccountId;
 
-use std::io::{Read, Write};
+use std::io::{Error, Write};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
 impl BorshSerialize for AccountId {
-    fn serialize<W: Write>(&self, writer: &mut W) -> std::io::Result<()> {
+    fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
         self.0.serialize(writer)
     }
 }
 
 impl BorshDeserialize for AccountId {
-    fn deserialize_reader<R: Read>(rd: &mut R) -> std::io::Result<Self> {
-        let account_id = Box::<str>::deserialize_reader(rd)?;
+    fn deserialize(buf: &mut &[u8]) -> Result<Self, std::io::Error> {
+        let account_id = Box::<str>::deserialize(buf)?;
         Self::validate(&account_id).map_err(|err| {
             std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
