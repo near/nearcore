@@ -301,17 +301,14 @@ impl PrepareHotCmd {
         let _span = tracing::info_span!(target: "prepare-hot", "run");
 
         let path = Path::new(&self.store_relative_path);
-        tracing::info!(
-            target = "prepare-hot",
-            "Preparing a hot db from a rpc db at path {path:#?}."
-        );
+        tracing::info!(target : "prepare-hot", "Preparing a hot db from a rpc db at path {path:#?}.");
 
-        tracing::info!(target = "prepare-hot", "Opening hot and cold.");
+        tracing::info!(target : "prepare-hot", "Opening hot and cold.");
         let hot_store = storage.get_hot_store();
         let cold_store = storage.get_cold_store();
         let cold_store = cold_store.ok_or(anyhow::anyhow!("The cold store is not configured!"))?;
 
-        tracing::info!(target = "prepare-hot", "Opening rpc.");
+        tracing::info!(target : "prepare-hot", "Opening rpc.");
         // Open the rpc_storage using the near_config with the path swapped.
         let mut rpc_store_config = near_config.config.store.clone();
         rpc_store_config.path = Some(path.to_path_buf());
@@ -319,10 +316,10 @@ impl PrepareHotCmd {
         let rpc_storage = rpc_opener.open()?;
         let rpc_store = rpc_storage.get_hot_store();
 
-        tracing::info!(target = "prepare-hot", "Checking db kind");
+        tracing::info!(target : "prepare-hot", "Checking db kind");
         Self::check_db_kind(&hot_store, &cold_store, &rpc_store)?;
 
-        tracing::info!(target = "prepare-hot", "Checking up to date");
+        tracing::info!(target : "prepare-hot", "Checking up to date");
         Self::check_up_to_date(&cold_store, &rpc_store)?;
 
         // TODO may be worth doing some simple sanity check that the rpc store
@@ -335,7 +332,7 @@ impl PrepareHotCmd {
         tracing::info!(target : "prepare-hot", "Changing the DbKind of the RPC store to Hot");
         rpc_store.set_db_kind(DbKind::Hot)?;
 
-        tracing::info!(target="prepare-hot", "Successfully prepared the hot store for migration. You can now set the config.store.path in neard config to {:#?}", path);
+        tracing::info!(target : "prepare-hot", "Successfully prepared the hot store for migration. You can now set the config.store.path in neard config to {:#?}", path);
 
         Ok(())
     }
@@ -406,9 +403,10 @@ impl PrepareHotCmd {
         // COLD  . . . . . . . . . H
 
         if cold_head.height > rpc_head.height {
-            println!(
+            tracing::error!(target : "prepare-hot",
                 "The cold head is ahead of the rpc head. cold head height: {} rpc head height: {}",
-                cold_head.height, rpc_head.height
+                cold_head.height,
+                rpc_head.height
             );
         }
 

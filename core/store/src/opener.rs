@@ -339,7 +339,7 @@ impl<'a> StoreOpener<'a> {
 
         // Kind is not set, set it.
         if mode.read_write() {
-            tracing::info!(target: "db_opener", archive = archive, which = which, "Setting the db DbKind to {default_kind:#?}");
+            tracing::info!(target: "db_opener", archive,  which, "Setting the db DbKind to {default_kind:#?}");
 
             store.set_db_kind(default_kind)?;
             return Ok(());
