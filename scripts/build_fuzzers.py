@@ -9,19 +9,20 @@ REPO_DIR = '/home/runner/work/nearcore/nearcore/'
 G_BUCKET = 'gs://fuzzer_targets/master/'
 ARCH_CONFIG_NAME = 'x86_64-unknown-linux-gnu'
 BUILDER_START_TIME = time.strftime('%Y%m%d%H%M%S', time.gmtime())
+TAR_NAME = f'fuzz-targets-{BUILDER_START_TIME}.tar.gz'
 
 
-def push_to_google_bucket(runner: str) -> None:
-    tar_name = f'{runner}-master-{BUILDER_START_TIME}.tar.gz'
-    with tarfile.open(name=tar_name, mode='w') as archiver:
-        archiver.add(f"target/{ARCH_CONFIG_NAME}/release/{runner}", runner)
+def push_to_google_bucket(archive_name: str) -> None:
+    try:
+        subprocess.run([
+            'gsutil',
+            'cp',
+            archive_name,
+            G_BUCKET,
+        ], check=True)
 
-    _proc = subprocess.run([
-        'gsutil',
-        'cp',
-        tar_name,
-        G_BUCKET,
-    ], check=True)
+    except subprocess.CalledProcessError as e:
+        logger.info(f"Failed to upload archive to Google Storage!")
 
 
 def main() -> None:
@@ -33,20 +34,27 @@ def main() -> None:
 
     for target in crates:
         logger.info(f"working on {target}")
+        runner = target['runner']
+        try:
+            subprocess.run(
+                [
+                    'cargo',
+                    '+nightly',
+                    'fuzz',
+                    'build',
+                    runner,
+                ],
+                check=True,
+                cwd=target['crate'],
+            )
+            with tarfile.open(name=TAR_NAME, mode='w') as archiver:
+                archiver.add(f"target/{ARCH_CONFIG_NAME}/release/{runner}",
+                             runner)
 
-        _proc = subprocess.run(
-            [
-                'cargo',
-                '+nightly',
-                'fuzz',
-                'build',
-                target['runner'],
-            ],
-            check=True,
-            cwd=target['crate'],
-        )
+        except subprocess.CalledProcessError as e:
+            logger.info(f"Failed to build/archive target: {target}")
 
-        push_to_google_bucket(target['runner'])
+    push_to_google_bucket(TAR_NAME)
 
 
 if __name__ == '__main__':
