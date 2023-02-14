@@ -124,7 +124,7 @@ fn write_epoch_checkpoint(store_update: &mut StoreUpdate, epoch_checkpoint: &Epo
 
 fn create_snapshot(create_cmd: CreateCmd) {
     let path = Path::new(&create_cmd.home);
-    let store = NodeStorage::opener(path, &Default::default(), None)
+    let store = NodeStorage::opener(path, false, &Default::default(), None)
         .open_in_mode(Mode::ReadOnly)
         .unwrap()
         .get_store(near_store::Temperature::Hot);
@@ -222,7 +222,7 @@ fn load_snapshot(load_cmd: LoadCmd) {
 
     let config = nearcore::config::load_config(&home_dir, GenesisValidationMode::UnsafeFast)
         .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
-    let store = NodeStorage::opener(home_dir, &Default::default(), None)
+    let store = NodeStorage::opener(home_dir, config.config.archive, &Default::default(), None)
         .open()
         .unwrap()
         .get_store(near_store::Temperature::Hot);

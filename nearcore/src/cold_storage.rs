@@ -147,7 +147,7 @@ fn cold_store_loop(
         let sleep_duration = std::time::Duration::from_secs(1);
         match result {
             Err(err) => {
-                tracing::error!(target:"cold_store", "cold_store_copy failed with error : {err}");
+                tracing::error!(target : "cold_store", error = format!("{err:#?}"), "cold_store_copy failed");
                 std::thread::sleep(sleep_duration);
             }
             // If no block was copied the cold head is up to date with final head and
