@@ -184,6 +184,16 @@ impl Inner {
         }
     }
 
+    /// Verifies edges, then adds them to the graph.
+    /// Returns a list of newly added edges (not known so far), which should be broadcasted.
+    /// Returns true iff all the edges provided were valid.
+    ///
+    /// This method implements a security measure against an adversary sending invalid edges:
+    /// * it deduplicates edges and drops known edges before verification, because verification is expensive.
+    /// * it verifies edges in parallel until the first invalid edge is found. It adds the edges
+    ///   verified so far (and returns them), but drops all the remaining ones. This way the
+    ///   wasted work (verification of invalid edges) is constant, no matter how large the input
+    ///   size is.
     fn add_edges(&mut self, clock: &time::Clock, mut edges: Vec<Edge>) -> (Vec<Edge>, bool) {
         metrics::EDGE_UPDATES.inc_by(edges.len() as u64);
         // Start with deduplicating the edges.
