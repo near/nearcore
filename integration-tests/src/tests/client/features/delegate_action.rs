@@ -9,10 +9,13 @@ use crate::tests::standard_cases::fee_helper;
 use near_chain::ChainGenesis;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
-use near_crypto::{KeyType, PublicKey};
-use near_primitives::account::AccessKey;
+use near_crypto::{KeyType, PublicKey, Signer};
+use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives::config::ActionCosts;
-use near_primitives::errors::{ActionsValidationError, InvalidTxError, TxExecutionError};
+use near_primitives::errors::{
+    ActionError, ActionErrorKind, ActionsValidationError, InvalidAccessKeyError, InvalidTxError,
+    TxExecutionError,
+};
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
@@ -21,13 +24,14 @@ use near_primitives::transaction::{
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::{
-    AccessKeyPermissionView, FinalExecutionOutcomeView, FinalExecutionStatus,
+    AccessKeyPermissionView, ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionStatus,
 };
 use near_test_contracts::smallest_rs_contract;
 use nearcore::config::GenesisExt;
 use nearcore::NEAR_BASE;
 use testlib::runtime_utils::{
-    add_contract, alice_account, bob_account, carol_account, eve_dot_alice_account,
+    add_account_with_access_key, add_contract, add_test_contract, alice_account, bob_account,
+    carol_account, eve_dot_alice_account,
 };
 
 fn exec_meta_transaction(
@@ -285,6 +289,172 @@ fn meta_tx_fn_call() {
     // Check that the function call was executed as expected
     let fn_call_logs = &outcome.receipts_outcome[1].outcome.logs;
     assert_eq!(fn_call_logs, &vec!["hello".to_owned()]);
+}
+
+/// Call a function in a meta tx where the user only has access through a
+/// function call access key.
+#[test]
+fn meta_tx_fn_call_access_key() {
+    let sender = bob_account();
+    let relayer = alice_account();
+    let receiver = carol_account();
+
+    let method_name = "log_something".to_owned();
+    let method_name_len = method_name.len() as u64;
+    let initial_allowance = NEAR_BASE;
+    let signer = create_user_test_signer(&sender);
+    let public_key = signer.public_key();
+    let access_key = AccessKey {
+        nonce: 0,
+        permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+            allowance: Some(initial_allowance),
+            receiver_id: receiver.to_string(),
+            method_names: vec![method_name.clone()],
+        }),
+    };
+
+    let mut genesis = Genesis::test(vec![relayer.clone(), receiver.clone()], 3);
+    add_test_contract(&mut genesis, &receiver);
+    add_account_with_access_key(&mut genesis, &sender, NEAR_BASE, public_key.clone(), access_key);
+    let node = RuntimeNode::new_from_genesis(&relayer, genesis);
+
+    // Check previous allowance is set as expected
+    let key =
+        node.user().get_access_key(&sender, &public_key).expect("failed looking up fn access key");
+    let AccessKeyPermissionView::FunctionCall { allowance, ..} = key.permission else {
+        panic!("should be function access key")
+    };
+    assert_eq!(allowance.unwrap(), initial_allowance);
+
+    let actions = vec![Action::FunctionCall(FunctionCallAction {
+        method_name,
+        args: vec![],
+        gas: 30_000_000_000_000,
+        deposit: 0,
+    })];
+    let outcome = check_meta_tx_fn_call(
+        &node,
+        actions,
+        method_name_len,
+        0,
+        sender.clone(),
+        relayer,
+        receiver,
+    );
+
+    // Check that the function call was executed as expected
+    let fn_call_logs = &outcome.receipts_outcome[1].outcome.logs;
+    assert_eq!(fn_call_logs, &vec!["hello".to_owned()]);
+
+    // Check allowance was not updated
+    let key =
+        node.user().get_access_key(&sender, &public_key).expect("failed looking up fn access key");
+    let AccessKeyPermissionView::FunctionCall { allowance, ..} = key.permission else {
+        panic!("should be function access key")
+    };
+    assert_eq!(
+        allowance.unwrap(),
+        initial_allowance,
+        "allowance should not change, we used the relayer's fund not the sender's"
+    );
+}
+
+/// Call a function in a meta tx where the user only has access through a
+/// function call access that has zero allowance left.
+#[test]
+fn meta_tx_fn_call_access_key_insufficient_allowance() {
+    let sender = bob_account();
+    let relayer = alice_account();
+    let receiver = carol_account();
+
+    let method_name = "log_something".to_owned();
+    let method_name_len = method_name.len() as u64;
+    // 1 yocto near, that's less than 1 gas unit
+    let initial_allowance = 1;
+    let signer = create_user_test_signer(&sender);
+    let access_key = AccessKey {
+        nonce: 0,
+        permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+            allowance: Some(initial_allowance),
+            receiver_id: receiver.to_string(),
+            method_names: vec![method_name.clone()],
+        }),
+    };
+
+    let mut genesis = Genesis::test(vec![relayer.clone(), receiver.clone()], 3);
+    add_test_contract(&mut genesis, &receiver);
+    add_account_with_access_key(&mut genesis, &sender, NEAR_BASE, signer.public_key(), access_key);
+    let node = RuntimeNode::new_from_genesis(&relayer, genesis);
+
+    let actions = vec![Action::FunctionCall(FunctionCallAction {
+        method_name,
+        args: vec![],
+        gas: 30_000_000_000_000,
+        deposit: 0,
+    })];
+
+    // this should still succeed because we use the gas of the relayer, not of the access key
+    let outcome =
+        check_meta_tx_fn_call(&node, actions, method_name_len, 0, sender, relayer, receiver);
+
+    // Check that the function call was executed as expected
+    let fn_call_logs = &outcome.receipts_outcome[1].outcome.logs;
+    assert_eq!(fn_call_logs, &vec!["hello".to_owned()]);
+}
+
+/// Call a function in a meta tx where the user doesn't have the appropriate
+/// access key, which must fail.
+///
+/// This is quite to fail, method restricted access keys can give restricted
+/// access to a contract. If meta transactions can be used to circumvent this
+/// check, then someone with an access key could impersonate the account in
+/// unintended ways.
+#[test]
+fn meta_tx_fn_call_access_wrong_method() {
+    let sender = bob_account();
+    let relayer = alice_account();
+    let receiver = carol_account();
+
+    let method_name = "log_something".to_owned();
+    let access_key_method_name = "log_something_else".to_owned();
+    let signer = create_user_test_signer(&sender);
+    let access_key = AccessKey {
+        nonce: 0,
+        permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+            allowance: Some(NEAR_BASE),
+            receiver_id: receiver.to_string(),
+            method_names: vec![access_key_method_name],
+        }),
+    };
+
+    let mut genesis = Genesis::test(vec![relayer.clone(), receiver.clone()], 3);
+    add_test_contract(&mut genesis, &receiver);
+    add_account_with_access_key(&mut genesis, &sender, NEAR_BASE, signer.public_key(), access_key);
+    let node = RuntimeNode::new_from_genesis(&relayer, genesis);
+
+    let actions = vec![Action::FunctionCall(FunctionCallAction {
+        method_name,
+        args: vec![],
+        gas: 30_000_000_000_000,
+        deposit: 0,
+    })];
+
+    let tx_result = node.user().meta_tx(sender, receiver, relayer, actions).unwrap();
+    // actual check has to be done in the receipt on the sender shard, not the
+    // relayer, so let's check the receipt is present with the appropriate error
+    let inner_status = &tx_result.receipts_outcome[0].outcome.status;
+    assert!(
+        matches!(
+            inner_status,
+            ExecutionStatusView::Failure(TxExecutionError::ActionError(ActionError {
+                kind: ActionErrorKind::DelegateActionAccessKeyError(
+                    InvalidAccessKeyError::MethodNameMismatch { .. }
+                ),
+                ..
+            })),
+        ),
+        "expected MethodNameMismatch but found {inner_status:?}"
+    );
 }
 
 #[test]
