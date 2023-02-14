@@ -3209,6 +3209,7 @@ dependencies = [
  "curve25519-dalek",
  "derive_more",
  "ed25519-dalek",
+ "hex",
  "hex-literal",
  "near-account-id",
  "near-config-utils",

@@ -176,7 +176,7 @@ impl FeeHelper {
     /// - The base cost of the delegate action (send and exec).
     /// - The additional send cost for all inner actions.
     #[cfg(feature = "protocol_feature_nep366_delegate_action")]
-    pub fn meta_tx_overhead_cost(&self, actions: &[Action]) -> Balance {
+    pub fn meta_tx_overhead_cost(&self, actions: &[Action], is_receiver_implicit: bool) -> Balance {
         // for tests, we assume sender != receiver
         let sir = false;
         let base = self.cfg.fee(ActionCosts::delegate);
@@ -196,7 +196,15 @@ impl FeeHelper {
                         + self.cfg.fee(ActionCosts::function_call_byte).send_fee(sir)
                             * num_bytes as u64
                 }
-                Action::Transfer(_) => self.cfg.fee(ActionCosts::transfer).send_fee(sir),
+                Action::Transfer(_) => {
+                    if is_receiver_implicit {
+                        self.cfg.fee(ActionCosts::transfer).send_fee(sir)
+                            + self.cfg.fee(ActionCosts::create_account).send_fee(sir)
+                            + self.cfg.fee(ActionCosts::add_full_access_key).send_fee(sir)
+                    } else {
+                        self.cfg.fee(ActionCosts::transfer).send_fee(sir)
+                    }
+                }
                 Action::Stake(_) => self.cfg.fee(ActionCosts::stake).send_fee(sir),
                 Action::AddKey(AddKeyAction {
                     access_key: AccessKey { permission, .. }, ..
