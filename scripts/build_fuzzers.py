@@ -11,7 +11,7 @@ REPO_DIR = '/home/runner/work/nearcore/nearcore/'
 G_BUCKET = 'gs://fuzzer_targets/master/'
 ARCH_CONFIG_NAME = 'x86_64-unknown-linux-gnu'
 BUILDER_START_TIME = time.strftime('%Y%m%d%H%M%S', time.gmtime())
-TAR_NAME = f'fuzz-targets-{BUILDER_START_TIME}.tar.gz'
+TAR_NAME = f'nearcore-master-{BUILDER_START_TIME}.tar.gz'
 
 
 def push_to_google_bucket(archive_name: str) -> None:
@@ -55,14 +55,14 @@ def main() -> None:
             fuzz_bin_list.append(f"target/{ARCH_CONFIG_NAME}/release/{runner}")
 
         except subprocess.CalledProcessError as e:
-            logger.info(f"Failed to build/archive target: {target}")
+            logger.info(f"Failed to build fuzz target: {target}")
 
     logger.info(
         f"Fuzzer binaries to upload: {[os.path.basename(f) for f in fuzz_bin_list]}"
     )
 
     # adding to archive in 1 operation as tarfile doesn't
-    # support appending to existing compresed file
+    # support appending to existing compressed file
     with tarfile.open(name=TAR_NAME, mode="w:gz") as archive:
         for file_name in fuzz_bin_list:
             archive.add(file_name, os.path.basename(file_name))
