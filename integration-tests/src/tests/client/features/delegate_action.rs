@@ -474,7 +474,7 @@ fn meta_tx_ft_transfer() {
         2,
         sender.clone(),
         relayer.clone(),
-        ft_contract,
+        ft_contract.clone(),
     );
 
     // Check that the function call was executed as expected, according to NEP-141 events.
@@ -492,14 +492,10 @@ fn meta_tx_ft_transfer() {
         "receiver event looks wrong"
     );
 
-    // let relayer_payment_event: serde_json::Value =
-    //     serde_json::from_str(&format!("{{{}}}", fn_call_logs[0]))
-    //         .expect("log events should be JSON");
-    // assert_eq!(relayer_payment_event, ft_transfer_event(&sender, &relayer, 10));
-
-    // let transfer_event: serde_json::Value =
-    //     serde_json::from_str(&fn_call_logs[1]).expect("log events should be JSON");
-    // assert_eq!(transfer_event, ft_transfer_event(&sender, &receiver, 1000));
+    // Also check FT balances
+    assert_ft_balance(&node, &ft_contract, &receiver, 1000);
+    assert_ft_balance(&node, &ft_contract, &sender, 10_000 - 1000 - 10);
+    assert_ft_balance(&node, &ft_contract, &relayer, 1_000_000 - 10_000 + 10);
 }
 
 /// Construct an function call action with a FT transfer.
@@ -560,4 +556,19 @@ fn ft_transfer_event(sender: &str, receiver: &str, amount: u128) -> String {
     );
     // this part isn't even valid JSON
     format!("EVENT_JSON:{json}")
+}
+
+/// Asserts an FT balance for an account.
+fn assert_ft_balance(
+    node: &RuntimeNode,
+    ft_contract: &AccountId,
+    user: &str,
+    expected_balance: Balance,
+) {
+    let response = node
+        .user()
+        .view_call(ft_contract, "ft_balance_of", format!(r#"{{"account_id":"{user}"}}"#).as_bytes())
+        .expect("view call failed");
+    let balance = std::str::from_utf8(&response.result).expect("invalid UTF8");
+    assert_eq!(format!("\"{expected_balance}\""), balance);
 }
