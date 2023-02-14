@@ -20,6 +20,7 @@
 //!         here to depend more on local peers instead.
 //!
 
+use near_async::messaging::CanSendAsync;
 use near_chain::{near_chain_primitives, Error};
 use near_primitives::state_part::PartId;
 use std::collections::HashMap;
@@ -50,7 +51,7 @@ use near_client_primitives::types::{
 };
 use near_network::types::AccountOrPeerIdOrHash;
 use near_network::types::PeerManagerMessageRequest;
-use near_o11y::WithSpanContextExt;
+
 use near_primitives::shard_layout::ShardUId;
 
 /// Maximum number of state parts to request per peer on each round when node is trying to download the state.
@@ -99,7 +100,7 @@ fn make_account_or_peer_id_or_hash(
 
 /// Helper to track state sync.
 pub struct StateSync {
-    network_adapter: Arc<dyn PeerManagerAdapter>,
+    network_adapter: PeerManagerAdapter,
 
     last_time_block_requested: Option<DateTime<Utc>>,
 
@@ -119,7 +120,7 @@ pub struct StateSync {
 }
 
 impl StateSync {
-    pub fn new(network_adapter: Arc<dyn PeerManagerAdapter>, timeout: TimeDuration) -> Self {
+    pub fn new(network_adapter: PeerManagerAdapter, timeout: TimeDuration) -> Self {
         StateSync {
             network_adapter,
             last_time_block_requested: None,
@@ -606,12 +607,9 @@ impl StateSync {
                 near_performance_metrics::actix::spawn(
                     std::any::type_name::<Self>(),
                     self.network_adapter
-                        .send(
-                            PeerManagerMessageRequest::NetworkRequests(
-                                NetworkRequests::StateRequestHeader { shard_id, sync_hash, target },
-                            )
-                            .with_span_context(),
-                        )
+                        .send_async(PeerManagerMessageRequest::NetworkRequests(
+                            NetworkRequests::StateRequestHeader { shard_id, sync_hash, target },
+                        ))
                         .then(move |result| {
                             if let Ok(NetworkResponses::RouteNotFound) =
                                 result.map(|f| f.as_network_response())
@@ -651,17 +649,14 @@ impl StateSync {
                     near_performance_metrics::actix::spawn(
                         std::any::type_name::<Self>(),
                         self.network_adapter
-                            .send(
-                                PeerManagerMessageRequest::NetworkRequests(
-                                    NetworkRequests::StateRequestPart {
-                                        shard_id,
-                                        sync_hash,
-                                        part_id: part_id as u64,
-                                        target: target.clone(),
-                                    },
-                                )
-                                .with_span_context(),
-                            )
+                            .send_async(PeerManagerMessageRequest::NetworkRequests(
+                                NetworkRequests::StateRequestPart {
+                                    shard_id,
+                                    sync_hash,
+                                    part_id: part_id as u64,
+                                    target: target.clone(),
+                                },
+                            ))
                             .then(move |result| {
                                 // TODO: possible optimization - in the current code, even if one of the targets it not present in the network graph
                                 //       (so we keep getting RouteNotFound) - we'll still keep trying to assign parts to it.
@@ -896,7 +891,8 @@ mod test {
     // Start a new state sync - and check that it asks for a header.
     fn test_ask_for_header() {
         let mock_peer_manager = Arc::new(MockPeerManagerAdapter::default());
-        let mut state_sync = StateSync::new(mock_peer_manager.clone(), TimeDuration::from_secs(1));
+        let mut state_sync =
+            StateSync::new(mock_peer_manager.clone().into(), TimeDuration::from_secs(1));
         let mut new_shard_sync = HashMap::new();
 
         let (mut chain, kv, signer) = test_utils::setup();

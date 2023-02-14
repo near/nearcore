@@ -1,6 +1,5 @@
+use near_async::messaging::CanSend;
 use near_chain::{check_known, ChainStoreAccess};
-
-use std::sync::Arc;
 
 use chrono::{DateTime, Duration};
 use rand::seq::IteratorRandom;
@@ -18,7 +17,6 @@ use near_primitives::types::{BlockHeight, BlockHeightDelta};
 use near_client_primitives::types::SyncStatus;
 
 use near_network::types::PeerManagerMessageRequest;
-use near_o11y::WithSpanContextExt;
 
 /// Maximum number of block requested at once in BlockSync
 const MAX_BLOCK_REQUESTS: usize = 5;
@@ -35,7 +33,7 @@ pub struct BlockSyncRequest {
 
 /// Helper to track block syncing.
 pub struct BlockSync {
-    network_adapter: Arc<dyn PeerManagerAdapter>,
+    network_adapter: PeerManagerAdapter,
     last_request: Option<BlockSyncRequest>,
     /// How far to fetch blocks vs fetch state.
     block_fetch_horizon: BlockHeightDelta,
@@ -45,7 +43,7 @@ pub struct BlockSync {
 
 impl BlockSync {
     pub fn new(
-        network_adapter: Arc<dyn PeerManagerAdapter>,
+        network_adapter: PeerManagerAdapter,
         block_fetch_horizon: BlockHeightDelta,
         archive: bool,
     ) -> Self {
@@ -199,13 +197,9 @@ impl BlockSync {
             if let Some(peer) = peer {
                 debug!(target: "sync", "Block sync: {}/{} requesting block {} at height {} from {} (out of {} peers)",
                        chain_head.height, header_head.height, hash, height, peer.peer_info.id, highest_height_peers.len());
-                self.network_adapter.do_send(
-                    PeerManagerMessageRequest::NetworkRequests(NetworkRequests::BlockRequest {
-                        hash,
-                        peer_id: peer.peer_info.id.clone(),
-                    })
-                    .with_span_context(),
-                );
+                self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                    NetworkRequests::BlockRequest { hash, peer_id: peer.peer_info.id.clone() },
+                ));
             } else {
                 warn!(target: "sync", "Block sync: {}/{} No available {}peers to request block {} from",
                       chain_head.height, header_head.height, if request_from_archival { "archival " } else { "" }, hash);
@@ -293,7 +287,8 @@ mod test {
         let mut capture = TracingCapture::enable();
         let network_adapter = Arc::new(MockPeerManagerAdapter::default());
         let block_fetch_horizon = 10;
-        let mut block_sync = BlockSync::new(network_adapter.clone(), block_fetch_horizon, false);
+        let mut block_sync =
+            BlockSync::new(network_adapter.clone().into(), block_fetch_horizon, false);
         let mut chain_genesis = ChainGenesis::test();
         chain_genesis.epoch_length = 100;
         let mut env = TestEnv::builder(chain_genesis).clients_count(2).build();
@@ -372,7 +367,8 @@ mod test {
     fn test_block_sync_archival() {
         let network_adapter = Arc::new(MockPeerManagerAdapter::default());
         let block_fetch_horizon = 10;
-        let mut block_sync = BlockSync::new(network_adapter.clone(), block_fetch_horizon, true);
+        let mut block_sync =
+            BlockSync::new(network_adapter.clone().into(), block_fetch_horizon, true);
         let mut chain_genesis = ChainGenesis::test();
         chain_genesis.epoch_length = 5;
         let mut env = TestEnv::builder(chain_genesis).clients_count(2).build();
