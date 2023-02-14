@@ -9,7 +9,7 @@ use near_client::adapter::ProcessTxResponse;
 use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_primitives::account::id::AccountId;
-use near_primitives::account::AccessKey;
+use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives::config::ExtCostsConfig;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidTxError, TxExecutionError};
 use near_primitives::runtime::config::RuntimeConfig;
@@ -25,6 +25,7 @@ use nearcore::config::GenesisExt;
 use nearcore::{NightshadeRuntime, TrackedConfig};
 
 use crate::tests::client::runtimes::create_nightshade_runtimes;
+use node_runtime::ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT;
 
 /// Assert that an account exists and has zero balance
 fn assert_zero_balance_account(env: &mut TestEnv, account_id: &AccountId) {
@@ -46,13 +47,14 @@ fn assert_zero_balance_account(env: &mut TestEnv, account_id: &AccountId) {
     match response.kind {
         QueryResponseKind::ViewAccount(view) => {
             assert_eq!(view.amount, 0);
+            assert!(view.storage_usage <= ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT)
         }
         _ => panic!("wrong query response"),
     }
 }
 
 /// Test 2 things: 1) a valid zero balance account can be created and 2) a nonzero balance account
-/// (one with a contract deployed) cannot be created without maintaining an initial balance
+/// (one with a nontrivial contract deployed) cannot be created without maintaining an initial balance
 #[test]
 fn test_zero_balance_account_creation() {
     let epoch_length = 1000;
@@ -89,11 +91,12 @@ fn test_zero_balance_account_creation() {
 
     // create a zero balance account with contract deployed. The transaction should fail
     let new_account_id: AccountId = "hell.test0".parse().unwrap();
+    let contract = near_test_contracts::sized_contract(ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT as usize);
     let create_account_tx = SignedTransaction::create_contract(
         2,
         signer0.account_id.clone(),
         new_account_id.clone(),
-        vec![1, 2, 3],
+        contract.to_vec(),
         0,
         new_signer.public_key.clone(),
         &signer0,
@@ -166,7 +169,8 @@ fn test_zero_balance_account_add_key() {
         env.produce_block(0, i);
     }
 
-    // add four more keys so that the account is no longer a zero balance account
+    // add four more full access keys and 2 more function call access keys
+    // so that the account is no longer a zero balance account
     let mut actions = vec![];
     let mut keys = vec![];
     for i in 1..5 {
@@ -175,6 +179,20 @@ fn test_zero_balance_account_add_key() {
         actions.push(AddKey(AddKeyAction {
             public_key: new_key,
             access_key: AccessKey::full_access(),
+        }));
+    }
+    for i in 0..2 {
+        let new_key = PublicKey::from_seed(KeyType::ED25519, format!("{}", i + 5).as_str());
+        actions.push(AddKey(AddKeyAction {
+            public_key: new_key,
+            access_key: AccessKey {
+                nonce: 0,
+                permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                    allowance: Some(10u128.pow(12)),
+                    receiver_id: "a".repeat(64),
+                    method_names: vec![],
+                }),
+            },
         }));
     }
 

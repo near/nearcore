@@ -5,8 +5,8 @@ action_create_account: {
     execution: 99_607_375_000,
   },
   new: {
-    send_sir: 3_800_000_000_000,
-    send_not_sir: 3_800_000_000_000,
-    execution: 3_800_000_000_000,
+    send_sir: 3_850_000_000_000,
+    send_not_sir: 3_850_000_000_000,
+    execution: 3_850_000_000_000,
   }
 }
