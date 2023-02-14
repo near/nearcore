@@ -1,4 +1,6 @@
 import logging
+import os
+import re
 import subprocess
 import tarfile
 import time
@@ -26,6 +28,8 @@ def push_to_google_bucket(archive_name: str) -> None:
 
 
 def main() -> None:
+    fuzz_bin_list = []
+
     crates = [
         i for i in toml.load('nightly/fuzz.toml')['target']
         if i['runner'] in ['borsh', 'serde']
@@ -47,12 +51,20 @@ def main() -> None:
                 check=True,
                 cwd=target['crate'],
             )
-            with tarfile.open(name=TAR_NAME, mode='w') as archiver:
-                archiver.add(f"target/{ARCH_CONFIG_NAME}/release/{runner}",
-                             runner)
+            fuzz_bin_list.append(f"target/{ARCH_CONFIG_NAME}/release/{runner}")
 
         except subprocess.CalledProcessError as e:
             logger.info(f"Failed to build/archive target: {target}")
+
+    logger.info(
+        f"Fuzzer binaries to upload: {[os.path.basename(f) for f in fuzz_bin_list]}"
+    )
+
+    # adding to archive in 1 operation as tarfile doesn't
+    # support appending to existing compresed file
+    with tarfile.open(name=TAR_NAME, mode="w:gz") as archive:
+        for file_name in fuzz_bin_list:
+            archive.add(file_name, os.path.basename(file_name))
 
     push_to_google_bucket(TAR_NAME)
 
