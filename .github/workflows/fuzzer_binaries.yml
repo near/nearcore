@@ -1,8 +1,9 @@
 name: Build @master fuzzers
 on:
-  schedule:
-    # Run once a day, at midnight
-    - cron: "0 0 * * *"
+  push
+  # schedule:
+  #   # Run once a day, at midnight
+  #   - cron: "0 0 * * *"
 
 jobs:
   build_fuzzers:
