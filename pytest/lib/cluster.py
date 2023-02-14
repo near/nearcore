@@ -727,22 +727,24 @@ def init_cluster(num_nodes,
                 ("LOCAL" if is_local else "REMOTE", num_nodes + num_observers))
 
     binary_path = os.path.join(near_root, binary_name)
-    process = subprocess.Popen([
-        binary_path,
-        "localnet",
-        "--validators",
-        str(num_nodes),
-        "--non-validators",
-        str(num_observers),
-        "--shards",
-        str(num_shards),
-        "--tracked-shards",
-        "none",
-        "--prefix",
-        prefix,
-    ],
-                               stdout=subprocess.PIPE,
-                               stderr=subprocess.PIPE)
+    process = subprocess.Popen(
+        [
+            binary_path,
+            "localnet",
+            "--validators",
+            str(num_nodes),
+            "--non-validators",
+            str(num_observers),
+            "--shards",
+            str(num_shards),
+            "--tracked-shards",
+            "none",
+            "--prefix",
+            prefix,
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
     out, err = process.communicate()
     assert 0 == process.returncode, err
 

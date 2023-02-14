@@ -59,6 +59,7 @@ impl<'c> EstimatorContext<'c> {
             &self.config.state_dump_path,
             workdir.path(),
             self.config.in_memory_db,
+            false,
         );
         // Ensure decent RocksDB SST file layout.
         store.compact().expect("compaction failed");

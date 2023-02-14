@@ -32,7 +32,7 @@ fn setup_runtime(
     let store = if in_memory_storage {
         create_test_store()
     } else {
-        near_store::NodeStorage::opener(home_dir, &config.config.store, None)
+        near_store::NodeStorage::opener(home_dir, config.config.archive, &config.config.store, None)
             .open()
             .unwrap()
             .get_store(near_store::Temperature::Hot)

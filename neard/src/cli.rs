@@ -111,7 +111,7 @@ impl NeardCmd {
                 cmd.run()?;
             }
             NeardSubCommand::ColdStore(cmd) => {
-                cmd.run(&home_dir);
+                cmd.run(&home_dir)?;
             }
             NeardSubCommand::StateParts(cmd) => {
                 cmd.run()?;
