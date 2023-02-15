@@ -4,7 +4,7 @@
 use super::{create_context, with_vm_variants, LATEST_PROTOCOL_VERSION};
 use crate::internal::VMKind;
 use crate::runner::VMResult;
-use crate::wasmer2_runner::Wasmer2VM;
+use crate::near_vm_runner::NearVmVM;
 use crate::{prepare, MockCompiledContractCache};
 use assert_matches::assert_matches;
 use near_primitives::contract::ContractCode;
@@ -18,8 +18,8 @@ use near_vm_logic::VMConfig;
 use std::hash::{Hash, Hasher};
 use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};
-use wasmer_compiler::{CpuFeature, Target};
-use wasmer_engine::Executable;
+use near_vm_compiler::{CpuFeature, Target};
+use near_vm_engine::Executable;
 
 #[test]
 fn test_caches_compilation_error() {
@@ -100,7 +100,7 @@ fn make_cached_contract_call_vm(
 }
 
 #[test]
-fn test_wasmer2_artifact_output_stability() {
+fn test_near_vm_artifact_output_stability() {
     // If this test has failed, you want to adjust the necessary constants so that `cache::vm_hash`
     // changes (and only then the hashes here).
     //
@@ -140,7 +140,7 @@ fn test_wasmer2_artifact_output_stability() {
         features.insert(CpuFeature::AVX);
         let triple = "x86_64-unknown-linux-gnu".parse().unwrap();
         let target = Target::new(triple, features);
-        let vm = Wasmer2VM::new_for_target(config, target);
+        let vm = NearVmVM::new_for_target(config, target);
         let artifact = vm.compile_uncached(&contract).unwrap();
         let serialized = artifact.serialize().unwrap();
         let mut hasher = StableHasher::new();

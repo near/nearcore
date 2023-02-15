@@ -208,7 +208,7 @@ impl VMLimitConfig {
             // NOTE: Stack height has to be 16K, otherwise Wasmer produces non-deterministic results.
             // For experimentation try `test_stack_overflow`.
             max_stack_height: 16 * 1024, // 16Kib of stack.
-            stack_limiter_version: StackLimiterVersion::V2,
+            stack_limiter_version: StackLimiterVersion::V1,
             initial_memory_pages: 2u32.pow(10), // 64Mib of memory.
             max_memory_pages: 2u32.pow(11),     // 128Mib of memory.
 

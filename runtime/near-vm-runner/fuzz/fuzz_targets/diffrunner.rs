@@ -10,7 +10,6 @@ use near_vm_runner::internal::VMKind;
 use near_vm_runner_fuzz::{create_context, find_entry_point, ArbitraryModule};
 
 libfuzzer_sys::fuzz_target!(|module: ArbitraryModule| {
-    panic!("panicking to test clusterfuzz");
     let code = ContractCode::new(module.0.module.to_bytes(), None);
     let wasmer2 = run_fuzz(&code, VMKind::Wasmer2);
     let wasmtime = run_fuzz(&code, VMKind::Wasmtime);
