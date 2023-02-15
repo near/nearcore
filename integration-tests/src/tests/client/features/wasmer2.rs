@@ -14,6 +14,7 @@ fn test_wasmer2_upgrade() {
     let old_protocol_version =
         near_primitives::version::ProtocolFeature::Wasmer2.protocol_version() - 1;
     let new_protocol_version = old_protocol_version + 1;
+    eprintln!("Testing protocol upgrade between {old_protocol_version} and {new_protocol_version}");
 
     // Prepare TestEnv with a contract at the old protocol version.
     let mut env = {
@@ -80,5 +81,9 @@ fn test_wasmer2_upgrade() {
     };
 
     assert!(logs_at_old_version.iter().any(|l| l.contains(&"vm_kind=Wasmer0")));
-    assert!(logs_at_new_version.iter().any(|l| l.contains(&"vm_kind=Wasmer2")));
+    assert!(
+        logs_at_new_version.iter().any(|l| l.contains(&"vm_kind=Wasmer2")),
+        "Expected to find 'vm_kind=Wasmer2' in logs, occurences of vm_kind are {:?}",
+        logs_at_new_version.iter().filter(|l| l.contains("vm_kind")).collect::<Vec<_>>(),
+    );
 }

@@ -61,6 +61,7 @@ pub fn run(
         %method_name,
         ?vm_kind,
         burnt_gas = tracing::field::Empty,
+        %current_protocol_version,
     )
     .entered();
 
