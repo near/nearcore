@@ -188,7 +188,7 @@ pub fn start_with_config_and_synchronization(
     let genesis_block = Chain::make_genesis_block(&*runtime, &chain_genesis)?;
     let genesis_id = GenesisId {
         chain_id: config.client_config.chain_id.clone(),
-        hash: genesis_block.header().hash().clone(),
+        hash: *genesis_block.header().hash(),
     };
 
     let node_id = config.network_config.node_id();

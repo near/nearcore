@@ -638,7 +638,7 @@ impl PeerManagerActor {
                 return self.state.send_message_to_account(&self.clock, account_id, msg);
             }
             AccountOrPeerIdOrHash::PeerId(it) => PeerIdOrHash::PeerId(it.clone()),
-            AccountOrPeerIdOrHash::Hash(it) => PeerIdOrHash::Hash(it.clone()),
+            AccountOrPeerIdOrHash::Hash(it) => PeerIdOrHash::Hash(*it),
         };
 
         self.state.send_message_to_peer(

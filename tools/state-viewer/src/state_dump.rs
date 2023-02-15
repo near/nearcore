@@ -145,7 +145,7 @@ pub fn state_dump_redis(
             .get_trie_for_shard(
                 shard_id as u64,
                 last_block_header.prev_hash(),
-                state_root.clone(),
+                *state_root,
                 false,
             )
             .unwrap();
@@ -241,7 +241,7 @@ fn iterate_over_records(
             .get_trie_for_shard(
                 shard_id as u64,
                 last_block_header.prev_hash(),
-                state_root.clone(),
+                *state_root,
                 false,
             )
             .unwrap();

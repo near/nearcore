@@ -198,7 +198,7 @@ impl crate::ChainAccess for ChainAccess {
 
     async fn get_receipt(&self, id: &CryptoHash) -> Result<Arc<Receipt>, ChainError> {
         self.view_client
-            .send(GetReceipt { receipt_id: id.clone() }.with_span_context())
+            .send(GetReceipt { receipt_id: *id }.with_span_context())
             .await
             .unwrap()?
             .map(|r| Arc::new(r.try_into().unwrap()))
@@ -215,7 +215,7 @@ impl crate::ChainAccess for ChainAccess {
             .view_client
             .send(
                 Query {
-                    block_reference: BlockReference::BlockId(BlockId::Hash(block_hash.clone())),
+                    block_reference: BlockReference::BlockId(BlockId::Hash(*block_hash)),
                     request: QueryRequest::ViewAccessKeyList { account_id: account_id.clone() },
                 }
                 .with_span_context(),

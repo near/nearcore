@@ -32,7 +32,7 @@ fn process_transaction(
     let block_producer =
         env.clients[0].runtime_adapter.get_block_producer(&epoch_id, tip.height).unwrap();
     let last_block_hash =
-        env.clients[0].chain.get_block_by_height(tip.height).unwrap().hash().clone();
+        *env.clients[0].chain.get_block_by_height(tip.height).unwrap().hash();
     let next_height = tip.height + 1;
     let gas = 20_000_000_000_000;
     let tx = SignedTransaction::from_actions(
@@ -56,7 +56,7 @@ fn process_transaction(
         ],
         last_block_hash,
     );
-    let tx_hash = tx.get_hash().clone();
+    let tx_hash = tx.get_hash();
     env.clients[0].process_tx(tx, false, false);
 
     for i in next_height..next_height + num_blocks {

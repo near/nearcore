@@ -2550,7 +2550,7 @@ impl<'a> ChainStoreUpdate<'a> {
         // other information not directly related to this block
         chain_store_update.chain_store_cache_update.height_to_hashes.insert(
             source_store.genesis_height,
-            Some(source_store.get_block_hash_by_height(source_store.genesis_height)?.clone()),
+            Some(source_store.get_block_hash_by_height(source_store.genesis_height)?),
         );
         Ok(chain_store_update)
     }

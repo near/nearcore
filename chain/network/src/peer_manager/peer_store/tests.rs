@@ -586,7 +586,7 @@ fn test_delete_peers() {
         })
         .unzip();
     let peer_addresses =
-        peer_infos.iter().map(|info| info.addr.unwrap().clone()).collect::<Vec<_>>();
+        peer_infos.iter().map(|info| info.addr.unwrap()).collect::<Vec<_>>();
 
     {
         let store = store::Store::from(opener.open().unwrap());

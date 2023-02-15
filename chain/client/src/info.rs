@@ -367,7 +367,7 @@ impl InfoHelper {
                 account_id: self.validator_signer.as_ref().map(|bp| bp.validator_id().clone()),
                 is_validator,
                 status: sync_status.as_variant_name().to_string(),
-                latest_block_hash: head.last_block_hash.clone(),
+                latest_block_hash: head.last_block_hash,
                 latest_block_height: head.height,
                 num_peers: network_info.num_connected_peers,
                 block_production_tracking_delay: client_config

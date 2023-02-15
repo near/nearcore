@@ -160,7 +160,7 @@ impl EncodedChunksCache {
         prev_block_hash: &CryptoHash,
         chunk_hash: &ChunkHash,
     ) {
-        if let Occupied(mut entry) = self.incomplete_chunks.entry(prev_block_hash.clone()) {
+        if let Occupied(mut entry) = self.incomplete_chunks.entry(*prev_block_hash) {
             entry.get_mut().remove(chunk_hash);
             if entry.get().is_empty() {
                 entry.remove();
@@ -185,7 +185,7 @@ impl EncodedChunksCache {
                 .or_default()
                 .insert(chunk_header.shard_id(), chunk_hash.clone());
             self.incomplete_chunks
-                .entry(chunk_header.prev_block_hash().clone())
+                .entry(*chunk_header.prev_block_hash())
                 .or_default()
                 .insert(chunk_hash.clone());
             EncodedChunksCacheEntry::from_chunk_header(chunk_header.clone())

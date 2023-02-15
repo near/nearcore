@@ -133,7 +133,7 @@ impl ShardTries {
                     PrefetchApi::new(
                         self.0.store.clone(),
                         cache.clone(),
-                        shard_uid.clone(),
+                        shard_uid,
                         &self.0.trie_config,
                     )
                 })
@@ -167,7 +167,7 @@ impl ShardTries {
         state_root: StateRoot,
         block_hash: &CryptoHash,
     ) -> Trie {
-        self.get_trie_for_shard_internal(shard_uid, state_root, false, Some(block_hash.clone()))
+        self.get_trie_for_shard_internal(shard_uid, state_root, false, Some(*block_hash))
     }
 
     pub fn get_view_trie_for_shard(&self, shard_uid: ShardUId, state_root: StateRoot) -> Trie {

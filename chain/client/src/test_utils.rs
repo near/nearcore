@@ -1874,7 +1874,7 @@ impl TestEnv {
         &mut self,
         tx: SignedTransaction,
     ) -> Result<FinalExecutionOutcomeView, InvalidTxError> {
-        let tx_hash = tx.get_hash().clone();
+        let tx_hash = tx.get_hash();
         let response = self.clients[0].process_tx(tx, false, false);
         // Check if the transaction got rejected
         match response {
@@ -1996,7 +1996,7 @@ pub fn create_chunk(
         let signer = client.validator_signer.as_ref().unwrap().clone();
         let header = chunk.cloned_header();
         let (mut encoded_chunk, mut new_merkle_paths) = EncodedShardChunk::new(
-            header.prev_block_hash().clone(),
+            *header.prev_block_hash(),
             header.prev_state_root(),
             header.outcome_root(),
             header.height_created(),

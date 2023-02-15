@@ -2332,7 +2332,7 @@ fn test_final_block_consistency() {
         );
     }
 
-    let epoch_aggregator_final_hash = epoch_manager.epoch_info_aggregator.last_block_hash.clone();
+    let epoch_aggregator_final_hash = epoch_manager.epoch_info_aggregator.last_block_hash;
 
     epoch_manager
         .record_block_info(
@@ -2343,7 +2343,7 @@ fn test_final_block_consistency() {
         .commit()
         .unwrap();
     let new_epoch_aggregator_final_hash =
-        epoch_manager.epoch_info_aggregator.last_block_hash.clone();
+        epoch_manager.epoch_info_aggregator.last_block_hash;
     assert_eq!(epoch_aggregator_final_hash, new_epoch_aggregator_final_hash);
 }
 

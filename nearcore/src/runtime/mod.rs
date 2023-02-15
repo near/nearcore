@@ -1000,7 +1000,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let trie = self.get_trie_for_shard(
             shard_id,
             prev_block_hash,
-            state_root.clone(),
+            *state_root,
             use_flat_storage,
         )?;
 
@@ -1057,7 +1057,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         is_new_chunk: bool,
         is_first_block_with_chunk_of_version: bool,
     ) -> Result<ApplyTransactionResult, Error> {
-        let trie = Trie::from_recorded_storage(partial_storage, state_root.clone());
+        let trie = Trie::from_recorded_storage(partial_storage, *state_root);
         self.process_state_update(
             trie,
             shard_id,
@@ -1241,7 +1241,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         .entered();
         let epoch_id = self.get_epoch_id(block_hash)?;
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &epoch_id)?;
-        let trie = self.tries.get_view_trie_for_shard(shard_uid, state_root.clone());
+        let trie = self.tries.get_view_trie_for_shard(shard_uid, *state_root);
         let result = match trie.get_trie_nodes_for_part(part_id) {
             Ok(partial_state) => partial_state,
             Err(e) => {
@@ -1307,7 +1307,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         next_epoch_shard_layout: &ShardLayout,
         state_split_status: Arc<StateSplitApplyingStatus>,
     ) -> Result<HashMap<ShardUId, StateRoot>, Error> {
-        let trie = self.tries.get_view_trie_for_shard(shard_uid, state_root.clone());
+        let trie = self.tries.get_view_trie_for_shard(shard_uid, *state_root);
         let shard_id = shard_uid.shard_id();
         let new_shards = next_epoch_shard_layout
             .get_split_shard_uids(shard_id)
@@ -1388,7 +1388,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let epoch_id = self.get_epoch_id(block_hash)?;
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &epoch_id)?;
         self.tries
-            .get_view_trie_for_shard(shard_uid, state_root.clone())
+            .get_view_trie_for_shard(shard_uid, *state_root)
             .retrieve_root_node()
             .map_err(Into::into)
     }
@@ -1649,9 +1649,9 @@ mod test {
             match self.get_flat_storage_state_for_shard(shard_id) {
                 Some(flat_storage_state) => {
                     let block_info = flat_state::BlockInfo {
-                        hash: block_hash.clone(),
+                        hash: *block_hash,
                         height,
-                        prev_hash: prev_block_hash.clone(),
+                        prev_hash: *prev_block_hash,
                     };
                     let new_store_update = flat_storage_state
                         .add_block(&block_hash, flat_state_delta, block_info)

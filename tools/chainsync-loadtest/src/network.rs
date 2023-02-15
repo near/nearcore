@@ -165,13 +165,13 @@ impl Network {
     ) -> anyhow::Result<Vec<BlockHeader>> {
         Scope::run(ctx, {
             let self_ = self.clone();
-            let hash = hash.clone();
+            let hash = *hash;
             move |ctx, s| async move {
                 self_.stats.header_start.fetch_add(1, Ordering::Relaxed);
                 let recv = self_.block_headers.get_or_insert(&hash, || Once::new());
                 s.spawn_weak(|ctx| {
                     self_.keep_sending(&ctx, move |peer| NetworkRequests::BlockHeadersRequest {
-                        hashes: vec![hash.clone()],
+                        hashes: vec![hash],
                         peer_id: peer.peer_info.id,
                     })
                 });
@@ -191,13 +191,13 @@ impl Network {
     ) -> anyhow::Result<Block> {
         Scope::run(ctx, {
             let self_ = self.clone();
-            let hash = hash.clone();
+            let hash = *hash;
             move |ctx, s| async move {
                 self_.stats.block_start.fetch_add(1, Ordering::Relaxed);
                 let recv = self_.blocks.get_or_insert(&hash, || Once::new());
                 s.spawn_weak(|ctx| {
                     self_.keep_sending(&ctx, move |peer| NetworkRequests::BlockRequest {
-                        hash: hash.clone(),
+                        hash: hash,
                         peer_id: peer.peer_info.id,
                     })
                 });
@@ -304,7 +304,7 @@ impl near_network::client::Client for Network {
         _peer_id: PeerId,
     ) -> Result<(), ReasonForBan> {
         if let Some(h) = headers.iter().min_by_key(|h| h.height()) {
-            let hash = h.prev_hash().clone();
+            let hash = *h.prev_hash();
             self.block_headers.get(&hash).map(|p| p.set(headers));
         }
         Ok(())

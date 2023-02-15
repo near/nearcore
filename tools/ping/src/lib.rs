@@ -256,7 +256,7 @@ impl AppInfo {
             .requests
             .get_mut(&PingTarget {
                 peer_id: t.peer_id.clone(),
-                last_pinged: state.last_pinged.clone(),
+                last_pinged: state.last_pinged,
             })
             .unwrap();
         assert!(pending_pings.remove(&t.nonce).is_some());

@@ -62,7 +62,7 @@ impl WhitelistNode {
         Ok(Self {
             id: pi.id.clone(),
             addr: if let Some(addr) = pi.addr {
-                addr.clone()
+                addr
             } else {
                 anyhow::bail!("addess is missing");
             },

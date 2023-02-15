@@ -93,7 +93,7 @@ impl RuntimeUser {
                 .apply(
                     client
                         .tries
-                        .get_trie_for_shard(ShardUId::single_shard(), client.state_root.clone()),
+                        .get_trie_for_shard(ShardUId::single_shard(), client.state_root),
                     &None,
                     &apply_state,
                     &receipts,
