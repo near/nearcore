@@ -57,11 +57,12 @@ impl Ctx {
     /// * without a parent
     /// * with real clock
     /// * with infinite deadline
+    ///
     /// It should be called directly from main.rs.
     pub fn inf() -> Ctx {
         return Ctx(Arc::new(Inner {
             canceled: signal::Once::new(),
-            deadline: time::Deadline::Inf,
+            deadline: time::Deadline::Infinite,
             clock: time::Clock::real(),
             _parent: None,
         }));
@@ -81,6 +82,7 @@ impl Ctx {
     }
 
     /// Awaits for the context to get canceled.
+    ///
     /// Cancellable (in the rust sense).
     pub async fn canceled(&self) {
         self.0.canceled.recv().await
@@ -88,6 +90,7 @@ impl Ctx {
 
     /// Awaits until f completes, or the context gets canceled.
     /// f is required to be cancellable.
+    ///
     /// Cancellable.
     pub async fn wait<F, T>(&self, f: F) -> OrCanceled<T>
     where
@@ -122,15 +125,16 @@ impl Ctx {
         child
     }
 
-    // with_cancel creates a child context which can be manually canceled.
-    // If the parent context gets canceled, the child will also be canceled,
-    // but not vice versa (you cannot affect the parent context).
+    /// Creates a child context which can be manually canceled.
+    ///
+    /// If the parent context gets canceled, the child will also be canceled,
+    /// but not vice versa (you cannot affect the parent context).
     pub fn with_cancel(&self) -> CtxWithCancel {
-        return CtxWithCancel(self.with_deadline(time::Deadline::Inf));
+        return CtxWithCancel(self.with_deadline(time::Deadline::Infinite));
     }
 
-    // with_timeout() is the same as with_deadline() but you provide a duration,
-    // rather than an instant.
+    /// Same as `with_deadline()` but you provide a duration,
+    /// rather than an instant.
     pub fn with_timeout(&self, timeout: time::Duration) -> Ctx {
         return self.with_deadline((self.0.clock.now() + timeout).into());
     }

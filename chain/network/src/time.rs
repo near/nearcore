@@ -45,16 +45,16 @@ static FAKE_CLOCK_MONO_START: Lazy<Instant> = Lazy::new(Instant::now);
 // An arbitrary non-trivial deterministic Utc timestamp.
 const FAKE_CLOCK_UTC_START: Lazy<Utc> = Lazy::new(|| Utc::from_unix_timestamp(89108233).unwrap());
 
-// By the definition of derive(PartialEq), Fin(...) < Inf.
+// By the definition of derive(PartialEq), Finite(...) < Infinite.
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub enum Deadline {
-    Fin(Instant),
-    Inf,
+    Finite(Instant),
+    Infinite,
 }
 
 impl From<Instant> for Deadline {
     fn from(t: Instant) -> Deadline {
-        Deadline::Fin(t)
+        Deadline::Finite(t)
     }
 }
 
@@ -101,8 +101,8 @@ impl Clock {
 
     pub async fn sleep_until_deadline(&self, t: Deadline) {
         match t {
-            Deadline::Inf => std::future::pending().await,
-            Deadline::Fin(t) => self.sleep_until(t).await,
+            Deadline::Infinite => std::future::pending().await,
+            Deadline::Finite(t) => self.sleep_until(t).await,
         }
     }
 

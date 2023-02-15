@@ -1,3 +1,59 @@
+//! Asynchronous scope.
+//!
+//! You can think of the scope as a lifetime 'env within a rust future, such that:
+//! * within 'env you can spawn subtasks, which may return an error E.
+//! * subtasks can spawn more subtasks.
+//! * 'env has special semantics: at the end of 'env all spawned substasks are awaited for
+//!    completion.
+//! * if ANY of the subtasks returns an error, all the other subtasks are GRACEFULLY cancelled.
+//!   It means that they are not just dropped, but rather they have a handle (aka Ctx) to be able
+//!   to check at any time whether they were cancelled.
+//!
+//! ```
+//!     let (send,recv) = channel();
+//!     ...
+//!     'env: {
+//!         spawn<'env>(async {
+//!             recv.await
+//!             Err(e)
+//!         });
+//!
+//!         for !is_cancelled() {
+//!             // do some useful async unit of work
+//!         }
+//!         // do some graceful cleanup.
+//!         Ok(())
+//!     }
+//! ```
+//!
+//! Since we cannot directly address lifetimes like that we simulate it via Scope and Ctx structs.
+//! We cannot directly implement a function
+//!   run : (Scope<'env> -> (impl 'env + Future)) -> (impl 'env + Future)
+//! Because the compiler is not smart enough to deduce 'env for us.
+//! Instead we first construct Scope<'env> explicitly, therefore fixing its lifetime,
+//! and only then we pass a reference to it to another function.
+//!
+//! ```
+//!     let (send,recv) = channel();
+//!     ...
+//!     {
+//!         let s = Scope<'env>::new();
+//!         s.run(ctx,|s||ctx| async {
+//!             s.spawn(|ctx| async {
+//!                 recv.await
+//!                 Err(e)
+//!             })
+//!
+//!             for !ctx.is_cancelled() {
+//!                 // do some useful async unit of work
+//!             }
+//!             // do some graceful cleanup.
+//!             Ok(())
+//!         }).await
+//!     }
+//! ```
+//!
+//! We wrap these 2 steps into a macro "run!" to hide this hack and avoid incorrect use.
 use crate::concurrency::asyncfn::{AsyncFn, BoxAsyncFn};
 use crate::concurrency::ctx::{Ctx, CtxWithCancel, OrCanceled};
 use crate::concurrency::signal;
@@ -13,13 +69,17 @@ mod tests;
 /// Internal representation of a scope.
 struct Inner<E: 'static> {
     /// Signal sent once the scope is terminated (i.e. when Inner is dropped).
+    ///
     /// Since all tasks keep a reference to the scope they belong to, all the tasks
     /// of the scope are complete when terminated is sent.
     terminated: signal::Once,
-    /// Context of this scope. It is a child context of the parent scope.
+    /// Context of this scope.
+    ///
+    /// It is a child context of the parent scope.
     /// All tasks spawned in this scope are provided with this context.
     ctx: CtxWithCancel,
     /// First error returned by any of the tasks (subsequent errors are silently dropped).
+    ///
     /// All the tasks in this scope are cancelled as soon as ANY task returns an error.
     result: Result<(), E>,
     /// `result` is sent to `output` when Inner is dropped.
@@ -36,8 +96,9 @@ impl<E: 'static> Drop for Inner<E> {
 }
 
 impl<E: 'static> Inner<E> {
-    /// Creates a new scope with the given context. After the scope terminates,
-    /// the result will be sent to output.
+    /// Creates a new scope with the given context.
+    ///
+    /// After the scope terminates, the result will be sent to output.
     pub fn new(
         ctx: &Ctx,
         output: tokio::sync::oneshot::Sender<Result<(), E>>,
@@ -51,6 +112,7 @@ impl<E: 'static> Inner<E> {
     }
 
     /// Joins a completed task and aggregates the result.
+    ///
     /// When the first error is joined, the scope gets canceled.
     pub fn join(&mut self, res: Result<(), E>) {
         if !self.result.is_ok() || res.is_ok() {
@@ -63,7 +125,9 @@ impl<E: 'static> Inner<E> {
 
 impl<E: 'static + Send> Inner<E> {
     /// Spawns a task in the scope, which owns a reference of to the scope, so that scope doesn't
-    /// terminate before all tasks are completed. The reference to the scope can be an arbitrary
+    /// terminate before all tasks are completed.
+    ///
+    /// The reference to the scope can be an arbitrary
     /// type, so that a custom drop() behavior can be added. For example, see `StrongService` scope reference,
     /// which cancels the scope when dropped.
     pub fn spawn<M: 'static + Send + Sync + Borrow<Mutex<Self>>>(
@@ -78,7 +142,9 @@ impl<E: 'static + Send> Inner<E> {
         });
     }
 
-    /// Spawns a new service in the scope. A service is a scope, which gets canceled when
+    /// Spawns a new service in the scope.
+    ///
+    /// A service is a scope, which gets canceled when
     /// its handler (`Service`) is dropped. Service belongs to a scope, in a sense that
     /// a dedicated task is spawned on the scope which awaits for service to terminate and
     /// returns the service's result.
@@ -107,8 +173,8 @@ pub struct ErrTerminated;
 /// A service is a subscope which doesn't keep the scope
 /// alive, i.e. if all tasks spawned via `Scope::spawn` complete, the scope will
 /// be cancelled (even though tasks in a service may be still running).
-/// Note however that the scope won't be terminated until the tasks of the service complete.
 ///
+/// Note however that the scope won't be terminated until the tasks of the service complete.
 /// Service is cancelled when the handle is dropped, so make sure to store it somewhere.
 /// Service is cancelled when ANY of the tasks/services in the service returns an error.
 /// Service is cancelled when the parent scope/service is cancelled.
@@ -130,6 +196,7 @@ impl<E: 'static + Send + Sync> Service<E> {
     }
 
     /// Waits until the scope is terminated.
+    ///
     /// Returns `ErrCanceled` iff `ctx` was canceled before that.
     pub fn terminated<'a>(
         &'a self,
@@ -146,6 +213,7 @@ impl<E: 'static + Send + Sync> Service<E> {
     }
 
     /// Cancels the scope's context and waits until the scope is terminated.
+    ///
     /// Note that ErrCanceled is returned if the `ctx` passed as argument is canceled before that,
     /// not when scope's context is cancelled.
     pub fn terminate<'a>(
@@ -166,19 +234,25 @@ impl<E: 'static + Send + Sync> Service<E> {
         }
     }
 
-    /// Spawns a task on this scope. Returns ErrTerminated if the scope has already terminated.
-    /// TODO(gprusak): consider returning a handle to the task, which can be then explicitly
-    /// awaited.
+    /// Spawns a task in this scope.
+    ///
+    /// Returns ErrTerminated if the scope has already terminated.
+    // TODO(gprusak): consider returning a handle to the task, which can be then explicitly
+    // awaited.
     pub fn spawn(&self, f: impl AsyncFn<'static, Ctx, Result<(), E>>) -> Result<(), ErrTerminated> {
         self.0.upgrade().map(|m| Inner::spawn(m, f.wrap())).ok_or(ErrTerminated)
     }
 
+    /// Spawns a service in this scope.
+    ///
+    /// Returns ErrTerminated if the scope has already terminated.
     pub fn new_service(&self) -> Result<Service<E>, ErrTerminated> {
         self.0.upgrade().map(|m| Inner::new_service(m)).ok_or(ErrTerminated)
     }
 }
 
 /// Wrapper of a scope reference which cancels the scope when dropped.
+///
 /// Used by Scope to cancel the scope as soon as all tasks spawned via
 /// `Scope::spawn` complete.
 struct StrongService<E: 'static>(Arc<Mutex<Inner<E>>>);
@@ -196,6 +270,7 @@ impl<E: 'static> Drop for StrongService<E> {
 }
 
 /// Scope represents a concurrent computation bounded by lifetime 'env.
+///
 /// It should be created only via `run!` macro.
 /// Scope is cancelled when the provided context is cancelled.
 /// Scope is cancelled when any of the tasks in the scope returns an error.
@@ -217,6 +292,7 @@ impl<'env, E: 'static + Send + Sync> Scope<'env, E> {
     }
 
     /// Spawns a service.
+    ///
     /// Returns a handle to the service, which allows spawning new tasks within the service.
     pub fn new_service(&self) -> Service<E> {
         Inner::new_service(self.0.upgrade().unwrap().0.clone())
@@ -224,6 +300,7 @@ impl<'env, E: 'static + Send + Sync> Scope<'env, E> {
 }
 
 /// must_complete wraps a future, so that it panic if it is dropped before completion.
+///
 /// Possibility of future abort at every await makes the control flow unnecessarily complicated.
 /// In fact, only few basic futures (like io primitives) actually need to be abortable, so
 /// that they can be put together into a tokio::select block. All the higher level logic
@@ -247,6 +324,7 @@ impl Drop for MustCompleteGuard {
 }
 
 /// Should be used only via run! macro.
+#[doc(hidden)]
 pub mod internal {
     use super::*;
 
@@ -279,9 +357,10 @@ pub mod internal {
 }
 
 /// A future running a task within a scope (see `Scope`).
-/// It should be awaited immediately, which we force by `await` within the macro definition.
-/// Dropping this future while incomplete will panic (which can happen if you drop the outer
-/// future).
+///
+/// `await` is called within the macro instantiation, so `run!` can be called only in an async context.
+/// Dropping this future while incomplete will panic (immediate-await doesn't prevent that: it can happen
+/// if you drop the outer future).
 #[macro_export]
 macro_rules! run {
     ($ctx:expr,$f:expr) => {{
