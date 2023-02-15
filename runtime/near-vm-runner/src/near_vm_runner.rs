@@ -584,7 +584,7 @@ impl near_vm_vm::Tunables for &NearVmVM {
     }
 
     fn stack_init_gas_cost(&self, stack_size: u64) -> u64 {
-        ((u64::from(self.config.regular_op_cost) + 7) / 8).saturating_mul(stack_size)
+        u64::from(self.config.regular_op_cost).saturating_mul((stack_size + 7) / 8)
     }
 
     /// Instrumentation configuration: stack limiter config
