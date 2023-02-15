@@ -484,6 +484,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9e1b586273c5702936fe7b7d6896644d8be71e6314cfe09d3167c95f712589e8"
 
 [[package]]
+name = "basic-toml"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2e819b667739967cd44d308b8c7b71305d8bb0729ac44a248aa08f33d01950b4"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "bencher"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1141,6 +1150,17 @@ checksum = "35ed6e9d84f0b51a7f52daf1c7d71dd136fd7a3f41a8462b8cdb8c78d920fad4"
 dependencies = [
  "bytes",
  "memchr",
+]
+
+[[package]]
+name = "compiler-test-derive"
+version = "0.0.1"
+dependencies = [
+ "pretty_assertions",
+ "proc-macro2",
+ "quote",
+ "syn",
+ "trybuild",
 ]
 
 [[package]]
@@ -3839,7 +3859,7 @@ dependencies = [
  "once_cell",
  "rand 0.8.5",
  "wasm-encoder 0.11.0",
- "wasm-smith",
+ "wasm-smith 0.10.1",
  "wat",
 ]
 
@@ -3908,7 +3928,7 @@ dependencies = [
  "rand 0.8.5",
  "serde",
  "tracing",
- "wasm-smith",
+ "wasm-smith 0.10.1",
  "wasmer-compiler-near 2.4.0",
  "wasmer-compiler-near 2.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "wasmer-compiler-singlepass-near 2.4.0",
@@ -3940,7 +3960,7 @@ dependencies = [
  "near-vm-errors",
  "near-vm-logic",
  "near-vm-runner",
- "wasm-smith",
+ "wasm-smith 0.10.1",
  "wasmprinter",
 ]
 
@@ -6433,6 +6453,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "59547bce71d9c38b83d9c0e92b6066c4253371f15005def0c30d9657f50c7642"
 
 [[package]]
+name = "trybuild"
+version = "1.0.77"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a44da5a6f2164c8e14d3bbc0657d69c5966af9f5f6930d4f600b1f5c4a673413"
+dependencies = [
+ "basic-toml",
+ "glob",
+ "once_cell",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "termcolor",
+]
+
+[[package]]
 name = "typenum"
 version = "1.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6659,6 +6694,15 @@ checksum = "1c38c045535d93ec4f0b4defec448e4291638ee608530863b1e2ba115d4fff7f"
 
 [[package]]
 name = "wasm-encoder"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "51b4949d4f2b25a4b208317dcf86aacef9e7a5884e48dfc45d4aeb91808d6f86"
+dependencies = [
+ "leb128",
+]
+
+[[package]]
+name = "wasm-encoder"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a35138d119147af92d7e44ae0f052f6496ee5f38e7c0cad3e0338befdb8f3753"
@@ -6686,6 +6730,18 @@ dependencies = [
 
 [[package]]
 name = "wasm-smith"
+version = "0.4.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f7e95fdeed16adeffed44efdc7ccf27d4f57ff2e99de417c75bcee7dee09049b"
+dependencies = [
+ "arbitrary",
+ "indexmap",
+ "leb128",
+ "wasm-encoder 0.4.1",
+]
+
+[[package]]
+name = "wasm-smith"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bb87569c81c298836d88405a28a68e8dfcd43b75220a4b4522831a63921b7dbc"
@@ -6696,6 +6752,19 @@ dependencies = [
  "leb128",
  "wasm-encoder 0.12.0",
  "wasmparser 0.85.0",
+]
+
+[[package]]
+name = "wasmer-bin-fuzz"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "libfuzzer-sys",
+ "wasm-smith 0.4.5",
+ "wasmer-compiler-singlepass-near 2.4.0",
+ "wasmer-engine-universal-near 2.4.0",
+ "wasmer-near",
+ "wasmprinter",
 ]
 
 [[package]]
@@ -6851,6 +6920,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "wasmer-near"
+version = "2.4.0"
+dependencies = [
+ "anyhow",
+ "cfg-if 1.0.0",
+ "finite-wasm",
+ "indexmap",
+ "more-asserts",
+ "prefix-sum-vec",
+ "target-lexicon 0.12.5",
+ "tempfile",
+ "thiserror",
+ "tracing",
+ "wasmer-compiler-near 2.4.0",
+ "wasmer-compiler-singlepass-near 2.4.0",
+ "wasmer-engine-near 2.4.0",
+ "wasmer-engine-universal-near 2.4.0",
+ "wasmer-types-near 2.4.0",
+ "wasmer-vm-near 2.4.0",
+ "wat",
+ "winapi",
+]
+
+[[package]]
 name = "wasmer-runtime-core-near"
 version = "0.18.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6975,6 +7068,17 @@ dependencies = [
  "thiserror",
  "wasmer-types-near 2.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "winapi",
+]
+
+[[package]]
+name = "wasmer-wast"
+version = "2.1.0"
+dependencies = [
+ "anyhow",
+ "tempfile",
+ "thiserror",
+ "wasmer-near",
+ "wast 38.0.1",
 ]
 
 [[package]]
@@ -7171,6 +7275,15 @@ dependencies = [
 
 [[package]]
 name = "wast"
+version = "38.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ae0d7b256bef26c898fa7344a2d627e8499f5a749432ce0a05eae1a64ff0c271"
+dependencies = [
+ "leb128",
+]
+
+[[package]]
+name = "wast"
 version = "50.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2cbb59d4ac799842791fe7e806fa5dbbf6b5554d538e51cc8e176db6ff0ae34"
@@ -7187,7 +7300,7 @@ version = "1.0.52"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "584aaf7a1ecf4d383bbe1a25eeab0cbb8ff96acc6796707ff65cde48f4632f15"
 dependencies = [
- "wast",
+ "wast 50.0.0",
 ]
 
 [[package]]

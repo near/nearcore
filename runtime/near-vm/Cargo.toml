@@ -22,21 +22,6 @@ wasmer-vm = { version = "=2.4.0", path = "lib/vm", package = "wasmer-vm-near" }
 cfg-if = "1.0"
 tracing = "0.1"
 
-[workspace]
-members = [
-    "lib/api",
-    "lib/compiler",
-    "lib/compiler-singlepass",
-    "lib/engine",
-    "lib/engine-universal",
-    "lib/vm",
-    "lib/types",
-    "tests/lib/wast",
-    "tests/lib/compiler-test-derive",
-    "fuzz",
-]
-resolver = "2"
-
 [build-dependencies]
 test-generator = { path = "tests/lib/test-generator" }
 build-deps = "0.1.4"
