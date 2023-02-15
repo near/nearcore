@@ -142,12 +142,7 @@ pub fn state_dump_redis(
 
     for (shard_id, state_root) in state_roots.iter().enumerate() {
         let trie = runtime
-            .get_trie_for_shard(
-                shard_id as u64,
-                last_block_header.prev_hash(),
-                *state_root,
-                false,
-            )
+            .get_trie_for_shard(shard_id as u64, last_block_header.prev_hash(), *state_root, false)
             .unwrap();
         for item in trie.iter().unwrap() {
             let (key, value) = item.unwrap();
@@ -238,12 +233,7 @@ fn iterate_over_records(
     let mut total_supply = 0;
     for (shard_id, state_root) in state_roots.iter().enumerate() {
         let trie = runtime
-            .get_trie_for_shard(
-                shard_id as u64,
-                last_block_header.prev_hash(),
-                *state_root,
-                false,
-            )
+            .get_trie_for_shard(shard_id as u64, last_block_header.prev_hash(), *state_root, false)
             .unwrap();
         for item in trie.iter().unwrap() {
             let (key, value) = item.unwrap();

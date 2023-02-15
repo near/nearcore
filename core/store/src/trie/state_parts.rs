@@ -178,8 +178,7 @@ impl Trie {
         trie_nodes: PartialState,
     ) -> Result<(), StorageError> {
         let num_nodes = trie_nodes.0.len();
-        let trie =
-            Trie::from_recorded_storage(PartialStorage { nodes: trie_nodes }, *state_root);
+        let trie = Trie::from_recorded_storage(PartialStorage { nodes: trie_nodes }, *state_root);
 
         trie.visit_nodes_for_state_part(part_id)?;
         let storage = trie.storage.as_partial_storage().unwrap();
@@ -204,10 +203,8 @@ impl Trie {
                 contract_codes: vec![],
             });
         }
-        let trie = Trie::from_recorded_storage(
-            PartialStorage { nodes: PartialState(part) },
-            *state_root,
-        );
+        let trie =
+            Trie::from_recorded_storage(PartialStorage { nodes: PartialState(part) }, *state_root);
         let path_begin = trie.find_path_for_part_boundary(part_id.idx, part_id.total)?;
         let path_end = trie.find_path_for_part_boundary(part_id.idx + 1, part_id.total)?;
         let mut iterator = trie.iter()?;

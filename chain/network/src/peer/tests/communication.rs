@@ -88,8 +88,7 @@ async fn test_peer_communication(
 
     tracing::info!(target:"test","BlockHeadersRequest");
     let mut events = inbound.events.from_now();
-    let want =
-        PeerMessage::BlockHeadersRequest(chain.blocks.iter().map(|b| *b.hash()).collect());
+    let want = PeerMessage::BlockHeadersRequest(chain.blocks.iter().map(|b| *b.hash()).collect());
     outbound.send(want.clone()).await;
     events.recv_until(message_processed(want)).await;
 

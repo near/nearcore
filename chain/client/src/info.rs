@@ -709,13 +709,9 @@ mod tests {
             protocol_version: PROTOCOL_VERSION,
         };
         let doomslug_threshold_mode = DoomslugThresholdMode::TwoThirds;
-        let chain = Chain::new(
-            runtime,
-            &chain_genesis,
-            doomslug_threshold_mode,
-            ChainConfig::test(),
-        )
-        .unwrap();
+        let chain =
+            Chain::new(runtime, &chain_genesis, doomslug_threshold_mode, ChainConfig::test())
+                .unwrap();
 
         let telemetry = info_helper.telemetry_info(
             &chain.head().unwrap(),

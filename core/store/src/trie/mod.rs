@@ -1472,8 +1472,7 @@ mod tests {
         ];
         let root = test_populate_trie(&tries, &empty_root, ShardUId::single_shard(), changes);
 
-        let trie2 =
-            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads();
+        let trie2 = tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads();
         trie2.get(b"dog").unwrap();
         trie2.get(b"horse").unwrap();
         let partial_storage = trie2.recorded_storage();
@@ -1497,16 +1496,14 @@ mod tests {
         let root = test_populate_trie(&tries, &empty_root, ShardUId::single_shard(), changes);
         // Trie: extension -> branch -> 2 leaves
         {
-            let trie2 =
-                tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads();
+            let trie2 = tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads();
             trie2.get(b"doge").unwrap();
             // record extension, branch and one leaf with value, but not the other
             assert_eq!(trie2.recorded_storage().unwrap().nodes.0.len(), 4);
         }
 
         {
-            let trie2 =
-                tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads();
+            let trie2 = tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads();
             let updates = vec![(b"doge".to_vec(), None)];
             trie2.update(updates).unwrap();
             // record extension, branch and both leaves (one with value)
@@ -1514,8 +1511,7 @@ mod tests {
         }
 
         {
-            let trie2 =
-                tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads();
+            let trie2 = tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads();
             let updates = vec![(b"dodo".to_vec(), Some(b"asdf".to_vec()))];
             trie2.update(updates).unwrap();
             // record extension and branch, but not leaves

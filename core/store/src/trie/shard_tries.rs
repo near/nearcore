@@ -66,12 +66,7 @@ impl ShardTries {
         let shard_uids: Vec<ShardUId> =
             (0..num_shards as u32).map(|shard_id| ShardUId { shard_id, version }).collect();
         let trie_config = TrieConfig::default();
-        ShardTries::new(
-            store.clone(),
-            trie_config,
-            &shard_uids,
-            FlatStateFactory::new(store),
-        )
+        ShardTries::new(store.clone(), trie_config, &shard_uids, FlatStateFactory::new(store))
     }
 
     /// Create caches for all shards according to the trie config.

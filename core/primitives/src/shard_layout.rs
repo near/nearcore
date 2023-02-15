@@ -364,8 +364,9 @@ impl str::FromStr for ShardUId {
             .parse::<ShardVersion>()
             .map_err(|e| format!("shard version after \"v\" must be a number, {e}"))?;
 
-        let shard_str =
-            shard_str.strip_prefix("s").ok_or_else(|| "shard id must start with \"s\"".to_string())?;
+        let shard_str = shard_str
+            .strip_prefix("s")
+            .ok_or_else(|| "shard id must start with \"s\"".to_string())?;
         let shard_id = shard_str
             .parse::<u32>()
             .map_err(|e| format!("shard id after \"s\" must be a number, {e}"))?;

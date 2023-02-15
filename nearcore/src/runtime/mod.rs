@@ -997,12 +997,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         states_to_patch: SandboxStatePatch,
         use_flat_storage: bool,
     ) -> Result<ApplyTransactionResult, Error> {
-        let trie = self.get_trie_for_shard(
-            shard_id,
-            prev_block_hash,
-            *state_root,
-            use_flat_storage,
-        )?;
+        let trie =
+            self.get_trie_for_shard(shard_id, prev_block_hash, *state_root, use_flat_storage)?;
 
         // TODO (#6316): support chunk nodes caching for TrieRecordingStorage
         if generate_storage_proof {

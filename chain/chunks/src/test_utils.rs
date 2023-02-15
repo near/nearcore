@@ -230,8 +230,7 @@ impl ChunkTestFixture {
                 }
             })
             .cloned()
-            .unwrap()
-            ;
+            .unwrap();
         let mock_chunk_part_owner = validators
             .into_iter()
             .find(|v| v != &mock_chunk_producer && v != &mock_shard_tracker)

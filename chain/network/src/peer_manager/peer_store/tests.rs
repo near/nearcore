@@ -585,8 +585,7 @@ fn test_delete_peers() {
             (id, info)
         })
         .unzip();
-    let peer_addresses =
-        peer_infos.iter().map(|info| info.addr.unwrap()).collect::<Vec<_>>();
+    let peer_addresses = peer_infos.iter().map(|info| info.addr.unwrap()).collect::<Vec<_>>();
 
     {
         let store = store::Store::from(opener.open().unwrap());

@@ -2254,9 +2254,7 @@ impl Chain {
 
         metrics::BLOCK_PROCESSED_TOTAL.inc();
         metrics::BLOCK_PROCESSING_TIME.observe(
-            Clock::instant()
-                .saturating_duration_since(block_start_processing_time)
-                .as_secs_f64(),
+            Clock::instant().saturating_duration_since(block_start_processing_time).as_secs_f64(),
         );
         self.blocks_delay_tracker.finish_block_processing(&block_hash, new_head.clone());
 
@@ -5026,10 +5024,8 @@ impl<'a> ChainUpdate<'a> {
                 }
             }
             ApplyChunkResult::SplitState(SplitStateResult { shard_uid, results }) => {
-                self.chain_store_update.remove_state_changes_for_split_states(
-                    block_hash,
-                    shard_uid.shard_id(),
-                );
+                self.chain_store_update
+                    .remove_state_changes_for_split_states(block_hash, shard_uid.shard_id());
                 self.process_split_state(
                     &block_hash,
                     &prev_block_hash,
