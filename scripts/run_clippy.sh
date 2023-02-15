@@ -5,6 +5,7 @@ LINTS=(
   -A clippy::all
   -D clippy::correctness
   -D clippy::suspicious
+  -D clippy::redundant_clone
 )
 
 cargo clippy -- "${LINTS[@]}"
