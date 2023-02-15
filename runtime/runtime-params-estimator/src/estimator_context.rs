@@ -86,7 +86,7 @@ impl<'c> EstimatorContext<'c> {
             root,
             runtime: Runtime::new(),
             prev_receipts: Vec::new(),
-            apply_state: Self::make_apply_state(store.clone()),
+            apply_state: Self::make_apply_state(store),
             epoch_info_provider: MockEpochInfoProvider::default(),
             transaction_builder: TransactionBuilder::new(
                 (0..self.config.active_accounts)
@@ -188,7 +188,7 @@ impl<'c> EstimatorContext<'c> {
 
     #[cfg(not(feature = "protocol_feature_flat_state"))]
     fn create_flat_state_factory(store: Store) -> FlatStateFactory {
-        FlatStateFactory::new(store.clone())
+        FlatStateFactory::new(store)
     }
 }
 
@@ -413,7 +413,7 @@ impl Testbed<'_> {
     fn trie(&mut self) -> near_store::Trie {
         self.tries.get_trie_with_block_hash_for_shard(
             ShardUId::single_shard(),
-            self.root.clone(),
+            self.root,
             &FLAT_STATE_HEAD,
         )
     }

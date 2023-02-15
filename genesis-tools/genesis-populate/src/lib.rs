@@ -188,7 +188,7 @@ impl GenesisBuilder {
         drop(state_changes);
         store_update.commit()?;
 
-        self.roots.insert(shard_idx, root.clone());
+        self.roots.insert(shard_idx, root);
         self.state_updates.insert(shard_idx, tries.new_trie_update(shard_uid, root));
         Ok(())
     }
@@ -242,7 +242,7 @@ impl GenesisBuilder {
                     CryptoHash::default(),
                     vec![],
                     0,
-                    self.genesis.config.gas_limit.clone(),
+                    self.genesis.config.gas_limit,
                     0,
                 ),
             );

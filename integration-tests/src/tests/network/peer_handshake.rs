@@ -47,8 +47,8 @@ fn peer_handshake() {
     run_actix(async {
         let addr1 = tcp::ListenerAddr::reserve_for_test();
         let addr2 = tcp::ListenerAddr::reserve_for_test();
-        let pm1 = make_peer_manager("test1", addr1.clone(), vec![("test2", *addr2)], 10);
-        let _pm2 = make_peer_manager("test2", addr2.clone(), vec![("test1", *addr1)], 10);
+        let pm1 = make_peer_manager("test1", addr1, vec![("test2", *addr2)], 10);
+        let _pm2 = make_peer_manager("test2", addr2, vec![("test1", *addr1)], 10);
         wait_or_timeout(100, 2000, || async {
             let info = pm1.send(GetInfo {}.with_span_context()).await.unwrap();
             if info.num_connected_peers == 1 {
@@ -68,7 +68,7 @@ fn peers_connect_all() {
 
     run_actix(async {
         let addr = tcp::ListenerAddr::reserve_for_test();
-        let _pm = make_peer_manager("test", addr.clone(), vec![], 10);
+        let _pm = make_peer_manager("test", addr, vec![], 10);
         let mut peers = vec![];
 
         let num_peers = 5;
@@ -117,7 +117,7 @@ fn peer_recover() {
 
     run_actix(async {
         let addr0 = tcp::ListenerAddr::reserve_for_test();
-        let pm0 = Arc::new(make_peer_manager("test0", addr0.clone(), vec![], 2));
+        let pm0 = Arc::new(make_peer_manager("test0", addr0, vec![], 2));
         let _pm1 = make_peer_manager(
             "test1",
             tcp::ListenerAddr::reserve_for_test(),

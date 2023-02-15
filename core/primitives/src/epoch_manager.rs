@@ -70,7 +70,7 @@ impl ShardConfig {
             avg_hidden_validator_seats_per_shard: epoch_config
                 .avg_hidden_validator_seats_per_shard
                 .clone(),
-            shard_layout: epoch_config.shard_layout.clone(),
+            shard_layout: epoch_config.shard_layout,
         }
     }
 }

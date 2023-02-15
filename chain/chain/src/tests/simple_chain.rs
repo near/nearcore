@@ -158,7 +158,7 @@ fn build_chain_with_skips_and_forks() {
     assert_eq!(chain.get_block_header_by_height(5).unwrap().height(), 5);
     assert_eq!(chain.get_block_header_by_height(6).unwrap().height(), 6);
 
-    let c4 = TestBlockBuilder::new(&b3, signer.clone()).height(4).build();
+    let c4 = TestBlockBuilder::new(&b3, signer).height(4).build();
     assert_eq!(chain.final_head().unwrap().height, 4);
     assert_matches!(chain.process_block_test(&None, c4), Err(Error::CannotBeFinalized));
 }
@@ -195,7 +195,7 @@ fn blocks_at_height() {
     let d_5 = TestBlockBuilder::new(&d_3, signer.clone()).height(5).build();
     let d_6 = TestBlockBuilder::new(&d_5, signer.clone()).height(6).build();
 
-    let e_7 = TestBlockBuilder::new(&b_1, signer.clone()).height(7).build();
+    let e_7 = TestBlockBuilder::new(&b_1, signer).height(7).build();
 
     let b_1_hash = *b_1.hash();
     let b_2_hash = *b_2.hash();
@@ -258,7 +258,7 @@ fn next_blocks() {
     let b1 = TestBlockBuilder::new(&genesis, signer.clone()).build();
     let b2 = TestBlockBuilder::new(&b1, signer.clone()).height(2).build();
     let b3 = TestBlockBuilder::new(&b1, signer.clone()).height(3).build();
-    let b4 = TestBlockBuilder::new(&b3, signer.clone()).height(4).build();
+    let b4 = TestBlockBuilder::new(&b3, signer).height(4).build();
     let b1_hash = *b1.hash();
     let b2_hash = *b2.hash();
     let b3_hash = *b3.hash();

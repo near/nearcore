@@ -49,7 +49,7 @@ pub(crate) enum DBOp {
 
 impl DBOp {
     pub fn col(&self) -> DBCol {
-        match self {
+        *match self {
             DBOp::Set { col, .. } => col,
             DBOp::Insert { col, .. } => col,
             DBOp::UpdateRefcount { col, .. } => col,
@@ -57,7 +57,6 @@ impl DBOp {
             DBOp::DeleteAll { col } => col,
             DBOp::DeleteRange { col, .. } => col,
         }
-        .clone()
     }
 }
 

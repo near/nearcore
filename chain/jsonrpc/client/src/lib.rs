@@ -61,7 +61,7 @@ where
                     serde_json::from_value(x)
                         .map_err(|err| RpcError::parse_error(format!("Failed to parse: {:?}", err)))
                 }),
-                _ => Err(RpcError::parse_error(format!("Failed to parse JSON RPC response"))),
+                _ => Err(RpcError::parse_error("Failed to parse JSON RPC response".to_string())),
             })
         })
         .boxed_local()

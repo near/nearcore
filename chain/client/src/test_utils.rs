@@ -268,8 +268,8 @@ pub fn setup(
         runtime.clone(),
         network_adapter.clone().into_sender(),
         Arc::new(ctx.address()),
-        Some(account_id.clone()),
-        store.clone(),
+        Some(account_id),
+        store,
         config.chunk_request_retry_period,
     );
     let shards_manager_adapter = Arc::new(shards_manager_addr);
@@ -277,7 +277,7 @@ pub fn setup(
     let client = Client::new(
         config.clone(),
         chain_genesis,
-        runtime.clone(),
+        runtime,
         network_adapter.clone(),
         shards_manager_adapter.clone(),
         Some(signer.clone()),
@@ -299,7 +299,7 @@ pub fn setup(
         None,
     )
     .unwrap();
-    (genesis_block, client_actor, view_client_addr, shards_manager_adapter.clone())
+    (genesis_block, client_actor, view_client_addr, shards_manager_adapter)
 }
 
 pub fn setup_only_view(
@@ -364,7 +364,7 @@ pub fn setup_only_view(
         Some(signer.validator_id().clone()),
         chain_genesis,
         runtime,
-        network_adapter.clone(),
+        network_adapter,
         config,
         adv,
     )
@@ -1874,7 +1874,7 @@ impl TestEnv {
         &mut self,
         tx: SignedTransaction,
     ) -> Result<FinalExecutionOutcomeView, InvalidTxError> {
-        let tx_hash = tx.get_hash().clone();
+        let tx_hash = tx.get_hash();
         let response = self.clients[0].process_tx(tx, false, false);
         // Check if the transaction got rejected
         match response {
@@ -1996,7 +1996,7 @@ pub fn create_chunk(
         let signer = client.validator_signer.as_ref().unwrap().clone();
         let header = chunk.cloned_header();
         let (mut encoded_chunk, mut new_merkle_paths) = EncodedShardChunk::new(
-            header.prev_block_hash().clone(),
+            *header.prev_block_hash(),
             header.prev_state_root(),
             header.outcome_root(),
             header.height_created(),

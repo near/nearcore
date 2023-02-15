@@ -789,7 +789,7 @@ impl ShardsManager {
     /// Only marks this chunk as being requested
     /// Note no requests are actually sent at this point.
     fn request_chunk_single_mark_only(&mut self, chunk_header: &ShardChunkHeader) {
-        self.request_chunk_single(chunk_header, chunk_header.prev_block_hash().clone(), true)
+        self.request_chunk_single(chunk_header, *chunk_header.prev_block_hash(), true)
     }
 
     /// send partial chunk requests for one chunk
@@ -828,7 +828,7 @@ impl ShardsManager {
             return;
         }
 
-        let prev_block_hash = chunk_header.prev_block_hash().clone();
+        let prev_block_hash = *chunk_header.prev_block_hash();
         self.requested_partial_encoded_chunks.insert(
             chunk_hash.clone(),
             ChunkRequestInfo {
@@ -1458,7 +1458,7 @@ impl ShardsManager {
         //    And if the validation fails in this case, we actually can't say if the chunk is actually
         //    invalid. So we must return chain_error instead of return error
         let (ancestor_hash, epoch_id, epoch_id_confirmed) = {
-            let prev_block_hash = header.prev_block_hash().clone();
+            let prev_block_hash = *header.prev_block_hash();
             let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(&prev_block_hash);
             if let Ok(epoch_id) = epoch_id {
                 (prev_block_hash, epoch_id, true)
@@ -2144,7 +2144,7 @@ impl ShardsManager {
         }
 
         // Add it to the set of chunks to be included in the next block
-        self.encoded_chunks.merge_in_partial_encoded_chunk(&partial_chunk.clone().into());
+        self.encoded_chunks.merge_in_partial_encoded_chunk(&partial_chunk.into());
         self.encoded_chunks.mark_chunk_for_inclusion(&chunk_header.chunk_hash());
 
         Ok(())
@@ -2391,8 +2391,8 @@ mod test {
             header.chunk_hash(),
             ChunkRequestInfo {
                 height: header.height_created(),
-                ancestor_hash: prev_block_hash.clone(),
-                prev_block_hash: prev_block_hash.clone(),
+                ancestor_hash: *prev_block_hash,
+                prev_block_hash: *prev_block_hash,
                 shard_id: header.shard_id(),
                 last_requested: Clock::instant(),
                 added: Clock::instant(),
@@ -2738,7 +2738,7 @@ mod test {
         );
         shards_manager.request_chunks(
             vec![fixture.mock_chunk_header.clone()],
-            fixture.mock_chunk_header.prev_block_hash().clone(),
+            *fixture.mock_chunk_header.prev_block_hash(),
         );
         let marked_as_requested = shards_manager
             .requested_partial_encoded_chunks

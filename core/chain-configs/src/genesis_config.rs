@@ -219,8 +219,7 @@ impl From<&GenesisConfig> for EpochConfig {
 impl From<&GenesisConfig> for AllEpochConfig {
     fn from(genesis_config: &GenesisConfig) -> Self {
         let initial_epoch_config = EpochConfig::from(genesis_config);
-        let epoch_config =
-            Self::new(genesis_config.use_production_config(), initial_epoch_config.clone());
+        let epoch_config = Self::new(genesis_config.use_production_config(), initial_epoch_config);
         epoch_config
     }
 }

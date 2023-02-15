@@ -677,7 +677,7 @@ impl VerifyProofSubCommand {
             "Verifying light client proof for txn id: {:?}",
             light_client_proof.outcome_proof.id
         );
-        let outcome_hashes = light_client_proof.outcome_proof.clone().to_hashes();
+        let outcome_hashes = light_client_proof.outcome_proof.to_hashes();
         println!("Hashes of the outcome are: {:?}", outcome_hashes);
 
         let outcome_hash = CryptoHash::hash_borsh(&outcome_hashes);

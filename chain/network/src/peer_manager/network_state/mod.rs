@@ -62,7 +62,7 @@ impl WhitelistNode {
         Ok(Self {
             id: pi.id.clone(),
             addr: if let Some(addr) = pi.addr {
-                addr.clone()
+                addr
             } else {
                 anyhow::bail!("addess is missing");
             },
@@ -181,7 +181,7 @@ impl NetworkState {
             tier1: connection::Pool::new(config.node_id()),
             inbound_handshake_permits: Arc::new(tokio::sync::Semaphore::new(LIMIT_PENDING_PEERS)),
             peer_store,
-            connection_store: connection_store::ConnectionStore::new(store.clone()).unwrap(),
+            connection_store: connection_store::ConnectionStore::new(store).unwrap(),
             pending_reconnect: Mutex::new(Vec::<PeerInfo>::new()),
             accounts_data: Arc::new(accounts_data::Cache::new()),
             tier1_route_back: Mutex::new(RouteBackCache::default()),
@@ -734,7 +734,7 @@ impl NetworkState {
         if self.config.tier1.is_none() {
             return false;
         }
-        let has_changed = self.accounts_data.set_keys(info.tier1_accounts.clone());
+        let has_changed = self.accounts_data.set_keys(info.tier1_accounts);
         // The set of TIER1 accounts has changed, so we might be missing some accounts_data
         // that our peers know about.
         if has_changed {

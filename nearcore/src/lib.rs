@@ -188,7 +188,7 @@ pub fn start_with_config_and_synchronization(
     let genesis_block = Chain::make_genesis_block(&*runtime, &chain_genesis)?;
     let genesis_id = GenesisId {
         chain_id: config.client_config.chain_id.clone(),
-        hash: genesis_block.header().hash().clone(),
+        hash: *genesis_block.header().hash(),
     };
 
     let node_id = config.network_config.node_id();
@@ -214,7 +214,7 @@ pub fn start_with_config_and_synchronization(
         shards_manager_adapter.clone(),
         config.validator_signer.clone(),
         telemetry,
-        shutdown_signal.clone(),
+        shutdown_signal,
         adv,
         config_updater,
     );
@@ -222,12 +222,12 @@ pub fn start_with_config_and_synchronization(
     let (shards_manager_actor, shards_manager_arbiter_handle) = start_shards_manager(
         runtime,
         network_adapter.as_sender(),
-        client_adapter_for_shards_manager.clone(),
+        client_adapter_for_shards_manager,
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
         store.get_store(Temperature::Hot),
         config.client_config.chunk_request_retry_period,
     );
-    shards_manager_adapter.set_recipient(shards_manager_actor.clone());
+    shards_manager_adapter.set_recipient(shards_manager_actor);
 
     #[allow(unused_mut)]
     let mut rpc_servers = Vec::new();
@@ -249,7 +249,7 @@ pub fn start_with_config_and_synchronization(
             config.genesis.config.clone(),
             client_actor.clone(),
             view_client.clone(),
-            Some(network_actor.clone()),
+            Some(network_actor),
         ));
     }
 

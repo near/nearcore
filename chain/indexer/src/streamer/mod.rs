@@ -82,7 +82,7 @@ async fn build_streamer_message(
     let mut state_changes = fetch_state_changes(
         &client,
         block.header.hash,
-        near_primitives::types::EpochId(block.header.epoch_id.clone()),
+        near_primitives::types::EpochId(block.header.epoch_id),
     )
     .await?;
     let mut indexer_shards = (0..num_shards)
@@ -98,7 +98,7 @@ async fn build_streamer_message(
         let views::ChunkView { transactions, author, header, receipts: chunk_non_local_receipts } =
             chunk;
 
-        let shard_id = header.shard_id.clone() as usize;
+        let shard_id = header.shard_id as usize;
 
         let mut outcomes = shards_outcomes
             .remove(&header.shard_id)
