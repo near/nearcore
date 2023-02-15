@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use assert_matches::assert_matches;
 
+use borsh::BorshSerialize;
 use near_chain::ChainGenesis;
 use near_chain_configs::Genesis;
 use near_client::adapter::ProcessTxResponse;
@@ -18,7 +19,7 @@ use near_primitives::runtime::fees::StorageUsageConfig;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::transaction::Action::AddKey;
 use near_primitives::transaction::{Action, AddKeyAction, DeleteKeyAction, SignedTransaction};
-use near_primitives::version::ProtocolFeature;
+use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_primitives::views::{FinalExecutionStatus, QueryRequest, QueryResponseKind};
 use near_store::test_utils::create_test_store;
 use nearcore::config::GenesisExt;
@@ -304,4 +305,40 @@ fn test_zero_balance_account_upgrade() {
     }
     let outcome = env.clients[0].chain.get_final_transaction_result(&tx_hash2).unwrap();
     assert_matches!(outcome.status, FinalExecutionStatus::SuccessValue(_));
+}
+
+#[test]
+fn test_storage_usage_components() {
+    // confirm these numbers don't change, as the zero balance limit is derived from them
+    const PUBLIC_KEY_STORAGE_USAGE: usize = 33;
+    const FULL_ACCESS_PERMISSION_STORAGE_USAGE: usize = 9;
+    const FUNCTION_ACCESS_PERMISSION_STORAGE_USAGE: usize = 98;
+
+    let edwards_public_key = PublicKey::from_seed(KeyType::ED25519, "seed");
+    assert_eq!(PUBLIC_KEY_STORAGE_USAGE, edwards_public_key.try_to_vec().unwrap().len());
+
+    let full_access_key = AccessKey::full_access();
+    assert_eq!(FULL_ACCESS_PERMISSION_STORAGE_USAGE, full_access_key.try_to_vec().unwrap().len());
+
+    let fn_access_key = AccessKey {
+        nonce: u64::MAX,
+        permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+            allowance: Some(u128::MAX),
+            receiver_id: "a".repeat(64),
+            method_names: vec![],
+        }),
+    };
+    assert_eq!(FUNCTION_ACCESS_PERMISSION_STORAGE_USAGE, fn_access_key.try_to_vec().unwrap().len());
+
+    let config_store = RuntimeConfigStore::new(None);
+    let config = config_store.get_config(PROTOCOL_VERSION);
+    let account_overhead = config.fees.storage_usage_config.num_bytes_account as usize;
+    let record_overhead = config.fees.storage_usage_config.num_extra_bytes_record as usize;
+    // The NEP proposes to fit 4 full access keys + 2 fn access keys in an zero balance account
+    let full_access =
+        PUBLIC_KEY_STORAGE_USAGE + FULL_ACCESS_PERMISSION_STORAGE_USAGE + record_overhead;
+    let fn_access =
+        PUBLIC_KEY_STORAGE_USAGE + FUNCTION_ACCESS_PERMISSION_STORAGE_USAGE + record_overhead;
+    let total = account_overhead + 4 * full_access + 2 * fn_access;
+    assert_eq!(total as u64, ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT);
 }
