@@ -67,11 +67,11 @@ def _parse_args():
     return args
 
 
-def get_curent_sha():
-    return subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True)
+def get_sha(branch: str):
+    return subprocess.check_output(['git', 'rev-parse', branch], text=True)
 
 
-def get_current_branch():
+def get_branch(sha: str):
     return subprocess.check_output(['git', 'rev-parse', '--abbrev-ref', 'HEAD'],
                                    text=True)
 
@@ -282,8 +282,8 @@ def run_remotely(args, tests):
         return
 
     post = {
-        'branch': args.branch or get_current_branch().strip(),
-        'sha': args.sha or get_curent_sha().strip(),
+        'branch': args.branch or get_branch().strip(),
+        'sha': args.sha or get_sha("HEAD").strip(),
         'tests': list(tests)
     }
 
