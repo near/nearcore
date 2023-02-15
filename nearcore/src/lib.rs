@@ -194,7 +194,7 @@ pub fn start_with_config_and_synchronization(
     let node_id = config.network_config.node_id();
     let network_adapter = Arc::new(LateBoundSender::default());
     let shards_manager_adapter = Arc::new(NetworkRecipient::default());
-    let client_adapter_for_shards_manager = Arc::new(NetworkRecipient::default());
+    let client_adapter_for_shards_manager = Arc::new(LateBoundSender::default());
     let adv = near_client::adversarial::Controls::new(config.client_config.archive);
 
     let view_client = start_view_client(
@@ -218,11 +218,11 @@ pub fn start_with_config_and_synchronization(
         adv,
         config_updater,
     );
-    client_adapter_for_shards_manager.set_recipient(client_actor.clone());
+    client_adapter_for_shards_manager.bind(client_actor.clone().with_auto_span_context());
     let (shards_manager_actor, shards_manager_arbiter_handle) = start_shards_manager(
         runtime,
         network_adapter.as_sender(),
-        client_adapter_for_shards_manager,
+        client_adapter_for_shards_manager.as_sender(),
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
         store.get_store(Temperature::Hot),
         config.client_config.chunk_request_retry_period,
