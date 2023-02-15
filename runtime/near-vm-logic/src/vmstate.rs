@@ -263,7 +263,7 @@ mod tests {
         fn new() -> Self {
             let costs = ExtCostsConfig::test();
             Self {
-                gas: GasCounter::new(costs, u64::MAX, u64::MAX, false),
+                gas: GasCounter::new(costs, u64::MAX, 0, u64::MAX, false),
                 cfg: VMLimitConfig::test(),
                 regs: Default::default(),
             }
