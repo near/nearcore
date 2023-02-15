@@ -1,10 +1,9 @@
+use borsh::BorshSerialize;
+use serde::{Deserializer, Serializer};
+use sha2::Digest;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::io::Write;
-
-use borsh::BorshSerialize;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use sha2::Digest;
 
 #[derive(
     Copy,
@@ -16,8 +15,6 @@ use sha2::Digest;
     derive_more::AsRef,
     derive_more::AsMut,
     arbitrary::Arbitrary,
-    borsh::BorshDeserialize,
-    borsh::BorshSerialize,
 )]
 #[as_ref(forward)]
 #[as_mut(forward)]
@@ -119,7 +116,20 @@ impl Default for CryptoHash {
     }
 }
 
-impl Serialize for CryptoHash {
+impl borsh::BorshSerialize for CryptoHash {
+    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> Result<(), std::io::Error> {
+        writer.write_all(&self.0)?;
+        Ok(())
+    }
+}
+
+impl borsh::BorshDeserialize for CryptoHash {
+    fn deserialize(buf: &mut &[u8]) -> Result<Self, std::io::Error> {
+        Ok(CryptoHash(borsh::BorshDeserialize::deserialize(buf)?))
+    }
+}
+
+impl serde::Serialize for CryptoHash {
     fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error>
     where
         S: Serializer,
@@ -150,7 +160,7 @@ impl<'de> serde::de::Visitor<'de> for Visitor {
     }
 }
 
-impl<'de> Deserialize<'de> for CryptoHash {
+impl<'de> serde::Deserialize<'de> for CryptoHash {
     fn deserialize<D>(deserializer: D) -> Result<Self, <D as Deserializer<'de>>::Error>
     where
         D: Deserializer<'de>,
@@ -236,10 +246,9 @@ pub fn hash(data: &[u8]) -> CryptoHash {
 #[cfg(test)]
 mod tests {
     use super::*;
-
     use std::str::FromStr;
 
-    #[derive(Deserialize, Serialize)]
+    #[derive(serde::Deserialize, serde::Serialize)]
     struct Struct {
         hash: CryptoHash,
     }

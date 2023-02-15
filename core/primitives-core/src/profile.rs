@@ -108,10 +108,10 @@ impl ProfileDataV3 {
 }
 
 impl BorshDeserialize for ProfileDataV3 {
-    fn deserialize_reader<R: std::io::Read>(rd: &mut R) -> std::io::Result<Self> {
-        let actions_array: Vec<u64> = BorshDeserialize::deserialize_reader(rd)?;
-        let ext_array: Vec<u64> = BorshDeserialize::deserialize_reader(rd)?;
-        let wasm_gas: u64 = BorshDeserialize::deserialize_reader(rd)?;
+    fn deserialize(buf: &mut &[u8]) -> Result<Self, std::io::Error> {
+        let actions_array: Vec<u64> = BorshDeserialize::deserialize(buf)?;
+        let ext_array: Vec<u64> = BorshDeserialize::deserialize(buf)?;
+        let wasm_gas: u64 = BorshDeserialize::deserialize(buf)?;
 
         // Mapping raw arrays to enum maps.
         // The enum map could be smaller or larger than the raw array.

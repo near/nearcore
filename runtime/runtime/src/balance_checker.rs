@@ -107,7 +107,7 @@ fn total_postponed_receipts_cost(
 ) -> Result<Balance, RuntimeError> {
     receipt_ids.iter().try_fold(0, |total, item| {
         let (account_id, receipt_id) = item;
-        let cost = match get_postponed_receipt(state, account_id, receipt_id.clone())? {
+        let cost = match get_postponed_receipt(state, account_id, *receipt_id)? {
             None => return Ok(total),
             Some(receipt) => receipt_cost(transaction_costs, current_protocol_version, &receipt)?,
         };

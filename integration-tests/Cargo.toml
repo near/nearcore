@@ -29,6 +29,7 @@ tracing.workspace = true
 wat.workspace = true
 
 near-actix-test-utils = { path = "../test-utils/actix-test-utils" }
+near-async = { path = "../core/async" }
 near-chain = { path = "../chain/chain" }
 near-chain-configs = { path = "../core/chain-configs" }
 near-chunks = { path = "../chain/chunks" }

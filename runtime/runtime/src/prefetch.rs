@@ -322,7 +322,7 @@ mod tests {
         }
         let root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, ShardUId::single_shard(), kvs);
 
-        let trie = Rc::new(tries.get_trie_for_shard(ShardUId::single_shard(), root.clone()));
+        let trie = Rc::new(tries.get_trie_for_shard(ShardUId::single_shard(), root));
         trie.storage.as_caching_storage().unwrap().clear_cache();
 
         let prefetcher = TriePrefetcher::new_if_enabled(trie.clone())

@@ -57,9 +57,8 @@ pub mod pks_as_str {
 #[cfg(test)]
 mod tests {
     use near_crypto::PublicKey;
-    use serde::{Deserialize, Serialize};
 
-    #[derive(Serialize, Deserialize)]
+    #[derive(serde::Serialize, serde::Deserialize)]
     struct Test {
         #[serde(with = "crate::serde_with::pks_as_str")]
         keys: Vec<PublicKey>,

@@ -182,7 +182,7 @@ impl ChunkTestFixture {
         // This setup ensures that the chunk producer
         let vs = make_validators(6, 2, 3);
         let mock_runtime =
-            Arc::new(KeyValueRuntime::new_with_validators_and_no_gc(store.clone(), vs, 5, false));
+            Arc::new(KeyValueRuntime::new_with_validators_and_no_gc(store, vs, 5, false));
         Self::new_with_runtime(false, mock_runtime)
     }
 
@@ -230,8 +230,7 @@ impl ChunkTestFixture {
                 }
             })
             .cloned()
-            .unwrap()
-            .clone();
+            .unwrap();
         let mock_chunk_part_owner = validators
             .into_iter()
             .find(|v| v != &mock_chunk_producer && v != &mock_shard_tracker)
@@ -366,7 +365,7 @@ fn default_runtime() -> KeyValueRuntime {
     let store = near_store::test_utils::create_test_store();
     // 12 validators, 3 shards, 4 validators per shard
     let vs = make_validators(12, 0, 3);
-    KeyValueRuntime::new_with_validators(store.clone(), vs, 5)
+    KeyValueRuntime::new_with_validators(store, vs, 5)
 }
 // Mocked `PeerManager` adapter, has a queue of `PeerManagerMessageRequest` messages.
 #[derive(Default)]

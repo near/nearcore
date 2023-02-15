@@ -1,19 +1,15 @@
 //! Chain Client Configuration
-use std::cmp::max;
-use std::cmp::min;
-use std::time::Duration;
-
-use serde::{Deserialize, Serialize};
-
 use crate::MutableConfigValue;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockHeightDelta, Gas, NumBlocks, NumSeats, ShardId,
 };
 use near_primitives::version::Version;
+use std::cmp::{max, min};
+use std::time::Duration;
 
 pub const TEST_STATE_SYNC_TIMEOUT: u64 = 5;
 
-#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, serde::Serialize, serde::Deserialize)]
 pub enum LogSummaryStyle {
     #[serde(rename = "plain")]
     Plain,
@@ -28,7 +24,7 @@ pub const MIN_GC_NUM_EPOCHS_TO_KEEP: u64 = 3;
 pub const DEFAULT_GC_NUM_EPOCHS_TO_KEEP: u64 = 5;
 
 /// Configuration for garbage collection.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct GCConfig {
     /// Maximum number of blocks to garbage collect at every garbage collection
     /// call.
@@ -74,7 +70,7 @@ impl GCConfig {
 }
 
 /// ClientConfig where some fields can be updated at runtime.
-#[derive(Clone, Serialize)]
+#[derive(Clone, serde::Serialize)]
 pub struct ClientConfig {
     /// Version of the binary.
     pub version: Version,
