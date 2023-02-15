@@ -490,7 +490,7 @@ pub fn display_sync_status(sync_status: &SyncStatus, head: &Tip) -> String {
             }
             res
         }
-        SyncStatus::StateSyncDone => format!("State sync done"),
+        SyncStatus::StateSyncDone => "State sync done".to_string(),
     }
 }
 
@@ -710,7 +710,7 @@ mod tests {
         };
         let doomslug_threshold_mode = DoomslugThresholdMode::TwoThirds;
         let chain = Chain::new(
-            runtime.clone(),
+            runtime,
             &chain_genesis,
             doomslug_threshold_mode,
             ChainConfig::test(),

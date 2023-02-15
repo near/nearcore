@@ -2144,7 +2144,7 @@ impl ShardsManager {
         }
 
         // Add it to the set of chunks to be included in the next block
-        self.encoded_chunks.merge_in_partial_encoded_chunk(&partial_chunk.clone().into());
+        self.encoded_chunks.merge_in_partial_encoded_chunk(&partial_chunk.into());
         self.encoded_chunks.mark_chunk_for_inclusion(&chunk_header.chunk_hash());
 
         Ok(())

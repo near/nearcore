@@ -944,7 +944,7 @@ impl Client {
 
         let res = self.receive_block_impl(
             block,
-            peer_id.clone(),
+            peer_id,
             was_requested,
             apply_chunks_done_callback,
         );
@@ -1580,7 +1580,7 @@ impl Client {
         persist_chunk(partial_chunk.clone(), Some(shard_chunk), self.chain.mut_store())?;
         self.on_chunk_header_ready_for_inclusion(
             encoded_chunk.cloned_header(),
-            validator_id.clone(),
+            validator_id,
         );
         self.shards_manager_adapter.distribute_encoded_chunk(
             partial_chunk,

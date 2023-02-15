@@ -890,7 +890,7 @@ impl<T: ChainAccess> TxMirror<T> {
             target_min_block_production_delay: target_config
                 .client_config
                 .min_block_production_delay,
-            tracked_shards: target_config.config.tracked_shards.clone(),
+            tracked_shards: target_config.config.tracked_shards,
             secret,
         })
     }

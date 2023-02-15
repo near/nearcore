@@ -513,7 +513,7 @@ mod test {
         let new_genesis = new_near_config.genesis;
         let mut expected_accounts: HashSet<AccountId> =
             new_genesis.config.validators.iter().map(|v| v.account_id.clone()).collect();
-        expected_accounts.extend(select_account_ids.clone());
+        expected_accounts.extend(select_account_ids);
         expected_accounts.insert(new_genesis.config.protocol_treasury_account.clone());
         let mut actual_accounts: HashSet<AccountId> = HashSet::new();
         new_genesis.for_each_record(|record| {

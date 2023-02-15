@@ -44,7 +44,7 @@ impl ShardTries {
         let caches = Self::create_initial_caches(&trie_config, &shard_uids, false);
         let view_caches = Self::create_initial_caches(&trie_config, &shard_uids, true);
         ShardTries(Arc::new(ShardTriesInner {
-            store: store.clone(),
+            store: store,
             trie_config,
             caches: RwLock::new(caches),
             view_caches: RwLock::new(view_caches),
@@ -70,7 +70,7 @@ impl ShardTries {
             store.clone(),
             trie_config,
             &shard_uids,
-            FlatStateFactory::new(store.clone()),
+            FlatStateFactory::new(store),
         )
     }
 

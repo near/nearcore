@@ -191,7 +191,7 @@ impl super::NetworkState {
                 signer: vc.signer.clone(),
                 data: Arc::new(AccountData {
                     peer_id: self.config.node_id(),
-                    proxies: my_proxies.clone(),
+                    proxies: my_proxies,
                 }),
             },
         );

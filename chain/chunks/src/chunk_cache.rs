@@ -329,7 +329,7 @@ mod tests {
         let mut cache = EncodedChunksCache::new();
         let header = create_chunk_header(1, 0);
         let partial_encoded_chunk =
-            PartialEncodedChunkV2 { header: header.clone(), parts: vec![], receipts: vec![] };
+            PartialEncodedChunkV2 { header: header, parts: vec![], receipts: vec![] };
         cache.merge_in_partial_encoded_chunk(&partial_encoded_chunk);
         assert!(!cache.height_map.is_empty());
 

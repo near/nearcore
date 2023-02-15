@@ -3099,7 +3099,7 @@ mod tests {
                 transaction_validity_period
             )
             .is_ok());
-        let new_block = TestBlockBuilder::new(&blocks.last().unwrap(), signer.clone())
+        let new_block = TestBlockBuilder::new(&blocks.last().unwrap(), signer)
             .height(transaction_validity_period + 3)
             .build();
 
@@ -3259,7 +3259,7 @@ mod tests {
         let mut store_update = chain.mut_store().store_update();
 
         let block = if next_epoch_id == *prev_block.header().next_epoch_id() {
-            TestBlockBuilder::new(&prev_block, signer.clone()).height(height).build()
+            TestBlockBuilder::new(&prev_block, signer).height(height).build()
         } else {
             let prev_hash = prev_block.hash();
             let epoch_id = prev_block.header().next_epoch_id().clone();
@@ -3270,7 +3270,7 @@ mod tests {
                 &prev_hash,
             )
             .unwrap();
-            TestBlockBuilder::new(&prev_block, signer.clone())
+            TestBlockBuilder::new(&prev_block, signer)
                 .height(height)
                 .epoch_id(epoch_id)
                 .next_epoch_id(next_epoch_id)

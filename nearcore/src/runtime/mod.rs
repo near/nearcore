@@ -256,7 +256,7 @@ impl NightshadeRuntime {
             store.clone(),
             TrieConfig::default(),
             &genesis.config.shard_layout.get_shard_uids(),
-            FlatStateFactory::new(store.clone()),
+            FlatStateFactory::new(store),
         );
         let runtime = Runtime::new();
         let runtime_config_store =
@@ -395,7 +395,7 @@ impl NightshadeRuntime {
         let epoch_id = self.get_epoch_id_from_prev_block(prev_block_hash)?;
         let validator_accounts_update = {
             let epoch_manager = self.epoch_manager.read();
-            let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?.clone();
+            let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
             debug!(target: "runtime",
                    "block height: {}, is next_block_epoch_start {}",
                    block_height,

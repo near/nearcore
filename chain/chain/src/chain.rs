@@ -3769,7 +3769,7 @@ impl Chain {
                 if is_new_chunk {
                     let prev_chunk_height_included = prev_chunk_header.height_included();
                     // Validate state root.
-                    let prev_chunk_extra = self.get_chunk_extra(prev_hash, &shard_uid)?.clone();
+                    let prev_chunk_extra = self.get_chunk_extra(prev_hash, &shard_uid)?;
 
                     // Validate that all next chunk information matches previous chunk extra.
                     validate_chunk_with_chunk_extra(
@@ -3917,7 +3917,7 @@ impl Chain {
                         }
                     })))
                 } else {
-                    let new_extra = self.get_chunk_extra(prev_block.hash(), &shard_uid)?.clone();
+                    let new_extra = self.get_chunk_extra(prev_block.hash(), &shard_uid)?;
 
                     let runtime_adapter = self.runtime_adapter.clone();
                     let block_hash = *block.hash();

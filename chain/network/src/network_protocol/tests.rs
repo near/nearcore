@@ -112,7 +112,7 @@ fn serialize_deserialize() -> anyhow::Result<()> {
             data::make_peer_info(&mut rng),
             HandshakeFailureReason::InvalidTarget,
         ),
-        PeerMessage::LastEdge(edge.clone()),
+        PeerMessage::LastEdge(edge),
         PeerMessage::SyncRoutingTable(data::make_routing_table(&mut rng)),
         PeerMessage::RequestUpdateNonce(data::make_partial_edge(&mut rng)),
         PeerMessage::PeersRequest,

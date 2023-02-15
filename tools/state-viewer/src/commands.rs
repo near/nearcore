@@ -361,7 +361,7 @@ pub(crate) fn dump_tx(
     output_path: Option<String>,
 ) -> Result<(), Error> {
     let chain_store = ChainStore::new(
-        store.clone(),
+        store,
         near_config.genesis.config.genesis_height,
         near_config.client_config.save_trie_changes,
     );

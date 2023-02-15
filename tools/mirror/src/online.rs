@@ -32,7 +32,7 @@ impl ChainAccess {
             nearcore::config::load_config(home.as_ref(), GenesisValidationMode::UnsafeFast)
                 .with_context(|| format!("Error loading config from {:?}", home.as_ref()))?;
 
-        let node = nearcore::start_with_config(home.as_ref(), config.clone())
+        let node = nearcore::start_with_config(home.as_ref(), config)
             .context("failed to start NEAR node")?;
         Ok(Self { view_client: node.view_client })
     }

@@ -81,7 +81,7 @@ fn challenges_new_head_prev() {
     let b3 = TestBlockBuilder::new(&chain.get_block(&hashes[2]).unwrap(), signer.clone()).build();
     let _ = chain.process_block_test(&None, b3.clone()).unwrap();
 
-    let b4 = TestBlockBuilder::new(&b3, signer.clone()).build();
+    let b4 = TestBlockBuilder::new(&b3, signer).build();
     let _ = chain.process_block_test(&None, b4.clone()).unwrap();
     let challenger_hash = b4.hash();
 
@@ -98,7 +98,7 @@ fn test_no_challenge_on_same_header() {
     let (mut chain, _, signer) = setup();
     let prev_hash = *chain.head_header().unwrap().hash();
     let prev = chain.get_block(&prev_hash).unwrap();
-    let block = TestBlockBuilder::new(&prev, signer.clone()).build();
+    let block = TestBlockBuilder::new(&prev, signer).build();
     chain.process_block_test(&None, block.clone()).unwrap();
     assert_eq!(chain.head().unwrap().height, 1);
     let mut challenges = vec![];

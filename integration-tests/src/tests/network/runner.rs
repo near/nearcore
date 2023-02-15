@@ -88,7 +88,7 @@ fn setup_network_node(
     .0;
     let view_client_actor = start_view_client(
         config.validator.as_ref().map(|v| v.account_id()),
-        chain_genesis.clone(),
+        chain_genesis,
         runtime.clone(),
         network_adapter.clone().into(),
         client_config.clone(),
