@@ -7,8 +7,10 @@ use crate::routing::routing_table_view::RoutingTableInfo;
 use crate::time;
 use futures::future::BoxFuture;
 use futures::FutureExt;
+use near_async::messaging::{
+    AsyncSender, CanSend, CanSendAsync, IntoAsyncSender, IntoSender, Sender,
+};
 use near_crypto::PublicKey;
-use near_o11y::WithSpanContext;
 use near_primitives::block::{ApprovalMessage, Block, GenesisId};
 use near_primitives::challenge::Challenge;
 use near_primitives::hash::CryptoHash;
@@ -397,6 +399,7 @@ pub enum NetworkAdversarialMessage {
     AdvCheckStorageConsistency,
 }
 
+// TODO: remove trait and all related traits once migration is complete.
 pub trait MsgRecipient<M: actix::Message>: Send + Sync + 'static {
     fn send(&self, msg: M) -> BoxFuture<'static, Result<M::Result, actix::MailboxError>>;
     fn do_send(&self, msg: M);
@@ -415,17 +418,6 @@ where
     fn do_send(&self, msg: M) {
         actix::Addr::do_send(self, msg)
     }
-}
-pub trait PeerManagerAdapter:
-    MsgRecipient<WithSpanContext<PeerManagerMessageRequest>>
-    + MsgRecipient<WithSpanContext<SetChainInfo>>
-{
-}
-impl<
-        A: MsgRecipient<WithSpanContext<PeerManagerMessageRequest>>
-            + MsgRecipient<WithSpanContext<SetChainInfo>>,
-    > PeerManagerAdapter for A
-{
 }
 
 // TODO: rename to a more generic name.
@@ -451,6 +443,29 @@ impl<M: actix::Message, T: MsgRecipient<M>> MsgRecipient<M> for NetworkRecipient
     }
     fn do_send(&self, msg: M) {
         self.recipient.wait().do_send(msg);
+    }
+}
+
+#[derive(Clone, derive_more::AsRef)]
+pub struct PeerManagerAdapter {
+    pub async_request_sender:
+        AsyncSender<PeerManagerMessageRequest, Result<PeerManagerMessageResponse, ()>>,
+    pub request_sender: Sender<PeerManagerMessageRequest>,
+    pub set_chain_info_sender: Sender<SetChainInfo>,
+}
+
+impl<
+        A: CanSendAsync<PeerManagerMessageRequest, Result<PeerManagerMessageResponse, ()>>
+            + CanSend<PeerManagerMessageRequest>
+            + CanSend<SetChainInfo>,
+    > From<Arc<A>> for PeerManagerAdapter
+{
+    fn from(arc: Arc<A>) -> Self {
+        Self {
+            async_request_sender: arc.as_async_sender(),
+            request_sender: arc.as_sender(),
+            set_chain_info_sender: arc.as_sender(),
+        }
     }
 }
 

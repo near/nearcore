@@ -1,18 +1,15 @@
-use borsh::{BorshDeserialize, BorshSerialize};
-use serde::{Deserialize, Serialize};
-
-use near_crypto::Signature;
-
 use crate::hash::CryptoHash;
 use crate::merkle::MerklePath;
 use crate::sharding::{EncodedShardChunk, ShardChunk, ShardChunkHeader};
 use crate::types::AccountId;
 use crate::validator_signer::ValidatorSigner;
+use borsh::{BorshDeserialize, BorshSerialize};
+use near_crypto::Signature;
 
 /// Serialized TrieNodeWithSize
 pub type StateItem = std::sync::Arc<[u8]>;
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq)]
 pub struct PartialState(pub Vec<StateItem>);
 
 /// Double signed block.
@@ -101,7 +98,16 @@ impl Challenge {
 
 pub type Challenges = Vec<Challenge>;
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    Debug,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub struct SlashedValidator {
     pub account_id: AccountId,
     pub is_double_sign: bool,

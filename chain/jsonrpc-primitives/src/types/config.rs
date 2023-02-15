@@ -1,19 +1,18 @@
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct RpcProtocolConfigRequest {
     #[serde(flatten)]
     pub block_reference: near_primitives::types::BlockReference,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct RpcProtocolConfigResponse {
     #[serde(flatten)]
     pub config_view: near_chain_configs::ProtocolConfigView,
 }
 
-#[derive(thiserror::Error, Debug, Serialize, Deserialize)]
+#[derive(thiserror::Error, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcProtocolConfigError {
     #[error("Block has never been observed: {error_message}")]

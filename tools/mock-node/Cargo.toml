@@ -22,8 +22,8 @@ tempfile.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
-near-async = { path = "../../core/async" }
 near-actix-test-utils = { path = "../../test-utils/actix-test-utils" }
+near-async = { path = "../../core/async" }
 near-chain = { path = "../../chain/chain" }
 near-chain-configs = { path = "../../core/chain-configs" }
 near-client = { path = "../../chain/client" }

@@ -97,13 +97,13 @@ use metrics::{
 use near_async::messaging::Sender;
 use near_chain::chunks_store::ReadOnlyChunksStore;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
-use near_o11y::WithSpanContextExt;
+
 use near_primitives::time::Utc;
 use rand::seq::{IteratorRandom, SliceRandom};
 use tracing::{debug, error, warn};
 
 use near_chain::{byzantine_assert, RuntimeWithEpochManagerAdapter};
-use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
+use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{verify_path, MerklePath};
@@ -486,7 +486,7 @@ pub struct ShardsManager {
     store: ReadOnlyChunksStore,
 
     runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
-    peer_manager_adapter: Arc<dyn PeerManagerAdapter>,
+    peer_manager_adapter: Sender<PeerManagerMessageRequest>,
     client_adapter: Sender<ShardsManagerResponse>,
     rs: ReedSolomonWrapper,
 
@@ -511,7 +511,7 @@ impl ShardsManager {
     pub fn new(
         me: Option<AccountId>,
         runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
-        network_adapter: Arc<dyn PeerManagerAdapter>,
+        network_adapter: Sender<PeerManagerMessageRequest>,
         client_adapter: Sender<ShardsManagerResponse>,
         store: ReadOnlyChunksStore,
         initial_chain_head: Tip,
@@ -691,16 +691,13 @@ impl ShardsManager {
                     min_height: height.saturating_sub(CHUNK_REQUEST_PEER_HORIZON),
                 };
 
-                self.peer_manager_adapter.do_send(
-                    PeerManagerMessageRequest::NetworkRequests(
-                        NetworkRequests::PartialEncodedChunkRequest {
-                            target,
-                            request,
-                            create_time: Clock::instant().into(),
-                        },
-                    )
-                    .with_span_context(),
-                );
+                self.peer_manager_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                    NetworkRequests::PartialEncodedChunkRequest {
+                        target,
+                        request,
+                        create_time: Clock::instant().into(),
+                    },
+                ));
             } else {
                 warn!(target: "client", "{:?} requests parts {:?} for chunk {:?} from self",
                     me, part_ords, chunk_hash
@@ -793,7 +790,7 @@ impl ShardsManager {
     /// Only marks this chunk as being requested
     /// Note no requests are actually sent at this point.
     fn request_chunk_single_mark_only(&mut self, chunk_header: &ShardChunkHeader) {
-        self.request_chunk_single(chunk_header, chunk_header.prev_block_hash().clone(), true)
+        self.request_chunk_single(chunk_header, *chunk_header.prev_block_hash(), true)
     }
 
     /// send partial chunk requests for one chunk
@@ -832,7 +829,7 @@ impl ShardsManager {
             return;
         }
 
-        let prev_block_hash = chunk_header.prev_block_hash().clone();
+        let prev_block_hash = *chunk_header.prev_block_hash();
         self.requested_partial_encoded_chunks.insert(
             chunk_hash.clone(),
             ChunkRequestInfo {
@@ -1018,12 +1015,9 @@ impl ShardsManager {
             .with_label_values(&labels)
             .observe(elapsed);
 
-        self.peer_manager_adapter.do_send(
-            PeerManagerMessageRequest::NetworkRequests(
-                NetworkRequests::PartialEncodedChunkResponse { route_back, response },
-            )
-            .with_span_context(),
-        );
+        self.peer_manager_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+            NetworkRequests::PartialEncodedChunkResponse { route_back, response },
+        ));
     }
 
     /// Finds the parts and receipt proofs asked for in the request, and returns a response
@@ -1465,7 +1459,7 @@ impl ShardsManager {
         //    And if the validation fails in this case, we actually can't say if the chunk is actually
         //    invalid. So we must return chain_error instead of return error
         let (ancestor_hash, epoch_id, epoch_id_confirmed) = {
-            let prev_block_hash = header.prev_block_hash().clone();
+            let prev_block_hash = *header.prev_block_hash();
             let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(&prev_block_hash);
             if let Ok(epoch_id) = epoch_id {
                 (prev_block_hash, epoch_id, true)
@@ -1971,30 +1965,24 @@ impl ShardsManager {
             // We don't because with the current implementation, we force all validators to track all
             // shards by making their config tracking all shards.
             // See https://github.com/near/nearcore/issues/7388
-            self.peer_manager_adapter.do_send(
-                PeerManagerMessageRequest::NetworkRequests(
-                    NetworkRequests::PartialEncodedChunkForward {
-                        account_id: bp_account_id,
-                        forward: forward.clone(),
-                    },
-                )
-                .with_span_context(),
-            );
+            self.peer_manager_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::PartialEncodedChunkForward {
+                    account_id: bp_account_id,
+                    forward: forward.clone(),
+                },
+            ));
         }
 
         // We also forward chunk parts to incoming chunk producers because we want them to be able
         // to produce the next chunk without delays. For the same reason as above, we don't check if they
         // actually track this shard.
         for next_chunk_producer in next_chunk_producers {
-            self.peer_manager_adapter.do_send(
-                PeerManagerMessageRequest::NetworkRequests(
-                    NetworkRequests::PartialEncodedChunkForward {
-                        account_id: next_chunk_producer,
-                        forward: forward.clone(),
-                    },
-                )
-                .with_span_context(),
-            );
+            self.peer_manager_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::PartialEncodedChunkForward {
+                    account_id: next_chunk_producer,
+                    forward: forward.clone(),
+                },
+            ));
         }
 
         Ok(())
@@ -2150,20 +2138,17 @@ impl ShardsManager {
                 );
 
             if Some(&to_whom) != self.me.as_ref() {
-                self.peer_manager_adapter.do_send(
-                    PeerManagerMessageRequest::NetworkRequests(
-                        NetworkRequests::PartialEncodedChunkMessage {
-                            account_id: to_whom.clone(),
-                            partial_encoded_chunk,
-                        },
-                    )
-                    .with_span_context(),
-                );
+                self.peer_manager_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                    NetworkRequests::PartialEncodedChunkMessage {
+                        account_id: to_whom.clone(),
+                        partial_encoded_chunk,
+                    },
+                ));
             }
         }
 
         // Add it to the set of chunks to be included in the next block
-        self.encoded_chunks.merge_in_partial_encoded_chunk(&partial_chunk.clone().into());
+        self.encoded_chunks.merge_in_partial_encoded_chunk(&partial_chunk.into());
         self.encoded_chunks.mark_chunk_for_inclusion(&chunk_header.chunk_hash());
 
         Ok(())
@@ -2318,7 +2303,7 @@ mod test {
         let mut shards_manager = ShardsManager::new(
             Some("test".parse().unwrap()),
             runtime_adapter,
-            network_adapter.clone(),
+            network_adapter.as_sender(),
             client_adapter.as_sender(),
             ReadOnlyChunksStore::new(store),
             mock_tip.clone(),
@@ -2376,7 +2361,7 @@ mod test {
         let mut shards_manager = ShardsManager::new(
             Some("test".parse().unwrap()),
             runtime_adapter.clone(),
-            network_adapter,
+            network_adapter.as_sender(),
             client_adapter.as_sender(),
             chain_store.new_read_only_chunks_store(),
             mock_tip.clone(),
@@ -2410,8 +2395,8 @@ mod test {
             header.chunk_hash(),
             ChunkRequestInfo {
                 height: header.height_created(),
-                ancestor_hash: prev_block_hash.clone(),
-                prev_block_hash: prev_block_hash.clone(),
+                ancestor_hash: *prev_block_hash,
+                prev_block_hash: *prev_block_hash,
                 shard_id: header.shard_id(),
                 last_requested: Clock::instant(),
                 added: Clock::instant(),
@@ -2539,7 +2524,7 @@ mod test {
         let mut shards_manager = ShardsManager::new(
             Some(fixture.mock_shard_tracker.clone()),
             fixture.mock_runtime.clone(),
-            fixture.mock_network.clone(),
+            fixture.mock_network.as_sender(),
             fixture.mock_client_adapter.as_sender(),
             fixture.chain_store.new_read_only_chunks_store(),
             fixture.mock_chain_head.clone(),
@@ -2603,7 +2588,7 @@ mod test {
         let mut shards_manager = ShardsManager::new(
             Some(fixture.mock_shard_tracker.clone()),
             fixture.mock_runtime.clone(),
-            fixture.mock_network.clone(),
+            fixture.mock_network.as_sender(),
             fixture.mock_client_adapter.as_sender(),
             fixture.chain_store.new_read_only_chunks_store(),
             fixture.mock_chain_head.clone(),
@@ -2630,7 +2615,7 @@ mod test {
         let mut shards_manager = ShardsManager::new(
             Some(fixture.mock_chunk_part_owner.clone()),
             fixture.mock_runtime.clone(),
-            fixture.mock_network.clone(),
+            fixture.mock_network.as_sender(),
             fixture.mock_client_adapter.as_sender(),
             fixture.chain_store.new_read_only_chunks_store(),
             fixture.mock_chain_head.clone(),
@@ -2681,7 +2666,7 @@ mod test {
         let mut shards_manager = ShardsManager::new(
             Some(fixture.mock_chunk_part_owner.clone()),
             fixture.mock_runtime.clone(),
-            fixture.mock_network.clone(),
+            fixture.mock_network.as_sender(),
             fixture.mock_client_adapter.as_sender(),
             fixture.chain_store.new_read_only_chunks_store(),
             fixture.mock_chain_head.clone(),
@@ -2746,7 +2731,7 @@ mod test {
         let mut shards_manager = ShardsManager::new(
             account_id,
             fixture.mock_runtime.clone(),
-            fixture.mock_network.clone(),
+            fixture.mock_network.as_sender(),
             fixture.mock_client_adapter.as_sender(),
             fixture.chain_store.new_read_only_chunks_store(),
             fixture.mock_chain_head.clone(),
@@ -2757,7 +2742,7 @@ mod test {
         );
         shards_manager.request_chunks(
             vec![fixture.mock_chunk_header.clone()],
-            fixture.mock_chunk_header.prev_block_hash().clone(),
+            *fixture.mock_chunk_header.prev_block_hash(),
         );
         let marked_as_requested = shards_manager
             .requested_partial_encoded_chunks
@@ -2830,7 +2815,7 @@ mod test {
         let mut shards_manager = ShardsManager::new(
             Some(fixture.mock_chunk_part_owner.clone()),
             fixture.mock_runtime.clone(),
-            fixture.mock_network.clone(),
+            fixture.mock_network.as_sender(),
             fixture.mock_client_adapter.as_sender(),
             fixture.chain_store.new_read_only_chunks_store(),
             fixture.mock_chain_head.clone(),
@@ -2913,7 +2898,7 @@ mod test {
         let mut shards_manager = ShardsManager::new(
             Some(fixture.mock_shard_tracker.clone()),
             fixture.mock_runtime.clone(),
-            fixture.mock_network.clone(),
+            fixture.mock_network.as_sender(),
             fixture.mock_client_adapter.as_sender(),
             fixture.chain_store.new_read_only_chunks_store(),
             fixture.mock_chain_head.clone(),
@@ -2982,7 +2967,7 @@ mod test {
         let mut shards_manager = ShardsManager::new(
             Some(fixture.mock_shard_tracker.clone()),
             fixture.mock_runtime.clone(),
-            fixture.mock_network.clone(),
+            fixture.mock_network.as_sender(),
             fixture.mock_client_adapter.as_sender(),
             fixture.chain_store.new_read_only_chunks_store(),
             fixture.mock_chain_head.clone(),
@@ -3044,7 +3029,7 @@ mod test {
         let mut shards_manager = ShardsManager::new(
             Some(fixture.mock_shard_tracker.clone()),
             fixture.mock_runtime.clone(),
-            fixture.mock_network.clone(),
+            fixture.mock_network.as_sender(),
             fixture.mock_client_adapter.as_sender(),
             fixture.chain_store.new_read_only_chunks_store(),
             fixture.mock_chain_head.clone(),
@@ -3076,7 +3061,7 @@ mod test {
         let mut shards_manager = ShardsManager::new(
             Some(fixture.mock_shard_tracker.clone()),
             fixture.mock_runtime.clone(),
-            fixture.mock_network.clone(),
+            fixture.mock_network.as_sender(),
             fixture.mock_client_adapter.as_sender(),
             fixture.chain_store.new_read_only_chunks_store(),
             fixture.mock_chain_head.clone(),
@@ -3105,7 +3090,7 @@ mod test {
         let mut shards_manager = ShardsManager::new(
             Some(fixture.mock_shard_tracker.clone()),
             fixture.mock_runtime.clone(),
-            fixture.mock_network.clone(),
+            fixture.mock_network.as_sender(),
             fixture.mock_client_adapter.as_sender(),
             fixture.chain_store.new_read_only_chunks_store(),
             fixture.mock_chain_head.clone(),
@@ -3135,7 +3120,7 @@ mod test {
         let mut shards_manager = ShardsManager::new(
             Some(fixture.mock_shard_tracker.clone()),
             fixture.mock_runtime.clone(),
-            fixture.mock_network.clone(),
+            fixture.mock_network.as_sender(),
             fixture.mock_client_adapter.as_sender(),
             fixture.chain_store.new_read_only_chunks_store(),
             fixture.mock_chain_head.clone(),
@@ -3164,7 +3149,7 @@ mod test {
         let mut shards_manager = ShardsManager::new(
             Some(fixture.mock_shard_tracker.clone()),
             fixture.mock_runtime.clone(),
-            fixture.mock_network.clone(),
+            fixture.mock_network.as_sender(),
             fixture.mock_client_adapter.as_sender(),
             fixture.chain_store.new_read_only_chunks_store(),
             fixture.mock_chain_head.clone(),
@@ -3201,7 +3186,7 @@ mod test {
         let mut shards_manager = ShardsManager::new(
             Some(fixture.mock_shard_tracker.clone()),
             fixture.mock_runtime.clone(),
-            fixture.mock_network.clone(),
+            fixture.mock_network.as_sender(),
             fixture.mock_client_adapter.as_sender(),
             fixture.chain_store.new_read_only_chunks_store(),
             fixture.mock_chain_head.clone(),
@@ -3242,7 +3227,7 @@ mod test {
         let mut shards_manager = ShardsManager::new(
             Some(fixture.mock_shard_tracker.clone()),
             fixture.mock_runtime.clone(),
-            fixture.mock_network.clone(),
+            fixture.mock_network.as_sender(),
             fixture.mock_client_adapter.as_sender(),
             fixture.chain_store.new_read_only_chunks_store(),
             fixture.mock_chain_head.clone(),
@@ -3281,7 +3266,7 @@ mod test {
         let mut shards_manager = ShardsManager::new(
             Some(fixture.mock_shard_tracker.clone()),
             fixture.mock_runtime.clone(),
-            fixture.mock_network.clone(),
+            fixture.mock_network.as_sender(),
             fixture.mock_client_adapter.as_sender(),
             fixture.chain_store.new_read_only_chunks_store(),
             fixture.mock_chain_head.clone(),
@@ -3303,7 +3288,7 @@ mod test {
         let mut shards_manager = ShardsManager::new(
             Some(fixture.mock_shard_tracker.clone()),
             fixture.mock_runtime.clone(),
-            fixture.mock_network.clone(),
+            fixture.mock_network.as_sender(),
             fixture.mock_client_adapter.as_sender(),
             fixture.chain_store.new_read_only_chunks_store(),
             fixture.mock_chain_head.clone(),
@@ -3325,7 +3310,7 @@ mod test {
         let mut shards_manager = ShardsManager::new(
             Some(fixture.mock_shard_tracker.clone()),
             fixture.mock_runtime.clone(),
-            fixture.mock_network.clone(),
+            fixture.mock_network.as_sender(),
             fixture.mock_client_adapter.as_sender(),
             fixture.chain_store.new_read_only_chunks_store(),
             fixture.mock_chain_head.clone(),
@@ -3355,7 +3340,7 @@ mod test {
         let mut shards_manager = ShardsManager::new(
             Some(fixture.mock_shard_tracker.clone()),
             fixture.mock_runtime.clone(),
-            fixture.mock_network.clone(),
+            fixture.mock_network.as_sender(),
             fixture.mock_client_adapter.as_sender(),
             fixture.chain_store.new_read_only_chunks_store(),
             fixture.mock_chain_head.clone(),
@@ -3383,7 +3368,7 @@ mod test {
         let mut shards_manager = ShardsManager::new(
             Some(fixture.mock_chunk_part_owner.clone()),
             fixture.mock_runtime.clone(),
-            fixture.mock_network.clone(),
+            fixture.mock_network.as_sender(),
             fixture.mock_client_adapter.as_sender(),
             fixture.chain_store.new_read_only_chunks_store(),
             fixture.mock_chain_head.clone(),

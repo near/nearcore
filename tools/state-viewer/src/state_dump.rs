@@ -142,12 +142,7 @@ pub fn state_dump_redis(
 
     for (shard_id, state_root) in state_roots.iter().enumerate() {
         let trie = runtime
-            .get_trie_for_shard(
-                shard_id as u64,
-                last_block_header.prev_hash(),
-                state_root.clone(),
-                false,
-            )
+            .get_trie_for_shard(shard_id as u64, last_block_header.prev_hash(), *state_root, false)
             .unwrap();
         for item in trie.iter().unwrap() {
             let (key, value) = item.unwrap();
@@ -238,12 +233,7 @@ fn iterate_over_records(
     let mut total_supply = 0;
     for (shard_id, state_root) in state_roots.iter().enumerate() {
         let trie = runtime
-            .get_trie_for_shard(
-                shard_id as u64,
-                last_block_header.prev_hash(),
-                state_root.clone(),
-                false,
-            )
+            .get_trie_for_shard(shard_id as u64, last_block_header.prev_hash(), *state_root, false)
             .unwrap();
         for item in trie.iter().unwrap() {
             let (key, value) = item.unwrap();
@@ -513,7 +503,7 @@ mod test {
         let new_genesis = new_near_config.genesis;
         let mut expected_accounts: HashSet<AccountId> =
             new_genesis.config.validators.iter().map(|v| v.account_id.clone()).collect();
-        expected_accounts.extend(select_account_ids.clone());
+        expected_accounts.extend(select_account_ids);
         expected_accounts.insert(new_genesis.config.protocol_treasury_account.clone());
         let mut actual_accounts: HashSet<AccountId> = HashSet::new();
         new_genesis.for_each_record(|record| {

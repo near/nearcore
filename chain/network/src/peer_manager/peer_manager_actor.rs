@@ -215,12 +215,12 @@ impl PeerManagerActor {
         };
         let my_peer_id = config.node_id();
         let arbiter = actix::Arbiter::new().handle();
-        let clock = clock.clone();
+        let clock = clock;
         let state = Arc::new(NetworkState::new(
             &clock,
-            store.clone(),
+            store,
             peer_store,
-            config.clone(),
+            config,
             genesis_id,
             client,
             shards_manager_adapter,
@@ -638,7 +638,7 @@ impl PeerManagerActor {
                 return self.state.send_message_to_account(&self.clock, account_id, msg);
             }
             AccountOrPeerIdOrHash::PeerId(it) => PeerIdOrHash::PeerId(it.clone()),
-            AccountOrPeerIdOrHash::Hash(it) => PeerIdOrHash::Hash(it.clone()),
+            AccountOrPeerIdOrHash::Hash(it) => PeerIdOrHash::Hash(*it),
         };
 
         self.state.send_message_to_peer(

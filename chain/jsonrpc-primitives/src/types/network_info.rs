@@ -1,23 +1,22 @@
 use near_primitives::network::PeerId;
 use near_primitives::types::AccountId;
-use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct RpcPeerInfo {
     pub id: PeerId,
     pub addr: Option<SocketAddr>,
     pub account_id: Option<AccountId>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct RpcKnownProducer {
     pub account_id: AccountId,
     pub addr: Option<SocketAddr>,
     pub peer_id: PeerId,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct RpcNetworkInfoResponse {
     pub active_peers: Vec<RpcPeerInfo>,
     pub num_active_peers: usize,
@@ -28,7 +27,7 @@ pub struct RpcNetworkInfoResponse {
     pub known_producers: Vec<RpcKnownProducer>,
 }
 
-#[derive(thiserror::Error, Debug, Serialize, Deserialize)]
+#[derive(thiserror::Error, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcNetworkInfoError {
     #[error("Internal error: {error_message}")]

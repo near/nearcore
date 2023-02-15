@@ -203,6 +203,7 @@ tracing-span-tree = "0.1"
 tracing-subscriber = { version = "0.3.15", features = ["env-filter", "fmt", "registry", "std"] }
 turn = "0.6"
 validator = "0.12"
+rkyv = { version = "0.7", features = ["strict"] }
 wasm-encoder = "0.11.0"
 wasm-smith = "0.10"
 wasmparser = "0.78"
@@ -250,4 +251,4 @@ opt-level = 3
 [workspace.package]
 edition = "2021"
 authors = ["Near Inc <hello@nearprotocol.com>"]
-rust-version = "1.66.1"
+rust-version = "1.67.1"

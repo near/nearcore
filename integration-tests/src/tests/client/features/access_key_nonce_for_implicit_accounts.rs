@@ -2,6 +2,7 @@ use crate::tests::client::process_blocks::{
     create_nightshade_runtimes, produce_blocks_from_height,
 };
 use assert_matches::assert_matches;
+use near_async::messaging::CanSend;
 use near_chain::chain::NUM_ORPHAN_ANCESTORS_CHECK;
 use near_chain::{ChainGenesis, Error, Provenance, RuntimeWithEpochManagerAdapter};
 use near_chain_configs::Genesis;
@@ -9,9 +10,9 @@ use near_chunks::metrics::PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_HEADER;
 use near_client::test_utils::{create_chunk_with_transactions, TestEnv};
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType, Signer};
-use near_network::types::{MsgRecipient, NetworkRequests, PeerManagerMessageRequest};
+use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_o11y::testonly::init_test_logger;
-use near_o11y::WithSpanContextExt;
+
 use near_primitives::account::AccessKey;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
@@ -521,7 +522,7 @@ fn test_processing_chunks_sanity() {
                     env.process_partial_encoded_chunk_request(1, request);
                     num_requests += 1;
                 } else {
-                    env.network_adapters[1].do_send(request.with_span_context());
+                    env.network_adapters[1].send(request);
                 }
             }
         }

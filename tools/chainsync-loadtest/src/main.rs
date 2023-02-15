@@ -2,24 +2,21 @@ mod concurrency;
 mod fetch_chain;
 mod network;
 
-use std::sync::Arc;
-
 use anyhow::{anyhow, Context};
-use clap::Parser;
-use openssl_probe;
-
 use concurrency::{Ctx, Scope};
-use network::Network;
-
+use near_async::actix::AddrWithAutoSpanContextExt;
+use near_async::messaging::LateBoundSender;
 use near_chain_configs::Genesis;
 use near_network::time;
-use near_network::types::NetworkRecipient;
 use near_network::PeerManagerActor;
 use near_o11y::tracing::{error, info};
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
 use nearcore::config;
 use nearcore::config::NearConfig;
+use network::Network;
+use openssl_probe;
+use std::sync::Arc;
 
 fn genesis_hash(chain_id: &str) -> CryptoHash {
     return match chain_id {
@@ -35,8 +32,8 @@ fn genesis_hash(chain_id: &str) -> CryptoHash {
 }
 
 pub fn start_with_config(config: NearConfig, qps_limit: u32) -> anyhow::Result<Arc<Network>> {
-    let network_adapter = Arc::new(NetworkRecipient::default());
-    let network = Network::new(&config, network_adapter.clone(), qps_limit);
+    let network_adapter = Arc::new(LateBoundSender::default());
+    let network = Network::new(&config, network_adapter.clone().into(), qps_limit);
 
     let network_actor = PeerManagerActor::spawn(
         time::Clock::real(),
@@ -50,7 +47,7 @@ pub fn start_with_config(config: NearConfig, qps_limit: u32) -> anyhow::Result<A
         },
     )
     .context("PeerManagerActor::spawn()")?;
-    network_adapter.set_recipient(network_actor);
+    network_adapter.bind(network_actor.with_auto_span_context());
     return Ok(network);
 }
 
@@ -71,7 +68,7 @@ fn download_configs(chain_id: &str, dir: &std::path::Path) -> anyhow::Result<Nea
     NearConfig::new(config, genesis, (&node_signer).into(), None)
 }
 
-#[derive(Parser, Debug)]
+#[derive(clap::Parser, Debug)]
 struct Cmd {
     #[clap(long)]
     pub chain_id: String,
@@ -85,7 +82,7 @@ struct Cmd {
 
 impl Cmd {
     fn parse_and_run() -> anyhow::Result<()> {
-        let cmd = Self::parse();
+        let cmd: Self = clap::Parser::parse();
         let start_block_hash =
             cmd.start_block_hash.parse::<CryptoHash>().map_err(|x| anyhow!(x.to_string()))?;
 

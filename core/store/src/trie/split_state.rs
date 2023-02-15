@@ -366,7 +366,7 @@ mod tests {
         state_root: &StateRoot,
     ) -> Vec<(Vec<u8>, Vec<u8>)> {
         tries
-            .get_trie_for_shard(*shard_uid, state_root.clone())
+            .get_trie_for_shard(*shard_uid, *state_root)
             .iter()
             .unwrap()
             .map(Result::unwrap)
@@ -673,7 +673,7 @@ mod tests {
         // add accounts and receipts to the split shards
         let mut split_state_roots = {
             let trie_items = tries
-                .get_view_trie_for_shard(ShardUId::single_shard(), state_root.clone())
+                .get_view_trie_for_shard(ShardUId::single_shard(), state_root)
                 .get_trie_items_for_part(PartId::new(0, 1))
                 .unwrap();
             let split_state_roots: HashMap<_, _> = (0..num_shards)

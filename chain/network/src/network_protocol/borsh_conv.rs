@@ -2,7 +2,6 @@
 use crate::network_protocol as mem;
 use crate::network_protocol::borsh_ as net;
 use crate::network_protocol::RoutedMessageV2;
-use thiserror::Error;
 
 impl From<&net::Handshake> for mem::Handshake {
     fn from(x: &net::Handshake) -> Self {
@@ -91,7 +90,7 @@ impl From<mem::RoutingTableUpdate> for net::RoutingTableUpdate {
 
 //////////////////////////////////////////
 
-#[derive(Error, Debug)]
+#[derive(thiserror::Error, Debug)]
 pub enum ParsePeerMessageError {
     #[error("HandshakeV2 is deprecated")]
     DeprecatedHandshakeV2,

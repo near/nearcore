@@ -352,7 +352,7 @@ pub fn make_handshake<R: Rng>(rng: &mut R, chain: &Chain) -> Handshake {
 pub fn make_routed_message<R: Rng>(rng: &mut R, body: RoutedMessageBody) -> RoutedMessageV2 {
     let signer = make_signer(rng);
     let peer_id = PeerId::new(signer.public_key);
-    RawRoutedMessage { target: PeerIdOrHash::PeerId(peer_id.clone()), body }.sign(
+    RawRoutedMessage { target: PeerIdOrHash::PeerId(peer_id), body }.sign(
         &signer.secret_key,
         /*ttl=*/ 1,
         None,

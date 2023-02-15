@@ -1256,7 +1256,7 @@ mod tests {
         assert_eq!(
             res,
             RuntimeError::InvalidTxError(InvalidTxError::LackBalanceForState {
-                signer_id: account_id.clone(),
+                signer_id: account_id,
                 amount: Balance::from(std::mem::size_of::<Account>() as u64)
                     * config.storage_amount_per_byte()
                     - (initial_balance - transfer_amount)
