@@ -457,7 +457,6 @@ impl NearVmVM {
                     // entirety of this function.
                     InstanceConfig::default()
                         .with_counter(gas)
-                        // TODO: check wasmer2_stack_limit is actually a protocol const and not a local config
                         .with_stack_limit(self.config.limit_config.wasmer2_stack_limit),
                 );
                 let handle = match maybe_handle {
