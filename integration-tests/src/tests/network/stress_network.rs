@@ -69,7 +69,7 @@ fn stress_test() {
             .map(|ix| {
                 Arc::new(make_peer_manager(
                     format!("test{}", ix).as_str(),
-                    addrs[ix].clone(),
+                    addrs[ix],
                     boot_nodes.iter().map(|(acc, addr)| (acc.as_str(), *addr)).collect(),
                 ))
             })
@@ -124,7 +124,7 @@ fn stress_test() {
 
                     pms[0] = Arc::new(make_peer_manager(
                         "test0",
-                        addrs[0].clone(),
+                        addrs[0],
                         boot_nodes.iter().map(|(acc, addr)| (acc.as_str(), *addr)).collect(),
                     ));
 

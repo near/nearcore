@@ -1238,7 +1238,7 @@ fn test_invalid_height_too_large() {
     let b1 = env.clients[0].produce_block(1).unwrap().unwrap();
     let _ = env.clients[0].process_block_test(b1.clone().into(), Provenance::PRODUCED).unwrap();
     let signer = Arc::new(create_test_signer("test0"));
-    let b2 = TestBlockBuilder::new(&b1, signer.clone()).height(u64::MAX).build();
+    let b2 = TestBlockBuilder::new(&b1, signer).height(u64::MAX).build();
     let res = env.clients[0].process_block_test(b2.into(), Provenance::NONE);
     assert_matches!(res.unwrap_err(), Error::InvalidBlockHeight(_));
 }

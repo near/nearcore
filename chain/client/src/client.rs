@@ -942,12 +942,8 @@ impl Client {
             was_requested)
         .entered();
 
-        let res = self.receive_block_impl(
-            block,
-            peer_id.clone(),
-            was_requested,
-            apply_chunks_done_callback,
-        );
+        let res =
+            self.receive_block_impl(block, peer_id, was_requested, apply_chunks_done_callback);
         // Log the errors here. Note that the real error handling logic is already
         // done within process_block_impl, this is just for logging.
         if let Err(err) = res {
@@ -1168,7 +1164,7 @@ impl Client {
         }
         self.process_block_processing_artifact(block_processing_artifacts);
         let accepted_blocks_hashes =
-            accepted_blocks.iter().map(|accepted_block| accepted_block.hash.clone()).collect();
+            accepted_blocks.iter().map(|accepted_block| accepted_block.hash).collect();
         for accepted_block in accepted_blocks {
             self.on_block_accepted_with_optional_chunk_produce(
                 accepted_block.hash,
@@ -1285,7 +1281,7 @@ impl Client {
     ) {
         let prev_block_hash = chunk_header.prev_block_hash();
         self.prev_block_to_chunk_headers_ready_for_inclusion
-            .get_or_insert(prev_block_hash.clone(), || HashMap::new());
+            .get_or_insert(*prev_block_hash, || HashMap::new());
         self.prev_block_to_chunk_headers_ready_for_inclusion
             .get_mut(prev_block_hash)
             .unwrap()
@@ -1578,10 +1574,7 @@ impl Client {
             self.runtime_adapter.as_ref(),
         )?;
         persist_chunk(partial_chunk.clone(), Some(shard_chunk), self.chain.mut_store())?;
-        self.on_chunk_header_ready_for_inclusion(
-            encoded_chunk.cloned_header(),
-            validator_id.clone(),
-        );
+        self.on_chunk_header_ready_for_inclusion(encoded_chunk.cloned_header(), validator_id);
         self.shards_manager_adapter.distribute_encoded_chunk(
             partial_chunk,
             encoded_chunk,

@@ -392,7 +392,7 @@ impl StateSync {
                       sync_hash,
                       match shard_sync_download.status {
                           ShardSyncStatus::StateDownloadHeader => format!("{} requests sent {}, last target {:?}",
-                                                                          Purple.bold().paint(format!("HEADER")),
+                                                                          Purple.bold().paint("HEADER".to_string()),
                                                                           shard_sync_download.downloads[0].state_requests_count,
                                                                           shard_sync_download.downloads[0].last_target),
                           ShardSyncStatus::StateDownloadParts => { let mut text = "".to_string();
