@@ -63,7 +63,7 @@ impl WhitelistNode {
         Ok(Self {
             id: pi.id.clone(),
             addr: if let Some(addr) = pi.addr {
-                addr.clone()
+                addr
             } else {
                 anyhow::bail!("addess is missing");
             },
@@ -146,7 +146,7 @@ pub(crate) struct NetworkState {
     /// Mutex which prevents overlapping calls to tier1_advertise_proxies.
     tier1_advertise_proxies_mutex: tokio::sync::Mutex<()>,
     /// Demultiplexer aggregating calls to add_edges().
-    add_edges_demux: demux::Demux<Vec<Edge>, ()>,
+    add_edges_demux: demux::Demux<Vec<Edge>, Result<(), ReasonForBan>>,
 
     /// Mutex serializing calls to set_chain_info(), which mutates a bunch of stuff non-atomically.
     /// TODO(gprusak): make it use synchronization primitives in some more canonical way.
@@ -182,7 +182,7 @@ impl NetworkState {
             tier1: connection::Pool::new(config.node_id()),
             inbound_handshake_permits: Arc::new(tokio::sync::Semaphore::new(LIMIT_PENDING_PEERS)),
             peer_store,
-            connection_store: connection_store::ConnectionStore::new(store.clone()).unwrap(),
+            connection_store: connection_store::ConnectionStore::new(store).unwrap(),
             pending_reconnect: Mutex::new(Vec::<PeerInfo>::new()),
             accounts_data: Arc::new(accounts_data::Cache::new()),
             tier1_route_back: Mutex::new(RouteBackCache::default()),
@@ -301,8 +301,7 @@ impl NetworkState {
                             return Err(RegisterPeerError::NotTier1Peer);
                         }
                     }
-                    let (_, ok) = this.graph.verify(vec![edge]).await;
-                    if !ok {
+                    if !edge.verify() {
                         return Err(RegisterPeerError::InvalidEdge);
                     }
                     this.tier1.insert_ready(conn).map_err(RegisterPeerError::PoolError)?;
@@ -736,7 +735,7 @@ impl NetworkState {
         if self.config.tier1.is_none() {
             return false;
         }
-        let has_changed = self.accounts_data.set_keys(info.tier1_accounts.clone());
+        let has_changed = self.accounts_data.set_keys(info.tier1_accounts);
         // The set of TIER1 accounts has changed, so we might be missing some accounts_data
         // that our peers know about.
         if has_changed {

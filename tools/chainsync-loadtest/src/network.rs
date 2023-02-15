@@ -1,6 +1,7 @@
 use crate::concurrency::{Ctx, Once, RateLimiter, Scope, WeakMap};
 use log::info;
 
+use near_async::messaging::CanSend;
 use near_network::types::{
     AccountIdOrPeerTrackingShard, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg,
     ReasonForBan, StateResponseInfo,
@@ -8,7 +9,7 @@ use near_network::types::{
 use near_network::types::{
     FullPeerInfo, NetworkInfo, NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest,
 };
-use near_o11y::WithSpanContextExt;
+
 use near_primitives::block::{Approval, Block, BlockHeader};
 use near_primitives::challenge::Challenge;
 use near_primitives::hash::CryptoHash;
@@ -51,7 +52,7 @@ struct NetworkData {
 // Network encapsulates PeerManager and exposes an async API for sending RPCs.
 pub struct Network {
     pub stats: Stats,
-    network_adapter: Arc<dyn PeerManagerAdapter>,
+    network_adapter: PeerManagerAdapter,
     pub block_headers: Arc<WeakMap<CryptoHash, Once<Vec<BlockHeader>>>>,
     pub blocks: Arc<WeakMap<CryptoHash, Once<Block>>>,
     pub chunks: Arc<WeakMap<ChunkHash, Once<PartialEncodedChunkResponseMsg>>>,
@@ -71,7 +72,7 @@ pub struct Network {
 impl Network {
     pub fn new(
         config: &NearConfig,
-        network_adapter: Arc<dyn PeerManagerAdapter>,
+        network_adapter: PeerManagerAdapter,
         qps_limit: u32,
     ) -> Arc<Network> {
         Arc::new(Network {
@@ -127,12 +128,9 @@ impl Network {
                 for peer in peers {
                     // TODO: rate limit per peer.
                     self_.rate_limiter.allow(&ctx).await?;
-                    self_.network_adapter.do_send(
-                        PeerManagerMessageRequest::NetworkRequests(new_req(
-                            peer.full_peer_info.clone(),
-                        ))
-                        .with_span_context(),
-                    );
+                    self_.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                        new_req(peer.full_peer_info.clone()),
+                    ));
                     self_.stats.msgs_sent.fetch_add(1, Ordering::Relaxed);
                     ctx.wait(self_.request_timeout).await?;
                 }
@@ -167,13 +165,13 @@ impl Network {
     ) -> anyhow::Result<Vec<BlockHeader>> {
         Scope::run(ctx, {
             let self_ = self.clone();
-            let hash = hash.clone();
+            let hash = *hash;
             move |ctx, s| async move {
                 self_.stats.header_start.fetch_add(1, Ordering::Relaxed);
                 let recv = self_.block_headers.get_or_insert(&hash, || Once::new());
                 s.spawn_weak(|ctx| {
                     self_.keep_sending(&ctx, move |peer| NetworkRequests::BlockHeadersRequest {
-                        hashes: vec![hash.clone()],
+                        hashes: vec![hash],
                         peer_id: peer.peer_info.id,
                     })
                 });
@@ -193,13 +191,13 @@ impl Network {
     ) -> anyhow::Result<Block> {
         Scope::run(ctx, {
             let self_ = self.clone();
-            let hash = hash.clone();
+            let hash = *hash;
             move |ctx, s| async move {
                 self_.stats.block_start.fetch_add(1, Ordering::Relaxed);
                 let recv = self_.blocks.get_or_insert(&hash, || Once::new());
                 s.spawn_weak(|ctx| {
                     self_.keep_sending(&ctx, move |peer| NetworkRequests::BlockRequest {
-                        hash: hash.clone(),
+                        hash: hash,
                         peer_id: peer.peer_info.id,
                     })
                 });
@@ -306,7 +304,7 @@ impl near_network::client::Client for Network {
         _peer_id: PeerId,
     ) -> Result<(), ReasonForBan> {
         if let Some(h) = headers.iter().min_by_key(|h| h.height()) {
-            let hash = h.prev_hash().clone();
+            let hash = *h.prev_hash();
             self.block_headers.get(&hash).map(|p| p.set(headers));
         }
         Ok(())

@@ -329,7 +329,7 @@ pub struct TestBlockBuilder {
 impl TestBlockBuilder {
     pub fn new(prev: &Block, signer: Arc<dyn ValidatorSigner>) -> Self {
         let mut tree = PartialMerkleTree::default();
-        tree.insert(prev.hash().clone());
+        tree.insert(*prev.hash());
 
         Self {
             prev: prev.clone(),
@@ -369,7 +369,7 @@ impl TestBlockBuilder {
 
     /// Updates the merkle tree by adding the previous hash, and updates the new block's merkle_root.
     pub fn block_merkle_tree(mut self, block_merkle_tree: &mut PartialMerkleTree) -> Self {
-        block_merkle_tree.insert(self.prev.hash().clone());
+        block_merkle_tree.insert(*self.prev.hash());
         self.block_merkle_root = block_merkle_tree.root();
         self
     }
@@ -500,7 +500,7 @@ impl FinalExecutionOutcomeView {
     #[track_caller]
     /// Check transaction and all transitive receipts for success status.
     pub fn assert_success(&self) {
-        assert_eq!(self.status, FinalExecutionStatus::SuccessValue(Vec::new()));
+        assert!(matches!(self.status, FinalExecutionStatus::SuccessValue(_)));
         for (i, receipt) in self.receipts_outcome.iter().enumerate() {
             assert!(
                 matches!(

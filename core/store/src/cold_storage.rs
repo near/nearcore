@@ -397,7 +397,7 @@ impl StoreWithCache<'_> {
         if !self.cache.contains_key(&(column, key.to_vec())) {
             crate::metrics::COLD_MIGRATION_READS.with_label_values(&[<&str>::from(column)]).inc();
             self.cache.insert(
-                (column.clone(), key.to_vec()),
+                (column, key.to_vec()),
                 self.store.get(column, key)?.map(|x| x.as_slice().to_vec()),
             );
         }

@@ -11,6 +11,7 @@ use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_crypto::{KeyType, PublicKey};
 use near_primitives::account::AccessKey;
+use near_primitives::config::ActionCosts;
 use near_primitives::errors::{ActionsValidationError, InvalidTxError, TxExecutionError};
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::{
@@ -25,7 +26,9 @@ use near_primitives::views::{
 use near_test_contracts::smallest_rs_contract;
 use nearcore::config::GenesisExt;
 use nearcore::NEAR_BASE;
-use testlib::runtime_utils::{alice_account, bob_account, carol_account, eve_dot_alice_account};
+use testlib::runtime_utils::{
+    add_contract, alice_account, bob_account, carol_account, eve_dot_alice_account,
+};
 
 fn exec_meta_transaction(
     actions: Vec<Action>,
@@ -187,6 +190,8 @@ fn check_meta_tx_no_fn_call(
 /// Call `check_meta_tx_execution` and perform gas checks specific to function calls.
 ///
 /// This is a common checker function used by the tests below.
+/// It works for action lists that consists multiple function calls but adding
+/// other action will mess up the gas checks.
 fn check_meta_tx_fn_call(
     node: &impl Node,
     actions: Vec<Action>,
@@ -197,8 +202,8 @@ fn check_meta_tx_fn_call(
     receiver: AccountId,
 ) -> FinalExecutionOutcomeView {
     let fee_helper = fee_helper(node);
-    let gas_cost =
-        fee_helper.function_call_cost(msg_len, 0) + fee_helper.meta_tx_overhead_cost(&actions);
+    let num_fn_calls = actions.len();
+    let meta_tx_overhead_cost = fee_helper.meta_tx_overhead_cost(&actions);
 
     let (tx_result, sender_diff, relayer_diff, receiver_diff) =
         check_meta_tx_execution(node, actions, sender, relayer, receiver);
@@ -209,14 +214,30 @@ fn check_meta_tx_fn_call(
     // costs and contract reward. We need to check in the function call receipt
     // how much gas was spent and subtract the base cost that is not part of the
     // dynamic cost. The contract reward can be inferred from that.
-    let gas_burnt_for_function_call = tx_result.receipts_outcome[1].outcome.gas_burnt
-        - fee_helper.function_call_exec_gas(msg_len);
+
+    // static send gas is paid and burnt upfront
+    let static_send_gas = fee_helper.cfg.fee(ActionCosts::new_action_receipt).send_fee(false)
+        + num_fn_calls as u64 * fee_helper.cfg.fee(ActionCosts::function_call_base).send_fee(false)
+        + msg_len * fee_helper.cfg.fee(ActionCosts::function_call_byte).send_fee(false);
+    // static execution gas burnt in the same receipt as the function calls but
+    // it doesn't contribute to the contract reward
+    let static_exec_gas = fee_helper.cfg.fee(ActionCosts::new_action_receipt).exec_fee()
+        + num_fn_calls as u64 * fee_helper.cfg.fee(ActionCosts::function_call_base).exec_fee()
+        + msg_len * fee_helper.cfg.fee(ActionCosts::function_call_byte).exec_fee();
+
+    // calculate contract rewards as reward("gas burnt in fn call receipt" - "static exec costs")
+    let gas_burnt_for_function_call =
+        tx_result.receipts_outcome[1].outcome.gas_burnt - static_send_gas;
     let dyn_cost = fee_helper.gas_to_balance(gas_burnt_for_function_call);
     let contract_reward = fee_helper.gas_burnt_to_reward(gas_burnt_for_function_call);
 
+    // the relayer pays all gas and tokens
+    let gas_cost =
+        meta_tx_overhead_cost + fee_helper.gas_to_balance(static_exec_gas + static_send_gas);
     let expected_relayer_cost = (gas_cost + tokens_transferred + dyn_cost) as i128;
     assert_eq!(relayer_diff, -expected_relayer_cost, "unexpected relayer balance");
 
+    // the receiver gains transferred tokens and the contract reward
     let expected_receiver_gain = (tokens_transferred + contract_reward) as i128;
     assert_eq!(receiver_diff, expected_receiver_gain, "unexpected receiver balance");
 
@@ -394,4 +415,160 @@ fn meta_tx_delete_account() {
     assert_eq!(relayer_diff, balance as i128 - (gas_cost as i128), "unexpected relayer balance");
     let err = node.view_account(&receiver).expect_err("account should have been deleted");
     assert_eq!(err, "Account ID #eve.alice.near does not exist");
+}
+
+/// Test the canonical example for meta transactions: A fungible token transfer.
+///
+/// Scenario: Bob sends some Carol-FT to David without requiring any NEAR tokens
+/// to purchase gas. Alice acts as a relayer.
+#[test]
+fn meta_tx_ft_transfer() {
+    let relayer = alice_account();
+    let sender = bob_account();
+    let ft_contract = carol_account();
+    let receiver = "david.near";
+
+    let mut genesis = Genesis::test(vec![alice_account(), bob_account(), carol_account()], 3);
+    add_contract(&mut genesis, &ft_contract, near_test_contracts::ft_contract().to_vec());
+    let node = RuntimeNode::new_from_genesis(&relayer, genesis);
+
+    // A BUNCH OF TEST SETUP
+    // initialize the contract
+    node.user()
+        .function_call(
+            relayer.clone(),
+            ft_contract.clone(),
+            "new_default_meta",
+            // make the relayer (alice) owner, makes initialization easier
+            br#"{"owner_id": "alice.near", "total_supply": "1000000"}"#.to_vec(),
+            30_000_000_000_000,
+            0,
+        )
+        .expect("FT contract initialization failed")
+        .assert_success();
+
+    // register sender & receiver FT accounts
+    let actions = vec![ft_register_action(&sender), ft_register_action(&receiver)];
+    node.user()
+        .sign_and_commit_actions(relayer.clone(), ft_contract.clone(), actions)
+        .expect("registering FT accounts")
+        .assert_success();
+    // initialize sender balance
+    let actions = vec![ft_transfer_action(&sender, 10_000).0];
+    node.user()
+        .sign_and_commit_actions(relayer.clone(), ft_contract.clone(), actions)
+        .expect("initializing sender balance failed")
+        .assert_success();
+
+    // START OF META TRANSACTION
+    // 1% fee to the relayer
+    let (action0, bytes0) = ft_transfer_action(&relayer, 10);
+    // the actual transfer
+    let (action1, bytes1) = ft_transfer_action(receiver, 1000);
+    let actions = vec![action0, action1];
+
+    let outcome = check_meta_tx_fn_call(
+        &node,
+        actions,
+        bytes0 + bytes1,
+        2,
+        sender.clone(),
+        relayer.clone(),
+        ft_contract.clone(),
+    );
+
+    // Check that the function call was executed as expected, according to NEP-141 events.
+    let fn_call_logs = &outcome.receipts_outcome[1].outcome.logs;
+
+    assert_eq!(2, fn_call_logs.len(), "expected 2 JSON events but found {fn_call_logs:?}");
+    assert_eq!(
+        fn_call_logs[0],
+        ft_transfer_event(&sender, &relayer, 10),
+        "relayer event looks wrong"
+    );
+    assert_eq!(
+        fn_call_logs[1],
+        ft_transfer_event(&sender, &receiver, 1000),
+        "receiver event looks wrong"
+    );
+
+    // Also check FT balances
+    assert_ft_balance(&node, &ft_contract, &receiver, 1000);
+    assert_ft_balance(&node, &ft_contract, &sender, 10_000 - 1000 - 10);
+    assert_ft_balance(&node, &ft_contract, &relayer, 1_000_000 - 10_000 + 10);
+}
+
+/// Construct an function call action with a FT transfer.
+///
+/// Returns the action and the number of bytes for gas charges.
+fn ft_transfer_action(receiver: &str, amount: u128) -> (Action, u64) {
+    let args: Vec<u8> = format!(
+        r#"{{
+        "receiver_id": "{receiver}",
+        "amount": "{amount}"
+    }}"#
+    )
+    .bytes()
+    .collect();
+    let method_name = "ft_transfer".to_owned();
+    let num_bytes = method_name.len() + args.len();
+    let action = Action::FunctionCall(FunctionCallAction {
+        method_name,
+        args,
+        gas: 20_000_000_000_000,
+        deposit: 1,
+    });
+
+    (action, num_bytes as u64)
+}
+
+/// Add NEAR token balance to maintain the storage of an account, which
+/// registers the user in the fungible contract account.
+fn ft_register_action(receiver: &str) -> Action {
+    let args: Vec<u8> = format!(
+        r#"{{
+        "account_id": "{receiver}"
+    }}"#
+    )
+    .bytes()
+    .collect();
+    Action::FunctionCall(FunctionCallAction {
+        method_name: "storage_deposit".to_owned(),
+        args,
+        gas: 20_000_000_000_000,
+        deposit: NEAR_BASE,
+    })
+}
+
+/// Format a NEP-141 event for an ft transfer
+fn ft_transfer_event(sender: &str, receiver: &str, amount: u128) -> String {
+    // This part is valid JSON, I would like to use the json!() macro but it
+    // produces the fields out of order. This is valid for JSON but it will fail
+    // the string comparison.
+    // (Note: parsing the logs as JSON and comparing serde_json::Value instead
+    // of string is not possible because the logs are only partially valid
+    // JOSN...)
+    let data_json = format!(
+        r#"[{{"old_owner_id":"{sender}","new_owner_id":"{receiver}","amount":"{amount}"}}]"#
+    );
+    let json = format!(
+        r#"{{"standard":"nep141","version":"1.0.0","event":"ft_transfer","data":{data_json}}}"#
+    );
+    // this part isn't even valid JSON
+    format!("EVENT_JSON:{json}")
+}
+
+/// Asserts an FT balance for an account.
+fn assert_ft_balance(
+    node: &RuntimeNode,
+    ft_contract: &AccountId,
+    user: &str,
+    expected_balance: Balance,
+) {
+    let response = node
+        .user()
+        .view_call(ft_contract, "ft_balance_of", format!(r#"{{"account_id":"{user}"}}"#).as_bytes())
+        .expect("view call failed");
+    let balance = std::str::from_utf8(&response.result).expect("invalid UTF8");
+    assert_eq!(format!("\"{expected_balance}\""), balance);
 }

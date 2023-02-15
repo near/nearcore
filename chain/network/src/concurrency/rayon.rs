@@ -43,6 +43,16 @@ pub async fn run<T: 'static + Send>(f: impl 'static + Send + FnOnce() -> T) -> T
     recv.await.unwrap()
 }
 
+pub fn run_blocking<T: 'static + Send>(f: impl 'static + Send + FnOnce() -> T) -> T {
+    let (send, recv) = tokio::sync::oneshot::channel();
+    rayon::spawn(move || {
+        if send.send(f()).is_err() {
+            tracing::warn!("rayon::run has been aborted");
+        }
+    });
+    recv.blocking_recv().unwrap()
+}
+
 /// Applies f to the iterated elements and collects the results, until the first None is returned.
 /// Returns the results collected so far and a bool (false iff any None was returned).
 pub fn try_map<I: ParallelIterator, T: Send>(

@@ -184,19 +184,24 @@ impl Inner {
         }
     }
 
-    /// 1. Adds edges to the graph (edges are expected to be already validated).
-    /// 2. Prunes expired edges.
-    /// 3. Prunes unreachable graph components.
-    /// 4. Recomputes GraphSnapshot.
-    /// Returns a subset of `edges`, consisting of edges which were not in the graph before.
-    pub fn update(
-        &mut self,
-        clock: &time::Clock,
-        mut edges: Vec<Edge>,
-        unreliable_peers: &HashSet<PeerId>,
-    ) -> (Vec<Edge>, GraphSnapshot) {
-        let _update_time = metrics::ROUTING_TABLE_RECALCULATION_HISTOGRAM.start_timer();
-        let total = edges.len();
+    /// Verifies edges, then adds them to the graph.
+    /// Returns a list of newly added edges (not known so far), which should be broadcasted.
+    /// Returns true iff all the edges provided were valid.
+    ///
+    /// This method implements a security measure against an adversary sending invalid edges:
+    /// * it deduplicates edges and drops known edges before verification, because verification is expensive.
+    /// * it verifies edges in parallel until the first invalid edge is found. It adds the edges
+    ///   verified so far (and returns them), but drops all the remaining ones. This way the
+    ///   wasted work (verification of invalid edges) is constant, no matter how large the input
+    ///   size is.
+    fn add_edges(&mut self, clock: &time::Clock, mut edges: Vec<Edge>) -> (Vec<Edge>, bool) {
+        metrics::EDGE_UPDATES.inc_by(edges.len() as u64);
+        // Start with deduplicating the edges.
+        // TODO(gprusak): sending duplicate edges should be considered a malicious behavior
+        // instead, however that would be backward incompatible, so it can be introduced in
+        // PROTOCOL_VERSION 60 earliest.
+        edges = Edge::deduplicate(edges);
+
         // load the components BEFORE updating the edges.
         // so that result doesn't contain edges we already have in storage.
         // It is especially important for initial full sync with peers, because
@@ -207,10 +212,39 @@ impl Inner {
             self.load_component(now, key.0.clone());
             self.load_component(now, key.1.clone());
         }
+
+        // Retain only new edges.
+        edges.retain(|e| !has(&self.edges, e));
+
+        // Verify the edges in parallel on rayon.
+        // Stop at first invalid edge.
+        let (mut edges, ok) = concurrency::rayon::run_blocking(move || {
+            concurrency::rayon::try_map(edges.into_iter().par_bridge(), |e| {
+                if e.verify() {
+                    Some(e)
+                } else {
+                    None
+                }
+            })
+        });
+
+        // Add the verified edges to the graph.
         edges.retain(|e| self.update_edge(now, e.clone()));
+        (edges, ok)
+    }
+
+    /// 1. Prunes expired edges.
+    /// 2. Prunes unreachable graph components.
+    /// 3. Recomputes GraphSnapshot.
+    pub fn update(
+        &mut self,
+        clock: &time::Clock,
+        unreliable_peers: &HashSet<PeerId>,
+    ) -> GraphSnapshot {
+        let _update_time = metrics::ROUTING_TABLE_RECALCULATION_HISTOGRAM.start_timer();
         // Update metrics after edge update
         if let Some(prune_edges_after) = self.config.prune_edges_after {
-            self.prune_old_edges(now - prune_edges_after);
+            self.prune_old_edges(clock.now_utc() - prune_edges_after);
         }
         let next_hops = Arc::new(self.graph.calculate_distance(unreliable_peers));
 
@@ -232,10 +266,9 @@ impl Inner {
         }
         metrics::ROUTING_TABLE_RECALCULATIONS.inc();
         metrics::PEER_REACHABLE.set(next_hops.len() as i64);
-        metrics::EDGE_UPDATES.inc_by(total as u64);
         metrics::EDGE_ACTIVE.set(self.graph.total_active_edges() as i64);
         metrics::EDGE_TOTAL.set(self.edges.len() as i64);
-        (edges, GraphSnapshot { edges: self.edges.clone(), local_edges, next_hops })
+        GraphSnapshot { edges: self.edges.clone(), local_edges, next_hops }
     }
 }
 
@@ -275,29 +308,26 @@ impl Graph {
         self.unreliable_peers.store(Arc::new(unreliable_peers));
     }
 
-    /// Verifies edge signatures on rayon runtime.
-    /// Since this is expensive it first deduplicates the input edges
-    /// and strips any edges which are already present in the graph.
-    pub async fn verify(&self, edges: Vec<Edge>) -> (Vec<Edge>, bool) {
-        let old = self.load();
-        let mut edges = Edge::deduplicate(edges);
-        edges.retain(|x| !has(&old.edges, x));
-        // Verify the edges in parallel on rayon.
-        concurrency::rayon::run(move || {
-            concurrency::rayon::try_map(edges.into_iter().par_bridge(), |e| {
-                if e.verify() {
-                    Some(e)
-                } else {
-                    None
-                }
-            })
-        })
-        .await
-    }
-
-    /// Adds edges to the graph and recomputes the routing table.
-    /// Returns the edges which were actually new and should be broadcasted.
-    pub async fn update(self: &Arc<Self>, clock: &time::Clock, edges: Vec<Edge>) -> Vec<Edge> {
+    /// Verifies, then adds edges to the graph, then recomputes the routing table.
+    /// Each entry of `edges` are edges coming from a different source.
+    /// Returns (new_edges,oks) where
+    /// * new_edges contains new valid edges that should be broadcasted.
+    /// * oks.len() == edges.len() and oks[i] is true iff all edges in edges[i] were valid.
+    ///
+    /// The validation of each `edges[i]` separately, stops at the first invalid edge,
+    /// and all remaining edges of `edges[i]` are discarded.
+    ///
+    /// Edge verification is expensive, and it would be an attack vector if we dropped on the
+    /// floor valid edges verified so far: an attacker could prepare a SyncRoutingTable
+    /// containing a lot of valid edges, except for the last one, and send it repeatedly to a
+    /// node. The node would then validate all the edges every time, then reject the whole set
+    /// because just the last edge was invalid. Instead, we accept all the edges verified so
+    /// far and return an error only afterwards.
+    pub async fn update(
+        self: &Arc<Self>,
+        clock: &time::Clock,
+        edges: Vec<Vec<Edge>>,
+    ) -> (Vec<Edge>, Vec<bool>) {
         // Computation is CPU heavy and accesses DB so we execute it on a dedicated thread.
         // TODO(gprusak): It would be better to move CPU heavy stuff to rayon and make DB calls async,
         // but that will require further refactor. Or even better: get rid of the Graph all
@@ -306,14 +336,20 @@ impl Graph {
         let clock = clock.clone();
         self.runtime
             .handle
-            .spawn(async move {
+            .spawn_blocking(move || {
                 let mut inner = this.inner.lock();
-                let (new_edges, snapshot) =
-                    inner.update(&clock, edges, &this.unreliable_peers.load());
+                let mut new_edges = vec![];
+                let mut oks = vec![];
+                for es in edges {
+                    let (es, ok) = inner.add_edges(&clock, es);
+                    oks.push(ok);
+                    new_edges.extend(es);
+                }
+                let snapshot = inner.update(&clock, &this.unreliable_peers.load());
                 let snapshot = Arc::new(snapshot);
                 this.routing_table.update(snapshot.next_hops.clone());
                 this.snapshot.store(snapshot);
-                new_edges
+                (new_edges, oks)
             })
             .await
             .unwrap()
