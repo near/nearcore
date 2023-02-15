@@ -3,7 +3,6 @@ use crate::contract_accounts::ContractAccountFilter;
 use crate::rocksdb_stats::get_rocksdb_stats;
 use crate::state_parts::{apply_state_parts, dump_state_parts};
 use crate::{epoch_info, state_parts};
-use clap::{Args, Parser, Subcommand};
 use near_chain_configs::{GenesisChangeConfig, GenesisValidationMode};
 use near_primitives::account::id::AccountId;
 use near_primitives::hash::CryptoHash;
@@ -14,7 +13,7 @@ use nearcore::{load_config, NearConfig};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
-#[derive(Subcommand)]
+#[derive(clap::Subcommand)]
 #[clap(subcommand_required = true, arg_required_else_help = true)]
 pub enum StateViewerSubCommand {
     /// Apply block at some height for shard.
@@ -99,8 +98,12 @@ impl StateViewerSubCommand {
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
 
         let cold_config: Option<&near_store::StoreConfig> = near_config.config.cold_store.as_ref();
-        let store_opener = NodeStorage::opener(home_dir, &near_config.config.store, cold_config);
-        let store_opener = store_opener.expect_archive(near_config.config.archive);
+        let store_opener = NodeStorage::opener(
+            home_dir,
+            near_config.config.archive,
+            &near_config.config.store,
+            cold_config,
+        );
 
         let storage = store_opener.open_in_mode(mode).unwrap();
         let store = storage.get_store(temperature);
@@ -135,7 +138,7 @@ impl StateViewerSubCommand {
     }
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub struct ApplyCmd {
     #[clap(long)]
     height: BlockHeight,
@@ -149,7 +152,7 @@ impl ApplyCmd {
     }
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub struct ApplyChunkCmd {
     #[clap(long)]
     chunk_hash: String,
@@ -164,7 +167,7 @@ impl ApplyChunkCmd {
     }
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub struct ApplyRangeCmd {
     #[clap(long)]
     start_index: Option<BlockHeight>,
@@ -199,7 +202,7 @@ impl ApplyRangeCmd {
     }
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub struct ApplyReceiptCmd {
     #[clap(long)]
     hash: String,
@@ -212,7 +215,7 @@ impl ApplyReceiptCmd {
     }
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub struct ApplyStatePartsCmd {
     /// Selects an epoch. The dump will be of the state at the beginning of this epoch.
     #[clap(subcommand)]
@@ -248,7 +251,7 @@ impl ApplyStatePartsCmd {
     }
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub struct ApplyTxCmd {
     #[clap(long)]
     hash: String,
@@ -261,7 +264,7 @@ impl ApplyTxCmd {
     }
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub struct ChainCmd {
     #[clap(long)]
     start_index: BlockHeight,
@@ -286,7 +289,7 @@ impl ChainCmd {
     }
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub struct ChunksCmd {
     #[clap(long)]
     chunk_hash: String,
@@ -299,7 +302,7 @@ impl ChunksCmd {
     }
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub struct ContractAccountsCmd {
     #[clap(flatten)]
     filter: ContractAccountFilter,
@@ -311,7 +314,7 @@ impl ContractAccountsCmd {
     }
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub struct DumpAccountStorageCmd {
     #[clap(long)]
     account_id: String,
@@ -337,7 +340,7 @@ impl DumpAccountStorageCmd {
     }
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub struct DumpCodeCmd {
     #[clap(long)]
     account_id: String,
@@ -351,7 +354,7 @@ impl DumpCodeCmd {
     }
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub struct DumpStateCmd {
     /// Optionally, can specify at which height to dump state.
     #[clap(long)]
@@ -395,7 +398,7 @@ impl DumpStateCmd {
     }
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub struct DumpStatePartsCmd {
     /// Selects an epoch. The dump will be of the state at the beginning of this epoch.
     #[clap(subcommand)]
@@ -431,7 +434,7 @@ impl DumpStatePartsCmd {
     }
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub struct DumpStateRedisCmd {
     /// Optionally, can specify at which height to dump state.
     #[clap(long)]
@@ -444,7 +447,7 @@ impl DumpStateRedisCmd {
     }
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub struct DumpTxCmd {
     /// Specify the start block by height to begin dumping transactions from, inclusive.
     #[clap(long)]
@@ -476,7 +479,7 @@ impl DumpTxCmd {
     }
 }
 
-#[derive(Args)]
+#[derive(clap::Args)]
 pub struct EpochInfoCmd {
     #[clap(subcommand)]
     epoch_selection: epoch_info::EpochSelection,
@@ -497,7 +500,7 @@ impl EpochInfoCmd {
     }
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub struct PartialChunksCmd {
     #[clap(long)]
     partial_chunk_hash: String,
@@ -511,7 +514,7 @@ impl PartialChunksCmd {
     }
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub struct ReceiptsCmd {
     #[clap(long)]
     receipt_id: String,
@@ -523,7 +526,7 @@ impl ReceiptsCmd {
     }
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub struct ReplayCmd {
     #[clap(long)]
     start_index: BlockHeight,
@@ -537,7 +540,7 @@ impl ReplayCmd {
     }
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub struct RocksDBStatsCmd {
     /// Location of the dumped Rocks DB stats.
     #[clap(long, parse(from_os_str))]
@@ -550,7 +553,7 @@ impl RocksDBStatsCmd {
     }
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub struct ViewChainCmd {
     #[clap(long)]
     height: Option<BlockHeight>,
@@ -584,7 +587,7 @@ impl std::str::FromStr for ViewTrieFormat {
     }
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub struct ViewTrieCmd {
     /// The format of the output. This can be either `full` or `pretty`.
     /// The full format will print all the trie nodes and can be rooted anywhere in the trie.

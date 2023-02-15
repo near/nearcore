@@ -692,7 +692,7 @@ impl PartialEncodedChunkForwardMsg {
             inner_header_hash: header.inner_header_hash(),
             merkle_root: header.encoded_merkle_root(),
             signature: header.signature().clone(),
-            prev_block_hash: header.prev_block_hash().clone(),
+            prev_block_hash: *header.prev_block_hash(),
             height_created: header.height_created(),
             shard_id: header.shard_id(),
             parts,
@@ -767,9 +767,9 @@ impl StateResponseInfo {
     Clone,
     PartialEq,
     Eq,
+    Hash,
     borsh::BorshSerialize,
     borsh::BorshDeserialize,
-    Hash,
     serde::Serialize,
 )]
 pub enum AccountOrPeerIdOrHash {

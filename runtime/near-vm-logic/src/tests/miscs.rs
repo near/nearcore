@@ -3,7 +3,7 @@ use crate::tests::vm_logic_builder::VMLogicBuilder;
 use crate::{map, ExtCosts};
 use hex::FromHex;
 use near_vm_errors::HostError;
-use serde::{de::Error, Deserialize, Deserializer};
+use serde::de::Error;
 use serde_json::from_slice;
 use std::{fmt::Display, fs};
 
@@ -122,7 +122,7 @@ fn test_ripemd160() {
     });
 }
 
-#[derive(Deserialize)]
+#[derive(serde::Deserialize)]
 struct EcrecoverTest {
     #[serde(with = "hex::serde")]
     m: [u8; 32],
@@ -136,11 +136,11 @@ struct EcrecoverTest {
 
 fn deserialize_option_hex<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
 where
-    D: Deserializer<'de>,
+    D: serde::Deserializer<'de>,
     T: FromHex,
     <T as FromHex>::Error: Display,
 {
-    Deserialize::deserialize(deserializer)
+    serde::Deserialize::deserialize(deserializer)
         .map(|v: Option<&str>| v.map(FromHex::from_hex).transpose().map_err(Error::custom))
         .and_then(|v| v)
 }

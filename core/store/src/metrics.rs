@@ -326,3 +326,20 @@ pub mod flat_state_metrics {
         .unwrap()
     });
 }
+pub static COLD_MIGRATION_INITIAL_WRITES: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_cold_migration_initial_writes",
+        "Number of write calls to cold store made for every column during initial population of cold storage.",
+        &["col"],
+    )
+    .unwrap()
+});
+pub static COLD_MIGRATION_INITIAL_WRITES_TIME: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_cold_migration_initial_writes_time",
+        "Time spent on writing initial migration batches by column.",
+        &["column"],
+        None,
+    )
+    .unwrap()
+});

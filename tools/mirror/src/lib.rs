@@ -424,7 +424,7 @@ trait ChainAccess {
     ) -> Result<Option<CryptoHash>, ChainError> {
         match self
             .get_outcome(TransactionOrReceiptId::Transaction {
-                transaction_hash: tx_hash.clone(),
+                transaction_hash: *tx_hash,
                 sender_id: signer_id.clone(),
             })
             .await?
@@ -474,9 +474,14 @@ struct TxMirror<T: ChainAccess> {
 }
 
 fn open_db<P: AsRef<Path>>(home: P, config: &NearConfig) -> anyhow::Result<DB> {
-    let db_path = near_store::NodeStorage::opener(home.as_ref(), &config.config.store, None)
-        .path()
-        .join("mirror");
+    let db_path = near_store::NodeStorage::opener(
+        home.as_ref(),
+        config.config.archive,
+        &config.config.store,
+        None,
+    )
+    .path()
+    .join("mirror");
     let mut options = rocksdb::Options::default();
     options.create_missing_column_families(true);
     options.create_if_missing(true);
@@ -577,13 +582,8 @@ impl TxAwaitingNonce {
         provenance: MappedTxProvenance,
         nonce_updates: HashSet<(AccountId, PublicKey)>,
     ) -> Self {
-        let mut target_tx = Transaction::new(
-            target_signer_id,
-            target_public_key,
-            target_receiver_id,
-            0,
-            ref_hash.clone(),
-        );
+        let mut target_tx =
+            Transaction::new(target_signer_id, target_public_key, target_receiver_id, 0, *ref_hash);
         target_tx.actions = actions;
         Self {
             source_signer_id,
@@ -629,7 +629,7 @@ impl MappedTx {
             target_public_key,
             target_receiver_id,
             nonce,
-            ref_hash.clone(),
+            *ref_hash,
         );
         target_tx.actions = actions;
         let target_tx = SignedTransaction::new(
@@ -885,7 +885,7 @@ impl<T: ChainAccess> TxMirror<T> {
             target_min_block_production_delay: target_config
                 .client_config
                 .min_block_production_delay,
-            tracked_shards: target_config.config.tracked_shards.clone(),
+            tracked_shards: target_config.config.tracked_shards,
             secret,
         })
     }
@@ -1243,7 +1243,7 @@ impl<T: ChainAccess> TxMirror<T> {
         let outcome = self
             .source_chain_access
             .get_outcome(TransactionOrReceiptId::Receipt {
-                receipt_id: receipt_id.clone(),
+                receipt_id: *receipt_id,
                 receiver_id: receiver_id.clone(),
             })
             .await
@@ -1300,7 +1300,7 @@ impl<T: ChainAccess> TxMirror<T> {
                 let outcome = self
                     .source_chain_access
                     .get_outcome(TransactionOrReceiptId::Receipt {
-                        receipt_id: receipt.receipt_id.clone(),
+                        receipt_id: receipt.receipt_id,
                         receiver_id: receipt.receiver_id.clone(),
                     })
                     .await
@@ -1614,13 +1614,13 @@ impl<T: ChainAccess> TxMirror<T> {
         for ((receiver_id, public_key), predecessor_id) in stakes {
             self.push_extra_tx(
                 tracker,
-                source_hash.clone(),
+                *source_hash,
                 &mut txs,
                 predecessor_id,
                 receiver_id.clone(),
                 &[Action::Stake(StakeAction { public_key, stake: 0 })],
                 target_hash,
-                MappedTxProvenance::Unstake(target_hash.clone()),
+                MappedTxProvenance::Unstake(*target_hash),
                 None,
             )
             .await?;

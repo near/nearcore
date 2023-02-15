@@ -21,7 +21,6 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::time::Clock;
 use near_primitives::types::{BlockHeight, ShardId};
-use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
@@ -31,13 +30,13 @@ pub mod setup;
 
 // For now this is a simple struct with one field just to leave the door
 // open for adding stuff and/or having different configs for different message types later.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, serde::Deserialize)]
 pub struct MockIncomingRequestConfig {
     // How long we wait between sending each incoming request
     interval: Duration,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, serde::Deserialize)]
 pub struct MockIncomingRequestsConfig {
     // Options for sending unrequested blocks
     block: Option<MockIncomingRequestConfig>,
@@ -45,7 +44,7 @@ pub struct MockIncomingRequestsConfig {
     chunk_request: Option<MockIncomingRequestConfig>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, serde::Deserialize)]
 pub struct MockNetworkConfig {
     #[serde(default = "default_delay")]
     // How long we'll wait until sending replies to the client

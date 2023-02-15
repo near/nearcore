@@ -1,10 +1,8 @@
-use once_cell::sync::Lazy;
-use serde::{Deserialize, Serialize};
-
 use crate::types::Balance;
+use once_cell::sync::Lazy;
 
 /// Data structure for semver version and github tag or commit.
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
 pub struct Version {
     pub version: String,
     pub build: String,

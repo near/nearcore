@@ -3,18 +3,16 @@
 //! * sir -- sender is receiver. Receipts that are directed by an account to itself are guaranteed
 //!   to not be cross-shard which is cheaper than cross-shard. Conversely, when sender is not a
 //!   receiver it might or might not be a cross-shard communication.
-use enum_map::EnumMap;
-use serde::{Deserialize, Serialize};
-
 use crate::config::ActionCosts;
 use crate::num_rational::Rational32;
 use crate::types::{Balance, Gas};
+use enum_map::EnumMap;
 
 /// Costs associated with an object that can only be sent over the network (and executed
 /// by the receiver).
 /// NOTE: `send_sir` or `send_not_sir` fees are usually burned when the item is being created.
 /// And `execution` fee is burned when the item is being executed.
-#[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, Hash, PartialEq, Eq)]
 pub struct Fee {
     /// Fee for sending an object from the sender to itself, guaranteeing that it does not leave
     /// the shard.

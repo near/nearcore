@@ -6,10 +6,9 @@ use borsh::BorshSerialize;
 use near_account_id::AccountId;
 use near_crypto::PublicKey;
 use near_primitives::transaction::Action;
-use serde::Serialize;
 use serde_json;
 
-#[derive(Serialize)]
+#[derive(serde::Serialize)]
 struct ReceiptView<'a> {
     receiver_id: &'a AccountId,
     actions: &'a [Action],

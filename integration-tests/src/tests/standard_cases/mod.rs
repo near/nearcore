@@ -34,7 +34,7 @@ use testlib::runtime_utils::{
 /// The amount to send with function call.
 const FUNCTION_CALL_AMOUNT: Balance = TESTING_INIT_BALANCE / 10;
 
-fn fee_helper(node: &impl Node) -> FeeHelper {
+pub(crate) fn fee_helper(node: &impl Node) -> FeeHelper {
     FeeHelper::new(RuntimeConfig::test().fees, node.genesis().config.min_gas_price)
 }
 
@@ -1423,7 +1423,7 @@ fn check_trie_nodes_count(
     let node_user = node.user();
     let mut node_touches: Vec<_> = vec![];
     let receipt_hashes: Vec<CryptoHash> =
-        receipts.iter().map(|receipt| receipt.receipt_id.clone()).collect();
+        receipts.iter().map(|receipt| receipt.receipt_id).collect();
 
     for i in 0..2 {
         node_user.add_receipts(receipts.clone()).unwrap();
