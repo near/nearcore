@@ -36,10 +36,7 @@ impl Store {
     where
         E: Engine + ?Sized,
     {
-        Self {
-            engine: engine.cloned(),
-            tunables: Arc::new(tunables),
-        }
+        Self { engine: engine.cloned(), tunables: Arc::new(tunables) }
     }
 
     /// Returns the [`Tunables`].

@@ -345,9 +345,7 @@ impl UniversalEngine {
             rkyv::Deserialize::deserialize(&module.passive_data, &mut SharedDeserializeMap::new())
                 .map_err(|_| CompileError::Validate("could not deserialize passive data".into()))?;
         let data_segments = executable.data_initializers.iter();
-        let data_segments = data_segments
-            .map(|s| DataInitializer::from(s).into())
-            .collect();
+        let data_segments = data_segments.map(|s| DataInitializer::from(s).into()).collect();
         let element_segments = unrkyv(&module.table_initializers);
         let passive_elements: BTreeMap<wasmer_types::ElemIndex, Box<[FunctionIndex]>> =
             unrkyv(&module.passive_elements);
@@ -507,8 +505,7 @@ impl Engine for UniversalEngine {
         binary: &[u8],
         tunables: &dyn Tunables,
     ) -> Result<Box<dyn wasmer_engine::Executable>, CompileError> {
-        self.compile_universal(binary, tunables)
-            .map(|ex| Box::new(ex) as _)
+        self.compile_universal(binary, tunables).map(|ex| Box::new(ex) as _)
     }
 
     #[tracing::instrument(skip_all)]
@@ -598,10 +595,8 @@ impl UniversalEngineInner {
         let code_memory = &mut self.code_memory;
         let function_count = local_functions.len();
         let call_trampoline_count = call_trampolines.len();
-        let function_bodies = call_trampolines
-            .chain(local_functions)
-            .chain(dynamic_trampolines)
-            .collect::<Vec<_>>();
+        let function_bodies =
+            call_trampolines.chain(local_functions).chain(dynamic_trampolines).collect::<Vec<_>>();
 
         // TOOD: this shouldn't be necessary....
         let mut section_types = Vec::with_capacity(custom_sections.len());
@@ -634,10 +629,7 @@ impl UniversalEngineInner {
 
         let mut allocated_function_call_trampolines: PrimaryMap<SignatureIndex, VMTrampoline> =
             PrimaryMap::new();
-        for ptr in allocated_functions
-            .drain(0..call_trampoline_count)
-            .map(|slice| slice.as_ptr())
-        {
+        for ptr in allocated_functions.drain(0..call_trampoline_count).map(|slice| slice.as_ptr()) {
             // TODO: What in damnation have you done?! – Bannon
             let trampoline =
                 unsafe { std::mem::transmute::<*const VMFunctionBody, VMTrampoline>(ptr) };
@@ -698,14 +690,9 @@ impl UniversalEngineInner {
 
     /// Register DWARF-type exception handling information associated with the code.
     pub(crate) fn publish_eh_frame(&mut self, eh_frame: &[u8]) -> Result<(), CompileError> {
-        self.code_memory
-            .last_mut()
-            .unwrap()
-            .unwind_registry_mut()
-            .publish(eh_frame)
-            .map_err(|e| {
-                CompileError::Resource(format!("Error while publishing the unwind code: {}", e))
-            })?;
+        self.code_memory.last_mut().unwrap().unwind_registry_mut().publish(eh_frame).map_err(
+            |e| CompileError::Resource(format!("Error while publishing the unwind code: {}", e)),
+        )?;
         Ok(())
     }
 

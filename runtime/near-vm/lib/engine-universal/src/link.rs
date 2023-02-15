@@ -159,10 +159,7 @@ fn apply_relocation(
                 | read_unaligned(reloc_address as *mut u32);
             write_unaligned(reloc_address as *mut u32, reloc_delta);
         },
-        kind => panic!(
-            "Relocation kind unsupported in the current architecture {}",
-            kind
-        ),
+        kind => panic!("Relocation kind unsupported in the current architecture {}", kind),
     }
 }
 

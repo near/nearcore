@@ -32,10 +32,9 @@ impl From<Export> for VMExtern {
 impl From<VMExtern> for Export {
     fn from(other: VMExtern) -> Self {
         match other {
-            VMExtern::Function(vm_function) => Self::Function(ExportFunction {
-                vm_function,
-                metadata: None,
-            }),
+            VMExtern::Function(vm_function) => {
+                Self::Function(ExportFunction { vm_function, metadata: None })
+            }
             VMExtern::Memory(vm_memory) => Self::Memory(vm_memory),
             VMExtern::Table(vm_table) => Self::Table(vm_table),
             VMExtern::Global(vm_global) => Self::Global(vm_global),
@@ -106,12 +105,7 @@ impl ExportFunctionMetadata {
         host_env_clone_fn: fn(*mut std::ffi::c_void) -> *mut std::ffi::c_void,
         host_env_drop_fn: fn(*mut std::ffi::c_void),
     ) -> Self {
-        Self {
-            host_env,
-            import_init_function_ptr,
-            host_env_clone_fn,
-            host_env_drop_fn,
-        }
+        Self { host_env, import_init_function_ptr, host_env_clone_fn, host_env_drop_fn }
     }
 }
 
@@ -312,9 +306,7 @@ where
     B: NamedResolver + Send + Sync,
 {
     fn resolve_by_name(&self, module: &str, field: &str) -> Option<Export> {
-        self.a
-            .resolve_by_name(module, field)
-            .or_else(|| self.b.resolve_by_name(module, field))
+        self.a.resolve_by_name(module, field).or_else(|| self.b.resolve_by_name(module, field))
     }
 }
 
@@ -324,9 +316,6 @@ where
     B: NamedResolver + Clone + Send + Sync,
 {
     fn clone(&self) -> Self {
-        Self {
-            a: self.a.clone(),
-            b: self.b.clone(),
-        }
+        Self { a: self.a.clone(), b: self.b.clone() }
     }
 }

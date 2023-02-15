@@ -280,10 +280,7 @@ mod test_features {
     #[test]
     fn disable_bulk_memory() {
         let mut features = Features::new();
-        features
-            .threads(true)
-            .reference_types(true)
-            .bulk_memory(false);
+        features.threads(true).reference_types(true).bulk_memory(false);
         assert!(!features.bulk_memory);
         assert!(!features.reference_types);
     }

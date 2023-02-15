@@ -161,8 +161,7 @@ impl VMOffsets {
     fn precompute(&mut self) {
         /// Offset base by num_items items of size item_size, panicking on overflow
         fn offset_by(base: u32, num_items: u32, item_size: u32) -> u32 {
-            base.checked_add(num_items.checked_mul(item_size).unwrap())
-                .unwrap()
+            base.checked_add(num_items.checked_mul(item_size).unwrap()).unwrap()
         }
 
         self.vmctx_signature_ids_begin = 0;
@@ -219,11 +218,8 @@ impl VMOffsets {
             if self.has_trap_handlers { 1 } else { 0 },
             u32::from(self.pointer_size),
         );
-        self.vmctx_stack_limit_begin = offset_by(
-            self.vmctx_gas_limiter_pointer,
-            1,
-            u32::from(self.pointer_size),
-        );
+        self.vmctx_stack_limit_begin =
+            offset_by(self.vmctx_gas_limiter_pointer, 1, u32::from(self.pointer_size));
         self.vmctx_stack_limit_initial_begin = self.vmctx_stack_limit_begin.checked_add(4).unwrap();
         self.size_of_vmctx = self.vmctx_stack_limit_begin.checked_add(4).unwrap();
     }

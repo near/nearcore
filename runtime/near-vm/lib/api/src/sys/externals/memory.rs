@@ -58,10 +58,7 @@ impl Memory {
 
     /// Create a `Memory` from `VMMemory`.
     pub fn from_vmmemory(store: &Store, vm_memory: VMMemory) -> Self {
-        Self {
-            store: store.clone(),
-            vm_memory,
-        }
+        Self { store: store.clone(), vm_memory }
     }
 
     /// Returns the [`MemoryType`] of the `Memory`.
@@ -194,10 +191,7 @@ impl Memory {
     }
 
     pub(crate) fn from_vm_export(store: &Store, vm_memory: VMMemory) -> Self {
-        Self {
-            store: store.clone(),
-            vm_memory,
-        }
+        Self { store: store.clone(), vm_memory }
     }
 
     /// Get access to the backing VM value for this extern. This function is for
@@ -218,10 +212,7 @@ impl Clone for Memory {
         let mut vm_memory = self.vm_memory.clone();
         vm_memory.upgrade_instance_ref().unwrap();
 
-        Self {
-            store: self.store.clone(),
-            vm_memory,
-        }
+        Self { store: self.store.clone(), vm_memory }
     }
 }
 

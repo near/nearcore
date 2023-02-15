@@ -3,8 +3,8 @@
 
 use super::{create_context, with_vm_variants, LATEST_PROTOCOL_VERSION};
 use crate::internal::VMKind;
-use crate::runner::VMResult;
 use crate::near_vm_runner::NearVmVM;
+use crate::runner::VMResult;
 use crate::{prepare, MockCompiledContractCache};
 use assert_matches::assert_matches;
 use near_primitives::contract::ContractCode;
@@ -12,14 +12,14 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::types::{CompiledContract, CompiledContractCache};
 use near_stable_hasher::StableHasher;
+use near_vm_compiler::{CpuFeature, Target};
+use near_vm_engine::Executable;
 use near_vm_errors::VMRunnerError;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::VMConfig;
 use std::hash::{Hash, Hasher};
 use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};
-use near_vm_compiler::{CpuFeature, Target};
-use near_vm_engine::Executable;
 
 #[test]
 fn test_caches_compilation_error() {
@@ -48,7 +48,7 @@ fn test_caches_compilation_error() {
 fn test_does_not_cache_io_error() {
     with_vm_variants(|vm_kind: VMKind| {
         match vm_kind {
-            VMKind::Wasmer0 | VMKind::Wasmer2 | VMKind::NearVm=> {}
+            VMKind::Wasmer0 | VMKind::Wasmer2 | VMKind::NearVm => {}
             VMKind::Wasmtime => return,
         }
 

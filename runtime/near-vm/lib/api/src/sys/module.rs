@@ -101,10 +101,7 @@ impl Module {
     pub fn new(store: &Store, bytes: impl AsRef<[u8]>) -> Result<Self, CompileError> {
         #[cfg(feature = "wat")]
         let bytes = wat::parse_bytes(bytes.as_ref()).map_err(|e| {
-            CompileError::Wasm(WasmError::Generic(format!(
-                "Error when converting wat: {}",
-                e
-            )))
+            CompileError::Wasm(WasmError::Generic(format!("Error when converting wat: {}", e)))
         })?;
 
         Self::from_binary(store, bytes.as_ref())
@@ -122,10 +119,7 @@ impl Module {
             let executable = store.engine().compile(binary, store.tunables())?;
             let artifact = store.engine().load(&*executable)?;
             match artifact.downcast_arc::<UniversalArtifact>() {
-                Ok(universal) => Self {
-                    store: store.clone(),
-                    artifact: universal,
-                },
+                Ok(universal) => Self { store: store.clone(), artifact: universal },
                 // We're are probably given an externally defined artifact type
                 // which I imagine we don't care about for now since this entire crate
                 // is only used for tests and this crate only defines universal engine.

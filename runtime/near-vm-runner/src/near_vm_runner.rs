@@ -9,25 +9,25 @@ use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::types::{CompiledContract, CompiledContractCache};
 use near_stable_hasher::StableHasher;
+use near_vm_compiler_singlepass::Singlepass;
+use near_vm_engine::{Engine, Executable};
+use near_vm_engine_universal::{
+    Universal, UniversalEngine, UniversalExecutable, UniversalExecutableRef,
+};
 use near_vm_errors::{
     CacheError, CompilationError, FunctionCallError, MethodResolveError, VMRunnerError, WasmTrap,
 };
 use near_vm_logic::gas_counter::FastGasCounter;
 use near_vm_logic::types::{PromiseResult, ProtocolVersion};
 use near_vm_logic::{External, MemSlice, MemoryLike, VMConfig, VMContext, VMLogic, VMOutcome};
-use std::borrow::Cow;
-use std::hash::{Hash, Hasher};
-use std::mem::size_of;
-use std::sync::Arc;
-use near_vm_compiler_singlepass::Singlepass;
-use near_vm_engine::{Engine, Executable};
-use near_vm_engine_universal::{
-    Universal, UniversalEngine, UniversalExecutable, UniversalExecutableRef,
-};
 use near_vm_types::{Features, FunctionIndex, InstanceConfig, MemoryType, Pages, WASM_PAGE_SIZE};
 use near_vm_vm::{
     Artifact, Instantiatable, LinearMemory, LinearTable, Memory, MemoryStyle, TrapCode, VMMemory,
 };
+use std::borrow::Cow;
+use std::hash::{Hash, Hasher};
+use std::mem::size_of;
+use std::sync::Arc;
 
 const VM_FEATURES: Features = Features {
     threads: WASM_FEATURES.threads,
@@ -424,7 +424,10 @@ impl NearVmVM {
         let _span = tracing::debug_span!(target: "vm", "run_method").entered();
 
         // FastGasCounter in Nearcore must be reinterpret_cast-able to the one in NearVm.
-        assert_eq!(size_of::<FastGasCounter>(), size_of::<near_vm_types::FastGasCounter>() + size_of::<u64>());
+        assert_eq!(
+            size_of::<FastGasCounter>(),
+            size_of::<near_vm_types::FastGasCounter>() + size_of::<u64>()
+        );
         assert_eq!(
             offset_of!(FastGasCounter, burnt_gas),
             offset_of!(near_vm_types::FastGasCounter, burnt_gas)
@@ -551,7 +554,10 @@ impl near_vm_vm::Tunables for &NearVmVM {
     ) -> Result<std::sync::Arc<dyn Memory>, near_vm_vm::MemoryError> {
         // We do not support arbitrary Host memories. The only memory contracts may use is the
         // memory imported via `env.memory`.
-        Err(near_vm_vm::MemoryError::CouldNotGrow { current: Pages(0), attempted_delta: ty.minimum })
+        Err(near_vm_vm::MemoryError::CouldNotGrow {
+            current: Pages(0),
+            attempted_delta: ty.minimum,
+        })
     }
 
     unsafe fn create_vm_memory(
@@ -562,7 +568,10 @@ impl near_vm_vm::Tunables for &NearVmVM {
     ) -> Result<std::sync::Arc<dyn Memory>, near_vm_vm::MemoryError> {
         // We do not support VM memories. The only memory contracts may use is the memory imported
         // via `env.memory`.
-        Err(near_vm_vm::MemoryError::CouldNotGrow { current: Pages(0), attempted_delta: ty.minimum })
+        Err(near_vm_vm::MemoryError::CouldNotGrow {
+            current: Pages(0),
+            attempted_delta: ty.minimum,
+        })
     }
 
     fn create_host_table(

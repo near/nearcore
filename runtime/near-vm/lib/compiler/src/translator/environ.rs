@@ -90,9 +90,7 @@ impl<'data> ModuleEnvironment<'data> {
     }
 
     pub(crate) fn reserve_signatures(&mut self, num: u32) -> WasmResult<()> {
-        self.module
-            .signatures
-            .reserve_exact(usize::try_from(num).unwrap());
+        self.module.signatures.reserve_exact(usize::try_from(num).unwrap());
         Ok(())
     }
 
@@ -191,11 +189,8 @@ impl<'data> ModuleEnvironment<'data> {
     }
 
     pub(crate) fn reserve_func_types(&mut self, num: u32) -> WasmResult<()> {
-        self.module
-            .functions
-            .reserve_exact(usize::try_from(num).unwrap());
-        self.function_body_inputs
-            .reserve_exact(usize::try_from(num).unwrap());
+        self.module.functions.reserve_exact(usize::try_from(num).unwrap());
+        self.function_body_inputs.reserve_exact(usize::try_from(num).unwrap());
         Ok(())
     }
 
@@ -205,9 +200,7 @@ impl<'data> ModuleEnvironment<'data> {
     }
 
     pub(crate) fn reserve_tables(&mut self, num: u32) -> WasmResult<()> {
-        self.module
-            .tables
-            .reserve_exact(usize::try_from(num).unwrap());
+        self.module.tables.reserve_exact(usize::try_from(num).unwrap());
         Ok(())
     }
 
@@ -217,26 +210,20 @@ impl<'data> ModuleEnvironment<'data> {
     }
 
     pub(crate) fn reserve_memories(&mut self, num: u32) -> WasmResult<()> {
-        self.module
-            .memories
-            .reserve_exact(usize::try_from(num).unwrap());
+        self.module.memories.reserve_exact(usize::try_from(num).unwrap());
         Ok(())
     }
 
     pub(crate) fn declare_memory(&mut self, memory: MemoryType) -> WasmResult<()> {
         if memory.shared {
-            return Err(WasmError::Unsupported(
-                "shared memories are not supported yet".to_owned(),
-            ));
+            return Err(WasmError::Unsupported("shared memories are not supported yet".to_owned()));
         }
         self.module.memories.push(memory);
         Ok(())
     }
 
     pub(crate) fn reserve_globals(&mut self, num: u32) -> WasmResult<()> {
-        self.module
-            .globals
-            .reserve_exact(usize::try_from(num).unwrap());
+        self.module.globals.reserve_exact(usize::try_from(num).unwrap());
         Ok(())
     }
 
@@ -294,9 +281,7 @@ impl<'data> ModuleEnvironment<'data> {
     }
 
     pub(crate) fn reserve_table_initializers(&mut self, num: u32) -> WasmResult<()> {
-        self.module
-            .table_initializers
-            .reserve_exact(usize::try_from(num).unwrap());
+        self.module.table_initializers.reserve_exact(usize::try_from(num).unwrap());
         Ok(())
     }
 
@@ -336,16 +321,13 @@ impl<'data> ModuleEnvironment<'data> {
         body_bytes: &'data [u8],
         body_offset: usize,
     ) -> WasmResult<()> {
-        self.function_body_inputs.push(FunctionBodyData {
-            data: body_bytes,
-            module_offset: body_offset,
-        });
+        self.function_body_inputs
+            .push(FunctionBodyData { data: body_bytes, module_offset: body_offset });
         Ok(())
     }
 
     pub(crate) fn reserve_data_initializers(&mut self, num: u32) -> WasmResult<()> {
-        self.data_initializers
-            .reserve_exact(usize::try_from(num).unwrap());
+        self.data_initializers.reserve_exact(usize::try_from(num).unwrap());
         Ok(())
     }
 
@@ -357,11 +339,7 @@ impl<'data> ModuleEnvironment<'data> {
         data: &'data [u8],
     ) -> WasmResult<()> {
         self.data_initializers.push(DataInitializer {
-            location: DataInitializerLocation {
-                memory_index,
-                base,
-                offset,
-            },
+            location: DataInitializerLocation { memory_index, base, offset },
             data,
         });
         Ok(())
@@ -395,9 +373,7 @@ impl<'data> ModuleEnvironment<'data> {
         func_index: FunctionIndex,
         name: &'data str,
     ) -> WasmResult<()> {
-        self.module
-            .function_names
-            .insert(func_index, name.to_string());
+        self.module.function_names.insert(func_index, name.to_string());
         Ok(())
     }
 
@@ -417,9 +393,7 @@ impl<'data> ModuleEnvironment<'data> {
         let custom_section = CustomSectionIndex::from_u32(
             self.module.custom_sections_data.len().try_into().unwrap(),
         );
-        self.module
-            .custom_sections
-            .insert(String::from(name), custom_section);
+        self.module.custom_sections.insert(String::from(name), custom_section);
         self.module.custom_sections_data.push(Arc::from(data));
         Ok(())
     }

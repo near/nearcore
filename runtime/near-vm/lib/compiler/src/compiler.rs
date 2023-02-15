@@ -101,9 +101,7 @@ pub trait Compiler: Send {
             memory_control: false,
         };
         let mut validator = Validator::new_with_features(wasm_features);
-        validator
-            .validate_all(data)
-            .map_err(|e| CompileError::Validate(format!("{}", e)))?;
+        validator.validate_all(data).map_err(|e| CompileError::Validate(format!("{}", e)))?;
         Ok(())
     }
 

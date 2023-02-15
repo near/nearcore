@@ -33,11 +33,7 @@ where
     Rets: WasmTypeList,
 {
     pub(crate) fn new(store: Store, exported: ExportFunction) -> Self {
-        Self {
-            store,
-            exported,
-            _phantom: PhantomData,
-        }
+        Self { store, exported, _phantom: PhantomData }
     }
 
     pub(crate) fn is_host(&self) -> bool {
@@ -81,11 +77,7 @@ impl<Args: WasmTypeList, Rets: WasmTypeList> Clone for NativeFunc<Args, Rets> {
         let mut exported = self.exported.clone();
         exported.vm_function.upgrade_instance_ref().unwrap();
 
-        Self {
-            store: self.store.clone(),
-            exported,
-            _phantom: PhantomData,
-        }
+        Self { store: self.store.clone(), exported, _phantom: PhantomData }
     }
 }
 
@@ -105,10 +97,7 @@ where
     Rets: WasmTypeList,
 {
     fn from(other: NativeFunc<Args, Rets>) -> Self {
-        Self {
-            store: other.store,
-            exported: other.exported,
-        }
+        Self { store: other.store, exported: other.exported }
     }
 }
 

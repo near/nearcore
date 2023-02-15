@@ -61,23 +61,13 @@ where
 {
     /// Creates a new MemoryView given a `pointer` and `length`.
     pub unsafe fn new(ptr: *mut T, length: u32) -> Self {
-        Self {
-            ptr,
-            length: length as usize,
-            _phantom: PhantomData,
-        }
+        Self { ptr, length: length as usize, _phantom: PhantomData }
     }
 
     /// Creates a subarray view from this `MemoryView`.
     pub fn subarray(&self, start: u32, end: u32) -> Self {
-        assert!(
-            (start as usize) < self.length,
-            "The range start is bigger than current length"
-        );
-        assert!(
-            (end as usize) < self.length,
-            "The range end is bigger than current length"
-        );
+        assert!((start as usize) < self.length, "The range start is bigger than current length");
+        assert!((end as usize) < self.length, "The range end is bigger than current length");
 
         Self {
             ptr: unsafe { self.ptr.add(start as usize) },
@@ -107,11 +97,7 @@ where
 impl<'a, T: Atomic> MemoryView<'a, T> {
     /// Get atomic access to a memory view.
     pub fn atomically(&self) -> MemoryView<'a, T::Output, Atomically> {
-        MemoryView {
-            ptr: self.ptr as *mut T::Output,
-            length: self.length,
-            _phantom: PhantomData,
-        }
+        MemoryView { ptr: self.ptr as *mut T::Output, length: self.length, _phantom: PhantomData }
     }
 }
 

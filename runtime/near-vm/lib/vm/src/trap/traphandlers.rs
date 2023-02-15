@@ -108,11 +108,7 @@ impl Trap {
     ///
     /// Internally saves a backtrace when constructed.
     pub fn wasm(pc: usize, backtrace: Backtrace, signal_trap: Option<TrapCode>) -> Self {
-        Self::Wasm {
-            pc,
-            backtrace,
-            signal_trap,
-        }
+        Self::Wasm { pc, backtrace, signal_trap }
     }
 
     /// Construct a new Wasm trap with the given trap code.
@@ -120,10 +116,7 @@ impl Trap {
     /// Internally saves a backtrace when constructed.
     pub fn lib(trap_code: TrapCode) -> Self {
         let backtrace = Backtrace::new_unresolved();
-        Self::Lib {
-            trap_code,
-            backtrace,
-        }
+        Self::Lib { trap_code, backtrace }
     }
 
     /// Construct a new OOM trap with the given source location and trap code.
@@ -225,11 +218,7 @@ enum UnwindReason {
     /// A Trap triggered by a wasm libcall
     LibTrap(Trap),
     /// A trap caused by the Wasm generated code
-    WasmTrap {
-        backtrace: Backtrace,
-        pc: usize,
-        signal_trap: Option<TrapCode>,
-    },
+    WasmTrap { backtrace: Backtrace, pc: usize, signal_trap: Option<TrapCode> },
 }
 
 impl<'a> CallThreadState {
@@ -254,11 +243,9 @@ impl<'a> CallThreadState {
         match unsafe { (*self.unwind.get()).as_ptr().read() } {
             UnwindReason::UserTrap(data) => Err(Trap::User(data)),
             UnwindReason::LibTrap(trap) => Err(trap),
-            UnwindReason::WasmTrap {
-                backtrace,
-                pc,
-                signal_trap,
-            } => Err(Trap::wasm(pc, backtrace, signal_trap)),
+            UnwindReason::WasmTrap { backtrace, pc, signal_trap } => {
+                Err(Trap::wasm(pc, backtrace, signal_trap))
+            }
             UnwindReason::Panic(panic) => std::panic::resume_unwind(panic),
         }
     }
@@ -407,13 +394,11 @@ extern "C" fn signal_less_trap_handler(pc: *const u8, trap: TrapCode) {
         let backtrace = Backtrace::new_unresolved();
         let info = info.unwrap();
         unsafe {
-            (*info.unwind.get())
-                .as_mut_ptr()
-                .write(UnwindReason::WasmTrap {
-                    backtrace,
-                    signal_trap: Some(trap),
-                    pc: pc as usize,
-                });
+            (*info.unwind.get()).as_mut_ptr().write(UnwindReason::WasmTrap {
+                backtrace,
+                signal_trap: Some(trap),
+                pc: pc as usize,
+            });
             info.jmp_buf.get()
         }
     });

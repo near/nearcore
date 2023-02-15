@@ -74,9 +74,7 @@ impl Exports {
         S: Into<String>,
         E: Into<Extern>,
     {
-        Arc::get_mut(&mut self.map)
-            .unwrap()
-            .insert(name.into(), value.into());
+        Arc::get_mut(&mut self.map).unwrap().insert(name.into(), value.into());
     }
 }
 
@@ -86,10 +84,7 @@ impl LikeNamespace for Exports {
     }
 
     fn get_namespace_exports(&self) -> Vec<(String, Export)> {
-        self.map
-            .iter()
-            .map(|(k, v)| (k.clone(), v.to_export()))
-            .collect()
+        self.map.iter().map(|(k, v)| (k.clone(), v.to_export())).collect()
     }
 }
 

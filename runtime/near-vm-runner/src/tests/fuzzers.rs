@@ -212,7 +212,6 @@ fn wasmer2_is_reproducible() {
     })
 }
 
-
 #[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
 #[test]
 fn near_vm_is_reproducible() {

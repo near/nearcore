@@ -39,22 +39,14 @@ impl Table {
         let item = init.into_table_reference(store)?;
         let tunables = store.tunables();
         let style = tunables.table_style(&ty);
-        let table = tunables
-            .create_host_table(&ty, &style)
-            .map_err(RuntimeError::new)?;
+        let table = tunables.create_host_table(&ty, &style).map_err(RuntimeError::new)?;
 
         let num_elements = table.size();
         for i in 0..num_elements {
             set_table_item(table.as_ref(), i, item.clone())?;
         }
 
-        Ok(Self {
-            store: store.clone(),
-            vm_table: VMTable {
-                from: table,
-                instance_ref: None,
-            },
-        })
+        Ok(Self { store: store.clone(), vm_table: VMTable { from: table, instance_ref: None } })
     }
 
     /// Returns the [`TableType`] of the `Table`.
@@ -73,10 +65,7 @@ impl Table {
     }
 
     pub(crate) fn from_vm_export(store: &Store, vm_table: VMTable) -> Self {
-        Self {
-            store: store.clone(),
-            vm_table,
-        }
+        Self { store: store.clone(), vm_table }
     }
 
     /// Returns whether or not these two tables refer to the same data.
@@ -102,10 +91,7 @@ impl Clone for Table {
         let mut vm_table = self.vm_table.clone();
         vm_table.upgrade_instance_ref().unwrap();
 
-        Self {
-            store: self.store.clone(),
-            vm_table,
-        }
+        Self { store: self.store.clone(), vm_table }
     }
 }
 

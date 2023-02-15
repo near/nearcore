@@ -129,11 +129,7 @@ pub struct TrampolinesSection {
 impl TrampolinesSection {
     /// Creates a `Trampolines` struct with the indice for its section, and number of slots and size of slot
     pub fn new(section_index: SectionIndex, slots: usize, size: usize) -> Self {
-        Self {
-            section_index,
-            slots,
-            size,
-        }
+        Self { section_index, slots, size }
     }
 }
 

@@ -140,12 +140,7 @@ impl Clone for ImportFunctionEnv {
     fn clone(&self) -> Self {
         match &self {
             Self::NoEnv => Self::NoEnv,
-            Self::Env {
-                env,
-                clone,
-                destructor,
-                initializer,
-            } => {
+            Self::Env { env, clone, destructor, initializer } => {
                 let new_env = (*clone)(*env);
                 Self::Env {
                     env: new_env,
@@ -161,9 +156,7 @@ impl Clone for ImportFunctionEnv {
 impl Drop for ImportFunctionEnv {
     fn drop(&mut self) {
         match self {
-            Self::Env {
-                env, destructor, ..
-            } => {
+            Self::Env { env, destructor, .. } => {
                 // # Safety
                 // - This is correct because we know no other references
                 //   to this data can exist if we're dropping it.
@@ -187,9 +180,7 @@ impl Instance {
     /// Helper function to access various locations offset from our `*mut
     /// VMContext` object.
     unsafe fn vmctx_plus_offset<T>(&self, offset: u32) -> *mut T {
-        (self.vmctx_ptr() as *mut u8)
-            .add(usize::try_from(offset).unwrap())
-            .cast()
+        (self.vmctx_ptr() as *mut u8).add(usize::try_from(offset).unwrap()).cast()
     }
 
     /// Offsets in the `vmctx` region.
@@ -607,13 +598,9 @@ impl Instance {
 
         let table = self.get_table(table_index);
         let passive_elements = self.passive_elements.borrow();
-        let elem = passive_elements
-            .get(&elem_index)
-            .map_or::<&[VMFuncRef], _>(&[], |e| &**e);
+        let elem = passive_elements.get(&elem_index).map_or::<&[VMFuncRef], _>(&[], |e| &**e);
 
-        if src
-            .checked_add(len)
-            .map_or(true, |n| n as usize > elem.len())
+        if src.checked_add(len).map_or(true, |n| n as usize > elem.len())
             || dst.checked_add(len).map_or(true, |m| m > table.size())
         {
             return Err(Trap::lib(TrapCode::TableAccessOutOfBounds));
@@ -645,10 +632,7 @@ impl Instance {
         let table = self.get_table(table_index);
         let table_size = table.size() as usize;
 
-        if start_index
-            .checked_add(len)
-            .map_or(true, |n| n as usize > table_size)
-        {
+        if start_index.checked_add(len).map_or(true, |n| n as usize > table_size) {
             return Err(Trap::lib(TrapCode::TableAccessOutOfBounds));
         }
 
@@ -758,12 +742,10 @@ impl Instance {
         let passive_data = self.passive_data.borrow();
         let data = passive_data.get(&data_index).map_or(&[][..], |d| &**d);
 
-        let oob_access = src
-            .checked_add(len)
-            .map_or(true, |n| n as usize > data.len())
-            || dst.checked_add(len).map_or(true, |m| {
-                usize::try_from(m).unwrap() > memory.current_length
-            });
+        let oob_access = src.checked_add(len).map_or(true, |n| n as usize > data.len())
+            || dst
+                .checked_add(len)
+                .map_or(true, |m| usize::try_from(m).unwrap() > memory.current_length);
 
         if oob_access {
             return Err(Trap::lib(TrapCode::HeapAccessOutOfBounds));
@@ -893,9 +875,7 @@ impl InstanceHandle {
                 *(instance.stack_limit_initial_ptr()) = instance_config.stack_limit;
             }
 
-            Self {
-                instance: instance_ref,
-            }
+            Self { instance: instance_ref }
         };
         let instance = handle.instance().as_ref();
 
@@ -960,10 +940,7 @@ impl InstanceHandle {
 
         // Apply the initializers.
         initialize_tables(instance)?;
-        initialize_memories(
-            instance,
-            instance.artifact.data_segments().iter().map(Into::into),
-        )?;
+        initialize_memories(instance, instance.artifact.data_segments().iter().map(Into::into))?;
 
         // The WebAssembly spec specifies that the start function is
         // invoked automatically at instantiation time.
@@ -1015,20 +992,13 @@ impl InstanceHandle {
                     (
                         *(func.body),
                         func.signature,
-                        VMFunctionEnvironment {
-                            vmctx: instance.vmctx_ptr(),
-                        },
+                        VMFunctionEnvironment { vmctx: instance.vmctx_ptr() },
                         Some(func.trampoline),
                     )
                 }
                 Err(import) => {
                     let import = instance.imported_function(import);
-                    (
-                        *(import.body),
-                        import.signature,
-                        import.environment,
-                        import.trampoline,
-                    )
+                    (*(import.body), import.signature, import.environment, import.trampoline)
                 }
             };
         Some(VMFunction {
@@ -1135,9 +1105,7 @@ impl InstanceHandle {
         delta: u32,
         init_value: TableElement,
     ) -> Option<u32> {
-        self.instance()
-            .as_ref()
-            .table_grow(table_index, delta, init_value)
+        self.instance().as_ref().table_grow(table_index, delta, init_value)
     }
 
     /// Get table element reference.
@@ -1183,11 +1151,7 @@ pub unsafe fn initialize_host_envs<Err: Sized>(
         let mut initializers = vec![];
         for import_function_env in instance_ref.imported_function_envs.values_mut() {
             match import_function_env {
-                ImportFunctionEnv::Env {
-                    env,
-                    ref mut initializer,
-                    ..
-                } => {
+                ImportFunctionEnv::Env { env, ref mut initializer, .. } => {
                     if let Some(init) = initializer.take() {
                         initializers.push((init, *env));
                     }
@@ -1240,21 +1204,13 @@ fn initialize_tables(instance: &Instance) -> Result<(), Trap> {
         let start = get_table_init_start(init, instance);
         let table = instance.get_table(init.table_index);
 
-        if start
-            .checked_add(init.elements.len())
-            .map_or(true, |end| end > table.size() as usize)
-        {
+        if start.checked_add(init.elements.len()).map_or(true, |end| end > table.size() as usize) {
             return Err(Trap::lib(TrapCode::TableAccessOutOfBounds));
         }
 
         for (i, func_idx) in init.elements.iter().enumerate() {
             let anyfunc = instance.get_vm_funcref(*func_idx);
-            table
-                .set(
-                    u32::try_from(start + i).unwrap(),
-                    TableElement::FuncRef(anyfunc),
-                )
-                .unwrap();
+            table.set(u32::try_from(start + i).unwrap(), TableElement::FuncRef(anyfunc)).unwrap();
         }
     }
 
@@ -1278,13 +1234,7 @@ fn initialize_passive_elements(instance: &Instance) {
             .iter()
             .filter(|(_, segments)| !segments.is_empty())
             .map(|(idx, segments)| {
-                (
-                    *idx,
-                    segments
-                        .iter()
-                        .map(|s| instance.get_vm_funcref(*s))
-                        .collect(),
-                )
+                (*idx, segments.iter().map(|s| instance.get_vm_funcref(*s)).collect())
             }),
     );
 }
@@ -1298,10 +1248,7 @@ fn initialize_memories<'a>(
         let memory = instance.memory_definition(init.location.memory_index);
 
         let start = get_memory_init_start(&init, instance);
-        if start
-            .checked_add(init.data.len())
-            .map_or(true, |end| end > memory.current_length)
-        {
+        if start.checked_add(init.data.len()).map_or(true, |end| end > memory.current_length) {
             return Err(Trap::lib(TrapCode::HeapAccessOutOfBounds));
         }
 
