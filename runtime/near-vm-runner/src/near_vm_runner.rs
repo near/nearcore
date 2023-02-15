@@ -626,11 +626,18 @@ impl finite_wasm::max_stack::SizeConfig for MaxStackCfg {
         &self,
         locals: &prefix_sum_vec::PrefixSumVec<finite_wasm::wasmparser::ValType, u32>,
     ) -> u64 {
-        let mut res = 0;
-        res += locals.max_index().map(|l| u64::from(*l).saturating_add(1)).unwrap_or(0) * 8;
-        // TODO: make the above take into account the types of locals by adding an iter on PrefixSumVec that returns (count, type)
-        // THIS MUST HAPPEN BEFORE RELEASING THE PROTOCOL VERSION, SO PREFERABLY BEFORE LANDING
-        res += 32; // Rough accounting for rip, rbp and some registers spilled. Not exact.
+        let mut res = 32_u64; // Rough accounting for rip, rbp and some registers spilled. Not exact.
+        let mut last_idx_plus_one = 0_u64;
+        for (idx, local) in locals {
+            let idx = u64::from(*idx);
+            res = res.saturating_add(
+                idx.checked_sub(last_idx_plus_one)
+                    .expect("prefix-sum-vec indices went backwards")
+                    .saturating_add(1)
+                    .saturating_mul(u64::from(self.size_of_value(*local))),
+            );
+            last_idx_plus_one = idx.saturating_add(1);
+        }
         res
     }
 }
