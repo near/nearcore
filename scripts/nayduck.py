@@ -41,9 +41,12 @@ def _parse_args():
     parser.add_argument('--branch',
                         '-b',
                         help='Branch to test. By default gets current one.')
-    parser.add_argument('--sha',
-                        '-s',
-                        help='Commit sha to test. By default gets current one. This is ignored if branch name is provided')
+    parser.add_argument(
+        '--sha',
+        '-s',
+        help=
+        'Commit sha to test. By default gets current one. This is ignored if branch name is provided'
+    )
     group = parser.add_mutually_exclusive_group()
     group.add_argument('--test-file',
                        '-t',
@@ -72,12 +75,14 @@ def get_sha(branch: str):
         sha = subprocess.check_output(['git', 'rev-parse', branch], text=True)
 
     except subprocess.CalledProcessError as e:
-        remote_branch = 'remotes/origin/'+ branch
-        print(f"Couldn't find a local branch \'{branch}\'. Trying remote: {remote_branch}")
-        sha = subprocess.check_output(['git', 'rev-parse', remote_branch], text=True)
+        remote_branch = 'remotes/origin/' + branch
+        print(
+            f"Couldn't find a local branch \'{branch}\'. Trying remote: {remote_branch}"
+        )
+        sha = subprocess.check_output(['git', 'rev-parse', remote_branch],
+                                      text=True)
 
     return sha
-    
 
 
 def get_branch(sha: str = ""):
@@ -304,11 +309,9 @@ def run_remotely(args, tests):
 
     post = {'branch': test_branch, 'sha': test_sha, 'tests': list(tests)}
 
-    print(
-        "Scheduling tests for: \n"
-        f"branch - {post['branch']} \n"
-        f"commit hash - {post['sha']}"
-    )
+    print("Scheduling tests for: \n"
+          f"branch - {post['branch']} \n"
+          f"commit hash - {post['sha']}")
 
     while True:
         print('Sending request ...')
