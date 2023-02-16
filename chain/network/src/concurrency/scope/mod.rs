@@ -59,7 +59,7 @@ use crate::concurrency::ctx::{Ctx, CtxWithCancel, OrCanceled};
 use crate::concurrency::signal;
 use std::borrow::Borrow;
 use std::future::Future;
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Weak};
 
 #[cfg(test)]
 mod tests;
@@ -124,8 +124,8 @@ impl<E: 'static> Inner<E> {
     /// Creates a new scope with the given context.
     ///
     /// After the scope terminates, the result will be sent to output.
-    pub fn new(ctx: CtxWithCancel, output: Output<E>) -> Arc<Mutex<Inner<E>>> {
-        Arc::new(Mutex::new(Inner { terminated: signal::Once::new(), ctx, output }))
+    pub fn new(ctx: CtxWithCancel, output: Output<E>) -> Arc<Inner<E>> {
+        Arc::new(Inner { terminated: signal::Once::new(), ctx, output })
     }
 }
 
@@ -136,15 +136,14 @@ impl<E: 'static + Send> Inner<E> {
     /// The reference to the scope can be an arbitrary
     /// type, so that a custom drop() behavior can be added. For example, see `StrongService` scope reference,
     /// which cancels the scope when dropped.
-    pub fn spawn<M: 'static + Send + Sync + Borrow<Mutex<Self>>>(
+    pub fn spawn<M: 'static + Send + Sync + Borrow<Self>>(
         m: Arc<M>,
         f: BoxAsyncFn<'static, Ctx, Result<(), E>>,
     ) {
-        let ctx = (*m.as_ref().borrow().lock().unwrap().ctx).clone();
-        let f = f(ctx);
+        let f = f((*m.as_ref().borrow().ctx).clone());
         tokio::spawn(async move {
             if let Err(err) = f.await {
-                m.as_ref().borrow().lock().unwrap().output.send(err);
+                m.as_ref().borrow().output.send(err);
             }
         });
     }
@@ -155,7 +154,7 @@ impl<E: 'static + Send> Inner<E> {
     /// its handler (`Service`) is dropped. Service belongs to a scope, in a sense that
     /// a dedicated task is spawned on the scope which awaits for service to terminate and
     /// returns the service's result.
-    pub fn new_service(m: Arc<Mutex<Self>>) -> Service<E> {
+    pub fn new_service(m: Arc<Self>) -> Service<E> {
         let subscope = {
             let inner = m.lock().unwrap();
             Inner::new(inner.ctx.with_cancel(), inner.output.clone())
@@ -191,11 +190,11 @@ pub struct ErrTerminated;
 /// Service is NOT cancelled just when all tasks within the service complete - in particular
 /// a newly started service has no tasks.
 /// Service is terminated when it is cancelled AND all tasks within the service complete.
-pub struct Service<E: 'static>(Weak<Mutex<Inner<E>>>);
+pub struct Service<E: 'static>(Weak<Inner<E>>);
 
 impl<E: 'static> Drop for Service<E> {
     fn drop(&mut self) {
-        self.0.upgrade().map(|m| m.lock().unwrap().ctx.cancel());
+        self.0.upgrade().map(|inner| inner.ctx.cancel());
     }
 }
 
@@ -212,7 +211,7 @@ impl<E: 'static + Send + Sync> Service<E> {
         &'a self,
         ctx: &'a Ctx,
     ) -> impl Future<Output = OrCanceled<()>> + Send + Sync + 'a {
-        let terminated = self.0.upgrade().map(|m| m.lock().unwrap().terminated.clone());
+        let terminated = self.0.upgrade().map(|inner| inner.terminated.clone());
         async move {
             if let Some(t) = terminated {
                 ctx.wait(t.recv()).await
@@ -230,8 +229,7 @@ impl<E: 'static + Send + Sync> Service<E> {
         &'a self,
         ctx: &'a Ctx,
     ) -> impl Future<Output = OrCanceled<()>> + Send + Sync + 'a {
-        let terminated = self.0.upgrade().map(|m| {
-            let inner = m.lock().unwrap();
+        let terminated = self.0.upgrade().map(|inner| {
             inner.ctx.cancel();
             inner.terminated.clone()
         });
@@ -265,17 +263,17 @@ impl<E: 'static + Send + Sync> Service<E> {
 ///
 /// Used by Scope to cancel the scope as soon as all tasks spawned via
 /// `Scope::spawn` complete.
-struct StrongService<E: 'static>(Arc<Mutex<Inner<E>>>);
+struct StrongService<E: 'static>(Arc<Inner<E>>);
 
-impl<E: 'static> Borrow<Mutex<Inner<E>>> for StrongService<E> {
-    fn borrow(&self) -> &Mutex<Inner<E>> {
+impl<E: 'static> Borrow<Inner<E>> for StrongService<E> {
+    fn borrow(&self) -> &Inner<E> {
         &*self.0
     }
 }
 
 impl<E: 'static> Drop for StrongService<E> {
     fn drop(&mut self) {
-        self.0.lock().unwrap().ctx.cancel()
+        self.0.ctx.cancel()
     }
 }
 
@@ -355,7 +353,7 @@ pub mod internal {
         must_complete(async move {
             let (output, recv) = Output::new(ctx.with_cancel());
             let service = Arc::new(StrongService(Inner::new(output.ctx.clone(), output)));
-            let terminated = service.0.lock().unwrap().terminated.clone();
+            let terminated = service.0.terminated.clone();
             scope.0 = Arc::downgrade(&service);
             scope.spawn(f(scope));
             // each task spawned on `scope` keeps its own reference to `service`.
