@@ -59,7 +59,7 @@ function formatTraffic(bytes_received: number, bytes_sent: number): ReactElement
 
 function addDebugPortLink(peer_addr: string): ReactElement {
     return <a
-        href={"http://localhost:3000/" + peer_addr.replace(/:.*/, "/")}>
+        href={"/" + peer_addr.replace(/:.*/, "/network_info/current")}>
         {peer_addr}
     </a>;
 }
