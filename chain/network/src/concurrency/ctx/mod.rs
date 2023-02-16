@@ -1,5 +1,6 @@
 use crate::concurrency::signal;
 use crate::time;
+use std::future::Future;
 use std::sync::Arc;
 
 #[cfg(test)]
@@ -84,8 +85,8 @@ impl Ctx {
     /// Awaits for the context to get canceled.
     ///
     /// Cancellable (in the rust sense).
-    pub async fn canceled(&self) {
-        self.0.canceled.recv().await
+    pub fn canceled(&self) -> impl Future<Output = ()> + '_ {
+        self.0.canceled.recv()
     }
 
     /// Awaits until f completes, or the context gets canceled.
