@@ -140,7 +140,7 @@ impl<E: 'static + Send> Inner<E> {
         m: Arc<M>,
         f: BoxAsyncFn<'static, Ctx, Result<(), E>>,
     ) {
-        let f = f(m.as_ref().borrow().ctx.clone());
+        let f = f((*m.as_ref().borrow().ctx).clone());
         tokio::spawn(async move {
             if let Err(err) = f.await {
                 m.as_ref().borrow().output.send(err);
@@ -154,17 +154,14 @@ impl<E: 'static + Send> Inner<E> {
     /// its handler (`Service`) is dropped. Service belongs to a scope, in a sense that
     /// a dedicated task is spawned on the scope which awaits for service to terminate and
     /// returns the service's result.
-    pub fn new_service(m: Arc<Self>) -> Service<E> {
-        let subscope = {
-            let inner = m.lock().unwrap();
-            Inner::new(inner.ctx.with_cancel(), inner.output.clone())
-        };
-        let terminated = subscope.lock().unwrap().terminated.clone();
+    pub fn new_service(self: Arc<Self>) -> Service<E> {
+        let subscope = Inner::new(self.ctx.with_cancel(), self.output.clone());
+        let terminated = subscope.terminated.clone();
         let service = Service(Arc::downgrade(&subscope));
         // Spawn a task on m which will await termination of the Service.
         // Note that this task doesn't keep a StrongService reference, so
         // it will not prevent cancellation of the parent scope.
-        Inner::spawn(m, (|_| async move { Ok(terminated.recv().await) }).wrap());
+        Inner::spawn(self, (|_| async move { Ok(terminated.recv().await) }).wrap());
         // Spawn a guard task in the Service which will prevent termination of the Service
         // until the context is not canceled. See `Service` for a list
         // of events canceling the Service.
