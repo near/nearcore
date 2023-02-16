@@ -134,7 +134,12 @@ impl actix::Actor for PeerManagerActor {
         self.push_network_info_trigger(ctx, self.state.config.push_info_period);
 
         // Attempt to reconnect to recent outbound connections from storage
-        self.bootstrap_outbound_from_recent_connections(ctx);
+        if self.state.config.connect_to_reliable_peers_on_startup {
+            tracing::debug!(target: "network", "Reconnecting to reliable peers from storage");
+            self.bootstrap_outbound_from_recent_connections(ctx);
+        } else {
+            tracing::debug!(target: "network", "Skipping reconnection to reliable peers");
+        }
 
         // Periodically starts peer monitoring.
         tracing::debug!(target: "network",
