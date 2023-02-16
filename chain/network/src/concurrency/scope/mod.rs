@@ -140,7 +140,7 @@ impl<E: 'static + Send> Inner<E> {
         m: Arc<M>,
         f: BoxAsyncFn<'static, Ctx, Result<(), E>>,
     ) {
-        let f = f((*m.as_ref().borrow().ctx).clone());
+        let f = f(m.as_ref().borrow().ctx.clone());
         tokio::spawn(async move {
             if let Err(err) = f.await {
                 m.as_ref().borrow().output.send(err);
