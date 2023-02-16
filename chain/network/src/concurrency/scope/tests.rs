@@ -129,9 +129,38 @@ async fn test_nested_service() {
     assert_eq!(Err(9), res);
 }
 
-// TODO(gprusak): test nested services.
-// TODO(gprusak): test nested scopes.
-// TODO(gprusak): test cancellation of outer context.
+#[tokio::test]
+async fn test_nested_scopes() {
+    let res = scope::run!(&Ctx::inf(), |s| move |_| async move {
+        s.spawn(|ctx| async move {
+            scope::run!(&ctx, |s| move |_| async move {
+                s.spawn(|ctx| async move { scope::run!(&ctx, |_| |_| async { Err(8) }) });
+                Ok(())
+            })
+        });
+        Ok(())
+    });
+    assert_eq!(Err(8), res);
+}
+
+#[tokio::test]
+async fn test_external_cancel() {
+    let external_ctx = Ctx::inf().with_cancel();
+    let external_ctx = &external_ctx;
+    let res = scope::run!(&external_ctx, |s| move |ctx: Ctx| async move {
+        s.spawn(|ctx: Ctx| async move {
+            ctx.canceled().await;
+            Ok(())
+        });
+        // We cancel the external context manually.
+        // It should just cancel the scope as usual, but it
+        // doesn't imply that Scope encountered an error.
+        external_ctx.cancel();
+        ctx.canceled().await;
+        Result::<_, ()>::Ok(())
+    });
+    assert!(res.is_ok());
+}
 
 #[tokio::test]
 async fn test_service_cancel() {

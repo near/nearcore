@@ -112,6 +112,8 @@ struct Inner<E: 'static> {
     ///   after the error is actually registered, so the awaiting task won't be able to cause a
     ///   race condition.
     output: Output<E>,
+    /// Parent scope. We keep it to prevent termination of the parent, until this scope terminates.
+    _parent: Option<Arc<Self>>,
 }
 
 impl<E: 'static> Drop for Inner<E> {
@@ -122,10 +124,27 @@ impl<E: 'static> Drop for Inner<E> {
 
 impl<E: 'static> Inner<E> {
     /// Creates a new scope with the given context.
-    ///
-    /// After the scope terminates, the result will be sent to output.
-    pub fn new(ctx: CtxWithCancel, output: Output<E>) -> Arc<Inner<E>> {
-        Arc::new(Inner { terminated: signal::Once::new(), ctx, output })
+    pub fn new(ctx: &Ctx) -> (Arc<Self>, crossbeam_channel::Receiver<E>) {
+        let ctx = ctx.with_cancel();
+        let (output, recv) = Output::new(ctx.clone());
+        (
+            Arc::new(Self {
+                ctx: ctx.with_cancel(),
+                output,
+                _parent: None,
+                terminated: signal::Once::new(),
+            }),
+            recv,
+        )
+    }
+
+    pub fn new_subscope(self: Arc<Self>) -> Arc<Inner<E>> {
+        Arc::new(Inner {
+            ctx: self.ctx.with_cancel(),
+            output: self.output.clone(),
+            _parent: Some(self),
+            terminated: signal::Once::new(),
+        })
     }
 }
 
@@ -155,13 +174,8 @@ impl<E: 'static + Send> Inner<E> {
     /// a dedicated task is spawned on the scope which awaits for service to terminate and
     /// returns the service's result.
     pub fn new_service(self: Arc<Self>) -> Service<E> {
-        let subscope = Inner::new(self.ctx.with_cancel(), self.output.clone());
-        let terminated = subscope.terminated.clone();
+        let subscope = self.new_subscope();
         let service = Service(Arc::downgrade(&subscope));
-        // Spawn a task on m which will await termination of the Service.
-        // Note that this task doesn't keep a StrongService reference, so
-        // it will not prevent cancellation of the parent scope.
-        Inner::spawn(self, (|_| async move { Ok(terminated.recv().await) }).wrap());
         // Spawn a guard task in the Service which will prevent termination of the Service
         // until the context is not canceled. See `Service` for a list
         // of events canceling the Service.
@@ -348,8 +362,8 @@ pub mod internal {
         G: AsyncFn<'env, Ctx, Result<(), E>>,
     {
         must_complete(async move {
-            let (output, recv) = Output::new(ctx.with_cancel());
-            let service = Arc::new(StrongService(Inner::new(output.ctx.clone(), output)));
+            let (inner, recv) = Inner::new(ctx);
+            let service = Arc::new(StrongService(inner));
             let terminated = service.0.terminated.clone();
             scope.0 = Arc::downgrade(&service);
             scope.spawn(f(scope));
