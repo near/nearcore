@@ -110,19 +110,21 @@ def main():
     attempt = 0
     while True:
         block = get_block(random_height, url)
+        if block:
+            break
+
         # Some blocks are really missing and there is no way to miss if they are
         # missing because the node doesn't have history, or because the block
         # was skipped.
-        if not block:
-            if random_height == genesis_height:
-                logger.error(f'Genesis block is missing. This is impossible {random_height}')
+        if random_height == genesis_height:
+            logger.error(f'Genesis block is missing. This is impossible {random_height}')
 
-            random_height -= 1
-            attempt += 1
-            # Limit the number of attempts.
-            if attempt > 10:
-                logger.error(f'{attempt} consecutive blocks are missing. This is improbable. From {random_height} to {random_height + attempt}')
-                sys.exit(1)
+        random_height -= 1
+        attempt += 1
+        # Limit the number of attempts.
+        if attempt > 10:
+            logger.error(f'{attempt} consecutive blocks are missing. This is improbable. From {random_height} to {random_height + attempt}')
+            sys.exit(1)
 
     # Lookup a chunk to make sure the node contains it.
     num_chunks = len(block['chunks'])
