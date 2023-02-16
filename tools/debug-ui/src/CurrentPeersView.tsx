@@ -58,9 +58,8 @@ function formatTraffic(bytes_received: number, bytes_sent: number): ReactElement
 }
 
 function addDebugPortLink(peer_addr: string): ReactElement {
-    // TODO: use new UI
     return <a
-        href={"http://" + peer_addr.replace(/:.*/, ":3030/debug")}>
+        href={"/" + peer_addr.replace(/:.*/, "/network_info/current")}>
         {peer_addr}
     </a>;
 }
@@ -192,14 +191,15 @@ export const CurrentPeersView = ({ addr }: NetworkInfoViewProps) => {
     const detailedDebugStatus = fullStatus.detailed_debug_status!;
 
     return <div className="current-peers-view">
-        <p>Current Sync Status: {detailedDebugStatus.sync_status}</p>
+        <p><b>PeerId:</b> {fullStatus.node_public_key}</p>
+        <p><b>Current Sync Status:</b> {detailedDebugStatus.sync_status}</p>
         <p>
-            Number of peers: {detailedDebugStatus.network_info.num_connected_peers}{' '}
+            <b>Number of peers:</b> {detailedDebugStatus.network_info.num_connected_peers}{' '}
             / {detailedDebugStatus.network_info.peer_max_count}
         </p>
 
         <p>
-            Block producers: {blockProducers.size}{' '}
+            <b>Block producers:</b> {blockProducers.size}{' '}
             <ul>
                 <li>Unknown: {[...getDifference(blockProducers, knownSet)].join(', ') || '(none)'}</li>
                 <li>Known but not reachable: {
@@ -208,7 +208,7 @@ export const CurrentPeersView = ({ addr }: NetworkInfoViewProps) => {
         </p>
 
         <p>
-            Chunk producers: {chunkProducers.size}{' '}
+            <b>Chunk producers:</b> {chunkProducers.size}{' '}
             <ul>
                 <li>Unknown: {[...getDifference(chunkProducers, knownSet)].join(', ') || '(none)'}</li>
                 <li>Known but not reachable: {
