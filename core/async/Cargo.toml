@@ -18,4 +18,5 @@ once_cell.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
-near-o11y = { path = "../o11y" }      
+near-o11y = { path = "../o11y" }
+near-performance-metrics = { path = "../../utils/near-performance-metrics" }       
