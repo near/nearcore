@@ -93,7 +93,7 @@ fn test_promise_batch_action_create_account() {
     logic
         .promise_batch_action_create_account(index)
         .expect("should add an action to create account");
-    assert_eq!(logic.used_gas().unwrap(), 5077478438564);
+    assert_eq!(logic.used_gas().unwrap(), 12578263688564);
     let expected = serde_json::json!([
         {
             "receiver_id": "rick.test",

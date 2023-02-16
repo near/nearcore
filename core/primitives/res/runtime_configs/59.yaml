@@ -1,0 +1,12 @@
+action_create_account: {
+  old: {
+    send_sir: 99_607_375_000,
+    send_not_sir: 99_607_375_000,
+    execution: 99_607_375_000,
+  },
+  new: {
+    send_sir: 3_850_000_000_000,
+    send_not_sir: 3_850_000_000_000,
+    execution: 3_850_000_000_000,
+  }
+}

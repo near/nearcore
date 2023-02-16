@@ -132,6 +132,8 @@ pub enum ProtocolFeature {
     MaxKickoutStake,
     /// Validate account id for function call access keys.
     AccountIdInFunctionCallPermission,
+    /// Zero Balance Account NEP 448: https://github.com/near/NEPs/pull/448
+    ZeroBalanceAccount,
 
     /// In case not all validator seats are occupied our algorithm provide incorrect minimal seat
     /// price - it reports as alpha * sum_stake instead of alpha * sum_stake / (1 - alpha), where
@@ -146,9 +148,6 @@ pub enum ProtocolFeature {
     RejectBlocksWithOutdatedProtocolVersions,
     #[cfg(feature = "protocol_feature_nep366_delegate_action")]
     DelegateAction,
-    #[cfg(feature = "protocol_feature_zero_balance_account")]
-    /// NEP 448: https://github.com/near/NEPs/pull/448
-    ZeroBalanceAccount,
 }
 
 /// Both, outgoing and incoming tcp connections to peers, will be rejected if `peer's`
@@ -226,7 +225,7 @@ impl ProtocolFeature {
             ProtocolFeature::AltBn128 => 55,
             ProtocolFeature::ChunkOnlyProducers | ProtocolFeature::MaxKickoutStake => 56,
             ProtocolFeature::AccountIdInFunctionCallPermission => 57,
-            ProtocolFeature::Ed25519Verify => 59,
+            ProtocolFeature::Ed25519Verify | ProtocolFeature::ZeroBalanceAccount => 59,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_fix_staking_threshold")]
@@ -237,8 +236,6 @@ impl ProtocolFeature {
             ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions => 132,
             #[cfg(feature = "protocol_feature_nep366_delegate_action")]
             ProtocolFeature::DelegateAction => 133,
-            #[cfg(feature = "protocol_feature_zero_balance_account")]
-            ProtocolFeature::ZeroBalanceAccount => 134,
         }
     }
 }
