@@ -162,12 +162,20 @@ async fn test_skip_reconnect_after_restart_outbound_side() {
     drop(pm0);
     let pm0 = start_pm(clock.clock(), pm0_db.clone(), pm0_cfg.clone(), chain.clone()).await;
 
+    tracing::info!(target:"test", "check that pm0 starts without attempting to reconnect to pm1");
+    let mut pm0_ev = pm0.events.clone();
+    pm0_ev
+        .recv_until(|ev| match &ev {
+            Event::PeerManager(PME::ReconnectLoopSpawned(_)) => {
+                panic!("PeerManager spawned a reconnect loop during startup");
+            }
+            Event::PeerManager(PME::PeerManagerStarted) => Some(()),
+            _ => None,
+        })
+        .await;
+
     tracing::info!(target:"test", "check that pm0 has pm1 as a recent connection");
     check_recent_outbound_connections(&pm0, vec![id1.clone()]).await;
-
-    // this will error if there's already a connection
-    tracing::info!(target:"test", "try connecting pm0 to pm1");
-    pm0.connect_to(&pm1.peer_info(), tcp::Tier::T2).await;
 }
 
 #[tokio::test]

@@ -96,7 +96,8 @@ pub struct NetworkConfig {
     pub whitelist_nodes: Vec<PeerInfo>,
     pub handshake_timeout: time::Duration,
 
-    /// Whether to re-establish connections from the ConnectionStore on startup.
+    /// Whether to re-establish connection to known reliable peers from previous neard run(s).
+    /// See near_network::peer_manager::connection_store for details.
     pub connect_to_reliable_peers_on_startup: bool,
     /// Maximum time between refreshing the peer list.
     pub monitor_peers_max_period: time::Duration,
