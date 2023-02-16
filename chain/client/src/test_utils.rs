@@ -8,8 +8,8 @@ use std::time::Duration;
 use actix::{Actor, Addr, AsyncContext, Context};
 use chrono::DateTime;
 use futures::{future, FutureExt};
-
-use near_async::messaging::{IntoSender, LateBoundSender};
+use near_async::actix::AddrWithAutoSpanContextExt;
+use near_async::messaging::{IntoSender, LateBoundSender, Sender};
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_chunks::ShardsManager;
 use near_network::shards_manager::{
@@ -35,7 +35,7 @@ use near_chain::{
 };
 use near_chain_configs::ClientConfig;
 use near_chunks::adapter::{ShardsManagerAdapterForClient, ShardsManagerRequestFromClient};
-use near_chunks::client::{ClientAdapterForShardsManager, ShardsManagerResponse};
+use near_chunks::client::ShardsManagerResponse;
 use near_chunks::test_utils::{MockClientAdapterForShardsManager, SynchronousShardsManagerAdapter};
 use near_client_primitives::types::Error;
 #[cfg(feature = "protocol_feature_nep366_delegate_action")]
@@ -267,9 +267,9 @@ pub fn setup(
     let (shards_manager_addr, _) = start_shards_manager(
         runtime.clone(),
         network_adapter.clone().into_sender(),
-        Arc::new(ctx.address()),
-        Some(account_id.clone()),
-        store.clone(),
+        ctx.address().with_auto_span_context().into_sender(),
+        Some(account_id),
+        store,
         config.chunk_request_retry_period,
     );
     let shards_manager_adapter = Arc::new(shards_manager_addr);
@@ -277,7 +277,7 @@ pub fn setup(
     let client = Client::new(
         config.clone(),
         chain_genesis,
-        runtime.clone(),
+        runtime,
         network_adapter.clone(),
         shards_manager_adapter.clone(),
         Some(signer.clone()),
@@ -299,7 +299,7 @@ pub fn setup(
         None,
     )
     .unwrap();
-    (genesis_block, client_actor, view_client_addr, shards_manager_adapter.clone())
+    (genesis_block, client_actor, view_client_addr, shards_manager_adapter)
 }
 
 pub fn setup_only_view(
@@ -364,7 +364,7 @@ pub fn setup_only_view(
         Some(signer.validator_id().clone()),
         chain_genesis,
         runtime,
-        network_adapter.clone(),
+        network_adapter,
         config,
         adv,
     )
@@ -1192,7 +1192,7 @@ pub fn setup_client(
 
 pub fn setup_synchronous_shards_manager(
     account_id: Option<AccountId>,
-    client_adapter: Arc<dyn ClientAdapterForShardsManager>,
+    client_adapter: Sender<ShardsManagerResponse>,
     network_adapter: PeerManagerAdapter,
     runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
     chain_genesis: &ChainGenesis,
@@ -1229,7 +1229,7 @@ pub fn setup_client_with_synchronous_shards_manager(
     account_id: Option<AccountId>,
     enable_doomslug: bool,
     network_adapter: PeerManagerAdapter,
-    client_adapter: Arc<dyn ClientAdapterForShardsManager>,
+    client_adapter: Sender<ShardsManagerResponse>,
     chain_genesis: ChainGenesis,
     rng_seed: RngSeed,
     archive: bool,
@@ -1454,7 +1454,7 @@ impl TestEnvBuilder {
                 let client_adapter = client_adapters[i].clone();
                 setup_synchronous_shards_manager(
                     Some(clients[i].clone()),
-                    client_adapter,
+                    client_adapter.as_sender(),
                     network_adapter.into(),
                     runtime_adapter,
                     &chain_genesis,
@@ -1874,7 +1874,7 @@ impl TestEnv {
         &mut self,
         tx: SignedTransaction,
     ) -> Result<FinalExecutionOutcomeView, InvalidTxError> {
-        let tx_hash = tx.get_hash().clone();
+        let tx_hash = tx.get_hash();
         let response = self.clients[0].process_tx(tx, false, false);
         // Check if the transaction got rejected
         match response {
@@ -1996,7 +1996,7 @@ pub fn create_chunk(
         let signer = client.validator_signer.as_ref().unwrap().clone();
         let header = chunk.cloned_header();
         let (mut encoded_chunk, mut new_merkle_paths) = EncodedShardChunk::new(
-            header.prev_block_hash().clone(),
+            *header.prev_block_hash(),
             header.prev_state_root(),
             header.outcome_root(),
             header.height_created(),

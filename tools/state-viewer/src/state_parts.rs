@@ -452,7 +452,7 @@ impl StatePartReader for S3Storage {
         let location = format!("{}/", self.location);
         tracing::info!(target: "state-parts", location, "Reading an S3 bucket location to get the number of parts");
         let list: Vec<ListBucketResult> =
-            self.bucket.list_blocking(location.clone(), Some("/".to_string())).unwrap();
+            self.bucket.list_blocking(location, Some("/".to_string())).unwrap();
         assert_eq!(list.len(), 1);
         let num_parts = list[0]
             .contents

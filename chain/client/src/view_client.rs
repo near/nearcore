@@ -341,7 +341,7 @@ impl ViewClientActor {
                         if !self.config.archive && header.height() < gc_stop_height {
                             QueryError::GarbageCollectedBlock {
                                 block_height: header.height(),
-                                block_hash: header.hash().clone(),
+                                block_hash: *header.hash(),
                             }
                         } else {
                             QueryError::UnavailableShard { requested_shard_id: shard_id }

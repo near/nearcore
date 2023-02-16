@@ -250,7 +250,7 @@ fn test_unconnected_peer_only_boot_nodes() {
             store,
         )
         .unwrap();
-        peer_store.add_direct_peer(&clock.clock(), peer_in_store.clone()).unwrap();
+        peer_store.add_direct_peer(&clock.clock(), peer_in_store).unwrap();
         peer_store.peer_connected(&clock.clock(), &peer_info_a).unwrap();
         assert_eq!(peer_store.unconnected_peer(|_| false, false), None);
     }
@@ -585,8 +585,7 @@ fn test_delete_peers() {
             (id, info)
         })
         .unzip();
-    let peer_addresses =
-        peer_infos.iter().map(|info| info.addr.unwrap().clone()).collect::<Vec<_>>();
+    let peer_addresses = peer_infos.iter().map(|info| info.addr.unwrap()).collect::<Vec<_>>();
 
     {
         let store = store::Store::from(opener.open().unwrap());

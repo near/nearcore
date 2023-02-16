@@ -591,7 +591,7 @@ impl NearConfig {
             client_config: ClientConfig {
                 version: Default::default(),
                 chain_id: genesis.config.chain_id.clone(),
-                rpc_addr: config.rpc_addr().map(|addr| addr.to_owned()),
+                rpc_addr: config.rpc_addr().map(|addr| addr),
                 expected_shutdown: MutableConfigValue::new(
                     config.expected_shutdown,
                     "expected_shutdown",

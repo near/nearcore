@@ -465,7 +465,7 @@ impl Wasmer2VM {
                     Err(err) => {
                         use wasmer_engine::InstantiationError::*;
                         let abort = match err {
-                            Start(err) => translate_runtime_error(err.clone(), import.vmlogic)?,
+                            Start(err) => translate_runtime_error(err, import.vmlogic)?,
                             Link(e) => FunctionCallError::LinkError { msg: e.to_string() },
                             CpuFeature(e) => panic!(
                                 "host doesn't support the CPU features needed to run contracts: {}",

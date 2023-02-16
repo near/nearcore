@@ -188,13 +188,13 @@ pub fn start_with_config_and_synchronization(
     let genesis_block = Chain::make_genesis_block(&*runtime, &chain_genesis)?;
     let genesis_id = GenesisId {
         chain_id: config.client_config.chain_id.clone(),
-        hash: genesis_block.header().hash().clone(),
+        hash: *genesis_block.header().hash(),
     };
 
     let node_id = config.network_config.node_id();
     let network_adapter = Arc::new(LateBoundSender::default());
     let shards_manager_adapter = Arc::new(NetworkRecipient::default());
-    let client_adapter_for_shards_manager = Arc::new(NetworkRecipient::default());
+    let client_adapter_for_shards_manager = Arc::new(LateBoundSender::default());
     let adv = near_client::adversarial::Controls::new(config.client_config.archive);
 
     let view_client = start_view_client(
@@ -214,20 +214,20 @@ pub fn start_with_config_and_synchronization(
         shards_manager_adapter.clone(),
         config.validator_signer.clone(),
         telemetry,
-        shutdown_signal.clone(),
+        shutdown_signal,
         adv,
         config_updater,
     );
-    client_adapter_for_shards_manager.set_recipient(client_actor.clone());
+    client_adapter_for_shards_manager.bind(client_actor.clone().with_auto_span_context());
     let (shards_manager_actor, shards_manager_arbiter_handle) = start_shards_manager(
         runtime,
         network_adapter.as_sender(),
-        client_adapter_for_shards_manager.clone(),
+        client_adapter_for_shards_manager.as_sender(),
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
         store.get_store(Temperature::Hot),
         config.client_config.chunk_request_retry_period,
     );
-    shards_manager_adapter.set_recipient(shards_manager_actor.clone());
+    shards_manager_adapter.set_recipient(shards_manager_actor);
 
     #[allow(unused_mut)]
     let mut rpc_servers = Vec::new();
@@ -249,7 +249,7 @@ pub fn start_with_config_and_synchronization(
             config.genesis.config.clone(),
             client_actor.clone(),
             view_client.clone(),
-            Some(network_actor.clone()),
+            Some(network_actor),
         ));
     }
 

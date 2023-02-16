@@ -67,7 +67,7 @@ fn setup_network_node(
     let genesis_block = Chain::make_genesis_block(&*runtime, &chain_genesis).unwrap();
     let genesis_id = GenesisId {
         chain_id: client_config.chain_id.clone(),
-        hash: genesis_block.header().hash().clone(),
+        hash: *genesis_block.header().hash(),
     };
     let network_adapter = Arc::new(LateBoundSender::default());
     let shards_manager_adapter = Arc::new(NetworkRecipient::default());
@@ -88,7 +88,7 @@ fn setup_network_node(
     .0;
     let view_client_actor = start_view_client(
         config.validator.as_ref().map(|v| v.account_id()),
-        chain_genesis.clone(),
+        chain_genesis,
         runtime.clone(),
         network_adapter.clone().into(),
         client_config.clone(),
@@ -97,7 +97,7 @@ fn setup_network_node(
     let (shards_manager_actor, _) = start_shards_manager(
         runtime.clone(),
         network_adapter.as_sender(),
-        Arc::new(client_actor.clone()),
+        client_actor.clone().with_auto_span_context().into_sender(),
         Some(signer.validator_id().clone()),
         runtime.store().clone(),
         client_config.chunk_request_retry_period,
@@ -407,7 +407,7 @@ impl Runner {
             config.whitelist.iter().map(|ix| self.test_config[*ix].peer_info()).collect();
 
         let mut network_config =
-            config::NetworkConfig::from_seed(&config.account_id, config.node_addr.clone());
+            config::NetworkConfig::from_seed(&config.account_id, config.node_addr);
         network_config.peer_store.ban_window = config.ban_window;
         network_config.max_num_peers = config.max_num_peers;
         network_config.ttl_account_id_router = time::Duration::seconds(5);

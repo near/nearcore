@@ -268,7 +268,7 @@ pub fn setup_mock_node(
     let (shards_manager_actor, _) = start_shards_manager(
         client_runtime.clone(),
         network_adapter.as_sender(),
-        Arc::new(client.clone()),
+        client.clone().with_auto_span_context().into_sender(),
         config.validator_signer.map(|signer| signer.validator_id().clone()),
         client_runtime.store().clone(),
         config.client_config.chunk_request_retry_period,

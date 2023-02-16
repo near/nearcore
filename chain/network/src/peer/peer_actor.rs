@@ -430,7 +430,7 @@ impl PeerActor {
             partial_edge_info: spec.partial_edge_info,
             owned_account: self.network_state.config.validator.as_ref().map(|vc| {
                 OwnedAccount {
-                    account_key: vc.signer.public_key().clone(),
+                    account_key: vc.signer.public_key(),
                     peer_id: self.network_state.config.node_id(),
                     timestamp: self.clock.now_utc(),
                 }
@@ -1309,7 +1309,7 @@ impl PeerActor {
                                 .event_sink
                                 .push(Event::MessageProcessed(conn.tier, PeerMessage::Routed(msg)));
                         }
-                        _ => self.receive_message(ctx, &conn, PeerMessage::Routed(msg.clone())),
+                        _ => self.receive_message(ctx, &conn, PeerMessage::Routed(msg)),
                     }
                 } else {
                     if msg.decrease_ttl() {

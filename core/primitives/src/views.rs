@@ -498,7 +498,7 @@ pub struct BlockStatusView {
 
 impl BlockStatusView {
     pub fn new(height: &BlockHeight, hash: &CryptoHash) -> BlockStatusView {
-        Self { height: height.clone(), hash: hash.clone() }
+        Self { height: *height, hash: *hash }
     }
 }
 
@@ -516,7 +516,7 @@ pub struct PartElapsedTimeView {
 
 impl PartElapsedTimeView {
     pub fn new(part_id: &u64, elapsed_ms: u128) -> PartElapsedTimeView {
-        Self { part_id: part_id.clone(), elapsed_ms }
+        Self { part_id: *part_id, elapsed_ms }
     }
 }
 

@@ -48,7 +48,7 @@ pub async fn run(
                 let mut headers = network.fetch_block_headers(&ctx, &last_hash).await?;
                 headers.sort_by_key(|h| h.height());
                 let last_header = headers.last().context("no headers")?;
-                last_hash = last_header.hash().clone();
+                last_hash = *last_header.hash();
                 last_height = last_header.height() as i64;
                 info!(
                     "SYNC last_height = {}, {} headers left",

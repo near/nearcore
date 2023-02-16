@@ -136,7 +136,7 @@ impl CacheSnapshot {
             Some(local) if d.account_key == local.signer.public_key() => Arc::new(
                 VersionedAccountData {
                     data: local.data.as_ref().clone(),
-                    account_key: local.signer.public_key().clone(),
+                    account_key: local.signer.public_key(),
                     version: d.version + 1,
                     timestamp: clock.now_utc(),
                 }

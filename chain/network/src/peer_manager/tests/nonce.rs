@@ -152,7 +152,7 @@ async fn test_nonce_refresh() {
     }
 
     // Check that the nonces were properly updates on both pm and pm2 states.
-    let pm_peer_info = pm.peer_info().id.clone();
+    let pm_peer_info = pm.peer_info().id;
     let pm2_nonce = pm2
         .with_state(
             |s| async move { s.graph.load().local_edges.get(&pm_peer_info).unwrap().nonce() },
