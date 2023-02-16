@@ -22,9 +22,9 @@ data_receipt_creation_per_byte
 - send_not_sir:           17_212_011
 - execution:              17_212_011
 action_create_account                   
-- send_sir:           99_607_375_000
-- send_not_sir:       99_607_375_000
-- execution:          99_607_375_000
+- send_sir:        3_850_000_000_000
+- send_not_sir:    3_850_000_000_000
+- execution:       3_850_000_000_000
 action_delete_account                   
 - send_sir:          147_489_000_000
 - send_not_sir:      147_489_000_000

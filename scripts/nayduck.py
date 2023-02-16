@@ -41,9 +41,12 @@ def _parse_args():
     parser.add_argument('--branch',
                         '-b',
                         help='Branch to test. By default gets current one.')
-    parser.add_argument('--sha',
-                        '-s',
-                        help='Sha to test. By default gets current one.')
+    parser.add_argument(
+        '--sha',
+        '-s',
+        help=
+        'Commit sha to test. By default gets current one. This is ignored if branch name is provided'
+    )
     group = parser.add_mutually_exclusive_group()
     group.add_argument('--test-file',
                        '-t',
@@ -67,13 +70,30 @@ def _parse_args():
     return args
 
 
-def get_curent_sha():
-    return subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True)
+def get_sha(branch: str):
+    try:
+        sha = subprocess.check_output(['git', 'rev-parse', branch], text=True)
+
+    except subprocess.CalledProcessError as e:
+        remote_branch = 'remotes/origin/' + branch
+        print(
+            f"Couldn't find a local branch \'{branch}\'. Trying remote: {remote_branch}"
+        )
+        sha = subprocess.check_output(
+            ['git', 'rev-parse', remote_branch],
+            text=True,
+        )
+
+    return sha
 
 
-def get_current_branch():
-    return subprocess.check_output(['git', 'rev-parse', '--abbrev-ref', 'HEAD'],
-                                   text=True)
+def get_branch(sha: str = ""):
+    if sha:
+        return subprocess.check_output(['git', 'name-rev', sha],
+                                       text=True).strip().split(' ')[-1]
+    else:
+        return subprocess.check_output(
+            ['git', 'rev-parse', '--abbrev-ref', "HEAD"], text=True).strip()
 
 
 FileReader = typing.Callable[[pathlib.Path], str]
@@ -281,11 +301,19 @@ def run_remotely(args, tests):
             print(test)
         return
 
-    post = {
-        'branch': args.branch or get_current_branch().strip(),
-        'sha': args.sha or get_curent_sha().strip(),
-        'tests': list(tests)
-    }
+    if args.branch:
+        test_branch = args.branch
+        test_sha = get_sha(test_branch).strip()
+
+    else:
+        test_sha = args.sha or get_sha("HEAD").strip()
+        test_branch = get_branch(test_sha)
+
+    post = {'branch': test_branch, 'sha': test_sha, 'tests': list(tests)}
+
+    print("Scheduling tests for: \n"
+          f"branch - {post['branch']} \n"
+          f"commit hash - {post['sha']}")
 
     while True:
         print('Sending request ...')
