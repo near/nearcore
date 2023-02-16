@@ -1,5 +1,7 @@
+use crate::hash::hash;
+use crate::types::AccountId;
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_primitives_core::types::AccountId;
+use near_crypto::{Signature, Signer};
 
 // These numbers are picked to be compatible with the current protocol and how
 // transactions are defined in it. Introducing this is no protocol change. This
@@ -12,8 +14,8 @@ use near_primitives_core::types::AccountId;
 //
 // TODO: consider making these public once there is an approved standard.
 const MIN_ON_CHAIN_DISCRIMINANT: u32 = 1 << 30;
-const MAX_ON_CHAIN_DISCRIMINANT: u32 = 1 << 31 - 1;
-const MIN_OFF_CHAIN_DISCRIMINANT: u32 = 1 << 31 - 1;
+const MAX_ON_CHAIN_DISCRIMINANT: u32 = (1 << 31) - 1;
+const MIN_OFF_CHAIN_DISCRIMINANT: u32 = 1 << 31;
 const MAX_OFF_CHAIN_DISCRIMINANT: u32 = u32::MAX;
 
 // NEPs currently included in the scheme
@@ -47,6 +49,11 @@ pub struct MessageDiscriminant {
     discriminant: u32,
 }
 
+/// A wrapper around a message that should be signed using this scheme.
+///
+/// Only used for constructing a signature, not used to transmit messages. The
+/// discriminant prefix is implicit and should be known by the receiver based on
+/// the context in which the message is received.
 #[derive(BorshSerialize, BorshDeserialize)]
 pub struct SignableMessage<'a, T> {
     pub discriminant: MessageDiscriminant,
@@ -80,10 +87,16 @@ pub enum CreateDiscriminantError {
     NepTooLarge(u32),
 }
 
-impl<'a, T> SignableMessage<'a, T> {
+impl<'a, T: BorshSerialize> SignableMessage<'a, T> {
     pub fn new(msg: &'a T, ty: SignableMessageType) -> Self {
         let discriminant = ty.into();
         Self { discriminant, msg }
+    }
+
+    pub fn sign(&self, signer: &dyn Signer) -> Signature {
+        let bytes = self.try_to_vec().expect("Failed to deserialize");
+        let hash = hash(&bytes);
+        signer.sign(hash.as_bytes())
     }
 }
 
@@ -196,5 +209,88 @@ impl From<SignableMessageType> for MessageDiscriminant {
                 MessageDiscriminant::new_on_chain(NEP_366_META_TRANSACTIONS).unwrap()
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use near_crypto::PublicKey;
+
+    use super::*;
+    use crate::delegate_action::{DelegateAction, SignedDelegateAction};
+    use crate::test_utils::create_user_test_signer;
+
+    // happy path for NEP-366 signature
+    #[test]
+    fn nep_366_ok() {
+        let sender_id: AccountId = "alice.near".parse().unwrap();
+        let receiver_id: AccountId = "bob.near".parse().unwrap();
+        let signer = create_user_test_signer(&sender_id);
+
+        let delegate_action = delegate_action(sender_id, receiver_id, signer.public_key());
+        let signable = SignableMessage::new(&delegate_action, SignableMessageType::DelegateAction);
+        let signed = SignedDelegateAction {
+            signature: signable.sign(&signer),
+            delegate_action: delegate_action,
+        };
+
+        assert!(signed.verify());
+    }
+
+    // Try to use a wrong nep number in NEP-366 signature verification.
+    #[test]
+    fn nep_366_wrong_nep() {
+        let sender_id: AccountId = "alice.near".parse().unwrap();
+        let receiver_id: AccountId = "bob.near".parse().unwrap();
+        let signer = create_user_test_signer(&sender_id);
+
+        let delegate_action = delegate_action(sender_id, receiver_id, signer.public_key());
+        let wrong_nep = 777;
+        let signable = SignableMessage {
+            discriminant: MessageDiscriminant::new_on_chain(wrong_nep).unwrap(),
+            msg: &delegate_action,
+        };
+        let signed = SignedDelegateAction {
+            signature: signable.sign(&signer),
+            delegate_action: delegate_action,
+        };
+
+        assert!(!signed.verify());
+    }
+
+    // Try to use a wrong message type in NEP-366 signature verification.
+    #[test]
+    fn nep_366_wrong_msg_type() {
+        let sender_id: AccountId = "alice.near".parse().unwrap();
+        let receiver_id: AccountId = "bob.near".parse().unwrap();
+        let signer = create_user_test_signer(&sender_id);
+
+        let delegate_action = delegate_action(sender_id, receiver_id, signer.public_key());
+        let correct_nep = 366;
+        // here we use it as an off-chain only signature
+        let wrong_discriminant = MessageDiscriminant::new_off_chain(correct_nep).unwrap();
+        let signable = SignableMessage { discriminant: wrong_discriminant, msg: &delegate_action };
+        let signed = SignedDelegateAction {
+            signature: signable.sign(&signer),
+            delegate_action: delegate_action,
+        };
+
+        assert!(!signed.verify());
+    }
+
+    fn delegate_action(
+        sender_id: AccountId,
+        receiver_id: AccountId,
+        public_key: PublicKey,
+    ) -> DelegateAction {
+        let delegate_action = DelegateAction {
+            sender_id,
+            receiver_id,
+            actions: vec![],
+            nonce: 0,
+            max_block_height: 1000,
+            public_key,
+        };
+        delegate_action
     }
 }
