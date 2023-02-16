@@ -31,6 +31,8 @@ impl Drop for Inner {
 }
 
 /// See `Ctx::wait`.
+#[derive(thiserror::Error, Debug)]
+#[error("ErrCanceled")]
 pub struct ErrCanceled;
 
 /// See `Ctx::wait`.

@@ -40,7 +40,66 @@ async fn test_drop_service() {
     assert_eq!(Err(2), res);
 }
 
-// TODO(gprusak): test spawning after service/scope cancellation.
+#[tokio::test]
+async fn test_spawn_after_cancelling_scope() {
+    abort_on_panic();
+    let res = scope::run!(&Ctx::inf(), |s| move |ctx: Ctx| async move {
+        s.spawn(|_| async { Err(7) });
+        ctx.canceled().await;
+        s.spawn(|_| async { Err(3) });
+        Ok(())
+    });
+    assert_eq!(Err(7), res);
+}
+
+#[tokio::test]
+async fn test_spawn_after_dropping_service() {
+    abort_on_panic();
+    let res = scope::run!(&Ctx::inf(), |s| move |ctx: Ctx| async move {
+        let service = Arc::new(s.new_service());
+        service
+            .spawn({
+                let service = service.clone();
+                |ctx: Ctx| async move {
+                    ctx.canceled().await;
+                    // Even though the service has been cancelled, you can spawn more tasks on it
+                    // until it is actually terminated. So it is always OK to spawn new tasks on
+                    // a service from another task running on this service.
+                    service.spawn(|_| async { Err(5) }).unwrap();
+                    Ok(())
+                }
+            })
+            .unwrap();
+        // terminate() may get cancelled, because we expect the service to return an error.
+        // Error may or may not get propagated before terminate completes.
+        let _ = service.terminate(&ctx).await;
+        Ok(())
+    });
+    assert_eq!(Err(5), res);
+}
+
+#[tokio::test]
+async fn test_service_termination() {
+    let res = scope::run!(&Ctx::inf(), |s| move |ctx| async move {
+        let service = Arc::new(s.new_service());
+        service
+            .spawn(|ctx: Ctx| async move {
+                ctx.canceled().await;
+                Ok(())
+            })
+            .unwrap();
+        service
+            .spawn(|ctx: Ctx| async move {
+                ctx.canceled().await;
+                Ok(())
+            })
+            .unwrap();
+        service.terminate(&ctx).await.unwrap();
+        Result::<_, ()>::Ok(())
+    });
+    assert_eq!(Ok(()), res);
+}
+
 // TODO(gprusak): test service termination.
 // TODO(gprusak): test spawning after termination.
 // TODO(gprusak): test nested services.
@@ -151,8 +210,10 @@ async fn test_scope_error_nonoverridable() {
 }
 
 #[tokio::test]
-async fn test1() {
+async fn test_access_to_vars_outside_of_scope() {
     abort_on_panic();
+    // Lifetime of a is larger than scope's lifetime,
+    // so it should be accessible from scope's tasks.
     let a = AtomicU64::new(0);
     let a = &a;
     scope::run!(&Ctx::inf(), |s| |_ctx| async {
