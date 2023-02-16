@@ -95,15 +95,43 @@ async fn test_service_termination() {
             })
             .unwrap();
         service.terminate(&ctx).await.unwrap();
-        Result::<_, ()>::Ok(())
+        // Spawning after service termination should fail.
+        assert!(service.spawn(|_| async { Err(1) }).is_err());
+        Ok(())
     });
     assert_eq!(Ok(()), res);
 }
 
-// TODO(gprusak): test service termination.
-// TODO(gprusak): test spawning after termination.
+#[tokio::test]
+async fn test_nested_service() {
+    let res = scope::run!(&Ctx::inf(), |s| move |_| async move {
+        let outer = Arc::new(s.new_service());
+        outer
+            .spawn({
+                let outer = outer.clone();
+                |ctx: Ctx| async move {
+                    let inner = outer.new_service().unwrap();
+                    inner
+                        .spawn(|ctx: Ctx| async move {
+                            ctx.canceled().await;
+                            Err(9)
+                        })
+                        .unwrap();
+                    ctx.canceled().await;
+                    Ok(())
+                }
+            })
+            .unwrap();
+        // Scope (and all the transitive subservices) get cancelled once this task completes.
+        // Scope won't be terminated until all the transitive subservices terminate.
+        Ok(())
+    });
+    assert_eq!(Err(9), res);
+}
+
 // TODO(gprusak): test nested services.
 // TODO(gprusak): test nested scopes.
+// TODO(gprusak): test cancellation of outer context.
 
 #[tokio::test]
 async fn test_service_cancel() {

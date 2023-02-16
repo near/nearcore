@@ -66,6 +66,30 @@ mod tests;
 
 // TODO(gprusak): Consider making the context implicit by moving it to a thread_local storage.
 
+struct Output<E> {
+    ctx: CtxWithCancel,
+    send: crossbeam_channel::Sender<E>,
+}
+
+impl<E> Clone for Output<E> {
+    fn clone(&self) -> Self {
+        Self { ctx: self.ctx.clone(), send: self.send.clone() }
+    }
+}
+
+impl<E> Output<E> {
+    pub fn new(ctx: CtxWithCancel) -> (Self, crossbeam_channel::Receiver<E>) {
+        let (send, recv) = crossbeam_channel::bounded(1);
+        (Self { ctx, send }, recv)
+    }
+
+    pub fn send(&self, err: E) {
+        if let Ok(_) = self.send.try_send(err) {
+            self.ctx.cancel();
+        }
+    }
+}
+
 /// Internal representation of a scope.
 struct Inner<E: 'static> {
     /// Signal sent once the scope is terminated (i.e. when Inner is dropped).
@@ -78,19 +102,20 @@ struct Inner<E: 'static> {
     /// It is a child context of the parent scope.
     /// All tasks spawned in this scope are provided with this context.
     ctx: CtxWithCancel,
-    /// First error returned by any of the tasks (subsequent errors are silently dropped).
+    /// The channel over which the first error reported by any completed task is sent.
     ///
-    /// All the tasks in this scope are cancelled as soon as ANY task returns an error.
-    result: Result<(), E>,
-    /// `result` is sent to `output` when Inner is dropped.
-    output: Option<tokio::sync::oneshot::Sender<Result<(), E>>>,
+    /// `output` channel has capacity 1, so that any subsequent attempts to send an error
+    /// will fail. The channel is created in `internal::run` and the value is received from
+    /// the channel only after the top-level scope has terminated.
+    /// Thanks to the fact that we have a single channel per top-level scope:
+    /// * if you await Service::terminate() from within some task, it will complete only
+    ///   after the error is actually registered, so the awaiting task won't be able to cause a
+    ///   race condition.
+    output: Output<E>,
 }
 
 impl<E: 'static> Drop for Inner<E> {
     fn drop(&mut self) {
-        let res = std::mem::replace(&mut self.result, Ok(()));
-        let output = self.output.take().unwrap();
-        output.send(res).ok().unwrap();
         self.terminated.send();
     }
 }
@@ -99,27 +124,8 @@ impl<E: 'static> Inner<E> {
     /// Creates a new scope with the given context.
     ///
     /// After the scope terminates, the result will be sent to output.
-    pub fn new(
-        ctx: &Ctx,
-        output: tokio::sync::oneshot::Sender<Result<(), E>>,
-    ) -> Arc<Mutex<Inner<E>>> {
-        Arc::new(Mutex::new(Inner {
-            terminated: signal::Once::new(),
-            ctx: ctx.with_cancel(),
-            result: Ok(()),
-            output: Some(output),
-        }))
-    }
-
-    /// Joins a completed task and aggregates the result.
-    ///
-    /// When the first error is joined, the scope gets canceled.
-    pub fn join(&mut self, res: Result<(), E>) {
-        if !self.result.is_ok() || res.is_ok() {
-            return;
-        }
-        self.result = res;
-        self.ctx.cancel();
+    pub fn new(ctx: CtxWithCancel, output: Output<E>) -> Arc<Mutex<Inner<E>>> {
+        Arc::new(Mutex::new(Inner { terminated: signal::Once::new(), ctx, output }))
     }
 }
 
@@ -137,8 +143,9 @@ impl<E: 'static + Send> Inner<E> {
         let ctx = (*m.as_ref().borrow().lock().unwrap().ctx).clone();
         let f = f(ctx);
         tokio::spawn(async move {
-            let res = f.await;
-            m.as_ref().borrow().lock().unwrap().join(res);
+            if let Err(err) = f.await {
+                m.as_ref().borrow().lock().unwrap().output.send(err);
+            }
         });
     }
 
@@ -149,13 +156,16 @@ impl<E: 'static + Send> Inner<E> {
     /// a dedicated task is spawned on the scope which awaits for service to terminate and
     /// returns the service's result.
     pub fn new_service(m: Arc<Mutex<Self>>) -> Service<E> {
-        let (send, recv) = tokio::sync::oneshot::channel();
-        let subscope = Inner::new(&m.lock().unwrap().ctx, send);
+        let subscope = {
+            let inner = m.lock().unwrap();
+            Inner::new(inner.ctx.with_cancel(), inner.output.clone())
+        };
+        let terminated = subscope.lock().unwrap().terminated.clone();
         let service = Service(Arc::downgrade(&subscope));
         // Spawn a task on m which will await termination of the Service.
         // Note that this task doesn't keep a StrongService reference, so
         // it will not prevent cancellation of the parent scope.
-        Inner::spawn(m, (|_| async { recv.await.unwrap() }).wrap());
+        Inner::spawn(m, (|_| async move { Ok(terminated.recv().await) }).wrap());
         // Spawn a guard task in the Service which will prevent termination of the Service
         // until the context is not canceled. See `Service` for a list
         // of events canceling the Service.
@@ -343,14 +353,19 @@ pub mod internal {
         G: AsyncFn<'env, Ctx, Result<(), E>>,
     {
         must_complete(async move {
-            let (send, recv) = tokio::sync::oneshot::channel();
-            let service = Arc::new(StrongService(Inner::new(ctx, send)));
+            let (output, recv) = Output::new(ctx.with_cancel());
+            let service = Arc::new(StrongService(Inner::new(output.ctx.clone(), output)));
+            let terminated = service.0.lock().unwrap().terminated.clone();
             scope.0 = Arc::downgrade(&service);
             scope.spawn(f(scope));
             // each task spawned on `scope` keeps its own reference to `service`.
             // As soon as all references to `service` are dropped, scope will be cancelled.
             drop(service);
-            recv.await.unwrap()
+            terminated.recv().await;
+            match recv.try_recv() {
+                Ok(err) => Err(err),
+                Err(_) => Ok(()),
+            }
         })
         .await
     }
