@@ -170,6 +170,7 @@ impl MessageDiscriminant {
     /// If this discriminant marks a message intended for off-chain use, return
     /// the NEP in which the message type was introduced.
     pub fn off_chain_nep(&self) -> Option<u32> {
+        #[allow(clippy::clippy::absurd-extreme-comparisons)]
         if self.discriminant < MIN_OFF_CHAIN_DISCRIMINANT
             || self.discriminant > MAX_OFF_CHAIN_DISCRIMINANT
         {
