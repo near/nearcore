@@ -3147,6 +3147,7 @@ dependencies = [
  "borsh",
  "chrono",
  "delay-detector",
+ "derive_more",
  "futures",
  "itertools",
  "lru",
