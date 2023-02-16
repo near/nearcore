@@ -79,8 +79,10 @@ def get_sha(branch: str):
         print(
             f"Couldn't find a local branch \'{branch}\'. Trying remote: {remote_branch}"
         )
-        sha = subprocess.check_output(['git', 'rev-parse', remote_branch],
-                                      text=True)
+        sha = subprocess.check_output(
+            ['git', 'rev-parse', remote_branch],
+            text=True,
+        )
 
     return sha
 
