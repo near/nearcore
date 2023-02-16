@@ -169,7 +169,7 @@ impl MessageDiscriminant {
 
     /// If this discriminant marks a message intended for off-chain use, return
     /// the NEP in which the message type was introduced.
-    /// 
+    ///
     /// clippy: MAX_OFF_CHAIN_DISCRIMINANT currently is u32::MAX which makes the
     /// comparison pointless, however I think it helps code readability to have
     /// it spelled out anyway
