@@ -3,10 +3,10 @@ mod fetch_chain;
 mod network;
 
 use anyhow::{anyhow, Context};
-use near_async::messaging::Sender;
 use concurrency::{Ctx, Scope};
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::messaging::LateBoundSender;
+use near_async::messaging::Sender;
 use near_chain_configs::Genesis;
 use near_network::time;
 use near_network::PeerManagerActor;
