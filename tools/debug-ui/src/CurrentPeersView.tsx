@@ -191,6 +191,7 @@ export const CurrentPeersView = ({ addr }: NetworkInfoViewProps) => {
     const detailedDebugStatus = fullStatus.detailed_debug_status!;
 
     return <div className="current-peers-view">
+        <p>PeerId: {fullStatus.node_public_key}</p>
         <p>Current Sync Status: {detailedDebugStatus.sync_status}</p>
         <p>
             Number of peers: {detailedDebugStatus.network_info.num_connected_peers}{' '}
