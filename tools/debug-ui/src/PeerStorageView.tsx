@@ -1,5 +1,5 @@
 import { useQuery } from "react-query";
-import { toHumanTime } from "./utils.js";
+import { toHumanTime } from "./utils";
 import { fetchPeerStore } from "./api";
 import "./PeerStorageView.scss";
 
