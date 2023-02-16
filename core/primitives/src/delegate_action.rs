@@ -5,6 +5,7 @@
 
 pub use self::private_non_delegate_action::NonDelegateAction;
 use crate::hash::{hash, CryptoHash};
+use crate::signable_message::{SignableMessage, SignableMessageType};
 use crate::transaction::Action;
 use crate::types::{AccountId, Nonce};
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -74,7 +75,8 @@ impl DelegateAction {
     }
 
     pub fn get_hash(&self) -> CryptoHash {
-        let bytes = self.try_to_vec().expect("Failed to deserialize");
+        let signable = SignableMessage::new(&self, SignableMessageType::DelegateAction);
+        let bytes = signable.try_to_vec().expect("Failed to deserialize");
         hash(&bytes)
     }
 }
