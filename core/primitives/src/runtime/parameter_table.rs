@@ -1,23 +1,185 @@
 use super::config::{AccountCreationConfig, RuntimeConfig};
+use near_primitives_core::account::id::ParseAccountError;
 use near_primitives_core::config::{ExtCostsConfig, VMConfig};
 use near_primitives_core::parameter::{FeeParameter, Parameter};
-use near_primitives_core::runtime::fees::{RuntimeFeesConfig, StorageUsageConfig};
-use num_rational::Rational;
-use serde::de::DeserializeOwned;
-use std::any::Any;
+use near_primitives_core::runtime::fees::{Fee, RuntimeFeesConfig, StorageUsageConfig};
+use near_primitives_core::types::AccountId;
+use num_rational::Rational32;
 use std::collections::BTreeMap;
 
+/// Represents values supported by parameter config.
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
+#[serde(untagged)]
+pub(crate) enum ParameterValue {
+    U64(u64),
+    Rational { numerator: i32, denominator: i32 },
+    Fee { send_sir: u64, send_not_sir: u64, execution: u64 },
+    // Can be used to store either a string or u128. Ideally, we would use a dedicated enum member
+    // for u128, but this is currently impossible to express in YAML (see
+    // `canonicalize_yaml_string`).
+    String(String),
+}
+
+#[derive(thiserror::Error, Debug)]
+pub(crate) enum ValueConversionError {
+    #[error("expected a value of type `{0}`, but could not parse it from `{1:?}`")]
+    ParseType(&'static str, ParameterValue),
+
+    #[error("expected an integer of type `{1}` but could not parse it from `{2:?}`")]
+    ParseInt(#[source] std::num::ParseIntError, &'static str, ParameterValue),
+
+    #[error("expected an integer of type `{1}` but could not parse it from `{2:?}`")]
+    TryFromInt(#[source] std::num::TryFromIntError, &'static str, ParameterValue),
+
+    #[error("expected an account id, but could not parse it from `{1}`")]
+    ParseAccountId(#[source] ParseAccountError, String),
+}
+
+macro_rules! implement_conversion_to {
+    ($($ty: ty),*) => {
+        $(impl TryFrom<&ParameterValue> for $ty {
+            type Error = ValueConversionError;
+            fn try_from(value: &ParameterValue) -> Result<Self, Self::Error> {
+                match value {
+                    ParameterValue::U64(v) => <$ty>::try_from(*v).map_err(|err| {
+                        ValueConversionError::TryFromInt(
+                            err.into(),
+                            std::any::type_name::<$ty>(),
+                            value.clone(),
+                        )
+                    }),
+                    _ => Err(ValueConversionError::ParseType(
+                            std::any::type_name::<$ty>(), value.clone()
+                    )),
+                }
+            }
+        })*
+    }
+}
+
+implement_conversion_to!(u64, u32, u16, u8, i64, i32, i16, i8, usize, isize);
+
+impl TryFrom<&ParameterValue> for u128 {
+    type Error = ValueConversionError;
+
+    fn try_from(value: &ParameterValue) -> Result<Self, Self::Error> {
+        match value {
+            ParameterValue::U64(v) => Ok(u128::from(*v)),
+            ParameterValue::String(s) => s.parse().map_err(|err| {
+                ValueConversionError::ParseInt(err, std::any::type_name::<u128>(), value.clone())
+            }),
+            _ => Err(ValueConversionError::ParseType(std::any::type_name::<u128>(), value.clone())),
+        }
+    }
+}
+
+impl TryFrom<&ParameterValue> for Rational32 {
+    type Error = ValueConversionError;
+
+    fn try_from(value: &ParameterValue) -> Result<Self, Self::Error> {
+        match value {
+            &ParameterValue::Rational { numerator, denominator } => {
+                Ok(Rational32::new(numerator, denominator))
+            }
+            _ => Err(ValueConversionError::ParseType(
+                std::any::type_name::<Rational32>(),
+                value.clone(),
+            )),
+        }
+    }
+}
+
+impl TryFrom<&ParameterValue> for Fee {
+    type Error = ValueConversionError;
+
+    fn try_from(value: &ParameterValue) -> Result<Self, Self::Error> {
+        match value {
+            &ParameterValue::Fee { send_sir, send_not_sir, execution } => {
+                Ok(Fee { send_sir, send_not_sir, execution })
+            }
+            _ => Err(ValueConversionError::ParseType(std::any::type_name::<Fee>(), value.clone())),
+        }
+    }
+}
+
+impl<'a> TryFrom<&'a ParameterValue> for &'a str {
+    type Error = ValueConversionError;
+
+    fn try_from(value: &'a ParameterValue) -> Result<Self, Self::Error> {
+        match value {
+            ParameterValue::String(v) => Ok(v),
+            _ => {
+                Err(ValueConversionError::ParseType(std::any::type_name::<String>(), value.clone()))
+            }
+        }
+    }
+}
+
+impl TryFrom<&ParameterValue> for AccountId {
+    type Error = ValueConversionError;
+
+    fn try_from(value: &ParameterValue) -> Result<Self, Self::Error> {
+        let value: &str = value.try_into()?;
+        value.parse().map_err(|err| ValueConversionError::ParseAccountId(err, value.to_string()))
+    }
+}
+
+fn format_number(mut n: u64) -> String {
+    let mut parts = Vec::new();
+    while n >= 1000 {
+        parts.push(format!("{:03?}", n % 1000));
+        n /= 1000;
+    }
+    parts.push(n.to_string());
+    parts.reverse();
+    parts.join("_")
+}
+
+impl core::fmt::Display for ParameterValue {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        match self {
+            ParameterValue::U64(v) => write!(f, "{:>20}", format_number(*v)),
+            ParameterValue::Rational { numerator, denominator } => {
+                write!(f, "{numerator} / {denominator}")
+            }
+            ParameterValue::Fee { send_sir, send_not_sir, execution } => {
+                write!(
+                    f,
+                    r#"
+- send_sir:     {:>20}
+- send_not_sir: {:>20}
+- execution:    {:>20}"#,
+                    format_number(*send_sir),
+                    format_number(*send_not_sir),
+                    format_number(*execution)
+                )
+            }
+            ParameterValue::String(v) => write!(f, "{v}"),
+        }
+    }
+}
+
 pub(crate) struct ParameterTable {
-    parameters: BTreeMap<Parameter, serde_yaml::Value>,
+    parameters: BTreeMap<Parameter, ParameterValue>,
+}
+
+/// Formats `ParameterTable` in human-readable format which is a subject to change and is not
+/// intended to be parsed back.
+impl core::fmt::Display for ParameterTable {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        for (key, value) in &self.parameters {
+            write!(f, "{key:40}{value}\n")?
+        }
+        Ok(())
+    }
 }
 
 /// Changes made to parameters between versions.
 pub(crate) struct ParameterTableDiff {
-    parameters: BTreeMap<Parameter, (serde_yaml::Value, serde_yaml::Value)>,
+    parameters: BTreeMap<Parameter, (Option<ParameterValue>, Option<ParameterValue>)>,
 }
 
-/// Error returned by ParameterTable::from_txt() that parses a runtime
-/// configuration TXT file.
+/// Error returned by ParameterTable::from_str() that parses a runtime configuration YAML file.
 #[derive(thiserror::Error, Debug)]
 pub(crate) enum InvalidConfigError {
     #[error("could not parse `{1}` as a parameter")]
@@ -27,28 +189,23 @@ pub(crate) enum InvalidConfigError {
     #[error("could not parse YAML that defines the structure of the config")]
     InvalidYaml(#[source] serde_yaml::Error),
     #[error("config diff expected to contain old value `{1:?}` for parameter `{0}`")]
-    OldValueExists(Parameter, serde_yaml::Value),
+    OldValueExists(Parameter, ParameterValue),
     #[error(
         "unexpected old value `{1:?}` for parameter `{0}` in config diff, previous version does not have such a value"
     )]
-    NoOldValueExists(Parameter, serde_yaml::Value),
+    NoOldValueExists(Parameter, ParameterValue),
     #[error("expected old value `{1:?}` but found `{2:?}` for parameter `{0}` in config diff")]
-    WrongOldValue(Parameter, serde_yaml::Value, serde_yaml::Value),
+    WrongOldValue(Parameter, ParameterValue, ParameterValue),
     #[error("expected a value for `{0}` but found none")]
     MissingParameter(Parameter),
-    #[error("expected a value of type `{2}` for `{1}` but could not parse it from `{3:?}`")]
-    WrongValueType(#[source] serde_yaml::Error, Parameter, &'static str, serde_yaml::Value),
+    #[error("failed to convert a value for `{1}`")]
+    ValueConversionError(#[source] ValueConversionError, Parameter),
 }
 
 impl std::str::FromStr for ParameterTable {
     type Err = InvalidConfigError;
     fn from_str(arg: &str) -> Result<ParameterTable, InvalidConfigError> {
-        // TODO(#8320): Remove this after migration to `serde_yaml` 0.9 that supports empty strings.
-        if arg.is_empty() {
-            return Ok(ParameterTable { parameters: BTreeMap::new() });
-        }
-
-        let yaml_map: BTreeMap<String, String> =
+        let yaml_map: BTreeMap<String, serde_yaml::Value> =
             serde_yaml::from_str(arg).map_err(|err| InvalidConfigError::InvalidYaml(err))?;
 
         let parameters = yaml_map
@@ -57,7 +214,7 @@ impl std::str::FromStr for ParameterTable {
                 let typed_key: Parameter = key
                     .parse()
                     .map_err(|err| InvalidConfigError::UnknownParameter(err, key.to_owned()))?;
-                Ok((typed_key, parse_parameter_txt_value(value)?))
+                Ok((typed_key, parse_parameter_value(value)?))
             })
             .collect::<Result<BTreeMap<_, _>, _>>()?;
 
@@ -72,38 +229,32 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
         Ok(RuntimeConfig {
             fees: RuntimeFeesConfig {
                 action_fees: enum_map::enum_map! {
-                    action_cost => params.fee(action_cost)
+                    action_cost => params.get_fee(action_cost)?
                 },
-                burnt_gas_reward: Rational::new(
-                    params.get_parsed(Parameter::BurntGasRewardNumerator)?,
-                    params.get_parsed(Parameter::BurntGasRewardDenominator)?,
-                ),
-                pessimistic_gas_price_inflation_ratio: Rational::new(
-                    params.get_parsed(Parameter::PessimisticGasPriceInflationNumerator)?,
-                    params.get_parsed(Parameter::PessimisticGasPriceInflationDenominator)?,
-                ),
+                burnt_gas_reward: params.get(Parameter::BurntGasReward)?,
+                pessimistic_gas_price_inflation_ratio: params
+                    .get(Parameter::PessimisticGasPriceInflation)?,
                 storage_usage_config: StorageUsageConfig {
-                    storage_amount_per_byte: params.get_u128(Parameter::StorageAmountPerByte)?,
-                    num_bytes_account: params.get_parsed(Parameter::StorageNumBytesAccount)?,
-                    num_extra_bytes_record: params
-                        .get_parsed(Parameter::StorageNumExtraBytesRecord)?,
+                    storage_amount_per_byte: params.get(Parameter::StorageAmountPerByte)?,
+                    num_bytes_account: params.get(Parameter::StorageNumBytesAccount)?,
+                    num_extra_bytes_record: params.get(Parameter::StorageNumExtraBytesRecord)?,
                 },
             },
             wasm_config: VMConfig {
                 ext_costs: ExtCostsConfig {
                     costs: enum_map::enum_map! {
-                        cost => params.get_parsed(cost.param())?
+                        cost => params.get(cost.param())?
                     },
                 },
-                grow_mem_cost: params.get_parsed(Parameter::WasmGrowMemCost)?,
-                regular_op_cost: params.get_parsed(Parameter::WasmRegularOpCost)?,
-                limit_config: serde_yaml::from_value(params.yaml_map(Parameter::vm_limits(), ""))
+                grow_mem_cost: params.get(Parameter::WasmGrowMemCost)?,
+                regular_op_cost: params.get(Parameter::WasmRegularOpCost)?,
+                limit_config: serde_yaml::from_value(params.yaml_map(Parameter::vm_limits()))
                     .map_err(InvalidConfigError::InvalidYaml)?,
             },
             account_creation_config: AccountCreationConfig {
                 min_allowed_top_level_account_length: params
-                    .get_parsed(Parameter::MinAllowedTopLevelAccountLength)?,
-                registrar_account_id: params.get_parsed(Parameter::RegistrarAccountId)?,
+                    .get(Parameter::MinAllowedTopLevelAccountLength)?,
+                registrar_account_id: params.get(Parameter::RegistrarAccountId)?,
             },
         })
     }
@@ -115,130 +266,73 @@ impl ParameterTable {
         diff: ParameterTableDiff,
     ) -> Result<(), InvalidConfigError> {
         for (key, (before, after)) in diff.parameters {
-            if before.is_null() {
-                match self.parameters.get(&key) {
-                    Some(serde_yaml::Value::Null) | None => {
-                        self.parameters.insert(key, after);
-                    }
-                    Some(old_value) => {
-                        return Err(InvalidConfigError::OldValueExists(key, old_value.clone()))
-                    }
+            let old_value = self.parameters.get(&key);
+            if old_value != before.as_ref() {
+                if old_value.is_none() {
+                    return Err(InvalidConfigError::NoOldValueExists(key, before.unwrap()));
                 }
+                if before.is_none() {
+                    return Err(InvalidConfigError::OldValueExists(
+                        key,
+                        old_value.unwrap().clone(),
+                    ));
+                }
+                return Err(InvalidConfigError::WrongOldValue(
+                    key,
+                    old_value.unwrap().clone(),
+                    before.unwrap(),
+                ));
+            }
+
+            if let Some(new_value) = after {
+                self.parameters.insert(key, new_value);
             } else {
-                match self.parameters.get(&key) {
-                    Some(serde_yaml::Value::Null) | None => {
-                        return Err(InvalidConfigError::NoOldValueExists(key, before.clone()))
-                    }
-                    Some(old_value) => {
-                        if *old_value != before {
-                            return Err(InvalidConfigError::WrongOldValue(
-                                key,
-                                old_value.clone(),
-                                before.clone(),
-                            ));
-                        } else {
-                            self.parameters.insert(key, after);
-                        }
-                    }
-                }
+                self.parameters.remove(&key);
             }
         }
         Ok(())
     }
 
-    fn yaml_map(
-        &self,
-        params: impl Iterator<Item = &'static Parameter>,
-        remove_prefix: &'static str,
-    ) -> serde_yaml::Value {
-        let mut yaml = serde_yaml::Mapping::new();
-        for param in params {
-            let mut key: &'static str = param.into();
-            key = key.strip_prefix(remove_prefix).unwrap_or(key);
-            if let Some(value) = self.get(*param) {
-                yaml.insert(key.into(), value.clone());
-            }
-        }
-        yaml.into()
+    fn yaml_map(&self, params: impl Iterator<Item = &'static Parameter>) -> serde_yaml::Value {
+        // All parameter values can be serialized as YAML, so we don't ever expect this to fail.
+        serde_yaml::to_value(
+            params
+                .filter_map(|param| Some((param.to_string(), self.parameters.get(param)?)))
+                .collect::<BTreeMap<_, _>>(),
+        )
+        .expect("failed to convert parameter values to YAML")
     }
 
-    fn get(&self, key: Parameter) -> Option<&serde_yaml::Value> {
-        self.parameters.get(&key)
+    /// Read and parse a typed parameter from the `ParameterTable`.
+    fn get<'a, T>(&'a self, key: Parameter) -> Result<T, InvalidConfigError>
+    where
+        T: TryFrom<&'a ParameterValue, Error = ValueConversionError>,
+    {
+        let value = self.parameters.get(&key).ok_or(InvalidConfigError::MissingParameter(key))?;
+        value.try_into().map_err(|err| InvalidConfigError::ValueConversionError(err, key))
     }
 
     /// Access action fee by `ActionCosts`.
-    fn fee(
+    fn get_fee(
         &self,
         cost: near_primitives_core::config::ActionCosts,
-    ) -> near_primitives_core::runtime::fees::Fee {
-        let yaml = self.fee_yaml(FeeParameter::from(cost));
-        serde_yaml::from_value::<near_primitives_core::runtime::fees::Fee>(yaml)
-            .expect("just constructed a Fee YAML")
-    }
-
-    /// Read and parse a parameter from the `ParameterTable`.
-    fn get_parsed<T: DeserializeOwned + Any>(
-        &self,
-        key: Parameter,
-    ) -> Result<T, InvalidConfigError> {
-        let value = self.parameters.get(&key).ok_or(InvalidConfigError::MissingParameter(key))?;
-        serde_yaml::from_value(value.clone()).map_err(|parse_err| {
-            InvalidConfigError::WrongValueType(
-                parse_err,
-                key,
-                std::any::type_name::<T>(),
-                value.clone(),
-            )
-        })
-    }
-
-    /// Read and parse a parameter from the `ParameterTable`.
-    fn get_u128(&self, key: Parameter) -> Result<u128, InvalidConfigError> {
-        let value = self.parameters.get(&key).ok_or(InvalidConfigError::MissingParameter(key))?;
-        match value {
-            // Values larger than u64 are stored as quoted strings, so we parse them as YAML
-            // document to leverage deserialization to u128.
-            serde_yaml::Value::String(v) => serde_yaml::from_str(v).map_err(|parse_err| {
-                InvalidConfigError::WrongValueType(
-                    parse_err,
-                    key,
-                    std::any::type_name::<u128>(),
-                    value.clone(),
-                )
-            }),
-            // If the value is a number (or any other type), the usual conversion should work.
-            _ => serde_yaml::from_value(value.clone()).map_err(|parse_err| {
-                InvalidConfigError::WrongValueType(
-                    parse_err,
-                    key,
-                    std::any::type_name::<u128>(),
-                    value.clone(),
-                )
-            }),
-        }
-    }
-
-    fn fee_yaml(&self, key: FeeParameter) -> serde_yaml::Value {
-        serde_yaml::to_value(BTreeMap::from([
-            ("send_sir", self.get(format!("{key}_send_sir").parse().unwrap())),
-            ("send_not_sir", self.get(format!("{key}_send_not_sir").parse().unwrap())),
-            ("execution", self.get(format!("{key}_execution").parse().unwrap())),
-        ]))
-        .expect("failed to construct fee yaml")
+    ) -> Result<near_primitives_core::runtime::fees::Fee, InvalidConfigError> {
+        let key: Parameter = format!("{}", FeeParameter::from(cost)).parse().unwrap();
+        self.get(key)
     }
 }
 
-/// Represents YAML values supported by parameter diff config.
+/// Represents values supported by parameter diff config.
 #[derive(serde::Deserialize, Clone, Debug)]
-struct ParameterDiffValue {
-    old: Option<String>,
-    new: Option<String>,
+struct ParameterDiffConfigValue {
+    old: Option<serde_yaml::Value>,
+    new: Option<serde_yaml::Value>,
 }
 
 impl std::str::FromStr for ParameterTableDiff {
     type Err = InvalidConfigError;
     fn from_str(arg: &str) -> Result<ParameterTableDiff, InvalidConfigError> {
-        let yaml_map: BTreeMap<String, ParameterDiffValue> =
+        let yaml_map: BTreeMap<String, ParameterDiffConfigValue> =
             serde_yaml::from_str(arg).map_err(|err| InvalidConfigError::InvalidYaml(err))?;
 
         let parameters = yaml_map
@@ -248,17 +342,11 @@ impl std::str::FromStr for ParameterTableDiff {
                     .parse()
                     .map_err(|err| InvalidConfigError::UnknownParameter(err, key.to_owned()))?;
 
-                let old_value = if let Some(s) = &value.old {
-                    parse_parameter_txt_value(s)?
-                } else {
-                    serde_yaml::Value::Null
-                };
+                let old_value =
+                    if let Some(s) = &value.old { Some(parse_parameter_value(s)?) } else { None };
 
-                let new_value = if let Some(s) = &value.new {
-                    parse_parameter_txt_value(s)?
-                } else {
-                    serde_yaml::Value::Null
-                };
+                let new_value =
+                    if let Some(s) = &value.new { Some(parse_parameter_value(s)?) } else { None };
 
                 Ok((typed_key, (old_value, new_value)))
             })
@@ -267,11 +355,38 @@ impl std::str::FromStr for ParameterTableDiff {
     }
 }
 
+/// Parses a value from YAML to a more restricted type of parameter values.
+fn parse_parameter_value(value: &serde_yaml::Value) -> Result<ParameterValue, InvalidConfigError> {
+    Ok(serde_yaml::from_value(canonicalize_yaml_value(value)?)
+        .map_err(|err| InvalidConfigError::InvalidYaml(err))?)
+}
+
+/// Recursively canonicalizes values inside of the YAML structure.
+fn canonicalize_yaml_value(
+    value: &serde_yaml::Value,
+) -> Result<serde_yaml::Value, InvalidConfigError> {
+    Ok(match value {
+        serde_yaml::Value::String(s) => canonicalize_yaml_string(s)?,
+        serde_yaml::Value::Mapping(m) => serde_yaml::Value::Mapping(
+            m.iter()
+                .map(|(key, value)| {
+                    let canonical_value = canonicalize_yaml_value(value)?;
+                    Ok((key.clone(), canonical_value))
+                })
+                .collect::<Result<_, _>>()?,
+        ),
+        _ => value.clone(),
+    })
+}
+
 /// Parses a value from the custom format for runtime parameter definitions.
 ///
-/// A value can be a positive integer or a string, both written without quotes.
+/// A value can be a positive integer or a string, with or without quotes.
 /// Integers can use underlines as separators (for readability).
-fn parse_parameter_txt_value(value: &str) -> Result<serde_yaml::Value, InvalidConfigError> {
+///
+/// The main purpose of this function is to add support for integers with underscore digit
+/// separators which we use in the config but are not supported in YAML.
+fn canonicalize_yaml_string(value: &str) -> Result<serde_yaml::Value, InvalidConfigError> {
     if value.is_empty() {
         return Ok(serde_yaml::Value::Null);
     }
@@ -294,7 +409,10 @@ fn parse_parameter_txt_value(value: &str) -> Result<serde_yaml::Value, InvalidCo
 
 #[cfg(test)]
 mod tests {
-    use super::{InvalidConfigError, ParameterTable, ParameterTableDiff};
+    use super::{
+        parse_parameter_value, InvalidConfigError, ParameterTable, ParameterTableDiff,
+        ParameterValue,
+    };
     use assert_matches::assert_matches;
     use near_primitives_core::parameter::Parameter;
     use std::collections::BTreeMap;
@@ -312,14 +430,13 @@ mod tests {
         }
 
         let expected_map = BTreeMap::from_iter(expected.into_iter().map(|(param, value)| {
-            (
-                param,
-                if value.is_empty() {
-                    serde_yaml::Value::Null
-                } else {
-                    serde_yaml::from_str(value).expect("Test data has invalid YAML")
-                },
-            )
+            (param, {
+                assert!(!value.is_empty(), "omit the parameter in the test instead");
+                parse_parameter_value(
+                    &serde_yaml::from_str(value).expect("Test data has invalid YAML"),
+                )
+                .unwrap()
+            })
         }));
 
         assert_eq!(params.parameters, expected_map);
@@ -349,6 +466,10 @@ min_allowed_top_level_account_length: 32
 storage_amount_per_byte: 100_000_000_000_000_000_000
 storage_num_bytes_account: 100
 storage_num_extra_bytes_record: 40
+burnt_gas_reward: {
+  numerator: 1_000_000,
+  denominator: 300,
+}
 "#;
 
     static BASE_1: &str = r#"
@@ -358,7 +479,9 @@ min_allowed_top_level_account_length: 32
 
 # Comment line with trailing whitespace # 
 
-storage_amount_per_byte: 100000000000000000000
+# Note the quotes here, they are necessary as otherwise the value can't be parsed by `serde_yaml`
+# due to not fitting into u64 type.
+storage_amount_per_byte: "100000000000000000000"
 storage_num_bytes_account: 100
 storage_num_extra_bytes_record   :   40  
 
@@ -369,6 +492,10 @@ storage_num_extra_bytes_record   :   40
 registrar_account_id: { old: "registrar", new: "near" }
 min_allowed_top_level_account_length: { old: 32, new: 32_000 }
 wasm_regular_op_cost: { new: 3_856_371 }
+burnt_gas_reward: {
+    old: { numerator: 1_000_000, denominator: 300 },
+    new: { numerator: 2_000_000, denominator: 500 },
+}
 "#;
 
     static DIFF_1: &str = r#"
@@ -377,6 +504,10 @@ registrar_account_id: { old: "near", new: "registrar" }
 storage_num_extra_bytes_record: { old: 40, new: 77 }
 wasm_regular_op_cost: { old: 3_856_371, new: 0 }
 max_memory_pages: { new: 512 }
+burnt_gas_reward: {
+    old: { numerator: 2_000_000, denominator: 500 },
+    new: { numerator: 3_000_000, denominator: 800 },
+}
 "#;
 
     // Tests synthetic small example configurations. For tests with "real"
@@ -401,6 +532,7 @@ max_memory_pages: { new: 512 }
                 (Parameter::StorageAmountPerByte, "\"100000000000000000000\""),
                 (Parameter::StorageNumBytesAccount, "100"),
                 (Parameter::StorageNumExtraBytesRecord, "40"),
+                (Parameter::BurntGasReward, "{ numerator: 1_000_000, denominator: 300 }"),
             ],
         );
     }
@@ -434,6 +566,7 @@ max_memory_pages: { new: 512 }
                 (Parameter::StorageNumBytesAccount, "100"),
                 (Parameter::StorageNumExtraBytesRecord, "40"),
                 (Parameter::WasmRegularOpCost, "3856371"),
+                (Parameter::BurntGasReward, "{ numerator: 2_000_000, denominator: 500 }"),
             ],
         );
     }
@@ -452,6 +585,7 @@ max_memory_pages: { new: 512 }
                 (Parameter::StorageNumExtraBytesRecord, "77"),
                 (Parameter::WasmRegularOpCost, "0"),
                 (Parameter::MaxMemoryPages, "512"),
+                (Parameter::BurntGasReward, "{ numerator: 3_000_000, denominator: 800 }"),
             ],
         );
     }
@@ -464,10 +598,10 @@ max_memory_pages: { new: 512 }
             &[diff_with_empty_value],
             [
                 (Parameter::RegistrarAccountId, "\"registrar\""),
-                (Parameter::MinAllowedTopLevelAccountLength, ""),
                 (Parameter::StorageAmountPerByte, "\"100000000000000000000\""),
                 (Parameter::StorageNumBytesAccount, "100"),
                 (Parameter::StorageNumExtraBytesRecord, "40"),
+                (Parameter::BurntGasReward, "{ numerator: 1_000_000, denominator: 300 }"),
             ],
         );
     }
@@ -496,8 +630,7 @@ max_memory_pages: { new: 512 }
     fn test_parameter_table_no_key() {
         assert_matches!(
             check_invalid_parameter_table(": 100", &[]),
-            // TODO(#8320): This must be invalid YAML after migration to `serde_yaml` 0.9.
-            InvalidConfigError::UnknownParameter(_, _)
+            InvalidConfigError::InvalidYaml(_)
         );
     }
 
@@ -540,8 +673,8 @@ max_memory_pages: { new: 512 }
                 expected,
                 found
             ) => {
-                assert_eq!(expected, serde_yaml::to_value(3200000000i64).unwrap());
-                assert_eq!(found, serde_yaml::to_value(3200000).unwrap());
+                assert_eq!(expected, ParameterValue::U64(3200000000));
+                assert_eq!(found, ParameterValue::U64(3200000));
             }
         );
     }
@@ -554,7 +687,7 @@ max_memory_pages: { new: 512 }
                 &["min_allowed_top_level_account_length: { new: 1_600_000 }"]
             ),
             InvalidConfigError::OldValueExists(Parameter::MinAllowedTopLevelAccountLength, expected) => {
-                assert_eq!(expected, serde_yaml::to_value(3200000000i64).unwrap());
+                assert_eq!(expected, ParameterValue::U64(3200000000));
             }
         );
     }
@@ -567,8 +700,35 @@ max_memory_pages: { new: 512 }
                 &["wasm_regular_op_cost: { old: 3_200_000, new: 1_600_000 }"]
             ),
             InvalidConfigError::NoOldValueExists(Parameter::WasmRegularOpCost, found) => {
-                assert_eq!(found, serde_yaml::to_value(3200000).unwrap());
+                assert_eq!(found, ParameterValue::U64(3200000));
             }
+        );
+    }
+
+    #[test]
+    fn test_parameter_table_yaml_map() {
+        let params: ParameterTable = BASE_0.parse().unwrap();
+        let yaml = params.yaml_map(
+            [
+                Parameter::RegistrarAccountId,
+                Parameter::MinAllowedTopLevelAccountLength,
+                Parameter::StorageAmountPerByte,
+                Parameter::StorageNumBytesAccount,
+                Parameter::StorageNumExtraBytesRecord,
+                Parameter::BurntGasReward,
+            ]
+            .iter(),
+        );
+        assert_eq!(
+            yaml,
+            serde_yaml::to_value(
+                params
+                    .parameters
+                    .iter()
+                    .map(|(key, value)| (key.to_string(), value))
+                    .collect::<BTreeMap<_, _>>()
+            )
+            .unwrap()
         );
     }
 }

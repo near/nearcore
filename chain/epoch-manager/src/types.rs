@@ -177,7 +177,7 @@ impl EpochInfoAggregator {
         self.version_tracker.reserve(other.version_tracker.len());
         // TODO(mina86): Use try_insert once map_try_insert is stabilised.
         for (k, v) in other.version_tracker.iter() {
-            self.version_tracker.entry(k.clone()).or_insert_with(|| v.clone());
+            self.version_tracker.entry(*k).or_insert_with(|| *v);
         }
 
         // merge proposals
@@ -197,7 +197,7 @@ impl EpochInfoAggregator {
         // merge block tracker
         for (block_producer_id, stats) in other.block_tracker.iter() {
             self.block_tracker
-                .entry(block_producer_id.clone())
+                .entry(*block_producer_id)
                 .and_modify(|e| {
                     e.expected += stats.expected;
                     e.produced += stats.produced
@@ -207,7 +207,7 @@ impl EpochInfoAggregator {
         // merge shard tracker
         for (shard_id, stats) in other.shard_tracker.iter() {
             self.shard_tracker
-                .entry(shard_id.clone())
+                .entry(*shard_id)
                 .and_modify(|e| {
                     for (chunk_producer_id, stat) in stats.iter() {
                         e.entry(*chunk_producer_id)

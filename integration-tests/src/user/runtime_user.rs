@@ -91,9 +91,7 @@ impl RuntimeUser {
             let apply_result = client
                 .runtime
                 .apply(
-                    client
-                        .tries
-                        .get_trie_for_shard(ShardUId::single_shard(), client.state_root.clone()),
+                    client.tries.get_trie_for_shard(ShardUId::single_shard(), client.state_root),
                     &None,
                     &apply_state,
                     &receipts,
@@ -170,12 +168,6 @@ impl RuntimeUser {
             block_hash: Default::default(),
         }];
         for hash in &receipt_ids {
-            if let Some(receipt) = self.receipts.borrow().get(hash) {
-                let is_refund = receipt.predecessor_id.is_system();
-                if is_refund {
-                    continue;
-                }
-            }
             transactions.extend(self.get_recursive_transaction_results(hash).into_iter());
         }
         transactions

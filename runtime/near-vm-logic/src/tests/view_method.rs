@@ -1,11 +1,10 @@
-use crate::tests::fixtures::get_context;
 use crate::tests::vm_logic_builder::VMLogicBuilder;
 
 macro_rules! test_prohibited {
     ($f: ident $(, $arg: expr )* ) => {
-        let mut logic_builder = VMLogicBuilder::default();
+        let mut logic_builder = VMLogicBuilder::view();
         #[allow(unused_mut)]
-        let mut logic = logic_builder.build(get_context(vec![], true));
+        let mut logic = logic_builder.build();
 
         let name = stringify!($f);
         logic.$f($($arg, )*).expect_err(&format!("{} is not allowed in view calls", name))
@@ -17,7 +16,6 @@ fn test_prohibited_view_methods() {
     test_prohibited!(signer_account_id, 0);
     test_prohibited!(signer_account_pk, 0);
     test_prohibited!(predecessor_account_id, 0);
-    test_prohibited!(attached_deposit, 0);
     test_prohibited!(prepaid_gas);
     test_prohibited!(used_gas);
     test_prohibited!(promise_create, 0, 0, 0, 0, 0, 0, 0, 0);
@@ -43,8 +41,7 @@ fn test_prohibited_view_methods() {
 
 #[test]
 fn test_allowed_view_method() {
-    let mut logic_builder = VMLogicBuilder::default();
-    let context = get_context(vec![], true);
-    let mut logic = logic_builder.build(context.clone());
-    assert_eq!(logic.block_index().unwrap(), context.block_height);
+    let mut logic_builder = VMLogicBuilder::view();
+    let mut logic = logic_builder.build();
+    assert_eq!(logic.block_index().unwrap(), logic_builder.context.block_height);
 }

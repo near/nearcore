@@ -1,3 +1,4 @@
+use crate::tests::client::process_blocks::create_nightshade_runtime_with_store;
 use crate::tests::client::process_blocks::create_nightshade_runtimes;
 use borsh::BorshDeserialize;
 use near_chain::{ChainGenesis, Provenance};
@@ -11,11 +12,15 @@ use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
 use near_store::cold_storage::{
-    test_cold_genesis_update, test_get_store_reads, update_cold_db, update_cold_head,
+    copy_all_data_to_cold, test_cold_genesis_update, test_get_store_initial_writes,
+    test_get_store_reads, update_cold_db, update_cold_head,
 };
+use near_store::metadata::DbKind;
+use near_store::metadata::DB_VERSION;
 use near_store::test_utils::create_test_node_storage_with_cold;
-use near_store::{DBCol, Store, Temperature, HEAD_KEY};
+use near_store::{DBCol, Store, Temperature, COLD_HEAD_KEY, HEAD_KEY};
 use nearcore::config::GenesisExt;
+use std::collections::HashSet;
 use strum::IntoEnumIterator;
 
 fn check_key(first_store: &Store, second_store: &Store, col: DBCol, key: &[u8]) {
@@ -71,8 +76,7 @@ fn test_storage_after_commit_of_cold_update() {
         .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
         .build();
 
-    // TODO construct cold_db with appropriate hot storage
-    let store = create_test_node_storage_with_cold();
+    let store = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
 
     let mut last_hash = *env.clients[0].chain.genesis().hash();
 
@@ -149,7 +153,7 @@ fn test_storage_after_commit_of_cold_update() {
         )
         .unwrap();
 
-        last_hash = block.hash().clone();
+        last_hash = *block.hash();
     }
 
     // assert that we don't read State from db, but from TrieChanges
@@ -188,7 +192,7 @@ fn test_storage_after_commit_of_cold_update() {
 }
 
 /// Producing 10 * 5 blocks and updating HEAD of cold storage after each one.
-/// After every update checking that HEAD of cold db and FINAL_HEAD of hot store are equal.
+/// After every update checking that HEAD in cold db, COLD_HEAD in hot db and HEAD in hot store are equal.
 #[test]
 fn test_cold_db_head_update() {
     init_test_logger();
@@ -201,24 +205,225 @@ fn test_cold_db_head_update() {
     genesis.config.epoch_length = epoch_length;
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
-    let mut env = TestEnv::builder(chain_genesis)
-        .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
-        .build();
-
-    let store = create_test_node_storage_with_cold();
+    let store = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
+    let hot_store = &store.get_store(Temperature::Hot);
+    let cold_store = &store.get_store(Temperature::Cold);
+    let runtime_adapter = create_nightshade_runtime_with_store(&genesis, &hot_store);
+    let mut env = TestEnv::builder(chain_genesis).runtime_adapters(vec![runtime_adapter]).build();
 
     for h in 1..max_height {
         env.produce_block(0, h);
         update_cold_head(&*store.cold_db().unwrap(), &env.clients[0].runtime_adapter.store(), &h)
             .unwrap();
 
-        assert_eq!(
-            &store.get_store(Temperature::Cold).get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY).unwrap(),
+        let head = &env.clients[0]
+            .runtime_adapter
+            .store()
+            .get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)
+            .unwrap();
+        let cold_head_in_hot = hot_store.get_ser::<Tip>(DBCol::BlockMisc, COLD_HEAD_KEY).unwrap();
+        let cold_head_in_cold = cold_store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY).unwrap();
+
+        assert_eq!(head, &cold_head_in_cold);
+        assert_eq!(head, &cold_head_in_hot);
+    }
+}
+
+/// Very similar to `test_storage_after_commit_of_cold_update`, but has less transactions,
+/// and more importantly SKIPS.
+/// Here we are testing that `update_cold_db` handles itself correctly
+/// if some heights are not present in blockchain.
+#[test]
+fn test_cold_db_copy_with_height_skips() {
+    init_test_logger();
+
+    let epoch_length = 5;
+    let max_height = epoch_length * 4;
+
+    let skips = HashSet::from([1, 4, 5, 7, 11, 14, 16, 19]);
+
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+
+    genesis.config.epoch_length = epoch_length;
+    let mut chain_genesis = ChainGenesis::test();
+    chain_genesis.epoch_length = epoch_length;
+    let mut env = TestEnv::builder(chain_genesis)
+        .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
+        .build();
+
+    let store = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
+
+    let mut last_hash = *env.clients[0].chain.genesis().hash();
+
+    test_cold_genesis_update(&*store.cold_db().unwrap(), &env.clients[0].runtime_adapter.store())
+        .unwrap();
+
+    for h in 1..max_height {
+        let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+        // It is still painful to filter out transactions in last two blocks.
+        // So, as block 19 is skipped, blocks 17 and 18 shouldn't contain any transactions.
+        // So, we shouldn't send any transactions between block 17 and the previous block.
+        // And as block 16 is skipped, the previous block to 17 is 15.
+        // Therefore, no transactions after block 15.
+        if h < 16 {
+            for i in 0..5 {
+                let tx = SignedTransaction::send_money(
+                    h * 10 + i,
+                    "test0".parse().unwrap(),
+                    "test1".parse().unwrap(),
+                    &signer,
+                    1,
+                    last_hash,
+                );
+                env.clients[0].process_tx(tx, false, false);
+            }
+        }
+
+        let block = {
+            if !skips.contains(&h) {
+                let block = env.clients[0].produce_block(h).unwrap().unwrap();
+                env.process_block(0, block.clone(), Provenance::PRODUCED);
+                Some(block)
+            } else {
+                None
+            }
+        };
+
+        update_cold_db(
+            &*store.cold_db().unwrap(),
+            &env.clients[0].runtime_adapter.store(),
             &env.clients[0]
                 .runtime_adapter
-                .store()
-                .get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)
-                .unwrap()
-        );
+                .get_shard_layout(
+                    &env.clients[0]
+                        .runtime_adapter
+                        .get_epoch_id_from_prev_block(&last_hash)
+                        .unwrap(),
+                )
+                .unwrap(),
+            &h,
+        )
+        .unwrap();
+
+        if block.is_some() {
+            last_hash = *block.unwrap().hash();
+        }
     }
+
+    // We still need to filter out one chunk
+    let mut no_check_rules: Vec<Box<dyn Fn(DBCol, &Box<[u8]>) -> bool>> = vec![];
+    no_check_rules.push(Box::new(move |col, value| -> bool {
+        if col == DBCol::Chunks {
+            let chunk = ShardChunk::try_from_slice(&*value).unwrap();
+            if *chunk.prev_block() == last_hash {
+                return true;
+            }
+        }
+        false
+    }));
+
+    for col in DBCol::iter() {
+        if col.is_cold() {
+            let num_checks = check_iter(
+                &env.clients[0].runtime_adapter.store(),
+                &store.get_store(Temperature::Cold),
+                col,
+                &no_check_rules,
+            );
+            // assert that this test actually checks something
+            assert!(
+                col == DBCol::StateChangesForSplitStates
+                    || col == DBCol::StateHeaders
+                    || num_checks > 0
+            );
+        }
+    }
+}
+
+/// Producing 4 epochs of blocks with some transactions.
+/// Call copying full contents of cold columns to cold storage in batches of specified max_size.
+/// Currently only supports super small or super big batch.
+/// If batch_size = 0, check that every value was copied in a separate batch.
+/// If batch_size = usize::MAX, check that everything was copied in one batch.
+/// Most importantly, checking that everything from cold columns was indeed copied into cold storage.
+fn test_initial_copy_to_cold(batch_size: usize) {
+    init_test_logger();
+
+    let epoch_length = 5;
+    let max_height = epoch_length * 4;
+
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+
+    genesis.config.epoch_length = epoch_length;
+    let mut chain_genesis = ChainGenesis::test();
+    chain_genesis.epoch_length = epoch_length;
+    let mut env = TestEnv::builder(chain_genesis)
+        .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
+        .build();
+
+    let store = create_test_node_storage_with_cold(DB_VERSION, DbKind::Archive);
+
+    let mut last_hash = *env.clients[0].chain.genesis().hash();
+
+    for h in 1..max_height {
+        let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+        for i in 0..5 {
+            let tx = SignedTransaction::send_money(
+                h * 10 + i,
+                "test0".parse().unwrap(),
+                "test1".parse().unwrap(),
+                &signer,
+                1,
+                last_hash,
+            );
+            env.clients[0].process_tx(tx, false, false);
+        }
+
+        let block = env.clients[0].produce_block(h).unwrap().unwrap();
+        env.process_block(0, block.clone(), Provenance::PRODUCED);
+        last_hash = *block.hash();
+    }
+
+    copy_all_data_to_cold(
+        (*store.cold_db().unwrap()).clone(),
+        &env.clients[0].runtime_adapter.store(),
+        batch_size,
+    )
+    .unwrap();
+
+    for col in DBCol::iter() {
+        if col.is_cold() {
+            let num_checks = check_iter(
+                &env.clients[0].runtime_adapter.store(),
+                &store.get_store(Temperature::Cold),
+                col,
+                &vec![],
+            );
+            if col == DBCol::StateChangesForSplitStates || col == DBCol::StateHeaders {
+                continue;
+            }
+            // assert that this test actually checks something
+            assert!(num_checks > 0);
+            if batch_size == 0 {
+                assert_eq!(num_checks, test_get_store_initial_writes(col));
+            } else if batch_size == usize::MAX {
+                assert_eq!(1, test_get_store_initial_writes(col));
+            }
+        }
+    }
+}
+
+#[test]
+fn test_initial_copy_to_cold_small_batch() {
+    test_initial_copy_to_cold(0);
+}
+
+#[test]
+fn test_initial_copy_to_cold_huge_batch() {
+    test_initial_copy_to_cold(usize::MAX);
+}
+
+#[test]
+fn test_initial_copy_to_cold_medium_batch() {
+    test_initial_copy_to_cold(5000);
 }

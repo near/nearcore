@@ -1,3 +1,4 @@
+use crate::accounts_data;
 use crate::broadcast;
 use crate::config;
 use crate::network_protocol::testonly as data;
@@ -55,7 +56,7 @@ pub(crate) struct ActorHandler {
     pub actix: ActixSystem<PeerManagerActor>,
 }
 
-pub fn unwrap_sync_accounts_data_processed(ev: Event) -> Option<SyncAccountsData> {
+pub(crate) fn unwrap_sync_accounts_data_processed(ev: Event) -> Option<SyncAccountsData> {
     match ev {
         Event::PeerManager(PME::MessageProcessed(
             tcp::Tier::T2,
@@ -136,7 +137,7 @@ impl ActorHandler {
     pub fn peer_info(&self) -> PeerInfo {
         PeerInfo {
             id: PeerId::new(self.cfg.node_key.public_key()),
-            addr: self.cfg.node_addr.clone(),
+            addr: self.cfg.node_addr.as_ref().map(|a| **a),
             account_id: None,
         }
     }
@@ -201,7 +202,7 @@ impl ActorHandler {
         // 1. reserve a TCP port
         // 2. snapshot event stream
         // 3. establish connection.
-        let socket = tcp::Socket::bind_v4();
+        let socket = tcp::Socket::bind();
         let events = self.events.from_now();
         let stream = socket.connect(&self.peer_info(), tcp::Tier::T2).await;
         let stream_id = stream.id();
@@ -320,9 +321,28 @@ impl ActorHandler {
     pub async fn tier1_advertise_proxies(
         &self,
         clock: &time::Clock,
-    ) -> Vec<Arc<SignedAccountData>> {
+    ) -> Option<Arc<SignedAccountData>> {
         let clock = clock.clone();
         self.with_state(move |s| async move { s.tier1_advertise_proxies(&clock).await }).await
+    }
+
+    pub async fn disconnect(&self, peer_id: &PeerId) {
+        let peer_id = peer_id.clone();
+        self.with_state(move |s| async move {
+            let stopped: Vec<()> = s
+                .tier2
+                .load()
+                .ready
+                .values()
+                .filter(|c| c.peer_info.id == peer_id)
+                .map(|c| {
+                    c.stop(None);
+                    ()
+                })
+                .collect();
+            assert!(stopped.len() == 1);
+        })
+        .await
     }
 
     pub async fn disconnect_and_ban(
@@ -363,23 +383,29 @@ impl ActorHandler {
             .unwrap();
     }
 
-    // Awaits until the accounts_data state matches `want`.
-    pub async fn wait_for_accounts_data(&self, want: &HashSet<Arc<SignedAccountData>>) {
+    // Awaits until the accounts_data state satisfies predicate `pred`.
+    pub async fn wait_for_accounts_data_pred(
+        &self,
+        pred: impl Fn(Arc<accounts_data::CacheSnapshot>) -> bool,
+    ) {
         let mut events = self.events.from_now();
         loop {
-            let got = self
-                .with_state(move |s| async move {
-                    s.accounts_data.load().data.values().cloned().collect::<HashSet<_>>()
-                })
-                .await;
-            tracing::info!(target:"dupa","got = {:?}",got);
-            if &got == want {
+            let got = self.with_state(move |s| async move { s.accounts_data.load() }).await;
+            if pred(got) {
                 break;
             }
             // It is important that we wait for the next PeerMessage::SyncAccountsData to get
             // PROCESSED, not just RECEIVED. Otherwise we would get a race condition.
             events.recv_until(unwrap_sync_accounts_data_processed).await;
         }
+    }
+
+    // Awaits until the accounts_data state matches `want`.
+    pub async fn wait_for_accounts_data(&self, want: &HashSet<Arc<SignedAccountData>>) {
+        self.wait_for_accounts_data_pred(|cache| {
+            &cache.data.values().cloned().collect::<HashSet<_>>() == want
+        })
+        .await
     }
 
     pub async fn wait_for_direct_connection(&self, target_peer_id: PeerId) {
@@ -424,9 +450,7 @@ impl ActorHandler {
         loop {
             let account = account.clone();
             let got = self
-                .with_state(
-                    |s| async move { s.graph.routing_table.account_owner(&account).clone() },
-                )
+                .with_state(|s| async move { s.graph.routing_table.account_owner(&account) })
                 .await;
             if let Some(got) = got {
                 return got;
@@ -464,6 +488,15 @@ impl ActorHandler {
         })
         .await;
     }
+
+    /// Executes `NetworkState::update_connection_store` method.
+    pub async fn update_connection_store(&self, clock: &time::Clock) {
+        let clock = clock.clone();
+        self.with_state(move |s| async move {
+            s.update_connection_store(&clock);
+        })
+        .await;
+    }
 }
 
 pub(crate) async fn start(
@@ -480,7 +513,7 @@ pub(crate) async fn start(
             let genesis_id = chain.genesis_id.clone();
             let fc = Arc::new(fake_client::Fake { event_sink: send.sink().compose(Event::Client) });
             cfg.event_sink = send.sink().compose(Event::PeerManager);
-            PeerManagerActor::spawn(clock, store, cfg, fc, genesis_id).unwrap()
+            PeerManagerActor::spawn(clock, store, cfg, fc.clone(), fc, genesis_id).unwrap()
         }
     })
     .await;

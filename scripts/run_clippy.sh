@@ -3,7 +3,9 @@
 
 LINTS=(
   -A clippy::all
+  -D clippy::clone_on_copy
   -D clippy::correctness
+  -D clippy::redundant_clone
   -D clippy::suspicious
 )
 

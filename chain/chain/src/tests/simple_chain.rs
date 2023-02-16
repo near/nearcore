@@ -43,9 +43,9 @@ fn build_chain() {
     //     cargo insta test --accept -p near-chain --features nightly -- tests::simple_chain::build_chain
     let hash = chain.head().unwrap().last_block_hash;
     if cfg!(feature = "nightly") {
-        insta::assert_display_snapshot!(hash, @"HTpETHnBkxcX1h3eD87uC5YP5nV66E6UYPrJGnQHuRqt");
+        insta::assert_display_snapshot!(hash, @"7f7HTgxYS9NbF61kqqQSD4ivtPj7hCReXqyMMqiUfMZq");
     } else {
-        insta::assert_display_snapshot!(hash, @"7r5VSLXhkxHHEeiAAPQbKPGv3rr877obehGYwPbKZMA7");
+        insta::assert_display_snapshot!(hash, @"HC1942JdWWxiJb8zm5VyepB7iysDbBq8MfnZC7aSq7mK");
     }
 
     for i in 1..5 {
@@ -73,9 +73,9 @@ fn build_chain() {
 
     let hash = chain.head().unwrap().last_block_hash;
     if cfg!(feature = "nightly") {
-        insta::assert_display_snapshot!(hash, @"HyDYbjs5tgeEDf1N1XB4m312VdCeKjHqeGQ7dc7Lqwv8");
+        insta::assert_display_snapshot!(hash, @"5GXKgTvpLBcSDncu3P8tdmFZ48m89rzUivJEtDTjp6oq");
     } else {
-        insta::assert_display_snapshot!(hash, @"9772sSKzm1eGPV3pRi17YaZkotrcN6dAkJUn226CopTm");
+        insta::assert_display_snapshot!(hash, @"8L1cHCc7Cx9SRPWpVtjPtEzQWamztMoHE3cxAcZtHTKv");
     }
 }
 
@@ -158,7 +158,7 @@ fn build_chain_with_skips_and_forks() {
     assert_eq!(chain.get_block_header_by_height(5).unwrap().height(), 5);
     assert_eq!(chain.get_block_header_by_height(6).unwrap().height(), 6);
 
-    let c4 = TestBlockBuilder::new(&b3, signer.clone()).height(4).build();
+    let c4 = TestBlockBuilder::new(&b3, signer).height(4).build();
     assert_eq!(chain.final_head().unwrap().height, 4);
     assert_matches!(chain.process_block_test(&None, c4), Err(Error::CannotBeFinalized));
 }
@@ -195,7 +195,7 @@ fn blocks_at_height() {
     let d_5 = TestBlockBuilder::new(&d_3, signer.clone()).height(5).build();
     let d_6 = TestBlockBuilder::new(&d_5, signer.clone()).height(6).build();
 
-    let e_7 = TestBlockBuilder::new(&b_1, signer.clone()).height(7).build();
+    let e_7 = TestBlockBuilder::new(&b_1, signer).height(7).build();
 
     let b_1_hash = *b_1.hash();
     let b_2_hash = *b_2.hash();
@@ -258,7 +258,7 @@ fn next_blocks() {
     let b1 = TestBlockBuilder::new(&genesis, signer.clone()).build();
     let b2 = TestBlockBuilder::new(&b1, signer.clone()).height(2).build();
     let b3 = TestBlockBuilder::new(&b1, signer.clone()).height(3).build();
-    let b4 = TestBlockBuilder::new(&b3, signer.clone()).height(4).build();
+    let b4 = TestBlockBuilder::new(&b3, signer).height(4).build();
     let b1_hash = *b1.hash();
     let b2_hash = *b2.hash();
     let b3_hash = *b3.hash();

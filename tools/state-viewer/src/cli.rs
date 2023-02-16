@@ -1,8 +1,8 @@
 use crate::commands::*;
-use crate::dump_state_parts::dump_state_parts;
+use crate::contract_accounts::ContractAccountFilter;
 use crate::rocksdb_stats::get_rocksdb_stats;
-use crate::{dump_state_parts, epoch_info};
-use clap::{Args, Parser, Subcommand};
+use crate::state_parts::{apply_state_parts, dump_state_parts};
+use crate::{epoch_info, state_parts};
 use near_chain_configs::{GenesisChangeConfig, GenesisValidationMode};
 use near_primitives::account::id::AccountId;
 use near_primitives::hash::CryptoHash;
@@ -13,7 +13,7 @@ use nearcore::{load_config, NearConfig};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
-#[derive(Subcommand)]
+#[derive(clap::Subcommand)]
 #[clap(subcommand_required = true, arg_required_else_help = true)]
 pub enum StateViewerSubCommand {
     /// Apply block at some height for shard.
@@ -28,6 +28,8 @@ pub enum StateViewerSubCommand {
     /// even if it's not included in any block on disk
     #[clap(alias = "apply_receipt")]
     ApplyReceipt(ApplyReceiptCmd),
+    /// Apply all or a single state part of a shard.
+    ApplyStateParts(ApplyStatePartsCmd),
     /// Apply a transaction if it occurs in some chunk we know about,
     /// even if it's not included in any block on disk
     #[clap(alias = "apply_tx")]
@@ -95,14 +97,13 @@ impl StateViewerSubCommand {
         let near_config = load_config(home_dir, genesis_validation)
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
 
-        #[cfg(feature = "cold_store")]
-        let cold_store_config: Option<&near_store::StoreConfig> =
-            near_config.config.cold_store.as_ref();
-        #[cfg(not(feature = "cold_store"))]
-        let cold_store_config: Option<std::convert::Infallible> = None;
-
-        let store_opener =
-            NodeStorage::opener(home_dir, &near_config.config.store, cold_store_config);
+        let cold_config: Option<&near_store::StoreConfig> = near_config.config.cold_store.as_ref();
+        let store_opener = NodeStorage::opener(
+            home_dir,
+            near_config.config.archive,
+            &near_config.config.store,
+            cold_config,
+        );
 
         let storage = store_opener.open_in_mode(mode).unwrap();
         let store = storage.get_store(temperature);
@@ -112,6 +113,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::ApplyChunk(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ApplyRange(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ApplyReceipt(cmd) => cmd.run(home_dir, near_config, store),
+            StateViewerSubCommand::ApplyStateParts(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ApplyTx(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::Chain(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::CheckBlock => check_block_chunk_existence(near_config, store),
@@ -136,7 +138,7 @@ impl StateViewerSubCommand {
     }
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub struct ApplyCmd {
     #[clap(long)]
     height: BlockHeight,
@@ -150,7 +152,7 @@ impl ApplyCmd {
     }
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub struct ApplyChunkCmd {
     #[clap(long)]
     chunk_hash: String,
@@ -165,7 +167,7 @@ impl ApplyChunkCmd {
     }
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub struct ApplyRangeCmd {
     #[clap(long)]
     start_index: Option<BlockHeight>,
@@ -200,7 +202,7 @@ impl ApplyRangeCmd {
     }
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub struct ApplyReceiptCmd {
     #[clap(long)]
     hash: String,
@@ -213,7 +215,43 @@ impl ApplyReceiptCmd {
     }
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
+pub struct ApplyStatePartsCmd {
+    /// Selects an epoch. The dump will be of the state at the beginning of this epoch.
+    #[clap(subcommand)]
+    epoch_selection: state_parts::EpochSelection,
+    /// Shard id.
+    #[clap(long)]
+    shard_id: ShardId,
+    /// State part id. Leave empty to go through every part in the shard.
+    #[clap(long)]
+    part_id: Option<u64>,
+    /// Where to write the state parts to.
+    #[clap(long)]
+    root_dir: Option<PathBuf>,
+    /// Store state parts in an S3 bucket.
+    #[clap(long)]
+    s3_bucket: Option<String>,
+    /// Store state parts in an S3 bucket.
+    #[clap(long)]
+    s3_region: Option<String>,
+}
+
+impl ApplyStatePartsCmd {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+        apply_state_parts(
+            self.epoch_selection,
+            self.shard_id,
+            self.part_id,
+            home_dir,
+            near_config,
+            store,
+            state_parts::Location::new(self.root_dir, (self.s3_bucket, self.s3_region)),
+        );
+    }
+}
+
+#[derive(clap::Parser)]
 pub struct ApplyTxCmd {
     #[clap(long)]
     hash: String,
@@ -226,7 +264,7 @@ impl ApplyTxCmd {
     }
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub struct ChainCmd {
     #[clap(long)]
     start_index: BlockHeight,
@@ -251,7 +289,7 @@ impl ChainCmd {
     }
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub struct ChunksCmd {
     #[clap(long)]
     chunk_hash: String,
@@ -264,19 +302,19 @@ impl ChunksCmd {
     }
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub struct ContractAccountsCmd {
-    // TODO: add filter options, e.g. only contracts that execute certain
-    // actions
+    #[clap(flatten)]
+    filter: ContractAccountFilter,
 }
 
 impl ContractAccountsCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
-        contract_accounts(home_dir, store, near_config).unwrap();
+        contract_accounts(home_dir, store, near_config, self.filter).unwrap();
     }
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub struct DumpAccountStorageCmd {
     #[clap(long)]
     account_id: String,
@@ -302,7 +340,7 @@ impl DumpAccountStorageCmd {
     }
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub struct DumpCodeCmd {
     #[clap(long)]
     account_id: String,
@@ -316,7 +354,7 @@ impl DumpCodeCmd {
     }
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub struct DumpStateCmd {
     /// Optionally, can specify at which height to dump state.
     #[clap(long)]
@@ -360,11 +398,11 @@ impl DumpStateCmd {
     }
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub struct DumpStatePartsCmd {
     /// Selects an epoch. The dump will be of the state at the beginning of this epoch.
     #[clap(subcommand)]
-    epoch_selection: dump_state_parts::EpochSelection,
+    epoch_selection: state_parts::EpochSelection,
     /// Shard id.
     #[clap(long)]
     shard_id: ShardId,
@@ -373,8 +411,8 @@ pub struct DumpStatePartsCmd {
     part_id: Option<u64>,
     /// Where to write the state parts to.
     #[clap(long)]
-    output_dir: Option<PathBuf>,
-    /// S3 bucket to store state parts.
+    root_dir: Option<PathBuf>,
+    /// Store state parts in an S3 bucket.
     #[clap(long)]
     s3_bucket: Option<String>,
     /// S3 region to store state parts.
@@ -384,16 +422,6 @@ pub struct DumpStatePartsCmd {
 
 impl DumpStatePartsCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
-        assert_eq!(
-            self.s3_bucket.is_some(),
-            self.s3_region.is_some(),
-            "Need to provide either both or none of --s3-bucket and --s3-region"
-        );
-        let s3 = if let Some(s3_bucket) = self.s3_bucket {
-            Some((s3_bucket, self.s3_region.unwrap()))
-        } else {
-            None
-        };
         dump_state_parts(
             self.epoch_selection,
             self.shard_id,
@@ -401,13 +429,12 @@ impl DumpStatePartsCmd {
             home_dir,
             near_config,
             store,
-            self.output_dir,
-            s3,
+            state_parts::Location::new(self.root_dir, (self.s3_bucket, self.s3_region)),
         );
     }
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub struct DumpStateRedisCmd {
     /// Optionally, can specify at which height to dump state.
     #[clap(long)]
@@ -420,7 +447,7 @@ impl DumpStateRedisCmd {
     }
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub struct DumpTxCmd {
     /// Specify the start block by height to begin dumping transactions from, inclusive.
     #[clap(long)]
@@ -452,7 +479,7 @@ impl DumpTxCmd {
     }
 }
 
-#[derive(Args)]
+#[derive(clap::Args)]
 pub struct EpochInfoCmd {
     #[clap(subcommand)]
     epoch_selection: epoch_info::EpochSelection,
@@ -473,7 +500,7 @@ impl EpochInfoCmd {
     }
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub struct PartialChunksCmd {
     #[clap(long)]
     partial_chunk_hash: String,
@@ -487,7 +514,7 @@ impl PartialChunksCmd {
     }
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub struct ReceiptsCmd {
     #[clap(long)]
     receipt_id: String,
@@ -499,7 +526,7 @@ impl ReceiptsCmd {
     }
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub struct ReplayCmd {
     #[clap(long)]
     start_index: BlockHeight,
@@ -513,7 +540,7 @@ impl ReplayCmd {
     }
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub struct RocksDBStatsCmd {
     /// Location of the dumped Rocks DB stats.
     #[clap(long, parse(from_os_str))]
@@ -526,7 +553,7 @@ impl RocksDBStatsCmd {
     }
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub struct ViewChainCmd {
     #[clap(long)]
     height: Option<BlockHeight>,
@@ -560,7 +587,7 @@ impl std::str::FromStr for ViewTrieFormat {
     }
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub struct ViewTrieCmd {
     /// The format of the output. This can be either `full` or `pretty`.
     /// The full format will print all the trie nodes and can be rooted anywhere in the trie.

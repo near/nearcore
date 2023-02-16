@@ -1,21 +1,19 @@
-use std::convert::AsRef;
-use std::fmt::{Debug, Display, Formatter};
-use std::hash::{Hash, Hasher};
-use std::io::{Error, ErrorKind, Write};
-use std::str::FromStr;
-
 use borsh::{BorshDeserialize, BorshSerialize};
 use ed25519_dalek::ed25519::signature::{Signer, Verifier};
 use once_cell::sync::Lazy;
 use primitive_types::U256;
 use rand::rngs::OsRng;
 use secp256k1::Message;
-use serde::{Deserialize, Serialize};
+use std::convert::AsRef;
+use std::fmt::{Debug, Display, Formatter};
+use std::hash::{Hash, Hasher};
+use std::io::{Error, ErrorKind, Write};
+use std::str::FromStr;
 
 pub static SECP256K1: Lazy<secp256k1::Secp256k1<secp256k1::All>> =
     Lazy::new(secp256k1::Secp256k1::new);
 
-#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, serde::Serialize, serde::Deserialize)]
 pub enum KeyType {
     ED25519 = 0,
     SECP256K1 = 1,
@@ -122,8 +120,9 @@ impl PublicKey {
     // `is_empty` always returns false, so there is no point in adding it
     #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
+        const ED25519_LEN: usize = ed25519_dalek::PUBLIC_KEY_LENGTH + 1;
         match self {
-            Self::ED25519(_) => ed25519_dalek::PUBLIC_KEY_LENGTH + 1,
+            Self::ED25519(_) => ED25519_LEN,
             Self::SECP256K1(_) => 65,
         }
     }
@@ -708,7 +707,7 @@ fn decode_bs58_impl(dst: &mut [u8], encoded: &str) -> Result<(), DecodeBs58Error
         Ok(received) if received == expected => Ok(()),
         Ok(received) => Err(DecodeBs58Error::BadLength { expected, received }),
         Err(bs58::decode::Error::BufferTooSmall) => {
-            Err(DecodeBs58Error::BadLength { expected, received: expected + 1 })
+            Err(DecodeBs58Error::BadLength { expected, received: expected.saturating_add(1) })
         }
         Err(err) => Err(DecodeBs58Error::BadData(err.to_string())),
     }

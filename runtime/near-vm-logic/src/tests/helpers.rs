@@ -42,8 +42,27 @@ pub(super) fn promise_batch_action_function_call(
     amount: u128,
     gas: Gas,
 ) -> Result<()> {
-    let method_id = logic.internal_mem_write(b"promise_batch_action");
-    let args = logic.internal_mem_write(b"promise_batch_action_args");
+    promise_batch_action_function_call_ext(
+        logic,
+        promise_index,
+        b"promise_batch_action",
+        b"promise_batch_action_args",
+        amount,
+        gas,
+    )
+}
+
+#[allow(dead_code)]
+pub(super) fn promise_batch_action_function_call_ext(
+    logic: &mut TestVMLogic<'_>,
+    promise_index: u64,
+    method_id: &[u8],
+    args: &[u8],
+    amount: u128,
+    gas: Gas,
+) -> Result<()> {
+    let method_id = logic.internal_mem_write(method_id);
+    let args = logic.internal_mem_write(args);
     let amount = logic.internal_mem_write(&amount.to_le_bytes());
 
     logic.promise_batch_action_function_call(
@@ -65,8 +84,29 @@ pub(super) fn promise_batch_action_function_call_weight(
     gas: Gas,
     weight: u64,
 ) -> Result<()> {
-    let method_id = logic.internal_mem_write(b"promise_batch_action");
-    let args = logic.internal_mem_write(b"promise_batch_action_args");
+    promise_batch_action_function_call_weight_ext(
+        logic,
+        promise_index,
+        b"promise_batch_action",
+        b"promise_batch_action_args",
+        amount,
+        gas,
+        weight,
+    )
+}
+
+#[allow(dead_code)]
+pub(super) fn promise_batch_action_function_call_weight_ext(
+    logic: &mut TestVMLogic<'_>,
+    promise_index: u64,
+    method_id: &[u8],
+    args: &[u8],
+    amount: u128,
+    gas: Gas,
+    weight: u64,
+) -> Result<()> {
+    let method_id = logic.internal_mem_write(method_id);
+    let args = logic.internal_mem_write(args);
     let amount = logic.internal_mem_write(&amount.to_le_bytes());
 
     logic.promise_batch_action_function_call_weight(
@@ -106,6 +146,23 @@ pub(super) fn promise_batch_action_add_key_with_function_call(
         receiver_id.ptr,
         method_names.len,
         method_names.ptr,
+    )
+}
+
+#[allow(dead_code)]
+pub(super) fn promise_batch_action_add_key_with_full_access(
+    logic: &mut TestVMLogic<'_>,
+    promise_index: u64,
+    public_key: &[u8],
+    nonce: u64,
+) -> Result<()> {
+    let public_key = logic.internal_mem_write(public_key);
+
+    logic.promise_batch_action_add_key_with_full_access(
+        promise_index,
+        public_key.len,
+        public_key.ptr,
+        nonce,
     )
 }
 

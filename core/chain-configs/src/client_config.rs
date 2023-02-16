@@ -1,16 +1,15 @@
 //! Chain Client Configuration
-use std::cmp::max;
-use std::cmp::min;
-use std::time::Duration;
-
-use serde::{Deserialize, Serialize};
-
-use near_primitives::types::{AccountId, BlockHeightDelta, Gas, NumBlocks, NumSeats, ShardId};
+use crate::MutableConfigValue;
+use near_primitives::types::{
+    AccountId, BlockHeight, BlockHeightDelta, Gas, NumBlocks, NumSeats, ShardId,
+};
 use near_primitives::version::Version;
+use std::cmp::{max, min};
+use std::time::Duration;
 
 pub const TEST_STATE_SYNC_TIMEOUT: u64 = 5;
 
-#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, serde::Serialize, serde::Deserialize)]
 pub enum LogSummaryStyle {
     #[serde(rename = "plain")]
     Plain,
@@ -25,7 +24,7 @@ pub const MIN_GC_NUM_EPOCHS_TO_KEEP: u64 = 3;
 pub const DEFAULT_GC_NUM_EPOCHS_TO_KEEP: u64 = 5;
 
 /// Configuration for garbage collection.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct GCConfig {
     /// Maximum number of blocks to garbage collect at every garbage collection
     /// call.
@@ -70,7 +69,8 @@ impl GCConfig {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+/// ClientConfig where some fields can be updated at runtime.
+#[derive(Clone, serde::Serialize)]
 pub struct ClientConfig {
     /// Version of the binary.
     pub version: Version,
@@ -78,6 +78,8 @@ pub struct ClientConfig {
     pub chain_id: String,
     /// Listening rpc port for status.
     pub rpc_addr: Option<String>,
+    /// Graceful shutdown at expected block height.
+    pub expected_shutdown: MutableConfigValue<Option<BlockHeight>>,
     /// Duration to check for producing / skipping block.
     pub block_production_tracking_delay: Duration,
     /// Minimum duration before producing block.
@@ -142,9 +144,10 @@ pub struct ClientConfig {
     pub tracked_shards: Vec<ShardId>,
     /// Not clear old data, set `true` for archive nodes.
     pub archive: bool,
-    /// Save trie changes. Must be set to true if either of the following is true
-    /// - archive is false - non archival nodes need trie changes for garbage collection
-    /// - the node will be migrated to split storage in the near future - split storage nodes need trie changes for hot storage garbage collection
+    /// save_trie_changes should be set to true iff
+    /// - archive if false - non-archivale nodes need trie changes to perform garbage collection
+    /// - archive is true, cold_store is configured and migration to split_storage is finished - node
+    /// working in split storage mode needs trie changes in order to do garbage collection on hot.
     pub save_trie_changes: bool,
     /// Number of threads for ViewClientActor pool.
     pub view_client_threads: usize,
@@ -182,10 +185,11 @@ impl ClientConfig {
             because non-archival nodes must save trie changes in order to do do garbage collection."
         );
 
-        ClientConfig {
+        Self {
             version: Default::default(),
             chain_id: "unittest".to_string(),
             rpc_addr: Some("0.0.0.0:3030".to_string()),
+            expected_shutdown: MutableConfigValue::new(None, "expected_shutdown"),
             block_production_tracking_delay: Duration::from_millis(std::cmp::max(
                 10,
                 min_block_prod_time / 5,

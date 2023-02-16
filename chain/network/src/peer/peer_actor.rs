@@ -4,7 +4,7 @@ use crate::concurrency::demux;
 use crate::network_protocol::{
     Edge, EdgeState, Encoding, OwnedAccount, ParsePeerMessageError, PartialEdgeInfo,
     PeerChainInfoV2, PeerIdOrHash, PeerInfo, RawRoutedMessage, RoutedMessageBody, RoutedMessageV2,
-    RoutingTableUpdate, SyncAccountsData,
+    RoutingTableUpdate, StateResponseInfo, SyncAccountsData,
 };
 use crate::peer::stream;
 use crate::peer::tracker::Tracker;
@@ -17,7 +17,7 @@ use crate::stats::metrics;
 use crate::tcp;
 use crate::time;
 use crate::types::{
-    BlockInfo, Handshake, HandshakeFailureReason, PeerMessage, PeerType, ReasonForBan,
+    BlockInfo, Disconnect, Handshake, HandshakeFailureReason, PeerMessage, PeerType, ReasonForBan,
 };
 use actix::fut::future::wrap_future;
 use actix::{Actor as _, ActorContext as _, ActorFutureExt as _, AsyncContext as _};
@@ -106,6 +106,28 @@ pub(crate) enum ClosingReason {
     OwnedAccountMismatch,
     #[error("PeerActor stopped NOT via PeerActor::stop()")]
     Unknown,
+}
+
+impl ClosingReason {
+    /// Used upon closing an outbound connection to decide whether to remove it from the ConnectionStore.
+    /// If the inbound side is the one closing the connection, it evaluates this function on the closing
+    /// reason and includes the result in the Disconnect message.
+    pub(crate) fn remove_from_connection_store(&self) -> bool {
+        match self {
+            ClosingReason::TooManyInbound => false, // outbound may be still be OK
+            ClosingReason::OutboundNotAllowed(_) => true, // outbound not allowed
+            ClosingReason::Ban(_) => true,          // banned
+            ClosingReason::HandshakeFailed => false, // handshake may simply time out
+            ClosingReason::RejectedByPeerManager(_) => true, // rejected by peer manager
+            ClosingReason::StreamError => false,    // connection issue
+            ClosingReason::DisallowedMessage => true, // misbehaving peer
+            ClosingReason::PeerManagerRequest => true, // closed intentionally
+            ClosingReason::DisconnectMessage => false, // graceful disconnect
+            ClosingReason::TooLargeClockSkew => true, // reconnect will fail for the same reason
+            ClosingReason::OwnedAccountMismatch => true, // misbehaving peer
+            ClosingReason::Unknown => false,        // only happens in tests
+        }
+    }
 }
 
 pub(crate) struct PeerActor {
@@ -258,7 +280,7 @@ impl PeerActor {
         };
         let my_node_info = PeerInfo {
             id: network_state.config.node_id(),
-            addr: network_state.config.node_addr.clone(),
+            addr: network_state.config.node_addr.as_ref().map(|a| **a),
             account_id: network_state.config.validator.as_ref().map(|v| v.account_id()),
         };
         // recv is the HandshakeSignal returned by this spawn_inner() call.
@@ -363,6 +385,13 @@ impl PeerActor {
             // peer message type for that and then we can enable this check again.
             //PeerMessage::Block(b) if self.tracker.lock().has_received(b.hash()) => return,
             PeerMessage::BlockRequest(h) => self.tracker.lock().push_request(*h),
+            PeerMessage::SyncAccountsData(d) => metrics::SYNC_ACCOUNTS_DATA
+                .with_label_values(&[
+                    "sent",
+                    metrics::bool_to_str(d.incremental),
+                    metrics::bool_to_str(d.requesting_full_sync),
+                ])
+                .inc(),
             _ => (),
         };
 
@@ -390,7 +419,7 @@ impl PeerActor {
             oldest_supported_version: PEER_MIN_ALLOWED_PROTOCOL_VERSION,
             sender_peer_id: self.network_state.config.node_id(),
             target_peer_id: spec.peer_id,
-            sender_listen_port: self.network_state.config.node_addr.map(|a| a.port()),
+            sender_listen_port: self.network_state.config.node_addr.as_ref().map(|a| a.port()),
             sender_chain_info: PeerChainInfoV2 {
                 genesis_id: self.network_state.genesis_id.clone(),
                 // TODO: remove `height` from PeerChainInfo
@@ -401,7 +430,7 @@ impl PeerActor {
             partial_edge_info: spec.partial_edge_info,
             owned_account: self.network_state.config.validator.as_ref().map(|vc| {
                 OwnedAccount {
-                    account_key: vc.signer.public_key().clone(),
+                    account_key: vc.signer.public_key(),
                     peer_id: self.network_state.config.node_id(),
                     timestamp: self.clock.now_utc(),
                 }
@@ -896,6 +925,10 @@ impl PeerActor {
                 network_state.client.state_response(info).await;
                 None
             }
+            RoutedMessageBody::StateResponse(info) => {
+                network_state.client.state_response(StateResponseInfo::V1(info)).await;
+                None
+            }
             RoutedMessageBody::BlockApproval(approval) => {
                 network_state.client.block_approval(approval, peer_id).await;
                 None
@@ -905,19 +938,23 @@ impl PeerActor {
                 None
             }
             RoutedMessageBody::PartialEncodedChunkRequest(request) => {
-                network_state.client.partial_encoded_chunk_request(request, msg_hash).await;
+                network_state
+                    .shards_manager_adapter
+                    .process_partial_encoded_chunk_request(request, msg_hash);
                 None
             }
             RoutedMessageBody::PartialEncodedChunkResponse(response) => {
-                network_state.client.partial_encoded_chunk_response(response, clock.now()).await;
+                network_state
+                    .shards_manager_adapter
+                    .process_partial_encoded_chunk_response(response, clock.now().into());
                 None
             }
             RoutedMessageBody::VersionedPartialEncodedChunk(chunk) => {
-                network_state.client.partial_encoded_chunk(chunk).await;
+                network_state.shards_manager_adapter.process_partial_encoded_chunk(chunk);
                 None
             }
             RoutedMessageBody::PartialEncodedChunkForward(msg) => {
-                network_state.client.partial_encoded_chunk_forward(msg).await;
+                network_state.shards_manager_adapter.process_partial_encoded_chunk_forward(msg);
                 None
             }
             RoutedMessageBody::ReceiptOutcomeRequest(_) => {
@@ -1053,8 +1090,15 @@ impl PeerActor {
         .entered();
 
         match peer_msg.clone() {
-            PeerMessage::Disconnect => {
+            PeerMessage::Disconnect(d) => {
                 tracing::debug!(target: "network", "Disconnect signal. Me: {:?} Peer: {:?}", self.my_node_info.id, self.other_peer_id());
+
+                if d.remove_from_connection_store {
+                    self.network_state
+                        .connection_store
+                        .remove_from_connection_store(self.other_peer_id().unwrap())
+                }
+
                 self.stop(ctx, ClosingReason::DisconnectMessage);
             }
             PeerMessage::Tier1Handshake(_) | PeerMessage::Tier2Handshake(_) => {
@@ -1134,6 +1178,13 @@ impl PeerActor {
                 }));
             }
             PeerMessage::SyncAccountsData(msg) => {
+                metrics::SYNC_ACCOUNTS_DATA
+                    .with_label_values(&[
+                        "received",
+                        metrics::bool_to_str(msg.incremental),
+                        metrics::bool_to_str(msg.requesting_full_sync),
+                    ])
+                    .inc();
                 let network_state = self.network_state.clone();
                 // In case a full sync is requested, immediately send what we got.
                 // It is a microoptimization: we do not send back the data we just received.
@@ -1159,8 +1210,11 @@ impl PeerActor {
                     return;
                 }
                 let network_state = self.network_state.clone();
+                let clock = self.clock.clone();
                 ctx.spawn(wrap_future(async move {
-                    if let Some(err) = network_state.add_accounts_data(msg.accounts_data).await {
+                    if let Some(err) =
+                        network_state.add_accounts_data(&clock, msg.accounts_data).await
+                    {
                         conn.stop(Some(match err {
                             accounts_data::Error::InvalidSignature => {
                                 ReasonForBan::InvalidSignature
@@ -1255,7 +1309,7 @@ impl PeerActor {
                                 .event_sink
                                 .push(Event::MessageProcessed(conn.tier, PeerMessage::Routed(msg)));
                         }
-                        _ => self.receive_message(ctx, &conn, PeerMessage::Routed(msg.clone())),
+                        _ => self.receive_message(ctx, &conn, PeerMessage::Routed(msg)),
                     }
                 } else {
                     if msg.decrease_ttl() {
@@ -1354,11 +1408,21 @@ impl actix::Actor for PeerActor {
             }
             Some(reason) => {
                 tracing::info!(target: "network", "{:?}: Peer {} disconnected, reason: {reason}", self.my_node_info.id, self.peer_info);
+
+                // If we are on the inbound side of the connection, set a flag in the disconnect
+                // message advising the outbound side whether to attempt to re-establish the connection.
+                let remove_from_connection_store =
+                    self.peer_type == PeerType::Inbound && reason.remove_from_connection_store();
+
+                self.send_message_or_log(&PeerMessage::Disconnect(Disconnect {
+                    remove_from_connection_store,
+                }));
             }
         }
+
         match &self.peer_status {
             // If PeerActor is in Connecting state, then
-            // it was not registered in the NewtorkState,
+            // it was not registered in the NetworkState,
             // so there is nothing to be done.
             PeerStatus::Connecting(..) => {
                 // TODO(gprusak): reporting ConnectionClosed event is quite scattered right now and
@@ -1403,7 +1467,9 @@ impl actix::Handler<stream::Error> for PeerActor {
                 // Connection has been closed.
                 io::ErrorKind::UnexpectedEof
                 | io::ErrorKind::ConnectionReset
-                | io::ErrorKind::BrokenPipe => true,
+                | io::ErrorKind::BrokenPipe
+                // libc::ETIIMEDOUT = 110, translates to io::ErrorKind::TimedOut.
+                | io::ErrorKind::TimedOut => true,
                 // When stopping tokio runtime, an "IO driver has terminated" is sometimes
                 // returned.
                 io::ErrorKind::Other => true,

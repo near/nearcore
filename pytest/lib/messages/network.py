@@ -162,7 +162,7 @@ network_schema = [
                 ['Block', Block],
                 ['Transaction', SignedTransaction],
                 ['Routed', RoutedMessage],
-                ['Disconnect', ()],
+                ['Disconnect'],
                 ['Challenge', None],  # TODO
                 ['HandshakeV2', HandshakeV2],
                 ['EpochSyncRequest', None],  # TODO

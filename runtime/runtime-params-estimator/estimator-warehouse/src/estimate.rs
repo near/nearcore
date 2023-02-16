@@ -1,11 +1,9 @@
-use clap::Parser;
+use crate::{db::Db, import::ImportConfig};
 use nix::unistd::Uid;
 use xshell::{cmd, Shell};
 
-use crate::{db::Db, import::ImportConfig};
-
 /// Additional information required for estimation.
-#[derive(Debug, Parser)]
+#[derive(Debug, clap::Parser)]
 pub(crate) struct EstimateConfig {
     /// Specify the directory of a different repository, if not estimating the current one.
     #[clap(long)]

@@ -1,4 +1,4 @@
-use super::{fixtures::get_context, vm_logic_builder::VMLogicBuilder};
+use super::vm_logic_builder::VMLogicBuilder;
 use near_vm_errors::{HostError, VMLogicError};
 use std::fmt::Write;
 
@@ -75,7 +75,7 @@ fn check_result<T, U>(
     match (actual, expected) {
         (Ok(actual), Ok(expected)) => Some((actual, expected)),
         (Err(VMLogicError::HostError(HostError::AltBn128InvalidInput { msg: err })), Err(msg)) => {
-            let err = err.to_string();
+            let err = err;
             assert!(err.contains(msg), "expected `{msg}` error, got {err}");
             None
         }
@@ -89,7 +89,7 @@ fn test_alt_bn128_g1_multiexp() {
     #[track_caller]
     fn check(input: &[u8], expected: Result<&[u8], &str>) {
         let mut logic_builder = VMLogicBuilder::default();
-        let mut logic = logic_builder.build(get_context(vec![], false));
+        let mut logic = logic_builder.build();
         let input = logic.internal_mem_write(input);
 
         let res = logic.alt_bn128_g1_multiexp(input.len, input.ptr, 0);
@@ -153,7 +153,7 @@ fn test_alt_bn128_g1_sum() {
     #[track_caller]
     fn check(input: &[u8], expected: Result<&[u8], &str>) {
         let mut logic_builder = VMLogicBuilder::default();
-        let mut logic = logic_builder.build(get_context(vec![], false));
+        let mut logic = logic_builder.build();
         let input = logic.internal_mem_write(input);
 
         let res = logic.alt_bn128_g1_sum(input.len, input.ptr, 0);
@@ -217,7 +217,7 @@ fn test_alt_bn128_pairing_check() {
     #[track_caller]
     fn check(input: &[u8], expected: Result<u64, &str>) {
         let mut logic_builder = VMLogicBuilder::default();
-        let mut logic = logic_builder.build(get_context(vec![], false));
+        let mut logic = logic_builder.build();
         let input = logic.internal_mem_write(input);
 
         let res = logic.alt_bn128_pairing_check(input.len, input.ptr);

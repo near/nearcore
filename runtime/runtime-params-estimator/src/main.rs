@@ -1,7 +1,6 @@
 #![doc = include_str!("../README.md")]
 
 use anyhow::Context;
-use clap::Parser;
 use genesis_populate::GenesisBuilder;
 use near_chain_configs::GenesisValidationMode;
 use near_primitives::version::PROTOCOL_VERSION;
@@ -10,7 +9,7 @@ use near_vm_runner::internal::VMKind;
 use replay::ReplayCmd;
 use runtime_params_estimator::config::{Config, GasMetric};
 use runtime_params_estimator::{
-    costs_to_runtime_config, CostTable, QemuCommandBuilder, RocksDBTestConfig,
+    costs_to_runtime_config, Cost, CostTable, QemuCommandBuilder, RocksDBTestConfig,
 };
 use std::env;
 use std::fmt::Write;
@@ -23,7 +22,7 @@ use tracing_subscriber::Layer;
 
 mod replay;
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 struct CliArgs {
     /// Directory for config and data. If not set, a temporary directory is used
     /// to generate appropriate data.
@@ -63,8 +62,8 @@ struct CliArgs {
     #[clap(long, requires("costs-file"))]
     compare_to: Option<PathBuf>,
     /// Coma-separated lists of a subset of costs to estimate.
-    #[clap(long)]
-    costs: Option<String>,
+    #[clap(long, use_value_delimiter = true)]
+    costs: Option<Vec<Cost>>,
     /// Build and run the estimator inside a docker container via QEMU.
     #[clap(long)]
     docker: bool,
@@ -109,8 +108,7 @@ enum CliSubCmd {
 
 fn main() -> anyhow::Result<()> {
     let start = time::Instant::now();
-
-    let cli_args = CliArgs::parse();
+    let cli_args: CliArgs = clap::Parser::parse();
 
     if let Some(cmd) = cli_args.sub_cmd {
         return match cmd {
@@ -118,6 +116,27 @@ fn main() -> anyhow::Result<()> {
         };
     }
 
+    if let Some(cost_table) = run_estimation(cli_args)? {
+        let output_path = {
+            let timestamp = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+            let commit = exec("git rev-parse --short HEAD")
+                .map(|hash| format!("-{}", hash))
+                .unwrap_or_default();
+            let file_name = format!("costs-{}{}.txt", timestamp, commit);
+
+            env::current_dir()?.join(file_name)
+        };
+        fs::write(&output_path, &cost_table.to_string())?;
+        eprintln!(
+            "\nFinished in {:.2?}, output saved to:\n\n    {}",
+            start.elapsed(),
+            output_path.display()
+        );
+    }
+    Ok(())
+}
+
+fn run_estimation(cli_args: CliArgs) -> anyhow::Result<Option<CostTable>> {
     let temp_dir;
     let state_dump_path = match cli_args.home {
         Some(it) => it,
@@ -158,11 +177,15 @@ fn main() -> anyhow::Result<()> {
 
         let near_config = nearcore::load_config(&state_dump_path, GenesisValidationMode::Full)
             .context("Error loading config")?;
-        let store =
-            near_store::NodeStorage::opener(&state_dump_path, &near_config.config.store, None)
-                .open()
-                .unwrap()
-                .get_store(near_store::Temperature::Hot);
+        let store = near_store::NodeStorage::opener(
+            &state_dump_path,
+            near_config.config.archive,
+            &near_config.config.store,
+            None,
+        )
+        .open()
+        .unwrap()
+        .get_store(near_store::Temperature::Hot);
         GenesisBuilder::from_config_and_store(&state_dump_path, near_config, store)
             .add_additional_accounts(cli_args.additional_accounts_num)
             .add_additional_accounts_contract(contract_code.to_vec())
@@ -174,13 +197,16 @@ fn main() -> anyhow::Result<()> {
     }
 
     if cli_args.docker {
-        return main_docker(
+        main_docker(
             &state_dump_path,
             cli_args.full,
             cli_args.docker_shell,
             cli_args.json_output,
             cli_args.debug,
-        );
+        )?;
+        // The cost table has already been printed inside docker, the outer
+        // instance does not produce an output.
+        return Ok(None);
     }
 
     if let Some(compare_to) = cli_args.compare_to {
@@ -189,7 +215,7 @@ fn main() -> anyhow::Result<()> {
         let compare_to = read_costs_table(&compare_to)?;
         let baseline = read_costs_table(&baseline)?;
         println!("{}", baseline.diff(&compare_to));
-        return Ok(());
+        return Ok(None);
     }
 
     if let Some(path) = cli_args.costs_file {
@@ -206,10 +232,10 @@ fn main() -> anyhow::Result<()> {
 
         let output_path = state_dump_path.join("runtime_config.json");
         fs::write(&output_path, &str)
-            .with_context(|| format!("failed to write runtime config to file"))?;
+            .with_context(|| "failed to write runtime config to file".to_string())?;
         println!("\nOutput saved to:\n\n    {}", output_path.display());
 
-        return Ok(());
+        return Ok(None);
     }
 
     #[cfg(feature = "io_trace")]
@@ -258,8 +284,6 @@ fn main() -> anyhow::Result<()> {
         None => VMKind::for_protocol_version(PROTOCOL_VERSION),
         Some(other) => unreachable!("Unknown vm_kind {}", other),
     };
-    let costs_to_measure = cli_args.costs.map(|it| it.split(',').map(str::to_string).collect());
-
     let config = Config {
         warmup_iters_per_block,
         iter_per_block,
@@ -268,7 +292,7 @@ fn main() -> anyhow::Result<()> {
         state_dump_path: state_dump_path,
         metric,
         vm_kind,
-        costs_to_measure,
+        costs_to_measure: cli_args.costs,
         rocksdb_test_config,
         debug: cli_args.debug,
         json_output: cli_args.json_output,
@@ -276,23 +300,7 @@ fn main() -> anyhow::Result<()> {
         in_memory_db: cli_args.in_memory_db,
     };
     let cost_table = runtime_params_estimator::run(config);
-
-    let output_path = {
-        let timestamp = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
-        let commit =
-            exec("git rev-parse --short HEAD").map(|hash| format!("-{}", hash)).unwrap_or_default();
-        let file_name = format!("costs-{}{}.txt", timestamp, commit);
-
-        env::current_dir()?.join(file_name)
-    };
-    fs::write(&output_path, &cost_table.to_string())?;
-    eprintln!(
-        "\nFinished in {:.2?}, output saved to:\n\n    {}",
-        start.elapsed(),
-        output_path.display()
-    );
-
-    Ok(())
+    Ok(Some(cost_table))
 }
 
 /// Spawns another instance of this binary but inside docker.
@@ -446,7 +454,9 @@ fn read_costs_table(path: &Path) -> anyhow::Result<CostTable> {
     fs::read_to_string(&path)
         .with_context(|| format!("failed to read costs file: {}", path.display()))?
         .parse::<CostTable>()
-        .map_err(|()| anyhow::format_err!("failed to parse costs file: {}", path.display()))
+        .map_err(|e| {
+            anyhow::format_err!("failed to parse costs file at {} due to {e}", path.display())
+        })
 }
 
 fn exec(command: &str) -> anyhow::Result<String> {
@@ -469,4 +479,50 @@ fn project_root() -> PathBuf {
     let res = PathBuf::from(dir).ancestors().nth(2).unwrap().to_owned();
     assert!(res.join(".github").exists());
     res
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Test that we can run simple estimations from start ot finish, including
+    /// the state dump creation in a temporary directory.
+    ///
+    /// This is complementary to regular full runs of all estimations. This test
+    /// here is intended to run as pre-commit and therefore should finish
+    /// quickly (target: 10-20s).
+    ///
+    /// Limitation: This will run on nightly test with all workspace features
+    /// enabled. It will not cover all compilation errors for building the
+    /// params-estimator in isolation.
+    #[test]
+    fn sanity_check() {
+        // select a mix of estimations that are all fast
+        let costs = vec![Cost::WasmInstruction, Cost::StorageHasKeyByte, Cost::AltBn128G1SumBase];
+        let args = CliArgs {
+            home: None,
+            warmup_iters: 0,
+            iters: 1,
+            accounts_num: 100,
+            additional_accounts_num: 100,
+            skip_build_test_contract: false,
+            metric: "time".to_owned(),
+            vm_kind: None,
+            costs_file: None,
+            compare_to: None,
+            costs: Some(costs),
+            docker: false,
+            docker_shell: false,
+            full: false,
+            drop_os_cache: false,
+            debug: true,
+            json_output: false,
+            tracing_span_tree: false,
+            record_io_trace: None,
+            in_memory_db: false,
+            db_test_config: clap::Parser::parse_from(std::iter::empty::<std::ffi::OsString>()),
+            sub_cmd: None,
+        };
+        run_estimation(args).unwrap();
+    }
 }

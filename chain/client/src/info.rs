@@ -1,3 +1,4 @@
+use crate::config_updater::ConfigUpdater;
 use crate::{metrics, rocksdb_metrics, SyncStatus};
 use actix::Addr;
 use itertools::Itertools;
@@ -125,6 +126,7 @@ impl InfoHelper {
         client: &crate::client::Client,
         node_id: &PeerId,
         network_info: &NetworkInfo,
+        config_updater: &Option<ConfigUpdater>,
     ) {
         let is_syncing = client.sync_status.is_syncing();
         let head = unwrap_or_return!(client.chain.head());
@@ -190,6 +192,7 @@ impl InfoHelper {
                 .unwrap_or(0),
             statistics,
             &client.config,
+            config_updater,
         );
         self.log_chain_processing_info(client, &head.epoch_id);
     }
@@ -206,6 +209,7 @@ impl InfoHelper {
         protocol_upgrade_block_height: BlockHeight,
         statistics: Option<StoreStatistics>,
         client_config: &ClientConfig,
+        config_updater: &Option<ConfigUpdater>,
     ) {
         let use_colour = matches!(self.log_summary_style, LogSummaryStyle::Colored);
         let paint = |colour: ansi_term::Colour, text: Option<String>| match text {
@@ -268,12 +272,14 @@ impl InfoHelper {
             paint(ansi_term::Colour::Blue, machine_info_log),
         );
         if catchup_status_log != "" {
-            info!(target:"stats", "Catchups\n{}", catchup_status_log);
+            info!(target: "stats", "Catchups\n{}", catchup_status_log);
         }
         if let Some(statistics) = statistics {
             rocksdb_metrics::export_stats_as_metrics(statistics);
         }
-
+        if let Some(config_updater) = &config_updater {
+            config_updater.report_status();
+        }
         let (cpu_usage, memory_usage) = proc_info.unwrap_or_default();
         let is_validator = validator_info.map(|v| v.is_validator).unwrap_or_default();
         (metrics::IS_VALIDATOR.set(is_validator as i64));
@@ -361,7 +367,7 @@ impl InfoHelper {
                 account_id: self.validator_signer.as_ref().map(|bp| bp.validator_id().clone()),
                 is_validator,
                 status: sync_status.as_variant_name().to_string(),
-                latest_block_hash: head.last_block_hash.clone(),
+                latest_block_hash: head.last_block_hash,
                 latest_block_height: head.height,
                 num_peers: network_info.num_connected_peers,
                 block_production_tracking_delay: client_config
@@ -484,7 +490,7 @@ pub fn display_sync_status(sync_status: &SyncStatus, head: &Tip) -> String {
             }
             res
         }
-        SyncStatus::StateSyncDone => format!("State sync done"),
+        SyncStatus::StateSyncDone => "State sync done".to_string(),
     }
 }
 
@@ -703,13 +709,9 @@ mod tests {
             protocol_version: PROTOCOL_VERSION,
         };
         let doomslug_threshold_mode = DoomslugThresholdMode::TwoThirds;
-        let chain = Chain::new(
-            runtime.clone(),
-            &chain_genesis,
-            doomslug_threshold_mode,
-            ChainConfig::test(),
-        )
-        .unwrap();
+        let chain =
+            Chain::new(runtime, &chain_genesis, doomslug_threshold_mode, ChainConfig::test())
+                .unwrap();
 
         let telemetry = info_helper.telemetry_info(
             &chain.head().unwrap(),

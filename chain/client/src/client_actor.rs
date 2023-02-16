@@ -7,13 +7,12 @@
 
 use crate::adapter::{
     BlockApproval, BlockHeadersResponse, BlockResponse, ProcessTxRequest, ProcessTxResponse,
-    RecvChallenge, RecvPartialEncodedChunk, RecvPartialEncodedChunkForward,
-    RecvPartialEncodedChunkRequest, RecvPartialEncodedChunkResponse, SetNetworkInfo, StateResponse,
+    RecvChallenge, SetNetworkInfo, StateResponse,
 };
 use crate::client::{Client, EPOCH_START_INFO_BLOCKS};
+use crate::config_updater::ConfigUpdater;
 use crate::debug::new_network_info_view;
 use crate::info::{display_sync_status, InfoHelper};
-use crate::metrics::PARTIAL_ENCODED_CHUNK_RESPONSE_DELAY;
 use crate::sync::state::{StateSync, StateSyncResult};
 use crate::{metrics, StatusResponse};
 use actix::dev::SendError;
@@ -21,6 +20,7 @@ use actix::{Actor, Addr, Arbiter, AsyncContext, Context, Handler, Message};
 use actix_rt::ArbiterHandle;
 use borsh::BorshSerialize;
 use chrono::DateTime;
+use near_async::messaging::CanSend;
 use near_chain::chain::{
     do_apply_chunks, ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest,
     BlockCatchUpResponse, StateSplitRequest, StateSplitResponse,
@@ -30,15 +30,16 @@ use near_chain::test_utils::format_hash;
 use near_chain::ChainStoreAccess;
 use near_chain::{
     byzantine_assert, near_chain_primitives, Block, BlockHeader, BlockProcessingArtifact,
-    ChainGenesis, DoneApplyChunkCallback, Provenance, RuntimeAdapter,
+    ChainGenesis, DoneApplyChunkCallback, Provenance, RuntimeWithEpochManagerAdapter,
 };
 use near_chain_configs::ClientConfig;
+use near_chunks::adapter::ShardsManagerAdapterForClient;
 use near_chunks::client::ShardsManagerResponse;
 use near_chunks::logic::cares_about_shard_this_or_next_epoch;
 use near_client_primitives::types::{
-    Error, GetNetworkInfo, NetworkInfoResponse, Status, StatusError, StatusSyncInfo, SyncStatus,
+    Error, GetClientConfig, GetClientConfigError, GetNetworkInfo, NetworkInfoResponse, Status,
+    StatusError, StatusSyncInfo, SyncStatus,
 };
-use near_dyn_configs::EXPECTED_SHUTDOWN_AT;
 #[cfg(feature = "test_features")]
 use near_network::types::NetworkAdversarialMessage;
 use near_network::types::ReasonForBan;
@@ -69,7 +70,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
-use tokio::sync::oneshot;
+use tokio::sync::broadcast;
 use tracing::{debug, error, info, trace, warn};
 
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.
@@ -85,7 +86,7 @@ pub struct ClientActor {
     // Address of this ClientActor. Can be used to send messages to self.
     my_address: Addr<ClientActor>,
     pub(crate) client: Client,
-    network_adapter: Arc<dyn PeerManagerAdapter>,
+    network_adapter: PeerManagerAdapter,
     network_info: NetworkInfo,
     /// Identity that represents this Client at the network level.
     /// It is used as part of the messages that identify this client.
@@ -104,7 +105,6 @@ pub struct ClientActor {
     block_production_started: bool,
     doomslug_timer_next_attempt: DateTime<Utc>,
     sync_timer_next_attempt: DateTime<Utc>,
-    chunk_request_retry_next_attempt: DateTime<Utc>,
     sync_started: bool,
     state_parts_task_scheduler: Box<dyn Fn(ApplyStatePartsRequest)>,
     block_catch_up_scheduler: Box<dyn Fn(BlockCatchUpRequest)>,
@@ -116,7 +116,10 @@ pub struct ClientActor {
 
     /// Synchronization measure to allow graceful shutdown.
     /// Informs the system when a ClientActor gets dropped.
-    shutdown_signal: Option<oneshot::Sender<()>>,
+    shutdown_signal: Option<broadcast::Sender<()>>,
+
+    /// Manages updating the config.
+    config_updater: Option<ConfigUpdater>,
 }
 
 /// Blocks the program until given genesis time arrives.
@@ -141,23 +144,21 @@ fn wait_until_genesis(genesis_time: &DateTime<Utc>) {
 
 impl ClientActor {
     pub fn new(
+        client: Client,
         address: Addr<ClientActor>,
         config: ClientConfig,
-        chain_genesis: ChainGenesis,
-        runtime_adapter: Arc<dyn RuntimeAdapter>,
         node_id: PeerId,
-        network_adapter: Arc<dyn PeerManagerAdapter>,
+        network_adapter: PeerManagerAdapter,
         validator_signer: Option<Arc<dyn ValidatorSigner>>,
         telemetry_actor: Addr<TelemetryActor>,
-        enable_doomslug: bool,
-        rng_seed: RngSeed,
         ctx: &Context<ClientActor>,
-        shutdown_signal: Option<oneshot::Sender<()>>,
+        shutdown_signal: Option<broadcast::Sender<()>>,
         adv: crate::adversarial::Controls,
+        config_updater: Option<ConfigUpdater>,
     ) -> Result<Self, Error> {
         let state_parts_arbiter = Arbiter::new();
         let self_addr = ctx.address();
-        let self_addr_clone = self_addr.clone();
+        let self_addr_clone = self_addr;
         let sync_jobs_actor_addr = SyncJobsActor::start_in_arbiter(
             &state_parts_arbiter.handle(),
             move |ctx: &mut Context<SyncJobsActor>| -> SyncJobsActor {
@@ -165,21 +166,10 @@ impl ClientActor {
                 SyncJobsActor { client_addr: self_addr_clone }
             },
         );
-        wait_until_genesis(&chain_genesis.time);
         if let Some(vs) = &validator_signer {
             info!(target: "client", "Starting validator node: {}", vs.validator_id());
         }
         let info_helper = InfoHelper::new(Some(telemetry_actor), &config, validator_signer.clone());
-        let client = Client::new(
-            config,
-            chain_genesis,
-            runtime_adapter,
-            network_adapter.clone(),
-            Arc::new(self_addr.clone()),
-            validator_signer,
-            enable_doomslug,
-            rng_seed,
-        )?;
 
         let now = Utc::now();
         Ok(ClientActor {
@@ -207,7 +197,6 @@ impl ClientActor {
             block_production_started: false,
             doomslug_timer_next_attempt: now,
             sync_timer_next_attempt: now,
-            chunk_request_retry_next_attempt: now,
             sync_started: false,
             state_parts_task_scheduler: create_sync_job_scheduler::<ApplyStatePartsRequest>(
                 sync_jobs_actor_addr.clone(),
@@ -222,7 +211,8 @@ impl ClientActor {
 
             #[cfg(feature = "sandbox")]
             fastforward_delta: 0,
-            shutdown_signal: shutdown_signal,
+            shutdown_signal,
+            config_updater,
         })
     }
 }
@@ -341,11 +331,10 @@ impl Handler<WithSpanContext<NetworkAdversarialMessage>> for ClientActor {
                     }
                     let block = block.expect("block should exist after produced");
                     info!(target: "adversary", "Producing {} block out of {}, height = {}", blocks_produced, num_blocks, height);
-                    this.network_adapter.do_send(
+                    this.network_adapter.send(
                         PeerManagerMessageRequest::NetworkRequests(
                             NetworkRequests::Block { block: block.clone() },
                         )
-                        .with_span_context(),
                     );
                     let _ = this.client.start_process_block(
                         block.into(),
@@ -449,7 +438,7 @@ impl Handler<WithSpanContext<BlockResponse>> for ClientActor {
                 }
                 this.client.receive_block(
                     block,
-                    peer_id.clone(),
+                    peer_id,
                     was_requested,
                     this.get_apply_chunks_done_callback(),
                 );
@@ -547,76 +536,6 @@ impl Handler<WithSpanContext<StateResponse>> for ClientActor {
             }
 
             error!(target: "sync", "State sync received hash {} that we're not expecting, potential malicious peer or a very delayed response.", hash);
-        })
-    }
-}
-
-impl Handler<WithSpanContext<RecvPartialEncodedChunkRequest>> for ClientActor {
-    type Result = ();
-
-    fn handle(
-        &mut self,
-        msg: WithSpanContext<RecvPartialEncodedChunkRequest>,
-        ctx: &mut Context<Self>,
-    ) {
-        self.wrap(msg, ctx, "RecvPartialEncodedChunkRequest", |this, msg| {
-            let RecvPartialEncodedChunkRequest(part_request_msg, route_back) = msg;
-            let _ = this
-                .client
-                .shards_mgr
-                .process_partial_encoded_chunk_request(part_request_msg, route_back);
-        })
-    }
-}
-
-impl Handler<WithSpanContext<RecvPartialEncodedChunkResponse>> for ClientActor {
-    type Result = ();
-
-    fn handle(
-        &mut self,
-        msg: WithSpanContext<RecvPartialEncodedChunkResponse>,
-        ctx: &mut Context<Self>,
-    ) {
-        self.wrap(msg, ctx, "RecvPartialEncodedChunkResponse", |this, msg| {
-            let RecvPartialEncodedChunkResponse(response, time) = msg;
-            PARTIAL_ENCODED_CHUNK_RESPONSE_DELAY.observe(time.elapsed().as_secs_f64());
-            let _ = this.client.shards_mgr.process_partial_encoded_chunk_response(response);
-        });
-    }
-}
-
-impl Handler<WithSpanContext<RecvPartialEncodedChunk>> for ClientActor {
-    type Result = ();
-
-    fn handle(&mut self, msg: WithSpanContext<RecvPartialEncodedChunk>, ctx: &mut Context<Self>) {
-        self.wrap(msg, ctx, "RecvPartialEncodedChunk", |this, msg| {
-            let RecvPartialEncodedChunk(partial_encoded_chunk) = msg;
-            this.client.block_production_info.record_chunk_collected(
-                partial_encoded_chunk.height_created(),
-                partial_encoded_chunk.shard_id(),
-            );
-            let _ =
-                this.client.shards_mgr.process_partial_encoded_chunk(partial_encoded_chunk.into());
-        })
-    }
-}
-
-impl Handler<WithSpanContext<RecvPartialEncodedChunkForward>> for ClientActor {
-    type Result = ();
-
-    fn handle(
-        &mut self,
-        msg: WithSpanContext<RecvPartialEncodedChunkForward>,
-        ctx: &mut Context<Self>,
-    ) {
-        self.wrap(msg, ctx, "RectPartialEncodedChunkForward", |this, msg| {
-            let RecvPartialEncodedChunkForward(forward) = msg;
-            match this.client.shards_mgr.process_partial_encoded_chunk_forward(forward) {
-                Ok(_) => {}
-                // Unknown chunk is normal if we get parts before the header
-                Err(near_chunks::Error::UnknownChunk) => (),
-                Err(err) => error!(target: "client", "Error processing forwarded chunk: {}", err),
-            }
         })
     }
 }
@@ -737,7 +656,7 @@ impl Handler<WithSpanContext<Status>> for ClientActor {
 
         let node_public_key = self.node_id.public_key().clone();
         let (validator_account_id, validator_public_key) = match &self.client.validator_signer {
-            Some(vs) => (Some(vs.validator_id().clone()), Some(vs.public_key().clone())),
+            Some(vs) => (Some(vs.validator_id().clone()), Some(vs.public_key())),
             None => (None, None),
         };
         let node_key = validator_public_key.clone();
@@ -861,7 +780,7 @@ impl Handler<WithSpanContext<GetNetworkInfo>> for ClientActor {
 /// `ApplyChunksDoneMessage` is a message that signals the finishing of applying chunks of a block.
 /// Upon receiving this message, ClientActors knows that it's time to finish processing the blocks that
 /// just finished applying chunks.
-#[derive(Message)]
+#[derive(actix::Message)]
 #[rtype(result = "()")]
 pub struct ApplyChunksDoneMessage;
 
@@ -922,17 +841,14 @@ impl ClientActor {
                 &self.node_id,
                 &next_epoch_id,
             );
-            self.network_adapter.do_send(
-                PeerManagerMessageRequest::NetworkRequests(NetworkRequests::AnnounceAccount(
-                    AnnounceAccount {
-                        account_id: validator_signer.validator_id().clone(),
-                        peer_id: self.node_id.clone(),
-                        epoch_id: next_epoch_id,
-                        signature,
-                    },
-                ))
-                .with_span_context(),
-            );
+            self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::AnnounceAccount(AnnounceAccount {
+                    account_id: validator_signer.validator_id().clone(),
+                    peer_id: self.node_id.clone(),
+                    epoch_id: next_epoch_id,
+                    signature,
+                }),
+            ));
         }
     }
 
@@ -1129,14 +1045,20 @@ impl ClientActor {
     /// Returns the delay before the next time `check_triggers` should be called, which is
     /// min(time until the closest trigger, 1 second).
     fn check_triggers(&mut self, ctx: &mut Context<ClientActor>) -> Duration {
+        if let Some(config_updater) = &mut self.config_updater {
+            config_updater.try_update(&|updateable_client_config| {
+                self.client.update_client_config(updateable_client_config)
+            });
+        }
+
         // Check block height to trigger expected shutdown
         if let Ok(head) = self.client.chain.head() {
-            let block_height_to_shutdown =
-                EXPECTED_SHUTDOWN_AT.load(std::sync::atomic::Ordering::Relaxed);
-            if block_height_to_shutdown > 0 && head.height >= block_height_to_shutdown {
-                info!(target: "client", "Expected shutdown triggered: head block({}) >= ({})", head.height, block_height_to_shutdown);
-                if let Some(tx) = self.shutdown_signal.take() {
-                    let _ = tx.send(()); // Ignore send signal fail, it will send again in next trigger
+            if let Some(block_height_to_shutdown) = self.client.config.expected_shutdown.get() {
+                if head.height >= block_height_to_shutdown {
+                    info!(target: "client", "Expected shutdown triggered: head block({}) >= ({:?})", head.height, block_height_to_shutdown);
+                    if let Some(tx) = self.shutdown_signal.take() {
+                        let _ = tx.send(()); // Ignore send signal fail, it will send again in next trigger
+                    }
                 }
             }
         }
@@ -1214,27 +1136,8 @@ impl ClientActor {
                 .to_std()
                 .unwrap_or(delay),
         );
-
-        self.chunk_request_retry_next_attempt = self.run_timer(
-            self.client.config.chunk_request_retry_period,
-            self.chunk_request_retry_next_attempt,
-            ctx,
-            |act, _ctx| {
-                if let Ok(header_head) = act.client.chain.header_head() {
-                    act.client.shards_mgr.resend_chunk_requests(&header_head)
-                }
-            },
-            "resend_chunk_requests",
-        );
-
         timer.observe_duration();
-        core::cmp::min(
-            delay,
-            self.chunk_request_retry_next_attempt
-                .signed_duration_since(now)
-                .to_std()
-                .unwrap_or(delay),
-        )
+        delay
     }
 
     /// "Unfinished" blocks means that blocks that client has started the processing and haven't
@@ -1296,12 +1199,9 @@ impl ClientActor {
         let _span = tracing::debug_span!(target: "client", "produce_block", next_height).entered();
         if let Some(block) = self.client.produce_block(next_height)? {
             // If we produced the block, send it out before we apply the block.
-            self.network_adapter.do_send(
-                PeerManagerMessageRequest::NetworkRequests(NetworkRequests::Block {
-                    block: block.clone(),
-                })
-                .with_span_context(),
-            );
+            self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::Block { block: block.clone() },
+            ));
             // We’ve produced the block so that counts as validated block.
             let block = MaybeValidated::from_validated(block);
             let res = self.client.start_process_block(
@@ -1755,7 +1655,12 @@ impl ClientActor {
     fn log_summary(&mut self) {
         let _span = tracing::debug_span!(target: "client", "log_summary").entered();
         let _d = delay_detector::DelayDetector::new(|| "client log summary".into());
-        self.info_helper.log_summary(&self.client, &self.node_id, &self.network_info)
+        self.info_helper.log_summary(
+            &self.client,
+            &self.node_id,
+            &self.network_info,
+            &self.config_updater,
+        )
     }
 }
 
@@ -1954,6 +1859,21 @@ impl Handler<WithSpanContext<ShardsManagerResponse>> for ClientActor {
     }
 }
 
+impl Handler<WithSpanContext<GetClientConfig>> for ClientActor {
+    type Result = Result<ClientConfig, GetClientConfigError>;
+
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<GetClientConfig>,
+        _: &mut Context<Self>,
+    ) -> Self::Result {
+        let (_span, _msg) = handler_debug_span!(target: "client", msg);
+        let _d = delay_detector::DelayDetector::new(|| "client get client config".into());
+
+        Ok(self.client.config.clone())
+    }
+}
+
 /// Returns random seed sampled from the current thread
 pub fn random_seed_from_thread() -> RngSeed {
     let mut rng_seed: RngSeed = [0; 32];
@@ -1965,31 +1885,43 @@ pub fn random_seed_from_thread() -> RngSeed {
 pub fn start_client(
     client_config: ClientConfig,
     chain_genesis: ChainGenesis,
-    runtime_adapter: Arc<dyn RuntimeAdapter>,
+    runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
     node_id: PeerId,
-    network_adapter: Arc<dyn PeerManagerAdapter>,
+    network_adapter: PeerManagerAdapter,
+    shards_manager_adapter: Arc<dyn ShardsManagerAdapterForClient>,
     validator_signer: Option<Arc<dyn ValidatorSigner>>,
     telemetry_actor: Addr<TelemetryActor>,
-    sender: Option<oneshot::Sender<()>>,
+    sender: Option<broadcast::Sender<()>>,
     adv: crate::adversarial::Controls,
+    config_updater: Option<ConfigUpdater>,
 ) -> (Addr<ClientActor>, ArbiterHandle) {
     let client_arbiter = Arbiter::new();
     let client_arbiter_handle = client_arbiter.handle();
+    wait_until_genesis(&chain_genesis.time);
+    let client = Client::new(
+        client_config.clone(),
+        chain_genesis,
+        runtime_adapter,
+        network_adapter.clone(),
+        shards_manager_adapter,
+        validator_signer.clone(),
+        true,
+        random_seed_from_thread(),
+    )
+    .unwrap();
     let client_addr = ClientActor::start_in_arbiter(&client_arbiter_handle, move |ctx| {
         ClientActor::new(
+            client,
             ctx.address(),
             client_config,
-            chain_genesis,
-            runtime_adapter,
             node_id,
             network_adapter,
             validator_signer,
             telemetry_actor,
-            true,
-            random_seed_from_thread(),
             ctx,
             sender,
             adv,
+            config_updater,
         )
         .unwrap()
     });

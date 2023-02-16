@@ -1,5 +1,5 @@
 use crate::network_protocol::PeerAddr;
-use serde::{Deserialize, Serialize};
+use crate::stun;
 use std::time::Duration;
 
 /// Time to persist Accounts Id in the router without removing them in seconds.
@@ -53,12 +53,27 @@ fn default_peer_expiration_duration() -> Duration {
     Duration::from_secs(7 * 24 * 60 * 60)
 }
 
-// If non-zero - we'll skip sending tombstones during initial sync and for that many seconds after start.
+/// If non-zero - we'll skip sending tombstones during initial sync and for that many seconds after start.
 fn default_skip_tombstones() -> i64 {
     0
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+/// This is a list of public STUN servers provided by Google,
+/// which are known to have good availability. To avoid trusting
+/// a centralized entity (and DNS used for domain resolution),
+/// prefer to set up your own STUN server, or (even better)
+/// use public_addrs instead.
+fn default_trusted_stun_servers() -> Vec<stun::ServerAddr> {
+    vec![
+        "stun.l.google.com:19302".to_string(),
+        "stun1.l.google.com:19302".to_string(),
+        "stun2.l.google.com:19302".to_string(),
+        "stun3.l.google.com:19302".to_string(),
+        "stun4.l.google.com:19302".to_string(),
+    ]
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct Config {
     /// Local address to listen for incoming connections.
     pub addr: String,
@@ -158,12 +173,15 @@ pub struct Config {
     pub allow_private_ip_in_public_addrs: bool,
     /// List of endpoints of trusted [STUN servers](https://datatracker.ietf.org/doc/html/rfc8489).
     ///
-    /// Used only if this node is a validator and public_ips is empty (see
-    /// description of public_ips field).  Format `<domain/ip>:<port>`, for
-    /// example `stun.l.google.com:19302`.
-    // TODO: unskip, once the functionality is implemented.
-    #[serde(skip)] // TODO: add a default list.
-    pub trusted_stun_servers: Vec<String>,
+    /// Used only if this node is a validator and public_addrs is empty (see
+    /// description of public_addrs field).  Format `<domain/ip>:<port>`, for
+    /// example `stun.l.google.com:19302`. The STUN servers are queried periodically in parallel.
+    /// We do not expect all the servers listed to be up all the time, but all the
+    /// responses are expected to be consistent - if different servers return differn IPs, then
+    /// the response set would be considered ambiguous and the node won't advertise any proxy in
+    /// such a case.
+    #[serde(default = "default_trusted_stun_servers")]
+    pub trusted_stun_servers: Vec<stun::ServerAddr>,
     // Experimental part of the JSON config. Regular users/validators should not have to set any values there.
     // Field names in here can change/disappear at any moment without warning.
     #[serde(default)]
@@ -187,7 +205,7 @@ fn default_tier1_new_connections_per_attempt() -> u64 {
     50
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct ExperimentalConfig {
     // If true - don't allow any inbound connections.
     #[serde(default)]
@@ -258,7 +276,7 @@ impl Default for Config {
             peer_expiration_duration: default_peer_expiration_duration(),
             public_addrs: vec![],
             allow_private_ip_in_public_addrs: false,
-            trusted_stun_servers: vec![],
+            trusted_stun_servers: default_trusted_stun_servers(),
             experimental: Default::default(),
         }
     }

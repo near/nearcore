@@ -10,6 +10,7 @@ pub use near_primitives_core::serialize;
 pub mod block;
 pub mod block_header;
 pub mod challenge;
+pub mod delegate_action;
 pub mod epoch_manager;
 pub mod errors;
 pub mod merkle;

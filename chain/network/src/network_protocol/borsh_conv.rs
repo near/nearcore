@@ -2,7 +2,6 @@
 use crate::network_protocol as mem;
 use crate::network_protocol::borsh_ as net;
 use crate::network_protocol::RoutedMessageV2;
-use thiserror::Error;
 
 impl From<&net::Handshake> for mem::Handshake {
     fn from(x: &net::Handshake) -> Self {
@@ -91,7 +90,7 @@ impl From<mem::RoutingTableUpdate> for net::RoutingTableUpdate {
 
 //////////////////////////////////////////
 
-#[derive(Error, Debug)]
+#[derive(thiserror::Error, Debug)]
 pub enum ParsePeerMessageError {
     #[error("HandshakeV2 is deprecated")]
     DeprecatedHandshakeV2,
@@ -133,7 +132,12 @@ impl TryFrom<&net::PeerMessage> for mem::PeerMessage {
                 created_at: None,
                 num_hops: Some(0),
             })),
-            net::PeerMessage::Disconnect => mem::PeerMessage::Disconnect,
+            net::PeerMessage::Disconnect => mem::PeerMessage::Disconnect(mem::Disconnect {
+                // This flag is used by the disconnecting peer to advise the other peer that there
+                // is a reason to remove the connection from storage (for example, a peer ban).
+                // In the absence of such information, it should default to false.
+                remove_from_connection_store: false,
+            }),
             net::PeerMessage::Challenge(c) => mem::PeerMessage::Challenge(c),
             net::PeerMessage::_HandshakeV2 => return Err(Self::Error::DeprecatedHandshakeV2),
             net::PeerMessage::_EpochSyncRequest => return Err(Self::Error::DeprecatedEpochSync),
@@ -184,7 +188,7 @@ impl From<&mem::PeerMessage> for net::PeerMessage {
             mem::PeerMessage::Block(b) => net::PeerMessage::Block(b),
             mem::PeerMessage::Transaction(t) => net::PeerMessage::Transaction(t),
             mem::PeerMessage::Routed(r) => net::PeerMessage::Routed(Box::new(r.msg.clone())),
-            mem::PeerMessage::Disconnect => net::PeerMessage::Disconnect,
+            mem::PeerMessage::Disconnect(_) => net::PeerMessage::Disconnect,
             mem::PeerMessage::Challenge(c) => net::PeerMessage::Challenge(c),
         }
     }

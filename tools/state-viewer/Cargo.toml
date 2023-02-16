@@ -14,6 +14,7 @@ once_cell.workspace = true
 rand.workspace = true
 rayon.workspace = true
 redis.workspace = true
+regex.workspace = true
 rust-s3.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -36,6 +37,7 @@ node-runtime = { path = "../../runtime/runtime" }
 [dev-dependencies]
 near-client = { path = "../../chain/client" }
 testlib = { path = "../../test-utils/testlib" }
+insta.workspace = true
 
 [features]
 sandbox = [
@@ -47,6 +49,6 @@ nightly = [
     "nightly_protocol",
     "nearcore/nightly"
 ]
-nightly_protocol = ["nearcore/nightly_protocol"]
+nightly_protocol = ["nearcore/nightly_protocol", "protocol_feature_nep366_delegate_action"]
 protocol_feature_flat_state = ["nearcore/protocol_feature_flat_state"]
-cold_store = ["near-store/cold_store"]
+protocol_feature_nep366_delegate_action = ["nearcore/protocol_feature_nep366_delegate_action"]

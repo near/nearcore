@@ -1,8 +1,6 @@
 use crate::parameter::Parameter;
 use crate::types::Gas;
-
 use enum_map::{enum_map, EnumMap};
-use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use strum::Display;
@@ -30,7 +28,7 @@ pub struct VMConfig {
 
 /// Describes limits for VM and Runtime.
 /// TODO #4139: consider switching to strongly-typed wrappers instead of raw quantities
-#[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, Hash, PartialEq, Eq)]
 pub struct VMLimitConfig {
     /// Max amount of gas that can be used, excluding gas attached to promises.
     pub max_gas_burnt: Gas,
@@ -256,7 +254,7 @@ impl VMLimitConfig {
 }
 
 /// Configuration of view methods execution, during which no costs should be charged.
-#[derive(Default, Clone, Serialize, Deserialize, Debug, Hash, PartialEq, Eq)]
+#[derive(Default, Clone, serde::Serialize, serde::Deserialize, Debug, Hash, PartialEq, Eq)]
 pub struct ViewConfig {
     /// If specified, defines max burnt gas per view method.
     pub max_gas_burnt: Gas,
@@ -302,9 +300,7 @@ impl ExtCostsConfig {
             ExtCosts::keccak512_base => SAFETY_MULTIPLIER * 1937129412,
             ExtCosts::keccak512_byte => SAFETY_MULTIPLIER * 12216567,
             ExtCosts::ripemd160_base => SAFETY_MULTIPLIER * 284558362,
-            #[cfg(feature = "protocol_feature_ed25519_verify")]
             ExtCosts::ed25519_verify_base => SAFETY_MULTIPLIER * 1513656750,
-            #[cfg(feature = "protocol_feature_ed25519_verify")]
             ExtCosts::ed25519_verify_byte => SAFETY_MULTIPLIER * 7157035,
             ExtCosts::ripemd160_block => SAFETY_MULTIPLIER * 226702528,
             ExtCosts::ecrecover_base => SAFETY_MULTIPLIER * 1121789875000,
@@ -436,9 +432,7 @@ pub enum ExtCosts {
     alt_bn128_pairing_check_element = 56,
     alt_bn128_g1_sum_base = 57,
     alt_bn128_g1_sum_element = 58,
-    #[cfg(feature = "protocol_feature_ed25519_verify")]
     ed25519_verify_base = 59,
-    #[cfg(feature = "protocol_feature_ed25519_verify")]
     ed25519_verify_byte = 60,
 }
 
@@ -473,6 +467,8 @@ pub enum ActionCosts {
     new_action_receipt = 12,
     new_data_receipt_base = 13,
     new_data_receipt_byte = 14,
+    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+    delegate = 15,
 }
 
 impl ExtCosts {
@@ -506,9 +502,7 @@ impl ExtCosts {
             ExtCosts::ripemd160_base => Parameter::WasmRipemd160Base,
             ExtCosts::ripemd160_block => Parameter::WasmRipemd160Block,
             ExtCosts::ecrecover_base => Parameter::WasmEcrecoverBase,
-            #[cfg(feature = "protocol_feature_ed25519_verify")]
             ExtCosts::ed25519_verify_base => Parameter::WasmEd25519VerifyBase,
-            #[cfg(feature = "protocol_feature_ed25519_verify")]
             ExtCosts::ed25519_verify_byte => Parameter::WasmEd25519VerifyByte,
             ExtCosts::log_base => Parameter::WasmLogBase,
             ExtCosts::log_byte => Parameter::WasmLogByte,

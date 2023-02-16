@@ -21,7 +21,6 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::time::Clock;
 use near_primitives::types::{BlockHeight, ShardId};
-use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
@@ -31,13 +30,13 @@ pub mod setup;
 
 // For now this is a simple struct with one field just to leave the door
 // open for adding stuff and/or having different configs for different message types later.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, serde::Deserialize)]
 pub struct MockIncomingRequestConfig {
     // How long we wait between sending each incoming request
     interval: Duration,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, serde::Deserialize)]
 pub struct MockIncomingRequestsConfig {
     // Options for sending unrequested blocks
     block: Option<MockIncomingRequestConfig>,
@@ -45,7 +44,7 @@ pub struct MockIncomingRequestsConfig {
     chunk_request: Option<MockIncomingRequestConfig>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, serde::Deserialize)]
 pub struct MockNetworkConfig {
     #[serde(default = "default_delay")]
     // How long we'll wait until sending replies to the client
@@ -196,6 +195,7 @@ impl IncomingRequests {
 pub struct MockPeerManagerActor {
     /// Client address for the node that we are testing
     client: Arc<dyn near_network::client::Client>,
+    shards_manager_adapter: Arc<dyn near_network::shards_manager::ShardsManagerAdapterForNetwork>,
     /// Access a pre-generated chain history from storage
     chain_history_access: ChainHistoryAccess,
     /// Current network state for the simulated network
@@ -212,6 +212,9 @@ pub struct MockPeerManagerActor {
 impl MockPeerManagerActor {
     fn new(
         client: Arc<dyn near_network::client::Client>,
+        shards_manager_adapter: Arc<
+            dyn near_network::shards_manager::ShardsManagerAdapterForNetwork,
+        >,
         genesis_config: &GenesisConfig,
         mut chain: Chain,
         client_start_height: BlockHeight,
@@ -267,6 +270,7 @@ impl MockPeerManagerActor {
         );
         Self {
             client,
+            shards_manager_adapter,
             chain_history_access: ChainHistoryAccess { chain, target_height },
             network_info,
             block_production_delay,
@@ -343,21 +347,13 @@ impl MockPeerManagerActor {
 
     fn send_chunk_request(&mut self, ctx: &mut Context<MockPeerManagerActor>) {
         if let Some((interval, request)) = &self.incoming_requests.chunk_request {
-            actix::spawn({
-                let client = self.client.clone();
-                let request = request.clone();
-                async move {
-                    client
-                        .partial_encoded_chunk_request(
-                            request.clone(),
-                            // this can just be nonsense since the PeerManager is mocked out anyway. If/when we update the mock node
-                            // to exercise the PeerManager code as well, then this won't matter anyway since the mock code won't be
-                            // responsible for it.
-                            CryptoHash::default(),
-                        )
-                        .await
-                }
-            });
+            self.shards_manager_adapter.process_partial_encoded_chunk_request(
+                request.clone(),
+                // this can just be nonsense since the PeerManager is mocked out anyway. If/when we update the mock node
+                // to exercise the PeerManager code as well, then this won't matter anyway since the mock code won't be
+                // responsible for it.
+                CryptoHash::default(),
+            );
 
             run_later(ctx, *interval, move |act, ctx| {
                 act.send_chunk_request(ctx);
@@ -425,17 +421,10 @@ impl Handler<WithSpanContext<PeerManagerMessageRequest>> for MockPeerManagerActo
                             .chain_history_access
                             .retrieve_partial_encoded_chunk(&request)
                             .unwrap();
-                        actix::spawn({
-                            let client = act.client.clone();
-                            async move {
-                                client
-                                    .partial_encoded_chunk_response(
-                                        response,
-                                        Clock::instant().into(),
-                                    )
-                                    .await
-                            }
-                        });
+                        act.shards_manager_adapter.process_partial_encoded_chunk_response(
+                            response,
+                            Clock::instant().into(),
+                        );
                     });
                 }
                 NetworkRequests::PartialEncodedChunkResponse { .. } => {}
@@ -525,7 +514,7 @@ impl ChainHistoryAccess {
 mod test {
     use crate::ChainHistoryAccess;
     use near_chain::ChainGenesis;
-    use near_chain::{Chain, RuntimeAdapter};
+    use near_chain::{Chain, RuntimeWithEpochManagerAdapter};
     use near_chain_configs::Genesis;
     use near_client::test_utils::TestEnv;
     use near_network::types::PartialEncodedChunkRequestMsg;
@@ -544,7 +533,7 @@ mod test {
             Path::new("../../../.."),
             create_test_store(),
             &genesis,
-        )) as Arc<dyn RuntimeAdapter>];
+        )) as Arc<dyn RuntimeWithEpochManagerAdapter>];
         let mut env = TestEnv::builder(chain_genesis.clone())
             .validator_seats(1)
             .runtime_adapters(runtimes.clone())

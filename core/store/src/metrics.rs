@@ -1,6 +1,7 @@
 use near_o11y::metrics::{
-    try_create_histogram_vec, try_create_int_counter_vec, try_create_int_gauge_vec, HistogramVec,
-    IntCounterVec, IntGaugeVec,
+    try_create_histogram, try_create_histogram_vec, try_create_int_counter_vec,
+    try_create_int_gauge, try_create_int_gauge_vec, Histogram, HistogramVec, IntCounterVec,
+    IntGauge, IntGaugeVec,
 };
 use once_cell::sync::Lazy;
 
@@ -213,12 +214,21 @@ pub static PREFETCH_STAGED_SLOTS: Lazy<IntGaugeVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-#[cfg(feature = "cold_store")]
 pub static COLD_MIGRATION_READS: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
         "near_cold_migration_reads",
         "Number of get calls to hot store made for every column during copying data to cold storage.",
         &["col"],
+    )
+    .unwrap()
+});
+pub static COLD_HEAD_HEIGHT: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge("near_cold_head_height", "Height of the head of cold storage").unwrap()
+});
+pub static COLD_COPY_DURATION: Lazy<Histogram> = Lazy::new(|| {
+    try_create_histogram(
+        "near_cold_copy_duration",
+        "Time it takes to copy one height to cold storage",
     )
     .unwrap()
 });
@@ -316,3 +326,20 @@ pub mod flat_state_metrics {
         .unwrap()
     });
 }
+pub static COLD_MIGRATION_INITIAL_WRITES: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_cold_migration_initial_writes",
+        "Number of write calls to cold store made for every column during initial population of cold storage.",
+        &["col"],
+    )
+    .unwrap()
+});
+pub static COLD_MIGRATION_INITIAL_WRITES_TIME: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_cold_migration_initial_writes_time",
+        "Time spent on writing initial migration batches by column.",
+        &["column"],
+        None,
+    )
+    .unwrap()
+});

@@ -35,7 +35,9 @@ pub enum DBCol {
     /// - *Rows*: block hash (CryptoHash)
     /// - *Content type*: [near_primitives::block_header::BlockHeader]
     BlockHeader,
-    /// Column that stores mapping from block height to block hash.
+    /// Column that stores mapping from block height to block hash on the current canonical chain.
+    /// (if you want to see all the blocks that we got for a given height, for example due to double signing etc,
+    /// look at BlockPerHeight column).
     /// - *Rows*: height (u64)
     /// - *Content type*: block hash (CryptoHash)
     BlockHeight,
@@ -63,6 +65,11 @@ pub enum DBCol {
     /// - *Rows*: peer_id (PublicKey)
     /// - *Content type*: [network_primitives::types::KnownPeerState]
     Peers,
+    /// List of recent outbound TIER2 connections. We'll attempt to re-establish
+    /// these connections after node restart or upon disconnection.
+    /// - *Rows*: single row (empty row name)
+    /// - *Content type*: Vec of [network_primitives::types::ConnectionInfo]
+    RecentOutboundConnections,
     /// Mapping from EpochId to EpochInfo
     /// - *Rows*: EpochId (CryptoHash)
     /// - *Content type*: [near_primitives::epoch_manager::epoch_info::EpochInfo]
@@ -105,6 +112,8 @@ pub enum DBCol {
     /// - *Content type*: BlockExtra
     BlockExtra,
     /// Store hash of all block per each height, to detect double signs.
+    /// In most cases, it is better to get the value from BlockHeight column instead (which
+    /// keeps the hash of the block from canonical chain)
     /// - *Rows*: int (height of the block)
     /// - *Content type*: Map: EpochId -> Set of BlockHash(CryptoHash)
     BlockPerHeight,
@@ -180,7 +189,12 @@ pub enum DBCol {
     /// - *Rows*: BlockHash || TrieKey (TrieKey is written via custom to_vec)
     /// - *Column type*: TrieKey, new value and reason for change (RawStateChangesWithTrieKey)
     StateChanges,
-    /// Mapping from Block to its refcount. (Refcounts are used in handling chain forks)
+    /// Mapping from Block to its refcount (number of blocks that use this block as a parent). (Refcounts are used in handling chain forks).
+    /// In following example:
+    ///     1 -> 2 -> 3 -> 5
+    ///           \ --> 4
+    /// The block '2' will have a refcount equal to 2.
+    ///
     /// - *Rows*: BlockHash (CryptoHash)
     /// - *Column type*: refcount (u64)
     BlockRefCount,
@@ -197,6 +211,8 @@ pub enum DBCol {
     /// - *Column type*: Vec<ChunkHash (CryptoHash)>
     ChunkHashesByHeight,
     /// Mapping from block ordinal number (number of the block in the chain) to the BlockHash.
+    /// Note: that it can be different than BlockHeight - if we have skipped some heights when creating the blocks.
+    ///       for example in chain 1->3, the second block has height 3, but ordinal 2.
     /// - *Rows*: ordinal (u64)
     /// - *Column type*: BlockHash (CryptoHash)
     BlockOrdinal,
@@ -268,7 +284,7 @@ pub enum DBCol {
 /// Currently only used in cold storage continuous migration.
 #[derive(PartialEq, Copy, Clone, Debug, Hash, Eq, strum::EnumIter)]
 pub enum DBKeyType {
-    /// Empty row name. Used in DBCol::LastComponentNonce.
+    /// Empty row name. Used in DBCol::LastComponentNonce and DBCol::RecentOutboundConnections
     Empty,
     /// Set of predetermined strings. Used, for example, in DBCol::BlockMisc
     StringLiteral,
@@ -397,7 +413,6 @@ impl DBCol {
     }
 
     /// Whether this column exists in cold storage.
-    #[cfg(feature = "cold_store")]
     pub(crate) const fn is_in_colddb(&self) -> bool {
         matches!(*self, DBCol::DbVersion | DBCol::BlockMisc) || self.is_cold()
     }
@@ -416,6 +431,7 @@ impl DBCol {
             DBCol::OutgoingReceipts => &[DBKeyType::BlockHash, DBKeyType::ShardId],
             DBCol::IncomingReceipts => &[DBKeyType::BlockHash, DBKeyType::ShardId],
             DBCol::Peers => &[DBKeyType::PeerId],
+            DBCol::RecentOutboundConnections => &[DBKeyType::Empty],
             DBCol::EpochInfo => &[DBKeyType::EpochId],
             DBCol::BlockInfo => &[DBKeyType::BlockHash],
             DBCol::Chunks => &[DBKeyType::ChunkHash],

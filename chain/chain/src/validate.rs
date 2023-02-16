@@ -17,7 +17,7 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, Nonce};
 
 use crate::{byzantine_assert, Chain};
-use crate::{ChainStore, Error, RuntimeAdapter};
+use crate::{ChainStore, Error, RuntimeWithEpochManagerAdapter};
 
 /// Gas limit cannot be adjusted for more than 0.1% at a time.
 const GAS_LIMIT_ADJUSTMENT_FACTOR: u64 = 1000;
@@ -25,7 +25,7 @@ const GAS_LIMIT_ADJUSTMENT_FACTOR: u64 = 1000;
 /// Verifies that chunk's proofs in the header match the body.
 pub fn validate_chunk_proofs(
     chunk: &ShardChunk,
-    runtime_adapter: &dyn RuntimeAdapter,
+    runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
 ) -> Result<bool, Error> {
     let correct_chunk_hash = match chunk {
         ShardChunk::V1(chunk) => ShardChunkHeaderV1::compute_hash(&chunk.header.inner),
@@ -120,7 +120,7 @@ pub fn validate_transactions_order(transactions: &[SignedTransaction]) -> bool {
 /// Validate that all next chunk information matches previous chunk extra.
 pub fn validate_chunk_with_chunk_extra(
     chain_store: &ChainStore,
-    runtime_adapter: &dyn RuntimeAdapter,
+    runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
     prev_block_hash: &CryptoHash,
     prev_chunk_extra: &ChunkExtra,
     prev_chunk_height_included: BlockHeight,
@@ -183,7 +183,7 @@ pub fn validate_chunk_with_chunk_extra(
 /// Validates a double sign challenge.
 /// Only valid if ancestors of both blocks are present in the chain.
 fn validate_double_sign(
-    runtime_adapter: &dyn RuntimeAdapter,
+    runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
     block_double_sign: &BlockDoubleSign,
 ) -> Result<(CryptoHash, Vec<AccountId>), Error> {
     let left_block_header = BlockHeader::try_from_slice(&block_double_sign.left_block_header)?;
@@ -219,7 +219,7 @@ fn validate_double_sign(
 }
 
 fn validate_header_authorship(
-    runtime_adapter: &dyn RuntimeAdapter,
+    runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
     block_header: &BlockHeader,
 ) -> Result<(), Error> {
     if runtime_adapter.verify_header_signature(block_header)? {
@@ -230,7 +230,7 @@ fn validate_header_authorship(
 }
 
 fn validate_chunk_authorship(
-    runtime_adapter: &dyn RuntimeAdapter,
+    runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
     chunk_header: &ShardChunkHeader,
 ) -> Result<AccountId, Error> {
     let epoch_id = runtime_adapter.get_epoch_id_from_prev_block(&chunk_header.prev_block_hash())?;
@@ -251,7 +251,7 @@ fn validate_chunk_authorship(
 }
 
 fn validate_chunk_proofs_challenge(
-    runtime_adapter: &dyn RuntimeAdapter,
+    runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
     chunk_proofs: &ChunkProofs,
 ) -> Result<(CryptoHash, Vec<AccountId>), Error> {
     let block_header = BlockHeader::try_from_slice(&chunk_proofs.block_header)?;
@@ -303,7 +303,7 @@ fn validate_chunk_proofs_challenge(
 }
 
 fn validate_chunk_state_challenge(
-    _runtime_adapter: &dyn RuntimeAdapter,
+    _runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
     _chunk_state: &ChunkState,
 ) -> Result<(CryptoHash, Vec<AccountId>), Error> {
     // TODO (#2445): Enable challenges when they are working correctly.
@@ -383,7 +383,7 @@ fn validate_chunk_state_challenge(
 /// Returns `Some(block_hash, vec![account_id])` of invalid block and who to
 /// slash if challenge is correct and None if incorrect.
 pub fn validate_challenge(
-    runtime_adapter: &dyn RuntimeAdapter,
+    runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
     epoch_id: &EpochId,
     last_block_hash: &CryptoHash,
     challenge: &Challenge,

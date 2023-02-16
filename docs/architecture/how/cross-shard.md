@@ -18,7 +18,7 @@ processed by near?
 ## From Explorer perspective
 
 If you look at a simple token transfer in explorer
-([example](https://explorer.testnet.near.org/transactions/6cNJpNKWP55YrxrgRzc2gi6BM91fo3V6n2vVAo41MvZv)),
+([example](https://explorer.near.org/transactions/79gPsyYRG2xghr6oNLpMbdjP2jpafjVT35no9atS6zUf)),
 you can see that it is broken into three separate sections:
 
 * convert transaction into receipt ( executed in block B )
@@ -123,11 +123,9 @@ Chunk: Ok(
 )
 ```
 
-**Side note**: When we're changing the transaction into a receipt, we also use
+**Side note:** When we're converting the transaction into a receipt, we also use
 this moment to deduct prepaid gas fees and transfered tokens from the 'signer'
-account. The details on how much gas is charged etc will be in a separate
-article.
-<!-- TODO: maybe add the link to that article here? -->
+account. The details on how much gas is charged can be found at https://nomicon.io/RuntimeSpec/Fees/.
 
 ## Step 2 - cross shard receipt
 
@@ -204,7 +202,7 @@ Chunk: Ok(
 )
 ```
 
-**Side comment**: notice that the receipt itself no longer has a `signer` field, but
+**Side comment:** notice that the receipt itself no longer has a `signer` field, but
 a `predecessor_id` one.
 
 Such a receipt is sent to the destination shard (we'll explain this process in a
@@ -290,7 +288,7 @@ Such gas refund receipts are a little bit special - as we'll set the
 `predecessor_id` to be `system` - but the receiver is what we expect (`shard0`
 account).
 
-**Note**: `system` is a special account that doesn't really belong to any shard.
+**Note:** `system` is a special account that doesn't really belong to any shard.
 As you can see in this example, the receipt was created within shard 1.
 
 So putting it all together would look like this:
