@@ -460,7 +460,7 @@ impl NearVmVM {
                     // entirety of this function.
                     InstanceConfig::default()
                         .with_counter(gas)
-                        .with_stack_limit(self.config.limit_config.wasmer2_stack_limit),
+                        .with_stack_limit(self.config.limit_config.max_stack_height),
                 );
                 let handle = match maybe_handle {
                     Ok(handle) => handle,

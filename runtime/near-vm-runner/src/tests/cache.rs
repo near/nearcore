@@ -118,20 +118,20 @@ fn test_near_vm_artifact_output_stability() {
     ];
     let mut got_prepared_hashes = Vec::with_capacity(seeds.len());
     let compiled_hashes = [
-        12914803299205462410,
-        13880247118209071668,
-        4059327185827284260,
-        4945603412975905596,
-        16226134256846235281,
-        11697422317264208186,
-        5296197780491249215,
+        12551131314811786323,
+        13028504572602373907,
+        2580973929183801763,
+        13145300348935033331,
+        8634071806725552420,
+        701772735860447193,
+        12207675726963591095,
     ];
     let mut got_compiled_hashes = Vec::with_capacity(seeds.len());
     for seed in seeds {
         let contract = ContractCode::new(near_test_contracts::arbitrary_contract(seed), None);
 
         let config = VMConfig::test();
-        let prepared_code = prepare::prepare_contract(contract.code(), &config).unwrap();
+        let prepared_code = prepare::prepare_contract_for_near_vm(contract.code(), &config).unwrap();
         let mut hasher = StableHasher::new();
         (&contract.code(), &prepared_code).hash(&mut hasher);
         got_prepared_hashes.push(hasher.finish());

@@ -1,1 +1,1 @@
-wasmer2_stack_limit: 204_800 -> 1048576
+max_stack_height: 16_384 -> 262_144

@@ -168,10 +168,10 @@ fn test_limit_contract_functions_number() {
     ])
     .expects(&[
         expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13056863733 used gas 13056863733
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13056863709 used gas 13056863709
         "#]],
         expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13051323253 used gas 13051323253
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13051323237 used gas 13051323237
         "#]],
         #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
         expect![[r#"
@@ -193,7 +193,7 @@ fn test_limit_contract_functions_number() {
     ])
     .expects(&[
         expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13058164233 used gas 13058164233
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13058164209 used gas 13058164209
         "#]],
         expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
@@ -315,7 +315,8 @@ fn test_limit_locals_global() {
     ])
     .expects(&[
         expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 8344845263 used gas 8344845263
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 195407463 used gas 195407463
+            Err: WebAssembly trap: Stack overflow.
         "#]],
         expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
@@ -338,7 +339,7 @@ fn test_limit_locals_global() {
             .make(),
         )
         .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 12998185253 used gas 12998185253
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 12998122737 used gas 12998122737
         "#]]);
 }
 
@@ -361,7 +362,7 @@ pub fn test_stablized_host_function() {
                 Err: ...
             "#]],
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 7146301663 used gas 7146301663
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 7146301647 used gas 7146301647
             "#]],
         ]);
 }

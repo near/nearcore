@@ -167,7 +167,7 @@ expression: config_view
     "regular_op_cost": 822756,
     "limit_config": {
       "max_gas_burnt": 300000000000000,
-      "max_stack_height": 16384,
+      "max_stack_height": 262144,
       "stack_limiter_version": 1,
       "initial_memory_pages": 1024,
       "max_memory_pages": 2048,
@@ -189,7 +189,7 @@ expression: config_view
       "max_promises_per_function_call_action": 1024,
       "max_number_input_data_dependencies": 128,
       "max_functions_number_per_contract": 10000,
-      "wasmer2_stack_limit": 1048576,
+      "wasmer2_stack_limit": 204800,
       "max_locals_per_contract": 1000000,
       "account_id_validity_rules_version": 1
     }
