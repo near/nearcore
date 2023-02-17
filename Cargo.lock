@@ -5981,6 +5981,7 @@ dependencies = [
  "near-crypto",
  "near-primitives",
  "near-test-contracts",
+ "node-runtime",
  "once_cell",
 ]
 
