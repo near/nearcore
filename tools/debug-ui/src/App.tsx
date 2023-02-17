@@ -32,7 +32,7 @@ export const App = () => {
       <Routes>
         <Route path="" element={<Navigate to="cluster" />} />
         <Route path="last_blocks" element={<LatestBlocksView addr={addr} />} />
-        <Route path="network_info" element={<NetworkInfoView addr={addr} />} />
+        <Route path="network_info/*" element={<NetworkInfoView addr={addr} />} />
         <Route path="epoch_info" element={<div>TODO</div>} />
         <Route path="chain_and_chunk_info" element={<div>TODO</div>} />
         <Route path="sync_info" element={<div>TODO</div>} />
