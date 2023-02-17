@@ -16,8 +16,8 @@ use crate::tcp;
 use crate::time;
 use crate::types::{
     ConnectedPeerInfo, GetNetworkInfo, HighestHeightPeerInfo, KnownProducer, NetworkInfo,
-    NetworkRequests, NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
-    PeerType, SetChainInfo,
+    NetworkRequests, NetworkResponses, PeerInfo, PeerManagerMessageRequest,
+    PeerManagerMessageResponse, PeerType, SetChainInfo,
 };
 use actix::fut::future::wrap_future;
 use actix::{Actor as _, AsyncContext as _};
@@ -101,6 +101,7 @@ pub struct PeerManagerActor {
 /// In particular prefer emitting a new event to polling for a state change.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Event {
+    PeerManagerStarted,
     ServerStarted,
     RoutedMessageDropped,
     AccountsAdded(Vec<AnnounceAccount>),
@@ -119,6 +120,8 @@ pub enum Event {
     // actually complete. Currently this event is reported only for some message types,
     // feel free to add support for more.
     MessageProcessed(tcp::Tier, PeerMessage),
+    // Reported when a reconnect loop is spawned.
+    ReconnectLoopSpawned(PeerInfo),
     // Reported when a handshake has been started.
     HandshakeStarted(crate::peer::peer_actor::HandshakeStartedEvent),
     // Reported when a handshake has been successfully completed.
@@ -135,7 +138,12 @@ impl actix::Actor for PeerManagerActor {
         self.push_network_info_trigger(ctx, self.state.config.push_info_period);
 
         // Attempt to reconnect to recent outbound connections from storage
-        self.bootstrap_outbound_from_recent_connections(ctx);
+        if self.state.config.connect_to_reliable_peers_on_startup {
+            tracing::debug!(target: "network", "Reconnecting to reliable peers from storage");
+            self.bootstrap_outbound_from_recent_connections(ctx);
+        } else {
+            tracing::debug!(target: "network", "Skipping reconnection to reliable peers");
+        }
 
         // Periodically starts peer monitoring.
         tracing::debug!(target: "network",
@@ -171,6 +179,8 @@ impl actix::Actor for PeerManagerActor {
 
         // Periodically prints bandwidth stats for each peer.
         self.report_bandwidth_stats_trigger(ctx, REPORT_BANDWIDTH_STATS_TRIGGER_INTERVAL);
+
+        self.state.config.event_sink.push(Event::PeerManagerStarted);
     }
 
     /// Try to gracefully disconnect from connected peers.
@@ -308,10 +318,13 @@ impl PeerManagerActor {
                                 arbiter.spawn({
                                     let state = state.clone();
                                     let clock = clock.clone();
+                                    let peer_info = peer_info.clone();
                                     async move {
                                         state.reconnect(clock, peer_info, MAX_RECONNECT_ATTEMPTS).await;
                                     }
                                 });
+
+                                state.config.event_sink.push(Event::ReconnectLoopSpawned(peer_info));
                             }
                         }
                     }
@@ -621,10 +634,16 @@ impl PeerManagerActor {
             ctx.spawn(wrap_future({
                 let state = self.state.clone();
                 let clock = self.clock.clone();
+                let peer_info = conn_info.peer_info.clone();
                 async move {
-                    state.reconnect(clock, conn_info.peer_info, 1).await;
+                    state.reconnect(clock, peer_info, 1).await;
                 }
             }));
+
+            self.state
+                .config
+                .event_sink
+                .push(Event::ReconnectLoopSpawned(conn_info.peer_info.clone()));
         }
     }
 
