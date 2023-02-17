@@ -20,6 +20,7 @@ bytes.workspace = true
 bytesize.workspace = true
 chrono.workspace = true
 crossbeam-channel.workspace = true
+derive_more.workspace = true
 futures-util.workspace = true
 futures.workspace = true
 im.workspace = true
@@ -44,6 +45,7 @@ tracing.workspace = true
 time.workspace = true
 
 delay-detector = { path = "../../tools/delay-detector" }
+near-async = { path = "../../core/async" }
 near-o11y = { path = "../../core/o11y" }
 near-crypto = { path = "../../core/crypto" }
 near-performance-metrics = { path = "../../utils/near-performance-metrics" }

@@ -78,7 +78,7 @@ where
     for i in 0..(size + 1) {
         let storage = IncompletePartialStorage::new(storage.clone(), i);
         let new_trie =
-            Trie { storage: Box::new(storage), root: trie.get_root().clone(), flat_state: None };
+            Trie { storage: Box::new(storage), root: *trie.get_root(), flat_state: None };
         let expected_result =
             if i < size { Err(&StorageError::TrieNodeMissing) } else { Ok(&expected) };
         assert_eq!(test(Rc::new(new_trie)).as_ref(), expected_result);

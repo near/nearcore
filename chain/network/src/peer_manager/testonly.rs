@@ -19,6 +19,7 @@ use crate::types::{
     ReasonForBan,
 };
 use crate::PeerManagerActor;
+use near_async::messaging::IntoSender;
 use near_o11y::WithSpanContextExt;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::AccountId;
@@ -450,9 +451,7 @@ impl ActorHandler {
         loop {
             let account = account.clone();
             let got = self
-                .with_state(
-                    |s| async move { s.graph.routing_table.account_owner(&account).clone() },
-                )
+                .with_state(|s| async move { s.graph.routing_table.account_owner(&account) })
                 .await;
             if let Some(got) = got {
                 return got;
@@ -515,7 +514,8 @@ pub(crate) async fn start(
             let genesis_id = chain.genesis_id.clone();
             let fc = Arc::new(fake_client::Fake { event_sink: send.sink().compose(Event::Client) });
             cfg.event_sink = send.sink().compose(Event::PeerManager);
-            PeerManagerActor::spawn(clock, store, cfg, fc.clone(), fc, genesis_id).unwrap()
+            PeerManagerActor::spawn(clock, store, cfg, fc.clone(), fc.as_sender(), genesis_id)
+                .unwrap()
         }
     })
     .await;

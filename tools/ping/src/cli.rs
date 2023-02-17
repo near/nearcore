@@ -201,7 +201,7 @@ impl PingCommand {
                 self.head_height.unwrap_or(0),
                 self.protocol_version,
                 peer.id.clone(),
-                peer.addr.clone().unwrap(),
+                peer.addr.unwrap(),
                 self.ttl,
                 self.ping_frequency_millis,
                 self.recv_timeout_seconds.unwrap_or(5),
