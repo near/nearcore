@@ -1352,7 +1352,12 @@ pub fn load_config(
         match InMemoryValidatorSigner::from_file(&validator_file) {
             Ok(signer) => Some(Arc::new(signer) as Arc<dyn ValidatorSigner>),
             Err(_) => {
-                validation_errors.push_errors(ValidationError::ValidatorKeyFileError { error_message: format!("Failed initializing validator signer from {}", validator_file.display()) });
+                validation_errors.push_errors(ValidationError::ValidatorKeyFileError {
+                    error_message: format!(
+                        "Failed initializing validator signer from {}",
+                        validator_file.display()
+                    ),
+                });
                 None
             }
         }
@@ -1392,7 +1397,8 @@ pub fn load_config(
             genesis
                 .validate(genesis_validation)
                 .map_or_else(|e| validation_errors.push_errors(e), |_| ());
-            if validator_signer.is_some() && matches!(genesis.config.chain_id.as_ref(), "mainnet" | "testnet" | "betanet")
+            if validator_signer.is_some()
+                && matches!(genesis.config.chain_id.as_ref(), "mainnet" | "testnet" | "betanet")
                 && config.tracked_shards.is_empty()
             {
                 // Make sure validators tracks all shards, see
