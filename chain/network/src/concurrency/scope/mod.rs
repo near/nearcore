@@ -54,11 +54,10 @@
 //! ```
 //!
 //! We wrap these 2 steps into a macro "run!" to hide this hack and avoid incorrect use.
-use crate::concurrency::asyncfn::{AsyncFn, BoxAsyncFn};
-use crate::concurrency::ctx::{Ctx, CtxWithCancel, OrCanceled, ErrCanceled};
+use crate::concurrency::ctx::{Ctx, CtxWithCancel, ErrCanceled, OrCanceled};
 use crate::concurrency::signal;
+use futures::future::{BoxFuture, Future, FutureExt};
 use std::borrow::Borrow;
-use std::future::Future;
 use std::sync::{Arc, Weak};
 
 #[cfg(test)]
@@ -166,13 +165,13 @@ impl<E: 'static + Send> Inner<E> {
     /// which cancels the scope when dropped.
     pub fn spawn<M: 'static + Send + Sync + Borrow<Self>, T: 'static + Send>(
         m: Arc<M>,
-        f: BoxAsyncFn<'static, Ctx, Result<T, E>>,
+        f: impl 'static + Send + Future<Output = Result<T, E>>,
     ) -> JoinHandle<T> {
-        let f = f((*m.as_ref().borrow().ctx).clone());
+        let ctx = (*m.as_ref().borrow().ctx).clone();
         JoinHandle(tokio::spawn(async move {
-            match f.await {
+            match ctx.wrap(f).await {
                 Ok(v) => Ok(v),
-                Err(err) => { 
+                Err(err) => {
                     m.as_ref().borrow().output.send(err);
                     Err(ErrCanceled)
                 }
@@ -192,7 +191,7 @@ impl<E: 'static + Send> Inner<E> {
         // Spawn a guard task in the Service which will prevent termination of the Service
         // until the context is not canceled. See `Service` for a list
         // of events canceling the Service.
-        Inner::spawn(subscope, (|ctx: Ctx| async move { Ok(ctx.canceled().await) }).wrap());
+        Inner::spawn(subscope, async move { Ok(Ctx::canceled().await) });
         service
     }
 }
@@ -231,14 +230,11 @@ impl<E: 'static + Send> Service<E> {
     /// Waits until the scope is terminated.
     ///
     /// Returns `ErrCanceled` iff `ctx` was canceled before that.
-    pub fn terminated<'a>(
-        &'a self,
-        ctx: &'a Ctx,
-    ) -> impl Future<Output = OrCanceled<()>> + Send + Sync + 'a {
+    pub fn terminated<'a>(&'a self) -> impl Future<Output = OrCanceled<()>> + Send + Sync + 'a {
         let terminated = self.0.upgrade().map(|inner| inner.terminated.clone());
         async move {
             if let Some(t) = terminated {
-                ctx.wait(t.recv()).await
+                Ctx::wait(t.recv()).await
             } else {
                 Ok(())
             }
@@ -249,17 +245,14 @@ impl<E: 'static + Send> Service<E> {
     ///
     /// Note that ErrCanceled is returned if the `ctx` passed as argument is canceled before that,
     /// not when scope's context is cancelled.
-    pub fn terminate<'a>(
-        &'a self,
-        ctx: &'a Ctx,
-    ) -> impl Future<Output = OrCanceled<()>> + Send + Sync + 'a {
+    pub fn terminate<'a>(&'a self) -> impl Future<Output = OrCanceled<()>> + Send + Sync + 'a {
         let terminated = self.0.upgrade().map(|inner| {
             inner.ctx.cancel();
             inner.terminated.clone()
         });
         async move {
             if let Some(t) = terminated {
-                ctx.wait(t.recv()).await
+                Ctx::wait(t.recv()).await
             } else {
                 Ok(())
             }
@@ -269,8 +262,11 @@ impl<E: 'static + Send> Service<E> {
     /// Spawns a task in this scope.
     ///
     /// Returns ErrTerminated if the scope has already terminated.
-    pub fn spawn<T:'static+Send>(&self, f: impl AsyncFn<'static, Ctx, Result<T, E>>) -> Result<JoinHandle<T>, ErrTerminated> {
-        self.0.upgrade().map(|m| Inner::spawn(m, f.wrap())).ok_or(ErrTerminated)
+    pub fn spawn<T: 'static + Send>(
+        &self,
+        f: impl 'static + Send + Future<Output = Result<T, E>>,
+    ) -> Result<JoinHandle<T>, ErrTerminated> {
+        self.0.upgrade().map(|m| Inner::spawn(m, f)).ok_or(ErrTerminated)
     }
 
     /// Spawns a service in this scope.
@@ -314,10 +310,12 @@ pub struct Scope<'env, E: 'static>(
 );
 
 impl<'env, E: 'static + Send> Scope<'env, E> {
-    pub fn spawn<T:'static + Send>(&self, f: impl AsyncFn<'env, Ctx, Result<T, E>>) -> JoinHandle<T> {
-        let f = f.wrap();
-        let f =
-            unsafe { std::mem::transmute::<BoxAsyncFn<'env, _, _>, BoxAsyncFn<'static, _, _>>(f) };
+    pub fn spawn<T: 'static + Send>(
+        &self,
+        f: impl 'env + Send + Future<Output = Result<T, E>>,
+    ) -> JoinHandle<T> {
+        let f = f.boxed();
+        let f = unsafe { std::mem::transmute::<BoxFuture<'env, _>, BoxFuture<'static, _>>(f) };
         Inner::spawn(self.0.upgrade().unwrap(), f)
     }
 
@@ -362,19 +360,15 @@ pub mod internal {
         Scope(Weak::new(), std::marker::PhantomData)
     }
 
-    pub async fn run<'env, E, F, G, T>(
-        scope: &'env mut Scope<'env, E>,
-        ctx: &Ctx,
-        f: F,
-    ) -> Result<T, E>
+    pub async fn run<'env, E, T, F, Fut>(scope: &'env mut Scope<'env, E>, f: F) -> Result<T, E>
     where
         E: 'static + Send,
-        F: 'env + FnOnce(&'env Scope<'env, E>) -> G,
-        G: AsyncFn<'env, Ctx, Result<T, E>>,
         T: 'static + Send,
+        F: 'env + FnOnce(&'env Scope<'env, E>) -> Fut,
+        Fut: 'env + Send + Future<Output = Result<T, E>>,
     {
         must_complete(async move {
-            let (inner, err) = Inner::new(ctx);
+            let (inner, err) = Inner::new(&Ctx::get());
             let service = Arc::new(StrongService(inner));
             let terminated = service.0.terminated.clone();
             scope.0 = Arc::downgrade(&service);
@@ -399,13 +393,12 @@ pub mod internal {
 /// if you drop the outer future).
 #[macro_export]
 macro_rules! run {
-    ($ctx:expr,$f:expr) => {{
+    ($f:expr) => {{
         $crate::concurrency::scope::internal::run(
             // We pass a created scope via argument (rather than construct it within `run()`
             // So that rust compiler fixes the lifespan of the Scope, rather than trying to
             // reason about it - which is not smart enough to do.
             &mut $crate::concurrency::scope::internal::new_scope(),
-            $ctx,
             $f,
         )
         .await

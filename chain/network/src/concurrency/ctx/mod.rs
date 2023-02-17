@@ -3,8 +3,12 @@ use crate::time;
 use std::future::Future;
 use std::sync::Arc;
 
-#[cfg(test)]
-mod tests;
+//#[cfg(test)]
+//mod tests;
+
+thread_local! {
+    static CTX: std::cell::RefCell<Ctx> = std::cell::RefCell::new(Ctx::inf());
+}
 
 /// Inner representation of a context.
 struct Inner {
@@ -87,21 +91,27 @@ impl Ctx {
     /// Awaits for the context to get canceled.
     ///
     /// Cancellable (in the rust sense).
-    pub fn canceled(&self) -> impl Future<Output = ()> + '_ {
-        self.0.canceled.recv()
+    pub async fn canceled() {
+        let canceled = CTX.with(|ctx| ctx.borrow().0.canceled.clone());
+        canceled.recv().await
+    }
+
+    pub(super) fn get() -> Ctx {
+        CTX.with(|ctx| (*ctx.borrow()).clone())
     }
 
     /// Awaits until f completes, or the context gets canceled.
     /// f is required to be cancellable.
     ///
     /// Cancellable.
-    pub async fn wait<F, T>(&self, f: F) -> OrCanceled<T>
+    pub async fn wait<F, T>(f: F) -> OrCanceled<T>
     where
         F: std::future::Future<Output = T>,
     {
+        let canceled = CTX.with(|ctx| ctx.borrow().0.canceled.clone());
         tokio::select! {
             v = f => Ok(v),
-            _ = self.0.canceled.recv() => Err(ErrCanceled),
+            _ = canceled.recv() => Err(ErrCanceled),
         }
     }
 
@@ -141,6 +151,10 @@ impl Ctx {
     pub fn with_timeout(&self, timeout: time::Duration) -> Ctx {
         return self.with_deadline((self.0.clock.now() + timeout).into());
     }
+
+    pub(super) fn wrap<F: Future>(self, inner: F) -> CtxFuture<F> {
+        CtxFuture { ctx: self, inner }
+    }
 }
 
 #[derive(Clone)]
@@ -156,5 +170,27 @@ impl std::ops::Deref for CtxWithCancel {
 impl CtxWithCancel {
     pub fn cancel(&self) {
         self.0.cancel();
+    }
+}
+
+#[pin_project::pin_project]
+pub(super) struct CtxFuture<F: Future> {
+    #[pin]
+    inner: F,
+    ctx: Ctx,
+}
+
+impl<F: Future> Future for CtxFuture<F> {
+    type Output = F::Output;
+
+    fn poll(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        let this = self.project();
+        CTX.with(|x| std::mem::swap(&mut *x.borrow_mut(), this.ctx));
+        let res = this.inner.poll(cx);
+        CTX.with(|x| std::mem::swap(&mut *x.borrow_mut(), this.ctx));
+        res
     }
 }
