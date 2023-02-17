@@ -96,6 +96,9 @@ pub struct NetworkConfig {
     pub whitelist_nodes: Vec<PeerInfo>,
     pub handshake_timeout: time::Duration,
 
+    /// Whether to re-establish connection to known reliable peers from previous neard run(s).
+    /// See near_network::peer_manager::connection_store for details.
+    pub connect_to_reliable_peers_on_startup: bool,
     /// Maximum time between refreshing the peer list.
     pub monitor_peers_max_period: time::Duration,
     /// Maximum number of active peers. Hard limit.
@@ -250,6 +253,7 @@ impl NetworkConfig {
                     .collect::<anyhow::Result<_>>()
                     .context("whitelist_nodes")?
             },
+            connect_to_reliable_peers_on_startup: true,
             handshake_timeout: cfg.handshake_timeout.try_into()?,
             monitor_peers_max_period: cfg.monitor_peers_max_period.try_into()?,
             max_num_peers: cfg.max_num_peers,
@@ -315,6 +319,7 @@ impl NetworkConfig {
             },
             whitelist_nodes: vec![],
             handshake_timeout: time::Duration::seconds(5),
+            connect_to_reliable_peers_on_startup: true,
             monitor_peers_max_period: time::Duration::seconds(100),
             max_num_peers: 40,
             minimum_outbound_peers: 5,
