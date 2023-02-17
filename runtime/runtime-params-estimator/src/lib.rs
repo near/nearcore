@@ -850,7 +850,9 @@ fn action_delegate_base(ctx: &mut EstimatorContext) -> GasCost {
         gas_cost
     };
 
-    let base_cost = action_receipt_creation(ctx);
+    // action receipt creation send cost is paid twice for meta transactions,
+    // exec only once, thus we want to subtract this cost 1.5 times
+    let base_cost = action_receipt_creation(ctx) * 3 / 2;
 
     total_cost.saturating_sub(&base_cost, &NonNegativeTolerance::PER_MILLE)
 }
