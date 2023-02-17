@@ -75,7 +75,7 @@ impl Ctx {
         }));
     }
 
-    fn cancel(&self) {
+    pub(super) fn cancel(&self) {
         self.0.canceled.send();
     }
 
@@ -100,27 +100,25 @@ impl Ctx {
     }
 
     pub async fn sleep(d :time::Duration) -> OrCanceled<()> {
-        Ctx::wait(Ctx::get().0.clock.sleep(d)).await
+        let ctx = Ctx::get();
+        ctx.wait(ctx.0.clock.sleep(d)).await
     }
 
     pub async fn sleep_until(t :time::Instant) -> OrCanceled<()> {
-        Ctx::wait(Ctx::get().0.clock.sleep_until(t)).await
+        let ctx = Ctx::get();
+        ctx.wait(ctx.0.clock.sleep_until(t)).await
     }
 
     /// Awaits until f completes, or the context gets canceled.
     /// f is required to be cancellable.
-    pub async fn wait<F, T>(f: F) -> OrCanceled<T>
-    where
-        F: std::future::Future<Output = T>,
-    {
-        let ctx = Ctx::get();
+    pub(super) async fn wait<F:Future>(&self, f: F) -> OrCanceled<F::Output> {
         tokio::select! {
             v = f => Ok(v),
-            _ = ctx.0.canceled.recv() => Err(ErrCanceled),
+            _ = self.0.canceled.recv() => Err(ErrCanceled),
         }
     }
 
-    pub fn with_deadline(&self, deadline: time::Deadline) -> Ctx {
+    pub(super) fn sub(&self, deadline: time::Deadline) -> Ctx {
         let child = Ctx(Arc::new(Inner {
             canceled: signal::Once::new(),
             clock: self.0.clock.clone(),
@@ -142,47 +140,13 @@ impl Ctx {
         });
         child
     }
-
-    /// Creates a child context which can be manually canceled.
-    ///
-    /// If the parent context gets canceled, the child will also be canceled,
-    /// but not vice versa (you cannot affect the parent context).
-    pub fn with_cancel(&self) -> CtxWithCancel {
-        CtxWithCancel(self.with_deadline(time::Deadline::Infinite))
-    }
-
-    /// Same as `with_deadline()` but you provide a duration,
-    /// rather than an instant.
-    pub fn with_timeout(&self, timeout: time::Duration) -> Ctx {
-        self.with_deadline((self.0.clock.now() + timeout).into())
-    }
-
-    pub(super) fn wrap<F: Future>(self, inner: F) -> CtxFuture<F> {
-        CtxFuture { ctx: self, inner }
-    }
-}
-
-#[derive(Clone)]
-pub struct CtxWithCancel(Ctx);
-
-impl std::ops::Deref for CtxWithCancel {
-    type Target = Ctx;
-    fn deref(&self) -> &Ctx {
-        return &self.0;
-    }
-}
-
-impl CtxWithCancel {
-    pub fn cancel(&self) {
-        self.0.cancel();
-    }
 }
 
 #[pin_project::pin_project]
 pub(super) struct CtxFuture<F: Future> {
     #[pin]
-    inner: F,
-    ctx: Ctx,
+    pub(super) inner: F,
+    pub(super) ctx: Ctx,
 }
 
 impl<F: Future> Future for CtxFuture<F> {

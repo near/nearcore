@@ -54,8 +54,9 @@
 //! ```
 //!
 //! We wrap these 2 steps into a macro "run!" to hide this hack and avoid incorrect use.
-use crate::concurrency::ctx::{Ctx, CtxWithCancel, ErrCanceled, OrCanceled};
+use crate::concurrency::ctx::{Ctx, CtxFuture, ErrCanceled, OrCanceled};
 use crate::concurrency::signal;
+use crate::time;
 use futures::future::{BoxFuture, Future, FutureExt};
 use std::borrow::Borrow;
 use std::sync::{Arc, Weak};
@@ -66,7 +67,7 @@ mod tests;
 // TODO(gprusak): Consider making the context implicit by moving it to a thread_local storage.
 
 struct Output<E> {
-    ctx: CtxWithCancel,
+    ctx: Ctx,
     send: crossbeam_channel::Sender<E>,
 }
 
@@ -77,7 +78,7 @@ impl<E> Clone for Output<E> {
 }
 
 impl<E> Output<E> {
-    pub fn new(ctx: CtxWithCancel) -> (Self, crossbeam_channel::Receiver<E>) {
+    pub fn new(ctx: Ctx) -> (Self, crossbeam_channel::Receiver<E>) {
         let (send, recv) = crossbeam_channel::bounded(1);
         (Self { ctx, send }, recv)
     }
@@ -100,7 +101,7 @@ struct Inner<E: 'static> {
     ///
     /// It is a child context of the parent scope.
     /// All tasks spawned in this scope are provided with this context.
-    ctx: CtxWithCancel,
+    ctx: Ctx,
     /// The channel over which the first error reported by any completed task is sent.
     ///
     /// `output` channel has capacity 1, so that any subsequent attempts to send an error
@@ -124,11 +125,11 @@ impl<E: 'static> Drop for Inner<E> {
 impl<E: 'static> Inner<E> {
     /// Creates a new scope with the given context.
     pub fn new(ctx: &Ctx) -> (Arc<Self>, crossbeam_channel::Receiver<E>) {
-        let ctx = ctx.with_cancel();
+        let ctx = ctx.sub(time::Deadline::Infinite);
         let (output, recv) = Output::new(ctx.clone());
         (
             Arc::new(Self {
-                ctx: ctx.with_cancel(),
+                ctx,
                 output,
                 _parent: None,
                 terminated: signal::Once::new(),
@@ -139,7 +140,7 @@ impl<E: 'static> Inner<E> {
 
     pub fn new_subscope(self: Arc<Self>) -> Arc<Inner<E>> {
         Arc::new(Inner {
-            ctx: self.ctx.with_cancel(),
+            ctx: self.ctx.sub(time::Deadline::Infinite),
             output: self.output.clone(),
             _parent: Some(self),
             terminated: signal::Once::new(),
@@ -150,7 +151,14 @@ impl<E: 'static> Inner<E> {
 pub struct JoinHandle<T>(tokio::task::JoinHandle<OrCanceled<T>>);
 
 impl<T> JoinHandle<T> {
-    // Cancel safe.
+    // TODO(gprusak): add a distinction between:
+    // * current task is cancelled.
+    // * the task being joined is cancelled.
+    // In fact, perhaps it would be better to allow joining only within scope,
+    // i.e. Service::spawn shouldn't return a handle.
+    // Then JoinHandle should be bounded by 'env scope, so that cancellation of the
+    // joined task always implies cancellation of the current task, so there is no
+    // distinction.
     pub async fn join(self) -> OrCanceled<T> {
         self.0.await.unwrap()
     }
@@ -167,9 +175,11 @@ impl<E: 'static + Send> Inner<E> {
         m: Arc<M>,
         f: impl 'static + Send + Future<Output = Result<T, E>>,
     ) -> JoinHandle<T> {
-        let ctx = (*m.as_ref().borrow().ctx).clone();
         JoinHandle(tokio::spawn(async move {
-            match ctx.wrap(f).await {
+            match (CtxFuture{
+                ctx: m.as_ref().borrow().ctx.clone(),
+                inner: f,
+            }).await {
                 Ok(v) => Ok(v),
                 Err(err) => {
                     m.as_ref().borrow().output.send(err);
@@ -234,7 +244,7 @@ impl<E: 'static + Send> Service<E> {
         let terminated = self.0.upgrade().map(|inner| inner.terminated.clone());
         async move {
             if let Some(t) = terminated {
-                Ctx::wait(t.recv()).await
+                Ctx::get().wait(t.recv()).await
             } else {
                 Ok(())
             }
@@ -252,7 +262,7 @@ impl<E: 'static + Send> Service<E> {
         });
         async move {
             if let Some(t) = terminated {
-                Ctx::wait(t.recv()).await
+                Ctx::get().wait(t.recv()).await
             } else {
                 Ok(())
             }

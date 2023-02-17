@@ -84,6 +84,7 @@ impl Clock {
     pub fn real() -> Clock {
         Clock(ClockInner::Real)
     }
+    
     /// Current time according to the monotone clock.
     pub fn now(&self) -> Instant {
         match &self.0 {
@@ -91,6 +92,7 @@ impl Clock {
             ClockInner::Fake(fake) => fake.now(),
         }
     }
+
     /// Current time according to the system/walltime clock.
     pub fn now_utc(&self) -> Utc {
         match &self.0 {
