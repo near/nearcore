@@ -578,6 +578,43 @@ pub(crate) fn new_action_receipt_exec(ctx: &mut EstimatorContext) -> GasCost {
     ActionEstimation::new_sir(ctx).subtract_base(false).apply_cost(&mut ctx.testbed())
 }
 
+pub(crate) fn delegate_send_sir(ctx: &mut EstimatorContext) -> GasCost {
+    let receiver_id: AccountId = "a".repeat(AccountId::MAX_LEN).parse().unwrap();
+    let sender_id: AccountId = genesis_populate::get_account_id(0);
+
+    ActionEstimation::new_sir(ctx)
+        .inner_iters(1) // only single delegate action is allowed
+        .add_action(empty_delegate_action(0, receiver_id, sender_id))
+        .verify_cost(&mut ctx.testbed())
+}
+
+pub(crate) fn delegate_send_not_sir(ctx: &mut EstimatorContext) -> GasCost {
+    let receiver_id: AccountId = "a".repeat(AccountId::MAX_LEN).parse().unwrap();
+    let sender_id: AccountId = genesis_populate::get_account_id(0);
+    ActionEstimation::new(ctx)
+        .inner_iters(1) // only single delegate action is allowed
+        .add_action(empty_delegate_action(0, receiver_id, sender_id))
+        .verify_cost(&mut ctx.testbed())
+}
+
+pub(crate) fn delegate_exec(ctx: &mut EstimatorContext) -> GasCost {
+    let receiver_id: AccountId = "a".repeat(AccountId::MAX_LEN).parse().unwrap();
+    let sender_id: AccountId = genesis_populate::get_account_id(0);
+    let mut builder = ActionEstimation::new_sir(ctx)
+        // nonce check would fail with cloned actions, therefore inner iterations don't work
+        .inner_iters(1)
+        // tx receiver must be the same as the meta tx signer, we can't just
+        // pick one at random or it will fail validation
+        .receiver(AccountRequirement::ConstantAccount0);
+    // manually make inner iterations by creating 100 actions with increasing nonces
+    let manual_inner_iters = 100;
+    for i in 0..manual_inner_iters {
+        builder =
+            builder.add_action(empty_delegate_action(i + 1, receiver_id.clone(), sender_id.clone()))
+    }
+    builder.apply_cost(&mut ctx.testbed()) / manual_inner_iters
+}
+
 fn create_account_action() -> Action {
     Action::CreateAccount(near_primitives::transaction::CreateAccountAction {})
 }
@@ -650,6 +687,33 @@ fn function_call_action(size: ActionSize) -> Action {
         args: vec![1u8; arg_len],
         gas: 3 * 10u64.pow(12), // 3 Tgas, to allow 100 copies in the same receipt
         deposit: 10u128.pow(24),
+    })
+}
+
+#[cfg(feature = "protocol_feature_nep366_delegate_action")]
+pub(crate) fn empty_delegate_action(
+    nonce: u64,
+    receiver_id: AccountId,
+    sender_id: AccountId,
+) -> Action {
+    use near_primitives::delegate_action::DelegateAction;
+    use near_primitives::signable_message::{SignableMessage, SignableMessageType};
+    use near_primitives::test_utils::create_user_test_signer;
+
+    let signer = create_user_test_signer(&sender_id);
+    let delegate_action = DelegateAction {
+        sender_id,
+        receiver_id,
+        actions: vec![],
+        nonce,
+        max_block_height: 1000,
+        public_key: signer.public_key.clone(),
+    };
+    let signature =
+        SignableMessage::new(&delegate_action, SignableMessageType::DelegateAction).sign(&signer);
+    Action::Delegate(near_primitives::delegate_action::SignedDelegateAction {
+        delegate_action,
+        signature,
     })
 }
 

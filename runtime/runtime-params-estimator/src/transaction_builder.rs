@@ -28,6 +28,11 @@ pub(crate) enum AccountRequirement {
     SameAsSigner,
     /// Use sub account of the signer. Useful for `CreateAction` estimations.
     SubOfSigner,
+    /// Account must be `generated_account_id(seed = 0)`.
+    ///
+    /// Usage: Delegate actions are signed by the sender, so it can't be
+    /// replaced with a random account.
+    ConstantAccount0,
 }
 
 impl TransactionBuilder {
@@ -143,6 +148,7 @@ impl TransactionBuilder {
             AccountRequirement::SubOfSigner => {
                 format!("sub.{}", signer_id.expect("no signer_id")).parse().unwrap()
             }
+            AccountRequirement::ConstantAccount0 => self.account(0),
         }
     }
 
