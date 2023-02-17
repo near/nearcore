@@ -593,20 +593,20 @@ fn meta_tx_create_named_account() {
 
     let public_key = PublicKey::from_seed(KeyType::ED25519, &new_account);
 
-    // That's the minium to create a (useful) account.
+    // That's the minimum to create a (useful) account.
     let actions = vec![
         Action::CreateAccount(CreateAccountAction {}),
         Action::Transfer(TransferAction { deposit: amount }),
         Action::AddKey(AddKeyAction { public_key, access_key: AccessKey::full_access() }),
     ];
 
-    // Check account doesn't exist, yet
+    // Check the account doesn't exist, yet. We want to create it.
     node.view_account(&new_account).expect_err("account already exists");
 
     let tx_cost = fee_helper.create_account_transfer_full_key_cost();
     check_meta_tx_no_fn_call(&node, actions, tx_cost, amount, sender, relayer, new_account.clone());
 
-    // Check account exists
+    // Check the account exists after we created it.
     node.view_account(&new_account).expect("failed looking up account");
 }
 
@@ -637,7 +637,9 @@ fn meta_tx_create_implicit_account_fails() {
 /// Try creating an implicit account with a meta tx transfer and use the account
 /// in the same meta transaction.
 ///
-/// This is expected to fail with `AccountDoesNotExist` as noted in NEP-366.
+/// This is expected to fail with `AccountDoesNotExist`, known limitation of NEP-366.
+/// It only works with accounts that already exists because it needs to do a
+/// nonce check against the access key, which can only exist if the account exists.
 #[test]
 fn meta_tx_create_and_use_implicit_account() {
     let relayer = bob_account();
@@ -645,7 +647,7 @@ fn meta_tx_create_and_use_implicit_account() {
     let new_account: AccountId = implicit_test_account();
     let node = RuntimeNode::new(&relayer);
 
-    // Check account doesn't exist, yet
+    // Check the account doesn't exist, yet. We will attempt creating it.
     node.view_account(&new_account).expect_err("account already exists");
 
     let initial_amount = nearcore::NEAR_BASE;
@@ -654,7 +656,8 @@ fn meta_tx_create_and_use_implicit_account() {
         Action::DeployContract(DeployContractAction { code: ft_contract().to_vec() }),
     ];
 
-    // execute and expect `AccountDoesNotExist`
+    // Execute and expect `AccountDoesNotExist`, as we try to call a meta
+    // transaction on a user that doesn't exist yet.
     let tx_result =
         node.user().meta_tx(sender.clone(), new_account.clone(), relayer.clone(), actions).unwrap();
     let status = &tx_result.receipts_outcome[1].outcome.status;
