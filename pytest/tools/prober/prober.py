@@ -37,7 +37,7 @@ def json_rpc(method, params, url):
         start_time = time.time()
         r = requests.post(url, json=j, timeout=5)
         latency_ms = (time.time() - start_time)
-        print(f'prober_latency_ms{{method="{method}"}}={latency_ms:.2f}')
+        print(f'prober_latency_ms{{method="{method}"}} {latency_ms:.2f}')
         result = json.loads(r.content)
         return result
     except Exception as e:
