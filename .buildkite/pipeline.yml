@@ -13,7 +13,7 @@ steps:
 
     timeout: 30
     agents:
-    - "distro=amazonlinux"
+      - "distro=amazonlinux"
 
   - label: "cargo test integration-tests*"
     command: |
@@ -23,7 +23,7 @@ steps:
 
     timeout: 60
     agents:
-    - "distro=amazonlinux"
+      - "distro=amazonlinux"
     branches: "!master"
 
   - label: "cargo test not integration-tests*"
@@ -34,7 +34,7 @@ steps:
 
     timeout: 60
     agents:
-    - "distro=amazonlinux"
+      - "distro=amazonlinux"
     branches: "!master"
 
   - label: "cargo test nightly integration-tests*"
@@ -45,7 +45,7 @@ steps:
 
     timeout: 60
     agents:
-    - "distro=amazonlinux"
+      - "distro=amazonlinux"
     branches: "!master"
 
   - label: "cargo test nightly not integration-tests*"
@@ -57,7 +57,7 @@ steps:
 
     timeout: 60
     agents:
-    - "distro=amazonlinux"
+      - "distro=amazonlinux"
     branches: "!master"
 
   - label: "sanity checks"
@@ -102,7 +102,7 @@ steps:
       fi >&2
     timeout: 30
     agents:
-    - "distro=amazonlinux"
+      - "distro=amazonlinux"
     branches: "!master"
 
   - label: "backward compatible"
@@ -117,7 +117,7 @@ steps:
     branches: "!master !beta !stable"
     timeout: 30
     agents:
-    - "distro=amazonlinux"
+      - "distro=amazonlinux"
 
   - label: "upgradable"
     command: |
@@ -128,7 +128,7 @@ steps:
     branches: "!master"
     timeout: 30
     agents:
-    - "distro=amazonlinux"
+      - "distro=amazonlinux"
 
   - label: "db migration"
     command: |
@@ -139,4 +139,10 @@ steps:
     branches: "!master !beta !stable"
     timeout: 30
     agents:
-    - "distro=amazonlinux"
+      - "distro=amazonlinux"
+
+  - label: "debug UI sanity checks"
+    command: |
+      cd tools/debug-ui
+      npm install
+      npm run lint || echo "Linting failed; please run 'npm run fix' in tools/debug-ui"
