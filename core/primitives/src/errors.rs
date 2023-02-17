@@ -468,7 +468,7 @@ pub enum ActionErrorKind {
     /// Error occurs when a `CreateAccount` action is called on hex-characters
     /// account of length 64.  See implicit account creation NEP:
     /// <https://github.com/nearprotocol/NEPs/pull/71>.
-    /// 
+    ///
     /// TODO(#8598): This error is named very poorly. A better name would be
     /// `OnlyNamedAccountCreationAllowed`.
     OnlyImplicitAccountCreationAllowed { account_id: AccountId },
