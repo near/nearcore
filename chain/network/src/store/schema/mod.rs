@@ -12,6 +12,8 @@ use std::io;
 use std::sync::Arc;
 
 #[cfg(test)]
+mod testonly;
+#[cfg(test)]
 mod tests;
 
 pub struct AccountIdFormat;
@@ -313,15 +315,6 @@ impl Store {
         self.0.write(update.0)
     }
 
-    pub fn iter<C: Column>(
-        &self,
-    ) -> impl Iterator<Item = Result<(<C::Key as Format>::T, <C::Value as Format>::T), Error>> + '_
-    {
-        debug_assert!(!C::COL.is_rc());
-        self.0
-            .iter_raw_bytes(C::COL)
-            .map(|item| item.and_then(|(k, v)| Ok((C::Key::decode(&k)?, C::Value::decode(&v)?))))
-    }
     pub fn get<C: Column>(
         &self,
         k: &<C::Key as Format>::T,
