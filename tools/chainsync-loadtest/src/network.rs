@@ -1,6 +1,7 @@
-use crate::concurrency::{Ctx, Once, RateLimiter, Scope, WeakMap};
+use crate::concurrency::{Once, RateLimiter, WeakMap};
+use near_network::concurrency::ctx::{Ctx};
+use near_network::concurrency::scope;
 use log::info;
-
 use near_async::messaging::CanSend;
 use near_network::types::{
     AccountIdOrPeerTrackingShard, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
@@ -9,7 +10,6 @@ use near_network::types::{
 use near_network::types::{
     FullPeerInfo, NetworkInfo, NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest,
 };
-
 use near_primitives::block::{Approval, Block, BlockHeader};
 use near_primitives::challenge::Challenge;
 use near_primitives::hash::CryptoHash;
@@ -163,24 +163,18 @@ impl Network {
         ctx: &Ctx,
         hash: &CryptoHash,
     ) -> anyhow::Result<Vec<BlockHeader>> {
-        Scope::run(ctx, {
-            let self_ = self.clone();
-            let hash = *hash;
-            move |ctx, s| async move {
-                self_.stats.header_start.fetch_add(1, Ordering::Relaxed);
-                let recv = self_.block_headers.get_or_insert(&hash, || Once::new());
-                s.spawn_weak(|ctx| {
-                    self_.keep_sending(&ctx, move |peer| NetworkRequests::BlockHeadersRequest {
-                        hashes: vec![hash],
-                        peer_id: peer.peer_info.id,
-                    })
-                });
-                let res = ctx.wrap(recv.wait()).await;
-                self_.stats.header_done.fetch_add(1, Ordering::Relaxed);
-                anyhow::Ok(res?)
-            }
+        scope::run!(ctx, |s||ctx| async move {
+            self.stats.header_start.fetch_add(1, Ordering::Relaxed);
+            let recv = self.block_headers.get_or_insert(&hash, || Once::new());
+            let service = s.new_service();
+            service.spawn(|ctx| self.keep_sending(&ctx, move |peer| NetworkRequests::BlockHeadersRequest {
+                hashes: vec![hash],
+                peer_id: peer.peer_info.id,
+            })).unwrap();
+            let res = ctx.wrap(recv.wait()).await;
+            self.stats.header_done.fetch_add(1, Ordering::Relaxed);
+            anyhow::Ok(res?)
         })
-        .await
     }
 
     // fetch_block() fetches a block with a given hash.
@@ -189,22 +183,17 @@ impl Network {
         ctx: &Ctx,
         hash: &CryptoHash,
     ) -> anyhow::Result<Block> {
-        Scope::run(ctx, {
-            let self_ = self.clone();
-            let hash = *hash;
-            move |ctx, s| async move {
-                self_.stats.block_start.fetch_add(1, Ordering::Relaxed);
-                let recv = self_.blocks.get_or_insert(&hash, || Once::new());
-                s.spawn_weak(|ctx| {
-                    self_.keep_sending(&ctx, move |peer| NetworkRequests::BlockRequest {
-                        hash: hash,
-                        peer_id: peer.peer_info.id,
-                    })
-                });
-                let res = ctx.wrap(recv.wait()).await;
-                self_.stats.block_done.fetch_add(1, Ordering::Relaxed);
-                anyhow::Ok(res?)
-            }
+        scope::run!(ctx, |s||ctx| async move {
+            self.stats.block_start.fetch_add(1, Ordering::Relaxed);
+            let recv = self.blocks.get_or_insert(&hash, || Once::new());
+            let service = self.new_service();
+            service.spawn(|ctx| self.keep_sending(&ctx, move |peer| NetworkRequests::BlockRequest {
+                hash: hash,
+                peer_id: peer.peer_info.id,
+            }));
+            let res = ctx.wait(recv.wait()).await;
+            self.stats.block_done.fetch_add(1, Ordering::Relaxed);
+            anyhow::Ok(res?)
         })
         .await
     }
@@ -215,39 +204,33 @@ impl Network {
         ctx: &Ctx,
         ch: &ShardChunkHeader,
     ) -> anyhow::Result<PartialEncodedChunkResponseMsg> {
-        Scope::run(ctx, {
-            let self_ = self.clone();
-            let ch = ch.clone();
-            move |ctx, s| async move {
-                let recv = self_.chunks.get_or_insert(&ch.chunk_hash(), || Once::new());
-                // TODO: consider converting wrapping these atomic counters into sth like a Span.
-                self_.stats.chunk_start.fetch_add(1, Ordering::Relaxed);
-                s.spawn_weak(|ctx| {
-                    self_.keep_sending(&ctx, {
-                        let ppc = self_.parts_per_chunk;
-                        move |peer| NetworkRequests::PartialEncodedChunkRequest {
-                            target: AccountIdOrPeerTrackingShard {
-                                account_id: peer.peer_info.account_id,
-                                prefer_peer: true,
-                                shard_id: ch.shard_id(),
-                                only_archival: false,
-                                min_height: ch.height_included(),
-                            },
-                            request: PartialEncodedChunkRequestMsg {
-                                chunk_hash: ch.chunk_hash(),
-                                part_ords: (0..ppc).collect(),
-                                tracking_shards: Default::default(),
-                            },
-                            create_time: Clock::instant().into(),
-                        }
-                    })
-                });
-                let res = ctx.wrap(recv.wait()).await;
-                self_.stats.chunk_done.fetch_add(1, Ordering::Relaxed);
-                anyhow::Ok(res?)
-            }
+        scope::run!(ctx, |s||ctx:Ctx| async move {
+            let recv = self.chunks.get_or_insert(&ch.chunk_hash(), || Once::new());
+            // TODO: consider converting wrapping these atomic counters into sth like a Span.
+            self.stats.chunk_start.fetch_add(1, Ordering::Relaxed);
+            let service = s.new_service();
+            service.spawn(|ctx| self.keep_sending(&ctx, {
+                let ppc = self.parts_per_chunk;
+                move |peer| NetworkRequests::PartialEncodedChunkRequest {
+                    target: AccountIdOrPeerTrackingShard {
+                        account_id: peer.peer_info.account_id,
+                        prefer_peer: true,
+                        shard_id: ch.shard_id(),
+                        only_archival: false,
+                        min_height: ch.height_included(),
+                    },
+                    request: PartialEncodedChunkRequestMsg {
+                        chunk_hash: ch.chunk_hash(),
+                        part_ords: (0..ppc).collect(),
+                        tracking_shards: Default::default(),
+                    },
+                    create_time: Clock::instant().into(),
+                }
+            })).unwrap();
+            let res = ctx.wait(recv.wait()).await;
+            self.stats.chunk_done.fetch_add(1, Ordering::Relaxed);
+            anyhow::Ok(res?)
         })
-        .await
     }
 }
 

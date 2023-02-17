@@ -84,7 +84,7 @@ impl Clock {
     pub fn real() -> Clock {
         Clock(ClockInner::Real)
     }
-    /// Current time according to the monotonic clock.
+    /// Current time according to the monotone clock.
     pub fn now(&self) -> Instant {
         match &self.0 {
             ClockInner::Real => Instant::now(),
@@ -99,6 +99,7 @@ impl Clock {
         }
     }
 
+    /// Cancellable.
     pub async fn sleep_until_deadline(&self, t: Deadline) {
         match t {
             Deadline::Infinite => std::future::pending().await,

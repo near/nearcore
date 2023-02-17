@@ -3,7 +3,8 @@ mod fetch_chain;
 mod network;
 
 use anyhow::{anyhow, Context};
-use concurrency::{Ctx, Scope};
+use near_network::concurrency::ctx::{Ctx};
+use near_network::concurrency::scope;
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::messaging::LateBoundSender;
 use near_chain_configs::Genesis;
@@ -110,14 +111,14 @@ impl Cmd {
             // We execute the chain_sync on a totally separate set of system threads to minimize
             // the interaction with actix.
             rt.spawn(async move {
-                Scope::run(&Ctx::background(), move |ctx, s| async move {
-                    s.spawn_weak(|ctx| async move {
-                        ctx.wrap(tokio::signal::ctrl_c()).await?.unwrap();
+                scope::run!(&Ctx::inf(), |s||ctx| async move {
+                    let service = s.new_service();
+                    service.spawn(|ctx| async move {
+                        ctx.wait(tokio::signal::ctrl_c()).await?;
                         info!("Got CTRL+C, stopping...");
                         return Err(anyhow!("Got CTRL+C"));
                     });
-                    fetch_chain::run(ctx.clone(), network, start_block_hash, cmd.block_limit)
-                        .await?;
+                    fetch_chain::run(&ctx, network, start_block_hash, cmd.block_limit).await?;
                     info!("Fetch completed");
                     anyhow::Ok(())
                 })

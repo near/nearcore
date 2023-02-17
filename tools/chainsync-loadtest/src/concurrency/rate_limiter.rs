@@ -1,6 +1,6 @@
-use crate::concurrency::Ctx;
+use near_network::concurrency::ctx::Ctx;
 use std::sync::Arc;
-use tokio::time;
+use near_network::time;
 
 struct RateLimiter_ {
     interval: time::Duration,
@@ -42,7 +42,7 @@ impl RateLimiter {
 
     // See semantics of https://pkg.go.dev/golang.org/x/time/rate
     pub async fn allow(&self, ctx: &Ctx) -> anyhow::Result<()> {
-        let mut rl = ctx.wrap(self.0.lock()).await?;
+        let mut rl = ctx.wait(self.0.lock()).await?;
         let ticks_now = rl.ticks(time::Instant::now());
         rl.tokens = std::cmp::min(
             rl.burst,
@@ -53,7 +53,7 @@ impl RateLimiter {
             rl.tokens -= 1;
             return Ok(());
         }
-        ctx.wait_until(rl.instant(rl.ticks_processed + 1)).await?;
+        ctx.wait(ctx.clock().sleep_until(rl.instant(rl.ticks_processed + 1))).await?;
         rl.ticks_processed += 1;
         Ok(())
     }
