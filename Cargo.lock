@@ -3217,6 +3217,7 @@ dependencies = [
  "curve25519-dalek",
  "derive_more",
  "ed25519-dalek",
+ "hex",
  "hex-literal",
  "near-account-id",
  "near-config-utils",
@@ -5991,6 +5992,7 @@ dependencies = [
  "near-crypto",
  "near-primitives",
  "near-test-contracts",
+ "node-runtime",
  "once_cell",
 ]
 

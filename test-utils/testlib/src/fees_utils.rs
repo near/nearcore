@@ -1,15 +1,11 @@
 //! Helper functions to compute the costs of certain actions assuming they succeed and the only
 //! actions in the transaction batch.
-#[cfg(feature = "protocol_feature_nep366_delegate_action")]
-use near_primitives::account::AccessKeyPermission;
-#[cfg(feature = "protocol_feature_nep366_delegate_action")]
-use near_primitives::account::{AccessKey, FunctionCallPermission};
 use near_primitives::config::ActionCosts;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 #[cfg(feature = "protocol_feature_nep366_delegate_action")]
-use near_primitives::transaction::{
-    Action, AddKeyAction, DeployContractAction, FunctionCallAction,
-};
+use near_primitives::transaction::Action;
+#[cfg(feature = "protocol_feature_nep366_delegate_action")]
+use near_primitives::types::AccountId;
 use near_primitives::types::{Balance, Gas};
 
 pub struct FeeHelper {
@@ -176,49 +172,24 @@ impl FeeHelper {
     /// - The base cost of the delegate action (send and exec).
     /// - The additional send cost for all inner actions.
     #[cfg(feature = "protocol_feature_nep366_delegate_action")]
-    pub fn meta_tx_overhead_cost(&self, actions: &[Action]) -> Balance {
+    pub fn meta_tx_overhead_cost(&self, actions: &[Action], receiver: &AccountId) -> Balance {
         // for tests, we assume sender != receiver
+
+        use near_primitives::version::PROTOCOL_VERSION;
         let sir = false;
         let base = self.cfg.fee(ActionCosts::delegate);
         let receipt = self.cfg.fee(ActionCosts::new_action_receipt);
-        let mut total_gas = base.exec_fee() + base.send_fee(false) + receipt.send_fee(sir);
-        for action in actions {
-            let send_gas = match action {
-                Action::CreateAccount(_) => self.cfg.fee(ActionCosts::create_account).send_fee(sir),
-                Action::DeployContract(DeployContractAction { code }) => {
-                    self.cfg.fee(ActionCosts::deploy_contract_base).send_fee(sir)
-                        + self.cfg.fee(ActionCosts::deploy_contract_byte).send_fee(sir)
-                            * code.len() as u64
-                }
-                Action::FunctionCall(FunctionCallAction { method_name, args, .. }) => {
-                    let num_bytes = method_name.len() + args.len();
-                    self.cfg.fee(ActionCosts::function_call_base).send_fee(sir)
-                        + self.cfg.fee(ActionCosts::function_call_byte).send_fee(sir)
-                            * num_bytes as u64
-                }
-                Action::Transfer(_) => self.cfg.fee(ActionCosts::transfer).send_fee(sir),
-                Action::Stake(_) => self.cfg.fee(ActionCosts::stake).send_fee(sir),
-                Action::AddKey(AddKeyAction {
-                    access_key: AccessKey { permission, .. }, ..
-                }) => match permission {
-                    AccessKeyPermission::FunctionCall(FunctionCallPermission {
-                        method_names,
-                        ..
-                    }) => {
-                        self.cfg.fee(ActionCosts::add_function_call_key_base).send_fee(sir)
-                            + self.cfg.fee(ActionCosts::add_function_call_key_byte).send_fee(sir)
-                                * method_names.len() as u64
-                    }
-                    AccessKeyPermission::FullAccess => {
-                        self.cfg.fee(ActionCosts::add_full_access_key).send_fee(sir)
-                    }
-                },
-                Action::DeleteKey(_) => self.cfg.fee(ActionCosts::delete_key).send_fee(sir),
-                Action::DeleteAccount(_) => self.cfg.fee(ActionCosts::delete_account).send_fee(sir),
-                Action::Delegate(_) => self.cfg.fee(ActionCosts::delegate).send_fee(sir),
-            };
-            total_gas += send_gas;
-        }
+        let total_gas = base.exec_fee()
+            + base.send_fee(sir)
+            + receipt.send_fee(sir)
+            + node_runtime::config::total_send_fees(
+                &self.cfg,
+                sir,
+                actions,
+                receiver,
+                PROTOCOL_VERSION,
+            )
+            .unwrap();
         self.gas_to_balance(total_gas)
     }
 }
