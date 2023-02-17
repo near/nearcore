@@ -53,6 +53,7 @@ export interface NetworkInfoView {
     num_connected_peers: number,
     connected_peers: PeerInfoView[],
     known_producers: KnownProducerView[],
+    tier1_accounts_keys?: string[],
     tier1_accounts_data?: AccountData[],
     tier1_connections?: PeerInfoView[],
 }
