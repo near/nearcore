@@ -124,7 +124,7 @@ def main():
         attempt += 1
         # Limit the number of attempts.
         if attempt > 10:
-            logger.error(f'{attempt} consecutive blocks are missing. This is improbable. From {random_height} to {random_height + attempt}')
+            logger.error(f'{attempt} consecutive blocks are missing. This is improbable. From {random_height + 1} to {random_height + attempt}')
             sys.exit(1)
 
     # Lookup a chunk to make sure the node contains it.
