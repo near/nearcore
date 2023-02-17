@@ -1,3 +1,5 @@
+import { ReactElement } from "react";
+
 export function formatDurationInMillis(millis: number): string {
     if (millis == null) {
         return '(null)';
