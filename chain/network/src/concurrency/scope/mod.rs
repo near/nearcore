@@ -55,7 +55,7 @@
 //!
 //! We wrap these 2 steps into a macro "run!" to hide this hack and avoid incorrect use.
 use crate::concurrency::asyncfn::{AsyncFn, BoxAsyncFn};
-use crate::concurrency::ctx::{Ctx, CtxWithCancel, OrCanceled};
+use crate::concurrency::ctx::{Ctx, CtxWithCancel, OrCanceled, ErrCanceled};
 use crate::concurrency::signal;
 use std::borrow::Borrow;
 use std::future::Future;
@@ -148,6 +148,15 @@ impl<E: 'static> Inner<E> {
     }
 }
 
+pub struct JoinHandle<T>(tokio::task::JoinHandle<OrCanceled<T>>);
+
+impl<T> JoinHandle<T> {
+    // Cancel safe.
+    pub async fn join(self) -> OrCanceled<T> {
+        self.0.await.unwrap()
+    }
+}
+
 impl<E: 'static + Send> Inner<E> {
     /// Spawns a task in the scope, which owns a reference of to the scope, so that scope doesn't
     /// terminate before all tasks are completed.
@@ -155,16 +164,20 @@ impl<E: 'static + Send> Inner<E> {
     /// The reference to the scope can be an arbitrary
     /// type, so that a custom drop() behavior can be added. For example, see `StrongService` scope reference,
     /// which cancels the scope when dropped.
-    pub fn spawn<M: 'static + Send + Sync + Borrow<Self>>(
+    pub fn spawn<M: 'static + Send + Sync + Borrow<Self>, T: 'static + Send>(
         m: Arc<M>,
-        f: BoxAsyncFn<'static, Ctx, Result<(), E>>,
-    ) {
+        f: BoxAsyncFn<'static, Ctx, Result<T, E>>,
+    ) -> JoinHandle<T> {
         let f = f((*m.as_ref().borrow().ctx).clone());
-        tokio::spawn(async move {
-            if let Err(err) = f.await {
-                m.as_ref().borrow().output.send(err);
+        JoinHandle(tokio::spawn(async move {
+            match f.await {
+                Ok(v) => Ok(v),
+                Err(err) => { 
+                    m.as_ref().borrow().output.send(err);
+                    Err(ErrCanceled)
+                }
             }
-        });
+        }))
     }
 
     /// Spawns a new service in the scope.
@@ -209,7 +222,7 @@ impl<E: 'static> Drop for Service<E> {
     }
 }
 
-impl<E: 'static + Send + Sync> Service<E> {
+impl<E: 'static + Send> Service<E> {
     /// Checks if the referred scope has been terminated.
     pub fn is_terminated(&self) -> bool {
         self.0.upgrade().is_none()
@@ -256,9 +269,7 @@ impl<E: 'static + Send + Sync> Service<E> {
     /// Spawns a task in this scope.
     ///
     /// Returns ErrTerminated if the scope has already terminated.
-    // TODO(gprusak): consider returning a handle to the task, which can be then explicitly
-    // awaited.
-    pub fn spawn(&self, f: impl AsyncFn<'static, Ctx, Result<(), E>>) -> Result<(), ErrTerminated> {
+    pub fn spawn<T:'static+Send>(&self, f: impl AsyncFn<'static, Ctx, Result<T, E>>) -> Result<JoinHandle<T>, ErrTerminated> {
         self.0.upgrade().map(|m| Inner::spawn(m, f.wrap())).ok_or(ErrTerminated)
     }
 
@@ -302,12 +313,12 @@ pub struct Scope<'env, E: 'static>(
     std::marker::PhantomData<fn(&'env ()) -> &'env ()>,
 );
 
-impl<'env, E: 'static + Send + Sync> Scope<'env, E> {
-    pub fn spawn(&self, f: impl AsyncFn<'env, Ctx, Result<(), E>>) {
+impl<'env, E: 'static + Send> Scope<'env, E> {
+    pub fn spawn<T:'static + Send>(&self, f: impl AsyncFn<'env, Ctx, Result<T, E>>) -> JoinHandle<T> {
         let f = f.wrap();
         let f =
             unsafe { std::mem::transmute::<BoxAsyncFn<'env, _, _>, BoxAsyncFn<'static, _, _>>(f) };
-        Inner::spawn(self.0.upgrade().unwrap(), f);
+        Inner::spawn(self.0.upgrade().unwrap(), f)
     }
 
     /// Spawns a service.
@@ -351,30 +362,31 @@ pub mod internal {
         Scope(Weak::new(), std::marker::PhantomData)
     }
 
-    pub async fn run<'env, E, F, G>(
+    pub async fn run<'env, E, F, G, T>(
         scope: &'env mut Scope<'env, E>,
         ctx: &Ctx,
         f: F,
-    ) -> Result<(), E>
+    ) -> Result<T, E>
     where
-        E: 'static + Send + Sync,
+        E: 'static + Send,
         F: 'env + FnOnce(&'env Scope<'env, E>) -> G,
-        G: AsyncFn<'env, Ctx, Result<(), E>>,
+        G: AsyncFn<'env, Ctx, Result<T, E>>,
+        T: 'static + Send,
     {
         must_complete(async move {
-            let (inner, recv) = Inner::new(ctx);
+            let (inner, err) = Inner::new(ctx);
             let service = Arc::new(StrongService(inner));
             let terminated = service.0.terminated.clone();
             scope.0 = Arc::downgrade(&service);
-            scope.spawn(f(scope));
+            let task = scope.spawn(f(scope));
             // each task spawned on `scope` keeps its own reference to `service`.
             // As soon as all references to `service` are dropped, scope will be cancelled.
             drop(service);
             terminated.recv().await;
-            match recv.try_recv() {
-                Ok(err) => Err(err),
-                Err(_) => Ok(()),
+            if let Ok(err) = err.try_recv() {
+                return Err(err);
             }
+            Ok(task.join().await.unwrap())
         })
         .await
     }

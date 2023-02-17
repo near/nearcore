@@ -17,6 +17,8 @@ async fn must_complete_ok() {
     assert_eq!(5, scope::must_complete(async move { 5 }).await);
 }
 
+type R<E> = Result<(),E>;
+
 #[tokio::test]
 async fn test_drop_service() {
     abort_on_panic();
@@ -25,7 +27,7 @@ async fn test_drop_service() {
         service
             .spawn(|ctx: Ctx| async move {
                 ctx.canceled().await;
-                Err(2)
+                R::Err(2)
             })
             .unwrap();
         // Both scope task and service task await context cancellation.
@@ -44,12 +46,12 @@ async fn test_drop_service() {
 async fn test_spawn_after_cancelling_scope() {
     abort_on_panic();
     let res = scope::run!(&Ctx::inf(), |s| move |ctx: Ctx| async move {
-        s.spawn(|_| async { Err(7) });
+        s.spawn(|_| async { R::Err(7) });
         ctx.canceled().await;
-        s.spawn(|_| async { Err(3) });
+        s.spawn(|_| async { R::Err(3) });
         Ok(())
     });
-    assert_eq!(Err(7), res);
+    assert_eq!(R::Err(7), res);
 }
 
 #[tokio::test]
@@ -65,7 +67,7 @@ async fn test_spawn_after_dropping_service() {
                     // Even though the service has been cancelled, you can spawn more tasks on it
                     // until it is actually terminated. So it is always OK to spawn new tasks on
                     // a service from another task running on this service.
-                    service.spawn(|_| async { Err(5) }).unwrap();
+                    service.spawn(|_| async { R::Err(5) }).unwrap();
                     Ok(())
                 }
             })
@@ -96,7 +98,7 @@ async fn test_service_termination() {
             .unwrap();
         service.terminate(&ctx).await.unwrap();
         // Spawning after service termination should fail.
-        assert!(service.spawn(|_| async { Err(1) }).is_err());
+        assert!(service.spawn(|_| async { R::Err(1) }).is_err());
         Ok(())
     });
     assert_eq!(Ok(()), res);
@@ -114,7 +116,7 @@ async fn test_nested_service() {
                     inner
                         .spawn(|ctx: Ctx| async move {
                             ctx.canceled().await;
-                            Err(9)
+                            R::Err(9)
                         })
                         .unwrap();
                     ctx.canceled().await;
@@ -134,7 +136,7 @@ async fn test_nested_scopes() {
     let res = scope::run!(&Ctx::inf(), |s| move |_| async move {
         s.spawn(|ctx| async move {
             scope::run!(&ctx, |s| move |_| async move {
-                s.spawn(|ctx| async move { scope::run!(&ctx, |_| |_| async { Err(8) }) });
+                s.spawn(|ctx| async move { scope::run!(&ctx, |_| |_| async { R::Err(8) }) });
                 Ok(())
             })
         });
@@ -193,7 +195,7 @@ async fn test_service_error_before_cancel() {
                 let service = service.clone();
                 |_| async move {
                     let _service = service;
-                    Err(1)
+                    R::Err(1)
                 }
             })
             .unwrap();
@@ -215,7 +217,7 @@ async fn test_service_error_after_cancel() {
                 |ctx: Ctx| async move {
                     let _service = service;
                     ctx.canceled().await;
-                    Err(2)
+                    R::Err(2)
                 }
             })
             .unwrap();
@@ -240,7 +242,7 @@ async fn test_scope_error() {
                 }
             })
             .unwrap();
-        Err(2)
+        R::Err(2)
     });
     assert_eq!(Err(2), res);
 }
@@ -257,11 +259,11 @@ async fn test_scope_error_nonoverridable() {
                 |ctx: Ctx| async move {
                     let _service = service;
                     ctx.canceled().await;
-                    Err(3)
+                    R::Err(3)
                 }
             })
             .unwrap();
-        Err(2)
+        R::Err(2)
     });
     assert_eq!(Err(2), res);
 }
