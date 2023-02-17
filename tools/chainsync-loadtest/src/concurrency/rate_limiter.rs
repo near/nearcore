@@ -1,4 +1,4 @@
-use near_network::concurrency::ctx::Ctx;
+use near_network::concurrency::ctx::{OrCanceled,Ctx};
 use near_network::time;
 use std::sync::Arc;
 
@@ -41,8 +41,8 @@ impl RateLimiter {
     }
 
     // See semantics of https://pkg.go.dev/golang.org/x/time/rate
-    pub async fn allow(&self, ctx: &Ctx) -> anyhow::Result<()> {
-        let mut rl = ctx.wait(self.0.lock()).await?;
+    pub async fn allow(&self) -> OrCanceled<()> {
+        let mut rl = Ctx::wait(self.0.lock()).await?;
         let ticks_now = rl.ticks(time::Instant::now());
         rl.tokens = std::cmp::min(
             rl.burst,
@@ -53,7 +53,7 @@ impl RateLimiter {
             rl.tokens -= 1;
             return Ok(());
         }
-        ctx.wait(ctx.clock().sleep_until(rl.instant(rl.ticks_processed + 1))).await?;
+        Ctx::sleep_until(rl.instant(rl.ticks_processed + 1)).await?;
         rl.ticks_processed += 1;
         Ok(())
     }

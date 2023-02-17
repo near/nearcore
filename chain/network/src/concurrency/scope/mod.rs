@@ -305,18 +305,31 @@ impl<E: 'static> Drop for StrongService<E> {
 pub struct Scope<'env, E: 'static>(
     /// Scope is equivalent to a strong service, but bounds
     Weak<StrongService<E>>,
+    Weak<Inner<E>>,
     /// Makes Scope<'env,E> invariant in 'env.
     std::marker::PhantomData<fn(&'env ()) -> &'env ()>,
 );
+
+unsafe fn to_static<'env,T>(f:BoxFuture<'env,T>) -> BoxFuture<'static,T> {
+    std::mem::transmute::<BoxFuture<'env, _>, BoxFuture<'static, _>>(f)
+}
 
 impl<'env, E: 'static + Send> Scope<'env, E> {
     pub fn spawn<T: 'static + Send>(
         &self,
         f: impl 'env + Send + Future<Output = Result<T, E>>,
     ) -> JoinHandle<T> {
-        let f = f.boxed();
-        let f = unsafe { std::mem::transmute::<BoxFuture<'env, _>, BoxFuture<'static, _>>(f) };
-        Inner::spawn(self.0.upgrade().unwrap(), f)
+        match self.0.upgrade() {
+            Some(strong) => Inner::spawn(strong, unsafe { to_static(f.boxed()) }),
+            None => self.spawn_bg(f),
+        }
+    }
+
+    pub fn spawn_bg<T: 'static + Send>(
+        &self,
+        f: impl 'env + Send + Future<Output = Result<T, E>>,
+    ) -> JoinHandle<T> {
+        Inner::spawn(self.1.upgrade().unwrap(), unsafe { to_static(f.boxed()) })
     }
 
     /// Spawns a service.
@@ -357,7 +370,7 @@ pub mod internal {
     use super::*;
 
     pub fn new_scope<'env, E: 'static>() -> Scope<'env, E> {
-        Scope(Weak::new(), std::marker::PhantomData)
+        Scope(Weak::new(), Weak::new(), std::marker::PhantomData)
     }
 
     pub async fn run<'env, E, T, F, Fut>(scope: &'env mut Scope<'env, E>, f: F) -> Result<T, E>
@@ -372,6 +385,7 @@ pub mod internal {
             let service = Arc::new(StrongService(inner));
             let terminated = service.0.terminated.clone();
             scope.0 = Arc::downgrade(&service);
+            scope.1 = Arc::downgrade(&service.0);
             let task = scope.spawn(f(scope));
             // each task spawned on `scope` keeps its own reference to `service`.
             // As soon as all references to `service` are dropped, scope will be cancelled.

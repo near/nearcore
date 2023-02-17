@@ -7,7 +7,7 @@ use std::sync::Arc;
 //mod tests;
 
 thread_local! {
-    static CTX: std::cell::RefCell<Ctx> = std::cell::RefCell::new(Ctx::inf());
+    static CTX: std::cell::UnsafeCell<Ctx> = std::cell::UnsafeCell::new(Ctx::inf());
 }
 
 /// Inner representation of a context.
@@ -66,17 +66,13 @@ impl Ctx {
     /// * with infinite deadline
     ///
     /// It should be called directly from main.rs.
-    pub fn inf() -> Ctx {
+    fn inf() -> Ctx {
         return Ctx(Arc::new(Inner {
             canceled: signal::Once::new(),
             deadline: time::Deadline::Infinite,
             clock: time::Clock::real(),
             _parent: None,
         }));
-    }
-
-    pub fn clock(&self) -> &time::Clock {
-        &self.0.clock
     }
 
     fn cancel(&self) {
@@ -92,38 +88,47 @@ impl Ctx {
     ///
     /// Cancellable (in the rust sense).
     pub async fn canceled() {
-        let canceled = CTX.with(|ctx| ctx.borrow().0.canceled.clone());
-        canceled.recv().await
+        Ctx::get().0.canceled.recv().await
     }
 
     pub(super) fn get() -> Ctx {
-        CTX.with(|ctx| (*ctx.borrow()).clone())
+        CTX.with(|ctx| unsafe { &*ctx.get() }.clone())
+    }
+
+    pub fn clock() -> time::Clock {
+        Ctx::get().0.clock.clone()
+    }
+
+    pub async fn sleep(d :time::Duration) -> OrCanceled<()> {
+        Ctx::wait(Ctx::get().0.clock.sleep(d)).await
+    }
+
+    pub async fn sleep_until(t :time::Instant) -> OrCanceled<()> {
+        Ctx::wait(Ctx::get().0.clock.sleep_until(t)).await
     }
 
     /// Awaits until f completes, or the context gets canceled.
     /// f is required to be cancellable.
-    ///
-    /// Cancellable.
     pub async fn wait<F, T>(f: F) -> OrCanceled<T>
     where
         F: std::future::Future<Output = T>,
     {
-        let canceled = CTX.with(|ctx| ctx.borrow().0.canceled.clone());
+        let ctx = Ctx::get();
         tokio::select! {
             v = f => Ok(v),
-            _ = canceled.recv() => Err(ErrCanceled),
+            _ = ctx.0.canceled.recv() => Err(ErrCanceled),
         }
     }
 
     pub fn with_deadline(&self, deadline: time::Deadline) -> Ctx {
         let child = Ctx(Arc::new(Inner {
             canceled: signal::Once::new(),
-            clock: self.clock().clone(),
+            clock: self.0.clock.clone(),
             deadline: std::cmp::min(self.0.deadline, deadline),
             _parent: Some(self.0.clone()),
         }));
         tokio::spawn({
-            let clock = self.clock().clone();
+            let clock = self.0.clock.clone();
             let deadline = child.0.deadline;
             let parent = self.0.canceled.clone();
             let child = child.0.canceled.clone();
@@ -143,13 +148,13 @@ impl Ctx {
     /// If the parent context gets canceled, the child will also be canceled,
     /// but not vice versa (you cannot affect the parent context).
     pub fn with_cancel(&self) -> CtxWithCancel {
-        return CtxWithCancel(self.with_deadline(time::Deadline::Infinite));
+        CtxWithCancel(self.with_deadline(time::Deadline::Infinite))
     }
 
     /// Same as `with_deadline()` but you provide a duration,
     /// rather than an instant.
     pub fn with_timeout(&self, timeout: time::Duration) -> Ctx {
-        return self.with_deadline((self.0.clock.now() + timeout).into());
+        self.with_deadline((self.0.clock.now() + timeout).into())
     }
 
     pub(super) fn wrap<F: Future>(self, inner: F) -> CtxFuture<F> {
@@ -188,9 +193,9 @@ impl<F: Future> Future for CtxFuture<F> {
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Self::Output> {
         let this = self.project();
-        CTX.with(|x| std::mem::swap(&mut *x.borrow_mut(), this.ctx));
+        CTX.with(|x| std::mem::swap(unsafe { &mut *x.get() }, this.ctx));
         let res = this.inner.poll(cx);
-        CTX.with(|x| std::mem::swap(&mut *x.borrow_mut(), this.ctx));
+        CTX.with(|x| std::mem::swap(unsafe { &mut *x.get() }, this.ctx));
         res
     }
 }

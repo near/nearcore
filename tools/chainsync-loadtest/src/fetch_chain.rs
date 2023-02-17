@@ -14,35 +14,29 @@ use std::sync::Arc;
 // at the start of the routine, so that the amount of work
 // is bounded).
 pub async fn run(
-    ctx: &Ctx,
     network: &Arc<network::Network>,
     start_block_hash: CryptoHash,
     block_limit: u64,
 ) -> anyhow::Result<()> {
     info!("SYNC start");
-    let peers = network.info(&ctx).await?;
+    let peers = network.info().await?;
     let target_height = peers.highest_height_peers[0].highest_block_height as i64;
     info!("SYNC target_height = {}", target_height);
 
-    let start_time = ctx.clock().now();
-    let res = scope::run!(&ctx, |s| move |ctx| async move {
-        let service = s.new_service();
-        let network_ = network.clone();
-        let _: scope::JoinHandle<()> = service
-            .spawn(move |ctx: Ctx| async move {
-                loop {
-                    info!("stats = {:?}", network_.stats);
-                    ctx.wait(ctx.clock().sleep(time::Duration::seconds(2))).await?;
-                }
-            })
-            .unwrap();
-
+    let start_time = Ctx::clock().now();
+    let res = scope::run!(|s| async move {
+        s.spawn_bg::<()>(async {
+            loop {
+                info!("stats = {:?}", network.stats);
+                Ctx::sleep(time::Duration::seconds(2)).await?;
+            }
+        });
         let mut last_hash = start_block_hash;
         let mut last_height = 0;
         let mut blocks_count = 0;
         while last_height < target_height {
             // Fetch the next batch of headers.
-            let mut headers = network.fetch_block_headers(&ctx, &last_hash).await?;
+            let mut headers = network.fetch_block_headers(last_hash).await?;
             headers.sort_by_key(|h| h.height());
             let last_header = headers.last().context("no headers")?;
             last_hash = *last_header.hash();
@@ -57,14 +51,11 @@ pub async fn run(
                 if blocks_count == block_limit {
                     return anyhow::Ok(());
                 }
-                s.spawn(move |ctx| async move {
-                    let block = network.fetch_block(&ctx, h.hash()).await?;
+                let h = *h.hash();
+                s.spawn(async move {
+                    let block = network.fetch_block(h).await?;
                     for ch in block.chunks().iter() {
-                        let ch = ch.clone();
-                        s.spawn(move |ctx| async move {
-                            network.fetch_chunk(&ctx, &ch).await?;
-                            anyhow::Ok(())
-                        });
+                        s.spawn(network.fetch_chunk(ch.clone()));
                     }
                     anyhow::Ok(())
                 });
@@ -72,7 +63,7 @@ pub async fn run(
         }
         anyhow::Ok(())
     });
-    let stop_time = ctx.clock().now();
+    let stop_time = Ctx::clock().now();
     let total_time = stop_time - start_time;
     let t = total_time.as_seconds_f64();
     let sent = network.stats.msgs_sent.load(Ordering::Relaxed);
