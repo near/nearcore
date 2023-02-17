@@ -278,6 +278,6 @@ async fn set_local() {
         signer: Arc::new(signers[0].clone()),
         data: Arc::new(make_account_data(rng, &clock.clock(), 1, &signers[0]).data.clone()),
     };
-    assert_eq!(None, cache.set_local(&clock.clock(), local.clone()));
+    assert_eq!(None, cache.set_local(&clock.clock(), local));
     assert_eq!([&a1, &got].as_set(), cache.load().data.values().collect());
 }

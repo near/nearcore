@@ -2062,7 +2062,7 @@ impl Chain {
             let res = do_apply_chunks(block_hash, block_height, work);
             // If we encounter error here, that means the receiver is deallocated and the client
             // thread is already shut down. The node is already crashed, so we can unwrap here
-            sc.send((block_hash.clone(), res)).unwrap();
+            sc.send((block_hash, res)).unwrap();
             if let Err(_) = apply_chunks_done_marker.set(()) {
                 // This should never happen, if it does, it means there is a bug in our code.
                 log_assert!(false, "apply chunks are called twice for block {block_hash:?}");
@@ -2168,7 +2168,7 @@ impl Chain {
         let prev_head = self.store.head()?;
         let is_caught_up = block_preprocess_info.is_caught_up;
         let provenance = block_preprocess_info.provenance.clone();
-        let block_start_processing_time = block_preprocess_info.block_start_processing_time.clone();
+        let block_start_processing_time = block_preprocess_info.block_start_processing_time;
         // TODO(#8055): this zip relies on the ordering of the apply_results.
         for (apply_result, chunk) in apply_results.iter().zip(block.chunks().iter()) {
             if let Err(err) = apply_result {
@@ -2254,9 +2254,7 @@ impl Chain {
 
         metrics::BLOCK_PROCESSED_TOTAL.inc();
         metrics::BLOCK_PROCESSING_TIME.observe(
-            Clock::instant()
-                .saturating_duration_since(block_start_processing_time.clone())
-                .as_secs_f64(),
+            Clock::instant().saturating_duration_since(block_start_processing_time).as_secs_f64(),
         );
         self.blocks_delay_tracker.finish_block_processing(&block_hash, new_head.clone());
 
@@ -3769,7 +3767,7 @@ impl Chain {
                 if is_new_chunk {
                     let prev_chunk_height_included = prev_chunk_header.height_included();
                     // Validate state root.
-                    let prev_chunk_extra = self.get_chunk_extra(prev_hash, &shard_uid)?.clone();
+                    let prev_chunk_extra = self.get_chunk_extra(prev_hash, &shard_uid)?;
 
                     // Validate that all next chunk information matches previous chunk extra.
                     validate_chunk_with_chunk_extra(
@@ -3804,7 +3802,7 @@ impl Chain {
                     receipts.extend(collect_receipts_from_response(
                         &self.store().get_incoming_receipts_for_shard(
                             shard_id,
-                            prev_hash.clone(),
+                            *prev_hash,
                             prev_chunk_height_included,
                         )?,
                     ));
@@ -3864,7 +3862,7 @@ impl Chain {
                     let gas_price = prev_block.header().gas_price();
                     let random_seed = *block.header().random_value();
                     let height = chunk_header.height_included();
-                    let prev_block_hash = chunk_header.prev_block_hash().clone();
+                    let prev_block_hash = *chunk_header.prev_block_hash();
 
                     Ok(Some(Box::new(move |parent_span| -> Result<ApplyChunkResult, Error> {
                         let _span = tracing::debug_span!(
@@ -3917,7 +3915,7 @@ impl Chain {
                         }
                     })))
                 } else {
-                    let new_extra = self.get_chunk_extra(prev_block.hash(), &shard_uid)?.clone();
+                    let new_extra = self.get_chunk_extra(prev_block.hash(), &shard_uid)?;
 
                     let runtime_adapter = self.runtime_adapter.clone();
                     let block_hash = *block.hash();
@@ -5026,10 +5024,8 @@ impl<'a> ChainUpdate<'a> {
                 }
             }
             ApplyChunkResult::SplitState(SplitStateResult { shard_uid, results }) => {
-                self.chain_store_update.remove_state_changes_for_split_states(
-                    block_hash.clone(),
-                    shard_uid.shard_id(),
-                );
+                self.chain_store_update
+                    .remove_state_changes_for_split_states(block_hash, shard_uid.shard_id());
                 self.process_split_state(
                     &block_hash,
                     &prev_block_hash,
@@ -5071,7 +5067,7 @@ impl<'a> ChainUpdate<'a> {
 
         if !is_caught_up {
             debug!(target: "chain", %prev_hash, hash = %*block.hash(), "Add block to catch up");
-            self.chain_store_update.add_block_to_catchup(prev_hash.clone(), *block.hash());
+            self.chain_store_update.add_block_to_catchup(*prev_hash, *block.hash());
         }
 
         for (shard_id, receipt_proofs) in incoming_receipts {
@@ -5377,8 +5373,8 @@ impl<'a> ChainUpdate<'a> {
         self.chain_store_update.save_chunk(chunk);
 
         self.save_flat_state_changes(
-            block_header.hash().clone(),
-            chunk_header.prev_block_hash().clone(),
+            *block_header.hash(),
+            *chunk_header.prev_block_hash(),
             chunk_header.height_included(),
             shard_id,
             &apply_result.trie_changes,
@@ -5463,8 +5459,8 @@ impl<'a> ChainUpdate<'a> {
             false,
         )?;
         self.save_flat_state_changes(
-            block_header.hash().clone(),
-            prev_block_header.hash().clone(),
+            *block_header.hash(),
+            *prev_block_header.hash(),
             height,
             shard_id,
             &apply_result.trie_changes,

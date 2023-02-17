@@ -153,7 +153,7 @@ fn test_storage_after_commit_of_cold_update() {
         )
         .unwrap();
 
-        last_hash = block.hash().clone();
+        last_hash = *block.hash();
     }
 
     // assert that we don't read State from db, but from TrieChanges
@@ -306,7 +306,7 @@ fn test_cold_db_copy_with_height_skips() {
         .unwrap();
 
         if block.is_some() {
-            last_hash = block.unwrap().hash().clone();
+            last_hash = *block.unwrap().hash();
         }
     }
 
@@ -381,7 +381,7 @@ fn test_initial_copy_to_cold(batch_size: usize) {
 
         let block = env.clients[0].produce_block(h).unwrap().unwrap();
         env.process_block(0, block.clone(), Provenance::PRODUCED);
-        last_hash = block.hash().clone();
+        last_hash = *block.hash();
     }
 
     copy_all_data_to_cold(

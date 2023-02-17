@@ -7,10 +7,10 @@ use std::sync::{Arc, RwLock};
 use actix::System;
 use assert_matches::assert_matches;
 use futures::{future, FutureExt};
+use near_async::messaging::{IntoSender, Sender};
 use near_chain::test_utils::ValidatorSchedule;
-use near_chunks::test_utils::{
-    MockClientAdapterForShardsManager, NoopShardsManagerAdapterForClient,
-};
+use near_chunks::test_utils::MockClientAdapterForShardsManager;
+
 use near_primitives::config::{ActionCosts, ExtCosts};
 use near_primitives::num_rational::{Ratio, Rational32};
 
@@ -1132,7 +1132,7 @@ fn test_time_attack() {
         Some("test1".parse().unwrap()),
         false,
         network_adapter.into(),
-        client_adapter,
+        client_adapter.as_sender(),
         chain_genesis,
         TEST_SEED,
         false,
@@ -1168,7 +1168,7 @@ fn test_invalid_approvals() {
         Some("test1".parse().unwrap()),
         false,
         network_adapter.into(),
-        client_adapter,
+        client_adapter.as_sender(),
         chain_genesis,
         TEST_SEED,
         false,
@@ -1216,7 +1216,7 @@ fn test_invalid_gas_price() {
         Some("test1".parse().unwrap()),
         false,
         network_adapter.into(),
-        client_adapter,
+        client_adapter.as_sender(),
         chain_genesis,
         TEST_SEED,
         false,
@@ -1238,7 +1238,7 @@ fn test_invalid_height_too_large() {
     let b1 = env.clients[0].produce_block(1).unwrap().unwrap();
     let _ = env.clients[0].process_block_test(b1.clone().into(), Provenance::PRODUCED).unwrap();
     let signer = Arc::new(create_test_signer("test0"));
-    let b2 = TestBlockBuilder::new(&b1, signer.clone()).height(u64::MAX).build();
+    let b2 = TestBlockBuilder::new(&b1, signer).height(u64::MAX).build();
     let res = env.clients[0].process_block_test(b2.into(), Provenance::NONE);
     assert_matches!(res.unwrap_err(), Error::InvalidBlockHeight(_));
 }
@@ -1377,7 +1377,7 @@ fn test_bad_chunk_mask() {
                 Some(account_id.clone()),
                 false,
                 Arc::new(MockPeerManagerAdapter::default()).into(),
-                Arc::new(MockClientAdapterForShardsManager::default()),
+                MockClientAdapterForShardsManager::default().into_sender(),
                 chain_genesis.clone(),
                 TEST_SEED,
                 false,
@@ -2158,7 +2158,7 @@ fn test_incorrect_validator_key_produce_block() {
         chain_genesis,
         runtime_adapter,
         Arc::new(MockPeerManagerAdapter::default()).into(),
-        Arc::new(NoopShardsManagerAdapterForClient {}),
+        Sender::noop(),
         Some(signer),
         false,
         TEST_SEED,

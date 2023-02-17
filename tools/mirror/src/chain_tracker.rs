@@ -227,7 +227,7 @@ impl TxTracker {
         let info = match crate::read_target_nonce(db, &access_key.0, &access_key.1)? {
             Some(t) => NonceInfo {
                 target_nonce: TargetNonce {
-                    nonce: t.nonce.clone(),
+                    nonce: t.nonce,
                     pending_outcomes: t
                         .pending_outcomes
                         .into_iter()
@@ -651,17 +651,17 @@ impl TxTracker {
     ) -> anyhow::Result<()> {
         crate::delete_pending_outcome(db, tx_hash)?;
 
-        let updater = NonceUpdater::ChainObjectId(tx_hash.clone());
+        let updater = NonceUpdater::ChainObjectId(*tx_hash);
         if let Some(keys) = self.updater_to_keys.remove(&updater) {
             assert!(access_keys == keys);
         }
 
-        let new_updater = NonceUpdater::ChainObjectId(receipt_id.clone());
+        let new_updater = NonceUpdater::ChainObjectId(*receipt_id);
 
         for access_key in access_keys.iter() {
             let mut n = crate::read_target_nonce(db, &access_key.0, &access_key.1)?.unwrap();
             assert!(n.pending_outcomes.remove(tx_hash));
-            n.pending_outcomes.insert(receipt_id.clone());
+            n.pending_outcomes.insert(*receipt_id);
             crate::put_target_nonce(db, &access_key.0, &access_key.1, &n)?;
 
             if let Some(info) = self.nonces.get(access_key) {
@@ -684,7 +684,7 @@ impl TxTracker {
                 info.target_nonce.pending_outcomes.insert(new_updater.clone());
             }
         }
-        crate::put_pending_outcome(db, receipt_id.clone(), access_keys.clone())?;
+        crate::put_pending_outcome(db, *receipt_id, access_keys.clone())?;
         if !access_keys.is_empty() {
             self.updater_to_keys.insert(new_updater, access_keys);
         }
@@ -708,7 +708,7 @@ impl TxTracker {
 
         crate::put_target_nonce(db, &access_key.0, &access_key.1, &n)?;
 
-        let updater = id.map(|id| NonceUpdater::ChainObjectId(id.clone()));
+        let updater = id.map(|id| NonceUpdater::ChainObjectId(*id));
         if let Some(info) = self.nonces.get_mut(access_key) {
             if let Some(updater) = &updater {
                 info.target_nonce.pending_outcomes.remove(updater);
@@ -763,7 +763,7 @@ impl TxTracker {
         id: &CryptoHash,
         access_keys: HashSet<(AccountId, PublicKey)>,
     ) -> anyhow::Result<()> {
-        let updater = NonceUpdater::ChainObjectId(id.clone());
+        let updater = NonceUpdater::ChainObjectId(*id);
         if let Some(keys) = self.updater_to_keys.remove(&updater) {
             assert!(access_keys == keys);
         }

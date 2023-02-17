@@ -41,7 +41,7 @@ export interface BuildInfo {
 
 export interface DetailedDebugStatus {
     network_info: NetworkInfoView,
-    sync_status: String,
+    sync_status: string,
     catchup_status: CatchupStatusView[],
     current_head_status: BlockStatusView,
     current_header_head_status: BlockStatusView,
@@ -53,6 +53,7 @@ export interface NetworkInfoView {
     num_connected_peers: number,
     connected_peers: PeerInfoView[],
     known_producers: KnownProducerView[],
+    tier1_accounts_keys?: string[],
     tier1_accounts_data?: AccountData[],
     tier1_connections?: PeerInfoView[],
 }
@@ -174,9 +175,9 @@ export interface EpochInfoView {
     first_block: null | [string, string],
     block_producers: ValidatorInfo[],
     chunk_only_producers: string[],
-    validator_info: EpochValidatorInfo[],
+    validator_info: EpochValidatorInfo,
     protocol_version: number,
-    shard_size_and_parts: [number, number, boolean][],
+    shards_size_and_parts: [number, number, boolean][],
 }
 
 export interface EpochValidatorInfo {
@@ -210,11 +211,10 @@ export interface NextEpochValidatorInfo {
 }
 
 export interface ValidatorStakeView {
-    V1: {
-        account_id: string,
-        public_key: string,
-        stake: string,
-    }
+    account_id: string,
+    public_key: string,
+    stake: string,
+    validator_stake_struct_version: 'V1',
 }
 
 export interface ValidatorKickoutView {
@@ -229,6 +229,19 @@ export type ValidatorKickoutReason =
     'Unstaked' |
     { NotEnoughStake: { stake: string, threshold: string } } |
     'DidNotGetASeat';
+
+export interface PeerStoreView {
+    peer_states: KnownPeerStateView[],
+}
+
+export interface KnownPeerStateView {
+    peer_id: string,
+    status: string,
+    addr: string,
+    first_seen: number,
+    last_seen: number,
+    last_attempt: [number, string] | null,
+}
 
 export interface SyncStatusResponse {
     status_response: {
@@ -254,6 +267,29 @@ export interface BlockStatusResponse {
 export interface EpochInfoResponse {
     status_response: {
         EpochInfo: EpochInfoView[],
+    }
+}
+
+export interface PeerStoreResponse {
+    status_response: {
+        PeerStore: PeerStoreView,
+    }
+}
+
+export interface ConnectionInfoView {
+    peer_id: string,
+    addr: string,
+    time_established: number,
+    time_connected_until: number,
+}
+
+export interface RecentOutboundConnectionsView {
+    recent_outbound_connections: ConnectionInfoView[],
+}
+
+export interface RecentOutboundConnectionsResponse {
+    status_response: {
+        RecentOutboundConnections: RecentOutboundConnectionsView
     }
 }
 
@@ -285,5 +321,15 @@ export async function fetchBlockStatus(addr: string, height: number | null): Pro
 
 export async function fetchEpochInfo(addr: string): Promise<EpochInfoResponse> {
     const response = await fetch(`http://${addr}/debug/api/epoch_info`);
+    return await response.json();
+}
+
+export async function fetchPeerStore(addr: string): Promise<PeerStoreResponse> {
+    const response = await fetch(`http://${addr}/debug/api/peer_store`);
+    return await response.json();
+}
+
+export async function fetchRecentOutboundConnections(addr: string): Promise<RecentOutboundConnectionsResponse> {
+    const response = await fetch(`http://${addr}/debug/api/recent_outbound_connections`);
     return await response.json();
 }

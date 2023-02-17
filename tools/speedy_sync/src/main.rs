@@ -230,7 +230,7 @@ fn load_snapshot(load_cmd: LoadCmd) {
     let runtime = Arc::new(NightshadeRuntime::from_config(home_dir, store.clone(), &config));
     // This will initialize the database (add genesis block etc)
     let _chain = Chain::new(
-        runtime.clone(),
+        runtime,
         &chain_genesis,
         DoomslugThresholdMode::TwoThirds,
         ChainConfig {

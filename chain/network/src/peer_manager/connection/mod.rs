@@ -120,7 +120,7 @@ impl Connection {
     pub fn full_peer_info(&self) -> FullPeerInfo {
         let chain_info = PeerChainInfo {
             genesis_id: self.genesis_id.clone(),
-            last_block: self.last_block.load().as_ref().clone(),
+            last_block: *self.last_block.load().as_ref(),
             tracked_shards: self.tracked_shards.clone(),
             archival: self.archival,
         };

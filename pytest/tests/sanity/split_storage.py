@@ -160,8 +160,6 @@ class TestSplitStorage(unittest.TestCase):
             prefix="test_migration_",
         )
 
-        # TODO - when tracked_shards is not set this test breaks. Debug it.
-
         logger.info("")
         logger.info("Phase 1 - Starting neard before migration.")
         logger.info("")

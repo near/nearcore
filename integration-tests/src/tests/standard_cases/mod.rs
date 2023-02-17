@@ -622,17 +622,6 @@ pub fn test_create_account_failure_no_funds(node: impl Node) {
     let transaction_result = node_user
         .create_account(account_id.clone(), eve_dot_alice_account(), node.signer().public_key(), 0)
         .unwrap();
-    #[cfg(not(feature = "protocol_feature_zero_balance_account"))]
-    assert_matches!(
-    &transaction_result.status,
-    FinalExecutionStatus::Failure(e) => match &e {
-        &TxExecutionError::ActionError(action_err) => match action_err.kind {
-            ActionErrorKind::LackBalanceForState{..} => {},
-            _ => panic!("should be LackBalanceForState"),
-        },
-        _ => panic!("should be ActionError")
-    });
-    #[cfg(feature = "protocol_feature_zero_balance_account")]
     assert_matches!(transaction_result.status, FinalExecutionStatus::SuccessValue(_));
 }
 
@@ -1434,7 +1423,7 @@ fn check_trie_nodes_count(
     let node_user = node.user();
     let mut node_touches: Vec<_> = vec![];
     let receipt_hashes: Vec<CryptoHash> =
-        receipts.iter().map(|receipt| receipt.receipt_id.clone()).collect();
+        receipts.iter().map(|receipt| receipt.receipt_id).collect();
 
     for i in 0..2 {
         node_user.add_receipts(receipts.clone()).unwrap();

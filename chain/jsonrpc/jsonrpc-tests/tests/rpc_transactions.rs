@@ -118,8 +118,8 @@ fn test_expired_tx() {
                 let client = new_client(&format!("http://{}", addr));
                 actix::spawn(client.block(BlockReference::latest()).then(move |res| {
                     let header = res.unwrap().header;
-                    let hash = block_hash.lock().unwrap().clone();
-                    let height = block_height.lock().unwrap().clone();
+                    let hash = *block_hash.lock().unwrap();
+                    let height = *block_height.lock().unwrap();
                     if let Some(block_hash) = hash {
                         if let Some(height) = height {
                             if header.height - height >= 2 {

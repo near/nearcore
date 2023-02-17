@@ -20,7 +20,7 @@ use actix::{Actor, Addr, Arbiter, AsyncContext, Context, Handler, Message};
 use actix_rt::ArbiterHandle;
 use borsh::BorshSerialize;
 use chrono::DateTime;
-use near_async::messaging::CanSend;
+use near_async::messaging::{CanSend, Sender};
 use near_chain::chain::{
     do_apply_chunks, ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest,
     BlockCatchUpResponse, StateSplitRequest, StateSplitResponse,
@@ -33,7 +33,7 @@ use near_chain::{
     ChainGenesis, DoneApplyChunkCallback, Provenance, RuntimeWithEpochManagerAdapter,
 };
 use near_chain_configs::ClientConfig;
-use near_chunks::adapter::ShardsManagerAdapterForClient;
+use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardsManagerResponse;
 use near_chunks::logic::cares_about_shard_this_or_next_epoch;
 use near_client_primitives::types::{
@@ -158,7 +158,7 @@ impl ClientActor {
     ) -> Result<Self, Error> {
         let state_parts_arbiter = Arbiter::new();
         let self_addr = ctx.address();
-        let self_addr_clone = self_addr.clone();
+        let self_addr_clone = self_addr;
         let sync_jobs_actor_addr = SyncJobsActor::start_in_arbiter(
             &state_parts_arbiter.handle(),
             move |ctx: &mut Context<SyncJobsActor>| -> SyncJobsActor {
@@ -438,7 +438,7 @@ impl Handler<WithSpanContext<BlockResponse>> for ClientActor {
                 }
                 this.client.receive_block(
                     block,
-                    peer_id.clone(),
+                    peer_id,
                     was_requested,
                     this.get_apply_chunks_done_callback(),
                 );
@@ -656,7 +656,7 @@ impl Handler<WithSpanContext<Status>> for ClientActor {
 
         let node_public_key = self.node_id.public_key().clone();
         let (validator_account_id, validator_public_key) = match &self.client.validator_signer {
-            Some(vs) => (Some(vs.validator_id().clone()), Some(vs.public_key().clone())),
+            Some(vs) => (Some(vs.validator_id().clone()), Some(vs.public_key())),
             None => (None, None),
         };
         let node_key = validator_public_key.clone();
@@ -1888,7 +1888,7 @@ pub fn start_client(
     runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
     node_id: PeerId,
     network_adapter: PeerManagerAdapter,
-    shards_manager_adapter: Arc<dyn ShardsManagerAdapterForClient>,
+    shards_manager_adapter: Sender<ShardsManagerRequestFromClient>,
     validator_signer: Option<Arc<dyn ValidatorSigner>>,
     telemetry_actor: Addr<TelemetryActor>,
     sender: Option<broadcast::Sender<()>>,

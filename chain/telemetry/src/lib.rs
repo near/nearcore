@@ -64,7 +64,7 @@ impl TelemetryActor {
             .timeout(CONNECT_TIMEOUT)
             .connector(Connector::new().max_http_version(awc::http::Version::HTTP_11))
             .finish();
-        let reporting_interval = config.reporting_interval.clone();
+        let reporting_interval = config.reporting_interval;
         Self {
             config,
             client,
