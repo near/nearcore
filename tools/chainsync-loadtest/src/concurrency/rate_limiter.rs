@@ -1,6 +1,6 @@
 use near_network::concurrency::ctx::Ctx;
-use std::sync::Arc;
 use near_network::time;
+use std::sync::Arc;
 
 struct RateLimiter_ {
     interval: time::Duration,
@@ -12,10 +12,10 @@ struct RateLimiter_ {
 
 impl RateLimiter_ {
     fn ticks(&self, t: time::Instant) -> u64 {
-        return ((t - self.start).as_secs_f64() / self.interval.as_secs_f64()) as u64;
+        return ((t - self.start).as_seconds_f64() / self.interval.as_seconds_f64()) as u64;
     }
     fn instant(&self, ticks: u64) -> time::Instant {
-        return self.start + self.interval.mul_f64(ticks as f64);
+        return self.start + self.interval * (ticks as f64);
     }
 }
 

@@ -1,8 +1,9 @@
 use crate::concurrency::{Once, RateLimiter, WeakMap};
-use near_network::concurrency::ctx::{Ctx};
-use near_network::concurrency::scope;
 use log::info;
 use near_async::messaging::CanSend;
+use near_network::concurrency::ctx::Ctx;
+use near_network::concurrency::scope;
+use near_network::time;
 use near_network::types::{
     AccountIdOrPeerTrackingShard, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
     PartialEncodedChunkResponseMsg, ReasonForBan, StateResponseInfo,
@@ -16,7 +17,6 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::ChunkHash;
 use near_primitives::sharding::ShardChunkHeader;
-use near_primitives::time::Clock;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::views::FinalExecutionOutcomeView;
@@ -65,7 +65,7 @@ pub struct Network {
     // AFAICT eventually it will change dynamically (I guess it will be provided in the Block).
     parts_per_chunk: u64,
 
-    request_timeout: tokio::time::Duration,
+    request_timeout: time::Duration,
     rate_limiter: RateLimiter,
 }
 
@@ -100,10 +100,10 @@ impl Network {
             min_peers: config.client_config.min_num_peers,
             parts_per_chunk: config.genesis.config.num_block_producer_seats,
             rate_limiter: RateLimiter::new(
-                tokio::time::Duration::from_secs(1) / qps_limit,
+                time::Duration::seconds(1) / qps_limit,
                 qps_limit as u64,
             ),
-            request_timeout: tokio::time::Duration::from_secs(2),
+            request_timeout: time::Duration::seconds(2),
         })
     }
 
@@ -114,13 +114,12 @@ impl Network {
     // - keep_sending() respects the global rate limits, so the actual frequency
     //   of the sends may be lower than expected.
     // - keep_sending() may pause if the number of connected peers is too small.
-    fn keep_sending(
-        self: &Arc<Self>,
-        ctx: &Ctx,
-        new_req: impl Fn(FullPeerInfo) -> NetworkRequests + Send,
-    ) -> impl Future<Output = anyhow::Result<()>> + Send {
+    fn keep_sending<'a>(
+        self: &'a Arc<Self>,
+        ctx: &'a Ctx,
+        new_req: impl 'a + Fn(FullPeerInfo) -> NetworkRequests + Send,
+    ) -> impl 'a + Future<Output = anyhow::Result<()>> + Send {
         let self_ = self.clone();
-        let ctx = ctx.with_label("keep_sending");
         async move {
             loop {
                 let mut peers = self_.info(&ctx).await?.connected_peers.clone();
@@ -132,7 +131,7 @@ impl Network {
                         new_req(peer.full_peer_info.clone()),
                     ));
                     self_.stats.msgs_sent.fetch_add(1, Ordering::Relaxed);
-                    ctx.wait(self_.request_timeout).await?;
+                    ctx.wait(ctx.clock().sleep(self_.request_timeout)).await?;
                 }
             }
         }
@@ -151,7 +150,7 @@ impl Network {
                 n.info_futures.push(send);
             }
         }
-        anyhow::Ok(ctx.wrap(recv).await??)
+        anyhow::Ok(ctx.wait(recv).await??)
     }
 
     // fetch_block_headers fetches a batch of headers, starting with the header
@@ -163,15 +162,23 @@ impl Network {
         ctx: &Ctx,
         hash: &CryptoHash,
     ) -> anyhow::Result<Vec<BlockHeader>> {
-        scope::run!(ctx, |s||ctx| async move {
+        let hash = *hash;
+        scope::run!(ctx, |s| move |ctx: Ctx| async move {
             self.stats.header_start.fetch_add(1, Ordering::Relaxed);
             let recv = self.block_headers.get_or_insert(&hash, || Once::new());
             let service = s.new_service();
-            service.spawn(|ctx| self.keep_sending(&ctx, move |peer| NetworkRequests::BlockHeadersRequest {
-                hashes: vec![hash],
-                peer_id: peer.peer_info.id,
-            })).unwrap();
-            let res = ctx.wrap(recv.wait()).await;
+            let self_ = self.clone();
+            service
+                .spawn(move |ctx| async move {
+                    self_
+                        .keep_sending(&ctx, move |peer| NetworkRequests::BlockHeadersRequest {
+                            hashes: vec![hash],
+                            peer_id: peer.peer_info.id,
+                        })
+                        .await
+                })
+                .unwrap();
+            let res = ctx.wait(recv.wait()).await;
             self.stats.header_done.fetch_add(1, Ordering::Relaxed);
             anyhow::Ok(res?)
         })
@@ -183,19 +190,26 @@ impl Network {
         ctx: &Ctx,
         hash: &CryptoHash,
     ) -> anyhow::Result<Block> {
-        scope::run!(ctx, |s||ctx| async move {
+        let hash = *hash;
+        scope::run!(ctx, |s| move |ctx: Ctx| async move {
             self.stats.block_start.fetch_add(1, Ordering::Relaxed);
             let recv = self.blocks.get_or_insert(&hash, || Once::new());
-            let service = self.new_service();
-            service.spawn(|ctx| self.keep_sending(&ctx, move |peer| NetworkRequests::BlockRequest {
-                hash: hash,
-                peer_id: peer.peer_info.id,
-            }));
+            let service = s.new_service();
+            let self_ = self.clone();
+            service
+                .spawn(move |ctx| async move {
+                    self_
+                        .keep_sending(&ctx, |peer| NetworkRequests::BlockRequest {
+                            hash: hash,
+                            peer_id: peer.peer_info.id,
+                        })
+                        .await
+                })
+                .unwrap();
             let res = ctx.wait(recv.wait()).await;
             self.stats.block_done.fetch_add(1, Ordering::Relaxed);
             anyhow::Ok(res?)
         })
-        .await
     }
 
     // fetch_chunk fetches a chunk for the given chunk header.
@@ -204,29 +218,39 @@ impl Network {
         ctx: &Ctx,
         ch: &ShardChunkHeader,
     ) -> anyhow::Result<PartialEncodedChunkResponseMsg> {
-        scope::run!(ctx, |s||ctx:Ctx| async move {
+        scope::run!(ctx, |s| |ctx: Ctx| async {
+            let ctx = ctx;
             let recv = self.chunks.get_or_insert(&ch.chunk_hash(), || Once::new());
             // TODO: consider converting wrapping these atomic counters into sth like a Span.
             self.stats.chunk_start.fetch_add(1, Ordering::Relaxed);
             let service = s.new_service();
-            service.spawn(|ctx| self.keep_sending(&ctx, {
-                let ppc = self.parts_per_chunk;
-                move |peer| NetworkRequests::PartialEncodedChunkRequest {
-                    target: AccountIdOrPeerTrackingShard {
-                        account_id: peer.peer_info.account_id,
-                        prefer_peer: true,
-                        shard_id: ch.shard_id(),
-                        only_archival: false,
-                        min_height: ch.height_included(),
-                    },
-                    request: PartialEncodedChunkRequestMsg {
-                        chunk_hash: ch.chunk_hash(),
-                        part_ords: (0..ppc).collect(),
-                        tracking_shards: Default::default(),
-                    },
-                    create_time: Clock::instant().into(),
-                }
-            })).unwrap();
+            let self_ = self.clone();
+            let ch_ = ch.clone();
+            service
+                .spawn(|ctx| async {
+                    let ctx = ctx;
+                    let self_ = self_;
+                    let ch = ch_;
+                    self_
+                        .clone()
+                        .keep_sending(&ctx, |peer| NetworkRequests::PartialEncodedChunkRequest {
+                            target: AccountIdOrPeerTrackingShard {
+                                account_id: peer.peer_info.account_id,
+                                prefer_peer: true,
+                                shard_id: ch.shard_id(),
+                                only_archival: false,
+                                min_height: ch.height_included(),
+                            },
+                            request: PartialEncodedChunkRequestMsg {
+                                chunk_hash: ch.chunk_hash(),
+                                part_ords: (0..self_.parts_per_chunk).collect(),
+                                tracking_shards: Default::default(),
+                            },
+                            create_time: ctx.clock().now(),
+                        })
+                        .await
+                })
+                .unwrap();
             let res = ctx.wait(recv.wait()).await;
             self.stats.chunk_done.fetch_add(1, Ordering::Relaxed);
             anyhow::Ok(res?)

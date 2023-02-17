@@ -1,12 +1,12 @@
-use near_network::concurrency::ctx::Ctx;
-use near_network::concurrency::scope;
-use near_network::time;
 use crate::network;
 use anyhow::Context;
 use log::info;
+use near_network::concurrency::ctx::Ctx;
+use near_network::concurrency::scope;
+use near_network::time;
+use near_primitives::hash::CryptoHash;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use near_primitives::hash::CryptoHash;
 
 // run() fetches the chain (headers,blocks and chunks)
 // starting with block having hash = <start_block_hash> and
@@ -14,7 +14,7 @@ use near_primitives::hash::CryptoHash;
 // at the start of the routine, so that the amount of work
 // is bounded).
 pub async fn run(
-    ctx: Ctx,
+    ctx: &Ctx,
     network: &Arc<network::Network>,
     start_block_hash: CryptoHash,
     block_limit: u64,
@@ -25,14 +25,17 @@ pub async fn run(
     info!("SYNC target_height = {}", target_height);
 
     let start_time = ctx.clock().now();
-    let res = scope::run!(&ctx, |s||ctx| async move {
+    let res = scope::run!(&ctx, |s| move |ctx| async move {
         let service = s.new_service();
-        service.spawn(|ctx:Ctx| async move {
-            loop {
-                info!("stats = {:?}", network.stats);
-                ctx.wait(ctx.clock().sleep(time::Duration::seconds(2))).await?;
-            }
-        }).unwrap();
+        let network_ = network.clone();
+        let _: scope::JoinHandle<()> = service
+            .spawn(move |ctx: Ctx| async move {
+                loop {
+                    info!("stats = {:?}", network_.stats);
+                    ctx.wait(ctx.clock().sleep(time::Duration::seconds(2))).await?;
+                }
+            })
+            .unwrap();
 
         let mut last_hash = start_block_hash;
         let mut last_height = 0;
@@ -54,11 +57,11 @@ pub async fn run(
                 if blocks_count == block_limit {
                     return anyhow::Ok(());
                 }
-                s.spawn(|ctx| async move {
+                s.spawn(move |ctx| async move {
                     let block = network.fetch_block(&ctx, h.hash()).await?;
                     for ch in block.chunks().iter() {
                         let ch = ch.clone();
-                        s.spawn(|ctx| async move {
+                        s.spawn(move |ctx| async move {
                             network.fetch_chunk(&ctx, &ch).await?;
                             anyhow::Ok(())
                         });
