@@ -1351,13 +1351,12 @@ pub fn load_config(
     let validator_signer = if validator_file.exists() {
         match InMemoryValidatorSigner::from_file(&validator_file) {
             Ok(signer) => Some(Arc::new(signer) as Arc<dyn ValidatorSigner>),
-            Err(_) => None,
+            Err(_) => {
+                validation_errors.push_errors(ValidationError::ValidatorKeyFileError { error_message: format!("Failed initializing validator signer from {}", validator_file.display()) });
+                None
+            }
         }
     } else {
-        let error_message =
-            format!("validator key file does not exist at the path {}", validator_file.display());
-        validation_errors
-            .push_errors(ValidationError::ValidatorKeyFileError { error_message: error_message });
         None
     };
 
@@ -1393,7 +1392,7 @@ pub fn load_config(
             genesis
                 .validate(genesis_validation)
                 .map_or_else(|e| validation_errors.push_errors(e), |_| ());
-            if matches!(genesis.config.chain_id.as_ref(), "mainnet" | "testnet" | "betanet")
+            if validator_signer.is_some() && matches!(genesis.config.chain_id.as_ref(), "mainnet" | "testnet" | "betanet")
                 && config.tracked_shards.is_empty()
             {
                 // Make sure validators tracks all shards, see
@@ -1411,7 +1410,7 @@ pub fn load_config(
         }
     };
 
-    validation_errors.panic_if_errors();
+    validation_errors.return_ok_or_error()?;
 
     if genesis.is_none() || network_signer.is_none() {
         panic!("Genesis and network_signer should not be None by now.")

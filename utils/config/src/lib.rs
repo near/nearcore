@@ -98,15 +98,17 @@ impl ValidationErrors {
         }
     }
 
-    /// only call this function when you want the program to panic with all the errors
-    pub fn panic_if_errors(&self) {
+    /// only call this function when you want the program to return () or all errors so far
+    /// should only be used when you finished inserting all errors
+    pub fn return_ok_or_error(&self) -> anyhow::Result<()> {
         if self.0.is_empty() {
-            tracing::info!(target: "config", "All validations have passed!")
+            tracing::info!(target: "config", "All validations have passed!");
+            Ok(())
         } else {
-            panic!(
+            Err(anyhow::Error::msg(format!(
                 "\nThe following config checks failed:{}\nPlease fix the config json files and validate again!",
                 self.generate_final_error_message().unwrap()
-            )
+            )))
         }
     }
 }

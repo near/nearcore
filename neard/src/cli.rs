@@ -117,7 +117,7 @@ impl NeardCmd {
                 cmd.run()?;
             }
             NeardSubCommand::ValidateConfig(cmd) => {
-                cmd.run(&home_dir);
+                cmd.run(&home_dir)?;
             }
         };
         Ok(())
@@ -775,9 +775,9 @@ fn make_env_filter(verbose: Option<&str>) -> Result<EnvFilter, BuildEnvFilterErr
 pub(super) struct ValidateConfigCommand {}
 
 impl ValidateConfigCommand {
-    pub(super) fn run(&self, home_dir: &Path) {
-        let _ = nearcore::config::load_config(&home_dir, GenesisValidationMode::Full)
-            .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
+    pub(super) fn run(&self, home_dir: &Path) -> anyhow::Result<()> {
+        nearcore::config::load_config(&home_dir, GenesisValidationMode::Full)?;
+        Ok(())
     }
 }
 
