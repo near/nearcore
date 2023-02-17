@@ -326,10 +326,8 @@ impl NetworkState {
                         .await
                         .map_err(|_: ReasonForBan| RegisterPeerError::InvalidEdge)?;
                     this.tier2.insert_ready(conn.clone()).map_err(RegisterPeerError::PoolError)?;
-                    // Best effort write to DB.
-                    if let Err(err) = this.peer_store.peer_connected(&clock, peer_info) {
-                        tracing::error!(target: "network", ?err, "Failed to save peer data");
-                    }
+                    // Write to the peer store
+                    this.peer_store.peer_connected(&clock, peer_info);
                 }
             }
             Ok(())
