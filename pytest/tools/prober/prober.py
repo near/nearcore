@@ -22,8 +22,9 @@ import time
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
-from configured_logger import logger
+import configured_logger
 
+logger = configured_logger.new_logger("stderr", stderr = True)
 
 def json_rpc(method, params, url):
     try:
