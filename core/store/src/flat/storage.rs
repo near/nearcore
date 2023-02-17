@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
+use near_primitives::hash::CryptoHash;
 use near_primitives::state::ValueRef;
-use near_primitives::types::{ShardId, RawStateChangesWithTrieKey};
+use near_primitives::types::{RawStateChangesWithTrieKey, ShardId};
 
 use crate::Store;
 
@@ -39,13 +40,21 @@ impl FlatStorage {
         todo!("read state from db");
     }
 
+    pub fn create_for_genesis(
+        store: Store,
+        shard_id: ShardId,
+        genesis_block: &CryptoHash,
+    ) -> Self {
+        todo!("set flat head to genesis_block and return instance with ReadyState")
+    }
+
     fn add_block(&self, _block: BlockInfo, _changes: &[RawStateChangesWithTrieKey]) {
         match self.state {
             FlatStorageState::Disabled => {}
             FlatStorageState::SavingDeltas
             | FlatStorageState::FetchingState
             | FlatStorageState::CatchingUp => todo!("save delta to the disk"),
-            FlatStorageState::Ready(ref _state) => todo!("add delta to the state")
+            FlatStorageState::Ready(ref _state) => todo!("add delta to the state"),
         }
     }
 
