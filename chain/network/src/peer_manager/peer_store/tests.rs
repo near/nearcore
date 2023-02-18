@@ -45,13 +45,13 @@ fn test_unconnected_peer() {
     let peer_info_a = gen_peer_info(0);
     let peer_info_to_ban = gen_peer_info(1);
     let boot_nodes = vec![peer_info_a, peer_info_to_ban];
-    {
-        let peer_store =
-            PeerStore::new(&clock.clock(), make_config(&boot_nodes, Blacklist::default(), false))
-                .unwrap();
-        assert!(peer_store.unconnected_peer(|_| false, false).is_some());
-        assert!(peer_store.unconnected_peer(|_| true, false).is_none());
-    }
+
+    let peer_store =
+        PeerStore::new(&clock.clock(), make_config(&boot_nodes, Blacklist::default(), false))
+            .unwrap();
+
+    assert!(peer_store.unconnected_peer(|_| false, false).is_some());
+    assert!(peer_store.unconnected_peer(|_| true, false).is_none());
 }
 
 #[test]
