@@ -3,6 +3,8 @@
 use crate::{MockNetworkConfig, MockPeerManagerActor};
 use actix::{Actor, Addr, Arbiter};
 use anyhow::Context;
+use near_async::actix::AddrWithAutoSpanContextExt;
+use near_async::messaging::{IntoSender, LateBoundSender, Sender};
 use near_chain::types::RuntimeAdapter;
 use near_chain::ChainStoreUpdate;
 use near_chain::{Chain, ChainGenesis, ChainStore, ChainStoreAccess, DoomslugThresholdMode};
@@ -10,7 +12,8 @@ use near_chain_configs::GenesisConfig;
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
-use near_network::types::NetworkRecipient;
+use near_network::shards_manager::ShardsManagerRequestFromNetwork;
+
 use near_primitives::state_part::PartId;
 use near_primitives::syncing::get_num_state_parts;
 use near_primitives::types::BlockHeight;
@@ -32,7 +35,7 @@ fn setup_runtime(
     let store = if in_memory_storage {
         create_test_store()
     } else {
-        near_store::NodeStorage::opener(home_dir, &config.config.store, None)
+        near_store::NodeStorage::opener(home_dir, config.config.archive, &config.config.store, None)
             .open()
             .unwrap()
             .get_store(near_store::Temperature::Hot)
@@ -44,7 +47,7 @@ fn setup_runtime(
 fn setup_mock_peer_manager_actor(
     chain: Chain,
     client: Arc<dyn near_network::client::Client>,
-    shards_manager_adapter: Arc<dyn near_network::shards_manager::ShardsManagerAdapterForNetwork>,
+    shards_manager_adapter: Sender<ShardsManagerRequestFromNetwork>,
     genesis_config: &GenesisConfig,
     block_production_delay: Duration,
     client_start_height: BlockHeight,
@@ -113,8 +116,8 @@ pub fn setup_mock_node(
     let chain_genesis = ChainGenesis::new(&config.genesis);
 
     let node_id = config.network_config.node_id();
-    let network_adapter = Arc::new(NetworkRecipient::default());
-    let shards_manager_adapter = Arc::new(NetworkRecipient::default());
+    let network_adapter = Arc::new(LateBoundSender::default());
+    let shards_manager_adapter = Arc::new(LateBoundSender::default());
     let adv = near_client::adversarial::Controls::default();
 
     // set up client dir to be ready to process blocks from client_start_height
@@ -244,8 +247,8 @@ pub fn setup_mock_node(
         chain_genesis.clone(),
         client_runtime.clone(),
         node_id,
-        network_adapter.clone(),
-        shards_manager_adapter.clone(),
+        network_adapter.clone().into(),
+        shards_manager_adapter.as_sender(),
         config.validator_signer.clone(),
         telemetry,
         None,
@@ -257,20 +260,20 @@ pub fn setup_mock_node(
         None,
         chain_genesis.clone(),
         client_runtime.clone(),
-        network_adapter.clone(),
+        network_adapter.clone().into(),
         config.client_config.clone(),
         adv,
     );
 
     let (shards_manager_actor, _) = start_shards_manager(
         client_runtime.clone(),
-        network_adapter.clone(),
-        Arc::new(client.clone()),
+        network_adapter.as_sender(),
+        client.clone().with_auto_span_context().into_sender(),
         config.validator_signer.map(|signer| signer.validator_id().clone()),
         client_runtime.store().clone(),
         config.client_config.chunk_request_retry_period,
     );
-    shards_manager_adapter.set_recipient(shards_manager_actor);
+    shards_manager_adapter.bind(shards_manager_actor);
 
     let arbiter = Arbiter::new();
     let client1 = client.clone();
@@ -293,7 +296,7 @@ pub fn setup_mock_node(
             setup_mock_peer_manager_actor(
                 chain,
                 Arc::new(near_client::adapter::Adapter::new(client1, view_client1)),
-                shards_manager_adapter,
+                shards_manager_adapter.as_sender(),
                 &genesis_config,
                 block_production_delay,
                 client_start_height,
@@ -302,7 +305,7 @@ pub fn setup_mock_node(
                 target_height,
             )
         });
-    network_adapter.set_recipient(mock_network_actor);
+    network_adapter.bind(mock_network_actor.with_auto_span_context());
 
     let servers = config.rpc_config.map(|rpc_config| {
         near_jsonrpc::start_http(

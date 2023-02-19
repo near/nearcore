@@ -1,13 +1,9 @@
-use std::cmp::Ordering::Greater;
-use std::{fmt, str};
-
-use serde::{Deserialize, Serialize};
-
-use near_primitives_core::types::ShardId;
-
 use crate::hash::CryptoHash;
 use crate::types::{AccountId, NumShards};
+use near_primitives_core::types::ShardId;
+use std::cmp::Ordering::Greater;
 use std::collections::HashMap;
+use std::{fmt, str};
 
 /// This file implements two data structure `ShardLayout` and `ShardUId`
 ///
@@ -51,7 +47,7 @@ use std::collections::HashMap;
 
 pub type ShardVersion = u32;
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq)]
 pub enum ShardLayout {
     V0(ShardLayoutV0),
     V1(ShardLayoutV1),
@@ -62,7 +58,7 @@ pub enum ShardLayout {
 /// to keep backward compatibility for some existing tests.
 /// `parent_shards` for `ShardLayoutV1` is always `None`, meaning it can only be the first shard layout
 /// a chain uses.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct ShardLayoutV0 {
     /// Map accounts evenly across all shards
     num_shards: NumShards,
@@ -76,7 +72,7 @@ pub struct ShardLayoutV0 {
 /// will be `[[0, 1, 2, 3]]`
 type ShardSplitMap = Vec<Vec<ShardId>>;
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct ShardLayoutV1 {
     /// num_shards = fixed_shards.len() + boundary_accounts.len() + 1
     /// Each account and all sub-accounts map to the shard of position in this array.
@@ -360,16 +356,17 @@ impl str::FromStr for ShardUId {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let (shard_str, version_str) = s
             .split_once(".")
-            .ok_or_else(|| format!("shard version and number must be separated by \".\""))?;
+            .ok_or_else(|| "shard version and number must be separated by \".\"".to_string())?;
 
         let version = version_str
             .strip_prefix("v")
-            .ok_or_else(|| format!("shard version must start with \"v\""))?
+            .ok_or_else(|| "shard version must start with \"v\"".to_string())?
             .parse::<ShardVersion>()
             .map_err(|e| format!("shard version after \"v\" must be a number, {e}"))?;
 
-        let shard_str =
-            shard_str.strip_prefix("s").ok_or_else(|| format!("shard id must start with \"s\""))?;
+        let shard_str = shard_str
+            .strip_prefix("s")
+            .ok_or_else(|| "shard id must start with \"s\"".to_string())?;
         let shard_id = shard_str
             .parse::<u32>()
             .map_err(|e| format!("shard id after \"s\" must be a number, {e}"))?;

@@ -697,9 +697,9 @@ pub(crate) struct NetworkStatusResponse {
     Copy,
     PartialEq,
     Eq,
+    Apiv2Schema,
     serde::Serialize,
     serde::Deserialize,
-    Apiv2Schema,
     strum::EnumIter,
     strum::IntoStaticStr,
 )]
@@ -727,9 +727,9 @@ pub(crate) enum OperationType {
     Clone,
     Copy,
     PartialEq,
+    Apiv2Schema,
     serde::Serialize,
     serde::Deserialize,
-    Apiv2Schema,
     strum::EnumIter,
 )]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -986,7 +986,7 @@ pub(crate) struct SubNetworkIdentifier {
 /// timestamp is stored in milliseconds because some blockchains produce blocks
 /// more often than once a second.
 #[derive(
-    Debug, Clone, PartialEq, PartialOrd, serde::Serialize, serde::Deserialize, Apiv2Schema,
+    Debug, Clone, PartialEq, PartialOrd, Apiv2Schema, serde::Serialize, serde::Deserialize,
 )]
 pub(crate) struct Timestamp(i64);
 

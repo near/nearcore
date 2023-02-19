@@ -160,7 +160,7 @@ impl EncodedChunksCache {
         prev_block_hash: &CryptoHash,
         chunk_hash: &ChunkHash,
     ) {
-        if let Occupied(mut entry) = self.incomplete_chunks.entry(prev_block_hash.clone()) {
+        if let Occupied(mut entry) = self.incomplete_chunks.entry(*prev_block_hash) {
             entry.get_mut().remove(chunk_hash);
             if entry.get().is_empty() {
                 entry.remove();
@@ -185,7 +185,7 @@ impl EncodedChunksCache {
                 .or_default()
                 .insert(chunk_header.shard_id(), chunk_hash.clone());
             self.incomplete_chunks
-                .entry(chunk_header.prev_block_hash().clone())
+                .entry(*chunk_header.prev_block_hash())
                 .or_default()
                 .insert(chunk_hash.clone());
             EncodedChunksCacheEntry::from_chunk_header(chunk_header.clone())
@@ -329,7 +329,7 @@ mod tests {
         let mut cache = EncodedChunksCache::new();
         let header = create_chunk_header(1, 0);
         let partial_encoded_chunk =
-            PartialEncodedChunkV2 { header: header.clone(), parts: vec![], receipts: vec![] };
+            PartialEncodedChunkV2 { header: header, parts: vec![], receipts: vec![] };
         cache.merge_in_partial_encoded_chunk(&partial_encoded_chunk);
         assert!(!cache.height_map.is_empty());
 

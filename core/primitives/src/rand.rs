@@ -1,9 +1,10 @@
 use crate::types::Balance;
 use aliases::Aliases;
 use borsh::{BorshDeserialize, BorshSerialize};
-use serde::Serialize;
 
-#[derive(Default, BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, PartialEq, Eq)]
+#[derive(
+    Default, BorshSerialize, BorshDeserialize, serde::Serialize, Clone, Debug, PartialEq, Eq,
+)]
 pub struct WeightedIndex {
     weight_sum: Balance,
     aliases: Vec<u64>,

@@ -1,9 +1,9 @@
+use std::sync::Arc;
+
 use crate::db::rocksdb::snapshot::{Snapshot, SnapshotError, SnapshotRemoveError};
 use crate::db::rocksdb::RocksDB;
-use crate::metadata::{
-    set_store_metadata, set_store_version, DbKind, DbMetadata, DbVersion, DB_VERSION,
-};
-use crate::{Mode, NodeStorage, StoreConfig, Temperature};
+use crate::metadata::{DbKind, DbMetadata, DbVersion, DB_VERSION};
+use crate::{Mode, NodeStorage, Store, StoreConfig, Temperature};
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreOpenerError {
@@ -39,7 +39,7 @@ pub enum StoreOpenerError {
     /// Specifically, this happens if node is running with a single database and
     /// its kind is not RPC or Archive; or it’s running with two databases and
     /// their types aren’t Hot and Cold respectively.
-    #[error("{which} database kind should be {want} but got {got:?}")]
+    #[error("{which} database kind should be {want} but got {got:?}. Did you forget to set archive on your store opener?")]
     DbKindMismatch { which: &'static str, got: Option<DbKind>, want: DbKind },
 
     /// Unable to create a migration snapshot because one already exists.
@@ -80,6 +80,10 @@ pub enum StoreOpenerError {
     )]
     DbVersionMismatch { got: DbVersion, want: DbVersion },
 
+    /// The database version is missing.
+    #[error("The database version is missing.")]
+    DbVersionMissing {},
+
     /// Database has version which is no longer supported.
     ///
     /// `latest_release` gives latest neard release which still supports that
@@ -117,6 +121,34 @@ impl From<SnapshotRemoveError> for StoreOpenerError {
     }
 }
 
+fn get_default_kind(archive: bool, temp: Temperature) -> DbKind {
+    match (temp, archive) {
+        (Temperature::Hot, false) => DbKind::RPC,
+        (Temperature::Hot, true) => DbKind::Archive,
+        (Temperature::Cold, _) => DbKind::Cold,
+    }
+}
+
+fn is_valid_kind_temp(kind: DbKind, temp: Temperature) -> bool {
+    match (kind, temp) {
+        (DbKind::Cold, Temperature::Cold) => true,
+        (DbKind::RPC, Temperature::Hot) => true,
+        (DbKind::Hot, Temperature::Hot) => true,
+        (DbKind::Archive, Temperature::Hot) => true,
+        _ => false,
+    }
+}
+
+fn is_valid_kind_archive(kind: DbKind, archive: bool) -> bool {
+    match (kind, archive) {
+        (DbKind::Archive, true) => true,
+        (DbKind::Cold, true) => true,
+        (DbKind::Hot, true) => true,
+        (DbKind::RPC, _) => true,
+        _ => false,
+    }
+}
+
 /// Builder for opening node’s storage.
 ///
 /// Typical usage:
@@ -133,9 +165,8 @@ pub struct StoreOpener<'a> {
     /// Opener for an instance of Cold RocksDB store if one was configured.
     cold: Option<DBOpener<'a>>,
 
-    /// What kind of database we should expect; if `None`, the kind of the
-    /// database is not checked.
-    expected_kind: Option<DbKind>,
+    /// Whether the opener should expect archival db or not.
+    archive: bool,
 
     /// A migrator which performs database migration if the database has old
     /// version.
@@ -165,26 +196,16 @@ impl<'a> StoreOpener<'a> {
     /// Initialises a new opener with given home directory and store config.
     pub(crate) fn new(
         home_dir: &std::path::Path,
+        archive: bool,
         config: &'a StoreConfig,
         cold_config: Option<&'a StoreConfig>,
     ) -> Self {
         Self {
             hot: DBOpener::new(home_dir, config, Temperature::Hot),
             cold: cold_config.map(|config| DBOpener::new(home_dir, config, Temperature::Cold)),
-            expected_kind: None,
+            archive: archive,
             migrator: None,
         }
-    }
-
-    /// Configures whether archive or RPC storage is expected.
-    ///
-    /// If an archive database is expected (that is, if the argument is true)
-    /// but opened database is [`DbKind::RPC`], the database is changed to
-    /// [`DbKind::Archive`].  On the other hand, if RPC database is expected
-    /// but archive is opened, the opening will fail.
-    pub fn expect_archive(mut self, archive: bool) -> Self {
-        self.expected_kind = Some(if archive { DbKind::Archive } else { DbKind::RPC });
-        self
     }
 
     /// Configures the opener with specified [`StoreMigrator`].
@@ -216,7 +237,7 @@ impl<'a> StoreOpener<'a> {
         self.open_in_mode(Mode::ReadWrite)
     }
 
-    /// Opens the RocksDB database.
+    /// Opens the RocksDB database(s) for hot and cold (if configured) storages.
     ///
     /// When opening in read-only mode, verifies that the database version is
     /// what the node expects and fails if it isn’t.  If database doesn’t exist,
@@ -224,219 +245,196 @@ impl<'a> StoreOpener<'a> {
     /// other hand, if mode is [`Mode::Create`], fails if the database already
     /// exists.
     pub fn open_in_mode(&self, mode: Mode) -> Result<crate::NodeStorage, StoreOpenerError> {
-        let hot_meta = self.hot.get_metadata()?;
-        let cold_meta = self.cold.as_ref().map(|db| db.get_metadata()).transpose()?;
-
-        if let Some(hot_meta) = hot_meta {
-            if let Some(Some(cold_meta)) = cold_meta {
-                // If cold database exists, hot and cold databases must have the
-                // same version and to be Hot and Cold or Archive and Cold kinds respectively.
-                if hot_meta.version != cold_meta.version {
-                    return Err(StoreOpenerError::HotColdVersionMismatch {
-                        hot_version: hot_meta.version,
-                        cold_version: cold_meta.version,
-                    });
-                }
-                if !matches!(hot_meta.kind, Some(DbKind::Hot) | Some(DbKind::Archive)) {
-                    return Err(StoreOpenerError::DbKindMismatch {
-                        which: "Hot",
-                        got: hot_meta.kind,
-                        want: DbKind::Hot,
-                    });
-                }
-                if !matches!(cold_meta.kind, Some(DbKind::Cold)) {
-                    return Err(StoreOpenerError::DbKindMismatch {
-                        which: "Cold",
-                        got: cold_meta.kind,
-                        want: DbKind::Cold,
-                    });
-                }
-            } else if cold_meta.is_some() {
-                // If cold database is configured and hot database exists,
-                // cold database must exist as well.
-                return Err(StoreOpenerError::HotColdExistenceMismatch);
-            } else if !matches!(hot_meta.kind, None | Some(DbKind::RPC | DbKind::Archive)) {
-                // If cold database is not configured, hot database must be
-                // RPC or Archive kind.
-                return Err(StoreOpenerError::DbKindMismatch {
-                    which: "Hot",
-                    got: hot_meta.kind,
-                    want: self.expected_kind.unwrap_or(DbKind::RPC),
-                });
-            }
-            self.open_existing(
-                mode.but_cannot_create().ok_or(StoreOpenerError::DbAlreadyExists)?,
-                hot_meta,
-            )
-        } else if mode.can_create() {
-            self.open_new()
-        } else {
-            Err(StoreOpenerError::DbDoesNotExist)
+        {
+            let hot_path = self.hot.path.display().to_string();
+            let cold_path = match &self.cold {
+                Some(cold) => cold.path.display().to_string(),
+                None => String::from("none"),
+            };
+            tracing::info!(target: "db_opener", path=hot_path, cold_path=cold_path, "Opening NodeStorage");
         }
-    }
 
-    fn open_existing(
-        &self,
-        mode: Mode,
-        metadata: DbMetadata,
-    ) -> Result<crate::NodeStorage, StoreOpenerError> {
-        let snapshots = self.apply_migrations(mode, metadata)?;
-        tracing::info!(target: "near", path=%self.path().display(),
-                       "Opening an existing RocksDB database");
-        let (storage, hot_meta, cold_meta) = self.open_storage(mode, DB_VERSION)?;
-        if let Some(cold_meta) = cold_meta {
-            assert!(matches!(hot_meta.kind, Some(DbKind::Hot) | Some(DbKind::Archive)));
-            assert!(matches!(cold_meta.kind, Some(DbKind::Cold)));
+        let hot_snapshot = {
+            Self::ensure_created(mode, &self.hot)?;
+            Self::ensure_kind(mode, &self.hot, self.archive, Temperature::Hot)?;
+            Self::ensure_version(mode, &self.hot, &self.migrator)?
+        };
+
+        let cold_snapshot = if let Some(cold) = &self.cold {
+            Self::ensure_created(mode, cold)?;
+            Self::ensure_kind(mode, cold, self.archive, Temperature::Cold)?;
+            Self::ensure_version(mode, cold, &self.migrator)?
         } else {
-            self.ensure_kind(&storage, hot_meta)?;
-        }
-        snapshots.0.remove()?;
-        snapshots.1.remove()?;
+            Snapshot::none()
+        };
+
+        let (hot_db, _) = self.hot.open(mode, DB_VERSION)?;
+        let cold_db = self
+            .cold
+            .as_ref()
+            .map(|cold| cold.open(mode, DB_VERSION))
+            .transpose()?
+            .map(|(db, _)| db);
+
+        let storage = NodeStorage::from_rocksdb(hot_db, cold_db);
+
+        hot_snapshot.remove()?;
+        cold_snapshot.remove()?;
+
         Ok(storage)
     }
 
-    /// Makes sure that database’s kind is correct.
-    fn ensure_kind(
-        &self,
-        storage: &NodeStorage,
-        metadata: DbMetadata,
-    ) -> Result<(), StoreOpenerError> {
-        let expected = match self.expected_kind {
-            Some(kind) => kind,
-            None => return Ok(()),
-        };
+    // Creates the DB if it doesn't exist.
+    fn ensure_created(mode: Mode, opener: &DBOpener) -> Result<(), StoreOpenerError> {
+        let meta = opener.get_metadata()?;
+        match meta {
+            Some(_) if !mode.must_create() => {
+                tracing::info!(target: "db_opener", path=%opener.path.display(), "The database exists.");
+                return Ok(());
+            }
+            Some(_) => {
+                return Err(StoreOpenerError::DbAlreadyExists);
+            }
+            None if mode.can_create() => {
+                tracing::info!(target: "db_opener", path=%opener.path.display(), "The database doesn't exist, creating it.");
 
-        if expected == metadata.kind.unwrap() {
+                let db = opener.create()?;
+                let store = Store { storage: Arc::new(db) };
+                store.set_db_version(DB_VERSION)?;
+                return Ok(());
+            }
+            None => {
+                return Err(StoreOpenerError::DbDoesNotExist);
+            }
+        }
+    }
+
+    /// Ensures that the db has correct kind. If the db doesn't have kind
+    /// it sets it, if the mode allows, or returns an error.
+    fn ensure_kind(
+        mode: Mode,
+        opener: &DBOpener,
+        archive: bool,
+        temp: Temperature,
+    ) -> Result<(), StoreOpenerError> {
+        let which: &'static str = temp.into();
+        tracing::debug!(target: "db_opener", path = %opener.path.display(), archive, which, "Ensure db kind is correct and set.");
+        let store = Self::open_store_unsafe(mode, opener)?;
+
+        let current_kind = store.get_db_kind()?;
+        let default_kind = get_default_kind(archive, temp);
+        let err =
+            Err(StoreOpenerError::DbKindMismatch { which, got: current_kind, want: default_kind });
+
+        // If kind is set check if it's the expected one.
+        if let Some(current_kind) = current_kind {
+            if !is_valid_kind_temp(current_kind, temp) {
+                return err;
+            }
+            if !is_valid_kind_archive(current_kind, archive) {
+                return err;
+            }
             return Ok(());
         }
 
-        if expected == DbKind::RPC {
-            tracing::info!(target: "neard", "Opening an archival database.");
-            tracing::warn!(target: "migrations", "Ignoring `archive` client configuration and setting database kind to Archive.");
-        } else {
-            tracing::info!(target: "neard", "Running node in archival mode (as per `archive` client configuration).");
-            tracing::info!(target: "migrations", "Setting database kind to Archive.");
-            tracing::warn!(target: "migrations", "Starting node in non-archival mode will no longer be possible with this database.");
-            set_store_metadata(
-                &storage,
-                DbMetadata { version: metadata.version, kind: self.expected_kind },
-            )?;
+        // Kind is not set, set it.
+        if mode.read_write() {
+            tracing::info!(target: "db_opener", archive,  which, "Setting the db DbKind to {default_kind:#?}");
+
+            store.set_db_kind(default_kind)?;
+            return Ok(());
         }
-        Ok(())
+
+        return err;
     }
 
-    fn open_new(&self) -> Result<crate::NodeStorage, StoreOpenerError> {
-        tracing::info!(target: "near", path=%self.path().display(),
-                       "Creating a new RocksDB database");
-        let hot = self.hot.create()?;
-        let cold = self.cold.as_ref().map(|db| db.create()).transpose()?;
-        let storage = NodeStorage::from_rocksdb(hot, cold);
-        set_store_metadata(
-            &storage,
-            DbMetadata { version: DB_VERSION, kind: self.expected_kind.or(Some(DbKind::RPC)) },
-        )?;
-        Ok(storage)
-    }
-
-    /// Applies database migrations to the database.
-    fn apply_migrations(
-        &self,
+    /// Ensures that the db has the correct - most recent - version. If the
+    /// version is lower, it performs migrations up until the most recent
+    /// version, if mode allows or returns an error.
+    fn ensure_version(
         mode: Mode,
-        metadata: DbMetadata,
-    ) -> Result<(Snapshot, Snapshot), StoreOpenerError> {
-        if metadata.version == DB_VERSION {
-            return Ok((Snapshot::none(), Snapshot::none()));
-        } else if metadata.version > DB_VERSION {
-            return Err(StoreOpenerError::DbVersionTooNew {
-                got: metadata.version,
-                want: DB_VERSION,
-            });
+        opener: &DBOpener,
+        migrator: &Option<&dyn StoreMigrator>,
+    ) -> Result<Snapshot, StoreOpenerError> {
+        tracing::debug!(target: "db_opener", path=%opener.path.display(), "Ensure db version");
+
+        let metadata = opener.get_metadata()?;
+        let metadata = metadata.ok_or(StoreOpenerError::DbDoesNotExist {})?;
+        let DbMetadata { version, .. } = metadata;
+
+        if version == DB_VERSION {
+            return Ok(Snapshot::none());
+        }
+        if version > DB_VERSION {
+            return Err(StoreOpenerError::DbVersionTooNew { got: version, want: DB_VERSION });
         }
 
+        // If we’re opening for reading, we cannot perform migrations thus we
+        // must fail if the database has old version (even if we support
+        // migration from that version).
         if mode.read_only() {
-            // If we’re opening for reading, we cannot perform migrations thus
-            // we must fail if the database has old version (even if we support
-            // migration from that version).
             return Err(StoreOpenerError::DbVersionMismatchOnRead {
-                got: metadata.version,
+                got: version,
                 want: DB_VERSION,
             });
         }
 
         // Figure out if we have migrator which supports the database version.
-        let migrator = self.migrator.ok_or(StoreOpenerError::DbVersionMismatch {
-            got: metadata.version,
-            want: DB_VERSION,
-        })?;
-        if let Err(release) = migrator.check_support(metadata.version) {
+        let migrator = migrator
+            .ok_or(StoreOpenerError::DbVersionMismatch { got: version, want: DB_VERSION })?;
+        if let Err(release) = migrator.check_support(version) {
             return Err(StoreOpenerError::DbVersionTooOld {
-                got: metadata.version,
+                got: version,
                 want: DB_VERSION,
                 latest_release: release,
             });
         }
 
-        let hot_snapshot = self.hot.snapshot()?;
-        let cold_snapshot = match self.cold {
-            None => Snapshot::none(),
-            Some(ref opener) => opener.snapshot()?,
-        };
+        let snapshot = opener.snapshot()?;
 
-        for version in metadata.version..DB_VERSION {
-            tracing::info!(target: "near", path=%self.path().display(),
-                           "Migrating the database from version {version} to {}",
-                           version + 1);
-            let storage = self.open_storage(Mode::ReadWriteExisting, version)?.0;
-            migrator.migrate(&storage, version).map_err(StoreOpenerError::MigrationError)?;
-            set_store_version(&storage, version + 1)?;
+        for version in version..DB_VERSION {
+            tracing::info!(target: "db_opener", path=%opener.path.display(),
+                           "Migrating the database from version {} to {}",
+                           version, version + 1);
+
+            // Note: here we open the cold store as a regular Store object
+            // backed by RocksDB. It doesn't matter today as we don't expect any
+            // old migrations on the cold storage. In the future however it may
+            // be better to wrap it in the ColdDB object instead.
+
+            let store = Self::open_store(mode, opener, version)?;
+            migrator.migrate(&store, version).map_err(StoreOpenerError::MigrationError)?;
+            store.set_db_version(version + 1)?;
         }
 
         if cfg!(feature = "nightly") || cfg!(feature = "nightly_protocol") {
+            let version = 10000;
+            tracing::info!(target: "db_opener", path=%opener.path.display(),
+            "Setting the database version to {version} for nightly");
+
             // Set some dummy value to avoid conflict with other migrations from
             // nightly features.
-            let storage = self.open_storage(Mode::ReadWriteExisting, DB_VERSION)?.0;
-            set_store_version(&storage, 10000)?;
+            let store = Self::open_store(mode, opener, DB_VERSION)?;
+            store.set_db_version(version)?;
         }
 
-        Ok((hot_snapshot, cold_snapshot))
+        Ok(snapshot)
     }
 
-    fn open_storage(
-        &self,
+    fn open_store(
         mode: Mode,
-        want_version: DbVersion,
-    ) -> std::io::Result<(NodeStorage, DbMetadata, Option<DbMetadata>)> {
-        let (hot, hot_meta) = self.hot.open(mode, want_version)?;
-        let (cold, cold_meta) =
-            match self.cold.as_ref().map(|opener| opener.open(mode, want_version)).transpose()? {
-                None => (None, None),
-                Some((db, meta)) => (Some(db), Some(meta)),
-            };
+        opener: &DBOpener,
+        version: DbVersion,
+    ) -> Result<Store, StoreOpenerError> {
+        let (db, _) = opener.open(mode, version)?;
+        let store = Store { storage: Arc::new(db) };
+        Ok(store)
+    }
 
-        // Those are mostly sanity checks.  If any of those conditions fails
-        // than either there’s bug in code or someone does something weird on
-        // the file system and tries to switch databases under us.
-        if let Some(cold_meta) = cold_meta {
-            if !matches!(hot_meta.kind, Some(DbKind::Hot) | Some(DbKind::Archive)) {
-                Err((hot_meta.kind, "Hot"))
-            } else if !matches!(cold_meta.kind, Some(DbKind::Cold)) {
-                Err((cold_meta.kind, "Cold"))
-            } else {
-                Ok(())
-            }
-        } else if matches!(hot_meta.kind, None | Some(DbKind::RPC | DbKind::Archive)) {
-            Ok(())
-        } else {
-            Err((hot_meta.kind, "RPC or Archive"))
-        }
-        .map_err(|(got, want)| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("unexpected DbKind {got:?}; expected {want}"),
-            )
-        })?;
-
-        Ok((NodeStorage::from_rocksdb(hot, cold), hot_meta, cold_meta))
+    fn open_store_unsafe(mode: Mode, opener: &DBOpener) -> Result<Store, StoreOpenerError> {
+        let db = opener.open_unsafe(mode)?;
+        let store = Store { storage: Arc::new(db) };
+        Ok(store)
     }
 }
 
@@ -452,7 +450,7 @@ impl<'a> DBOpener<'a> {
         Self { path, config, temp }
     }
 
-    /// Returns version of the database or `None` if it doesn’t exist.
+    /// Returns version and kind of the database or `None` if it doesn’t exist.
     ///
     /// If the database exists but doesn’t have version set, returns an error.
     /// Similarly if the version key is set but to value which cannot be parsed.
@@ -491,6 +489,15 @@ impl<'a> DBOpener<'a> {
         }
     }
 
+    /// Opens the database in given mode without checking the expected version and kind.
+    ///
+    /// This is only suitable when creating the database or setting the version
+    /// and kind for the first time.
+    fn open_unsafe(&self, mode: Mode) -> std::io::Result<RocksDB> {
+        let db = RocksDB::open(&self.path, &self.config, mode, self.temp)?;
+        Ok(db)
+    }
+
     /// Creates a new database.
     fn create(&self) -> std::io::Result<RocksDB> {
         RocksDB::open(&self.path, &self.config, Mode::Create, self.temp)
@@ -523,5 +530,5 @@ pub trait StoreMigrator {
     /// **Panics** if `version` is not supported (the caller is supposed to
     /// check support via [`Self::check_support`] method) or if it’s greater or
     /// equal to [`DB_VERSION`].
-    fn migrate(&self, storage: &NodeStorage, version: DbVersion) -> anyhow::Result<()>;
+    fn migrate(&self, store: &Store, version: DbVersion) -> anyhow::Result<()>;
 }

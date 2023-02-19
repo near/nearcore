@@ -2,6 +2,10 @@
 //! actions in the transaction batch.
 use near_primitives::config::ActionCosts;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
+#[cfg(feature = "protocol_feature_nep366_delegate_action")]
+use near_primitives::transaction::Action;
+#[cfg(feature = "protocol_feature_nep366_delegate_action")]
+use near_primitives::types::AccountId;
 use near_primitives::types::{Balance, Gas};
 
 pub struct FeeHelper {
@@ -159,5 +163,33 @@ impl FeeHelper {
         let total_fee = exec_gas + send_gas;
 
         self.gas_to_balance(total_fee)
+    }
+
+    /// The additional cost to execute a list of actions in a meta transaction,
+    /// compared to executing them directly.
+    ///
+    /// The overhead consists of:
+    /// - The base cost of the delegate action (send and exec).
+    /// - The additional send cost for all inner actions.
+    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+    pub fn meta_tx_overhead_cost(&self, actions: &[Action], receiver: &AccountId) -> Balance {
+        // for tests, we assume sender != receiver
+
+        use near_primitives::version::PROTOCOL_VERSION;
+        let sir = false;
+        let base = self.cfg.fee(ActionCosts::delegate);
+        let receipt = self.cfg.fee(ActionCosts::new_action_receipt);
+        let total_gas = base.exec_fee()
+            + base.send_fee(sir)
+            + receipt.send_fee(sir)
+            + node_runtime::config::total_send_fees(
+                &self.cfg,
+                sir,
+                actions,
+                receiver,
+                PROTOCOL_VERSION,
+            )
+            .unwrap();
+        self.gas_to_balance(total_gas)
     }
 }

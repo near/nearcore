@@ -2,6 +2,7 @@
 //! Useful for querying from RPC.
 
 use actix::{Actor, Addr, Handler, SyncArbiter, SyncContext};
+use near_async::messaging::CanSend;
 use near_chain::types::Tip;
 use near_primitives::receipt::Receipt;
 use near_primitives::time::Clock;
@@ -25,9 +26,9 @@ use near_client_primitives::types::{
     GetExecutionOutcomesForBlock, GetGasPrice, GetGasPriceError, GetMaintenanceWindows,
     GetMaintenanceWindowsError, GetNextLightClientBlockError, GetProtocolConfig,
     GetProtocolConfigError, GetReceipt, GetReceiptError, GetSplitStorageInfo,
-    GetSplitStorageInfoError, GetSplitStorageInfoResult, GetStateChangesError,
-    GetStateChangesWithCauseInBlock, GetStateChangesWithCauseInBlockForTrackedShards,
-    GetValidatorInfoError, Query, QueryError, TxStatus, TxStatusError,
+    GetSplitStorageInfoError, GetStateChangesError, GetStateChangesWithCauseInBlock,
+    GetStateChangesWithCauseInBlockForTrackedShards, GetValidatorInfoError, Query, QueryError,
+    TxStatus, TxStatusError,
 };
 #[cfg(feature = "test_features")]
 use near_network::types::NetworkAdversarialMessage;
@@ -55,8 +56,8 @@ use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
     FinalExecutionOutcomeView, FinalExecutionOutcomeViewEnum, GasPriceView, LightClientBlockView,
-    MaintenanceWindowsView, QueryRequest, QueryResponse, ReceiptView, StateChangesKindsView,
-    StateChangesView,
+    MaintenanceWindowsView, QueryRequest, QueryResponse, ReceiptView, SplitStorageInfoView,
+    StateChangesKindsView, StateChangesView,
 };
 
 use crate::adapter::{
@@ -97,7 +98,7 @@ pub struct ViewClientActor {
     validator_account_id: Option<AccountId>,
     chain: Chain,
     runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
-    network_adapter: Arc<dyn PeerManagerAdapter>,
+    network_adapter: PeerManagerAdapter,
     pub config: ClientConfig,
     request_manager: Arc<RwLock<ViewClientRequestManager>>,
     state_request_cache: Arc<Mutex<VecDeque<Instant>>>,
@@ -123,7 +124,7 @@ impl ViewClientActor {
         validator_account_id: Option<AccountId>,
         chain_genesis: &ChainGenesis,
         runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
-        network_adapter: Arc<dyn PeerManagerAdapter>,
+        network_adapter: PeerManagerAdapter,
         config: ClientConfig,
         request_manager: Arc<RwLock<ViewClientRequestManager>>,
         adv: crate::adversarial::Controls,
@@ -208,10 +209,9 @@ impl ViewClientActor {
                 Ok(Some(self.chain.genesis().clone()))
             }
             BlockReference::SyncCheckpoint(SyncCheckpoint::EarliestAvailable) => {
-                let block_hash = match self.chain.get_earliest_block_hash() {
-                    Ok(Some(block_hash)) => block_hash,
-                    Ok(None) => return Ok(None),
-                    Err(err) => return Err(err),
+                let block_hash = match self.chain.get_earliest_block_hash()? {
+                    Some(block_hash) => block_hash,
+                    None => return Ok(None),
                 };
                 self.chain.get_block_header(&block_hash).map(Some)
             }
@@ -242,10 +242,9 @@ impl ViewClientActor {
                 Ok(Some(self.chain.genesis_block().clone()))
             }
             BlockReference::SyncCheckpoint(SyncCheckpoint::EarliestAvailable) => {
-                let block_hash = match self.chain.get_earliest_block_hash() {
-                    Ok(Some(block_hash)) => block_hash,
-                    Ok(None) => return Ok(None),
-                    Err(err) => return Err(err),
+                let block_hash = match self.chain.get_earliest_block_hash()? {
+                    Some(block_hash) => block_hash,
+                    None => return Ok(None),
                 };
                 self.chain.get_block(&block_hash).map(Some)
             }
@@ -342,7 +341,7 @@ impl ViewClientActor {
                         if !self.config.archive && header.height() < gc_stop_height {
                             QueryError::GarbageCollectedBlock {
                                 block_height: header.height(),
-                                block_hash: header.hash().clone(),
+                                block_hash: *header.hash(),
                             }
                         } else {
                             QueryError::UnavailableShard { requested_shard_id: shard_id }
@@ -475,14 +474,9 @@ impl ViewClientActor {
                     .map_err(|err| TxStatusError::InternalError(err.to_string()))?;
                 let validator = self.chain.find_validator_for_forwarding(target_shard_id)?;
 
-                self.network_adapter.do_send(
-                    PeerManagerMessageRequest::NetworkRequests(NetworkRequests::TxStatus(
-                        validator,
-                        signer_account_id,
-                        tx_hash,
-                    ))
-                    .with_span_context(),
-                );
+                self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                    NetworkRequests::TxStatus(validator, signer_account_id, tx_hash),
+                ));
             }
             Ok(None)
         }
@@ -557,10 +551,7 @@ impl Handler<WithSpanContext<GetBlock>> for ViewClientActor {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["GetBlock"]).start_timer();
-        let block = match self.get_block_by_reference(&msg.0)? {
-            None => return Err(GetBlockError::NotSyncedYet),
-            Some(block) => block,
-        };
+        let block = self.get_block_by_reference(&msg.0)?.ok_or(GetBlockError::NotSyncedYet)?;
         let block_author = self
             .runtime_adapter
             .get_block_producer(block.header().epoch_id(), block.header().height())?;
@@ -1429,7 +1420,7 @@ impl Handler<WithSpanContext<GetMaintenanceWindows>> for ViewClientActor {
 }
 
 impl Handler<WithSpanContext<GetSplitStorageInfo>> for ViewClientActor {
-    type Result = Result<GetSplitStorageInfoResult, GetSplitStorageInfoError>;
+    type Result = Result<SplitStorageInfoView, GetSplitStorageInfoError>;
 
     fn handle(
         &mut self,
@@ -1444,10 +1435,13 @@ impl Handler<WithSpanContext<GetSplitStorageInfo>> for ViewClientActor {
         let final_head = store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?;
         let cold_head = store.get_ser::<Tip>(DBCol::BlockMisc, COLD_HEAD_KEY)?;
 
-        Ok(GetSplitStorageInfoResult {
+        let hot_db_kind = store.get_db_kind()?.map(|kind| kind.to_string());
+
+        Ok(SplitStorageInfoView {
             head_height: head.map(|tip| tip.height),
             final_head_height: final_head.map(|tip| tip.height),
             cold_head_height: cold_head.map(|tip| tip.height),
+            hot_db_kind: hot_db_kind,
         })
     }
 }
@@ -1457,7 +1451,7 @@ pub fn start_view_client(
     validator_account_id: Option<AccountId>,
     chain_genesis: ChainGenesis,
     runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
-    network_adapter: Arc<dyn PeerManagerAdapter>,
+    network_adapter: PeerManagerAdapter,
     config: ClientConfig,
     adv: crate::adversarial::Controls,
 ) -> Addr<ViewClientActor> {

@@ -1,5 +1,7 @@
 use actix::{Actor, Addr};
 use anyhow::{anyhow, bail, Context};
+use near_async::actix::AddrWithAutoSpanContextExt;
+use near_async::messaging::{IntoSender, LateBoundSender};
 use near_chain::test_utils::{KeyValueRuntime, ValidatorSchedule};
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis};
@@ -12,7 +14,6 @@ use near_network::config;
 use near_network::tcp;
 use near_network::test_utils::{expected_routing_tables, peer_id_from_seed, GetInfo};
 use near_network::time;
-use near_network::types::NetworkRecipient;
 use near_network::types::{
     PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, ROUTED_MESSAGE_TTL,
 };
@@ -65,18 +66,18 @@ fn setup_network_node(
     let genesis_block = Chain::make_genesis_block(&*runtime, &chain_genesis).unwrap();
     let genesis_id = GenesisId {
         chain_id: client_config.chain_id.clone(),
-        hash: genesis_block.header().hash().clone(),
+        hash: *genesis_block.header().hash(),
     };
-    let network_adapter = Arc::new(NetworkRecipient::default());
-    let shards_manager_adapter = Arc::new(NetworkRecipient::default());
+    let network_adapter = Arc::new(LateBoundSender::default());
+    let shards_manager_adapter = Arc::new(LateBoundSender::default());
     let adv = near_client::adversarial::Controls::default();
     let client_actor = start_client(
         client_config.clone(),
         chain_genesis.clone(),
         runtime.clone(),
         config.node_id(),
-        network_adapter.clone(),
-        shards_manager_adapter.clone(),
+        network_adapter.clone().into(),
+        shards_manager_adapter.as_sender(),
         Some(signer.clone()),
         telemetry_actor,
         None,
@@ -86,31 +87,31 @@ fn setup_network_node(
     .0;
     let view_client_actor = start_view_client(
         config.validator.as_ref().map(|v| v.account_id()),
-        chain_genesis.clone(),
+        chain_genesis,
         runtime.clone(),
-        network_adapter.clone(),
+        network_adapter.clone().into(),
         client_config.clone(),
         adv,
     );
     let (shards_manager_actor, _) = start_shards_manager(
         runtime.clone(),
-        network_adapter.clone(),
-        Arc::new(client_actor.clone()),
+        network_adapter.as_sender(),
+        client_actor.clone().with_auto_span_context().into_sender(),
         Some(signer.validator_id().clone()),
         runtime.store().clone(),
         client_config.chunk_request_retry_period,
     );
-    shards_manager_adapter.set_recipient(shards_manager_actor);
+    shards_manager_adapter.bind(shards_manager_actor);
     let peer_manager = PeerManagerActor::spawn(
         time::Clock::real(),
         db.clone(),
         config,
         Arc::new(near_client::adapter::Adapter::new(client_actor, view_client_actor)),
-        shards_manager_adapter,
+        shards_manager_adapter.as_sender(),
         genesis_id,
     )
     .unwrap();
-    network_adapter.set_recipient(peer_manager.clone());
+    network_adapter.bind(peer_manager.clone().with_auto_span_context());
     peer_manager
 }
 
@@ -405,7 +406,7 @@ impl Runner {
             config.whitelist.iter().map(|ix| self.test_config[*ix].peer_info()).collect();
 
         let mut network_config =
-            config::NetworkConfig::from_seed(&config.account_id, config.node_addr.clone());
+            config::NetworkConfig::from_seed(&config.account_id, config.node_addr);
         network_config.peer_store.ban_window = config.ban_window;
         network_config.max_num_peers = config.max_num_peers;
         network_config.ttl_account_id_router = time::Duration::seconds(5);

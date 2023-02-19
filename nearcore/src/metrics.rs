@@ -1,5 +1,6 @@
 use near_o11y::metrics::{
-    linear_buckets, try_create_histogram_vec, try_create_int_gauge, HistogramVec, IntGauge,
+    linear_buckets, try_create_histogram_vec, try_create_int_counter_vec, try_create_int_gauge,
+    HistogramVec, IntCounterVec, IntGauge,
 };
 use once_cell::sync::Lazy;
 
@@ -31,6 +32,15 @@ pub(crate) static CONFIG_CORRECT: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge(
         "near_config_correct",
         "Are the current dynamically loadable configs correct",
+    )
+    .unwrap()
+});
+
+pub(crate) static COLD_STORE_COPY_RESULT: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_cold_store_copy_result",
+        "The result of a cold store copy iteration in the cold store loop.",
+        &["copy_result"],
     )
     .unwrap()
 });

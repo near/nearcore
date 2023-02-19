@@ -229,7 +229,7 @@ impl DoomslugApprovalsTracker {
     fn get_witnesses(&self) -> Vec<(AccountId, chrono::DateTime<chrono::Utc>)> {
         self.witness
             .iter()
-            .map(|(key, (_, arrival_time))| (key.clone(), arrival_time.clone()))
+            .map(|(key, (_, arrival_time))| (key.clone(), *arrival_time))
             .collect::<Vec<_>>()
     }
 }

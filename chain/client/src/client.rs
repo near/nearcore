@@ -7,7 +7,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use lru::LruCache;
-use near_chunks::adapter::ShardsManagerAdapterForClient;
+use near_async::messaging::{CanSend, Sender};
+use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardedTransactionPool;
 use near_chunks::logic::{
     cares_about_shard_this_or_next_epoch, decode_encoded_chunk, persist_chunk,
@@ -60,7 +61,7 @@ use crate::sync::state::{StateSync, StateSyncResult};
 use crate::{metrics, SyncStatus};
 use near_client_primitives::types::{Error, ShardSyncDownload, ShardSyncStatus};
 use near_network::types::{AccountKeys, ChainInfo, PeerManagerMessageRequest, SetChainInfo};
-use near_o11y::{log_assert, WithSpanContextExt};
+use near_o11y::log_assert;
 use near_primitives::block_header::ApprovalType;
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::network::PeerId;
@@ -103,7 +104,7 @@ pub struct Client {
     pub chain: Chain,
     pub doomslug: Doomslug,
     pub runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
-    pub shards_manager_adapter: Arc<dyn ShardsManagerAdapterForClient>,
+    pub shards_manager_adapter: Sender<ShardsManagerRequestFromClient>,
     pub sharded_tx_pool: ShardedTransactionPool,
     prev_block_to_chunk_headers_ready_for_inclusion: LruCache<
         CryptoHash,
@@ -111,7 +112,7 @@ pub struct Client {
     >,
     pub do_not_include_chunks_from: LruCache<(EpochId, AccountId), ()>,
     /// Network adapter.
-    network_adapter: Arc<dyn PeerManagerAdapter>,
+    network_adapter: PeerManagerAdapter,
     /// Signer for block producer (if present).
     pub validator_signer: Option<Arc<dyn ValidatorSigner>>,
     /// Approvals for which we do not have the block yet
@@ -187,8 +188,8 @@ impl Client {
         config: ClientConfig,
         chain_genesis: ChainGenesis,
         runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
-        network_adapter: Arc<dyn PeerManagerAdapter>,
-        shards_manager_adapter: Arc<dyn ShardsManagerAdapterForClient>,
+        network_adapter: PeerManagerAdapter,
+        shards_manager_adapter: Sender<ShardsManagerRequestFromClient>,
         validator_signer: Option<Arc<dyn ValidatorSigner>>,
         enable_doomslug: bool,
         rng_seed: RngSeed,
@@ -307,10 +308,9 @@ impl Client {
             && !self.sync_status.is_syncing()
         {
             let block = self.chain.get_block(&self.chain.head()?.last_block_hash)?;
-            self.network_adapter.do_send(
-                PeerManagerMessageRequest::NetworkRequests(NetworkRequests::Block { block: block })
-                    .with_span_context(),
-            );
+            self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::Block { block: block },
+            ));
             self.last_time_head_progress_made = Clock::instant();
         }
         Ok(())
@@ -913,12 +913,9 @@ impl Client {
             for body in challenges {
                 let challenge = Challenge::produce(body, &**validator_signer);
                 self.challenges.insert(challenge.hash, challenge.clone());
-                self.network_adapter.do_send(
-                    PeerManagerMessageRequest::NetworkRequests(NetworkRequests::Challenge(
-                        challenge,
-                    ))
-                    .with_span_context(),
-                );
+                self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                    NetworkRequests::Challenge(challenge),
+                ));
             }
         }
     }
@@ -945,12 +942,8 @@ impl Client {
             was_requested)
         .entered();
 
-        let res = self.receive_block_impl(
-            block,
-            peer_id.clone(),
-            was_requested,
-            apply_chunks_done_callback,
-        );
+        let res =
+            self.receive_block_impl(block, peer_id, was_requested, apply_chunks_done_callback);
         // Log the errors here. Note that the real error handling logic is already
         // done within process_block_impl, this is just for logging.
         if let Err(err) = res {
@@ -1125,26 +1118,20 @@ impl Client {
             if let Err(e) = &result {
                 match e {
                     near_chain::Error::InvalidChunkProofs(chunk_proofs) => {
-                        self.network_adapter.do_send(
-                            PeerManagerMessageRequest::NetworkRequests(NetworkRequests::Challenge(
-                                Challenge::produce(
-                                    ChallengeBody::ChunkProofs(*chunk_proofs.clone()),
-                                    &**validator_signer,
-                                ),
-                            ))
-                            .with_span_context(),
-                        );
+                        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                            NetworkRequests::Challenge(Challenge::produce(
+                                ChallengeBody::ChunkProofs(*chunk_proofs.clone()),
+                                &**validator_signer,
+                            )),
+                        ));
                     }
                     near_chain::Error::InvalidChunkState(chunk_state) => {
-                        self.network_adapter.do_send(
-                            PeerManagerMessageRequest::NetworkRequests(NetworkRequests::Challenge(
-                                Challenge::produce(
-                                    ChallengeBody::ChunkState(*chunk_state.clone()),
-                                    &**validator_signer,
-                                ),
-                            ))
-                            .with_span_context(),
-                        );
+                        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                            NetworkRequests::Challenge(Challenge::produce(
+                                ChallengeBody::ChunkState(*chunk_state.clone()),
+                                &**validator_signer,
+                            )),
+                        ));
                     }
                     _ => {}
                 }
@@ -1172,12 +1159,14 @@ impl Client {
             apply_chunks_done_callback,
         );
         if accepted_blocks.iter().any(|accepted_block| accepted_block.status.is_new_head()) {
-            self.shards_manager_adapter
-                .update_chain_heads(self.chain.head().unwrap(), self.chain.header_head().unwrap());
+            self.shards_manager_adapter.send(ShardsManagerRequestFromClient::UpdateChainHeads {
+                head: self.chain.head().unwrap(),
+                header_head: self.chain.header_head().unwrap(),
+            });
         }
         self.process_block_processing_artifact(block_processing_artifacts);
         let accepted_blocks_hashes =
-            accepted_blocks.iter().map(|accepted_block| accepted_block.hash.clone()).collect();
+            accepted_blocks.iter().map(|accepted_block| accepted_block.hash).collect();
         for accepted_block in accepted_blocks {
             self.on_block_accepted_with_optional_chunk_produce(
                 accepted_block.hash,
@@ -1214,7 +1203,8 @@ impl Client {
             .flat_map(|block| block.missing_chunks.iter())
             .chain(orphans_missing_chunks.iter().flat_map(|block| block.missing_chunks.iter()));
         for chunk in missing_chunks {
-            self.shards_manager_adapter.process_chunk_header_from_block(chunk);
+            self.shards_manager_adapter
+                .send(ShardsManagerRequestFromClient::ProcessChunkHeaderFromBlock(chunk.clone()));
         }
         // Request any missing chunks (which may be completed by the
         // process_chunk_header_from_block call, but that is OK as it would be noop).
@@ -1251,12 +1241,9 @@ impl Client {
 
     fn rebroadcast_block(&mut self, block: &Block) {
         if self.rebroadcasted_blocks.get(block.hash()).is_none() {
-            self.network_adapter.do_send(
-                PeerManagerMessageRequest::NetworkRequests(NetworkRequests::Block {
-                    block: block.clone(),
-                })
-                .with_span_context(),
-            );
+            self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::Block { block: block.clone() },
+            ));
             self.rebroadcasted_blocks.put(*block.hash(), ());
         }
     }
@@ -1297,7 +1284,7 @@ impl Client {
     ) {
         let prev_block_hash = chunk_header.prev_block_hash();
         self.prev_block_to_chunk_headers_ready_for_inclusion
-            .get_or_insert(prev_block_hash.clone(), || HashMap::new());
+            .get_or_insert(*prev_block_hash, || HashMap::new());
         self.prev_block_to_chunk_headers_ready_for_inclusion
             .get_mut(prev_block_hash)
             .unwrap()
@@ -1311,8 +1298,10 @@ impl Client {
         let mut challenges = vec![];
         self.chain.sync_block_headers(headers, &mut challenges)?;
         self.send_challenges(challenges);
-        self.shards_manager_adapter
-            .update_chain_heads(self.chain.head().unwrap(), self.chain.header_head().unwrap());
+        self.shards_manager_adapter.send(ShardsManagerRequestFromClient::UpdateChainHeads {
+            head: self.chain.head().unwrap(),
+            header_head: self.chain.header_head().unwrap(),
+        });
         Ok(())
     }
 
@@ -1385,12 +1374,9 @@ impl Client {
         } else {
             debug!(target: "client", "Sending an approval {:?} from {} to {} for {}", approval.inner, approval.account_id, next_block_producer, approval.target_height);
             let approval_message = ApprovalMessage::new(approval, next_block_producer);
-            self.network_adapter.do_send(
-                PeerManagerMessageRequest::NetworkRequests(NetworkRequests::Approval {
-                    approval_message,
-                })
-                .with_span_context(),
-            );
+            self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::Approval { approval_message },
+            ));
         }
 
         Ok(())
@@ -1576,7 +1562,8 @@ impl Client {
                 }
             }
         }
-        self.shards_manager_adapter.check_incomplete_chunks(*block.hash());
+        self.shards_manager_adapter
+            .send(ShardsManagerRequestFromClient::CheckIncompleteChunks(*block.hash()));
     }
 
     pub fn persist_and_distribute_encoded_chunk(
@@ -1593,16 +1580,13 @@ impl Client {
             self.runtime_adapter.as_ref(),
         )?;
         persist_chunk(partial_chunk.clone(), Some(shard_chunk), self.chain.mut_store())?;
-        self.on_chunk_header_ready_for_inclusion(
-            encoded_chunk.cloned_header(),
-            validator_id.clone(),
-        );
-        self.shards_manager_adapter.distribute_encoded_chunk(
+        self.on_chunk_header_ready_for_inclusion(encoded_chunk.cloned_header(), validator_id);
+        self.shards_manager_adapter.send(ShardsManagerRequestFromClient::DistributeEncodedChunk {
             partial_chunk,
             encoded_chunk,
             merkle_paths,
-            receipts,
-        );
+            outgoing_receipts: receipts,
+        });
         Ok(())
     }
 
@@ -1616,7 +1600,10 @@ impl Client {
             for chunk in &missing_chunks {
                 self.chain.blocks_delay_tracker.mark_chunk_requested(chunk, now);
             }
-            self.shards_manager_adapter.request_chunks(missing_chunks, prev_hash);
+            self.shards_manager_adapter.send(ShardsManagerRequestFromClient::RequestChunks {
+                chunks_to_request: missing_chunks,
+                prev_hash,
+            });
         }
 
         for OrphanMissingChunks { missing_chunks, epoch_id, ancestor_hash } in
@@ -1625,10 +1612,12 @@ impl Client {
             for chunk in &missing_chunks {
                 self.chain.blocks_delay_tracker.mark_chunk_requested(chunk, now);
             }
-            self.shards_manager_adapter.request_chunks_for_orphan(
-                missing_chunks,
-                epoch_id,
-                ancestor_hash,
+            self.shards_manager_adapter.send(
+                ShardsManagerRequestFromClient::RequestChunksForOrphan {
+                    chunks_to_request: missing_chunks,
+                    epoch_id,
+                    ancestor_hash,
+                },
             );
         }
     }
@@ -1876,13 +1865,9 @@ impl Client {
             );
 
             // Send message to network to actually forward transaction.
-            self.network_adapter.do_send(
-                PeerManagerMessageRequest::NetworkRequests(NetworkRequests::ForwardTx(
-                    validator,
-                    tx.clone(),
-                ))
-                .with_span_context(),
-            );
+            self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::ForwardTx(validator, tx.clone()),
+            ));
         }
 
         Ok(())
@@ -2244,13 +2229,9 @@ impl Client {
     pub fn request_block(&self, hash: CryptoHash, peer_id: PeerId) {
         match self.chain.block_exists(&hash) {
             Ok(false) => {
-                self.network_adapter.do_send(
-                    PeerManagerMessageRequest::NetworkRequests(NetworkRequests::BlockRequest {
-                        hash,
-                        peer_id,
-                    })
-                    .with_span_context(),
-                );
+                self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                    NetworkRequests::BlockRequest { hash, peer_id },
+                ));
             }
             Ok(true) => {
                 debug!(target: "client", "send_block_request_to_peer: block {} already known", hash)
@@ -2262,13 +2243,9 @@ impl Client {
     }
 
     pub fn ban_peer(&self, peer_id: PeerId, ban_reason: ReasonForBan) {
-        self.network_adapter.do_send(
-            PeerManagerMessageRequest::NetworkRequests(NetworkRequests::BanPeer {
-                peer_id,
-                ban_reason,
-            })
-            .with_span_context(),
-        );
+        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+            NetworkRequests::BanPeer { peer_id, ban_reason },
+        ));
     }
 }
 
@@ -2368,9 +2345,11 @@ impl Client {
         };
         let tier1_accounts = self.get_tier1_accounts(&tip)?;
         let block = self.chain.get_block(&tip.last_block_hash)?;
-        self.network_adapter.do_send(
-            SetChainInfo(ChainInfo { block, tracked_shards, tier1_accounts }).with_span_context(),
-        );
+        self.network_adapter.send(SetChainInfo(ChainInfo {
+            block,
+            tracked_shards,
+            tier1_accounts,
+        }));
         Ok(())
     }
 }

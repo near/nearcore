@@ -93,10 +93,7 @@ impl super::NetworkState {
         let _lock = self.tier1_advertise_proxies_mutex.lock().await;
         let accounts_data = self.accounts_data.load();
 
-        let vc = match self.tier1_validator_config(&accounts_data) {
-            Some(it) => it,
-            None => return None,
-        };
+        let vc = self.tier1_validator_config(&accounts_data)?;
         let proxies = match (&self.config.node_addr, &vc.proxies) {
             (None, _) => vec![],
             (_, config::ValidatorProxies::Static(peer_addrs)) => peer_addrs.clone(),
@@ -192,10 +189,7 @@ impl super::NetworkState {
             clock,
             accounts_data::LocalData {
                 signer: vc.signer.clone(),
-                data: Arc::new(AccountData {
-                    peer_id: self.config.node_id(),
-                    proxies: my_proxies.clone(),
-                }),
+                data: Arc::new(AccountData { peer_id: self.config.node_id(), proxies: my_proxies }),
             },
         );
         // Early exit in case this node is not a TIER1 node any more.

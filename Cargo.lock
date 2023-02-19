@@ -948,6 +948,7 @@ dependencies = [
  "dirs",
  "futures",
  "log",
+ "near-async",
  "near-chain-configs",
  "near-crypto",
  "near-network",
@@ -1058,12 +1059,15 @@ dependencies = [
 name = "cold-store-tool"
 version = "0.0.0"
 dependencies = [
+ "anyhow",
  "clap 3.1.18",
  "near-chain-configs",
  "near-epoch-manager",
  "near-primitives",
  "near-store",
  "nearcore",
+ "strum",
+ "tracing",
 ]
 
 [[package]]
@@ -2433,6 +2437,7 @@ dependencies = [
  "hex",
  "insta",
  "near-actix-test-utils",
+ "near-async",
  "near-chain",
  "near-chain-configs",
  "near-chunks",
@@ -2895,6 +2900,7 @@ dependencies = [
  "flate2",
  "futures",
  "near-actix-test-utils",
+ "near-async",
  "near-chain",
  "near-chain-configs",
  "near-chunks",
@@ -3012,6 +3018,7 @@ dependencies = [
  "actix",
  "derive-enum-from-into",
  "derive_more",
+ "futures",
  "near-o11y",
  "once_cell",
  "serde",
@@ -3104,6 +3111,7 @@ dependencies = [
  "chrono",
  "futures",
  "lru",
+ "near-async",
  "near-chain",
  "near-chunks-primitives",
  "near-crypto",
@@ -3139,10 +3147,12 @@ dependencies = [
  "borsh",
  "chrono",
  "delay-detector",
+ "derive_more",
  "futures",
  "itertools",
  "lru",
  "near-actix-test-utils",
+ "near-async",
  "near-chain",
  "near-chain-configs",
  "near-chain-primitives",
@@ -3207,6 +3217,7 @@ dependencies = [
  "curve25519-dalek",
  "derive_more",
  "ed25519-dalek",
+ "hex",
  "hex-literal",
  "near-account-id",
  "near-config-utils",
@@ -3470,11 +3481,13 @@ dependencies = [
  "criterion",
  "crossbeam-channel",
  "delay-detector",
+ "derive_more",
  "futures",
  "futures-util",
  "im",
  "itertools",
  "lru",
+ "near-async",
  "near-crypto",
  "near-o11y",
  "near-performance-metrics",
@@ -3900,6 +3913,7 @@ dependencies = [
  "hyper-tls",
  "indicatif",
  "near-actix-test-utils",
+ "near-async",
  "near-chain",
  "near-chain-configs",
  "near-chunks",
@@ -4190,9 +4204,9 @@ checksum = "ff011a302c396a5197692431fc1948019154afc178baf7d8e37367442a4601cf"
 
 [[package]]
 name = "openssl-src"
-version = "111.22.0+1.1.1q"
+version = "111.25.0+1.1.1t"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8f31f0d509d1c1ae9cada2f9539ff8f37933831fd5098879e482aa687d659853"
+checksum = "3173cd3626c43e3854b1b727422a276e568d9ec5fe8cec197822cf52cfb743d6"
 dependencies = [
  "cc",
 ]
@@ -5978,6 +5992,7 @@ dependencies = [
  "near-crypto",
  "near-primitives",
  "near-test-contracts",
+ "node-runtime",
  "once_cell",
 ]
 
