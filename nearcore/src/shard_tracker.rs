@@ -253,8 +253,7 @@ mod tests {
     fn test_track_accounts() {
         let num_shards = 4;
         let epoch_manager = get_epoch_manager(PROTOCOL_VERSION, num_shards, false);
-        let shard_layout =
-            epoch_manager.read().get_shard_layout(&EpochId::default()).unwrap().clone();
+        let shard_layout = epoch_manager.read().get_shard_layout(&EpochId::default()).unwrap();
         let tracked_accounts = vec!["test1".parse().unwrap(), "test2".parse().unwrap()];
         let tracker = ShardTracker::new(TrackedConfig::Accounts(tracked_accounts), epoch_manager);
         let mut total_tracked_shards = HashSet::new();

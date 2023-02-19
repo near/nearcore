@@ -237,7 +237,7 @@ pub(crate) fn dump_account_storage(
         load_trie_stop_at_height(store, home_dir, &near_config, block_height);
     for (shard_id, state_root) in state_roots.iter().enumerate() {
         let trie = runtime
-            .get_trie_for_shard(shard_id as u64, header.prev_hash(), state_root.clone(), false)
+            .get_trie_for_shard(shard_id as u64, header.prev_hash(), *state_root, false)
             .unwrap();
         let key = TrieKey::ContractData {
             account_id: account_id.parse().unwrap(),
@@ -361,7 +361,7 @@ pub(crate) fn dump_tx(
     output_path: Option<String>,
 ) -> Result<(), Error> {
     let chain_store = ChainStore::new(
-        store.clone(),
+        store,
         near_config.genesis.config.genesis_height,
         near_config.client_config.save_trie_changes,
     );
@@ -599,7 +599,7 @@ pub(crate) fn state(home_dir: &Path, near_config: NearConfig, store: Store) {
     println!("Storage roots are {:?}, block height is {}", state_roots, header.height());
     for (shard_id, state_root) in state_roots.iter().enumerate() {
         let trie = runtime
-            .get_trie_for_shard(shard_id as u64, header.prev_hash(), state_root.clone(), false)
+            .get_trie_for_shard(shard_id as u64, header.prev_hash(), *state_root, false)
             .unwrap();
         for item in trie.iter().unwrap() {
             let (key, value) = item.unwrap();

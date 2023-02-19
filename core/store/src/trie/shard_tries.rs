@@ -44,7 +44,7 @@ impl ShardTries {
         let caches = Self::create_initial_caches(&trie_config, &shard_uids, false);
         let view_caches = Self::create_initial_caches(&trie_config, &shard_uids, true);
         ShardTries(Arc::new(ShardTriesInner {
-            store: store.clone(),
+            store: store,
             trie_config,
             caches: RwLock::new(caches),
             view_caches: RwLock::new(view_caches),
@@ -66,12 +66,7 @@ impl ShardTries {
         let shard_uids: Vec<ShardUId> =
             (0..num_shards as u32).map(|shard_id| ShardUId { shard_id, version }).collect();
         let trie_config = TrieConfig::default();
-        ShardTries::new(
-            store.clone(),
-            trie_config,
-            &shard_uids,
-            FlatStateFactory::new(store.clone()),
-        )
+        ShardTries::new(store.clone(), trie_config, &shard_uids, FlatStateFactory::new(store))
     }
 
     /// Create caches for all shards according to the trie config.
@@ -133,7 +128,7 @@ impl ShardTries {
                     PrefetchApi::new(
                         self.0.store.clone(),
                         cache.clone(),
-                        shard_uid.clone(),
+                        shard_uid,
                         &self.0.trie_config,
                     )
                 })
@@ -167,7 +162,7 @@ impl ShardTries {
         state_root: StateRoot,
         block_hash: &CryptoHash,
     ) -> Trie {
-        self.get_trie_for_shard_internal(shard_uid, state_root, false, Some(block_hash.clone()))
+        self.get_trie_for_shard_internal(shard_uid, state_root, false, Some(*block_hash))
     }
 
     pub fn get_view_trie_for_shard(&self, shard_uid: ShardUId, state_root: StateRoot) -> Trie {

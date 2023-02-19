@@ -575,7 +575,7 @@ fn test_catchup_random_single_part_sync_common(skip_15: bool, non_zero: bool, he
                         {
                             if partial_encoded_chunk.header.height_created() == 22 {
                                 seen_heights_same_block
-                                    .insert(partial_encoded_chunk.header.prev_block_hash().clone());
+                                    .insert(*partial_encoded_chunk.header.prev_block_hash());
                             }
                             if skip_15 {
                                 if partial_encoded_chunk.header.height_created() == 14
@@ -612,7 +612,7 @@ fn test_catchup_sanity_blocks_produced() {
         let heights1 = heights;
 
         let check_height =
-            move |hash: CryptoHash, height| match heights1.write().unwrap().entry(hash.clone()) {
+            move |hash: CryptoHash, height| match heights1.write().unwrap().entry(hash) {
                 Entry::Occupied(entry) => {
                     assert_eq!(*entry.get(), height);
                 }
@@ -913,14 +913,14 @@ fn test_all_chunks_accepted_common(
                 if let NetworkRequests::PartialEncodedChunkResponse { route_back, response } = msg {
                     if verbose {
                         if responded.contains(&(
-                            route_back.clone(),
+                            *route_back,
                             response.parts.iter().map(|x| x.part_ord).collect(),
                             response.chunk_hash.clone(),
                         )) {
                             println!("=== SAME RESPONSE AGAIN!");
                         }
                         responded.insert((
-                            route_back.clone(),
+                            *route_back,
                             response.parts.iter().map(|x| x.part_ord).collect(),
                             response.chunk_hash.clone(),
                         ));

@@ -4,6 +4,7 @@ import './index.css';
 import { createBrowserRouter, Navigate, RouterProvider } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from 'react-query';
 import { App } from './App';
+import 'react-tooltip/dist/react-tooltip.css';
 
 const root = ReactDOM.createRoot(
   document.getElementById('root') as HTMLElement

@@ -10,10 +10,10 @@ use crate::config::ActionCosts;
     Eq,
     PartialOrd,
     Ord,
-    strum::IntoStaticStr,
-    strum::EnumString,
     Debug,
     strum::Display,
+    strum::EnumString,
+    strum::IntoStaticStr,
 )]
 #[strum(serialize_all = "snake_case")]
 pub enum Parameter {
@@ -154,10 +154,10 @@ pub enum Parameter {
     Eq,
     PartialOrd,
     Ord,
-    strum::IntoStaticStr,
-    strum::EnumString,
     Debug,
     strum::Display,
+    strum::EnumString,
+    strum::IntoStaticStr,
 )]
 #[strum(serialize_all = "snake_case")]
 pub enum FeeParameter {

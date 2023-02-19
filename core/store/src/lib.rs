@@ -8,6 +8,7 @@ use std::{fmt, io};
 use borsh::{BorshDeserialize, BorshSerialize};
 use metadata::{DbKind, DbVersion, KIND_KEY, VERSION_KEY};
 use once_cell::sync::Lazy;
+use strum;
 
 pub use columns::DBCol;
 pub use db::{
@@ -62,7 +63,7 @@ pub use crate::opener::{StoreMigrator, StoreOpener, StoreOpenerError};
 /// In the future, certain parts of the code may need to access hot or cold
 /// storage.  Specifically, querying an old block will require reading it from
 /// the cold storage.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, strum::IntoStaticStr)]
 pub enum Temperature {
     Hot,
     Cold,
@@ -117,10 +118,11 @@ impl NodeStorage {
     /// store config.
     pub fn opener<'a>(
         home_dir: &std::path::Path,
+        archive: bool,
         config: &'a StoreConfig,
         cold_config: Option<&'a StoreConfig>,
     ) -> StoreOpener<'a> {
-        StoreOpener::new(home_dir, config, cold_config)
+        StoreOpener::new(home_dir, archive, config, cold_config)
     }
 
     /// Constructs new object backed by given database.
@@ -145,7 +147,7 @@ impl NodeStorage {
     pub fn test_opener() -> (tempfile::TempDir, StoreOpener<'static>) {
         static CONFIG: Lazy<StoreConfig> = Lazy::new(StoreConfig::test_config);
         let dir = tempfile::tempdir().unwrap();
-        let opener = StoreOpener::new(dir.path(), &CONFIG, None);
+        let opener = StoreOpener::new(dir.path(), false, &CONFIG, None);
         (dir, opener)
     }
 

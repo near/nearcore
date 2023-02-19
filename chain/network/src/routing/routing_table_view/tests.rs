@@ -55,7 +55,7 @@ fn announcement_same_epoch() {
     // Same as announce1 but with different peer id
     let announce1 = AnnounceAccount {
         account_id: "near0".parse().unwrap(),
-        peer_id: peer_id1.clone(),
+        peer_id: peer_id1,
         epoch_id: epoch_id0,
         signature: Signature::default(),
     };
@@ -70,7 +70,7 @@ fn announcement_same_epoch() {
     assert_eq!(routing_table.account_owner(&announce0.account_id).unwrap(), peer_id0);
 
     // Adding a conflicting announcement later. Should be a noop.
-    assert_eq!(routing_table.add_accounts(vec![announce1.clone()]), vec![]);
+    assert_eq!(routing_table.add_accounts(vec![announce1]), vec![]);
     assert_eq!(routing_table.get_announce_accounts(), vec![announce0.clone()]);
     assert_eq!(routing_table.account_owner(&announce0.account_id).unwrap(), peer_id0);
 }

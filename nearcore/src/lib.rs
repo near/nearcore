@@ -7,11 +7,13 @@ use actix_rt::ArbiterHandle;
 use actix_web;
 use anyhow::Context;
 use cold_storage::ColdStoreLoopHandle;
+use near_async::actix::AddrWithAutoSpanContextExt;
+use near_async::messaging::{IntoSender, LateBoundSender};
 use near_chain::{Chain, ChainGenesis};
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::{start_client, start_view_client, ClientActor, ConfigUpdater, ViewClientActor};
 use near_network::time;
-use near_network::types::NetworkRecipient;
+
 use near_network::PeerManagerActor;
 use near_primitives::block::GenesisId;
 use near_store::{DBCol, Mode, NodeStorage, StoreOpenerError, Temperature};
@@ -58,11 +60,11 @@ fn open_storage(home_dir: &Path, near_config: &mut NearConfig) -> anyhow::Result
     let migrator = migrations::Migrator::new(near_config);
     let opener = NodeStorage::opener(
         home_dir,
+        near_config.client_config.archive,
         &near_config.config.store,
         near_config.config.cold_store.as_ref(),
     )
-    .with_migrator(&migrator)
-    .expect_archive(near_config.client_config.archive);
+    .with_migrator(&migrator);
     let storage = match opener.open() {
         Ok(storage) => Ok(storage),
         Err(StoreOpenerError::IO(err)) => {
@@ -186,20 +188,20 @@ pub fn start_with_config_and_synchronization(
     let genesis_block = Chain::make_genesis_block(&*runtime, &chain_genesis)?;
     let genesis_id = GenesisId {
         chain_id: config.client_config.chain_id.clone(),
-        hash: genesis_block.header().hash().clone(),
+        hash: *genesis_block.header().hash(),
     };
 
     let node_id = config.network_config.node_id();
-    let network_adapter = Arc::new(NetworkRecipient::default());
-    let shards_manager_adapter = Arc::new(NetworkRecipient::default());
-    let client_adapter_for_shards_manager = Arc::new(NetworkRecipient::default());
+    let network_adapter = Arc::new(LateBoundSender::default());
+    let shards_manager_adapter = Arc::new(LateBoundSender::default());
+    let client_adapter_for_shards_manager = Arc::new(LateBoundSender::default());
     let adv = near_client::adversarial::Controls::new(config.client_config.archive);
 
     let view_client = start_view_client(
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
         chain_genesis.clone(),
         runtime.clone(),
-        network_adapter.clone(),
+        network_adapter.clone().into(),
         config.client_config.clone(),
         adv.clone(),
     );
@@ -208,24 +210,24 @@ pub fn start_with_config_and_synchronization(
         chain_genesis,
         runtime.clone(),
         node_id,
-        network_adapter.clone(),
-        shards_manager_adapter.clone(),
+        network_adapter.clone().into(),
+        shards_manager_adapter.as_sender(),
         config.validator_signer.clone(),
         telemetry,
-        shutdown_signal.clone(),
+        shutdown_signal,
         adv,
         config_updater,
     );
-    client_adapter_for_shards_manager.set_recipient(client_actor.clone());
+    client_adapter_for_shards_manager.bind(client_actor.clone().with_auto_span_context());
     let (shards_manager_actor, shards_manager_arbiter_handle) = start_shards_manager(
         runtime,
-        network_adapter.clone(),
-        client_adapter_for_shards_manager.clone(),
+        network_adapter.as_sender(),
+        client_adapter_for_shards_manager.as_sender(),
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
         store.get_store(Temperature::Hot),
         config.client_config.chunk_request_retry_period,
     );
-    shards_manager_adapter.set_recipient(shards_manager_actor.clone());
+    shards_manager_adapter.bind(shards_manager_actor);
 
     #[allow(unused_mut)]
     let mut rpc_servers = Vec::new();
@@ -234,11 +236,11 @@ pub fn start_with_config_and_synchronization(
         store.into_inner(near_store::Temperature::Hot),
         config.network_config,
         Arc::new(near_client::adapter::Adapter::new(client_actor.clone(), view_client.clone())),
-        shards_manager_adapter,
+        shards_manager_adapter.as_sender(),
         genesis_id,
     )
     .context("PeerManager::spawn()")?;
-    network_adapter.set_recipient(network_actor.clone());
+    network_adapter.bind(network_actor.clone().with_auto_span_context());
 
     #[cfg(feature = "json_rpc")]
     if let Some(rpc_config) = config.rpc_config {
@@ -247,7 +249,7 @@ pub fn start_with_config_and_synchronization(
             config.genesis.config.clone(),
             client_actor.clone(),
             view_client.clone(),
-            Some(network_actor.clone()),
+            Some(network_actor),
         ));
     }
 
@@ -303,8 +305,7 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
         skip_columns.push(DBCol::TrieChanges);
     }
 
-    let src_opener = NodeStorage::opener(home_dir, &config.store, None);
-    let src_opener = src_opener.expect_archive(archive);
+    let src_opener = NodeStorage::opener(home_dir, archive, &config.store, None);
     let src_path = src_opener.path();
 
     let mut dst_config = config.store.clone();
@@ -312,8 +313,7 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
     // Note: opts.dest_dir is resolved relative to current working directory
     // (since it’s a command line option) which is why we set home to cwd.
     let cwd = std::env::current_dir()?;
-    let dst_opener = NodeStorage::opener(&cwd, &dst_config, None);
-    let dst_opener = dst_opener.expect_archive(archive);
+    let dst_opener = NodeStorage::opener(&cwd, archive, &dst_config, None);
     let dst_path = dst_opener.path();
 
     info!(target: "recompress",
