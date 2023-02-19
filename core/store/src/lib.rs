@@ -999,7 +999,7 @@ mod tests {
         use rand::Rng;
 
         // An arbitrary non-rc non-insert-only column we can write data into.
-        const COLUMN: DBCol = DBCol::Peers;
+        const COLUMN: DBCol = DBCol::Chunks;
         assert!(!COLUMN.is_rc());
         assert!(!COLUMN.is_insert_only());
 
