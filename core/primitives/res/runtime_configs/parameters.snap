@@ -70,9 +70,9 @@ action_delete_key
 - send_not_sir:       94_946_625_000
 - execution:          94_946_625_000
 action_delegate                         
-- send_sir:        2_319_861_500_000
-- send_not_sir:    2_319_861_500_000
-- execution:       2_319_861_500_000
+- send_sir:          200_000_000_000
+- send_not_sir:      200_000_000_000
+- execution:         200_000_000_000
 wasm_regular_op_cost                                 822_756
 wasm_grow_mem_cost                                         1
 wasm_base                                        264_768_111
