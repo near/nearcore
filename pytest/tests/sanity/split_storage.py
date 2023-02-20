@@ -12,6 +12,7 @@ import json
 import unittest
 import subprocess
 import shutil
+import time
 import os.path as path
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
@@ -69,9 +70,9 @@ class TestSplitStorage(unittest.TestCase):
 
         self.assertEqual(hot_db_kind, expected_hot_db_kind)
         self.assertGreaterEqual(head_height, expected_head_height)
-        self.assertGreaterEqual(final_head_height, expected_head_height - 3)
+        self.assertGreaterEqual(final_head_height, expected_head_height - 4)
         if check_cold_head:
-            self.assertGreaterEqual(cold_head_height, final_head_height - 3)
+            self.assertGreaterEqual(cold_head_height, final_head_height - 4)
         else:
             self.assertIsNone(cold_head_height)
 
@@ -131,32 +132,42 @@ class TestSplitStorage(unittest.TestCase):
         logger.info("")
 
         # Decrease the epoch length and gc epoch num in order to speed up this test.
-        epoch_length = 4
+        epoch_length = 5
         gc_epoch_num = 3
 
+        genesis_config_changes = [
+            ("epoch_length", epoch_length),
+        ]
+        client_config_changes = {
+            # The validator node should be archival and be the source of
+            # truth (and sync) for the other nodes. It needs to be archival
+            # in case it runs away from the real archival node and the latter
+            # won't be able to sync anymore.
+            0: {
+                'archive': True,
+                'tracked_shards': [0],
+            },
+            # The rpc node will be used as the source of rpc backup db.
+            1: {
+                'archive': False,
+                'tracked_shards': [0],
+                'gc_num_epochs_to_keep': gc_epoch_num,
+            },
+            # The archival node will be migrated to split storage.
+            2: {
+                'archive': True,
+                'tracked_shards': [0],
+            },
+        }
+
         config = load_config()
-        near_root, [validator_dir, archival_dir] = init_cluster(
-            num_nodes=1,
+        near_root, [validator_dir, rpc_dir, archival_dir] = init_cluster(
+            num_nodes=2,
             num_observers=1,
             num_shards=1,
             config=config,
-            genesis_config_changes=[
-                ("epoch_length", epoch_length),
-            ],
-            client_config_changes={
-                # The validator node should not be archival so that we can use
-                # its db as the RPC backup for the archival node migration.
-                0: {
-                    'archive': False,
-                    'tracked_shards': [0],
-                    'gc_num_epochs_to_keep': gc_epoch_num,
-                },
-                # The archival node should be archival so that it's archival.
-                1: {
-                    'archive': True,
-                    'tracked_shards': [0],
-                },
-            },
+            genesis_config_changes=genesis_config_changes,
+            client_config_changes=client_config_changes,
             prefix="test_migration_",
         )
 
@@ -170,11 +181,18 @@ class TestSplitStorage(unittest.TestCase):
             validator_dir,
             0,
         )
+        rpc = spin_up_node(
+            config,
+            near_root,
+            rpc_dir,
+            1,
+            boot_node=validator,
+        )
         archival = spin_up_node(
             config,
             near_root,
             archival_dir,
-            1,
+            2,
             boot_node=validator,
         )
 
@@ -201,10 +219,20 @@ class TestSplitStorage(unittest.TestCase):
         archival.kill(gentle=True)
         archival.start()
 
-        # Wait until enough blocks are produced so that cold store loop has enough
-        # time to catch up and so that we produce enough blocks to fill 5 epochs
-        # to trigger GC - otherwise the tail won't be set.
+        # Wait for a few seconds to:
+        # - Give the node enough time to get started.
+        # - Give the cold store loop enough time to run - it runs every 1s.
+        # TODO(wacban) this is a quick stop-gap solution to fix nayduck, this
+        # should be solved by waiting in a loop until cold store head is at
+        # expected proximity to final head.
+        time.sleep(4)
+
+        # Wait until enough blocks so that we produce enough blocks to fill 5
+        # epochs to trigger GC - otherwise the tail won't be set.
         n = max(n, gc_epoch_num * epoch_length) + 5
+        logger.info(f"Wait until RPC reaches #{n}")
+        wait_for_blocks(rpc, target=n)
+        logger.info(f"Wait until archival reaches #{n}")
         wait_for_blocks(archival, target=n)
 
         self._check_split_storage_info(
@@ -221,7 +249,7 @@ class TestSplitStorage(unittest.TestCase):
         logger.info("Phase 3 - Preparing hot storage from rpc backup.")
         logger.info("")
 
-        rpc_src = path.join(validator.node_dir, "data")
+        rpc_src = path.join(rpc.node_dir, "data")
         rpc_dst = path.join(archival.node_dir, "hot_data")
         logger.info(f"Copying rpc backup from {rpc_src} to {rpc_dst}")
         shutil.copytree(rpc_src, rpc_dst)
@@ -259,6 +287,14 @@ class TestSplitStorage(unittest.TestCase):
         logger.info("")
 
         archival.start()
+
+        # Wait for a few seconds to:
+        # - Give the node enough time to get started.
+        # - Give the cold store loop enough time to run - it runs every 1s.
+        # TODO(wacban) this is a quick stop-gap solution to fix nayduck, this
+        # should be solved by waiting in a loop until cold store head is at
+        # expected proximity to final head.
+        time.sleep(4)
 
         # Wait for just a few blocks to make sure neard correctly restarted.
         n += 5

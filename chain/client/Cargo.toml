@@ -12,6 +12,7 @@ ansi_term.workspace = true
 async-trait.workspace = true
 borsh.workspace = true
 chrono.workspace = true
+derive_more.workspace = true
 futures.workspace = true
 itertools.workspace = true
 lru.workspace = true

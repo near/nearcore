@@ -1,4 +1,4 @@
-.network-info-view {
+.epoch-info-view {
     .error {
         color: red;
     }
@@ -8,10 +8,9 @@
         border-collapse: collapse;
     }
 
-    table,
     th,
     td {
-        border: 1px solid black;
+        border: 1px solid #444;
     }
 
     td {
@@ -25,5 +24,9 @@
         vertical-align: center;
         padding: 8px;
         background-color: lightgrey;
+    }
+
+    .content {
+        padding: 10px;
     }
 }

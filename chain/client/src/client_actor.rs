@@ -20,7 +20,7 @@ use actix::{Actor, Addr, Arbiter, AsyncContext, Context, Handler, Message};
 use actix_rt::ArbiterHandle;
 use borsh::BorshSerialize;
 use chrono::DateTime;
-use near_async::messaging::CanSend;
+use near_async::messaging::{CanSend, Sender};
 use near_chain::chain::{
     do_apply_chunks, ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest,
     BlockCatchUpResponse, StateSplitRequest, StateSplitResponse,
@@ -33,7 +33,7 @@ use near_chain::{
     ChainGenesis, DoneApplyChunkCallback, Provenance, RuntimeWithEpochManagerAdapter,
 };
 use near_chain_configs::ClientConfig;
-use near_chunks::adapter::ShardsManagerAdapterForClient;
+use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardsManagerResponse;
 use near_chunks::logic::cares_about_shard_this_or_next_epoch;
 use near_client_primitives::types::{
@@ -936,7 +936,7 @@ impl ClientActor {
         let _span = tracing::debug_span!(target: "client", "handle_block_production").entered();
         // If syncing, don't try to produce blocks.
         if self.client.sync_status.is_syncing() {
-            debug!(target:"client", "Syncing - block production disabled");
+            debug!(target:"client", sync_status=?self.client.sync_status, "Syncing - block production disabled");
             return Ok(());
         }
 
@@ -1888,7 +1888,7 @@ pub fn start_client(
     runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
     node_id: PeerId,
     network_adapter: PeerManagerAdapter,
-    shards_manager_adapter: Arc<dyn ShardsManagerAdapterForClient>,
+    shards_manager_adapter: Sender<ShardsManagerRequestFromClient>,
     validator_signer: Option<Arc<dyn ValidatorSigner>>,
     telemetry_actor: Addr<TelemetryActor>,
     sender: Option<broadcast::Sender<()>>,
