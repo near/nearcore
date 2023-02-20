@@ -4,7 +4,11 @@ use near_chain::types::Tip;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::{hash::CryptoHash, types::BlockHeight};
 use near_store::cold_storage::copy_all_data_to_cold;
-use near_store::{cold_storage::{update_cold_db, update_cold_head}, db::ColdDB, DBCol, NodeStorage, Store, FINAL_HEAD_KEY, HEAD_KEY, TAIL_KEY, COLD_HEAD_KEY};
+use near_store::{
+    cold_storage::{update_cold_db, update_cold_head},
+    db::ColdDB,
+    DBCol, NodeStorage, Store, COLD_HEAD_KEY, FINAL_HEAD_KEY, HEAD_KEY, TAIL_KEY,
+};
 
 use crate::{metrics, NearConfig, NightshadeRuntime};
 
@@ -209,11 +213,7 @@ fn cold_store_loop(
             tracing::debug!(target: "cold_store", "stopping the initial migration loop");
             break;
         }
-        match cold_store_initial_migration(
-            keep_going.clone(),
-            &hot_store,
-            cold_db.clone(),
-        ) {
+        match cold_store_initial_migration(keep_going.clone(), &hot_store, cold_db.clone()) {
             // We can either stop the cold store thread or hope that next time migration will not fail.
             // Here we pick the second option.
             Err(err) => {
