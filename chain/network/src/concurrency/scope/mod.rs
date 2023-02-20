@@ -1,4 +1,5 @@
 //! Asynchronous scope.
+//! WARNING: this module assumes that [panic=abort] is enabled.
 //!
 //! You can think of the scope as a lifetime 'env within a rust future, such that:
 //! * within 'env you can spawn subtasks, which may return an error E.
@@ -27,6 +28,7 @@
 //! ```
 //!
 //! Since we cannot directly address lifetimes like that we simulate it via Scope and Ctx structs.
+//! Ctx is hidden in the thread_local storage and is configured by Scope.
 //! We cannot directly implement a function
 //!   run : (Scope<'env> -> (impl 'env + Future)) -> (impl 'env + Future)
 //! Because the compiler is not smart enough to deduce 'env for us.
@@ -38,13 +40,13 @@
 //!     ...
 //!     {
 //!         let s = Scope<'env>::new();
-//!         s.run(ctx,|s||ctx| async {
-//!             s.spawn(|ctx| async {
+//!         s.run(ctx,|s| async {
+//!             s.spawn(async {
 //!                 recv.await
 //!                 Err(e)
 //!             })
 //!
-//!             for !ctx.is_cancelled() {
+//!             for !ctx::is_cancelled() {
 //!                 // do some useful async unit of work
 //!             }
 //!             // do some graceful cleanup.
@@ -54,7 +56,7 @@
 //! ```
 //!
 //! We wrap these 2 steps into a macro "run!" to hide this hack and avoid incorrect use.
-use crate::concurrency::ctx::{Ctx, CtxFuture, ErrCanceled, OrCanceled};
+use crate::concurrency::ctx;
 use crate::concurrency::signal;
 use crate::time;
 use futures::future::{BoxFuture, Future, FutureExt};
@@ -67,7 +69,7 @@ mod tests;
 // TODO(gprusak): Consider making the context implicit by moving it to a thread_local storage.
 
 struct Output<E> {
-    ctx: Ctx,
+    ctx: ctx::Ctx,
     send: crossbeam_channel::Sender<E>,
 }
 
@@ -78,7 +80,7 @@ impl<E> Clone for Output<E> {
 }
 
 impl<E> Output<E> {
-    pub fn new(ctx: Ctx) -> (Self, crossbeam_channel::Receiver<E>) {
+    pub fn new(ctx: ctx::Ctx) -> (Self, crossbeam_channel::Receiver<E>) {
         let (send, recv) = crossbeam_channel::bounded(1);
         (Self { ctx, send }, recv)
     }
@@ -101,7 +103,7 @@ struct Inner<E: 'static> {
     ///
     /// It is a child context of the parent scope.
     /// All tasks spawned in this scope are provided with this context.
-    ctx: Ctx,
+    ctx: ctx::Ctx,
     /// The channel over which the first error reported by any completed task is sent.
     ///
     /// `output` channel has capacity 1, so that any subsequent attempts to send an error
@@ -124,7 +126,7 @@ impl<E: 'static> Drop for Inner<E> {
 
 impl<E: 'static> Inner<E> {
     /// Creates a new scope with the given context.
-    pub fn new(ctx: &Ctx) -> (Arc<Self>, crossbeam_channel::Receiver<E>) {
+    pub fn new(ctx: &ctx::Ctx) -> (Arc<Self>, crossbeam_channel::Receiver<E>) {
         let ctx = ctx.sub(time::Deadline::Infinite);
         let (output, recv) = Output::new(ctx.clone());
         (
@@ -148,19 +150,28 @@ impl<E: 'static> Inner<E> {
     }
 }
 
-pub struct JoinHandle<T>(tokio::task::JoinHandle<OrCanceled<T>>);
+/// Represents a task that can be joined by another task within Scope<'env>.
+/// We do not support awaiting for tasks outside of the scope, to simplify
+/// the concurrency model (you can still implement a workaround by using a channel,
+/// if you really want to, but that might mean that Scope is not what you want
+/// in the first place).
+/// In particular Service::spawn() doesn't return a JoinHandle,
+/// because it can be called outside of the scope that it belongs to.
+pub struct JoinHandle<'env,T>(
+    tokio::task::JoinHandle<Result<T,ErrTaskCanceled>>,
+    std::marker::PhantomData<fn(&'env ()) -> &'env ()>,
+);
 
-impl<T> JoinHandle<T> {
-    // TODO(gprusak): add a distinction between:
-    // * current task is cancelled.
-    // * the task being joined is cancelled.
-    // In fact, perhaps it would be better to allow joining only within scope,
-    // i.e. Service::spawn shouldn't return a handle.
-    // Then JoinHandle should be bounded by 'env scope, so that cancellation of the
-    // joined task always implies cancellation of the current task, so there is no
-    // distinction.
-    pub async fn join(self) -> OrCanceled<T> {
-        self.0.await.unwrap()
+#[derive(thiserror::Error,Debug)]
+#[error("awaited task has been canceled")]
+pub struct ErrTaskCanceled;
+
+impl<'env,T> JoinHandle<'env,T> {
+    /// Awaits for a task to be completed and returns the result.
+    /// Returns Err(ErrCanceled) if the awaiting (current task) has been canceled.
+    /// Returns Ok(Err(ErrTaskCanceled) if the awaited (joined task) has been canceled.
+    pub async fn join(self) -> ctx::OrCanceled<Result<T,ErrTaskCanceled>> {
+        ctx::local().wait(async { self.0.await.unwrap() }).await
     }
 }
 
@@ -171,19 +182,19 @@ impl<E: 'static + Send> Inner<E> {
     /// The reference to the scope can be an arbitrary
     /// type, so that a custom drop() behavior can be added. For example, see `StrongService` scope reference,
     /// which cancels the scope when dropped.
-    pub fn spawn<M: 'static + Send + Sync + Borrow<Self>, T: 'static + Send>(
+    fn spawn<M: 'static + Send + Sync + Borrow<Self>, T: 'static + Send>(
         m: Arc<M>,
         f: impl 'static + Send + Future<Output = Result<T, E>>,
-    ) -> JoinHandle<T> {
-        JoinHandle(tokio::spawn(async move {
-            match (CtxFuture{
+    ) -> tokio::task::JoinHandle<Result<T,ErrTaskCanceled>> {
+        tokio::spawn(must_complete(async move {
+            match (ctx::CtxFuture{
                 ctx: m.as_ref().borrow().ctx.clone(),
                 inner: f,
             }).await {
                 Ok(v) => Ok(v),
                 Err(err) => {
                     m.as_ref().borrow().output.send(err);
-                    Err(ErrCanceled)
+                    Err(ErrTaskCanceled)
                 }
             }
         }))
@@ -201,7 +212,7 @@ impl<E: 'static + Send> Inner<E> {
         // Spawn a guard task in the Service which will prevent termination of the Service
         // until the context is not canceled. See `Service` for a list
         // of events canceling the Service.
-        Inner::spawn(subscope, async move { Ok(Ctx::canceled().await) });
+        Inner::spawn(subscope, async move { Ok(ctx::canceled().await) });
         service
     }
 }
@@ -240,11 +251,11 @@ impl<E: 'static + Send> Service<E> {
     /// Waits until the scope is terminated.
     ///
     /// Returns `ErrCanceled` iff `ctx` was canceled before that.
-    pub fn terminated<'a>(&'a self) -> impl Future<Output = OrCanceled<()>> + Send + Sync + 'a {
+    pub fn terminated<'a>(&'a self) -> impl Future<Output = ctx::OrCanceled<()>> + Send + Sync + 'a {
         let terminated = self.0.upgrade().map(|inner| inner.terminated.clone());
         async move {
             if let Some(t) = terminated {
-                Ctx::get().wait(t.recv()).await
+                ctx::local().wait(t.recv()).await
             } else {
                 Ok(())
             }
@@ -255,14 +266,14 @@ impl<E: 'static + Send> Service<E> {
     ///
     /// Note that ErrCanceled is returned if the `ctx` passed as argument is canceled before that,
     /// not when scope's context is cancelled.
-    pub fn terminate<'a>(&'a self) -> impl Future<Output = OrCanceled<()>> + Send + Sync + 'a {
+    pub fn terminate<'a>(&'a self) -> impl Future<Output = ctx::OrCanceled<()>> + Send + Sync + 'a {
         let terminated = self.0.upgrade().map(|inner| {
             inner.ctx.cancel();
             inner.terminated.clone()
         });
         async move {
             if let Some(t) = terminated {
-                Ctx::get().wait(t.recv()).await
+                ctx::local().wait(t.recv()).await
             } else {
                 Ok(())
             }
@@ -275,8 +286,8 @@ impl<E: 'static + Send> Service<E> {
     pub fn spawn<T: 'static + Send>(
         &self,
         f: impl 'static + Send + Future<Output = Result<T, E>>,
-    ) -> Result<JoinHandle<T>, ErrTerminated> {
-        self.0.upgrade().map(|m| Inner::spawn(m, f)).ok_or(ErrTerminated)
+    ) -> Result<(), ErrTerminated> {
+        self.0.upgrade().map(|m|{ Inner::spawn(m, f); }).ok_or(ErrTerminated)
     }
 
     /// Spawns a service in this scope.
@@ -328,9 +339,9 @@ impl<'env, E: 'static + Send> Scope<'env, E> {
     pub fn spawn<T: 'static + Send>(
         &self,
         f: impl 'env + Send + Future<Output = Result<T, E>>,
-    ) -> JoinHandle<T> {
+    ) -> JoinHandle<'env,T> {
         match self.0.upgrade() {
-            Some(strong) => Inner::spawn(strong, unsafe { to_static(f.boxed()) }),
+            Some(strong) => JoinHandle(Inner::spawn(strong, unsafe { to_static(f.boxed()) }),std::marker::PhantomData),
             None => self.spawn_bg(f),
         }
     }
@@ -338,8 +349,8 @@ impl<'env, E: 'static + Send> Scope<'env, E> {
     pub fn spawn_bg<T: 'static + Send>(
         &self,
         f: impl 'env + Send + Future<Output = Result<T, E>>,
-    ) -> JoinHandle<T> {
-        Inner::spawn(self.1.upgrade().unwrap(), unsafe { to_static(f.boxed()) })
+    ) -> JoinHandle<'env,T> {
+        JoinHandle(Inner::spawn(self.1.upgrade().unwrap(), unsafe { to_static(f.boxed()) }),std::marker::PhantomData)
     }
 
     /// Spawns a service.
@@ -391,7 +402,7 @@ pub mod internal {
         Fut: 'env + Send + Future<Output = Result<T, E>>,
     {
         must_complete(async move {
-            let (inner, err) = Inner::new(&Ctx::get());
+            let (inner, err) = Inner::new(&ctx::local());
             let service = Arc::new(StrongService(inner));
             let terminated = service.0.terminated.clone();
             scope.0 = Arc::downgrade(&service);
@@ -404,7 +415,10 @@ pub mod internal {
             if let Ok(err) = err.try_recv() {
                 return Err(err);
             }
-            Ok(task.join().await.unwrap())
+            // All tasks terminated, no errors have been returned.
+            // In particular `f` has returned an Ok(_), which we
+            // extract here.
+            Ok(task.0.await.unwrap().unwrap())
         })
         .await
     }

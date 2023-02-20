@@ -1,20 +1,23 @@
 use crate::concurrency::signal;
-use crate::time;
 use std::future::Future;
 use std::sync::Arc;
+
+pub mod time;
 
 //#[cfg(test)]
 //mod tests;
 
 thread_local! {
-    static CTX: std::cell::UnsafeCell<Ctx> = std::cell::UnsafeCell::new(Ctx::inf());
+    static CTX: std::cell::UnsafeCell<Ctx> = std::cell::UnsafeCell::new(Ctx::new(
+        crate::time::Clock::real()
+    ));
 }
 
 /// Inner representation of a context.
 struct Inner {
     canceled: signal::Once,
-    deadline: time::Deadline,
-    clock: time::Clock,
+    deadline: crate::time::Deadline,
+    clock: crate::time::Clock,
     /// When Inner gets dropped, the context gets cancelled, so that
     /// the tokio task which propagates the cancellation from
     /// parent to child it terminated immediately and therefore doesn't
@@ -36,7 +39,7 @@ impl Drop for Inner {
 
 /// See `Ctx::wait`.
 #[derive(thiserror::Error, Debug)]
-#[error("ErrCanceled")]
+#[error("task has been canceled")]
 pub struct ErrCanceled;
 
 /// See `Ctx::wait`.
@@ -57,7 +60,7 @@ pub type OrCanceled<T> = Result<T, ErrCanceled>;
 /// If is NOT possible to extend the context provided by the caller - a subtask is expected
 /// to adhere to the lifetime of its context and finish as soon as it gets canceled (or earlier).
 #[derive(Clone)]
-pub struct Ctx(Arc<Inner>);
+pub(super) struct Ctx(Arc<Inner>);
 
 impl Ctx {
     /// Constructs a new context:
@@ -66,59 +69,20 @@ impl Ctx {
     /// * with infinite deadline
     ///
     /// It should be called directly from main.rs.
-    fn inf() -> Ctx {
+    pub(crate) fn new(clock: crate::time::Clock) -> Ctx {
         return Ctx(Arc::new(Inner {
             canceled: signal::Once::new(),
-            deadline: time::Deadline::Infinite,
-            clock: time::Clock::real(),
+            deadline: crate::time::Deadline::Infinite,
+            clock,
             _parent: None,
         }));
     }
 
-    pub(super) fn cancel(&self) {
+    pub fn cancel(&self) {
         self.0.canceled.send();
     }
 
-    /// Check if the context has been canceled.
-    pub fn is_canceled(&self) -> bool {
-        self.0.canceled.try_recv()
-    }
-
-    /// Awaits for the context to get canceled.
-    ///
-    /// Cancellable (in the rust sense).
-    pub async fn canceled() {
-        Ctx::get().0.canceled.recv().await
-    }
-
-    pub(super) fn get() -> Ctx {
-        CTX.with(|ctx| unsafe { &*ctx.get() }.clone())
-    }
-
-    pub fn clock() -> time::Clock {
-        Ctx::get().0.clock.clone()
-    }
-
-    pub async fn sleep(d :time::Duration) -> OrCanceled<()> {
-        let ctx = Ctx::get();
-        ctx.wait(ctx.0.clock.sleep(d)).await
-    }
-
-    pub async fn sleep_until(t :time::Instant) -> OrCanceled<()> {
-        let ctx = Ctx::get();
-        ctx.wait(ctx.0.clock.sleep_until(t)).await
-    }
-
-    /// Awaits until f completes, or the context gets canceled.
-    /// f is required to be cancellable.
-    pub(super) async fn wait<F:Future>(&self, f: F) -> OrCanceled<F::Output> {
-        tokio::select! {
-            v = f => Ok(v),
-            _ = self.0.canceled.recv() => Err(ErrCanceled),
-        }
-    }
-
-    pub(super) fn sub(&self, deadline: time::Deadline) -> Ctx {
+    pub fn sub(&self, deadline: crate::time::Deadline) -> Ctx {
         let child = Ctx(Arc::new(Inner {
             canceled: signal::Once::new(),
             clock: self.0.clock.clone(),
@@ -140,6 +104,73 @@ impl Ctx {
         });
         child
     }
+}
+
+/// Awaits for the current task to get canceled.
+pub async fn canceled() {
+    local().0.canceled.recv().await
+}
+
+/// Check if the context has been canceled.
+pub fn is_canceled() -> bool {
+    local().0.canceled.try_recv()
+}
+
+/// The time at which the local context will be canceled.
+/// The current task should use it to schedule its work accordingly.
+/// Remember that this is just a hint, because the local context
+/// may get canceled earlier.
+pub fn get_deadline() -> crate::time::Deadline {
+    local().0.deadline
+}
+
+pub(super) fn local() -> Ctx {
+    CTX.with(|ctx| unsafe { &*ctx.get() }.clone())
+}
+
+impl Ctx {
+    /// Awaits until f completes, or the context gets canceled.
+    /// f is required to be cancellable.
+    pub(super) async fn wait<F:Future>(&self, f: F) -> OrCanceled<F::Output> {
+        tokio::select! {
+            v = f => Ok(v),
+            _ = self.0.canceled.recv() => Err(ErrCanceled),
+        }
+    }
+}
+
+// TODO(gprusak): run_with_timeout, run_with_deadline, run_canceled, run_test all are expected
+// to be awaited at the construction site, so perhaps they should be macros, similarly to
+// scope::run!.
+
+/// Equivalent to `with_deadline(now()+d,f)`.
+pub fn run_with_timeout<F:Future>(d: crate::time::Duration, f:F) -> impl Future<Output=F::Output> {
+    let ctx = local();
+    let ctx = ctx.sub((ctx.0.clock.now()+d).into());
+    CtxFuture{ctx, inner:f}
+}
+
+/// Runs a future with a context restricted to be canceled at time `t`.
+/// It could be emulated via `scope::run!` with a background subtask
+/// returning an error after `sleep_until(t)`, but that would be more
+/// expensive and other tasks won't see the deadline via `ctx::get_deadline()`.
+pub fn run_with_deadline<F:Future>(t: crate::time::Instant, f:F) -> impl Future<Output=F::Output> {
+    let ctx = local().sub(t.into());
+    CtxFuture{ctx, inner: f}
+}
+
+/// Executes the future in a context that has been already canceled.
+/// Useful for tests (also outside of this crate).
+pub fn run_canceled<F:Future>(f:F) -> impl Future<Output=F::Output> {
+    let ctx = local().sub(crate::time::Deadline::Infinite);
+    ctx.cancel();
+    CtxFuture{ctx, inner:f}
+}
+
+/// Executes the future with a given clock, which can be set to fake clock.
+/// Useful for tests.
+pub fn run_test<F:Future>(clock:crate::time::Clock, f:F) -> impl Future<Output=F::Output> {
+    CtxFuture{ctx: Ctx::new(clock), inner: f}
 }
 
 #[pin_project::pin_project]
