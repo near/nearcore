@@ -23,7 +23,7 @@ type R<E> = Result<(), E>;
 async fn test_drop_service() {
     abort_on_panic();
     let res = scope::run!(|s| async {
-        let service = Arc::new(s.new_service());
+        let service = s.new_service();
         service
             .spawn(async {
                 ctx::canceled().await;
@@ -84,7 +84,7 @@ async fn test_spawn_after_dropping_service() {
 async fn test_service_termination() {
     abort_on_panic();
     let res = scope::run!(|s| async {
-        let service = Arc::new(s.new_service());
+        let service = s.new_service();
         service.spawn(async { Ok(ctx::canceled().await) }).unwrap();
         service.spawn(async { Ok(ctx::canceled().await) }).unwrap();
         service.terminate().await.unwrap();
@@ -180,7 +180,7 @@ async fn test_service_cancel() {
 async fn test_service_error_before_cancel() {
     abort_on_panic();
     let res = scope::run!(|s| async {
-        let service: Arc<scope::Service<usize>> = Arc::new(s.new_service());
+        let service = Arc::new(s.new_service());
 
         service
             .spawn({
@@ -201,7 +201,7 @@ async fn test_service_error_before_cancel() {
 async fn test_service_error_after_cancel() {
     abort_on_panic();
     let res = scope::run!(|s| async {
-        let service: Arc<scope::Service<usize>> = Arc::new(s.new_service());
+        let service = Arc::new(s.new_service());
 
         service
             .spawn({
@@ -222,7 +222,7 @@ async fn test_service_error_after_cancel() {
 async fn test_scope_error() {
     abort_on_panic();
     let res = scope::run!(|s| async {
-        let service: Arc<scope::Service<usize>> = Arc::new(s.new_service());
+        let service = Arc::new(s.new_service());
 
         service
             .spawn({
@@ -243,7 +243,7 @@ async fn test_scope_error() {
 async fn test_scope_error_nonoverridable() {
     abort_on_panic();
     let res = scope::run!(|s| async {
-        let service: Arc<scope::Service<usize>> = Arc::new(s.new_service());
+        let service = Arc::new(s.new_service());
         service
             .spawn({
                 let service = service.clone();
@@ -271,7 +271,7 @@ async fn test_access_to_vars_outside_of_scope() {
             scope::run!(|s| async {
                 s.spawn(async {
                     a.fetch_add(1, Ordering::Relaxed);
-                    Ok(())
+                    R::<()>::Ok(())
                 });
                 Ok(())
             })
@@ -280,8 +280,7 @@ async fn test_access_to_vars_outside_of_scope() {
         s.spawn(async {
             s.spawn(async {
                 a.fetch_add(1, Ordering::Relaxed);
-                let res: Result<(), ()> = Ok(());
-                res
+                Ok(())
             });
             a.fetch_add(1, Ordering::Relaxed);
             Ok(())

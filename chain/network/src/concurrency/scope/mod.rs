@@ -10,7 +10,6 @@
 //!   It means that they are not just dropped, but rather they have a handle (aka Ctx) to be able
 //!   to check at any time whether they were cancelled.
 //!
-//! ```
 //!     let (send,recv) = channel();
 //!     ...
 //!     'env: {
@@ -25,7 +24,6 @@
 //!         // do some graceful cleanup.
 //!         Ok(())
 //!     }
-//! ```
 //!
 //! Since we cannot directly address lifetimes like that we simulate it via Scope and Ctx structs.
 //! Ctx is hidden in the thread_local storage and is configured by Scope.
@@ -35,7 +33,6 @@
 //! Instead we first construct Scope<'env> explicitly, therefore fixing its lifetime,
 //! and only then we pass a reference to it to another function.
 //!
-//! ```
 //!     let (send,recv) = channel();
 //!     ...
 //!     {
@@ -53,7 +50,6 @@
 //!             Ok(())
 //!         }).await
 //!     }
-//! ```
 //!
 //! We wrap these 2 steps into a macro "run!" to hide this hack and avoid incorrect use.
 use crate::concurrency::ctx;
