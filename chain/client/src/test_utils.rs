@@ -36,9 +36,7 @@ use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardsManagerResponse;
 use near_chunks::test_utils::{MockClientAdapterForShardsManager, SynchronousShardsManagerAdapter};
 use near_client_primitives::types::Error;
-#[cfg(feature = "protocol_feature_nep366_delegate_action")]
-use near_crypto::Signer;
-use near_crypto::{InMemorySigner, KeyType, PublicKey};
+use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_network::types::{
     AccountOrPeerIdOrHash, HighestHeightPeerInfo, PartialEncodedChunkRequestMsg,
@@ -54,7 +52,6 @@ use near_network::types::{
 use near_o11y::testonly::TracingCapture;
 use near_o11y::WithSpanContextExt;
 use near_primitives::block::{ApprovalInner, Block, GenesisId};
-#[cfg(feature = "protocol_feature_nep366_delegate_action")]
 use near_primitives::delegate_action::{DelegateAction, NonDelegateAction, SignedDelegateAction};
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::hash::{hash, CryptoHash};
@@ -1828,7 +1825,6 @@ impl TestEnv {
     }
 
     /// Wrap actions in a delegate action, put it in a transaction, sign.
-    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
     pub fn meta_tx_from_actions(
         &mut self,
         actions: Vec<Action>,
