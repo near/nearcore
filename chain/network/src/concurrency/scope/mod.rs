@@ -1,3 +1,4 @@
+#![cfg(not(doctest))]
 //! Asynchronous scope.
 //! WARNING: this module assumes that [panic=abort] is enabled.
 //!
@@ -18,7 +19,7 @@
 //!             Err(e)
 //!         });
 //!
-//!         for !is_cancelled() {
+//!         while !is_cancelled() {
 //!             // do some useful async unit of work
 //!         }
 //!         // do some graceful cleanup.
@@ -37,7 +38,7 @@
 //!     ...
 //!     {
 //!         let s = Scope<'env>::new();
-//!         s.run(ctx,|s| async {
+//!         s.run(|s| async {
 //!             s.spawn(async {
 //!                 recv.await
 //!                 Err(e)
