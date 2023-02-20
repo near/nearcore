@@ -131,12 +131,16 @@ pub(super) fn local() -> Ctx {
 impl Ctx {
     /// Awaits until f completes, or the context gets canceled.
     /// f is required to be cancellable.
-    pub(super) async fn wait<F: Future>(&self, f: F) -> OrCanceled<F::Output> {
+    async fn wait<F: Future>(&self, f: F) -> OrCanceled<F::Output> {
         tokio::select! {
             v = f => Ok(v),
             _ = self.0.canceled.recv() => Err(ErrCanceled),
         }
     }
+}
+
+pub async fn wait<F: Future>(f: F) -> OrCanceled<F::Output> {
+    local().wait(f).await
 }
 
 // TODO(gprusak): run_with_timeout, run_with_deadline, run_canceled, run_test all are expected

@@ -1,7 +1,7 @@
 use crate::network;
 use anyhow::Context;
 use log::info;
-use near_network::concurrency::ctx::Ctx;
+use near_network::concurrency::ctx;
 use near_network::concurrency::scope;
 use near_network::time;
 use near_primitives::hash::CryptoHash;
@@ -23,12 +23,12 @@ pub async fn run(
     let target_height = peers.highest_height_peers[0].highest_block_height as i64;
     info!("SYNC target_height = {}", target_height);
 
-    let start_time = Ctx::clock().now();
+    let start_time = ctx::time::now();
     let res = scope::run!(|s| async move {
         s.spawn_bg::<()>(async {
             loop {
                 info!("stats = {:?}", network.stats);
-                Ctx::sleep(time::Duration::seconds(2)).await?;
+                ctx::time::sleep(time::Duration::seconds(2)).await?;
             }
         });
         let mut last_hash = start_block_hash;
@@ -63,7 +63,7 @@ pub async fn run(
         }
         anyhow::Ok(())
     });
-    let stop_time = Ctx::clock().now();
+    let stop_time = ctx::time::now();
     let total_time = stop_time - start_time;
     let t = total_time.as_seconds_f64();
     let sent = network.stats.msgs_sent.load(Ordering::Relaxed);

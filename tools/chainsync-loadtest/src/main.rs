@@ -6,7 +6,7 @@ use anyhow::{anyhow, Context};
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::messaging::LateBoundSender;
 use near_chain_configs::Genesis;
-use near_network::concurrency::ctx::{Ctx,ErrCanceled};
+use near_network::concurrency::ctx;
 use near_network::concurrency::scope;
 use near_network::time;
 use near_network::PeerManagerActor;
@@ -113,8 +113,8 @@ impl Cmd {
             rt.spawn(async move {
                 scope::run!(|s| async {
                     s.spawn_bg(async {
-                        match Ctx::wait(tokio::signal::ctrl_c()).await {
-                            Err(ErrCanceled) => Ok(()),
+                        match ctx::wait(tokio::signal::ctrl_c()).await {
+                            Err(ctx::ErrCanceled) => Ok(()),
                             Ok(res) => {
                                 res?;
                                 info!("Got CTRL+C, stopping...");

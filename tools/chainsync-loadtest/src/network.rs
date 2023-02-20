@@ -1,7 +1,7 @@
 use crate::concurrency::{Once, RateLimiter, WeakMap};
 use log::info;
 use near_async::messaging::CanSend;
-use near_network::concurrency::ctx::Ctx;
+use near_network::concurrency::ctx;
 use near_network::concurrency::scope;
 use near_network::time;
 use near_network::types::{
@@ -123,11 +123,11 @@ impl Network {
             for peer in peers {
                 // TODO: rate limit per peer.
                 self.rate_limiter.allow().await?;
-                self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                    new_req(peer.full_peer_info.clone()),
-                ));
+                self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(new_req(
+                    peer.full_peer_info.clone(),
+                )));
                 self.stats.msgs_sent.fetch_add(1, Ordering::Relaxed);
-                Ctx::sleep(self.request_timeout).await?;
+                ctx::time::sleep(self.request_timeout).await?;
             }
         }
     }
@@ -144,7 +144,7 @@ impl Network {
                 n.info_futures.push(send);
             }
         }
-        anyhow::Ok(Ctx::wait(recv).await??)
+        anyhow::Ok(ctx::wait(recv).await??)
     }
 
     // fetch_block_headers fetches a batch of headers, starting with the header
@@ -162,19 +162,17 @@ impl Network {
                 self.keep_sending(|peer| NetworkRequests::BlockHeadersRequest {
                     hashes: vec![hash],
                     peer_id: peer.peer_info.id,
-                }).await
+                })
+                .await
             });
-            let res = Ctx::wait(recv.wait()).await;
+            let res = ctx::wait(recv.wait()).await;
             self.stats.header_done.fetch_add(1, Ordering::Relaxed);
             anyhow::Ok(res?)
         })
     }
 
     // fetch_block() fetches a block with a given hash.
-    pub async fn fetch_block(
-        self: &Arc<Self>,
-        hash: CryptoHash,
-    ) -> anyhow::Result<Block> {
+    pub async fn fetch_block(self: &Arc<Self>, hash: CryptoHash) -> anyhow::Result<Block> {
         scope::run!(|s| async {
             self.stats.block_start.fetch_add(1, Ordering::Relaxed);
             let recv = self.blocks.get_or_insert(&hash, || Once::new());
@@ -182,9 +180,10 @@ impl Network {
                 self.keep_sending(|peer| NetworkRequests::BlockRequest {
                     hash,
                     peer_id: peer.peer_info.id,
-                }).await
+                })
+                .await
             });
-            let res = Ctx::wait(recv.wait()).await;
+            let res = ctx::wait(recv.wait()).await;
             self.stats.block_done.fetch_add(1, Ordering::Relaxed);
             anyhow::Ok(res?)
         })
@@ -213,11 +212,11 @@ impl Network {
                         part_ords: (0..self.parts_per_chunk).collect(),
                         tracking_shards: Default::default(),
                     },
-                    create_time: Ctx::clock().now(),
+                    create_time: ctx::time::now(),
                 })
                 .await
             });
-            let res = Ctx::wait(recv.wait()).await;
+            let res = ctx::wait(recv.wait()).await;
             self.stats.chunk_done.fetch_add(1, Ordering::Relaxed);
             anyhow::Ok(res?)
         })

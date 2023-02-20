@@ -163,7 +163,7 @@ impl<'env, T> JoinHandle<'env, T> {
     /// Returns Err(ErrCanceled) if the awaiting (current task) has been canceled.
     /// Returns Ok(Err(ErrTaskCanceled) if the awaited (joined task) has been canceled.
     pub async fn join(self) -> ctx::OrCanceled<Result<T, ErrTaskCanceled>> {
-        ctx::local().wait(async { self.0.await.unwrap() }).await
+        ctx::wait(async { self.0.await.unwrap() }).await
     }
 }
 
@@ -246,7 +246,7 @@ impl<E: 'static + Send> Service<E> {
         let terminated = self.0.upgrade().map(|inner| inner.terminated.clone());
         async move {
             if let Some(t) = terminated {
-                ctx::local().wait(t.recv()).await
+                ctx::wait(t.recv()).await
             } else {
                 Ok(())
             }
@@ -264,7 +264,7 @@ impl<E: 'static + Send> Service<E> {
         });
         async move {
             if let Some(t) = terminated {
-                ctx::local().wait(t.recv()).await
+                ctx::wait(t.recv()).await
             } else {
                 Ok(())
             }
