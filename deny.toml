@@ -107,4 +107,9 @@ skip = [
 
     # validator 0.12 ~ 0.16 is still using an old version of idna
     { name = "idna", version = "=0.2.3" },
+
+    # v0.0.0 is the local code, whereas the published crate must depend on a
+    # published crate when they are published.
+    # TODO(#8604) Remove this skip entry.
+    { name = "near-stdx", version = "0.0.0" },
 ]
