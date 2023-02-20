@@ -4,8 +4,8 @@ use std::sync::Arc;
 
 pub mod time;
 
-//#[cfg(test)]
-//mod tests;
+#[cfg(test)]
+mod tests;
 
 thread_local! {
     static CTX: std::cell::UnsafeCell<Ctx> = std::cell::UnsafeCell::new(Ctx::new(

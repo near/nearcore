@@ -82,6 +82,7 @@ async fn test_spawn_after_dropping_service() {
 
 #[tokio::test]
 async fn test_service_termination() {
+    abort_on_panic();
     let res = scope::run!(|s| async {
         let service = Arc::new(s.new_service());
         service.spawn(async { Ok(ctx::canceled().await) }).unwrap();
@@ -96,6 +97,7 @@ async fn test_service_termination() {
 
 #[tokio::test]
 async fn test_nested_service() {
+    abort_on_panic();
     let res = scope::run!(|s| async {
         let outer = Arc::new(s.new_service());
         outer
@@ -123,6 +125,7 @@ async fn test_nested_service() {
 
 #[tokio::test]
 async fn test_nested_scopes() {
+    abort_on_panic();
     let res = scope::run!(|s| async {
         s.spawn(async {
             scope::run!(|s| async move {
@@ -137,6 +140,7 @@ async fn test_nested_scopes() {
 
 #[tokio::test]
 async fn test_already_canceled() {
+    abort_on_panic();
     let res = ctx::run_canceled(async {
         // scope::run! should start a task,
         // even though the task has been already canceled.

@@ -1,45 +1,75 @@
-use crate::concurrency::ctx::Ctx;
+use crate::concurrency::ctx;
+use crate::concurrency::scope;
+use crate::testonly::abort_on_panic;
+use crate::time;
 
-use futures::task;
-use std::future::Future;
-use std::pin::Pin;
-use std::sync::Arc;
-struct DummyWake;
-
-impl task::ArcWake for DummyWake {
-    fn wake_by_ref(_arc_self: &Arc<Self>) {}
-}
-
-fn try_await<F, T>(f: Pin<&mut F>) -> Option<T>
-where
-    F: Future<Output = T>,
-{
-    match f.poll(&mut task::Context::from_waker(&task::waker(Arc::new(DummyWake {})))) {
-        task::Poll::Ready(v) => Some(v),
-        task::Poll::Pending => None,
-    }
+#[tokio::test]
+async fn test_run_canceled() {
+    abort_on_panic();
+    ctx::run_canceled(async {
+        assert!(ctx::is_canceled());
+    })
+    .await;
 }
 
 #[tokio::test]
-async fn test_cancel_propagation() {
-    let ctx1 = Ctx::inf().with_cancel();
-    let ctx2 = ctx1.with_cancel();
-    let ctx3 = ctx1.with_cancel();
-    let mut h1 = Box::pin(ctx1.canceled());
-    let mut h2 = Box::pin(ctx2.canceled());
-    let h3 = Box::pin(ctx3.canceled());
-    assert!(!ctx1.is_canceled());
-    assert!(!ctx2.is_canceled());
-    assert!(!ctx3.is_canceled());
+async fn test_run_test() {
+    abort_on_panic();
+    let clock = time::FakeClock::default();
+    ctx::run_test(clock.clock(), async {
+        assert_eq!(ctx::time::now(), clock.now());
+        assert_eq!(ctx::time::now_utc(), clock.now_utc());
+        clock.advance(time::Duration::seconds(10));
+        assert_eq!(ctx::time::now(), clock.now());
+    })
+    .await;
+}
 
-    ctx3.cancel();
-    assert!(!ctx1.is_canceled());
-    assert!(!ctx2.is_canceled());
-    assert_eq!(None, try_await(h1.as_mut()));
-    assert_eq!(None, try_await(h2.as_mut()));
-    h3.await;
+type R<E> = Result<(), E>;
 
-    ctx1.cancel();
-    h1.await;
-    h2.await;
+#[tokio::test]
+async fn test_run_with_timeout() {
+    abort_on_panic();
+    let sec = crate::time::Duration::SECOND;
+    let clock = time::FakeClock::default();
+    let res = ctx::run_test(clock.clock(), async {
+        scope::run!(|s| async {
+            s.spawn(ctx::run_with_timeout(1000 * sec, async {
+                ctx::canceled().await;
+                R::Err(9)
+            }));
+            clock.advance(1001 * sec);
+            Ok(())
+        })
+    })
+    .await;
+    assert_eq!(Err(9), res);
+}
+
+#[tokio::test]
+async fn test_sleep_until() {
+    abort_on_panic();
+    let sec = crate::time::Duration::SECOND;
+    let clock = time::FakeClock::default();
+    ctx::run_test(clock.clock(), async {
+        let _ = scope::run!(|s| async {
+            let t = ctx::time::now() + 1000 * sec;
+            s.spawn(async move {
+                ctx::time::sleep_until(t).await.unwrap();
+                R::Err(1)
+            });
+            clock.advance_until(t + sec);
+            Ok(())
+        });
+        let _ = scope::run!(|s| async {
+            let t = ctx::time::now() + 1000 * sec;
+            s.spawn(async move {
+                assert!(ctx::time::sleep_until(t).await.is_err());
+                Ok(())
+            });
+            clock.advance_until(t - sec);
+            R::Err(1)
+        });
+    })
+    .await
 }
