@@ -84,6 +84,11 @@ expression: "&view"
         "send_sir": 147489000000,
         "send_not_sir": 147489000000,
         "execution": 147489000000
+      },
+      "delegate_cost": {
+        "send_sir": 200000000000,
+        "send_not_sir": 200000000000,
+        "execution": 200000000000
       }
     },
     "storage_usage_config": {
