@@ -38,18 +38,10 @@ pub struct DelegateAction {
     pub public_key: PublicKey,
 }
 
-#[cfg_attr(feature = "protocol_feature_nep366_delegate_action", derive(BorshDeserialize))]
-#[derive(BorshSerialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
 pub struct SignedDelegateAction {
     pub delegate_action: DelegateAction,
     pub signature: Signature,
-}
-
-#[cfg(not(feature = "protocol_feature_nep366_delegate_action"))]
-impl borsh::de::BorshDeserialize for SignedDelegateAction {
-    fn deserialize(_buf: &mut &[u8]) -> ::core::result::Result<Self, borsh::maybestd::io::Error> {
-        return Err(Error::new(ErrorKind::InvalidInput, "Delegate action isn't supported"));
-    }
 }
 
 impl SignedDelegateAction {
@@ -62,7 +54,6 @@ impl SignedDelegateAction {
     }
 }
 
-#[cfg(feature = "protocol_feature_nep366_delegate_action")]
 impl From<SignedDelegateAction> for Action {
     fn from(delegate_action: SignedDelegateAction) -> Self {
         Self::Delegate(delegate_action)
@@ -112,7 +103,6 @@ mod private_non_delegate_action {
     #[error("attempted to construct NonDelegateAction from Action::Delegate")]
     pub struct IsDelegateAction;
 
-    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
     impl TryFrom<Action> for NonDelegateAction {
         type Error = IsDelegateAction;
 
@@ -149,9 +139,7 @@ mod private_non_delegate_action {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
     use crate::transaction::CreateAccountAction;
-    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
     use near_crypto::KeyType;
 
     /// A serialized `Action::Delegate(SignedDelegateAction)` for testing.
@@ -167,7 +155,6 @@ mod tests {
         "0000000000000000000000000000000000000000000000000000000000"
     );
 
-    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
     fn create_delegate_action(actions: Vec<Action>) -> Action {
         Action::Delegate(SignedDelegateAction {
             delegate_action: DelegateAction {
@@ -186,7 +173,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
     fn test_delegate_action_deserialization() {
         // Expected an error. Buffer is empty
         assert_eq!(
@@ -218,35 +204,9 @@ mod tests {
         );
     }
 
-    /// Check that we will not accept delegate actions with the feature
-    /// disabled.
-    ///
-    /// This test is to ensure that while working on meta transactions, we don't
-    /// accientally start accepting delegate actions in receipts. Otherwise, a
-    /// malicious validator could create receipts that include delegate actions
-    /// and other nodes will accept such a receipt.
-    ///
-    /// TODO: Before stabilizing "protocol_feature_nep366_delegate_action" we
-    /// have to replace this rest with a test that checks that we discard
-    /// delegate actions for earlier versions somewhere in validation.
-    #[test]
-    #[cfg(not(feature = "protocol_feature_nep366_delegate_action"))]
-    fn test_delegate_action_deserialization() {
-        let serialized_delegate_action = hex::decode(DELEGATE_ACTION_HEX).expect("invalid hex");
-
-        // DelegateAction isn't supported
-        assert_eq!(
-            Action::try_from_slice(&serialized_delegate_action).map_err(|e| e.kind()),
-            Err(ErrorKind::InvalidInput)
-        );
-    }
-
     /// Check that the hard-coded delegate action is valid.
     #[test]
-    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
     fn test_delegate_action_deserialization_hard_coded() {
-        use crate::transaction::CreateAccountAction;
-
         let serialized_delegate_action = hex::decode(DELEGATE_ACTION_HEX).expect("invalid hex");
         // The hex data is the same as the one we create below.
         let delegate_action =
