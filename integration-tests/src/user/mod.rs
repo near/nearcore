@@ -273,7 +273,7 @@ pub trait User {
             max_block_height: 100,
             public_key: inner_signer.public_key(),
         };
-        let signature = inner_signer.sign(delegate_action.get_hash().as_bytes());
+        let signature = inner_signer.sign(delegate_action.get_nep461_hash().as_bytes());
         let signed_delegate_action = SignedDelegateAction { delegate_action, signature };
 
         self.sign_and_commit_actions(

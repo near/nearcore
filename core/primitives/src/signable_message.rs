@@ -11,6 +11,7 @@ use near_crypto::{Signature, Signer};
 // specification in the wider ecosystem. Note that NEP-461 should not change the
 // protocol in any way, unless we have to change meta transaction implementation
 // details to adhere to the future standard.
+// [NEP-461](https://github.com/near/NEPs/pull/461)
 //
 // TODO: consider making these public once there is an approved standard.
 const MIN_ON_CHAIN_DISCRIMINANT: u32 = 1 << 30;
