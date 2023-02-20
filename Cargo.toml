@@ -214,7 +214,12 @@ webrtc-util = "0.7"
 xshell = "0.2.1"
 xz2 = "0.1.6"
 
-stdx = { package = "near-stdx", path = "utils/stdx" }
+# Polyfill crate introduced in https://github.com/near/nearcore/pull/8087
+# Because public crates depend on it, we have to also publish this.
+# When changing the workspace version, set this back to a local dependency and
+# then update again to the higher published version once we release crates again.
+# TODO(#8604): Fix this process.
+stdx = { package = "near-stdx", version = "0.16.0" }
 
 [patch.crates-io]
 
