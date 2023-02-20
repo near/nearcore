@@ -189,13 +189,12 @@ fn copy_all_blocks(store: &NodeStorage, batch_size: usize, check: bool) {
         .unwrap_or(0);
 
     let keep_going = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
-    let keep_going_clone = keep_going.clone();
 
     copy_all_data_to_cold(
         (*store.cold_db().unwrap()).clone(),
         &store.get_store(Temperature::Hot),
         batch_size,
-        keep_going_clone,
+        keep_going,
     )
     .expect("Failed to do migration to cold db");
 
