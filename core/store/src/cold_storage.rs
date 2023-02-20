@@ -172,7 +172,7 @@ pub fn copy_all_data_to_cold<D: Database + 'static>(
         if col.is_cold() {
             let mut transaction = BatchTransaction::new(cold_db.clone(), batch_size);
             for result in hot_store.iter(col) {
-                if !keep_going.load(std::sync::atomic::Ordering::SeqCst) {
+                if !keep_going.load(std::sync::atomic::Ordering::Relaxed) {
                     tracing::debug!(target: "cold_store", "stopping copy_all_data_to_cold");
                     return Ok(false);
                 }
