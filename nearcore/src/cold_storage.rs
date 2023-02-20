@@ -278,6 +278,11 @@ pub fn spawn_cold_store_loop(
     storage: &NodeStorage,
     runtime: Arc<NightshadeRuntime>,
 ) -> anyhow::Result<Option<ColdStoreLoopHandle>> {
+    if config.config.save_trie_changes != Some(true) {
+        tracing::debug!(target:"cold_store", "Not spawning cold store because TrieChanges are not saved");
+        return Ok(None);
+    }
+
     let hot_store = storage.get_hot_store();
     let cold_store = match storage.get_cold_store() {
         Some(cold_store) => cold_store,
